@@ -46,7 +46,8 @@ import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 // 1-beat:1-tick interleave then in effect — seed 7 stopped erupting within the bounded run and seed 42
 // was picked as its replacement.
 // re-selected 2026-11-03, default flip (seed 8 no longer erupts within the bounded run)
-const SEED = 7;
+// re-selected 2026-11-16, 0163 perceived bonds (seed 7 no longer erupts within the bounded run; probed 7/8/42/3/5/11/13/21, 5 and 13 do)
+const SEED = 5;
 
 /** Drive a bounded, fully-deterministic sequence of orchestrator off-screen ticks + live-loop steps; capture
  *  the SHARED-rng-driven content (every recorded event) and the layer's own additive eruptions, separately. */

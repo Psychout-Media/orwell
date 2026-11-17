@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { buildPortraitPrompt, buildCastPortraitPrompts, trimWrittenHair, signatureMarkClause, stripWornWords, legacyAppearance } from "../../src/engine/portraitPrompts";
+import { dealPortraitPlans } from "../../src/engine/shotCards";
+import { buildPortraitPrompt, buildCastPortraitPrompts, castSheetOf, trimWrittenHair, signatureMarkClause, stripWornWords, legacyAppearance } from "../../src/engine/portraitPrompts";
 import { IMAGE_BUDGET, STYLE_ANCHOR_VARIANTS } from "../../src/engine/imageConstants";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { EngineCommandsAdapter } from "../../src/adapters/engine/EngineCommandsAdapter";
@@ -72,7 +73,7 @@ describe("0051 — createCharacter portrait prompts (cast NPCs, Vault-free)", ()
     for (const pp of view.portraitPrompts!) {
       expect(pp.houseguestId).toBeTruthy();
       expect(pp.name).toBeTruthy();
-      expect(pp.prompt).toContain("Official cast portrait");
+      expect(pp.prompt).toContain("A plain, honest portrait of a local resident by a newspaper documentary photographer");
     }
     // The player is NOT in the cast portrait set.
     expect(view.portraitPrompts!.some((p) => p.houseguestId === PLAYER)).toBe(false);
@@ -101,7 +102,7 @@ describe("0051 — createCharacter portrait prompts (cast NPCs, Vault-free)", ()
     expect(got).not.toBeNull();
     expect(got!.houseguestId).toBe(someNpc.id);
     expect(got!.name).toBe(someNpc.name);
-    expect(got!.prompt).toContain("Official cast portrait");
+    expect(got!.prompt).toContain("A plain, honest portrait of a local resident by a newspaper documentary photographer");
 
     expect(adapter.getPortraitPrompt("npc:does-not-exist" as EntityId)).toBeNull();
   });
@@ -120,7 +121,7 @@ describe("0051 — createCharacter portrait prompts (cast NPCs, Vault-free)", ()
     const before = adapter.getPortraitPrompt(npc.id as EntityId);
     expect(before).not.toBeNull();
     expect(before!.houseguestId).toBe(npc.id);
-    expect(before!.prompt).toContain("Official cast portrait");
+    expect(before!.prompt).toContain("A plain, honest portrait of a local resident by a newspaper documentary photographer");
     // A pre-game authoring write-back MUTATES the warm store — the served prompt must reflect the
     // store AS IT STANDS (the per-NPC authored shoot fetches at shoot time, never a stale snapshot).
     adapter.recordCastProfile({
@@ -133,7 +134,7 @@ describe("0051 — createCharacter portrait prompts (cast NPCs, Vault-free)", ()
       },
     });
     const after = adapter.getPortraitPrompt(npc.id as EntityId)!;
-    expect(after.prompt).not.toContain("storm-chasing meteorologist"); // the job is not sent (v3)
+    expect(after.prompt).toContain("storm-chasing meteorologist"); // ORW-480: the PUBLIC vocation is sent as the life the person looks like (never as a uniform or prop)
     expect(after.prompt).toContain("windswept dark curls");
     // An unknown id still yields null pre-game.
     expect(adapter.getPortraitPrompt("npc:does-not-exist" as EntityId)).toBeNull();
@@ -175,7 +176,8 @@ describe("0051 — sentinel sweep: hidden-layer content NEVER reaches a portrait
     expect(pp).not.toBeNull();
     expect(pp.prompt).not.toContain(SENTINEL);
     expect(pp.prompt).not.toContain("99999"); // no hidden stat leaked
-    expect(pp.prompt).not.toContain("rodeo clown"); // v3 sends neither the job nor the story
+    expect(pp.prompt).not.toContain("chasing one last spotlight"); // the story is never sent
+    expect(pp.prompt).toContain("rodeo clown");                     // ORW-480: the PUBLIC vocation is sent as the life the person looks like (an ordinary person: a N-year-old rodeo clown from ...), never as a uniform or prop
     expect(adapter2.getPortraitPrompt(PLAYER)).toBeNull();
     // The full cast response is clean too.
     const fresh = new GameSessionAdapter();
@@ -243,7 +245,7 @@ describe("0051 — recordImageBeat (recorded or it didn't happen; player-witness
 });
 
 /** ORW-380: photo brief v3. One paragraph in a fixed order; three fixtures (full sheet, none, legacy). */
-describe("ORW-380 — portrait photo brief v3", () => {
+describe("ORW-380 / ORW-480 — portrait photo brief v4", () => {
   const anchor = STYLE_ANCHOR_VARIANTS[4]!;
   const facet = {
     heightBuild: "tall and lean", skinTone: "warm brown skin", hair: "short dark curls, usually pushed back by noon",
@@ -254,66 +256,90 @@ describe("ORW-380 — portrait photo brief v3", () => {
   const base = { appearance: "legacy prose appearance", age: 27, presentation: "easygoing", ethnicity: "West African",
     genderPresentation: "man" as const, demeanor: "warm and guarded", identityConcept: "a chaos-agent podcaster", vocation: "podcaster" };
   const ID = "hg:7";
-  const idHash = fnv1a(ID);
-  const full = buildPortraitPrompt(ID, "Fixture One", {
-    ...base,
-    physicalCharacteristics: {
-      ...facet, wardrobe: ["a faded grey hoodie", "dark jeans"], photoHair: "short dark curls, shaped and neat",
-      onCamera: "He leans on the kitchen island, arms folded, eyes on the camera, a small smile, someone who misses nothing.",
-    },
-  }, anchor).prompt;
+  const fullLook = {
+    ...facet, wardrobe: ["a faded grey hoodie", "dark jeans"], photoHair: "short dark curls, shaped and neat",
+    onCamera: "He leans on the kitchen island, arms folded, eyes on the camera, a small smile, someone who misses nothing.",
+  };
+  // inside a cast deal (the live path) the dealt shot card stands and the writer's on-camera line is not sent (a person dealt alone keeps it: tests/unit/orw441MomentSentence.test.ts)
+  const fullPlan = dealPortraitPlans([castSheetOf({ id: ID, name: "Fixture One", ...base, physicalCharacteristics: fullLook })]).get(ID)!;
+  const full = buildPortraitPrompt(ID, "Fixture One", { ...base, physicalCharacteristics: fullLook }, anchor, fullPlan).prompt;
   const none = buildPortraitPrompt(ID, "Fixture One", { ...base, physicalCharacteristics: facet }, anchor).prompt;
   const legacy = buildPortraitPrompt(ID, "Fixture One", base, anchor).prompt;
-  const OPEN = "Official cast portrait of a contestant on a reality TV show, photographed by the show's photographer inside the house where the show is filmed.";
-  const TAIL = "Hair and makeup done for the shoot, well groomed and camera-ready, but a real, believable person and not a model: keep the stated age and build exactly, with natural skin that is not airbrushed. Shot at eye level on a full-frame camera with an 85mm portrait lens, shallow depth of field, crisp focus on the eyes, soft flattering light, true-to-life colour. The only person in the frame; no text or logos.";
-  const WHO = "Waist-up portrait of a 27-year-old West African man with warm brown skin, tall and lean, a narrow nose, wide-set eyes and a square jaw, looks their age, crisp and youthful.";
-  const MARKS = "A tattoo half-sleeve on the left forearm, dimples.";
-  const KITCHEN = ["bright soft window light from the side", "bright, airy morning light"][idHash % 2]!;
 
-  it("full photo sheet: the exact sentences in the exact order", () => {
+  it("full photo sheet: the sentences in order, the old studio recipe gone", () => {
+    const order = ["A plain, honest portrait of a local resident by a newspaper documentary photographer, taken where they live",
+      "The subject is a 27-year-old West African man with warm brown skin, tall and lean, looks his age.",
+      "An ordinary person, not a model: a 27-year-old podcaster", "Face: ", "Hair: short dark curls, shaped.",
+      "Wearing a faded grey hoodie, dark jeans", "Setting: ", "Light: ", "The moment: ", "Framing, the same for the whole series: a half-length portrait",
+      "Taken the way a local paper would: available light, the real place in normal focus, nothing retouched", "The only person in the frame; no text or logos."];
+    let at = -1;
+    for (const o of order) { const i = full.indexOf(o); expect(i, o).toBeGreaterThan(at); at = i; }
+    expect(full).not.toMatch(/Waist-up|softly out of focus|shallow depth|soft flattering|Official cast portrait|camera-ready/);
+    expect(full).toMatch(/never a uniform, scrubs, apron, badge or work gear/);
+    expect(full).not.toMatch(/laugh lines|distinguished|forties ease|crisp and youthful/);
+    expect(full).toMatch(/The picture runs to all four edges: no frame, border, black edge, vignette or film-scan rim\./);   // ORW-480: no frame or border
+    expect(full).toMatch(/Clothes are worn the way this person would on an ordinary day\./);
+    expect(full).toMatch(/real skin and hair, worn everyday clothes/);   // documentary is the default realism wording (the owner's pick, 2026-11-16)
+    // no beautifying or quality word, no hair-and-makeup line
+    expect(full).not.toMatch(/best|flatter|hair and makeup|groomed|polished|well-kept|stunning|professional portrait|high quality|sharp|airbrushed|no retouching/i);
+    // the written face line is replaced by the dealt face card, the writer's on-camera line is not sent, a mark sits inside the face sentence
+    expect(full).not.toContain("kitchen island");
+    expect(full).not.toContain("someone who misses nothing");
+    expect(full).toMatch(/Face: [^.]*, with a tattoo half-sleeve on the left forearm, dimples\./);
+  });
+
+  it("full photo sheet: the exact sentences in the exact order (restored strength: every sentence is pinned, the dealt face card and the dealt shot are read from the cast deal)", () => {
+    const OPEN = "A plain, honest portrait of a local resident by a newspaper documentary photographer, taken where they live on an ordinary day.";
+    const WHO = "The subject is a 27-year-old West African man with warm brown skin, tall and lean, looks his age.";
+    const LIFE = "An ordinary person, not a model: a 27-year-old podcaster; their grooming, hands, build and clothes fit that life.";
+    const TAIL_FULL = "Taken the way a local paper would: available light, the real place in normal focus, nothing retouched, the person looking like themselves, real skin and hair, worn everyday clothes. "
+      + "Keep the stated age exactly. The picture runs to all four edges: no frame, border, black edge, vignette or film-scan rim. Clothes are worn the way this person would on an ordinary day. The only person in the frame; no text or logos.";
+    const shot = fullPlan.shot;
+    const face = /Face: [^.]*, with a tattoo half-sleeve on the left forearm, dimples\./.exec(full)![0];
     expect(full).toBe([
-      OPEN, WHO, "Hair: short dark curls, shaped and neat.", MARKS,
-      "Wearing a faded grey hoodie, dark jeans.",
-      "He leans on the kitchen island, arms folded, eyes on the camera, a small smile, someone who misses nothing.",
-      "Setting: the house kitchen, softly out of focus behind him.", `Light: ${KITCHEN}.`, TAIL,
+      OPEN, WHO, LIFE, face, "Hair: short dark curls, shaped.",
+      "Wearing a faded grey hoodie, dark jeans, in their own everyday clothes and never a uniform, scrubs, apron, badge or work gear.",
+      `Setting: ${shot.place}.`, `Light: ${shot.light}.`, `The moment: ${shot.moment}.`,
+      `Framing, the same for the whole series: ${shot.framing}, ${shot.angle}, on ${shot.lens}.`, TAIL_FULL,
     ].join(" "));
   });
 
-  it("no photo sheet: written hair trimmed and neatened, style line, fallback pose and room by demeanor and id hash", () => {
-    const rooms = ["kitchen", "living room", "dining room", "backyard", "lounge", "bedroom"];
-    const room = rooms[idHash % 6]!;
-    const lights: Record<string, string[]> = {
-      kitchen: ["bright soft window light from the side", "bright, airy morning light"],
-      "dining room": ["bright soft window light from the side", "bright, airy morning light"],
-      backyard: ["warm golden-hour light", "soft open shade in late afternoon"],
-    };
-    const lamp = ["soft window light from the side with gentle fill", "warm lamps glowing in the background, soft key light on the face"];
-    const light = (lights[room] ?? lamp)[idHash % 2]!;
-    expect(none).toBe([
-      OPEN, WHO, "Hair: short dark curls, neatly styled.", MARKS,
-      "Wearing clothes in this style: relaxed streetwear.",
-      "He leans in with a big open smile, looking into the camera.",
-      `Setting: the house ${room}, softly out of focus behind him.`, `Light: ${light}.`, TAIL,
-    ].join(" "));
+  it("setting, light and moment come from the dealt shot card (restores the spot-and-light and demeanor-pose checks for the new deal)", () => {
+    const sheet = (id: string, demeanor: string) => castSheetOf({ id, name: "X " + id, ...base, demeanor, physicalCharacteristics: facet });
+    const plans = dealPortraitPlans(["hg:1", "hg:2", "hg:3", "hg:4"].map((id, i) => sheet(id, ["bubbly and loud", "quiet, watchful", "dry", "warm"][i]!)));
+    const seenLights = new Set<string>();
+    for (const [id, plan] of plans) {
+      const p = buildPortraitPrompt(id, "X", { ...base, physicalCharacteristics: facet }, anchor, plan).prompt;
+      expect(p).toContain(`Setting: ${plan.shot.place}.`);
+      expect(p).toContain(`Light: ${plan.shot.light}.`);
+      expect(p).toContain(`The moment: ${plan.shot.moment}.`);
+      seenLights.add(plan.shot.light);
+    }
+    expect(seenLights.size).toBeGreaterThan(1);                                   // a cast does not share one light
+    const again = dealPortraitPlans(["hg:1", "hg:2", "hg:3", "hg:4"].map((id, i) => sheet(id, ["bubbly and loud", "quiet, watchful", "dry", "warm"][i]!)));
+    expect([...again.values()].map((x) => x.shot.moment)).toEqual([...plans.values()].map((x) => x.shot.moment));   // deterministic
   });
 
-  it("legacy (no facet): a person with the prose appearance, the presentation as style, no hair line", () => {
-    expect(legacy).toContain("Waist-up portrait of a 27-year-old West African man with legacy prose appearance.");
-    expect(legacy).toContain("Wearing clothes in this style: easygoing.");
+  it("no photo sheet and legacy cards still build every part (the shot and face are dealt alone)", () => {
+    expect(none).toContain("Hair: short dark curls.");
+    expect(none).toContain("Wearing everyday clothes in this style: relaxed streetwear.");
+    expect(legacy).toContain("The subject is a 27-year-old West African man with legacy prose appearance.");
+    expect(legacy).toContain("Wearing everyday clothes in this style: easygoing.");
     expect(legacy).not.toContain("Hair:");
     const noGender = buildPortraitPrompt(ID, "Fixture One", { appearance: "tall", age: 41, presentation: "quiet" }, anchor).prompt;
-    expect(noGender).toContain("Waist-up portrait of a 41-year-old person with tall.");
-    expect(noGender).toContain("They stand relaxed with an easy half-smile, looking into the camera.");
-    expect(noGender).toContain("behind them.");
+    expect(noGender).toContain("The subject is a 41-year-old person with tall.");
+    for (const p of [none, legacy, noGender]) { expect(p).toContain("Setting: "); expect(p).toContain("The moment: "); expect(p).toContain("Face: "); }
+    expect(buildPortraitPrompt(ID, "X", { ...base, genderPresentation: "nonbinary", physicalCharacteristics: facet }, anchor).prompt)
+      .toContain("West African nonbinary person with a soft androgynous look");
   });
 
   it("worn / rough words never reach the prompt; a legacy prose appearance is cut like hair and carries no scar words", () => {
     const p = buildPortraitPrompt(ID, "X", { ...base, physicalCharacteristics: {
       ...facet, heightBuild: "rugged and tall", facialFeatures: "a rough jaw and tired eyes", hair: "worn dark curls, usually pinned",
       wardrobe: ["a worn grey hoodie", "dark jeans"], style: "rough streetwear" } }, anchor).prompt;
-    expect(p).not.toMatch(/\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy)\b/i);
-    expect(p).toContain("tall, a jaw and eyes");
-    expect(p).toContain("Hair: dark curls, neatly styled.");
+    expect(p.replace("clothes that have been worn and washed, with creases", "").replace("worn everyday clothes", "").replace("Clothes are worn the way this person would on an ordinary day", "")).not.toMatch(/\b(?:weathered|worn|tired|haggard|lived-in|rough|rugged|craggy)\b/i);   // the realism tails ask for worn everyday clothes on purpose
+    expect(p).toContain("with warm brown skin, tall,");
+    expect(p).toContain("Hair: dark curls.");
     const legacyP = buildPortraitPrompt(ID, "X", { ...base, appearance: "athletic, a scar over the left eye, close-cropped hair usually under a cap, a birthmark on the neck, a warm smile" }, anchor).prompt;
     expect(legacyP).toContain("with athletic, close-cropped hair, a warm smile.");
     expect(legacyP).not.toMatch(/scar|birthmark|usually/i);
@@ -321,7 +347,7 @@ describe("ORW-380 — portrait photo brief v3", () => {
 
   it("no name, job, character line, anchor, or the old random lines", () => {
     for (const p of [full, none, legacy]) {
-      expect(p).not.toMatch(/Fixture One|podcaster|Character:|Occupation|Expression:|Framing:|Lighting:|Backdrop|Skin:|Build & hair|Facial structure/);
+      expect(p).not.toMatch(/Fixture One|chaos-agent|Character:|Occupation|Expression:|Framing:|Lighting:|Backdrop|Skin:|Build & hair|Facial structure/);
       expect(p).not.toContain(anchor);
     }
   });
@@ -332,7 +358,9 @@ describe("ORW-380 — portrait photo brief v3", () => {
     expect(signatureMarkClause("none notable")).toBe("");
     expect(signatureMarkClause("a small nose stud, plus a scar on the chin")).toBe("A small nose stud.");
     expect(signatureMarkClause("freckles across the nose; a beauty mark by the lip")).toBe("Freckles across the nose, a beauty mark by the lip.");
-    expect(signatureMarkClause("a gap between the front teeth")).toBe("A gap between the front teeth.");
+    expect(signatureMarkClause("a gap between the front teeth")).toBe("");              // ORW-480: a tooth gap is never sent
+    expect(signatureMarkClause("a gap-toothed grin")).toBe("");
+    expect(signatureMarkClause("a gap-toothed grin; light freckles")).toBe("Light freckles.");
     expect(signatureMarkClause("a tattoo and chipped teeth")).toBe("A tattoo.");        // review of #2748: no article after "and"
     expect(signatureMarkClause("a scar on the chin and glasses")).toBe("Glasses.");
     expect(signatureMarkClause("round glasses")).toBe("Round glasses.");
@@ -351,66 +379,30 @@ describe("ORW-380 — portrait photo brief v3", () => {
     expect(trimWrittenHair("a tidy fade")).toBe("a tidy fade");
   });
 
+  it("the gloss strip leaves no dangling preposition or stray comma in the hair line", () => {
+    const p = buildPortraitPrompt(ID, "X", { ...base, physicalCharacteristics: { ...facet, hair: "close black buzz with a sharp, freshly edged hairline", photoHair: "close black buzz with a sharp, freshly edged hairline" } }, anchor).prompt;
+    expect(p).toContain("Hair: close black buzz, freshly edged hairline");
+    expect(p).not.toMatch(/with,|with a,/);
+  });
+
   it("age-look is dropped when it says weathered, worn, tired, haggard or lived-in", () => {
     for (const w of ["weathered and sun-creased", "a worn look", "tired around the eyes", "haggard", "a lived-in face"]) {
       const p = buildPortraitPrompt(ID, "X", { ...base, physicalCharacteristics: { ...facet, ageLook: w } }, anchor).prompt;
       expect(p).not.toContain(w);
-      expect(p).toContain("a square jaw.");
+      expect(p).toContain("tall and lean, looks his age.");   // the card's ageing text is never sent: the age is exact and the look is that age
     }
   });
 
-  it("light follows the spot: backyard, kitchen/dining, living room/lounge/bedroom", () => {
-    const withSpot = (spot: string, id: string) => buildPortraitPrompt(id, "X", { ...base, physicalCharacteristics: {
-      ...facet, onCamera: `He stands in the ${spot}, hands in pockets, eyes on the camera, an easy smile, someone at home anywhere.` } }, anchor).prompt;
-    const lightOf = (p: string) => /Light: ([^.]*(?:, [^.]*)?)\./.exec(p)![1]!;
-    const sets: Array<[string, string[]]> = [
-      ["backyard", ["warm golden-hour light", "soft open shade in late afternoon"]],
-      ["kitchen", ["bright soft window light from the side", "bright, airy morning light"]],
-      ["dining room", ["bright soft window light from the side", "bright, airy morning light"]],
-      ["living room", ["soft window light from the side with gentle fill", "warm lamps glowing in the background, soft key light on the face"]],
-      ["lounge", ["soft window light from the side with gentle fill", "warm lamps glowing in the background, soft key light on the face"]],
-      ["bedroom", ["soft window light from the side with gentle fill", "warm lamps glowing in the background, soft key light on the face"]],
-    ];
-    for (const [spot, opts] of sets) {
-      const seen = new Set<string>();
-      for (let i = 0; i < 12; i++) {
-        const p = withSpot(spot, `hg:${i}`);
-        expect(p).toContain(`Setting: the house ${spot},`);
-        const l = lightOf(p);
-        expect(opts).toContain(l);
-        expect(l).toBe(opts[fnv1a(`hg:${i}`) % 2]);
-        seen.add(l);
-      }
-      expect(seen.size).toBe(2);
-    }
-  });
-
-  it("a moment with no subject gets one; the fallback pose follows the demeanor; a they-person gets plural verbs", () => {
-    const mk = (onCamera: string, g: "man" | "woman" | "nonbinary" = "woman") => buildPortraitPrompt(ID, "X", {
-      ...base, genderPresentation: g, physicalCharacteristics: { ...facet, onCamera } }, anchor).prompt;
-    expect(mk("Leaning on the kitchen doorframe, arms folded, someone who misses nothing")).toContain(" She is leaning on the kitchen doorframe, arms folded, someone who misses nothing. Setting: the house kitchen, softly out of focus behind her.");
-    expect(mk("On the backyard steps, chin on fist, a calm read", "nonbinary")).toContain("They are on the backyard steps, chin on fist, a calm read.");
-    const pose = (d: string, g: "man" | "nonbinary" = "man") => buildPortraitPrompt(ID, "X", { ...base, genderPresentation: g, demeanor: d, physicalCharacteristics: facet }, anchor).prompt;
-    expect(pose("bubbly and loud")).toContain("He leans in with a big open smile, looking into the camera.");
-    expect(pose("quiet, watchful")).toContain("He sits back, composed, with a small closed-mouth smile, looking into the camera.");
-    expect(pose("dry")).toContain("He stands relaxed with an easy half-smile, looking into the camera.");
-    expect(pose("quiet", "nonbinary")).toContain("They sit back, composed");
-    expect(buildPortraitPrompt(ID, "X", { ...base, genderPresentation: "nonbinary", physicalCharacteristics: facet }, anchor).prompt)
-      .toContain("West African nonbinary person with a soft androgynous look");
-  });
-
-  it("every built prompt is free of the banned words and is at most 200 words", () => {
-    const BANNED = /behind-the-scenes|handheld|casting-tape|imperfect framing|uneven|fluorescent|harsh|motion blur|unretouched|pores|stray hairs|flyaway|blemishes|tired|\brough\b|Big Brother/i;
+  it("every built prompt is free of the banned words and is at most 360 words", () => {
+    // ORW-480 on purpose: "unretouched", "pores", "flyaway" style words, "uneven" and "harsh" were banned by ORW-380 (the owner then wanted a polished look);
+    // the owner's 2026-11-15 direction is real skin texture, so pores and loose hairs are now asked for. The rest stays banned.
+    const BANNED = /behind-the-scenes|casting-tape|imperfect framing|fluorescent|motion blur|blemishes|tired|\brough\b|Big Brother/i;
     const hairy = buildPortraitPrompt(ID, "X", { ...base, physicalCharacteristics: { ...facet, ageLook: "tired and weathered" } }, anchor).prompt;
     for (const p of [full, none, legacy, hairy]) {
       expect(p).not.toMatch(BANNED);
-      expect(p.split(/\s+/).length).toBeLessThanOrEqual(200);
+      expect(p.split(/\s+/).length).toBeLessThanOrEqual(360);
     }
     for (const a of STYLE_ANCHOR_VARIANTS) expect(a).not.toMatch(BANNED);
-  });
-
-  it("prints the three example prompts", () => {
-    if (process.env.ORW380_PRINT) console.log(`\nFULL:\n${full}\n\nNONE:\n${none}\n\nLEGACY:\n${legacy}\n`);
   });
 });
 
@@ -432,8 +424,9 @@ describe("ORW-437 — wardrobe, on-camera and photo hair reach the portrait prom
     const after = adapter.getPortraitPrompt(id)!.prompt;
     expect(after).not.toBe(before);
     expect(after).toContain("faded grey hoodie");
-    expect(after).toContain("a neat low bun");
-    expect(after).toContain("Setting: the house kitchen");
+    expect(after).toContain("a low bun");
+    expect(after).toMatch(/Setting: [^.]{15,}\./);
+    expect(after).not.toContain("kitchen island"); // ORW-480: the writer's on-camera line is no longer sent; the shot card sets the place and the moment
   });
 });
 
