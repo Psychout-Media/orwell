@@ -40,10 +40,11 @@ export interface PlanSource {
 export const DEAL_PLANS = {
   /** How strongly the weighing margin at the moment of agreeing turns into a two-faced plan. */
   slope: 0.6,
-  /** A small chance that rises with temperament (cunning/low candor), so a two-faced plan can exist even when the margin says keep. 0..this. */
-  baseRate: 0.12,
-  /** Ryne's Q1: each deal beyond the first that this houseguest has made adds this much lean. Uncapped. */
-  dealCountLean: 0.08,
+  /** A small chance that rises with temperament (cunning/low candor), so a two-faced plan can exist even when the margin says keep. 0..this.
+   *  Doubled from 0.12 (Ryne 2026-11-17, on the measured 2% rate: "I think double is great!"). */
+  baseRate: 0.24,
+  /** Ryne's Q1: each deal beyond the first that this houseguest has made adds this much lean. Uncapped. Doubled from 0.08 (Ryne 2026-11-17: "I think double is great!"). */
+  dealCountLean: 0.16,
   /** The house culture's loyalty and lying dials (`dialMult`, 1 = neutral) move the lean by this much per unit away from neutral. */
   cultureLean: 0.25,
 } as const;
