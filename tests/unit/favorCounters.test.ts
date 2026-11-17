@@ -34,6 +34,20 @@ describe("weighCounter", () => {
   });
 });
 
+describe("protect counters", () => {
+  it("a houseguest whose strongest goal is keeping someone safe asks for that, and concedes a protect ask for someone they do not want out", () => {
+    const keeper: CounterSide = { ...side("a", undefined, 0), protectTarget: "friend", protectPull: 0.8 };
+    expect(weighCounter({ round: 1, side: keeper, rolls: { counter: 0, settle: 0 } }).ask).toEqual({ kind: "protect", target: "friend" });
+    expect(weighCounter({ round: 2, side: { ...side("b", undefined, 0), pullOn: () => -0.2 }, incoming: { kind: "protect", target: "x" }, rolls: { counter: 1, settle: 1 } }).verdict).toBe("accept");
+    expect(weighCounter({ round: 2, side: { ...side("b", undefined, 0), pullOn: () => 0.5 }, incoming: { kind: "protect", target: "x" }, rolls: { counter: 1, settle: 1 } }).verdict).toBe("refuse");
+  });
+  it("asks the stronger goal first, and never asks the same target twice", () => {
+    const both: CounterSide = { ...side("a", "rival", 0.5), protectTarget: "friend", protectPull: 0.9 };
+    expect(weighCounter({ round: 1, side: both, rolls: { counter: 0, settle: 0 } }).ask).toEqual({ kind: "protect", target: "friend" });
+    expect(weighCounter({ round: 2, side: both, asked: ["friend"], rolls: { counter: 0, settle: 0 } }).ask).toEqual({ kind: "target", target: "rival" });
+  });
+});
+
 describe("negotiate", () => {
   it("trades several counters between two goal-driven sides and never passes the cap", () => {
     const n = negotiate(side("o", "b", 0.8, ["a"]), side("r", "a", 0.8, ["b"]), () => ({ counter: 0, settle: 0 }));

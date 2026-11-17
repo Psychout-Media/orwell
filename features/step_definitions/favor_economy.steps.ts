@@ -7,7 +7,7 @@ import { negotiate, weighCounter, type CounterSide } from "../../src/engine/favo
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { hashSeed } from "../../src/engine/characterFactory";
 import { counterStreamKey } from "../../src/engine/favorCounters";
-import { playedSession, sessionWithRoll, warm, cold, setEdge, ledger, type Played } from "../../tests/support/favorsSeam";
+import { playedSession, sessionWithRoll, warm, cold, setEdge, ledger, gather, type Played } from "../../tests/support/favorsSeam";
 
 /**
  * Feature 0171 - counters and the favor economy. The counter scenarios drive the pure module; every ledger scenario drives the REAL adapter through a registry sandbox (tests/support/favorsSeam.ts).
@@ -59,6 +59,7 @@ function owed(w: unknown, outcome: "honor" | "refuse", witnesses = false): void 
   const rec = p.session.recordFavor({ owedBy: b.debtor!, owedTo: b.holder!, origin: "deal:origin", ...(witnesses ? { witnesses: [b.w1!, b.w2!] } : {}) });
   assert.ok(rec, "the favor was not recorded");
   (outcome === "honor" ? warm : cold)(p, b.debtor!, b.holder!);
+  gather(p, [b.holder!, b.debtor!, b.w1!, b.w2!]); // the two who heard it promised are in the room, awake, when it is refused
   for (const x of [b.w1!, b.w2!, b.bystander!]) setEdge(p, x, b.debtor!, { trust: 0.7, affinity: 0.7, threat: 0.1 });
   setEdge(p, b.holder!, b.debtor!, { trust: 0.7, affinity: 0.7, threat: 0.1 });
   b.trust = Object.fromEntries([b.holder!, b.w1!, b.w2!, b.bystander!].map((x) => [x, p.seam.rel.edge(x, b.debtor!).trust]));
@@ -220,4 +221,47 @@ Then("favors: no favor is recorded and a swap offer carries no counter", functio
   const core = b.p!.session.snapshot() as unknown as { favors?: unknown };
   assert.equal(core.favors, undefined, "the snapshot carries a favors key with the flag off");
   assert.equal(b.p!.session.bondReader().bond(b.holder!, b.debtor!).debt, 0);
+});
+
+Given("a favors season where the player is owed a favor and a vote is close", function () {
+  const b = bag(this);
+  const p = sessionWithRoll("honor"); b.p = p;
+  [b.holder, b.debtor, b.other] = p.npcs;
+  p.session.recordFavor({ owedBy: b.debtor!, owedTo: PLAYER, origin: "bank:1" });
+  p.seam.favorsAtTally([b.debtor!, b.other!], [PLAYER]);
+});
+Then("favors: the engine does not call it in for the player", function () {
+  const f = ledger(bag(this).p!)[0]!;
+  assert.equal(f.state, "owed");
+  assert.equal(f.calledBeat, undefined);
+});
+
+Given("a favors season where the player owes a houseguest a favor and a vote is close", function () {
+  const b = bag(this);
+  const p = playedSession(6); b.p = p;
+  [b.holder, b.other] = p.npcs;
+  p.session.recordFavor({ owedBy: PLAYER, owedTo: b.holder!, origin: "counter:1" });
+  p.seam.favorsAtTally([b.holder!, b.other!], [PLAYER]);
+});
+Then("favors: the houseguest asks the player for it through the one standing offer, and the player answers", function () {
+  const b = bag(this);
+  const offer = b.p!.session.getGameState().openDealOffer!;
+  assert.equal(offer.from.id, b.holder);
+  assert.deepEqual(offer.favor, { kind: "called-in" });
+  b.p!.seam.resolveDealOffer(true);
+  assert.equal(ledger(b.p!)[0]!.state, "repaid");
+});
+
+Given("a favors season where the player accepts a counter that a rival goes up", function () {
+  const b = bag(this);
+  const p = playedSession(6); b.p = p;
+  [b.holder, b.other, b.w1] = p.npcs;
+  p.seam.live.dealOffer = { id: "offer:x:1", from: b.holder!, kind: "vote", terms: "t", madeWeek: p.seam.live.week, counter: { round: 1, ask: { kind: "target", target: b.other! } } };
+  p.seam.resolveDealOffer(true);
+});
+Then("favors: the player owes nothing until the rival is actually on the block", function () {
+  const b = bag(this);
+  assert.equal(ledger(b.p!).length, 0);
+  b.p!.seam.favorsAtTally([b.w1!, b.holder!], [PLAYER]);
+  assert.equal(ledger(b.p!).length, 0, "booked although the rival never went up");
 });

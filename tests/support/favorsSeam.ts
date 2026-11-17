@@ -11,7 +11,7 @@ import type { FavorEntry } from "../../src/engine/favors";
  */
 export type Edge = { trust: number; affinity: number; threat: number };
 export type Seam = {
-  live: { playedGame?: boolean; week: number; dayNumber?: number; dealOffer?: { id: string; from: string; kind: string; terms: string; madeWeek: number; replacesDealId?: string; counter?: { round: number; ask: { kind: string; target?: string } } }; evictionOrder: string[]; agendas?: unknown };
+  live: { playedGame?: boolean; owedFavors?: Array<{ debtor: string; n: number; madeWeek: number }>; favorConditions?: Array<{ state: string; target: string; kind: string; owedBy: string; owedTo: string }>; grudges?: Record<string, unknown>; bonds?: Record<string, unknown>; npcMemory?: Record<string, Record<string, unknown[]>>; finished?: boolean; week: number; dayNumber?: number; dealOffer?: { id: string; from: string; kind: string; terms: string; madeWeek: number; replacesDealId?: string; counter?: { round: number; ask: { kind: string; target?: string } }; favor?: { favorId?: string } }; lastDealOfferWeek?: number; evictionOrder: string[]; agendas?: unknown };
   rel: { edge(a: string, b: string): Edge };
   gameSeed: number | null;
   voteStillInDoubt: (a: string, b: string) => boolean;
@@ -19,6 +19,7 @@ export type Seam = {
   favorsAtTally(fn: readonly string[], voters: readonly string[]): void;
   favorCounterAsk(npc: string, deal: unknown, living: readonly string[]): { kind: string; target?: string } | undefined;
   resolveDealOffer(accept: boolean): unknown;
+  presence?: Map<string, string>;
   deals: { make(parties: [string, string], kind: string, terms: string, ev?: string, week?: number): { id: string } };
 };
 export type Played = { sb: UserSandbox; session: GameSessionAdapter; seam: Seam; npcs: string[]; seed: number };
@@ -54,3 +55,10 @@ export function setEdge(p: Played, a: string, b: string, e: Edge): void { Object
 export function warm(p: Played, debtor: string, holder: string): void { setEdge(p, debtor, holder, { trust: 0.9, affinity: 0.9, threat: 0 }); }
 export function cold(p: Played, debtor: string, holder: string): void { setEdge(p, debtor, holder, { trust: 0, affinity: 0, threat: 1 }); }
 export const ledger = (p: Played): readonly FavorEntry[] => p.session.favorLedger();
+
+/** Put the listed houseguests in one room (awake and present) and everyone else in another. */
+export function gather(p: Played, ids: readonly string[]): void {
+  const m = new Map<string, string>();
+  for (const id of [PLAYER, ...p.npcs]) m.set(id, ids.includes(id) ? "kitchen" : "elsewhere");
+  p.seam.presence = m;
+}

@@ -8,7 +8,8 @@ import { FAVOR } from "./favorConstants";
  * `${seed}:favors:${deal}:${week}:${round}` (see `counterStreamKey`), so a negotiation never touches a shared stream. The narrator is handed the result as FACTS (who, what is asked, the round) and voices it;
  * it never decides it. Rounds are capped by `FAVOR.maxCounterRounds`: past the cap a side only settles or lets it fall through.
  */
-export type CounterAsk = { kind: "target"; target: EntityId } | { kind: "vote" };
+/** What a counter asks for instead: a rival goes up (`target`), someone they keep is held safe (`protect`), or a vote. Engine keys; the words are authored live by the narrator from these facts. */
+export type CounterAsk = { kind: "target"; target: EntityId } | { kind: "protect"; target: EntityId } | { kind: "vote" };
 export type CounterVerdict = "accept" | "counter" | "refuse";
 
 export interface CounterSide {
@@ -17,6 +18,9 @@ export interface CounterSide {
   goalTarget?: EntityId;
   /** How hard that goal pulls, on the threat-read scale (signed pulls below 0 never ask). */
   goalPull: number;
+  /** The houseguest they most want KEPT this week (a protect goal), and how hard it pulls (the size of the negative pull). Optional. */
+  protectTarget?: EntityId;
+  protectPull?: number;
   /** Their bond with the other side, 0..1. */
   bond: number;
   /** How this houseguest's own goal pulls on any named target (+ = wants them out, - = keeps them): what they would concede when asked to put someone up. */
@@ -47,15 +51,25 @@ export function weighCounter(i: { round: number; side: CounterSide; incoming?: C
   const settleP = clamp01(FAVOR.settleBase + FAVOR.settleBondSlope * clamp01(side.bond));
   const settle = (): CounterRound => ({ round, by: side.id, verdict: i.rolls.settle < settleP ? "accept" : "refuse" });
   const already = new Set(i.asked ?? []);
-  const canAsk = round < FAVOR.maxCounterRounds && side.goalTarget !== undefined && side.goalPull > FAVOR.askFloor;
+  // The goals that could be asked for, strongest first, skipping any target already asked in this negotiation.
+  const goals: Array<{ ask: CounterAsk; pull: number }> = [];
+  if (side.goalTarget !== undefined && side.goalPull > FAVOR.askFloor && !already.has(side.goalTarget)) goals.push({ ask: { kind: "target", target: side.goalTarget }, pull: side.goalPull });
+  if (side.protectTarget !== undefined && (side.protectPull ?? 0) > FAVOR.askFloor && !already.has(side.protectTarget)) goals.push({ ask: { kind: "protect", target: side.protectTarget }, pull: side.protectPull ?? 0 });
+  goals.sort((a, b) => b.pull - a.pull);
+  const top = goals[0];
   const counter = (): CounterRound | undefined => {
-    if (!canAsk || i.rolls.counter >= clamp01(FAVOR.counterBase + FAVOR.counterSlope * (side.goalPull - FAVOR.askFloor))) return undefined;
-    const ask: CounterAsk = !already.has(side.goalTarget!) ? { kind: "target", target: side.goalTarget! } : { kind: "vote" };
-    return { round, by: side.id, verdict: "counter", ask };
+    if (round >= FAVOR.maxCounterRounds || !top) return undefined;
+    if (i.rolls.counter >= clamp01(FAVOR.counterBase + FAVOR.counterSlope * (top.pull - FAVOR.askFloor))) return undefined;
+    return { round, by: side.id, verdict: "counter", ask: top.ask };
   };
   if (incoming?.kind === "target") {
     // An ask to put someone up: conceded when they would not mind it, otherwise countered back (their own goal) or refused.
     if (side.pullOn(incoming.target) >= FAVOR.concedePull) return { round, by: side.id, verdict: "accept" };
+    return counter() ?? { round, by: side.id, verdict: "refuse" };
+  }
+  if (incoming?.kind === "protect") {
+    // An ask to hold someone safe: conceded when they do not want that person out.
+    if (side.pullOn(incoming.target) <= FAVOR.concedePull) return { round, by: side.id, verdict: "accept" };
     return counter() ?? { round, by: side.id, verdict: "refuse" };
   }
   if (incoming?.kind === "vote") return { round, by: side.id, verdict: "accept" };
@@ -87,7 +101,7 @@ export function negotiate(offerer: CounterSide, responder: CounterSide, rollsFor
     if (r.verdict === "accept") { if (incoming) agreed.push(incoming); return { rounds, settled: true, agreed }; }
     if (r.verdict === "refuse") return { rounds, settled: false, agreed };
     incoming = r.ask!;
-    if (incoming.kind === "target") asked.push(incoming.target);
+    if (incoming.kind === "target" || incoming.kind === "protect") asked.push(incoming.target);
     side = side === responder ? offerer : responder;
   }
   return { rounds, settled: false, agreed };

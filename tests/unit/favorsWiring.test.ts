@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { PLAYER } from "../../src/domain/ids";
 import { FAVOR } from "../../src/engine/favorConstants";
 import { voteChoice, VOTE_TERM_NAMES } from "../../src/engine/liveSeason";
-import { playedSession, sessionWithRoll, warm, cold, setEdge, ledger } from "../support/favorsSeam";
+import { playedSession, sessionWithRoll, warm, cold, setEdge, ledger, gather } from "../support/favorsSeam";
 import { RelationshipModel } from "../../src/engine/relationships";
 import { GameSessionRegistry } from "../../src/composition/registry";
 
@@ -38,7 +38,8 @@ describe("called-in favors at a close vote", () => {
   it("a refusal costs the holder's trust and the witnesses' at a lower weight, and moves nothing for others", () => {
     const p = sessionWithRoll("refuse");
     const [h, d, w, x, o] = p.npcs as [string, string, string, string, string];
-    p.session.recordFavor({ owedBy: d, owedTo: h, origin: "deal:1", witnesses: [w] });
+    p.session.recordFavor({ owedBy: d, owedTo: h, origin: "deal:1", witnesses: [w, x] });
+    gather(p, [h, d, w]); // x heard the promise but is not in the room
     cold(p, d, h);
     for (const id of [h, w, x]) setEdge(p, id, d, { trust: 0.7, affinity: 0.7, threat: 0.1 });
     p.seam.favorsAtTally([h, o], [d]);
@@ -46,7 +47,7 @@ describe("called-in favors at a close vote", () => {
     const lost = (id: string) => 0.7 - p.seam.rel.edge(id, d).trust;
     expect(lost(h)).toBeGreaterThan(lost(w));
     expect(lost(w)).toBeGreaterThan(0);
-    expect(lost(x)).toBe(0);
+    expect(lost(x)).toBe(0); // heard the promise, was not there to see the refusal
     expect(FAVOR.refusalScale).toBeLessThan(1);
   });
   it("a debtor draws from the favors side stream only: the same seed answers the same way", () => {
@@ -96,12 +97,29 @@ describe("counters at the swap seam", () => {
     const a = swap(true); const b = swap(true);
     expect(a.p.seam.favorCounterAsk(a.npc, a.deal, a.p.npcs)).toEqual(b.p.seam.favorCounterAsk(b.npc, b.deal, b.p.npcs));
   });
-  it("taking a counter puts the player in the houseguest's debt; taking a plain swap puts the houseguest in the player's", () => {
+  it("taking a counter is a CONDITION: booked only if the rival is on the block at that eviction, else lapsed unbooked", () => {
+    for (const goesUp of [true, false]) {
+      const { p, npc, rival } = swap(true);
+      const other = p.npcs.find((x) => x !== npc && x !== rival)!;
+      p.seam.live.dealOffer = { id: `offer:${npc}:1`, from: npc, kind: "vote", terms: "t", madeWeek: p.seam.live.week, counter: { round: 1, ask: { kind: "target", target: rival } } };
+      p.seam.resolveDealOffer(true);
+      expect(ledger(p)).toHaveLength(0); // not booked on the spot
+      expect(p.seam.live.favorConditions![0]).toMatchObject({ state: "waiting", owedBy: PLAYER, owedTo: npc });
+      p.seam.favorsAtTally(goesUp ? [rival, other] : [other, npc], [PLAYER]);
+      expect(p.seam.live.favorConditions![0]!.state).toBe(goesUp ? "booked" : "lapsed");
+      if (goesUp) expect(ledger(p)[0]).toMatchObject({ owedBy: PLAYER, owedTo: npc, state: "owed" });
+      else expect(ledger(p)).toHaveLength(0);
+    }
+  });
+  it("a protect counter is booked only if the protected houseguest is NOT on the block", () => {
     const { p, npc, rival } = swap(true);
-    p.seam.live.dealOffer = { id: `offer:${npc}:1`, from: npc, kind: "vote", terms: "t", madeWeek: p.seam.live.week, counter: { round: 1, ask: { kind: "target", target: rival } } };
+    const other = p.npcs.find((x) => x !== npc && x !== rival)!;
+    p.seam.live.dealOffer = { id: `offer:${npc}:1`, from: npc, kind: "vote", terms: "t", madeWeek: p.seam.live.week, counter: { round: 1, ask: { kind: "protect", target: rival } } };
     p.seam.resolveDealOffer(true);
-    expect(ledger(p)[0]).toMatchObject({ owedBy: PLAYER, owedTo: npc, state: "owed" });
-    expect(ledger(p)[0]!.origin).toMatch(/^counter:/);
+    p.seam.favorsAtTally([rival, other], [PLAYER]);
+    expect(p.seam.live.favorConditions![0]!.state).toBe("lapsed");
+  });
+  it("taking a plain swap puts the houseguest in the player's debt", () => {
     const q = swap(true);
     q.p.seam.live.dealOffer = { id: `offer:${q.npc}:1`, from: q.npc, kind: "vote", terms: "t", madeWeek: q.p.seam.live.week, replacesDealId: q.deal.id };
     q.p.seam.resolveDealOffer(true);
@@ -135,5 +153,121 @@ describe("headless seasons are byte-identical with the flag on or off", () => {
       return snap;
     };
     expect(run(true)).toBe(run(false));
+  });
+});
+
+describe("one favor bank (the 0142 bank folded into the ledger)", () => {
+  it("a legacy owedFavors row is copied into the ledger on restore, losing none, and the lever still works through it", () => {
+    const p = playedSession(6);
+    const [a, b] = p.npcs as [string, string];
+    p.seam.live.owedFavors = [{ debtor: a, n: 2, madeWeek: 1 }, { debtor: b, n: 1, madeWeek: 1 }];
+    const core = JSON.parse(JSON.stringify(p.session.snapshot()));
+    const q = playedSession(6);
+    q.session.restore(core);
+    expect(ledger(q).filter((f) => f.owedTo === PLAYER && f.state === "owed")).toHaveLength(3);
+    expect((q.seam.live as { owedFavors?: unknown }).owedFavors).toBeUndefined();
+    const view = (q.session.getGameState() as { owedFavors?: Array<{ from: { id: string }; n: number }> }).owedFavors!;
+    expect(view.map((v) => [v.from.id, v.n]).sort()).toEqual([[a, 2], [b, 1]].sort());
+    const before = ledger(q).length;
+    q.session.callInFavor(a, "vote");
+    expect(ledger(q)).toHaveLength(before); // append-only: the spent favor stays on the ledger
+    expect(ledger(q).filter((f) => f.owedBy === a && f.state === "owed")).toHaveLength(1);
+    expect(q.session.bondReader().bond(PLAYER, b).debt).toBeGreaterThan(0); // the ONE bank is the debt source
+  });
+  it("a kept deal banks into the ledger, capped at three open per houseguest", () => {
+    const p = playedSession(6);
+    const [a] = p.npcs as [string];
+    const bank = (p.session as unknown as { bankOwedFavor(h: string, w: string): void });
+    for (let i = 0; i < 5; i++) bank.bankOwedFavor(a, PLAYER);
+    expect(ledger(p).filter((f) => f.owedBy === a && f.holder === PLAYER)).toHaveLength(3);
+  });
+  it("switched off, the legacy bank is untouched", () => {
+    const p = playedSession(6, { favors: false });
+    const [a] = p.npcs as [string];
+    p.seam.live.owedFavors = [{ debtor: a, n: 2, madeWeek: 1 }];
+    p.session.getGameState();
+    expect(p.seam.live.owedFavors).toHaveLength(1);
+    expect(ledger(p)).toHaveLength(0);
+  });
+});
+
+describe("favors both ways", () => {
+  it("the engine never calls in a favor the player holds", () => {
+    const p = sessionWithRoll("honor");
+    const [d, o] = p.npcs as [string, string];
+    p.session.recordFavor({ owedBy: d, owedTo: PLAYER, origin: "bank:1" });
+    p.seam.favorsAtTally([d, o], [PLAYER]);
+    expect(ledger(p)[0]).toMatchObject({ state: "owed" });
+    expect(ledger(p)[0]!.calledBeat).toBeUndefined();
+  });
+  it("an NPC nominee calls in what the player owes through the one standing offer; accepting repays it", () => {
+    const p = playedSession(6);
+    const [h, o] = p.npcs as [string, string];
+    p.session.recordFavor({ owedBy: PLAYER, owedTo: h, origin: "counter:1" });
+    p.seam.favorsAtTally([h, o], [PLAYER]);
+    const offer = p.session.getGameState().openDealOffer!;
+    expect(offer.favor).toEqual({ kind: "called-in" });
+    expect(offer.from.id).toBe(h);
+    p.seam.resolveDealOffer(true);
+    expect(ledger(p)[0]).toMatchObject({ state: "repaid" });
+  });
+  it("declining costs the player the NPC's trust and leaves a memory, a grudge and a bond fold; an absent witness is unchanged", () => {
+    const p = playedSession(6);
+    const [h, o, w, x] = p.npcs as [string, string, string, string];
+    p.session.recordFavor({ owedBy: PLAYER, owedTo: h, origin: "counter:1", witnesses: [w, x] });
+    gather(p, [h, w, PLAYER]);
+    for (const id of [h, w, x]) setEdge(p, id, PLAYER, { trust: 0.7, affinity: 0.7, threat: 0.1 });
+    p.seam.favorsAtTally([h, o], [PLAYER]);
+    p.seam.resolveDealOffer(false);
+    expect(ledger(p)[0]).toMatchObject({ state: "refused" });
+    const lost = (id: string) => 0.7 - p.seam.rel.edge(id, PLAYER).trust;
+    expect(lost(h)).toBeGreaterThan(lost(w));
+    expect(lost(w)).toBeGreaterThan(0);
+    expect(lost(x)).toBe(0);
+    expect(p.seam.live.npcMemory?.[h]?.[PLAYER]?.length ?? 0).toBeGreaterThan(0);
+    expect(Object.keys(p.seam.live.grudges ?? {})).toContain(`${h}|${PLAYER}`);
+    expect(Object.keys(p.seam.live.bonds ?? {}).length).toBeGreaterThan(0);
+  });
+  it("a nominee who reads the player warmly may ask them for a favor; granting it puts the NPC in the player's debt", () => {
+    let asked = 0;
+    for (let seed = 1; seed < 40 && !asked; seed++) {
+      const p = playedSession(seed);
+      const [h, o] = p.npcs as [string, string];
+      warm(p, h, PLAYER);
+      p.seam.favorsAtTally([h, o], [PLAYER]);
+      const offer = p.seam.live.dealOffer;
+      if (offer?.favor && offer.favor.favorId === undefined && offer.from === h) { asked++; p.seam.resolveDealOffer(true); expect(ledger(p)[0]).toMatchObject({ owedBy: h, owedTo: PLAYER }); }
+    }
+    expect(asked).toBe(1);
+  });
+  it("a refusal's event witnesses include the refused person, and the player only when present", () => {
+    const run = (playerThere: boolean) => {
+      const p = sessionWithRoll("refuse");
+      const [h, d, o] = p.npcs as [string, string, string];
+      const seen: string[][] = [];
+      (p.session as unknown as { onPlayerEvent: (t: string, w: string[]) => void }).onPlayerEvent = (_t, w) => { seen.push(w); return undefined as never; };
+      p.session.recordFavor({ owedBy: d, owedTo: h, origin: "deal:1" });
+      cold(p, d, h);
+      gather(p, playerThere ? [h, d, PLAYER] : [h, d]);
+      p.seam.favorsAtTally([h, o], [d]);
+      return seen.find((w) => w.includes(d) && w.includes(h))!;
+    };
+    expect(run(false)).not.toContain(PLAYER);
+    expect(run(true)).toContain(PLAYER);
+  });
+  it("the hidden refusal's wording never carries the old dodge and differs from the public one", () => {
+    const texts: string[] = [];
+    for (const there of [false, true]) {
+      const p = sessionWithRoll("refuse");
+      const [h, d, o] = p.npcs as [string, string, string];
+      (p.session as unknown as { onPlayerEvent: (t: string) => void }).onPlayerEvent = (t) => { texts.push(t); return undefined as never; };
+      p.session.recordFavor({ owedBy: d, owedTo: h, origin: "deal:1" });
+      cold(p, d, h); gather(p, there ? [h, d, PLAYER] : [h, d]);
+      p.seam.favorsAtTally([h, o], [d]);
+    }
+    const refusal = texts.filter((t) => /no by|turned down/.test(t));
+    expect(refusal).toHaveLength(2);
+    expect(refusal[0]).not.toBe(refusal[1]);
+    expect(texts.join("\n")).not.toMatch(/off-screen/);
   });
 });

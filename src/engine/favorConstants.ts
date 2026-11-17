@@ -28,4 +28,10 @@ export const FAVOR = {
   refusalScale: 0.6,
   /** A holder not on the block passes a favor to a nominee they are at least this close to (rel.bondStrength). */
   passBond: 0.6,
+  /** A nominee off a close vote asks the player for a favor with this chance when they read the player at least this warmly (mean of trust and affinity). */
+  askProb: 0.5,
+  askBond: 0.5,
+  /** A refused favor leaves the wronged houseguest a memory at this share of a broken assurance's memory severity, and a grudge at this share of a broken deal's. */
+  refusalMemoryShare: 0.6,
+  refusalGrudgeShare: 0.6,
 } as const;

@@ -19,6 +19,18 @@ Feature: Counters and favors form a house currency
     When favors: the houseguest is on the block and the favor is called in
     Then favors: the NPC repays it with their vote and the favor is cleared
 
+  Scenario: The engine never calls in a favor the player holds
+    Given a favors season where the player is owed a favor and a vote is close
+    Then favors: the engine does not call it in for the player
+
+  Scenario: A houseguest collects a favor the player owes, and the player answers
+    Given a favors season where the player owes a houseguest a favor and a vote is close
+    Then favors: the houseguest asks the player for it through the one standing offer, and the player answers
+
+  Scenario: A counter is a condition, booked only when it holds
+    Given a favors season where the player accepts a counter that a rival goes up
+    Then favors: the player owes nothing until the rival is actually on the block
+
   Scenario: A called-in favor refused costs trust, with them and with witnesses
     Given a favors season where an NPC owes a houseguest a favor, and two others heard it promised
     When favors: the NPC refuses it when called in
