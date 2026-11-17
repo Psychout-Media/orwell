@@ -80,12 +80,13 @@ describe("the plan decision", () => {
     expect(breakChance(0.4, 0.5, 2, 1.3)).toBeGreaterThan(breakChance(0.4, 0.5, 2, 0.8));
   });
   it("a plan to break is one of the break plans; a plan to keep is keep or this-week", () => {
-    expect(planFor("safety", 2, 1, 0, 0).kind).toBe("flip");
+    expect(planFor("safety", 2, 1, 0, 0)).toEqual({ kind: "break-at", moment: { week: 2, at: "nominations" } });
     expect(planFor("safety", 2, 1, 0, 0.99)).toEqual({ kind: "break-at", moment: { week: 2, at: "vote" } });
     expect(planFor("final-two", 2, 1, 0, 0).kind).toBe("cut-final-three");
     expect(planFor("final-two", 2, 1, 0, 0.5)).toEqual({ kind: "break-at", moment: { week: 3, at: "nominations" } });
     expect(planFor("safety", 2, 0, 0.5, 0.99)).toEqual({ kind: "keep" });
-    expect(planFor("safety", 2, 0, 0.5, 0).kind).toBe("this-week");
+    // main's 0178 semantics: the honest "this-week" plan carries the moment AFTER the pact has expired (next week's nominations), so its carry-out finds the deal expired and keeps it
+    expect(planFor("safety", 2, 0, 0.5, 0)).toEqual({ kind: "this-week", moment: { week: 3, at: "nominations" } });
     expect(planFor("final-two", 2, 0, 0.5, 0)).toEqual({ kind: "keep" });
   });
   it("over many seeds the share of break plans follows the person, not a flat rate", () => {
@@ -112,23 +113,30 @@ describe("planAwareDealPush", () => {
     for (const plan of [{ kind: "keep" }, { kind: "this-week" }, { kind: "cut-final-three" }, { kind: "break-at", moment: { week: 2, at: "vote" } }] as DealPlan[])
       expect(planAwareDealPush(-0.2, "npc:1", "npc:2", 2, deal(), src(plan))).toBe(-0.2);
   });
-  it("a flip turns the push positive from the next week, even after the pact ran its course", () => {
-    const p: DealPlan = { kind: "flip", moment: { week: 2, at: "nominations" } };
-    expect(planAwareDealPush(-0.2, "npc:1", "npc:2", 1, deal(), src(p))).toBe(-0.2);
-    expect(planAwareDealPush(-0.2, "npc:1", "npc:2", 2, deal("kept"), src(p))).toBe(NPC_DEAL_PUSH.flip);
+  it("a plan never produces a flip (main carries that out only at a vote on a vote deal): planFor yields keep, this-week, break-at or cut-final-three", () => {
+    const kinds = new Set<string>();
+    for (const kind of ["safety", "final-two"] as const) for (let i = 0; i <= 10; i++) for (let j = 0; j <= 10; j++) { kinds.add(planFor(kind, 2, 0.5, i / 10, j / 10).kind); }
+    expect([...kinds].sort()).toEqual(["break-at", "cut-final-three", "keep", "this-week"]);
   });
-  it("a break at the nominations turns it positive once that week comes", () => {
+  it("the honest this-week plan is never due while its pact is open (its moment is after the pact has expired)", () => {
+    const p = planFor("safety", 2, 0, 0.5, 0);
+    expect(p.kind).toBe("this-week");
+    expect(p.moment!.week).toBeGreaterThan(2);
+  });
+  it("a break at the nominations turns it positive in THAT week only (the carry-out breaks the pact there) and only while the pact is open", () => {
     const p: DealPlan = { kind: "break-at", moment: { week: 3, at: "nominations" } };
     expect(planAwareDealPush(-0.2, "npc:1", "npc:2", 2, deal(), src(p))).toBe(-0.2);
     expect(planAwareDealPush(-0.2, "npc:1", "npc:2", 3, deal(), src(p))).toBe(NPC_DEAL_PUSH.breakAtNominations);
+    expect(planAwareDealPush(-0.2, "npc:1", "npc:2", 4, deal(), src(p))).toBe(-0.2); // the end week: no lean after the moment has passed
+    expect(planAwareDealPush(-0.2, "npc:1", "npc:2", 3, deal("kept"), src(p))).toBe(-0.2); // an expired/kept pact no longer pushes
   });
   it("only the holder's OWN plan counts, and only toward that deal's partner", () => {
-    const p: DealPlan = { kind: "flip", moment: { week: 1, at: "nominations" } };
+    const p: DealPlan = { kind: "break-at", moment: { week: 2, at: "nominations" } };
     expect(planAwareDealPush(-0.2, "npc:2", "npc:1", 2, deal(), src(p))).toBe(-0.2);
     expect(planAwareDealPush(0, "npc:1", "npc:3", 2, deal(), src(p))).toBe(0);
   });
   it("a deal already broken contributes nothing", () => {
-    expect(planAwareDealPush(0, "npc:1", "npc:2", 2, deal("broken"), src({ kind: "flip", moment: { week: 1, at: "nominations" } }))).toBe(0);
+    expect(planAwareDealPush(0, "npc:1", "npc:2", 2, deal("broken"), src({ kind: "break-at", moment: { week: 2, at: "nominations" } }))).toBe(0);
   });
 });
 

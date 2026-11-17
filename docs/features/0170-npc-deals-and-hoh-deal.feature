@@ -1,7 +1,7 @@
 # Feature 0170 - deals between NPCs and the HOH deal (Theme 3 slice 2; Theme 3 Slice Plan, owner B). BUILT behind ORWELL_NPC_DEALS (default ON; =0 is byte-identical to before).
 # Design note: 0170-npc-deals-and-hoh-deal.md. Rests on the owner's 2026-11-16 rulings: Q1 (the engine decides the substance, the narrator keeps the words),
 # Q3 (fake deals carry no built-in tell; a low-trust deal weighs less), Q4 (NPC to NPC from the start) and the Theme 3 ruling (deepen social systems).
-# Each side of a deal holds its OWN secret plan (keep, break at the vote, flip once safe). Vault Wall: a plan is Vault content until the post-season
+# Each side of a deal holds its OWN secret plan (keep, break at the nominations or the vote, cut at the final three). Vault Wall: a plan is Vault content until the post-season
 # retrospective (0048 door); no player or admin view shows a plan, a number or a tell. Roles only, plain words.
 # The plan store is the slice-1 owner's (injected read side `PlanSource.planOf`, optional write hook); these steps inject a stand-in for both.
 

@@ -45,7 +45,7 @@ Given("npc deals: a nervous houseguest trades the HOH their vote for safety", fu
 });
 Given("npc deals: that houseguest's own plan is to turn on the HOH once safe", function (this: BbWorld) {
   const c = st(this) as Ctx & { dealId?: string }; const week = c.g!.live!.week;
-  c.g!.setPlanSource({ planOf: (id, h) => (id === c.dealId && h === c.hoh ? { kind: "flip", moment: { week, at: "nominations" } } : undefined) });
+  c.g!.setPlanSource({ planOf: (id, h) => (id === c.dealId && h === c.hoh ? { kind: "break-at", moment: { week, at: "nominations" } } : undefined) });
   c.g!.setNpcDealsEnabled(true);
 });
 When("npc deals: that houseguest wins the next HOH and names the nominees", function (this: BbWorld) {
@@ -112,7 +112,7 @@ Then("npc deals: the deal's event names only those two as witnesses", function (
 Given("npc deals: a played season where NPCs struck deals and one plans to break it", async function (this: BbWorld) {
   const c = st(this); c.game = await playDealsGame(3, 900, { until: (x) => x.week() >= 3, user: `bdd-npcdeals-${Math.random()}` });
   assert.ok(c.game.session.deals.npcOnly().length > 0);
-  (c.game.session as unknown as G).setPlanSource({ planOf: () => ({ kind: "flip", moment: { week: 1, at: "nominations" } }) });
+  (c.game.session as unknown as G).setPlanSource({ planOf: () => ({ kind: "break-at", moment: { week: 1, at: "nominations" } }) });
 });
 When("npc deals: the days pass until the vote", async function (this: BbWorld) { await st(this).game!.more(120, (x) => x.week() >= 4); });
 Then("npc deals: no player or admin view shows the deal, either plan, or any trust figure", async function (this: BbWorld) {

@@ -3,7 +3,7 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 import { nominationPlan } from "../../src/engine/season";
 import { RelationshipModel } from "../../src/engine/relationships";
-import type { DealPlan, PlanSource } from "../../src/engine/npcDeals";
+import { planFor, type DealPlan, type PlanSource } from "../../src/engine/npcDeals";
 import { playDealsGame } from "../support/npcDealsDriver";
 
 /** Feature 0170 - the live session: plan-aware nominations, the injected hooks, persistence, flag-off identity and the Vault. Roles only. */
@@ -33,30 +33,31 @@ describe("plan-aware nomination push (flag ORWELL_NPC_DEALS)", () => {
     expect(g.dealNomPushFor(other, hoh)).toBe(off);
     expect(off).toBeLessThan(0);
   });
-  it("a flip plan turns the holder's push on the partner positive the week after; a keep plan does not", () => {
+  it("a plan to break at the nominations turns the holder's push on the partner positive in that week only; a keep plan does not", () => {
     const { g, hoh, other } = started();
     const d = g.deals.make([hoh, other], "safety", "t", undefined, g.live!.week);
     g.setNpcDealsEnabled(true);
-    const nextWeek = g.live!.week + 1;
-    g.setPlanSource({ planOf: (id, holder) => (id === d.id && holder === hoh ? { kind: "flip", moment: { week: nextWeek, at: "nominations" } } : undefined) });
+    const week = g.live!.week;
+    g.setPlanSource({ planOf: (id, holder) => (id === d.id && holder === hoh ? { kind: "break-at", moment: { week: week + 1, at: "nominations" } } : undefined) });
     expect(g.dealNomPushFor(other, hoh)).toBeLessThan(0);
     g.live!.week += 1;
-    d.status = "kept";
     expect(g.dealNomPushFor(other, hoh)).toBeGreaterThan(0);
+    g.live!.week += 1;
+    expect(g.dealNomPushFor(other, hoh)).toBeLessThan(0); // the end week: no lean after the moment has passed
+    g.live!.week -= 1;
     g.setPlanSource({ planOf: () => ({ kind: "keep" }) });
-    expect(g.dealNomPushFor(other, hoh)).toBe(0);
+    expect(g.dealNomPushFor(other, hoh)).toBeLessThan(0);
   });
   it("a holder who planned to turn names the former partner; flag off, they do not", () => {
     const { g, hoh, other } = started();
     const ids = g.livingIds().filter((i) => i !== PLAYER).slice(0, 6);
     const d = g.deals.make([other, hoh], "safety", "t", undefined, g.live!.week);
-    d.status = "kept";
-    g.setPlanSource({ planOf: (id, h) => (id === d.id && h === hoh ? { kind: "flip", moment: { week: g.live!.week, at: "nominations" } } : undefined) });
+    g.setPlanSource({ planOf: (id, h) => (id === d.id && h === hoh ? { kind: "break-at", moment: { week: g.live!.week, at: "nominations" } } : undefined) });
     const rel = new RelationshipModel(0.5);
     g.setNpcDealsEnabled(true);
     expect(nominationPlan(hoh, ids, rel, { dealPush: (t) => g.dealNomPushFor(t, hoh) }).nominees).toContain(other);
     g.setNpcDealsEnabled(false);
-    expect(g.dealNomPushFor(other, hoh)).toBe(0);
+    expect(g.dealNomPushFor(other, hoh)).toBeLessThan(0); // flag off: today's protective push for the still-open pact (the plan is ignored)
   });
 });
 
@@ -136,7 +137,7 @@ describe("a played season", () => {
     for (const needle of ["settle a quiet", "quiet pact sealed", "planOf", "\"flip\"", "cut-final-three", "break-at", "this-week"]) expect(blob.includes(needle), needle).toBe(false);
   }, 120000);
 });
-function g_setPlans(gm: { session: unknown }): void { (gm.session as G).setPlanSource({ planOf: () => ({ kind: "flip", moment: { week: 1, at: "nominations" } }) }); }
+function g_setPlans(gm: { session: unknown }): void { (gm.session as G).setPlanSource({ planOf: () => ({ kind: "break-at", moment: { week: 1, at: "nominations" } }) }); }
 
 describe("0170 the plans flow into the Auditor's plan store by default (0178)", () => {
   it("a sealed pact's two plans are written to live.dealPlans, append-only, and survive a save/load", () => {
@@ -150,5 +151,19 @@ describe("0170 the plans flow into the Auditor's plan store by default (0178)", 
     const core = g.snapshot();
     g.restore(core);
     expect(JSON.stringify((g.live as unknown as { dealPlans?: unknown }).dealPlans ?? {})).toBe(before);
+  });
+});
+
+describe("0170 the honest plan really keeps the pact under main's 0178 carry-out (the audit's 30% hole)", () => {
+  it("a this-week plan from planFor is not carried out at that week's vote; a break-at-vote plan is", () => {
+    for (const [plan, expectBroken] of [[planFor("safety", 1, 0, 0.5, 0), false], [{ kind: "break-at", moment: { week: 1, at: "vote" } }, true]] as const) {
+      const { g, hoh, other } = started(21);
+      const live = g.live as unknown as { week: number; beat: string; playedGame?: boolean; dealPlans?: Record<string, Record<string, unknown>> };
+      live.playedGame = true; live.week = 1; live.beat = "eviction";
+      const d = g.deals.make([hoh, other], "safety", "t", undefined, 1);
+      (live.dealPlans ??= {})[d.id] = { [hoh]: { ...plan, madeWeek: 1 }, [other]: { kind: "keep", madeWeek: 1 } };
+      (g as unknown as { planAndCarryOutDeals(): void }).planAndCarryOutDeals();
+      expect(d.status === "broken").toBe(expectBroken);
+    }
   });
 });

@@ -15857,7 +15857,7 @@ export class GameSessionAdapter implements GameSession {
     if (!s || !this.house || !this.onPlayerEvent) return;
     const npcs = s.active.filter((id) => id !== PLAYER);
     const seed = this.gameSeed ?? "";
-    const made = (id: EntityId): number => this.deals.npcOnly().filter((d) => d.parties.includes(id)).length;
+    const made = (id: EntityId): number => this.deals.all.filter((d) => d.parties.includes(id)).length; // every deal they are party to, of any status (as the player-deal plans count: 0178)
     const proposals = proposeNpcDeals({
       week: s.week, npcs, bonds: this.pairBondRead(),
       isTaken: (a, b) => this.deals.open().some((d) => (d.parties.includes(a) && d.parties.includes(b)) || ((d.parties.includes(a) || d.parties.includes(b)) && d.madeWeek === s.week)),

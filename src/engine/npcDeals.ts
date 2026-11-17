@@ -49,7 +49,11 @@ export function breakChance(holderTrust: number, loyalty: number, dealsMade: num
   return clamp01(raw * breakLean);
 }
 
-/** One side's plan, from two draws already taken (`r1` decides break or not, `r2` which kind). Pure. */
+/**
+ * One side's plan, from two draws already taken (`r1` decides break or not, `r2` which shape). Pure. The shapes and moments are main's 0178 semantics (`dealPlans.ts`): an honest "this-week" plan carries
+ * the moment AFTER the pact has run its course (next week's nominations), so its carry-out finds the deal already expired and keeps it; a planned break is a "break-at" the nominations or the vote of the
+ * week it was made (the carry-out breaks it there), or, for a final-two, a "cut-final-three" or a later break. There is no "flip": main carries that out only at a vote on a vote deal.
+ */
 export function planFor(kind: NpcDealKind, week: number, pBreak: number, r1: number, r2: number): DealPlan {
   const P = NPC_DEALS.plan;
   if (r1 < pBreak) {
@@ -58,9 +62,9 @@ export function planFor(kind: NpcDealKind, week: number, pBreak: number, r1: num
       if (r2 < P.cutShareFinalTwo + P.nominationsShareFinalTwo) return { kind: "break-at", moment: { week: week + 1, at: "nominations" } };
       return { kind: "break-at", moment: { week, at: "vote" } };
     }
-    return r2 < P.flipShareSafety ? { kind: "flip", moment: { week: week + 1, at: "nominations" } } : { kind: "break-at", moment: { week, at: "vote" } };
+    return r2 < P.nominationsShareSafety ? { kind: "break-at", moment: { week, at: "nominations" } } : { kind: "break-at", moment: { week, at: "vote" } };
   }
-  return kind === "safety" && r2 < P.thisWeekShare ? { kind: "this-week", moment: { week, at: "vote" } } : { kind: "keep" };
+  return kind === "safety" && r2 < P.thisWeekShare ? { kind: "this-week", moment: { week: week + 1, at: "nominations" } } : { kind: "keep" };
 }
 
 /** Propose a pact for ONE pair (or none). Always takes exactly five draws from the pair's stream, so the stream is order-independent of the outcome. */
@@ -75,8 +79,8 @@ export function proposeNpcDeal(i: NpcDealInputs, a: EntityId, b: EntityId, pairD
   if (r0 >= p) return null;
   const kind: NpcDealKind = mutual >= NPC_DEALS.finalTwoTrustMin ? "final-two" : "safety";
   const made = pairDealsMade ?? { a: i.dealsMade(a), b: i.dealsMade(b) };
-  const planA = planFor(kind, i.week, breakChance(ab.trust, i.loyaltyOf(a), made.a, i.breakLean), rA1, rA2);
-  const planB = planFor(kind, i.week, breakChance(ba.trust, i.loyaltyOf(b), made.b, i.breakLean), rB1, rB2);
+  const planA = planFor(kind, i.week, breakChance(ab.trust, i.loyaltyOf(a), made.a + 1, i.breakLean), rA1, rA2); // + 1: this pact counts, as in the player-deal plans (0178)
+  const planB = planFor(kind, i.week, breakChance(ba.trust, i.loyaltyOf(b), made.b + 1, i.breakLean), rB1, rB2);
   return { parties: [a, b], kind, planA, planB };
 }
 
@@ -105,18 +109,16 @@ export function proposeNpcDeals(i: NpcDealInputs): NpcDealProposal[] {
 export interface PlannedDeal { id: string; parties: readonly EntityId[]; status: string; madeWeek?: number }
 
 /**
- * The plan-aware nomination push (spec 0170): the holder's OWN plan decides. A plan to break at the nominations, or to flip once the pact has run its course, turns the protective push into a
- * positive one (the holder nominates the partner they planned to turn on); every other plan, and no plan at all, keeps today's protective push. Deterministic, no draws.
+ * The plan-aware nomination push (spec 0170): the holder's OWN plan decides. A plan to break AT THE NOMINATIONS turns the protective push into a positive one in THAT week only (the carry-out
+ * breaks the pact there, so there is no later week for it to lean on) and only while the pact is still open; every other plan, and no plan at all, keeps today's protective push. Deterministic, no draws.
  */
 export function planAwareDealPush(base: number, holder: EntityId, target: EntityId, week: number, deals: readonly PlannedDeal[], plans: PlanSource | undefined): number {
   if (!plans) return base;
   let best = 0;
   for (const d of deals) {
-    if (d.status === "broken" || !d.parties.includes(holder) || !d.parties.includes(target)) continue;
+    if (d.status !== "open" || !d.parties.includes(holder) || !d.parties.includes(target)) continue;
     const plan = plans.planOf(d.id, holder);
-    if (!plan) continue;
-    if (plan.kind === "flip" && week >= (plan.moment?.week ?? (d.madeWeek ?? 0) + 1)) best = Math.max(best, NPC_DEAL_PUSH.flip);
-    else if (plan.kind === "break-at" && plan.moment?.at === "nominations" && week >= plan.moment.week) best = Math.max(best, NPC_DEAL_PUSH.breakAtNominations);
+    if (plan?.kind === "break-at" && plan.moment?.at === "nominations" && week === plan.moment.week) best = Math.max(best, NPC_DEAL_PUSH.breakAtNominations);
   }
   return best > 0 ? best : base;
 }

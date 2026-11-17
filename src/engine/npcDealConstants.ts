@@ -19,8 +19,8 @@ export const NPC_DEALS = {
     lowTrustWeight: 0.6,
     loyaltyMid: 0.5,
     disloyalWeight: 0.5,
-    /** Among the plans to break a safety pact: the share that wait and flip next week; the rest break at this week's vote. */
-    flipShareSafety: 0.45,
+    
+    nominationsShareSafety: 0.45,
     /** Among the plans to break a final-two: the share that cut at the final three; then the share that break at the next nominations; the rest break at the vote. */
     cutShareFinalTwo: 0.4,
     nominationsShareFinalTwo: 0.3,
