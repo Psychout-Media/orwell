@@ -15805,6 +15805,15 @@ export class GameSessionAdapter implements GameSession {
       && (d.condition.protect === other || d.condition.promisors.length === 2) // a mutual deal protects each party from the other
       && (() => { const p = this.twoFacedPlan(d.id, holder); return !!p && p.kind === "flip" && !!p.moment && momentDue(p.moment, s.week, "vote"); })());
   }
+  /**
+   * 0178 retune: how cunning a houseguest is about faking, 0..1. Low candor reads as cunning; a WILDCARD is unpredictable instead: their cunning is their own
+   * seeded draw across the whole range (one per person per season), so one wildcard fakes like a mastermind and the next keeps every word.
+   */
+  private fakingCunningOf(npc: EntityId): number {
+    const c = this.agendaCharacterOf(npc);
+    if (c?.archetype === "wildcard") return new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:faking-cunning:${npc}`)).next();
+    return 1 - this.candorOf(npc);
+  }
   /** Where the week stands for a plan's moment. */
   private planNow(): "nominations" | "veto" | "vote" | "other" {
     const b = this.live?.beat;
@@ -15842,7 +15851,7 @@ export class GameSessionAdapter implements GameSession {
         const rng = new SeededRandom(hashSeed(`${seed}:deal-plan:${deal.id}:${npc}`));
         const plan = decidePlan({
           kind: deal.kind, margin: w.margin, dealsMade: all.filter((d) => d.parties.includes(npc)).length,
-          temperament: 1 - this.candorOf(npc), loyaltyDial: this.cultureMult("loyalty"), lyingDial: this.cultureMult("lying"), week: s.week,
+          temperament: this.fakingCunningOf(npc), loyaltyDial: this.cultureMult("loyalty"), lyingDial: this.cultureMult("lying"), week: s.week,
         }, { twoFaced: rng.next(), which: rng.next() });
         recordPlan(store, deal.id, npc, plan, s.week);
       }

@@ -10,6 +10,16 @@ import type { PlanStore } from "../../src/engine/dealPlans";
 const RUN = process.env.ORWELL_PLANS_REPORT === "1";
 const N = Number.parseInt(process.env.ORWELL_PLANS_REPORT_SEEDS ?? "12", 10);
 const MSGS = Number.parseInt(process.env.ORWELL_PLANS_REPORT_MESSAGES ?? "1500", 10);
+/** ORWELL_PLANS_REPORT_ACTIVE=1: an ACTIVE player who proposes a deal to a houseguest in the room every 25 messages (safety, final two or a vote, in turn), so promises TO the player are measured too. */
+const ACTIVE = process.env.ORWELL_PLANS_REPORT_ACTIVE === "1";
+const KINDS = ["safety", "final-two", "vote"] as const;
+async function onMessage(call: (name: string, args: Record<string, unknown>) => Promise<unknown>, i: number): Promise<void> {
+  if (i % 25 !== 24) return;
+  const wa = (await call("whereabouts", {}).catch(() => null)) as { present?: Array<{ id: string }> } | null;
+  const others = (wa?.present ?? []).map((x) => x.id).filter((id) => id !== "player");
+  if (others.length === 0) return;
+  await call("makeDeal", { with: others[(i / 25) % others.length | 0], kind: KINDS[(i / 25 | 0) % KINDS.length], terms: "let's look after each other" }).catch(() => null);
+}
 type Deal = { id: string; parties: string[]; madeWeek?: number };
 
 describe.skipIf(!RUN)("two-faced deals report (not a gate)", () => {
@@ -21,7 +31,7 @@ describe.skipIf(!RUN)("two-faced deals report (not a gate)", () => {
     const perSeed: string[] = [];
     for (let seed = 1; seed <= N; seed++) {
       const before = total, keepBefore = byKind.keep ?? 0;
-      await playMixGame(seed, MSGS, { advanceEvery: 6, inspect: (s) => {
+      await playMixGame(seed, MSGS, { advanceEvery: 6, ...(ACTIVE ? { onMessage } : {}), inspect: (s) => {
         const sess = s as { live?: { dealPlans?: PlanStore }; deals: { all: readonly Deal[] }; house?: { npcs: Array<{ id: string; character: { archetype: string } }> } };
         const archOf = (id: string) => sess.house?.npcs.find((x) => x.id === id)?.character.archetype ?? "?";
         const plans = sess.live?.dealPlans ?? {};
@@ -46,6 +56,7 @@ describe.skipIf(!RUN)("two-faced deals report (not a gate)", () => {
       perSeed.push(`${seed}:${n ? ((100 * (n - keeps)) / n).toFixed(0) : "-"}% of ${n}`);
     }
     const pct = (a: number, b: number) => (b ? ((100 * a) / b).toFixed(1) : "-");
+    console.log(`DEALPLANS player=${ACTIVE ? "active" : "passive"}`);
     console.log(`DEALPLANS seeds=${N} plans=${total} two-faced=${pct(total - (byKind.keep ?? 0), total)}% by-kind ${JSON.stringify(byKind)}`);
     console.log(`DEALPLANS by deals-made-before: ${Object.entries(byCount).sort().map(([k, v]) => `${k}: ${pct(v.twoFaced, v.n)}% of ${v.n}`).join(" | ")}`);
     console.log(`DEALPLANS outcomes ${JSON.stringify(outcomes)}`);
