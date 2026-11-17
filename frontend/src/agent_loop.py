@@ -3170,6 +3170,14 @@ def _validate_heard_about_me(raw, scene_ids) -> dict | None:
     return None
 
 
+def _validate_actor(raw, scene_ids) -> str | None:
+    """ORW-609: validate the extraction's optional `actor` - the houseguest who did the scene's act TO the player. It must be an NPC id actually in the scene (`scene_ids`); the player, a missing value or anything else
+    is dropped (never coerced), and a dropped actor leaves the scene recorded as the player's own act, exactly as before."""
+    if isinstance(raw, str) and raw != "player" and raw in (scene_ids or []):
+        return raw
+    return None
+
+
 def _validate_consequence(raw, valid_ids) -> dict | None:
     """ADR 0005 — defensively validate a model-proposed consequence descriptor against the active
     roster. Keep only edges whose `toward` is a living houseguest id AND whose `direction` is one of
@@ -3381,6 +3389,7 @@ async def _settle_pending_fold(owner, session_id) -> bool:
                 idempotency_key=entry["idempotency_key"],
                 **({"assurance": entry["assurance"]} if entry.get("assurance") else {}),
                 **({"heard_about_me": entry["heard_about_me"]} if entry.get("heard_about_me") else {}),
+                **({"initiator": entry["actor"]} if entry.get("actor") else {}),
                 **({"promise": entry["promise"]} if entry.get("promise") else {}),
                 **({"statement": entry["statement"]} if entry.get("statement") else {}))
         except Exception as _e:
@@ -4132,6 +4141,7 @@ _SCENE_EXTRACT_INSTRUCTIONS = (
     '"promise":{"what":"<the promise kind>","subject":"<houseguest id it concerns>","by":"<player, or the houseguest id who made it>"},'
     '"statement":{"to":"<the houseguest id the player said it to>","about":"<the houseguest id it is about>","kind":"<the claim kind>","object":"<a second houseguest id, when the kind has one>"},'
     '"heardAboutMe":{"nature":"<targeting|betrayal>","by":"<the houseguest id who told the others>"},'
+    '"actor":"<the id of the houseguest who did the act to the player>",'
     '"consequence":{"edges":[{"toward":"<houseguest id>",'
     '"direction":"<one of: warmer, cooler, more-trust, less-trust, more-threatened, '
     'less-threatened, more-aligned, less-aligned>","emphasis":"<slight|notable|strong>"}],'
@@ -4139,7 +4149,7 @@ _SCENE_EXTRACT_INSTRUCTIONS = (
     '"about":"<a DIFFERENT third houseguest, never the player>",'
     '"direction":"<same 8 options as above>","emphasis":"<slight|notable|strong>"}],'
     '"rationale":"<why, grounded in the scene>"}}\n'
-    "Add `assurance` ONLY when someone made a cheap, explicit promise in the scene — 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal); `by` is 'player' when the player promised, else the id of the houseguest who promised the player. Never for hints, hopes or mere friendliness; otherwise omit it. Add `promise` ONLY when someone made an explicit promise about what they will or will not do on the board, in their own words in the scene. `what` names the promise kind and must be exactly a kind the engine judges: no-nominate (will not nominate them), no-evict-vote (will not vote them out), use-veto-on (will use the veto on them), not-use-veto-on (will not use the veto on them), final-two (will take them to the final two). `by` is 'player' when the player promised, else the id of the houseguest who promised the player; `subject` is the id of the houseguest it concerns, and is left out when it concerns the one spoken to. Never for hints, hopes, a threat or a mere wish, and never a promise about anything the board cannot test; otherwise omit it. Add `statement` ONLY when the PLAYER, in their own words in the scene, told a houseguest something about a third houseguest that is a checkable claim about the house. `kind` must be exactly one of these claim kinds: targets-you (the subject is targeting the one spoken to), voted-to-evict-you (the subject voted to evict the one spoken to), final-two-with (the subject has a final two with `object`), going-after (the subject is going after `object`), talking-about (the subject has been talking about `object` behind their back), lying-about (the subject is lying to `object`), voted-against (the subject voted to evict `object`), voted-to-keep (the subject voted to keep `object`). `to` is the houseguest the player said it to, `about` is the subject, and `object` is left out when the kind does not name a second houseguest. Never for the player's own opinions, guesses or jokes, and never when the kind does not fit; otherwise omit it. Add `heardAboutMe` ONLY when, in the scene, a houseguest TOLD the other houseguests present something about the player — that the player is gunning for them (targeting) or has betrayed someone (betrayal); `by` is the id of the houseguest who said it (never the player); otherwise omit it. Always set `feltMinutes` to how long the exchange plausibly took in the house — it is a note "
+    "Add `assurance` ONLY when someone made a cheap, explicit promise in the scene — 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal); `by` is 'player' when the player promised, else the id of the houseguest who promised the player. Never for hints, hopes or mere friendliness; otherwise omit it. Add `promise` ONLY when someone made an explicit promise about what they will or will not do on the board, in their own words in the scene. `what` names the promise kind and must be exactly a kind the engine judges: no-nominate (will not nominate them), no-evict-vote (will not vote them out), use-veto-on (will use the veto on them), not-use-veto-on (will not use the veto on them), final-two (will take them to the final two). `by` is 'player' when the player promised, else the id of the houseguest who promised the player; `subject` is the id of the houseguest it concerns, and is left out when it concerns the one spoken to. Never for hints, hopes, a threat or a mere wish, and never a promise about anything the board cannot test; otherwise omit it. Add `statement` ONLY when the PLAYER, in their own words in the scene, told a houseguest something about a third houseguest that is a checkable claim about the house. `kind` must be exactly one of these claim kinds: targets-you (the subject is targeting the one spoken to), voted-to-evict-you (the subject voted to evict the one spoken to), final-two-with (the subject has a final two with `object`), going-after (the subject is going after `object`), talking-about (the subject has been talking about `object` behind their back), lying-about (the subject is lying to `object`), voted-against (the subject voted to evict `object`), voted-to-keep (the subject voted to keep `object`). `to` is the houseguest the player said it to, `about` is the subject, and `object` is left out when the kind does not name a second houseguest. Never for the player's own opinions, guesses or jokes, and never when the kind does not fit; otherwise omit it. Add `heardAboutMe` ONLY when, in the scene, a houseguest TOLD the other houseguests present something about the player — that the player is gunning for them (targeting) or has betrayed someone (betrayal); `by` is the id of the houseguest who said it (never the player); otherwise omit it. Add `actor` ONLY when a houseguest, not the player, did the act that `kind` names to the player; its value is that houseguest's roster id and it must also be in `withIds`; when the player did it, or no one clearly did, omit it. Always set `feltMinutes` to how long the exchange plausibly took in the house — it is a note "
     "recorded with the scene (the in-game clock itself runs by message count), so a brief hallway word is ~15-30 "
     "and a long backyard strategy session is a couple of hours. Pick the kind matching the "
     "emotional/strategic direction. Add `consequence` ONLY when "
@@ -4394,6 +4404,7 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                 logger.info(f"[orwell] scene-check: trimmed the record, codes={_gate.codes}")
         assurance = _validate_assurance(obj.get("assurance"), ids)
         heard_about_me = _validate_heard_about_me(obj.get("heardAboutMe"), ids)
+        actor = _validate_actor(obj.get("actor"), ids)  # ORW-609: who acted (a houseguest in the scene), else the player
         promise = _validate_promise(obj.get("promise"), ids, valid)
         statement = _validate_statement(obj.get("statement"), ids, valid)
         # 0065 Part A: attach the CAS token + refresh last-seen from the response. A single stale 409
@@ -4419,7 +4430,7 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
             from src import fold_ledger as _fl
             _fl.stage_pending_fold(owner, session_id, content=content[:400], with_ids=ids,
                                    kind=kind, consequence=consequence, felt_minutes=felt_minutes,
-                                   idempotency_key=_scene_idem_key, assurance=assurance, heard_about_me=heard_about_me, promise=promise, statement=statement)
+                                   idempotency_key=_scene_idem_key, actor=actor, assurance=assurance, heard_about_me=heard_about_me, promise=promise, statement=statement)
             logger.info(f"[orwell] staged scene fold for deferred settle (kind={kind}, with={ids}, "
                         f"edges={n_edges}, aboutEdges={n_about}, feltMinutes={felt_minutes}) user={owner}")
         else:
@@ -4432,6 +4443,7 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                                         idempotency_key=_scene_idem_key,
                                         **({"assurance": assurance} if assurance else {}),
                                         **({"heard_about_me": heard_about_me} if heard_about_me else {}),
+                                        **({"initiator": actor} if actor else {}),
                                         **({"promise": promise} if promise else {}),
                                         **({"statement": statement} if statement else {})) is None:
                 return False
