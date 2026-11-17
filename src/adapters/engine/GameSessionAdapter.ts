@@ -1486,6 +1486,7 @@ export class GameSessionAdapter implements GameSession {
       trustOf: (listener, speaker) => this.rel.edge(listener, speaker).trust,
       credited: (listener, speaker) => this.reliabilityReader?.(listener).has(speaker) ?? false,
       ...(BELIEF_RULES.strength === "full" ? { credulity: (listener: EntityId) => this.credulityOf(listener) } : {}), // 0160
+      ...(this.credibilityEnabledNow() && live.playedGame === true ? { credibility: (listener: EntityId, speaker: EntityId) => this.credibilityOf(listener, speaker) } : {}), // ORW-587: played games only
     });
     if (told) this.catchContradiction(told);
     return told;
