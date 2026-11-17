@@ -39,7 +39,7 @@ export type ActionKind =
   // attack
   | "drive-a-wedge" | "frame" | "flip-a-vote" | "campaign-against" | "confront"
   // house life
-  | "gossip" | "cook" | "work-out" | "do-chores" | "nap" | "prank" | "comfort" | "chore-fight" | "homesick-talk" | "bed-talk" | "game-of-cards" | "sunbathe" | "tell-stories"
+  | "gossip" | "debrief" | "cook" | "work-out" | "do-chores" | "nap" | "prank" | "comfort" | "chore-fight" | "homesick-talk" | "bed-talk" | "game-of-cards" | "sunbathe" | "tell-stories"
   // romance
   | "flirt" | "cuddle"
   // alone
@@ -87,6 +87,8 @@ export const ACTIONS: Readonly<Record<ActionKind, ActionSpec>> = {
   "campaign-against": { family: "attack", partners: { min: 1, max: 2 }, fold: "strategy", speech: true },
   confront: { family: "attack", partners: { min: 1, max: 1 }, fold: "conflict", speech: true },
   gossip: { family: "house-life", partners: { min: 1, max: 2 }, fold: "gossip", speech: true },
+  // ORW-566 (spec 0183): a close pair's private debrief at their own spot after a ceremony. Folds like any bonding scene (same magnitude class), so it never distorts an edge.
+  debrief: { family: "house-life", partners: { min: 1, max: 1 }, fold: "bonding", speech: true },
   cook: { family: "house-life", partners: { min: 0, max: 3 }, fold: "bonding", speech: false, place: "kitchen" },
   "work-out": { family: "house-life", partners: { min: 0, max: 2 }, fold: "bonding", speech: false, place: "backyard" },
   "do-chores": { family: "house-life", partners: { min: 0, max: 2 }, fold: "bonding", speech: false, place: "kitchen" },
@@ -183,6 +185,8 @@ export interface HourView {
   rituals?: ReadonlyArray<{ timeOfDay: TimeOfDay; action: ActionKind; name: string }>;
   /** ORW-551 (spec 0168 slice 2): the season's house culture as multipliers on the baseline of gossip / conflict / flirting / lying. Absent = all exactly 1 = byte-identical. */
   culture?: HouseCulture;
+  /** ORW-566 (spec 0183): the close pairs this houseguest keeps a debrief spot with, ONLY in the hours after a ceremony (the caller builds it; absent = byte-identical). `key` is the pair's stable key. */
+  pairHabits?: ReadonlyArray<{ with: EntityId; room: Room; key: string }>;
 }
 
 export interface PlannedAction {
@@ -200,6 +204,8 @@ export interface PlannedAction {
   about?: EntityId;
   /** ORW-337: the name of the house ritual this action is (a PUBLIC name: the scene records it so the narrator may use it once the player has seen one). */
   ritual?: string;
+  /** ORW-566: the pair key of the private habit this scene is (engine-only; the caller stamps it on the event). */
+  habit?: string;
   /** ORW-324: the interaction type this action folds through (defaults to the action's own; pitching someone not yet an ally is strategy talk, not an alliance). */
   fold?: InteractionType;
 }
@@ -337,6 +343,13 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
 
   // House life: a showmance partner nearby, a habit for this time of day, a low mood, or whoever is around.
   if (v.showmance && pool.includes(v.showmance) && roll("romance") < HOUSE_LIFE.romanceChance * cFlirt) return finish({ kind: roll("cuddle") < 0.5 ? "flirt" : "cuddle", with: [v.showmance] });
+  // ORW-566 (spec 0183): a close pair keeps a private debrief at their own spot in the hours after a ceremony. Keyed roll only (no shared draw); the partner must ALREADY be at the spot (only the actor moves,
+  // review of #2850) or it falls through to ordinary life; the meetings dial scales how often.
+  if (v.pairHabits?.length) {
+    const mine = v.pairHabits.filter((h) => pool.includes(h.with) && roomOf(v, h.with) === h.room && !avoid.has(h.with)).sort((a, b) => a.key.localeCompare(b.key));
+    const h = mine.find((x) => agendaRoll(seed, v.owner, `habit-pair:${x.key}:d${v.day}h${v.hour}`) < HOUSE_LIFE.pairHabitPull * (cul?.meetings ?? 1));
+    if (h) return finish({ kind: "debrief", with: [h.with], place: h.room, habit: h.key });
+  }
   // ORW-337 (spec 0146 lane 2): a house ritual pulls anyone free into its action at its time of day, gathering them where it happens (the same shape as a habit), and the scene carries its name.
   // ORW-507 (#2611): ONE ritual per time of day is chosen first (the seeded-first match, so two rituals sharing a time never double the 0.3 pull), then rolled; a ritual with nobody to share it
   // (its action needs a partner, or it has none to record: a solo ritual leaves no event) falls through to ordinary life instead of silently eating the hour.
@@ -431,7 +444,7 @@ const VERB: Readonly<Record<ActionKind, string>> = {
   "count-votes": "counted votes with", "split-roles": "split up the plan with", "lobby-for": "lobbied", beg: "begged", bargain: "bargained with",
   "call-in-favor": "called in a favor with", "make-a-promise": "made a promise to", "lie-low": "laid low", "drive-a-wedge": "drove a wedge with",
   frame: "tried to frame someone to", "flip-a-vote": "worked to flip the vote of", "campaign-against": "campaigned to", confront: "confronted",
-  gossip: "gossiped with", cook: "cooked with", "work-out": "worked out with", "do-chores": "did chores with", nap: "napped", prank: "pranked", comfort: "comforted",
+  gossip: "gossiped with", debrief: "debriefed with", cook: "cooked with", "work-out": "worked out with", "do-chores": "did chores with", nap: "napped", prank: "pranked", comfort: "comforted",
   "chore-fight": "fought over chores with", "homesick-talk": "talked about home with", "bed-talk": "talked late in bed with",
   "game-of-cards": "played cards with", sunbathe: "sunbathed with", "tell-stories": "told stories with", flirt: "flirted with", cuddle: "cuddled with",
   mull: "mulled things over", "vent-in-diary-room": "vented in the Diary Room", "study-for-comps": "studied for comps", pray: "prayed",

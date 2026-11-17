@@ -148,6 +148,7 @@ module.exports = {
       "docs/features/0168-house-culture.feature",
       "docs/features/0160-belief-conviction.feature",
       "docs/features/0169-gossip-feeds-beliefs.feature",
+      "docs/features/0183-private-habits-and-group-identity.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },

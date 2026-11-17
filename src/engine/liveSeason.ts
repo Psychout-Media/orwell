@@ -609,6 +609,10 @@ export interface LiveSeasonState {
   npcMindsAuthored?: NpcMindsAuthored;
   /** ORW-551 / spec 0168: the season's house culture - a seeded blend of a few leans (ids + weights only). Vault-class, engine-only, write-once, drawn only in a played game (ORWELL_HOUSE_CULTURE). Nothing reads it in slice 1. */
   houseLeans?: import("./houseLeans").HouseLeans;
+  /** ORW-566 / spec 0183: the identity FLOOR of the house's private habits and alliance names (a pair key or an alliance id -> a name / spot / kind / since). Vault-class, engine-only, hidden, monotonic (write-once), persisted optional; never projected. */
+  groupIdentity?: import("./groupIdentity").GroupIdentityStore;
+  /** ORW-566: the absolute in-game hour the last ceremony beat (nominations, veto ceremony, eviction) resolved at; opens the after-ceremony debrief window. Played games only; absent otherwise. Engine-only. */
+  lastCeremonyAbsHour?: number;
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
   moodCauses?: Record<EntityId, MoodCause & { week: number }>;
   vetoField?: EntityId[];
