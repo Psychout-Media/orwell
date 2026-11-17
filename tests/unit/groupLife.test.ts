@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 import { AllianceStore } from "../../src/engine/alliances";
-import { GROUP_LIFE, assignRoles, innerCircle, purposeAt, cutOrderOf, agreedTarget, collision, type MemberRead } from "../../src/engine/groupLife";
+import { GROUP_LIFE, assignRoles, innerCircle, purposeAt, cutOrderOf, agreedTarget, collision, spyGap, spyTurn, bumpOnce, dominance, foldEvictions, threatenedBy, plannerOf, planClaim, type MemberRead } from "../../src/engine/groupLife";
 
 /** 0172 - the pure parts of group life, and the store's history extensions. Roles only (member, outsider). */
 const read = (id: string, o: Partial<MemberRead> = {}): MemberRead => ({ id, stats: { physical: 0.5, mental: 0.5, social: 0.5 }, inner: 0.5, weakest: 0.5, outside: 0.5, hub: false, broker: false, ...o });
@@ -119,7 +119,10 @@ describe("the live pass", () => {
     w.p.alliances.add("Mine", PLAYER, [PLAYER, w.ids[5]!, w.ids[6]!], 1);
     w.p.live.dayNumber = 3; w.p.groupLifeTick();
     const ids = Object.keys(w.p.live.groupLife as object);
-    expect(ids).toHaveLength(1);
+    expect(ids).toHaveLength(2); // the stock one, and the player's own: roles only, for its NPC members
+    const mine = (w.p.live.groupLife as Record<string, { roles: Record<string, string>; cutOrder?: unknown; agreed?: unknown }>)[w.p.alliances.all().find((a) => a.name === "Mine")!.id]!;
+    expect(Object.keys(mine.roles).sort()).toEqual([w.ids[5]!, w.ids[6]!].sort()); // the player is never dealt a role
+    expect(mine.cutOrder).toBeUndefined(); expect(mine.agreed).toBeUndefined();
     expect(w.p.alliances.all().find((a) => a.name === "Mine")!.members).toEqual([PLAYER, w.ids[5]!, w.ids[6]!]);
   });
   it("with the switch off, a pitch shows the live roster as before", () => {
@@ -129,5 +132,72 @@ describe("the live pass", () => {
     w.p.alliances.join(a.id, w.ids[6]!);
     expect(w.s.gameStatus().alliancePitches![0]!.members).toHaveLength(5);
     expect(GROUP_LIFE.cutDepth).toBeGreaterThan(0);
+  });
+});
+
+describe("a spy who turns loyal", () => {
+  const read = (gap: number, candor: number, cunning: number) => ({ gap, candor, cunning });
+  it("never turns while the bond to the one they work for is the stronger", () => {
+    expect(spyGap([0.4, 0.5], 0.6)).toBeLessThan(0);
+    for (const r of [0, 0.3, 0.99]) expect(spyTurn(read(-0.1, 1, 1), r, r)).toBe("stay");
+    expect(spyTurn(read(0, 1, 1), 0, 0)).toBe("stay");
+  });
+  it("turns on a roll that grows with the margin, and the margin is bounded", () => {
+    expect(spyTurn(read(0.1, 0.5, 0.5), 0.15, 0.99)).toBe("quiet");
+    expect(spyTurn(read(0.1, 0.5, 0.5), 0.25, 0.99)).toBe("stay");
+    expect(spyTurn(read(0.4, 0.5, 0.5), 0.45, 0.99)).toBe("quiet");
+    expect(spyTurn(read(5, 0.5, 0.5), 0.61, 0.99)).toBe("stay"); // never above turnMax
+  });
+  it("the candid confess, the cunning and less candid double-cross, the rest just stop", () => {
+    expect(spyTurn(read(0.5, 1, 0), 0, 0.1)).toBe("confess");
+    expect(spyTurn(read(0.5, 0, 1), 0, 0.1)).toBe("double-cross");
+    expect(spyTurn(read(0.5, 0, 0), 0, 0.1)).toBe("quiet");
+    expect(spyTurn(read(0.5, 0.2, 0.2), 0, 0.99)).toBe("quiet");
+  });
+});
+
+describe("the cut-order threat step is taken once per target", () => {
+  it("a flip-flop back to a target already weighed takes no second step", () => {
+    let b = bumpOnce(undefined, "x"); expect(b.bump).toBe(true);
+    b = bumpOnce(b.bumped, "y"); expect(b.bump).toBe(true);
+    b = bumpOnce(b.bumped, "x"); expect(b.bump).toBe(false);
+    expect(b.bumped).toEqual(["x", "y"]);
+  });
+});
+
+describe("one group dominates", () => {
+  it("by the crown, by a voting majority of those left, or by two evictions carried in a row", () => {
+    expect(dominance({ holdsCrown: true, members: 3, living: 12, won: [] })).toBe("crown");
+    expect(dominance({ holdsCrown: false, members: 5, living: 9, won: [] })).toBe("majority");
+    expect(dominance({ holdsCrown: false, members: 4, living: 8, won: [] })).toBeUndefined(); // exactly half is not a majority
+    expect(dominance({ holdsCrown: false, members: 3, living: 12, won: [false, true, true] })).toBe("streak");
+    expect(dominance({ holdsCrown: false, members: 3, living: 12, won: [true, false] })).toBeUndefined();
+    expect(dominance({ holdsCrown: false, members: 3, living: 12, won: [true] })).toBeUndefined();
+  });
+  it("an eviction counts as carried when it was the group's agreed target; the last two are kept", () => {
+    let f = foldEvictions(2, [], ["a", "b", "x"], "x"); expect(f).toEqual({ seen: 3, won: [true] });
+    f = foldEvictions(f.seen, f.won, ["a", "b", "x", "y", "z"], "q"); expect(f).toEqual({ seen: 5, won: [false, false] });
+    expect(foldEvictions(1, [], ["a"], "x")).toEqual({ seen: 1, won: [] });
+  });
+  it("those who feel threatened are the ones whose own read of the group is high, the most threatened first", () => {
+    expect(threatenedBy([{ id: "a", threat: 0.1 }, { id: "c", threat: 0.5 }, { id: "b", threat: 0.5 }, { id: "d", threat: 0.9 }])).toEqual(["d", "b", "c"]);
+  });
+});
+
+describe("a plan told as a claim", () => {
+  const orders = { l: ["x", "y"], m: ["x", "z"], n: ["q", "x"] };
+  const roles = { l: "leader", m: "glue", n: "swing" } as const;
+  it("the planner is the leader when their own first cut is the target, else the member whose first cut it is", () => {
+    expect(plannerOf("x", orders, roles, ["l", "m", "n"])).toBe("l");
+    expect(plannerOf("x", orders, roles, ["l", "m", "n"], ["l"])).toBe("m");
+    expect(plannerOf("q", orders, roles, ["l", "m", "n"])).toBe("n");
+    expect(plannerOf("zz", orders, roles, ["l", "m", "n"])).toBe("l");
+  });
+  it("one claim: targets-you for the target, going-after for anyone else; true only for the agreed target; mislead when lying", () => {
+    expect(planClaim({ speaker: "s", listener: "x", planner: "l", told: "x", agreed: "x", mislead: false })).toEqual({ speaker: "s", listener: "x", kind: "targets-you", subject: "l", isTrue: true, intent: "inform" });
+    expect(planClaim({ speaker: "s", listener: "p", planner: "l", told: "x", agreed: "x", mislead: false })).toEqual({ speaker: "s", listener: "p", kind: "going-after", subject: "l", object: "x", isTrue: true, intent: "inform" });
+    expect(planClaim({ speaker: "s", listener: "p", planner: "l", told: "w", agreed: "x", mislead: true })).toMatchObject({ kind: "going-after", object: "w", isTrue: false, intent: "mislead" });
+    expect(planClaim({ speaker: "s", listener: "p", planner: undefined, told: "x", agreed: "x", mislead: false })).toBeUndefined();
+    expect(planClaim({ speaker: "s", listener: "l", planner: "l", told: "x", agreed: "x", mislead: false })).toBeUndefined();
   });
 });
