@@ -4776,7 +4776,7 @@ export class GameSessionAdapter implements GameSession {
       const reaction = crowdFor(a.live, last.evictee);
       a.crowd.push({ week: last.week, evictee: last.evictee, reaction });
       const WORDS: Readonly<Record<CrowdReaction, string>> = { cheers: "to cheers from the crowd outside", mixed: "to a mixed reaction from the crowd outside", boos: "to boos from the crowd outside", silence: "to near silence from the crowd outside" };
-      this.onPlayerEvent?.(`${this.nameOf(last.evictee)} walks out ${WORDS[reaction]}`, [...new Set([last.evictee, ...this.livingIds()])], "house-event");
+      this.onPlayerEvent?.(`${this.nameOf(last.evictee)} walks out ${WORDS[reaction]}`, this.livingIds(), "house-event"); // the HOUSE hears the crowd (never the evictee: a juror is sequestered from the house, 0129)
     }
     // (4) a fan reward in its weeks: the public's favorite still in the house
     if (AUDIENCE.perkWeeks.includes(s.week) && !a.perks.some((p) => p.week === s.week)) {
