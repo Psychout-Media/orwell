@@ -74,8 +74,9 @@ export function canaryReturned(trap: Pick<Trap, "setter" | "suspect" | "subject"
 export const OVERHEAR_PLANT = {
   /** The chance one awake bystander in the room catches a plant. */
   chance: 0.35,
-  /** How sure an overhearing houseguest is that the planter is talking behind the target's back. */
-  confidence: 0.6,
+  /** How sure an overhearing houseguest is that the planter is talking behind the target's back: they heard it with their own ears, so it is a fact to them (at or
+   *  above 0160's `asFact`), not a doubt to go asking around about (which would add the gossip scenes a doubt drives). */
+  confidence: 0.75,
 } as const;
 
 /** Who in the room overhears the plant: awake bystanders (never the two speaking) whose own roll lands. Sorted, deterministic in the rolls. */
