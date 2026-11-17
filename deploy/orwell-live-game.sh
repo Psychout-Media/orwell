@@ -256,7 +256,7 @@ update_force_flag_clear() {
 }
 
 # Write/refresh the visible status in the ROOT-owned run dir (atomic; temp file beside the target in that
-# same root-owned dir, O_EXCL via mktemp, then mv -fT; no chmod after creation).
+# same root-owned dir, O_EXCL via mktemp, chmod 644 so a non-root doctor --status can read it, then mv -fT).
 # $1 reason  $2 since(iso)  $3 give-up-by(iso)  $4 give-up-by(epoch)  $5 run token the waiter started under (ownership: only that waiter clears it)
 update_defer_write_status() {
   local dir="$ORWELL_RUN_DIR" reason="$1" since="$2" until_="$3" until_epoch="$4" seq="${5:-}" tmp
@@ -272,6 +272,9 @@ update_defer_write_status() {
     printf 'run_seq=%s\n' "$seq"
     printf 'override=orwell-update.sh --force  (or ORWELL_UPDATE_FORCE=1)\n'
   } > "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
+  # ORW-486: mktemp makes it 0600; the doctor (--status) is run by non-root operators too and must read the
+  # reason and proceeds-by time. The content is Vault-free status text and the dir is root-owned (only root can replace it).
+  chmod 644 "$tmp" 2>/dev/null || { rm -f "$tmp"; return 0; }
   mv -fT "$tmp" "${dir}/update-deferred" 2>/dev/null || rm -f "$tmp"
   return 0
 }
@@ -368,7 +371,7 @@ update_wait_for_idle_game() {
         esac
         return 0 ;;
     esac
-    msg="Update deferred: a game is live (last player message ${idle}s ago; waiting for ${thr} min idle). Runs by ${until_} at the latest, or force it from the admin page."
+    msg="Update deferred: a game is live (last player message ${idle}s ago; waiting for ${thr} min idle). Runs by ${until_} at the latest, or force it now: bash orwell-update.sh --force."
     UPDATE_WAIT_DEFERRED=1   # this run really waited (the updater re-checks under the lock only for a run that did)
     update_defer_write_status "live game: last player message ${idle}s ago (< ${thr} min idle needed)" "$since" "$until_" "$((start + max * 60))" "$my_seq"
     type update_defer_notify >/dev/null 2>&1 && update_defer_notify "$msg"
