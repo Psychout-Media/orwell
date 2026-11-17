@@ -12597,6 +12597,7 @@ export class GameSessionAdapter implements GameSession {
         ...(houseCulture ? { culture: houseCulture } : {}),
         ...(habitsOf.get(id) ? { pairHabits: habitsOf.get(id)! } : {}),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),
+        ...(this.bondFeelingsOn() ? { rivalry: this.rivalryStrandsOf(id, [...others, ...(playerRoom !== undefined ? [house.player.id] : [])]) } : {}), // ORW-622: a grudge rubs at dinner
       }, seed));
     }
     // They walk there on purpose (one hour is enough to cross the house): both presence views, so the society and the map agree.
@@ -13285,6 +13286,11 @@ export class GameSessionAdapter implements GameSession {
    */
   private bondFeelingsEnabled = flagDefaultOn("ORWELL_BOND_FEELINGS");
   setBondFeelingsEnabled(on: boolean): void { this.bondFeelingsEnabled = on; }
+  /** ORW-622: the holder's grudge strand toward each of these houseguests (only those with one), from the bond record. */
+  private rivalryStrandsOf(holder: EntityId, others: readonly EntityId[]): ReadonlyMap<EntityId, number> {
+    const reader = this.bondReader();
+    return new Map(others.map((o) => [o, reader.bond(holder, o).strands.rivalry ?? 0] as const).filter(([, v]) => v > 0));
+  }
   private bondFeelingsOn(): boolean { return this.bondFeelingsEnabled && this.live?.playedGame === true && this.bondRecordEnabled; }
 
   /** The signed provider value for a vote or a nomination: how much `holder`'s real feeling for `other` keeps them (0 for the player: their own choices are theirs). */

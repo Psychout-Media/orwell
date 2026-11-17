@@ -160,6 +160,8 @@ export interface HourView {
   whereabouts: ReadonlyMap<EntityId, Room>;
   /** The holder's affinity and threat reads (0..1). */
   affinity: ReadonlyMap<EntityId, number>;
+  /** ORW-622 (mixed relationships): the holder's grudge strand toward each houseguest (0..1), from the bond record. Rubs at dinner even when they are warm. Absent = byte-identical. */
+  rivalry?: ReadonlyMap<EntityId, number>;
   threat: ReadonlyMap<EntityId, number>;
   /** Alliance mates now. */
   mates: readonly EntityId[];
@@ -391,7 +393,7 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
       const mate = v.bedPartner && roomies.includes(v.bedPartner) && roll("bedmate") < HOUSE_LIFE.bedPartnerPull
         ? v.bedPartner
         : byScore(roomies, (p) => (v.affinity.get(p) ?? 0.4) + roll(`roomie:${p}`) * 0.3)[0]!;
-      const sore = Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(mate) ?? 0.4)) / HOUSE_LIFE.frictionAffinity;
+      const sore = Math.max(Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(mate) ?? 0.4)) / HOUSE_LIFE.frictionAffinity, v.rivalry?.get(mate) ?? 0); // ORW-622: a grudge strand rubs too
       const rub = sore > 0 && roll("roomie-friction") < HOUSE_LIFE.frictionChance * cConflict * (0.5 + sore) * (0.5 + temperOf(v.character)) * (1 + Math.max(0, 0.5 - v.emotional) * 2);
       return finish({ kind: rub ? "chore-fight" : v.timeOfDay === "late-night" || roll("roomie-talk") < 0.7 ? "bed-talk" : "homesick-talk", with: [mate], place: v.bedroom });
     }
@@ -399,7 +401,8 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   const partner = byScore(here, (p) => (v.affinity.get(p) ?? 0.4) + roll(`who:${p}`) * 0.3 + (v.kindred?.has(p) ? TERRITORY.PARTNER_PULL : 0))[0]; // ORW-561: a mild pull toward people who share your top room (no extra draw)
   if (!partner) return finish({ kind: v.timeOfDay === "late-night" || v.timeOfDay === "night" ? "mull" : "nap", with: [], ...(v.bedroom && v.timeOfDay !== "late-night" && v.timeOfDay !== "night" ? { place: v.bedroom } : {}) });
   // ORW-324: friction is not only between enemies. Mild dislike plus a short temper or a bad mood is enough for a chore fight.
-  const dislike = Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(partner) ?? 0.4)) / HOUSE_LIFE.frictionAffinity;
+  // ORW-622: a grudge strand rubs at dinner even with someone they are warm toward (a pact can still protect them at the vote).
+  const dislike = Math.max(Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(partner) ?? 0.4)) / HOUSE_LIFE.frictionAffinity, v.rivalry?.get(partner) ?? 0);
   const friction = dislike > 0 && roll("friction") < HOUSE_LIFE.frictionChance * cConflict * (0.5 + dislike) * (0.5 + temperOf(v.character)) * (1 + Math.max(0, 0.5 - v.emotional) * 2);
   // ORW-324: talking about whoever isn't in the room is half of Big Brother downtime (the house's ordinary gossip, not a scheme).
   const absent = [...v.threat.keys()].filter((p) => p !== partner && roomOf(v, p) !== v.room).sort((a, b) => (v.threat.get(b) ?? 0) - (v.threat.get(a) ?? 0) || a.localeCompare(b));
