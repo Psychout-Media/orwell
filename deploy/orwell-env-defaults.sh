@@ -212,6 +212,8 @@ ORWELL_HOUSE_CULTURE=1
 ORWELL_HOMOPHILY=1
 ORWELL_TERRITORY=1
 ORWELL_MOOD_CONTAGION=1
+#   ORWELL_BOND_FEELINGS        0181 / ORW-568 slice 4 (part 1): a real feeling for someone holds a houseguest back from cutting them (bounded vote / nomination / alliance-break term) and shakes them after they do (the existing mood, scaled; needs ORWELL_BOND_RECORD; a played game only). ON 2026-11-17.
+ORWELL_BOND_FEELINGS=1
 ORWELL_DISCLOSURE_ENGINE=1
 ORWELL_DRIVE_DECISIONS=1
 ORWELL_LIES_CAUGHT=1
