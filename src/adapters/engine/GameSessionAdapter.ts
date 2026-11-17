@@ -5724,12 +5724,13 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
-   * 0182 (Fable review): a grudge from a broken deal counts only for a holder who COULD KNOW of the break: a party to the deal who is still in the house (an evicted houseguest cannot learn of a later
-   * break: the jury house is sequestered). The ledger carries no break week or "who learned" field yet, so this is the party and still-present check; when the Auditor's `DealLedger.learnOfBreak`
-   * (ORW-597) lands, replace the body with that call and nothing else changes.
+   * 0182 (Fable review) + ORW-597: a grudge from a broken deal counts only for a holder who COULD KNOW of the break. A party to the deal who LEARNED of it (`DealLedger.learnOfBreak` sets `learned`: the breaker's
+   * own public act against them, or catching the lie) holds it for good, even once evicted (a juror keeps it). A deal with no learned mark (an older save) counts only for a party still in the house, since an
+   * evicted houseguest cannot learn of a later break (the jury house is sequestered).
    */
-  private holderKnowsOfBreak(holder: EntityId, d: { parties: readonly [EntityId, EntityId] }): boolean {
-    return d.parties.includes(holder) && !(this.live?.evictionOrder ?? []).includes(holder);
+  private holderKnowsOfBreak(holder: EntityId, d: { parties: readonly [EntityId, EntityId]; learned?: boolean }): boolean {
+    if (!d.parties.includes(holder)) return false;
+    return d.learned === true || !(this.live?.evictionOrder ?? []).includes(holder);
   }
 
   /** 0182 PR 2: whether `holder` is a grudge-keeper toward `subject` (the same read `grudgeOf` uses). */
