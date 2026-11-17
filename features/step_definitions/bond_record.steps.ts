@@ -87,10 +87,21 @@ Then("the strain has eased more than the grudge, and the worst of the grudge is 
   assert.ok((seam(this).live.bonds?.[`${b.a}|${b.b}`]?.peakResentment ?? 0) >= b.grudge!, "the worst of the grudge was forgotten");
 });
 
-When("one houseguest breaks a deal with another", function () {
+When("one houseguest quietly breaks a deal with another", function () {
   const b = bag(this);
   const d = seam(this).deals.make([b.a!, b.b!], "safety", "you are safe with me", undefined, seam(this).live.week);
   assert.ok(seam(this).deals.breakDeliberately(d, b.a!), "the deal was not broken");
+});
+
+Then("the one wronged holds no grudge yet, because they do not know", function () {
+  const b = bag(this);
+  assert.equal(session(this).bondReader().bond(b.b!, b.a!).resentment, 0, "the wronged side reacted to a break they never learned of (ORW-597)");
+});
+
+When("the breaker then nominates them", function () {
+  const b = bag(this);
+  const others = session(this).livingIds().filter((id) => id !== PLAYER && id !== b.a && id !== b.b);
+  (seam(this).deals as unknown as { reconcile(a: { actor: string; kind: string; targets: string[] }, sink?: unknown): unknown }).reconcile({ actor: b.a!, kind: "nominate", targets: [b.b!, others[0]!] });
 });
 
 Then("the one wronged holds a grudge toward the breaker", function () {

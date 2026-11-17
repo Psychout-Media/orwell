@@ -5543,6 +5543,29 @@ export class GameSessionAdapter implements GameSession {
   /** Theme 3 slice 3 (Overseer B): the favor ledger as a second source of a bond's debt (signed like BondView.debt). Absent => the record's own debt only. */
   private favorDebt?: DebtSource;
   setFavorDebtSource(fn: DebtSource | undefined): void { this.favorDebt = fn; }
+  /**
+   * ORW-597: overnight, a wronged party who has come to hold that the breaker LIED to them (a caught lie, a told "they lied to you") learns of a quiet break with
+   * that breaker, and only then reacts (`DealLedger.learnOfBreak`). What they hold, never the truth. A side-stream rng only for the shock's own jitter.
+   */
+  private learnBreaksOvernight(): void {
+    const s = this.live;
+    if (!s || !s.beliefs) return;
+    const seed = this.gameSeed ?? 0;
+    for (const deal of this.deals.all) {
+      if (deal.status !== "broken" || deal.learned !== false || deal.secretVote || !deal.brokenBy) continue;
+      const breaker = deal.brokenBy;
+      const wronged = deal.parties.find((p) => p !== breaker);
+      if (!wronged) continue;
+      const caught = (s.beliefs[wronged] ?? []).some((b) => b.value && !b.refuted && b.subject === breaker
+        && (b.kind === "lied-to-me" || (b.kind === "heard-rumor" && b.nature === "lying" && b.object === wronged)));
+      if (!caught) continue;
+      this.deals.learnOfBreak(deal as Deal, {
+        rel: this.rel, rng: new SeededRandom(hashSeed(`${seed}:learn-break:${deal.id}`)), currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
+        juryDemerit: (w, b) => recordDealBetrayal(s, w, b),
+        revealToWitness: (witness, b) => { this.onPlayerEvent?.(`${this.nameOf(b)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
+      });
+    }
+  }
   /** 0175: the bond record (`ORWELL_BOND_RECORD`, default ON; `=0` = the edge-only reader and no record kept). Nothing decides from it yet, so it moves no outcome. */
   private bondRecordEnabled = flagDefaultOn("ORWELL_BOND_RECORD");
   setBondRecordEnabled(on: boolean): void { this.bondRecordEnabled = on; }
@@ -5568,7 +5591,8 @@ export class GameSessionAdapter implements GameSession {
     const open = new Map<string, string[]>();
     for (const d of this.deals.all) {
       const [a, b] = d.parties;
-      if (d.status === "broken" && d.brokenBy && mark(`broken:${d.id}`)) foldBreak(store, d.brokenBy, d.brokenBy === a ? b : a);
+      // ORW-597: a break reaches the bond only once the wronged side has learned of it, and a sealed ballot never names its breaker.
+      if (d.status === "broken" && d.brokenBy && (d.learned === true || (d.learned === undefined && !d.sealedBallot)) && mark(`broken:${d.id}`)) foldBreak(store, d.brokenBy, d.brokenBy === a ? b : a);
       else if (d.status === "kept" && mark(`kept:${d.id}`)) foldKept(store, a, b);
       else if (d.status === "open") for (const [x, y] of [[a, b], [b, a]] as const) (open.get(bondKey(x, y)) ?? open.set(bondKey(x, y), []).get(bondKey(x, y))!).push(d.kind);
     }
@@ -5609,7 +5633,7 @@ export class GameSessionAdapter implements GameSession {
       }
     }
     for (const d of this.deals.all) {
-      if (d.status !== "broken" || !d.brokenBy) continue;
+      if (d.status !== "broken" || !d.brokenBy || !(d.learned === true || (d.learned === undefined && !d.sealedBallot))) continue; // ORW-597: no grudge before they learn of it; never against a secret voter
       const [a, b] = d.parties;
       note(`d:${d.id}`, d.brokenBy === a ? b : a, d.brokenBy, "deal-broken", GRUDGES.DEAL_BREAK_SEVERITY, live.week);
     }
@@ -10481,6 +10505,7 @@ export class GameSessionAdapter implements GameSession {
       for (let i = 0; i < steps; i++) evolveEmotion(hg.soul, "calm", undefined, undefined, { soulDepth: this.soulDepthEnabled });
     }
     this.mullAgendasOvernight(); // ORW-312: asleep, each houseguest's goals fade without progress (inner processing only: no scheming, no rng)
+    this.learnBreaksOvernight(); // ORW-597: a quiet break reaches the wronged side once they have caught the breaker lying to them
     this.foldBonds(); // 0175: the day's shared moments, deals and saves into the bond record (no rng)
     this.issueNameTickets(); // ORW-566 part c2: tonight's fixed-size batch of sealed naming prompts (keyed hashing, no rng)
     this.feelingsTick(); // ORW-568 / 0181 part 2: jealousy follows the night's favour (no rng, no text)
@@ -16091,6 +16116,8 @@ export class GameSessionAdapter implements GameSession {
             : deal.status === "broken" ? "carried-out" : "kept-anyway";
           continue;
         }
+        const partner = deal.parties.find((p) => p !== holder);
+        if (partner !== undefined && gone.has(partner)) { plan.outcome = "overtaken"; continue; } // ORW-597: never against an evicted partner (nothing to betray in the house)
         if (plan.kind === "keep" || plan.kind === "flip" || gone.has(holder)) continue; // a flip is carried out by the vote itself
         const due = plan.kind === "cut-final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
         if (!due) continue;
