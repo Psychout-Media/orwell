@@ -49,7 +49,8 @@ import {
   selectNemesis, NEMESIS, NO_NEMESIS,
   type Campaign, type CampaignActor, type Influence, type Drive, type NemesisTrack, type NemesisCandidate,
 } from "../../engine/campaigns";
-import { whisperConspicuousPairings } from "../../engine/houseSuspicion";
+import { whisperConspicuousPairings, whisperHabitSighting, type HabitSighting } from "../../engine/houseSuspicion";
+import { pairKey, isClosePair, inDebriefWindow, habitRoom, nicknameOf, allianceNameFromHouse, noteIdentity, type PairCloseness } from "../../engine/groupIdentity";
 import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/juryHouse";
 import { JURY_HOUSE } from "../../engine/juryHouseConstants";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
@@ -1675,6 +1676,11 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-551 / spec 0168 (slice 1): draw the season's house culture when a person starts playing. Nothing reads it yet (no dial moves). `ORWELL_HOUSE_CULTURE=0` opts out. */
   private houseCultureEnabled = flagDefaultOn("ORWELL_HOUSE_CULTURE");
   setHouseCultureEnabled(on: boolean): void { this.houseCultureEnabled = on; }
+  /** ORW-566 / spec 0183 (Theme 3 slice 7, parts a-b): close pairs keep a private debrief spot after ceremonies, alliances are named from the house's own words, a third houseguest who sees a habit starts to suspect the pair. `ORWELL_GROUP_IDENTITY=0` is the kill switch. Played games only. */
+  private groupIdentityEnabled = flagDefaultOn("ORWELL_GROUP_IDENTITY");
+  setGroupIdentityEnabled(on: boolean): void { this.groupIdentityEnabled = on; }
+  /** Habit scenes seen from a public spot this tick, waiting for the calm off-screen tick's whisper (memory-only). */
+  private habitSightings: HabitSighting[] = [];
   /** ORW-551 (spec 0168 slice 3): the live culture's multiplier on one house dial, read at the CALL SITE from live state. EXACTLY 1 with the flag off, no live game, or no culture (headless games, old saves) so every consumer stays byte-identical. Engine-only: never projected. */
   private cultureMult(dial: DialId): number { return dialMult(this.houseCultureEnabled ? this.live?.houseLeans : undefined, dial); }
   setHouseMeetingsEnabled(on: boolean): void { this.houseMeetingsEnabled = on; }
@@ -7178,6 +7184,8 @@ export class GameSessionAdapter implements GameSession {
    */
   whisperPairings(knowledge: KnowledgeService): void {
     this.npcCallsHouseMeeting();
+    this.whisperHabits(knowledge); // ORW-566 (spec 0183 part b): own stream, empty unless a habit was seen
+
     if (!this.house || !this.presence) return;
     const player = this.house.player.id;
     const evicted = new Set(this.live?.evictionOrder ?? []);
@@ -11277,6 +11285,27 @@ export class GameSessionAdapter implements GameSession {
     return changed;
   }
 
+  /**
+   * ORW-566 / spec 0183 (the identity FLOOR): in a played game an NPC alliance is named from the house's OWN authored words - the nickname of the room its founder stands in, else a ritual name, else the head words of the running joke.
+   * `today` (the stock pick, already drawn so the shared stream is untouched) stands whenever the house has authored nothing usable, the flag is off, or nobody is playing. Alliances.ts's own name table is not touched here.
+   */
+  private houseAllianceName(today: string, founder: EntityId): string {
+    const s = this.live;
+    if (!this.groupIdentityEnabled || !s || s.playedGame !== true) return today;
+    const taken = new Set(this.alliances.all().map((a) => a.name));
+    const own = allianceNameFromHouse(this.gameSeed ?? 0, `${founder}:${taken.size}`, s.npcMindsAuthored?.culture, this.presence?.get(founder), taken);
+    return own?.name ?? today;
+  }
+  /** ORW-566: store the alliance's name in the house's words, write-once (hidden, engine-only). Only when the name came from the house, i.e. it differs from the stock pick that was drawn. */
+  private noteAllianceIdentity(id: string, name: string, founder: EntityId): void {
+    const s = this.live;
+    if (!this.groupIdentityEnabled || !s || s.playedGame !== true || !s.npcMindsAuthored?.culture) return;
+    const culture = s.npcMindsAuthored.culture;
+    const spot = nicknameOf(culture, this.presence?.get(founder));
+    if (culture.spots.some((x) => x.nickname === name) || culture.rituals.some((r) => r.name === name) || (culture.runningJoke ?? "").startsWith(name)) {
+      noteIdentity((s.groupIdentity ??= {}), id, { kind: "alliance", name, ...(spot === name ? { spot } : {}), since: this.inGameAbsHour() ?? 0 });
+    }
+  }
   private formNpcAlliances(rng: SeededRandom): void {
     const beat = this.beatSeqNow();
     this.alliances.stamp(beat, this.live?.dayNumber ?? this.live?.week);
@@ -11307,8 +11336,9 @@ export class GameSessionAdapter implements GameSession {
       if (willing.length < 2) continue; // nobody bonded enough — no alliance this tick
       if (!holds([founder, ...willing])) continue; // ORW-353: not hollow: the same cohesion that would fade it must clear the floor at the start
       if (this.alliances.all().some((a) => sameMembers(a.members, willing))) continue; // dedup
-      const name = pickAllianceName(rng, new Set(this.alliances.all().map((a) => a.name)), new Set(this.worldAvoid.allianceNames ?? []));
+      const name = this.houseAllianceName(pickAllianceName(rng, new Set(this.alliances.all().map((a) => a.name)), new Set(this.worldAvoid.allianceNames ?? [])), founder);
       const a = this.alliances.add(name, founder, willing, beat);
+      this.noteAllianceIdentity(a.id, a.name, founder);
       // Pitch the player: a founder bonded enough reveals the alliance so the player can accept it.
       if (mutual(founder, PLAYER) >= ALLIANCE.pitchPlayerFloor) this.alliances.reveal(a.id, PLAYER);
       this.flushAllianceEvents(); // after the player pitch above, so a pitched player is told
@@ -11336,7 +11366,8 @@ export class GameSessionAdapter implements GameSession {
           const rest = npcs.filter((m) => m !== holder && m !== target).sort((a, b) => mutual(holder, b) - mutual(holder, a) || a.localeCompare(b)).slice(0, maxSize - 2);
           const willing = willingMembers(holder, [target, ...rest], bond, npcFloor);
           if (!willing.includes(target) || !holds([holder, ...willing]) || this.alliances.all().some((a) => sameMembers(a.members, willing))) continue;
-          this.alliances.add(pickAllianceName(rng, new Set(this.alliances.all().map((a) => a.name)), new Set(this.worldAvoid.allianceNames ?? [])), holder, willing, beat);
+          const named = this.alliances.add(this.houseAllianceName(pickAllianceName(rng, new Set(this.alliances.all().map((a) => a.name)), new Set(this.worldAvoid.allianceNames ?? [])), holder), holder, willing, beat);
+          this.noteAllianceIdentity(named.id, named.name, holder);
         }
         this.flushAllianceEvents();
         this.agendaRecheck("alliance-changed");
@@ -11917,6 +11948,58 @@ export class GameSessionAdapter implements GameSession {
     const s = this.seededRels.showmances.find((x) => x.stage !== "resolved" && (x.a === id || x.b === id) && !evicted.has(x.a) && !evicted.has(x.b));
     return s ? (s.a === id ? s.b : s.a) : undefined;
   }
+  /**
+   * ORW-566 / spec 0183: the close pairs' debrief spots for THIS stretch, per houseguest (`HourView.pairHabits`). Empty unless the flag is on, a person is playing, and the in-game hour is inside the window after a ceremony.
+   * Close = they share an alliance, or their weaker-direction bond clears the habit bar (`PairCloseness` below is the one seam to swap for the shared bond reader). Engine-only; never projected.
+   */
+  private pairHabitsFor(actors: readonly EntityId[], seed: number, loyaltyMult: number): Map<EntityId, Array<{ with: EntityId; room: Room; key: string }>> {
+    const out = new Map<EntityId, Array<{ with: EntityId; room: Room; key: string }>>();
+    const s = this.live;
+    const now = this.inGameAbsHour();
+    if (!this.groupIdentityEnabled || !s || s.playedGame !== true || now === undefined || !inDebriefWindow(now, s.lastCeremonyAbsHour)) return out;
+    const bonds: PairCloseness = {
+      allied: (a, b) => this.alliances.shared(a, b).length > 0,
+      mutual: (a, b) => Math.min((this.rel.edge(a, b).trust + this.rel.edge(a, b).affinity) / 2, (this.rel.edge(b, a).trust + this.rel.edge(b, a).affinity) / 2),
+    };
+    const culture = s.npcMindsAuthored?.culture;
+    const sorted = [...actors].sort();
+    for (let i = 0; i < sorted.length; i++) {
+      for (let j = i + 1; j < sorted.length; j++) {
+        const a = sorted[i]!, b = sorted[j]!;
+        if (!isClosePair(bonds, a, b, loyaltyMult)) continue;
+        const key = pairKey(a, b), room = habitRoom(seed, key, culture);
+        for (const [x, y] of [[a, b], [b, a]] as const) (out.get(x) ?? out.set(x, []).get(x)!).push({ with: y, room, key });
+      }
+    }
+    return out;
+  }
+  /** ORW-566: a habit scene happened - store the pair's identity floor (write-once: the spot in the house's own words, else the plain room reference) and queue the sighting for the whisper. */
+  private noteHabitScene(p: PlannedAction, event: GameEvent): void {
+    const s = this.live;
+    if (!s || !p.habit) return;
+    const culture = s.npcMindsAuthored?.culture;
+    noteIdentity((s.groupIdentity ??= {}), p.habit, { kind: "debrief", spot: nicknameOf(culture, p.place) ?? this.roomRefOf(p.place), since: this.inGameAbsHour() ?? 0 });
+    const seen = event.houseLife?.seenBy ?? [];
+    const pair = [p.actor, ...p.with].slice(0, 2);
+    if (seen.length > 0 && pair.length === 2 && !isPrivateRoom(p.place)) this.habitSightings.push({ pair: [pair[0]!, pair[1]!], room: p.place, onlookers: seen });
+  }
+  /** ORW-566 (part b): the calm off-screen tick whispers about the first witnessed habit - position only, never what was said - on its own keyed stream (never the shared one). */
+  private whisperHabits(knowledge: KnowledgeService): void {
+    const sightings = this.habitSightings;
+    this.habitSightings = [];
+    if (!this.groupIdentityEnabled || sightings.length === 0 || !this.house || !this.presence || this.live?.playedGame !== true) return;
+    const player = this.house.player.id;
+    const evicted = new Set(this.live?.evictionOrder ?? []);
+    const awake = this.awakeNow();
+    const npcs = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
+    const rng = new SeededRandom(hashSeed(`house-habit:${this.gameSeed ?? ""}:${this.presenceTickCount}`));
+    const pick = sightings[rng.int(sightings.length)]!;
+    whisperHabitSighting({
+      occupancy: this.presence, tenureOf: (id) => this.presenceTenure?.get(id) ?? 0, npcs, player,
+      affinity: (a, b) => this.rel.edge(a, b).affinity, nameOf: (id) => this.nameOf(id), roomRef: (r) => this.roomRefOf(r), knowledge, rng,
+      ...(this.napAsleep ? { playerAsleep: true } : {}),
+    }, pick);
+  }
   /** ORW-466 slice 4: the bed facts a houseguest's hour reads - their sleep room, their AWAKE roommates among this stretch's actors, the one sharing their double. Empty without beds. */
   private roommateView(beds: BedsState | undefined, id: EntityId, inHouse: ReadonlySet<EntityId>, awake: ReadonlyMap<EntityId, Room>): { bedroom?: Room; roommates?: EntityId[]; bedPartner?: EntityId } {
     if (!beds) return {};
@@ -11950,7 +12033,9 @@ export class GameSessionAdapter implements GameSession {
     const bedsNow = s.beds; // ORW-466: a played game's beds (absent elsewhere: no change)
     const inHouse = new Set(this.livingIds());
     const lns = this.houseCultureEnabled ? this.live?.houseLeans : undefined; // ORW-551 (spec 0168 slice 2): the culture's baseline multipliers; undefined = byte-identical
-    const houseCulture = lns ? { gossip: dialMult(lns, "gossip"), conflict: dialMult(lns, "conflict"), flirting: dialMult(lns, "flirting"), lying: dialMult(lns, "lying") } : undefined;
+    const houseCulture = lns ? { gossip: dialMult(lns, "gossip"), conflict: dialMult(lns, "conflict"), flirting: dialMult(lns, "flirting"), lying: dialMult(lns, "lying"), meetings: dialMult(lns, "meetings") } : undefined;
+    // ORW-566 (spec 0183): in the hours after a ceremony, each close pair has a habit spot of their own; built once per stretch, absent outside the window (a habit-free view plans byte-identically).
+    const habitsOf = this.pairHabitsFor(actors, seed, dialMult(lns, "loyalty"));
     // ORW-561 (spec 0176 part 2): the people who share a holder's top room pull a little in partner choice (read from tenure as of the start of the hour).
     const kindredCache = new Map<EntityId, ReadonlySet<EntityId> | undefined>();
     const kindredOf = (id: EntityId): ReadonlySet<EntityId> | undefined => {
@@ -11978,6 +12063,7 @@ export class GameSessionAdapter implements GameSession {
         timeOfDay: tod, day, hour, inCompetition: false,
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
         ...(houseCulture ? { culture: houseCulture } : {}),
+        ...(habitsOf.get(id) ? { pairHabits: habitsOf.get(id)! } : {}),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),
       }, seed));
     }
@@ -12011,11 +12097,12 @@ export class GameSessionAdapter implements GameSession {
         const event: GameEvent = {
           id: `offscreen:${type}:${events.count()}:${hashSeed(`${seed}:life:${day}:${hour}:${p.actor}:${p.kind}`) % 1_000_000_000}`,
           ts: stretchIndex, type, initiator: p.actor, witnessSet: people, hidden: true, content, baseContent: content,
-          houseLife: { action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), ...(p.ritual ? { ritual: p.ritual } : {}), stretch: stretchIndex, ...(this.inGameAbsHour() !== undefined ? { at: this.inGameAbsHour() } : {}),
+          houseLife: { action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), ...(p.ritual ? { ritual: p.ritual } : {}), ...(p.habit ? { habit: p.habit } : {}), stretch: stretchIndex, ...(this.inGameAbsHour() !== undefined ? { at: this.inGameAbsHour() } : {}),
             ...(() => { const seen = [...presence.entries()].filter(([id, room]) => room === p.place && !people.includes(id) && id !== house.player.id).map(([id]) => id).sort(); return seen.length ? { seenBy: seen } : {}; })() }, // ORW-539: who could see it
         };
         events.record(event);
         out.push({ event, type, initiator: p.actor, partner });
+        if (p.habit) this.noteHabitScene(p, event);
         // 0153 / ORW-330 slice 3: a speech action is a real claim the engine decides (plant a lie, leak a belief, confirm one, fish for one), checked against its own truth.
         this.sayInHouseLife(p, partner, `${seed}:speech:${day}:${hour}`);
       }
@@ -16192,6 +16279,11 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live;
     // ORW-247b: a ceremony beat that RESOLVED this advance (an NPC HOH's nominations, a veto ceremony, an eviction) has no player pending, but its scene is still the narrated moment: keep the house gathered for it until the player next speaks. Only for a game a person is PLAYING (`messageMode`); a headless calibration/UAT/BDD sim never gathers, so its seeded outcomes stay byte-identical.
     if (ev && this.playedGameNow()) this.ceremonyBeat = ev.beat === "nominations" ? "nominations" : ev.beat === "veto-draw" ? "veto-draw" : ev.beat === "veto-ceremony" ? "veto-ceremony" : ev.beat === "eviction" || ev.beat === "eviction-reveal" || ev.beat === "final-eviction" ? "eviction" : null;
+    // ORW-566 (spec 0183): a ceremony beat that resolved opens the after-ceremony debrief window (the in-game hour is the stamp; no clock = no window).
+    if (ev && this.groupIdentityEnabled && this.playedGameNow() && this.live && (ev.beat === "nominations" || ev.beat === "veto-ceremony" || ev.beat === "eviction" || ev.beat === "eviction-reveal" || ev.beat === "final-eviction")) {
+      const at = this.inGameAbsHour();
+      if (at !== undefined) this.live.lastCeremonyAbsHour = at;
+    }
     // T0-3 — drain whatever `commit()` buffered for THIS transaction (one or two commits, per the
     // T0-2 auto-advance chain — see `submitDecision`) into the returned view, then clear the buffer so
     // it never bleeds into a LATER, unrelated `advanceView()` call. Each entry's `beatSeq` is still
