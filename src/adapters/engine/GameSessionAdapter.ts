@@ -117,6 +117,8 @@ import { validateTraits, validateCulture, validateReflection } from "../../engin
 import { jurorArchetypeFor, finalHohChoice, estimateJuryShare, type FinalHohOption } from "../../engine/juryMinds";
 import type { Agenda, Goal, AgendaCharacter, AgendaView, AgendaBoard, AgendaTrigger } from "../../engine/agenda";
 import { seedAgenda, recheckAgenda, mullAgenda, tieAvoids, agendaRoll } from "../../engine/agenda";
+import { AUDIENCE, crowdFor, emptyStanding, favoriteOf, foldMoment, tasteOf, type CrowdReaction } from "../../engine/audience";
+import type { EditMoment, EditMomentKind } from "../../engine/editWorthiness";
 import { questionLive, questionAnswered } from "../../engine/voteQuestions";
 import { agendaDumpRows } from "../../engine/agendaDump";
 import { buildHouseStories } from "../../engine/houseStory";
@@ -4787,6 +4789,68 @@ export class GameSessionAdapter implements GameSession {
    * prompt. Post-season it returns the real story: every hidden event (off-screen scheming, NPC
    * confessionals, gossip) plus the producer's sealed twists — fired and unfired alike.
    */
+  /** ORW-624: the audience outside (`ORWELL_AUDIENCE`, default ON; `=0` = no public). Played games only. */
+  private audienceEnabled = flagDefaultOn("ORWELL_AUDIENCE");
+  setAudienceEnabled(on: boolean): void { this.audienceEnabled = on; }
+  private audienceTaste = (kind: EditMomentKind): number => tasteOf(agendaRoll(this.gameSeed ?? 0, "audience", `taste:${kind}`));
+  /**
+   * ORW-624 - after an eviction: fold the week's PUBLIC record (comp wins, nominations, the veto, the eviction - a blindside when the HOH had publicly called the evictee a
+   * pawn, a twist by how close the count was) and every scene since, then the crowd as the evictee walks out, and a fan reward in its weeks. The public view reads only what
+   * the house saw (never a hidden scene: a crowd can never pinpoint a secret); the full view also takes the hidden moments and is read only after the crown.
+   */
+  audienceAfterEviction(): void {
+    const s = this.live;
+    if (!this.audienceEnabled || !s || s.playedGame !== true || !this.house) return;
+    const a = (s.audience ??= { live: emptyStanding(), full: emptyStanding(), cursor: 0, weeks: [], crowd: [], perks: [] });
+    const fold = (m: EditMoment): void => { foldMoment(a.full, m, this.audienceTaste); if (m.public) foldMoment(a.live, m, this.audienceTaste); };
+    // (1) the week's public record
+    for (const d of s.weekDigests ?? []) {
+      if (a.weeks.includes(d.week) || d.evictee === null) continue;
+      a.weeks.push(d.week);
+      if (d.hoh) fold({ kind: "comp-win", actor: d.hoh, week: d.week, public: true });
+      for (const n of d.nominees) fold({ kind: "nomination", ...(d.hoh ? { actor: d.hoh } : {}), subject: n, week: d.week, public: true });
+      if (d.vetoHolder) fold({ kind: d.vetoUsed ? "veto-save" : "veto-kept", actor: d.vetoHolder, week: d.week, public: true });
+      const rec = (s.voteRecord ?? []).find((r) => r.week === d.week && r.evictee === d.evictee);
+      const ballots = rec ? Object.values(rec.voteOf) : [];
+      const margin = ballots.length ? Math.abs(ballots.filter((t) => t === d.evictee).length * 2 - ballots.length) / ballots.length : 1;
+      const calledPawn = (s.statedReasons ?? []).some((r) => r.week === d.week && r.public && r.decision === "nominate" && r.real.choice === d.evictee && r.stated.kind === "pawn-youll-be-fine");
+      fold({ kind: calledPawn ? "blindside" : "eviction", ...(d.hoh ? { actor: d.hoh } : {}), subject: d.evictee, week: d.week, twist: 1 - margin, public: true });
+    }
+    // (2) the scenes since the last fold: conflict, betrayal and romance are edit-worthy; public = the player saw it (the house's view of it); hidden = recap only
+    const events = this.record?.events() ?? [];
+    const KIND: Partial<Record<string, EditMomentKind>> = { conflict: "blowup", betrayal: "betrayal", showmance: "showmance" };
+    for (let i = a.cursor; i < events.length; i++) {
+      const e = events[i]!;
+      const kind = KIND[e.type];
+      if (!kind || e.witnessSet.length < 2) continue;
+      const other = e.witnessSet.find((w) => w !== e.initiator);
+      fold({ kind, actor: e.initiator, ...(other ? { subject: other } : {}), week: s.week, crowd: e.witnessSet.length + (e.houseLife?.seenBy?.length ?? 0), public: !e.hidden });
+    }
+    a.cursor = events.length;
+    // (3) the crowd as the evictee walks out (the house hears it through the door)
+    const last = (s.weekDigests ?? []).filter((d) => d.evictee !== null).pop();
+    if (last?.evictee && !a.crowd.some((c) => c.week === last.week && c.evictee === last.evictee)) {
+      const reaction = crowdFor(a.live, last.evictee);
+      a.crowd.push({ week: last.week, evictee: last.evictee, reaction });
+      const WORDS: Readonly<Record<CrowdReaction, string>> = { cheers: "to cheers from the crowd outside", mixed: "to a mixed reaction from the crowd outside", boos: "to boos from the crowd outside", silence: "to near silence from the crowd outside" };
+      this.onPlayerEvent?.(`${this.nameOf(last.evictee)} walks out ${WORDS[reaction]}`, this.livingIds(), "house-event"); // the HOUSE hears the crowd (never the evictee: a juror is sequestered from the house, 0129)
+    }
+    // (4) a fan reward in its weeks: the public's favorite still in the house
+    if (AUDIENCE.perkWeeks.includes(s.week) && !a.perks.some((p) => p.week === s.week)) {
+      const to = favoriteOf(a.live, this.livingIds());
+      if (to) {
+        a.perks.push({ week: s.week, to });
+        this.onPlayerEvent?.(`${this.nameOf(to)} wins the viewers' vote and a reward from home`, this.livingIds(), "house-event");
+      }
+    }
+  }
+  /** ORW-624: America's Favorite - after the crown only (it may read the hidden moments then: the recap). */
+  private americasFavorite(): { id: EntityId; name: string } | undefined {
+    const a = this.live?.audience;
+    if (!a || !this.live?.finished || !this.house) return undefined;
+    const to = favoriteOf(a.full, [PLAYER, ...this.house.npcs.map((n) => n.id)]);
+    return to ? { id: to, name: this.nameOf(to) } : undefined;
+  }
   seasonRetrospective(): RetrospectiveView | null {
     if (!this.live?.finished) return null; // the structural gate: no finished season, no unsealing
     // ORW-320 (spec 0146 slice 7): "the house you never saw" rides THIS post-crown door only (never the debug dump's shared render, never a live surface).
@@ -4794,7 +4858,8 @@ export class GameSessionAdapter implements GameSession {
     const rumorMill = buildRumorMill(this.live.claims, (id) => this.nameOf(id), this.live.beliefs, this.truthFacts()); // ORW-525 (spec 0157): reads the claim log + beliefs about the player, read-only; same gate
     const houseCultureWords = describeHouseLeans(this.live.houseLeans); // ORW-551 (spec 0168): texture words only, same crown gate; absent when no culture was drawn
     const dealPlans = buildDealPlanRetro(this.live.dealPlans, this.deals.all, this.openLedger.entries, PLAYER, (id) => this.nameOf(id)); // 0178 (Ryne Q2): the secret plans beside the player's own promise record; same crown gate
-    return { ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
+    const americasFavorite = this.americasFavorite(); // ORW-624: after the crown only
+    return { ...(americasFavorite ? { americasFavorite } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
@@ -6738,6 +6803,8 @@ export class GameSessionAdapter implements GameSession {
    * remember the player walked in. Stamped with the message it happened on, like `playerMove`, so only that turn's state carries it. Played games only.
    */
   private walkInDone: string[] = [];
+  /** ORW-473 amendment (0192): a talk among three or more (a night-owl trio, an ordinary gathering) is walked in on too. ON unless `ORWELL_WALKIN_GROUPS=0`; OFF => only a pair, byte-identical to before. */
+  private walkInGroupsEnabled = flagDefaultOn("ORWELL_WALKIN_GROUPS");
   private walkIn: { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction }[] } | null = null;
   private walkInStamp(): { msg?: string } { const m = this.seenMessageIds.length > 0 ? this.seenMessageIds[this.seenMessageIds.length - 1] : undefined; return m === undefined ? {} : { msg: m }; }
   private walkInThisTurn(): { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction }[] } | null {
@@ -6762,25 +6829,28 @@ export class GameSessionAdapter implements GameSession {
     for (let i = events.length - 1; i >= Math.max(0, events.length - 40); i--) {
       const e = events[i]!;
       const hl = e.houseLife;
-      if (!e.hidden || !hl || hl.place !== dest || !isPrivateTalk(hl.action)) continue;
+      if (!e.hidden || !hl || hl.place !== dest || !(isPrivateTalk(hl.action) || (this.walkInGroupsEnabled && hl.nightOwl === true))) continue; // a late-night talk among the awake (0192) is a private talk whatever its kind: confession, bonding or scheme
       if (hl.at === undefined || nowHour - hl.at > WALK_IN_MAX_HOURS || nowHour < hl.at) continue; // recent in GAME time, not only by event count
       if (this.walkInDone.includes(e.id)) continue; // a talk is walked in on once
       const people = [...new Set(e.witnessSet)].filter((x) => x !== me);
-      if (people.length !== 2 || !people.every((x) => there.has(x))) continue;
+      if (people.length < 2 || (people.length > 2 && !this.walkInGroupsEnabled) || !people.every((x) => there.has(x))) continue; // a group of three or more is caught too (ORWELL_WALKIN_GROUPS); every one of them must be there and awake
       const day = this.live.dayNumber ?? 1;
       const reactions = people.map((id) => {
-        const other = people.find((x) => x !== id)!;
+        const others = people.filter((x) => x !== id);
+        const other = others[0]!; // a pair keeps its exact keys; in a group the jitter is keyed on the whole company and the feeling about "the others" is their mean
+        const otherKey = people.length === 2 ? other : others.join("+");
         const character = this.agendaCharacterOf(id);
         const candor = Math.max(0, Math.min(1, (REASONS.candorByArchetype[character?.archetype ?? ""] ?? 0.5) + (REASONS.candorByStyle[character?.strategyStyle ?? ""] ?? 0)));
-        const jitter = (hashSeed(`${this.gameSeed ?? ""}:walkin:${id}:${other}:${day}:${hl.stretch}`) % 800) / 10000;
-        return { id, reaction: walkInReaction({ candor, affinityToPlayer: this.rel.edge(id, me).affinity, affinityToOther: this.rel.edge(id, other).affinity }, jitter) };
+        const jitter = (hashSeed(`${this.gameSeed ?? ""}:walkin:${id}:${otherKey}:${day}:${hl.stretch}`) % 800) / 10000;
+        const affinityToOther = people.length === 2 ? this.rel.edge(id, other).affinity : others.reduce((t, o) => t + this.rel.edge(id, o).affinity, 0) / others.length;
+        return { id, reaction: walkInReaction({ candor, affinityToPlayer: this.rel.edge(id, me).affinity, affinityToOther }, jitter) };
       });
       this.walkIn = { ...this.walkInStamp(), room: dest, with: people, reactions };
       this.walkInDone = [...this.walkInDone, e.id].slice(-WALK_IN_DONE_CAP); // consumed: leaving and coming back does not fire it again
       // both remember it: a fact in each one's own memory (engine-side, never shown)
       for (const id of people) {
-        const other = people.find((x) => x !== id)!;
-        const note = `the player walked in on my private talk with ${this.nameOf(other)}`;
+        const others = people.filter((x) => x !== id).map((x) => this.nameOf(x));
+        const note = `the player walked in on my private talk with ${others.length === 1 ? others[0] : `${others.slice(0, -1).join(", ")} and ${others[others.length - 1]}`}`;
         const n = this.house.npcs.find((x) => x.id === id);
         if (n && !n.soul.memory.includes(note)) { n.soul.memory = [...n.soul.memory, note]; this.soul?.recordToSoul(id, note); }
       }
@@ -16839,6 +16909,7 @@ export class GameSessionAdapter implements GameSession {
       this.rel.decay(RELATIONSHIP_CONSTANTS.DECAY_RATE);
       this.deals.expireWeekScoped(this.live?.week ?? 0);
       this.talkAboutTheVote(); // 0154 slice 5b: after the eviction the voters may tell each other how they voted (flag-gated, own seeded stream)
+      this.audienceAfterEviction(); // ORW-624: the audience outside - the crowd as the evictee walks out, and a fan reward in its weeks
     }
     // T0-3 (issue #1778) — derive this beat's Vault-free broadcast chyron(s), IF ANY, from the SAME
     // `ev` + the now-committed `this.live` (every read/mutation above this line is either read-only
