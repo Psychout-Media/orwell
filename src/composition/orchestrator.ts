@@ -835,7 +835,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // once this stretch from their own goals (houseLife), replacing "a pair and 1 of 7 stock scenes". Headless calibration drivers never
   // play (no announced message), so they keep the old stretch below and their seeded spine is byte-identical.
   const scenes = sandbox.session.houseLifeActiveNow()
-    ? sandbox.session.houseLifeStretch(sandbox.engine.events, awakeIds, before)
+    ? sandbox.session.houseLifeStretch(sandbox.engine.events, awakeIds, before, sandbox.engine.knowledge)
     : awakeIds.length >= 2
     ? richOffscreenStretch({
         events: sandbox.engine.events, rng, npcs: awakeIds, interactions,

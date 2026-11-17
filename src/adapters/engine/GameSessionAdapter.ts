@@ -61,8 +61,8 @@ import { juryFadeRate, juryEaseFactor, juryPersonalityMult, type JuryPersonality
 import { planJuryNotes } from "../../engine/juryNotes";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
-import { chooseHourAction, assembleScenes, habitsFor, actionLine, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction } from "../../engine/houseLife";
-import { HOUSE_LIFE } from "../../engine/houseLifeConstants";
+import { chooseHourAction, assembleScenes, habitsFor, actionLine, roomActLine, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction } from "../../engine/houseLife";
+import { HOUSE_LIFE, ROOM_LIFE } from "../../engine/houseLifeConstants";
 import { REASONS } from "../../engine/agendaConstants";
 import { askDisposition, askRoll } from "../../engine/askAround";
 import { heldApproachReaction, heldSheetOf } from "../../engine/heldApproach";
@@ -260,7 +260,7 @@ import {
   CEREMONY_IMPACTS, DEAL_REPUTATION, EVICTION_MANNER_SCALE, OVERNIGHT_DRIFT, RELATIONSHIP_CONSTANTS, clamp01, scaleImpact,
 } from "../../engine/relationshipConstants";
 import type { CeremonyAct } from "../../engine/relationshipConstants";
-import { COMP_EFFORT } from "../../engine/relationshipConstants";
+import { COMP_EFFORT, natureFoldImpact, scaleImpactByValence } from "../../engine/relationshipConstants";
 import type { CompEffort } from "../../engine/liveSeason";
 import { ToldLedger } from "../../engine/heldFacts";
 import { producerReadPrompt, type ExchangeAccounting } from "../../engine/producerRead";
@@ -13468,12 +13468,16 @@ export class GameSessionAdapter implements GameSession {
    * partner records ONE hidden event (witness set = the action's people) that folds through its action's interaction type. A speech action
    * that was false is marked on the event (`houseLife.truthful = false`). Solo actions record nothing. No shared rng (local hashes only).
    */
-  houseLifeStretch(events: EventStore, awakeIds: readonly EntityId[], stretchIndex: number): OffscreenScene[] {
+  houseLifeStretch(events: EventStore, awakeIds: readonly EntityId[], stretchIndex: number, knowledge?: KnowledgeService): OffscreenScene[] {
     const s = this.live!, house = this.house!, presence = this.presence!;
     this.statusTick(); // 0173: once a day, flag-gated (a no-op otherwise)
     const playerRoom = presence.get(house.player.id);
     const actors = awakeIds.filter((id) => presence.has(id) && presence.get(id) !== playerRoom);
-    if (actors.length === 0) return [];
+    // ORW-621 (0198): the people in the player's room live too. Played games with the flag on only; off => empty => every line below is byte-identical.
+    const roomIds = this.roomLifeOn() && playerRoom !== undefined && playerRoom !== "diary-room"
+      ? awakeIds.filter((id) => id !== house.player.id && presence.get(id) === playerRoom).sort()
+      : [];
+    if (actors.length === 0 && roomIds.length < 2) return [];
     const where = new Map<EntityId, Room>(actors.map((id) => [id, presence.get(id)!] as const));
     // ORW-340: the player is where the houseguests can see them: in the hour view (so a goal can aim at them) but never an actor and never moved.
     const view = playerRoom !== undefined ? new Map<EntityId, Room>([...where, [house.player.id, playerRoom]]) : where;
@@ -13512,34 +13516,39 @@ export class GameSessionAdapter implements GameSession {
       return pivot * (LIE_AUDIENCE.credulityBase + this.credulityOf(listener)) * spin;
     } : undefined;
     const playerUp = playerRoom !== undefined && (this.awakeNow()?.has(house.player.id) ?? false); // ORW-620: a player who stays up is a night owl too
-    for (const id of actors) {
+    // ORW-621: one houseguest's hour, built once for the people in other rooms (the usual stretch) and once, in `room` mode, for the people in the player's own room: a view of that room's houseguests only (the player is never a partner, never moved).
+    const planFor = (id: EntityId, whereM: ReadonlyMap<EntityId, Room>, viewM: ReadonlyMap<EntityId, Room>, others: readonly EntityId[], room: boolean): PlannedAction | undefined => {
       const character = this.agendaCharacterOf(id);
-      if (!character) continue;
+      if (!character) return undefined;
       const mates = new Set<EntityId>();
       for (const a of this.alliances.forMember(id)) for (const m of a.members) if (m !== id) mates.add(m);
-      const others = actors.filter((x) => x !== id);
+      const withPlayerView = !room && playerRoom !== undefined;
       const showmance = this.showmancePartnerOf(id);
       const avoid = tieAvoids(this.agendaView(id)?.character ?? character);
-      plans.push(chooseHourAction({
+      return chooseHourAction({
         owner: id, character, agenda: s.agendas?.[id], ...(avoid.length ? { avoid } : {}), habits: authored[id]?.habits ?? habitsFor(character, id, seed),
-        emotional: this.soulObj(id)?.emotionalState ?? 0.5, room: where.get(id)!, whereabouts: view,
-        affinity: new Map([...others, ...(playerRoom !== undefined ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).affinity] as const)),
-        threat: new Map([...others, ...(playerRoom !== undefined ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).threat] as const)), // ORW-507 (#2612): the player is in the threat map too (the planner used a flat 0.3 for them)
+        emotional: this.soulObj(id)?.emotionalState ?? 0.5, room: whereM.get(id)!, whereabouts: viewM,
+        affinity: new Map([...others, ...(withPlayerView ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).affinity] as const)),
+        threat: new Map([...others, ...(withPlayerView ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).threat] as const)), // ORW-507 (#2612): the player is in the threat map too (the planner used a flat 0.3 for them)
         mates: [...mates].sort(), ...(s.hoh ? { hoh: s.hoh } : {}), nominees: s.nominees ? [...s.nominees] : [],
-        ...(showmance && where.has(showmance) ? { showmance } : {}),
-        ...this.roommateView(bedsNow, id, inHouse, where),
-        ...(kindredOf(id) ? { kindred: kindredOf(id)! } : {}),
+        ...(showmance && whereM.has(showmance) ? { showmance } : {}),
+        ...this.roommateView(bedsNow, id, inHouse, whereM),
+        ...(!room && kindredOf(id) ? { kindred: kindredOf(id)! } : {}),
         timeOfDay: tod, day, hour, ...(repeat > 0 ? { repeat } : {}), inCompetition: false,
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
         ...(houseCulture ? { culture: houseCulture } : {}),
         ...(swingRead ? { swing: swingRead } : {}),
-        ...(habitsOf.get(id) ? { pairHabits: habitsOf.get(id)! } : {}),
-        ...(this.courtView(id, s.hoh) ? { court: this.courtView(id, s.hoh)! } : {}),
-        ...(this.nightOwlsEnabled && s.playedGame === true ? { nightOwl: { playerUp: playerUp } } : {}),
+        ...(!room && habitsOf.get(id) ? { pairHabits: habitsOf.get(id)! } : {}),
+        ...(!room && this.courtView(id, s.hoh) ? { court: this.courtView(id, s.hoh)! } : {}),
+        ...(!room && this.nightOwlsEnabled && s.playedGame === true ? { nightOwl: { playerUp: playerUp } } : {}),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),
-        ...(this.bondFeelingsOn() ? { rivalry: this.rivalryStrandsOf(id, [...others, ...(playerRoom !== undefined ? [house.player.id] : [])]) } : {}), // ORW-622: a grudge rubs at dinner
-      }, seed));
-    }
+        ...(this.bondFeelingsOn() ? { rivalry: this.rivalryStrandsOf(id, [...others, ...(withPlayerView ? [house.player.id] : [])]) } : {}), // ORW-622: a grudge rubs at dinner
+      }, seed);
+    };
+    for (const id of actors) { const p = planFor(id, where, view, actors.filter((x) => x !== id), false); if (p) plans.push(p); }
+    // ORW-621 (0198): the people in the player's room take their own steps there, in the player's view (bounded; a keyed rotation, no shared draw).
+    const roomPlans = new Set<PlannedAction>();
+    if (roomIds.length >= 2) for (const p of this.roomLifePlans(events, roomIds, playerRoom!, { day, hour, repeat, stretchIndex }, (id, whereM, others) => planFor(id, whereM, whereM, others, true))) { plans.push(p); roomPlans.add(p); }
     // They walk there on purpose (one hour is enough to cross the house): both presence views, so the society and the map agree.
     // ORW-507 (#2612): an NPC whose goal plan names the player but whose approach is suppressed (distrust, an avoidant tie, or the desire clock off) does not walk into the player's room for it.
     // 0172 / ORW-611: a HOSTILE plan aimed at the player (a get-them-out or revenge goal whose target the player is) is an approach too: the trust floor exists to keep a houseguest the player does not trust from pressing a request, and a hostile one is not pressing a request. The avoidance, the cooldown and the desire clock's own guards still hold.
@@ -13574,6 +13583,8 @@ export class GameSessionAdapter implements GameSession {
         if (!partner || !type || partner === house.player.id) continue;
         if (type === "showmance" && !(gate.plausible(p.actor, partner) && ((!gate.hasActiveShowmance(p.actor) && !gate.hasActiveShowmance(partner)) || this.showmancePartnerOf(p.actor) === partner))) type = "bonding";
         const people = [...new Set([p.actor, ...p.with])].filter((x) => x !== house.player.id);
+        if (roomPlans.has(p)) this.recordRoomAct(events, p, type, people, { day, hour, stretchIndex }, seed, knowledge); // ORW-621: seen by the player, so never hidden; folded here on its own keyed stream
+        else {
         const content = actionLine(p);
         const event: GameEvent = {
           id: `offscreen:${type}:${events.count()}:${hashSeed(`${seed}:life:${day}:${hour}:${p.actor}:${p.kind}`) % 1_000_000_000}`,
@@ -13584,6 +13595,7 @@ export class GameSessionAdapter implements GameSession {
         events.record(event);
         out.push({ event, type, initiator: p.actor, partner });
         if (p.habit) this.noteHabitScene(p, event);
+        }
         // 0153 / ORW-330 slice 3: a speech action is a real claim the engine decides (plant a lie, leak a belief, confirm one, fish for one), checked against its own truth.
         const said = this.sayInHouseLife(p, partner, `${seed}:speech:${day}:${hour}${repeat > 0 ? `r${repeat}` : ""}`); // ORW-581: a repeated hour says things fresh too
         // 0188 part 2 / ORW-627: a story planted in a room can be overheard by anyone else there, awake (the player included)
@@ -13591,6 +13603,59 @@ export class GameSessionAdapter implements GameSession {
       }
     }
     return out;
+  }
+
+  /** ORW-621 (spec 0198, the people in your room live too): the houseguests in the player's own room take their goal steps there. ON unless `ORWELL_ROOM_LIFE=0`. Played games only; OFF => no room step is planned => byte-identical. */
+  private roomLifeEnabled = flagDefaultOn("ORWELL_ROOM_LIFE");
+  setRoomLifeEnabled(on: boolean): void { this.roomLifeEnabled = on; }
+  private roomLifeOn(): boolean { return this.roomLifeEnabled && this.live?.playedGame === true; }
+  /** The in-game hour a room step belongs to (the absolute hour; the day and hour when the clock is off). */
+  private roomLifeHourKey(k: { day: number; hour: number }): string { const abs = this.inGameAbsHour(); return abs !== undefined ? String(Math.floor(abs)) : `${k.day}.${k.hour}`; }
+  /**
+   * ORW-621: which of the player's room's houseguests take a step this stretch, and what it is. One keyed roll (`ROOM_LIFE.chance`) decides whether anyone does; a keyed rotation orders who goes first; at most
+   * `ROOM_LIFE.perStretch` steps now and `ROOM_LIFE.perHour` in the in-game hour (counted from the record, so a restart cannot reset it), a houseguest at most once an hour. A step must be done in company, in
+   * THIS room, with houseguests who are in it: the player is never a partner, never moved, never spoken for (a goal aimed at them goes through the desire clock, as before). No shared rng.
+   */
+  private roomLifePlans(events: EventStore, roomIds: readonly EntityId[], room: Room, k: { day: number; hour: number; repeat: number; stretchIndex?: number }, plan: (id: EntityId, where: ReadonlyMap<EntityId, Room>, others: readonly EntityId[]) => PlannedAction | undefined): PlannedAction[] {
+    const seed = this.gameSeed ?? 0;
+    const hourKey = this.roomLifeHourKey(k);
+    const prefix = `roomlife:${hourKey}|`;
+    const used = events.queryAll().slice(-ROOM_LIFE.lookback).filter((e) => e.id.startsWith(prefix)).map((e) => e.id.split("|")[1]!);
+    if (used.length >= ROOM_LIFE.perHour) return [];
+    const stretchKey = `d${k.day}h${k.hour}r${k.repeat}`;
+    if (agendaRoll(seed, "room-life", `chance:${stretchKey}`) >= ROOM_LIFE.chance) return [];
+    const where = new Map<EntityId, Room>(roomIds.map((id) => [id, room] as const));
+    const order = roomIds.filter((id) => !used.includes(id)).sort((a, b) => agendaRoll(seed, a, `room-life:${stretchKey}`) - agendaRoll(seed, b, `room-life:${stretchKey}`) || a.localeCompare(b));
+    const out: PlannedAction[] = [];
+    const room1 = Math.min(ROOM_LIFE.perStretch, ROOM_LIFE.perHour - used.length);
+    for (const id of order) {
+      if (out.length >= room1) break;
+      const p = plan(id, where, roomIds.filter((x) => x !== id));
+      if (!p || p.court || p.place !== room || p.with.length === 0 || !p.with.every((w) => where.has(w))) continue;
+      out.push(p);
+    }
+    return out;
+  }
+  /**
+   * ORW-621: record a step taken in the player's room. The player SAW it, so it is a witnessed, NOT hidden, event (the player in its witness set, the actor first); it shows only the act and the manner
+   * (`roomActLine`), never the goal. It carries no `houseLife` record, so the bond record reads the actor and the first partner as the principals and the player (and anyone else there) as watchers (ORW-609).
+   * It folds here through the scene's own interaction type on its own keyed stream (the orchestrator's fold uses the shared one), and the player holds it as something they witnessed.
+   */
+  private recordRoomAct(events: EventStore, p: PlannedAction, type: InteractionType, people: readonly EntityId[], k: { day: number; hour: number; stretchIndex: number }, seed: number, knowledge?: KnowledgeService): void {
+    const me = this.house!.player.id;
+    const partner = p.with[0]!;
+    const content = roomActLine(p, (id) => this.nameOf(id));
+    const id = `roomlife:${this.roomLifeHourKey(k)}|${p.actor}|${events.count()}`;
+    events.record({
+      id,
+      ts: k.stretchIndex, type, initiator: p.actor, witnessSet: [...people, me], hidden: false, content, baseContent: content,
+    });
+    const rng = new SeededRandom(hashSeed(`${seed}:room-life:fold:${this.roomLifeHourKey(k)}:${p.actor}:${partner}`));
+    const sway = this.socialFoldValence(p.actor, partner, p.actor);
+    const impact = natureFoldImpact(type);
+    this.rel.applyImpactDirected(partner, p.actor, sway.warm === 1 && sway.sore === 1 ? impact : scaleImpactByValence(impact, sway.warm, sway.sore), rng);
+    this.recordOffscreenScene(p.actor, partner, type);
+    if (knowledge && !knowledge.knownTo(me).some((f) => f.content === content)) knowledge.seedBelief(me, { content, factId: id, confidence: 1, hops: 0, distortion: 0 }, "witnessed");
   }
 
   // --- ORW-312 (ORW-253 slice 1, spec 0145): NPC agendas on the live season. VAULT-CLASS; nothing reads them yet. --------------------------------------------------------------
