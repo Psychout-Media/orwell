@@ -12631,6 +12631,13 @@ export class GameSessionAdapter implements GameSession {
    * player's answer resolves itself without going through the advance loop: the first staged `comp-elimination` (ORW-550: it was resolved by the player's `comp-round` answer and
    * never charged its share of the competition's hours, so the crown paid it late). Clock path only: no rng, no fold.
    */
+  /** ORW-565: the veto draw just finished (the field was published by this beat, after its clock was charged): stamp the moment so the competition keeps its minimum gap (`nextMilestone`). Played games only; persisted with the live state, so a restore keeps the hold. */
+  private stampVetoDrawEnd(ev: BeatEvent | null, drawJustClosed: boolean): void {
+    const l = this.live;
+    if ((ev?.beat !== "veto-draw" && !drawJustClosed) || !l || l.playedGame !== true || l.nightDepth === undefined || !l.vetoField) return;
+    l.vetoDrawnAtAbs = this.absHour();
+  }
+
   private chargeBeatClock(ev: BeatEvent | null, ceremonyHours: number | null, weekBefore: number): void {
     // ADR 0006 (opt-in): the in-game clock moves by PLAY — one phase per SUBSTANTIVE advance, cycling
     // toward late-night and wrapping to a new morning (banking a late night the player never ended).
@@ -12726,6 +12733,7 @@ export class GameSessionAdapter implements GameSession {
       if (cerBefore && !this.live!.ceremony) this.ceremonyEcho = cerBefore; // the closing Continue: echo the step that just closed
       this.maybeLapseDealOffer(standingOfferId); // folded BEFORE commit(ev) so the beat's persist carries it
       this.chargeBeatClock(ev, ceremonyHours, weekBefore);
+      this.stampVetoDrawEnd(ev, cerBefore?.kind === "veto-draw" && !this.live!.ceremony); // ORW-565: the field step publishes the draw; the closing Continue is its true end (re-stamped there)
       this.commit(ev);
       return ev;
     }
@@ -12815,6 +12823,7 @@ export class GameSessionAdapter implements GameSession {
         const h = this.ceremonyClockHours(cerBefore, ceremonyRef(this.live!));
         if (h !== null && h > 0) advanceClock(this.live!, h);
       }
+      this.stampVetoDrawEnd(ev, false); // ORW-565: a player's Houseguest's Choice pick can be what publishes the draw
       if (ev?.beat === "comp-elimination") this.chargeBeatClock(ev, null, this.live!.week); // ORW-550: the round the player's answer resolved pays its share of the comp's hours, like every later round
       this.commit(ev);
       // T0-2 ("beats terminate themselves") — for the CLOSED-SET ceremony/comp pending kinds
