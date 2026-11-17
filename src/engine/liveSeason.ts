@@ -8,6 +8,7 @@ import { deduceEvictionVoters, deductionSeed } from "./voteDeduction";
 import { questionsAfterVote, type VoteQuestion } from "./voteQuestions";
 import { recordClaim, DEDUCED_CLAIM_CONFIDENCE, type BeliefStore } from "./beliefStore";
 import type { BondStore } from "./bondRecord";
+import type { PlanStore } from "./dealPlans";
 import { lapseAssurancesAtRoll } from "./assurances";
 import type { CompetitionType, Intent, Competitor, CompetitionResult } from "../domain/competitionOutcome";
 
@@ -68,6 +69,7 @@ import type { Stats } from "./season";
 import { nominationStrategy, nominationPlan, nominationScore, nominationBaseVals, replacementPick, tallyJury } from "./season";
 import { sumVals, whyOption, runnerUp, type DecisionWhy, type WhySink } from "./decisionWhy";
 import type { NpcMemoryLedger } from "./npcMemory";
+import type { GrudgeBook } from "./grudges";
 import { detectBlocs, blocTerm } from "./blocs";
 import type { Bloc } from "./blocs";
 import { DECISION } from "./decisionConstants";
@@ -654,6 +656,8 @@ export interface LiveSeasonState {
    * Both persist with the season (0030). Absent unless the `ORWELL_NPC_DEAL_OFFERS` layer is on ⇒
    * byte-identical when off.
    */
+  /** 0178 (Theme 3 slice 1): each NPC's SECRET PLAN for each deal they agreed to (`dealPlans.ts`). Append-only, engine-only (Vault class), never projected; the retrospective shows it after the crown. */
+  dealPlans?: PlanStore;
   dealOffer?: { id: string; from: EntityId; kind: DealKind; terms: string; madeWeek: number; /** 0142 idea 4: the open deal this offer would REPLACE (a houseguest renegotiating instead of breaking). Accepting retires that deal neutrally. */ replacesDealId?: string; /** 0171 (ORWELL_FAVORS): a counter in play - the round it is and what the houseguest asks for instead. Rides the one standing offer slot. */ counter?: { round: number; ask: { kind: "target"; target: EntityId } | { kind: "vote" } } };
   lastDealOfferWeek?: number;
   /**
@@ -706,10 +710,23 @@ export interface LiveSeasonState {
   bondsSeen?: string[];
   bondsDay?: number;
   /**
+   * 0182 (Theme 3 slice 5, ORW-569) - the GRUDGE BOOK (`grudges.ts`): one row per directed pair `holder|subject` for a wrong the holder remembers. Folded by the engine from the
+   * records that already exist (`grudgesSeen` = marks already folded). Monotone, never deleted. ENGINE-ONLY (Vault class), never projected. Absent => no grudges yet (old saves read none).
+   */
+  grudges?: GrudgeBook;
+  grudgesSeen?: string[];
+  /**
    * 0181 (Theme 3 slice 4, ORW-568) - the guilt events already felt (`bondFeelings.ts` keys, ordered, never pruned), so a betrayal shakes the betrayer once. ENGINE-ONLY (Vault class), never projected.
    * Optional: absent on old saves and on every game that never felt one. Rides on `live`, so it is persisted and restored with the season.
    */
   feelingsSeen?: string[];
+  /**
+   * 0181 part 2 (Theme 3 slice 4, ORW-568) - JEALOUSY (`bondJealousy.ts`): a hidden overlay per `holder|rival` (value 0..cap, the close friend it is over, the week it last rose), the dedupe list of mood hits
+   * (`jealousySeen`, ordered, never pruned) and the event cursor the nightly tick has read up to (a bonding scene ahead of the tick handles it). ENGINE-ONLY (Vault class), never projected; absent on old saves.
+   */
+  jealousy?: Record<string, { value: number; week: number; close: string }>;
+  jealousySeen?: string[];
+  jealousyCursor?: number;
   /**
    * 0149 / ORW-330 (theme 2, slice 1) - the season's CLAIMS (`spokenClaims.ts`): who told whom what about whom, whether it was true and what
    * the speaker meant. ENGINE-ONLY (Vault class), never projected; only `claimsHeardBy(PLAYER)` (the speaker's words, no truth) may go outward.
