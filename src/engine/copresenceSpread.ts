@@ -5,6 +5,7 @@ import { disclosureDecision, topHeldFacts, type DisclosureInput, type HeldFact }
 import { heldCandidates, type ToldLedger, type Told } from "./heldFacts";
 import { GOSSIP } from "./gossip";
 import type { StrategyStyle } from "./characterFactory";
+import { networkMotive, type NetworkRoles } from "./networkSpread";
 
 /**
  * B10 / B11 slice 3 (design S3) - the scene-time SPREAD. For each CO-PRESENT pair of a night's off-screen scenes (the scene IS the co-presence: both are in the room), each side, as holder,
@@ -43,6 +44,8 @@ export interface SpreadDeps {
    * confidence, so the caller can record a `heard-rumor` belief claim. Read-only: it fires AFTER the transmit, draws no randomness, and moves no edge. Only fired for a fact with a subject.
    */
   onTold?: (r: { holder: EntityId; listener: EntityId; subject: EntityId; factId: string; confidence: number; slipped: boolean; content: string }) => void;
+  /** 0179 (Theme 3 slice 9): the house's shape (brokers, cliques, weak ties, loners) adds to the share motive (`networkSpread.ts`). Absent => byte-identical. */
+  network?: NetworkRoles;
 }
 
 /**
@@ -64,6 +67,12 @@ export function factMotive(c: { subject?: EntityId; confidence: number }, holder
   return Math.max(0, Math.min(1, 0.5 * d.affinity(holder, listener) + 0.4 * subjThreat + 0.1 * c.confidence));
 }
 
+/** 0179: the fact motive plus the house's shape (`networkSpread.ts`), clamped 0..1; exactly `factMotive` when no shape is supplied. The spread and seeking both use it. */
+export function shapedMotive(c: { subject?: EntityId; confidence: number }, holder: EntityId, listener: EntityId, d: Pick<SpreadDeps, "affinity" | "threat" | "network">): number {
+  const base = factMotive(c, holder, listener, d);
+  return d.network ? Math.max(0, Math.min(1, base + networkMotive(holder, listener, c.subject, d.network))) : base;
+}
+
 /** B35 (seeking): how strongly a holder is drawn toward a listener who does not yet have a fact they have not decided about. `minMotive` is the smallest motive that bends movement; `k` the strength. */
 export const SEEK = { minMotive: 0.5, k: 1 } as const;
 
@@ -71,14 +80,14 @@ export const SEEK = { minMotive: 0.5, k: 1 } as const;
  * B35 - for each candidate listener, the HIGHEST motive among the holder's undecided, undelivered facts (those the listener lacks and the holder has not yet decided about telling them). Pure read:
  * no rng, no writes, no knowledge mutation. The adapter uses it to lean the holder's MOVEMENT toward the right audience (the same pull channel as the A10 want), never to tell anything.
  */
-export function seekTargets(holder: EntityId, listeners: readonly EntityId[], d: Pick<SpreadDeps, "knowledge" | "told" | "affinity" | "threat">): Array<{ listener: EntityId; motive: number }> {
+export function seekTargets(holder: EntityId, listeners: readonly EntityId[], d: Pick<SpreadDeps, "knowledge" | "told" | "affinity" | "threat" | "network">): Array<{ listener: EntityId; motive: number }> {
   const out: Array<{ listener: EntityId; motive: number }> = [];
   const mine = d.knowledge.knownTo(holder);
   for (const listener of listeners) {
     if (listener === holder) continue;
     const cands = d.told.undecided(holder, listener, heldCandidates(mine, d.knowledge.knownTo(listener)));
     if (cands.length === 0) continue;
-    out.push({ listener, motive: Math.max(...cands.map((c) => factMotive(c, holder, listener, d))) });
+    out.push({ listener, motive: Math.max(...cands.map((c) => shapedMotive(c, holder, listener, d))) }); // 0179: the house's shape draws movement as it moves telling
   }
   return out;
 }
@@ -90,7 +99,7 @@ export function spreadBetween(holder: EntityId, listener: EntityId, d: SpreadDep
   if (cands.length === 0) return [];
   const rng = d.rngFor(holder, listener);
   const held: HeldFact[] = cands.map((c) => {
-    const motive = factMotive(c, holder, listener, d);
+    const motive = shapedMotive(c, holder, listener, d);
     // Telling something about YOURSELF is the risky class; a third party's business is cheap.
     const risk = c.subject === holder ? 0.8 : c.firstHand ? 0.35 : 0.2;
     return { factId: c.factId, motive, risk, ...(c.subject !== undefined ? { subject: c.subject } : {}) };

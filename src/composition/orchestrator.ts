@@ -7,6 +7,7 @@ import { richOffscreenStretch } from "../engine/offscreen";
 import { scaleImpactByValence, natureFoldImpact } from "../engine/relationshipConstants";
 import { rollOverhears } from "../engine/presence";
 import { spreadForScenes } from "../engine/copresenceSpread";
+import type { NetworkRoles } from "../engine/networkSpread";
 import { natureFromContent } from "../engine/gossipBeliefs";
 import { diffuseGossip, makeSocialGraph, rumorFrom, gossipEdgeAffinity, GOSSIP } from "../engine/gossip";
 import { confessionalFor, recordConfessional, selectRecentForConfessional } from "../engine/confessionals";
@@ -993,6 +994,8 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
         style: (id) => npcsById.get(id)?.character.strategyStyle,
         volatility: (id) => npcsById.get(id)?.soul.volatility ?? 0.3,
         audienceOf: () => 0,
+        // 0179 (Theme 3 slice 9, ORWELL_NETWORK_SPREAD, default ON): the house's shape adds to the motive - brokers carry news across cliques, weak ties carry across, loners hear late. Undefined when off => byte-identical.
+        ...((): { network?: NetworkRoles } => { const n = sandbox.session.networkRoles(); return n ? { network: n } : {}; })(),
         // B48 (ORWELL_CREDIBILITY, default ON): a lie's arriving confidence scales with how far the LISTENER believes the holder (their own caught-lie evidence + repeats to their ear). Absent => the B34 stand-in.
         ...(sandbox.session.credibilityEnabledNow() ? { credibilityOf: (h: EntityId, l: EntityId, n: number) => sandbox.session.credibilityOf(l, h, n) } : {}),
         // B24/B36: the co-presence receipt writes the SAME `heard-rumor` claim the graph path does (gated by ORWELL_NPC_BELIEFS inside the observer; undefined when off => byte-identical).
