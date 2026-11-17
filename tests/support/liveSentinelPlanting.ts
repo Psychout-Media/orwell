@@ -227,6 +227,8 @@ export const args = (name: string, seed: number): Record<string, unknown> => {
     case "resolveOpenLedger": return { entryId: "open:1", status: "kept", note: "she did" };
     case "openLedgerHere": return {};
     case "groupsAwaitingWords": return {};
+    case "allianceNameTickets": return {};
+    case "recordAllianceName": return { ticket: "nt-00000000", name: "A Quiet Table" };
     case "recordGroupIdentity": return { groupId: "alliance:1", name: "The Porch Crowd", ritual: "a quiet check-in after the week" };
     case "recordOpenLedger": return { text: "I will keep your secret", speaker: "player", addressedTo: [], kind: "promise" };
     // 0070: the FE texture write-back addresses a planted HIDDEN off-screen event by id and writes

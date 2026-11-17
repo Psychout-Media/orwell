@@ -78,6 +78,8 @@ export const PLAYER_TOOLS: readonly ToolDescriptor[] = [
   { name: "recordNpcTraits", channel: "player", readsVault: false, description: "FE-driven write-back (ORW-319, spec 0146 lane 1): freeze each houseguest's habits and season-aim hint as the utility model read them from the PUBLIC profile. Closed sets only; validated; write-once. Not a model lever." },
   { name: "recordNpcReflections", channel: "player", readsVault: false, description: "FE-driven write-back (ORW-320, spec 0146 slice 7): freeze the nightly reflections the utility model wrote AFTER the crown from each houseguest's own unsealed story. Refused until the season is finished; validated; write-once per houseguest-night; bare counts out. Not a model lever." },
   { name: "recordGroupIdentity", channel: "player", readsVault: false, description: "FE-driven write-back (ORW-566 part c, spec 0183): freeze the model's words for one group (a name, a ritual, a signal, an inside joke) written from its members' PUBLIC facts. Validated; write-once per group. Not a model lever." },
+  { name: "recordAllianceName", channel: "player", readsVault: false, description: "FE-driven write-back (ORW-566 part c2, spec 0183): answer one sealed-prompt ticket with the model's alliance name. Bare receipt for a real and a decoy ticket alike. Not a model lever." },
+  { name: "allianceNameTickets", channel: "player", readsVault: false, description: "FE-driven read (ORW-566 part c2, spec 0183): tonight's fixed-size batch of anonymous naming prompts (traits and house culture only). Not a model lever." },
   { name: "groupsAwaitingWords", channel: "player", readsVault: false, description: "FE-driven read (ORW-566 part c, spec 0183): the groups still waiting for their words (ids and a room only), for the FE writer. Not a model lever." },
   { name: "recordHouseCulture", channel: "player", readsVault: false, description: "FE-driven write-back (ORW-319, spec 0146 lane 2): freeze the season's house culture (nicknamed spots, rituals, a running joke) from the cast's PUBLIC facets. Validated; write-once. Not a model lever." },
   { name: "recordWorldSnapshot", channel: "player", readsVault: false, description: "FE-driven write-back (0062): freeze the move-in zeitgeist — the PUBLIC, shared real-world flavor the whole cast moved in WITH (an optional subset of public slices: screen/music/sports/news/internet/mood). The FE owns the concrete web-search capture (like the 0051 image port); the engine persists it as the single FROZEN artifact and RECALLS it (never re-searches) all season. Empty slices keep the fallback's value (non-degradation). Public flavor only — no Vault, no game input. Not a model lever." },
@@ -193,6 +195,9 @@ const INFRA_LEVERS: ReadonlySet<string> = new Set(["getMomentPrompt", "endOfSess
   // ORW-566 part c (spec 0183): the group-identity words write-back and its read of the groups awaiting words are FE-driven seams (the FE utility model reads PUBLIC profiles), NOT model levers.
   "recordGroupIdentity",
   "groupsAwaitingWords",
+  // ORW-566 part c2 (spec 0183): the anonymized sealed-prompt door for formation-time alliance names: FE-driven infra, NOT model levers.
+  "allianceNameTickets",
+  "recordAllianceName",
   // ORW-223: the room-canon write-back is an FE-driven seam (the front-end extracts a narrated room feature and writes it back), NOT a model lever - out of the base prompt manifest.
   "recordRoomCanon",
   // ORW-510: the narration-use write-back is an FE-driven seam (the front-end hands the finished turn back), NOT a model lever.
