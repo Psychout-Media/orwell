@@ -213,6 +213,7 @@ def test_status_file_lives_in_root_owned_run_dir_and_has_reason(tmp_path):
     text = (run / "update-deferred").read_text()
     assert "reason=live game" in text and "proceeds_by_epoch=1793000000" in text and "--force" in text
     assert not [p for p in run.iterdir() if p.name.startswith(".update-deferred.")]   # no temp left behind
+    assert ((run / "update-deferred").stat().st_mode & 0o777) == 0o644   # ORW-486: readable by a non-root doctor --status
     # a symlinked run dir is refused outright
     link = tmp_path / "linkdir"
     link.symlink_to(tmp_path / "elsewhere")
@@ -341,3 +342,10 @@ def test_force_route_exists_and_uses_the_same_admin_guard():
     src = (ROOT / "frontend" / "routes" / "admin_update_routes.py").read_text()
     seg = src[src.index('"/update/force"'):]
     assert "guard_root_op(request)" in seg and "update-force-requested" in seg
+
+
+def test_wait_message_names_a_command_not_a_missing_admin_control():
+    """ORW-486: no admin page control calls the force endpoint, so the wait message must name the --force command."""
+    src = (Path(__file__).resolve().parents[2] / "deploy" / "orwell-live-game.sh").read_text()
+    assert "force it from the admin page" not in src
+    assert "orwell-update.sh --force" in src

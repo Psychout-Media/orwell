@@ -2175,5 +2175,8 @@ export function houseMeetingLine(m: { caller: string; accused: string; claim: { 
   const reply = m.answer === "admit" ? `${m.accused} admits it`
     : m.answer === "redirect" ? `${m.accused} turns it back, telling the house ${m.redirectTo ?? m.caller} is the one lying`
     : `${m.accused} denies it`;
-  return `${m.caller} called the house together and said: ${said}. ${reply}`;
+  const fixed = m.answer === "admit" ? `the accused ADMITS it: they must not deny it, now or in later turns`
+    : m.answer === "redirect" ? `the accused DEFLECTS: they neither confirm nor deny, and must not admit or flatly deny it, now or in later turns`
+    : `the accused DENIES it: they must not admit, confess or concede it, now or in later turns`;
+  return `${m.caller} called the house together and said: ${said}. ${reply}. The answer is FIXED, ${fixed}`;
 }

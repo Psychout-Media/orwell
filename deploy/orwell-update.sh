@@ -1102,8 +1102,14 @@ fi
 # "database is locked". Drop privileges with runuser when we are root and the user resolves; otherwise
 # (already unprivileged, or no runuser) run in-process. The service user owns the DB in normal
 # operation, and the chown below re-affirms it.
+_svc_sqlite3_can_drop() {
+  [[ "$(id -u)" -ne 0 ]] && return 0
+  command -v runuser >/dev/null 2>&1 && id "${SVC_USER:-orwell}" >/dev/null 2>&1 && [[ "${SVC_USER:-orwell}" != root ]]
+}
+# ORW-495: as root with no way to drop privileges this REFUSES (returns 4) instead of running sqlite3 as root.
 _svc_sqlite3() {
-  if [[ "$(id -u)" -eq 0 ]] && command -v runuser >/dev/null 2>&1 && id "${SVC_USER:-orwell}" >/dev/null 2>&1; then
+  _svc_sqlite3_can_drop || return 4
+  if [[ "$(id -u)" -eq 0 ]]; then
     runuser -u "${SVC_USER:-orwell}" -- sqlite3 "$@"
   else
     sqlite3 "$@"
@@ -1348,23 +1354,40 @@ cleanup_inherited_cruft() {
       rm -f "$errf"
     fi
     if (( rc == 5 )); then
-      if command -v sqlite3 >/dev/null 2>&1 \
-         && _svc_sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='mcp_servers' LIMIT 1;" 2>/dev/null | grep -q 1; then
-        local before after
-        before="$(_svc_sqlite3 "$db" "SELECT count(*) FROM mcp_servers;" 2>/dev/null || echo 0)"
-        _svc_sqlite3 "$db" "DELETE FROM mcp_servers WHERE ${_CRUFT_MCP_WHERE};" 2>/dev/null || true
-        after="$(_svc_sqlite3 "$db" "SELECT count(*) FROM mcp_servers;" 2>/dev/null || echo 0)"
-        if [[ "$before" =~ ^[0-9]+$ && "$after" =~ ^[0-9]+$ ]] && (( before > after )); then
-          removed=$(( before - after ))
+      # ORW-495: the CLI fallback (a box without python3). Never as root; rc stays nonzero unless it confirmed it ran.
+      if ! command -v sqlite3 >/dev/null 2>&1; then
+        why="no python3 sqlite3 module and no sqlite3 CLI"
+      elif ! _svc_sqlite3_can_drop; then
+        rc=4
+      else
+        local before after has
+        if has="$(_svc_sqlite3 "$db" "SELECT 1 FROM sqlite_master WHERE type='table' AND name='mcp_servers' LIMIT 1;" 2>/dev/null)"; then
+          if [[ "$has" != *1* ]]; then
+            rc=0   # no mcp_servers table: nothing to clean (confirmed)
+          else
+            before="$(_svc_sqlite3 "$db" "SELECT count(*) FROM mcp_servers;" 2>/dev/null)" || before=""
+            if _svc_sqlite3 "$db" "DELETE FROM mcp_servers WHERE ${_CRUFT_MCP_WHERE};" 2>/dev/null; then
+              after="$(_svc_sqlite3 "$db" "SELECT count(*) FROM mcp_servers;" 2>/dev/null)" || after=""
+              if [[ "$before" =~ ^[0-9]+$ && "$after" =~ ^[0-9]+$ ]]; then
+                rc=0
+                (( before > after )) && removed=$(( before - after ))
+              else
+                why="sqlite3 CLI could not confirm the row count"
+              fi
+            else
+              why="sqlite3 CLI DELETE failed"
+            fi
+          fi
+        else
+          why="sqlite3 CLI could not read app.db"
         fi
       fi
-      rc=0
     fi
     if (( rc == 0 )) && [[ "$removed" =~ ^[0-9]+$ ]] && (( removed > 0 )); then
       echo "    removed ${removed} inherited MCP-server config row(s) from app.db"
     elif (( rc == 4 )); then
       # Never silent: the cleanup did not run because the front end's DB is never written as root.
-      echo "    note: cruft cleanup skipped: no service user to drop to (set ORWELL_SERVICE_USER); the DB is never written as root"
+      echo "    note: cruft cleanup skipped: cannot drop to a non-root service user (check ORWELL_SERVICE_USER and runuser); the DB is never written as root"
     elif (( rc != 0 )); then
       echo "    note: could not clean inherited MCP-server rows from app.db this time (${why:-busy or unreadable}); the next update retries"
     fi
