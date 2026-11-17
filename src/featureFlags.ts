@@ -170,6 +170,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_GRUDGES', key: 'grudges', parser: 'defaultOn' },
   // 0181 / ORW-568 (theme 3 slice 4, part 1): a bond's life - a real feeling for someone holds a houseguest back from cutting them (a bounded vote / nomination / alliance-break term) and shakes them after they do (the existing mood, scaled). Needs the bond record. A played game only. `=0` opts out.
   { envKey: 'ORWELL_BOND_FEELINGS', key: 'bondFeelings', parser: 'defaultOn' },
+  // 0186 / ORW-552 (theme 3 slice 14): a deal exposed - a partner who learns their final two is not the only one loses trust in the double-dealer; a partner's HOH win or a double eviction reopens open deals on new terms. A played game only. `=0` opts out.
+  { envKey: 'ORWELL_DEAL_EXPOSURE', key: 'dealExposure', parser: 'defaultOn' },
   { envKey: 'ORWELL_DISCLOSURE_ENGINE', key: 'disclosureEngine', parser: 'defaultOn' },
   // B27: the forgiveness trait (a seeded ~1-in-6 grudge-keeper whose real betrayals keep a floor; everyone else's favors fade fast). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_FORGIVENESS', key: 'forgiveness', parser: 'defaultOn' },

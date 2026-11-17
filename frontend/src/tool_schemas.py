@@ -1395,7 +1395,7 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "submitDecision",
-            "description": "Resolve the player's pending game decision and continue — ONLY for the competition approach (comp-intent / comp-round) and the in-chat deal-offer answer, using the `kind` from the pending decision. Every other binding choice (nominations, vetoes, votes, goodbye messages, finale picks, self-evict…) is committed ONLY by the player's own confirm on its decision card: present it and WAIT; submitting it here is refused. The engine validates legality server-side.",
+            "description": "Resolve the player's pending game decision and continue — ONLY for the competition approach (comp-intent / comp-round), the in-chat deal-offer answer and the player's own answer to an accusation at a house meeting (meeting-answer), using the `kind` from the pending decision. Every other binding choice (nominations, vetoes, votes, goodbye messages, finale picks, self-evict…) is committed ONLY by the player's own confirm on its decision card: present it and WAIT; submitting it here is refused. The engine validates legality server-side.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1404,7 +1404,8 @@ FUNCTION_TOOL_SCHEMAS = [
                         # ONE source of truth with the REST/WS relays (orwell_engine.DECISION_KINDS);
                         # the hand-copied enum drifted (exit-interview / deal-offer / secret-veto missing).
                         "enum": sorted(_DECISION_KINDS - {"ceremony-step"}),  # a watch step is answered by advanceGame; the engine always refuses it here, so never offer it to the model (ORW-281 4a)
-                        "description": "Only comp-intent / comp-round (send `intent`) and deal-offer (send `vote`: accept | decline) "
+                        "description": "Only comp-intent / comp-round (send `intent`), deal-offer (send `vote`: accept | decline) and meeting-answer "
+                                       "(send `vote`: deny | admit | redirect, and `statement`: the player's own words, as they wrote them) "
                                        "are submittable here. deal-offer answers a houseguest's STANDING offer in the "
                                        "chat — it is not a pending decision card. Every other kind is committed ONLY by "
                                        "the player's own confirm on its decision card and is refused by this tool.",
@@ -1414,8 +1415,8 @@ FUNCTION_TOOL_SCHEMAS = [
                     "use": {"type": "boolean", "description": "Card-only kinds (veto-decision, secret-veto): committed on the player's card; refused here."},
                     "save": {"type": "string", "description": "Card-only (veto-decision): committed on the player's card; refused here."},
                     "replacement": {"type": "string", "description": "Card-only (replacement): committed on the player's card; refused here."},
-                    "vote": {"type": "string", "description": "deal-offer: accept | decline. Every other vote kind (eviction-vote, juror-vote, goodbye-message, exit-interview…) is card-only and refused here."},
-                    "statement": {"type": "string", "description": "Card-only (finale-statement, juror-question, goodbye-message text): committed on the player's card; refused here."},
+                    "vote": {"type": "string", "description": "deal-offer: accept | decline. meeting-answer: deny | admit | redirect. Every other vote kind (eviction-vote, juror-vote, goodbye-message, exit-interview…) is card-only and refused here."},
+                    "statement": {"type": "string", "description": "meeting-answer: the player's own words, kept as given. Card-only (finale-statement, juror-question, goodbye-message text): committed on the player's card; refused here."},
                     "appeal": {"type": "string", "enum": ["own-game", "mend", "connect", "discredit-rival"], "description": "Card-only (finale-answer): committed on the player's card; refused here."},
                     "intent": {"type": "string", "enum": ["compete", "throw", "play-safe"], "description": "comp-intent / comp-round: the player's declared approach for the competition, asked ONCE up front (round 1) — committed before the competition resolves and locked. The elimination rounds then play out as drama; the player is NOT re-asked each round (the up-front approach is the binding one)."},
                 },

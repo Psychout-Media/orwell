@@ -107,6 +107,7 @@ import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAc
 import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
+import { DEAL_EXPOSURE, exposureHits, reopened, twistKey, type DealTwist } from "../../engine/dealExposure";
 import { DEAL_PLANS, PLAN_SEMANTICS, buildDealPlanRetro, decidePlan, fakingLean, isBetrayal, momentDue, planBond, planSourceOf, recordPlan, type PlanSource, type StoredPlan } from "../../engine/dealPlans";
 import { DEAL_CONSENT, type DealRefusalReason } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
@@ -373,7 +374,7 @@ import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedInT
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
 import { drawHouseLeans, describeHouseLeans, dialMult, type DialId } from "../../engine/houseLeans";
-import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingCaller } from "../../engine/houseMeeting";
+import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, meetingClaimFor, meetingWeekSpent, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingAnswer, type MeetingCaller, type MeetingRefusal } from "../../engine/houseMeeting";
 import { decideTellToPlayer, presentedBand, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
 import { decidePlantToPlayer, toldTodayBy } from "../../engine/plantToPlayer";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
@@ -1853,31 +1854,73 @@ export class GameSessionAdapter implements GameSession {
   private cultureMult(dial: DialId): number { return dialMult(this.houseCultureEnabled ? this.live?.houseLeans : undefined, dial); }
   setHouseMeetingsEnabled(on: boolean): void { this.houseMeetingsEnabled = on; }
   private meetingCallDecided = new Set<string>();
-  holdHouseMeeting(input: { caller: EntityId; accused: EntityId; claim: { kind: import("../../engine/spokenClaims").SpokenClaimKind; subject: EntityId; object?: EntityId } }): HouseMeeting | undefined {
+  /**
+   * ORW-593/596: why a meeting cannot be held now, or `"invalid"` for a call that is simply not a legal accusation (silent, as before). The ONE gate for every caller (the player's words, an NPC's grievance) and
+   * every accused (an NPC, or the player). The player can be accused by an NPC on the same terms as an NPC is; only the player cannot accuse themselves.
+   */
+  private meetingRefusal(input: { caller: EntityId; accused: EntityId; claim: { kind: import("../../engine/spokenClaims").SpokenClaimKind; subject: EntityId; object?: EntityId } }): MeetingRefusal | "invalid" | undefined {
     const live = this.live;
-    if (!this.houseMeetingsEnabled || !this.npcBeliefsEnabled || !live || live.playedGame !== true || this.ceremonyBeat || !this.house) return undefined;
-    const { caller, accused, claim } = input;
+    if (!this.houseMeetingsEnabled || !this.npcBeliefsEnabled || !live || live.playedGame !== true || !this.house) return "invalid";
+    const { caller, accused } = input;
+    const claim = meetingClaimFor(input.claim, caller);
     const who: MeetingCaller = caller === PLAYER ? "player" : "npc";
+    if (!canCallMeeting(who) || accused === caller || claim.subject !== accused || !MEETING_CLAIM_KINDS.includes(claim.kind)) return "invalid";
+    if (this.ceremonyBeat) return "ceremony";
+    if (meetingWeekSpent(live.houseMeetings ?? [], live.week)) return "spent";
     const awake = this.awakeNow();
     const living = this.livingIds();
     const here = (id: EntityId): boolean => living.includes(id) && (!awake || awake.has(id));
-    if (!canCallMeeting(who) || accused === PLAYER || accused === caller || claim.subject !== accused || !MEETING_CLAIM_KINDS.includes(claim.kind)) return undefined;
-    if (!here(caller) || !here(accused) || !living.includes(accused)) return undefined;
-    if (claim.object !== undefined && !living.includes(claim.object)) return undefined;
+    if (!here(caller) || !here(accused) || !living.includes(accused) || ((caller === PLAYER || accused === PLAYER) && this.napAsleep)) return "asleep";
+    if (claim.object !== undefined && !living.includes(claim.object)) return "invalid";
+    const listeners = living.filter(here).filter((id) => id !== PLAYER && id !== caller && id !== accused);
+    if (listeners.length === 0) return "nobody";
+    const probe: ClaimInput = { speaker: caller, listener: listeners[0]!, kind: claim.kind, subject: claim.subject, ...(claim.object !== undefined ? { object: claim.object } : {}), isTrue: false, intent: "warn" };
+    if (claimProblem(probe, living) !== undefined) return "invalid"; // a refused call allocates nothing
+    return undefined;
+  }
+  holdHouseMeeting(input: { caller: EntityId; accused: EntityId; claim: { kind: import("../../engine/spokenClaims").SpokenClaimKind; subject: EntityId; object?: EntityId } }): HouseMeeting | undefined {
+    const live = this.live;
+    if (this.meetingRefusal(input) !== undefined || !live) return undefined;
+    const { caller, accused } = input;
+    const claim = meetingClaimFor(input.claim, caller);
+    const awake = this.awakeNow();
+    const living = this.livingIds();
+    const here = (id: EntityId): boolean => living.includes(id) && (!awake || awake.has(id));
     const attendees = living.filter(here);
     const listeners = attendees.filter((id) => id !== PLAYER && id !== caller && id !== accused);
-    if (listeners.length === 0) return undefined;
     const probe: ClaimInput = { speaker: caller, listener: listeners[0]!, kind: claim.kind, subject: claim.subject, ...(claim.object !== undefined ? { object: claim.object } : {}), isTrue: false, intent: "warn" };
-    if (claimProblem(probe, living) !== undefined) return undefined; // a refused call allocates nothing
     const meetings = (live.houseMeetings ??= []);
     const day = live.dayNumber ?? 1;
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:house-meeting:${live.week}:${day}:${meetings.length}`));
-    const sayable: SayableBelief = { beliefId: "", kind: claim.kind, subject: claim.subject, ...(claim.object !== undefined ? { object: claim.object } : {}), confidence: 1, week: live.week };
-    const isTrue = this.believedThingIsTrue(sayable);
+    const isTrue = this.meetingClaimIsTrue(claim);
     const lean = listeners.reduce((a, l) => a + this.rel.edge(l, caller).trust - this.rel.edge(l, accused).trust, 0) / listeners.length;
-    const answer = decideAnswer({ isTrue, candor: this.candorOf(accused), cunning: cunningOf(this.agendaCharacterOf(accused)?.archetype), roomLean: lean, roll: rng.next() });
+    // The accused PLAYER answers in their own words (ORW-596): the engine draws no answer and speaks for no one; the accusation is told now and the answer is settled when the player gives it.
+    const answer = accused === PLAYER ? undefined : decideAnswer({ isTrue, candor: this.candorOf(accused), cunning: cunningOf(this.agendaCharacterOf(accused)?.archetype), roomLean: lean, roll: rng.next() });
     const accusation = new Map<EntityId, SpokenClaim>();
     for (const l of listeners) { const c = this.tellClaim({ ...probe, listener: l, isTrue, intent: isTrue ? "inform" : "mislead" }); if (c) accusation.set(l, c); }
+    const first = [...accusation.values()][0];
+    if (!first) return undefined;
+    if (answer !== undefined) this.settleMeeting({ caller, accused, isTrue, answer, listeners, accusation });
+    const meeting: HouseMeeting = {
+      id: `meeting:${meetings.length + 1}`, week: live.week, day, caller, accused, claim: { kind: claim.kind, subject: claim.subject, ...(claim.object !== undefined ? { object: claim.object } : {}) },
+      accuser: caller, claimId: first.id, claimIds: [...accusation.values()].map((c) => c.id), ...(answer !== undefined ? { answer } : { awaitingPlayerAnswer: true as const }), ...(answer === "redirect" ? { redirect: { to: caller } } : {}),
+      attendees, playerPresent: attendees.includes(PLAYER) && !this.napAsleep,
+    };
+    meetings.push(meeting);
+    return meeting;
+  }
+  /** The engine's own check of a meeting's claim (never handed outward). */
+  private meetingClaimIsTrue(claim: { kind: import("../../engine/spokenClaims").SpokenClaimKind; subject: EntityId; object?: EntityId }): boolean {
+    const sayable: SayableBelief = { beliefId: "", kind: claim.kind, subject: claim.subject, ...(claim.object !== undefined ? { object: claim.object } : {}), confidence: 1, week: this.live?.week ?? 0 };
+    return this.believedThingIsTrue(sayable);
+  }
+  /**
+   * The ONE settlement of a house meeting once the accused has answered (deny / admit / redirect), for an NPC accused (the engine's draw) and the player accused (their own choice) alike: a redirect
+   * is told to each listener, then each listener comes out holding harder, doubting or unmoved from their trust in each side. The same stores move whoever is accused.
+   */
+  private settleMeeting(p: { caller: EntityId; accused: EntityId; isTrue: boolean; answer: MeetingAnswer; listeners: readonly EntityId[]; accusation: ReadonlyMap<EntityId, SpokenClaim> }): void {
+    const live = this.live!;
+    const { caller, accused, isTrue, answer, listeners, accusation } = p;
     const redirectClaims = new Map<EntityId, SpokenClaim>();
     if (answer === "redirect") for (const l of listeners) { const c = this.tellClaim({ speaker: accused, listener: l, kind: "lying-about", subject: caller, isTrue: !isTrue, intent: "deflect" }); if (c) redirectClaims.set(l, c); }
     const beliefs = (live.beliefs ??= {});
@@ -1895,20 +1938,44 @@ export class GameSessionAdapter implements GameSession {
         if (!held.refuted) held.refuted = true; // the planted belief carries no edge impact, so refuteClaim alone leaves it standing: keep the id, mark it refuted
       }
     }
-    const first = [...accusation.values()][0];
-    if (!first) return undefined;
-    const meeting: HouseMeeting = {
-      id: `meeting:${meetings.length + 1}`, week: live.week, day, caller, accused, claim: { kind: claim.kind, subject: claim.subject, ...(claim.object !== undefined ? { object: claim.object } : {}) },
-      accuser: caller, claimId: first.id, claimIds: [...accusation.values()].map((c) => c.id), answer, ...(answer === "redirect" ? { redirect: { to: caller } } : {}),
-      attendees, playerPresent: attendees.includes(PLAYER) && !this.napAsleep,
-    };
-    meetings.push(meeting);
-    return meeting;
+  }
+  /** ORW-596: the accusation of the player that still awaits their answer: this week's, the player still in the house, the season still running. Older ones lapse (the accusation stands unanswered). */
+  private openAccusation(): HouseMeeting | undefined {
+    const live = this.live;
+    if (!live || live.finished || (live.evictionOrder ?? []).includes(PLAYER)) return undefined;
+    const m = [...(live.houseMeetings ?? [])].reverse().find((x) => x.awaitingPlayerAnswer);
+    return m && m.week === live.week ? m : undefined;
+  }
+  /**
+   * ORW-596: the player's own answer to an NPC's public accusation, recorded: the stance (deny / admit / redirect) is the player's choice and the words are theirs, kept as given. Settles through the
+   * same `settleMeeting` an accused NPC's answer does. A no-op (safe) when no accusation of the player stands. No truth marker in the result: the answer is taken whatever the claim's truth.
+   */
+  private resolveMeetingAnswer(answer: MeetingAnswer, statement: string | undefined): AdvanceView {
+    const m = this.openAccusation();
+    if (!m || !this.house) return this.advanceView(null);
+    return this.inOneCommit(() => {
+      const living = this.livingIds();
+      const items = this.live!.claims?.items ?? [];
+      const accusation = new Map<EntityId, SpokenClaim>();
+      for (const c of items) if (m.claimIds.includes(c.id)) accusation.set(c.listener, c);
+      const listeners = m.attendees.filter((id) => id !== PLAYER && id !== m.caller && living.includes(id) && accusation.has(id));
+      this.settleMeeting({ caller: m.caller, accused: PLAYER, isTrue: this.meetingClaimIsTrue(m.claim), answer, listeners, accusation });
+      m.answer = answer;
+      delete m.awaitingPlayerAnswer;
+      if (answer === "redirect") m.redirect = { to: m.caller };
+      const words = typeof statement === "string" ? statement.replace(/\s+/g, " ").trim().slice(0, 600) : "";
+      if (words) m.playerWords = words;
+      this.persist();
+      return this.advanceView(null);
+    });
   }
   /** 0156 - the narrator seam (wired by slice 7b): the latest meeting the player was present for, as the speakers' words in names. Never the truth, intent, ids or any listener's outcome. */
   houseMeetingThePlayerHeard(): HeardMeeting | undefined {
-    const m = [...(this.live?.houseMeetings ?? [])].reverse().find((x) => x.playerPresent);
+    const m = this.latestPlayerMeeting();
     return m ? heardMeeting(m, (id) => this.nameOf(id)) : undefined;
+  }
+  private latestPlayerMeeting(): HouseMeeting | undefined {
+    return [...(this.live?.houseMeetings ?? [])].reverse().find((x) => x.playerPresent);
   }
   /** 0156 - the NPC call trigger: once per in-game day, at most one NPC with a strong grievance belief may call a meeting, at most one a week per house. Called from the calm off-screen tick (`whisperPairings`). */
   private npcCallsHouseMeeting(): void {
@@ -7218,35 +7285,44 @@ export class GameSessionAdapter implements GameSession {
    * claim (a bare "I call a house meeting" accuses nobody, so nothing is held). The narrator hears the result through `houseMeetingForNarrator`, never from here. Returns true when a meeting was held.
    */
   private resolvePlayerMeetingCall(text: string): boolean {
+    this.playerMeetingRefusal = null;
     if (!this.house || this.live?.finished || this.live?.playedGame !== true || this.napAsleep) return false;
     const living = new Set(this.livingIds());
     const people = this.house.npcs.filter((n) => living.has(n.id)).map((n) => ({ id: n.id, names: [n.name, n.name.split(/\s+/)[0]!].filter((x) => x.length >= 2) }));
     const call = parsePlayerMeetingCall(text, people);
     if (!call?.claim || !call.accused) return false;
     if (!canCallMeeting("player")) return false;
+    const refusal = this.meetingRefusal({ caller: PLAYER, accused: call.accused, claim: call.claim });
+    if (refusal !== undefined) { if (refusal !== "invalid") this.playerMeetingRefusal = refusal; return false; } // ORW-593: a refused call is told to the narrator with its in-world reason, so no meeting is improvised
     return this.holdHouseMeeting({ caller: PLAYER, accused: call.accused, claim: call.claim }) !== undefined;
   }
-
-  /** One-shot memory for the narrator's HOUSE MEETING line: the last meeting shown (by content) and the player message it was shown on, so a retry of the same turn still carries it and the next turn does not. */
-  private meetingShown: { key: string; msg: string | undefined } | null = null;
+  /** ORW-593: why this turn's call for a house meeting was refused (memory-only, replaced by the next `resolvePlayerMove`); the narrator voices it, the engine writes no line. */
+  private playerMeetingRefusal: MeetingRefusal | null = null;
 
   /**
    * 0156 slice 7b: the meeting the player heard, for the narrator: only when the player is awake and still in the game (a meeting held while they slept or were out is never handed over; the
    * read itself only returns meetings the player was present for), and only on the turn it is new. Names, the claim kind, the answer: never `isTrue`, intent, ids or any listener outcome.
+   * ORW-593: "already shown" is the meeting id plus the player message it rode on, PERSISTED in `live.houseMeetingShown` (it was memory-only, so a restart replayed an old meeting as if new). An accusation
+   * of the player that still awaits their answer (ORW-596) is handed over every turn until answered or lapsed, never marked shown.
    */
   private houseMeetingForNarrator(): HouseMeetingView | undefined {
-    if (!this.house || this.napAsleep || (this.live?.evictionOrder ?? []).includes(this.house.player.id)) return undefined;
-    const heard = this.houseMeetingThePlayerHeard();
-    if (!heard) return undefined;
+    const live = this.live;
+    if (!live || !this.house || this.napAsleep || (live.evictionOrder ?? []).includes(this.house.player.id)) return undefined;
+    const m = this.latestPlayerMeeting();
+    if (!m) return undefined;
+    if (m.awaitingPlayerAnswer && this.openAccusation() !== m) return undefined; // a lapsed, unanswered accusation is not re-voiced
+    const heard = heardMeeting(m, (id) => this.nameOf(id));
     const view: HouseMeetingView = {
       caller: heard.caller, accused: heard.accused,
       claim: { kind: heard.claim.kind, subject: heard.claim.subject, ...(heard.claim.object !== undefined ? { object: heard.claim.object } : {}) },
-      answer: heard.answer, ...(heard.redirectTo !== undefined ? { redirectTo: heard.redirectTo } : {}),
+      ...(heard.answer !== undefined ? { answer: heard.answer } : {}), ...(heard.awaitingAnswer ? { awaitingAnswer: true as const } : {}), ...(heard.redirectTo !== undefined ? { redirectTo: heard.redirectTo } : {}),
     };
-    const key = JSON.stringify(view);
+    if (m.awaitingPlayerAnswer) return view;
     const msg = this.lastNotedMessageId();
-    if (this.meetingShown && this.meetingShown.key === key && this.meetingShown.msg !== msg) return undefined;
-    this.meetingShown = { key, msg };
+    const shown = live.houseMeetingShown;
+    if (shown && shown.id === m.id && shown.msg !== msg) return undefined;
+    live.houseMeetingShown = { id: m.id, ...(msg !== undefined ? { msg } : {}) };
+    this.backgroundPersist(); // the mark must survive a restart (no beatSeq bump: this is a read)
     return view;
   }
 
@@ -11095,6 +11171,7 @@ export class GameSessionAdapter implements GameSession {
     }
     this.mullAgendasOvernight(); // ORW-312: asleep, each houseguest's goals fade without progress (inner processing only: no scheming, no rng)
     this.learnBreaksOvernight(); // ORW-597: a quiet break reaches the wronged side once they have caught the breaker lying to them
+    this.foldExposureOvernight(); // 0186: a houseguest who learns their final two is not the only one loses trust in the double-dealer (what they hold, never the truth)
     this.foldBonds(); // 0175: the day's shared moments, deals and saves into the bond record (no rng)
     this.foldNormsOvernight(); // 0180: the house shuns a known promise-breaker (what each houseguest holds, never the truth)
     this.foldDissentOvernight(); // 0180 part 2: a majority voter cools on a dissenter they heard of (vote talk)
@@ -14488,6 +14565,7 @@ export class GameSessionAdapter implements GameSession {
     // call must reach the player (be voiced) before the week can roll it away (cubic #1911).
     const standingOfferId = this.live!.dealOffer?.id;
     this.planAndCarryOutDeals(); // 0178 (Theme 3 slice 1): a secret plan for every new NPC promise; a two-faced plan is carried out at its moment
+    this.reopenDealsOnTwist(); // 0186: a partner's HOH win or a double eviction reopens open deals on new terms (before the weighing, so a standing renegotiation holds the one-offer slot)
     this.weighDealBreaks(); // 0142 idea 4: a played game only; a houseguest may quietly walk back a deal, or ask to renegotiate it (before the offer pass, so a standing renegotiation holds the one-offer slot)
     this.maybeOfferPlayerDeal();
     // PO ruling 2026-11-01: a floated offer NEVER blocks the week (no pop-up, no freeze). It stands as
@@ -14553,6 +14631,12 @@ export class GameSessionAdapter implements GameSession {
     if (req.kind === "deal-offer") {
       if (this.live.finished) return remember(this.advanceView(null)); // a post-season answer binds nothing
       if (req.vote === "accept" || req.vote === "decline") return remember(this.resolveDealOffer(req.vote === "accept"));
+      return remember(this.advanceView(null));
+    }
+    // ORW-596 - the player's own answer to an NPC's public accusation: open state (`live.houseMeetings`, not a pending card), answered like a deal offer. A missing/garbled stance is a safe no-op.
+    if (req.kind === "meeting-answer") {
+      if (this.live.finished) return remember(this.advanceView(null));
+      if (req.vote === "deny" || req.vote === "admit" || req.vote === "redirect") return remember(this.resolveMeetingAnswer(req.vote, req.statement));
       return remember(this.advanceView(null));
     }
     // 0133 — a spectating player may switch WATCH → SKIP later through the same decision kind (no pending needed).
@@ -17375,6 +17459,93 @@ export class GameSessionAdapter implements GameSession {
     }
   }
 
+  /** 0186 (Theme 3 slice 14): deal exposure and renegotiation after a twist (`ORWELL_DEAL_EXPOSURE`, default ON; `=0` = byte-identical). Played games only. */
+  private dealExposureEnabled = flagDefaultOn("ORWELL_DEAL_EXPOSURE");
+  setDealExposureEnabled(on: boolean): void { this.dealExposureEnabled = on; }
+  private dealExposureOn(): boolean { return this.dealExposureEnabled && this.live?.playedGame === true; }
+  /**
+   * 0186: overnight, a partner who HOLDS (a believed, standing "allied with" claim, or a pair the house has made public) that the houseguest who promised them a final two holds another
+   * with someone else loses trust in that houseguest: the existing betrayal fold at a bounded share (`DEAL_EXPOSURE.SEVERITY`). The deal weight the vote reads follows that trust
+   * (`dealTrustFor`). Once per holder, double-dealer and rival; the player is never a holder (their reads are theirs) but can be the double-dealer. A side-stream rng only for the fold's jitter.
+   */
+  private foldExposureOvernight(): void {
+    const s = this.live;
+    if (!this.dealExposureOn() || !s || !s.beliefs || !this.npcBeliefsEnabled || !this.house) return;
+    const seed = this.gameSeed ?? 0;
+    const done = new Set(s.dealExposed ?? []);
+    const hits = exposureHits({ deals: this.deals.all, beliefs: s.beliefs, living: this.livingIds(), npcs: this.house.npcs.map((n) => n.id), seen: done });
+    for (const h of hits) {
+      done.add(h.key);
+      this.rel.applyDirected(h.holder, h.doubleDealer, "betrayal", new SeededRandom(hashSeed(`${seed}:deal-exposed:${h.key}`)), DEAL_EXPOSURE.SEVERITY);
+    }
+    if (hits.length) s.dealExposed = [...done];
+  }
+  /**
+   * 0186: a twist reopens open deals on new terms, through the existing renegotiation seam (`weighDealBreak` with the floor waived, `renegotiatedKind`, the one standing `dealOffer` with
+   * `replacesDealId`). A partner's HOH win reopens the deals that houseguest is party to; a double eviction reopens every open deal among the living. A deal with the player becomes a
+   * standing offer the player may accept or decline (the engine never accepts for them); a deal between two NPCs is swapped engine-side. A "break" verdict counts as a renegotiation here
+   * (a twist asks for new terms, it does not betray). No new lever, no text for the narrator beyond the existing offer line. Once per deal per twist; a side stream keyed on (seed, deal, twist).
+   */
+  private reopenDealsOnTwist(): void {
+    const s = this.live;
+    if (!this.dealExposureOn() || !this.dealDepthEnabled || !s || !this.house || s.finished || s.hoh === undefined) return;
+    if (s.beat === "finale" || s.beat === "complete" || s.pending || ceremonyRef(s)) return;
+    const gone = new Set(s.evictionOrder);
+    if (gone.has(PLAYER)) return;
+    const living = this.house.npcs.map((n) => n.id).filter((id) => !gone.has(id));
+    const alive = new Set<EntityId>([PLAYER, ...living]);
+    const twists: DealTwist[] = [{ kind: "hoh", hoh: s.hoh }];
+    if (s.twist?.kind === "double-eviction") twists.push({ kind: "double-eviction" });
+    const done = new Set(s.dealReopened ?? []);
+    const seed = this.gameSeed ?? 0;
+    const endgame: 0 | 1 | 2 = s.active.length <= 5 ? 2 : s.active.length <= 10 || s.evictionOrder.length >= 7 ? 1 : 0;
+    for (const twist of twists) {
+      const tk = twistKey(twist, s.week);
+      if (done.has(tk)) continue;
+      let deferred = false;
+      for (const deal of reopened(this.deals.all.filter((d) => isWeighableKind(d.kind) && !d.packageId && !d.sealedBallot), twist, alive)) {
+        const dk = `${deal.id}|${tk}`;
+        if (done.has(dk)) continue;
+        const d = deal as Deal;
+        const npcs = d.parties.filter((p) => p !== PLAYER && living.includes(p)).sort();
+        if (npcs.length === 0) { done.add(dk); continue; }
+        if (d.parties.includes(PLAYER) && (s.dealOffer || renegotiatedKind(d.kind) === undefined)) { if (renegotiatedKind(d.kind) !== undefined) deferred = true; else done.add(dk); continue; }
+        done.add(dk);
+        const w = npcs.map((npc) => {
+          const who = d.parties.find((p) => p !== npc)!;
+          const e = this.rel.edge(npc, who);
+          const others = living.filter((id) => id !== npc);
+          const cred = others.length ? others.reduce((a, id) => a + this.credibilityOf(id, npc), 0) / others.length : 1;
+          const reliableShare = others.length && this.reliabilityReader ? others.filter((id) => this.reliabilityReader!(id).has(npc)).length / others.length : 0;
+          const weighing = weighDealBreak({
+            kind: d.kind, threat: e.threat, trust: e.trust, affinity: e.affinity, ownPush: this.ownPushAgainst(npc, who), agendaPull: this.agendaPullOf(who, npc).value,
+            loyalty: Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(npc), this.emotionalReadOf(npc)))), credibility: cred, reliableShare, endgame, twist: true,
+          });
+          return { npc, who, weighing };
+        }).sort((a, b) => b.weighing.temptation - a.weighing.temptation || (a.npc < b.npc ? -1 : 1))[0]!;
+        const verdict = decideDealBreak(w.weighing, new SeededRandom(hashSeed(`${seed}:deal-twist:${deal.id}:${tk}`)).next());
+        if (verdict === "keep") continue;
+        const kind = renegotiatedKind(d.kind);
+        if (kind === undefined) continue;
+        if (d.parties.includes(PLAYER)) {
+          this.noteDealWeighing(w.npc, "deal-renegotiate", w.weighing);
+          const terms = "the house has changed, so I would rather we swap our deal for a lighter one: I will vote to keep you safe at this week's eviction";
+          s.dealOffer = { id: `offer:${w.npc}:${s.week}`, from: w.npc, kind, terms, madeWeek: s.week, replacesDealId: d.id };
+          s.lastDealOfferWeek = s.week;
+          this.onPlayerEvent?.(`${this.nameOf(w.npc)} pulls ${this.nameOf(PLAYER)} aside to reopen their ${d.kind} deal after the twist`, [PLAYER, w.npc], "conversation");
+        } else {
+          d.status = "lapsed"; // both sides swap it neutrally (not kept, not broken, no fold)
+          const terms = `both agree to a lighter deal in place of the ${d.kind} deal: vote to keep each other safe at this week's eviction`;
+          const evId = this.onPlayerEvent?.(`${this.nameOf(w.npc)} and ${this.nameOf(w.who)} reopened their ${d.kind} deal off-screen`, [w.npc, w.who], "deal");
+          this.trackDealMade(this.deals.make([w.npc, w.who], kind, terms, evId, s.week));
+        }
+        this.persist();
+      }
+      if (!deferred) done.add(tk);
+    }
+    if (done.size !== (s.dealReopened?.length ?? 0)) s.dealReopened = [...done];
+  }
+
   /**
    * 0142 idea 4 - NPCs WEIGH BREAKING A DEAL. Once per open player-party deal per week (`Deal.weighedWeek`), in a PLAYED game only (headless seeded sims run none of this and stay byte-identical),
    * with the deal-depth layer on, never while a ceremony step is open. Each promisor NPC weighs the temptation (their threat read of the player, a low bond, their own plan against the player including
@@ -17810,6 +17981,8 @@ export class GameSessionAdapter implements GameSession {
         return { kind: "secret-veto", use: req.use === true };
       case "deal-offer": // 0123: intercepted in `submitDecision` BEFORE this map (its own path) — never here.
         throw new Error("deal-offer resolves through resolveDealOffer, not the ceremony-decision map");
+      case "meeting-answer": // ORW-596: intercepted in `submitDecision` BEFORE this map (open state, not a pending) - never here.
+        throw new Error("meeting-answer resolves through resolveMeetingAnswer, not the ceremony-decision map");
     }
   }
 
@@ -18255,7 +18428,8 @@ export class GameSessionAdapter implements GameSession {
     const view3 = bedsNow ? { ...view2, beds: bedsNow } : view2;
     const view4 = this.claimSourceNote ? { ...view3, sourceNote: this.claimSourceNote } : view3; // 0152: the answer to "who told you that?", this turn only
     const meetingNow = this.houseMeetingForNarrator(); // 0156 slice 7b: a meeting the player was in the house and awake to hear (one turn; absent otherwise)
-    const view = meetingNow ? { ...view4, houseMeeting: meetingNow } : view4;
+    const view5 = meetingNow ? { ...view4, houseMeeting: meetingNow } : view4;
+    const view = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
     const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
       ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)
