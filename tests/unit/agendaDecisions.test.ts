@@ -141,3 +141,34 @@ describe("ORW-578 part 2: the second nominee gets a stated reason too", () => {
     expect(src).not.toMatch(/w\.kind === "nomination-seat" && w\.rule !== "backdoor-ranks-2-3"\) return/);
   });
 });
+
+describe("ORW-578 part 2b: a veto holder who does not use it gives a reason too", () => {
+  it("the honest reason is keeping the nominations, said about the HOH; it is recorded once, for NPC holders in a played game", async () => {
+    const { noteVetoHoldReason } = await import("../../src/engine/liveSeason");
+    expect(truthfulKind({ decision: "veto-hold", decider: "holder", choice: "hoh", terms: [] })).toBe("keeping-the-noms");
+    const s = { week: 2, dayNumber: 4, hoh: "hoh", active: ["hoh", "holder", "a", "b"], statedReasons: [] as unknown[] } as never as Parameters<typeof noteVetoHoldReason>[0];
+    const ctx = { player: "player", agendaPullFor: () => ({ value: 0 }), statedReasonFor: (r: RealReason) => ({ kind: truthfulKind(r), about: r.choice, candor: "truth" as const }) } as never as Parameters<typeof noteVetoHoldReason>[1];
+    noteVetoHoldReason(s, ctx, "holder");
+    noteVetoHoldReason(s, ctx, "holder");
+    const log = (s as unknown as { statedReasons: Array<{ decision: string; public: boolean; stated: { kind: string; about: string } }> }).statedReasons;
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({ decision: "veto-hold", public: true, stated: { kind: "keeping-the-noms", about: "hoh" } });
+    // the player's own choice never gets a stated reason, and an HOH holding their own veto has no one to defer to
+    noteVetoHoldReason(s, ctx, "player");
+    expect(log).toHaveLength(1);
+  });
+  it("the narrator is handed what it means, never a canned line of its own", async () => {
+    const { STATED_REASON_GLOSS } = await import("../../src/engine/momentPrompts");
+    expect(STATED_REASON_GLOSS["keeping-the-noms"]).toBeTruthy();
+  });
+});
+
+describe("ORW-578: the retrospective's real-reason line follows the same sign rule", () => {
+  it("a term that pulled against the choice is never named as the real reason", async () => {
+    const { realLine } = await import("../../src/engine/houseStory");
+    const rec = { week: 1, day: 2, decider: "h", decision: "nominate", public: true, real: { decision: "nominate", decider: "h", choice: "t", terms: [{ name: "deal", value: -0.9 }, { name: "threat", value: 0.3 }] }, stated: { kind: "biggest-threat", about: "t", candor: "truth" } };
+    const line = realLine(rec as never, (id) => id, new Map());
+    expect(line).toContain("they saw them as a threat");
+    expect(line).not.toContain("a deal they had made");
+  });
+});

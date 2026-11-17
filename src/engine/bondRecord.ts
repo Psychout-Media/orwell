@@ -54,6 +54,10 @@ export const BOND = {
   debtPerSave: 0.5,
   /** A repair (an apology, a kept promise toward a wronged party; Theme 3 slice 5): resentment eases by this share of what strain eases. */
   repairResentShare: 0.5,
+  /** ORW-598: who started a scene. The recipient's view of the starter moves by the scene's full weight; the starter's view of the recipient by this smaller share. */
+  initiatorShare: 0.6,
+  /** ORW-598: a bystander (in the room, not in the scene) moves only their own view of each principal, by this small share of the scene's weight; the principals' pair is untouched. */
+  bystanderShare: 0.15,
   /** Each night: strain eases, a grudge fades slower. */
   nightlyRepair: 0.03,
   nightlyResentFade: 0.01,
@@ -90,22 +94,44 @@ function touch(store: BondStore, holder: EntityId, other: EntityId): BondRecord 
 export type SceneFold = "bonding" | "alliance" | "showmance" | "strategy" | "conflict";
 export const SCENE_FOLDS: ReadonlySet<string> = new Set<SceneFold>(["bonding", "alliance", "showmance", "strategy", "conflict"]);
 
-/** A scene the participants shared: every ordered pair among them folds it (both directions alike: they were all there). */
-export function foldScene(store: BondStore, kind: SceneFold, participants: readonly EntityId[]): void {
+/** The scene's effect on one directed record, at `scale` of its full weight (1 = exactly the old fold). `moment` = it counts as a shared key moment (a bystander's does not). */
+function applyScene(r: BondRecord, kind: SceneFold, scale: number, moment: boolean): void {
+  if (moment) r.history += 1;
+  if (kind === "bonding" || kind === "alliance") { r.warmth = clamp(r.warmth + BOND.warmthPerBond * scale, 0, 1); r.strain = clamp(r.strain - BOND.repairPerBond * scale, 0, 1); }
+  else if (kind === "showmance") { r.warmth = clamp(r.warmth + BOND.warmthPerRomance * scale, 0, 1); if (moment) r.romance += 1; r.strain = clamp(r.strain - BOND.repairPerBond * scale, 0, 1); }
+  else if (kind === "strategy") r.warmth = clamp(r.warmth + BOND.warmthPerStrategy * scale, 0, 1);
+  else if (kind === "conflict") {
+    r.warmth = clamp(r.warmth + BOND.warmthPerConflict * scale, 0, 1);
+    r.resentment = clamp(r.resentment + BOND.resentPerConflict * scale, 0, 1);
+    r.peakResentment = Math.max(r.peakResentment, r.resentment);
+    r.strain = clamp(r.strain + BOND.strainPerConflict * scale, 0, 1);
+  }
+}
+
+/** Who a non-house-life scene was between: the initiator and their partner (the event's pair convention); anyone else in its witness set only watched. House-life scenes name only their participants. */
+export function sceneRoles(initiator: EntityId, witnessSet: readonly EntityId[], houseLife: boolean): { principals: EntityId[]; bystanders: EntityId[] } {
+  const all = [...new Set(witnessSet)];
+  if (houseLife) return { principals: all, bystanders: [] };
+  const first = all.includes(initiator) ? initiator : all[0];
+  const partner = all.find((x) => x !== first);
+  const principals = [first, partner].filter((x): x is EntityId => x !== undefined);
+  return { principals, bystanders: all.filter((x) => !principals.includes(x)) };
+}
+
+/**
+ * A scene the participants shared: every ordered pair among them folds it. With no `who`, both directions alike (they were all there: the original fold, byte-identical).
+ * ORW-598: with `who.initiator`, the recipient's view of the initiator moves by the full weight and the initiator's view of the recipient by `initiatorShare` of it;
+ * `who.bystanders` (watchers, not in the scene) move only their own view of each participant, by `bystanderShare`, never the participants' pair.
+ */
+export function foldScene(store: BondStore, kind: SceneFold, participants: readonly EntityId[], who?: { initiator?: EntityId; bystanders?: readonly EntityId[] }): void {
   const people = [...new Set(participants)];
   for (const a of people) for (const b of people) {
     if (a === b) continue;
-    const r = touch(store, a, b);
-    r.history += 1;
-    if (kind === "bonding" || kind === "alliance") { r.warmth = clamp(r.warmth + BOND.warmthPerBond, 0, 1); r.strain = clamp(r.strain - BOND.repairPerBond, 0, 1); }
-    else if (kind === "showmance") { r.warmth = clamp(r.warmth + BOND.warmthPerRomance, 0, 1); r.romance += 1; r.strain = clamp(r.strain - BOND.repairPerBond, 0, 1); }
-    else if (kind === "strategy") r.warmth = clamp(r.warmth + BOND.warmthPerStrategy, 0, 1);
-    else if (kind === "conflict") {
-      r.warmth = clamp(r.warmth + BOND.warmthPerConflict, 0, 1);
-      r.resentment = clamp(r.resentment + BOND.resentPerConflict, 0, 1);
-      r.peakResentment = Math.max(r.peakResentment, r.resentment);
-      r.strain = clamp(r.strain + BOND.strainPerConflict, 0, 1);
-    }
+    applyScene(touch(store, a, b), kind, who?.initiator !== undefined && a === who.initiator ? BOND.initiatorShare : 1, true);
+  }
+  for (const w of new Set(who?.bystanders ?? [])) {
+    if (people.includes(w)) continue;
+    for (const p of people) applyScene(touch(store, w, p), kind, BOND.bystanderShare, false);
   }
 }
 

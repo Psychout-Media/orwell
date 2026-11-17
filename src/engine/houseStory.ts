@@ -75,18 +75,19 @@ function testWords(t: SuccessTest, nameOf: (id: EntityId) => string): string {
   }
 }
 
-const ACT: Readonly<Record<string, string>> = { nominate: "nominated", replacement: "named as the replacement nominee", veto: "used the veto to save", vote: "voted to evict", "final-hoh-evict": "as final HOH, evicted" };
+const ACT: Readonly<Record<string, string>> = { nominate: "nominated", replacement: "named as the replacement nominee", veto: "used the veto to save", "veto-hold": "left the nominations of", vote: "voted to evict", "final-hoh-evict": "as final HOH, evicted" };
 const TERM_WORDS: Readonly<Record<string, string>> = {
   threat: "they saw them as a threat", goal: "it served a goal they held", memory: "an old grievance", bond: "a bond", alliance: "alliance loyalty", deal: "a deal they had made",
   campaign: "they had been lobbied", mood: "their mood", belief: "what they believed about them", pitch: "a pitch they had heard", style: "their own game style",
 };
 
-function realLine(r: StatedReasonRecord, nameOf: (id: EntityId) => string, goalById: Map<string, Goal>): string {
+export function realLine(r: StatedReasonRecord, nameOf: (id: EntityId) => string, goalById: Map<string, Goal>): string {
   const parts: string[] = [];
   const goal = r.real.goalId ? goalById.get(r.real.goalId) : undefined;
   if (goal) parts.push(`their goal to ${goalSentence(goal, nameOf)}`);
   else if (r.real.goalKind) parts.push(`their goal to ${AIM_WORDS[r.real.goalKind] ?? label(r.real.goalKind)}`);
-  const top = [...r.real.terms].filter((t) => t.name !== "goal").sort((a, b) => Math.abs(b.value) - Math.abs(a.value) || a.name.localeCompare(b.name)).slice(0, 2);
+  // ORW-578: the real reason is what PUSHED the choice - the largest POSITIVE terms - never the largest by size regardless of sign (the same rule as `truthfulKind`).
+  const top = r.real.terms.filter((t) => t.name !== "goal" && t.value > 0).sort((a, b) => b.value - a.value || a.name.localeCompare(b.name)).slice(0, 2);
   for (const t of top) parts.push(TERM_WORDS[t.name] ?? label(t.name));
   const tactic = r.real.tactic === "backdoor" ? "a backdoor: the real target was someone else" : r.real.tactic === "pawn" ? "a pawn nomination" : "";
   if (tactic) parts.unshift(tactic);

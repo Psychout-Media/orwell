@@ -265,7 +265,7 @@ function openCeremonyStep(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | null 
     } else {
       s.vetoUsed = true; s.saved = o.saved; s.replacement = o.replacement;
       s.finalNominees = [otherNominee(s), o.replacement!];
-      if (!o.fromPlayer) ctx.assuranceNominated?.(s.hoh!, o.replacement!); // B4 review fix, as in resolveReplacement
+      ctx.assuranceNominated?.(s.hoh!, o.replacement!); // B4 review fix, as in resolveReplacement; ORW-615: the player HOH's own replacement settles their assurances too
       ev = {
         beat: "veto-ceremony",
         content: `${holder} uses the veto on ${holder === o.saved ? "themselves" : o.saved}; ${s.hoh} names ${o.replacement} as the replacement`,
@@ -281,10 +281,9 @@ function openCeremonyStep(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | null 
   }
   if (c.kind === "nominations" && id === "named") {
     const [a, b] = c.outcome!.nominees;
-    if (!c.outcome!.fromPlayer) {
-      if (ctx.assuranceNominated) for (const n of [a, b]) ctx.assuranceNominated(s.hoh!, n);
-      ctx.assuranceKeptAtNominations?.(s.hoh!, [a, b]);
-    }
+    // ORW-615: the player HOH's own nominations settle the player's casual assurances exactly as an NPC HOH's do (nominating someone you told "you're safe" breaks it)
+    if (ctx.assuranceNominated) for (const n of [a, b]) ctx.assuranceNominated(s.hoh!, n);
+    ctx.assuranceKeptAtNominations?.(s.hoh!, [a, b]);
     s.nominationTarget = c.outcome!.target;
     s.nominees = [a, b]; s.beat = "veto-competition";
     ev = { beat: "nominations", content: `${s.hoh} nominates ${a} and ${b}`, participants: [s.hoh!, a, b] };
@@ -662,7 +661,9 @@ export interface LiveSeasonState {
    */
   /** 0178 (Theme 3 slice 1): each NPC's SECRET PLAN for each deal they agreed to (`dealPlans.ts`). Append-only, engine-only (Vault class), never projected; the retrospective shows it after the crown. */
   dealPlans?: PlanStore;
-  dealOffer?: { id: string; from: EntityId; kind: DealKind; terms: string; madeWeek: number; /** 0142 idea 4: the open deal this offer would REPLACE (a houseguest renegotiating instead of breaking). Accepting retires that deal neutrally. */ replacesDealId?: string };
+  dealOffer?: { id: string; from: EntityId; kind: DealKind; terms: string; madeWeek: number; /** 0142 idea 4: the open deal this offer would REPLACE (a houseguest renegotiating instead of breaking). Accepting retires that deal neutrally. */ replacesDealId?: string; /** 0171 (ORWELL_FAVORS): a counter in play - the round it is and what the houseguest asks for instead. Rides the one standing offer slot. */ counter?: { round: number; ask: { kind: "target" | "protect"; target: EntityId } | { kind: "vote" } }; /** 0171: this standing offer is a FAVOR between the houseguest and the player: `favorId` set = the houseguest calls in a favor the player owes them; absent = they ask the player for a new one. */ favor?: { favorId?: string } };
+  /** 0171: counters the player accepted whose condition (a rival goes up / someone is kept safe) is not yet true. Booked as a favor only when the condition holds at that week's eviction; otherwise lapsed. Append-only, engine-only. */
+  favorConditions?: Array<{ id: string; owedBy: EntityId; owedTo: EntityId; origin: string; kind: "target" | "protect"; target: EntityId; week: number; state: "waiting" | "booked" | "lapsed" }>;
   lastDealOfferWeek?: number;
   /**
    * 0142 / ORW-88 idea 2 - favors the PLAYER is owed: a houseguest (`debtor`) kept a deal with the player, which banked one favor (`n`, capped) the player can call in
@@ -1179,6 +1180,10 @@ export interface SeasonCtx {
   assuranceKeptAtVote?: (voter: EntityId, spared: EntityId, sealedAmong?: readonly EntityId[]) => void;
   /** B4 slice 8: the eviction nominees are final (after the veto and any replacement) - every open 'safe' assurance whose assured is NOT on the block was kept. */
   assuranceKeptAtTally?: (finalNominees: readonly EntityId[]) => void;
+  /** 0171 / Theme 3 slice 3 (ORWELL_FAVORS): the nominees are final and these houseguests vote - favors owed to a nominee are passed on and called in here, before any ballot is cast (a spoken ask, never a ballot attribution). Played games only; absent => nothing, byte-identical. */
+  favorsAtTally?: (finalNominees: readonly EntityId[], voters: readonly EntityId[]) => void;
+  /** 0171: the bounded shield a favor `voter` honored for `nominee` at this vote adds against evicting them (>= 0). Absent => 0, byte-identical. */
+  favorShieldFor?: (nominee: EntityId, voter: EntityId) => number;
   /**
    * 0006b (PO review 2026-06-28) — the NPC's declared COMPETITION INTENT (compete / throw / play-safe)
    * for a comp over `field`. Like the player, an NPC now has an intent, derived from their game (a nominee
@@ -2166,6 +2171,18 @@ export function seatTacticOf(rule: string | undefined, terms: ReadonlyArray<read
   if (rule === "pawn-is-biggest-floater") return "pawn";
   return term("pawn-seat-floater") > 0 && terms.every(([k, v]) => k === "pawn-seat-floater" || v <= term("pawn-seat-floater")) ? "pawn" : "direct";
 }
+/**
+ * ORW-578 part 2b: a veto holder who does NOT use the veto gives a reason aloud at the ceremony, about the HOH whose nominations they leave standing. The same seam as
+ * every stated reason (NPC deciders in a played game only): the honest version is "keeping the nominations the same", and the candor roll can soften or cover it.
+ */
+export function noteVetoHoldReason(s: LiveSeasonState, ctx: SeasonCtx, holder: EntityId): void {
+  if (!ctx.statedReasonFor || !ctx.agendaPullFor || holder === ctx.player || !s.hoh || s.hoh === holder || !s.active.includes(s.hoh)) return;
+  const log = (s.statedReasons ??= []);
+  if (log.some((r) => r.week === s.week && r.decider === holder && r.decision === "veto-hold")) return;
+  const real: RealReason = { decision: "veto-hold", decider: holder, choice: s.hoh, terms: [] };
+  const day = s.dayNumber ?? s.week;
+  log.push({ week: s.week, day, decider: holder, decision: "veto-hold", public: true, real, stated: ctx.statedReasonFor(real, day) });
+}
 /** `whySinkFor` plus ORW-314's stated-reason record (inert unless the context supplies the agenda seam, i.e. a played game). */
 const reasonSinkFor = (s: LiveSeasonState, ctx: SeasonCtx, by: EntityId): WhySink => (w) => { recordWhy(s, by, w); noteStatedReason(s, ctx, by, w); };
 
@@ -2242,6 +2259,8 @@ export function voteChoice(
     ctx.agendaPullFor?.(n, voter).value ?? 0,
     // ORW-568 / 0181: the voter's real feeling for `n` keeps them (a friend is hard to cut, a stranger or a grudge is not). Absent provider => 0 => byte-identical.
     -(ctx.feelingKeepFor?.(n, voter) ?? 0),
+    // 0171: a favor this voter was owed-and-honored to `n` at this vote shields them. Absent provider => 0 => byte-identical.
+    -(ctx.favorShieldFor?.(n, voter) ?? 0),
   ];
   const v0 = termVals(fn[0]);
   const v1 = termVals(fn[1]);
@@ -2259,7 +2278,7 @@ export function voteChoice(
 }
 
 /** ORW-305: the vote score's term names, in the order `voteChoice` adds them. */
-export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum", "agenda", "feeling"] as const;
+export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum", "agenda", "feeling", "favor"] as const;
 
 /** Count the eviction votes (NPCs threat-driven; the player's own vote, if any) WITHOUT breaking a tie. */
 function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: EntityId): {
@@ -2269,6 +2288,7 @@ function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: Ent
   const voters = evictionVoters({ ...weekState(s, ctx), nominees: fn });
   const blocs = currentBlocs(s, ctx); // one derived read for the whole vote — the bloc votes together
   ctx.assuranceKeptAtTally?.(fn); // B4 slice 8: nominees are final here - settle the 'safe' assurances of everyone who stayed off the block
+  ctx.favorsAtTally?.(fn, voters); // 0171: pass on and call in the favors owed to a nominee, before the first ballot
   const votes: Record<EntityId, number> = { [fn[0]]: 0, [fn[1]]: 0 };
   const voteOf = new Map<EntityId, EntityId>();
   for (const v of voters) {
@@ -3722,6 +3742,7 @@ function npcVetoSave(s: LiveSeasonState, ctx: SeasonCtx): EntityId | undefined {
     recordWhy(s, holder, { kind: "veto", rule: "no-candidate-clears-the-bar", options: [
       { option: "hold", role: "chosen", total: bar, terms: [["bar", bar]] }, opt(ru, "runner-up"),
     ] });
+    noteVetoHoldReason(s, ctx, holder); // ORW-578 part 2b: not using the veto is a public act too, with a reason said aloud
   }
   return saved;
 }
@@ -3904,6 +3925,8 @@ export function applyDecision(
         s.ceremony.at = s.ceremony.steps.indexOf("named");
         return openCeremonyStep(s, ctx)!;
       }
+      if (ctx.assuranceNominated) for (const n of [a, b]) ctx.assuranceNominated(s.hoh!, n); // ORW-615: the player HOH settles their assurances like anyone
+      ctx.assuranceKeptAtNominations?.(s.hoh!, [a, b]);
       s.nominees = [a, b]; s.nominationTarget = undefined; s.pending = undefined; s.beat = "veto-competition";
       return { beat: "nominations", content: `${s.hoh} nominates ${a} and ${b}`, participants: [s.hoh!, a, b] };
     }
@@ -3989,6 +4012,7 @@ export function applyDecision(
       const legal = new Set(selectableReplacements(weekState(s, ctx)).filter((h) => h !== s.saved));
       if (!legal.has(input.replacement)) throw new Error("illegal replacement nominee");
       s.replacement = input.replacement; s.finalNominees = [otherNominee(s), input.replacement];
+      ctx.assuranceNominated?.(s.hoh!, input.replacement); // ORW-615: as an NPC HOH's replacement does
       s.pending = undefined; s.beat = "eviction";
       return { beat: "veto-ceremony", content: `${s.hoh} names ${input.replacement} as the replacement`, participants: [s.hoh!, input.replacement] };
     }
