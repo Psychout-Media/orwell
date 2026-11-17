@@ -51,3 +51,17 @@ describe("parsePlayerMeetingCall", () => {
     expect(parsePlayerMeetingCall(undefined as unknown as string, people)).toBeNull();
   });
 });
+
+describe("ORW-560: a broken word is a lie the player can call the house about", () => {
+  it("the live sweep's phrasing and its neighbours name a lying-about claim", () => {
+    expect(call("I call a house meeting: Alpha told two people they were safe and then nominated them anyway")).toEqual({ accused: "a", claim: { kind: "lying-about", subject: "a" } });
+    expect(call("Everyone, living room. Alpha promised me safety and put me up.")).toEqual({ accused: "a", claim: { kind: "lying-about", subject: "a", object: PLAYER } });
+    expect(call("I call a house meeting. Alpha broke her word to Bravo.")).toEqual({ accused: "a", claim: { kind: "lying-about", subject: "a", object: "b" } });
+    expect(call("I want to say this in front of everybody: Alpha is a liar.")).toEqual({ accused: "a", claim: { kind: "lying-about", subject: "a" } });
+    expect(call("House meeting! Alpha backstabbed Charlie.")).toEqual({ accused: "a", claim: { kind: "lying-about", subject: "a", object: "c" } });
+  });
+  it("still calls nothing when hedged, asked, or not a call", () => {
+    expect(call("Maybe I should call a house meeting: Alpha broke her word.")).toBeNull();
+    expect(call("Alpha broke her word.")).toBeNull();
+  });
+});

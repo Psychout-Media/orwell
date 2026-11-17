@@ -306,3 +306,30 @@ describe("a save with a bad open ledger logs one count line at restore (follow-u
     } finally { warn.mockRestore(); }
   });
 });
+
+describe("ORW-494 restore validates day and the due map", () => {
+  it.each([["negative", -1], ["fractional", 2.5]])("a %s day does not restore", (_n, day) => {
+    const r = restoreOpenLedger({ nextId: 2, entries: [{ ...entry(), day }] });
+    expect(r.ledger.entries).toHaveLength(0);
+    expect(r.problems).toBe(1);
+  });
+  it("drops due flags naming no open entry or over the offers max, and the ledger still accepts its next write", () => {
+    const raw = {
+      nextId: 3, entries: [entry(), entry({ id: "open:2", quoteHash: "h2", status: "kept", note: "n", resolvedTurn: 4 })],
+      due: { "open:1": { line: "a", offers: 9 }, "open:2": { line: "b", offers: 1 }, "open:7": { line: "c", offers: 0 } },
+    };
+    const r = restoreOpenLedger(raw);
+    expect(r.problems).toBe(0);
+    expect(r.droppedDue).toBe(3);
+    expect(r.ledger.due).toEqual({});
+    const next = { ...r.ledger, nextId: 4, entries: [...r.ledger.entries, entry({ id: "open:3", quoteHash: "h3" })] };
+    expect(openLedgerSuperset(r.ledger, next)).toBe(true);
+  });
+  it("keeps a valid due flag and a clean ledger round-trips byte-identically", () => {
+    const clean = { nextId: 2, entries: [entry({ day: 3 })], touched: { "open:1": 3 }, due: { "open:1": { line: "a", offers: 2 } } };
+    const r = restoreOpenLedger(JSON.parse(JSON.stringify(clean)));
+    expect(r.problems).toBe(0);
+    expect(r.droppedDue).toBeUndefined();
+    expect(JSON.stringify(r.ledger)).toBe(JSON.stringify(clean));
+  });
+});
