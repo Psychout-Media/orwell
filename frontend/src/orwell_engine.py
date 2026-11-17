@@ -849,6 +849,8 @@ DECISION_KINDS: frozenset = frozenset({
     "secret-veto",
     # 0123 — the player's in-chat answer to a houseguest's deal offer (vote: accept | decline).
     "deal-offer",
+    # ORW-596 — the player's own answer (vote: deny | admit | redirect, statement: their words) to an NPC's public accusation at a house meeting. Open state like a deal offer, never a card.
+    "meeting-answer",
     # ORW-281 4a — a WATCH step of a staged ceremony. NOT a decision: it is answered by advanceGame (Continue); the engine REFUSES submitDecision for it
     # (typed). It lives in the union only because the engine's pending-kind union carries it; card-only, never model-submittable.
     "ceremony-step",
@@ -858,12 +860,13 @@ DECISION_KINDS: frozenset = frozenset({
 # binds them, even a clearly-worded line. The model's `submitDecision` tool may therefore submit ONLY these
 # low-stakes / in-chat kinds (an allow-list, so a NEW decision kind is card-only by default — fail closed):
 #   comp-intent / comp-round — the player's competition approach (the engine owns the outcome);
-#   deal-offer               — the in-chat accept/decline of an NPC's open offer (a light social choice).
+#   deal-offer               — the in-chat accept/decline of an NPC's open offer (a light social choice);
+#   meeting-answer           — the player's own in-chat answer to an accusation at a house meeting (their words; open state, never a card).
 # Every other kind (nominations, veto-decision, secret-veto, eviction-vote, tie-break, final-eviction,
 # goodbye-message, finale-*, juror-*, exit-interview, replacement, houseguests-choice, self-evict) is bound
 # ONLY by the player's own confirm on its card (POST /api/orwell/decision or the WS relay — unchanged).
 # `tests/test_a6_model_submit_gate.py` pins this set and its parity with the card's HIGH_STAKES_KINDS.
-MODEL_SUBMITTABLE_KINDS: frozenset = frozenset({"comp-intent", "comp-round", "deal-offer"})
+MODEL_SUBMITTABLE_KINDS: frozenset = frozenset({"comp-intent", "comp-round", "deal-offer", "meeting-answer"})
 CARD_ONLY_KINDS: frozenset = DECISION_KINDS - MODEL_SUBMITTABLE_KINDS
 
 

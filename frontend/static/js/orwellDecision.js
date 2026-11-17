@@ -39,6 +39,7 @@
     "exit-interview": "vote", // 0130: the chosen exit stance rides `vote` (options are the stances)
     "spectator-choice": "vote", // 0133: the chosen spectator mode (watch | skip) rides `vote` (options are the two modes)
     "finale-interview": "vote", // 0133: the finale-night interview posture rides `vote` (like the exit interview)
+    "meeting-answer": "vote", // ORW-596: the stance rides `vote`; never a card (open state answered in chat, like a deal offer)
     "deal-offer": "vote", // 0123: accept/decline of an NPC's floated deal rides `vote` (options are the two)
     "replacement": "replacement",
   };

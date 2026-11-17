@@ -742,6 +742,8 @@ export interface LiveSeasonState {
   claims?: import("./spokenClaims").ClaimLog;
   /** 0156 / ORW-330 slice 7a: the season's house meetings (`houseMeeting.ts`), append-only, kept whole, ENGINE-ONLY and never projected whole (only `houseMeetingThePlayerHeard` as names). Absent until the first meeting. */
   houseMeetings?: import("./houseMeeting").HouseMeeting[];
+  /** ORW-593: the last house meeting handed to the narrator (its id, and the player message it rode on), so a restart cannot replay it. Persisted with the season (it used to be memory-only); absent until one is shown. */
+  houseMeetingShown?: { id: string; msg?: string };
   /** B4: the casual-assurance ledger (`assurances.ts` toJSON shape). Created ONLY when ORWELL_ASSURANCES is on (absent => byte-identical season state); persisted with the season. */
   assurances?: { seq: number; items: import("./assurances").Assurance[] };
   /**

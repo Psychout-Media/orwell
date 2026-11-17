@@ -21,7 +21,25 @@ export function canCallMeeting(who: MeetingCaller): boolean {
 }
 
 /** The claim kinds a public accusation can carry: the ones that are about the ACCUSED and read the same to every listener (the two listener-relative kinds are not). */
-export const MEETING_CLAIM_KINDS: readonly SpokenClaimKind[] = ["going-after", "final-two-with", "talking-about", "lying-about"];
+export const MEETING_CLAIM_KINDS: readonly SpokenClaimKind[] = ["going-after", "final-two-with", "talking-about", "lying-about", "voted-against"];
+
+/**
+ * ORW-593: the two listener-relative kinds the plain-language parser can produce ("they voted to evict me", "they are targeting us") are NOT dropped: said by `caller`, "you" is the caller, so they
+ * are the same claim in the kinds that name the object ("voted-against" / "going-after", object = the caller). Every other kind is already about the accused and passes through unchanged.
+ */
+export function meetingClaimFor(claim: { kind: SpokenClaimKind; subject: EntityId; object?: EntityId }, caller: EntityId): { kind: SpokenClaimKind; subject: EntityId; object?: EntityId } {
+  if (claim.kind === "voted-to-evict-you") return { kind: "voted-against", subject: claim.subject, object: caller };
+  if (claim.kind === "targets-you") return { kind: "going-after", subject: claim.subject, object: caller };
+  return claim;
+}
+
+/** ORW-593: the pace of house meetings. The house is called together at most this many times in one in-game week, whoever calls it (the NPC rule, now the player's too). ONE number, one place. */
+export const MEETING_PACE = { perWeek: 1 } as const;
+export function meetingWeekSpent(meetings: readonly { week: number }[], week: number): boolean {
+  return meetings.filter((m) => m.week === week).length >= MEETING_PACE.perWeek;
+}
+/** Why a player's call was refused, in the world's terms (the narrator voices it; the engine writes no line for the player). */
+export type MeetingRefusal = "ceremony" | "asleep" | "nobody" | "spent";
 
 export const MEETING = {
   /** A belief this confident (about a grievance) is strong enough to call the house together over. ONE small function (`grievanceStrength`) so slice 2's `believedGrievance().strength` replaces it. */
@@ -83,7 +101,9 @@ export function listenerOutcome(trustInAccuser: number, trustInAccused: number, 
 
 /** THE grievance-strength read (swappable in one place for slice 2's `believedGrievance().strength`). Only beliefs that are a grievance against someone else count. */
 export function grievanceStrength(b: BeliefClaim, holder: EntityId, player: EntityId): number {
-  if (b.refuted || !b.value || b.subject === holder || b.subject === player) return 0;
+  // ORW-596: the player can be the subject of a grievance too (the same threshold as anyone else); `player` is kept in the signature for the callers that pass it.
+  void player;
+  if (b.refuted || !b.value || b.subject === holder) return 0;
   if (b.kind !== "targets-me" && b.kind !== "voted-against-me" && b.kind !== "lied-to-me") return 0;
   return clamp01(b.confidence);
 }
@@ -120,7 +140,12 @@ export interface HouseMeeting {
   claimId: string;
   /** Every accusation claim id, one per NPC listener (belief ids end in `|<claimId>`). */
   claimIds: string[];
-  answer: MeetingAnswer;
+  /** Absent only while the PLAYER, accused by an NPC, has not yet answered (ORW-596): the engine never answers for the player. */
+  answer?: MeetingAnswer;
+  /** ORW-596: set while the accused player's own answer is owed; cleared when it lands. An unanswered one lapses when the week rolls (the accusation simply stands). */
+  awaitingPlayerAnswer?: true;
+  /** ORW-596: the player's own words with their answer, kept as given (engine-only; the player wrote them). */
+  playerWords?: string;
   redirect?: { to: EntityId };
   attendees: EntityId[];
   playerPresent: boolean;
@@ -131,13 +156,15 @@ export interface HeardMeeting {
   caller: string;
   accused: string;
   claim: { kind: SpokenClaimKind; subject: string; object?: string };
-  answer: MeetingAnswer;
+  /** Absent while the accused player has not answered yet (ORW-596). */
+  answer?: MeetingAnswer;
+  awaitingAnswer?: true;
   redirectTo?: string;
 }
 export function heardMeeting(m: HouseMeeting, nameOf: (id: EntityId) => string): HeardMeeting {
   return {
     caller: nameOf(m.caller), accused: nameOf(m.accused),
     claim: { kind: m.claim.kind, subject: nameOf(m.claim.subject), ...(m.claim.object !== undefined ? { object: nameOf(m.claim.object) } : {}) },
-    answer: m.answer, ...(m.redirect ? { redirectTo: nameOf(m.redirect.to) } : {}),
+    ...(m.answer !== undefined ? { answer: m.answer } : {}), ...(m.awaitingPlayerAnswer ? { awaitingAnswer: true as const } : {}), ...(m.redirect ? { redirectTo: nameOf(m.redirect.to) } : {}),
   };
 }
