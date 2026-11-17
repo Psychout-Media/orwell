@@ -134,6 +134,8 @@ When("the houseguest calls the house together and accuses the liar of lying", fu
   rel(b.s).edge(believer, b.hg).trust = 0.95; rel(b.s).edge(believer, b.liar).trust = 0.05;   // one listener trusts the accuser, one the accused
   rel(b.s).edge(doubter, b.hg).trust = 0.05; rel(b.s).edge(doubter, b.liar).trust = 0.95;
   for (const id of b.npcs) presence(b.s).set(id, presence(b.s).get(PLAYER)!); // the whole house is in the room, the player awake among them
+  // ORW-594: the confide stage now rolls once per part of the day, so it can play on into the night; this meeting is the whole house awake (TEST-ONLY seam: the awake set)
+  (b.s as unknown as { awakeNow(): ReadonlySet<string> | undefined }).awakeNow = () => undefined;
   b.mtg = b.s.holdHouseMeeting({ caller: b.hg, accused: b.liar, claim: { kind: "lying-about", subject: b.liar } });
   assert.ok(b.mtg, "the engine refused a valid house meeting");
 });

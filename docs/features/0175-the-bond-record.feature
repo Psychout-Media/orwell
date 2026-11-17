@@ -20,9 +20,11 @@ Feature: The bond record
     When several nights pass with no new clash
     Then the strain has eased more than the grudge, and the worst of the grudge is still remembered
 
-  Scenario: A broken deal is lopsided
+  Scenario: A broken deal is lopsided, and the wronged side feels it only once they learn of it
     Given a played season with the bond record on
-    When one houseguest breaks a deal with another
+    When one houseguest quietly breaks a deal with another
+    Then the one wronged holds no grudge yet, because they do not know
+    When the breaker then nominates them
     Then the one wronged holds a grudge toward the breaker
     And the breaker holds no grudge, only strain
 

@@ -102,6 +102,18 @@ export interface RecordInteractionReq {
    */
   assurance?: { kind: "safe" | "vote" | "loyal"; from?: EntityId; sincerity?: number };
   /**
+   * ORW-586 / 0187 (behind ORWELL_PROMISE_TERMS, default ON): this scene carried a TYPED promise (what the speaker said they would or would not do on the board). `what` is the closed engine set (`PROMISE_WHATS`,
+   * `src/engine/promiseTerms.ts`); `subject` (optional) is who it concerns when that is not the person it was said to; `from` is the promiser (default the initiator). The ENGINE validates the ids and the presence of
+   * everyone involved and writes the termed open-ledger entry (and the matching assurance row), then judges kept or broken itself from the board; a malformed or refused promise is ignored, never an error.
+   */
+  promise?: { what: string; subject?: EntityId; from?: EntityId };
+  /**
+   * ORW-612 part C (behind ORWELL_PROMISE_TERMS and the open ledger): the PLAYER said something about a third person to a named houseguest in this scene ("X is targeting you"). `to` is who it was said to (a named
+   * houseguest in the scene), `about` the subject, `kind` one of the engine's closed claim set (`SPOKEN_CLAIM_KINDS`), `object` the second party where the kind has one. The ENGINE re-validates everything, gives it its truth
+   * from its own records, and the listener holds it as a belief; a false one is a lie on the record. A refused or malformed statement is ignored, never an error. Absent => byte-identical.
+   */
+  statement?: { to: EntityId; about: EntityId; kind: string; object?: EntityId };
+  /**
    * B24 (heard-about-me, behind ORWELL_HEARD_ABOUT_ME, default ON): in this player-witnessed scene an NPC TOLD the other named NPCs something about the PLAYER - that the player is gunning for them
    * (`targeting`) or has betrayed someone (`betrayal`). Only the CLOSED nature crosses (never free text). `from` names the teller (an NPC; default the initiator). The ENGINE decides how far each
    * listener believes it (the teller's reliability) and whether they mishear it - the model never does. Ignored unless the flag and the belief layer are on.

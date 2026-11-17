@@ -35,6 +35,8 @@ export interface Alliance {
   lowDays?: number;
   /** ORW-353: the last in-game day the neglect check ran for this alliance (so a day is counted once). Absent = never checked. */
   checkedDay?: number;
+  /** 0172 / ORW-603: the roster the player was TOLD when the alliance was pitched to them (ids, frozen at the pitch). The player's pitch view shows this, never the live membership. Absent = never pitched with the flag on. */
+  toldRoster?: EntityId[];
 }
 
 export interface AllianceConstants {
@@ -227,7 +229,11 @@ export function willingMembers(
  * nothing about an alliance is ever deleted (non-degradation, mandate #4). APPEND-ONLY: an entry is never removed or rewritten once appended (only `eventId` is filled in the one time the
  * engine records the matching event). Engine-only and Vault-sealed: the entries carry who was in a hidden pact, so no player or admin view reads them; the post-season retrospective may.
  */
-export type AllianceChange = "formed" | "joined" | "left" | "betrayed" | "faded" | "dissolved";
+export type AllianceChange = "formed" | "joined" | "left" | "betrayed" | "faded" | "dissolved" | GroupChange;
+/** 0172 (Theme 3 slice 6): the hidden group-life kinds the history also keeps. History-only: none of them records a player-facing event by itself (the act that a player can see records its own). */
+export type GroupChange = "roles" | "inner-circle" | "purpose" | "spy-planted" | "spy-report" | "spy-turned" | "spy-confessed" | "shadow-formed" | "cracked" | "pitched" | "pitch-withdrawn";
+/** The group-life kinds as a set (the event flush skips these: they are history, not events). */
+export const GROUP_CHANGES: ReadonlySet<string> = new Set<GroupChange>(["roles", "inner-circle", "purpose", "spy-planted", "spy-report", "spy-turned", "spy-confessed", "shadow-formed", "cracked", "pitched", "pitch-withdrawn"]);
 
 export interface AllianceHistoryEntry {
   /** 1-based, strictly increasing, never reused (the append position). */
@@ -243,8 +249,10 @@ export interface AllianceHistoryEntry {
   members: EntityId[];
   /** The member a `joined` / `left` / `betrayed` entry is about. */
   who?: EntityId;
-  /** Why it ended or left: `betrayal`, `cohesion`, `evicted`, `evicted-out`, `too-few-members`. */
+  /** Why it ended or left: `betrayal`, `cohesion`, `evicted`, `evicted-out`, `too-few-members`, `crack`. */
   why?: string;
+  /** 0172: what a group-life entry is about (engine-only, Vault-sealed): the roles dealt, the purpose reached, the alliance a shadow group answers, the alliance a cracked-off group came from. */
+  detail?: string;
   /** Whether the player was a member or had been told of the alliance when this happened (decides whether its event is visible to them). */
   playerKnew: boolean;
   /** The event recorded for this change (set once). */
@@ -272,7 +280,7 @@ export class AllianceStore {
     if (e && e.eventId === undefined) e.eventId = eventId;
   }
 
-  private note(a: Alliance, kind: AllianceChange, members: readonly EntityId[], extra: { who?: EntityId; why?: string } = {}): void {
+  private note(a: Pick<Alliance, "id" | "name" | "founder" | "knownTo">, kind: AllianceChange, members: readonly EntityId[], extra: { who?: EntityId; why?: string; detail?: string } = {}): void {
     this.log.push({
       seq: (this.log[this.log.length - 1]?.seq ?? 0) + 1,
       allianceId: a.id, name: a.name, founder: a.founder, kind,
@@ -280,6 +288,7 @@ export class AllianceStore {
       members: [...members],
       ...(extra.who !== undefined ? { who: extra.who } : {}),
       ...(extra.why !== undefined ? { why: extra.why } : {}),
+      ...(extra.detail !== undefined ? { detail: extra.detail } : {}),
       playerKnew: members.includes(PLAYER_ID) || a.knownTo.includes(PLAYER_ID),
     });
   }
@@ -317,9 +326,10 @@ export class AllianceStore {
     return this.alliances.filter((a) => a.knownTo.includes(who) && !a.members.includes(who));
   }
 
-  /** Make `who` aware of an alliance (a pitch surfaces it without enrolling them). */
-  reveal(id: string, who: EntityId): void {
+  /** Make `who` aware of an alliance (a pitch surfaces it without enrolling them). `told` (0172): the roster the player is told at the pitch, frozen once. */
+  reveal(id: string, who: EntityId, told?: readonly EntityId[]): void {
     const a = this.byId(id);
+    if (a && told && who === PLAYER_ID && !a.toldRoster) a.toldRoster = [...told];
     if (a && !a.knownTo.includes(who)) {
       a.knownTo.push(who);
       // The player told of an alliance in the same pass it formed: its still-unrecorded entries are then known to them (the only field of an entry that moves, besides `eventId`, and only false -> true before its event is recorded).
@@ -349,6 +359,50 @@ export class AllianceStore {
       this.alliances = this.alliances.filter((x) => x.id !== id);
       this.note(a, "dissolved", before, { why: why === "betrayal" ? "betrayal" : "too-few-members" });
     }
+  }
+
+  /**
+   * 0172: a hidden group-life entry (roles dealt, an inner circle, a spy, a shadow group, a purpose shift) appended to the history for a live alliance, or for an ended one by its last
+   * entry's name. Append-only like every entry; nothing about the live list changes. Returns false when the id was never an alliance.
+   */
+  annotate(allianceId: string, kind: GroupChange, extra: { who?: EntityId; why?: string; detail?: string; members?: readonly EntityId[] } = {}): boolean {
+    const a = this.byId(allianceId);
+    if (a) { this.note(a, kind, extra.members ?? a.members, extra); return true; }
+    const last = [...this.log].reverse().find((e) => e.allianceId === allianceId);
+    if (!last) return false;
+    this.note({ id: last.allianceId, name: last.name, founder: last.founder, knownTo: [] }, kind, extra.members ?? last.members, extra);
+    return true;
+  }
+
+  /** 0172 / ORW-611: the alliance withdraws a pitch the player has not accepted (an observable act; the player's awareness of it as a pitch ends, the history keeps it). Never touches an alliance the player belongs to. */
+  withdrawPitch(id: string, who: EntityId): boolean {
+    const a = this.byId(id);
+    if (!a || a.members.includes(who) || !a.knownTo.includes(who)) return false;
+    this.note(a, "pitch-withdrawn", a.members, { who });
+    a.knownTo = a.knownTo.filter((k) => k !== who);
+    return true;
+  }
+
+  /**
+   * 0172: an alliance CRACKS. `leavers` walk out of it; two or more of them found a new alliance (named by the caller, already through the naming rules), one alone just leaves. Nothing is deleted: the original keeps its
+   * history (a `cracked` entry with its whole roster, a `left` per leaver), and the new one gets its own `formed`. The original dissolves, as ever, when it falls under two members. Returns the new alliance, if any.
+   */
+  crack(id: string, leavers: readonly EntityId[], newName: string, formedBeat: number): Alliance | undefined {
+    const a = this.byId(id);
+    if (!a) return undefined;
+    const out = a.members.filter((m) => leavers.includes(m));
+    if (out.length === 0 || out.length === a.members.length) return undefined;
+    const before = [...a.members];
+    this.note(a, "cracked", before, { why: "crack", detail: out.join(",") });
+    a.members = a.members.filter((m) => !out.includes(m));
+    for (const m of out) this.note(a, "left", before, { who: m, why: "crack" });
+    if (a.members.length < 2) {
+      this.alliances = this.alliances.filter((x) => x.id !== id);
+      this.note(a, "dissolved", before, { why: "crack" });
+    }
+    if (out.length < 2) return undefined;
+    const founder = out[0]!;
+    return this.add(newName, founder, out, formedBeat);
   }
 
   /** Every active alliance the two houseguests SHARE (for the betrayal-stakes fold). */

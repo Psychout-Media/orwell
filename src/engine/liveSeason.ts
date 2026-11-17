@@ -51,10 +51,12 @@ export function deriveNpcCompIntent(
     maxThreatOnMe: number;
     /** Whether the field holds any other competitor (a lone competitor just competes). */
     hasOthers: boolean;
+    /** ORW-577: the holder's own agenda says they want the power (an active win-power goal): they compete rather than throw or play safe. Absent = unchanged. */
+    wantsPower?: boolean;
   },
   t: typeof COMP_INTENT_THRESHOLDS = COMP_INTENT_THRESHOLDS,
 ): Intent {
-  if (p.nominee || !p.hasOthers) return "compete";
+  if (p.nominee || !p.hasOthers || p.wantsPower === true) return "compete";
   // THROW: a lay-low houseguest hands a very close ally the power and keeps their own head down.
   if (p.aggression < t.layLowAggression && p.bestAllyBond > t.throwToAllyBond) return "throw";
   // PLAY-SAFE: a cautious houseguest a competitor already reads as a real threat avoids painting a bigger target.
@@ -79,7 +81,7 @@ import type { RelationshipDisposition } from "./relationshipConstants";
 import type { RelationshipModel } from "./relationships";
 import {
   runFinale as buildFinaleScript, castJuryVote, juryLean, appealEffect, bestAppeal, gameRespectTerm, JURY_WEIGHTS,
-  FINALE_APPEALS, type EvictionManner, type FinaleAppeal, type FinaleScript, type JuryRel,
+  FINALE_APPEALS, bitterJurorExtra, mannerLeanOf, type EvictionManner, type FinaleAppeal, type FinaleScript, type JuryRel,
 } from "./jury";
 import { MANNER_THRESHOLDS, MANNER_GRADING, MEND_TRACE } from "./juryConstants";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
@@ -615,6 +617,10 @@ export interface LiveSeasonState {
   houseLeans?: import("./houseLeans").HouseLeans;
   /** ORW-566 / spec 0183: the identity FLOOR of the house's private habits and alliance names (a pair key or an alliance id -> a name / spot / kind / since). Vault-class, engine-only, hidden, monotonic (write-once), persisted optional; never projected. */
   groupIdentity?: import("./groupIdentity").GroupIdentityStore;
+  /** 0172 / ORW-603, ORW-611 (Theme 3 slice 6; VAULT-CLASS, engine-only, persisted, never projected): per NPC alliance id, its hidden group life (roles, inner circle, purpose, private cut orders, a spy, a shadow link). Absent unless ORWELL_GROUP_ROLES drew one. */
+  groupLife?: Record<string, import("./groupLife").GroupLife>;
+  /** 0172: the last in-game day the group-life pass ran (it runs once a day). */
+  groupLifeDay?: number;
   /** ORW-566 part c2 (VAULT-CLASS, engine-only): alliances whose secret name still waits for an authored one (oldest first); the open sealed naming tickets; the last night a batch was issued. */
   namePending?: string[];
   nameTickets?: import("./allianceNaming").NameTickets;
@@ -623,6 +629,10 @@ export interface LiveSeasonState {
   lastCeremonyAbsHour?: number;
   /** ORW-561 / spec 0176 part 2: hidden TENURE - hours each houseguest has spent in each room (monotonic, engine-only, never in a projection). A played game only; absent on older saves and headless games. */
   tenure?: import("./territory").Tenure;
+  /** 0173 (Theme 3 slice 11): the hidden pecking order (coarse tiers), the informal leader and lieutenants, any open vacuum, and the history. VAULT-CLASS, engine-only, monotonic count, never projected. A played game only. */
+  status?: import("./hohCourt").StatusRecord;
+  /** ORW-610: the player's own recorded talk to the sitting HOH this week (counts as a pitch on the NPC terms). Engine-only; played games only. */
+  playerPitch?: import("./hohCourt").PlayerPitchRecord;
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
   moodCauses?: Record<EntityId, MoodCause & { week: number }>;
   vetoField?: EntityId[];
@@ -711,6 +721,13 @@ export interface LiveSeasonState {
    * folded; `bondsDay` = the last day night-repair ran). ENGINE-ONLY (Vault class), never projected. Absent => no bond record yet (old saves read neutral).
    */
   bonds?: BondStore;
+  /** 0180 (Theme 3 slice 12, house norms): per `observer|subject`, how many known breaches of word have already been folded into the observer's read (never re-applied). Engine-only. */
+  normsApplied?: Record<string, number>;
+  /** 0186 (Theme 3 slice 14): exposures already applied (`holder|doubleDealer|rival`) and twists already reopened (`twistKey`, plus `dealId|twistKey` per deal handled). Engine-only (Vault class), never projected; idempotent. */
+  dealExposed?: string[];
+  dealReopened?: string[];
+  /** 0180 part 2: the dissent already noticed, `${week}|${holder}|${dissenter}` (engine-only; idempotent). */
+  dissentNoticed?: string[];
   bondsCursor?: number;
   bondsSeen?: string[];
   bondsDay?: number;
@@ -742,6 +759,8 @@ export interface LiveSeasonState {
   claims?: import("./spokenClaims").ClaimLog;
   /** 0156 / ORW-330 slice 7a: the season's house meetings (`houseMeeting.ts`), append-only, kept whole, ENGINE-ONLY and never projected whole (only `houseMeetingThePlayerHeard` as names). Absent until the first meeting. */
   houseMeetings?: import("./houseMeeting").HouseMeeting[];
+  /** ORW-593: the last house meeting handed to the narrator (its id, and the player message it rode on), so a restart cannot replay it. Persisted with the season (it used to be memory-only); absent until one is shown. */
+  houseMeetingShown?: { id: string; msg?: string };
   /** B4: the casual-assurance ledger (`assurances.ts` toJSON shape). Created ONLY when ORWELL_ASSURANCES is on (absent => byte-identical season state); persisted with the season. */
   assurances?: { seq: number; items: import("./assurances").Assurance[] };
   /**
@@ -751,6 +770,19 @@ export interface LiveSeasonState {
    * the season lives; the attribution surfaces only through the post-season retrospective.
    */
   voteRecord?: Array<{ week: number; evictee: EntityId; voteOf: Record<EntityId, EntityId> }>;
+  /**
+   * 0174 (Theme 3 slice 13, ORWELL_TRIADS) - triads, swing votes and kingmakers. ENGINE-ONLY (Vault class), never projected, never a tool, never a number to the player; shown only in the 0048 retrospective.
+   * `day` = the last in-game day the triad drift ran; `drift` = what each pair has drifted so far (kept for good, capped); `courted` = per week, the swing voters pitched this vote with who pitched and the
+   * price tier; `kingmakers` = per week, who decided a close vote (history only). Monotone, never deleted. Absent => none yet (old saves read none).
+   */
+  triads?: {
+    day?: number;
+    drift?: Record<string, number>;
+    courted?: Array<{ week: number; voter: EntityId; bidders: EntityId[]; tier: number; gap: number }>;
+    kingmakers?: Array<{ week: number; voter: EntityId; evictee: EntityId; courted: boolean }>;
+    /** The firmness of each NPC ballot at the last vote's preview (engine-only; replaced each week). */
+    lastGaps?: { week: number; gaps: Record<EntityId, number> };
+  };
   /** ORW-342 (Vault-class, engine-only): the open "who voted against me / who flipped" questions the eviction votes leave NPCs with, each with the holder's OWN deduced suspect (never the sealed ballot). Played games only. */
   voteQuestions?: VoteQuestion[];
   /**
@@ -915,6 +947,8 @@ export interface LiveSeasonState {
   pitched?: Record<string, number>;
   /** ORW-340 (Vault-class, engine-only): an NPC whose hourly plan, made for one of their own goals, named the player: the approach desire it maps to, the goal behind it, and the in-game hour it was made. Cleared when they approach. */
   goalApproaches?: Record<string, { desire: string; goalId: string; hour: number }>;
+  /** ORW-581 (Fable T1-14, played games only): the absolute in-game hour of the last house-life stretch and how many stretches came before it in that same hour (0 = it was the first). Keys a repeated hour's rolls fresh. */
+  lifeHour?: { at: number; n: number };
   interruption?: { npc: string; desire: string; atHour: number; /** ORW-261: a VOLUNTEERED (nobody asked) private-orientation disclosure the houseguest chose to make as they step in (the engine-authored sentence; also recorded as a told-by fact). */ tells?: string };
   /** ORW-443: the #2736 cap withheld an approach THIS turn (per-turn; cleared at the next conversation tick). Vault-free flag, narration-only. */
   approachHeld?: true;
@@ -1170,6 +1204,8 @@ export interface SeasonCtx {
   assuranceVoteFor?: (nominee: EntityId, voter: EntityId) => number;
   /** ORW-568 / 0181 (ORWELL_BOND_FEELINGS): how much `voter`'s real feeling for `nominee` keeps them (positive = keep; bounded, from the bond record's warmth and resentment). Played games only; absent => 0, byte-identical. */
   feelingKeepFor?: (nominee: EntityId, voter: EntityId) => number;
+  /** 0180 part 2: the herd's pull on `voter` toward evicting `nominee` (signed), from who they heard is going after each nominee this week. Absent => 0 => byte-identical. */
+  herdFor?: (nominee: EntityId, voter: EntityId, fn: readonly [EntityId, EntityId]) => number;
   /** B4 slice 4: `voter` actually voted `nominee` out - any open assurance they made to `nominee` is broken (resolved + folded by the adapter). */
   assuranceVotedOut?: (voter: EntityId, nominee: EntityId, sealedAmong?: readonly EntityId[]) => void;
   /** B4 slice 3: the HOH actually nominated `nominee` - any open assurance the HOH made to them is broken (resolved + folded by the adapter). */
@@ -1186,6 +1222,13 @@ export interface SeasonCtx {
   favorsAtTally?: (finalNominees: readonly EntityId[], voters: readonly EntityId[]) => void;
   /** 0171: the bounded shield a favor `voter` honored for `nominee` at this vote adds against evicting them (>= 0). Absent => 0, byte-identical. */
   favorShieldFor?: (nominee: EntityId, voter: EntityId) => number;
+  /**
+   * 0174 / Theme 3 slice 13 (ORWELL_TRIADS): the nominees are final and the vote is about to open - what each NPC voter would pick and how firmly (the gap between their two scores, >= 0),
+   * so the engine can see which ballot decides it and let both camps court that voter. Read-only preview (no `why` record, no rng); the PLAYER's ballot is never previewed. Played games only; absent => nothing, byte-identical.
+   */
+  swingAtVote?: (view: { nominees: readonly EntityId[]; voters: readonly EntityId[]; previews: ReadonlyArray<{ voter: EntityId; pick: EntityId; gap: number }> }) => void;
+  /** 0174: the eviction is decided - who left, every ballot (`voter -> evicted`) and the HOH, so a close vote's deciding ballot can be recorded as history (never read by a decision). Played games only; absent => nothing. */
+  triadsAtResult?: (r: { evictee: EntityId; voteOf: Readonly<Record<EntityId, EntityId>>; hoh: EntityId | undefined }) => void;
   /**
    * 0006b (PO review 2026-06-28) — the NPC's declared COMPETITION INTENT (compete / throw / play-safe)
    * for a comp over `field`. Like the player, an NPC now has an intent, derived from their game (a nominee
@@ -1231,6 +1274,8 @@ export interface SeasonCtx {
    */
   /** B26 (ORWELL_JURY_MEMORY): a juror's signed MEMORY lean toward a finalist (+ favors them, - holds a grudge), bounded. Absent => +0, byte-identical. */
   juryMemoryFor?: (juror: EntityId, finalist: EntityId) => number;
+  /** 0182 PR 3 (ORWELL_GRUDGES, played games only): a BITTER juror's signed lean (<= 0) from the grudge book (fresher and graver hits harder), bounded under the manner term. Netted against the manner and memory terms in `precomputeVotes` (no double count). Absent => +0, byte-identical. */
+  juryGrudgeFor?: (juror: EntityId, finalist: EntityId) => number;
   jurorProfiles?: boolean;
   jurorProfileSalt?: string | number;
   /**
@@ -1766,7 +1811,26 @@ function rollVetoDraw(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource)
     choose: (holder, cands) => ctx.rel.chooseStrongestBond(holder, cands, rng, undefined, hcBias(ctx.hcMemoryFor, ctx.hcStrategyFor, holder)),
     playerChoosesOwn: ctx.player, // the player picks their own sixth player; the engine never reads their bonds
   });
+  const hc = draw.houseguestsChoice;
+  if (hc && hc.picked !== undefined) noteHcPickReason(s, ctx, hc.holder, hc.picked); // ORW-578 part 3 (a record only: no rng, the pick is already made)
   return { def, draw };
+}
+/**
+ * ORW-578 part 3: an NPC who draws Houseguest's Choice gives a reason aloud for the sixth player they pick (a public pick). The real reason's terms are the
+ * pick's own inputs - the bond, the B7 memory bias and the ORW-101 strategy bias (as the `goal` term) - read without any rng. NPC holders in a played game only; once per week.
+ */
+export function noteHcPickReason(s: LiveSeasonState, ctx: SeasonCtx, holder: EntityId, picked: EntityId): void {
+  if (!ctx.statedReasonFor || !ctx.agendaPullFor || holder === ctx.player || picked === holder) return;
+  const log = (s.statedReasons ??= []);
+  if (log.some((r) => r.week === s.week && r.decider === holder && r.decision === "hc-pick")) return;
+  const terms: RealReason["terms"] = [
+    { name: "bond", value: ctx.rel.bondStrength(holder, picked) },
+    ...(ctx.hcMemoryFor ? [{ name: "memory" as const, value: ctx.hcMemoryFor(picked, holder) }] : []),
+    ...(ctx.hcStrategyFor ? [{ name: "goal" as const, value: ctx.hcStrategyFor(picked, holder) }] : []), // the holder's own game plan
+  ];
+  const real: RealReason = { decision: "hc-pick", decider: holder, choice: picked, terms };
+  const day = s.dayNumber ?? s.week;
+  log.push({ week: s.week, day, decider: holder, decision: "hc-pick", public: true, real, stated: ctx.statedReasonFor(real, day) });
 }
 function resolveVetoDraw(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent {
   // The comp is drawn FIRST (one rng draw) and held in `vetoComp` so every later stage —
@@ -2210,6 +2274,9 @@ function currentBlocs(s: LiveSeasonState, ctx: SeasonCtx): Bloc[] {
  * Engine-decided + bounded: the terms shade the threat-primary read, never replace it; voting
  * blocs vote TOGETHER because every member computes the same derived bloc (decision 0002).
  */
+/** ORW-617: the ONE honor weight of a promise at a vote, for any holder: a formal deal and an honored called-in favor weigh the same, scaled by how far the voter trusts the other party. */
+export function honorWeight(trust = 1): number { return DECISION.vote.dealHonorWeight * trust; }
+
 export function voteChoice(
   voter: EntityId, fn: [EntityId, EntityId], ctx: SeasonCtx, blocs: readonly Bloc[] = [], hoh?: EntityId, why?: WhySink,
 ): EntityId {
@@ -2255,7 +2322,7 @@ export function voteChoice(
     ctx.beliefTiltFor?.(n, voter) ?? 0,
     // B4 slice 4: a KEPT casual assurance to `n` shields them (smaller than a formal deal's honor weight). Absent provider => 0 => byte-identical.
     -(ctx.assuranceVoteFor?.(n, voter) ?? 0),
-    -(dealBound(n) ? V.dealHonorWeight * (ctx.dealTrustFor?.(voter, n) ?? 1) : 0), // 0160 (Ryne Q3): a deal weighs as much as the voter trusts the other party
+    -(dealBound(n) ? honorWeight(ctx.dealTrustFor?.(voter, n) ?? 1) : 0), // 0160 (Ryne Q3): a deal weighs as much as the voter trusts the other party
     -(V.juryManagementWeight * ctx.rel.edge(n, voter).trust),
     -(V.bondKeepWeight * ctx.rel.bondStrength(voter, n)),
     n === hohTarget ? V.hohReferendumWeight * hohAlignment : 0,
@@ -2264,7 +2331,9 @@ export function voteChoice(
     // ORW-568 / 0181: the voter's real feeling for `n` keeps them (a friend is hard to cut, a stranger or a grudge is not). Absent provider => 0 => byte-identical.
     -(ctx.feelingKeepFor?.(n, voter) ?? 0),
     // 0171: a favor this voter was owed-and-honored to `n` at this vote shields them. Absent provider => 0 => byte-identical.
-    -(ctx.favorShieldFor?.(n, voter) ?? 0),
+    -((ctx.favorShieldFor?.(n, voter) ?? 0) * (ctx.dealTrustFor?.(voter, n) ?? 1)), // ORW-617: scaled by trust like a deal, so any holder's honored favor weighs the same
+    // 0180 part 2: the herd - where this voter has heard the house is going (tips a close call only). Absent provider => 0 => byte-identical.
+    ctx.herdFor?.(n, voter, fn) ?? 0,
   ];
   const v0 = termVals(fn[0]);
   const v1 = termVals(fn[1]);
@@ -2282,7 +2351,7 @@ export function voteChoice(
 }
 
 /** ORW-305: the vote score's term names, in the order `voteChoice` adds them. */
-export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum", "agenda", "feeling", "favor"] as const;
+export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum", "agenda", "feeling", "favor", "herd"] as const;
 
 /** Count the eviction votes (NPCs threat-driven; the player's own vote, if any) WITHOUT breaking a tie. */
 function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: EntityId): {
@@ -3073,6 +3142,21 @@ function advanceEviction(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
 function startEvictionVote(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent | null {
   const fn = s.finalNominees!;
   const voters = evictionVoters({ ...weekState(s, ctx), nominees: fn });
+  if (ctx.swingAtVote) {
+    const blocs = currentBlocs(s, ctx);
+    const previews: Array<{ voter: EntityId; pick: EntityId; gap: number }> = [];
+    for (const v of voters) {
+      if (v === ctx.player) continue;
+      let gap = 0;
+      const pick = voteChoice(v, fn, ctx, blocs, s.hoh ?? undefined, (w) => {
+        const o = w.options;
+        const top = o.find((x) => x.role === "chosen"), run = o.find((x) => x.role === "runner-up");
+        gap = Math.max(0, (top?.total ?? 0) - (run?.total ?? 0));
+      });
+      previews.push({ voter: v, pick, gap });
+    }
+    ctx.swingAtVote({ nominees: fn, voters, previews });
+  }
   if (voters.includes(ctx.player)) {
     s.pending = { kind: "eviction-vote", by: ctx.player, nominees: fn };
     return null;
@@ -3089,6 +3173,7 @@ function commitStagedEviction(s: LiveSeasonState, ctx: SeasonCtx, evictee: Entit
   // E12: the ballots are recorded ENGINE-ONLY for the 0048 retrospective unsealing — the week's
   // secret votes become tellable only once the season is over.
   (s.voteRecord ??= []).push({ week: s.week, evictee, voteOf: { ...e.voteOf } });
+  ctx.triadsAtResult?.({ evictee, voteOf: e.voteOf, hoh: s.hoh ?? undefined }); // 0174: a close vote's deciding ballot, history only
   const votesToEvict = Object.entries(e.voteOf).filter(([, t]) => t === evictee).map(([v]) => v);
   ctx.evictionCountPublic?.({ evictee, evictVotes: votesToEvict.length, voters: Object.keys(e.voteOf) }); // 0154: the count is public now; counts and the eligible list only, never who voted for whom
   // ORW-342: the vote leaves some houseguests with a question (who voted against me / who flipped), answered from their OWN deduction, never the ballot. Played games only.
@@ -3255,18 +3340,27 @@ function precomputeVotes(s: LiveSeasonState, ctx: SeasonCtx, f: FinaleProgress, 
     if (votes[juror]) continue; // the player's own vote (recorded interactively) is kept
     const fromCharacter = ctx.jurorProfiles ? ctx.jurorArchetypeFor?.(juror) : undefined; // ORW-318: the juror's style from who they are
     const prof = ctx.jurorProfiles ? (fromCharacter ? profileOfArchetype(fromCharacter) : jurorProfile(juror, ctx.jurorProfileSalt ?? 0)) : undefined; // A2: this juror's OWN profile (flag-gated; no rng)
+    // 0182 PR 3: the grudge adds only what the manner term and the memory term do not already count (`bitterJurorExtra`). No provider => exactly 0.
+    const bitterTerm = (fin: EntityId, mannerW: number): number => {
+      const raw = ctx.juryGrudgeFor?.(juror, fin) ?? 0;
+      if (raw === 0) return 0;
+      const covered = mannerW * Math.max(0, -mannerLeanOf(mannerForVote(s, ctx, f, juror, fin))) + Math.max(0, -(ctx.juryMemoryFor?.(juror, fin) ?? 0));
+      return bitterJurorExtra(raw, covered);
+    };
     const leanFor = prof
       ? (fin: EntityId): number =>
           profiledLean(edgeAsJuryRel(s, juror, fin, ctx), mannerForVote(s, ctx, f, juror, fin), prof) +
           profiledWeights(prof).gameRespect * gameRespectTerm(s.resume?.[fin] ?? 0, s.resume?.[otherFinalist(f.finalists, fin)] ?? 0) +
-          (ctx.juryMemoryFor?.(juror, fin) ?? 0)
+          (ctx.juryMemoryFor?.(juror, fin) ?? 0) +
+          bitterTerm(fin, profiledWeights(prof).manner)
       : (fin: EntityId): number =>
       juryLean(edgeAsJuryRel(s, juror, fin, ctx), mannerForVote(s, ctx, f, juror, fin)) +
       // GAME RESPECT (ruling 2026-06-11): jurors weigh who actually PLAYED — the public resume
       // (comp wins) splits the two finalists; a goat with no game starts every juror down a
       // bounded notch. Grievance (manner) can still outvote it: bitter juries stay possible.
       JURY_WEIGHTS.gameRespect * gameRespectTerm(s.resume?.[fin] ?? 0, s.resume?.[otherFinalist(f.finalists, fin)] ?? 0) +
-      (ctx.juryMemoryFor?.(juror, fin) ?? 0); // B26: the juror's memory of the finalist (flag-gated provider)
+      (ctx.juryMemoryFor?.(juror, fin) ?? 0) + // B26: the juror's memory of the finalist (flag-gated provider)
+      bitterTerm(fin, JURY_WEIGHTS.manner); // 0182 PR 3: the bitter juror, net of manner + memory
     // Each juror questioned BOTH finalists (18-Q&A), so each has a recorded appeal here — scored
     // symmetrically by the same `appealEffect`; the player's own answers are exactly as weighted as the NPC's.
     const perfFor = (fin: EntityId): number => appealPerf(f, fin, juror, ctx, s);
@@ -3648,16 +3742,7 @@ function playSecretVeto(s: LiveSeasonState, ctx: SeasonCtx, holder: EntityId, op
   const fn = s.finalNominees!;
   const staying = fn[0] === holder ? fn[1] : fn[0];
   const hoh = s.hoh!;
-  const mood = ctx.emotionalOf?.(hoh) ?? 0.5;
-  // ORW-87: + the HOH's memory of the option. ORW-305: the named terms (threat, paranoia, memory); the score is their sum.
-  const replaceVals = (t: EntityId): number[] => [...nominationBaseVals(hoh, t, ctx.rel, mood, ctx.paranoiaMult), ctx.endgameMemoryFor?.(t, hoh) ?? 0];
-  const replaceScore = (t: EntityId): number => sumVals(replaceVals(t));
-  const replacement = [...options].sort((a, b) => replaceScore(b) - replaceScore(a))[0]!;
-  {
-    const ru = runnerUp(options, replacement, replaceScore);
-    const nm = ["threat", "paranoia", "memory"] as const;
-    recordWhy(s, hoh, { kind: "secret-veto-replacement", options: ru !== undefined ? [whyOption(replacement, "chosen", nm, replaceVals(replacement), replaceScore(replacement)), whyOption(ru, "runner-up", nm, replaceVals(ru), replaceScore(ru))] : [whyOption(replacement, "chosen", nm, replaceVals(replacement), replaceScore(replacement))] });
-  }
+  const replacement = s.playedGame === true ? playedSecretVetoReplacement(s, ctx, holder, staying, options) : legacySecretVetoReplacement(s, ctx, hoh, options);
   s.finalNominees = [staying, replacement];
   (s.firedTwists ??= []).push({ kind: "secret-veto", beat: s.week });
   return {
@@ -3666,6 +3751,30 @@ function playSecretVeto(s: LiveSeasonState, ctx: SeasonCtx, holder: EntityId, op
       `${hoh} must name ${replacement} as the replacement nominee`,
     participants: [holder, hoh, replacement, staying],
   };
+}
+
+/**
+ * ORW-581 (Fable T1-14): in a played game the HOH names the secret-veto replacement with the SAME read as any veto replacement (threat, blocs, agenda shields,
+ * deals and campaigns, memory, beliefs, mood, and the pawn-or-target branch on their stored target), not a thinner threat + paranoia + memory sum. The holder
+ * is the nominee who came down; `staying` is the one left on the block. A player candidate is read by the same terms as anyone (the read has no player case).
+ */
+function playedSecretVetoReplacement(s: LiveSeasonState, ctx: SeasonCtx, holder: EntityId, staying: EntityId, options: EntityId[]): EntityId {
+  const hoh = s.hoh!;
+  // The breakdown is filed as the secret-veto kind; the HOH's stated reason is a replacement's, as for any replacement they name.
+  return npcReplacementPick(s, ctx, holder, options, staying, (w) => { recordWhy(s, hoh, { ...w, kind: "secret-veto-replacement" }); noteStatedReason(s, ctx, hoh, w); });
+}
+
+/** The pre-ORW-581 secret-veto read (threat, paranoia, memory), kept for headless sims so their seeded seasons stay byte-identical. */
+function legacySecretVetoReplacement(s: LiveSeasonState, ctx: SeasonCtx, hoh: EntityId, options: EntityId[]): EntityId {
+  const mood = ctx.emotionalOf?.(hoh) ?? 0.5;
+  // ORW-87: + the HOH's memory of the option. ORW-305: the named terms (threat, paranoia, memory); the score is their sum.
+  const replaceVals = (t: EntityId): number[] => [...nominationBaseVals(hoh, t, ctx.rel, mood, ctx.paranoiaMult), ctx.endgameMemoryFor?.(t, hoh) ?? 0];
+  const replaceScore = (t: EntityId): number => sumVals(replaceVals(t));
+  const replacement = [...options].sort((a, b) => replaceScore(b) - replaceScore(a))[0]!;
+  const ru = runnerUp(options, replacement, replaceScore);
+  const nm = ["threat", "paranoia", "memory"] as const;
+  recordWhy(s, hoh, { kind: "secret-veto-replacement", options: ru !== undefined ? [whyOption(replacement, "chosen", nm, replaceVals(replacement), replaceScore(replacement)), whyOption(ru, "runner-up", nm, replaceVals(ru), replaceScore(ru))] : [whyOption(replacement, "chosen", nm, replaceVals(replacement), replaceScore(replacement))] });
+  return replacement;
 }
 
 /**
@@ -3751,9 +3860,10 @@ function npcVetoSave(s: LiveSeasonState, ctx: SeasonCtx): EntityId | undefined {
   return saved;
 }
 
-/** The NPC HOH's replacement read (shared by the one-beat resolution and the staged ceremony; no rng). */
-function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId, options: EntityId[]): EntityId {
-  return replacementPick(s.hoh!, otherNominee(s, saved), options, s.active, ctx.rel, {
+/** The NPC HOH's replacement read (shared by the one-beat resolution, the staged ceremony and, in a played game, the secret-veto replacement; no rng).
+ *  `remaining` is the nominee left on the block (the veto's other nominee unless given); `why` is where the reason is recorded. */
+function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId, options: EntityId[], remaining: EntityId = otherNominee(s, saved), why: WhySink = reasonSinkFor(s, ctx, s.hoh!)): EntityId {
+  return replacementPick(s.hoh!, remaining, options, s.active, ctx.rel, {
     blocs: currentBlocs(s, ctx),
     mood: ctx.emotionalOf?.(s.hoh!) ?? 0.5, paranoiaMult: ctx.paranoiaMult,
     style: ctx.nominationStyleOf?.(s.hoh!),
@@ -3766,7 +3876,7 @@ function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId,
     ...(ctx.perceivedBondFor ? { bondOf: (from: EntityId, to: EntityId) => ctx.perceivedBondFor!(s.hoh!, from, to) } : {}),
     ...(ctx.agendaPullFor ? { agendaPush: (t: EntityId) => ctx.agendaPullFor!(t, s.hoh!).value } : {}), // ORW-314
     ...(ctx.feelingKeepFor ? { feelingPush: (t: EntityId) => -ctx.feelingKeepFor!(t, s.hoh!) } : {}), // ORW-568 / 0181
-    why: reasonSinkFor(s, ctx, s.hoh!), // ORW-305: record WHY (a record only); ORW-314: and the stated reason
+    why, // ORW-305: record WHY (a record only); ORW-314: and the stated reason
   });
 }
 

@@ -43,10 +43,25 @@ export function feeling(view: Pick<BondView, "warmth" | "resentment">): number {
   return clamp01(view.warmth) * (1 - clamp01(view.resentment));
 }
 
-/** How much the feeling holds the holder back from moving against `view.other`: monotone in warmth, falls with resentment, damped a little by strain, strictly < 1. */
-export function hesitation(view: Pick<BondView, "warmth" | "resentment" | "strain">): number {
+/**
+ * ORW-622 (mixed relationships): the strands that PROTECT someone at a decision, even through a grudge - a pact (the pair's deals) holds whatever the holder feels
+ * tonight, and a romance holds a little less as resentment rises. Absent strands (the edge-only reader, or a pair with none) leave `feeling` alone.
+ */
+export const PROTECTIVE_STRANDS = { pactHold: 0.6, romanceHold: 0.8, romanceRivalryCut: 0.5 } as const;
+export function protectiveFeeling(view: Pick<BondView, "warmth" | "resentment"> & { strands?: BondView["strands"] }): number {
+  const base = feeling(view);
+  const st = view.strands;
+  if (!st) return base;
+  const pact = clamp01(st.pact ?? 0) * PROTECTIVE_STRANDS.pactHold;
+  const romance = clamp01(st.romance ?? 0) * PROTECTIVE_STRANDS.romanceHold * (1 - PROTECTIVE_STRANDS.romanceRivalryCut * clamp01(st.rivalry ?? 0));
+  return Math.max(base, pact, romance);
+}
+
+/** How much the feeling holds the holder back from moving against `view.other`: monotone in warmth, falls with resentment, damped a little by strain, strictly < 1.
+ *  ORW-622: a pact or a romance strand can hold them back even through a grudge (`protectiveFeeling`). */
+export function hesitation(view: Pick<BondView, "warmth" | "resentment" | "strain"> & { strands?: BondView["strands"] }): number {
   const damp = 1 - BOND_FEELINGS.strainDamp * clamp01(view.strain);
-  return BOND_FEELINGS.maxHesitation * feeling(view) * damp;
+  return BOND_FEELINGS.maxHesitation * protectiveFeeling(view) * damp;
 }
 
 /** THE single hook (the Auditor's slice 1 plan roll reads this): how much `holder`'s feeling for `other` holds them back from cutting them. */
@@ -55,12 +70,12 @@ export function hesitationFor(holder: EntityId, other: EntityId, reader: BondRea
 }
 
 /** The eviction-vote provider's value: positive = keeps the nominee the voter truly likes (voteChoice subtracts it). */
-export function feelingKeep(view: Pick<BondView, "warmth" | "resentment" | "strain">): number {
+export function feelingKeep(view: Pick<BondView, "warmth" | "resentment" | "strain"> & { strands?: BondView["strands"] }): number {
   return BOND_FEELINGS.voteTermWeight * hesitation(view);
 }
 
 /** The divisor an alliance-break threshold takes: 1 with no feeling. */
-export function breakDivisor(view: Pick<BondView, "warmth" | "resentment" | "strain">): number {
+export function breakDivisor(view: Pick<BondView, "warmth" | "resentment" | "strain"> & { strands?: BondView["strands"] }): number {
   return 1 + BOND_FEELINGS.allianceBreakK * hesitation(view);
 }
 

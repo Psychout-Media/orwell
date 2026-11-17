@@ -75,7 +75,7 @@ function testWords(t: SuccessTest, nameOf: (id: EntityId) => string): string {
   }
 }
 
-const ACT: Readonly<Record<string, string>> = { nominate: "nominated", replacement: "named as the replacement nominee", veto: "used the veto to save", "veto-hold": "left the nominations of", vote: "voted to evict", "final-hoh-evict": "as final HOH, evicted" };
+const ACT: Readonly<Record<string, string>> = { nominate: "nominated", replacement: "named as the replacement nominee", veto: "used the veto to save", "veto-hold": "left the nominations of", "hc-pick": "picked to play in the veto", "comp-throw": "threw the competition for", vote: "voted to evict", "final-hoh-evict": "as final HOH, evicted" };
 const TERM_WORDS: Readonly<Record<string, string>> = {
   threat: "they saw them as a threat", goal: "it served a goal they held", memory: "an old grievance", bond: "a bond", alliance: "alliance loyalty", deal: "a deal they had made",
   campaign: "they had been lobbied", mood: "their mood", belief: "what they believed about them", pitch: "a pitch they had heard", style: "their own game style",

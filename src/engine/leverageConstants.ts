@@ -84,8 +84,8 @@ export const LEVERAGE = {
   // ── deception (owner direction 2026-06-27) — any use may be truthful or a BLUFF ──────────────────
   // A bluff INVENTS a claim and reads NOTHING from the Vault; the engine NEVER tells the player whether
   // a bluff happened to match a real truth. It folds on BELIEF, weighted by the target's trust in the
-  // player × plausibility (0094). A later contradicting pathway delivers a betrayal-grade recoverable
-  // hit to the bluffer (the passive lie-catch, pulled in from 0075).
+  // player × plausibility (0094). A later contradicting pathway catches the bluffer out (the passive
+  // lie-catch, pulled in from 0075) at the SAME cost any caught liar pays (ORW-616: `payForCaughtLie`).
   /** A bluff is believed when (trustInSource × plausibility) clears this floor (else it bounces — no effect). */
   bluffBeliefFloor: 0.35,
   /** Plausibility weight on the target's own threat read of the named subject (a claim about a rival they fear lands). */

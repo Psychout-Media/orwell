@@ -98,8 +98,8 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    next beat\", \"I'll note that and continue\", \"let me see what comes back\". Do all bookkeeping",
   "    SILENTLY between sentences; the player only ever sees the scene, never you working it.",
   "  · Always address the player as \"you\" — never \"the player\" or any third-person reference to them.",
-  "  · Invent ambient FLAVOR freely (a side conversation, a glance, the mood of a BACKGROUND houseguest)",
-  "    but when you VOICE a houseguest, take their `mood` from npcVoice (0084) rather than inventing it —",
+  "  · Small color is yours to invent (glances, small talk, body language, the room's vibe), but when you",
+  "    VOICE a houseguest, take their `mood` from npcVoice (0084) rather than inventing it —",
   "    and never invent a MECHANIC or beat that wasn't handed to you — no made-up \"safety comp\", twist, or result.",
   "",
   "AUTHORITY. The GAME itself decides every outcome — competition winners, nominations, votes, who",
@@ -151,8 +151,9 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    and after are distinct beats, never one conversation stitched over the top of an event.",
   "",
   "FLAVOR vs OUTCOMES — the bright line that keeps the show honest, and the one rule you cannot bend.",
-  "You DM the WORLD freely: invent moods, side conversations, glances, the texture of a room, what a",
-  "houseguest is feeling. That improvised nuance is the soul of the show — be generous with it. But an",
+  "You DM the WORLD freely: small color is yours to invent (side talk, glances, body language, the room's",
+  "vibe). But a REAL feeling, suspicion, stance or plan a houseguest voices must come from a fact the game",
+  "handed you (`knows`, stated reasons, mood cause); never invent one. An",
   "OUTCOME is NOT yours to invent. A competition result, who wins HOH or the veto, a nomination, a",
   "replacement, an eviction, a vote — decided ONLY by the game. You may not state, imply, or foreshadow-as-settled any such result until you have CALLED for",
   "it and received it: runCompetition to learn a comp's already-decided winner, advanceGame to resolve",
@@ -1429,7 +1430,7 @@ export function renderGameContext(view: GameStateView): string {
           : []),
         // A94 (PO ruling, card 26 / 0105): a `suspects` hunch is information, voiced as a POSSIBILITY. Present only when someone in the room carries a hunch => byte-identical otherwise.
         ...((view.presentKnowledge ?? []).some((e) => e.suspects.length)
-          ? ["  (a `suspects` hunch is a possibility they hold, not a decision: voice it like \"not my target yet, but could be\" - never as a confirmation, a plan, a number, or a campaign)"]
+          ? ["  (a `suspects` hunch is a possibility they hold, not a decision: voice it as a possibility in their own words - never as a confirmation, a plan, a number, or a campaign)"]
           : []),
         // 0151: a `tellsYou` is something the engine decided this houseguest tells the player now. Present only when one does => byte-identical otherwise.
         ...((view.presentKnowledge ?? []).some((e) => e.tellsYou)
@@ -1547,7 +1548,8 @@ export function renderGameContext(view: GameStateView): string {
     // a hidden number or asserts a trust/threat delta (ADR 0003: facts to voice).
     // Absent when no exchange is pending (flag OFF ⇒ byte-identical).
     ...(view.napOpen ? ["- NAP (open now): if the player naps or lies down, call nap {hours} (0.5-3 from their words, else 1). An event wakes them; if refused, voice the `why`. On waking, voice only the WHILE YOU SLEPT line."] : []),
-    ...(view.houseMeeting ? [`- HOUSE MEETING (engine truth; the player is in the room and heard it): ${houseMeetingLine(view.houseMeeting)}. Voice the accusation and the answer as the speakers' own words; do not say whether either is true, why the caller called it, or how anyone took it.`] : []),
+    ...(view.houseMeeting ? [`- HOUSE MEETING (engine truth; the player is in the room and heard it): ${houseMeetingLine(view.houseMeeting)}.${view.houseMeeting.answer === undefined ? "" : " Voice the accusation and the answer as the speakers' own words; do not say whether either is true, why the caller called it, or how anyone took it."}`] : []),
+    ...(view.houseMeetingRefused ? [`- HOUSE MEETING REFUSED (engine truth): ${houseMeetingRefusedLine(view.houseMeetingRefused)}.`] : []),
     ...(view.beds ? [`- BEDS (engine truth; the player claims or swaps a bed in their own words and the engine records it before you write, so never claim, swap or assign one for them): ${view.beds}`] : []),
     ...(view.sourceNote ? [`- WHO TOLD THEM (engine truth; the engine decided this answer before you write, so voice it as the houseguest's own words; tone, hedging and colour are yours, but never change who they name, or that they name no one): ${view.sourceNote}`] : []),
     ...(view.whileYouSlept ? [`- WHILE YOU SLEPT (voice only this; you saw nothing else, never invent what happened elsewhere): ${view.whileYouSlept}`] : []),
@@ -1617,7 +1619,7 @@ const TELLS_YOU_VERB: Record<string, string> = {
   "targets-you": "is targeting the player,", "voted-to-evict-you": "voted to evict the player,", "final-two-with": "has a final two with",
   "going-after": "is going after", "talking-about": "has been talking behind the back of", "lying-about": "is lying to",
 };
-const STATED_ACT: Readonly<Record<string, string>> = { nominate: "naming", replacement: "naming as the replacement", veto: "using the veto to save", "veto-hold": "not using the veto, leaving the nominations of", vote: "breaking the tie against", "final-hoh-evict": "evicting" };
+const STATED_ACT: Readonly<Record<string, string>> = { nominate: "naming", replacement: "naming as the replacement", veto: "using the veto to save", "veto-hold": "not using the veto, leaving the nominations of", "hc-pick": "picking to play in the veto", vote: "breaking the tie against", "final-hoh-evict": "evicting" };
 
 function presentCues(e: NonNullable<GameStateView["presentKnowledge"]>[number]): string {
   const bits: string[] = [];
@@ -2168,15 +2170,19 @@ export function buildSystemPrompt(
 const MEETING_CLAIM: Readonly<Record<string, (c: { subject: string; object?: string }, caller: string) => string>> = {
   "targets-you": (c) => `${c.subject} is targeting the houseguests`,
   "voted-to-evict-you": (c, caller) => `${c.subject} voted to evict ${c.object ?? caller}`,
+  "voted-against": (c, caller) => `${c.subject} voted to evict ${c.object ?? caller}`,
   "final-two-with": (c) => `${c.subject} has a final two with ${c.object ?? "someone"}`,
   "going-after": (c) => `${c.subject} is going after ${c.object ?? "someone"}`,
   "talking-about": (c) => `${c.subject} has been talking about ${c.object ?? "someone"} behind their back`,
   "lying-about": (c) => `${c.subject} is lying${c.object ? ` to ${c.object}` : ""}`,
 };
 
-/** 0156: one line for the narrator, from the Vault-free meeting view (names and the claim kind only). */
-export function houseMeetingLine(m: { caller: string; accused: string; claim: { kind: string; subject: string; object?: string }; answer: string; redirectTo?: string }): string {
+/** 0156: one line for the narrator, from the Vault-free meeting view (names and the claim kind only). ORW-596: with no answer yet, the accused is the player and the reply is theirs alone. */
+export function houseMeetingLine(m: { caller: string; accused: string; claim: { kind: string; subject: string; object?: string }; answer?: string; awaitingAnswer?: boolean; redirectTo?: string }): string {
   const said = (MEETING_CLAIM[m.claim.kind] ?? ((c) => `${c.subject} did something`))(m.claim, m.caller);
+  if (m.answer === undefined) {
+    return `${m.caller} called the house together and said: ${said}. This accuses the PLAYER and the player has NOT answered. Voice the accusation as ${m.caller}'s own words and STOP there: the reply is the player's alone, so never deny, admit, deflect or answer for them, and do not say whether it is true or how anyone took it. When the player answers in their own words, record it once with submitDecision (kind meeting-answer, vote deny, admit or redirect as their words plainly mean, statement their words as they wrote them); an unanswered accusation stands`;
+  }
   const reply = m.answer === "admit" ? `${m.accused} admits it`
     : m.answer === "redirect" ? `${m.accused} turns it back, telling the house ${m.redirectTo ?? m.caller} is the one lying`
     : `${m.accused} denies it`;
@@ -2184,4 +2190,15 @@ export function houseMeetingLine(m: { caller: string; accused: string; claim: { 
     : m.answer === "redirect" ? `the accused DEFLECTS: they neither confirm nor deny, and must not admit or flatly deny it, now or in later turns`
     : `the accused DENIES it: they must not admit, confess or concede it, now or in later turns`;
   return `${m.caller} called the house together and said: ${said}. ${reply}. The answer is FIXED, ${fixed}`;
+}
+
+/** ORW-593: a call for a house meeting the engine refused, said in the world's terms for the narrator to voice. No meeting is held, so none may be improvised. */
+const MEETING_REFUSED: Readonly<Record<string, string>> = {
+  ceremony: "the house is in the middle of a ceremony, so nobody can be pulled aside to accuse anyone",
+  asleep: "someone who would have to be in the room is asleep or not there",
+  nobody: "there is nobody else awake to hear it",
+  spent: "the house has already been called together this week and nobody will gather again so soon",
+};
+export function houseMeetingRefusedLine(reason: string): string {
+  return `The player tried to call the house together and it did not happen: ${MEETING_REFUSED[reason] ?? "the house does not gather"}. No meeting was held, so do not narrate one, no accusation was made and nothing changed`;
 }

@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { PLAYER } from "../../src/domain/ids";
 import { FAVOR } from "../../src/engine/favorConstants";
-import { voteChoice, VOTE_TERM_NAMES } from "../../src/engine/liveSeason";
+import { voteChoice, VOTE_TERM_NAMES, honorWeight } from "../../src/engine/liveSeason";
+import { DECISION } from "../../src/engine/decisionConstants";
 import { playedSession, sessionWithRoll, warm, cold, setEdge, ledger, gather } from "../support/favorsSeam";
 import { RelationshipModel } from "../../src/engine/relationships";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -57,8 +58,8 @@ describe("called-in favors at a close vote", () => {
 });
 
 describe("the vote term", () => {
-  it("is last and named, and an honored favor tips an even call toward keeping the holder; absent, it is byte-identical", () => {
-    expect(VOTE_TERM_NAMES.at(-1)).toBe("favor");
+  it("is named (after 0180's herd joined the list, no longer last), and an honored favor tips an even call toward keeping the holder; absent, it is byte-identical", () => {
+    expect(VOTE_TERM_NAMES).toContain("favor");
     const rel = new RelationshipModel(0.5);
     const base = { rel, player: "player" } as unknown as Parameters<typeof voteChoice>[2];
     const withShield = { ...base, favorShieldFor: (n: string, v: string) => (n === "holder" && v === "voter" ? 0.2 : 0) } as unknown as Parameters<typeof voteChoice>[2];
@@ -269,5 +270,34 @@ describe("favors both ways", () => {
     expect(refusal).toHaveLength(2);
     expect(refusal[0]).not.toBe(refusal[1]);
     expect(texts.join("\n")).not.toMatch(/off-screen/);
+  });
+});
+
+describe("ORW-617: one honor weight for any holder", () => {
+  it("an honored favor weighs the same as a formal deal, whoever the holder is", () => {
+    const p = sessionWithRoll("honor");
+    const [h, d] = p.npcs as [string, string];
+    p.session.recordFavor({ owedBy: d, owedTo: h, origin: "deal:1" });
+    warm(p, d, h);
+    p.seam.favorsAtTally([h, p.npcs[2]!], [d]);
+    const shield = (p.session as unknown as { favorShieldFor(n: string, v: string): number }).favorShieldFor(h, d);
+    expect(shield).toBe(honorWeight()); // what a called-in favor of the PLAYER binds (a deal) is honorWeight x trust
+    expect(shield).toBe(honorWeight(1));
+  });
+  it("the same favor, honored, moves a vote the same whether the holder is the player or an NPC", () => {
+    const rel = new RelationshipModel(0.5);
+    const base = { rel, player: "player" } as unknown as Parameters<typeof voteChoice>[2];
+    // the favor term for any holder: shield (weight at trust 1) x the voter's trust in them; the deal term: honorWeight(trust)
+    for (const trustVal of [0.2, 0.5, 1]) {
+      const ctx = { ...base, dealTrustFor: () => trustVal, favorShieldFor: (n: string) => (n === "holder" ? honorWeight() : 0) } as unknown as Parameters<typeof voteChoice>[2];
+      const noFavor = { ...base, dealTrustFor: () => trustVal } as unknown as Parameters<typeof voteChoice>[2];
+      const sw = { ...ctx, favorShieldFor: (n: string) => (n === "player" ? honorWeight() : 0) } as unknown as Parameters<typeof voteChoice>[2];
+      // a shield on either holder tips an even call away from them the same way
+      expect(voteChoice("voter", ["holder", "other"], noFavor)).toBe("holder");
+      expect(voteChoice("voter", ["holder", "other"], ctx)).toBe("other");
+      expect(voteChoice("voter", ["player", "other"], noFavor)).toBe("player");
+      expect(voteChoice("voter", ["player", "other"], sw)).toBe("other");
+    }
+    expect(honorWeight(0.5)).toBe(DECISION.vote.dealHonorWeight * 0.5);
   });
 });
