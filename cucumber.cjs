@@ -158,6 +158,7 @@ module.exports = {
       "docs/features/0185-mood-contagion.feature",
       "docs/features/0182-grudges.feature",
       "docs/features/0181-bond-feelings.feature",
+      "docs/features/0171-favor-economy.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },
