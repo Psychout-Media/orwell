@@ -54,11 +54,11 @@
   },
   "vocation": {
    "measured": {
-    "distinct": 124,
-    "topShare": 0.0123,
-    "castPresenceMax": 0.18,
-    "castPresenceMean": 0.115,
-    "sharedConsecutive": 1.58
+    "distinct": 418,
+    "topShare": 0.014,
+    "castPresenceMax": 0.19,
+    "castPresenceMean": 0.035,
+    "sharedConsecutive": 0.86
    },
    "before": {
     "distinct": 124,
@@ -66,12 +66,12 @@
     "castPresenceMax": 0.175,
     "sharedConsecutive": 1.54
    },
-   "floorDistinct": 124,
-   "maxTopShare": 0.0133,
-   "maxCastPresence": 0.185,
-   "maxSharedConsecutive": 1.63,
+   "floorDistinct": 418,
+   "maxTopShare": 0.015,
+   "maxCastPresence": 0.195,
+   "maxSharedConsecutive": 0.91,
    "target": {
-    "distinct": 300,
+    "distinct": 430,
     "topShare": 0.02,
     "castPresenceMax": 0.25,
     "sharedConsecutive": 1.0
@@ -79,11 +79,11 @@
   },
   "hometown": {
    "measured": {
-    "distinct": 499,
-    "topShare": 0.0237,
-    "castPresenceMax": 0.355,
-    "castPresenceMean": 0.03,
-    "sharedConsecutive": 0.72
+    "distinct": 1864,
+    "topShare": 0.021,
+    "castPresenceMax": 0.315,
+    "castPresenceMean": 0.008,
+    "sharedConsecutive": 0.29
    },
    "before": {
     "distinct": 105,
@@ -91,12 +91,12 @@
     "castPresenceMax": 0.295,
     "sharedConsecutive": 2.48
    },
-   "floorDistinct": 499,
-   "maxTopShare": 0.0247,
-   "maxCastPresence": 0.36,
-   "maxSharedConsecutive": 0.77,
+   "floorDistinct": 1864,
+   "maxTopShare": 0.022,
+   "maxCastPresence": 0.32,
+   "maxSharedConsecutive": 0.34,
    "target": {
-    "distinct": 499,
+    "distinct": 1965,
     "topShare": 0.02,
     "castPresenceMax": 0.25,
     "sharedConsecutive": 1.0
@@ -104,11 +104,11 @@
   },
   "hometown.state": {
    "measured": {
-    "distinct": 50,
-    "topShare": 0.1,
-    "castPresenceMax": 0.89,
-    "castPresenceMean": 0.251,
-    "sharedConsecutive": 4.75
+    "distinct": 51,
+    "topShare": 0.1097,
+    "castPresenceMax": 0.92,
+    "castPresenceMean": 0.24,
+    "sharedConsecutive": 5.14
    },
    "before": {
     "distinct": 62,
@@ -116,10 +116,10 @@
     "castPresenceMax": 0.595,
     "sharedConsecutive": 3.94
    },
-   "floorDistinct": 50,
-   "maxTopShare": 0.101,
-   "maxCastPresence": 0.895,
-   "maxSharedConsecutive": 4.8,
+   "floorDistinct": 51,
+   "maxTopShare": 0.1107,
+   "maxCastPresence": 0.925,
+   "maxSharedConsecutive": 5.19,
    "target": {
     "distinct": 300,
     "topShare": 0.02,
@@ -650,6 +650,84 @@
     "topShare": 0.02,
     "castPresenceMax": 0.25,
     "sharedConsecutive": 1.0
+   }
+  }
+ },
+ "played": {
+  "_about": "The same measures on UNSEEDED played-season casts (the adapter's preSeedCast with no seed), where the real tables deal names, towns and jobs. The draw is random, so the ceilings carry a wide margin over three 300-cast runs; the seeded rows above keep the floor lists and cannot see these tables.",
+  "casts": 300,
+  "fields": {
+   "name.given": {
+    "measured": {
+     "distinct": 1822,
+     "topShare": 0.0051,
+     "castPresenceMax": 0.083,
+     "sharedConsecutive": 0.2
+    },
+    "before": {
+     "distinct": 499,
+     "topShare": 0.0043,
+     "castPresenceMax": 0.065,
+     "sharedConsecutive": 0.44
+    },
+    "floorDistinct": 1500,
+    "maxTopShare": 0.008,
+    "maxCastPresence": 0.11,
+    "maxSharedConsecutive": 0.3
+   },
+   "name.surname": {
+    "measured": {
+     "distinct": 2621,
+     "topShare": 0.0049,
+     "castPresenceMax": 0.073,
+     "sharedConsecutive": 0.12
+    },
+    "before": {
+     "distinct": 788,
+     "topShare": 0.004,
+     "castPresenceMax": 0.06,
+     "sharedConsecutive": 0.29
+    },
+    "floorDistinct": 2200,
+    "maxTopShare": 0.007,
+    "maxCastPresence": 0.1,
+    "maxSharedConsecutive": 0.2
+   },
+   "hometown": {
+    "measured": {
+     "distinct": 2422,
+     "topShare": 0.0271,
+     "castPresenceMax": 0.407,
+     "sharedConsecutive": 0.36
+    },
+    "before": {
+     "distinct": 105,
+     "topShare": 0.0197,
+     "castPresenceMax": 0.295,
+     "sharedConsecutive": 2.48
+    },
+    "floorDistinct": 2000,
+    "maxTopShare": 0.04,
+    "maxCastPresence": 0.5,
+    "maxSharedConsecutive": 0.6
+   },
+   "vocation": {
+    "measured": {
+     "distinct": 434,
+     "topShare": 0.0171,
+     "castPresenceMax": 0.24,
+     "sharedConsecutive": 0.9
+    },
+    "before": {
+     "distinct": 124,
+     "topShare": 0.0123,
+     "castPresenceMax": 0.175,
+     "sharedConsecutive": 1.54
+    },
+    "floorDistinct": 380,
+    "maxTopShare": 0.022,
+    "maxCastPresence": 0.3,
+    "maxSharedConsecutive": 1.3
    }
   }
  }

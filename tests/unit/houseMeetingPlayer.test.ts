@@ -77,4 +77,14 @@ describe("the player's house-meeting call and the narrator seam (0156 slice 7b)"
       }
     }
   });
+
+  it("the engine's answer is stated as fixed, per answer kind (ORW-562)", () => {
+    const line = (answer: string) => houseMeetingLine({ caller: "Ann", accused: "Bo", claim: { kind: "lying-about", subject: "Bo" }, answer, ...(answer === "redirect" ? { redirectTo: "Ann" } : {}) });
+    const deny = line("deny");
+    expect(deny).toContain("the accused DENIES it: they must not admit, confess or concede it, now or in later turns");
+    expect(deny).not.toMatch(/admits|may admit|or admit it/i);
+    expect(line("admit")).toContain("the accused ADMITS it: they must not deny it, now or in later turns");
+    expect(line("redirect")).toContain("the accused DEFLECTS: they neither confirm nor deny, and must not admit or flatly deny it, now or in later turns");
+    for (const a of ["deny", "admit", "redirect"]) expect(line(a), a).not.toMatch(/isTrue|\btrue\b|\bfalse\b/i);
+  });
 });

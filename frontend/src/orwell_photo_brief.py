@@ -32,7 +32,7 @@ FACETS = (
     "what they do on a weekend", "their own street or block", "a place they go to be alone", "a place they would take someone they love",
     "a small thing they look after at home", "a place from their childhood that they still use",
 )
-NEAR_WORK = "near their work (their own clothes, no work gear, no work prop)"
+NEAR_WORK = "near their work, not at it (their own clothes, no work gear, no work prop, no work grime)"
 NEAR_WORK_MAX = 3
 TIME_PARTS = {
     "morning": ("early morning, just after sunrise", "mid-morning", "late morning"),
@@ -109,7 +109,7 @@ SYSTEM = (
     "doing: what they are in the middle of, paused for the photo: they have stopped for the camera and are not performing the activity (nothing swung, thrown, cast, jumped, raised overhead "
     "or mid-motion); natural and not acted. This sentence alone says how they stand or sit and what their hands are doing.\n"
     "inFrame: an array of exactly two OBJECTS in the frame that belong to their life in this place, taken from their sheet; not clothes or jewellery or nails they are wearing and not the signature item.\n"
-    "wear: what they wear today, taken from their wardrobe, in their own everyday clothes.\n"
+    "wear: what they wear today, taken from their wardrobe, in their own everyday clothes, dressed for the dealt season and weather as a real person would: no tank top, shorts, sundress or flip-flops on a winter or cold, wet or windy day, and no parka, heavy coat or knit hat on a hot one.\n"
     "signature: when the sheet has a lookSignature, write exactly that; otherwise one object or detail of theirs that makes them memorable and fits their life; it is not one of the clothes listed in wear and it must show in a half-length frame (head to mid-torso with the hands): never footwear or anything below the belt. Anything worn (jewellery, painted nails, a chain, a patch on a sleeve) is part of wear, not an object.\n"
     "timeLight: the time of day, the light and the weather. The anchors given for each person (the facet of life to feature, the time, the season and weather, the "
     "energy, and the body: how they stand or sit in the frame) are fixed facts: follow them (doing follows the body anchor: not squared and centred with the hands clasped or folded unless the anchor says so); if the weather does not fit the town and season, keep the time and use the nearest plausible weather. When the weather is cold, wet or windy "
@@ -123,10 +123,10 @@ SYSTEM = (
     "or a place next to their work. It is checked and never printed; a place with no tie to the sheet is rejected.\n"
     "Rules for every person. The facet of life to feature is the thing the photo shows; when it says near their work, the place is close to where they work but they wear "
     "their own clothes and nothing shows the job: no uniform, scrubs, apron, badge, work gear or work prop. The job is never a caption for the photo anywhere else either, and the place is never the workplace of their job even when it names no job (a funeral director is not in a cemetery, a nurse not in a ward, a cook not in a restaurant kitchen); "
-    "a hobby or a family object is welcome. Posture is natural and upright (standing, or seated on something at normal height, or leaning lightly on something that is there); "
+    "a hobby or a family object is welcome. Before you answer, ask of every brief: would a stranger guess this person's job from the place and the objects alone? If so, choose another place and other objects. The place is never their workplace or a place of their trade (a used-car salesperson not on a car lot, a groundskeeper not on a ball field, a dance instructor not in a dance studio, a line cook not on the restaurant's back landing, a deckhand not on a dock with crab pots), and when the facet is near their work, near means beside, across from or down the road from it, never at it, and no object of the trade shows. No work grime either: no dirt, grease, sawdust or paint on their arms, hands, face or clothes, no grimy, dirty or stained shirt, unless the facet is a hobby that is genuinely that (gardening soil on a gardener's hands). Posture is natural and upright (standing, or seated on something at normal height, or leaning lightly on something that is there); "
     "nothing is acted. Never change their hair or its styling, whatever the activity. No eyes shut, no open palm held out to nobody, no hat or sunglasses indoors, no sunglasses at all. Only the person is in sharp focus; life in the "
     "background (animals, vehicles, a view) is welcome and wanted but out of focus; no other person appears anywhere in the frame, and an object is always a thing, never a person or a pet with its owner. "
-    "Clothes are worn the way that person would on an ordinary day. No readable brand names, signs or text, and no object that carries or invites writing (a labelled cassette or tape, a poster, a sign, a note, a letter, a menu, a book cover). Do not write the person's name: say "
+    "Clothes are worn the way that person would on an ordinary day. Clothes carry no logos, emblems, crests, team, school, university or brand names, no slogans, and no printed words or graphics of any kind: describe every garment by its colour, its fabric and its cut alone, never by a name printed on it. No readable brand names, signs or text, and no object that carries or invites writing (a labelled cassette or tape, a poster, a sign, a note, a letter, a menu, a book cover). Do not write the person's name: say "
     "'the person'. Do not describe framing, lens or camera. Invent from the sheet; do not reuse wording between people. Every object, signature item and place is used by ONE "
     "person only: when 'alreadyUsed' lists things, choose different ones."
 )
@@ -166,6 +166,7 @@ CODE_WORDS = {
     "job-caption": "the job must not show in the place or the action; use a hobby, family or hometown facet",
     "work-gear": "no uniform, scrubs, apron, badge, lanyard, hard hat or stethoscope anywhere",
     "text-or-brand": "no readable text, signs, logos or brand names",
+    "clothes-text": "clothes carry no logos, emblems, crests, team, school, university or brand names, no slogans and no printed words: describe garments by colour, fabric and cut only",
     "signature-not-visible": "the signature must show in a half-length frame (head to mid-torso with the hands): nothing below the belt, no footwear",
     "writing-on-object": "no object that carries writing (a labelled cassette, a poster, a sign, a note, a letter, a menu): choose a plain object",
     "acted-or-odd-pose": "a natural upright pose only: no hunch, slump, sprawl, fists, pointing, flexing, eyes shut",
@@ -180,6 +181,9 @@ CODE_WORDS = {
     "person-in-objects": "an object is a thing, never a person (no neighbour, friend, child, customer ...) and never a pet with its owner",
     "no-place-tie": "the tie must quote, in double quotes, the exact phrase of the sheet this place comes from",
     "place-not-tied": "the place must come from the phrase quoted in tie (they share content words): home, family, a hobby, a hometown routine or next to their work",
+    "place-is-workplace": "the place or the objects show their workplace or trade: move to a place that is not their work (a home, a hobby, a hangout); when the facet is near their work, beside or across from it, never at it, and no object of the trade",
+    "weather-clothes": "the clothes do not fit the dealt season and weather: no tank top, shorts, sundress or flip-flops when it is winter, cold, wet or windy, and no parka, heavy coat or knit hat in the heat; dress as a real person would for that day",
+    "work-grime": "no work grime: no dirt, grease, sawdust or paint on skin or clothes, no grimy or dirty shirt; they are clean, in their own everyday clothes",
     "weather-layer": "the weather is cold or wet: add a layer from their own style to wear",
     "object-repeat": "another person already has one of these objects or signature items: choose different things of theirs",
     "place-kind-repeat": "another person already has this kind of place: choose a different kind of place from their life",
@@ -252,12 +256,41 @@ HAT_RE = re.compile(r"\b(?:hat|cap|beanie|fedora|visor|bonnet)\b", re.I)
 PERSON_PHOTO_OK_RE = re.compile(r"^(?:an?|the|one|two|some)?\s*(?:old |framed |small |faded |family )*(?:photo|photograph|portrait|picture|poster|card|statue|doll|toy|mug|sign)\b(?!.*\b(?:held|holding|carried|carrying|handed|beside|next to|with|by)\b)", re.I)
 PERSON_OBJ_RE = re.compile(r"\b(?:neighbou?rs?|friends?|kids?|child|children|sons?|daughters?|boys?|girls?|mans?|men|womans?|women|customers?|clients?|patients?|mother|father|mom|dad|mum|sisters?|brothers?|grandm\w+|grandp\w+|babys?|baby|couple|crowd|people|passers?-?by|strangers?|someone|somebody|persons?|dog walker|owner|worker|workers|coach|teammates?|teacher|students?|family members?)\b", re.I)
 SUNGLASSES_RE = re.compile(r"\b(?:sunglasses|shades|goggles)\b", re.I)
+# Clothes carry nothing readable (ORW-480 round 20: "Worn-in LSU Tigers striped polo shirt"). Generic patterns over a name list: a team/school/brand word anywhere
+# (case-insensitive), or a capitalized name sitting on a garment word — the name half is case-sensitive, so an ordinary lowercase outfit never trips it.
+# The garment words are ones a print sits on: never trousers, jeans or shoes.
+CLOTHES_GARMENT = "shirt|polo|tee|t-shirt|sweater|sweatshirt|hoodie|cardigan|jacket|coat|cap|hat|beanie|jersey|uniform|hood|top"
+CLOTHES_TEXT_WORDS = ("logo", "logotype", "emblem", "crest", "slogan", "mascot", "varsity", "letterman",
+                      "graphic tee", "university", "collegiate", "alumni")
+CLOTHES_WORD_RE = re.compile(r"\b(?:logo|logotypes?|emblems?|crests?|slogans?|mascots?|varsity|letterman|"
+                             r"graphic\s+tee|team\s+\w+|university|collegiate|alumni)\b", re.I)
+CLOTHES_NAME_RE = re.compile(r"\b[A-Z][A-Za-z.']*(?:\s+[A-Z][A-Za-z.']*)?\s+(?:\w+\s+)?(?:" + CLOTHES_GARMENT + r")\b")
+CLOTHES_TEXT_RE = re.compile(CLOTHES_WORD_RE.pattern + "|" + CLOTHES_NAME_RE.pattern)
+
+
+def _lower_clause_starts(text: str) -> str:
+    """Lowercase the first letter of each clause: a wear line capitalizes its items ("Navy hoodie, Black denim jacket"), which is not a name."""
+    return re.sub(r"(^|[,;:]\s*|\.\s+)([A-Z])", lambda m: m.group(1) + m.group(2).lower(), str(text or ""))
+
+
+def clothes_has_text(text: str) -> bool:
+    """The clothes or the signature name a team, school, brand or logo, or sit a capitalized name on a garment word."""
+    t = str(text or "")
+    return bool(CLOTHES_WORD_RE.search(t) or CLOTHES_NAME_RE.search(_lower_clause_starts(t)))
+
+
 INDOOR_RE = re.compile(r"\b(?:indoors?|inside|kitchen|living room|bedroom|dining|diner|booth|café|cafe|studio|shop(?! (?:window|front))|church (?:hall|basement|kitchen)|garage|hallway|stairwell|apartment|bar|kitchenette|bathroom|office|classroom|gym|locker|barn)\b", re.I)
 OUTDOOR_RE = re.compile(r"\b(?:outdoors?|outside|yard|garden|porch|steps|stoop|dock|pier|beach|river|lake|trail|field|street|sidewalk|road|park|lot|ditch|bank|roof|balcony|patio|driveway|hill|dune|farm|orchard|court)\b", re.I)
 DARK_TOP_RE = re.compile(r"\b(?:black|charcoal|navy|dark (?:grey|gray|blue))\b", re.I)
 CLOTHING_RE = re.compile(r"\b(?:jackets?|jeans|trousers|pants|slacks|shorts|skirts?|dress(?:es)?|shirts?|t-?shirts?|tees?|tops?|tunics?|blouses?|hoodies?|sweaters?|cardigans?|knits?|vests?|coats?|parkas?|boots?|sneakers?|shoes?|loafers?|sandals?|flats?|socks?|scarf|scarves|hats?|caps?|beanies?|gloves?|earrings?|necklaces?|bracelets?|rings?|watch|belt|overalls|leggings|fleece|pullover|henley|polo|corduroy|denim|jumpsuit|apron|hoops?|jewelry|jewellery|sleeves?|collars?|cuffs?|nails?|nail polish|chains?|pendants?|anklets?|glasses|piercings?|studs?|clothes|clothing|garments?|outfits?|wardrobe)\b", re.I)
 ACCESSORY_RE = re.compile(r"\b(?:earrings?|necklaces?|bracelets?|rings?|chains?|pendants?|anklets?|watch|glasses|piercings?|hoops?|studs?|jewelry|jewellery|nails?|nail polish|scarf|scarves)\b", re.I)
 LAYER_RE = re.compile(r"\b(?:jacket|coat|overshirt|cardigan|sweater|fleece|hoodie|flannel|parka|vest|raincoat|windbreaker|wool|knit|long-sleeve|long sleeve|pullover|sweatshirt|corduroy)\b", re.I)
+SUMMER_ONLY_RE = re.compile(r"\b(?:tank ?tops?|tanks|shorts|sundress(?:es)?|flip[- ]?flops?|halter(?: tops?)?|crop tops?|camisoles?|spaghetti straps?|swim ?(?:suit|wear|trunks)|bikini|sleeveless)\b", re.I)
+HEAVY_OUTER_RE = re.compile(r"\b(?:parkas?|puffer(?: jacket| coat| vest)?|down (?:jacket|coat|vest)|overcoat|pea ?coat|winter coat|heavy (?:coat|jacket|wool)|wool coat|sheepskin|shearling|mittens?|beanie|balaclava|snow boots|earmuffs|ear muffs|thermals?|long johns)\b", re.I)
+HEAT_RE = re.compile(r"\b(?:hot|heat|humid|sweltering|scorching)\b", re.I)
+GRIME_RE = re.compile(
+    r"\b(?:grimy|grime|grubby|begrimed|dirty(?! blond)|dirt[- ](?:stained|smudged|streaked|caked|covered|smeared)|(?:smudged|smeared|streaked|stained|spattered|splattered|speckled|flecked|covered|caked) (?:with|in) (?:dirt|grease|oil|mud|soot|paint|sawdust|plaster|tar|dust)|greas(?:e|y)|oil[- ]?stained|sawdust|saw dust|sooty|soot|"
+    r"paint[- ](?:stained|spattered|splattered|flecked|streaked|covered|smeared)|mud[- ](?:caked|stained|spattered|covered)|muddy|soiled|sweat[- ](?:stained|soaked)|tar[- ]stained|dust[- ]covered|covered in dust|stained (?:shirts?|sleeves?|jeans|hands?|fingers?|arms?|overalls|tee|t-shirt)|dirt (?:on|under) (?:his|her|their|the) \w+|dirty (?:hands?|arms?|face|fingernails?|nails?))\b", re.I)
 HOT_RE = re.compile(r"hot|heat|warm|humid", re.I)
 COLD_WET_RE = re.compile(r"cold|damp|snow|rain|drizzle|raw|windy|crisp|grey overcast|low grey|wet|chill", re.I)
 OBJ_STOP = frozenset("small silver golden battered worn old large little faded scuffed wooden metal plastic favorite favourite vintage colorful colourful bright rusty chipped steaming tattered simple plain leather cotton heavy folding another beside behind their theirs there where which while resting leaning propped sitting standing nearby sleeping half-finished half-eaten around against beneath above lined filled always things these those being would could about after before still again often usually never every other others sticking hanging lying placed kept holding carried tucked stuck pinned worn-in focus blurred distance distant background softly".split())
@@ -560,6 +593,16 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
     for k in ("where", "doing", "wear", "signature", "expressionBody"):
         if isinstance(out.get(k), str) and bad_rx.search(out[k]):
             out[k] = _drop_clauses(out[k], bad_rx) or out[k]
+    # nothing readable on the clothes or the signature: a clause naming a team, school, brand or logo is dropped (the other fields may name a place that legitimately holds such words)
+    for k in ("wear", "signature"):
+        if isinstance(out.get(k), str) and clothes_has_text(out[k]):
+            out[k] = _drop_clauses(_lower_clause_starts(out[k]), CLOTHES_TEXT_RE) or out[k]
+    # no work grime on the person or what they hold (a place may be a muddy trail): a clause that shows dirt, grease, sawdust or paint is dropped unless the facet is a hobby
+    no_grime = grime_forbidden(anchors)
+    if no_grime:
+        for k in ("doing", "wear", "signature", "expressionBody"):
+            if isinstance(out.get(k), str) and GRIME_RE.search(out[k]):
+                out[k] = _drop_clauses(out[k], GRIME_RE) or out[k]
     # the printed fields hold no imitation of the prompt's own structure and no second person (a clause naming one is dropped, as the closers say the only person in the frame)
     for k in PRINTED:
         if isinstance(out.get(k), str):
@@ -604,7 +647,7 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
     # the objects: a worn accessory joins the clothes; a garment, a repeat of the clothes or of the signature is dropped
     objects, moved = [], []
     for item in (out.get("inFrame") or []):
-        if bad_rx.search(item):
+        if bad_rx.search(item) or (no_grime and GRIME_RE.search(item)):
             continue
         if WRITING_OBJ_RE.search(item):
             continue                                                  # an object that invites writing is not shown
@@ -655,6 +698,24 @@ def repair_brief(card: dict, brief: Optional[dict], anchors: Optional[dict] = No
     return out
 
 
+def weather_clothes_clash(anchors: Optional[dict], wear: str) -> bool:
+    """The dealt season and weather against the clothes: summer-only garments on a winter, cold, wet or windy day, heavy outerwear in the heat."""
+    a = anchors or {}
+    weather = str(a.get("weather") or "")
+    season = str(a.get("season") or "")
+    hot = bool(HEAT_RE.search(weather)) or (season == "summer" and not COLD_WET_RE.search(weather))
+    cold = not hot and (season == "winter" or bool(COLD_WET_RE.search(weather)))
+    wear = str(wear or "")
+    if cold and SUMMER_ONLY_RE.search(wear):
+        return True
+    return hot and bool(HEAVY_OUTER_RE.search(wear))
+
+
+def grime_forbidden(anchors: Optional[dict]) -> bool:
+    """No work grime anywhere unless the dealt facet is a hobby of theirs (soil on a gardener's hands is the hobby, not the job)."""
+    return (anchors or {}).get("facet") != FACETS[1]
+
+
 def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
     """The reason codes a brief fails with (empty = accepted)."""
     if not brief:
@@ -692,6 +753,9 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
         codes.append("work-gear")
     if TEXT_RE.search(body) or BRAND_RE.search(body):
         codes.append("text-or-brand")
+    # the clothes and the signature carry nothing readable: no team, school, brand or logo on a garment (ORW-480 round 20)
+    if clothes_has_text(brief["wear"] + " " + brief["signature"]):
+        codes.append("clothes-text")
     if LOWER_BODY_RE.search(brief["signature"]) and not look:
         codes.append("signature-not-visible")
     if any(WRITING_OBJ_RE.search(x) for x in brief["inFrame"]) or (WRITING_OBJ_RE.search(brief["signature"]) and not look):
@@ -723,6 +787,10 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
         codes.append("signature-repeats-wear")
     if _needs_layer(anchors) and not LAYER_RE.search(brief["wear"]):
         codes.append("weather-layer")
+    if weather_clothes_clash(anchors, brief["wear"]):
+        codes.append("weather-clothes")
+    if grime_forbidden(anchors) and GRIME_RE.search(" ".join([brief["doing"], brief["wear"], brief["signature"], brief["expressionBody"], " ".join(brief["inFrame"])])):
+        codes.append("work-grime")
     if any(PERSON_OBJ_RE.search(x) and not PERSON_PHOTO_OK_RE.search(x.strip()) for x in brief["inFrame"]):
         codes.append("person-in-objects")
     # the two own objects are things from their life in this place: not clothing they wear, and not the signature item again
@@ -741,15 +809,20 @@ def check_brief(card: dict, anchors: dict, brief: Optional[dict]) -> list:
         hinting = [t for t in things if _norm(t) in listed or (job_words2 & _tokens(t))]
         if len(hinting) >= 2:
             codes.append("job-objects")
-    # the job is not a caption (unless the facet is near work)
+    # the job is not a caption: not in the place, the action or the objects. A facet that is near work may be beside the workplace, never at it and never with an object of the trade
     job = str(card.get("vocation") or "")
-    if job and anchors.get("facet") != NEAR_WORK:
+    if job:
         job_words = {w for w in _norm(job).split() if len(w) >= 5 and w not in ("night", "head", "manager", "assistant", "senior", "junior", "small", "local", "county", "commercial", "league", "community", "college", "academic", "recreation", "family", "service", "services", "general", "associate", "assistant", "director", "specialist", "coordinator")}
         head = re.split(r"\b(?:near|beside|across|next to|down the street|outside|by|behind|from|along|close to)\b", brief["where"], 1)[0]
-        if job_words and (job_words & _tokens(head + " " + brief["doing"])):        # the place IS the workplace, or the action is the job: a home or a park near it is fine
-            codes.append("job-caption")
-        elif workplace_hit(job, head + " " + brief["doing"]):
-            codes.append("job-caption")          # the place itself tells the job (a funeral director in a cemetery)
+        if anchors.get("facet") != NEAR_WORK:
+            if job_words and (job_words & _tokens(head + " " + brief["doing"])):        # the place IS the workplace, or the action is the job: a home or a park near it is fine
+                codes.append("job-caption")
+            elif workplace_hit(job, head + " " + brief["doing"]):
+                codes.append("job-caption")          # the place itself tells the job (a funeral director in a cemetery)
+        else:
+            shown = " ".join([brief["doing"], " ".join(brief["inFrame"]), "" if look else brief["signature"]])
+            if (job_words & _tokens(head)) or workplace_hit(job, head) or workplace_hit(job, shown) or (job_words & _tokens(shown)):
+                codes.append("place-is-workplace")
     # the trace: a quoted phrase that really is in the sheet
     quotes = [q for q in re.findall(r"[\"\u201c]([^\"\u201d]{5,})[\"\u201d]", brief["why"]) if q.strip()]
     sheet = _norm(_sheet_text(card))
@@ -783,6 +856,10 @@ WORKPLACES = (
     (r"lifeguard|swim instructor|coach|trainer|athletic director", r"pool deck|lifeguard chair|weight room|gym floor|training room|locker room|sideline|practice field"),
     (r"journalist|reporter|editor|newsroom|broadcast|anchor", r"newsroom|press box|studio booth|editing bay|news desk"),
     (r"social worker|case ?worker|caseworker|child welfare|probation", r"county office|caseworker.s desk|intake office|welfare office"),
+    (r"car (?:sales|dealer)|auto (?:sales|dealer)|used.car|salesperson|sales (?:rep|associate|consultant|manager|person)", r"car lot|used.car|dealership|showroom|sales lot|auto lot|auto mall|rows? of (?:cars|sedans|trucks)|windshield"),
+    (r"groundskeep|grounds ?(?:crew|keeper|worker)|greenskeeper|turf|park (?:worker|ranger|maintenance)|stadium|sports field|landscap", r"ball ?field|baseball (?:field|diamond)|infield|outfield|dugout|pitcher.s mound|bleachers|athletic field|sports field|football field|soccer field|golf course|fairway|putting green|mower|chalk line|stadium|diamond"),
+    (r"dance|ballet|choreograph", r"dance studio|ballet studio|dance floor|\bbarre\b|mirrored (?:wall|studio)|rehearsal (?:room|studio)|dance hall|studio"),
+    (r"deckhand|fisher|mariner|sailor|boat (?:captain|hand)|crab|lobster|longshore|dockworker|stevedore|trawl|shrimp|oyster|clammer", r"fishing boat|trawler|crab pots?|lobster (?:traps?|pots?)|fishing nets?|\bdock\b|wharf|harbou?r|boat deck|fish pier|gill net|rigging|\bpier\b|clam docks?"),
 )
 
 
@@ -864,7 +941,7 @@ def check_cast(cards: list, anchors: dict, briefs: dict, relax: int = 0) -> dict
 # ---------------------------------------------------------------------------------------------------- the editor pass
 EDITOR_SYSTEM = SYSTEM + (
     "\nYou are now the EDITOR. You get only the people whose briefs failed a check, each with their sheet, their anchors, the codes that failed, and the briefs "
-    "of the people already accepted (so you can differ from them). Rewrite each failing brief in full, fixing every code. For each person under 'complete', keep the brief as it is "
+    "of the people already accepted (so you can differ from them). Rewrite each failing brief in full, fixing every code. Ask of each rewrite: would a stranger guess their job from the place and the objects alone? If so, move to a different place of their life. Dress them for the dealt season and weather, keep them clean of work grime, and keep their clothes free of any logo, emblem, team, school, university or brand name, slogan or printed word — colour, fabric and cut only. For each person under 'complete', keep the brief as it is "
     "and give back the same JSON shape with the missing parts added (a second object, a signature), different from everything in 'alreadyUsed'. Answer with the same JSON shape keyed by id, "
     "only for the people given."
 )

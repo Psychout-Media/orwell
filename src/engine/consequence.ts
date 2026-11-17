@@ -19,6 +19,9 @@ import {
 export interface FatigueValence { warm: number; sore: number }
 export const NO_FATIGUE: FatigueValence = { warm: 1, sore: 1 };
 const rested = (v: FatigueValence): boolean => v.warm === 1 && v.sore === 1;
+/** ORW-561 (spec 0176): the valence may depend on WHICH edge moves (homophily is per pair). A plain valence applies to every edge (the pre-0176 shape); a function gets (holder, about) - the edge's two ends. */
+export type ValenceSource = FatigueValence | ((holder: EntityId, about: EntityId) => FatigueValence);
+const valenceFor = (v: ValenceSource, holder: EntityId, about: EntityId): FatigueValence => (typeof v === "function" ? v(holder, about) : v);
 import { InMemoryEventStore } from "../adapters/inmemory/InMemoryEventStore";
 import { SeededRandom } from "../adapters/random/SeededRandom";
 
@@ -121,12 +124,12 @@ export function foldHiddenImpact(
   toward?: readonly EntityId[],
   cap = Number.POSITIVE_INFINITY,
   bystanders?: readonly EntityId[],
-  fatigue: FatigueValence = NO_FATIGUE,
+  fatigue: ValenceSource = NO_FATIGUE,
 ): void {
   // PARTNERS — those the initiator actually engaged: the full directed fold. #1419 — scaled by the
   // initiator's fatigue valence (warming dampened, souring amplified); `NO_FATIGUE` ⇒ byte-identical.
   const partners = (toward ?? witnessSet.filter((w) => w !== initiator)).slice(0, cap);
-  for (const o of partners) rel.applyDirectedValence(o, initiator, kind, rng, fatigue.warm, fatigue.sore);
+  for (const o of partners) { const f = valenceFor(fatigue, o, initiator); rel.applyDirectedValence(o, initiator, kind, rng, f.warm, f.sore); }
   // BYSTANDERS — co-present witnesses who merely SAW it (audit 2026-06-18): each reacts by their
   // OWN beliefs, small and individuated, never the partner's full bond and never a uniform step.
   // (A bystander reads the scene by their OWN beliefs, so the initiator's fatigue does NOT scale it —
@@ -209,7 +212,7 @@ export function foldGenerativeConsequence(
   initiator: EntityId,
   edges: readonly EdgeConsequence[],
   spend: (toward: EntityId) => boolean = () => true,
-  fatigue: FatigueValence = NO_FATIGUE,
+  fatigue: ValenceSource = NO_FATIGUE,
 ): Set<EntityId> {
   const moved = new Set<EntityId>();
   for (const e of edges) {
@@ -227,7 +230,8 @@ export function foldGenerativeConsequence(
     // #1419 — a tired initiator's generative fold is valence-scaled too (charm dampened, barbs amplified);
     // `NO_FATIGUE` ⇒ `scaleImpact(base, factor)` unchanged (byte-identical).
     const scaled = scaleImpact(base, factor);
-    rel.applyImpactDirected(e.toward, initiator, rested(fatigue) ? scaled : scaleImpactByValence(scaled, fatigue.warm, fatigue.sore), rng);
+    const f = valenceFor(fatigue, e.toward, initiator);
+    rel.applyImpactDirected(e.toward, initiator, rested(f) ? scaled : scaleImpactByValence(scaled, f.warm, f.sore), rng);
     moved.add(e.toward);
   }
   return moved;
@@ -268,7 +272,7 @@ export function foldThirdPartyConsequence(
   witnessSet: ReadonlySet<EntityId> | readonly EntityId[],
   edges: readonly ThirdPartyConsequence[],
   spend: (holder: EntityId, about: EntityId) => boolean = () => true,
-  fatigue: FatigueValence = NO_FATIGUE,
+  fatigue: ValenceSource = NO_FATIGUE,
 ): Set<EntityId> {
   const witnesses = witnessSet instanceof Set ? witnessSet : new Set(witnessSet);
   const moved = new Set<EntityId>();
@@ -299,7 +303,8 @@ export function foldThirdPartyConsequence(
     // #1419 — a tired initiator lands a third-party pitch less warmly / more cuttingly too (valence-scaled
     // on top of the trust gate); `NO_FATIGUE` ⇒ byte-identical to the pre-#1419 pitch.
     const pitch = scaleImpact(base, factor * trustMult);
-    rel.applyImpactDirected(e.holder, e.about, rested(fatigue) ? pitch : scaleImpactByValence(pitch, fatigue.warm, fatigue.sore), rng);
+    const f = valenceFor(fatigue, e.holder, e.about);
+    rel.applyImpactDirected(e.holder, e.about, rested(f) ? pitch : scaleImpactByValence(pitch, f.warm, f.sore), rng);
     moved.add(e.holder);
   }
   return moved;

@@ -229,7 +229,7 @@ import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearanc
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
 import type { Houseguest } from "../../engine/characterFactory";
-import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, VOL_OF } from "../../engine/characterFactory";
+import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, VOL_OF, articleFor } from "../../engine/characterFactory";
 import type { Disposition } from "../../engine/characterFactory";
 import type { GameHouse, StrategyStyle, Soul, HiddenElement, Character } from "../../engine/characterFactory";
 import { evolveEmotion, arcNote, offscreenEmotion, composedEmotion, effectiveDisposition, settleScaleOf } from "../../engine/emotionalArc";
@@ -278,6 +278,7 @@ import { BEDROOM_LAYOUT, spotsIn } from "../../engine/data/bedrooms";
 import { recohereCastingTypes } from "../../domain/castingTypes";
 import { traitContradictions, repairHeightBuild } from "../../domain/traitConsistency";
 import { PLAYER } from "../../domain/ids";
+import { pairBondMult } from "../../engine/homophily";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
@@ -352,6 +353,8 @@ import {
 import type { ProposedIdentityFacets } from "../../engine/diversity";
 import { renameGivenNameInProse } from "../../engine/diversity";
 import { nameGenderOf, pickGivenNameFor } from "../../engine/data/nameGender";
+import { avoidFromWire, type AvoidSets } from "../../domain/recentSeasons";
+import { dealEraGivenNames, dealSurnames, censusGroupOfHeritage } from "../../engine/data/worldNames";
 import type { Orientation, GenderPresentation } from "../../engine/diversityConstants";
 import { ALL_ETHNICITIES, GENDER_PRESENTATIONS } from "../../engine/diversityConstants";
 import { isGenderPresentation } from "../../domain/gender"; // #1326
@@ -3785,6 +3788,24 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * ORW-508: the public `background` is the engine's own one-line job phrase — `characterFactory`
+   * composes it as `articleFor(vocation) + " " + vocation`. When a writer changes the vocation and the
+   * background is EXACTLY that composed form of the PRIOR job (case-insensitive, trimmed), recompose it
+   * from the new vocation with the same article rule, so the person never reads as two different people
+   * (a "machinist" background on a groundskeeper). Any other background — an authored sentence, a longer
+   * phrase — is left untouched: ONLY the engine's composed form is replaced. Returns whether it changed.
+   */
+  private followJobInBackground(target: Houseguest, priorVocation?: string): boolean {
+    const vocation = target.character.vocation;
+    if (vocation === undefined || priorVocation === undefined || vocation === priorVocation) return false;
+    const bg = target.character.background;
+    const composed = `${articleFor(priorVocation)} ${priorVocation}`;
+    if (bg.trim().toLowerCase() !== composed.trim().toLowerCase()) return false;
+    target.character.background = `${articleFor(vocation)} ${vocation}`;
+    return true;
+  }
+
+  /**
    * The deep-profile write-back seam (feature 0058 / ledger L28b) — the FE producer-LLM authors a
    * houseguest's rich §3 profile and writes it BACK here so the ENGINE becomes the airtight source of
    * truth (mirrors the 0051 portrait handshake). NOW LIVE: it validates (non-player-mirroring),
@@ -3951,6 +3972,9 @@ export class GameSessionAdapter implements GameSession {
     if (typeof req.vocation === "string" && req.vocation.trim().length > 0) {
       target.character.vocation = req.vocation.trim();
       if (target.character.vocation !== priorVocation) publicFields.push("vocation");
+      // ORW-508: the background composed from the OLD job follows the new one (only the engine's own
+      // `article + vocation` form — an authored background sentence is left exactly as it is).
+      if (this.followJobInBackground(target, priorVocation)) publicFields.push("background");
     }
     // Did the occupation the player infers actually change? Drives the hidden-stake re-ground in step 2.
     const occupationChanged = target.character.vocation !== priorVocation;
@@ -4316,10 +4340,16 @@ export class GameSessionAdapter implements GameSession {
       if (c.archetype !== undefined) { target.character.archetype = c.archetype; touched = true; }
       if (c.stats !== undefined) { target.character.stats = { ...c.stats }; touched = true; }
       if (c.hiddenElements !== undefined) { target.character.hiddenElements = c.hiddenElements; touched = true; }
+      const priorVocation = target.character.vocation; // ORW-508: the job before this proposal touched it
       if (c.vocation !== undefined) { target.character.vocation = c.vocation; touched = true; }
       if (c.hometown !== undefined) { target.character.hometown = c.hometown; touched = true; }
       if (c.demeanor !== undefined) { target.character.demeanor = c.demeanor; touched = true; }
       if (c.background !== undefined) { target.character.background = c.background; touched = true; }
+      // ORW-508: after the folds — a vocation the proposal changes must not leave the engine's composed
+      // background naming the old job. Evaluated AFTER the background fold so a SUPPLIED background always
+      // wins first: this fires only when none arrived (or the supplied one is itself the composed form of
+      // the prior job — the same lockstep rule as recordCastProfile, never an authored sentence).
+      if (this.followJobInBackground(target, priorVocation)) touched = true;
       // Authoring the biography over the floor placeholder is the same season-start UPGRADE as
       // recordCastProfile (#1067): mark the provenance so the 0031 superset check reads it as an
       // accretion, not degradation, once the cast goes live.
@@ -6163,12 +6193,25 @@ export class GameSessionAdapter implements GameSession {
    * flag is on AND the clock is running ⇒ the hidden society + its seeded calibration spine are BYTE-
    * IDENTICAL; the asymmetric fold fires only on the live clock-ON game. Pure — no rng, no number crosses.
    */
-  socialFoldValence(id: EntityId): { warm: number; sore: number } {
+  socialFoldValence(id: EntityId, holder?: EntityId, about?: EntityId): { warm: number; sore: number } {
     // ORW-551 slice 3: the house culture's bonding dial scales how fast bonds form (warming folds x b) and how hard slights land (souring folds / b), on top of the fatigue valence. b === 1 (no culture) leaves the valence untouched.
     const b = this.cultureMult("bonding");
     let v = { warm: 1, sore: 1 };
     if (this.socialFatigueEnabled) { const deficit = this.restDeficitOf(id); v = { warm: socialSwayScale(deficit), sore: soreSwayScale(deficit) }; }
-    return b === 1 ? v : { warm: v.warm * b, sore: v.sore / b };
+    // ORW-561 / spec 0176 (homophily): when the call names the edge's two ends, a pair who are alike bond faster and sour slower, an unlike pair the reverse (a pure magnitude; engine-only).
+    const m = this.pairHomophilyMult(holder, about);
+    const k = b * m;
+    return k === 1 ? v : { warm: v.warm * k, sore: v.sore / k };
+  }
+
+  /** ORW-561 / spec 0176 (slice 10, part 1): like attracts like. `ORWELL_HOMOPHILY=0` opts out. Applies only in a played game (`live.playedGame`), so headless calibration is byte-identical. */
+  private homophilyEnabled = flagDefaultOn("ORWELL_HOMOPHILY");
+  setHomophilyEnabled(on: boolean): void { this.homophilyEnabled = on; }
+  private pairHomophilyMult(a?: EntityId, b?: EntityId): number {
+    if (!this.homophilyEnabled || !a || !b || a === b || this.live?.playedGame !== true || !this.house) return 1;
+    const facets = (id: EntityId) => (id === PLAYER ? this.house!.player : this.house!.npcs.find((n) => n.id === id))?.character;
+    const ca = facets(a), cb = facets(b);
+    return ca && cb ? pairBondMult(ca, cb) : 1;
   }
 
   /** The hidden rest deficit (0..1) a houseguest carries TODAY: tonight's immediate deficit (graded by how
@@ -7848,6 +7891,8 @@ export class GameSessionAdapter implements GameSession {
       ...(genderPresentation ? { genderPresentation } : {}),
       // NAME-1 (#547): the corpus-sampled cast avoids prior seasons' names (bounded, fail-soft).
       ...(effReq.priorCastNames && effReq.priorCastNames.length ? { priorCastNames: effReq.priorCastNames } : {}),
+      // ORW-508: the recent-seasons memory (towns, jobs); absent for seeded headless runs.
+      ...(() => { const avoid = avoidFromWire(effReq.avoid); return avoid ? { avoid } : {}; })(),
     });
     // 0065 — when adopting a pre-warmed cast, keep the freshly-built PLAYER but swap in the warmed NPCs
     // (which carry any FE-authored §3 depth). The warmed NPCs are byte-identical to the floor
@@ -7967,6 +8012,9 @@ export class GameSessionAdapter implements GameSession {
       // #1140 — NOW the name-keyed deep layer is fixed off the original names; apply the deferred gender-
       // coherent renames onto the byte-stable Character (no-op when nothing was renamed).
       this.applyDiversityRenames();
+      // ORW-508: a played season (no explicit seed) deals given names from the real birth-decade table; an explicit seed
+      // (tests, replays) keeps the seeded floor names.
+      if (effReq.seed === undefined) this.applyEraNames(seed, avoidFromWire(effReq.avoid));
       // 0116 — a plain (non-adopted) start has no model-authored genesis: the floor tie draw stands.
       this.genesisTies = null;
       this.seasonBrief = null;
@@ -7979,6 +8027,7 @@ export class GameSessionAdapter implements GameSession {
     // given name AND the warm-cast/plain-restart casts stay byte-identical (the diversity-layer rename is
     // prior-season-UNAWARE on purpose; this is where cross-season memory is restored). No-op without priors.
     this.decollidePriorNames(seed, effReq.priorCastNames);
+    if (effReq.seed === undefined) this.avoidPlayerNameCollisions(seed, avoidFromWire(effReq.avoid)); // ORW-508: an adopted warm cast met the player only now
     // Seed first impressions so NPC decisions are differentiated from move-in (without this,
     // empty relationships make every HOH nominate the same first-in-roster houseguests). These
     // are starting beliefs; the consequence fold (0023) evolves them as the player acts.
@@ -8232,12 +8281,14 @@ export class GameSessionAdapter implements GameSession {
     // (which never consumes the rng), so these NPCs equal the ones `createCharacter` regenerates off the
     // same seed. The placeholder player is type-scaffolding ONLY — discarded below; `seedDiversity` /
     // `seedDeepProfiles` touch `npcs` exclusively, never the player.
-    const temp = startNewGame({ seed, playerName: PREWARM_PLAYER_NAME });
+    const warmAvoid = avoidFromWire(req.avoid); // ORW-508: the recent-seasons memory; absent for seeded headless runs
+    const temp = startNewGame({ seed, playerName: PREWARM_PLAYER_NAME, ...(warmAvoid ? { avoid: warmAvoid } : {}) });
     const npcs = temp.npcs;
     this.house = { player: temp.player, npcs };
     this.seedDiversity(seed);    // folds public diversity facets + seals private orientations to the Vault
     this.seedDeepProfiles(seed); // folds the §3 deep layer + seals the hidden profile/threads to the Vault
     this.applyDiversityRenames(); // #1140 — apply gender-coherent renames AFTER the name-keyed deep layer
+    if (req.seed === undefined) this.applyEraNames(seed, warmAvoid); // ORW-508: a played season's given names, by birth decade; an explicit seed keeps the floor
     // Capture the finished cast into the holding store, then RESET back to a clean pre-game state (the
     // cast lives in `prewarm` from here; the live house does not exist until `createCharacter`).
     this.prewarm = {
@@ -8311,7 +8362,7 @@ export class GameSessionAdapter implements GameSession {
    * so the hidden layer simply rides in `this.prewarm` until the cutover re-seals it into the new sandbox).
    */
   warmNextSeasonScratch(req: PreSeedNextSeasonReq): PreSeedNextSeasonView {
-    const warm = this.preSeedCast({ ...(req.seed !== undefined ? { seed: req.seed } : {}) });
+    const warm = this.preSeedCast({ ...(req.seed !== undefined ? { seed: req.seed } : {}), ...(req.avoid ? { avoid: req.avoid } : {}) });
     if (!warm.warmed) {
       // A scratch adapter has no live house, so preSeedCast cannot refuse "in-progress"/"over" — this is
       // purely defensive (a future refusal would surface as a Vault-free decline, never a throw).
@@ -8557,6 +8608,60 @@ export class GameSessionAdapter implements GameSession {
    * byte-identical with the rename on vs. off). From here the renamed name is the houseguest's stable
    * public name. A no-op when no draft was renamed (the common case). Mirrors at both seed sites.
    */
+  /**
+   * ORW-508 Layer 1: re-deal every houseguest's GIVEN name from the real baby-name table for their birth decade and
+   * presented gender, and the SURNAME from the Census 2010 surnames (both unique in the cast, off the recent-seasons memory). Runs AFTER the name-keyed
+   * deep layer is fixed, through the same `renameHouseguest` the gender-coherence rename uses (so prose follows), on its own
+   * `:era-names` sub-stream. Only for a played season: an explicit seed keeps the seeded floor names.
+   */
+  private applyEraNames(seed: number, avoid?: AvoidSets): void {
+    if (!this.house) return;
+    const npcs = this.house.npcs;
+    const taken = new Set<string>([this.house.player.name.split(" ")[0]!]);
+    const given = dealEraGivenNames(
+      new SeededRandom(hashSeed(`${seed}:era-names`)),
+      npcs.map((n) => ({ age: n.character.age, ...(n.character.genderPresentation ? { gender: n.character.genderPresentation } : {}) })),
+      taken, avoid,
+    );
+    const family = dealSurnames(new SeededRandom(hashSeed(`${seed}:era-surnames`)), npcs.length, new Set([this.house.player.name.split(" ").slice(1).join(" ")].filter(Boolean)), avoid,
+      npcs.map((n) => censusGroupOfHeritage(n.character.ethnicity)));
+    npcs.forEach((n, i) => {
+      const next = [given[i]!, family[i]!].join(" ");
+      if (n.name === next) return;
+      this.renameHouseguest(n, next);
+    });
+  }
+
+  /**
+   * ORW-508: a warmed cast is dealt before the player's real name exists (the pre-warm uses a placeholder), so on adoption
+   * a houseguest can share the player's given name or surname. Re-deal that part for that houseguest (a played season only),
+   * unique against the rest of the cast and the player, on its own `:era-collide` sub-stream.
+   */
+  private avoidPlayerNameCollisions(seed: number, avoid?: AvoidSets): void {
+    if (!this.house) return;
+    const [pGiven = "", ...pRest] = this.house.player.name.trim().split(/\s+/);
+    const pFamily = pRest.join(" ").toLowerCase();
+    const rng = new SeededRandom(hashSeed(`${seed}:era-collide`));
+    const npcs = this.house.npcs;
+    for (const n of npcs) {
+      const [given = "", ...rest] = n.name.split(" ");
+      const family = rest.join(" ");
+      const clashGiven = given.toLowerCase() === pGiven.toLowerCase();
+      const clashFamily = pFamily !== "" && family.toLowerCase() === pFamily;
+      if (!clashGiven && !clashFamily) continue;
+      const others = npcs.filter((m) => m !== n);
+      let nextGiven = given, nextFamily = family;
+      if (clashGiven) {
+        nextGiven = dealEraGivenNames(rng, [{ age: n.character.age, ...(n.character.genderPresentation ? { gender: n.character.genderPresentation } : {}) }],
+          new Set([pGiven, ...others.map((m) => m.name.split(" ")[0]!)]), avoid)[0]!;
+      }
+      if (clashFamily) {
+        nextFamily = dealSurnames(rng, 1, new Set([pFamily, ...others.map((m) => m.name.split(" ").slice(1).join(" "))]), avoid, [censusGroupOfHeritage(n.character.ethnicity)])[0]!;
+      }
+      this.renameHouseguest(n, `${nextGiven} ${nextFamily}`.trim());
+    }
+  }
+
   private applyDiversityRenames(): void {
     if (!this.house) return;
     for (const n of this.house.npcs) {
