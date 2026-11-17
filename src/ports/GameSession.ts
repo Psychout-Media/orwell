@@ -2517,6 +2517,8 @@ export interface RetrospectiveView {
   /** 0178 (Theme 3 slice 1, Ryne's Q2): every NPC's secret plan for each deal it agreed to and how it went, beside the player's own promise record (deals and promises
    *  they said aloud, each with its status). Present ONLY on the post-season retrospective, and only when the season held a deal or a promise. */
   dealPlans?: DealPlanRetro;
+  /** ORW-624: America's Favorite, the public's pick after the crown (a name only, never a number). */
+  americasFavorite?: { id: string; name: string };
   /** ORW-525 (spec 0157): the rumor mill. Present ONLY on the post-season retrospective, and only when the season held a false claim. */
   rumorMill?: RumorMill;
   /** ORW-551 (spec 0168): the season's house culture in plain texture words (one phrase per lean, heaviest first) - never an id, label, weight or number. Present ONLY on the post-season retrospective, and only when a culture was drawn. */

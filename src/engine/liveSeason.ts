@@ -770,6 +770,8 @@ export interface LiveSeasonState {
    * handed to the narrator, under the decider's own voice block, and only for a public act. Append-only, persisted with the season. Absent until the first such decision.
    */
   statedReasons?: StatedReasonRecord[];
+  /** ORW-624: the audience outside - the public's view (what the house saw) and the full view (with hidden moments, read only after the crown), what was folded, the crowd at each walk-out and the fan rewards. ENGINE-ONLY, never projected. */
+  audience?: { live: import("./audience").Standing; full: import("./audience").Standing; cursor: number; weeks: number[]; crowd: Array<{ week: number; evictee: EntityId; reaction: import("./audience").CrowdReaction }>; perks: Array<{ week: number; to: EntityId }> };
   /**
    * 0130 — each evictee's exit interview, week by week: their public posture on the way out (a `stance`
    * DERIVED from their manner for an NPC, or the PLAYER's own chosen stance + words). Recorded as the
