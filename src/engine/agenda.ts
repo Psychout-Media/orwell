@@ -76,6 +76,8 @@ export interface Agenda {
   history: Goal[];
   /** The week the week-goals were last formed for. */
   formedForWeek: number;
+  /** ORW-571 (played games only): ids of goals the holder acted for since the last nightly mull (an hourly step made for the goal). The mull reads and clears it; absent = none. */
+  served?: string[];
 }
 
 /** What the agenda needs to know about the holder's own character (static; from `Character`). */
@@ -475,7 +477,7 @@ export function recheckAgenda(agenda: Agenda, view: AgendaView, board: AgendaBoa
     }
   }
   void trigger; // the trigger is recorded by the caller on its event; the agenda's own record is the causes + statuses.
-  return { owner: agenda.owner, goals: [...others, ...week], history, formedForWeek: weekNow };
+  return { owner: agenda.owner, goals: [...others, ...week], history, formedForWeek: weekNow, ...(agenda.served?.length ? { served: agenda.served } : {}) };
 }
 
 /**
@@ -485,6 +487,8 @@ export function recheckAgenda(agenda: Agenda, view: AgendaView, board: AgendaBoa
  */
 export function mullAgenda(agenda: Agenda, view: AgendaView, board: AgendaBoard, seed: number, progressed: ReadonlySet<string> = new Set()): Agenda {
   if (board.evicted.includes(agenda.owner)) return recheckAgenda(agenda, view, board, "night", seed);
+  const { served, ...bare } = agenda; // ORW-571: what was acted for today counts as progress; the record is spent with the night
+  if (served?.length) { progressed = new Set([...progressed, ...served]); agenda = bare; }
   const stub = stubbornnessOf(view.character, view.owner, seed);
   const history = [...agenda.history];
   const goals: Goal[] = [];
