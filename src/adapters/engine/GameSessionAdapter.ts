@@ -17524,9 +17524,10 @@ export class GameSessionAdapter implements GameSession {
     const sanitized = sanitizeFlavor(content, 1000);
     if (!sanitized) return { ok: false };
     // Verify the event exists, is hidden, and was not witnessed by the player — content-only guard.
+    // ORW-570 (the Auditor's follow-up): this is a PLAYER-channel write keyed by event id, so a well-formed request gets the SAME bare receipt whether the id is a hidden scene, a witnessed one or unknown: it cannot probe whether a hidden scene exists. Only a hidden scene's text is stored.
     const events = this.record?.events() ?? [];
     const ev = events.find((e) => e.id === eventId);
-    if (!ev || !ev.hidden) return { ok: false };
+    if (!ev || !ev.hidden) return { ok: true };
     this.textureOverrides.set(eventId, sanitized);
     this.backgroundPersist(); // R-BND (#628): durable, but NOT a board beat — no beatSeq bump
     return { ok: true };

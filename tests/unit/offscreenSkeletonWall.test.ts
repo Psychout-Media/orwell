@@ -54,4 +54,14 @@ describe("ORW-570: the player-channel skeleton read returns no hidden off-screen
     const [sk] = sessionWith([seen]).getOffscreenSceneSkeletons();
     expect(sk?.eventId).toBe("offscreen:bonding:6:6");
   });
+
+  it("the texture write-back gives a hidden scene's id the same receipt as an unknown id, and stores only the hidden one", () => {
+    const ev = hiddenScene("offscreen:strategy:7:7", "strategy", `${ACTOR} talked strategy with ${PARTNER}`);
+    const s = sessionWith([ev]);
+    const hidden = s.recordOffscreenSceneTexture({ eventId: ev.id, content: "voiced line" });
+    const unknown = s.recordOffscreenSceneTexture({ eventId: "offscreen:strategy:99:99", content: "voiced line" });
+    expect(unknown).toEqual(hidden);
+    expect(s.snapshot().textureOverrides?.["offscreen:strategy:99:99"]).toBeUndefined();
+    expect(s.snapshot().textureOverrides?.[ev.id]).toBe("voiced line");
+  });
 });
