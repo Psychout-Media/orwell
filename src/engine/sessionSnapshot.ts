@@ -106,6 +106,8 @@ export interface SessionCore {
   live?: LiveSeasonState | null;
   /** Tracked promises the player is party to (0039), so deals survive a restart (0030). */
   deals?: Deal[];
+  /** 0171 / Theme 3 slice 3 - the append-only favor ledger. ENGINE-ONLY, never projected; absent on a pre-0171 save or when no favor was ever owed. */
+  favors?: import("./favors").FavorEntry[];
   /** Named alliances (feature 0107) — explicit multi-party pacts, persisted so they survive a restart
    *  (0030) and accumulate. ENGINE-ONLY (the cement/favor magnitudes never cross). Absent ⇒ none. */
   alliances?: Alliance[];

@@ -1594,6 +1594,8 @@ export interface OpenDealOfferView {
   madeWeek: number;
   /** 0142 idea 4: set when the houseguest is asking to SWAP an existing deal (the public id of that deal) rather than float a new one. */
   replacesDealId?: string;
+  /** 0171: a counter in play - the round it is (1-based) and what the houseguest asks for instead (a rival goes up, or a vote). Facts only; the narrator voices them. */
+  counter?: { round: number; ask: { kind: "target"; target: NamedRef } | { kind: "vote" } };
   /** The narrator's voicing instruction for this offer (carried here, not in the base prompt). */
   howToVoice: string;
 }
