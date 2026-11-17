@@ -226,6 +226,8 @@ export const args = (name: string, seed: number): Record<string, unknown> => {
     case "recordRoomCanon": return { roomId: "kitchen", feature: "a worn butcher-block counter" };
     case "resolveOpenLedger": return { entryId: "open:1", status: "kept", note: "she did" };
     case "openLedgerHere": return {};
+    case "groupsAwaitingWords": return {};
+    case "recordGroupIdentity": return { groupId: "alliance:1", name: "The Porch Crowd", ritual: "a quiet check-in after the week" };
     case "recordOpenLedger": return { text: "I will keep your secret", speaker: "player", addressedTo: [], kind: "promise" };
     // 0070: the FE texture write-back addresses a planted HIDDEN off-screen event by id and writes
     // voiced prose — content-only. Point it at the real sentinel-bearing hidden event so the sweep

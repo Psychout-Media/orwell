@@ -14,7 +14,7 @@ import type { Room } from "../domain/house";
 import { isPrivateRoom, WALKABLE_ROOMS } from "../domain/house";
 import { agendaRoll } from "./agenda";
 import { ALLIANCE } from "./alliances";
-import type { HouseCulture } from "./npcMindsAuthored";
+import { cleanText, AUTHORED, type HouseCulture } from "./npcMindsAuthored";
 
 export const GROUP_IDENTITY = {
   /** The mutual-bond bar for a close pair, as a RATIO of the bar an NPC ally joins at (`ALLIANCE.npcAllyFloor`): a pair that is not allied but is this tight keeps a habit too. The loyalty dial lowers it for a loyal house. */
@@ -23,10 +23,17 @@ export const GROUP_IDENTITY = {
   windowHours: 3,
   /** The words of a running joke that may head an alliance name (head words only, never the whole line). */
   jokeHeadWords: 3,
+  /** ORW-566 part c: the most groups the model writes words for in one season (alliances first); every other group keeps its floor. */
+  maxAuthoredPerSeason: 8,
+  /** The most groups one read hands the writer at a time (the rest wait for the next turn). */
+  maxPerRead: 2,
 } as const;
 
 /** One stored identity: write-once, monotonic, engine-only. `kind` says what it is a floor for. */
-export interface GroupIdentityEntry { name?: string; spot?: string; kind: "debrief" | "alliance"; since: number }
+export interface GroupIdentityEntry { name?: string; spot?: string; kind: "debrief" | "alliance"; since: number; words?: GroupWords }
+
+/** ORW-566 part c: the words the model wrote for one group, from the members' PUBLIC facts only. Write-once per group id. */
+export interface GroupWords { name?: string; ritual?: string; signal?: string; insideJoke?: string }
 export type GroupIdentityStore = Record<string, GroupIdentityEntry>;
 
 /** The stable key of a pair (sorted ids), used for the habit roll, the scene stamp and the identity store. */
@@ -89,5 +96,25 @@ export function allianceNameFromHouse(seed: number, key: string, culture: HouseC
 export function noteIdentity(store: GroupIdentityStore, id: string, entry: GroupIdentityEntry): boolean {
   if (store[id]) return false;
   store[id] = entry;
+  return true;
+}
+
+/** Validate the model's words for a group: each is untrusted text through the shared `cleanText` (flattened, capped, no engine ids, no digit-heavy text). Undefined when nothing usable survives. */
+export function validateGroupIdentity(raw: unknown): GroupWords | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const r = raw as Record<string, unknown>;
+  const name = cleanText(r["name"], AUTHORED.maxName);
+  const ritual = cleanText(r["ritual"], AUTHORED.maxWhy);
+  const signal = cleanText(r["signal"], AUTHORED.maxWhy);
+  const insideJoke = cleanText(r["insideJoke"], AUTHORED.maxJoke);
+  if (!name && !ritual && !signal && !insideJoke) return undefined;
+  return { ...(name ? { name } : {}), ...(ritual ? { ritual } : {}), ...(signal ? { signal } : {}), ...(insideJoke ? { insideJoke } : {}) };
+}
+
+/** Write-once words for a group: keeps whatever floor the entry already holds (monotonic), never replaces words already set. Returns true when it wrote. */
+export function noteWords(store: GroupIdentityStore, id: string, kind: GroupIdentityEntry["kind"], words: GroupWords, since: number): boolean {
+  const have = store[id];
+  if (have?.words) return false;
+  store[id] = { ...(have ?? { kind, since }), words };
   return true;
 }

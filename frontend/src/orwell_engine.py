@@ -1021,6 +1021,19 @@ async def record_house_culture(req: dict, user: str | None = None) -> dict:
     return await _call("recordHouseCulture", req, user=user)
 
 
+async def record_group_identity(req: dict, user: str | None = None) -> dict:
+    """ORW-566 part c (spec 0183): write the model's words for one group (``{groupId, name?, ritual?, signal?, insideJoke?}``) BACK to the engine
+    (validated, write-once per group id). Returns ``{accepted, reason?}``."""
+    return await _call("recordGroupIdentity", req, user=user)
+
+
+async def groups_awaiting_words(user: str | None = None) -> list:
+    """ORW-566 part c: the groups (new alliances, close pairs with a habit) still waiting for their words: ids, member ids, a room, the house culture
+    and the names other groups carry. ``[]`` pre-game / flag off. FE-driven; never rendered, never shown to the model that plays the game."""
+    out = await _call("groupsAwaitingWords", {}, user=user)
+    return out if isinstance(out, list) else []
+
+
 async def world_snapshot_view(user: str | None = None) -> dict | None:
     """Feature 0062 (BE-103 close-out, the G5 gap): read the Vault-free projection of the FROZEN
     move-in zeitgeist ``record_world_snapshot`` captured — ``{ capturedFor, source, slices,

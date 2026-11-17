@@ -15,7 +15,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordNarrationUseReq, RecordNarrationUseResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, RecordOpenLedgerResolutionResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordGroupIdentityReq, RecordGroupIdentityResult, GroupAwaitingWordsView, RecordRoomCanonReq, RecordRoomCanonResult, RecordNarrationUseReq, RecordNarrationUseResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, RecordOpenLedgerResolutionResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView, BeatLogView, BeatBumpEntry,
@@ -49,7 +49,7 @@ import {
   type Campaign, type CampaignActor, type Influence, type Drive, type NemesisTrack, type NemesisCandidate,
 } from "../../engine/campaigns";
 import { whisperConspicuousPairings, whisperHabitSighting, type HabitSighting } from "../../engine/houseSuspicion";
-import { pairKey, isClosePair, inDebriefWindow, habitRoom, nicknameOf, allianceNameFromHouse, noteIdentity, type PairCloseness } from "../../engine/groupIdentity";
+import { pairKey, isClosePair, inDebriefWindow, habitRoom, nicknameOf, allianceNameFromHouse, noteIdentity, noteWords, validateGroupIdentity, GROUP_IDENTITY, type PairCloseness } from "../../engine/groupIdentity";
 import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/juryHouse";
 import { JURY_HOUSE } from "../../engine/juryHouseConstants";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
@@ -16739,6 +16739,61 @@ export class GameSessionAdapter implements GameSession {
     const c = validateCulture(req);
     if (!c) return { accepted: false, reason: "invalid" };
     (this.live.npcMindsAuthored ??= {}).culture = c;
+    this.backgroundPersist();
+    return { accepted: true };
+  }
+
+  /** ORW-566 part c (spec 0183): the groups still waiting for the model's words, at most `maxPerRead` at a time, alliances first, none past the season cap. Ids and a room only. Empty when off, nobody is playing, or the player is a member (the narrator names the player's own pact). Engine-only source; never rendered. */
+  groupsAwaitingWords(): GroupAwaitingWordsView[] {
+    const s = this.live;
+    if (!this.groupIdentityEnabled || !this.house || !s || s.playedGame !== true) return [];
+    const store = s.groupIdentity ?? {};
+    const done = Object.values(store).filter((e) => e.words).length;
+    if (done >= GROUP_IDENTITY.maxAuthoredPerSeason) return [];
+    const out: GroupAwaitingWordsView[] = [];
+    const culture = s.npcMindsAuthored?.culture;
+    const otherNames = [...new Set([...this.alliances.all().map((a) => a.name), ...Object.values(store).flatMap((e) => (e.words?.name ? [e.words.name] : []))])];
+    const extra = { ...(culture ? { culture } : {}), otherNames };
+    for (const a of this.alliances.all()) {
+      if (a.members.includes(PLAYER) || store[a.id]?.words) continue;
+      const room = this.presence?.get(a.founder);
+      out.push({ groupId: a.id, kind: "alliance", members: [...a.members], ...(room ? { room } : {}), ...(store[a.id]?.spot ? { spot: store[a.id]!.spot! } : {}), ...extra });
+    }
+    for (const [id, e] of Object.entries(store)) {
+      if (e.kind !== "debrief" || e.words) continue;
+      const members = id.split("|");
+      if (members.length !== 2 || members.includes(PLAYER)) continue;
+      out.push({ groupId: id, kind: "pair", members, ...(e.spot ? { spot: e.spot } : {}), ...extra });
+    }
+    return out.slice(0, Math.min(GROUP_IDENTITY.maxPerRead, GROUP_IDENTITY.maxAuthoredPerSeason - done));
+  }
+
+  /**
+   * ORW-566 part c (spec 0183): freeze the model's words for one group. Write-once per group id; refused for an unknown group. An alliance the player does not know of may take the authored NAME once
+   * (renamed through the alliance store, which keeps the old name in its history); a name that collides with another alliance's, or is a houseguest's name, is dropped and the rest still lands.
+   */
+  recordGroupIdentity(req: RecordGroupIdentityReq): RecordGroupIdentityResult {
+    const s = this.live;
+    if (!this.house || !s) return { accepted: false, reason: "no-game" };
+    if (!this.groupIdentityEnabled || s.playedGame !== true) return { accepted: false, reason: "off" };
+    const id = typeof req?.groupId === "string" ? req.groupId : "";
+    const alliance = this.alliances.byId(id);
+    const have = s.groupIdentity?.[id];
+    const pair = !alliance && have?.kind === "debrief";
+    if (!alliance && !pair) return { accepted: false, reason: "unknown-group" };
+    if (have?.words) return { accepted: false, reason: "frozen" };
+    const words = validateGroupIdentity(req);
+    if (!words) return { accepted: false, reason: "invalid" };
+    if (words.name && alliance) {
+      const norm = normTitle(words.name);
+      const taken = this.alliances.all().some((x) => x.id !== alliance.id && normTitle(x.name) === norm) || (this.worldAvoid.allianceNames ?? []).some((n) => normTitle(n) === norm);
+      const peopleNames = [PLAYER, ...(this.house.npcs.map((n) => n.id))].flatMap((x) => this.nameOf(x).toLowerCase().split(/\s+/)).filter((w) => w.length > 2 && w !== "the");
+      const named = words.name.toLowerCase().replace(/['\u2019]s\b/g, "").split(/[^a-z]+/).filter(Boolean).some((w) => peopleNames.includes(w));
+      if (taken || named || norm.length < 3) delete words.name;
+      else if (!alliance.knownTo.includes(PLAYER)) this.alliances.rename(alliance.id, words.name);
+    }
+    if (!words.name && !words.ritual && !words.signal && !words.insideJoke) return { accepted: false, reason: "invalid" };
+    noteWords((s.groupIdentity ??= {}), id, alliance ? "alliance" : "debrief", words, this.inGameAbsHour() ?? 0);
     this.backgroundPersist();
     return { accepted: true };
   }
