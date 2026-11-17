@@ -675,6 +675,8 @@ export interface LiveSeasonState {
   /** 0171: counters the player accepted whose condition (a rival goes up / someone is kept safe) is not yet true. Booked as a favor only when the condition holds at that week's eviction; otherwise lapsed. Append-only, engine-only. */
   favorConditions?: Array<{ id: string; owedBy: EntityId; owedTo: EntityId; origin: string; kind: "target" | "protect"; target: EntityId; week: number; state: "waiting" | "booked" | "lapsed" }>;
   lastDealOfferWeek?: number;
+  /** 0174 (ORWELL_TRIADS): the vote pitch an NPC camp makes the player when their ballot could decide an eviction. Its OWN offer slot, apart from `dealOffer`: a pitch neither displaces nor is displaced by another approach, and it never sets `lastDealOfferWeek`. One per vote (the courted-once guard); the player accepts or declines it, the engine never answers. Absent unless a pitch stands. */
+  votePitch?: NonNullable<LiveSeasonState["dealOffer"]>;
   /**
    * 0142 / ORW-88 idea 2 - favors the PLAYER is owed: a houseguest (`debtor`) kept a deal with the player, which banked one favor (`n`, capped) the player can call in
    * with `callInFavor`. Vault-free (it is the player's own deal history). Banked for played games only; absent otherwise => byte-identical. Persists with the season.
