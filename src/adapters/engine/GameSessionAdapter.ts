@@ -256,7 +256,8 @@ import { producerReadPrompt, type ExchangeAccounting } from "../../engine/produc
 import { buildShowBrief } from "../../engine/showBrief";
 import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
 import { emptyNarrationUse, narrationAnchor, narrationSeasonLine, narrationUsageSection, recordNarration, restoreNarrationUse, type NarrationUse } from "../../engine/narrationUsage";
-import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerSameDayDealLine, openLedgerSection, partiesOf, recordDealEntry, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
+import { brokenPromiseClaimId, isPromiseWhat, judgePromise, promiseNote, termAssuranceKind, termIdsKnown, type PromiseBoardFact, type PromiseTerm, type PromiseWhat, type PromiseWindow } from "../../engine/promiseTerms";
+import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerSameDayDealLine, openLedgerSection, partiesOf, closeOpenEntry, recordDealEntry, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
 import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
@@ -1374,6 +1375,14 @@ export class GameSessionAdapter implements GameSession {
   /** B38: the (week:HOH) crownings whose pitches are already recorded. Session-local: a restart mid-week may re-record once, which is idempotent for deals (bound-pair check) and only repeats a hidden line. */
   private lobbyRecordedFor = new Set<string>();
 
+  /**
+   * ORW-586 / 0187 - PROMISES BIND: an open-ledger entry may carry a closed typed `term` (`promiseTerms.ts`) that the ENGINE judges from public board facts, folding the result like an assurance (`foldBrokenPromise` /
+   * `foldKeptPromise`); a model's kept or broken on such an entry is refused. Default ON; `=0` => no term is written, none is judged, a model may resolve any entry (byte-identical). Needs `ORWELL_ASSURANCES`.
+   */
+  private promiseTermsEnabled = flagDefaultOn("ORWELL_PROMISE_TERMS");
+  setPromiseTermsEnabled(on: boolean): void { this.promiseTermsEnabled = on; }
+  private get promiseTermsLive(): boolean { return this.promiseTermsEnabled && this.assurancesEnabled && this.openLedgerEnabled; }
+
   /** B4 - record casual assurances (`assurances.ts`) on recorded scenes. ON unless `ORWELL_ASSURANCES=0`. OFF => no ledger on the live state => byte-identical. */
   private assurancesEnabled = flagDefaultOn("ORWELL_ASSURANCES");
   setAssurancesEnabled(on: boolean): void { this.assurancesEnabled = on; }
@@ -1406,10 +1415,18 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** B4 slice 4 - `voter` voted `nominee` out: break the open assurance(s) they made to them (once) and the assured remembers. */
-  assuranceVotedOut(voter: EntityId, nominee: EntityId, sealedAmong?: readonly EntityId[]): void { this.assuranceNominated(voter, nominee, sealedAmong); }
+  assuranceVotedOut(voter: EntityId, nominee: EntityId, sealedAmong?: readonly EntityId[]): void {
+    this.breakAssurances(voter, nominee, sealedAmong);
+    this.settleTermsAt({ kind: "eviction-vote", week: this.live?.week ?? 0, by: voter, votedOut: nominee, sealed: !!sealedAmong, ...(sealedAmong ? { sealedAmong } : {}) });
+  }
 
   /** B4 slice 3 - the HOH nominated an assured houseguest: resolve the open assurance(s) BROKEN (once) and the assured remembers it (a smaller grudge than a broken deal). */
   assuranceNominated(holder: EntityId, nominee: EntityId, sealedAmong?: readonly EntityId[]): void {
+    this.breakAssurances(holder, nominee, sealedAmong);
+    this.settleTermsAt({ kind: "nominated", week: this.live?.week ?? 0, by: holder, nominee }); // ORW-586: a promise that carries a term settles on the same board event
+  }
+  /** B4 slice 4 / ORW-586 - the shared break path of `assuranceNominated` and `assuranceVotedOut` (the assurance side only; behaviour unchanged). */
+  private breakAssurances(holder: EntityId, nominee: EntityId, sealedAmong?: readonly EntityId[]): void {
     if (!this.assurancesEnabled || !this.live?.assurances) return;
     const ledger = AssuranceLedger.fromJSON(this.live.assurances);
     let broke = false;
@@ -1417,23 +1434,41 @@ export class GameSessionAdapter implements GameSession {
     for (const a of ledger.openFor(holder).filter((x) => x.to === nominee)) { if (ledger.resolve(a.id, "broken")) { broke = true; witnesses.push(...(a.heardBy ?? [])); } }
     if (!broke) return;
     this.live.assurances = ledger.toJSON();
-    if (sealedAmong) {
-      // ORW-15 / E12 / #1963: an eviction ballot is SECRET, so a broken assurance must not single out the voter. The engine truth (the ledger) resolves BROKEN, but what the assured carries is shared across every
-      // voter who could have cast it (the real breaker is one of them and carries only its share): a smaller deal-broken memory and trust drop each, NO named lied-to-me claim and NO witness fold (a witness
-      // who learned the breaker would deanonymize the ballot). HOH tie-break (a public act) takes the attributed path below.
-      const pool = [...new Set([...sealedAmong, holder])].filter((id) => id !== nominee).sort();
+    this.foldBrokenPromise({ promiser: holder, assured: nominee, witnesses, ...(sealedAmong ? { sealedAmong } : {}) });
+  }
+
+  /**
+   * ORW-586 - the ONE fold of a broken promise (the assurance break since B4, and a termed promise's break). `promiser` broke their word to `assured`; `witnesses` merely heard it; `sealedAmong` is set when the break
+   * happened at a SECRET ballot (then the effects are pool-split and nobody is named). `claimId` (a termed promise's stable `brokenPromiseClaimId`) makes the lied-to-me claim idempotent through `writeLieCaught`;
+   * absent (the assurance break) the claim is written exactly as before. The effects on the wronged houseguest live in `applyBreakToWronged`.
+   */
+  private foldBrokenPromise(b: { promiser: EntityId; assured: EntityId; witnesses: readonly EntityId[]; sealedAmong?: readonly EntityId[]; claimId?: string }): void {
+    this.applyBreakToWronged({ wronged: b.assured, promisers: b.sealedAmong ? [...new Set([...b.sealedAmong, b.promiser])].filter((id) => id !== b.assured).sort() : [b.promiser], sealed: !!b.sealedAmong, witnesses: b.witnesses, ...(b.claimId ? { claimId: b.claimId } : {}) });
+  }
+  /**
+   * ORW-586 - EVERY effect a broken promise has on the wronged side, in one function (a single seam: ORW-597's "learned of the break" gate wraps this). Sealed (ORW-15 / E12 / #1963): an eviction ballot is SECRET, so a
+   * break must not single out the voter: the engine truth (the ledger) resolves BROKEN, but what the assured carries is shared across every voter who could have cast it (`promisers` is that pool): a smaller deal-broken
+   * memory and trust drop each, NO named lied-to-me claim and NO witness fold. Attributed: a deal-broken memory, the witnesses', and (B4 slice 5) the TRUST drop and the lied-to-me claim; never for a player-assured party
+   * (nothing acts on the player's hidden read, the #1963 rule).
+   */
+  private applyBreakToWronged(w: { wronged: EntityId; promisers: readonly EntityId[]; sealed: boolean; witnesses: readonly EntityId[]; claimId?: string }): void {
+    const nominee = w.wronged;
+    if (w.sealed) {
+      const pool = w.promisers;
       for (const s of pool) this.remember(nominee, s, "deal-broken", ASSURANCE.brokenMemorySeverity / pool.length);
       if (nominee !== PLAYER) for (const s of pool) { const e = this.rel.edge(nominee, s); e.trust = Math.max(0, e.trust - ASSURANCE.brokenTrustDrop / pool.length); }
       return;
     }
+    const holder = w.promisers[0]!;
     this.remember(nominee, holder, "deal-broken", ASSURANCE.brokenMemorySeverity);
-    this.rememberAsWitnesses(witnesses, holder, "deal-broken", ASSURANCE.brokenMemorySeverity, nominee);
+    this.rememberAsWitnesses(w.witnesses, holder, "deal-broken", ASSURANCE.brokenMemorySeverity, nominee);
     // B4 slice 5: the break also costs the assurer the assured's TRUST (smaller than a deal break; rng-free, clamped >= 0) and, with the belief layer on, the assured now believes the assurer lied
     // to them (engine-only claim, voiced only BY that holder). Never for a player-assured party: nothing acts on the player's hidden read (the #1963 rule).
     if (nominee !== PLAYER) {
       const e = this.rel.edge(nominee, holder);
       e.trust = Math.max(0, e.trust - ASSURANCE.brokenTrustDrop);
-      if (this.npcBeliefsEnabled) recordClaim((this.live.beliefs ??= {}), { holder: nominee, kind: "lied-to-me", subject: holder, value: true, origin: "witnessed", confidence: 0.8, week: this.live.week });
+      if (w.claimId) this.writeLieCaught(nominee, holder, ASSURANCE.brokenClaimConfidence, "witnessed", w.claimId);
+      else if (this.npcBeliefsEnabled) recordClaim((this.live!.beliefs ??= {}), { holder: nominee, kind: "lied-to-me", subject: holder, value: true, origin: "witnessed", confidence: ASSURANCE.brokenClaimConfidence, week: this.live!.week });
     }
   }
 
@@ -1856,32 +1891,37 @@ export class GameSessionAdapter implements GameSession {
     for (const a of ledger.all.filter((x) => x.status === "open" && match(x))) if (ledger.resolve(a.id, "kept")) kept.push(a);
     if (kept.length === 0) return;
     this.live.assurances = ledger.toJSON();
-    for (const a of kept) {
-      const holder = a.from, to = a.to;
-      if (sealedAmong) {
-        // ORW-15 / E12: keeping at the SEALED ballot (voting the other nominee out) must not tell the assured who voted; the favor is shared across every voter who could have cast it, with no witness fold and no
-        // rumored-break claim naming the keeper.
-        const pool = [...new Set([...sealedAmong, holder])].filter((id) => id !== to).sort();
-        for (const s of pool) this.remember(to, s, "deal-kept", ASSURANCE.keptMemorySeverity / pool.length);
-        continue;
-      }
-      // B39: sometimes the assured WRONGLY believes a kept assurance was broken (a rumor - wrong by construction). The engine's truth stays "kept"; only the assured's belief is false: a low-confidence
-      // `lied-to-me` claim instead of the favor, from a DEDICATED seeded roll. Needs the belief layer; never for a player-assured party (nothing acts on the player's hidden read).
-      if (to !== PLAYER && this.npcBeliefsEnabled && isRumoredBreak(new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:asr-rumor:${this.live.week}:${holder}:${to}`)).next())) {
-        recordClaim((this.live.beliefs ??= {}), { holder: to, kind: "lied-to-me", subject: holder, value: true, origin: "gossip", nature: "rumored-break", confidence: ASSURANCE.rumoredBreakConfidence, week: this.live.week });
-        continue;
-      }
-      this.remember(to, holder, "deal-kept", ASSURANCE.keptMemorySeverity);
-      this.rememberAsWitnesses(a.heardBy ?? [], holder, "deal-kept", ASSURANCE.keptMemorySeverity, to);
+    for (const a of kept) this.foldKeptPromise({ promiser: a.from, assured: a.to, witnesses: a.heardBy ?? [], ...(sealedAmong ? { sealedAmong } : {}) });
+  }
+  /**
+   * ORW-586 - the ONE fold of a KEPT promise (an assurance kept since B4 slice 8, and a termed promise kept): the assured remembers a (weaker-than-a-grudge) favor, the witnesses too. Sealed (ORW-15 / E12): keeping at the
+   * SECRET ballot must not tell the assured who voted; the favor is shared across every voter who could have cast it, with no witness fold and no rumored-break claim naming the keeper.
+   */
+  private foldKeptPromise(k: { promiser: EntityId; assured: EntityId; witnesses: readonly EntityId[]; sealedAmong?: readonly EntityId[] }): void {
+    const holder = k.promiser, to = k.assured, sealedAmong = k.sealedAmong;
+    if (sealedAmong) {
+      const pool = [...new Set([...sealedAmong, holder])].filter((id) => id !== to).sort();
+      for (const s of pool) this.remember(to, s, "deal-kept", ASSURANCE.keptMemorySeverity / pool.length);
+      return;
     }
+    // B39: sometimes the assured WRONGLY believes a kept assurance was broken (a rumor - wrong by construction). The engine's truth stays "kept"; only the assured's belief is false: a low-confidence
+    // `lied-to-me` claim instead of the favor, from a DEDICATED seeded roll. Needs the belief layer; never for a player-assured party (nothing acts on the player's hidden read).
+    if (to !== PLAYER && this.npcBeliefsEnabled && isRumoredBreak(new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:asr-rumor:${this.live!.week}:${holder}:${to}`)).next())) {
+      recordClaim((this.live!.beliefs ??= {}), { holder: to, kind: "lied-to-me", subject: holder, value: true, origin: "gossip", nature: "rumored-break", confidence: ASSURANCE.rumoredBreakConfidence, week: this.live!.week });
+      return;
+    }
+    this.remember(to, holder, "deal-kept", ASSURANCE.keptMemorySeverity);
+    this.rememberAsWitnesses(k.witnesses, holder, "deal-kept", ASSURANCE.keptMemorySeverity, to);
   }
   /** B4 slice 8 - the HOH finalized nominations without the houseguests they had assured 'loyal': kept. ('safe' is NOT resolved here: the veto and the replacement can still put the assured on the block, so it is settled at the vote tally.) */
   assuranceKeptAtNominations(holder: EntityId, nominees: readonly EntityId[]): void {
     this.keepAssurances((a) => a.from === holder && a.kind === "loyal" && !nominees.includes(a.to));
+    this.settleTermsAt({ kind: "nominations-final", week: this.live?.week ?? 0, by: holder, nominees });
   }
   /** B4 slice 8 - `voter` voted the other nominee out and so spared `spared`: an open 'vote'/'safe' assurance to them was KEPT. */
   assuranceKeptAtVote(voter: EntityId, spared: EntityId, sealedAmong?: readonly EntityId[]): void {
     this.keepAssurances((a) => a.from === voter && (a.kind === "vote" || a.kind === "safe") && a.to === spared, sealedAmong);
+    this.settleTermsAt({ kind: "eviction-vote", week: this.live?.week ?? 0, by: voter, spared, sealed: !!sealedAmong, ...(sealedAmong ? { sealedAmong } : {}) });
   }
   /** B4 slice 8 - the eviction nominees are FINAL (after the veto and any replacement): every open 'safe' assurance whose assured is not on the block was kept. */
   assuranceKeptAtTally(finalNominees: readonly EntityId[]): void {
@@ -17502,6 +17542,69 @@ export class GameSessionAdapter implements GameSession {
     return { accepted: true, ...(out.id ? { entryId: out.id } : {}) };
   }
 
+  /**
+   * ORW-586 - the settle funnel: every open entry that carries a term is judged against this ONE public board fact (`judgePromise`), by the engine, from the same hooks that settle assurances. A verdict closes the entry
+   * through `closeOpenEntry` with an engine-authored note. A promise the casual-assurance ledger already folds (`termAssuranceKind`) only has its entry closed here (ONE resolver of the fold); any other termed promise is folded
+   * here (`foldBrokenPromise` / `foldKeptPromise`, the assurance constants, the wronged = who it was made TO; never for a player-assured party). A verdict at a SEALED ballot leaves the visible entry OPEN (a "broken" or "kept"
+   * line would single the voter out, the ORW-456 rule) and folds pool-split, naming nobody. No term / `share-info` / another actor / another week => nothing.
+   */
+  private settleTermsAt(fact: PromiseBoardFact): void {
+    const s = this.live;
+    if (!this.promiseTermsLive || this.openLedgerAsLoaded !== undefined || !s || s.playedGame !== true || this.openLedger.entries.length === 0) return;
+    for (const e of this.openLedger.entries) {
+      if (e.status !== "open" || !e.term) continue;
+      const verdict = judgePromise(e.term, fact);
+      if (!verdict) continue;
+      const sealed = fact.kind === "eviction-vote" && fact.sealed;
+      const covered = termAssuranceKind(e.term) !== undefined;
+      if (!covered) {
+        const witnesses = e.witnesses.filter((w) => w !== OPEN_LEDGER_PLAYER && w !== e.term!.by && w !== e.term!.to) as EntityId[];
+        const among = sealed && fact.kind === "eviction-vote" ? (fact.sealedAmong ?? [e.term.by]) as EntityId[] : undefined;
+        if (verdict === "broken") this.foldBrokenPromise({ promiser: e.term.by as EntityId, assured: e.term.to as EntityId, witnesses, ...(among ? { sealedAmong: among } : {}), ...(sealed ? {} : { claimId: brokenPromiseClaimId(e.term.to, e.term.by, e.id) }) });
+        else this.foldKeptPromise({ promiser: e.term.by as EntityId, assured: e.term.to as EntityId, witnesses, ...(among ? { sealedAmong: among } : {}) });
+      }
+      if (sealed) continue;
+      this.openLedger = closeOpenEntry(this.openLedger, e.id, verdict, promiseNote(verdict, fact), this.beatSeq);
+    }
+  }
+
+  /**
+   * ORW-586 / 0187 - record a promise WITH its term (engine entry point; slice 3 adds the front-end boundary that reaches it). The ids are validated here, everyone involved must be present now (as `recordOpenLedger`), and
+   * the engine stamps the week. For the two kinds the casual-assurance ledger already folds ("will not nominate" = loyal, "will not vote out" = vote) the matching assurance row is written too, so there is ONE resolver.
+   * `share-info` is recorded as open text with no judging. Flag off => refused "off", nothing written.
+   */
+  recordPromiseTerm(req: { by: string; to: string; what: string; subject?: string; window?: string; text?: string }): { accepted: boolean; reason?: string; entryId?: string; duplicate?: boolean } {
+    if (!this.promiseTermsLive) return { accepted: false, reason: "off" };
+    if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
+    if (this.openLedgerAsLoaded !== undefined) return { accepted: false, reason: "locked" };
+    const known = new Set<string>(this.house.npcs.map((n) => n.id as string));
+    const isKnown = (id: string): boolean => id === OPEN_LEDGER_PLAYER || known.has(id);
+    if (!isPromiseWhat(req.what)) return { accepted: false, reason: "bad-shape" };
+    const window: PromiseWindow | undefined = req.window === undefined ? undefined : req.window === "week" || req.window === "season" ? req.window : undefined;
+    if (req.window !== undefined && window === undefined) return { accepted: false, reason: "bad-shape" };
+    const term: PromiseTerm = { by: req.by, to: req.to, what: req.what as PromiseWhat, ...(req.subject ? { subject: req.subject } : {}), ...(window ? { window } : {}), week: this.live.week };
+    if (typeof req.by !== "string" || typeof req.to !== "string" || req.by === req.to || !termIdsKnown(term, isKnown)) return { accepted: false, reason: "bad-speaker" };
+    const phrase = `${this.nameOf(term.by as EntityId)} promised ${this.nameOf(term.to as EntityId)}: ${term.what.replace(/-/g, " ")}${term.subject ? ` ${this.nameOf(term.subject as EntityId)}` : ""}`;
+    const text = typeof req.text === "string" && req.text.trim() ? req.text : phrase;
+    const p = openLedgerProposal({ text, speaker: term.by, addressedTo: [term.to], kind: "promise", ...(term.subject && term.subject !== term.to ? { about: term.subject } : {}) }, known);
+    if (typeof p === "string") return { accepted: false, reason: p };
+    const wa = this.whereabouts();
+    if (!wa) return { accepted: false, reason: "no-game" };
+    const day = this.ledgerDay();
+    const witnesses = wa.present.map((x) => x.id as string);
+    const out = recordOpenEntry(this.openLedger, p, { turn: this.beatSeq, beatSeq: this.beatSeq, room: wa.room, witnesses, ...(day !== undefined ? { day } : {}), term });
+    if (out.outcome === "duplicate") return { accepted: true, duplicate: true, ...(out.id ? { entryId: out.id } : {}) };
+    if (out.outcome !== "recorded") return { accepted: false, reason: out.outcome };
+    this.openLedger = out.ledger;
+    const kind = termAssuranceKind(term);
+    if (kind) {
+      const heardBy = witnesses.filter((w) => w !== OPEN_LEDGER_PLAYER && w !== term.by && w !== term.to) as EntityId[];
+      this.recordAssurance({ from: term.by as EntityId, to: term.to as EntityId, kind, sincerity: 1, source: term.by === OPEN_LEDGER_PLAYER ? "player" : "npc", ...(heardBy.length ? { heardBy } : {}) });
+    }
+    this.backgroundPersist(); // durable, NOT a board beat
+    return { accepted: true, ...(out.id ? { entryId: out.id } : {}) };
+  }
+
   /** ORW-407 slice 2 - mark an open entry kept, broken or withdrawn, with a free-text note and the turn. Changes no relationship number. */
   resolveOpenLedger(req: ResolveOpenLedgerReq): RecordOpenLedgerResolutionResult {
     if (!this.openLedgerEnabled) return { accepted: false, reason: "off" };
@@ -17517,7 +17620,7 @@ export class GameSessionAdapter implements GameSession {
       this.backgroundPersist(); // durable, NOT a board beat
       return { accepted: true };
     }
-    const out = resolveOpenEntry(this.openLedger, req, this.beatSeq);
+    const out = resolveOpenEntry(this.openLedger, req, this.beatSeq, { refuseTermed: this.promiseTermsLive });
     if (out.outcome !== "resolved") return { accepted: false, reason: out.outcome };
     this.openLedger = out.ledger;
     this.backgroundPersist(); // durable, but NOT a board beat

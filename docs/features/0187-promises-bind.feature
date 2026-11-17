@@ -1,0 +1,47 @@
+# Feature 0187 - promises bind (ORW-586). Design note: 0187-promises-bind.md. Engine-only: a typed term on an open-ledger promise, judged by the engine from board facts. Roles only.
+
+Feature: A promise with a term is kept or broken by what happens on the board, not by what a model says
+
+  Scenario: A promise not to nominate is kept when they do not nominate and broken when they do
+    Given a house where a promiser has promised a promisee not to nominate them
+    When the promiser's nominations leave the promisee off the block
+    Then the promise is closed as kept by the engine
+    And the promisee holds a favor toward the promiser
+    Given a house where a promiser has promised a promisee not to nominate them
+    When the promiser nominates the promisee
+    Then the promise is closed as broken by the engine
+    And the promisee trusts the promiser less and believes they were lied to
+
+  Scenario: The front end cannot mark a termed promise kept or broken
+    Given a house where a promiser has promised a promisee not to nominate them
+    When the front end tries to mark that promise kept or broken
+    Then the engine refuses both
+    And the front end may still withdraw it
+
+  Scenario: A promise in plain words with no term is never judged
+    Given a house where a promiser has promised a promisee to share what they hear
+    When the promiser nominates the promisee
+    Then the promise stays open
+
+  Scenario: A sealed-ballot break names nobody
+    Given a house where a promiser has promised a promisee not to vote out a third houseguest
+    When the promiser votes the third houseguest out in the sealed ballot
+    Then the promisee blames every possible voter by the same share
+    And no lied-to-me claim names anyone
+    And the visible promise stays open
+
+  Scenario: A save and load keeps the term and the outcome
+    Given a house where a promiser has promised a promisee not to nominate them
+    When the promiser nominates the promisee
+    And promise terms: the season is saved and loaded
+    Then the promise still carries its term and reads broken
+
+  Scenario: With the flag off nothing is written and nothing is judged
+    Given a house with promise terms switched off
+    Then recording a promise term is refused
+    And a nomination leaves the ledger empty
+
+  Scenario: No view shows a term or a judgement note
+    Given a house where a promiser has promised a promisee not to nominate them
+    When the promiser nominates the promisee
+    Then no player or admin view shows a promise term or a judgement note
