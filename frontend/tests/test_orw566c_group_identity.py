@@ -36,7 +36,7 @@ def test_prompt_states_rules_and_carries_no_sample_or_menu_text():
 def test_the_call_sees_only_public_facts_of_the_members_the_room_and_the_culture():
     blob = json.dumps(g.group_messages(GROUP, [CARD_A, CARD_B]))
     assert "ER nurse" in blob and "chef" in blob and "the lost spoon" in blob and "Existing Crew" in blob and "the counter" in blob
-    for hidden in ("zzsecretzz", "emotionalState", "npc:1", "npc:2", "0.9"):
+    for hidden in ("zzsecretzz", "emotionalState", "npc:1", "npc:2", "0.9", "alliance:1"):
         assert hidden not in blob, hidden
 
 
@@ -216,3 +216,41 @@ def test_the_engine_wrappers_dispatch_the_two_tools(monkeypatch):
 def test_the_agent_loop_kicks_the_driver_after_a_turn():
     src = (Path(__file__).resolve().parents[1] / "src" / "agent_loop.py").read_text()
     assert "kickoff_group_identity(owner)" in src and "_group_identity_after_turn()" in src
+
+
+def test_a_hidden_group_is_never_described_to_any_model(monkeypatch):
+    """Vault Wall ruling: the engine lists only groups the player already knows of. With nothing listed the driver makes no model call and names no id."""
+    g._GAVE_UP.clear()
+    calls = {"llm": 0}
+
+    async def read():
+        return []  # a hidden alliance / an unseen habit is simply not in the engine's list
+
+    async def llm(msgs):
+        calls["llm"] += 1
+        return GOOD
+
+    out = run(g.run_group_words("u", llm_fn=llm, read_fn=read))
+    assert out == {"groups": 0} and calls["llm"] == 0
+
+
+def test_only_the_members_the_engine_lists_reach_the_prompt(monkeypatch):
+    g._GAVE_UP.clear()
+    seen = []
+    group = dict(GROUP, members=["npc:1"])
+
+    async def read():
+        return [group]
+
+    async def state():
+        return {"house": [CARD_A, CARD_B]}
+
+    async def llm(msgs):
+        seen.append(json.dumps(msgs))
+        return GOOD
+
+    async def write(req):
+        return {"accepted": True}
+
+    run(g.run_group_words("u", llm_fn=llm, read_fn=read, state_fn=state, write_fn=write))
+    assert "ER nurse" in seen[0] and "chef" not in seen[0] and "npc:" not in seen[0]

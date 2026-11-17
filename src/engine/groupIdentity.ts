@@ -30,8 +30,9 @@ export const GROUP_IDENTITY = {
 } as const;
 
 /** One stored identity: write-once, monotonic, engine-only. `kind` says what it is a floor for. */
-export interface GroupIdentityEntry { name?: string; spot?: string; kind: "debrief" | "alliance"; since: number; words?: GroupWords }
+export interface GroupIdentityEntry { name?: string; spot?: string; kind: "debrief" | "alliance"; since: number; seen?: boolean; words?: GroupWords }
 
+/** (`seen`: the player was in the room when the pair kept the habit: monotonic, set once seen.) */
 /** ORW-566 part c: the words the model wrote for one group, from the members' PUBLIC facts only. Write-once per group id. */
 export interface GroupWords { name?: string; ritual?: string; signal?: string; insideJoke?: string }
 export type GroupIdentityStore = Record<string, GroupIdentityEntry>;

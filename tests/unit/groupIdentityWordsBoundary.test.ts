@@ -13,9 +13,10 @@ import { PLAYER } from "../../src/domain/ids";
  * player surface. Roles only.
  */
 type Priv = {
-  live: { playedGame?: boolean; groupIdentity?: Record<string, { kind: string; spot?: string; since: number; words?: Record<string, string> }> };
+  live: { playedGame?: boolean; groupIdentity?: Record<string, { kind: string; spot?: string; since: number; seen?: boolean; words?: Record<string, string> }> };
   alliances: { add(n: string, f: string, m: string[], b: number): { id: string }; byId(id: string): { name: string; knownTo: string[] } | undefined; history(): ReadonlyArray<{ name: string; kind: string }> };
 };
+const reveal = (p: Priv, id: string): void => { p.alliances.byId(id)!.knownTo.push(PLAYER); };
 function played(seed = 9): { server: McpServer; session: GameSessionAdapter; p: Priv; npcs: string[] } {
   const sb = buildSandbox(1);
   const session = new GameSessionAdapter();
@@ -56,6 +57,7 @@ describe("recordGroupIdentity through callTool", () => {
   it("renames a hidden alliance once, keeps the old name in history, and is write-once", async () => {
     const { server, p, npcs } = played();
     const a = p.alliances.add("Stock Name", npcs[0]!, [npcs[0]!, npcs[1]!], 1);
+    reveal(p, a.id);
     const waiting = await server.callTool("groupsAwaitingWords", {}) as Array<{ groupId: string; kind: string; members: string[] }>;
     expect(waiting.map((w) => w.groupId)).toContain(a.id);
     const res = await server.callTool("recordGroupIdentity", { groupId: a.id, name: "The Porch Crowd", ritual: "a quiet check-in", signal: "two taps on the table", insideJoke: "the great toast heist" });
@@ -72,23 +74,41 @@ describe("recordGroupIdentity through callTool", () => {
     const { server, p, npcs } = played();
     p.alliances.add("Taken Name", npcs[2]!, [npcs[2]!, npcs[3]!], 1);
     const b = p.alliances.add("Second", npcs[0]!, [npcs[0]!, npcs[1]!], 1);
+    reveal(p, b.id);
     expect(await server.callTool("recordGroupIdentity", { groupId: b.id, name: "the taken name", signal: "a wink" })).toEqual({ accepted: true });
     expect(p.alliances.byId(b.id)!.name).toBe("Second");
     expect(p.live.groupIdentity![b.id]!.words).toEqual({ signal: "a wink" });
   });
 
-  it("an alliance the player knows keeps its public name, and the words still land", async () => {
+  it("Vault Wall ruling: a hidden alliance is never listed or accepted; it appears only once the player learns of it", async () => {
     const { server, p, npcs } = played();
-    const c = p.alliances.add("Known", npcs[0]!, [npcs[0]!, npcs[1]!], 1);
-    p.alliances.byId(c.id)!.knownTo.push(PLAYER);
-    expect(await server.callTool("recordGroupIdentity", { groupId: c.id, name: "Renamed", ritual: "late talks" })).toEqual({ accepted: true });
-    expect(p.alliances.byId(c.id)!.name).toBe("Known");
+    const h = p.alliances.add("Hidden Pact", npcs[0]!, [npcs[0]!, npcs[1]!], 1);
+    const listed = await server.callTool("groupsAwaitingWords", {});
+    expect(listed).toEqual([]);
+    expect(JSON.stringify(listed)).not.toContain(npcs[0]!);
+    expect(await server.callTool("recordGroupIdentity", { groupId: h.id, name: "Early Crew", signal: "a nod" })).toEqual({ accepted: false, reason: "unknown-group" });
+    expect(p.alliances.byId(h.id)!.name).toBe("Hidden Pact");
+    reveal(p, h.id);
+    const after = await server.callTool("groupsAwaitingWords", {}) as Array<{ groupId: string; members: string[] }>;
+    expect(after.map((w) => w.groupId)).toEqual([h.id]);
+    expect(await server.callTool("recordGroupIdentity", { groupId: h.id, name: "Early Crew", signal: "a nod" })).toEqual({ accepted: true });
+    expect(p.alliances.byId(h.id)!.name).toBe("Early Crew");
+  });
+
+  it("the player's own alliance is never listed (the narrator names it)", async () => {
+    const { server, p, npcs } = played();
+    const own = p.alliances.add("Mine", npcs[0]!, [npcs[0]!, PLAYER], 1);
+    reveal(p, own.id);
+    expect(await server.callTool("groupsAwaitingWords", {})).toEqual([]);
   });
 
   it("a close pair's group key takes words once", async () => {
     const { server, p, npcs } = played();
     const key = pairKey(npcs[0]!, npcs[1]!);
     (p.live.groupIdentity ??= {})[key] = { kind: "debrief", spot: "the Deck", since: 1 };
+    expect(await server.callTool("groupsAwaitingWords", {}), "an unseen habit is never listed").toEqual([]);
+    expect(await server.callTool("recordGroupIdentity", { groupId: key, ritual: "too early" })).toEqual({ accepted: false, reason: "unknown-group" });
+    p.live.groupIdentity[key]!.seen = true;
     const waiting = await server.callTool("groupsAwaitingWords", {}) as Array<{ groupId: string; kind: string; members: string[]; spot?: string }>;
     expect(waiting).toMatchObject([{ groupId: key, kind: "pair", members: key.split("|"), spot: "the Deck" }]);
     expect(await server.callTool("recordGroupIdentity", { groupId: key, ritual: "a slow walk and a whisper" })).toEqual({ accepted: true });
@@ -96,9 +116,21 @@ describe("recordGroupIdentity through callTool", () => {
     expect(p.live.groupIdentity![key]).toMatchObject({ kind: "debrief", spot: "the Deck", since: 1, words: { ritual: "a slow walk and a whisper" } });
   });
 
+  it("a habit scene marks the pair as seen only when the player was in that room", () => {
+    const { session, p, npcs } = played();
+    const priv = session as unknown as { noteHabitScene(a: unknown, e: unknown): void; presence: Map<string, string>; house: { player: { id: string } } };
+    const mk = (habit: string, place: string) => ({ habit, place, actor: npcs[0], with: [npcs[1]] });
+    priv.presence.set(priv.house.player.id, "kitchen");
+    priv.noteHabitScene(mk("seen|pair", "kitchen"), { houseLife: {} });
+    priv.noteHabitScene(mk("unseen|pair", "backyard"), { houseLife: {} });
+    expect(p.live.groupIdentity!["seen|pair"]!.seen).toBe(true);
+    expect(p.live.groupIdentity!["unseen|pair"]!.seen).toBeUndefined();
+  });
+
   it("rejects id-bearing and digit-heavy text, an unknown group, a wrong shape, and the flag off", async () => {
     const { server, session, p, npcs } = played();
     const a = p.alliances.add("Stock", npcs[0]!, [npcs[0]!, npcs[1]!], 1);
+    reveal(p, a.id);
     expect(await server.callTool("recordGroupIdentity", { groupId: a.id, name: "npc:3 and friends", ritual: "meet at 1234567" })).toEqual({ accepted: false, reason: "invalid" });
     expect(await server.callTool("recordGroupIdentity", { groupId: "alliance:99", name: "Ghost Crew" })).toEqual({ accepted: false, reason: "unknown-group" });
     await expect(server.callTool("recordGroupIdentity", { name: "no id" })).rejects.toThrow();
@@ -121,6 +153,7 @@ describe("the wall: the authored words never reach a player or admin read", () =
   it("a sentinel in the words is absent from every projection", async () => {
     const { server, p, npcs } = played();
     const a = p.alliances.add("Stock", npcs[0]!, [npcs[0]!, npcs[1]!], 1);
+    reveal(p, a.id);
     await server.callTool("recordGroupIdentity", { groupId: a.id, ritual: "zzsentinelritualzz", signal: "zzsentinelsignalzz", insideJoke: "zzsentineljokezz" });
     for (const tool of ["getGameState", "gameStatus", "whereabouts", "socialRead", "recallSceneMemories"]) {
       let r: unknown;

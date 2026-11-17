@@ -11974,6 +11974,8 @@ export class GameSessionAdapter implements GameSession {
     if (!s || !p.habit) return;
     const culture = s.npcMindsAuthored?.culture;
     noteIdentity((s.groupIdentity ??= {}), p.habit, { kind: "debrief", spot: nicknameOf(culture, p.place) ?? this.roomRefOf(p.place), since: this.inGameAbsHour() ?? 0 });
+    // ORW-566 part c (Vault Wall ruling): a pair's habit is only ever described to the model once the player has SEEN it (was in the room); hidden habits keep the floor.
+    if (this.house && this.presence?.get(this.house.player.id) === p.place) s.groupIdentity[p.habit]!.seen = true;
     const seen = event.houseLife?.seenBy ?? [];
     const pair = [p.actor, ...p.with].slice(0, 2);
     if (seen.length > 0 && pair.length === 2 && !isPrivateRoom(p.place)) this.habitSightings.push({ pair: [pair[0]!, pair[1]!], room: p.place, onlookers: seen });
@@ -16743,7 +16745,19 @@ export class GameSessionAdapter implements GameSession {
     return { accepted: true };
   }
 
-  /** ORW-566 part c (spec 0183): the groups still waiting for the model's words, at most `maxPerRead` at a time, alliances first, none past the season cap. Ids and a room only. Empty when off, nobody is playing, or the player is a member (the narrator names the player's own pact). Engine-only source; never rendered. */
+  /** Does the player already know of this group? An alliance whose `knownTo` has the player (witnessed, told or exposed), or a pair habit the player saw. Nothing hidden ever qualifies (Vault Wall ruling, ORW-566 part c). */
+  private playerKnowsGroup(id: string): boolean {
+    const a = this.alliances.byId(id);
+    if (a) return !a.members.includes(PLAYER) && a.knownTo.includes(PLAYER);
+    const e = this.live?.groupIdentity?.[id];
+    return e?.kind === "debrief" && e.seen === true && !id.split("|").includes(PLAYER);
+  }
+
+  /**
+   * ORW-566 part c (spec 0183), Vault Wall ruling: words are authored lazily AT REVEAL, and hidden groups are never described to any model. This lists ONLY groups the player could already know about
+   * (an alliance whose `knownTo` includes the player; a pair habit the player saw), at most `maxPerRead` at a time, none past the season cap; a hidden group is not mentioned at all (no ids, no members).
+   * The player's own alliances are named by the narrator and never listed. Empty when off or nobody is playing.
+   */
   groupsAwaitingWords(): GroupAwaitingWordsView[] {
     const s = this.live;
     if (!this.groupIdentityEnabled || !this.house || !s || s.playedGame !== true) return [];
@@ -16752,25 +16766,23 @@ export class GameSessionAdapter implements GameSession {
     if (done >= GROUP_IDENTITY.maxAuthoredPerSeason) return [];
     const out: GroupAwaitingWordsView[] = [];
     const culture = s.npcMindsAuthored?.culture;
-    const otherNames = [...new Set([...this.alliances.all().map((a) => a.name), ...Object.values(store).flatMap((e) => (e.words?.name ? [e.words.name] : []))])];
+    const otherNames = [...new Set(this.alliances.all().filter((a) => this.playerKnowsGroup(a.id) || a.members.includes(PLAYER)).map((a) => a.name))];
     const extra = { ...(culture ? { culture } : {}), otherNames };
     for (const a of this.alliances.all()) {
-      if (a.members.includes(PLAYER) || store[a.id]?.words) continue;
+      if (!this.playerKnowsGroup(a.id) || store[a.id]?.words) continue;
       const room = this.presence?.get(a.founder);
       out.push({ groupId: a.id, kind: "alliance", members: [...a.members], ...(room ? { room } : {}), ...(store[a.id]?.spot ? { spot: store[a.id]!.spot! } : {}), ...extra });
     }
     for (const [id, e] of Object.entries(store)) {
-      if (e.kind !== "debrief" || e.words) continue;
-      const members = id.split("|");
-      if (members.length !== 2 || members.includes(PLAYER)) continue;
-      out.push({ groupId: id, kind: "pair", members, ...(e.spot ? { spot: e.spot } : {}), ...extra });
+      if (e.words || !this.playerKnowsGroup(id) || this.alliances.byId(id)) continue;
+      out.push({ groupId: id, kind: "pair", members: id.split("|"), ...(e.spot ? { spot: e.spot } : {}), ...extra });
     }
     return out.slice(0, Math.min(GROUP_IDENTITY.maxPerRead, GROUP_IDENTITY.maxAuthoredPerSeason - done));
   }
 
   /**
-   * ORW-566 part c (spec 0183): freeze the model's words for one group. Write-once per group id; refused for an unknown group. An alliance the player does not know of may take the authored NAME once
-   * (renamed through the alliance store, which keeps the old name in its history); a name that collides with another alliance's, or is a houseguest's name, is dropped and the rest still lands.
+   * ORW-566 part c (spec 0183): freeze the model's words for one group. Write-once per group id; refused for a group the player does not already know (hidden groups keep the floor until they are revealed).
+   * An alliance's NAME may be replaced once (renamed through the alliance store, which keeps the old name in its `formed` history entry); a name that collides with another alliance's, or is a houseguest's name, is dropped and the rest still lands.
    */
   recordGroupIdentity(req: RecordGroupIdentityReq): RecordGroupIdentityResult {
     const s = this.live;
@@ -16779,8 +16791,7 @@ export class GameSessionAdapter implements GameSession {
     const id = typeof req?.groupId === "string" ? req.groupId : "";
     const alliance = this.alliances.byId(id);
     const have = s.groupIdentity?.[id];
-    const pair = !alliance && have?.kind === "debrief";
-    if (!alliance && !pair) return { accepted: false, reason: "unknown-group" };
+    if (!this.playerKnowsGroup(id)) return { accepted: false, reason: "unknown-group" };
     if (have?.words) return { accepted: false, reason: "frozen" };
     const words = validateGroupIdentity(req);
     if (!words) return { accepted: false, reason: "invalid" };
@@ -16790,7 +16801,7 @@ export class GameSessionAdapter implements GameSession {
       const peopleNames = [PLAYER, ...(this.house.npcs.map((n) => n.id))].flatMap((x) => this.nameOf(x).toLowerCase().split(/\s+/)).filter((w) => w.length > 2 && w !== "the");
       const named = words.name.toLowerCase().replace(/['\u2019]s\b/g, "").split(/[^a-z]+/).filter(Boolean).some((w) => peopleNames.includes(w));
       if (taken || named || norm.length < 3) delete words.name;
-      else if (!alliance.knownTo.includes(PLAYER)) this.alliances.rename(alliance.id, words.name);
+      else this.alliances.rename(alliance.id, words.name);
     }
     if (!words.name && !words.ritual && !words.signal && !words.insideJoke) return { accepted: false, reason: "invalid" };
     noteWords((s.groupIdentity ??= {}), id, alliance ? "alliance" : "debrief", words, this.inGameAbsHour() ?? 0);
