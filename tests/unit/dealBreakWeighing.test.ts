@@ -49,7 +49,7 @@ describe("the pure weighing", () => {
 });
 
 describe("DealLedger.breakDeliberately", () => {
-  it("marks the deal broken and sealed (it keeps projecting open), shares the ordinary fallout, and refuses a non-promisor", () => {
+  it("marks the deal broken and sealed (it keeps projecting open), holds the wronged side's fallout until they learn of it, and refuses a non-promisor", () => {
     const l = new DealLedger();
     const d = l.make(["npc:a", "player"], "safety", "t", undefined, 1);
     const seen: string[] = [];
@@ -58,7 +58,9 @@ describe("DealLedger.breakDeliberately", () => {
     expect(d.status).toBe("broken");
     expect(d.sealedBallot).toBe(true);
     expect(d.resolvedEventId).toBe("ev:1");
-    expect(seen).toEqual(["jury", "reveal:deliberate"]);
+    // ORW-597: the jury demerit waits until the wronged party LEARNS of the quiet break; only the Vault-held record of it is made now
+    expect(seen).toEqual(["reveal:deliberate"]);
+    expect(d.learned).toBe(false);
     expect(l.breakDeliberately(d, "npc:a")).toBeUndefined(); // once
   });
 });
