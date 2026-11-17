@@ -609,6 +609,7 @@ Then("groups: the two break away into a new alliance, and the player witnessed i
   assert.ok(ev[0]!.witnessSet.includes(PLAYER) && ev[0]!.hidden === false && ev[0]!.content.includes(g.pactName));
   const nm = (id: EntityId) => (g.s as unknown as { nameOf(id: string): string }).nameOf(id);
   assert.equal(g.npcs.filter((m) => ev[0]!.content.includes(nm(m))).length, 1);
+  assert.ok(!/aimed at/i.test(ev[0]!.content) && !ev[0]!.content.includes(nm(PLAYER)), "the leaver's hidden cut order is handed over as fact"); // the Auditor's wall fix (#2981)
   assert.ok(g.p.alliances.byId(g.pact)!.members.includes(PLAYER)); // the player's own alliance carries on
 });
 Then("groups: no view shows a roster, a role or a cut order of the player's alliance", async function () {

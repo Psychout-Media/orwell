@@ -11678,7 +11678,7 @@ export class GameSessionAdapter implements GameSession {
         const born = this.alliances.crack(a.id, clash.cutters, name, this.beatSeqNow());
         if (born) { this.noteAllianceIdentity(born.id, born.name, born.founder); life[born.id] = { roles: {}, purpose }; }
         // the player sees a member walk out of THEIR alliance (an observable act that names the alliance and the one who left, never a roster)
-        if (withPlayer) this.onPlayerEvent?.(`${this.nameOf(clash.cutters[0]!)} breaks away from the alliance "${a.name}"${clash.cut === PLAYER ? `, aimed at ${this.nameOf(PLAYER)}` : ""}`, [clash.cutters[0]!, PLAYER], "alliance-break-away");
+        if (withPlayer) this.onPlayerEvent?.(`${this.nameOf(clash.cutters[0]!)} breaks away from the alliance "${a.name}"`, [clash.cutters[0]!, PLAYER], "alliance-break-away") /* the leaver's hidden cut order is never handed over as fact (the Auditor's wall fix on #2981); if the leaver wants the player to know, it is a told claim through tellClaim */;
         // the one who breaks away TELLS the person the group means to take out (a claim of their own, as warm as the two are), the player too when they really talk to them
         const target = entry.agreed;
         const teller = clash.cutters[0]!;
