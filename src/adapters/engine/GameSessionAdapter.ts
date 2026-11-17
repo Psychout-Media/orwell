@@ -237,7 +237,7 @@ import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, str
 import type { Disposition } from "../../engine/characterFactory";
 import type { GameHouse, StrategyStyle, Soul, HiddenElement, Character } from "../../engine/characterFactory";
 import { evolveEmotion, arcNote, offscreenEmotion, composedEmotion, effectiveDisposition, settleScaleOf } from "../../engine/emotionalArc";
-import { strategicDriveWeight } from "../../engine/offscreen";
+import { strategicDriveWeight, skeletonBaseLine } from "../../engine/offscreen";
 import type { EmotionalEvent } from "../../engine/emotionalArc";
 import type { SoulProvider } from "../../ports/SoulProvider";
 import type { InteractionType } from "../../engine/relationships";
@@ -17335,7 +17335,9 @@ export class GameSessionAdapter implements GameSession {
       const ev = byId.get(id);
       if (!ev || !ev.hidden) continue; // only hidden events are part of the off-screen texture layer
       // Apply texture override if one exists; otherwise the deterministic template content stands.
-      const prose = this.textureOverrides.get(id) ?? ev.baseContent ?? ev.content;
+      // ORW-570: a house-life scene's own line names its target and scheme: the skeleton read (player channel) carries a plain line from the public people and the scene type instead.
+      const base = ev.houseLife ? skeletonBaseLine(ev.type, ev.initiator, ev.witnessSet.filter((w) => w !== ev.initiator)) : (ev.baseContent ?? ev.content);
+      const prose = this.textureOverrides.get(id) ?? base;
       result.push({
         eventId: ev.id,
         nature: ev.type,

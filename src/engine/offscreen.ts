@@ -80,6 +80,17 @@ const RICH_VERBS: Record<InteractionType, string> = {
 const RICH_TYPES = Object.keys(RICH_VERBS) as InteractionType[];
 
 /**
+ * ORW-570 (Fable audit T1-1): the Vault-free base line of an off-screen scene for the PLAYER-channel skeleton read: who was there and
+ * the kind of scene, never a target or a scheme. A house-life scene's own engine line ("A worked to flip the vote of B about C")
+ * names the target and what the scheme was, so the skeleton read builds this plain line from the public people and the scene's
+ * relationship type instead (the same shape the older off-screen tick uses). An unknown type falls back to a plain presence line.
+ */
+export function skeletonBaseLine(type: string, initiator: string, others: readonly string[]): string {
+  const verb = (RICH_VERBS as Record<string, string | undefined>)[type] ?? "spent time with";
+  return `${initiator} ${verb} ${others.join(", ")}`.trim();
+}
+
+/**
  * Social-coherence tunables (audit E45): the off-screen society is MOTIVATED, not uniform noise.
  * Partners are drawn by the strength of any charged tie; a scene's NATURE follows the initiator's
  * actual read of that partner (affinity → bonding, alignment → strategy, threat → conflict); and
