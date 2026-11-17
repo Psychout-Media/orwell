@@ -2776,6 +2776,12 @@ export interface RecordCastProfileReq {
    * the caller can verify it was stored. Absent ⇒ the stored identity concept stands.
    */
   identityConcept?: string;
+  /**
+   * ORW-563: a re-picked style family LABEL. The cast gate sends it only when the dealt family is a strong outlier for the whole person (for example
+   * cottagecore on a rural car-lot salesperson). Taken only when it is a known family label and no other houseguest holds it (one family per houseguest);
+   * ignored otherwise and once the player has met the houseguest. `publicFields` lists "presentation" when stored. Absent ⇒ the dealt family stands.
+   */
+  presentation?: string;
   /** The structured physical-characteristics facet (text↔image single source of truth). */
   physicalCharacteristics?: PhysicalCharacteristics;
   /**

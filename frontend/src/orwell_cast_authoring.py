@@ -147,7 +147,7 @@ _SYSTEM = (
     "STYLE AND CLOTHES START FROM THE PERSON: ask what a person of this age and job, from this hometown, with this money and "
     "personality, would really own and wear to be photographed for TV, and could buy in an ordinary shop in or near their hometown on their income, and write that. The skeleton's presentation is only a "
     "tiebreak between equal choices (a colour, a cut, one accent piece), never a theme to build the outfit from, and never blended "
-    "with another family (no rocker edge layered over bohemian). Write \"style\" as those real clothes in a phrase. Every piece is ONE "
+    "with another family (no rocker edge layered over bohemian). Interests and hobbies in the biography come from this person's own life (job, family, town, background), never from the look: a style does not hand a person a pastime. Write \"style\" as those real clothes in a phrase. Every piece is ONE "
     "garment or accessory a shop sells (a shirt, a jacket, jeans, boots, a watch): no piece that combines two things (not \"a vest "
     "over a polo\", not \"sneakers with a gold chain\": two pieces), no uniform worn as a style (never \"worn like a uniform\"), no "
     "costume, no work badge, name tag or lanyard, no bare skin under a blazer, no hand-sewn or DIY decoration. "

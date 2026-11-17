@@ -2278,6 +2278,166 @@
    "crisp"
   ],
   "min-weight": 0.5,
+  "outlier-weight": 0.1,
+  "_outlier-note": "ORW-563: a look is a strong OUTLIER for the whole person (reads as a generator error, not a quirk) when its fit weight, with the two factors below on top of the lean above, falls under outlier-weight. Only the far outliers are re-picked; every other look stands.",
+  "family-sectors": {
+   "cottagecore": [
+    "education-youth",
+    "food-hospitality",
+    "creative-media",
+    "care-and-public-service"
+   ],
+   "bohemian": [
+    "education-youth",
+    "food-hospitality",
+    "creative-media",
+    "care-and-public-service",
+    "coaching-fitness"
+   ],
+   "crunchy": [
+    "education-youth",
+    "food-hospitality",
+    "creative-media",
+    "care-and-public-service",
+    "coaching-fitness",
+    "trades-labor"
+   ],
+   "goth": [
+    "creative-media",
+    "food-hospitality",
+    "tech-science",
+    "education-youth",
+    "care-and-public-service",
+    "office-admin"
+   ],
+   "academic": [
+    "education-youth",
+    "tech-science",
+    "creative-media",
+    "office-admin",
+    "care-and-public-service"
+   ],
+   "healthcare": [
+    "care-and-public-service"
+   ],
+   "western": [
+    "trades-labor",
+    "sales-business",
+    "food-hospitality",
+    "care-and-public-service",
+    "coaching-fitness",
+    "education-youth",
+    "office-admin"
+   ],
+   "camo": [
+    "trades-labor",
+    "food-hospitality",
+    "sales-business",
+    "care-and-public-service",
+    "coaching-fitness",
+    "office-admin"
+   ],
+   "workwear": [
+    "trades-labor",
+    "food-hospitality",
+    "creative-media",
+    "coaching-fitness"
+   ],
+   "miami": [
+    "sales-business",
+    "food-hospitality",
+    "creative-media",
+    "coaching-fitness"
+   ],
+   "country-club": [
+    "sales-business",
+    "office-admin",
+    "coaching-fitness",
+    "education-youth"
+   ],
+   "quiet-luxury": [
+    "sales-business",
+    "office-admin",
+    "creative-media",
+    "tech-science"
+   ],
+   "glam": [
+    "sales-business",
+    "creative-media",
+    "food-hospitality",
+    "coaching-fitness",
+    "office-admin"
+   ],
+   "luxury-streetwear": [
+    "sales-business",
+    "creative-media",
+    "food-hospitality",
+    "coaching-fitness"
+   ]
+  },
+  "family-background-clash": {
+   "cottagecore": [
+    "dealership",
+    "car lot",
+    "used-car",
+    "used car",
+    "family lot",
+    "body shop",
+    "garage",
+    "trucking",
+    "warehouse"
+   ],
+   "bohemian": [
+    "dealership",
+    "car lot",
+    "used-car",
+    "used car",
+    "trucking"
+   ],
+   "crunchy": [
+    "dealership",
+    "car lot",
+    "used-car",
+    "used car",
+    "casino"
+   ],
+   "goth": [
+    "church choir",
+    "pageant",
+    "cheer",
+    "country club"
+   ],
+   "academic": [
+    "dealership",
+    "car lot",
+    "used-car",
+    "used car",
+    "family lot"
+   ],
+   "miami": [
+    "homestead",
+    "small farm",
+    "church choir",
+    "ranch hand"
+   ],
+   "glam": [
+    "small farm",
+    "homestead",
+    "trailer park",
+    "mill town"
+   ],
+   "quiet-luxury": [
+    "small farm",
+    "homestead",
+    "trailer park",
+    "mill town",
+    "diner"
+   ],
+   "country-club": [
+    "trailer park",
+    "mill town"
+   ]
+  },
   "climate": {
    "hot-states": [
     "Arizona",

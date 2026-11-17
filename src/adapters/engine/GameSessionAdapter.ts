@@ -276,6 +276,7 @@ const MAX_PRIOR_HOUSE_THEMES = 6;
 import { BED_MOVES, BED_RULES, applyMove, bedmateShare, bedroomNames, decideSwap, freeBedIn, otherHalf, parsePlayerBedIntent, pickBedFor, planGoalMove, spotScore, swapBeds, type BedGoals, type BedReader } from "../../engine/bedClaims";
 import { BEDROOM_LAYOUT, spotsIn } from "../../engine/data/bedrooms";
 import { recohereCastingTypes } from "../../domain/castingTypes";
+import { familyForLabel } from "../../domain/styleFamilies";
 import { traitContradictions, repairHeightBuild } from "../../domain/traitConsistency";
 import { PLAYER } from "../../domain/ids";
 import type { EntityId } from "../../domain/ids";
@@ -3934,6 +3935,14 @@ export class GameSessionAdapter implements GameSession {
       if (isReasonableName(name) && !collides) {
         this.renameHouseguest(target, name); // ORW-437: the public prose written around the old given name follows the new one
         publicFields.push("name");
+      }
+    }
+
+    // ORW-563: a re-picked style family (the gate's outlier repair). A known label no other houseguest holds, never after the player met them.
+    if (typeof req.presentation === "string" && !this.introducedNames.has(target.id)) {
+      const label = req.presentation.trim();
+      if (familyForLabel(label) !== undefined && !ctx.npcs.some((n) => n.id !== target.id && n.character.presentation === label)) {
+        if (target.character.presentation !== label) { target.character.presentation = label; publicFields.push("presentation"); }
       }
     }
 
