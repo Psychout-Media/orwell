@@ -302,6 +302,7 @@ import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs
 import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances, blameForTargeting } from "../../engine/beliefDecisions";
 import { CONVICTION, credulityOf, dealTrust, pathwayEvidence, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
+import { dissentMove, findScapegoat, heardDissenters, herdPull, herdVoices, holdsGrievance, knownBreaches, normStrength, scapegoatLean, shunMove, weekHardness } from "../../engine/houseNorms";
 import { rolesFromGraph, type NetworkRoles } from "../../engine/networkSpread";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { CREDIBILITY } from "../../engine/credibilityConstants";
@@ -5684,6 +5685,94 @@ export class GameSessionAdapter implements GameSession {
   /** Theme 3 slice 3 (Overseer B): the favor ledger as a second source of a bond's debt (signed like BondView.debt). Absent => the record's own debt only. */
   private favorDebt?: DebtSource;
   setFavorDebtSource(fn: DebtSource | undefined): void { this.favorDebt = fn; }
+  /** 0180 (Theme 3 slice 12, part 1): house norms (`ORWELL_HOUSE_NORMS`, default ON; `=0` = no shunning, byte-identical). Played games with beliefs only. */
+  private houseNormsEnabled = flagDefaultOn("ORWELL_HOUSE_NORMS");
+  setHouseNormsEnabled(on: boolean): void { this.houseNormsEnabled = on; }
+  /**
+   * 0180: overnight, each houseguest who KNOWS (holds beliefs) that someone broke their word at least `NORMS.threshold` times - to them or to others - shuns that
+   * person: a bounded move in their own read of them (affinity and trust down), deeper per further incident, scaled by the house culture. Each incident is folded
+   * once (`normsApplied`). The player can be the one shunned. Engine-only; a side-stream rng only for the edge's own jitter.
+   */
+  private scapegoatsOn(): boolean { return this.houseNormsEnabled && this.live?.playedGame === true; }
+  private scapegoatCache?: { key: string; scapegoat: EntityId | undefined; hardness: number };
+  /** 0180 part 3: the house's scapegoat this beat (from what each houseguest holds) and how hard the week is (the house's moods). Cached per committed beat. */
+  private houseScapegoat(): { scapegoat: EntityId | undefined; hardness: number } {
+    const s = this.live!;
+    const key = `${s.week}:${s.dayNumber ?? 0}:${this.beatSeq}`;
+    if (this.scapegoatCache?.key !== key) {
+      const living = this.livingIds();
+      const npcs = living.filter((id) => id !== PLAYER);
+      const hardness = weekHardness(npcs.map((id) => this.emotionalReadOf(id)));
+      this.scapegoatCache = { key, hardness, scapegoat: hardness > 0 ? findScapegoat(s.beliefs ?? {}, npcs, living, s.week) : undefined };
+    }
+    return this.scapegoatCache;
+  }
+  /** 0180 part 3: `decider`'s lean toward nominating / evicting `subject` as the house's scapegoat. The player's own choices are theirs (0). */
+  private scapegoatLeanFor(subject: EntityId, decider: EntityId): number {
+    const s = this.live;
+    if (!this.scapegoatsOn() || !s || decider === PLAYER || !s.beliefs) return 0;
+    const { scapegoat, hardness } = this.houseScapegoat();
+    if (scapegoat === undefined || scapegoat === decider) return 0;
+    return scapegoatLean(subject, scapegoat, hardness, holdsGrievance(s.beliefs[decider] ?? [], decider, subject, s.week));
+  }
+  /** 0180 part 2: the herd's pull on `voter` toward evicting `nominee`, from the voices they hold this week, scaled by the culture's alliance-size dial. */
+  private herdFor(nominee: EntityId, voter: EntityId, fn: readonly [EntityId, EntityId]): number {
+    const s = this.live;
+    if (!s || voter === PLAYER) return 0;
+    const i = fn.indexOf(nominee);
+    if (i < 0) return 0;
+    return herdPull(herdVoices(s.beliefs?.[voter] ?? [], voter, fn, s.week), i as 0 | 1, this.cultureMult("allianceSize"));
+  }
+  /**
+   * 0180 part 2 - DISSENT NOTICED. For this week's eviction (the latest vote record): each houseguest who voted WITH the majority (their own ballot, which they know)
+   * and has heard that someone voted the other way cools on them, scaled by how lopsided the count was. Once per pair per week; the player can be the dissenter
+   * (when they told someone how they voted); the player's own feelings are theirs. Engine-only; a side-stream rng only for the edge's own jitter.
+   */
+  private foldDissentOvernight(): void {
+    const s = this.live;
+    if (!this.houseNormsEnabled || !s || s.playedGame !== true || !s.beliefs || !this.npcBeliefsEnabled) return;
+    const rec = s.voteRecord?.[s.voteRecord.length - 1];
+    if (!rec || rec.week !== s.week) return;
+    const ballots = Object.entries(rec.voteOf);
+    const survivor = ballots.map(([, t]) => t).find((t) => t !== rec.evictee);
+    if (!survivor) return; // a unanimous count: no one dissented
+    const move = dissentMove(ballots.filter(([, t]) => t === rec.evictee).length, ballots.length);
+    if (move.affinity === 0 && move.trust === 0) return;
+    const noticed = new Set(s.dissentNoticed ?? []);
+    const living = new Set(this.livingIds());
+    for (const [holder, target] of ballots.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+      if (holder === PLAYER || target !== rec.evictee || !living.has(holder)) continue;
+      for (const d of heardDissenters(s.beliefs[holder] ?? [], holder, rec.evictee, survivor, rec.week)) {
+        const key = `${rec.week}|${holder}|${d}`;
+        if (noticed.has(key) || !living.has(d)) continue;
+        noticed.add(key);
+        this.rel.applyImpactDirected(holder, d, { affinity: move.affinity, trust: move.trust }, new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:dissent:${key}`)));
+      }
+    }
+    if (noticed.size) s.dissentNoticed = [...noticed];
+  }
+  private foldNormsOvernight(): void {
+    const s = this.live;
+    if (!this.houseNormsEnabled || !s || s.playedGame !== true || !s.beliefs || !this.npcBeliefsEnabled || !this.house) return;
+    const living = this.livingIds();
+    const strength = normStrength(this.cultureMult("loyalty"), this.cultureMult("lying"));
+    const applied = (s.normsApplied ??= {});
+    const seed = this.gameSeed ?? 0;
+    const day = s.dayNumber ?? s.week;
+    for (const observer of living) {
+      if (observer === PLAYER) continue;
+      const held = s.beliefs[observer] ?? [];
+      if (held.length === 0) continue;
+      for (const subject of living) {
+        if (subject === observer) continue;
+        const key = `${observer}|${subject}`;
+        const move = shunMove(knownBreaches(held, observer, subject), applied[key] ?? 0, strength);
+        if (move.incidents === 0) continue;
+        applied[key] = (applied[key] ?? 0) + move.incidents;
+        this.rel.applyImpactDirected(observer, subject, { affinity: move.affinity, trust: move.trust }, new SeededRandom(hashSeed(`${seed}:norms:${observer}:${subject}:${day}`)));
+      }
+    }
+  }
   /**
    * ORW-597: overnight, a wronged party who has come to hold that the breaker LIED to them (a caught lie, a told "they lied to you"), or that the breaker is TARGETING
    * them (a told "they're coming after you", a spy's report), learns of a quiet break with
@@ -10505,6 +10594,7 @@ export class GameSessionAdapter implements GameSession {
       } : {}),
       // ORW-568 / 0181: the voter's (or HOH's) real feeling for the person keeps them. Played games with the bond record only, so a headless sim carries no hook (+0, byte-identical).
       ...(this.bondFeelingsOn() ? { feelingKeepFor: (n: EntityId, v: EntityId) => this.feelingKeepOf(n, v) } : {}),
+      ...(this.houseNormsEnabled && this.live?.playedGame === true && this.npcBeliefsEnabled ? { herdFor: (n: EntityId, v: EntityId, fn: readonly [EntityId, EntityId]) => this.herdFor(n, v, fn) } : {}), // 0180 part 2
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId, among?: readonly EntityId[]) => this.assuranceVotedOut(v, n, among) } : {}),
@@ -10512,7 +10602,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.liesCaughtWriting ? { evictionCountPublic: (t: PublicTally) => this.evictionCountPublic(t) } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceKeptAtNominations: (h: EntityId, ns: readonly EntityId[]) => this.assuranceKeptAtNominations(h, ns), assuranceKeptAtVote: (v: EntityId, sp: EntityId, among?: readonly EntityId[]) => this.assuranceKeptAtVote(v, sp, among), assuranceKeptAtTally: (fn: readonly EntityId[]) => this.assuranceKeptAtTally(fn) } : {}),
-      ...(this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => this.beliefNomTiltFor(subject, holder) } : {}),
+      ...(this.npcBeliefsEnabled && (this.npcBeliefNomsEnabled || this.scapegoatsOn()) ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => (this.npcBeliefNomsEnabled ? this.beliefNomTiltFor(subject, holder) : 0) + this.scapegoatLeanFor(subject, holder) } : {}), // 0180 part 3: a hard week's scapegoat rides the belief term
       // 0163 / ORW-539: the floater and duo reads see what the HOH can see (full strength only; capped keeps the hidden-truth read, byte-identical).
       // Its own flag, apart from the belief store: what the HOH SAW needs no beliefs (the told part reads allied-with beliefs only when they exist).
       ...(this.perceivedBondsEnabled && BELIEF_RULES.strength === "full" ? { perceivedBondFor: (holder: EntityId, from: EntityId, to: EntityId) => this.perceivedBond(holder, from, to) } : {}),
@@ -10705,6 +10795,8 @@ export class GameSessionAdapter implements GameSession {
     this.mullAgendasOvernight(); // ORW-312: asleep, each houseguest's goals fade without progress (inner processing only: no scheming, no rng)
     this.learnBreaksOvernight(); // ORW-597: a quiet break reaches the wronged side once they have caught the breaker lying to them
     this.foldBonds(); // 0175: the day's shared moments, deals and saves into the bond record (no rng)
+    this.foldNormsOvernight(); // 0180: the house shuns a known promise-breaker (what each houseguest holds, never the truth)
+    this.foldDissentOvernight(); // 0180 part 2: a majority voter cools on a dissenter they heard of (vote talk)
     this.issueNameTickets(); // ORW-566 part c2: tonight's fixed-size batch of sealed naming prompts (keyed hashing, no rng)
     this.feelingsTick(); // ORW-568 / 0181 part 2: jealousy follows the night's favour (no rng, no text)
     this.foldGrudges(); // 0182: the wrongs the engine already recorded into the grudge book (no rng)
