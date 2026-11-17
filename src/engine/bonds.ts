@@ -3,6 +3,7 @@ import { clamp01 } from "../domain/num";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
 import { DECISION } from "./decisionConstants";
 import type { RelationshipModel } from "./relationships";
+import { BOND, bondOf, bondStrengthOf, kindOf, type BondStore } from "./bondRecord";
 
 /**
  * Theme 3 Core 1 (ORW-552, Ryne approved 2026-11-17) - THE BOND PER PAIR: the read API.
@@ -15,8 +16,8 @@ import type { RelationshipModel } from "./relationships";
  * This file is the CONTRACT (posted on ORW-552). `edgeBondReader` is the first reader, over the relationship model alone; feature 0175 replaces it with the
  * full bond record (the extra fields then carry real values, and `strength` blends warmth and resentment) behind the same interface.
  */
-export type BondKind = "none" | "friendship" | "showmance" | "mentor" | "business" | "rivals-turned-allies" | "protector" | "puppet-master";
-export type Commitment = "none" | "casual" | "final-two" | "ride-or-die";
+import type { BondKind, Commitment } from "./bondRecord";
+export type { BondKind, Commitment } from "./bondRecord"; // defined beside the record (no import cycle); the read API re-exports them
 
 /** `holder`'s DIRECTED view of `other` (lopsided: bond(a, b) is not bond(b, a)). */
 export interface BondView {
@@ -90,4 +91,35 @@ export function edgeBondReader(rel: RelationshipModel, living: () => readonly En
     day,
   };
   return reader;
+}
+
+/**
+ * 0175 - the full reader: the edge plus the BOND RECORD (warmth, debts, resentment, strain, history, commitment, kind) and the holder's private pecking order
+ * (their top `BOND.rankTop` by strength, 1 = matters most). Same contract as `edgeBondReader`; a pair with no record reads exactly as the edge-only reader.
+ */
+/** Extra debt a holder is owed (+) or owes (-) from another source of truth (slice 3's favor ledger), added to the record's own debt (saves) and clamped -1..1. */
+export type DebtSource = (holder: EntityId, other: EntityId) => number;
+
+export function recordBondReader(rel: RelationshipModel, store: () => BondStore | undefined, living: () => readonly EntityId[], day: () => number, opts: { favorDebt?: DebtSource } = {}): BondReader {
+  const strengthOf = (holder: EntityId, other: EntityId): number => bondStrengthOf(edgeStrength(rel, holder, other), bondOf(store(), holder, other));
+  const ties = (holder: EntityId) => orderTies(living().filter((o) => o !== holder).map((other) => ({ other, strength: strengthOf(holder, other) })));
+  return {
+    living,
+    bond: (holder, other) => {
+      const e = rel.peek(holder, other);
+      const r = bondOf(store(), holder, other);
+      const ranked = ties(holder).filter((t) => t.strength > 0).slice(0, BOND.rankTop);
+      const at = ranked.findIndex((t) => t.other === other);
+      return {
+        holder, other, trust: e.trust, affinity: e.affinity, threat: e.threat, reliability: e.reliability,
+        warmth: r.warmth, debt: Math.max(-1, Math.min(1, r.debt + (opts.favorDebt?.(holder, other) ?? 0))), resentment: r.resentment, strain: r.strain, history: r.history,
+        kind: kindOf(r), commitment: r.commitment, rank: at >= 0 ? at + 1 : null,
+        strength: strengthOf(holder, other),
+      };
+    },
+    strength: strengthOf,
+    tie: (a, b) => Math.min(strengthOf(a, b), strengthOf(b, a)),
+    ties,
+    day,
+  };
 }
