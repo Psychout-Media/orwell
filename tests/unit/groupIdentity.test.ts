@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { chooseHourAction, ACTIONS, type HourView, type PlannedAction } from "../../src/engine/houseLife";
-import { GROUP_IDENTITY, habitBar, habitRoom, inDebriefWindow, isClosePair, pairKey, allianceNameFromHouse, noteIdentity, nicknameOf, type BondReader } from "../../src/engine/groupIdentity";
+import { GROUP_IDENTITY, habitBar, habitRoom, inDebriefWindow, isClosePair, pairKey, allianceNameFromHouse, noteIdentity, nicknameOf, type PairCloseness } from "../../src/engine/groupIdentity";
 import { isPrivateRoom, type Room } from "../../src/domain/house";
 import type { AgendaCharacter } from "../../src/engine/agenda";
 import type { HouseCulture } from "../../src/engine/npcMindsAuthored";
@@ -63,7 +63,7 @@ describe("the debrief action and the pair habit", () => {
 });
 
 describe("who counts as a close pair, and when the window is open", () => {
-  const bonds = (allied: boolean, mutual: number): BondReader => ({ allied: () => allied, mutual: () => mutual });
+  const bonds = (allied: boolean, mutual: number): PairCloseness => ({ allied: () => allied, mutual: () => mutual });
   it("allies are close; a non-allied pair is close only at a mutual bond past the habit bar; the loyalty dial lowers the bar", () => {
     expect(isClosePair(bonds(true, 0), HOLDER, PARTNER)).toBe(true);
     expect(isClosePair(bonds(false, 0.3), HOLDER, PARTNER)).toBe(false);

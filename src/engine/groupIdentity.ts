@@ -33,7 +33,7 @@ export type GroupIdentityStore = Record<string, GroupIdentityEntry>;
 export const pairKey = (a: EntityId, b: EntityId): string => (a < b ? `${a}|${b}` : `${b}|${a}`);
 
 /** What the bond reader must answer: swap this seam for the shared bond reader when it lands (ORW-561 follow-up). */
-export interface BondReader {
+export interface PairCloseness {
   /** They share an alliance. */
   allied(a: EntityId, b: EntityId): boolean;
   /** The weaker direction of the pair's bond, (trust + affinity) / 2, 0..1. */
@@ -44,7 +44,7 @@ export interface BondReader {
 export const habitBar = (loyaltyMult = 1): number => (ALLIANCE.npcAllyFloor * GROUP_IDENTITY.habitFloor) / Math.max(1e-6, loyaltyMult);
 
 /** Close allies: they share an alliance, or their weaker-direction bond clears the habit bar. */
-export function isClosePair(r: BondReader, a: EntityId, b: EntityId, loyaltyMult = 1): boolean {
+export function isClosePair(r: PairCloseness, a: EntityId, b: EntityId, loyaltyMult = 1): boolean {
   return r.allied(a, b) || r.mutual(a, b) >= habitBar(loyaltyMult);
 }
 

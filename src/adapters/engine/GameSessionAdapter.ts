@@ -48,7 +48,7 @@ import {
   type Campaign, type CampaignActor, type Influence, type Drive, type NemesisTrack, type NemesisCandidate,
 } from "../../engine/campaigns";
 import { whisperConspicuousPairings, whisperHabitSighting, type HabitSighting } from "../../engine/houseSuspicion";
-import { pairKey, isClosePair, inDebriefWindow, habitRoom, nicknameOf, allianceNameFromHouse, noteIdentity, type BondReader } from "../../engine/groupIdentity";
+import { pairKey, isClosePair, inDebriefWindow, habitRoom, nicknameOf, allianceNameFromHouse, noteIdentity, type PairCloseness } from "../../engine/groupIdentity";
 import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/juryHouse";
 import { JURY_HOUSE } from "../../engine/juryHouseConstants";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
@@ -11876,14 +11876,14 @@ export class GameSessionAdapter implements GameSession {
   }
   /**
    * ORW-566 / spec 0183: the close pairs' debrief spots for THIS stretch, per houseguest (`HourView.pairHabits`). Empty unless the flag is on, a person is playing, and the in-game hour is inside the window after a ceremony.
-   * Close = they share an alliance, or their weaker-direction bond clears the habit bar (`BondReader` below is the one seam to swap for the shared bond reader). Engine-only; never projected.
+   * Close = they share an alliance, or their weaker-direction bond clears the habit bar (`PairCloseness` below is the one seam to swap for the shared bond reader). Engine-only; never projected.
    */
   private pairHabitsFor(actors: readonly EntityId[], seed: number, loyaltyMult: number): Map<EntityId, Array<{ with: EntityId; room: Room; key: string }>> {
     const out = new Map<EntityId, Array<{ with: EntityId; room: Room; key: string }>>();
     const s = this.live;
     const now = this.inGameAbsHour();
     if (!this.groupIdentityEnabled || !s || s.playedGame !== true || now === undefined || !inDebriefWindow(now, s.lastCeremonyAbsHour)) return out;
-    const bonds: BondReader = {
+    const bonds: PairCloseness = {
       allied: (a, b) => this.alliances.shared(a, b).length > 0,
       mutual: (a, b) => Math.min((this.rel.edge(a, b).trust + this.rel.edge(a, b).affinity) / 2, (this.rel.edge(b, a).trust + this.rel.edge(b, a).affinity) / 2),
     };
