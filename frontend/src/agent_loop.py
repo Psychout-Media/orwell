@@ -8109,6 +8109,43 @@ def _reset_turn_observability_context(token):
         logger.debug("0112: reset_observability_context failed: %s", _e)
 
 
+def turn_cache_miss_tokens(round_usages: List[Dict]) -> Optional[int]:
+    """ORW-554: the turn's uncached prompt tokens, summed over its provider rounds' usage blocks.
+
+    A round that reports a miss count contributes it. A round that reports cached tokens but NO
+    miss count contributes its own (input − cached), never below 0 — otherwise a mixed turn's
+    cacheMissTokens stops equalling inputTokens − cachedTokens. A round with no cache information
+    at all contributes nothing, so a turn where no round reports anything stays None (the ledger's
+    whole-turn derivation then stands)."""
+    total = None
+    for u in round_usages:
+        if not isinstance(u, dict):
+            continue
+        miss = u.get("cache_miss_tokens")
+        cached = u.get("cached_tokens")
+        if miss is None and cached is None:
+            continue
+        try:
+            if miss is not None:
+                piece = max(0, int(miss))
+            else:
+                piece = max(0, int(u.get("input_tokens") or 0) - int(cached))
+        except (TypeError, ValueError):
+            continue
+        total = (total or 0) + piece
+    return total
+
+
+def turn_call_count(rounds_sent: int) -> int:
+    """ORW-554: every provider round actually sent this turn is one call — whether or not its
+    response carried a usage block (a round that omitted usage still cost a request)."""
+    try:
+        sent = int(rounds_sent or 0)
+    except (TypeError, ValueError):
+        sent = 0
+    return max(1, sent)
+
+
 async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
     """Public entry point (0112 correlation wrap).
 
@@ -8743,8 +8780,8 @@ async def _stream_agent_loop_impl(
     real_input_tokens = 0   # Accumulated real usage from API
     real_output_tokens = 0
     real_cached_tokens = 0       # ADR 0010 meter: cached-prompt tokens (cheap reads)
-    real_cache_miss_tokens = None  # ORW-554: the provider-reported uncached prompt tokens, summed over rounds (None until one reports)
-    _usage_rounds = 0            # ORW-554: provider calls folded into this turn's one ledger entry
+    _round_usages = []           # ORW-554: per-round usage blocks (input/cached/miss), folded into the turn's totals by turn_cache_miss_tokens()
+    _rounds_sent = 0             # ORW-554: provider rounds actually issued this turn (the ledger's `calls`)
     real_reasoning_tokens = 0    # ADR 0010 meter: reasoning/thinking tokens (the cost driver)
     real_cost = 0.0              # ADR 0010 meter: authoritative per-request cost (usage.cost)
     real_cost_estimated = False  # A-3: True when any round's cost is the FE's price-table estimate (DeepSeek)
@@ -9438,6 +9475,7 @@ async def _stream_agent_loop_impl(
         # so never trips the inactivity timeout. Generous — only catches runaway.
         _round_deadline = time.time() + max(agent_stream_timeout * 4, 1200)
         _pd_drain = {"timed_out": False}
+        _rounds_sent += 1  # ORW-554: this round's request IS issued here — count it even if the response never carries a usage block
         async for chunk in _pd_bounded_stream(_narrator_stream_with_outage_pause(
             _candidates,
             _volatile_tail_wire(messages) if (game_mode == "game" and _volatile_tail_enabled()) else messages,
@@ -9537,9 +9575,14 @@ async def _stream_agent_loop_impl(
                         real_output_tokens += u.get("output_tokens", 0)
                         # ADR 0010 meter: accumulate the rest of the envelope per round.
                         real_cached_tokens += u.get("cached_tokens", 0) or 0
-                        _usage_rounds += 1
-                        if u.get("cache_miss_tokens") is not None:
-                            real_cache_miss_tokens = (real_cache_miss_tokens or 0) + (u.get("cache_miss_tokens") or 0)
+                        # ORW-554: keep this round's cache info (None ⇒ the provider reported none for
+                        # this field) so the turn's miss total can fill a cached round that reported no
+                        # miss count, instead of summing only the rounds that did.
+                        _round_usages.append({
+                            "input_tokens": round_input,
+                            "cached_tokens": u.get("cached_tokens"),
+                            "cache_miss_tokens": u.get("cache_miss_tokens"),
+                        })
                         real_reasoning_tokens += u.get("reasoning_tokens", 0) or 0
                         if u.get("cost") is not None:
                             try:
@@ -12931,8 +12974,11 @@ async def _stream_agent_loop_impl(
                 cost_estimated=real_cost_estimated,
                 context_percent=metrics.get("context_percent", 0),
                 provider=_usage_provider,
-                call_site="narrator-turn", model=actual_model, calls=max(1, _usage_rounds),
-                cache_miss_tokens=real_cache_miss_tokens,
+                call_site="narrator-turn", model=actual_model,
+                # ORW-554: calls counts EVERY round sent (usage block or not); the miss total fills a
+                # cached round that reported no miss count with its own input − cached.
+                calls=turn_call_count(_rounds_sent),
+                cache_miss_tokens=turn_cache_miss_tokens(_round_usages),
             )
         except Exception as _tl_err:
             logger.debug(f"[orwell] token-ledger record failed: {_tl_err}")
