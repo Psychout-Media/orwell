@@ -254,7 +254,7 @@ describe("C6: the floor", () => {
 
   it("C6: the formation hook is wired at both NPC formation sites and gives every NPC alliance a secret name", () => {
     const src = readFileSync("src/adapters/engine/GameSessionAdapter.ts", "utf8");
-    expect((src.match(/this\.noteAllianceIdentity\(/g) ?? []).length).toBe(2); // the two NPC formation sites (the founder loop and the pull-them-in goal); the definition is `private noteAllianceIdentity(`
+    expect((src.match(/this\.noteAllianceIdentity\(/g) ?? []).length).toBe(4); // the NPC formation sites: the founder loop and the pull-them-in goal, plus the two slice-6 formation sites (the shadow group and a cracked alliance's cutters, 0172); the definition is `private noteAllianceIdentity(`
     expect(src).toContain("s.namePending");
   });
 });

@@ -615,6 +615,10 @@ export interface LiveSeasonState {
   houseLeans?: import("./houseLeans").HouseLeans;
   /** ORW-566 / spec 0183: the identity FLOOR of the house's private habits and alliance names (a pair key or an alliance id -> a name / spot / kind / since). Vault-class, engine-only, hidden, monotonic (write-once), persisted optional; never projected. */
   groupIdentity?: import("./groupIdentity").GroupIdentityStore;
+  /** 0172 / ORW-603, ORW-611 (Theme 3 slice 6; VAULT-CLASS, engine-only, persisted, never projected): per NPC alliance id, its hidden group life (roles, inner circle, purpose, private cut orders, a spy, a shadow link). Absent unless ORWELL_GROUP_ROLES drew one. */
+  groupLife?: Record<string, import("./groupLife").GroupLife>;
+  /** 0172: the last in-game day the group-life pass ran (it runs once a day). */
+  groupLifeDay?: number;
   /** ORW-566 part c2 (VAULT-CLASS, engine-only): alliances whose secret name still waits for an authored one (oldest first); the open sealed naming tickets; the last night a batch was issued. */
   namePending?: string[];
   nameTickets?: import("./allianceNaming").NameTickets;
@@ -1764,7 +1768,26 @@ function rollVetoDraw(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource)
     choose: (holder, cands) => ctx.rel.chooseStrongestBond(holder, cands, rng, undefined, hcBias(ctx.hcMemoryFor, ctx.hcStrategyFor, holder)),
     playerChoosesOwn: ctx.player, // the player picks their own sixth player; the engine never reads their bonds
   });
+  const hc = draw.houseguestsChoice;
+  if (hc && hc.picked !== undefined) noteHcPickReason(s, ctx, hc.holder, hc.picked); // ORW-578 part 3 (a record only: no rng, the pick is already made)
   return { def, draw };
+}
+/**
+ * ORW-578 part 3: an NPC who draws Houseguest's Choice gives a reason aloud for the sixth player they pick (a public pick). The real reason's terms are the
+ * pick's own inputs - the bond, the B7 memory bias and the ORW-101 strategy bias (as the `goal` term) - read without any rng. NPC holders in a played game only; once per week.
+ */
+export function noteHcPickReason(s: LiveSeasonState, ctx: SeasonCtx, holder: EntityId, picked: EntityId): void {
+  if (!ctx.statedReasonFor || !ctx.agendaPullFor || holder === ctx.player || picked === holder) return;
+  const log = (s.statedReasons ??= []);
+  if (log.some((r) => r.week === s.week && r.decider === holder && r.decision === "hc-pick")) return;
+  const terms: RealReason["terms"] = [
+    { name: "bond", value: ctx.rel.bondStrength(holder, picked) },
+    ...(ctx.hcMemoryFor ? [{ name: "memory" as const, value: ctx.hcMemoryFor(picked, holder) }] : []),
+    ...(ctx.hcStrategyFor ? [{ name: "goal" as const, value: ctx.hcStrategyFor(picked, holder) }] : []), // the holder's own game plan
+  ];
+  const real: RealReason = { decision: "hc-pick", decider: holder, choice: picked, terms };
+  const day = s.dayNumber ?? s.week;
+  log.push({ week: s.week, day, decider: holder, decision: "hc-pick", public: true, real, stated: ctx.statedReasonFor(real, day) });
 }
 function resolveVetoDraw(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent {
   // The comp is drawn FIRST (one rng draw) and held in `vetoComp` so every later stage —
@@ -2208,6 +2231,9 @@ function currentBlocs(s: LiveSeasonState, ctx: SeasonCtx): Bloc[] {
  * Engine-decided + bounded: the terms shade the threat-primary read, never replace it; voting
  * blocs vote TOGETHER because every member computes the same derived bloc (decision 0002).
  */
+/** ORW-617: the ONE honor weight of a promise at a vote, for any holder: a formal deal and an honored called-in favor weigh the same, scaled by how far the voter trusts the other party. */
+export function honorWeight(trust = 1): number { return DECISION.vote.dealHonorWeight * trust; }
+
 export function voteChoice(
   voter: EntityId, fn: [EntityId, EntityId], ctx: SeasonCtx, blocs: readonly Bloc[] = [], hoh?: EntityId, why?: WhySink,
 ): EntityId {
@@ -2251,7 +2277,7 @@ export function voteChoice(
     ctx.beliefTiltFor?.(n, voter) ?? 0,
     // B4 slice 4: a KEPT casual assurance to `n` shields them (smaller than a formal deal's honor weight). Absent provider => 0 => byte-identical.
     -(ctx.assuranceVoteFor?.(n, voter) ?? 0),
-    -(dealBound(n) ? V.dealHonorWeight * (ctx.dealTrustFor?.(voter, n) ?? 1) : 0), // 0160 (Ryne Q3): a deal weighs as much as the voter trusts the other party
+    -(dealBound(n) ? honorWeight(ctx.dealTrustFor?.(voter, n) ?? 1) : 0), // 0160 (Ryne Q3): a deal weighs as much as the voter trusts the other party
     -(V.juryManagementWeight * ctx.rel.edge(n, voter).trust),
     -(V.bondKeepWeight * ctx.rel.bondStrength(voter, n)),
     n === hohTarget ? V.hohReferendumWeight * hohAlignment : 0,
@@ -2260,7 +2286,7 @@ export function voteChoice(
     // ORW-568 / 0181: the voter's real feeling for `n` keeps them (a friend is hard to cut, a stranger or a grudge is not). Absent provider => 0 => byte-identical.
     -(ctx.feelingKeepFor?.(n, voter) ?? 0),
     // 0171: a favor this voter was owed-and-honored to `n` at this vote shields them. Absent provider => 0 => byte-identical.
-    -(ctx.favorShieldFor?.(n, voter) ?? 0),
+    -((ctx.favorShieldFor?.(n, voter) ?? 0) * (ctx.dealTrustFor?.(voter, n) ?? 1)), // ORW-617: scaled by trust like a deal, so any holder's honored favor weighs the same
   ];
   const v0 = termVals(fn[0]);
   const v1 = termVals(fn[1]);
