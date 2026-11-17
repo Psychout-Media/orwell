@@ -41,9 +41,24 @@ lets the onlooker most motivated to notice start a position-only whisper ("keep 
 No `groupIdentity`, `pairHabits`, `lastCeremonyAbsHour`, habit stamp or pair key appears in any projection, tool result, `getMomentPrompt` or `inspectNonVaultState`
 (tested by a JSON search with a positive control). `groupIdentity.ts` is in the dependency-cruiser denylist beside `houseLife`.
 
+## Part c: the model's words for a group (built)
+
+**Ruling (the Coordinator, Vault Wall): words are authored lazily at reveal; hidden groups are never described to any model.** No hidden membership leaves the
+engine before the player could know it, not even to the utility model. `groupsAwaitingWords` (an FE-driven infra read) lists ONLY groups the player could already
+know about: an alliance whose `knownTo` includes the player (witnessed, told or exposed; never one the player belongs to, the narrator names those), or a pair habit
+the player saw (they were in the room; the entry's `seen` flag). Anything hidden keeps the engine floor (a placeholder nobody sees), is not mentioned by the read at all
+(no ids, no members), and `recordGroupIdentity` refuses it (`unknown-group`). It gets its words the first after-turn read after the player learns of it. The post-crown
+retrospective (a sanctioned unsealing) is part (d). Not built: a pair habit the player only heard about through a claim (no hook yet; the habit is listed once seen).
+
+`recordGroupIdentity {groupId, name?, ritual?, signal?, insideJoke?}` is the FE-driven write-back (both tools are infra levers, not model levers, wired in all four places).
+After a turn the FE driver (`frontend/src/orwell_group_identity.py`) makes one cheap utility call per listed group from the members' PUBLIC cards, the culture and the
+room, retries once, and writes back. The engine validates every string with `validateGroupIdentity` (the shared `cleanText`), keeps the first record per group id
+(write-once, monotonic over the floor), caps the season at `maxAuthoredPerSeason` groups, and may rename the alliance ONCE (its `formed` history entry keeps the floor
+name; a name that collides or is a houseguest's name is dropped and the other words still land). The prompt states rules, never a menu or sample. No model, or two failed
+calls: the floor stands and an admin alert is raised. `ORWELL_GROUP_IDENTITY=0` disables the driver and the write-back. The words stay in `live.groupIdentity` (engine-only).
+
 ## Not in this part (TODO)
 
-- (c) `recordGroupIdentity {groupId, name?, ritual?, signal?, insideJoke?}` write-back and its FE driver (four-place wiring, validated by a `validateGroupIdentity` reusing `cleanText`,
-  one cheap fail-soft call per NEW alliance or pair, public facts only, write-once; the prompt states rules, not samples). The `kind` union and the store are ready for it.
+- (c) is built (ORW-566 part c): see "Part c" below.
 - (d) the retrospective's words-only `groupLife` field behind the crown gate.
 - The Auditor's shared bond reader replaces `BondReader` when it merges.

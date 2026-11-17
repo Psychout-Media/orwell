@@ -269,6 +269,13 @@ export interface RecordNpcTraitsResult { accepted: number; rejected: number }
 /** ORW-319 (spec 0146 lane 2): the FE-driven house-culture write-back (spots, rituals, a running joke), from the cast's PUBLIC facets. Once per season. */
 export interface RecordHouseCultureReq { spots?: Array<{ room: string; nickname: string }>; rituals?: Array<{ timeOfDay: string; action: string; name: string }>; runningJoke?: string }
 export interface RecordHouseCultureResult { accepted: boolean; reason?: string }
+/** ORW-566 part c (spec 0183): the model's words for one group (a new alliance or a close pair's habit). Public facts only; write-once per group id. */
+export interface RecordGroupIdentityReq { groupId: string; name?: string; ritual?: string; signal?: string; insideJoke?: string }
+export interface RecordGroupIdentityResult { accepted: boolean; reason?: string }
+/** ORW-566 part c: one group still waiting for its words: ids and a room only (never what was said or why). FE-driven infra read, never rendered, never a model lever. */
+export interface GroupAwaitingWordsView { groupId: string; kind: "alliance" | "pair"; members: string[]; room?: string; spot?: string;
+  /** The house's own authored culture (public facts the FE already wrote) and the names other groups already carry, so the writer can avoid repeating them. */
+  culture?: { spots: Array<{ room: string; nickname: string }>; rituals: Array<{ timeOfDay: string; action: string; name: string }>; runningJoke?: string }; otherNames?: string[] }
 
 /** Whether the zeitgeist write-back was accepted, and the resulting source tier (0062). */
 export interface RecordWorldSnapshotResult {
@@ -3473,6 +3480,10 @@ export interface GameSession {
   recordNpcReflections(req: RecordNpcReflectionsReq): RecordNpcReflectionsResult;
   /** ORW-319: freeze the season's house culture (validated, write-once). Not a model lever. */
   recordHouseCulture(req: RecordHouseCultureReq): RecordHouseCultureResult;
+  /** ORW-566 part c: freeze the model's words for one group (validated, write-once per group id; an alliance's name may be replaced once). Not a model lever. */
+  recordGroupIdentity(req: RecordGroupIdentityReq): RecordGroupIdentityResult;
+  /** ORW-566 part c: the groups (new alliances, close pairs with a habit) still waiting for their words, at most a couple at a time; empty when off or nobody is playing. Not a model lever. */
+  groupsAwaitingWords(): GroupAwaitingWordsView[];
 
   /**
    * ORW-223 slice 1 (Showrunner memory part B, canon ledger v1, house map only) - the FE-driven write-back that

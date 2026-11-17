@@ -34,6 +34,8 @@ export interface BondView {
   debt: number;
   /** 0..1. */
   resentment: number;
+  /** 0..1: the worst the grudge ever was (kept for good, even after a repair eases it). */
+  peakResentment: number;
   /** 0..1; repair lowers it, the memory stays in `history`. */
   strain: number;
   /** Count of shared key moments. */
@@ -78,7 +80,7 @@ export function edgeBondReader(rel: RelationshipModel, living: () => readonly En
     const e = rel.peek(holder, other);
     return {
       holder, other, trust: e.trust, affinity: e.affinity, threat: e.threat, reliability: e.reliability,
-      warmth: e.affinity, debt: 0, resentment: 0, strain: 0, history: 0, kind: "none", commitment: "none", rank: null,
+      warmth: e.affinity, debt: 0, resentment: 0, peakResentment: 0, strain: 0, history: 0, kind: "none", commitment: "none", rank: null,
       strength: edgeStrength(rel, holder, other),
     };
   };
@@ -112,7 +114,7 @@ export function recordBondReader(rel: RelationshipModel, store: () => BondStore 
       const at = ranked.findIndex((t) => t.other === other);
       return {
         holder, other, trust: e.trust, affinity: e.affinity, threat: e.threat, reliability: e.reliability,
-        warmth: r.warmth, debt: Math.max(-1, Math.min(1, r.debt + (opts.favorDebt?.(holder, other) ?? 0))), resentment: r.resentment, strain: r.strain, history: r.history,
+        warmth: r.warmth, debt: Math.max(-1, Math.min(1, r.debt + (opts.favorDebt?.(holder, other) ?? 0))), resentment: r.resentment, peakResentment: r.peakResentment, strain: r.strain, history: r.history,
         kind: kindOf(r), commitment: r.commitment, rank: at >= 0 ? at + 1 : null,
         strength: strengthOf(holder, other),
       };
