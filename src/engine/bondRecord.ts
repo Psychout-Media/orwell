@@ -1,4 +1,5 @@
 import type { EntityId } from "../domain/ids";
+import { clamp } from "../domain/num";
 import type { BondKind, Commitment } from "./bonds";
 
 /**
@@ -65,7 +66,6 @@ export const BOND = {
   rankTop: 5,
 } as const;
 
-const clamp = (x: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, x));
 export const bondKey = (holder: EntityId, other: EntityId): string => `${holder}|${other}`;
 
 export function emptyBond(): BondRecord {
