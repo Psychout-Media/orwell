@@ -7,11 +7,12 @@ import type { DealPlan } from "../../src/engine/npcDeals";
 /**
  * Feature 0170 - REPORT, NOT A GATE (no cap on false deals, per the owner's ruling: the rate is measured and reported, never limited). Plays N paired PLAYED seasons (same seeds) with the NPC-deal layer ON
  * (an in-memory plan store injected, so plans exist and steer the nominations) and OFF (the season as it was), and prints: pacts made, kept, broken and still open; by the holder's plan kind; per season culture.
- * Skipped unless ORWELL_NPC_DEALS_REPORT=1. ORWELL_NPC_DEALS_REPORT_SEEDS sets N (default 12).
+ * Skipped unless ORWELL_NPC_DEALS_REPORT=1. ORWELL_NPC_DEALS_REPORT_SEEDS sets N (default 12), ORWELL_NPC_DEALS_REPORT_START the first seed (default 1).
  *   ORWELL_NPC_DEALS_REPORT=1 npx vitest run tests/calibration/npcDealsReport.test.ts
  */
 const RUN = process.env.ORWELL_NPC_DEALS_REPORT === "1";
 const N = Number.parseInt(process.env.ORWELL_NPC_DEALS_REPORT_SEEDS ?? "12", 10);
+const START = Number.parseInt(process.env.ORWELL_NPC_DEALS_REPORT_START ?? "1", 10);
 type Deal = { id: string; status: string; parties: string[]; kind: string };
 type S = { createCharacter(a: unknown): void; advanceGame(): { pending?: unknown }; submitDecision(r: unknown): unknown; noteMessage(a: unknown): void; getGameState(): unknown; turnIn(a: unknown): unknown; settleOvernight(n: number): void; advanceClockPerConversation(): void; setPerConversationClockEnabled(on: boolean): void; deals: { npcOnly(): Deal[] }; setNpcDealsEnabled(on: boolean): void; setPlanSource(s: unknown): void; setRecordPlan(f: unknown): void; live: { houseLeans?: Array<{ id: string }> | Record<string, unknown>; finished?: boolean; nightDepth?: number; timeOfDay?: string; pending?: unknown; winner?: string; finalTwo?: string[]; evictionOrder: string[] } };
 interface Row { seed: number; deals: Deal[]; plans: Map<string, DealPlan>; leans: string[]; winner?: string; playerOut: number | null; finished: boolean }
@@ -44,7 +45,7 @@ const count = (rows: Row[], f: (d: Deal) => boolean): number => rows.reduce((a, 
 describe.skipIf(!RUN)("0170 report: NPC deals and plans, paired played seasons (not a gate)", () => {
   it("prints deals made / kept / broken, by plan kind and by culture", () => {
     const on: Row[] = [], off: Row[] = [];
-    for (let seed = 1; seed <= N; seed++) { off.push(play(seed, false)); on.push(play(seed, true)); }
+    for (let seed = START; seed < START + N; seed++) { off.push(play(seed, false)); on.push(play(seed, true)); }
     for (const [name, rows] of [["OFF", off], ["ON", on]] as const) {
       const made = count(rows, () => true), kept = count(rows, (d) => d.status === "kept"), broken = count(rows, (d) => d.status === "broken"), open = count(rows, (d) => d.status === "open");
       console.log(`NPCDEALS ${name}: seasons ${rows.length} finished ${rows.filter((r) => r.finished).length} | NPC pacts ${made} (${(made / rows.length).toFixed(1)}/season) kept ${kept} broken ${broken} open ${open} | broken share ${((100 * broken) / Math.max(1, made)).toFixed(0)}% | player wins ${rows.filter((r) => r.winner === "player").length}`);
