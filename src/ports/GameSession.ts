@@ -277,6 +277,12 @@ export interface GroupAwaitingWordsView { groupId: string; kind: "alliance" | "p
   /** The house's own authored culture (public facts the FE already wrote) and the names other groups already carry, so the writer can avoid repeating them. */
   culture?: { spots: Array<{ room: string; nickname: string }>; rituals: Array<{ timeOfDay: string; action: string; name: string }>; runningJoke?: string }; otherNames?: string[] }
 
+/** ORW-566 part c2 (spec 0183): one sealed-prompt ticket for an anonymous group name. `prompt` is the whole text for the writer; nothing in it or around it names, counts or places any group. A real and a decoy ticket are indistinguishable. FE-driven infra read, never a model lever. */
+export interface AllianceNameTicketView { ticket: string; prompt: string }
+/** The write-back of one ticket. A bare receipt: `{accepted:true}` for a real and a decoy ticket alike (and for a rejected name); `{accepted:false}` only for an unknown, used or expired ticket. */
+export interface RecordAllianceNameReq { ticket: string; name: string }
+export interface RecordAllianceNameResult { accepted: boolean }
+
 /** Whether the zeitgeist write-back was accepted, and the resulting source tier (0062). */
 export interface RecordWorldSnapshotResult {
   /** True iff a game is started and the snapshot could be frozen onto it. */
@@ -3484,6 +3490,10 @@ export interface GameSession {
   recordGroupIdentity(req: RecordGroupIdentityReq): RecordGroupIdentityResult;
   /** ORW-566 part c: the groups (new alliances, close pairs with a habit) still waiting for their words, at most a couple at a time; empty when off or nobody is playing. Not a model lever. */
   groupsAwaitingWords(): GroupAwaitingWordsView[];
+  /** ORW-566 part c2: tonight's FIXED-SIZE batch of sealed-prompt tickets still unanswered (anonymous traits + house culture only; no id, name, count, room or day). Empty when off or nobody is playing. Not a model lever. */
+  allianceNameTickets(): AllianceNameTicketView[];
+  /** ORW-566 part c2: answer one ticket with the model's name. Bare receipt for real and decoy alike; the engine validates and keeps the floor on a refusal. Not a model lever. */
+  recordAllianceName(req: RecordAllianceNameReq): RecordAllianceNameResult;
 
   /**
    * ORW-223 slice 1 (Showrunner memory part B, canon ledger v1, house map only) - the FE-driven write-back that

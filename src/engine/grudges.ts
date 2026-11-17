@@ -43,7 +43,34 @@ export const GRUDGES = {
   DEAL_BREAK_SEVERITY: 0.35,
   /** Culture dials are held to this band even if a caller hands in more (mirrors the culture bound). */
   MAX_FACTOR: 1.35,
+  /** PR 2: how much of a fresh grudge's weight (freshness x severity) the revenge read takes, combined with the memory ledger's salience (never added on top). */
+  revengeWeight: 0.5,
 } as const;
+
+/** PR 2: the base size of each repair source (before the holder's nature and the house's loyalty scale it). Engine-only; the book's EASE_CAP bounds the total per pair. */
+export const REPAIR = {
+  /** A promise the breaker later kept to the wronged. */
+  kept: 0.10,
+  /** The wrongdoer's own bonding scene with the wronged, soon after the wrong (once per pair and week). */
+  scene: 0.06,
+  /** A third person both hold a grudge against (once per pair, third and week). */
+  enemy: 0.04,
+  /** In-game days after the wrong inside which a bonding scene by the wrongdoer reads as an apology. */
+  sceneDays: 4,
+  /** A grudge-keeper forgives this share as fast. */
+  keeperMult: 0.5,
+} as const;
+
+/** Revenge salience: the memory ledger's own read and the book's weight combined as a probabilistic-or (never summed), the book part scaled by the weight and the culture dial (already banded). Pure. */
+export function combineSalience(sal: number, bookWeight: number, dial = 1): number {
+  const w = unit(GRUDGES.revengeWeight * band(dial) * unit(bookWeight));
+  return 1 - (1 - unit(sal)) * (1 - w);
+}
+
+/** A repair's size for one holder: the holder's nature (a keeper forgives slower) and the house's loyalty (a loyal house forgives slower). Pure; exactly `base` for a typical holder in a neutral house. */
+export function repairAmount(base: number, who: { keeper?: boolean; loyalty?: number } = {}): number {
+  return Math.max(0, base) * (who.keeper ? REPAIR.keeperMult : 1) / band(who.loyalty);
+}
 
 export const grudgeKey = (holder: EntityId, subject: EntityId): string => `${holder}|${subject}`;
 

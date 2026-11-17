@@ -616,6 +616,10 @@ export interface LiveSeasonState {
   houseLeans?: import("./houseLeans").HouseLeans;
   /** ORW-566 / spec 0183: the identity FLOOR of the house's private habits and alliance names (a pair key or an alliance id -> a name / spot / kind / since). Vault-class, engine-only, hidden, monotonic (write-once), persisted optional; never projected. */
   groupIdentity?: import("./groupIdentity").GroupIdentityStore;
+  /** ORW-566 part c2 (VAULT-CLASS, engine-only): alliances whose secret name still waits for an authored one (oldest first); the open sealed naming tickets; the last night a batch was issued. */
+  namePending?: string[];
+  nameTickets?: import("./allianceNaming").NameTickets;
+  nameNight?: number;
   /** ORW-566: the absolute in-game hour the last ceremony beat (nominations, veto ceremony, eviction) resolved at; opens the after-ceremony debrief window. Played games only; absent otherwise. Engine-only. */
   lastCeremonyAbsHour?: number;
   /** ORW-561 / spec 0176 part 2: hidden TENURE - hours each houseguest has spent in each room (monotonic, engine-only, never in a projection). A played game only; absent on older saves and headless games. */
@@ -715,11 +719,20 @@ export interface LiveSeasonState {
    */
   grudges?: GrudgeBook;
   grudgesSeen?: string[];
+  /** 0182 PR 2: how many events of the record the repair scan (the wrongdoer's bonding scene) has read. Written only once a grudge exists. */
+  grudgesCursor?: number;
   /**
    * 0181 (Theme 3 slice 4, ORW-568) - the guilt events already felt (`bondFeelings.ts` keys, ordered, never pruned), so a betrayal shakes the betrayer once. ENGINE-ONLY (Vault class), never projected.
    * Optional: absent on old saves and on every game that never felt one. Rides on `live`, so it is persisted and restored with the season.
    */
   feelingsSeen?: string[];
+  /**
+   * 0181 part 2 (Theme 3 slice 4, ORW-568) - JEALOUSY (`bondJealousy.ts`): a hidden overlay per `holder|rival` (value 0..cap, the close friend it is over, the week it last rose), the dedupe list of mood hits
+   * (`jealousySeen`, ordered, never pruned) and the event cursor the nightly tick has read up to (a bonding scene ahead of the tick handles it). ENGINE-ONLY (Vault class), never projected; absent on old saves.
+   */
+  jealousy?: Record<string, { value: number; week: number; close: string }>;
+  jealousySeen?: string[];
+  jealousyCursor?: number;
   /**
    * 0149 / ORW-330 (theme 2, slice 1) - the season's CLAIMS (`spokenClaims.ts`): who told whom what about whom, whether it was true and what
    * the speaker meant. ENGINE-ONLY (Vault class), never projected; only `claimsHeardBy(PLAYER)` (the speaker's words, no truth) may go outward.
