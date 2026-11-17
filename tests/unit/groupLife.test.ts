@@ -114,15 +114,15 @@ describe("the live pass", () => {
     off.p.live.dayNumber = 3; off.p.groupLifeTick();
     expect(off.p.live.groupLife).toBeUndefined();
   });
-  it("never touches an alliance the player belongs to", () => {
+  it("an alliance the player belongs to gets roles for its NPC members only, never a role or a cut order for the player", () => {
     const w = world(true);
     w.p.alliances.add("Mine", PLAYER, [PLAYER, w.ids[5]!, w.ids[6]!], 1);
     w.p.live.dayNumber = 3; w.p.groupLifeTick();
-    const ids = Object.keys(w.p.live.groupLife as object);
-    expect(ids).toHaveLength(2); // the stock one, and the player's own: roles only, for its NPC members
-    const mine = (w.p.live.groupLife as Record<string, { roles: Record<string, string>; cutOrder?: unknown; agreed?: unknown }>)[w.p.alliances.all().find((a) => a.name === "Mine")!.id]!;
-    expect(Object.keys(mine.roles).sort()).toEqual([w.ids[5]!, w.ids[6]!].sort()); // the player is never dealt a role
-    expect(mine.cutOrder).toBeUndefined(); expect(mine.agreed).toBeUndefined();
+    const life = w.p.live.groupLife as Record<string, { roles: Record<string, string>; cutOrder?: Record<string, string[]>; agreed?: string }>;
+    const mine = life[w.p.alliances.all().find((a) => a.name === "Mine")!.id]!;
+    expect(Object.keys(mine.roles).sort()).toEqual([w.ids[5]!, w.ids[6]!].sort());
+    expect(Object.values(mine.cutOrder ?? {}).flat()).not.toContain(PLAYER); // no member's goal is the player's exit
+    expect(mine.agreed).not.toBe(PLAYER);
     expect(w.p.alliances.all().find((a) => a.name === "Mine")!.members).toEqual([PLAYER, w.ids[5]!, w.ids[6]!]);
   });
   it("with the switch off, a pitch shows the live roster as before", () => {
@@ -199,5 +199,56 @@ describe("a plan told as a claim", () => {
     expect(planClaim({ speaker: "s", listener: "p", planner: "l", told: "w", agreed: "x", mislead: true })).toMatchObject({ kind: "going-after", object: "w", isTrue: false, intent: "mislead" });
     expect(planClaim({ speaker: "s", listener: "p", planner: undefined, told: "x", agreed: "x", mislead: false })).toBeUndefined();
     expect(planClaim({ speaker: "s", listener: "l", planner: "l", told: "x", agreed: "x", mislead: false })).toBeUndefined();
+  });
+});
+
+describe("ORW-616: the player's alliance lives by the same rules (parity)", () => {
+  type P = { alliances: AllianceStore; live: { dayNumber?: number; week: number; agendas?: Record<string, { goals: unknown[] }> }; rel: { edge(a: string, b: string): { trust: number; affinity: number; threat: number } }; fadeAlliances(): void };
+  function pair(seed: number, slotIsPlayer: boolean, flag = true) {
+    const sb = new GameSessionRegistry().sandboxFor(`parity616-${Math.random()}`);
+    sb.session.createCharacter({ playerName: "The Player", seed });
+    sb.session.setGroupRolesEnabled(flag);
+    sb.session.noteMessage({ messageId: "m" });
+    const p = sb.session as unknown as P;
+    const ids = sb.session.livingIds().filter((i) => i !== PLAYER);
+    const slot = slotIsPlayer ? PLAYER : ids[3]!;
+    const set = (a: string, b: string, v: number, t = 0.1) => { const e = p.rel.edge(a, b); e.trust = v; e.affinity = v; e.threat = t; };
+    for (const a of [ids[0]!, ids[1]!, slot]) for (const b of [ids[0]!, ids[1]!, slot]) if (a !== b) set(a, b, a === slot || b === slot ? 0.1 : 0.9);
+    p.alliances.add("Pact", ids[0]!, [ids[0]!, ids[1]!, slot], 1);
+    return { sb, p, ids, slot };
+  }
+  const goneOn = (seed: number, slotIsPlayer: boolean, flag = true): number => {
+    const w = pair(seed, slotIsPlayer, flag);
+    for (let d = 1; d <= 40; d++) {
+      w.p.live.dayNumber = d; w.p.fadeAlliances();
+      if (!w.p.alliances.all().some((a) => a.name === "Pact")) return d;
+    }
+    return -1;
+  };
+  it("the same alliance fades on the same day with the player in a slot as with an NPC there", () => {
+    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+      const npc = goneOn(seed, false), player = goneOn(seed, true);
+      expect(npc).toBeGreaterThan(0);
+      expect(player).toBe(npc);
+    }
+  });
+  it("with group life off the player's pact still never fades silently", () => {
+    expect(goneOn(1, true, false)).toBe(-1);
+  });
+  it("a member's hot goal against a fellow member breaks the alliance on the same keyed draw, whether that member is the player or an NPC", () => {
+    const run = (seed: number, slotIsPlayer: boolean): number => {
+      const w = pair(seed, slotIsPlayer);
+      for (const a of w.p.alliances.all()) a.lowDays = 0;
+      const holder = w.ids[0]!;
+      w.p.live.agendas![holder]!.goals.push({ id: `${holder}:g`, owner: holder, horizon: "week", kind: "get-them-out", target: w.slot, why: [{ kind: "character", weight: 1 }], test: { kind: "survives-week" }, commitment: 1, status: "active", formedDay: 1, formedWeek: 1 });
+      for (let d = 1; d <= 400; d++) {
+        w.p.live.dayNumber = d;
+        for (const a of w.p.alliances.all()) { a.lowDays = 0; a.checkedDay = d; }
+        w.p.fadeAlliances();
+        if (!w.p.alliances.byId("alliance:1")?.members.includes(holder)) return d;
+      }
+      return -1;
+    };
+    for (const seed of [1, 2, 3]) { const n = run(seed, false); expect(n).toBeGreaterThan(0); expect(run(seed, true)).toBe(n); }
   });
 });

@@ -11499,7 +11499,7 @@ export class GameSessionAdapter implements GameSession {
     const day = live.dayNumber ?? live.week;
     if (live.groupLifeDay !== undefined && live.groupLifeDay >= day) return;
     live.groupLifeDay = day; // FIRST: recording a scene commits, and a commit runs the tick again
-    const alliances = [...this.alliances.all()].filter((a) => !a.members.includes(PLAYER)).sort((x, y) => x.id.localeCompare(y.id));
+    const alliances = [...this.alliances.all()].sort((x, y) => x.id.localeCompare(y.id));
     if (alliances.length === 0 && this.alliances.pitchesFor(PLAYER).length === 0) return;
     const seed = this.gameSeed ?? 0;
     const reader = this.bondReader();
@@ -11532,42 +11532,17 @@ export class GameSessionAdapter implements GameSession {
       if (t === "confess") this.alliances.annotate(a.id, "spy-confessed", { who: spy.member, detail: spy.reportsTo });
       return t;
     };
-    // The player's OWN alliances: their NPC members hold hidden roles like any group's (a shield, a swing vote, even a spy). The player is never dealt a role, and the alliance is never faded, broken, cracked or planned against here (ORW-616).
-    for (const a0 of [...this.alliances.all()].filter((a) => a.members.includes(PLAYER)).sort((x, y) => x.id.localeCompare(y.id))) {
-      const npcs = a0.members.filter((m) => m !== PLAYER).sort();
-      if (npcs.length < 2) continue;
-      const entry: GroupLife = (life[a0.id] ??= { roles: {}, purpose });
-      if (npcs.join() !== Object.keys(entry.roles).sort().join()) {
-        const others = living.filter((o) => o !== PLAYER && !npcs.includes(o));
-        const reads: MemberRead[] = npcs.map((m) => {
-          const ins = npcs.filter((o) => o !== m).map((o) => reader.tie(m, o));
-          const outs = others.map((o) => reader.tie(m, o));
-          return { id: m, stats: statsOf(m), inner: ins.reduce((t, x) => t + x, 0) / Math.max(1, ins.length), weakest: ins.length ? Math.min(...ins) : 0, outside: outs.reduce((t, x) => t + x, 0) / Math.max(1, outs.length), hub: hubs.has(m), broker: brokers.has(m) };
-        });
-        const keep: Record<EntityId, GroupLife["roles"][string]> = {};
-        for (const m of npcs) if (entry.roles[m]) keep[m] = entry.roles[m]!;
-        entry.roles = assignRoles(reads, (x, y) => reader.tie(x, y), (id, role) => roll(`role:${a0.id}:${id}:${role}`), keep);
-        this.alliances.annotate(a0.id, "roles", { detail: npcs.map((m) => `${m}=${entry.roles[m]}`).join(",") });
-      }
-      if (entry.purpose !== purpose) { this.alliances.annotate(a0.id, "purpose", { detail: `${entry.purpose}>${purpose}` }); entry.purpose = purpose; }
-      if (!entry.spy && roll(`spy:${a0.id}`) < GROUP_LIFE.spyChance) {
-        const outsiders = [...npcAwake].filter((o) => !a0.members.includes(o) && this.alliances.forMember(o).length === 0).sort();
-        const pick = npcs.filter((m) => npcAwake.has(m))
-          .map((m) => ({ m, to: outsiders.map((r) => ({ r, t: reader.tie(m, r) })).sort((x, y) => y.t - x.t || x.r.localeCompare(y.r))[0] }))
-          .filter((x) => x.to && x.to.t >= GROUP_LIFE.spyTieFloor)
-          .sort((x, y) => roll(`spy-pick:${a0.id}:${y.m}`) - roll(`spy-pick:${a0.id}:${x.m}`) || x.m.localeCompare(y.m))[0];
-        if (pick && pick.to) { entry.spy = { member: pick.m, reportsTo: pick.to.r }; this.alliances.annotate(a0.id, "spy-planted", { who: pick.m, detail: pick.to.r }); }
-      }
-      turnOf(a0, entry, npcs); // a spy among the player's own may turn too: history only (nothing of the player's alliance is planned, so there is nothing to report)
-    }
     for (const a0 of alliances) {
       const a = this.alliances.byId(a0.id);
       if (!a) continue;
+      // ORW-616 (all four equal): the player's own alliances go through the same life. The NPC members hold the roles and the cut orders; the player is never dealt a role and is never on a cut order unless an NPC member's OWN goal is to get them out.
+      const withPlayer = a.members.includes(PLAYER);
+      const members = [...a.members].filter((m) => m !== PLAYER).sort();
+      if (members.length < 2) continue;
       const entry: GroupLife = (life[a.id] ??= { roles: {}, purpose });
-      const members = [...a.members].sort();
       // roles: every member holds one, none is left empty while a member lacks it; a member who left drops theirs, a newcomer is dealt one, the rest keep theirs
-      if (members.length >= 3 && members.join() !== Object.keys(entry.roles).sort().join()) {
-        const others = living.filter((o) => !members.includes(o));
+      if (members.length >= (withPlayer ? 2 : 3) && members.join() !== Object.keys(entry.roles).sort().join()) {
+        const others = living.filter((o) => !a.members.includes(o));
         const reads: MemberRead[] = members.map((m) => {
           const ins = members.filter((o) => o !== m).map((o) => reader.tie(m, o));
           const outs = others.filter((o) => o !== m).map((o) => reader.tie(m, o));
@@ -11586,12 +11561,16 @@ export class GameSessionAdapter implements GameSession {
       if (entry.purpose !== purpose) { this.alliances.annotate(a.id, "purpose", { detail: `${entry.purpose}>${purpose}` }); entry.purpose = purpose; }
       // the private cut orders, and the target the majority settles on
       entry.cutOrder = {};
-      for (const m of members) entry.cutOrder[m] = cutOrderOf(m, living, members, purpose, (o) => ({ threat: this.rel.peek(m, o).threat, comp: compOf(o), tie: reader.tie(m, o) }));
+      for (const m of members) {
+        const order = cutOrderOf(m, withPlayer ? living.filter((o) => o !== PLAYER) : living, members, purpose, (o) => ({ threat: this.rel.peek(m, o).threat, comp: compOf(o), tie: reader.tie(m, o) }));
+        const hostile = withPlayer && (live.agendas?.[m]?.goals ?? []).some((g) => g.status === "active" && (g.kind === "get-them-out" || g.kind === "revenge") && g.target === PLAYER && g.commitment >= HOUSE_LIFE.hotGoal);
+        entry.cutOrder[m] = hostile ? [PLAYER, ...order].slice(0, GROUP_LIFE.cutDepth) : order; // only a member whose own goal is the player's exit puts them on their order (and first)
+      }
       entry.planDay = day;
       const evicted = live.evictionOrder ?? [];
       const folded = foldEvictions(entry.evictSeen ?? evicted.length, entry.evictWon ?? [], evicted, entry.agreed); // each eviction is weighed against the target the group had settled on before it
       entry.evictSeen = folded.seen; entry.evictWon = folded.won;
-      const agreed = agreedTarget(entry.cutOrder, members);
+      const agreed = agreedTarget(entry.cutOrder, a.members);
       if (agreed && agreed !== entry.agreed) {
         entry.agreed = agreed;
         const once = bumpOnce(entry.bumped, agreed);
@@ -11601,14 +11580,14 @@ export class GameSessionAdapter implements GameSession {
       }
       // a spy: an outsider drawn to learn the group's plans, working for the person they are closest to outside it
       if (!entry.spy && members.length <= ALLIANCE.maxNpcSize && roll(`spy:${a.id}`) < GROUP_LIFE.spyChance) {
-        const outsiders = [...npcAwake].filter((o) => !members.includes(o) && this.alliances.forMember(o).length === 0).sort();
-        const pick = outsiders
-          .filter((o) => mutualP(o, a.founder) >= ALLIANCE.joinBondFloor)
+        const outsiders = [...npcAwake].filter((o) => !a.members.includes(o) && this.alliances.forMember(o).length === 0).sort();
+        const pick = (withPlayer ? [...npcAwake].filter((o) => members.includes(o)).sort() : outsiders) // in the player's own alliance the spy is a member already (no roster change the player could see)
+          .filter((o) => withPlayer || mutualP(o, a.founder) >= ALLIANCE.joinBondFloor)
           .map((o) => ({ o, to: outsiders.filter((r) => r !== o).map((r) => ({ r, t: reader.tie(o, r) })).sort((x, y) => y.t - x.t || x.r.localeCompare(y.r))[0] }))
           .filter((x) => x.to && x.to.t >= GROUP_LIFE.spyTieFloor)
           .sort((x, y) => roll(`spy-pick:${a.id}:${y.o}`) - roll(`spy-pick:${a.id}:${x.o}`) || x.o.localeCompare(y.o))[0];
         if (pick && pick.to) {
-          this.alliances.join(a.id, pick.o);
+          if (!withPlayer) this.alliances.join(a.id, pick.o);
           entry.spy = { member: pick.o, reportsTo: pick.to.r };
           this.alliances.annotate(a.id, "spy-planted", { who: pick.o, detail: pick.to.r });
         }
@@ -11642,8 +11621,8 @@ export class GameSessionAdapter implements GameSession {
         }
       }
       // a shadow group: when ONE group dominates the house (holds the crown, has a voting majority of the houseguests left, or carried the last two evictions) those outside it who feel threatened by it band together against it
-      const dominant = dominance({ holdsCrown: this.ceremony.hoh !== undefined && members.includes(this.ceremony.hoh), members: members.length, living: living.length, won: entry.evictWon ?? [] });
-      if (!entry.shadowed && members.length >= 3 && dominant !== undefined && roll(`shadow:${a.id}`) < GROUP_LIFE.shadowChance) {
+      const dominant = dominance({ holdsCrown: this.ceremony.hoh !== undefined && a.members.includes(this.ceremony.hoh), members: a.members.length, living: living.length, won: entry.evictWon ?? [] });
+      if (!entry.shadowed && a.members.length >= 3 && dominant !== undefined && roll(`shadow:${a.id}`) < GROUP_LIFE.shadowChance) {
         const felt = threatenedBy([...npcAwake].filter((o) => !members.includes(o)).map((o) => ({ id: o, threat: members.reduce((t, m) => t + this.rel.peek(o, m).threat, 0) / members.length }))); // each outsider's OWN read of the group's members
         const band = felt.length ? [felt[0]!, ...felt.slice(1).filter((o) => mutualP(felt[0]!, o) >= ALLIANCE.npcAllyFloor).sort((x, y) => mutualP(felt[0]!, y) - mutualP(felt[0]!, x) || x.localeCompare(y)).slice(0, 2)] : [];
         if (band.length >= 2 && !this.alliances.all().some((x) => sameMembers(x.members, band))) {
@@ -11658,13 +11637,15 @@ export class GameSessionAdapter implements GameSession {
         }
       }
       // cracking: once the purpose has moved past survival, members whose own first cut is a fellow member split from the rest
-      const clash = collision(entry.cutOrder, members, purpose);
+      const clash = collision(entry.cutOrder, a.members, purpose);
       if (clash && entry.crackedDay === undefined && roll(`crack:${a.id}`) < GROUP_LIFE.crackChance * (purpose === "power" ? GROUP_LIFE.powerCrackScale : 1)) {
         const nameRng = new SeededRandom(hashSeed(`${seed}:group-life:crack:${a.id}:${day}`));
         const name = this.houseAllianceName(pickAllianceName(nameRng, new Set(this.alliances.all().map((x) => x.name)), new Set(this.worldAvoid.allianceNames ?? [])), clash.cutters[0]!);
         entry.crackedDay = day;
         const born = this.alliances.crack(a.id, clash.cutters, name, this.beatSeqNow());
         if (born) { this.noteAllianceIdentity(born.id, born.name, born.founder); life[born.id] = { roles: {}, purpose }; }
+        // the player sees a member walk out of THEIR alliance (an observable act that names the alliance and the one who left, never a roster)
+        if (withPlayer) this.onPlayerEvent?.(`${this.nameOf(clash.cutters[0]!)} breaks away from the alliance "${a.name}"${clash.cut === PLAYER ? `, aimed at ${this.nameOf(PLAYER)}` : ""}`, [clash.cutters[0]!, PLAYER], "alliance-break-away");
         // the one who breaks away TELLS the person the group means to take out (a claim of their own, as warm as the two are), the player too when they really talk to them
         const target = entry.agreed;
         const teller = clash.cutters[0]!;
@@ -11717,7 +11698,7 @@ export class GameSessionAdapter implements GameSession {
     const gone = this.alliances.fade(
       day,
       (a) => cohesionOf(a.members, (x, y) => mutualBond(this.rel, x, y)),
-      (a) => a.members.includes(PLAYER),
+      (a) => !this.groupRolesOn() && a.members.includes(PLAYER), // ORW-616: with group life on, the player's alliances fade like any other (the player learns by the observable act, never a roster)
     );
     let changed = pruned || gone.length > 0;
     if (this.breakAlliancesOverGoals(day)) changed = true;
@@ -11738,7 +11719,7 @@ export class GameSessionAdapter implements GameSession {
       const who = e.members.map((m) => this.nameOf(m)).join(", ");
       const witnesses = e.playerKnew && !e.members.includes(PLAYER) ? [...e.members, PLAYER] : [...e.members];
       // A DISSOLUTION the player witnesses never lists the roster that ended it: the member who left (a sealed eviction ballot, E12 / A7) would be named by elimination. The Vault-side copy keeps the full roster.
-      const roster = e.kind === "dissolved" && witnesses.includes(PLAYER) ? "" : `: ${who}`;
+      const roster = (e.kind === "dissolved" || (e.kind === "faded" && this.groupRolesOn())) && witnesses.includes(PLAYER) ? "" : `: ${who}`;
       const content = e.kind === "formed" ? `The alliance "${e.name}" formed${roster}`
         : e.kind === "faded" ? `The alliance "${e.name}" faded apart${roster}`
         : `The alliance "${e.name}" dissolved (${e.why ?? "ended"})${roster}`;
@@ -11763,8 +11744,8 @@ export class GameSessionAdapter implements GameSession {
   private breakAlliancesOverGoalsOnce(day: number, live: NonNullable<GameSessionAdapter["live"]>): boolean {
     let changed = false;
     for (const al of [...this.alliances.all()]) {
-      if (al.members.includes(PLAYER)) continue;
-      for (const m of [...al.members].sort()) {
+      if (al.members.includes(PLAYER) && !this.groupRolesOn()) continue;
+      for (const m of [...al.members].filter((x) => x !== PLAYER).sort()) {
         const goals = (live.agendas?.[m]?.goals ?? []).filter((g) => g.status === "active" && (g.kind === "get-them-out" || g.kind === "revenge") && g.commitment >= HOUSE_LIFE.hotGoal && g.target !== undefined && g.target !== m && al.members.includes(g.target));
         const goal = goals[0];
         if (!goal || !this.alliances.byId(al.id)) continue;

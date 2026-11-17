@@ -1,7 +1,7 @@
 # Feature 0172 - groups: roles, nesting, shadow alliances, spies, cracking (Theme 3 slice 6), plus ORW-603 (a pitch shows what the player was told) and ORW-611 (plans aimed at the player are acted on).
 # Design note: 0172-groups-roles-and-cracking.md. Rests on the owner's 2026-11-16 rulings: Q1, Q4 (NPC to NPC from the start), Q5, the culture leans (ORW-551) and the Theme 3 ruling that the player is plugged in, in both directions.
 # Alliance history (0161) is already kept; this slice extends it. Vault Wall: roles, nesting, spies, shadow groups and cut orders are Vault content until the post-season retrospective; never shown as a roster, a chart or a number.
-# The player's OWN alliances are never faded or broken here (ORW-616 is the owner's pending ruling). Roles only; every group-life step is worded with the groups: prefix.
+# ORW-616 (all four equal): the player's own alliances fade, break and crack like any other; the player learns only by an observable act, never a roster. Every group-life step is worded with the groups: prefix.
 
 Feature: Alliances have roles and inner circles, can hold a spy, crack, and treat the player as a person in the house
 
@@ -117,3 +117,16 @@ Feature: Alliances have roles and inner circles, can hold a spy, crack, and trea
   Scenario: The NPC members of the player's own alliance hold hidden roles, and the player never does
     Given groups: a season where the player belongs to an alliance with three houseguests
     Then groups: the three hold roles in the history, the player holds none, the alliance is unchanged, and no view shows them
+
+  Scenario: The player's alliance fades after inactivity like an NPC's (ORW-616)
+    Given groups: a season where the player belongs to an alliance whose bonds with the player have gone cold
+    Then groups: the alliance fades by the same days an NPC one would, and the player is told by an event that names it and no roster
+
+  Scenario: A member whose goal is to get the player out turns on the alliance and the player sees it (ORW-616)
+    Given groups: a season where a member of the player's alliance has a goal to get the player out
+    Then groups: the member leaves and the player witnessed it as an event naming the alliance, never a roster
+
+  Scenario: Members who aim their first cut at the player break away, and the player sees them go (ORW-616)
+    Given groups: a season where two members of the player's alliance have a goal to get the player out and the house is late
+    Then groups: the two break away into a new alliance, and the player witnessed it as an event that names the alliance and one name only
+    And groups: no view shows a roster, a role or a cut order of the player's alliance
