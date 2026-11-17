@@ -295,7 +295,7 @@ import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../..
 import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, type EdgeDelta } from "../../engine/beliefStore";
 import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs";
 import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "../../engine/beliefDecisions";
-import { CONVICTION, credulityOf, dealTrust, evidenceStep, testRef, underTest } from "../../engine/beliefConviction";
+import { CONVICTION, credulityOf, dealTrust, pathwayEvidence, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, type SceneFold } from "../../engine/bondRecord";
@@ -351,7 +351,7 @@ import type { TieRevealEvent } from "../../engine/tieReveal";
 import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
-import { beliefTruth, planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
+import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
 import { CAUGHT_LIE, contradicts, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
 import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedInText, namedSourceContent, noRecordNote, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
@@ -1521,6 +1521,7 @@ export class GameSessionAdapter implements GameSession {
       trustOf: (listener, speaker) => this.rel.edge(listener, speaker).trust,
       credited: (listener, speaker) => this.reliabilityReader?.(listener).has(speaker) ?? false,
       ...(BELIEF_RULES.strength === "full" ? { credulity: (listener: EntityId) => this.credulityOf(listener) } : {}), // 0160
+      ...(this.credibilityEnabledNow() && live.playedGame === true ? { credibility: (listener: EntityId, speaker: EntityId) => this.credibilityOf(listener, speaker) } : {}), // ORW-587: played games only
     });
     if (told) this.catchContradiction(told);
     return told;
@@ -12369,6 +12370,7 @@ export class GameSessionAdapter implements GameSession {
         const partner = p.with[0];
         if (p.goalKind === "pull-them-in" && partner && (p.kind === "pitch" || p.kind === "recruit")) (s.pitched ??= {})[`${p.actor}>${partner}`] = s.week; // ORW-341: the alliance tick counts a target pitched this week a little warmer
         // ORW-340: a plan made for one of the NPC's own GOALS that names the player is not a hidden scene (the player is not in it): it becomes an APPROACH, raised through the desire clock's own path (and its guards: cooldown, one in flight, never in a ceremony, asleep = never).
+        if (p.goalId && s.playedGame === true) this.noteGoalServed(p.actor, p.goalId); // ORW-571: a step made for the goal is progress for tonight's mull
         if (p.goalId && p.with.includes(house.player.id) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: p.goalId, hour: this.absHour() };
         }
@@ -12462,16 +12464,14 @@ export class GameSessionAdapter implements GameSession {
   private weighEvidenceOvernight(): void {
     const s = this.live;
     if (!s?.agendas || !s.beliefs || BELIEF_RULES.strength !== "full" || !this.npcBeliefsEnabled) return;
-    const facts = this.truthFacts();
-    const day = s.dayNumber ?? s.week;
     for (const [holder, agenda] of Object.entries(s.agendas)) {
       const looking = new Set(agenda.goals.filter((g) => g.status === "active" && g.kind === "find-out" && g.test.kind === "question-answered").map((g) => (g.test as { ref: string }).ref));
       // Visible testing: the beliefs they have a find-out goal for. Quiet testing: the strongest few doubts they keep an eye on (CONVICTION_TESTS_MAX).
       const quiet = new Set((CONVICTION.askAround ? [] : (s.beliefs[holder] ?? []).filter((b) => underTest(b)).sort((x, y) => y.confidence - x.confidence || x.id.localeCompare(y.id)).slice(0, GameSessionAdapter.CONVICTION_TESTS_MAX)).map((b) => b.id));
       for (const b of s.beliefs[holder] ?? []) {
         if (!underTest(b) || !(quiet.has(b.id) || looking.has(testRef(b)))) continue;
-        const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:evidence:${day}:${holder}:${b.id}`)).next();
-        b.confidence = Math.max(0, Math.min(1, b.confidence + evidenceStep(beliefTruth(b, holder, facts), roll)));
+        // ORW-585 (Fable T2): the night's evidence is what the holder holds through pathways - never the engine's truth (a sealed ballot, a hidden goal).
+        b.confidence = Math.max(0, Math.min(1, b.confidence + pathwayEvidence(b, s.beliefs[holder] ?? [], holder)));
         if (b.confidence < CONVICTION.dropBelow) {
           refuteClaim(s.beliefs, holder, b.id, (h, sub) => this.rel.edge(h, sub));
           b.refuted = true; // a belief that moved no edge is still let go
@@ -12543,6 +12543,12 @@ export class GameSessionAdapter implements GameSession {
       }
     } catch { /* fail-soft */ }
   }
+  /** ORW-571: remember that `owner` acted for goal `goalId` today (kept on their agenda until the night's mull reads it). */
+  private noteGoalServed(owner: EntityId, goalId: string): void {
+    const a = this.live?.agendas?.[owner];
+    if (!a || a.served?.includes(goalId)) return;
+    a.served = [...(a.served ?? []), goalId];
+  }
   /** The nightly mull (ORW-256 sleep step): once per night, every agenda fades what made no progress. Inner processing only. */
   private mullAgendasOvernight(): void {
     try {
@@ -12555,7 +12561,9 @@ export class GameSessionAdapter implements GameSession {
       this.weighEvidenceOvernight(); // 0160: what they looked into today moves what they believe, before the night's mull
       for (const id of Object.keys(s.agendas)) {
         const view = this.agendaView(id);
-        if (view) { const before = s.agendas[id]; s.agendas[id] = mullAgenda(before!, view, board, seed); this.appraiseSettled(id, before, s.agendas[id]!); }
+        // ORW-571: a goal a decision today was reasoned from (a nomination, a vote, a veto) moved forward too; the hourly steps are already on the agenda's `served`.
+        const decided = new Set((s.statedReasons ?? []).filter((r) => r.decider === id && r.day === board.day && r.real.goalId).map((r) => r.real.goalId!));
+        if (view) { const before = s.agendas[id]; s.agendas[id] = mullAgenda(before!, view, board, seed, decided); this.appraiseSettled(id, before, s.agendas[id]!); }
       }
     } catch { /* fail-soft */ }
   }

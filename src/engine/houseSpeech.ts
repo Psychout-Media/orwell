@@ -5,7 +5,7 @@ import type { ClaimInput, ClaimIntent, SpokenClaimKind } from "./spokenClaims";
 /**
  * Feature 0153 / ORW-330 (theme 2, slice 3) - NPCs SPREAD AND LIE ON PURPOSE. The house-life speech actions that were only labels
  * become real claims (0149) the ENGINE decides, checked against the engine's own truth:
- *  - PLANT: a lie told to someone about the planter's target (a true damaging claim instead, when the planter is being truthful and one exists);
+ *  - PLANT: a lie told to someone about the planter's target (a damaging thing the planter BELIEVES instead, when they are being truthful; ORW-588);
  *  - LEAK: passing on something the speaker BELIEVES about a third houseguest (true or not as the belief happens to be; nothing if they hold no belief);
  *  - CONFIRM: backing up what the listener already believes about someone;
  *  - FISH: asking what someone knows - the LISTENER answers with one of their own beliefs (the claim runs listener -> asker).
@@ -98,15 +98,21 @@ export function planSpeech(action: SpeechAction, actor: EntityId, partner: Entit
   switch (action) {
     case "plant": {
       if (!inHouse(about) || about === partner || about === actor) return undefined;
+      // ORW-588 (Fable T2): the planter chooses from what THEY hold, never from the engine's truth. A truthful plant passes on a damaging thing they BELIEVE about
+      // the target (nothing believed: nothing said); an untruthful plant tells a damaging story they do NOT hold. The engine then judges the claim's truth for
+      // the record (a lie can turn out true by accident) - it never steers which claim is chosen, so no speaker voices a secret they never learned.
+      if (truthful) return fromBeliefs(actor, partner, "warn");
+      const held = new Set(claimsOf(ctx.beliefs, actor).filter((b) => b.value && !b.refuted && b.subject === about)
+        .map((b) => claimFromBelief(b, actor, partner)).filter((c): c is NonNullable<typeof c> => c !== undefined).map((c) => `${c.kind}|${c.object ?? ""}`));
       const start = Math.floor(ctx.roll * PLANT_KINDS.length) % PLANT_KINDS.length;
       for (let i = 0; i < PLANT_KINDS.length; i++) {
         const kind = PLANT_KINDS[(start + i) % PLANT_KINDS.length]!;
         const object = kind === "talking-about" ? partner : undefined; // "they've been talking about you"
+        if (held.has(`${kind === "targets-you" ? "going-after" : kind}|${kind === "targets-you" ? actor : object ?? ""}`)) continue; // they believe this one: it would not be a lie
         const claim = { speaker: actor, listener: partner, kind, subject: about!, ...(object ? { object } : {}) };
-        const isTrue = truthOf(claim, ctx.facts);
-        if (isTrue === truthful) return { ...claim, isTrue, intent: truthful ? "warn" : "mislead" };
+        return { ...claim, isTrue: truthOf(claim, ctx.facts), intent: "mislead" };
       }
-      return undefined; // a truthful planter with nothing true to say says nothing damaging
+      return undefined;
     }
     case "leak": return fromBeliefs(actor, partner, "inform");
     case "confirm": {
