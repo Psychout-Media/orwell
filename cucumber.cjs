@@ -145,6 +145,7 @@ module.exports = {
       "docs/features/0179-network-shape-in-the-spread.feature",
       "docs/features/0175-the-bond-record.feature",
       "docs/features/0178-two-faced-deals.feature",
+      "docs/features/0190-the-audience-outside.feature",
       "docs/features/0188-the-trap.feature",
       "docs/features/0180-house-norms.feature",
       "docs/features/0162-broken-deal-credibility.feature",
