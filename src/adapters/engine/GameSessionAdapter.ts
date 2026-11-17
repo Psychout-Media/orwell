@@ -281,7 +281,7 @@ import type { CompetitionType, Intent } from "../../domain/competitionOutcome";
 import { strain as triggerStrain, shouldFire, eruptionEvent } from "../../engine/triggers";
 import { TRIGGER, type EruptionKind } from "../../engine/triggerConstants";
 import { SeededRandom } from "../random/SeededRandom";
-import { decideVoteTalk, voteTalkCunning } from "../../engine/voteTalk";
+import { decideVoteTalk, keepCredit, voteTalkCunning } from "../../engine/voteTalk";
 import { claimBed, freeBeds, sleepRoomOf, roomOfBed, roommatesIn, bedPartner, bedOfSpot, isDoubleSpot, pickSpot, type BedId, type BedsState } from "../../engine/beds";
 import { roomLabel, roomRef, roomLook, roomNamesFor, themedRoomAliases, drawHouseTheme, registerHouseTheme, acceptHouseThemeDraft, houseTheme as houseThemeById } from "../../engine/roomLabels";
 /** ORW-466: how many of a player's recent seasons' house themes the next draw avoids (a quarter of the library). */
@@ -359,7 +359,7 @@ import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
 import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
 import { sameMoment } from "../../engine/claimMoment";
-import { CAUGHT_LIE, contradicts, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
+import { CAUGHT_LIE, contradicts, overclaimedKeeps, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
 import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedInText, namedSourceContent, noRecordNote, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
@@ -1533,6 +1533,8 @@ export class GameSessionAdapter implements GameSession {
       ...(this.credibilityEnabledNow() && live.playedGame === true ? { credibility: (listener: EntityId, speaker: EntityId) => this.credibilityOf(listener, speaker) } : {}), // ORW-587: played games only
     });
     if (told) this.catchContradiction(told);
+    // ORW-594 (Fable T2-13): a vote claim told AFTER this week's count went public is checked against it at once (the public tally only, never a ballot).
+    if (told && told.kind === "voted-to-keep") { const t = this.publicTallyThisWeek(); if (t) this.evictionCountPublic(t); }
     return told;
   }
   /**
@@ -1560,11 +1562,33 @@ export class GameSessionAdapter implements GameSession {
    */
   evictionCountPublic(tally: PublicTally): void {
     if (!this.liesCaughtWriting || !this.live?.claims) return;
-    for (const c of this.live.claims.items) {
-      if (c.week !== this.live.week || c.listener === PLAYER || !voteCountRulesOut(tally, c)) continue;
-      if (!(this.live.beliefs?.[c.listener] ?? []).some((b) => b.id.endsWith(`|${c.id}`) && !b.refuted)) continue;   // already caught
+    const live = this.live;
+    const believed = (holder: EntityId, claimId: string): boolean => (live.beliefs?.[holder] ?? []).some((b) => b.id.endsWith(`|${claimId}`) && !b.refuted);
+    for (const c of live.claims!.items) {
+      if (c.week !== live.week || c.listener === PLAYER || !voteCountRulesOut(tally, c)) continue;
+      if (!believed(c.listener, c.id)) continue;   // already caught
       this.catchLie({ holder: c.listener, liar: c.speaker, claimId: c.id, confidence: CAUGHT_LIE.impossible });
     }
+    // ORW-594 (Fable T2-13): CATCH BY COUNTING - more voters told this listener they kept the evictee than the public count has keep votes; the listener suspects the
+    // ones they trust least (a deduction, it can be wrong). Only claims they still believe; once caught, never again.
+    const byListener = new Map<EntityId, SpokenClaim[]>();
+    for (const c of live.claims!.items) {
+      if (c.week !== live.week || c.listener === PLAYER || c.kind !== "voted-to-keep" || c.object !== tally.evictee || !believed(c.listener, c.id)) continue;
+      (byListener.get(c.listener) ?? byListener.set(c.listener, []).get(c.listener)!).push(c);
+    }
+    for (const [holder, heard] of [...byListener].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+      for (const liar of overclaimedKeeps(tally, heard, (subject) => this.rel.edge(holder, subject).trust)) {
+        const ids = heard.filter((c) => c.subject === liar).map((c) => c.id);
+        this.catchLie({ holder, liar, claimId: ids, confidence: CAUGHT_LIE.counting });
+      }
+    }
+  }
+  /** ORW-594: the public count of this week's eviction, if one happened (the vote record's counts and voters only - never who voted for what). */
+  private publicTallyThisWeek(): PublicTally | undefined {
+    const live = this.live;
+    const rec = live?.voteRecord?.[live.voteRecord.length - 1];
+    if (!live || !rec || rec.week !== live.week) return undefined;
+    return { evictee: rec.evictee, evictVotes: Object.values(rec.voteOf).filter((t) => t === rec.evictee).length, voters: Object.keys(rec.voteOf) };
   }
   /** 0153 / ORW-330 slice 3: what a house-life speech action SAYS, as a claim the engine decides and checks against its truth; nothing for other actions. Returns the claim told, if any. */
   private sayInHouseLife(p: { kind: string; actor: EntityId; about?: EntityId; truthful: boolean }, partner: EntityId, salt: string): SpokenClaim | undefined {
@@ -1647,6 +1671,8 @@ export class GameSessionAdapter implements GameSession {
     const digest = (live.weekDigests ?? []).filter((d) => d.week === rec.week && d.evictee === rec.evictee).pop();
     const nominees = digest && digest.nominees.length >= 2 ? [...digest.nominees] : [...new Set([rec.evictee, ...Object.values(rec.voteOf)])];
     const living = this.livingIds().filter((id) => id !== PLAYER);
+    // ORW-613: the player hears how people voted like anyone (a candidate listener while they are in the house); the player's OWN vote talk is theirs to say (ORW-612).
+    const listeners = this.livingIds().includes(PLAYER) ? [...living, PLAYER] : living;
     const out: SpokenClaim[] = [];
     const log = (live.claims ??= { seq: 0, items: [] });
     for (const speaker of Object.keys(rec.voteOf).sort()) {
@@ -1654,7 +1680,7 @@ export class GameSessionAdapter implements GameSession {
       const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:vote-talk:${rec.week}:${rec.evictee}:${speaker}`));
       const character = this.agendaCharacterOf(speaker);
       const said = decideVoteTalk({
-        speaker, candidates: living, real: rec.voteOf[speaker]!, nominees,
+        speaker, candidates: listeners, real: rec.voteOf[speaker]!, nominees,
         cunning: voteTalkCunning(character?.archetype),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character?.archetype ?? ""] ?? 0.5) + (REASONS.candorByStyle[character?.strategyStyle ?? ""] ?? 0))),
         likes: (listener, of) => Math.max(0, Math.min(1, this.rel.edge(listener, of).affinity)),
@@ -1662,8 +1688,23 @@ export class GameSessionAdapter implements GameSession {
       });
       if (!said) continue;
       // The evictee has just left the house, so the claim is told against the house as it stood at the vote.
-      const told = this.tellClaimIn(said.claim, [...living, ...nominees.filter((n) => !living.includes(n))]);
-      if (told) out.push(told);
+      const told = this.tellClaimIn(said.claim, [...listeners, ...nominees.filter((n) => !listeners.includes(n))]);
+      if (!told) continue;
+      out.push(told);
+      if (told.listener === PLAYER) {
+        // the player was told: a scene they were in (their own knowledge), the words only - never whether it is true
+        this.onPlayerEvent?.(`${this.nameOf(speaker)} tells ${this.nameOf(PLAYER)} they voted to keep ${this.nameOf(told.object!)}`, [speaker, PLAYER], "conversation");
+      } else if (told.object !== undefined) {
+        // ORW-594 (Fable T2-13): a believed keep of someone the listener liked earns the speaker a little trust; recorded on the belief, so a caught lie takes it back
+        const credit = keepCredit(this.rel.edge(told.listener, told.object).affinity);
+        const belief = (live.beliefs?.[told.listener] ?? []).find((b) => b.id.endsWith(`|${told.id}`) && !b.refuted);
+        if (credit > 0 && belief && !belief.impact) {
+          const e = this.rel.edge(told.listener, speaker);
+          const before = { trust: e.trust, affinity: e.affinity };
+          e.trust = clamp01(e.trust + credit); e.affinity = clamp01(e.affinity + credit);
+          belief.impact = { trust: e.trust - before.trust, affinity: e.affinity - before.affinity };
+        }
+      }
     }
     // The count was public before anyone spoke: a vote claim it rules out (a unanimous count, "I voted to keep" the evictee) is caught the moment it is told (0154 trigger 1; the PUBLIC tally only, never a ballot).
     if (out.length > 0) this.evictionCountPublic({ evictee: rec.evictee, evictVotes: Object.values(rec.voteOf).filter((t) => t === rec.evictee).length, voters: Object.keys(rec.voteOf) });
@@ -1709,7 +1750,6 @@ export class GameSessionAdapter implements GameSession {
   private claimsToPlayerEnabled = flagDefaultOn("ORWELL_CLAIMS_TO_PLAYER");
   setClaimsToPlayerEnabled(on: boolean): void { this.claimsToPlayerEnabled = on; }
   private claimsToPlayerDecided = new Map<EntityId, { epoch: number; tells?: NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> }>();
-  private claimsToPlayerAttempts = new Map<string, number>();
   /** The engine's own check of whether a believed thing is TRUE (never handed outward): the ONE truth rule, slice 3's `truthOf` over `truthFacts()` (review by the claims-core owner: slice 4 used its own cheaper reads before). */
   private believedThingIsTrue(b: SayableBelief): boolean {
     if (!this.live) return false;
@@ -1826,10 +1866,10 @@ export class GameSessionAdapter implements GameSession {
     const day = live.dayNumber ?? 0;
     const log = live.claims?.items ?? [];
     const told = log.filter((c) => c.speaker === id && c.listener === PLAYER);
-    const attemptKey = `${id}:${live.week}:${day}`;
-    const attempt = this.claimsToPlayerAttempts.get(attemptKey) ?? 0;
-    this.claimsToPlayerAttempts.set(attemptKey, attempt + 1);
-    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:claims-to-player:${attemptKey}:${attempt}`));
+    // ORW-594 (Fable T2-12): ONE roll per houseguest per part of the day (not per player turn, which made "confides rarely" near-certain over a day of turns). The key is
+    // the persisted clock (week, day, part of day), so a restart rolls the same. With the clock off, the day is the part.
+    const attemptKey = `${id}:${live.week}:${day}:${live.timeOfDay ?? ""}`;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:claims-to-player:${attemptKey}`));
     const decided = decideTellToPlayer(live.beliefs?.[id] ?? [], {
       holder: id, player: PLAYER, trustInPlayer: this.rel.edge(id, PLAYER).trust, audience: this.audienceAround(id), candor: this.candorOf(id),
       toldToday: toldTodayBy(told, live.week, day),
