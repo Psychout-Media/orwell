@@ -265,7 +265,7 @@ function openCeremonyStep(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | null 
     } else {
       s.vetoUsed = true; s.saved = o.saved; s.replacement = o.replacement;
       s.finalNominees = [otherNominee(s), o.replacement!];
-      if (!o.fromPlayer) ctx.assuranceNominated?.(s.hoh!, o.replacement!); // B4 review fix, as in resolveReplacement
+      ctx.assuranceNominated?.(s.hoh!, o.replacement!); // B4 review fix, as in resolveReplacement; ORW-615: the player HOH's own replacement settles their assurances too
       ev = {
         beat: "veto-ceremony",
         content: `${holder} uses the veto on ${holder === o.saved ? "themselves" : o.saved}; ${s.hoh} names ${o.replacement} as the replacement`,
@@ -281,10 +281,9 @@ function openCeremonyStep(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | null 
   }
   if (c.kind === "nominations" && id === "named") {
     const [a, b] = c.outcome!.nominees;
-    if (!c.outcome!.fromPlayer) {
-      if (ctx.assuranceNominated) for (const n of [a, b]) ctx.assuranceNominated(s.hoh!, n);
-      ctx.assuranceKeptAtNominations?.(s.hoh!, [a, b]);
-    }
+    // ORW-615: the player HOH's own nominations settle the player's casual assurances exactly as an NPC HOH's do (nominating someone you told "you're safe" breaks it)
+    if (ctx.assuranceNominated) for (const n of [a, b]) ctx.assuranceNominated(s.hoh!, n);
+    ctx.assuranceKeptAtNominations?.(s.hoh!, [a, b]);
     s.nominationTarget = c.outcome!.target;
     s.nominees = [a, b]; s.beat = "veto-competition";
     ev = { beat: "nominations", content: `${s.hoh} nominates ${a} and ${b}`, participants: [s.hoh!, a, b] };
@@ -2172,6 +2171,18 @@ export function seatTacticOf(rule: string | undefined, terms: ReadonlyArray<read
   if (rule === "pawn-is-biggest-floater") return "pawn";
   return term("pawn-seat-floater") > 0 && terms.every(([k, v]) => k === "pawn-seat-floater" || v <= term("pawn-seat-floater")) ? "pawn" : "direct";
 }
+/**
+ * ORW-578 part 2b: a veto holder who does NOT use the veto gives a reason aloud at the ceremony, about the HOH whose nominations they leave standing. The same seam as
+ * every stated reason (NPC deciders in a played game only): the honest version is "keeping the nominations the same", and the candor roll can soften or cover it.
+ */
+export function noteVetoHoldReason(s: LiveSeasonState, ctx: SeasonCtx, holder: EntityId): void {
+  if (!ctx.statedReasonFor || !ctx.agendaPullFor || holder === ctx.player || !s.hoh || s.hoh === holder || !s.active.includes(s.hoh)) return;
+  const log = (s.statedReasons ??= []);
+  if (log.some((r) => r.week === s.week && r.decider === holder && r.decision === "veto-hold")) return;
+  const real: RealReason = { decision: "veto-hold", decider: holder, choice: s.hoh, terms: [] };
+  const day = s.dayNumber ?? s.week;
+  log.push({ week: s.week, day, decider: holder, decision: "veto-hold", public: true, real, stated: ctx.statedReasonFor(real, day) });
+}
 /** `whySinkFor` plus ORW-314's stated-reason record (inert unless the context supplies the agenda seam, i.e. a played game). */
 const reasonSinkFor = (s: LiveSeasonState, ctx: SeasonCtx, by: EntityId): WhySink => (w) => { recordWhy(s, by, w); noteStatedReason(s, ctx, by, w); };
 
@@ -3731,6 +3742,7 @@ function npcVetoSave(s: LiveSeasonState, ctx: SeasonCtx): EntityId | undefined {
     recordWhy(s, holder, { kind: "veto", rule: "no-candidate-clears-the-bar", options: [
       { option: "hold", role: "chosen", total: bar, terms: [["bar", bar]] }, opt(ru, "runner-up"),
     ] });
+    noteVetoHoldReason(s, ctx, holder); // ORW-578 part 2b: not using the veto is a public act too, with a reason said aloud
   }
   return saved;
 }
@@ -3913,6 +3925,8 @@ export function applyDecision(
         s.ceremony.at = s.ceremony.steps.indexOf("named");
         return openCeremonyStep(s, ctx)!;
       }
+      if (ctx.assuranceNominated) for (const n of [a, b]) ctx.assuranceNominated(s.hoh!, n); // ORW-615: the player HOH settles their assurances like anyone
+      ctx.assuranceKeptAtNominations?.(s.hoh!, [a, b]);
       s.nominees = [a, b]; s.nominationTarget = undefined; s.pending = undefined; s.beat = "veto-competition";
       return { beat: "nominations", content: `${s.hoh} nominates ${a} and ${b}`, participants: [s.hoh!, a, b] };
     }
@@ -3998,6 +4012,7 @@ export function applyDecision(
       const legal = new Set(selectableReplacements(weekState(s, ctx)).filter((h) => h !== s.saved));
       if (!legal.has(input.replacement)) throw new Error("illegal replacement nominee");
       s.replacement = input.replacement; s.finalNominees = [otherNominee(s), input.replacement];
+      ctx.assuranceNominated?.(s.hoh!, input.replacement); // ORW-615: as an NPC HOH's replacement does
       s.pending = undefined; s.beat = "eviction";
       return { beat: "veto-ceremony", content: `${s.hoh} names ${input.replacement} as the replacement`, participants: [s.hoh!, input.replacement] };
     }
