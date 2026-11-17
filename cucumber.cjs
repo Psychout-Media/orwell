@@ -160,6 +160,7 @@ module.exports = {
       "docs/features/0170-npc-deals-and-hoh-deal.feature",
       "docs/features/0174-triads-swing-votes-kingmakers.feature",
       "docs/features/0185-mood-contagion.feature",
+      "docs/features/0186-deal-exposed-and-renegotiated.feature",
       "docs/features/0182-grudges.feature",
       "docs/features/0184-reputation.feature",
       "docs/features/0181-bond-feelings.feature",
