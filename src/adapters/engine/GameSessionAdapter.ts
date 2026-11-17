@@ -82,7 +82,7 @@ import { FavorLedger, type FavorEntry } from "../../engine/favors";
 import { FAVOR } from "../../engine/favorConstants";
 import { counterStreamKey, weighCounter, type CounterAsk, type CounterSide } from "../../engine/favorCounters";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
-import { NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, salience, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
+import { NPC_MEMORY, PLAYED_NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, salience, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
@@ -13261,6 +13261,9 @@ export class GameSessionAdapter implements GameSession {
    * report), never a gate (Ryne 2026-11-05/06).
    */
   private houseLifeEnabled = flagDefaultOn("ORWELL_HOUSE_LIFE");
+  /** ORW-620 (night owls): late-night talks among the houseguests still up, catchable by a player who stays up. ON unless `ORWELL_NIGHT_OWLS=0`. Played games only; OFF => the hour view carries no `nightOwl` => byte-identical. */
+  private nightOwlsEnabled = flagDefaultOn("ORWELL_NIGHT_OWLS");
+  setNightOwlsEnabled(on: boolean): void { this.nightOwlsEnabled = on; }
   setHouseLifeEnabled(on: boolean): void { this.houseLifeEnabled = on; }
   houseLifeActiveNow(): boolean {
     return this.houseLifeEnabled && this.live?.playedGame === true && !!this.live.agendas && !!this.house && !!this.presence;
@@ -13374,6 +13377,7 @@ export class GameSessionAdapter implements GameSession {
       if (!kindredCache.has(id)) { const k = sharedTopRoom(s.tenure, id, actors); kindredCache.set(id, k.length ? new Set(k) : undefined); }
       return kindredCache.get(id);
     };
+    const playerUp = playerRoom !== undefined && (this.awakeNow()?.has(house.player.id) ?? false); // ORW-620: a player who stays up is a night owl too
     for (const id of actors) {
       const character = this.agendaCharacterOf(id);
       if (!character) continue;
@@ -13396,6 +13400,7 @@ export class GameSessionAdapter implements GameSession {
         ...(houseCulture ? { culture: houseCulture } : {}),
         ...(habitsOf.get(id) ? { pairHabits: habitsOf.get(id)! } : {}),
         ...(this.courtView(id, s.hoh) ? { court: this.courtView(id, s.hoh)! } : {}),
+        ...(this.nightOwlsEnabled && s.playedGame === true ? { nightOwl: { playerUp: playerUp } } : {}),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),
         ...(this.bondFeelingsOn() ? { rivalry: this.rivalryStrandsOf(id, [...others, ...(playerRoom !== undefined ? [house.player.id] : [])]) } : {}), // ORW-622: a grudge rubs at dinner
       }, seed));
@@ -13407,7 +13412,7 @@ export class GameSessionAdapter implements GameSession {
     const approachAllowed = (p: PlannedAction): boolean => this.desireClockEnabled && (hostileAtPlayer(p) || this.rel.edge(p.actor, house.player.id).trust >= DESIRE.goalMinTrust) && !tieAvoids(this.agendaView(p.actor)?.character ?? this.agendaCharacterOf(p.actor)!).includes(house.player.id);
     for (const p of plans) {
       if (p.place === "diary-room" || !where.has(p.actor)) continue;
-      if (p.goalId && p.with.includes(house.player.id) && !approachAllowed(p)) continue;
+      if ((p.goalId || p.nightOwl) && p.with.includes(house.player.id) && !approachAllowed(p)) continue;
       if (presence.get(p.actor) !== p.place) { this.presenceTenure?.set(p.actor, 0); this.presenceZone?.delete(p.actor); } // ORW-386: walking to another room is a fresh arrival; the tenure used to keep counting through this move (Marisol: "22 turns" in a kitchen she had just walked into)
       presence.set(p.actor, p.place);
       this.presenceBase?.set(p.actor, p.place);
@@ -13424,6 +13429,8 @@ export class GameSessionAdapter implements GameSession {
         if (p.goalId && s.playedGame === true) this.noteGoalServed(p.actor, p.goalId); // ORW-571: a step made for the goal is progress for tonight's mull
         if (p.goalId && (p.with.includes(house.player.id) || hostileAtPlayer(p)) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: hostileAtPlayer(p) ? "probe" : desireForAction(p.kind), goalId: p.goalId, hour: this.absHour() };
+        } else if (p.nightOwl && p.with.includes(house.player.id) && approachAllowed(p)) {
+          (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: "night-owl", hour: this.absHour() }; // ORW-620: an awake houseguest comes to the player who is still up, through the desire clock's own path and guards
         } else if (p.court && p.with.includes(house.player.id) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: "court", hour: this.absHour() }; // 0173: the player is the HOH: the court comes to them, through the desire clock's own path and guards
         }
@@ -13436,7 +13443,7 @@ export class GameSessionAdapter implements GameSession {
         const event: GameEvent = {
           id: `offscreen:${type}:${events.count()}:${hashSeed(`${seed}:life:${day}:${hour}:${p.actor}:${p.kind}`) % 1_000_000_000}`,
           ts: stretchIndex, type, initiator: p.actor, witnessSet: people, hidden: true, content, baseContent: content,
-          houseLife: { action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), ...(p.ritual ? { ritual: p.ritual } : {}), ...(p.habit ? { habit: p.habit } : {}), stretch: stretchIndex, ...(this.inGameAbsHour() !== undefined ? { at: this.inGameAbsHour() } : {}),
+          houseLife: { ...(p.nightOwl ? { nightOwl: true } : {}), action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), ...(p.ritual ? { ritual: p.ritual } : {}), ...(p.habit ? { habit: p.habit } : {}), stretch: stretchIndex, ...(this.inGameAbsHour() !== undefined ? { at: this.inGameAbsHour() } : {}),
             ...(() => { const seen = [...presence.entries()].filter(([id, room]) => room === p.place && !people.includes(id) && id !== house.player.id).map(([id]) => id).sort(); return seen.length ? { seenBy: seen } : {}; })() }, // ORW-539: who could see it
         };
         events.record(event);
@@ -13622,6 +13629,7 @@ export class GameSessionAdapter implements GameSession {
         const roll = new SeededRandom(hashSeed(`${seed}:favors:call:${f.id}:${s.week}`)).next();
         if (roll < p) {
           this.favors.resolve(f.id, "repaid", beat);
+          if (s.playedGame === true) this.remember(n, debtor, "deal-kept", ASSURANCE.brokenMemorySeverity * FAVOR.repaidMemoryShare); // ORW-575 (c): the one who called it in remembers it was honored, as a refusal is remembered
           this.onPlayerEvent?.(`${this.nameOf(debtor)} repays the favor ${this.nameOf(n)} called in`, [debtor, n], "conversation");
         } else this.refuseFavor(f, n, debtor);
       }
@@ -14214,6 +14222,8 @@ export class GameSessionAdapter implements GameSession {
    * `recordOffscreenSoul` — the off-screen tick should prefer this seam.
    */
   recordOffscreenScene(initiator: EntityId, partner: EntityId, type: InteractionType): void {
+    // ORW-616 (2): an NPC-to-NPC scene is remembered by the one it touched, against the actor, with the same kind and weight as the same act done to or by the player. Played games only (a headless sim writes nothing new).
+    if (this.live?.playedGame === true) this.rememberSceneAbout(partner, type, initiator);
     this.inflect(initiator, offscreenEmotion(type, "initiator"));
     this.inflect(partner, offscreenEmotion(type, "partner"));
     // 0066 Phase-2 (Extension 2): a conflict drains BOTH ⇒ they turn in earlier tonight. Gated on the
@@ -15719,8 +15729,8 @@ export class GameSessionAdapter implements GameSession {
     const d = decideDealConsent({
       kind, ...(direction ? { direction } : {}),
       trust: e.trust, affinity: e.affinity, threat: e.threat,
-      grudge: memoryGrudge(entries, live.week, decay, carry),
-      favor: memoryFavor(entries, live.week, decay, carry),
+      grudge: memoryGrudge(entries, live.week, decay, carry, this.memoryConstants()),
+      favor: memoryFavor(entries, live.week, decay, carry, this.memoryConstants()),
       targetsMe: this.npcBeliefsEnabled ? beliefPull(live.beliefs, npcId, PLAYER, live.week) : 0, // 0150: every believed grievance against the player
       jitter,
       ...(() => { // 0184: a poor standing in this houseguest's eyes lowers their willingness to deal (the existing signed mood term; 0 with nothing heard => unchanged)
@@ -17061,10 +17071,17 @@ export class GameSessionAdapter implements GameSession {
   /** Write one memory `holder → subject` (NPC holders only; only while the layer is on, so flags-off saves are untouched). */
   private remember(holder: EntityId, subject: EntityId, kind: MemoryKind, severity: number): void {
     if (!this.npcMemoryEnabled || !this.live || holder === PLAYER || holder === subject) return;
-    recordMemory((this.live.npcMemory ??= {}), holder, subject, { kind, week: this.live.week, severity });
+    recordMemory((this.live.npcMemory ??= {}), holder, subject, { kind, week: this.live.week, severity }, NPC_MEMORY, this.live.playedGame === true); // ORW-575: played games keep the strongest grudge and favor when the pair is full
     // ORW-312: a deal broken / a betrayal / an exposed secret is a real event for the HOLDER's agenda (fail-soft, no rng, played games only).
     const t = AGENDA_MEMORY_TRIGGER[kind];
     if (t) this.agendaRecheck(t, [holder]);
+  }
+
+  /** ORW-616 (2): the memory half of a scene between houseguests: `holder` remembers `actor` by the scene's kind (no soul inflection here: the off-screen path already moves both souls). */
+  private rememberSceneAbout(holder: EntityId, sceneKind: string, actor: EntityId): void {
+    if (!this.npcMemoryWritersEnabled || holder === PLAYER || actor === PLAYER) return;
+    const m = SCENE_MEMORY_SEVERITY[sceneKind];
+    if (m) this.remember(holder, actor, m.kind, m.severity);
   }
 
   /** P4g - the NPCs a recorded PLAYER scene touched remember it: a betrayal / conflict (grudge) or a kindness (favor) about the PLAYER, through the existing 0024 ledger. Needs the
@@ -17421,14 +17438,18 @@ export class GameSessionAdapter implements GameSession {
     return applyForgiveness(entries, trait, this.live.week);
   }
 
+  /** ORW-575 (c): a played game weighs a remembered favor as much as a remembered wrong; a headless sim keeps the original constants (byte-identical). */
+  private memoryConstants(): typeof NPC_MEMORY { return this.live?.playedGame === true ? PLAYED_NPC_MEMORY : NPC_MEMORY; }
+
   /** The signed residual tilt of `holder` toward acting AGAINST `subject` (`+grudge − favor`); 0 for the player. */
   private memoryTiltFor(subject: EntityId, holder: EntityId): number {
     if (holder === PLAYER || !this.live) return 0;
     const raw = this.live.npcMemory?.[holder]?.[subject];
     if (!raw || raw.length === 0) return 0;
     const entries = this.memoryEntriesSeenBy(holder, raw, subject);
-    if (this.npcMemoryStandaloneEnabled) return memoryTiltStandalone(entries, this.live.week, this.memoryDecayScale(holder));
-    return memoryTilt(entries, this.live.week, this.memoryDecayScale(holder), this.memoryCarry(holder, subject));
+    const mc = this.memoryConstants();
+    if (this.npcMemoryStandaloneEnabled) return memoryTiltStandalone(entries, this.live.week, this.memoryDecayScale(holder), mc);
+    return memoryTilt(entries, this.live.week, this.memoryDecayScale(holder), this.memoryCarry(holder, subject), mc);
   }
 
   /** An NPC the player has wronged (a strong residual grudge) does not float a safety/alliance deal to them. */
@@ -17799,7 +17820,7 @@ export class GameSessionAdapter implements GameSession {
           // 0171: a counter taken puts the player in the NPC's debt (they met the ask); a swap to a lighter deal puts the NPC in the player's (the player gave up the heavier promise). Hidden ledger, no view.
           // A counter is a CONDITION: it is booked as "the player owes" only when it is true at this week's eviction (`settleFavorConditions`), else it lapses unbooked.
           if (o.counter && o.counter.ask.kind !== "vote") (s.favorConditions ??= []).push({ id: `cond:${o.id}:${o.counter.round}`, owedBy: PLAYER, owedTo: o.from, origin: `counter:${o.id}:${o.counter.round}`, kind: o.counter.ask.kind, target: o.counter.ask.target, week: s.week, state: "waiting" });
-          else if (o.favor?.favorId) this.favors.resolve(o.favor.favorId, "repaid", this.favorBeat()); // the player repays a favor an NPC called in
+          else if (o.favor?.favorId) { this.favors.resolve(o.favor.favorId, "repaid", this.favorBeat()); if (s.playedGame === true) this.remember(o.from, PLAYER, "deal-kept", ASSURANCE.brokenMemorySeverity * FAVOR.repaidMemoryShare); } // ORW-575 (c): the caller remembers the player honored it // the player repays a favor an NPC called in
           else if (o.favor) this.favors.owe({ owedBy: o.from, owedTo: PLAYER, origin: `ask:${o.id}`, beat: this.favorBeat() }); // the player grants a favor an NPC asked for: the NPC now owes
           else if (old) this.favors.owe({ owedBy: o.from, owedTo: PLAYER, origin: old.id, beat: this.favorBeat(), witnesses: old.formationWitnesses ?? [] });
         }
