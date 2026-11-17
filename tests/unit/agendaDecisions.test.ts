@@ -69,6 +69,19 @@ describe("the real reason and the stated reason", () => {
     expect(truthfulKind(real({ terms: [] }))).toBe("biggest-threat");
   });
 
+  it("ORW-578: the honest reason is what PUSHED the choice (the largest positive term), never the largest by size regardless of sign", () => {
+    // a nomination where a protective deal pulled hard AGAINST it, and the threat read pushed it: the reason is the threat, not "I kept my word"
+    expect(truthfulKind(real({ terms: [{ name: "deal", value: -0.9 }, { name: "threat", value: 0.3 }] }))).toBe("biggest-threat");
+    expect(truthfulKind(real({ terms: [{ name: "bond", value: -0.8 }, { name: "memory", value: 0.2 }] }))).toBe("came-after-me");
+  });
+  it("ORW-578: a save is never voiced as a threat read: a pull-them-in goal or a bond is loyalty, a promise is a kept word", () => {
+    expect(truthfulKind(real({ decision: "veto", goalKind: "pull-them-in", terms: [{ name: "threat", value: 0.9 }] }))).toBe("loyal-to-my-side");
+    expect(truthfulKind(real({ decision: "veto", terms: [{ name: "threat", value: -0.6 }, { name: "bond", value: 0.4 }] }))).toBe("loyal-to-my-side");
+    expect(truthfulKind(real({ decision: "veto", terms: [{ name: "deal", value: 0.5 }] }))).toBe("kept-my-word");
+    expect(truthfulKind(real({ decision: "veto", terms: [{ name: "threat", value: 0.9 }] }))).toBe("nothing-personal");
+    expect(truthfulKind(real({ decision: "veto", terms: [] }))).toBe("nothing-personal");
+  });
+
   it("a backdoor HOH always tells the nominees they are pawns, and the engine knows it is a cover", () => {
     expect(explainDecision(real({ tactic: "backdoor" }), char("loyalist", "loyal"), 1, 4)).toEqual({ kind: "pawn-youll-be-fine", about: TARGET, candor: "cover" });
   });
@@ -100,5 +113,16 @@ describe("the real reason and the stated reason", () => {
     expect(explainDecision(r, char("analyst"), 9, 4)).toEqual(explainDecision(r, char("analyst"), 9, 4));
     const voiced = voiceableReason(explainDecision(r, char("analyst"), 9, 4));
     expect(Object.keys(voiced).sort()).toEqual(["about", "kind"]);
+  });
+});
+
+describe("ORW-578: every public decision moment tells the narrator to give only the engine's stated reason, or none", () => {
+  it("nominations, the veto ceremony and the final eviction each carry the stay-silent rule", async () => {
+    const { MOMENT_PROMPTS } = await import("../../src/engine/momentPrompts");
+    for (const m of ["nominations", "veto-ceremony", "final-eviction"]) {
+      const text = MOMENT_PROMPTS[m] ?? "";
+      expect(text, m).toMatch(/said aloud/);
+      expect(text, m).toMatch(/no other reason of your own/);
+    }
   });
 });
