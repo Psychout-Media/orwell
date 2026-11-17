@@ -100,6 +100,12 @@ function buildUserSandbox(user = "default"): UserSandbox {
   commands.setSceneMemorySink((holders, kind) => session.rememberPlayerScene(holders, kind));
   // B4: a recorded casual assurance ("you're safe with me") is kept on the live state (flag-gated, default ON; `ORWELL_ASSURANCES=0` turns it off).
   commands.setAssuranceSink((a) => session.recordAssurance(a));
+  // ORW-586: a typed promise on a recorded scene becomes a termed open-ledger entry (+ its assurance row), the engine validating everything (flag-gated, `ORWELL_PROMISE_TERMS`, default ON).
+  commands.setPromiseSink((p) => {
+    const before = session.assuranceCount();
+    const r = session.recordPromiseTerm(p);
+    return { accepted: r.accepted && r.duplicate !== true, assuranceWritten: session.assuranceCount() > before };
+  });
   // B24: an NPC's tell about the player (a recorded chat scene) is held as a belief by each named listener (flag-gated, default ON; `ORWELL_HEARD_ABOUT_ME=0` turns it off).
   commands.setHeardAboutMeSink((h) => session.recordHeardAboutMe(h));
   // Phase 2 (duration-based clock): a recorded social scene that proposed how long it FELT hands its

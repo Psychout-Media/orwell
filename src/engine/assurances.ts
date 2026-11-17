@@ -68,6 +68,12 @@ export class AssuranceLedger {
     a.status = status;
     return true;
   }
+  /** ORW-586: the speaker WITHDREW the promise - lapse (never fold) the open rows matching from/to/kind (and the week when given), so a later board event cannot break it. Returns how many lapsed; none => a no-op. */
+  lapseMatching(m: { from: EntityId; to: EntityId; kind: AssuranceKind; week?: number }): number {
+    let n = 0;
+    for (const a of this.items) if (a.status === "open" && a.from === m.from && a.to === m.to && a.kind === m.kind && (m.week === undefined || a.week === m.week)) { a.status = "lapsed"; n++; }
+    return n;
+  }
   /** Mark every open assurance older than the horizon as lapsed (never deleted). */
   lapse(currentWeek: number): void {
     for (const a of this.items) if (a.status === "open" && currentWeek - a.week > ASSURANCE.horizonWeeks) a.status = "lapsed";
