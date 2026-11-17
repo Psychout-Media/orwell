@@ -121,6 +121,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_BOND_RECORD', key: 'bondRecord', parser: 'defaultOn' },
   // ORW-625: plans that last longer than an hour - each goal's stored short plan, carried across hours and days, dropped only for a reason. `=0` = the hour re-rolls each step.
   { envKey: 'ORWELL_GOAL_PLANS', key: 'goalPlans', parser: 'defaultOn' },
+  // 0188 / ORW-619: the trap - a suspicious houseguest tells one person a made-up secret and watches whether it comes back (the player can be trapped too). `=0` = no traps.
+  { envKey: 'ORWELL_TRAPS', key: 'traps', parser: 'defaultOn' },
   // 0180 / ORW-552 (Theme 3 slice 12 part 1): house norms - the house shuns a houseguest (or the player) it KNOWS broke their word (each observer's own held beliefs). `=0` = no shunning.
   { envKey: 'ORWELL_HOUSE_NORMS', key: 'houseNorms', parser: 'defaultOn' },
   // 0178 / ORW-552 (Theme 3 slice 1): two-faced deals - each NPC's secret plan for a deal it agreed to (keep / this week / break at a moment / flip at the vote / cut at the final three), carried out at its moment. `=0` = no plans.
