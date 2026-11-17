@@ -358,7 +358,7 @@ import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
 import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
 import { sameMoment } from "../../engine/claimMoment";
-import { CAUGHT_LIE, contradicts, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
+import { CAUGHT_LIE, caughtLieTrustDrop, contradicts, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
 import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedInText, namedSourceContent, noRecordNote, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
@@ -1487,7 +1487,8 @@ export class GameSessionAdapter implements GameSession {
   /**
    * B23 / #2017 14.5(3) - LIES CAUGHT. When a lie is exposed the houseguest it was told to holds a `lied-to-me` belief claim (engine-only, voiced only BY that holder), at the confidence of the evidence
    * that exposed it; a bluff a houseguest BELIEVED is stored as a belief too (a low-confidence `heard-rumor`, nature "bluff") and marked refuted once caught. Writers: the passive lie-catch
-   * (`catchPlayerBluff`) and a landed `accuseTie`. No rng, no edge fold; absent a belief layer nothing is written. ON unless `ORWELL_LIES_CAUGHT=0`. OFF => byte-identical.
+   * (`catchPlayerBluff`) and a landed `accuseTie`. `writeLieCaught` itself has no rng and no edge fold; absent a belief layer nothing is written. ON unless `ORWELL_LIES_CAUGHT=0`. OFF => byte-identical.
+   * A caught lie's full cost (the claim AND the trust hit) is `payForCaughtLie` (ORW-616), the same for the player and a houseguest.
    */
   private liesCaughtEnabled = flagDefaultOn("ORWELL_LIES_CAUGHT");
   setLiesCaughtEnabled(on: boolean): void { this.liesCaughtEnabled = on; }
@@ -1499,6 +1500,18 @@ export class GameSessionAdapter implements GameSession {
     if (!this.liesCaughtWriting || holder === PLAYER) return;
     recordClaim((this.live!.beliefs ??= {}), { ...(id ? { id } : {}), holder, kind: "lied-to-me", subject: liar, value: true, origin, confidence: Math.max(0, Math.min(1, confidence)), week: this.live!.week });
     this.agendaRecheck("caught-lying", [holder]); // ORW-312
+  }
+  /**
+   * ORW-616 ("all 4 equal") - the ONE cost of a caught lie, whoever told it (the player or a houseguest): the catcher holds `lied-to-me` at the evidence's confidence (`writeLieCaught`, belief layer on;
+   * it carries the credibility cost, B48, and can form a revenge goal, 0150) AND trusts the liar less by `caughtLieTrustDrop(confidence)` (rng-free, clamped >= 0, applied whatever the belief flags).
+   * NOT a jury demerit: a caught lie is not a broken deal (a broken deal pays on the deal-break path, for everyone). Never for the player as catcher (nothing acts on the player's hidden read).
+   * Both catch paths call this - `catchLie` (a houseguest's or the player's told claim caught) and `catchPlayerBluff` (the player's bluffed secret caught) - so the two can never drift apart again.
+   */
+  private payForCaughtLie(p: { holder: EntityId; liar: EntityId; confidence: number; origin: "witnessed" | "told" }): void {
+    if (p.holder === PLAYER || p.holder === p.liar || !this.live) return;
+    this.writeLieCaught(p.holder, p.liar, p.confidence, p.origin);
+    const e = this.rel.edge(p.holder, p.liar);
+    e.trust = Math.max(0, e.trust - caughtLieTrustDrop(p.confidence));
   }
   /** ORW-545 - a broken formal deal is a caught lie for the wronged party (full weight) and for each formation witness (the witness factor); one claim per deal per holder (idempotent). Never for a sealed ballot break (the callers skip it). */
   private writeDealBreakLie(holder: EntityId, breaker: EntityId, deal: Deal, role: "wronged" | "witness"): void {
@@ -1536,13 +1549,14 @@ export class GameSessionAdapter implements GameSession {
   }
   /**
    * 0154 / ORW-330 slice 5a - the ONE catch: `holder` caught `liar` in a lie. Takes back the belief(s) the told claim(s) planted (`refuteToldBelief`: refuteClaim + `refuted = true`, id kept) and writes
-   * `lied-to-me` at the evidence's confidence (`writeLieCaught`, flag `ORWELL_LIES_CAUGHT`, which also makes the liar's word count for less, B48, and can form a revenge goal, 0150). No rng, no narration.
+   * `lied-to-me` at the evidence's confidence (`writeLieCaught`, flag `ORWELL_LIES_CAUGHT`, which also makes the liar's word count for less, B48, and can form a revenge goal, 0150), and costs the liar
+   * the catcher's trust (`payForCaughtLie`, ORW-616: the same cost as the player's caught bluff). No rng, no narration.
    */
   private catchLie(p: { holder: EntityId; liar: EntityId; claimId?: string | readonly string[]; confidence: number }): void {
     if (!this.liesCaughtWriting || !this.live) return;
     const ids = p.claimId === undefined ? [] : typeof p.claimId === "string" ? [p.claimId] : p.claimId;
     for (const id of ids) refuteToldBelief(this.live.beliefs, p.holder, id, (h, s) => this.rel.edge(h, s));
-    this.writeLieCaught(p.holder, p.liar, p.confidence, "told");
+    this.payForCaughtLie({ holder: p.holder, liar: p.liar, confidence: p.confidence, origin: "told" });
   }
   /** 0154 trigger 3: a claim just told that cannot be true beside one the same speaker already told the same listener: the listener caught the lie (both planted beliefs are taken back; they cannot know which was false). */
   private catchContradiction(told: SpokenClaim): void {
@@ -14873,7 +14887,7 @@ export class GameSessionAdapter implements GameSession {
         // earlier bluff the player told THIS recipient about this subject.
         this.recordPlayerBluffBelief(recipient, resolved.subject);
       } else {
-        this.catchPlayerBluff(recipient, resolved.subject, rng, 0.8, "told"); // a real truth contradicts a prior bluff (evidence: the 0.8 told-by surfacing below)
+        this.catchPlayerBluff(recipient, resolved.subject, 0.8, "told"); // a real truth contradicts a prior bluff (evidence: the 0.8 told-by surfacing below)
         // The recipient now HOLDS the traded secret — a recorded `told-by:player` pathway (never a Vault read).
         const content = this.factContentFor(resolved.factId!) ?? `${this.nameOf(PLAYER)} shared a secret about ${this.nameOf(resolved.subject)}`;
         this.onSurfaceToHouseguest?.(recipient, content, resolved.subject, `told-by:${PLAYER}`, 0.8);
@@ -14938,20 +14952,17 @@ export class GameSessionAdapter implements GameSession {
   /**
    * deception — the PASSIVE LIE-CATCH (owner direction): a genuine contradicting pathway about `subject`
    * has just reached `npc`. If the player earlier BLUFFED this `npc` about this `subject`, the bluff is
-   * CAUGHT — the bluffer takes a betrayal-grade, recoverable hit on the npc→player edge (0026
-   * `IMPACT.betrayal`), and the caught bluff is cleared (it can't re-fire). The player never sees a number.
+   * CAUGHT — the bluffer pays the SAME cost any caught liar pays (`payForCaughtLie`, ORW-616: the lied-to-me
+   * claim + a bounded, rng-free trust hit; no longer a betrayal shock + a jury demerit the houseguests never
+   * paid), and the caught bluff is cleared (it can't re-fire). The player never sees a number.
    */
-  private catchPlayerBluff(npc: EntityId, subject: EntityId, rng: SeededRandom, evidenceConfidence = 0.85, evidenceOrigin: "witnessed" | "told" = "witnessed"): void {
+  private catchPlayerBluff(npc: EntityId, subject: EntityId, evidenceConfidence = 0.85, evidenceOrigin: "witnessed" | "told" = "witnessed"): void {
     const subjects = this.playerBluffBelief[npc];
     if (!subjects || !subjects.includes(subject)) return;
-    if (this.liesCaughtWriting) {
-      // B23: the npc now holds that the player lied to them, at the evidence's confidence; the bluff they had believed is refuted.
-      this.writeLieCaught(npc, PLAYER, evidenceConfidence, evidenceOrigin);
-      for (const c of claimsOf(this.live!.beliefs, npc)) if (c.kind === "heard-rumor" && c.nature === "bluff" && c.subject === subject && !c.refuted) c.refuted = true;
-    }
-    this.rel.applyDirected(npc, PLAYER, "betrayal", rng); // the npc realizes the player lied to them
+    // B23: the bluff they had believed is refuted.
+    if (this.liesCaughtWriting) for (const c of claimsOf(this.live!.beliefs, npc)) if (c.kind === "heard-rumor" && c.nature === "bluff" && c.subject === subject && !c.refuted) c.refuted = true;
+    this.payForCaughtLie({ holder: npc, liar: PLAYER, confidence: evidenceConfidence, origin: evidenceOrigin });
     this.playerBluffBelief[npc] = subjects.filter((s) => s !== subject);
-    recordDealBetrayal(this.live!, npc, PLAYER); // a jury-management demerit too (they remember the lie)
   }
 
   /**
@@ -15280,7 +15291,7 @@ export class GameSessionAdapter implements GameSession {
         this.recordPlayerBluffBelief(other.id, subject);
       } else {
         // A REAL expose DELIVERS the truth to the house — it CATCHES any earlier bluff about this subject.
-        this.catchPlayerBluff(other.id, subject, rng, 0.85, "witnessed"); // evidence: the 0.85 public exposure
+        this.catchPlayerBluff(other.id, subject, 0.85, "witnessed"); // evidence: the 0.85 public exposure
       }
     }
     // The exposer takes the betrayal-grade hit FROM the subject (the deepest wound — outing IS betrayal).
