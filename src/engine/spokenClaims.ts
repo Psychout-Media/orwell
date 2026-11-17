@@ -1,6 +1,6 @@
 import type { EntityId } from "../domain/ids";
 import { PLAYER } from "../domain/ids";
-import { recordClaim, type BeliefStore, type ClaimKind } from "./beliefStore";
+import { evidenceKey, recordClaim, type BeliefStore, type ClaimKind } from "./beliefStore";
 import { heardConfidence, tellerReliability } from "./heardAboutMe";
 import { convictionFor } from "./beliefConviction";
 
@@ -159,13 +159,31 @@ export function tellClaim(log: ClaimLog, beliefs: BeliefStore | undefined, input
     const fromSource = claimConfidence(ctx.trustOf(claim.listener, claim.speaker), ctx.credited?.(claim.listener, claim.speaker) ?? false);
     const convinced = ctx.credulity ? convictionFor(fromSource, ctx.credulity(claim.listener)) : fromSource; // 0160: the listener's own credulity
     const confidence = ctx.credibility ? convinced * Math.max(0, Math.min(1, ctx.credibility(claim.listener, claim.speaker))) : convinced; // ORW-587: a speaker the listener caught lying lands weaker
-    recordClaim(beliefs, {
+    const planted = {
       id: `${claim.listener}|${b.kind}|${b.subject}|${claim.id}`, holder: claim.listener, kind: b.kind, subject: b.subject,
       ...(b.object !== undefined ? { object: b.object } : {}), ...(b.nature !== undefined ? { nature: b.nature } : {}),
-      value: true, origin: "told", source: claim.speaker, confidence, week: claim.week,
-    });
+      value: true, origin: "told" as const, source: claim.speaker, confidence, week: claim.week,
+    };
+    // ORW-591 (Fable T2-8): the same speaker saying the same thing again is NOT fresh proof. It folds into the belief they already planted (still
+    // believed, not let go): the newer week and the higher confidence are kept (never lowered), and the telling's id is remembered so a lie caught on
+    // it still finds this belief. A DIFFERENT speaker saying it is real corroboration and plants its own belief (`pathwayEvidence`, `believedGrievance`).
+    const key = evidenceKey(planted);
+    const same = (beliefs[claim.listener] ?? []).find((x) => x.value && !x.refuted && evidenceKey(x) === key);
+    if (same) {
+      same.confidence = Math.max(same.confidence, confidence);
+      same.week = Math.max(same.week, claim.week);
+      (same.alsoClaims ??= []).push(claim.id);
+    } else recordClaim(beliefs, planted);
   }
   return claim;
+}
+
+/** ORW-591 (Fable T2-8) - the save check's rule for the claim log (append-only, never thinned): no claim told is ever lost, and the id counter never goes back. */
+export function claimLogSuperset(later: ClaimLog | undefined, earlier: ClaimLog | undefined): boolean {
+  if (!earlier || (earlier.items.length === 0 && earlier.seq === 0)) return true;
+  if (!later || later.seq < earlier.seq) return false;
+  const ids = new Set(later.items.map((c) => c.id));
+  return earlier.items.every((c) => ids.has(c.id));
 }
 
 /** A claim as its listener heard it: the speaker's words and nothing the engine knows behind them. */
