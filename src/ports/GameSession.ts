@@ -2166,8 +2166,8 @@ export interface HouseguestMoveResult {
  * The ONLY thing about a decision's why that reaches the narrator. Never the candor (truth / part-truth / cover), never the goal, never the terms: those stay engine-side.
  */
 export interface StatedReasonView {
-  decision: "nominate" | "replacement" | "veto" | "vote" | "final-hoh-evict" | "deal-consent" | "deal-break" | "deal-renegotiate";
-  kind: "biggest-threat" | "came-after-me" | "loyal-to-my-side" | "pawn-youll-be-fine" | "kept-my-word" | "didnt-trust-you" | "had-it-planned" | "nothing-personal" | "house-wants-it";
+  decision: "nominate" | "replacement" | "veto" | "veto-hold" | "vote" | "final-hoh-evict" | "deal-consent" | "deal-break" | "deal-renegotiate";
+  kind: "biggest-threat" | "came-after-me" | "loyal-to-my-side" | "pawn-youll-be-fine" | "kept-my-word" | "didnt-trust-you" | "had-it-planned" | "nothing-personal" | "house-wants-it" | "keeping-the-noms";
   about: NamedRef;
 }
 

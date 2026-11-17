@@ -1610,13 +1610,14 @@ export const STATED_REASON_GLOSS: Readonly<Record<string, string>> = {
   "had-it-planned": "this was always the plan",
   "nothing-personal": "it is purely strategic, nothing personal",
   "house-wants-it": "it is what the house wanted",
+  "keeping-the-noms": "I am keeping the nominations the same",
 };
 /** 0151: what a `tellsYou` kind says, as a verb phrase between the subject and the second party. */
 const TELLS_YOU_VERB: Record<string, string> = {
   "targets-you": "is targeting the player,", "voted-to-evict-you": "voted to evict the player,", "final-two-with": "has a final two with",
   "going-after": "is going after", "talking-about": "has been talking behind the back of", "lying-about": "is lying to",
 };
-const STATED_ACT: Readonly<Record<string, string>> = { nominate: "naming", replacement: "naming as the replacement", veto: "using the veto to save", vote: "breaking the tie against", "final-hoh-evict": "evicting" };
+const STATED_ACT: Readonly<Record<string, string>> = { nominate: "naming", replacement: "naming as the replacement", veto: "using the veto to save", "veto-hold": "not using the veto, leaving the nominations of", vote: "breaking the tie against", "final-hoh-evict": "evicting" };
 
 function presentCues(e: NonNullable<GameStateView["presentKnowledge"]>[number]): string {
   const bits: string[] = [];

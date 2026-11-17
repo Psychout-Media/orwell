@@ -40,7 +40,8 @@ function scene(w: unknown, type: string, people: string[]): void {
 When("two houseguests share several warm scenes and make a final two", function () {
   const b = bag(this);
   b.before = session(this).bondReader().strength(b.a!, b.b!);
-  for (let i = 0; i < 5; i++) scene(this, "bonding", [b.a!, b.b!]);
+  // ORW-598: whoever starts a scene weighs it less on their own side (initiatorShare), so friends take turns starting their warm scenes
+  for (let i = 0; i < 6; i++) scene(this, "bonding", i % 2 === 0 ? [b.a!, b.b!] : [b.b!, b.a!]);
   seam(this).deals.make([b.a!, b.b!], "final-two", "the two of us to the end", undefined, seam(this).live.week);
 });
 
