@@ -22,8 +22,6 @@ export const FAVOR = {
   honorLoyaltySlope: 0.3,
   honorBondSlope: 0.25,
   honorThreatSlope: 0.4,
-  /** The shield an honored favor adds against evicting the holder at that vote: this share of a formal deal's honor weight. */
-  shieldShareOfDealHonor: 0.6,
   /** Refusing a called-in favor costs the holder's trust in the debtor at this share of a betrayal-shock; a witness takes the existing deal witness factor of it. */
   refusalScale: 0.6,
   /** A holder not on the block passes a favor to a nominee they are at least this close to (rel.bondStrength). */

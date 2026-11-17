@@ -21,7 +21,7 @@ import { agendaRoll } from "./agenda";
 import { REASONS } from "./agendaConstants";
 
 /** Which way a decision cuts against a candidate: nominate / vote to evict / final-HOH eviction are "against"; a veto save is "for". */
-export type DecisionKind = "nominate" | "replacement" | "veto" | "veto-hold" | "vote" | "final-hoh-evict" | "deal-consent" | "deal-break" | "deal-renegotiate";
+export type DecisionKind = "nominate" | "replacement" | "veto" | "veto-hold" | "hc-pick" | "comp-throw" | "vote" | "final-hoh-evict" | "deal-consent" | "deal-break" | "deal-renegotiate";
 
 export interface GoalPull {
   /** Signed: positive = the agenda wants this candidate OUT; negative = it wants them kept. Same scale as a threat read. */
@@ -108,6 +108,15 @@ export function truthfulKind(real: RealReason): StatedReasonKind {
   // ORW-578 (Fable T1-11): the reason is the term that PUSHED the choice - the largest POSITIVE contribution to the chosen option's score - never the largest
   // by size regardless of sign (a protective term that pulled AGAINST the choice is not why they made it).
   const top = real.terms.filter((t) => t.value > 0).sort((a, b) => b.value - a.value || a.name.localeCompare(b.name))[0];
+  if (real.decision === "comp-throw") return "loyal-to-my-side"; // ORW-578 part 3: a throw hands a close ally the power
+  if (real.decision === "hc-pick") {
+    // ORW-578 part 3: Houseguest's Choice is a pick FOR someone, like a save: a bond or a memory is loyalty; the holder's own strategy is a plan.
+    switch (top?.name) {
+      case "bond": case "memory": return "loyal-to-my-side";
+      case "goal": return "had-it-planned";
+      default: return "nothing-personal";
+    }
+  }
   if (real.decision === "veto") {
     // A save is a choice FOR someone: what pushed it is a bond, a debt, a promise or the house - never "you are the biggest threat".
     switch (top?.name) {

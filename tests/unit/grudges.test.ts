@@ -26,11 +26,15 @@ describe("the pure book", () => {
     expect(freshness(row, 10_000)).toBeGreaterThanOrEqual(GRUDGES.FLOOR_SHARE * row.peak);
     expect(easeGrudge(row, -3)).toBe(0);
   });
-  it("noting is monotone: severity and peak only grow, eased is untouched, a stronger or newer wrong replaces the kind", () => {
+  it("noting is monotone: severity and peak only grow, eased is untouched, a stronger wrong replaces the kind; a smaller newer one never resets the clock (ORW-605)", () => {
     const b = fresh(); const r = b["h|s"]!;
     easeGrudge(r, 0.1);
+    const wk = r.week, dy = r.day, kd = r.kind;
     noteGrudge(b, "h", "s", "lied-to", 0.2, 3, 1, "weaker-newer");
-    expect(r.severity).toBe(0.5); expect(r.peak).toBe(0.5); expect(r.kind).toBe("lied-to"); expect(r.week).toBe(3);
+    expect(r.severity).toBe(0.5); expect(r.peak).toBe(0.5);
+    expect(r.kind).toBe(kd); expect(r.week).toBe(wk); expect(r.day).toBe(dy); // a small slight does not restart a big grudge's freshness
+    noteGrudge(b, "h", "s", "lied-to", 0.5, 3, 1, "equal-newer");
+    expect(r.kind).toBe("lied-to"); expect(r.week).toBe(3); // as severe and newer takes over
     noteGrudge(b, "h", "s", "blindsided", 0.9, 1, 1, "stronger-older");
     expect(r.severity).toBe(0.9); expect(r.peak).toBe(0.9); expect(r.kind).toBe("blindsided");
     noteGrudge(b, "h", "s", "vote-against", 0.1, 0, 1, "weaker-older");
