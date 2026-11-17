@@ -127,7 +127,7 @@ export function sourceNote(answer: SourceAnswer, holderName: string, sourceName?
 
 /** ORW-560: the player asked a houseguest who told them something the engine has no record of them saying to the player (the narration's own words). They name no one. */
 export function noRecordNote(holderName: string): string {
-  return `the player asked ${holderName} who told them that; the engine has no record of ${holderName} passing anything like it on (engine truth: ${holderName} names no one as a source - a shrug, a deflection or "I just heard it around"; never invent who)`;
+  return `the player asked ${holderName} who told them that; the engine has no record of ${holderName} passing anything like it on (engine truth: ${holderName} names no one as a source, in their own words and manner; never invent who)`;
 }
 
 /** ORW-560: whether the player's words name this houseguest (full name, or first name as a whole word: "Cara" is not found in "Carla"). */
