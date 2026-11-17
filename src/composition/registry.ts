@@ -118,7 +118,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // if you aren't sleeping"). Reads the session's Vault-free rest-deficit valence; returns {1,1} (a
   // no-op) unless the master clock is running, social fatigue is on, AND the initiator is tired — so a
   // clock-off / rested game is byte-identical, and no number ever crosses to the player.
-  commands.setFatigueValence((id) => session.socialFoldValence(id));
+  commands.setFatigueValence((id, holder, about) => session.socialFoldValence(id, holder, about));
   // ORW-401: played games meter relationship folds per in-game day + part of day (shrinking, no hard cap).
   commands.setFoldWindowProvider(() => session.foldWindowKey());
   // #1318 — a recorded player↔NPC scene registers a GENUINE premiere hot read, so the asymmetric first-
