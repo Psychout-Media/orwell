@@ -1150,6 +1150,10 @@ export interface SeasonCtx {
   beliefTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** 0163 / ORW-539: the bond between two OTHER houseguests as `holder` can see it (witnessed bonding + allied-with beliefs). Absent => the hidden truth, byte-identical. */
   perceivedBondFor?: (holder: EntityId, from: EntityId, to: EntityId) => number;
+  /** ORW-574 (Fable T1-6): how much `from` trusts `to`, as `holder` can see it (their own read, their beliefs, the bonds they saw) - never `from`'s hidden edge. Played games only; absent => the hidden read, byte-identical. */
+  perceivedTrustFor?: (holder: EntityId, from: EntityId, to: EntityId) => number;
+  /** ORW-574: how much `from` reads `to` as a threat, as `holder` can see it (public menace, their own read, their beliefs). Played games only; absent => the hidden read, byte-identical. */
+  perceivedThreatFor?: (holder: EntityId, from: EntityId, to: EntityId) => number;
   /** 0178: the nominee `voter` votes out because their secret plan was to flip on them at this vote (unless something bigger happened since). Absent => no flip. */
   flipVoteFor?: (voter: EntityId, fn: readonly [EntityId, EntityId]) => EntityId | undefined;
   /** 0160 / ORW-330 (Ryne's Q3 ruling: "Low trust in the person would create a low trust deal"): how much a deal with `other` weighs for `holder`, 0..1. Absent => 1, byte-identical. */
@@ -2259,8 +2263,10 @@ export function voteChoice(
   // as the bigger threat. A voter aligned with the HOH gives it to them; an opposed voter keeps the
   // target and sends the pawn home. No HOH (or the voter IS the HOH, e.g. a tie-break) ⇒ no term.
   const B = RELATIONSHIP_CONSTANTS.baseline;
+  // ORW-574: who the HOH is after, as the VOTER reads it (absent hook => the HOH's hidden threat edges, byte-identical)
+  const hohThreat = (n: EntityId): number => (ctx.perceivedThreatFor ? ctx.perceivedThreatFor(voter, hoh!, n) : ctx.rel.edge(hoh!, n).threat);
   const hohTarget = hoh && hoh !== voter && !fn.includes(hoh)
-    ? (ctx.rel.edge(hoh, fn[0]).threat >= ctx.rel.edge(hoh, fn[1]).threat ? fn[0] : fn[1])
+    ? (hohThreat(fn[0]) >= hohThreat(fn[1]) ? fn[0] : fn[1])
     : undefined;
   const hohAlignment = hohTarget
     ? (ctx.rel.bondStrength(voter, hoh!) - (B.trust + B.affinity) / 2) - (ctx.rel.edge(voter, hoh!).threat - B.threat)
@@ -2288,7 +2294,8 @@ export function voteChoice(
     // B4 slice 4: a KEPT casual assurance to `n` shields them (smaller than a formal deal's honor weight). Absent provider => 0 => byte-identical.
     -(ctx.assuranceVoteFor?.(n, voter) ?? 0),
     -(dealBound(n) ? honorWeight(ctx.dealTrustFor?.(voter, n) ?? 1) : 0), // 0160 (Ryne Q3): a deal weighs as much as the voter trusts the other party
-    -(V.juryManagementWeight * ctx.rel.edge(n, voter).trust),
+    // ORW-574 (Fable T1-6): jury management reads how much `n` trusts the voter AS THE VOTER SEES IT (absent hook => `n`'s hidden edge, byte-identical)
+    -(V.juryManagementWeight * (ctx.perceivedTrustFor ? ctx.perceivedTrustFor(voter, n, voter) : ctx.rel.edge(n, voter).trust)),
     -(V.bondKeepWeight * ctx.rel.bondStrength(voter, n)),
     n === hohTarget ? V.hohReferendumWeight * hohAlignment : 0,
     // ORW-314: this voter's AGENDA pull on `n` (revenge / get-them-out push, protect / alliance shield), full strength. Absent provider => 0 => byte-identical.
@@ -3515,6 +3522,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         ...(ctx.drivePushFor ? { drivePush: (t: EntityId) => ctx.drivePushFor!(t, s.hoh!) } : {}),
         ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.perceivedBondFor ? { bondOf: (from: EntityId, to: EntityId) => ctx.perceivedBondFor!(s.hoh!, from, to) } : {}),
+        ...(ctx.perceivedThreatFor ? { threatOf: (from: EntityId, to: EntityId) => ctx.perceivedThreatFor!(s.hoh!, from, to) } : {}), // ORW-574: the week's political temperature as the HOH reads the house
         ...(ctx.dealNomPushFor || ctx.tieNomPushFor ? { dealPush: (t: EntityId) => (ctx.dealNomPushFor?.(t, s.hoh!) ?? 0) + (ctx.tieNomPushFor?.(t, s.hoh!) ?? 0) } : {}),
         ...(ctx.pitchTiltFor ? { pitchPush: (t: EntityId) => ctx.pitchTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.agendaPullFor ? { agendaPush: (t: EntityId) => ctx.agendaPullFor!(t, s.hoh!).value } : {}), // ORW-314: the HOH's goals move the block at full strength
