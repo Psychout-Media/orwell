@@ -159,6 +159,7 @@ module.exports = {
       "docs/features/0174-triads-swing-votes-kingmakers.feature",
       "docs/features/0185-mood-contagion.feature",
       "docs/features/0182-grudges.feature",
+      "docs/features/0184-reputation.feature",
       "docs/features/0181-bond-feelings.feature",
       "docs/features/0187-promises-bind.feature",
       "docs/features/0171-favor-economy.feature",

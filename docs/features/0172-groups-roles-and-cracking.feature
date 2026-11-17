@@ -1,7 +1,7 @@
 # Feature 0172 - groups: roles, nesting, shadow alliances, spies, cracking (Theme 3 slice 6), plus ORW-603 (a pitch shows what the player was told) and ORW-611 (plans aimed at the player are acted on).
 # Design note: 0172-groups-roles-and-cracking.md. Rests on the owner's 2026-11-16 rulings: Q1, Q4 (NPC to NPC from the start), Q5, the culture leans (ORW-551) and the Theme 3 ruling that the player is plugged in, in both directions.
 # Alliance history (0161) is already kept; this slice extends it. Vault Wall: roles, nesting, spies, shadow groups and cut orders are Vault content until the post-season retrospective; never shown as a roster, a chart or a number.
-# The player's OWN alliances are never faded or broken here (ORW-616 is the owner's pending ruling). Roles only; every group-life step is worded with the groups: prefix.
+# ORW-616 (all four equal): the player's own alliances fade, break and crack like any other; the player learns only by an observable act, never a roster. Every group-life step is worded with the groups: prefix.
 
 Feature: Alliances have roles and inner circles, can hold a spy, crack, and treat the player as a person in the house
 
@@ -66,3 +66,67 @@ Feature: Alliances have roles and inner circles, can hold a spy, crack, and trea
     Given groups: a season where an alliance has settled on the player as its target and pitched them earlier
     Then groups: one member comes to the player through the desire clock's own approach
     And groups: the pitch is withdrawn in an event the player was in, with no roster shown
+
+  Scenario: A spy comes to like the group more than the one they work for and turns loyal
+    Given groups: a season where a spy is warmer toward the alliance than toward the person they work for
+    Then groups: the spy turns, the history keeps it, and a spy who has turned never reports the real plan to the one they worked for again
+
+  Scenario: A spy who still holds to the one they work for never turns
+    Given groups: a season where a spy is closer to the person they work for than to anyone in the alliance
+    Then groups: the spy never turns
+
+  Scenario: A double-crossing spy tells the one they work for a wrong target, as a lie
+    Given groups: a season where a spy has turned and feeds the person they work for a wrong target
+    Then groups: the one they report to is told one claim naming a target the alliance did not agree, and the engine holds it as a lie
+
+  Scenario: A spy's honest report reaches the one they work for as one told claim
+    Given groups: a season where an outsider is drawn to an alliance only to learn its plans
+    Then groups: the report is one claim about the member who drives the plan, true, meant to inform
+
+  Scenario: A spy who has turned warns the player, only if they really talk
+    Given groups: a season where a spy who works for another turns while the alliance has settled on the player, in the player's room
+    Then groups: the player heard one claim from the spy
+    And groups: the same season with the player in another room leaves the player no claim
+
+  Scenario: The spy's report is overheard only with the one they report to in the room and the player awake
+    Given groups: a season where the spy is in the player's room but the one they report to is not
+    Then groups: the player did not witness the report
+    And groups: with the player asleep in the same room as both, the player did not witness it either
+
+  Scenario: An alliance that dominates by a majority draws a counter-alliance of the threatened
+    Given groups: a season where an alliance is most of the houseguests left and the others read its members as a threat
+    Then groups: the threatened outsiders form a counter-alliance
+
+  Scenario: An alliance that carried the last two evictions draws a counter-alliance
+    Given groups: a season where an alliance has carried the last two evictions without the crown and the others read its members as a threat
+    Then groups: the threatened outsiders form a counter-alliance
+
+  Scenario: A group that dominates nothing draws no counter-alliance, however threatened the others feel
+    Given groups: a season where a small alliance holds neither the crown, a majority, nor a streak and the others read its members as a threat
+    Then groups: no counter-alliance forms
+
+  Scenario: The agreed target's threat step is taken once, however often the target flips back
+    Given groups: a season where an alliance's agreed target flips away and back
+    Then groups: each member's read of that target moved one step only
+
+  Scenario: A member who breaks away tells the person the group means to take out
+    Given groups: a season where two members of an alliance break away while the alliance means to take out an outsider they like
+    Then groups: that outsider is told one claim about the member who drives the plan
+    And groups: with the player as the target and in the breakaway's room, the player is told it too, and in another room is not
+
+  Scenario: The NPC members of the player's own alliance hold hidden roles, and the player never does
+    Given groups: a season where the player belongs to an alliance with three houseguests
+    Then groups: the three hold roles in the history, the player holds none, the alliance is unchanged, and no view shows them
+
+  Scenario: The player's alliance fades after inactivity like an NPC's (ORW-616)
+    Given groups: a season where the player belongs to an alliance whose bonds with the player have gone cold
+    Then groups: the alliance fades by the same days an NPC one would, and the player is told by an event that names it and no roster
+
+  Scenario: A member whose goal is to get the player out turns on the alliance and the player sees it (ORW-616)
+    Given groups: a season where a member of the player's alliance has a goal to get the player out
+    Then groups: the member leaves and the player witnessed it as an event naming the alliance, never a roster
+
+  Scenario: Members who aim their first cut at the player break away, and the player sees them go (ORW-616)
+    Given groups: a season where two members of the player's alliance have a goal to get the player out and the house is late
+    Then groups: the two break away into a new alliance, and the player witnessed it as an event that names the alliance and one name only
+    And groups: no view shows a roster, a role or a cut order of the player's alliance
