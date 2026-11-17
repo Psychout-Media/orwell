@@ -800,6 +800,10 @@ export interface LiveSeasonState {
    * handed to the narrator, under the decider's own voice block, and only for a public act. Append-only, persisted with the season. Absent until the first such decision.
    */
   statedReasons?: StatedReasonRecord[];
+  /** 0188 / ORW-619: the traps houseguests have set (a made-up secret told to one person, watched). ENGINE-ONLY (Vault class), never projected; persisted. */
+  traps?: import("./trap").Trap[];
+  /** 0188: the last day the trap tick ran (once a day). */
+  trapsDay?: number;
   /**
    * 0130 — each evictee's exit interview, week by week: their public posture on the way out (a `stance`
    * DERIVED from their manner for an NPC, or the PLAYER's own chosen stance + words). Recorded as the
