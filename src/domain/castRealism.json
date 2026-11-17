@@ -111,6 +111,10 @@
      "sector": "trades-labor",
      "any": [
       "tree",
+      "sawmill",
+      "lumber",
+      "logger",
+      "yard hand",
       "arborist",
       "lineman",
       "line-crew",
@@ -2432,6 +2436,13 @@
     "trailer park",
     "mill town",
     "diner"
+   ],
+   "preppy": [
+    "lumberjack",
+    "logging",
+    "sawmill",
+    "dirt road",
+    "trailer park"
    ],
    "country-club": [
     "trailer park",

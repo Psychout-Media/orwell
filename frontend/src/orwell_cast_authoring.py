@@ -3223,7 +3223,8 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
         authored_cards[hid] = {**npc, "id": hid,
                                "physicalCharacteristics": {**(npc.get("physicalCharacteristics") or {}),
                                                            **(_phys if isinstance(_phys, dict) else {})},
-                               **({"voice": profile["voice"]} if isinstance(profile.get("voice"), dict) else {})}
+                               **({"voice": profile["voice"]} if isinstance(profile.get("voice"), dict) else {}),
+                               **({"biography": profile["biography"]} if isinstance(profile.get("biography"), str) and profile["biography"].strip() else {})}
         authored_ids.append(hid)
         return 1
 
@@ -3243,6 +3244,14 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             if look_write_fn is not None:
                 await dedupe_photo_sheets(list(authored_cards.values()), llm_fn, look_write_fn)
                 await fit_audit_pass(list(authored_cards.values()), llm_fn, look_write_fn)  # ORW-480: the cast-level look-fits-life audit
+                try:  # ORW-563: ONE batched believability judgement per cast (a far outlier is re-picked and its clothes rewritten)
+                    from src import orwell_cast_believability as _B
+                    _taken = {str(c.get("presentation") or "") for c in (cast or []) if isinstance(c, dict)} - {""}
+                    _taken |= {str(c.get("presentation") or "") for c in authored_cards.values()} - {""}
+                    await _B.believability_pass(list(authored_cards.values()), _taken, llm_fn, write_fn, look_write_fn, user=user, stats=season_gate.believe)
+                    logger.info(season_gate.believability_line())
+                except Exception as e:  # failsoft-ok: best-effort-enrichment (the dealt looks stand)
+                    logger.warning(f"[cast-authoring] believability pass failed: {type(e).__name__}")
         except Exception as e:  # failsoft-ok: best-effort-enrichment (the original sheets stand)
             logger.warning(f"[cast-authoring] photo-sheet de-duplication failed: {type(e).__name__}")
     for _hid, _card in authored_cards.items():

@@ -313,32 +313,6 @@ def _look_life_codes(card: dict) -> list:
         return []
 
 
-def repick_outlier_look(gate, profile: dict, npc: dict, cast) -> bool:
-    """ORW-563: a card whose dealt style family is a strong outlier for the whole person (code believability:look-life) is re-picked to a
-    plausible family no other card holds (the cast keeps one family per card), by a stable hash so the cast spread is kept. The new family
-    goes out with the profile (recordCastProfile `presentation`); the wardrobe is then rewritten from the person by the existing look-fit
-    rewrite. Returns True when the card was re-picked. Every other look is left exactly as dealt."""
-    card = _merged(profile, npc)
-    if not _look_life_codes(card):
-        return False
-    try:
-        from src import orwell_cast_realism as _R
-        hid = str((npc or {}).get("id") or "")
-        taken = {str(c.get("presentation") or "") for c in (cast or []) if isinstance(c, dict) and str(c.get("id") or "") != hid}
-        new = _R.repick_look(card, taken)
-    except Exception:  # failsoft-ok: the realism table never blocks a card
-        return False
-    gate.count(["believability-look-life"])
-    if not new:
-        return False
-    profile["presentation"] = new
-    if isinstance(npc, dict):
-        npc["presentation"] = new
-    gate.repicked.add(hid)
-    gate.count(["believability-repicked"])
-    return True
-
-
 def card_codes(profile: dict, npc: dict, cast=None, registry: Optional[dict] = None) -> list:
     """Every reason the final card fails the gate ([] = passes). Codes only. The consistency core is ORW-430's
     `card_consistency` (one implementation of each check); this adds the extras it does not cover."""
@@ -362,7 +336,7 @@ def card_codes(profile: dict, npc: dict, cast=None, registry: Optional[dict] = N
     if not (isinstance(v, dict) and v and v.get("lexicon")):
         codes.append("voice-missing")
     codes += background_codes(card)
-    codes += _look_life_codes(card)  # ORW-563: non-blocking; run_gate re-picks the look before it is counted
+    codes += _look_life_codes(card)  # ORW-563: non-blocking and counted on the season line; the cast-level judge (orwell_cast_believability) decides who is re-picked
     if registry is not None and isinstance(bio, str) and bio.strip():
         for other, rec in registry.items():
             if other != hid and _norm(bio) and _norm(bio) == rec.get("bio"):
@@ -446,12 +420,12 @@ class SeasonGate:
         self.rep_rewritten = self.rep_fixed = 0  # cast-repetition re-writes asked and kept
         self.realism_rewrites = 0  # casting-director rewrites asked this run (bounded by REALISM_REWRITE_BUDGET)
         self.want_signature = False  # a real cast run asks for the memorable look signature (set by the authoring pass)
-        self.repicked: set = set()  # ORW-563: cards whose outlier look was re-picked: the wardrobe is asked once, from the person
         self.wardrobe_asked: set = set()  # cards whose wardrobe has been sent for a casting-director rewrite
         self.realism_demand = 0  # cards that WANTED a casting-director rewrite (offenders found), budget or not
         self.realism_found = self.realism_fixed = 0  # ORW-480: casting-director offenders named, and the ones a rewrite cleared
         self.n = 0  # the cast size, from the first card gated
         self.codes: dict = {}
+        self.believe: dict = {}  # ORW-563: the cast-level believability judge's tallies (calls, chars, flagged, repicked)
         self.registry: dict = {}
 
     def count(self, codes) -> None:
@@ -514,8 +488,6 @@ class SeasonGate:
         lf = [x for x in _look_fit_failures(card) if x in want]
         if self.want_signature and not str(phys.get("lookSignature") or "").strip():
             wd.setdefault("signature", []).append("missing")  # the writer's own memorable thing (low priority: asked after the fit asks)
-        if hid in self.repicked and hid not in self.wardrobe_asked:
-            lf.append("believability")  # ORW-563: the family changed, so the clothes are written again from the person (once)
         if lf:  # ORW-480: clothes that do not fit this life (a poor-fit family worn, expensive looks, the wrong weather, none at all): rewritten from the person
             wd["look-fit"] = lf
         if cam:
@@ -583,6 +555,10 @@ class SeasonGate:
                 f"rewritten={self.rewritten} failing={self.failing} accepted-with-non-blocking={self.accepted_soft} codes={per} "
                 f"rep-rewritten={self.rep_rewritten} rep-fixed={self.rep_fixed} realism-demand={self.realism_demand} "
                 f"realism-asked={self.realism_rewrites}/{REALISM_REWRITE_BUDGET} realism-fixed={self.realism_fixed} marks={self.marks_dealt()}")
+
+    def believability_line(self) -> str:
+        from src import orwell_cast_believability as B
+        return B.stats_line(self.believe)
 
     def log_summary(self) -> None:
         if self.checked:
@@ -786,7 +762,6 @@ async def run_gate(gate: SeasonGate, profile: dict, npc: dict, cast, rewrite_fn:
     gate.count(first)
     if mend(profile, npc, cast):
         gate.repaired += 1
-    repick_outlier_look(gate, profile, npc, cast)
     codes = card_codes(profile, npc, cast, gate.registry)
     tries = 0
     while any(is_blocking(c) for c in codes) and rewrite_fn is not None and tries < GATE_REWRITE_BOUND:
