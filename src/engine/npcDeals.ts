@@ -2,20 +2,17 @@ import type { EntityId } from "../domain/ids";
 import { clamp01Raw as clamp01 } from "../domain/num";
 import { NPC_DEALS } from "./npcDealConstants";
 import { NPC_DEAL_PUSH } from "./dealNomConstants";
+import { fakingLean, type DealPlan, type PlanSource } from "./dealPlans";
 
 /**
  * Feature 0170 (Theme 3 slice 2) - NPC deals and the HOH deal. PURE: no I/O, no Vault handle, no wording, no draws of its own (every roll is handed in from a seeded side stream
  * `${seed}:npc-deals:${week}:${pairKey}` that never touches a shared stream). The engine decides who pacts with whom and what each side secretly intends; the narrator never hears of it.
  *
- * Plans are the Auditor's slice-1 shape (`DealPlan`); this module only PROPOSES them. The store that keeps them is injected (`PlanSource.planOf`), and absent a plan the holder keeps
+ * Plans are the Auditor's slice-1 shape (`DealPlan`, `PlanSource` from `dealPlans.ts`, the plan store); this module only PROPOSES them. The store that keeps them is read through `PlanSource.planOf`, and absent a plan the holder keeps
  * the pact, which is today's behaviour. Nothing here is shown to a player or admin: a plan is Vault content until the post-season retrospective.
  */
-export type DealPlanKind = "keep" | "this-week" | "break-at" | "flip" | "cut-final-three";
-export type PlanMomentAt = "nominations" | "veto" | "vote";
-export interface DealPlan { kind: DealPlanKind; moment?: { week: number; at: PlanMomentAt } }
+export type { DealPlan, PlanSource };
 
-/** The read side of the secret plan store: engine-only. No plan = keep. */
-export interface PlanSource { planOf(dealId: string, holder: EntityId): DealPlan | undefined }
 /** The optional write hook the plan store wires; absent by default (plans are then simply not kept). */
 export type RecordPlan = (dealId: string, holder: EntityId, plan: DealPlan) => void;
 
@@ -47,7 +44,8 @@ export const pairKeyOf = (a: EntityId, b: EntityId): string => (a < b ? `${a}|${
 /** The holder's chance to plan a break, from the person (loyalty, deals made), the bond (trust in the partner) and the culture. Never a flat rate. */
 export function breakChance(holderTrust: number, loyalty: number, dealsMade: number, breakLean: number): number {
   const P = NPC_DEALS.plan;
-  const raw = P.breakBase + P.lowTrustWeight * Math.max(0, P.trustMid - holderTrust) + P.disloyalWeight * Math.max(0, P.loyaltyMid - loyalty) + P.dealCountWeight * dealsMade;
+  // ONE model with the player-deal plans (0178): the shared faking dials (base readiness and the per-past-deal lean, both uncapped) come from `fakingLean`, so one retune moves both; the situational terms (trust in the partner, loyalty) and the culture lean are this module's own.
+  const raw = P.lowTrustWeight * Math.max(0, P.trustMid - holderTrust) + P.disloyalWeight * Math.max(0, P.loyaltyMid - loyalty) + fakingLean(dealsMade, 1 - loyalty);
   return clamp01(raw * breakLean);
 }
 

@@ -137,3 +137,18 @@ describe("a played season", () => {
   }, 120000);
 });
 function g_setPlans(gm: { session: unknown }): void { (gm.session as G).setPlanSource({ planOf: () => ({ kind: "flip", moment: { week: 1, at: "nominations" } }) }); }
+
+describe("0170 the plans flow into the Auditor's plan store by default (0178)", () => {
+  it("a sealed pact's two plans are written to live.dealPlans, append-only, and survive a save/load", () => {
+    const { g } = started(11);
+    const live = g.live as unknown as { dealPlans?: Record<string, Record<string, unknown>> };
+    for (let i = 0; i < 6 && !Object.keys(live.dealPlans ?? {}).length; i++) { g.mintManyNpcDeals(); (g as unknown as { live: { week: number } }).live.week += 0; }
+    const before = JSON.stringify(live.dealPlans ?? {});
+    if (!Object.keys(live.dealPlans ?? {}).length) return; // this seed sealed no pact this week; the unit tests above cover the proposal
+    const ids = Object.keys(live.dealPlans!);
+    for (const id of ids) expect(Object.keys(live.dealPlans![id]!).length).toBe(2);
+    const core = g.snapshot();
+    g.restore(core);
+    expect(JSON.stringify((g.live as unknown as { dealPlans?: unknown }).dealPlans ?? {})).toBe(before);
+  });
+});

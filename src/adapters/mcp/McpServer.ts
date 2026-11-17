@@ -7,7 +7,7 @@ import type { AdminPort } from "../../surfaces/admin/AdminPort";
 import type { SummaryService } from "../../services/SummaryService";
 import type { EngineCommands, RecordInteractionReq, SurfaceReq, DiaryRoomReq, RecordImageBeatReq } from "../../ports/EngineCommands";
 import type { EntityId } from "../../domain/ids";
-import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordRoomCanonReq, RecordNarrationUseReq, RecordOpenLedgerReq, ResolveOpenLedgerReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
+import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordGroupIdentityReq, RecordAllianceNameReq, RecordRoomCanonReq, RecordNarrationUseReq, RecordOpenLedgerReq, ResolveOpenLedgerReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
 
 
 /** Tools that are deliberately NOT in the advertised player channel allowlist (out-of-band
@@ -446,6 +446,16 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         if (typeof o !== "object" || o === null || typeof o["id"] !== "string" || typeof o["night"] !== "number" || typeof o["reflection"] !== "string") refuse("reflections[]", "objects with a string id, a numeric night and a string reflection");
       }
       return;
+    case "recordGroupIdentity":
+      // ORW-566 part c: a string group id is required; every word is optional and refused only when present and not a string (validated deeper in the adapter).
+      if (!isStr(args["groupId"])) refuse("groupId", "a string");
+      for (const k of ["name", "ritual", "signal", "insideJoke"]) if (args[k] !== undefined && typeof args[k] !== "string") refuse(k, "a string when present");
+      return;
+    case "recordAllianceName":
+      // ORW-566 part c2: both fields are plain strings; a malformed call is refused at the boundary (never a reason about a ticket).
+      if (!isStr(args["ticket"])) refuse("ticket", "a string");
+      if (typeof args["name"] !== "string") refuse("name", "a string");
+      return;
     case "recordHouseCulture":
       // ORW-319: every part OPTIONAL; refuse only a present part of the wrong shape (validated deeper in the adapter).
       if (args["spots"] !== undefined && !Array.isArray(args["spots"])) refuse("spots", "an array when present");
@@ -607,6 +617,18 @@ export class McpServer {
       case "recordNpcReflections":
         // ORW-320: post-crown nightly reflections (refused until finished; validated; write-once per houseguest-night).
         return this.deps.session.recordNpcReflections(args as unknown as RecordNpcReflectionsReq);
+      case "recordGroupIdentity":
+        // ORW-566 part c: freeze the model's words for one group (validated, write-once per group id).
+        return this.deps.session.recordGroupIdentity(args as unknown as RecordGroupIdentityReq);
+      case "groupsAwaitingWords":
+        // ORW-566 part c: the groups still waiting for words (ids and a room only).
+        return this.deps.session.groupsAwaitingWords();
+      case "recordAllianceName":
+        // ORW-566 part c2: answer one sealed-prompt ticket (bare receipt for real and decoy alike).
+        return this.deps.session.recordAllianceName(args as unknown as RecordAllianceNameReq);
+      case "allianceNameTickets":
+        // ORW-566 part c2: tonight's fixed-size batch of anonymous naming prompts.
+        return this.deps.session.allianceNameTickets();
       case "recordHouseCulture":
         // ORW-319: freeze the season's house culture (validated, write-once).
         return this.deps.session.recordHouseCulture(args as unknown as RecordHouseCultureReq);

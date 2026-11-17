@@ -131,3 +131,19 @@ describe("planAwareDealPush", () => {
     expect(planAwareDealPush(0, "npc:1", "npc:2", 2, deal("broken"), src({ kind: "flip", moment: { week: 1, at: "nominations" } }))).toBe(0);
   });
 });
+
+// 0178 shared dials (the Coordinator's order: one model, not two): the break chance's deal-count lean and base readiness ARE the Auditor's FAKING dials.
+import { FAKING, fakingLean } from "../../src/engine/dealPlans";
+describe("0170 the break chance reads the shared faking dials (0178)", () => {
+  it("each past pact adds exactly FAKING.perPastDeal (times the culture lean) while uncapped below the clamp", () => {
+    const base = breakChance(0.9, 0.9, 1, 1), more = breakChance(0.9, 0.9, 3, 1);
+    expect(more - base).toBeCloseTo(2 * FAKING.perPastDeal, 10);
+  });
+  it("the chance contains fakingLean(made, 1 - loyalty) and nothing of the old local base or per-deal weight", () => {
+    const loyalty = 0.8, made = 2;
+    const expected = Math.min(1, NPC_DEALS.plan.lowTrustWeight * Math.max(0, NPC_DEALS.plan.trustMid - 0.9) + NPC_DEALS.plan.disloyalWeight * Math.max(0, NPC_DEALS.plan.loyaltyMid - loyalty) + fakingLean(made, 1 - loyalty));
+    expect(breakChance(0.9, loyalty, made, 1)).toBeCloseTo(expected, 10);
+    expect(Object.keys(NPC_DEALS.plan)).not.toContain("breakBase");
+    expect(Object.keys(NPC_DEALS.plan)).not.toContain("dealCountWeight");
+  });
+});
