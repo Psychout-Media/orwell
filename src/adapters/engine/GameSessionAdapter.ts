@@ -64,7 +64,7 @@ import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } fr
 import { dayOfWeek } from "../../engine/houseEvents";
 import { HOUSE_SIGHTLINE, areVisible, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
 import type { Room, Zone, Occupancy } from "../../domain/house";
-import { parsePlayerMoveIntent } from "../../engine/playerMoveIntent";
+import { parsePlayerMoveIntent, parsePlayerPersonIntent, matchHouseguestName } from "../../engine/playerMoveIntent";
 import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
@@ -284,7 +284,7 @@ import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
 import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, type EdgeDelta } from "../../engine/beliefStore";
 import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs";
-import { BELIEF_RULES, beliefPull, believedGrievances } from "../../engine/beliefDecisions";
+import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "../../engine/beliefDecisions";
 import { CONVICTION, credulityOf, dealTrust, evidenceStep, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import type { Stats } from "../../engine/season";
@@ -1267,6 +1267,9 @@ export class GameSessionAdapter implements GameSession {
    * state is byte-identical; on, it only mirrors values the engine already computed (no rng), so it is calibration-neutral either way.
    */
   private npcBeliefsEnabled = flagDefaultOn("ORWELL_NPC_BELIEFS");
+  /** 0163 / ORW-539: the HOH's floater and duo reads see the bonds the HOH could see (`ORWELL_PERCEIVED_BONDS`, default ON; OFF => the hidden-truth read, byte-identical). */
+  private perceivedBondsEnabled = flagDefaultOn("ORWELL_PERCEIVED_BONDS");
+  setPerceivedBondsEnabled(on: boolean): void { this.perceivedBondsEnabled = on; }
   /**
    * B2 / #2017 — read the 0024 NPC memory ON ITS OWN (no edge-carry subtraction) so a remembered betrayal/favor VISIBLY sways nominations and votes (PO ruling 2026-11-03). ON unless
    * `ORWELL_NPC_MEMORY_STANDALONE=0` (flipped ON with the memories, #2059; the 3-arm PO bands held). OFF ⇒ the
@@ -3754,13 +3757,13 @@ export class GameSessionAdapter implements GameSession {
         && subject.character.physicalCharacteristics === undefined) {
         return null;
       }
-      return this.portraitPromptFor(subject, this.portraitStyleAnchor);
+      return this.portraitPromptFor(subject, this.portraitStyleAnchor, [this.house.player, ...this.house.npcs]);
     }
     // Pre-game: the warmed pre-seed roster (NPCs only — no player exists yet). Same builder, same
     // public facets, the warm's own anchor — Vault-free by the same construction as the live path.
     if (this.prewarm) {
       const warmed = this.prewarm.npcs.find((n) => n.id === id);
-      if (warmed) return this.portraitPromptFor(warmed, this.prewarm.portraitStyleAnchor);
+      if (warmed) return this.portraitPromptFor(warmed, this.prewarm.portraitStyleAnchor, this.prewarm.npcs);
     }
     return null;
   }
@@ -3769,31 +3772,14 @@ export class GameSessionAdapter implements GameSession {
   private portraitPromptFor(
     subject: { id: EntityId; name: string; character: GameHouse["npcs"][number]["character"] },
     styleAnchor: string,
+    roster: ReadonlyArray<{ id: EntityId; name: string; character: GameHouse["npcs"][number]["character"] }>,
   ): { houseguestId: string; name: string; prompt: string } {
-    return buildPortraitPrompt(
-      subject.id,
-      subject.name,
-      {
-        appearance: subject.character.appearance,
-        age: subject.character.age,
-        presentation: subject.character.presentation,
-        ...(subject.character.physicalCharacteristics !== undefined
-          ? { physicalCharacteristics: subject.character.physicalCharacteristics } : {}),
-        // 0063: feed the PUBLIC diversity + personality facets so the shot is uniquely this person — the
-        // heritage (an authentic likeness), how they present, and their observable demeanor (vibe/energy).
-        // A PRIVATE orientation is NEVER read here (it lives in the engine-only map, not on the Character),
-        // so it can never enter a prompt — the §5 Vault rule holds by construction.
-        ...(subject.character.ethnicity !== undefined ? { ethnicity: subject.character.ethnicity } : {}),
-        ...(subject.character.genderPresentation !== undefined ? { genderPresentation: subject.character.genderPresentation } : {}),
-        ...(subject.character.demeanor !== undefined ? { demeanor: subject.character.demeanor } : {}),
-        // The AUTHORED storyline facets (2026-07-13) — both PUBLIC HouseguestCard fields: the 0116
-        // freeform identity + the L28/0058 vocation, so the shot's wardrobe/vibe match the person's
-        // actual storyline (owner report: portraits didn't match storylines/aesthetics).
-        ...(subject.character.identityConcept !== undefined ? { identityConcept: subject.character.identityConcept } : {}),
-        ...(subject.character.vocation !== undefined ? { vocation: subject.character.vocation } : {}),
-      },
-      styleAnchor,
-    );
+    // ORW-480: the shot and face cards are dealt across the WHOLE cast, so one person's prompt is the cast build's entry for them
+    // (the same text `castPortraitPrompts` serves). A subject the cast build skips (an incomplete facet) is dealt alone.
+    const own = buildCastPortraitPrompts(roster.map((h) => this.portraitFacetsOf(h)), styleAnchor).find((p) => p.houseguestId === subject.id);
+    if (own !== undefined) return own;
+    const f = this.portraitFacetsOf(subject);
+    return buildPortraitPrompt(subject.id, subject.name, f, styleAnchor);
   }
 
   /**
@@ -5923,7 +5909,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-522: claiming a bed is going to it (to drop your things on it). With no other room named, a fresh claim is a move to that bedroom, through the
     // same pin as any move: gathered for an event, the narrator is told the player stays with the house; otherwise the engine moves them before the narrator writes.
     const claimedBed = bedChanged ? this.live?.beds?.owner[PLAYER] : undefined;
-    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) ?? (claimedBed ? roomOfBed(claimedBed) : null);
+    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) ?? (claimedBed ? roomOfBed(claimedBed) : null) ?? this.roomOfSightedHouseguest(String(req.text ?? ""), here);
     const hadMove = this.playerMove !== null;
     this.playerMove = null; // a new player message: last turn's move is over
     let result: ResolvePlayerMoveResult;
@@ -5947,6 +5933,21 @@ export class GameSessionAdapter implements GameSession {
     }
     result.beatSeq = this.beatSeqNow();
     return idemKey ? this.rememberFoldIdempotent(idemKey, result) : result;
+  }
+
+  /**
+   * ORW-559: "I go to <houseguest>" - the room that houseguest is in, but ONLY when the player can see them now (a room in the whereabouts
+   * `nearby` sightline list). Same projection the narrator gets: an unseen houseguest never resolves, so nothing hidden is revealed and
+   * nothing teleports; the narrator plays "you look around". Same room (or no name) => null.
+   */
+  private roomOfSightedHouseguest(text: string, here: Room | null): Room | null {
+    const phrase = parsePlayerPersonIntent(text, here, this.themedAliases());
+    if (phrase === null) return null;
+    const w = this.whereaboutsBase();
+    if (!w || w.houseEvent) return null;
+    if (matchHouseguestName(phrase, w.present) !== null) return null; // already with them: no move
+    const hits = w.nearby.filter((n) => matchHouseguestName(phrase, n.present) !== null);
+    return hits.length === 1 ? (hits[0]!.room as Room) : null;
   }
 
   /** ORW-478: the id of the most recent player message the engine was told about (the turn the next `resolvePlayerMove` belongs to). */
@@ -8047,18 +8048,9 @@ export class GameSessionAdapter implements GameSession {
     return out;
   }
 
-  /**
-   * Build the Vault-free cast portrait prompts (0051) from the PUBLIC house facets — the same
-   * fields the visible projection exports on the HouseguestCard. No stats, no soul, no hidden
-   * elements ever reach `buildCastPortraitPrompts`.
-   */
-  private castPortraitPrompts(roster?: GameHouse["npcs"], anchor?: string): PortraitPromptEntry[] {
-    // 0065: pre-warm passes the NPC-only roster + the warmed anchor (no player exists yet); the live
-    // path defaults to the whole house (player + NPCs). Same builder either way.
-    const styleAnchor = anchor ?? this.portraitStyleAnchor;
-    const everyone = roster ?? (this.house ? [this.house.player, ...this.house.npcs] : []);
-    if (!styleAnchor || everyone.length === 0) return [];
-    const publicCast = everyone.map((h) => ({
+  /** The PUBLIC facets of one houseguest the portrait builder reads (ORW-480: also the casting read and the voice energy the shot card's moment comes from). */
+  private portraitFacetsOf(h: { id: EntityId; name: string; character: GameHouse["npcs"][number]["character"] }) {
+    return {
       id: h.id,
       name: h.name,
       appearance: h.character.appearance,
@@ -8078,7 +8070,27 @@ export class GameSessionAdapter implements GameSession {
       // both already on the public HouseguestCard — so the face matches the person's storyline/aesthetic.
       ...(h.character.identityConcept !== undefined ? { identityConcept: h.character.identityConcept } : {}),
       ...(h.character.vocation !== undefined ? { vocation: h.character.vocation } : {}),
-    }));
+      // ORW-480: the public casting read and the voice's energy dial (both on the public card).
+      ...(h.character.castingType !== undefined ? { castingType: { label: h.character.castingType.label, read: h.character.castingType.read } } : {}),
+      ...(h.character.voice?.energy !== undefined ? { voiceEnergy: h.character.voice.energy } : {}),
+      // ORW-480: the public hometown and biography: the place is somewhere from the person's ordinary day.
+      ...(h.character.hometown !== undefined ? { hometown: h.character.hometown } : {}),
+      ...(h.character.biography !== undefined ? { biography: h.character.biography } : {}),
+    };
+  }
+
+  /**
+   * Build the Vault-free cast portrait prompts (0051) from the PUBLIC house facets — the same
+   * fields the visible projection exports on the HouseguestCard. No stats, no soul, no hidden
+   * elements ever reach `buildCastPortraitPrompts`.
+   */
+  private castPortraitPrompts(roster?: GameHouse["npcs"], anchor?: string): PortraitPromptEntry[] {
+    // 0065: pre-warm passes the NPC-only roster + the warmed anchor (no player exists yet); the live
+    // path defaults to the whole house (player + NPCs). Same builder either way.
+    const styleAnchor = anchor ?? this.portraitStyleAnchor;
+    const everyone = roster ?? (this.house ? [this.house.player, ...this.house.npcs] : []);
+    if (!styleAnchor || everyone.length === 0) return [];
+    const publicCast = everyone.map((h) => this.portraitFacetsOf(h));
     return buildCastPortraitPrompts(publicCast, styleAnchor);
   }
 
@@ -9889,6 +9901,9 @@ export class GameSessionAdapter implements GameSession {
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceKeptAtNominations: (h: EntityId, ns: readonly EntityId[]) => this.assuranceKeptAtNominations(h, ns), assuranceKeptAtVote: (v: EntityId, sp: EntityId, among?: readonly EntityId[]) => this.assuranceKeptAtVote(v, sp, among), assuranceKeptAtTally: (fn: readonly EntityId[]) => this.assuranceKeptAtTally(fn) } : {}),
       ...(this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => this.beliefNomTiltFor(subject, holder) } : {}),
+      // 0163 / ORW-539: the floater and duo reads see what the HOH can see (full strength only; capped keeps the hidden-truth read, byte-identical).
+      // Its own flag, apart from the belief store: what the HOH SAW needs no beliefs (the told part reads allied-with beliefs only when they exist).
+      ...(this.perceivedBondsEnabled && BELIEF_RULES.strength === "full" ? { perceivedBondFor: (holder: EntityId, from: EntityId, to: EntityId) => this.perceivedBond(holder, from, to) } : {}),
       // #1937 — the same aware-only, character-mediated campaign push, signed (evict +, protect −) and bounded, on
       // the NPC HOH's nominations / replacement and the NPC veto holder's save read. 0 for the player as decider.
       ...(this.campaignsEnabled ? {
@@ -11698,7 +11713,8 @@ export class GameSessionAdapter implements GameSession {
         const event: GameEvent = {
           id: `offscreen:${type}:${events.count()}:${hashSeed(`${seed}:life:${day}:${hour}:${p.actor}:${p.kind}`) % 1_000_000_000}`,
           ts: stretchIndex, type, initiator: p.actor, witnessSet: people, hidden: true, content, baseContent: content,
-          houseLife: { action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), ...(p.ritual ? { ritual: p.ritual } : {}), stretch: stretchIndex, ...(this.inGameAbsHour() !== undefined ? { at: this.inGameAbsHour() } : {}) },
+          houseLife: { action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), ...(p.ritual ? { ritual: p.ritual } : {}), stretch: stretchIndex, ...(this.inGameAbsHour() !== undefined ? { at: this.inGameAbsHour() } : {}),
+            ...(() => { const seen = [...presence.entries()].filter(([id, room]) => room === p.place && !people.includes(id) && id !== house.player.id).map(([id]) => id).sort(); return seen.length ? { seenBy: seen } : {}; })() }, // ORW-539: who could see it
         };
         events.record(event);
         out.push({ event, type, initiator: p.actor, partner });
@@ -15116,6 +15132,44 @@ export class GameSessionAdapter implements GameSession {
     const owed = this.deals.open().some((d) => d.condition.promisors.includes(holder) && d.parties.includes(nominee) && nominee !== holder) ? 0.1 : 0;
     return Math.max(-1, Math.min(1, -(mem + bel) + owed));
   }
+
+  /** 0163 / ORW-539: per holder, the bonding scenes they witnessed between each pair (cached until the event record grows). */
+  private seenBondsCache = new Map<EntityId, { n: number; pairs: Map<string, number> }>();
+  /**
+   * 0163 / ORW-539 - the bond between two OTHER houseguests as `holder` can SEE it: the edge baseline, raised by the bonding / showmance scenes
+   * the holder witnessed between them (PERCEIVED_BOND.perScene each) and by the holder's allied-with belief about them (its confidence), up to
+   * the full floater span. A pair that bonds only out of sight reads as strangers; a pair the holder watched, or was told about, reads tight.
+   * Engine-only, deterministic, no rng. Symmetric: what the holder sees is the pair, not who leans on whom.
+   */
+  private perceivedBond(holder: EntityId, from: EntityId, to: EntityId): number {
+    if (holder === from || holder === to) return this.rel.bondStrength(from, to); // their OWN bond: they know how they feel (and how warm the other has been to them)
+    const C = RELATIONSHIP_CONSTANTS.baseline;
+    const base = (C.trust + C.affinity) / 2;
+    const events = this.record?.events() ?? [];
+    let cache = this.seenBondsCache.get(holder);
+    if (!cache || cache.n !== events.length) {
+      const pairs = new Map<string, number>();
+      for (const e of events) {
+        if (e.type !== "bonding" && e.type !== "showmance") continue;
+        const inScene = e.witnessSet.includes(holder);
+        if (!inScene && !(e.houseLife?.seenBy ?? []).includes(holder)) continue; // ORW-539 v2: a scene they were in OR saw from the same room
+        const people = e.witnessSet.filter((x) => x !== holder);
+        if (people.length !== 2) continue;
+        const k = [...people].sort().join("|");
+        pairs.set(k, (pairs.get(k) ?? 0) + 1);
+      }
+      cache = { n: events.length, pairs };
+      this.seenBondsCache.set(holder, cache);
+    }
+    const seen = cache.pairs.get([from, to].sort().join("|")) ?? 0;
+    const told = claimsOf(this.live?.beliefs, holder)
+      .filter((c) => c.kind === "allied-with" && c.value && !c.refuted && ((c.subject === from && c.object === to) || (c.subject === to && c.object === from)))
+      .reduce((m, c) => Math.max(m, c.confidence), 0);
+    const visible = base + DECISION.nomination.floaterBondSpan * Math.min(1, seen * PERCEIVED_BOND.perScene + told);
+    // ORW-539 v2: BLEND what they can see with the true bond (a house reads more than its own scenes: tone, glances), never replace it.
+    return PERCEIVED_BOND.seenShare * visible + (1 - PERCEIVED_BOND.seenShare) * this.rel.bondStrength(from, to);
+  }
+
 
   private beliefNomTiltFor(subject: EntityId, holder: EntityId): number {
     if (!this.live || holder === PLAYER || !this.npcBeliefsEnabled) return 0;

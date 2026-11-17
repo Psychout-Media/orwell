@@ -74,7 +74,7 @@ export function nominationTermVals(
 ): number[] {
   const [threat, paranoia] = nominationBaseVals(hoh, t, rel, mood, read.paranoiaMult);
   const out = [threat, paranoia, blocTerm(blocs, hoh, t)];
-  if (shape) out.push(shape.floaterWeight * floaterRead(t, shape.active, rel), shape.duoWeight * duoRead(t, hoh, shape.active, rel));
+  if (shape) out.push(shape.floaterWeight * floaterRead(t, shape.active, rel, read.bondOf), shape.duoWeight * duoRead(t, hoh, shape.active, rel, read.bondOf));
   out.push(read.campaignPush?.(t) ?? 0, read.memoryPush?.(t) ?? 0, read.moodPush?.(t) ?? 0, read.drivePush?.(t) ?? 0, read.beliefPush?.(t) ?? 0, read.dealPush?.(t) ?? 0, read.pitchPush?.(t) ?? 0, read.agendaPush?.(t) ?? 0);
   return out;
 }
@@ -102,15 +102,19 @@ export function politicalTemperature(active: readonly EntityId[], rel: Relations
   return { spread, runaway: spread > DECISION.nomination.runawaySpread };
 }
 
+/** 0163 / ORW-539: the bond between two OTHER houseguests as a decider can see it (absent = the hidden truth, `rel.bondStrength`). */
+export type BondReader = (from: EntityId, to: EntityId) => number;
+
 /**
  * How much of a FLOATER a houseguest is (PO ruling 2026-11-02): 1 when nobody in the house holds a
  * bond toward them above the edge baseline, 0 once someone's bond reaches baseline +
  * `floaterBondSpan`. Hidden, engine-only — never crosses to the player.
  */
-export function floaterRead(t: EntityId, active: readonly EntityId[], rel: RelationshipModel): number {
+export function floaterRead(t: EntityId, active: readonly EntityId[], rel: RelationshipModel, bondOf?: BondReader): number {
   const base = (RELATIONSHIP_CONSTANTS.baseline.trust + RELATIONSHIP_CONSTANTS.baseline.affinity) / 2;
+  const bond = bondOf ?? ((a: EntityId, b: EntityId) => rel.bondStrength(a, b));
   let maxBond = base;
-  for (const o of active) if (o !== t) maxBond = Math.max(maxBond, rel.bondStrength(o, t));
+  for (const o of active) if (o !== t) maxBond = Math.max(maxBond, bond(o, t));
   return Math.max(0, Math.min(1, 1 - (maxBond - base) / DECISION.nomination.floaterBondSpan));
 }
 
@@ -119,21 +123,23 @@ export function floaterRead(t: EntityId, active: readonly EntityId[], rel: Relat
  * the strongest MUTUAL bond they share with anyone but the HOH, 0 at the edge baseline → 1 at baseline
  * + `floaterBondSpan`. A tight pair is a threat to an outside HOH. Hidden, engine-only.
  */
-export function duoRead(t: EntityId, hoh: EntityId, active: readonly EntityId[], rel: RelationshipModel): number {
+export function duoRead(t: EntityId, hoh: EntityId, active: readonly EntityId[], rel: RelationshipModel, bondOf?: BondReader): number {
   const base = (RELATIONSHIP_CONSTANTS.baseline.trust + RELATIONSHIP_CONSTANTS.baseline.affinity) / 2;
+  const bond = bondOf ?? ((a: EntityId, b: EntityId) => rel.bondStrength(a, b));
   let best = base;
-  for (const o of active) if (o !== t && o !== hoh) best = Math.max(best, Math.min(rel.bondStrength(o, t), rel.bondStrength(t, o)));
+  for (const o of active) if (o !== t && o !== hoh) best = Math.max(best, Math.min(bond(o, t), bond(t, o)));
   return Math.max(0, Math.min(1, (best - base) / DECISION.nomination.floaterBondSpan));
 }
 
 /** The target's tight-pair partner (mutual bond ≥ half the duo span above baseline), if any — not the HOH. */
-export function duoPartner(t: EntityId, hoh: EntityId, active: readonly EntityId[], rel: RelationshipModel): EntityId | undefined {
+export function duoPartner(t: EntityId, hoh: EntityId, active: readonly EntityId[], rel: RelationshipModel, bondOf?: BondReader): EntityId | undefined {
   const base = (RELATIONSHIP_CONSTANTS.baseline.trust + RELATIONSHIP_CONSTANTS.baseline.affinity) / 2;
+  const bond = bondOf ?? ((a: EntityId, b: EntityId) => rel.bondStrength(a, b));
   let best: EntityId | undefined;
   let bestBond = base + DECISION.nomination.floaterBondSpan / 2;
   for (const o of active) {
     if (o === t || o === hoh) continue;
-    const b = Math.min(rel.bondStrength(o, t), rel.bondStrength(t, o));
+    const b = Math.min(bond(o, t), bond(t, o));
     if (b > bestBond) { bestBond = b; best = o; }
   }
   return best;
@@ -178,6 +184,8 @@ export interface NominationRead {
    * B3 / #2017 — the HOH's BELIEF that `target` is targeting them (`targets-me` claims; can be wrong), as a bounded nomination tilt. Reads claims only, never the edge. Absent ⇒ +0, byte-identical.
    */
   beliefPush?: (target: EntityId) => number;
+  /** 0163 / ORW-539: the bond between two OTHER houseguests as THIS HOH sees it (witnessed bonding + allied-with beliefs). Absent => the hidden truth, byte-identical. */
+  bondOf?: BondReader;
   /** B7 M3 (ORWELL_DEAL_NOMS): the HOH's open PROTECTIVE deal (safety / final-two) with `target` lowers their nomination score (a bounded, negative push). Absent => +0, byte-identical. */
   dealPush?: (target: EntityId) => number;
   /** B6 slice 2 (ORWELL_LOBBYING): the bounded, credibility-weighted tilt from the pitches NPCs made to this HOH (`lobbying.ts`). Absent => +0, byte-identical. */
@@ -246,11 +254,11 @@ export function nominationPlan(
   if (tactic === "pawn" && ranked.length >= 3) {
     // The pawn is the biggest FLOATER (nobody fights for them); ties keep the lowest-ranked read.
     const pool = ranked.slice(1).reverse();
-    const pawn = pool.reduce((best, c) => (floaterRead(c, active, rel) > floaterRead(best, active, rel) ? c : best), pool[0]!);
+    const pawn = pool.reduce((best, c) => (floaterRead(c, active, rel, read.bondOf) > floaterRead(best, active, rel, read.bondOf) ? c : best), pool[0]!);
     recordTarget();
     if (why) {
-      const ru = runnerUp(pool, pawn, (c) => floaterRead(c, active, rel));
-      const fo = (id: EntityId, role: "chosen" | "runner-up") => whyOption(id, role, ["floater"], [floaterRead(id, active, rel)], floaterRead(id, active, rel));
+      const ru = runnerUp(pool, pawn, (c) => floaterRead(c, active, rel, read.bondOf));
+      const fo = (id: EntityId, role: "chosen" | "runner-up") => whyOption(id, role, ["floater"], [floaterRead(id, active, rel, read.bondOf)], floaterRead(id, active, rel, read.bondOf));
       why({ kind: "nomination-seat", tactic, rule: "pawn-is-biggest-floater", options: ru !== undefined ? [fo(pawn, "chosen"), fo(ru, "runner-up")] : [fo(pawn, "chosen")] });
     }
     return { nominees: [ranked[0]!, pawn], target: ranked[0]! };
@@ -260,8 +268,8 @@ export function nominationPlan(
   const rest = ranked.slice(1);
   // Break up the duo (PO 2026-11-02): when the target is locked in a tight pair, the HOH puts the
   // PARTNER up beside them — one of the two goes home unless the veto saves them.
-  const partner = duoPartner(ranked[0]!, hoh, active, rel);
-  const seat2Vals = (c: EntityId): number[] => [...vals(c), W.pawnSeatFloaterBonus * floaterRead(c, active, rel), c === partner ? W.duoPartnerBonus : 0];
+  const partner = duoPartner(ranked[0]!, hoh, active, rel, read.bondOf);
+  const seat2Vals = (c: EntityId): number[] => [...vals(c), W.pawnSeatFloaterBonus * floaterRead(c, active, rel, read.bondOf), c === partner ? W.duoPartnerBonus : 0];
   const seat2 = (c: EntityId): number => sumVals(seat2Vals(c));
   const pawn = rest.reduce((best, c) => (seat2(c) > seat2(best) ? c : best), rest[0]!);
   recordTarget();
@@ -313,8 +321,8 @@ export function replacementPick(
     record("target-came-down-new-target", "target", NOMINATION_TARGET_TERM_NAMES, tvals, targetScore, pick);
     return pick;
   }
-  const partner = duoPartner(remaining, hoh, active, rel);
-  const pawnVals = (c: EntityId): number[] => [...vals(c), S.pawnSeatFloaterBonus * P * floaterRead(c, active, rel), c === partner ? S.duoPartnerBonus * P : 0];
+  const partner = duoPartner(remaining, hoh, active, rel, read.bondOf);
+  const pawnVals = (c: EntityId): number[] => [...vals(c), S.pawnSeatFloaterBonus * P * floaterRead(c, active, rel, read.bondOf), c === partner ? S.duoPartnerBonus * P : 0];
   const pawnScore = (c: EntityId): number => sumVals(pawnVals(c));
   const pick = ranked.reduce((best, c) => (pawnScore(c) > pawnScore(best) ? c : best), ranked[0]!);
   record("target-still-up-new-pawn", "pawn", [...NOMINATION_TERM_NAMES, "pawn-seat-floater", "duo-partner"], pawnVals, pawnScore, pick);

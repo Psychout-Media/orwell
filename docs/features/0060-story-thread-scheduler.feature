@@ -20,7 +20,8 @@ Feature: 0060 — Story-thread trigger/resolution scheduler (0058 Phase 2)
 
   # §3 — structured triggers gate activation against live, Vault-free season position
   Scenario: a dormant thread activates only once its structured trigger condition is met
-    Given a deep-profile season with seeded story threads at seed "0060-2"
+  # Re-selected 2026-11-16 (0163 perceived bonds moved this seed's nominations, so the gated source no longer reached a ripe position in time on 0060-2; 0060-4, -5, -7 and -8 land - a seed pick, not a weakened assertion).
+    Given a deep-profile season with seeded story threads at seed "0060-4"
     And a dormant thread whose trigger condition is not yet met by the house position
     When an off-screen tick runs
     Then that thread is still dormant
