@@ -94,6 +94,7 @@ import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAc
 import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
+import { buildDealPlanRetro, decidePlan, momentDue, planSourceOf, recordPlan, type PlanSource, type StoredPlan } from "../../engine/dealPlans";
 import { DEAL_CONSENT, DEAL_REFUSAL_LINE } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
@@ -4468,7 +4469,8 @@ export class GameSessionAdapter implements GameSession {
     const houseYouNeverSaw = this.houseStories();
     const rumorMill = buildRumorMill(this.live.claims, (id) => this.nameOf(id), this.live.beliefs, this.truthFacts()); // ORW-525 (spec 0157): reads the claim log + beliefs about the player, read-only; same gate
     const houseCultureWords = describeHouseLeans(this.live.houseLeans); // ORW-551 (spec 0168): texture words only, same crown gate; absent when no culture was drawn
-    return { ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
+    const dealPlans = buildDealPlanRetro(this.live.dealPlans, this.deals.all, this.openLedger.entries, PLAYER, (id) => this.nameOf(id)); // 0178 (Ryne Q2): the secret plans beside the player's own promise record; same crown gate
+    return { ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
@@ -10040,7 +10042,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.tieBehaviorEnabled ? { tieNomPushFor: (t: EntityId, h: EntityId) => this.tieNomPushFor(t, h), tieVotePushFor: (n: EntityId, v: EntityId) => this.tieVotePushFor(n, v) } : {}),
       ...(this.dealNomsEnabled ? { dealNomPushFor: (t: EntityId, h: EntityId) => this.dealNomPushFor(t, h) } : {}),
       // 0160 (Ryne Q3): a deal weighs as far as its holder trusts the other party (full strength only; capped keeps the fixed weight).
-      ...(BELIEF_RULES.strength === "full" ? { dealTrustFor: (h: EntityId, other: EntityId) => dealTrust(this.rel.edge(h, other).trust) } : {}),
+      ...(BELIEF_RULES.strength === "full" || this.dealPlansEnabled ? { dealTrustFor: (h: EntityId, other: EntityId) => this.flipsAtThisVote(h, other) ? -1 : BELIEF_RULES.strength === "full" ? dealTrust(this.rel.edge(h, other).trust) : 1 } : {}), // 0178: a flip plan turns the deal's weight against the one it protected
       ...(this.juryMemoryEnabled ? { juryMemoryFor: (j: EntityId, f: EntityId) => this.juryMemoryFor(j, f) } : {}),
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
       ...(this.moodVetoEnabled && this.npcTellsEnabled ? { moodVetoFor: (n: EntityId, h: EntityId) => this.moodVetoFor(n, h) } : {}),
@@ -12842,6 +12844,7 @@ export class GameSessionAdapter implements GameSession {
     // Only an offer that was ALREADY standing before this step may lapse in it — one floated by this same
     // call must reach the player (be voiced) before the week can roll it away (cubic #1911).
     const standingOfferId = this.live!.dealOffer?.id;
+    this.planAndCarryOutDeals(); // 0178 (Theme 3 slice 1): a secret plan for every new NPC promise; a two-faced plan is carried out at its moment
     this.weighDealBreaks(); // 0142 idea 4: a played game only; a houseguest may quietly walk back a deal, or ask to renegotiate it (before the offer pass, so a standing renegotiation holds the one-offer slot)
     this.maybeOfferPlayerDeal();
     // PO ruling 2026-11-01: a floated offer NEVER blocks the week (no pop-up, no freeze). It stands as
@@ -15496,6 +15499,93 @@ export class GameSessionAdapter implements GameSession {
     return memoryGrudge(entries, this.live.week, this.memoryDecayScale(npcId), this.memoryCarry(npcId, PLAYER)) >= NPC_MEMORY.dealOfferGrudge;
   }
 
+  /** 0178 (Theme 3 slice 1): two-faced deals (`ORWELL_DEAL_PLANS`, default ON; `=0` = no plans, byte-identical). Played games only, like the 0142 weighing. */
+  private dealPlansEnabled = flagDefaultOn("ORWELL_DEAL_PLANS");
+  setDealPlansEnabled(on: boolean): void { this.dealPlansEnabled = on; }
+  /** 0178: the plan store as the slice 2 / retrospective read (engine-only). */
+  dealPlanSource(): PlanSource { return planSourceOf(() => this.live?.dealPlans); }
+  private twoFacedPlan(dealId: string, holder: EntityId): StoredPlan | undefined {
+    const p = this.live?.dealPlans?.[dealId]?.[holder];
+    return p && p.kind !== "keep" ? p : undefined;
+  }
+  /** 0178: does `holder` hold a flip plan, due at this week's vote, on an open deal that protects `other`? */
+  private flipsAtThisVote(holder: EntityId, other: EntityId): boolean {
+    const s = this.live;
+    if (!this.dealPlansEnabled || !s?.dealPlans) return false;
+    return this.deals.open().some((d) => d.parties.includes(holder) && d.parties.includes(other) && d.condition.promisors.includes(holder)
+      && (d.condition.protect === other || d.condition.promisors.length === 2) // a mutual deal protects each party from the other
+      && (() => { const p = this.twoFacedPlan(d.id, holder); return !!p && p.kind === "flip" && !!p.moment && momentDue(p.moment, s.week, "vote"); })());
+  }
+  /** Where the week stands for a plan's moment. */
+  private planNow(): "nominations" | "veto" | "vote" | "other" {
+    const b = this.live?.beat;
+    return b === "nominations" ? "nominations" : b === "veto-competition" || b === "veto-ceremony" ? "veto" : b === "eviction" || b === "final-eviction" ? "vote" : "other";
+  }
+  /**
+   * 0178 (Theme 3 slice 1, ORW-552) - TWO-FACED DEALS. (1) Every open deal an NPC is bound by gets that NPC's SECRET PLAN the first time it is seen (`dealPlans.ts`):
+   * from the 0142 weighing at the moment of agreeing (their read of the other party, their own push and agenda, the price of being known as a liar), Ryne's Q1
+   * deal-count lean (uncapped), their temperament and the house culture; rolls from a side stream keyed on (seed, deal, holder). (2) A two-faced plan is carried
+   * out at its moment through `DealLedger.breakDeliberately` (the ordinary fallout, Vault-held); a flip is carried out by the vote itself (`flipsAtThisVote`).
+   * (3) Each plan's outcome is written once. Engine-only; the narrator is never told; the retrospective shows the plans after the crown.
+   */
+  private planAndCarryOutDeals(): void {
+    const s = this.live;
+    if (!this.dealPlansEnabled || !s || s.playedGame !== true || !this.house || s.finished) return;
+    const store = (s.dealPlans ??= {});
+    const seed = this.gameSeed ?? 0;
+    const gone = new Set(s.evictionOrder);
+    const all = this.deals.all;
+    for (const deal of this.deals.open()) {
+      for (const npc of deal.condition.promisors) {
+        if (npc === PLAYER || gone.has(npc) || store[deal.id]?.[npc]) continue;
+        const other = deal.parties.find((p) => p !== npc)!;
+        const e = this.rel.edge(npc, other);
+        const living = this.livingIds().filter((id) => id !== PLAYER && id !== npc);
+        const cred = living.length ? living.reduce((a, id) => a + this.credibilityOf(id, npc), 0) / living.length : 1;
+        const reliableShare = living.length && this.reliabilityReader ? living.filter((id) => this.reliabilityReader!(id).has(npc)).length / living.length : 0;
+        const endgame: 0 | 1 | 2 = s.active.length <= 5 ? 2 : s.active.length <= 10 || s.evictionOrder.length >= 7 ? 1 : 0;
+        const w = weighDealBreak({
+          kind: deal.kind, threat: e.threat, trust: e.trust, affinity: e.affinity,
+          ownPush: other === PLAYER ? this.ownPushAgainstPlayer(npc) : 0, agendaPull: this.agendaPullOf(other, npc).value,
+          loyalty: Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(npc), this.emotionalReadOf(npc)))),
+          credibility: cred, reliableShare, endgame,
+        });
+        const rng = new SeededRandom(hashSeed(`${seed}:deal-plan:${deal.id}:${npc}`));
+        const plan = decidePlan({
+          kind: deal.kind, margin: w.margin, dealsMade: all.filter((d) => d.parties.includes(npc)).length,
+          temperament: 1 - this.candorOf(npc), loyaltyDial: this.cultureMult("loyalty"), lyingDial: this.cultureMult("lying"), week: s.week,
+        }, { twoFaced: rng.next(), which: rng.next() });
+        recordPlan(store, deal.id, npc, plan, s.week);
+      }
+    }
+    // carry out the two-faced plans that are due; write each plan's outcome once
+    const now = this.planNow();
+    for (const [dealId, byHolder] of Object.entries(store)) {
+      const deal = all.find((d) => d.id === dealId);
+      if (!deal) continue;
+      for (const [holder, plan] of Object.entries(byHolder)) {
+        if (plan.outcome) continue;
+        if (deal.status !== "open") {
+          plan.outcome = plan.kind === "keep" ? (deal.status === "broken" ? "overtaken" : "kept-anyway")
+            : deal.status === "broken" ? "carried-out" : "kept-anyway";
+          continue;
+        }
+        if (plan.kind === "keep" || plan.kind === "flip" || gone.has(holder)) continue; // a flip is carried out by the vote itself
+        const due = plan.kind === "cut-final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
+        if (!due) continue;
+        const rng = new SeededRandom(hashSeed(`${seed}:deal-plan-carry:${dealId}:${holder}:${s.week}`));
+        this.deals.breakDeliberately(deal, holder, {
+          rel: this.rel, rng, currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
+          juryDemerit: (wronged, breaker) => recordDealBetrayal(s, wronged, breaker),
+          revealToWitness: (witness, breaker) => { this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
+          reveal: (wronged, breaker, d) => this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a ${d.kind} deal with ${this.nameOf(wronged)} off-screen`, [breaker], "betrayal"),
+        });
+        if ((deal.status as string) === "broken") plan.outcome = "carried-out"; // breakDeliberately changed it
+        this.persist();
+      }
+    }
+  }
+
   /**
    * 0142 idea 4 - NPCs WEIGH BREAKING A DEAL. Once per open player-party deal per week (`Deal.weighedWeek`), in a PLAYED game only (headless seeded sims run none of this and stay byte-identical),
    * with the deal-depth layer on, never while a ceremony step is open. Each promisor NPC weighs the temptation (their threat read of the player, a low bond, their own plan against the player including
@@ -15513,7 +15603,8 @@ export class GameSessionAdapter implements GameSession {
     const living = this.house.npcs.map((n) => n.id).filter((id) => !gone.has(id));
     const seed = this.gameSeed ?? 0;
     const endgame: 0 | 1 | 2 = s.active.length <= 5 ? 2 : s.active.length <= 10 || s.evictionOrder.length >= 7 ? 1 : 0;
-    const open = this.deals.open().filter((d) => isWeighableKind(d.kind) && !d.packageId && !d.sealedBallot && d.parties.includes(PLAYER) && d.weighedWeek !== s.week);
+    const open = this.deals.open().filter((d) => isWeighableKind(d.kind) && !d.packageId && !d.sealedBallot && d.parties.includes(PLAYER) && d.weighedWeek !== s.week
+      && !d.condition.promisors.some((p) => this.twoFacedPlan(d.id, p))); // 0178: a two-faced plan rules its own deal (a "keep" plan can still be re-weighed: people change their minds)
     for (const deal of open) {
       const npc = deal.condition.promisors.find((p) => p !== PLAYER);
       if (!npc || gone.has(npc) || !living.includes(npc)) continue;
