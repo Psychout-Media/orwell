@@ -94,7 +94,7 @@ describe("0075 confide — the MCP boundary is OPEN (the four-place wiring is li
     const { id } = firstNpcSecret(session);
     const res = (await server.callTool("confide", { npcId: id })) as ConfideResult;
     // Baseline bond ⇒ no reason to open up yet — but it DISPATCHED (a valid result, not a boundary refusal).
-    expect(res).toMatchObject({ disclosed: false, tier: "none", truthful: true });
+    expect(res).toEqual({ disclosed: false, tier: "none" });
   });
 
   it("refuses a missing npcId with a typed field name (the arg-guard)", async () => {
@@ -215,5 +215,40 @@ describe("0075 confide — the PASSIVE LIE-CATCH (spec open-Q #4)", () => {
     }
     const lieCount = (session as unknown as { lieCount: number }).lieCount;
     expect(lieCount).toBeLessThanOrEqual(CONFIDENCE.maxLiesPerSeason);
+  });
+});
+
+describe("ORW-584 sentinel - no player-channel result carries whether a confidence was true", () => {
+  async function playerReads(server: McpServer, id: string): Promise<Record<string, string>> {
+    const out: Record<string, string> = {};
+    const calls: Array<[string, Record<string, unknown>]> = [
+      ["getGameState", {}], ["gameStatus", {}], ["getMomentPrompt", {}], ["seasonRecap", {}], ["dailyRecap", {}], ["npcVoice", { id }],
+    ];
+    for (const [name, args] of calls) out[name] = JSON.stringify(await server.callTool(name, args) ?? null);
+    return out;
+  }
+
+  it("a TRUE and a LIE confide, and every player read after them, hold no 'truthful' key and no truth marker", async () => {
+    for (const mode of ["true", "lie"] as const) {
+      const { server, session } = startedServer(mode === "true" ? 14 : 1);
+      const { id, secret } = firstNpcSecret(session);
+      if (mode === "true") earnFullConfidence(session, id); else setupLiar(session, id);
+      const res = await server.callTool("confide", { npcId: id });
+      const engineSays = (session as unknown as { confideState: Record<string, { truthful: boolean }> }).confideState[id]!.truthful;
+      expect(engineSays).toBe(mode === "true"); // the scene really was the kind we meant to play
+      expect(Object.keys(res as object).sort()).toEqual(["content", "disclosed", "tier"]);
+      const dumps = { confide: JSON.stringify(res), ...(await playerReads(server, id)) };
+      for (const [tool, text] of Object.entries(dumps)) {
+        expect(text, `${tool} (${mode})`).not.toMatch(/truthful/i);
+        expect(text, `${tool} (${mode})`).not.toMatch(/"(isTrue|veracity|lie|isLie)"\s*:/);
+      }
+      if (mode === "true") expect(JSON.parse(dumps.confide).content).toBe(secret.detail);
+    }
+  });
+
+  it("a refused confide carries no truth value either", async () => {
+    const { server, session } = startedServer(23);
+    const { id } = firstNpcSecret(session);
+    expect(JSON.stringify(await server.callTool("confide", { npcId: id }))).not.toMatch(/truthful/i);
   });
 });

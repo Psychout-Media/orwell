@@ -297,7 +297,8 @@ describe("A10/#591 — the REAL relationship fold (not just record-creation) is 
 
     const first = (await server.callTool("confide", { npcId, idempotencyKey: "LIE1" })) as ConfideResult;
     expect(first.disclosed).toBe(true);
-    expect(first.truthful).toBe(false);                    // the engine planted a LIE (the forced path)
+    expect(first).not.toHaveProperty("truthful");          // ORW-584: the truth value never crosses the player channel
+    expect((session as unknown as { confideState: Record<string, { truthful: boolean }> }).confideState[npcId]!.truthful).toBe(false); // the engine planted a LIE (the forced path)
     expect(lieCount(session)).toBe(liesBefore + 1);        // the lie ledger moved once
 
     const second = (await server.callTool("confide", { npcId, idempotencyKey: "LIE1" })) as ConfideResult;
