@@ -109,6 +109,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'defaultOn' },
   // ORW-620 (spec 0192): late-night talks among the houseguests still awake, catchable by a player who stays up; sleepers never scheme. ON by default; `=0` turns it off.
   { envKey: 'ORWELL_NIGHT_OWLS', key: 'nightOwls', parser: 'defaultOn' },
+  // ORW-473 amendment (0192): the walk-in rule also catches a talk among three or more, not only a pair. Played games only. ON by default; `=0` limits it to a pair.
+  { envKey: 'ORWELL_WALKIN_GROUPS', key: 'walkinGroups', parser: 'defaultOn' },
   // 0187 / ORW-586: promises BIND: an open-ledger entry may carry a typed term the engine judges from board facts (kept/broken + trust fold); a model may only withdraw it. Needs ORWELL_ASSURANCES. `=0` turns it off.
   { envKey: 'ORWELL_PROMISE_TERMS', key: 'promiseTerms', parser: 'defaultOn' },
   // 0154 / ORW-330 slice 5b: after an eviction NPC voters tell one NPC how they voted ("I voted to keep you"), true or a lie, engine-decided on its own seeded stream. Needs ORWELL_NPC_BELIEFS. `=0` turns it off.
@@ -119,6 +121,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_NETWORK_SPREAD', key: 'networkSpread', parser: 'defaultOn' },
   // 0175 / ORW-552 (Theme 3 Core 1): the bond record per pair (warmth, debts, resentment, strain, history, commitment), folded from what happened; nothing decides from it yet. `=0` = the edge-only bond read.
   { envKey: 'ORWELL_BOND_RECORD', key: 'bondRecord', parser: 'defaultOn' },
+  // ORW-624: the audience outside - a simulated public that judges from what would make the edit; felt as the crowd at a walk-out, a fan reward, America's Favorite. `=0` = no public.
+  { envKey: 'ORWELL_AUDIENCE', key: 'audience', parser: 'defaultOn' },
   // 0188 / ORW-619: the trap - a suspicious houseguest tells one person a made-up secret and watches whether it comes back (the player can be trapped too). `=0` = no traps.
   { envKey: 'ORWELL_TRAPS', key: 'traps', parser: 'defaultOn' },
   // 0180 / ORW-552 (Theme 3 slice 12 part 1): house norms - the house shuns a houseguest (or the player) it KNOWS broke their word (each observer's own held beliefs). `=0` = no shunning.

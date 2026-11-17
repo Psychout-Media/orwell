@@ -25,3 +25,10 @@ def test_the_framing_adds_the_directive_fail_open():
     src = open(chat_helpers.__file__, encoding="utf-8").read()
     i = src.index('_walk = _walked_in_directive(game_state.get("walkedIn"))')
     assert "walk-in framing skipped" in src[i:i + 500]
+
+
+def test_a_group_talk_names_everyone_in_a_natural_list():
+    g = {"room": "kitchen", "reactions": [{"name": "Role A", "line": "goes quiet"}, {"name": "Role B", "line": "moves on"}, {"name": "Role C", "line": "smiles"}]}
+    d = chat_helpers._walked_in_directive(g)
+    assert "between Role A, Role B and Role C (engine truth" in d
+    assert "- Role C smiles." in d
