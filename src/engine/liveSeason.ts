@@ -710,6 +710,8 @@ export interface LiveSeasonState {
    * folded; `bondsDay` = the last day night-repair ran). ENGINE-ONLY (Vault class), never projected. Absent => no bond record yet (old saves read neutral).
    */
   bonds?: BondStore;
+  /** 0180 (Theme 3 slice 12, house norms): per `observer|subject`, how many known breaches of word have already been folded into the observer's read (never re-applied). Engine-only. */
+  normsApplied?: Record<string, number>;
   bondsCursor?: number;
   bondsSeen?: string[];
   bondsDay?: number;

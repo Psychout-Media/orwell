@@ -296,6 +296,7 @@ import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs
 import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "../../engine/beliefDecisions";
 import { CONVICTION, credulityOf, dealTrust, evidenceStep, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
+import { knownBreaches, normStrength, shunMove } from "../../engine/houseNorms";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, type SceneFold } from "../../engine/bondRecord";
 import { deriveDailyHouseGraph, type DailyHouseGraph } from "../../engine/houseGraph";
@@ -5543,6 +5544,36 @@ export class GameSessionAdapter implements GameSession {
   /** Theme 3 slice 3 (Overseer B): the favor ledger as a second source of a bond's debt (signed like BondView.debt). Absent => the record's own debt only. */
   private favorDebt?: DebtSource;
   setFavorDebtSource(fn: DebtSource | undefined): void { this.favorDebt = fn; }
+  /** 0180 (Theme 3 slice 12, part 1): house norms (`ORWELL_HOUSE_NORMS`, default ON; `=0` = no shunning, byte-identical). Played games with beliefs only. */
+  private houseNormsEnabled = flagDefaultOn("ORWELL_HOUSE_NORMS");
+  setHouseNormsEnabled(on: boolean): void { this.houseNormsEnabled = on; }
+  /**
+   * 0180: overnight, each houseguest who KNOWS (holds beliefs) that someone broke their word at least `NORMS.threshold` times - to them or to others - shuns that
+   * person: a bounded move in their own read of them (affinity and trust down), deeper per further incident, scaled by the house culture. Each incident is folded
+   * once (`normsApplied`). The player can be the one shunned. Engine-only; a side-stream rng only for the edge's own jitter.
+   */
+  private foldNormsOvernight(): void {
+    const s = this.live;
+    if (!this.houseNormsEnabled || !s || s.playedGame !== true || !s.beliefs || !this.npcBeliefsEnabled || !this.house) return;
+    const living = this.livingIds();
+    const strength = normStrength(this.cultureMult("loyalty"), this.cultureMult("lying"));
+    const applied = (s.normsApplied ??= {});
+    const seed = this.gameSeed ?? 0;
+    const day = s.dayNumber ?? s.week;
+    for (const observer of living) {
+      if (observer === PLAYER) continue;
+      const held = s.beliefs[observer] ?? [];
+      if (held.length === 0) continue;
+      for (const subject of living) {
+        if (subject === observer) continue;
+        const key = `${observer}|${subject}`;
+        const move = shunMove(knownBreaches(held, observer, subject), applied[key] ?? 0, strength);
+        if (move.incidents === 0) continue;
+        applied[key] = (applied[key] ?? 0) + move.incidents;
+        this.rel.applyImpactDirected(observer, subject, { affinity: move.affinity, trust: move.trust }, new SeededRandom(hashSeed(`${seed}:norms:${observer}:${subject}:${day}`)));
+      }
+    }
+  }
   /** 0175: the bond record (`ORWELL_BOND_RECORD`, default ON; `=0` = the edge-only reader and no record kept). Nothing decides from it yet, so it moves no outcome. */
   private bondRecordEnabled = flagDefaultOn("ORWELL_BOND_RECORD");
   setBondRecordEnabled(on: boolean): void { this.bondRecordEnabled = on; }
@@ -10482,6 +10513,7 @@ export class GameSessionAdapter implements GameSession {
     }
     this.mullAgendasOvernight(); // ORW-312: asleep, each houseguest's goals fade without progress (inner processing only: no scheming, no rng)
     this.foldBonds(); // 0175: the day's shared moments, deals and saves into the bond record (no rng)
+    this.foldNormsOvernight(); // 0180: the house shuns a known promise-breaker (what each houseguest holds, never the truth)
     this.issueNameTickets(); // ORW-566 part c2: tonight's fixed-size batch of sealed naming prompts (keyed hashing, no rng)
     this.feelingsTick(); // ORW-568 / 0181 part 2: jealousy follows the night's favour (no rng, no text)
     this.foldGrudges(); // 0182: the wrongs the engine already recorded into the grudge book (no rng)
