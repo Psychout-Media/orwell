@@ -100,7 +100,7 @@ import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAc
 import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
-import { buildDealPlanRetro, decidePlan, momentDue, planSourceOf, recordPlan, type PlanSource, type StoredPlan } from "../../engine/dealPlans";
+import { DEAL_PLANS, PLAN_SEMANTICS, buildDealPlanRetro, decidePlan, fakingLean, isBetrayal, momentDue, planBond, planSourceOf, recordPlan, type PlanSource, type StoredPlan } from "../../engine/dealPlans";
 import { DEAL_CONSENT, DEAL_REFUSAL_LINE } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
@@ -1901,7 +1901,10 @@ export class GameSessionAdapter implements GameSession {
       // Review lead 5: a repeat same-kind assurance (same week, from, to) used to get the SAME roll; the 2nd, 3rd... salt the seed with how many already stand (the first keeps its exact seed).
       const prior = ledger.all.filter((x) => x.week === this.live!.week && x.from === a.from && x.to === a.to && x.kind === a.kind).length;
       const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:asr-sincere:${this.live.week}:${a.from}:${a.to}:${a.kind}${prior > 0 ? `:${prior}` : ""}`)).next();
-      sincerity = npcAssuranceSincerity(loyalty, roll);
+      // ORW-601: one faking model - the shared dials (the person's cunning, every promise they have made so far, deals and assurances, and the culture) when deal plans are on.
+      const made = this.deals.all.filter((d) => d.parties.includes(a.from)).length + ledger.all.filter((x) => x.from === a.from).length + 1;
+      const pFake = this.dealPlansEnabled ? Math.max(0, Math.min(1, fakingLean(made, this.fakingCunningOf(a.from)) + DEAL_PLANS.cultureLean * ((this.cultureMult("lying") - 1) - (this.cultureMult("loyalty") - 1)))) : undefined;
+      sincerity = npcAssuranceSincerity(loyalty, roll, pFake);
     }
     const { heardBy, ...rest } = a;
     ledger.add({ ...rest, sincerity, week: this.live.week, ...(this.memoryPromisesEnabled && heardBy && heardBy.length > 0 ? { heardBy: [...heardBy] } : {}) });
@@ -10281,7 +10284,8 @@ export class GameSessionAdapter implements GameSession {
       ...(this.tieBehaviorEnabled ? { tieNomPushFor: (t: EntityId, h: EntityId) => this.tieNomPushFor(t, h), tieVotePushFor: (n: EntityId, v: EntityId) => this.tieVotePushFor(n, v) } : {}),
       ...(this.dealNomsEnabled ? { dealNomPushFor: (t: EntityId, h: EntityId) => this.dealNomPushFor(t, h) } : {}),
       // 0160 (Ryne Q3): a deal weighs as far as its holder trusts the other party (full strength only; capped keeps the fixed weight).
-      ...(BELIEF_RULES.strength === "full" || this.dealPlansEnabled ? { dealTrustFor: (h: EntityId, other: EntityId) => this.flipsAtThisVote(h, other) ? -1 : BELIEF_RULES.strength === "full" ? dealTrust(this.rel.edge(h, other).trust) : 1 } : {}), // 0178: a flip plan turns the deal's weight against the one it protected
+      ...(BELIEF_RULES.strength === "full" ? { dealTrustFor: (h: EntityId, other: EntityId) => dealTrust(this.rel.edge(h, other).trust) } : {}), // 0160 (Ryne Q3): a deal weighs as far as the holder trusts the other party
+      ...(this.dealPlansEnabled && this.live?.dealPlans ? { flipVoteFor: (v: EntityId, fn: readonly [EntityId, EntityId]) => fn.find((n) => this.flipsAtThisVote(v, n)) } : {}), // 0178: a flip plan casts the vote
       ...(this.juryMemoryEnabled ? { juryMemoryFor: (j: EntityId, f: EntityId) => this.juryMemoryFor(j, f) } : {}),
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
       ...(this.moodVetoEnabled && this.npcTellsEnabled ? { moodVetoFor: (n: EntityId, h: EntityId) => this.moodVetoFor(n, h) } : {}),
@@ -14416,9 +14420,11 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** ORW-87: the NPC's OWN standing plan against the player (an active evict campaign they own, else a held target drive): a drive/campaign push >= 0, read from the same `drivePushFor` the nomination uses. Played games only (the caller gates). */
-  private ownPushAgainstPlayer(npcId: EntityId): number {
-    const own = this.campaigns.find((c) => c.status === "active" && c.owners.includes(npcId) && c.target === PLAYER);
-    return Math.max(0, drivePushFor(this.drives.get(npcId), PLAYER, own ? { goal: own.goal, progress: own.progress } : undefined));
+  private ownPushAgainstPlayer(npcId: EntityId): number { return this.ownPushAgainst(npcId, PLAYER); }
+  /** The NPC's own push against `target` (their active campaign on that seat, else their drive). The same read for the player and for any houseguest (ORW-613). */
+  private ownPushAgainst(npcId: EntityId, target: EntityId): number {
+    const own = this.campaigns.find((c) => c.status === "active" && c.owners.includes(npcId) && c.target === target);
+    return Math.max(0, drivePushFor(this.drives.get(npcId), target, own ? { goal: own.goal, progress: own.progress } : undefined));
   }
 
   private dealConsentRefusal(npcId: EntityId, kind: DealReqKind, direction?: "offer" | "ask", bonus = 0): DealRefusal | null {
@@ -16052,15 +16058,35 @@ export class GameSessionAdapter implements GameSession {
   dealPlanSource(): PlanSource { return planSourceOf(() => this.live?.dealPlans); }
   private twoFacedPlan(dealId: string, holder: EntityId): StoredPlan | undefined {
     const p = this.live?.dealPlans?.[dealId]?.[holder];
-    return p && p.kind !== "keep" ? p : undefined;
+    return p && isBetrayal(p.kind) ? p : undefined;
   }
-  /** 0178: does `holder` hold a flip plan, due at this week's vote, on an open deal that protects `other`? */
+  /**
+   * 0178: does `holder` hold a flip plan, due at this week's vote, on an open deal that protects `other` - with nothing bigger since? Something bigger is: a newer
+   * deal between the two (they recommitted after this deal - by ledger order, so a same-week recommit counts too; Fable T3-5 item 4), or `other` saving `holder`
+   * with the veto this week (a debt the flip would betray outright).
+   */
   private flipsAtThisVote(holder: EntityId, other: EntityId): boolean {
     const s = this.live;
     if (!this.dealPlansEnabled || !s?.dealPlans) return false;
-    return this.deals.open().some((d) => d.parties.includes(holder) && d.parties.includes(other) && d.condition.promisors.includes(holder)
+    if (s.saved === holder && s.vetoHolder === other) return false; // they just saved the flipper
+    const pair = (d: Deal) => d.parties.includes(holder) && d.parties.includes(other);
+    return this.deals.open().some((d) => pair(d) && d.condition.promisors.includes(holder)
       && (d.condition.protect === other || d.condition.promisors.length === 2) // a mutual deal protects each party from the other
-      && (() => { const p = this.twoFacedPlan(d.id, holder); return !!p && p.kind === "flip" && !!p.moment && momentDue(p.moment, s.week, "vote"); })());
+      && (() => {
+        const p = this.twoFacedPlan(d.id, holder);
+        if (!p || PLAN_SEMANTICS[p.kind].carriedOut !== "vote" || !p.moment || !momentDue(p.moment, s.week, "vote")) return false;
+        const all = this.deals.all, at = all.indexOf(d);
+        return !all.some((n, i) => i > at && pair(n)); // recommitted since (made after this deal, same week or later): the newer deal stands
+      })());
+  }
+  /**
+   * 0178 retune: how cunning a houseguest is about faking, 0..1. Low candor reads as cunning; a WILDCARD is unpredictable instead: their cunning is their own
+   * seeded draw across the whole range (one per person per season), so one wildcard fakes like a mastermind and the next keeps every word.
+   */
+  private fakingCunningOf(npc: EntityId): number {
+    const c = this.agendaCharacterOf(npc);
+    if (c?.archetype === "wildcard") return new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:faking-cunning:${npc}`)).next();
+    return 1 - this.candorOf(npc);
   }
   /** Where the week stands for a plan's moment. */
   private planNow(): "nominations" | "veto" | "vote" | "other" {
@@ -16092,14 +16118,14 @@ export class GameSessionAdapter implements GameSession {
         const endgame: 0 | 1 | 2 = s.active.length <= 5 ? 2 : s.active.length <= 10 || s.evictionOrder.length >= 7 ? 1 : 0;
         const w = weighDealBreak({
           kind: deal.kind, threat: e.threat, trust: e.trust, affinity: e.affinity,
-          ownPush: other === PLAYER ? this.ownPushAgainstPlayer(npc) : 0, agendaPull: this.agendaPullOf(other, npc).value,
+          ownPush: this.ownPushAgainst(npc, other), agendaPull: this.agendaPullOf(other, npc).value, // ORW-613: the same push against an NPC partner as against the player
           loyalty: Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(npc), this.emotionalReadOf(npc)))),
           credibility: cred, reliableShare, endgame,
         });
         const rng = new SeededRandom(hashSeed(`${seed}:deal-plan:${deal.id}:${npc}`));
         const plan = decidePlan({
-          kind: deal.kind, margin: w.margin, dealsMade: all.filter((d) => d.parties.includes(npc)).length,
-          temperament: 1 - this.candorOf(npc), loyaltyDial: this.cultureMult("loyalty"), lyingDial: this.cultureMult("lying"), week: s.week,
+          kind: deal.kind, margin: w.margin, bond: planBond(e), dealsMade: all.filter((d) => d.parties.includes(npc)).length,
+          temperament: this.fakingCunningOf(npc), loyaltyDial: this.cultureMult("loyalty"), lyingDial: this.cultureMult("lying"), week: s.week,
         }, { twoFaced: rng.next(), which: rng.next() });
         recordPlan(store, deal.id, npc, plan, s.week);
       }
@@ -16112,12 +16138,13 @@ export class GameSessionAdapter implements GameSession {
       for (const [holder, plan] of Object.entries(byHolder)) {
         if (plan.outcome) continue;
         if (deal.status !== "open") {
-          plan.outcome = plan.kind === "keep" ? (deal.status === "broken" ? "overtaken" : "kept-anyway")
+          plan.outcome = !isBetrayal(plan.kind) ? (deal.status === "broken" ? "overtaken" : "kept-anyway")
             : deal.status === "broken" ? "carried-out" : "kept-anyway";
           continue;
         }
-        if (plan.kind === "keep" || plan.kind === "flip" || gone.has(holder)) continue; // a flip is carried out by the vote itself
-        const due = plan.kind === "cut-final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
+        const how = PLAN_SEMANTICS[plan.kind].carriedOut;
+        if (how === "never" || how === "vote" || gone.has(holder)) continue; // honest; or a flip, which the vote itself carries out
+        const due = how === "final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
         if (!due) continue;
         const rng = new SeededRandom(hashSeed(`${seed}:deal-plan-carry:${dealId}:${holder}:${s.week}`));
         this.deals.breakDeliberately(deal, holder, {
