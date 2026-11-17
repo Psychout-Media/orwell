@@ -2172,6 +2172,18 @@ export function seatTacticOf(rule: string | undefined, terms: ReadonlyArray<read
   if (rule === "pawn-is-biggest-floater") return "pawn";
   return term("pawn-seat-floater") > 0 && terms.every(([k, v]) => k === "pawn-seat-floater" || v <= term("pawn-seat-floater")) ? "pawn" : "direct";
 }
+/**
+ * ORW-578 part 2b: a veto holder who does NOT use the veto gives a reason aloud at the ceremony, about the HOH whose nominations they leave standing. The same seam as
+ * every stated reason (NPC deciders in a played game only): the honest version is "keeping the nominations the same", and the candor roll can soften or cover it.
+ */
+export function noteVetoHoldReason(s: LiveSeasonState, ctx: SeasonCtx, holder: EntityId): void {
+  if (!ctx.statedReasonFor || !ctx.agendaPullFor || holder === ctx.player || !s.hoh || s.hoh === holder || !s.active.includes(s.hoh)) return;
+  const log = (s.statedReasons ??= []);
+  if (log.some((r) => r.week === s.week && r.decider === holder && r.decision === "veto-hold")) return;
+  const real: RealReason = { decision: "veto-hold", decider: holder, choice: s.hoh, terms: [] };
+  const day = s.dayNumber ?? s.week;
+  log.push({ week: s.week, day, decider: holder, decision: "veto-hold", public: true, real, stated: ctx.statedReasonFor(real, day) });
+}
 /** `whySinkFor` plus ORW-314's stated-reason record (inert unless the context supplies the agenda seam, i.e. a played game). */
 const reasonSinkFor = (s: LiveSeasonState, ctx: SeasonCtx, by: EntityId): WhySink => (w) => { recordWhy(s, by, w); noteStatedReason(s, ctx, by, w); };
 
@@ -3731,6 +3743,7 @@ function npcVetoSave(s: LiveSeasonState, ctx: SeasonCtx): EntityId | undefined {
     recordWhy(s, holder, { kind: "veto", rule: "no-candidate-clears-the-bar", options: [
       { option: "hold", role: "chosen", total: bar, terms: [["bar", bar]] }, opt(ru, "runner-up"),
     ] });
+    noteVetoHoldReason(s, ctx, holder); // ORW-578 part 2b: not using the veto is a public act too, with a reason said aloud
   }
   return saved;
 }
