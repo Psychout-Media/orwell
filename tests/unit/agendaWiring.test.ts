@@ -45,9 +45,11 @@ describe("ORW-312: NPC agendas on the live season", () => {
 
   it("(a) ORW-314: with the agenda's pull zeroed a played season is exactly the pre-wiring one; with the pull on it is a different season, REPORTED not gated (balance is a report)", () => {
     for (const seed of [3]) {
-      const off = withoutAgendas(() => playSeason(seed));
-      const zero = withPullZeroed(() => playSeason(seed));
-      const on = playSeason(seed);
+      // ORW-574: the own view (ORWELL_OWN_VIEW) makes decisions read the decider's beliefs, and an agenda's find-out goals move beliefs overnight, so with it on
+      // "no pull" is no longer "no effect". This test isolates the agenda's PULL, so all three seasons play without the own view.
+      const off = withoutAgendas(() => playSeason(seed, { ownViewOff: true }));
+      const zero = withPullZeroed(() => playSeason(seed, { ownViewOff: true }));
+      const on = playSeason(seed, { ownViewOff: true });
       expect(on.finished).toBe(true);
       expect(off.finished).toBe(true);
       expect(zero.finished).toBe(true);
