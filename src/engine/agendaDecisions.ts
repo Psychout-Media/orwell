@@ -100,10 +100,21 @@ export function truthfulKind(real: RealReason): StatedReasonKind {
   switch (real.goalKind) {
     case "revenge": return "came-after-me";
     case "long-con": return "had-it-planned";
-    case "keep-them-safe": case "protect-my-person": case "last-alliance-standing": return "loyal-to-my-side";
+    case "keep-them-safe": case "protect-my-person": case "last-alliance-standing": case "pull-them-in": return "loyal-to-my-side"; // ORW-578: a save to pull someone in is loyalty, not a threat read
     default: break;
   }
-  const top = [...real.terms].sort((a, b) => Math.abs(b.value) - Math.abs(a.value) || a.name.localeCompare(b.name))[0];
+  // ORW-578 (Fable T1-11): the reason is the term that PUSHED the choice - the largest POSITIVE contribution to the chosen option's score - never the largest
+  // by size regardless of sign (a protective term that pulled AGAINST the choice is not why they made it).
+  const top = real.terms.filter((t) => t.value > 0).sort((a, b) => b.value - a.value || a.name.localeCompare(b.name))[0];
+  if (real.decision === "veto") {
+    // A save is a choice FOR someone: what pushed it is a bond, a debt, a promise or the house - never "you are the biggest threat".
+    switch (top?.name) {
+      case "deal": return "kept-my-word";
+      case "campaign": case "pitch": return "house-wants-it";
+      case "alliance": case "bond": case "memory": case "belief": case "goal": return "loyal-to-my-side";
+      default: return "nothing-personal";
+    }
+  }
   switch (top?.name) {
     case "memory": return "came-after-me";
     case "alliance": case "bond": return "loyal-to-my-side";
