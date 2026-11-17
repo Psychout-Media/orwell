@@ -12,6 +12,7 @@ import type { TimeOfDay } from "../engine/timeOfDay";
  * clauses ("what the new house has heard"). Deliberately NOT the engine's full `NotorietySummary` —
  * the reputation facets are hidden numbers that drive the day-one biases and must never cross.
  */
+import type { AvoidWire } from "../domain/recentSeasons";
 export interface NotorietyLegendView {
   legendBeats: string[];
 }
@@ -1108,6 +1109,12 @@ export interface CreateCharacterReq {
    * adapter derives it from `keepCharacter` because the strip to `keepCharacter:false` happens first.
    */
   carriesNotoriety?: boolean;
+  /**
+   * ORW-508 — what the last seasons on this install used (names, hometowns, jobs, marks, phrases), sent by the
+   * front end from its per-user ledger so a NEW cast avoids it. Absent for seeded headless runs and tests.
+   * Bounded and fail-soft: the deal relaxes an avoid it cannot honour. Never part of the player tool's schema.
+   */
+  avoid?: AvoidWire;
 }
 
 export interface MomentPromptReq {
@@ -2967,6 +2974,8 @@ export interface RecordOffscreenSceneTextureResult {
  * read), so this is safe to run the instant a model is selectable.
  */
 export interface PreSeedCastReq {
+  /** ORW-508: the recent-seasons avoid lists from the front end's per-user ledger (see `CreateCharacterReq.avoid`). */
+  avoid?: AvoidWire;
   /**
    * Optional explicit seed (tests/replays). Default: mint + persist real entropy now — and the
    * later `createCharacter` ADOPTS this same seed, so the warmed cast is the cast that ships.
@@ -3002,6 +3011,8 @@ export interface PreSeedCastView {
  * not-yet-warmed buffer first warms it.
  */
 export interface PreSeedNextSeasonReq {
+  /** ORW-508: the recent-seasons avoid lists from the front end's per-user ledger (see `CreateCharacterReq.avoid`). */
+  avoid?: AvoidWire;
   /** Optional explicit seed (tests/replays). Default: mint + persist a NEW season seed for the held cast. */
   seed?: number;
   /**
