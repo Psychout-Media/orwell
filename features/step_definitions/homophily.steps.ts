@@ -51,3 +51,45 @@ Then("no surface carries a similarity or a pair multiplier", async function () {
   const blob = JSON.stringify([await sb.mcp.player.callTool("getGameState", {}), await sb.mcp.player.callTool("getMomentPrompt", {}), await sb.mcp.admin.callTool("inspectNonVaultState", {})]).toLowerCase();
   for (const k of ["homophily", "pairbondmult", "similarity"]) assert.equal(blob.includes(k), false, k);
 });
+
+// --- Part 2: territory ---------------------------------------------------------------------------------------------------------------
+import { TERRITORY, topRoomOf, territoryNudge, type Tenure } from "../../src/engine/territory";
+import type { BedsState } from "../../src/engine/beds";
+type Hours = { session: GameSessionAdapter; engine: { events: unknown } };
+type Lived = { live: { tenure?: Tenure; beds?: BedsState; nightDepth?: number }; houseLifeStretch(e: unknown, a: readonly string[], i: number): unknown[]; livingIds(): string[]; territoryBondNudge(a: string, b: string): number };
+function lived(flag = true): Hours {
+  const sb = new GameSessionRegistry().sandboxFor(`hp0176-t-${n++}`) as unknown as Hours;
+  sb.session.setTerritoryEnabled(flag); sb.session.setHouseCultureEnabled(false);
+  sb.session.createCharacter({ playerName: "The Player", seed: 7 }); sb.session.noteMessage({ messageId: "m1" });
+  const s = sb.session as unknown as Lived, awake = s.livingIds().filter((i) => i !== "player");
+  for (let h = 0; h < 30; h++) { s.live.nightDepth = (s.live.nightDepth ?? 8) + 1; s.houseLifeStretch(sb.engine.events, awake, h); }
+  return sb;
+}
+Given("a seeded played house that has lived some hours", function () { (bag(this) as Bag & { t?: Hours }).t = lived(true); });
+Then("the tenure only ever grows and a houseguest's top room is never the Diary Room or the HOH room", function () {
+  const t = (bag(this) as Bag & { t: Hours }).t, s = t.session as unknown as Lived;
+  const before = JSON.parse(JSON.stringify(s.live.tenure ?? {})) as Tenure;
+  assert.ok(Object.keys(before).length > 0);
+  const awake = s.livingIds().filter((i) => i !== "player");
+  for (let h = 30; h < 40; h++) { s.live.nightDepth = (s.live.nightDepth ?? 8) + 1; s.houseLifeStretch(t.engine.events, awake, h); }
+  for (const [who, rooms] of Object.entries(before)) for (const [r, v] of Object.entries(rooms)) assert.ok((s.live.tenure![who]![r as keyof Tenure[string]] ?? 0) >= (v as number));
+  for (const who of Object.keys(s.live.tenure!)) { const top = topRoomOf(s.live.tenure, who); assert.ok(top !== "diary-room" && top !== "hoh-room"); }
+});
+Then("a pair who share a bedroom get a nudge no larger than the cap", function () {
+  const s = (bag(this) as Bag & { t: Hours }).t.session as unknown as Lived, owners = Object.entries(s.live.beds!.owner);
+  const pair = owners.flatMap(([a, ba]) => owners.filter(([b]) => a < b).map(([b, bb]) => [a, b, ba.split("#")[0] === bb.split("#")[0]] as const)).find((p) => p[2])!;
+  const v = s.territoryBondNudge(pair[0], pair[1]);
+  assert.ok(v > 0 && v <= TERRITORY.NUDGE_CAP);
+  assert.equal(v, territoryNudge(s.live.tenure, s.live.beds, pair[0], pair[1]));
+});
+Then("with territory off the nudge is exactly zero", function () {
+  const s = lived(false).session as unknown as Lived, owners = Object.keys(s.live.beds!.owner);
+  assert.equal(s.territoryBondNudge(owners[0]!, owners[1]!), 0);
+  assert.equal(s.live.tenure, undefined);
+});
+Then("no surface carries a tenure, a territory or a regulars field", async function () {
+  const sb = new GameSessionRegistry().sandboxFor(`hp0176-twall-${n++}`);
+  sb.session.createCharacter({ playerName: "The Player", seed: 21 }); sb.session.noteMessage({ messageId: "m1" });
+  const blob = JSON.stringify([await sb.mcp.player.callTool("getGameState", {}), await sb.mcp.player.callTool("getMomentPrompt", {}), await sb.mcp.admin.callTool("inspectNonVaultState", {})]).toLowerCase();
+  for (const k of ["tenure", "territory", "regulars"]) assert.equal(blob.includes(k), false, k);
+});

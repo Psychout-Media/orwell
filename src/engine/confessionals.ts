@@ -1,3 +1,4 @@
+import { composeAll } from "./data/composedFloor";
 import type { EventStore } from "../ports/EventStore";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import type { EntityId, GameEvent } from "../domain/event";
@@ -148,19 +149,71 @@ export interface ConfessionalDepth {
 const MOOD_OF = (state: number): "rattled" | "steady" | "confident" =>
   state < 0.4 ? "rattled" : state > 0.6 ? "confident" : "steady";
 
+/**
+ * ORW-509: each fallback pool is the authored lines (kept FIRST, so the no-rng `lines[0]` read is byte-identical) followed by lines COMPOSED from independent
+ * parts (lead x core x closer). The pick is still one `rng.int(pool.length)`, so consumption is unchanged; the pool is just wide. The writer authors the live
+ * confessional from the confessor's own read; these are what the engine says offline. Every part states the SAME engine-grounded fact (a voiced line never moves one).
+ */
+const widen = (authored: readonly string[], axes: ReadonlyArray<ReadonlyArray<string>>, join: (p: string[]) => string = joinSentence): string[] =>
+  [...authored, ...composeAll(axes, join).filter((l) => !authored.includes(l))];
+/** lead + core + closer; a closer carries its own leading punctuation (", and ..." / " - ...") so the join is a plain concatenation. */
+function joinSentence(p: string[]): string {
+  const [lead, core, closer] = p as [string, string, string];
+  return `${lead ? `${lead} ` : ""}${core}${closer}`;
+}
+
+const TARGET_LEADS = ["", "", "Honestly,", "Look,", "Here's the thing:", "I'll say it plainly:", "Real talk:", "Between us,", "Not gonna lie,", "At this point,"];
+const TARGET_CORES = [
+  "{T} is the biggest threat in this house", "{T} has to be the next one out", "I can't see my game surviving {T}", "{T} is the name I keep landing on",
+  "{T} is playing a better game than they're letting on", "I'd feel safer the day {T} is gone", "{T} is the one standing between me and the end", "every plan I make has {T} in the way",
+];
+const TARGET_CLOSERS = ["", ", and I'm not hiding it", ", whether they know it or not", ", plain and simple", ", and the clock is running", " - I just have to find the moment", ", and I've known it for a while"];
+const ALLY_LEADS = ["", "", "Honestly,", "Look,", "If I'm being real,", "For what it's worth,", "At the end of the day,", "Weirdly,"];
+const ALLY_CORES = [
+  "{A} is the one person I'd trust with my game", "{A} has had my back from the start", "{A} is the closest thing I have to a real friend in here", "I feel safest when {A} is in the room",
+  "{A} is the only one I'd tell the truth to", "{A} and I are on the same page about this whole house", "if it came down to it I'd walk to the end with {A}",
+];
+const ALLY_CLOSERS = ["", ", and that doesn't happen often", ", which says a lot in here", ", even if I'd never say it out loud", ", no matter how the week goes", ", and I think they feel the same"];
+const GRUDGE_CORES = [
+  "I haven't forgotten what {G} did to me", "{G} crossed a line with me and I'm still thinking about it", "what {G} pulled is still sitting with me", "I keep coming back to what {G} did",
+  "{G} burned me once and I remember", "I'm not over {G} yet",
+];
+const GRUDGE_LEADS = ["", "And", "Also,", "Honestly,", "And look,", "Still,"];
+const GRUDGE_CLOSERS = ["", ", and it shows", ", whatever they say", " - that isn't going away", ", and I won't pretend otherwise"];
+const WARM_CORES = ["that talk with {P} left me feeling better", "talking with {P} cleared the air a little", "I came out of that chat with {P} closer to them", "{P} and I are in a better place after that"];
+const COOL_CORES = ["that talk with {P} left me uneasy", "I walked away from {P} with more questions than answers", "something in how {P} spoke sits wrong with me", "I trust {P} a little less after that"];
+const AFTERMATH_LEADS = ["", "Honestly,", "Funny thing is,", "After everything,", "Strange as it sounds,"];
+const AFTERMATH_CLOSERS = ["", ", and I'm still turning it over", ", for better or worse", ", which I didn't expect", ", and I can't shake it"];
+const CURT_TARGET_CORES = ["{T} goes", "{T}'s my target", "I'm coming for {T}", "{T}. That's the name", "It's {T}", "{T} is the one", "Eyes on {T}", "{T} has to go"];
+const CURT_TARGET_CLOSERS = [". Done", ". Simple", ". No debate", ". Period", ". That's it", ". Moving on"];
+const CURT_ALLY_CORES = ["{A}'s my one", "I trust {A}", "{A} and me", "Ride or die? {A}", "It's {A}. Always", "{A} has my back", "Only {A}", "{A}. No one else"];
+const CURT_ALLY_CLOSERS = [". That's it", ". Locked", ". Nobody else", ". Period", ". Simple", ". Done"];
+const EXP_TARGET_LEADS = ["okay so the thing is,", "look, I love a lot of people in here, but", "if I'm being real with myself,", "I keep going back and forth, and honestly,", "I didn't want to say this out loud, but", "so, like,"];
+const EXP_TARGET_CORES = [
+  "{T} is just - they're playing everyone, and it scares me a little", "every road to the end somehow runs straight through {T}", "{T} is the one keeping me up at night",
+  "{T} is the biggest threat I've got, and the longer I sit on that the worse it gets",
+];
+const EXP_TARGET_CLOSERS = [", so yeah, they have to go", ", and I think deep down we all know it", ", and I just can't have that", ", and I need to do something about it soon", ", you know?"];
+const EXP_ALLY_LEADS = ["but", "and then there's", "okay, and", "honestly,", "and I mean it, because", "oh my gosh,"];
+const EXP_ALLY_CORES = [
+  "{A} is the one person in here I genuinely trust", "{A} just gets me - we see this whole house the same way", "if I've got a ride-or-die in this place, it's {A}",
+  "the only person I'd actually walk to the end with is {A}",
+];
+const EXP_ALLY_CLOSERS = [", like with everything", ", it's kind of wild", ", no question about it", ", and I'd do it in a heartbeat", ", honestly, completely"];
+
 /** Varied target/ally phrasings ({T}/{A} = names) — seeded pick, grounded in the same engine truth. */
-const TARGET_LINES = [
+export const TARGET_LINES = widen([
   "I need {T} gone — they're my biggest threat",
   "every road to the end runs through {T}, and they have to go",
   "{T} is the one I'm watching — they're playing everybody",
   "if I get any power this week, {T} is the name I write down",
-];
-const ALLY_LINES = [
+], [TARGET_LEADS, TARGET_CORES, TARGET_CLOSERS]);
+const ALLY_LINES = widen([
   "{A} is the one I actually trust",
   "if I have a ride-or-die in here, it's {A}",
   "{A} and I see this house the same way",
   "the only person I'd go to the end with is {A}",
-];
+], [ALLY_LEADS, ALLY_CORES, ALLY_CLOSERS]);
 const MOOD_LINES: Record<"rattled" | "steady" | "confident", string> = {
   rattled: "I'm shaken — this house just got very real",
   steady: "I'm keeping my head down and my eyes open",
@@ -184,19 +237,19 @@ const STANDING_LINES: Record<"safe" | "exposed" | "reading", string> = {
   exposed: "And I know exactly how exposed I am right now",
   reading: "And I'm still reading where I stand in all this",
 };
-const GRUDGE_LINES = [
+const GRUDGE_LINES = widen([
   "I also haven't forgotten what {G} did to me",
   "and don't get me started on {G} — that betrayal still stings",
   "{G} crossed me once, and I hold onto that",
-];
-const AFTERMATH_WARM_LINES = [
+], [GRUDGE_LEADS, GRUDGE_CORES, GRUDGE_CLOSERS]);
+const AFTERMATH_WARM_LINES = widen([
   "that talk with {P} sat right with me — we're tighter for it",
   "after getting into it with {P}, I feel better about where we are",
-];
-const AFTERMATH_COOL_LINES = [
+], [AFTERMATH_LEADS, WARM_CORES, AFTERMATH_CLOSERS]);
+const AFTERMATH_COOL_LINES = widen([
   "that conversation with {P} put me on edge",
   "I came out of that talk with {P} trusting them a little less",
-];
+], [AFTERMATH_LEADS, COOL_CORES, AFTERMATH_CLOSERS]);
 const ADJACENT_LINES: Record<"won-power" | "nominated", Record<"ally" | "target", string>> = {
   "won-power": {
     ally: "{R} taking power changes everything for me — my person is on top",
@@ -217,30 +270,30 @@ const ADJACENT_LINES: Record<"won-power" | "nominated", Record<"ally" | "target"
  * so a voiced confessional is as reproducible as an un-voiced one. Only the PHRASING differs across the
  * three — every line names the same {T}/{A} the engine computed (voice never moves a fact, ADR 0005).
  */
-const CURT_TARGET_LINES = [
+const CURT_TARGET_LINES = widen([
   "{T} goes. Simple as that",
   "{T}'s my target. Done",
   "I'm coming for {T} — no debate",
   "{T}. That's the name. Period",
-];
-const CURT_ALLY_LINES = [
+], [[""], CURT_TARGET_CORES, CURT_TARGET_CLOSERS]);
+const CURT_ALLY_LINES = widen([
   "{A}'s my one. That's it",
   "I trust {A}. Nobody else",
   "{A} and me — locked",
   "Ride or die? {A}",
-];
-const EXPANSIVE_TARGET_LINES = [
+], [[""], CURT_ALLY_CORES, CURT_ALLY_CLOSERS]);
+const EXPANSIVE_TARGET_LINES = widen([
   "okay so the thing is, {T} is just — they're playing everyone, and honestly it scares me a little, so yeah, {T} has to go",
   "I keep coming back to {T}, you know? Every single road to the end somehow runs straight through them, and I just can't have that",
   "look, I love a lot of people in here, but {T}? {T} is the one keeping me up at night, and I think deep down we all know they've got to go",
   "if I'm being real with myself, {T} is the biggest threat I've got, and the longer I sit on that the worse it gets for me",
-];
-const EXPANSIVE_ALLY_LINES = [
+], [EXP_TARGET_LEADS, EXP_TARGET_CORES, EXP_TARGET_CLOSERS]);
+const EXPANSIVE_ALLY_LINES = widen([
   "but {A} — oh my gosh, {A} is the one person in here I genuinely, completely trust, like with everything",
   "and then there's {A}, who honestly just gets me — we see this whole house exactly the same way, it's kind of wild",
   "if I've got a ride-or-die in this place, a real one, it's {A}, hundred percent, no question about it",
   "the only person I'd actually walk to the end with is {A} — I'd do it in a heartbeat, that's how much I mean it",
-];
+], [EXP_ALLY_LEADS, EXP_ALLY_CORES, EXP_ALLY_CLOSERS]);
 
 /**
  * Feature 0090 — map a voice fingerprint to one of the three confessional textures. Reads only the PUBLIC

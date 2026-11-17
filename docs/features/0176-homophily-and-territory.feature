@@ -1,6 +1,6 @@
 # Feature 0176 - homophily and territory, PART 1: homophily (ORW-561, Theme 3 slice 10). Design note: 0176-homophily-and-territory.md.
 # Like attracts like: pairs who share a look, an age, a part of the country, a kind of job or a temperament bond a little faster and sour slower.
-# Part 2 (territory, tenure, the HOH room) is pending and has no scenarios here yet. Roles only.
+# PART 2: territory - a hidden tenure map (hours per room), a mild pull toward people who share your top room, a small capped bond nudge for roommates. Roles only.
 
 Feature: Houseguests who are alike bond a little faster
 
@@ -25,3 +25,16 @@ Feature: Houseguests who are alike bond a little faster
   Scenario: Nothing about it is visible
     Given a seeded played house
     Then no surface carries a similarity or a pair multiplier
+
+  Scenario: Hours in a room accrue to a hidden tenure and a top room needs enough of them
+    Given a seeded played house that has lived some hours
+    Then the tenure only ever grows and a houseguest's top room is never the Diary Room or the HOH room
+
+  Scenario: Roommates get a small capped nudge and territory off gives none
+    Given a seeded played house that has lived some hours
+    Then a pair who share a bedroom get a nudge no larger than the cap
+    And with territory off the nudge is exactly zero
+
+  Scenario: Nothing about territory is visible
+    Given a seeded played house that has lived some hours
+    Then no surface carries a tenure, a territory or a regulars field

@@ -57,6 +57,8 @@ export interface Deal {
   terms: string;
   condition: DealCondition;
   status: DealStatus;
+  /** Theme 3 / 0175: who broke the deal, when `status` is "broken" (absent on saves from before it, and on every other status). */
+  brokenBy?: EntityId;
   /** The event that recorded the deal being made (player-witnessed → knowledge; NPC↔NPC → Vault). */
   madeEventId?: string;
   /** The event that recorded it being kept/broken (set on reconciliation). */

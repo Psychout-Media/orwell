@@ -569,6 +569,8 @@ export interface SessionCore {
    * fact can `reopen` (delete) its entries by design, so it is exempt from the superset/count guards.
    */
   toldLedger?: import("./heldFacts").ToldSnapshot;
+  /** ORW-509: the previous seasons' competition themes / alliance names / house themes / event lines this season was told to avoid. Absent on a pre-feature save => nothing avoided (byte-identical load). */
+  worldAvoid?: import("./data/composedFloor").WorldAvoid;
 }
 
 /** The full durable unit: the session core plus the engine detail (for non-degradation). */
