@@ -712,6 +712,8 @@ export interface LiveSeasonState {
    */
   grudges?: GrudgeBook;
   grudgesSeen?: string[];
+  /** 0182 PR 2: how many events of the record the repair scan (the wrongdoer's bonding scene) has read. Written only once a grudge exists. */
+  grudgesCursor?: number;
   /**
    * 0181 (Theme 3 slice 4, ORW-568) - the guilt events already felt (`bondFeelings.ts` keys, ordered, never pruned), so a betrayal shakes the betrayer once. ENGINE-ONLY (Vault class), never projected.
    * Optional: absent on old saves and on every game that never felt one. Rides on `live`, so it is persisted and restored with the season.
