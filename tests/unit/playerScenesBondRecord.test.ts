@@ -29,6 +29,13 @@ describe("a player's recorded scene moves the bond record", () => {
     expect(store[`${A}|${PLAYER}`]!.warmth).toBeCloseTo(BOND.warmthPerBond, 12);
     expect(store[`${PLAYER}|${A}`]!.warmth).toBeCloseTo(BOND.warmthPerBond * BOND.initiatorShare, 12);
   });
+  it("a houseguest's own conflict with the player puts the resentment on the player's view of that houseguest, not the other way", () => {
+    const { sb, s } = start(3, "h"); const [A] = npcs(s);
+    sb.commands.recordInteraction({ initiator: A!, witnessSet: [A!, PLAYER], content: "a clash", kind: "conflict" } as never); s.bondReader();
+    const store = s.live.bonds!;
+    expect(store[`${PLAYER}|${A}`]!.resentment).toBeCloseTo(BOND.resentPerConflict, 12);
+    expect(store[`${A}|${PLAYER}`]!.resentment).toBeCloseTo(BOND.resentPerConflict * BOND.initiatorShare, 12);
+  });
   it("conflict: the partner's resentment and strain toward the player rise", () => {
     const { sb, s } = start(3, "b"); const [A] = npcs(s);
     say(sb, [A!], "conflict"); s.bondReader();

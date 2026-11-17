@@ -97,7 +97,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // ADR 0006: someone who has turned in for the night neither witnesses nor overhears a player scene.
   commands.setAwakeProvider(() => session.awakeIds());
   // P4g: a recorded betrayal / conflict / kindness scene is remembered (0024 ledger) by the NPCs it touched.
-  commands.setSceneMemorySink((holders, kind) => session.rememberPlayerScene(holders, kind));
+  commands.setSceneMemorySink((holders, kind, subject) => session.rememberPlayerScene(holders, kind, subject));
   // B4: a recorded casual assurance ("you're safe with me") is kept on the live state (flag-gated, default ON; `ORWELL_ASSURANCES=0` turns it off).
   commands.setAssuranceSink((a) => session.recordAssurance(a));
   // B24: an NPC's tell about the player (a recorded chat scene) is held as a belief by each named listener (flag-gated, default ON; `ORWELL_HEARD_ABOUT_ME=0` turns it off).

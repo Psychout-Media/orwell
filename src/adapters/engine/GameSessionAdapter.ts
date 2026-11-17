@@ -297,7 +297,7 @@ import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "..
 import { CONVICTION, credulityOf, dealTrust, evidenceStep, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
-import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, sceneRoles, type SceneFold } from "../../engine/bondRecord";
+import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, recordedSceneRoles, sceneRoles, type SceneFold } from "../../engine/bondRecord";
 import { deriveDailyHouseGraph, type DailyHouseGraph } from "../../engine/houseGraph";
 import type { Stats } from "../../engine/season";
 import {
@@ -5559,9 +5559,9 @@ export class GameSessionAdapter implements GameSession {
     for (let i = live.bondsCursor ?? 0; i < events.length; i++) {
       const e = events[i]!;
       if (live.playedGame === true && e.type === "conversation" && e.interactionKind !== undefined && SCENE_FOLDS.has(e.interactionKind) && e.witnessSet.includes(PLAYER)) {
-        // ORW-609 (played games only): the player's own recorded scene folds as the kind it was filed under. The player started it; its partner is the NPC who spoke or was addressed first; the rest only watched.
-        const partner = e.initiator !== PLAYER ? e.initiator : e.witnessSet.find((x) => x !== PLAYER);
-        if (partner !== undefined) foldScene(store, e.interactionKind as SceneFold, [PLAYER, partner], { initiator: PLAYER, bystanders: e.witnessSet.filter((x) => x !== PLAYER && x !== partner) });
+        // ORW-609 (played games only): a recorded scene the player is in folds as the kind it was filed under, with the REAL actor: the player (to the first houseguest named) or the houseguest who acted (to the player); the rest only watched.
+        const { actor, recipient, bystanders } = recordedSceneRoles(e.initiator, e.witnessSet);
+        if (recipient !== undefined) foldScene(store, e.interactionKind as SceneFold, [actor, recipient], { initiator: actor, bystanders });
         continue;
       }
       if (!SCENE_FOLDS.has(e.type) || e.witnessSet.length < 2) continue;
@@ -5684,12 +5684,20 @@ export class GameSessionAdapter implements GameSession {
     const day = live.dayNumber ?? 1;
     for (let i = live.grudgesCursor ?? 0; i < events.length; i++) {
       const e = events[i]!;
-      if (e.type !== "bonding" || e.witnessSet.length !== 2) continue;
-      const holder = e.witnessSet.find((x) => x !== e.initiator);
-      if (!holder || holder === PLAYER || !e.witnessSet.includes(e.initiator)) continue;
-      const row = live.grudges[grudgeKey(holder, e.initiator)];
+      let holder: EntityId | undefined, wrongdoer: EntityId = e.initiator;
+      if (e.type === "conversation" && e.interactionKind === "bonding" && e.witnessSet.includes(PLAYER)) {
+        // ORW-609 (P-3): a warm scene the player is in repairs the same way a houseguest's bonding scene does: the actor with the one they were warm to (the player's own grudge-holder is never a houseguest, so only a houseguest's grudge toward the actor eases).
+        const roles = recordedSceneRoles(e.initiator, e.witnessSet);
+        holder = roles.recipient; wrongdoer = roles.actor;
+      } else {
+        if (e.type !== "bonding" || e.witnessSet.length !== 2) continue;
+        holder = e.witnessSet.find((x) => x !== e.initiator);
+        if (!e.witnessSet.includes(e.initiator)) continue;
+      }
+      if (!holder || holder === PLAYER) continue;
+      const row = live.grudges[grudgeKey(holder, wrongdoer)];
       if (!row || live.week - row.week > 1 || day - row.day > REPAIR.sceneDays || day < row.day) continue;
-      if (mark(`repair:scene:${holder}|${e.initiator}|${live.week}`)) this.repairGrudge(holder, e.initiator, REPAIR.scene);
+      if (mark(`repair:scene:${holder}|${wrongdoer}|${live.week}`)) this.repairGrudge(holder, wrongdoer, REPAIR.scene);
     }
     live.grudgesCursor = events.length;
     const evicted = new Set(live.evictionOrder);
@@ -15752,16 +15760,16 @@ export class GameSessionAdapter implements GameSession {
 
   /** P4g - the NPCs a recorded PLAYER scene touched remember it: a betrayal / conflict (grudge) or a kindness (favor) about the PLAYER, through the existing 0024 ledger. Needs the
    *  memory layer + writers on (default ON); other kinds write nothing. Deterministic, no rng, bounded by the ledger cap. */
-  rememberPlayerScene(holders: readonly EntityId[], sceneKind: string): void {
+  rememberPlayerScene(holders: readonly EntityId[], sceneKind: string, subject: EntityId = PLAYER): void {
     if (!this.npcMemoryWritersEnabled) return;
     const m = SCENE_MEMORY_SEVERITY[sceneKind];
     if (!m) return;
-    for (const h of holders) this.remember(h, PLAYER, m.kind, m.severity);
+    for (const h of holders) this.remember(h, subject, m.kind, m.severity); // ORW-609: `subject` is whoever ACTED in the scene (the player unless a houseguest did it)
     // B32 / #2017 15.7 E5 (ORWELL_DRIFT_FIX): the chat scene feeds the emotional arc too - a betrayal / conflict hardens the wronged NPC, kindness softens - weighted by severity and by how much the NPC TRUSTED the player (a friend's betrayal cuts deeper).
     if (this.driftFixEnabled && this.soulDepthEnabled) {
       for (const h of holders) {
         if (h === PLAYER) continue;
-        const trust = this.rel.edge(h, PLAYER).trust;
+        const trust = this.rel.edge(h, subject).trust;
         const scale = (m.severity / 0.6) * (0.75 + 0.5 * Math.max(0, Math.min(1, trust)));
         this.inflect(h, m.kind === "scene-kindness" ? "bond" : "betrayed", scale);
       }
@@ -15772,12 +15780,12 @@ export class GameSessionAdapter implements GameSession {
       const best = new Map<EntityId, number>();
       for (const h of holders) {
         for (const f of this.livingIds()) {
-          if (f === PLAYER || f === h || touched.has(f)) continue;
+          if (f === PLAYER || f === h || f === subject || touched.has(f)) continue;
           const bond = this.rel.bondStrength(f, h);
           if (bond > (best.get(f) ?? -1)) best.set(f, bond);
         }
       }
-      for (const [f, bond] of best) { const sev = friendSeverity(m.severity, bond); if (sev > 0) this.remember(f, PLAYER, m.kind, sev); }
+      for (const [f, bond] of best) { const sev = friendSeverity(m.severity, bond); if (sev > 0) this.remember(f, subject, m.kind, sev); }
     }
   }
   /** B32 (ORWELL_DRIFT_FIX, default ON; needs soul depth): chat scenes feed the arc + a negativity bias on temperament drift, so hardening is reachable. */

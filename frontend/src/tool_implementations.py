@@ -4558,7 +4558,7 @@ async def do_record_interaction(content: str, owner: Optional[str] = None) -> Di
     _felt = args.get("feltMinutes")
     _felt = _felt if isinstance(_felt, (int, float)) and _felt > 0 else None
     # ORW-104: the model-driven path carries the same closed-set casual assurance / heard-about-me descriptors as the belt (validated against the scene's own withIds; no number crosses).
-    from src.agent_loop import _validate_assurance, _validate_heard_about_me
+    from src.agent_loop import _validate_actor, _validate_assurance, _validate_heard_about_me
     _with = [w for w in (args.get("withIds") or []) if isinstance(w, str)] if isinstance(args.get("withIds"), list) else []
     _assure_raw = args.get("assurance")
     if isinstance(_assure_raw, dict) and "by" not in _assure_raw and isinstance(_assure_raw.get("from"), str):
@@ -4568,9 +4568,11 @@ async def do_record_interaction(content: str, owner: Optional[str] = None) -> Di
         _hear_raw = {**_hear_raw, "by": _hear_raw["from"]}
     _assurance = _validate_assurance(_assure_raw, _with)
     _heard = _validate_heard_about_me(_hear_raw, _with)
+    _actor = _validate_actor(args.get("actor"), _with)  # ORW-609: who acted (a houseguest in the scene), else the player
     try:
         res = await orwell_engine.record_interaction(
             text, with_ids=args.get("withIds"), kind=args.get("kind"),
+            **({"initiator": _actor} if _actor else {}),
             consequence=_consequence, felt_minutes=_felt, user=owner,
             **({"assurance": _assurance} if _assurance else {}),
             **({"heard_about_me": _heard} if _heard else {}),
