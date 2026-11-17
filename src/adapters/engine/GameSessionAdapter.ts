@@ -296,9 +296,10 @@ import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs
 import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "../../engine/beliefDecisions";
 import { CONVICTION, credulityOf, dealTrust, pathwayEvidence, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
+import { rolesFromGraph, type NetworkRoles } from "../../engine/networkSpread";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, type SceneFold } from "../../engine/bondRecord";
-import { deriveDailyHouseGraph, type DailyHouseGraph } from "../../engine/houseGraph";
+import { deriveDailyHouseGraph, type DailyHouseGraph, type HouseGraph } from "../../engine/houseGraph";
 import type { Stats } from "../../engine/season";
 import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
@@ -5744,6 +5745,18 @@ export class GameSessionAdapter implements GameSession {
    * not on the GameSession port, never a tool, never projected; later engine slices consume it. Read-only (no rng, no writes, no edge creation); the cache is derived
    * from the bonds and is not persisted, so snapshots are byte-identical whether or not it was ever read.
    */
+  /** 0179 (Theme 3 slice 9): the house's shape in the co-presence spread (`ORWELL_NETWORK_SPREAD`, default ON; `=0` = the spread reads no shape, byte-identical). */
+  private networkSpreadEnabled = flagDefaultOn("ORWELL_NETWORK_SPREAD");
+  setNetworkSpreadEnabled(on: boolean): void { this.networkSpreadEnabled = on; }
+  /** 0179: the roles the spread reads (from today's house graph), or undefined when off. Engine-only. */
+  networkRoles(): NetworkRoles | undefined {
+    if (!this.networkSpreadEnabled || !this.house) return undefined;
+    const graph = this.houseGraph().graph;
+    if (this.networkRolesCache?.graph !== graph) { const reader = this.bondReader(); this.networkRolesCache = { graph, roles: rolesFromGraph(graph, (a, b) => reader.tie(a, b)) }; }
+    return this.networkRolesCache.roles; // one derivation per day's graph (seeking reads it once per holder per move)
+  }
+  private networkRolesCache?: { graph: HouseGraph; roles: NetworkRoles };
+
   houseGraph(): DailyHouseGraph {
     this.houseGraphCache = deriveDailyHouseGraph(this.bondReader(), this.houseGraphCache);
     return this.houseGraphCache;
