@@ -1,4 +1,4 @@
-import type { EntityId } from "../domain/ids";
+import { PLAYER, type EntityId } from "../domain/ids";
 import { clamp } from "../domain/num";
 
 /** The kinds and commitment levels of a bond (engine-only enums; `bonds.ts` re-exports them). */
@@ -116,6 +116,17 @@ export function sceneRoles(initiator: EntityId, witnessSet: readonly EntityId[],
   const partner = all.find((x) => x !== first);
   const principals = [first, partner].filter((x): x is EntityId => x !== undefined);
   return { principals, bystanders: all.filter((x) => !principals.includes(x)) };
+}
+
+/**
+ * ORW-609: who is who in a RECORDED player scene (the player is always a witness). The actor is the event's initiator when that houseguest is in the scene, else the player.
+ * A houseguest who acted does it TO the player; when the player acted, the recipient is the first houseguest the scene names. Everyone else only watched.
+ */
+export function recordedSceneRoles(initiator: EntityId, witnessSet: readonly EntityId[]): { actor: EntityId; recipient: EntityId | undefined; bystanders: EntityId[] } {
+  const all = [...new Set(witnessSet)];
+  const actor = initiator !== PLAYER && all.includes(initiator) ? initiator : PLAYER;
+  const recipient = actor === PLAYER ? all.find((x) => x !== PLAYER) : PLAYER;
+  return { actor, recipient, bystanders: all.filter((x) => x !== actor && x !== recipient) };
 }
 
 /**

@@ -349,11 +349,17 @@ export class RelationshipModel {
    * evidence signals (alignment, confidence, reliability) are untouched. Opt-in: nothing calls it in a headless run.
    */
   driftTowardBaseline(rate: number, eligible: (from: EntityId, to: EntityId) => boolean): void {
+    this.driftTowardBaselineBy((from, to) => (eligible(from, to) ? rate : undefined));
+  }
+
+  /** ORW-582: as `driftTowardBaseline`, but each edge carries its own rate (`undefined` = leave it alone). */
+  driftTowardBaselineBy(rateOf: (from: EntityId, to: EntityId) => number | undefined): void {
     const base = this.constants.baseline;
-    const r = clamp(rate);
     for (const [k, e] of this.edges) {
       const [from, to] = k.split("->") as [EntityId, EntityId];
-      if (!eligible(from, to)) continue;
+      const raw = rateOf(from, to);
+      if (raw === undefined) continue;
+      const r = clamp(raw);
       e.trust += (base.trust - e.trust) * r;
       e.affinity += (base.affinity - e.affinity) * r;
       e.threat += (base.threat - e.threat) * r;
