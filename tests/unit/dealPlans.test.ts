@@ -31,7 +31,9 @@ describe("two-faced deals (dealPlans.ts)", () => {
     expect(decidePlan({ ...sure, kind: "vote" }, { twoFaced: 0, which: 0.9 })).toEqual({ kind: "flip", moment: { week: 2, at: "vote" } });
     expect(decidePlan({ ...sure, kind: "final-two" }, { twoFaced: 0, which: 0 }).kind).toBe("cut-final-three");
     expect(decidePlan({ ...sure, kind: "safety" }, { twoFaced: 0, which: 0 })).toEqual({ kind: "break-at", moment: { week: 2, at: "nominations" } });
-    expect(decidePlan({ ...sure, kind: "safety" }, { twoFaced: 0, which: 0.99 })).toEqual({ kind: "this-week", moment: { week: 3, at: "nominations" } });
+    // ORW-601: a safety deal ends at the week roll anyway, so its other two-faced shape is a flip at this week's vote, never "this week only" (= keeping it)
+    expect(decidePlan({ ...sure, kind: "safety" }, { twoFaced: 0, which: 0.99 })).toEqual({ kind: "flip", moment: { week: 2, at: "vote" } });
+    expect(decidePlan({ ...sure, kind: "target-other" }, { twoFaced: 0, which: 0.99 })).toEqual({ kind: "this-week", moment: { week: 3, at: "nominations" } });
     expect(decidePlan({ ...sure, kind: "comp-throw" }, { twoFaced: 0, which: 0 })).toEqual({ kind: "keep" }); // a kind with no two-faced plan
     expect(decidePlan(base, { twoFaced: 0.5, which: 0 })).toEqual({ kind: "keep" });
   });

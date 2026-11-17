@@ -71,7 +71,8 @@ export const DEAL_PLANS = {
 
 /** The share of two-faced plans of each shape, by deal kind (engine mechanics, never player text). A vote deal is always a flip; the rest split on one roll. */
 const PLAN_SHARES = {
-  /** safety / target-other / protect-third: this share break at the moment the deal was meant to cover; the rest keep it this week only. */
+  /** safety / target-other / protect-third: this share break at the moment the deal was meant to cover; the rest keep it this week only (a safety deal, which ends at
+   *  the week roll anyway, turns on them at this week's vote instead). */
   breakNowShare: 0.5,
   /** final-two: this share cut at the final three, then this share break at a later vote; the rest keep it this week only. */
   cutShare: 1 / 3,
@@ -116,6 +117,9 @@ export function decidePlan(i: PlanInputs, rolls: { twoFaced: number; which: numb
     return { kind: "this-week", moment: { week: i.week + 1, at: "nominations" } };
   }
   if (r < PLAN_SHARES.breakNowShare) return { kind: "break-at", moment: { week: i.week, at: "nominations" } };
+  // ORW-601 (Fable T3-5): a safety deal already ends at the week roll, so "keep it this week only" would be the same as keeping it. Its other two-faced shape is to
+  // turn on them at this week's vote instead (if they end up on the block).
+  if (i.kind === "safety") return { kind: "flip", moment: { week: i.week, at: "vote" } };
   return { kind: "this-week", moment: { week: i.week + 1, at: "nominations" } };
 }
 
