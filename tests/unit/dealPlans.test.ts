@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { FAKING, fakingLean, buildDealPlanRetro, decidePlan, momentDue, planLean, planSourceOf, recordPlan, twoFacedChance, type PlanInputs, type PlanStore } from "../../src/engine/dealPlans";
+import { DEAL_PLANS, FAKING, PLAN_SEMANTICS, fakingLean, isBetrayal, planBond, buildDealPlanRetro, decidePlan, momentDue, planLean, planSourceOf, recordPlan, twoFacedChance, type PlanInputs, type PlanStore } from "../../src/engine/dealPlans";
 
 /** Feature 0178 - two-faced deals: the pure rules. Roles only: a holder, the player. */
 const base: PlanInputs = { kind: "safety", margin: 0, dealsMade: 1, temperament: 0, loyaltyDial: 1, lyingDial: 1, week: 2 };
@@ -33,9 +33,32 @@ describe("two-faced deals (dealPlans.ts)", () => {
     expect(decidePlan({ ...sure, kind: "safety" }, { twoFaced: 0, which: 0 })).toEqual({ kind: "break-at", moment: { week: 2, at: "nominations" } });
     // ORW-601: a safety deal ends at the week roll anyway, so its other two-faced shape is a flip at this week's vote, never "this week only" (= keeping it)
     expect(decidePlan({ ...sure, kind: "safety" }, { twoFaced: 0, which: 0.99 })).toEqual({ kind: "flip", moment: { week: 2, at: "vote" } });
-    expect(decidePlan({ ...sure, kind: "target-other" }, { twoFaced: 0, which: 0.99 })).toEqual({ kind: "this-week", moment: { week: 3, at: "nominations" } });
+    // a betrayal that waits a week is a break at next week's nominations ("this-week" is honest: PLAN_SEMANTICS)
+    expect(decidePlan({ ...sure, kind: "target-other" }, { twoFaced: 0, which: 0.99 })).toEqual({ kind: "break-at", moment: { week: 3, at: "nominations" } });
+    expect(decidePlan({ ...sure, kind: "final-two" }, { twoFaced: 0, which: 0.99 })).toEqual({ kind: "break-at", moment: { week: 3, at: "nominations" } });
     expect(decidePlan({ ...sure, kind: "comp-throw" }, { twoFaced: 0, which: 0 })).toEqual({ kind: "keep" }); // a kind with no two-faced plan
     expect(decidePlan(base, { twoFaced: 0.5, which: 0 })).toEqual({ kind: "keep" });
+  });
+  it("Fable T3-5 item 2 (Ryne's Q1 names the bond): a best friend fakes far less than with a distrusted, threatening partner, whatever the margin's clamp", () => {
+    const friend = planBond({ trust: 0.9, affinity: 0.9, threat: 0 }), foe = planBond({ trust: 0.1, affinity: 0.1, threat: 0.6 });
+    const at = (bond: number) => twoFacedChance({ ...base, temperament: 0.5, margin: -5, bond });
+    expect(at(foe) - at(friend)).toBeGreaterThan(0.3); // not "within a few points"
+    expect(at(friend)).toBeLessThan(twoFacedChance({ ...base, temperament: 0.5, margin: -5 }));
+    expect(at(foe)).toBeGreaterThan(twoFacedChance({ ...base, temperament: 0.5, margin: -5 }));
+    expect(at(DEAL_PLANS.bondNeutral)).toBeCloseTo(twoFacedChance({ ...base, temperament: 0.5, margin: -5 }), 12); // a neutral bond moves nothing
+  });
+  it("the plan-semantics table: one answer to 'is it a betrayal, how is it carried out, when does it expire', and every shape the planner deals is a betrayal", () => {
+    expect(Object.keys(PLAN_SEMANTICS).sort()).toEqual(["break-at", "cut-final-three", "flip", "keep", "this-week"]);
+    expect(isBetrayal("keep")).toBe(false);
+    expect(isBetrayal("this-week")).toBe(false); // honest: kept for this week, then lapses
+    expect(PLAN_SEMANTICS["this-week"].carriedOut).toBe("never");
+    expect(PLAN_SEMANTICS.flip.carriedOut).toBe("vote");
+    for (const kind of ["safety", "vote", "final-two", "target-other", "protect-third"] as const)
+      for (let r = 0; r < 1; r += 0.05) {
+        const p = decidePlan({ ...base, kind, margin: 5 }, { twoFaced: 0, which: r });
+        expect(isBetrayal(p.kind)).toBe(true);
+        expect(PLAN_SEMANTICS[p.kind].carriedOut === "final-three" || p.moment !== undefined).toBe(true);
+      }
   });
   it("a plan is recorded once and never replaced; no plan reads as none", () => {
     const store: PlanStore = {};

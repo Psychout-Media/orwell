@@ -14,10 +14,30 @@ import { clamp01 } from "../domain/num";
  *
  *   P(two-faced) = clamp(fakingLean(dealsMade, cunning) + slope * clamp(margin) + culture, 0, 1)   - no ceiling below 1
  *   which plan: by the deal's kind and the moment (a vote deal flips at the vote; a final two is cut at the final three or broken later; a safety deal is
- *   broken at the nominations it was meant to cover, or kept this week only), one more roll among the plans the kind allows.
+ *   broken at the nominations it was meant to cover, or flipped at this week's vote), one more roll among the plans the kind allows. What each plan kind
+ *   means is PLAN_SEMANTICS below, the one table every reader uses.
  */
 export type PlanKind = "keep" | "this-week" | "break-at" | "flip" | "cut-final-three";
 export type PlanMoment = { week: number; at: "nominations" | "veto" | "vote" };
+
+/**
+ * THE PLAN-SEMANTICS TABLE (ORW-552, Coordinator 2026-11-17): the ONE place that says what each plan kind means. The 0178 planner, the 0170 NPC-pact planner
+ * (Overseer B), the carry-out loop, the flip at the vote and the measurement report all read it; nothing else may decide whether a plan is a betrayal.
+ *  - `betrayal`: the holder means to break their word (a two-faced plan). An honest plan is not.
+ *  - `carriedOut`: how a betrayal is carried out - never (honest); at its moment by a quiet break; by the vote itself (the flip); or at the final three.
+ *  - `expires`: when the plan stops mattering - when the deal ends (by any means), or at the week roll (the plan only concerns this week).
+ * "this-week" is HONEST: the holder keeps the deal for this week and lets it lapse; it is never carried out as a break. (A betrayal that waits a week is a
+ * "break-at" with next week's moment.)
+ */
+export const PLAN_SEMANTICS: Readonly<Record<PlanKind, { betrayal: boolean; carriedOut: "never" | "break-at-moment" | "vote" | "final-three"; expires: "deal-end" | "week-roll" }>> = {
+  keep: { betrayal: false, carriedOut: "never", expires: "deal-end" },
+  "this-week": { betrayal: false, carriedOut: "never", expires: "week-roll" },
+  "break-at": { betrayal: true, carriedOut: "break-at-moment", expires: "deal-end" },
+  flip: { betrayal: true, carriedOut: "vote", expires: "week-roll" },
+  "cut-final-three": { betrayal: true, carriedOut: "final-three", expires: "deal-end" },
+};
+/** Is this plan a betrayal (two-faced)? The one test everyone uses. */
+export const isBetrayal = (kind: PlanKind): boolean => PLAN_SEMANTICS[kind].betrayal;
 export interface DealPlan {
   kind: PlanKind;
   moment?: PlanMoment;
@@ -67,14 +87,21 @@ export const DEAL_PLANS = {
   marginCeil: 1,
   /** The house culture's loyalty and lying dials (`dialMult`, 1 = neutral) move it by this much per unit away from neutral. */
   cultureLean: 0.25,
+  /**
+   * Fable T3-5 item 2 (Ryne's Q1 names the bond): the holder's bond with the other party moves the chance DIRECTLY, beside the clamped margin. The bond is
+   * (trust + affinity) / 2 - threat, -1..1; `bondNeutral` is an ordinary acquaintance (no move); each unit warmer lowers the chance by `bondLean`, each unit
+   * colder raises it. A best friend fakes far less than with a distrusted, threatening partner.
+   */
+  bondLean: 0.4,
+  bondNeutral: 0.15,
 } as const;
 
 /** The share of two-faced plans of each shape, by deal kind (engine mechanics, never player text). A vote deal is always a flip; the rest split on one roll. */
 const PLAN_SHARES = {
   /** safety / target-other / protect-third: this share break at the moment the deal was meant to cover; the rest keep it this week only (a safety deal, which ends at
-   *  the week roll anyway, turns on them at this week's vote instead). */
+   *  the week roll anyway, turns on them at this week's vote instead). Every shape here is a betrayal (PLAN_SEMANTICS). */
   breakNowShare: 0.5,
-  /** final-two: this share cut at the final three, then this share break at a later vote; the rest keep it this week only. */
+  /** final-two: this share cut at the final three, then this share break at a later vote; the rest hold it this week and break it at the next nominations. */
   cutShare: 1 / 3,
   laterBreakShare: 1 / 3,
 } as const;
@@ -84,6 +111,8 @@ export interface PlanInputs {
   kind: DealKind;
   /** The 0142 weighing margin (temptation - cost) at the moment of agreeing; > 0 means tempted. */
   margin: number;
+  /** The holder's bond with the other party, (trust + affinity) / 2 - threat, -1..1. Absent = neutral (no move). */
+  bond?: number;
   /** Deals this holder has made this season, this one included. */
   dealsMade: number;
   /** 0..1 how cunning (low candor, scheming archetype) the holder is. */
@@ -95,10 +124,16 @@ export interface PlanInputs {
   week: number;
 }
 
-/** The situational part: the weighing margin (clamped, so a reason to keep never shuts faking off) and the culture. */
+/** The holder's bond with the other party as the planner reads it: (trust + affinity) / 2 - threat, clamped -1..1. */
+export function planBond(e: { trust: number; affinity: number; threat: number }): number {
+  return Math.max(-1, Math.min(1, (e.trust + e.affinity) / 2 - e.threat));
+}
+
+/** The situational part: the weighing margin (clamped, so a reason to keep never shuts faking off), the bond (direct) and the culture. */
 export function planLean(i: PlanInputs): number {
   const culture = DEAL_PLANS.cultureLean * ((i.lyingDial - 1) - (i.loyaltyDial - 1));
-  return DEAL_PLANS.slope * Math.max(DEAL_PLANS.marginFloor, Math.min(DEAL_PLANS.marginCeil, i.margin)) + culture;
+  const bond = i.bond === undefined ? 0 : -DEAL_PLANS.bondLean * (Math.max(-1, Math.min(1, i.bond)) - DEAL_PLANS.bondNeutral);
+  return DEAL_PLANS.slope * Math.max(DEAL_PLANS.marginFloor, Math.min(DEAL_PLANS.marginCeil, i.margin)) + bond + culture;
 }
 
 /** P(the holder is two-faced about this deal): the shared faking lean (person + past deals) plus the situation. No ceiling below certainty. */
@@ -114,13 +149,13 @@ export function decidePlan(i: PlanInputs, rolls: { twoFaced: number; which: numb
   if (i.kind === "final-two") {
     if (r < PLAN_SHARES.cutShare) return { kind: "cut-final-three" };
     if (r < PLAN_SHARES.cutShare + PLAN_SHARES.laterBreakShare) return { kind: "break-at", moment: { week: i.week + 1 + Math.floor(((r - PLAN_SHARES.cutShare) / PLAN_SHARES.laterBreakShare) * 3), at: "vote" } };
-    return { kind: "this-week", moment: { week: i.week + 1, at: "nominations" } };
+    return { kind: "break-at", moment: { week: i.week + 1, at: "nominations" } }; // holds it this week, breaks it at the next nominations
   }
   if (r < PLAN_SHARES.breakNowShare) return { kind: "break-at", moment: { week: i.week, at: "nominations" } };
   // ORW-601 (Fable T3-5): a safety deal already ends at the week roll, so "keep it this week only" would be the same as keeping it. Its other two-faced shape is to
   // turn on them at this week's vote instead (if they end up on the block).
   if (i.kind === "safety") return { kind: "flip", moment: { week: i.week, at: "vote" } };
-  return { kind: "this-week", moment: { week: i.week + 1, at: "nominations" } };
+  return { kind: "break-at", moment: { week: i.week + 1, at: "nominations" } }; // holds it this week, breaks it at the next nominations
 }
 
 /** Record a plan (append-only: an existing plan for the same deal and holder is never replaced). */
