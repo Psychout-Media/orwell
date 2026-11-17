@@ -92,7 +92,7 @@ import type { BindingAction, BreakCause, Deal } from "../../engine/deals";
 import { isPositiveObligation, RELIABLE_FACT_PREFIX } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
 import { AllianceStore, allianceTieBoost, allianceFavor, willingMembers, pickAllianceName, sameMembers, ALLIANCE, GROUP_CHANGES } from "../../engine/alliances";
-import { GROUP_LIFE, assignRoles, innerCircle, purposeAt, cutOrderOf, agreedTarget, collision, type GroupLife, type MemberRead } from "../../engine/groupLife";
+import { GROUP_LIFE, assignRoles, innerCircle, purposeAt, cutOrderOf, agreedTarget, collision, spyGap, spyTurn, bumpOnce, dominance, foldEvictions, threatenedBy, plannerOf, planClaim, type GroupLife, type MemberRead } from "../../engine/groupLife";
 import type { Alliance } from "../../engine/alliances";
 import { confessionalFor, involvedConfessionals, isBareGame, recordConfessionalToSoul, selectRecentForConfessional } from "../../engine/confessionals";
 import type { ConfessionalContext, ConfessionalDepth } from "../../engine/confessionals";
@@ -11548,6 +11548,51 @@ export class GameSessionAdapter implements GameSession {
     const life = (live.groupLife ??= {});
     this.alliances.stamp(this.beatSeqNow(), day);
     const npcAwake = new Set(this.awakeAmong(living.filter((id) => id !== PLAYER)));
+    const awakeNow = this.awakeNow();
+    const playerAwake = !awakeNow || awakeNow.has(PLAYER);
+    const here = (x: EntityId, y: EntityId): boolean => this.presence?.get(x) !== undefined && this.presence.get(x) === this.presence.get(y);
+    /** The speaker really talks to the player: in the same room and both awake, or on their way to them through the desire clock's own approach. Never otherwise. */
+    const talksToPlayer = (id: EntityId): boolean => playerAwake && npcAwake.has(id) && (here(id, PLAYER) || live.goalApproaches?.[id] !== undefined);
+    /** A spy who has come to like the group more than the one they work for turns (a keyed daily roll, their own bonds and character): returns what they did. History only here; the caller voices the scene. */
+    const turnOf = (a: { id: string }, entry: GroupLife, members: readonly EntityId[]): "quiet" | "confess" | "double-cross" | undefined => {
+      const spy = entry.spy;
+      if (!spy || spy.turned !== undefined || !members.includes(spy.member)) return undefined;
+      const gap = spyGap(members.filter((m) => m !== spy.member).map((m) => reader.strength(spy.member, m)), reader.strength(spy.member, spy.reportsTo));
+      const t = spyTurn({ gap, candor: this.candorOf(spy.member), cunning: cunningOf(this.agendaCharacterOf(spy.member)?.archetype) }, roll(`spy-turn:${a.id}`), roll(`spy-turn-kind:${a.id}`));
+      if (t === "stay") return undefined;
+      spy.turned = t === "confess" ? "confessed" : t;
+      this.alliances.annotate(a.id, "spy-turned", { who: spy.member, detail: t });
+      if (t === "confess") this.alliances.annotate(a.id, "spy-confessed", { who: spy.member, detail: spy.reportsTo });
+      return t;
+    };
+    // The player's OWN alliances: their NPC members hold hidden roles like any group's (a shield, a swing vote, even a spy). The player is never dealt a role, and the alliance is never faded, broken, cracked or planned against here (ORW-616).
+    for (const a0 of [...this.alliances.all()].filter((a) => a.members.includes(PLAYER)).sort((x, y) => x.id.localeCompare(y.id))) {
+      const npcs = a0.members.filter((m) => m !== PLAYER).sort();
+      if (npcs.length < 2) continue;
+      const entry: GroupLife = (life[a0.id] ??= { roles: {}, purpose });
+      if (npcs.join() !== Object.keys(entry.roles).sort().join()) {
+        const others = living.filter((o) => o !== PLAYER && !npcs.includes(o));
+        const reads: MemberRead[] = npcs.map((m) => {
+          const ins = npcs.filter((o) => o !== m).map((o) => reader.tie(m, o));
+          const outs = others.map((o) => reader.tie(m, o));
+          return { id: m, stats: statsOf(m), inner: ins.reduce((t, x) => t + x, 0) / Math.max(1, ins.length), weakest: ins.length ? Math.min(...ins) : 0, outside: outs.reduce((t, x) => t + x, 0) / Math.max(1, outs.length), hub: hubs.has(m), broker: brokers.has(m) };
+        });
+        const keep: Record<EntityId, GroupLife["roles"][string]> = {};
+        for (const m of npcs) if (entry.roles[m]) keep[m] = entry.roles[m]!;
+        entry.roles = assignRoles(reads, (x, y) => reader.tie(x, y), (id, role) => roll(`role:${a0.id}:${id}:${role}`), keep);
+        this.alliances.annotate(a0.id, "roles", { detail: npcs.map((m) => `${m}=${entry.roles[m]}`).join(",") });
+      }
+      if (entry.purpose !== purpose) { this.alliances.annotate(a0.id, "purpose", { detail: `${entry.purpose}>${purpose}` }); entry.purpose = purpose; }
+      if (!entry.spy && roll(`spy:${a0.id}`) < GROUP_LIFE.spyChance) {
+        const outsiders = [...npcAwake].filter((o) => !a0.members.includes(o) && this.alliances.forMember(o).length === 0).sort();
+        const pick = npcs.filter((m) => npcAwake.has(m))
+          .map((m) => ({ m, to: outsiders.map((r) => ({ r, t: reader.tie(m, r) })).sort((x, y) => y.t - x.t || x.r.localeCompare(y.r))[0] }))
+          .filter((x) => x.to && x.to.t >= GROUP_LIFE.spyTieFloor)
+          .sort((x, y) => roll(`spy-pick:${a0.id}:${y.m}`) - roll(`spy-pick:${a0.id}:${x.m}`) || x.m.localeCompare(y.m))[0];
+        if (pick && pick.to) { entry.spy = { member: pick.m, reportsTo: pick.to.r }; this.alliances.annotate(a0.id, "spy-planted", { who: pick.m, detail: pick.to.r }); }
+      }
+      turnOf(a0, entry, npcs); // a spy among the player's own may turn too: history only (nothing of the player's alliance is planned, so there is nothing to report)
+    }
     for (const a0 of alliances) {
       const a = this.alliances.byId(a0.id);
       if (!a) continue;
@@ -11576,10 +11621,15 @@ export class GameSessionAdapter implements GameSession {
       entry.cutOrder = {};
       for (const m of members) entry.cutOrder[m] = cutOrderOf(m, living, members, purpose, (o) => ({ threat: this.rel.peek(m, o).threat, comp: compOf(o), tie: reader.tie(m, o) }));
       entry.planDay = day;
+      const evicted = live.evictionOrder ?? [];
+      const folded = foldEvictions(entry.evictSeen ?? evicted.length, entry.evictWon ?? [], evicted, entry.agreed); // each eviction is weighed against the target the group had settled on before it
+      entry.evictSeen = folded.seen; entry.evictWon = folded.won;
       const agreed = agreedTarget(entry.cutOrder, members);
       if (agreed && agreed !== entry.agreed) {
         entry.agreed = agreed;
-        for (const m of members) { const e = this.rel.edge(m, agreed); e.threat = Math.min(1, e.threat + GROUP_LIFE.planThreatBump); } // the plan weighs on each member's own read, once per settled target
+        const once = bumpOnce(entry.bumped, agreed);
+        entry.bumped = once.bumped;
+        if (once.bump) for (const m of members) { const e = this.rel.edge(m, agreed); e.threat = Math.min(1, e.threat + GROUP_LIFE.planThreatBump); } // the plan weighs on each member's own read, once per target (a flip-flop back to one already weighed takes no second step)
         if (agreed === PLAYER) this.pressPlayer(a.id, members, day);
       }
       // a spy: an outsider drawn to learn the group's plans, working for the person they are closest to outside it
@@ -11596,20 +11646,39 @@ export class GameSessionAdapter implements GameSession {
           this.alliances.annotate(a.id, "spy-planted", { who: pick.o, detail: pick.to.r });
         }
       }
-      // the spy reports the agreed target to the person they really work for: a hidden scene between the two, overheard only by someone in the room
+      // a spy may turn genuinely loyal; a turned spy stops reporting, may own up to the group, or may feed the person they worked for a wrong target
+      const turned = turnOf(a, entry, members);
       const spy = entry.spy;
-      if (spy && entry.agreed && spy.reported !== entry.agreed && this.alliances.byId(a.id)?.members.includes(spy.member)) {
-        spy.reported = entry.agreed;
-        const target = entry.agreed;
-        this.alliances.annotate(a.id, "spy-report", { who: spy.member, detail: `${spy.reportsTo}>${target}` });
-        if (target === spy.reportsTo) for (const m of members) if (m !== spy.member) { const e = this.rel.edge(spy.reportsTo, m); e.threat = Math.min(1, e.threat + GROUP_LIFE.leakThreatBump); } // the one the plan is aimed at hears of it: their read of the planners turns
-        const heard = this.presence?.get(PLAYER) !== undefined && this.presence.get(PLAYER) === this.presence.get(spy.member);
-        this.onPlayerEvent?.(`${this.nameOf(spy.member)} tells ${this.nameOf(spy.reportsTo)} the alliance means to take out ${this.nameOf(target)}`, heard ? [spy.member, spy.reportsTo, PLAYER] : [spy.member, spy.reportsTo], "spy-report");
+      if (spy && turned !== undefined && turned !== "double-cross") {
+        const planner = entry.agreed !== undefined ? plannerOf(entry.agreed, entry.cutOrder, entry.roles, members, [spy.member]) : undefined;
+        if (turned === "confess") {
+          const owned = planner ?? members.find((m) => m !== spy.member);
+          for (const m of members) if (m !== spy.member) { const e = this.rel.edge(m, spy.reportsTo); e.threat = Math.min(1, e.threat + GROUP_LIFE.leakThreatBump); } // the group's read of the one the spy worked for turns
+          if (owned) this.onPlayerEvent?.(`${this.nameOf(spy.member)} owns up to ${this.nameOf(owned)} that they were reporting the alliance's plans to ${this.nameOf(spy.reportsTo)}`, playerAwake && here(spy.member, PLAYER) && here(owned, PLAYER) ? [spy.member, owned, PLAYER] : [spy.member, owned], "spy-confessed");
+        }
+        if (entry.agreed === PLAYER && talksToPlayer(spy.member)) { const claim = planClaim({ speaker: spy.member, listener: PLAYER, planner, told: PLAYER, agreed: entry.agreed, mislead: false }); if (claim) this.tellClaim(claim); } // a spy who has turned warns the player the group means them
       }
-      // a shadow group: the ones this group would cut, learning it runs the house, band together against it and keep it from them
-      if (!entry.shadowed && members.length >= 3 && this.ceremony.hoh !== undefined && members.includes(this.ceremony.hoh) && roll(`shadow:${a.id}`) < GROUP_LIFE.shadowChance) {
-        const aimed = [...new Set(Object.values(entry.cutOrder).flat())].filter((o) => o !== PLAYER && npcAwake.has(o) && !members.includes(o)).sort();
-        const band = aimed.length ? [aimed[0]!, ...[...npcAwake].filter((o) => !members.includes(o) && o !== aimed[0] && mutualP(aimed[0]!, o) >= ALLIANCE.npcAllyFloor).sort((x, y) => mutualP(aimed[0]!, y) - mutualP(aimed[0]!, x) || x.localeCompare(y)).slice(0, 2)] : [];
+      // the spy reports the agreed target to the person they really work for: a hidden scene between the two, overheard only by someone in the room (and awake); a double-crossing spy names the wrong one
+      if (spy && entry.agreed && spy.turned !== "quiet" && spy.turned !== "confessed" && spy.reported !== entry.agreed && this.alliances.byId(a.id)?.members.includes(spy.member)) {
+        spy.reported = entry.agreed;
+        const cross = spy.turned === "double-cross"
+          ? living.filter((o) => !members.includes(o) && o !== entry.agreed && o !== spy.reportsTo).sort((x, y) => roll(`spy-cross:${a.id}:${y}`) - roll(`spy-cross:${a.id}:${x}`) || x.localeCompare(y))[0]
+          : undefined;
+        if (spy.turned !== "double-cross" || cross !== undefined) {
+          const target = cross ?? entry.agreed;
+          this.alliances.annotate(a.id, "spy-report", { who: spy.member, detail: `${spy.reportsTo}>${target}` });
+          if (target === spy.reportsTo) for (const m of members) if (m !== spy.member) { const e = this.rel.edge(spy.reportsTo, m); e.threat = Math.min(1, e.threat + GROUP_LIFE.leakThreatBump); } // the one the plan is aimed at hears of it: their read of the planners turns
+          const claim = planClaim({ speaker: spy.member, listener: spy.reportsTo, planner: plannerOf(entry.agreed, entry.cutOrder, entry.roles, members, [spy.member]), told: target, agreed: entry.agreed, mislead: cross !== undefined });
+          if (claim) this.tellClaim(claim); // the patron is TOLD it: a belief of their own, at what they make of the spy's word
+          const heard = playerAwake && npcAwake.has(spy.member) && npcAwake.has(spy.reportsTo) && here(spy.member, PLAYER) && here(spy.reportsTo, PLAYER);
+          this.onPlayerEvent?.(`${this.nameOf(spy.member)} tells ${this.nameOf(spy.reportsTo)} the alliance means to take out ${this.nameOf(target)}`, heard ? [spy.member, spy.reportsTo, PLAYER] : [spy.member, spy.reportsTo], "spy-report");
+        }
+      }
+      // a shadow group: when ONE group dominates the house (holds the crown, has a voting majority of the houseguests left, or carried the last two evictions) those outside it who feel threatened by it band together against it
+      const dominant = dominance({ holdsCrown: this.ceremony.hoh !== undefined && members.includes(this.ceremony.hoh), members: members.length, living: living.length, won: entry.evictWon ?? [] });
+      if (!entry.shadowed && members.length >= 3 && dominant !== undefined && roll(`shadow:${a.id}`) < GROUP_LIFE.shadowChance) {
+        const felt = threatenedBy([...npcAwake].filter((o) => !members.includes(o)).map((o) => ({ id: o, threat: members.reduce((t, m) => t + this.rel.peek(o, m).threat, 0) / members.length }))); // each outsider's OWN read of the group's members
+        const band = felt.length ? [felt[0]!, ...felt.slice(1).filter((o) => mutualP(felt[0]!, o) >= ALLIANCE.npcAllyFloor).sort((x, y) => mutualP(felt[0]!, y) - mutualP(felt[0]!, x) || x.localeCompare(y)).slice(0, 2)] : [];
         if (band.length >= 2 && !this.alliances.all().some((x) => sameMembers(x.members, band))) {
           entry.shadowed = true;
           const nameRng = new SeededRandom(hashSeed(`${seed}:group-life:name:${a.id}:${day}`));
@@ -11617,7 +11686,7 @@ export class GameSessionAdapter implements GameSession {
           const shadow = this.alliances.add(name, band[0]!, band, this.beatSeqNow());
           this.noteAllianceIdentity(shadow.id, shadow.name, band[0]!);
           (life[shadow.id] ??= { roles: {}, purpose }).shadowOf = a.id;
-          this.alliances.annotate(shadow.id, "shadow-formed", { detail: a.id });
+          this.alliances.annotate(shadow.id, "shadow-formed", { detail: `${a.id}:${dominant}` });
           this.flushAllianceEvents();
         }
       }
@@ -11629,6 +11698,15 @@ export class GameSessionAdapter implements GameSession {
         entry.crackedDay = day;
         const born = this.alliances.crack(a.id, clash.cutters, name, this.beatSeqNow());
         if (born) { this.noteAllianceIdentity(born.id, born.name, born.founder); life[born.id] = { roles: {}, purpose }; }
+        // the one who breaks away TELLS the person the group means to take out (a claim of their own, as warm as the two are), the player too when they really talk to them
+        const target = entry.agreed;
+        const teller = clash.cutters[0]!;
+        if (target !== undefined) {
+          const planner = plannerOf(target, entry.cutOrder, entry.roles, members, clash.cutters);
+          const mk = (listener: EntityId) => planClaim({ speaker: teller, listener, planner, told: target, agreed: target, mislead: false });
+          if (target === PLAYER) { if (talksToPlayer(teller)) { const c = mk(PLAYER); if (c) this.tellClaim(c); } }
+          else if (npcAwake.has(target) && reader.tie(teller, target) >= ALLIANCE.joinBondFloor) { const c = mk(target); if (c) this.tellClaim(c); }
+        }
         this.flushAllianceEvents();
         this.agendaRecheck("alliance-changed");
       }
