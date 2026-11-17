@@ -186,7 +186,8 @@ def _key(owner: Optional[str], session_id: Optional[str]) -> tuple:
 def _make_entry(*, content: str, with_ids: list, kind: str, consequence: Optional[dict],
                  felt_minutes: Optional[int], idempotency_key: str,
                  row_anchor: Optional[str] = None, assurance: Optional[dict] = None,
-                 heard_about_me: Optional[dict] = None, promise: Optional[dict] = None, actor: Optional[str] = None) -> dict:
+                 heard_about_me: Optional[dict] = None, promise: Optional[dict] = None, statement: Optional[dict] = None,
+                 actor: Optional[str] = None) -> dict:
     entry = {
         "content": content,
         "with_ids": with_ids,
@@ -196,6 +197,7 @@ def _make_entry(*, content: str, with_ids: list, kind: str, consequence: Optiona
         "assurance": assurance,
         "heard_about_me": heard_about_me,
         "promise": promise,
+        "statement": statement,
         "idempotency_key": idempotency_key,
         # The IMMUTABLE DB row id (a UUID string, per `core/database.py`/`core/session_manager.py`
         # — never an orderable integer) of the assistant row this fold belongs to. Unknown (None)
@@ -213,7 +215,7 @@ def _make_entry(*, content: str, with_ids: list, kind: str, consequence: Optiona
 def stage_pending_fold(owner: Optional[str], session_id: Optional[str], *, content: str,
                         with_ids: list, kind: str, consequence: Optional[dict],
                         felt_minutes: Optional[int], idempotency_key: str,
-                        assurance: Optional[dict] = None, heard_about_me: Optional[dict] = None, promise: Optional[dict] = None,
+                        assurance: Optional[dict] = None, heard_about_me: Optional[dict] = None, promise: Optional[dict] = None, statement: Optional[dict] = None,
                         actor: Optional[str] = None) -> None:
     """Append a validated scene-fold payload to this (owner, session)'s queue, UNANCHORED
     (`row_anchor=None` — the turn's own row does not exist yet at stage time). Never overwrites an
@@ -225,7 +227,7 @@ def stage_pending_fold(owner: Optional[str], session_id: Optional[str], *, conte
     q = _PENDING.setdefault(key, [])
     q.append(_make_entry(content=content, with_ids=with_ids, kind=kind, consequence=consequence,
                          felt_minutes=felt_minutes, idempotency_key=idempotency_key,
-                         assurance=assurance, heard_about_me=heard_about_me, promise=promise, actor=actor))
+                         assurance=assurance, heard_about_me=heard_about_me, promise=promise, statement=statement, actor=actor))
     if len(q) > _MAX_QUEUE_LEN:
         dropped = q.pop(0)
         logger.warning(
