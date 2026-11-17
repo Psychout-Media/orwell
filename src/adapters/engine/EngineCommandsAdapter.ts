@@ -391,6 +391,7 @@ export class EngineCommandsAdapter implements EngineCommands {
       id: eventId, ts: n, type: "conversation",
       initiator: req.initiator, witnessSet,
       hidden: !witnessSet.includes(PLAYER), content: req.content,
+      ...(req.kind && INTERACTION_KINDS.has(req.kind) ? { interactionKind: req.kind } : {}), // ORW-609: the bond record reads the scene's kind
     });
     // #1318 — a recorded player↔NPC scene is a GENUINE premiere hot read. Feed the reconciled
     // caller-named partners (`namedWitnesses` + initiator, minus the player) — NOT the presence-expanded

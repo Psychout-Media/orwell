@@ -5558,6 +5558,12 @@ export class GameSessionAdapter implements GameSession {
     const events = this.record?.events() ?? [];
     for (let i = live.bondsCursor ?? 0; i < events.length; i++) {
       const e = events[i]!;
+      if (live.playedGame === true && e.type === "conversation" && e.interactionKind !== undefined && SCENE_FOLDS.has(e.interactionKind) && e.witnessSet.includes(PLAYER)) {
+        // ORW-609 (played games only): the player's own recorded scene folds as the kind it was filed under. The player started it; its partner is the NPC who spoke or was addressed first; the rest only watched.
+        const partner = e.initiator !== PLAYER ? e.initiator : e.witnessSet.find((x) => x !== PLAYER);
+        if (partner !== undefined) foldScene(store, e.interactionKind as SceneFold, [PLAYER, partner], { initiator: PLAYER, bystanders: e.witnessSet.filter((x) => x !== PLAYER && x !== partner) });
+        continue;
+      }
       if (!SCENE_FOLDS.has(e.type) || e.witnessSet.length < 2) continue;
       if (live.playedGame === true) { // ORW-598 (played games only): the scene's principals fold the pair (who started it matters); watchers only their own view
         const { principals, bystanders } = sceneRoles(e.initiator, e.witnessSet, !!e.houseLife);
