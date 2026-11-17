@@ -231,7 +231,8 @@ def _valid_fold_entry(e) -> bool:
             and (e["row_anchor"] is None or isinstance(e["row_anchor"], str))
             and (e["consequence"] is None or isinstance(e["consequence"], dict))
             and (e["felt_minutes"] is None or _is_int(e["felt_minutes"]))
-            and all(e.get(k) is None or isinstance(e.get(k), dict) for k in ("assurance", "heard_about_me", "promise")))
+            and all(e.get(k) is None or isinstance(e.get(k), dict) for k in ("assurance", "heard_about_me", "promise", "statement"))
+            and (e.get("actor") is None or isinstance(e.get("actor"), str)))
 
 
 def _restore_folds(saved) -> int:

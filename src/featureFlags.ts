@@ -117,6 +117,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_NETWORK_SPREAD', key: 'networkSpread', parser: 'defaultOn' },
   // 0175 / ORW-552 (Theme 3 Core 1): the bond record per pair (warmth, debts, resentment, strain, history, commitment), folded from what happened; nothing decides from it yet. `=0` = the edge-only bond read.
   { envKey: 'ORWELL_BOND_RECORD', key: 'bondRecord', parser: 'defaultOn' },
+  // 0180 / ORW-552 (Theme 3 slice 12 part 1): house norms - the house shuns a houseguest (or the player) it KNOWS broke their word (each observer's own held beliefs). `=0` = no shunning.
+  { envKey: 'ORWELL_HOUSE_NORMS', key: 'houseNorms', parser: 'defaultOn' },
   // 0178 / ORW-552 (Theme 3 slice 1): two-faced deals - each NPC's secret plan for a deal it agreed to (keep / this week / break at a moment / flip at the vote / cut at the final three), carried out at its moment. `=0` = no plans.
   { envKey: 'ORWELL_DEAL_PLANS', key: 'dealPlans', parser: 'defaultOn' },
   // B7 / #2017 M1: the NPC veto save also reads memory / beliefs / owed deals. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
@@ -150,11 +152,17 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // 0183 / ORW-566 (Theme 3 slice 7 a-b): close pairs keep a private debrief spot after ceremonies, alliances are named from the house's own authored words, a third houseguest who sees a habit starts to suspect the pair. Played games only. `=0` is the kill switch.
   { envKey: 'ORWELL_GROUP_IDENTITY', key: 'groupIdentity', parser: 'defaultOn' },
   // 0176 / ORW-561 (theme 3 slice 10, part 1): homophily - houseguests who are alike (look, age, region, job, temperament) bond a little faster and sour slower, a mismatched pair the reverse. A played game only. `=0` opts out.
+  // 0172 / ORW-603, ORW-611 (Theme 3 slice 6): alliances hold hidden roles, an inner circle, a private cut order, a spy or a shadow group, and can crack; a pitch shows only the roster the player was told; plans aimed at the player are acted on. A played game only. `=0` opts out.
+  { envKey: 'ORWELL_GROUP_ROLES', key: 'groupRoles', parser: 'defaultOn' },
   { envKey: 'ORWELL_HOMOPHILY', key: 'homophily', parser: 'defaultOn' },
   // 0176 / ORW-561 (theme 3 slice 10, part 2): territory - a hidden tenure map (hours per room), a mild pull toward people who share your top room, and a small capped bond nudge for roommates and shared-room pairs. A played game only. `=0` opts out.
   { envKey: 'ORWELL_TERRITORY', key: 'territory', parser: 'defaultOn' },
+  // 0173 (theme 3 slice 11): status and the HOH court - a hidden pecking order and informal leaders (never shown), houseguests seeking out the new HOH (the ones in danger most, the player-HOH too), a power vacuum when a leader leaves, and the third-person goal actions (campaign against, wedge, lobby for, count votes) moving the listener's read of the named person. A played game only. `=0` opts out.
+  { envKey: 'ORWELL_HOH_COURT', key: 'hohCourt', parser: 'defaultOn' },
   // 0185 / ORW-567 (theme 3 slice 15): mood contagion - a shocking eviction rattles the evictee's close allies most and the house a little; a big win lifts the winner's circle a little. Moves the existing mood only. A played game only. `=0` opts out.
   { envKey: 'ORWELL_MOOD_CONTAGION', key: 'moodContagion', parser: 'defaultOn' },
+  // 0184 / ORW-564 (theme 3 slice 8, part 1): reputations - what each houseguest has heard or seen of another's lying and turning on people (softened by promises kept to them) scales how far they believe that houseguest and how willing they are to deal with them. Hidden. A played game only; needs ORWELL_BOND_RECORD. `=0` opts out.
+  { envKey: 'ORWELL_REPUTATION', key: 'reputation', parser: 'defaultOn' },
   { envKey: 'ORWELL_FAVORS', key: 'favors', parser: 'defaultOn' },
   // 0182 / ORW-569 (theme 3 slice 5, PR 1): the grudge book - a hidden record of who holds a grudge against whom and why, fading but never zero. Nothing decides from it yet. A played game only; needs ORWELL_BOND_RECORD. `=0` opts out.
   { envKey: 'ORWELL_GRUDGES', key: 'grudges', parser: 'defaultOn' },

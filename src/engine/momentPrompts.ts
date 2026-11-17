@@ -98,8 +98,8 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    next beat\", \"I'll note that and continue\", \"let me see what comes back\". Do all bookkeeping",
   "    SILENTLY between sentences; the player only ever sees the scene, never you working it.",
   "  · Always address the player as \"you\" — never \"the player\" or any third-person reference to them.",
-  "  · Invent ambient FLAVOR freely (a side conversation, a glance, the mood of a BACKGROUND houseguest)",
-  "    but when you VOICE a houseguest, take their `mood` from npcVoice (0084) rather than inventing it —",
+  "  · Small color is yours to invent (glances, small talk, body language, the room's vibe), but when you",
+  "    VOICE a houseguest, take their `mood` from npcVoice (0084) rather than inventing it —",
   "    and never invent a MECHANIC or beat that wasn't handed to you — no made-up \"safety comp\", twist, or result.",
   "",
   "AUTHORITY. The GAME itself decides every outcome — competition winners, nominations, votes, who",
@@ -151,8 +151,9 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    and after are distinct beats, never one conversation stitched over the top of an event.",
   "",
   "FLAVOR vs OUTCOMES — the bright line that keeps the show honest, and the one rule you cannot bend.",
-  "You DM the WORLD freely: invent moods, side conversations, glances, the texture of a room, what a",
-  "houseguest is feeling. That improvised nuance is the soul of the show — be generous with it. But an",
+  "You DM the WORLD freely: small color is yours to invent (side talk, glances, body language, the room's",
+  "vibe). But a REAL feeling, suspicion, stance or plan a houseguest voices must come from a fact the game",
+  "handed you (`knows`, stated reasons, mood cause); never invent one. An",
   "OUTCOME is NOT yours to invent. A competition result, who wins HOH or the veto, a nomination, a",
   "replacement, an eviction, a vote — decided ONLY by the game. You may not state, imply, or foreshadow-as-settled any such result until you have CALLED for",
   "it and received it: runCompetition to learn a comp's already-decided winner, advanceGame to resolve",
@@ -1429,7 +1430,7 @@ export function renderGameContext(view: GameStateView): string {
           : []),
         // A94 (PO ruling, card 26 / 0105): a `suspects` hunch is information, voiced as a POSSIBILITY. Present only when someone in the room carries a hunch => byte-identical otherwise.
         ...((view.presentKnowledge ?? []).some((e) => e.suspects.length)
-          ? ["  (a `suspects` hunch is a possibility they hold, not a decision: voice it like \"not my target yet, but could be\" - never as a confirmation, a plan, a number, or a campaign)"]
+          ? ["  (a `suspects` hunch is a possibility they hold, not a decision: voice it as a possibility in their own words - never as a confirmation, a plan, a number, or a campaign)"]
           : []),
         // 0151: a `tellsYou` is something the engine decided this houseguest tells the player now. Present only when one does => byte-identical otherwise.
         ...((view.presentKnowledge ?? []).some((e) => e.tellsYou)
@@ -1618,7 +1619,7 @@ const TELLS_YOU_VERB: Record<string, string> = {
   "targets-you": "is targeting the player,", "voted-to-evict-you": "voted to evict the player,", "final-two-with": "has a final two with",
   "going-after": "is going after", "talking-about": "has been talking behind the back of", "lying-about": "is lying to",
 };
-const STATED_ACT: Readonly<Record<string, string>> = { nominate: "naming", replacement: "naming as the replacement", veto: "using the veto to save", "veto-hold": "not using the veto, leaving the nominations of", vote: "breaking the tie against", "final-hoh-evict": "evicting" };
+const STATED_ACT: Readonly<Record<string, string>> = { nominate: "naming", replacement: "naming as the replacement", veto: "using the veto to save", "veto-hold": "not using the veto, leaving the nominations of", "hc-pick": "picking to play in the veto", vote: "breaking the tie against", "final-hoh-evict": "evicting" };
 
 function presentCues(e: NonNullable<GameStateView["presentKnowledge"]>[number]): string {
   const bits: string[] = [];

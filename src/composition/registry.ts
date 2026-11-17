@@ -98,7 +98,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // ADR 0006: someone who has turned in for the night neither witnesses nor overhears a player scene.
   commands.setAwakeProvider(() => session.awakeIds());
   // P4g: a recorded betrayal / conflict / kindness scene is remembered (0024 ledger) by the NPCs it touched.
-  commands.setSceneMemorySink((holders, kind) => session.rememberPlayerScene(holders, kind));
+  commands.setSceneMemorySink((holders, kind, subject) => session.rememberPlayerScene(holders, kind, subject));
   // B4: a recorded casual assurance ("you're safe with me") is kept on the live state (flag-gated, default ON; `ORWELL_ASSURANCES=0` turns it off).
   commands.setAssuranceSink((a) => session.recordAssurance(a));
   // ORW-586: a typed promise on a recorded scene becomes a termed open-ledger entry (+ its assurance row), the engine validating everything (flag-gated, `ORWELL_PROMISE_TERMS`, default ON).
@@ -107,6 +107,8 @@ function buildUserSandbox(user = "default"): UserSandbox {
     const r = session.recordPromiseTerm(p);
     return { accepted: r.accepted && r.duplicate !== true, assuranceWritten: session.assuranceCount() > before };
   });
+  // ORW-612 part C: the player's own claim about a third person (flag-gated: ORWELL_PROMISE_TERMS + the open ledger).
+  commands.setStatementSink((s) => session.recordPlayerStatement(s));
   // B24: an NPC's tell about the player (a recorded chat scene) is held as a belief by each named listener (flag-gated, default ON; `ORWELL_HEARD_ABOUT_ME=0` turns it off).
   commands.setHeardAboutMeSink((h) => session.recordHeardAboutMe(h));
   // Phase 2 (duration-based clock): a recorded social scene that proposed how long it FELT hands its
@@ -119,6 +121,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // Phase 2 of "the player can play offense" (0085 follow-on): a LANDED evict-shaped pitch the player
   // makes (recordInteraction's aboutEdges, Phase 1) folds into the player's OWN persistent campaign,
   // mirroring formCampaigns/advanceCampaign/campaignTilt — self-gated by the session's own campaign flag.
+  commands.setPlayerTalkNote((withIds, kind, named) => session.notePlayerTalk(withIds, kind, named));
   commands.setPlayerCampaignFold((target, holder) => session.foldPlayerCampaignMove(target, holder));
   // #1419 — the player-side social-fatigue fold: a recorded scene's INITIATOR moves the needle
   // ASYMMETRICALLY when sleep-deprived (WARMING folds dampened, SOURING amplified — "harder to scheme

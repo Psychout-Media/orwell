@@ -15,7 +15,7 @@ import src.agent_loop as al  # noqa: E402
 import src.llm_core as llm_core  # noqa: E402
 from src.tool_execution import format_tool_result  # noqa: E402
 
-REFUSAL = {"refused": True, "reason": "distrust", "narratable": "doesn't trust you enough yet to shake on this"}
+REFUSAL = {"refused": True, "reason": "didnt-trust-you"}  # ORW-608: the reason the houseguest GIVES (a stated-reason kind), no fixed line
 DEAL = {"id": "deal:1", "kind": "safety", "terms": "t", "status": "open", "parties": []}
 HOUSE = [{"id": "npc:3", "name": "Cynthia Hawkins"}, {"id": "npc:7", "name": "Tobias Drake"}]
 
@@ -42,7 +42,7 @@ def test_refusal_reaches_the_narrator_as_a_decline(monkeypatch):
     assert res["exit_code"] == 0
     seen = format_tool_result("makeDeal", res)
     assert "declined" in seen.lower()
-    assert "doesn't trust you enough yet" in seen
+    assert "didnt-trust-you" in seen and "cover story" in seen  # the given reason, flagged as possibly a cover
     assert "No deal was made" in seen
     # it must NOT look like a recorded deal (no deal id / status the narrator could mistake for success)
     assert '"status"' not in seen and "deal:" not in seen

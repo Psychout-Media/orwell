@@ -41,13 +41,49 @@ export interface BeliefClaim {
   /** Set once the claim is refuted; `reversed` is the delta that refutation actually took back (idempotent: a claim reverses at most once). */
   refuted?: boolean;
   reversed?: EdgeDelta;
+  /**
+   * ORW-591 (Fable T2-8): the ids of later tellings of the SAME claim from the SAME source (same kind, subject, object and nature) that were folded
+   * into this belief instead of planting a second one. A repeat is not fresh proof: one source saying it again is one piece of evidence, not two.
+   * Kept so a lie caught on any one of those tellings still finds the belief it planted (`plantedBy`).
+   */
+  alsoClaims?: string[];
 }
 
 /** holder -> that holder's claims, oldest first. Engine-only season state (rides on `LiveSeasonState.beliefs`). */
 export type BeliefStore = Record<EntityId, BeliefClaim[]>;
 
-/** Per-holder bound so a long season cannot grow without limit. Compaction drops the OLDEST, LOWEST-confidence claim first and is deterministic. */
+/**
+ * Per-holder bound so a long season cannot grow without limit. ORW-591: compaction drops a REFUTED belief first (the holder already let it go),
+ * and only when none is refuted the OLDEST belief (earliest week, then earliest written) - never a live doubt ahead of a refuted one, never the
+ * claim just written. Deterministic. The save check (`sessionCoreSupersetViolation`, "beliefs") allows a lost belief only under this rule.
+ */
 export const BELIEF_CAP_PER_HOLDER = 48;
+
+/**
+ * ORW-591: what makes two beliefs the SAME piece of evidence. Beliefs with a source are one piece of evidence per (source, kind, subject, object,
+ * nature): a source repeating themselves is not corroboration (a second, DIFFERENT source is). A belief with no source (witnessed, deduced) is its
+ * own piece of evidence (each is a separate thing the holder saw or worked out).
+ */
+export function evidenceKey(c: Pick<BeliefClaim, "id" | "source" | "kind" | "subject" | "object" | "nature">): string {
+  return c.source === undefined ? `id:${c.id}` : `src:${c.source}|${c.kind}|${c.subject}|${c.object ?? ""}|${c.nature ?? ""}`;
+}
+
+/** ORW-591: did the told claim `claimId` plant (or get folded into) this belief? */
+export function plantedBy(b: Pick<BeliefClaim, "id" | "alsoClaims">, claimId: string): boolean {
+  return b.id.endsWith(`|${claimId}`) || (b.alsoClaims?.includes(claimId) ?? false);
+}
+
+/** ORW-591: the index the cap drops - the oldest refuted belief, else the oldest belief (earliest week, then earliest written); never the last (just written). */
+function compactionVictim(list: readonly BeliefClaim[]): number {
+  let drop = -1;
+  for (let i = 0; i < list.length - 1; i++) {
+    if (drop < 0) { drop = i; continue; }
+    const a = list[i]!, d = list[drop]!;
+    if ((a.refuted === true) !== (d.refuted === true)) { if (a.refuted) drop = i; continue; }
+    if (a.week < d.week) drop = i;
+  }
+  return drop;
+}
 
 export function claimId(c: Pick<BeliefClaim, "holder" | "kind" | "subject" | "object" | "week">): string {
   return `${c.holder}|${c.kind}|${c.subject}|${c.object ?? ""}|${c.week}`;
@@ -60,15 +96,41 @@ export function recordClaim(store: BeliefStore, claim: Omit<BeliefClaim, "id"> &
   const at = list.findIndex((c) => c.id === full.id);
   if (at >= 0) {
     if (full.confidence <= list[at]!.confidence) return false;
-    list[at] = full;
+    const prev = list[at]!;
+    const folded = prev.alsoClaims;
+    list[at] = {
+      ...full,
+      ...(folded && !full.alsoClaims ? { alsoClaims: folded } : {}), // ORW-591: the tellings folded into it are never forgotten
+      // ORW-591: a refuted belief stays refuted - a stronger re-record of the same claim never revives it (or forgets what its refutation took back)
+      ...(prev.refuted ? { refuted: true, ...(prev.reversed ? { reversed: prev.reversed } : {}) } : {}),
+    };
     return true;
   }
   list.push(full);
-  if (list.length > BELIEF_CAP_PER_HOLDER) {
-    // deterministic compaction: lowest confidence first, then oldest (earliest index) — never the claim just written
-    let drop = -1;
-    for (let i = 0; i < list.length - 1; i++) if (drop < 0 || list[i]!.confidence < list[drop]!.confidence) drop = i;
-    list.splice(drop, 1);
+  if (list.length > BELIEF_CAP_PER_HOLDER) list.splice(compactionVictim(list), 1); // ORW-591: refuted first, then oldest; never the claim just written
+  return true;
+}
+
+/**
+ * ORW-591 (Fable T2-8) - the save check's rule for beliefs (non-degradation #4): a belief once held is never lost, and the tellings folded into it
+ * (`alsoClaims`) are never forgotten. The ONE way a belief may go is the per-holder cap's compaction: only when the holder's list is at the cap,
+ * and a live belief only when none of the holder's already-refuted beliefs survived (the cap takes the refuted first). Returns false on a loss.
+ */
+export function beliefStoreSuperset(later: BeliefStore | undefined, earlier: BeliefStore | undefined): boolean {
+  for (const [holder, prev] of Object.entries(earlier ?? {})) {
+    const next = later?.[holder as EntityId] ?? [];
+    const byId = new Map(next.map((b) => [b.id, b] as const));
+    const atCap = next.length >= BELIEF_CAP_PER_HOLDER;
+    const refutedKept = prev.some((b) => b.refuted === true && byId.has(b.id));
+    for (const b of prev) {
+      const now = byId.get(b.id);
+      if (!now) {
+        if (!atCap) return false;                          // only the cap ever lets a belief go
+        if (b.refuted !== true && refutedKept) return false; // ... and it takes a refuted belief before a live one
+        continue;
+      }
+      for (const id of b.alsoClaims ?? []) if (!(now.alsoClaims ?? []).includes(id)) return false;
+    }
   }
   return true;
 }

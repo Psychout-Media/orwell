@@ -94,3 +94,12 @@ Feature: 0100 — The jury grudge book, made felt (evicted jurors gossip; goodby
       Given the jury house is enabled
       When the same seed and the same player choices are played twice
       Then the jury-house scenes, the grudge adjustments, and the final votes are identical both times
+
+  Rule: A juror's feelings fade only a little, equally toward everyone, at a rate set by who they are
+
+    Scenario: A grudge-keeper juror fades less than an easygoing juror, and always less than the in-house drift
+      Given a grudge-keeper juror and an easygoing juror with the same history
+      When a night passes in the jury house
+      Then the grudge-keeper's feelings fade less than the easygoing juror's
+      And both fade less than the same feeling would in the house
+      And the same rule applies whether the subject is the player or another finalist

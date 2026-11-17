@@ -458,6 +458,9 @@ export function recheckAgenda(agenda: Agenda, view: AgendaView, board: AgendaBoa
       if (c.kind === "get-them-out" && picked.filter((p) => p.kind === "get-them-out").length >= AGENDA.weekGetThemOutMax) continue; // ORW-350: room for the rest of a week
       picked.push(c);
     }
+    // ORW-581 (Fable T1-14): week goals still held from an earlier week (the week rolled without a close re-check) end the way the close re-check ends them,
+    // "failed: week closed", and are KEPT in history (non-degradation: history only grows); they used to be dropped with no entry.
+    for (const g of heldWeek) history.push(resolve(g, "failed", board.day, "week closed"));
     week = picked.map((c) => toGoal(c, view.owner, formingBoard));
   } else {
     // A held week goal is replaced only by a candidate that beats the weakest held one by the stubbornness margin.

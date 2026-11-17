@@ -1289,6 +1289,7 @@ FUNCTION_TOOL_SCHEMAS = [
                         },
                         "required": ["kind"],
                     },
+                    "actor": {"type": "string", "description": "Optional. Set ONLY when a houseguest, not the player, did the act `kind` names to the player: that houseguest's id (it must be in withIds). Omit it when the player did it."},
                     "heardAboutMe": {
                         "type": "object",
                         "description": "Optional. Set ONLY when a houseguest in the scene TOLD the other houseguests present something about the player: that the player is gunning for them (targeting) or has betrayed someone (betrayal). `by` is the teller's id (in withIds, never the player). The engine decides how far each listener believes it.",

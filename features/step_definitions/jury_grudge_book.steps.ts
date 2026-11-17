@@ -531,3 +531,18 @@ When("the same seed and the same player choices are played twice", function (thi
 Then("the jury-house scenes, the grudge adjustments, and the final votes are identical both times", function (this: BbWorld) {
   assert.equal(this.jh!.seededHashB, this.jh!.seededHashA, "same seed ⇒ identical jury house (scenes + grudges)");
 });
+
+// ORW-582: the jury-house fade is one personality-scaled rule, below the in-house drift, never keyed on the subject.
+import { juryFadeRate } from "../../src/engine/juryFade";
+import { OVERNIGHT_DRIFT } from "../../src/engine/relationshipConstants";
+const fadeStore: { keeper?: number; easy?: number } = {};
+Given("a grudge-keeper juror and an easygoing juror with the same history", function () {
+  fadeStore.keeper = juryFadeRate({ keeper: true, volatility: 0.5, roll: 0.5 });
+  fadeStore.easy = juryFadeRate({ keeper: false, volatility: 0.5, roll: 0.5 });
+});
+When("a night passes in the jury house", function () { /* the rates above are the nightly shares */ });
+Then("the grudge-keeper's feelings fade less than the easygoing juror's", function () { assert.ok(fadeStore.keeper! < fadeStore.easy!); });
+Then("both fade less than the same feeling would in the house", function () { assert.ok(fadeStore.easy! < OVERNIGHT_DRIFT.RATE); });
+Then("the same rule applies whether the subject is the player or another finalist", function () {
+  assert.equal(juryFadeRate({ keeper: false, volatility: 0.5, roll: 0.5 }), fadeStore.easy);
+});
