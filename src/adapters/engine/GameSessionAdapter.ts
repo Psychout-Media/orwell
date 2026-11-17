@@ -337,7 +337,7 @@ import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type Hea
 import { beliefTruth, planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
 import { CAUGHT_LIE, contradicts, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
 import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
-import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedSourceContent, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
+import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedInText, namedSourceContent, noRecordNote, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
 import { drawHouseLeans, describeHouseLeans, dialMult, type DialId } from "../../engine/houseLeans";
@@ -6295,7 +6295,14 @@ export class GameSessionAdapter implements GameSession {
     const here = this.presence.get(this.house.player.id);
     if (here === undefined) return false;
     const present = new Set(this.awakeAmong(this.livingIds().filter((id) => id !== PLAYER && this.presence!.get(id) === here)));
-    for (const claim of askableClaims(this.live.claims.items, present)) {
+    // ORW-560: ask the RIGHT houseguest. A present houseguest the player names is the one asked; with no name, the one asked is whoever last told the player something.
+    // A houseguest who never told the player anything the engine recorded is asked about words it never gave them: they name no one (so the narrator cannot invent a source).
+    const askable = askableClaims(this.live.claims.items, present);
+    const named = this.house.npcs.filter((n) => present.has(n.id) && namedInText(text, n.name)).map((n) => n.id as EntityId);
+    const asked = named.length > 0 ? new Set(named) : askable[0] ? new Set([askable[0].speaker]) : new Set<EntityId>();
+    const theirs = askable.filter((c) => asked.has(c.speaker));
+    if (theirs.length === 0 && named.length > 0) { this.claimSourceNote = noRecordNote(this.nameOf(named[0]!)); return false; }
+    for (const claim of theirs) {
       const held = heldBeliefFor(this.live.beliefs, claim);
       if (!held) {
         // 0159: a lie planted on the player has no belief behind it. The liar says they saw it themself (names no one; the note never hints it is untrue).
