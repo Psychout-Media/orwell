@@ -12,8 +12,7 @@ import { clamp01 } from "../domain/num";
  *  - Q1: how often a houseguest deals falsely depends on the person, the bond and the culture, with NO CAP. The balance corrects itself: a houseguest who makes
  *    many deals leans toward breaking them (and earns the reputation for it, slice 8). Measured and reported, never capped.
  *
- *   lean       = margin (the 0142 temptation-vs-cost weighing at the moment of agreeing) + FAKING.perPastDeal * max(0, dealsMade - 1) + cultureLean
- *   P(two-faced) = clamp(slope * lean + FAKING.readiness * temperament, 0, 1)   - no ceiling below 1
+ *   P(two-faced) = clamp(fakingLean(dealsMade, cunning) + slope * clamp(margin) + culture, 0, 1)   - no ceiling below 1
  *   which plan: by the deal's kind and the moment (a vote deal flips at the vote; a final two is cut at the final three or broken later; a safety deal is
  *   broken at the nominations it was meant to cover, or kept this week only), one more roll among the plans the kind allows.
  */
@@ -38,25 +37,35 @@ export interface PlanSource {
 }
 
 /**
- * THE SHARED FAKING DIALS (Ryne 2026-11-17: "I think double is great!", applied to faking EVERYWHERE): the one place both deal models read their base readiness
- * to fake and the lean each past deal adds - NPC-to-player promises here (0178), NPC-to-NPC pacts in `npcDeals.ts` (0170, Overseer B). Uncapped.
+ * THE SHARED FAKING DIALS: the one place both deal models read how readily a houseguest fakes a promise. NPC-to-player promises use them here (0178), and
+ * NPC-to-NPC pacts use them in `npcDeals.ts` (0170, Overseer B). Uncapped.
+ *
+ * Retuned 2026-11-17 (Ryne, on the doubled 6%: "That almost seems like a basic assurance as the player that it's legitimate. It should be much higher.
+ * Paranoia is a big part of Big Brother."). The targets: about 1 in 3 NPC promises two-faced; about 20% on a first deal; 50% or more for serial dealmakers;
+ * faking in every season; a wide spread by person.
+ * Readiness is therefore NOT gated on a reason: a cunning type fakes with no motive at all, and a loyal type rarely does even with one.
  */
 export const FAKING = {
-  /** Readiness to fake with no reason at all, scaled by how cunning the holder is (0..1). Doubled from 0.12. */
-  readiness: 0.24,
-  /** Each deal beyond the first that the holder has made (Ryne's Q1: a prolific dealmaker leans to break). Doubled from 0.08. */
-  perPastDeal: 0.16,
+  /** Readiness to fake, before the person: about the first-deal rate of an average houseguest. */
+  readiness: 0.2,
+  /** The person spreads it: readiness x (personFloor + personSpan x cunning). Cunning ~0.1 (a loyalist) gives about half the average; ~0.95 (a scheming mastermind) about 1.8x. */
+  personFloor: 0.3,
+  personSpan: 1.6,
+  /** Each deal beyond the first that the holder has made (Ryne's Q1: a prolific dealmaker leans to break). */
+  perPastDeal: 0.12,
 } as const;
 
-/** The shared part of any faking chance: readiness x cunning, plus the per-past-deal lean. Both deal models add their own situational terms to this. */
+/** The shared part of any faking chance: readiness spread by the person (cunning 0..1), plus the per-past-deal lean. Both deal models add their own situational terms to this. */
 export function fakingLean(dealsMade: number, cunning: number): number {
-  return FAKING.readiness * clamp01(cunning) + FAKING.perPastDeal * Math.max(0, dealsMade - 1);
+  return FAKING.readiness * (FAKING.personFloor + FAKING.personSpan * clamp01(cunning)) + FAKING.perPastDeal * Math.max(0, dealsMade - 1);
 }
 
 export const DEAL_PLANS = {
-  /** How strongly the weighing margin at the moment of agreeing turns into a two-faced plan. */
-  slope: 0.6,
-  /** The house culture's loyalty and lying dials (`dialMult`, 1 = neutral) move the lean by this much per unit away from neutral. */
+  /** The situation (the 0142 weighing margin at the moment of agreeing) moves it: a real motive adds, a strong reason to keep subtracts a little (never a gate). */
+  slope: 0.3,
+  marginFloor: -0.1,
+  marginCeil: 1,
+  /** The house culture's loyalty and lying dials (`dialMult`, 1 = neutral) move it by this much per unit away from neutral. */
   cultureLean: 0.25,
 } as const;
 
@@ -85,15 +94,15 @@ export interface PlanInputs {
   week: number;
 }
 
-/** The lean toward a two-faced plan (exposed so the report and the tests read the same number). No ceiling. */
+/** The situational part: the weighing margin (clamped, so a reason to keep never shuts faking off) and the culture. */
 export function planLean(i: PlanInputs): number {
   const culture = DEAL_PLANS.cultureLean * ((i.lyingDial - 1) - (i.loyaltyDial - 1));
-  return i.margin + FAKING.perPastDeal * Math.max(0, i.dealsMade - 1) + culture;
+  return DEAL_PLANS.slope * Math.max(DEAL_PLANS.marginFloor, Math.min(DEAL_PLANS.marginCeil, i.margin)) + culture;
 }
 
-/** P(the holder is two-faced about this deal). */
+/** P(the holder is two-faced about this deal): the shared faking lean (person + past deals) plus the situation. No ceiling below certainty. */
 export function twoFacedChance(i: PlanInputs): number {
-  return clamp01(DEAL_PLANS.slope * planLean(i) + FAKING.readiness * clamp01(i.temperament));
+  return clamp01(fakingLean(i.dealsMade, i.temperament) + planLean(i));
 }
 
 /** Decide the plan: `rolls.twoFaced` decides keep vs two-faced, `rolls.which` picks among the plans the kind allows. Deterministic in its inputs. */

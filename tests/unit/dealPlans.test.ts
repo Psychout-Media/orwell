@@ -5,24 +5,26 @@ import { FAKING, fakingLean, buildDealPlanRetro, decidePlan, momentDue, planLean
 const base: PlanInputs = { kind: "safety", margin: 0, dealsMade: 1, temperament: 0, loyaltyDial: 1, lyingDial: 1, week: 2 };
 
 describe("two-faced deals (dealPlans.ts)", () => {
-  it("Ryne's Q1: every deal made before raises the lean, with no cap below a certainty", () => {
-    expect(planLean({ ...base, dealsMade: 5 }) - planLean({ ...base, dealsMade: 4 })).toBeCloseTo(FAKING.perPastDeal, 12);
-    expect(twoFacedChance({ ...base, dealsMade: 1 })).toBe(0);
+  it("Ryne's Q1: every deal made before raises the chance, with no cap below a certainty", () => {
+    expect(twoFacedChance({ ...base, dealsMade: 5 }) - twoFacedChance({ ...base, dealsMade: 4 })).toBeCloseTo(FAKING.perPastDeal, 12);
     expect(twoFacedChance({ ...base, dealsMade: 40 })).toBe(1);
     let last = -1;
     for (let k = 1; k < 40; k++) { const c = twoFacedChance({ ...base, dealsMade: k }); expect(c).toBeGreaterThanOrEqual(last); last = c; }
   });
-  it("the shared faking dials: readiness x cunning plus the per-past-deal lean (the part both deal models read)", () => {
-    expect(fakingLean(1, 0)).toBe(0);
-    expect(fakingLean(1, 1)).toBeCloseTo(FAKING.readiness, 12);
-    expect(fakingLean(4, 0)).toBeCloseTo(3 * FAKING.perPastDeal, 12);
+  it("the shared faking dials: readiness spread by the person, plus the per-past-deal lean", () => {
+    expect(fakingLean(1, 0)).toBeCloseTo(FAKING.readiness * FAKING.personFloor, 12);
+    expect(fakingLean(1, 1)).toBeCloseTo(FAKING.readiness * (FAKING.personFloor + FAKING.personSpan), 12);
+    expect(fakingLean(4, 0) - fakingLean(1, 0)).toBeCloseTo(3 * FAKING.perPastDeal, 12);
   });
-  it("the culture moves the lean: a lying, disloyal house leans two-faced; a loyal one leans keep", () => {
+  it("Ryne 2026-11-17 (paranoia): a cunning type fakes even with every reason to keep; a loyal type rarely does", () => {
+    const cunning = twoFacedChance({ ...base, temperament: 0.95, margin: -5 });
+    const loyal = twoFacedChance({ ...base, temperament: 0.1, margin: -5 });
+    expect(cunning).toBeGreaterThan(0.25);
+    expect(loyal).toBeLessThan(cunning / 2);
+  });
+  it("the culture moves it: a lying, disloyal house leans two-faced; a loyal one leans keep", () => {
     expect(planLean({ ...base, lyingDial: 1.5, loyaltyDial: 0.5 })).toBeGreaterThan(planLean(base));
     expect(planLean({ ...base, lyingDial: 0.5, loyaltyDial: 1.5 })).toBeLessThan(planLean(base));
-  });
-  it("a cunning temperament can be two-faced even when the weighing says keep", () => {
-    expect(twoFacedChance({ ...base, temperament: 1 })).toBeCloseTo(FAKING.readiness, 12);
   });
   it("which plan follows the deal's kind", () => {
     const sure = { ...base, margin: 5 };
