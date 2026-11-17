@@ -7,6 +7,7 @@
  *
  * `pairBondMult` is a pure magnitude: it scales warming components up and DIVIDES souring ones (the same shape as the house-culture bonding dial), so the fold's jitter draws are untouched.
  */
+import { clamp01 } from "../domain/num";
 import { familyForLabel } from "../domain/styleFamilies";
 import { tagKind } from "../domain/castRealism";
 import { isBigCity, lifeAffluence } from "../domain/styleFit";
@@ -17,7 +18,6 @@ import { HOMOPHILY, STYLE_CLUSTERS } from "./homophilyConstants";
 /** The public facets similarity may read. A real `Character` satisfies it structurally; every field may be absent. */
 export interface HomophilyFacets { age?: number; presentation?: string; archetype?: string; hometown?: string; vocation?: string }
 
-const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
 const REGION_OF = new Map<string, string>(HOMETOWNS.map((h) => [h.city, h.region]));
 const STYLES_OF = new Map<string, readonly string[]>(ARCHETYPES.map((s) => [s.archetype as string, s.styles as readonly string[]]));
 
