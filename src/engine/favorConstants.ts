@@ -32,4 +32,6 @@ export const FAVOR = {
   /** A refused favor leaves the wronged houseguest a memory at this share of a broken assurance's memory severity, and a grudge at this share of a broken deal's. */
   refusalMemoryShare: 0.6,
   refusalGrudgeShare: 0.6,
+  /** ORW-575: an honored favor leaves the caller a memory at this share of a broken assurance's severity (the mirror of a refusal's). */
+  repaidMemoryShare: 0.6,
 } as const;
