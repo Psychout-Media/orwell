@@ -46,7 +46,7 @@ import { nextMilestone, milestoneDue as milestoneDueOf, minutesUntilDue, hoursUn
 const EVENT_SPREAD_STEPS = 5;
 import { driveSuspicion } from "../../engine/suspicion";
 import {
-  formCampaigns, advanceCampaign, replan, campaignTilt, campaignPushFor, CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED, CAMPAIGN, PLAN_FOR, advancePlayerCampaign,
+  formCampaigns, formGoalCampaigns, advanceCampaign, replan, campaignTilt, campaignPushFor, CAMPAIGN_PUSH_INCLUDES_PLAYER_OWNED, CAMPAIGN, PLAN_FOR, advancePlayerCampaign,
   deriveDrive, ownBallotLean, drivePushFor, ARCHETYPE_AGGRESSION,
   selectNemesis, NEMESIS, NO_NEMESIS,
   type Campaign, type CampaignActor, type Influence, type Drive, type NemesisTrack, type NemesisCandidate,
@@ -294,6 +294,7 @@ import { traitContradictions, repairHeightBuild } from "../../domain/traitConsis
 import { PLAYER } from "../../domain/ids";
 import { pairBondMult } from "../../engine/homophily";
 import { bumpTenure, sharedTopRoom, territoryNudge } from "../../engine/territory";
+import { isPitchLikeTalk, foldPlayerTalk, playerPitchFrom, deriveStatus, advanceStatus, vacuumSplit, courtPull, thirdPersonImpact, HOH_COURT, type StatusRecord } from "../../engine/hohCourt";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
@@ -1381,6 +1382,11 @@ export class GameSessionAdapter implements GameSession {
       const cunning = Math.max(0, Math.min(1, npc.character.stats.mental));
       pitches.push({ from: id, kind: chooseOffer({ loyalty, cunning, chaos: 1 - loyalty }), strength: threat, protects: id });
     }
+    // ORW-610 (owner ruling 2026-11-17): the engine never acts for the player. Only the player's OWN recorded talk to this HOH this week counts as a pitch, on the same terms as an NPC's (weighed, never voiced).
+    if (this.hohCourtOn() && holder !== PLAYER && !evicted.has(PLAYER) && this.live) {
+      const mine = playerPitchFrom(this.live.playerPitch, this.live.week, holder);
+      if (mine) pitches.push({ from: PLAYER, kind: mine.kind, strength: mine.strength, ...(mine.targets ? { targets: mine.targets } : { protects: PLAYER }) });
+    }
     return pitches;
   }
   /**
@@ -1391,11 +1397,13 @@ export class GameSessionAdapter implements GameSession {
    */
   private recordLobbyPitches(hoh: EntityId): void {
     const s = this.live;
-    if (!this.lobbyingEnabled || !s || !this.house || !this.onPlayerEvent || hoh === PLAYER) return;
+    if (!this.lobbyingEnabled || !s || !this.house || !this.onPlayerEvent) return;
+    if (hoh === PLAYER) { this.courtThePlayerHoh(); return; }
     const key = `${s.week}:${hoh}`;
     if (this.lobbyRecordedFor.has(key)) return;
     this.lobbyRecordedFor.add(key);
     for (const p of this.derivePitches(hoh)) {
+      if (p.from === PLAYER) continue; // ORW-610: weighed only, never voiced as the player's act
       const witnesses = [...new Set([p.from, hoh, ...this.coPresentWitnessesOf(p.from)])];
       const verb = p.kind === "safety" ? "asks for safety" : p.kind === "info" ? "trades information" : p.kind === "threat" ? "makes a veiled threat" : "makes a pitch";
       this.onPlayerEvent(`${this.nameOf(p.from)} ${verb} with ${this.nameOf(hoh)} before nominations (week ${weekWords(s.week)})`, witnesses, "lobbying");
@@ -1404,6 +1412,21 @@ export class GameSessionAdapter implements GameSession {
         const evId = this.onPlayerEvent(`${this.nameOf(p.from)} and ${this.nameOf(hoh)} quietly seal a safety pact (week ${weekWords(s.week)})`, [p.from, hoh], "deal");
         this.deals.make([p.from, hoh], "safety", "a quiet pact sealed away from the cameras", evId, s.week);
       }
+    }
+  }
+  /**
+   * ORW-610 (the player plugged in): when the PLAYER is crowned HOH, the houseguests who would lobby an NPC HOH lobby them. No hidden event is written (the player is not in a scene yet): each pitcher's want to
+   * be heard becomes an approach that reaches the player through the desire clock's own path and guards, so the player decides whether to listen. Played games only; flag `ORWELL_HOH_COURT`.
+   */
+  private courtThePlayerHoh(): void {
+    const s = this.live;
+    if (!this.hohCourtOn() || !s || !this.house) return;
+    const key = `${s.week}:${PLAYER}`;
+    if (this.lobbyRecordedFor.has(key)) return;
+    this.lobbyRecordedFor.add(key);
+    for (const p of this.derivePitches(PLAYER)) {
+      if (p.from === PLAYER) continue;
+      (s.goalApproaches ??= {})[p.from] = { desire: p.kind === "safety" ? "plea" : p.kind === "threat" ? "probe" : "campaign", goalId: "court", hour: this.absHour() };
     }
   }
   /** B38: the (week:HOH) crownings whose pitches are already recorded. Session-local: a restart mid-week may re-record once, which is idempotent for deals (bound-pair check) and only repeats a hidden line. */
@@ -6732,6 +6755,75 @@ export class GameSessionAdapter implements GameSession {
   private territoryEnabled = flagDefaultOn("ORWELL_TERRITORY");
   setTerritoryEnabled(on: boolean): void { this.territoryEnabled = on; }
   private territoryOn(): boolean { return this.territoryEnabled && this.live?.playedGame === true; }
+
+  /** 0173 (Theme 3 slice 11): status, the HOH court, power vacuums and the third-person goal actions. `ORWELL_HOH_COURT=0` opts out. Played games only (headless calibration byte-identical). */
+  private hohCourtEnabled = flagDefaultOn("ORWELL_HOH_COURT");
+  setHohCourtEnabled(on: boolean): void { this.hohCourtEnabled = on; }
+  private hohCourtOn(): boolean { return this.hohCourtEnabled && this.live?.playedGame === true; }
+  /** The last status derivation's raw scores (derived, never snapshotted; used only to break a vacuum's tie). */
+  private statusScores: ReadonlyMap<EntityId, number> | undefined;
+  /**
+   * 0173 (a): once per in-game day, derive the hidden pecking order from wins, allies (the bond reader's mutual ties and the house graph's hubs) and respect, fold it into `live.status`, and let a leader's
+   * exit open a power vacuum: the surviving lieutenants contest it, and a keyed roll may split the group (the lieutenant who held less leaves the alliance they shared: the existing alliance history
+   * records it as a hidden event). ENGINE-ONLY: no view, prompt or tool result carries a tier, a leader or a lieutenant.
+   */
+  private statusTick(): void {
+    const s = this.live;
+    if (!this.hohCourtOn() || !s || !this.house) return;
+    const day = s.dayNumber ?? s.week;
+    if (s.status?.day === day) return;
+    const living = this.livingIds();
+    const reader = this.bondReader();
+    const hubs = new Set<EntityId>(this.houseGraph().graph.hubs);
+    const read = deriveStatus({
+      members: living, wins: (id) => s.resume?.[id] ?? 0, tie: (a, b) => reader.tie(a, b), hubs,
+      respect: (id) => { const others = living.filter((o) => o !== id); return others.length ? others.reduce((acc, o) => acc + reader.strength(o, id), 0) / others.length : 0; },
+      ...(s.status?.leader ? { prevLeader: s.status.leader } : {}),
+    });
+    this.statusScores = read.score;
+    const step = advanceStatus(s.status, read, day, new Set(living));
+    s.status = step.record;
+    if (step.vacuumOpened && step.claimants.length >= 2) {
+      const roll = (hashSeed(`${this.gameSeed ?? 0}:status-vacuum:${day}`) % 10000) / 10000;
+      const loser = vacuumSplit(step.claimants, read.score, roll);
+      if (loser && loser !== PLAYER) {
+        const rival = step.claimants.filter((c) => c !== loser).sort((a, b) => (read.score.get(b) ?? 0) - (read.score.get(a) ?? 0) || (a < b ? -1 : 1))[0]!;
+        const shared = this.alliances.shared(loser, rival)[0];
+        if (shared) {
+          this.alliances.stamp(this.beatSeqNow(), day);
+          this.alliances.removeMember(shared.id, loser, "left");
+          s.status.history = [...s.status.history, { day, kind: "split" as const, who: loser, over: rival }].slice(-HOH_COURT.historyMax);
+          s.status.count += 1;
+        }
+      }
+    }
+  }
+  /** ORW-610: the player's own recorded talk with these houseguests (called by the recorded-interaction path). Counts when the sitting HOH was in it and it was pitch-like. Played games only; flag-gated. */
+  notePlayerTalk(withIds: readonly EntityId[], kind: string | undefined, named: EntityId | undefined): void {
+    const s = this.live;
+    if (!this.hohCourtOn() || !s?.hoh || s.hoh === PLAYER || !withIds.includes(s.hoh) || !isPitchLikeTalk(kind, named)) return;
+    s.playerPitch = foldPlayerTalk(s.playerPitch, s.week, s.hoh, named);
+  }
+  /** 0173: engine-only read of a houseguest's coarse tier, the informal leader and the lieutenants (tests and later engine slices; never a tool, never projected). */
+  statusRead(): { tiers: Readonly<Record<EntityId, number>>; leader?: EntityId; lieutenants: readonly EntityId[]; vacuumSince?: number; count: number; history: StatusRecord["history"] } | undefined {
+    const st = this.live?.status;
+    return st ? { tiers: st.tiers, ...(st.leader ? { leader: st.leader } : {}), lieutenants: st.lieutenants, ...(st.vacuumSince !== undefined ? { vacuumSince: st.vacuumSince } : {}), count: st.count, history: st.history } : undefined;
+  }
+  /** Test seam: derive today's status now (the off-screen tick does it once a day). */
+  statusTickNow(): void { this.statusTick(); }
+  /** 0173 (b): who is in danger from the HOH this week (on the block, or the HOH reads them as a real threat), the ones who seek the HOH out most. */
+  private courtView(owner: EntityId, hoh: EntityId | undefined): { pull: number; danger: boolean } | undefined {
+    if (!this.hohCourtOn() || !hoh || hoh === owner) return undefined;
+    const danger = (this.live?.nominees as readonly EntityId[] | undefined)?.includes(owner) === true || this.bondReader().bond(hoh, owner).threat >= HOH_COURT.dangerThreat;
+    return { pull: courtPull(danger), danger };
+  }
+  /** 0173 / ORW-577: the listener's read of a named third person moves by a bounded step (keyed stream, no shared draw). */
+  private foldThirdPerson(p: PlannedAction, listener: EntityId, day: number, hour: number): void {
+    if (!this.hohCourtOn() || !p.about || p.about === listener || p.about === p.actor || listener === PLAYER) return;
+    const impact = thirdPersonImpact(p.kind, this.influenceOf(p.actor).persuasiveness, this.influenceOf(listener).susceptibility);
+    if (!impact) return;
+    this.rel.applyImpactDirected(listener, p.about, impact, new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:third-person:${p.kind}:${p.actor}:${listener}:${p.about}:${day}:${hour}`)));
+  }
   /** The small capped additive on a pair's mutual bond (roommates, a shared top room); 0 when off. Added to the mutual-bond INPUT of blocs and NPC alliances only; the floors and caps never move. */
   private territoryBondNudge(a: EntityId, b: EntityId): number {
     return this.territoryOn() ? territoryNudge(this.live?.tenure, this.live?.beds, a, b) : 0;
@@ -10897,6 +10989,10 @@ export class GameSessionAdapter implements GameSession {
    *   • otherwise COMPETE.
    * Pure read of the live board + relationships (no rng, no Vault, no number crosses the wall).
    */
+  /** ORW-577: does `id` hold an active, committed win-power goal (their agenda says they want the power)? */
+  private agendaWantsPower(id: EntityId): boolean {
+    return (this.live?.agendas?.[id]?.goals ?? []).some((g) => g.status === "active" && g.kind === "win-power" && g.commitment >= HOH_COURT.goalMin);
+  }
   private deriveCompIntent(id: EntityId, field: readonly EntityId[]): Intent {
     if (id === PLAYER) return "compete"; // the player declares their own approach
     const hg = this.house?.npcs.find((n) => n.id === id);
@@ -10908,6 +11004,7 @@ export class GameSessionAdapter implements GameSession {
       hasOthers: others.length > 0,
       bestAllyBond: others.length ? Math.max(...others.map((o) => this.rel.bondStrength(id, o))) : 0,
       maxThreatOnMe: others.length ? Math.max(...others.map((o) => this.rel.edge(o, id).threat)) : 0,
+      ...(this.hohCourtOn() && this.agendaWantsPower(id) ? { wantsPower: true } : {}), // ORW-577: an active win-power goal keeps them in the fight
     });
     if (intent === "throw") this.noteCompThrowReason(id, others);
     return intent;
@@ -11579,10 +11676,22 @@ export class GameSessionAdapter implements GameSession {
     return awake ? this.campaignActors().filter((a) => awake.has(a.id)) : this.campaignActors();
   }
   private campaignActors(): CampaignActor[] {
-    return this.livingIds().filter((id) => id !== PLAYER).map((id) => ({
-      id, persuasiveness: this.influenceOf(id).persuasiveness,
-      threats: this.threatReadsOf(id), allies: this.allyReadsOf(id),
-    }));
+    return this.livingIds().filter((id) => id !== PLAYER).map((id) => {
+      const g = this.agendaGoalTarget(id);
+      return {
+        id, persuasiveness: this.influenceOf(id).persuasiveness,
+        threats: this.threatReadsOf(id), allies: this.allyReadsOf(id),
+        ...(g ? { goalTarget: g.target } : {}),
+      };
+    });
+  }
+  /** ORW-577: the target of the owner's strongest active get-them-out / revenge goal (their agenda), when `ORWELL_HOH_COURT` is on in a played game and the goal is committed enough. */
+  private agendaGoalTarget(owner: EntityId): { target: EntityId; commitment: number } | undefined {
+    if (!this.hohCourtOn()) return undefined;
+    const living = new Set(this.livingIds());
+    const goals = (this.live?.agendas?.[owner]?.goals ?? []).filter((g) => g.status === "active" && (g.kind === "get-them-out" || g.kind === "revenge") && g.target !== undefined && g.target !== owner && living.has(g.target) && g.commitment >= HOH_COURT.goalMin);
+    const best = [...goals].sort((a, b) => b.commitment - a.commitment || (a.id < b.id ? -1 : 1))[0];
+    return best ? { target: best.target!, commitment: best.commitment } : undefined;
   }
 
   /**
@@ -11624,7 +11733,11 @@ export class GameSessionAdapter implements GameSession {
         return { ...c, status: "abandoned" as const };
       }).filter((c) => c.status === "active");
     }
-    const activeCount = (): number => this.campaigns.filter((c) => c.status === "active").length;
+    // ORW-577: a campaign the owner's own GOAL makes does not count against the cap (the agenda is what a houseguest wants; the cap only kept threat-seeded campaigns legible).
+    const activeCount = (): number => this.campaigns.filter((c) => c.status === "active" && !c.id.endsWith(":goal")).length;
+    if (this.hohCourtOn()) {
+      for (const f of formGoalCampaigns(this.awakeCampaignActors(), { beat, has: (o) => this.campaigns.some((c) => c.status === "active" && c.owners[0] === o) })) this.campaigns.push(f);
+    }
     // Form up to the cap (one active campaign per owner).
     if (activeCount() < CAMPAIGN.maxConcurrent) {
       for (const f of formCampaigns(this.awakeCampaignActors(), { rng, beat, ...(this.moodCampaignEnabled && this.npcTellsEnabled ? { steady: (a: EntityId) => this.moodSteady(a) } : {}), ...(this.voteCountEnabled ? { worthWorking: (actor: EntityId, target: EntityId) => this.voteStillInDoubt(actor, target) } : {}) })) {
@@ -11657,6 +11770,7 @@ export class GameSessionAdapter implements GameSession {
         nominated: nominees.has(a.id),
         aggression: ARCHETYPE_AGGRESSION[this.archetypeOf(a.id)] ?? 0.5,
         emotional: this.soulObj(a.id)?.emotionalState ?? 0.5,
+        ...(this.agendaGoalTarget(a.id) ? { goalTarget: this.agendaGoalTarget(a.id)! } : {}), // ORW-577: the drive reads the agenda
       }, this.drives.get(a.id)));
     }
     // 0096 — select (or hold, or hand off) the player's emergent nemesis from the signals just derived:
@@ -12831,6 +12945,7 @@ export class GameSessionAdapter implements GameSession {
    */
   houseLifeStretch(events: EventStore, awakeIds: readonly EntityId[], stretchIndex: number): OffscreenScene[] {
     const s = this.live!, house = this.house!, presence = this.presence!;
+    this.statusTick(); // 0173: once a day, flag-gated (a no-op otherwise)
     const playerRoom = presence.get(house.player.id);
     const actors = awakeIds.filter((id) => presence.has(id) && presence.get(id) !== playerRoom);
     if (actors.length === 0) return [];
@@ -12882,6 +12997,7 @@ export class GameSessionAdapter implements GameSession {
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
         ...(houseCulture ? { culture: houseCulture } : {}),
         ...(habitsOf.get(id) ? { pairHabits: habitsOf.get(id)! } : {}),
+        ...(this.courtView(id, s.hoh) ? { court: this.courtView(id, s.hoh)! } : {}),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),
       }, seed));
     }
@@ -12909,7 +13025,10 @@ export class GameSessionAdapter implements GameSession {
         if (p.goalId && s.playedGame === true) this.noteGoalServed(p.actor, p.goalId); // ORW-571: a step made for the goal is progress for tonight's mull
         if (p.goalId && (p.with.includes(house.player.id) || hostileAtPlayer(p)) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: hostileAtPlayer(p) ? "probe" : desireForAction(p.kind), goalId: p.goalId, hour: this.absHour() };
+        } else if (p.court && p.with.includes(house.player.id) && approachAllowed(p)) {
+          (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: "court", hour: this.absHour() }; // 0173: the player is the HOH: the court comes to them, through the desire clock's own path and guards
         }
+        if (partner && p.about) this.foldThirdPerson(p, partner, day, hour); // ORW-577
         let type = p.fold ?? HOUSE_LIFE_ACTIONS[p.kind].fold;
         if (!partner || !type || partner === house.player.id) continue;
         if (type === "showmance" && !(gate.plausible(p.actor, partner) && ((!gate.hasActiveShowmance(p.actor) && !gate.hasActiveShowmance(partner)) || this.showmancePartnerOf(p.actor) === partner))) type = "bonding";

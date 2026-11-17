@@ -91,6 +91,9 @@ export class EngineCommandsAdapter implements EngineCommands {
    * LANDED evict-shaped third-party pitch the PLAYER makes, so the session can fold it into the
    * player's own persistent campaign. Unset = standalone (no campaign effect — prior behavior).
    */
+  /** 0173 / ORW-610: the player's own recorded talk to the HOH counts as a pitch (the session decides; unwired = no-op). */
+  private playerTalkNote?: (withIds: readonly EntityId[], kind: string | undefined, named: EntityId | undefined) => void;
+  setPlayerTalkNote(fn: (withIds: readonly EntityId[], kind: string | undefined, named: EntityId | undefined) => void): void { this.playerTalkNote = fn; }
   private playerCampaignFold?: (target: EntityId, holder: EntityId) => void;
   /**
    * #1419 — the scene INITIATOR's ASYMMETRIC social-fatigue valence (the player-side mirror of the
@@ -548,6 +551,7 @@ export class EngineCommandsAdapter implements EngineCommands {
         }
       }
     }
+    if (this.playerTalkNote && req.initiator === PLAYER) this.playerTalkNote(witnessSet.filter((w) => w !== PLAYER), req.kind, req.consequence?.aboutEdges?.find((e) => e.direction === "more-threatened" && isLiving(e.about))?.about);
     // L27: index the scene's SUMMARY into each houseguest's semantic recall memory (0024) — every
     // houseguest who was in it remembers it, so later story/narrative is built from the STORE recalled
     // (ADR 0003), never the chat window. The player's own knowledge already lives in the event record.
