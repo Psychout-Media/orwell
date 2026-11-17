@@ -111,3 +111,40 @@ Then("no player or admin view shows a promise term or a judgement note", async f
   const blob = JSON.stringify(surfaces);
   for (const k of ["engine judged", '"no-nominate"', '"term"']) assert.ok(!blob.includes(k), `a live surface carries ${k}`);
 });
+
+// ORW-586 slice 3: the typed `promise` on a recorded scene (the scene belt's field) and the withdraw -> lapse follow-up.
+type Cap = Priv & { assuranceKeptAtNominations(h: string, ns: readonly string[]): void };
+Given("promise terms: a house where the player typed a promise not to nominate a houseguest", function () {
+  const b = stage(this, true);
+  b.sb!.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, b.promisee!], content: "The player said they would not nominate them.", kind: "alliance", promise: { what: "no-nominate" } });
+  const e = b.g!.openLedger.entries[0];
+  assert.ok(e?.term, "a termed entry was written from the scene");
+  b.entryId = e!.id;
+});
+When("promise terms: the player's nominations leave that houseguest off the block", function () { const b = bag(this); (b.g as Cap).assuranceKeptAtNominations(PLAYER, [b.third!]); });
+Then("promise terms: the typed promise is closed as kept by the engine and its assurance is kept", function () {
+  const b = bag(this);
+  assert.equal(entry(b).status, "kept");
+  const rows = (b.g!.live as { assurances?: { items: Array<{ status: string }> } }).assurances!.items;
+  assert.deepEqual(rows.map((r) => r.status), ["kept"]);
+});
+Then("promise terms: a malformed promise on a recorded scene is ignored and the scene still records", function () {
+  const b = bag(this);
+  const before = b.g!.openLedger.entries.length;
+  const r = b.sb!.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, b.promisee!], content: "Another word.", kind: "alliance", promise: { what: "bogus" } });
+  assert.ok(r.eventId);
+  assert.equal(b.g!.openLedger.entries.length, before);
+});
+When("promise terms: the promiser's promise is withdrawn and they then nominate the promisee", function () {
+  const b = bag(this);
+  assert.deepEqual(b.g!.resolveOpenLedger({ entryId: b.entryId!, status: "withdrawn", note: "took it back" }), { accepted: true });
+  b.g!.assuranceNominated(b.promiser!, b.promisee!);
+});
+Then("promise terms: nothing is folded and the assurance row is lapsed", function () {
+  const b = bag(this);
+  assert.equal(b.g!.rel.edge(b.promisee!, b.promiser!).trust, b.trust0);
+  assert.deepEqual(lied(b.g!, b.promisee!), []);
+  assert.equal(entry(b).status, "withdrawn");
+  const rows = (b.g!.live as { assurances?: { items: Array<{ status: string }> } }).assurances!.items;
+  assert.deepEqual(rows.map((r) => r.status), ["lapsed"]);
+});

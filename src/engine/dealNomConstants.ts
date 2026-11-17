@@ -4,3 +4,9 @@
  * (campaign / memory / mood / drive / belief / pitch): small enough that a strong threat read can still win, large enough to flip a close call.
  */
 export const DEAL_NOMS = { protectivePush: -0.2 } as const;
+
+/**
+ * Feature 0170 (flag ORWELL_NPC_DEALS) - the plan-aware side of the same push. When the HOH's OWN secret plan says to turn on the partner (break
+ * at the next nominations) the push for that partner is POSITIVE instead of protective. Same scale as `DEAL_NOMS`; bounded, rng-free.
+ */
+export const NPC_DEAL_PUSH = { breakAtNominations: 0.25 } as const;
