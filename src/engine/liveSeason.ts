@@ -611,6 +611,8 @@ export interface LiveSeasonState {
   npcMindsAuthored?: NpcMindsAuthored;
   /** ORW-551 / spec 0168: the season's house culture - a seeded blend of a few leans (ids + weights only). Vault-class, engine-only, write-once, drawn only in a played game (ORWELL_HOUSE_CULTURE). Nothing reads it in slice 1. */
   houseLeans?: import("./houseLeans").HouseLeans;
+  /** ORW-561 / spec 0176 part 2: hidden TENURE - hours each houseguest has spent in each room (monotonic, engine-only, never in a projection). A played game only; absent on older saves and headless games. */
+  tenure?: import("./territory").Tenure;
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
   moodCauses?: Record<EntityId, MoodCause & { week: number }>;
   vetoField?: EntityId[];
