@@ -297,7 +297,7 @@ import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "..
 import { CONVICTION, credulityOf, dealTrust, evidenceStep, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
-import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, type SceneFold } from "../../engine/bondRecord";
+import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, sceneRoles, type SceneFold } from "../../engine/bondRecord";
 import { deriveDailyHouseGraph, type DailyHouseGraph } from "../../engine/houseGraph";
 import type { Stats } from "../../engine/season";
 import {
@@ -5559,6 +5559,11 @@ export class GameSessionAdapter implements GameSession {
     for (let i = live.bondsCursor ?? 0; i < events.length; i++) {
       const e = events[i]!;
       if (!SCENE_FOLDS.has(e.type) || e.witnessSet.length < 2) continue;
+      if (live.playedGame === true) { // ORW-598 (played games only): the scene's principals fold the pair (who started it matters); watchers only their own view
+        const { principals, bystanders } = sceneRoles(e.initiator, e.witnessSet, !!e.houseLife);
+        if (principals.length >= 2) foldScene(store, e.type as SceneFold, principals, { ...(principals.includes(e.initiator) ? { initiator: e.initiator } : {}), bystanders });
+        continue;
+      }
       if (!e.houseLife && e.witnessSet.length > 4) continue; // a whole-house moment is not a pair's scene
       foldScene(store, e.type as SceneFold, e.witnessSet);
     }
