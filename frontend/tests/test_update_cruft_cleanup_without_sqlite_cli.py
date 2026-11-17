@@ -195,7 +195,7 @@ def test_as_root_without_a_usable_service_user_the_db_is_never_written(tmp_path)
     before = db.read_bytes()
     out = run_cleanup(tmp_path, path, app, {"SVC_USER": "no-such-user-xyz"})
     assert db.read_bytes() == before, "never write the front end's DB as root (root-owned sidecars break it)"
-    assert "cruft cleanup skipped: no service user to drop to" in out, "a skip is said out loud, never silent"
+    assert "cruft cleanup skipped: cannot drop to a non-root service user (check ORWELL_SERVICE_USER and runuser)" in out, "a skip is said out loud, never silent"
 
 
 @needs_sqlite_cli
@@ -206,6 +206,46 @@ def test_a_box_without_python3_falls_back_to_the_sqlite3_cli(tmp_path):
     out = run_cleanup(tmp_path, path, app)
     assert _ids(db) == _kept()
     assert "removed 6 inherited MCP-server config row(s) from app.db" in out
+
+
+# ── ORW-495: the CLI fallback never runs as root, and never fails silently ───────────────────────────────
+_CLI_LOG_STUB = 'echo "sqlite3 $*" >> "$STUB_LOG"\n'
+
+
+def _as_root(path):
+    real_id = shutil.which("id")
+    _fake(path, "id", f'if [[ "$*" == "-u" ]]; then echo 0; else exec {real_id} "$@"; fi\n')
+
+
+@not_root
+def test_cli_fallback_as_root_without_runuser_never_runs_sqlite3(tmp_path):
+    path = _bin(tmp_path, without=("python3",))
+    _as_root(path)
+    _fake(path, "sqlite3", _CLI_LOG_STUB)
+    app, db = _app(tmp_path)
+    before = db.read_bytes()
+    out = run_cleanup(tmp_path, path, app, {"STUB_LOG": str(tmp_path / "cli.log")})
+    assert not (tmp_path / "cli.log").exists(), "sqlite3 must never be invoked as root"
+    assert db.read_bytes() == before
+    assert "cannot drop to a non-root service user (check ORWELL_SERVICE_USER and runuser)" in out
+
+
+@not_root
+def test_cli_fallback_failed_delete_is_noted_not_silent(tmp_path):
+    path = _bin(tmp_path, without=("python3",))
+    _fake(path, "sqlite3", 'case "$*" in *"DELETE"*) exit 1;; *"sqlite_master"*) echo 1;; *) echo 3;; esac\n')
+    app, db = _app(tmp_path)
+    out = run_cleanup(tmp_path, path, app)
+    assert "could not clean inherited MCP-server rows" in out and "sqlite3 CLI DELETE failed" in out
+    assert "removed" not in out
+
+
+@not_root
+def test_no_python3_and_no_cli_is_noted_not_silent(tmp_path):
+    path = _bin(tmp_path, without=("python3", "sqlite3"))
+    app, db = _app(tmp_path)
+    out = run_cleanup(tmp_path, path, app)
+    assert "no python3 sqlite3 module and no sqlite3 CLI" in out
 
 
 # ── the whole updater, end to end: the python path runs; the CLI is never needed ─────────────────────────
