@@ -2132,7 +2132,8 @@ function noteStatedReason(s: LiveSeasonState, ctx: SeasonCtx, by: EntityId, w: O
   if (!map || !chosen || chosen.role !== "chosen") return;
   // A backdoor names its REAL target off the block: the target record is skipped, the seat record (the two on the block) is the decision the house sees and the stated reason is the pawn line.
   if (w.kind === "nomination-target" && w.tactic === "backdoor") return;
-  if (w.kind === "nomination-seat" && w.rule !== "backdoor-ranks-2-3") return;
+  // ORW-578 part 2: the SECOND nominee gets a reason too (it used to get none outside a backdoor). A seat filled for being the house's biggest floater, or whose
+  // floater pull outweighs every other push, is a pawn; a seat filled to break a duo, or on the reads, is direct.
   if (w.kind === "veto" && (w.rule === "holder-on-block-saves-self" || chosen.option === "hold")) return;
   const choice = chosen.option as EntityId;
   if (choice === by || !s.active.includes(choice)) return;
@@ -2141,10 +2142,21 @@ function noteStatedReason(s: LiveSeasonState, ctx: SeasonCtx, by: EntityId, w: O
   const pull = ctx.agendaPullFor(choice, by);
   const terms = termsFromWhy(chosen.terms, chosen.inputs);
   if (!terms.some((t) => t.name === "goal") && pull.value !== 0) terms.push({ name: "goal", value: map.decision === "veto" ? -pull.value : pull.value }); // a breakdown that did not carry the agenda term (a rule-based seat)
-  const tactic: RealReason["tactic"] | undefined = w.kind === "nomination-seat" ? "backdoor" : w.tactic === "pawn" && w.kind === "replacement" ? "pawn" : w.kind === "nomination-target" || w.kind === "replacement" ? "direct" : undefined;
+  const tactic: RealReason["tactic"] | undefined = w.kind === "nomination-seat" ? seatTacticOf(w.rule, chosen.terms) : w.tactic === "pawn" && w.kind === "replacement" ? "pawn" : w.kind === "nomination-target" || w.kind === "replacement" ? "direct" : undefined;
   const real: RealReason = { decision: map.decision, decider: by, choice, ...reasonGoalOf(map.decision, pull, terms), terms, ...(tactic ? { tactic } : {}) };
   const day = s.dayNumber ?? s.week;
   log.push({ week: s.week, day, decider: by, decision: map.decision, public: map.public, real, stated: ctx.statedReasonFor(real, day) });
+}
+/**
+ * ORW-578 part 2: the tactic behind the SECOND nominee's seat. A backdoor seat is a backdoor; a seat filled for being the house's biggest floater, or whose
+ * floater pull outweighs every other push (and is not breaking up a duo), is a pawn; anything else (a duo partner, the next read) is direct.
+ */
+export function seatTacticOf(rule: string | undefined, terms: ReadonlyArray<readonly [string, number]>): "backdoor" | "pawn" | "direct" {
+  if (rule === "backdoor-ranks-2-3") return "backdoor";
+  const term = (n: string): number => terms.find(([k]) => k === n)?.[1] ?? 0;
+  if (term("duo-partner") > 0) return "direct";
+  if (rule === "pawn-is-biggest-floater") return "pawn";
+  return term("pawn-seat-floater") > 0 && terms.every(([k, v]) => k === "pawn-seat-floater" || v <= term("pawn-seat-floater")) ? "pawn" : "direct";
 }
 /** `whySinkFor` plus ORW-314's stated-reason record (inert unless the context supplies the agenda seam, i.e. a played game). */
 const reasonSinkFor = (s: LiveSeasonState, ctx: SeasonCtx, by: EntityId): WhySink => (w) => { recordWhy(s, by, w); noteStatedReason(s, ctx, by, w); };

@@ -126,3 +126,18 @@ describe("ORW-578: every public decision moment tells the narrator to give only 
     }
   });
 });
+
+describe("ORW-578 part 2: the second nominee gets a stated reason too", () => {
+  it("the seat's tactic: backdoor, pawn (the biggest floater, or the floater pull outweighs the rest), or direct (a duo partner, the next read)", async () => {
+    const { seatTacticOf } = await import("../../src/engine/liveSeason");
+    expect(seatTacticOf("backdoor-ranks-2-3", [])).toBe("backdoor");
+    expect(seatTacticOf("pawn-is-biggest-floater", [["threat", 0.9]])).toBe("pawn");
+    expect(seatTacticOf(undefined, [["threat", 0.1], ["pawn-seat-floater", 0.4]])).toBe("pawn");
+    expect(seatTacticOf(undefined, [["threat", 0.6], ["pawn-seat-floater", 0.2]])).toBe("direct");
+    expect(seatTacticOf(undefined, [["threat", 0.1], ["pawn-seat-floater", 0.4], ["duo-partner", 0.3]])).toBe("direct");
+  });
+  it("a non-backdoor seat is no longer skipped: the stated-reason recorder takes every nomination seat", async () => {
+    const src = (await import("node:fs")).readFileSync(new URL("../../src/engine/liveSeason.ts", import.meta.url), "utf8");
+    expect(src).not.toMatch(/w\.kind === "nomination-seat" && w\.rule !== "backdoor-ranks-2-3"\) return/);
+  });
+});
