@@ -1764,7 +1764,26 @@ function rollVetoDraw(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource)
     choose: (holder, cands) => ctx.rel.chooseStrongestBond(holder, cands, rng, undefined, hcBias(ctx.hcMemoryFor, ctx.hcStrategyFor, holder)),
     playerChoosesOwn: ctx.player, // the player picks their own sixth player; the engine never reads their bonds
   });
+  const hc = draw.houseguestsChoice;
+  if (hc && hc.picked !== undefined) noteHcPickReason(s, ctx, hc.holder, hc.picked); // ORW-578 part 3 (a record only: no rng, the pick is already made)
   return { def, draw };
+}
+/**
+ * ORW-578 part 3: an NPC who draws Houseguest's Choice gives a reason aloud for the sixth player they pick (a public pick). The real reason's terms are the
+ * pick's own inputs - the bond, the B7 memory bias and the ORW-101 strategy bias (as the `goal` term) - read without any rng. NPC holders in a played game only; once per week.
+ */
+export function noteHcPickReason(s: LiveSeasonState, ctx: SeasonCtx, holder: EntityId, picked: EntityId): void {
+  if (!ctx.statedReasonFor || !ctx.agendaPullFor || holder === ctx.player || picked === holder) return;
+  const log = (s.statedReasons ??= []);
+  if (log.some((r) => r.week === s.week && r.decider === holder && r.decision === "hc-pick")) return;
+  const terms: RealReason["terms"] = [
+    { name: "bond", value: ctx.rel.bondStrength(holder, picked) },
+    ...(ctx.hcMemoryFor ? [{ name: "memory" as const, value: ctx.hcMemoryFor(picked, holder) }] : []),
+    ...(ctx.hcStrategyFor ? [{ name: "goal" as const, value: ctx.hcStrategyFor(picked, holder) }] : []), // the holder's own game plan
+  ];
+  const real: RealReason = { decision: "hc-pick", decider: holder, choice: picked, terms };
+  const day = s.dayNumber ?? s.week;
+  log.push({ week: s.week, day, decider: holder, decision: "hc-pick", public: true, real, stated: ctx.statedReasonFor(real, day) });
 }
 function resolveVetoDraw(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent {
   // The comp is drawn FIRST (one rng draw) and held in `vetoComp` so every later stage —
