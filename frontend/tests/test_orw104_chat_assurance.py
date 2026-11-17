@@ -54,7 +54,7 @@ def test_belt_prompt_asks_for_it_and_settle_and_direct_call_forward_it():
     assert '_validate_heard_about_me(obj.get("heardAboutMe"), ids)' in src
     assert '**({"heard_about_me": entry["heard_about_me"]} if entry.get("heard_about_me") else {})' in src
     assert '**({"heard_about_me": heard_about_me} if heard_about_me else {})' in src
-    assert "heard_about_me=heard_about_me)" in src  # staged
+    assert "heard_about_me=heard_about_me, promise=promise)" in src  # staged (ORW-586 added the promise beside it)
 
 
 def _run_tool(monkeypatch, args):
