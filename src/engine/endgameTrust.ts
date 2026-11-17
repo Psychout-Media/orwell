@@ -1,4 +1,5 @@
 import type { EntityId } from "../domain/ids";
+import { clamp01Raw as clamp01 } from "../domain/num";
 import { JURY_MINDS } from "./juryMindsConstants";
 
 /**
@@ -40,4 +41,3 @@ export const endgamePush = (share: number): number => ENDGAME.beatWeight * (0.5 
 /** How much more likely a reassurance is to be faked when the one reassuring can't beat the one they reassure (0 when they can). */
 export const endgameFakeLean = (share: number): number => ENDGAME.fakeLean * Math.max(0, 0.5 - share);
 
-const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x);
