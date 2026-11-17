@@ -171,6 +171,9 @@ export interface HourView {
   timeOfDay: TimeOfDay;
   day: number;
   hour: number;
+  /** ORW-581 (Fable T1-14): which stretch of this same game hour this is (0 or absent = the first). More than one off-screen tick can land in one hour (a beat that covered
+   *  hours, a nap, a hang-out); the hour's rolls key on it so a second stretch rolls fresh dice instead of replaying the first one's choices. */
+  repeat?: number;
   /** True while a competition is running: public reactions only. */
   inCompetition: boolean;
   /** ORW-466 slice 4 (assigned beds): the room they sleep in (the HOH room for the HOH), their roommates and the one who shares their double. All absent in a game without beds (headless,
@@ -306,7 +309,8 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
  * Purposeful actions go where the partner is (they walk there on purpose); house life happens in its usual room or where they are.
  */
 export function chooseHourAction(v: HourView, seed: number): PlannedAction {
-  const roll = (salt: string): number => agendaRoll(seed, v.owner, `hour:d${v.day}h${v.hour}:${salt}`);
+  const hourKey = `d${v.day}h${v.hour}${v.repeat ? `r${v.repeat}` : ""}`; // ORW-581: the first stretch of an hour keys exactly as before; a repeat gets its own dice
+  const roll = (salt: string): number => agendaRoll(seed, v.owner, `hour:${hourKey}:${salt}`);
   const pool = others(v);
   const cul = v.culture;
   const cGossip = cul?.gossip ?? 1, cFlirt = cul?.flirting ?? 1, cLie = cul?.lying ?? 1;
@@ -362,7 +366,7 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   // review of #2850) or it falls through to ordinary life; the meetings dial scales how often.
   if (v.pairHabits?.length) {
     const mine = v.pairHabits.filter((h) => pool.includes(h.with) && roomOf(v, h.with) === h.room && !avoid.has(h.with)).sort((a, b) => a.key.localeCompare(b.key));
-    const h = mine.find((x) => agendaRoll(seed, v.owner, `habit-pair:${x.key}:d${v.day}h${v.hour}`) < HOUSE_LIFE.pairHabitPull * (cul?.meetings ?? 1));
+    const h = mine.find((x) => agendaRoll(seed, v.owner, `habit-pair:${x.key}:${hourKey}`) < HOUSE_LIFE.pairHabitPull * (cul?.meetings ?? 1));
     if (h) return finish({ kind: "debrief", with: [h.with], place: h.room, habit: h.key });
   }
   // ORW-337 (spec 0146 lane 2): a house ritual pulls anyone free into its action at its time of day, gathering them where it happens (the same shape as a habit), and the scene carries its name.

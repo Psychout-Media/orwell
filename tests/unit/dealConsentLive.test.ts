@@ -4,6 +4,10 @@ import { PLAYER } from "../../src/domain/ids";
 import type { SessionCore } from "../../src/engine/sessionSnapshot";
 import type { DealView, DealRefusal, MakeDealReq } from "../../src/ports/GameSession";
 
+/** ORW-608: the REAL refusal reason is engine-only (never on the outward object); tests read it through the adapter's private map (TEST-ONLY seam). */
+const realOf = (session: unknown, r: unknown): string | undefined => (session as { refusalReal: WeakMap<object, string> }).refusalReal.get(r as object);
+
+
 /**
  * Engine-side NPC deal consent, through the real adapter (`ORWELL_NPC_DEAL_CONSENT`, default ON). The NPC's agreement is decided by the ENGINE from their own
  * read of the player (trust / warmth / threat / remembered grudges + favors / belief that the player targets them) and the ask's cost — never the narrator.
@@ -46,23 +50,23 @@ describe("makeDeal — the NPC decides whether they agree", () => {
     const a = setup(5, "dc-d");
     setEdge(a.p, a.npc, { trust: 0, affinity: 0.05, threat: 0.3 });
     const r1 = a.s.makeDeal(req(a.npc));
-    expect(isRefusal(r1) && r1.reason).toBe("distrust");
+    expect(isRefusal(r1) && realOf(a.s, r1)).toBe("distrust");
     const b = setup(5, "dc-t");
     setEdge(b.p, b.npc, { trust: 0.3, affinity: 0.3, threat: 0.9 });
     const r2 = b.s.makeDeal(req(b.npc, "vote"));
-    expect(isRefusal(r2) && r2.reason).toBe("threat");
+    expect(isRefusal(r2) && realOf(b.s, r2)).toBe("threat");
     expect(a.s.getGameState().deals ?? []).toHaveLength(0);
     expect(b.s.getGameState().deals ?? []).toHaveLength(0);
   });
 
-  it("a refusal carries a Vault-free in-fiction line for the narrator and no numbers", () => {
+  it("ORW-608: a refusal carries only the reason the houseguest GIVES (a stated-reason kind), no fixed line, no numbers", () => {
     const { s, npc, p } = setup();
     setEdge(p, npc, { trust: 0, affinity: 0.05, threat: 0.3 });
     const r = s.makeDeal(req(npc)) as DealRefusal;
     expect(r.refused).toBe(true);
-    expect(r.narratable).toMatch(/trust/i);
+    expect(["didnt-trust-you", "nothing-personal", "house-wants-it", "biggest-threat", "came-after-me"]).toContain(r.reason);
     expect(JSON.stringify(r)).not.toMatch(/\d\.\d/);
-    expect(Object.keys(r).sort()).toEqual(["narratable", "reason", "refused"]);
+    expect(Object.keys(r).sort()).toEqual(["reason", "refused"]);
   });
 
   it("an NPC with a remembered grudge against the player refuses ('grudge') even at neutral edges", () => {
@@ -73,7 +77,7 @@ describe("makeDeal — the NPC decides whether they agree", () => {
     (s as unknown as { setNpcMemoryStandaloneEnabled(on: boolean): void }).setNpcMemoryStandaloneEnabled(true);
     setEdge(p, npc, NEUTRAL_EDGE); // restore() may rebuild the edges; pin them again
     const r = s.makeDeal(req(npc));
-    expect(isRefusal(r) && r.reason).toBe("grudge");
+    expect(isRefusal(r) && realOf(s, r)).toBe("grudge");
   });
 
   it("an NPC who believes the player targets them refuses ('targeted') when the belief store is on", () => {
@@ -86,7 +90,7 @@ describe("makeDeal — the NPC decides whether they agree", () => {
     (s as unknown as { setNpcBeliefsEnabled(on: boolean): void }).setNpcBeliefsEnabled(true);
     setEdge(p, npc, NEUTRAL_EDGE); // restore() may rebuild the edges; pin them again
     const r = s.makeDeal(req(npc));
-    expect(isRefusal(r) && r.reason).toBe("targeted");
+    expect(isRefusal(r) && realOf(s, r)).toBe("targeted");
     // with the belief store OFF the same claim is not read (flag-gated), so the NPC accepts
     (s as unknown as { setNpcBeliefsEnabled(on: boolean): void }).setNpcBeliefsEnabled(false);
     expect(isRefusal(s.makeDeal(req(npc)))).toBe(false);
@@ -97,7 +101,7 @@ describe("makeDeal — the NPC decides whether they agree", () => {
     setEdge(p, npc, NEUTRAL_EDGE);
     (s as unknown as { setDealDepthEnabled(on: boolean): void }).setDealDepthEnabled(true);
     const r = s.makeDeal({ ...req(npc, "comp-throw"), direction: "ask" });
-    expect(isRefusal(r) && r.reason).toBe("cost");
+    expect(isRefusal(r) && realOf(s, r)).toBe("cost");
     expect(isRefusal(s.makeDeal(req(npc, "comp-throw"))), "the default is the player's offer, which costs the NPC nothing").toBe(false);
   });
 
@@ -168,7 +172,7 @@ describe("ORWELL_NPC_DEAL_CONSENT off — byte-identical to today", () => {
 });
 
 describe("the MCP boundary: a refusal reaches the tool caller as a refusal, never as a deal", () => {
-  it("McpServer.callTool('makeDeal') returns { refused, reason, narratable } for a declined deal and a DealView for an agreed one; the tool description tells the narrator the engine decides", async () => {
+  it("McpServer.callTool('makeDeal') returns { refused, reason } for a declined deal and a DealView for an agreed one; the tool description tells the narrator the engine decides", async () => {
     const { McpServer } = await import("../../src/adapters/mcp/McpServer");
     const { EngineCommandsAdapter } = await import("../../src/adapters/engine/EngineCommandsAdapter");
     const { PLAYER_TOOLS } = await import("../../src/surfaces/tools/registry");
@@ -185,11 +189,39 @@ describe("the MCP boundary: a refusal reaches the tool caller as a refusal, neve
     setEdge(p, b, { trust: 0.85, affinity: 0.8, threat: 0.05 });
     const no = (await server.callTool("makeDeal", { with: a, kind: "safety", terms: "t" })) as DealRefusal;
     expect(no.refused).toBe(true);
-    expect(no.narratable.length).toBeGreaterThan(0);
+    expect(typeof no.reason).toBe("string");
+    expect(no.reason).not.toMatch(/^(distrust|threat|targeted|grudge|opposed|cost)$/); // ORW-608: the real reason never crosses
     const yes = (await server.callTool("makeDeal", { with: b, kind: "safety", terms: "t" })) as DealView;
     expect(yes.id).toBeTruthy();
     const desc = PLAYER_TOOLS.find((t) => t.name === "makeDeal")!.description;
     expect(desc).toMatch(/ENGINE decides whether THEY agree/);
     expect(desc).toMatch(/refused/);
+  });
+});
+
+describe("ORW-608: a refused deal gives a stated reason; the real one never crosses", () => {
+  it("a houseguest scheming against the player, or who believes the player is coming after them, never says so - across many houses only covers come out", async () => {
+    const { GameSessionRegistry } = await import("../../src/composition/registry");
+    const seen = new Set<string>();
+    for (let seed = 1; seed <= 30; seed++) {
+      const sb = new GameSessionRegistry().sandboxFor(`orw608-${seed}`);
+      sb.session.createCharacter({ playerName: "The Player", seed });
+      const g = sb.session as unknown as { live: { playedGame?: boolean }; dealConsentRefusal(n: string, k: string): { reason: string } | null; refusalReal: WeakMap<object, string>; ownPushAgainstPlayer(n: string): number };
+      g.live.playedGame = true;
+      for (const npc of sb.session.livingIds().filter((id) => id !== PLAYER)) {
+        g.ownPushAgainstPlayer = () => 5; // TEST-ONLY seam: every houseguest is working against the player (the 'opposed' drag dominates)
+        const r = g.dealConsentRefusal(npc, "safety");
+        if (!r) continue;
+        const real = g.refusalReal.get(r);
+        if (real === "opposed" || real === "targeted") seen.add(r.reason);
+      }
+    }
+    expect(seen.size).toBeGreaterThan(0);
+    for (const said of seen) expect(["nothing-personal", "didnt-trust-you"]).toContain(said); // covers only: never a scheme, never "you're coming after me"
+  });
+  it("an honest houseguest's distrust is sometimes said as it is", async () => {
+    const { truthfulKind } = await import("../../src/engine/agendaDecisions");
+    expect(truthfulKind({ decision: "deal-consent", decider: "n", choice: PLAYER, terms: [], refusal: "distrust" })).toBe("didnt-trust-you");
+    expect(truthfulKind({ decision: "deal-consent", decider: "n", choice: PLAYER, terms: [], refusal: "opposed" })).toBe("nothing-personal");
   });
 });
