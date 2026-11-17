@@ -32,6 +32,17 @@ export const HOUSE_LIFE = {
   pairHabitPull: 0.4,
   /** Chance a showmance pair spends a free hour together when both are around. */
   romanceChance: 0.5,
+  /** ORW-620 (night owls): in the night hours, with only a few houseguests still up, the chance an awake houseguest with nothing pressing seeks out another awake one for a late-night talk. Conservative on purpose
+   *  (an A10 weight past about 1.5 once failed juryReach at seed 18); it only ever REPLACES an ordinary free hour. */
+  nightOwlPull: 0.28,
+  /** ORW-620: the pull is a little stronger in the small hours (the awake few are the ones who stay). */
+  nightOwlLateScale: 1.3,
+  /** ORW-620: "few awake" = at most this many other houseguests up. */
+  nightOwlMaxOthers: 5,
+  /** ORW-620: a mild lean toward whoever already has company up (the awake gather), per awake houseguest in that room. */
+  nightOwlGatherLean: 0.05,
+  /** ORW-620: below this mood a late-night talk turns to a confession (the small hours loosen the tongue). */
+  nightOwlConfessMood: 0.42,
   /** ORW-466 slice 4: at night, the chance a free houseguest with an awake roommate ends the day with them in their own bedroom (bed talk, or a squabble if they rub each other wrong). */
   roommateNightPull: 0.5,
   /** ORW-466 slice 4: when they do, the chance it is their double-bed partner (the closest roommate tie) rather than whichever roommate they warm to most. */

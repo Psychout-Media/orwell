@@ -164,7 +164,7 @@ module.exports = {
       "docs/features/0182-grudges.feature",
       "docs/features/0184-reputation.feature",
       "docs/features/0181-bond-feelings.feature",
-      "docs/features/0187-promises-bind.feature",
+      "docs/features/0187-promises-bind.feature", "docs/features/0192-night-owls.feature",
       "docs/features/0171-favor-economy.feature",
       "docs/features/0191-own-view-decisions.feature",
       "docs/features/0189-jury-house-life.feature",
