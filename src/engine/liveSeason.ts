@@ -614,6 +614,10 @@ export interface LiveSeasonState {
   houseLeans?: import("./houseLeans").HouseLeans;
   /** ORW-566 / spec 0183: the identity FLOOR of the house's private habits and alliance names (a pair key or an alliance id -> a name / spot / kind / since). Vault-class, engine-only, hidden, monotonic (write-once), persisted optional; never projected. */
   groupIdentity?: import("./groupIdentity").GroupIdentityStore;
+  /** ORW-566 part c2 (VAULT-CLASS, engine-only): alliances whose secret name still waits for an authored one (oldest first); the open sealed-prompt tickets; the last night a batch was issued. */
+  namePending?: string[];
+  nameTickets?: import("./allianceNaming").NameTickets;
+  nameNight?: number;
   /** ORW-566: the absolute in-game hour the last ceremony beat (nominations, veto ceremony, eviction) resolved at; opens the after-ceremony debrief window. Played games only; absent otherwise. Engine-only. */
   lastCeremonyAbsHour?: number;
   /** ORW-561 / spec 0176 part 2: hidden TENURE - hours each houseguest has spent in each room (monotonic, engine-only, never in a projection). A played game only; absent on older saves and headless games. */

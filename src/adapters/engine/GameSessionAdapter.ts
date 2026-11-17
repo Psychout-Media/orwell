@@ -15,7 +15,7 @@ import type {
   RecordCastProfileReq, RecordCastProfileResult, FinaleFastForwardView, WeekDigestView, JuryHouseView, JuryHouseJurorView, JurorBearing,
   RecordCastIdentityReq, RecordCastIdentityResult, ProposedCastIdentityFacets,
   RecordCastGenesisReq, RecordCastGenesisResult, GenesisViolationDTO,
-  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordGroupIdentityReq, RecordGroupIdentityResult, GroupAwaitingWordsView, RecordRoomCanonReq, RecordRoomCanonResult, RecordNarrationUseReq, RecordNarrationUseResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, RecordOpenLedgerResolutionResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
+  WorldSnapshotView, RecordWorldSnapshotReq, RecordWorldSnapshotResult, RecordNpcTraitsReq, RecordNpcTraitsResult, RecordNpcReflectionsReq, RecordNpcReflectionsResult, HouseStory, RecordHouseCultureReq, RecordHouseCultureResult, RecordGroupIdentityReq, RecordGroupIdentityResult, GroupAwaitingWordsView, AllianceNameTicketView, RecordAllianceNameReq, RecordAllianceNameResult, RecordRoomCanonReq, RecordRoomCanonResult, RecordNarrationUseReq, RecordNarrationUseResult, RecordOpenLedgerReq, RecordOpenLedgerResult, ResolveOpenLedgerReq, RecordOpenLedgerResolutionResult, OpenLedgerItemView, RecordLookExtrasReq, RecordLookExtrasResult,
   RecordProducerProfileReq, RecordProducerProfileResult,
   PremiereIntrosView, FirstImpressionView, MarkHouseguestMetOpts,
   StateDeltaView, DeltaEventView, BeatLogView, BeatBumpEntry,
@@ -50,6 +50,7 @@ import {
   type Campaign, type CampaignActor, type Influence, type Drive, type NemesisTrack, type NemesisCandidate,
 } from "../../engine/campaigns";
 import { whisperConspicuousPairings, whisperHabitSighting, type HabitSighting } from "../../engine/houseSuspicion";
+import { issueNightBatch, validateAllianceName, normName, type TraitTable } from "../../engine/allianceNaming";
 import { pairKey, isClosePair, inDebriefWindow, habitRoom, nicknameOf, allianceNameFromHouse, noteIdentity, noteWords, validateGroupIdentity, GROUP_IDENTITY, type PairCloseness } from "../../engine/groupIdentity";
 import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/juryHouse";
 import { JURY_HOUSE } from "../../engine/juryHouseConstants";
@@ -10323,6 +10324,7 @@ export class GameSessionAdapter implements GameSession {
     }
     this.mullAgendasOvernight(); // ORW-312: asleep, each houseguest's goals fade without progress (inner processing only: no scheming, no rng)
     this.foldBonds(); // 0175: the day's shared moments, deals and saves into the bond record (no rng)
+    this.issueNameTickets(); // ORW-566 part c2: tonight's fixed-size batch of sealed naming prompts (keyed hashing, no rng)
     return steps;
   }
   /** In-game hours the last hang-out spent, read-and-cleared by the orchestrator so the off-screen society can tick for them. */
@@ -11299,12 +11301,85 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-566: store the alliance's name in the house's words, write-once (hidden, engine-only). Only when the name came from the house, i.e. it differs from the stock pick that was drawn. */
   private noteAllianceIdentity(id: string, name: string, founder: EntityId): void {
     const s = this.live;
-    if (!this.groupIdentityEnabled || !s || s.playedGame !== true || !s.npcMindsAuthored?.culture) return;
-    const culture = s.npcMindsAuthored.culture;
-    const spot = nicknameOf(culture, this.presence?.get(founder));
-    if (culture.spots.some((x) => x.nickname === name) || culture.rituals.some((r) => r.name === name) || (culture.runningJoke ?? "").startsWith(name)) {
-      noteIdentity((s.groupIdentity ??= {}), id, { kind: "alliance", name, ...(spot === name ? { spot } : {}), since: this.inGameAbsHour() ?? 0 });
+    if (!this.groupIdentityEnabled || !s || s.playedGame !== true) return;
+    const culture = s.npcMindsAuthored?.culture;
+    if (culture) {
+      const spot = nicknameOf(culture, this.presence?.get(founder));
+      if (culture.spots.some((x) => x.nickname === name) || culture.rituals.some((r) => r.name === name) || (culture.runningJoke ?? "").startsWith(name)) {
+        noteIdentity((s.groupIdentity ??= {}), id, { kind: "alliance", name, ...(spot === name ? { spot } : {}), since: this.inGameAbsHour() ?? 0 });
+      }
     }
+    // ORW-566 part c2: EVERY NPC alliance gets a secret name at formation: the floor (the name it formed with, already composed from the house's words or the stock table) now, the members' own authored name later through the sealed-prompt door.
+    const have = (s.groupIdentity ??= {})[id] ?? { kind: "alliance" as const, since: this.inGameAbsHour() ?? 0 };
+    s.groupIdentity[id] = { ...have, sealed: { name, floor: name, authored: false } };
+    (s.namePending ??= []).push(id);
+  }
+  /** ORW-566 part c2: the coarse PUBLIC traits one living houseguest carries (the same facets any housemate can read across the room). Engine-side only; the writer never sees whose they are. */
+  private traitTable(): TraitTable {
+    const table = new Map<EntityId, string[]>();
+    const chars = new Map<EntityId, { archetype?: string; strategyStyle?: string; demeanor?: string; age?: number; hometown?: string; vocation?: string }>();
+    for (const n of this.house?.npcs ?? []) chars.set(n.id, n.character as never);
+    const pc = (this.house?.player as { character?: unknown } | undefined)?.character;
+    if (pc && this.house) chars.set(this.house.player.id, pc as never);
+    for (const id of this.livingIds()) {
+      const c = chars.get(id);
+      if (!c) continue;
+      const t: string[] = [];
+      if (c.archetype) t.push(`archetype: ${c.archetype}`);
+      if (c.strategyStyle) t.push(`plays the game as: ${c.strategyStyle}`);
+      if (c.demeanor) t.push(`demeanor: ${c.demeanor}`);
+      if (typeof c.age === "number") t.push(`age: in their ${Math.floor(c.age / 10) * 10}s`);
+      const state = c.hometown?.split(",").pop()?.trim();
+      if (state) t.push(`from the state or region: ${state}`);
+      if (c.vocation) t.push(`work: ${c.vocation}`);
+      table.set(id, t);
+    }
+    return table;
+  }
+  /** ORW-566 part c2: once per in-game night, issue the FIXED-SIZE batch (real tickets padded with decoys) and let last night's unanswered ones lapse. Keyed hashing only: no shared rng, so a seeded game stays byte-identical. */
+  private issueNameTickets(): void {
+    const s = this.live;
+    if (!this.groupIdentityEnabled || !s || s.playedGame !== true || !this.house) return;
+    const night = s.dayNumber ?? s.week;
+    if (s.nameNight === night) return;
+    s.nameNight = night;
+    s.namePending = (s.namePending ?? []).filter((id) => this.alliances.byId(id) !== undefined && s.groupIdentity?.[id]?.sealed?.authored === false);
+    s.nameTickets = issueNightBatch({
+      seed: this.gameSeed ?? 0, night,
+      pending: s.namePending.map((id) => ({ id, members: this.alliances.byId(id)!.members })),
+      table: this.traitTable(), culture: s.npcMindsAuthored?.culture,
+    });
+  }
+  /** ORW-566 part c2: tonight's unanswered sealed-prompt tickets: `{ticket, prompt}` only, in ticket order (which is a keyed hash, so it says nothing). */
+  allianceNameTickets(): AllianceNameTicketView[] {
+    const s = this.live;
+    if (!this.groupIdentityEnabled || !s || s.playedGame !== true || !this.house) return [];
+    return Object.entries(s.nameTickets ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([ticket, t]) => ({ ticket, prompt: t.prompt }));
+  }
+  /** ORW-566 part c2: answer one ticket. Single-use; a bare `{accepted:true}` for a real, a decoy and a refused name alike (a decoy's name is discarded; a refused real name leaves the floor); `{accepted:false}` only for a ticket the engine does not hold. */
+  recordAllianceName(req: RecordAllianceNameReq): RecordAllianceNameResult {
+    const s = this.live;
+    const key = typeof req?.ticket === "string" ? req.ticket : "";
+    const t = s?.nameTickets?.[key];
+    if (!this.groupIdentityEnabled || !s || s.playedGame !== true || !this.house || !t) return { accepted: false };
+    delete s.nameTickets![key];
+    const id = t.kind === "real" ? t.allianceId : undefined;
+    const entry = id ? s.groupIdentity?.[id] : undefined;
+    if (id && entry?.sealed && !entry.sealed.authored && this.alliances.byId(id)) {
+      s.namePending = (s.namePending ?? []).filter((x) => x !== id); // consumed: a refused name falls back to the floor for good
+      const peopleWords = new Set([PLAYER, ...this.house.npcs.map((n) => n.id)].flatMap((x) => this.nameOf(x).toLowerCase().split(/\s+/)).filter((w) => w.length > 2 && w !== "the"));
+      const takenNorm = new Set<string>((this.worldAvoid.allianceNames ?? []).map(normName));
+      for (const a of this.alliances.all()) {
+        if (a.id === id) continue;
+        takenNorm.add(normName(a.name));
+        const other = s.groupIdentity?.[a.id]?.sealed?.name;
+        if (other) takenNorm.add(normName(other));
+      }
+      const name = validateAllianceName(req.name, { peopleWords, takenNorm });
+      if (name) entry.sealed = { ...entry.sealed, name, authored: true };
+    }
+    this.backgroundPersist();
+    return { accepted: true };
   }
   private formNpcAlliances(rng: SeededRandom): void {
     const beat = this.beatSeqNow();
