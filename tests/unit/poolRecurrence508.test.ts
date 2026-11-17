@@ -3,6 +3,7 @@ import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { generateHouse } from "../../src/engine/characterFactory";
 import { generateCastDeepLayer } from "../../src/engine/deepProfile";
 import { generateDiversityLayer } from "../../src/engine/diversity";
+import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import table from "../../src/domain/poolRecurrence.json";
 
 // ORW-508 ratchet: how much does each player-facing card field repeat inside a cast and from one season to the
@@ -72,4 +73,26 @@ describe("ORW-508 recurrence ratchet (200 seeded casts)", () => {
       expect(t.before.distinct, f).toBeGreaterThan(0);
     }
   });
+});
+
+describe("ORW-508 recurrence ratchet, unseeded played-season casts (the real name, town and job tables)", () => {
+  const played = table.played;
+  const casts: Cast[] = Array.from({ length: played.casts }, () => {
+    const house = new GameSessionAdapter().preSeedCast({}).house as unknown as Array<{ name: string; vocation?: string; hometown?: string }>;
+    return {
+      "name.given": house.map((h) => h.name.split(" ")[0]!),
+      "name.surname": house.map((h) => h.name.split(" ").slice(1).join(" ")),
+      hometown: house.map((h) => h.hometown!),
+      vocation: house.map((h) => h.vocation!),
+    };
+  });
+  for (const [field, t] of Object.entries(played.fields)) {
+    it(`${field}: no worse than its ceiling on ${played.casts} unseeded casts (before: ${t.before.distinct} distinct)`, () => {
+      const m = measure(casts, field);
+      expect(m.distinct, "distinct values").toBeGreaterThanOrEqual(t.floorDistinct);
+      expect(m.topShare, "most common value's share").toBeLessThanOrEqual(t.maxTopShare);
+      expect(m.castPresenceMax, "share of casts holding the most common value").toBeLessThanOrEqual(t.maxCastPresence);
+      expect(m.sharedConsecutive, "values shared by two consecutive casts").toBeLessThanOrEqual(t.maxSharedConsecutive);
+    });
+  }
 });

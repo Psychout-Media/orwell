@@ -1,0 +1,132 @@
+/**
+ * ORW-508 Layer 1: given names at real frequency, by birth decade and sex.
+ *
+ * Source: US Social Security Administration national baby-name counts (public domain), births 1966 to 2005 in four
+ * decade buckets, reduced by `scripts/orw508-build-world-tables.py` to `world/given-names.json` (about 90 KB):
+ * 1,840 female and 1,209 male names that reached 1,500 births in some decade. A 50-year-old is dealt from the
+ * 1976 bucket and a 22-year-old from the 2005 bucket, so a name fits the person's age the way it does in life.
+ * A name that is common for both sexes (Jordan, Taylor) appears in both tables with its own counts.
+ *
+ * Counts are softened by `NAME_FLATTEN` (the table's own frequency would put Jacob in one cast in five).
+ */
+import type { RandomnessSource } from "../../ports/RandomnessSource";
+import type { AvoidSets } from "../../domain/recentSeasons";
+import namesJson from "./world/given-names.json";
+import surnamesJson from "./world/surnames.json";
+import { buildTable, drawConstrained, type WeightedTable } from "./worldSampler";
+
+/** The year a season's ages are counted from. */
+export const NAMES_REFERENCE_YEAR = 2026;
+export const NAME_FLATTEN = 0.6;
+/** Names the show never uses (the old fixed sample names). */
+const DENIED = new Set(["Ryne", "Marcus", "Felix"]);
+
+type Row = readonly [string, ...number[]];
+const count = (r: Row, d: number): number => (r[1 + d] as number | undefined) ?? 0;
+const DECADES = namesJson.decades as unknown as ReadonlyArray<readonly [number, number]>;
+
+export function decadeIndexFor(age: number): number {
+  const birth = NAMES_REFERENCE_YEAR - age;
+  return Math.max(0, Math.min(DECADES.length - 1, Math.floor((birth - DECADES[0]![0]) / 10)));
+}
+
+const tables = new Map<string, WeightedTable<Row>>();
+function tableFor(sex: "F" | "M", d: number): WeightedTable<Row> {
+  const k = `${sex}${d}`;
+  let t = tables.get(k);
+  if (!t) {
+    const rows = (namesJson[sex] as unknown as Row[]).filter((r) => count(r, d) > 0 && !DENIED.has(r[0]));
+    t = buildTable(rows, (r) => count(r, d), NAME_FLATTEN);
+    tables.set(k, t);
+  }
+  return t;
+}
+
+/** Births of `name` (one sex) in the person's decade bucket; 0 when the name is not in the table. */
+export function birthsInDecade(name: string, sex: "F" | "M", age: number): number {
+  const row = (namesJson[sex] as unknown as Row[]).find((r) => r[0] === name);
+  return row ? count(row, decadeIndexFor(age)) : 0;
+}
+
+export interface NamePerson { readonly age: number; readonly gender?: "man" | "woman" | "nonbinary" }
+
+/**
+ * Deal one given name per person: unique across `taken` and the cast, not on the recent-seasons memory, drawn
+ * from the person's birth decade and sex. One `rng.next()` per attempt (plus one per nonbinary person to pick a
+ * table). Bounded retries loosen the memory first; the last level only insists on a fresh name.
+ */
+export function dealEraGivenNames(
+  rng: RandomnessSource, people: readonly NamePerson[], taken: ReadonlySet<string>, avoid?: AvoidSets,
+): string[] {
+  const used = new Set(taken);
+  const avoidedGiven = new Set<string>();
+  if (avoid) for (const n of avoid.names) avoidedGiven.add(n.split(" ")[0]!.toLowerCase());
+  return people.map((p) => {
+    const sex: "F" | "M" = p.gender === "woman" ? "F" : p.gender === "man" ? "M" : rng.next() < 0.5 ? "F" : "M";
+    const table = tableFor(sex, decadeIndexFor(p.age));
+    const fresh = (r: Row): boolean => !used.has(r[0]);
+    const row = drawConstrained(rng, table, [(r) => fresh(r) && !avoidedGiven.has(r[0].toLowerCase()), fresh], 80);
+    let name = row[0];
+    if (used.has(name)) name = table.rows.find((r) => !used.has(r[0]))![0]; // every attempt hit a used name: take the first free one
+    used.add(name);
+    return name;
+  });
+}
+
+/**
+ * Surnames at real frequency, conditioned on the person's heritage: the US Census Bureau 2010 surnames (public
+ * domain), the roughly 5,000 names carried by 7,000 or more people (about 60 percent of residents), with the
+ * file's own race and Hispanic-origin share for each surname, reduced to `world/surnames.json` (about 130 KB).
+ * For a person whose heritage maps to a Census group the weight is people-with-the-surname x that group's share
+ * (the share is not softened, only the count is, so Nguyen is dealt to Vietnamese and Chinese Americans and almost never
+ * to anyone else, Garcia to Mexican Americans); for the rest the national count. Heritage within the white group (Irish, Italian, ...) is not
+ * conditioned: the Census file does not carry ancestry. Softened by `SURNAME_FLATTEN`.
+ */
+export const SURNAME_FLATTEN = 0.6;
+export type CensusGroup = "white" | "black" | "api" | "aian" | "hispanic";
+type SurnameRow = readonly [string, number, number, number, number, number, number];
+const GROUP_COLUMN: Readonly<Record<CensusGroup, number>> = { white: 2, black: 3, api: 4, aian: 5, hispanic: 6 };
+const SURNAME_ROWS = surnamesJson.rows as unknown as ReadonlyArray<SurnameRow>;
+const surnameTables = new Map<string, WeightedTable<SurnameRow>>();
+function surnameTable(group: CensusGroup | undefined): WeightedTable<SurnameRow> {
+  const k = group ?? "all";
+  let t = surnameTables.get(k);
+  if (!t) {
+    t = group === undefined
+      ? buildTable(SURNAME_ROWS, (r) => r[1], SURNAME_FLATTEN)
+      : buildTable(SURNAME_ROWS, (r) => Math.pow(r[1], SURNAME_FLATTEN) * Math.max(r[GROUP_COLUMN[group]] as number, 0.5) / 100);
+    surnameTables.set(k, t);
+  }
+  return t;
+}
+
+/** The Census group a heritage label belongs to, or undefined when the file has no group for it (the national table is used). */
+export function censusGroupOfHeritage(heritage: string | undefined): CensusGroup | undefined {
+  const h = (heritage ?? "").toLowerCase();
+  if (/^(irish|italian|polish|german|greek|scandinavian)\b/.test(h)) return "white";
+  if (/^(black|nigerian|caribbean)\b/.test(h)) return "black";
+  if (/^(mexican|puerto rican|dominican)\b/.test(h)) return "hispanic";
+  if (/^(chinese|filipino|korean|south asian|vietnamese)\b/.test(h)) return "api";
+  if (/^native\b/.test(h)) return "aian";
+  return undefined; // multiracial, Middle Eastern, unknown
+}
+
+/** One surname per slot (conditioned on `groups[i]` when given): not in `taken`, not on the recent-seasons memory, one `rng.next()` per attempt. */
+export function dealSurnames(
+  rng: RandomnessSource, count: number, taken: ReadonlySet<string>, avoid?: AvoidSets, groups?: ReadonlyArray<CensusGroup | undefined>,
+): string[] {
+  const used = new Set([...taken].map((t) => t.toLowerCase()));
+  const avoided = new Set<string>();
+  if (avoid) for (const n of avoid.names) { const parts = n.split(" "); if (parts.length > 1) avoided.add(parts.slice(1).join(" ").toLowerCase()); }
+  const out: string[] = [];
+  for (let i = 0; i < count; i++) {
+    const table = surnameTable(groups?.[i]);
+    const fresh = (r: SurnameRow): boolean => !used.has(r[0].toLowerCase());
+    const row = drawConstrained(rng, table, [(r) => fresh(r) && !avoided.has(r[0].toLowerCase()), fresh], 80);
+    let name = row[0];
+    if (used.has(name.toLowerCase())) name = table.rows.find((r) => !used.has(r[0].toLowerCase()))![0];
+    used.add(name.toLowerCase());
+    out.push(name);
+  }
+  return out;
+}
