@@ -9,17 +9,17 @@
  */
 export type MemoryProvider =
   | "memoryTiltFor" | "beliefTiltFor" | "campaignTiltFor" | "campaignPushFor" | "dealsOf"
-  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor" | "vetoMemoryFor" | "dealNomPushFor" | "juryMemoryFor" | "tieNomPushFor" | "tieVotePushFor" | "hcMemoryFor" | "hcStrategyFor" | "endgameMemoryFor" | "approachMemoryFor" | "moodTiltFor" | "drivePushFor" | "moodVetoFor" | "moodApproachFor";
+  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor" | "vetoMemoryFor" | "dealNomPushFor" | "juryMemoryFor" | "tieNomPushFor" | "tieVotePushFor" | "hcMemoryFor" | "hcStrategyFor" | "endgameMemoryFor" | "approachMemoryFor" | "moodTiltFor" | "drivePushFor" | "moodVetoFor" | "moodApproachFor" | "feelingKeepFor";
 
 export type StrategicDecision = "evictionVote" | "hohNominations" | "replacementNominee" | "vetoSave" | "houseguestsChoice" | "juryVote" | "approaches" | "final3Eviction" | "secretVetoReplacement";
 
 export const DECISION_SOURCES: Readonly<Record<StrategicDecision, readonly MemoryProvider[]>> = {
   // `voteChoice` (liveSeason.ts): the NPC eviction vote - reads the most.
-  evictionVote: ["dealsOf", "tieVotePushFor", "campaignTiltFor", "memoryTiltFor", "beliefTiltFor", "assuranceVoteFor", "moodTiltFor"],
+  evictionVote: ["dealsOf", "tieVotePushFor", "campaignTiltFor", "memoryTiltFor", "beliefTiltFor", "assuranceVoteFor", "moodTiltFor", "feelingKeepFor"],
   // The NPC HOH's `nominationPlan(...)` call in `advanceBeat` case "nominations".
-  hohNominations: ["campaignPushFor", "tieNomPushFor", "memoryTiltFor", "beliefTiltFor", "assuranceProtects", "pitchTiltFor", "dealNomPushFor", "moodTiltFor", "drivePushFor"],
+  hohNominations: ["campaignPushFor", "tieNomPushFor", "memoryTiltFor", "beliefTiltFor", "assuranceProtects", "pitchTiltFor", "dealNomPushFor", "moodTiltFor", "drivePushFor", "feelingKeepFor"],
   // The NPC HOH's replacement pick (`replacementPick(...)`).
-  replacementNominee: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor"],
+  replacementNominee: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor", "feelingKeepFor"],
   // The NPC veto holder's save (`chooseVetoSave(...)`): campaign bias + (B7 M1, ORWELL_VETO_MEMORY) one combined memory/belief/deal bias.
   vetoSave: ["campaignPushFor", "vetoMemoryFor", "moodVetoFor", "drivePushFor"],
   // The NPC Houseguest's-Choice holder's sixth-player pick (`resolveVetoDraw` -> `chooseStrongestBond`): strongest bond + (B7 M4b, ORWELL_HC_MEMORY) the same combined memory/belief/deal read.

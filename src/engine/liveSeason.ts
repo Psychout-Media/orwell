@@ -709,6 +709,11 @@ export interface LiveSeasonState {
   bondsSeen?: string[];
   bondsDay?: number;
   /**
+   * 0181 (Theme 3 slice 4, ORW-568) - the guilt events already felt (`bondFeelings.ts` keys, ordered, never pruned), so a betrayal shakes the betrayer once. ENGINE-ONLY (Vault class), never projected.
+   * Optional: absent on old saves and on every game that never felt one. Rides on `live`, so it is persisted and restored with the season.
+   */
+  feelingsSeen?: string[];
+  /**
    * 0149 / ORW-330 (theme 2, slice 1) - the season's CLAIMS (`spokenClaims.ts`): who told whom what about whom, whether it was true and what
    * the speaker meant. ENGINE-ONLY (Vault class), never projected; only `claimsHeardBy(PLAYER)` (the speaker's words, no truth) may go outward.
    * Append-only for the season. Absent until the first claim is told (absent => byte-identical season state).
@@ -1138,6 +1143,8 @@ export interface SeasonCtx {
   tieVotePushFor?: (nominee: EntityId, voter: EntityId) => number;
   /** B4 slice 4 (ORWELL_ASSURANCES): the bounded shield a KEPT 'vote'/'safe' assurance `voter` made to nominee `n` adds against evicting `n`. Absent => 0, byte-identical. */
   assuranceVoteFor?: (nominee: EntityId, voter: EntityId) => number;
+  /** ORW-568 / 0181 (ORWELL_BOND_FEELINGS): how much `voter`'s real feeling for `nominee` keeps them (positive = keep; bounded, from the bond record's warmth and resentment). Played games only; absent => 0, byte-identical. */
+  feelingKeepFor?: (nominee: EntityId, voter: EntityId) => number;
   /** B4 slice 4: `voter` actually voted `nominee` out - any open assurance they made to `nominee` is broken (resolved + folded by the adapter). */
   assuranceVotedOut?: (voter: EntityId, nominee: EntityId, sealedAmong?: readonly EntityId[]) => void;
   /** B4 slice 3: the HOH actually nominated `nominee` - any open assurance the HOH made to them is broken (resolved + folded by the adapter). */
@@ -2192,6 +2199,8 @@ export function voteChoice(
     n === hohTarget ? V.hohReferendumWeight * hohAlignment : 0,
     // ORW-314: this voter's AGENDA pull on `n` (revenge / get-them-out push, protect / alliance shield), full strength. Absent provider => 0 => byte-identical.
     ctx.agendaPullFor?.(n, voter).value ?? 0,
+    // ORW-568 / 0181: the voter's real feeling for `n` keeps them (a friend is hard to cut, a stranger or a grudge is not). Absent provider => 0 => byte-identical.
+    -(ctx.feelingKeepFor?.(n, voter) ?? 0),
   ];
   const v0 = termVals(fn[0]);
   const v1 = termVals(fn[1]);
@@ -2209,7 +2218,7 @@ export function voteChoice(
 }
 
 /** ORW-305: the vote score's term names, in the order `voteChoice` adds them. */
-export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum", "agenda"] as const;
+export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum", "agenda", "feeling"] as const;
 
 /** Count the eviction votes (NPCs threat-driven; the player's own vote, if any) WITHOUT breaking a tie. */
 function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: EntityId): {
@@ -3401,6 +3410,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         ...(ctx.dealNomPushFor || ctx.tieNomPushFor ? { dealPush: (t: EntityId) => (ctx.dealNomPushFor?.(t, s.hoh!) ?? 0) + (ctx.tieNomPushFor?.(t, s.hoh!) ?? 0) } : {}),
         ...(ctx.pitchTiltFor ? { pitchPush: (t: EntityId) => ctx.pitchTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.agendaPullFor ? { agendaPush: (t: EntityId) => ctx.agendaPullFor!(t, s.hoh!).value } : {}), // ORW-314: the HOH's goals move the block at full strength
+        ...(ctx.feelingKeepFor ? { feelingPush: (t: EntityId) => -ctx.feelingKeepFor!(t, s.hoh!) } : {}), // ORW-568 / 0181: someone the HOH truly likes is harder to put up
         ...(ctx.assuranceProtects ? { protectedByAssurance: (t: EntityId) => ctx.assuranceProtects!(t, s.hoh!) } : {}),
         why: reasonSinkFor(s, ctx, s.hoh!), // ORW-305: record WHY (a record only); ORW-314: and the stated reason
       });
@@ -3689,6 +3699,7 @@ function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId,
     ...(ctx.beliefTiltFor ? { beliefPush: (t: EntityId) => ctx.beliefTiltFor!(t, s.hoh!) } : {}),
     ...(ctx.perceivedBondFor ? { bondOf: (from: EntityId, to: EntityId) => ctx.perceivedBondFor!(s.hoh!, from, to) } : {}),
     ...(ctx.agendaPullFor ? { agendaPush: (t: EntityId) => ctx.agendaPullFor!(t, s.hoh!).value } : {}), // ORW-314
+    ...(ctx.feelingKeepFor ? { feelingPush: (t: EntityId) => -ctx.feelingKeepFor!(t, s.hoh!) } : {}), // ORW-568 / 0181
     why: reasonSinkFor(s, ctx, s.hoh!), // ORW-305: record WHY (a record only); ORW-314: and the stated reason
   });
 }
