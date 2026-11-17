@@ -74,6 +74,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   session.setHeldFactSeeker((holder, listeners) => seekTargets(holder, listeners, {
     knowledge: engine.knowledge, told: session.copresenceToldLedger(),
     affinity: (a, b) => engine.relationships.edge(a, b).affinity, threat: (a, b) => engine.relationships.edge(a, b).threat,
+    ...((): { network?: ReturnType<typeof session.networkRoles> } => { const n = session.networkRoles(); return n ? { network: n } : {}; })(), // 0179: the shape draws movement too
   }));
   // Name resolution for outward prose (non-Vault: names are public): the player surface uses this
   // so socialRead names the houseguest instead of echoing a raw `npc:N` id into the read.

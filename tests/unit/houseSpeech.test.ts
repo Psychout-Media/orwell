@@ -31,16 +31,23 @@ describe("0153: what house-life speech says", () => {
     expect(claimProblem({ speaker: TARGET, listener: EAR, kind: "going-after", subject: TARGET, object: OTHER, isTrue: true, intent: "inform" }, living)).toBeDefined();
   });
 
-  it("an untruthful plant is a lie the engine knows is false; a truthful one tells something true, or nothing", () => {
+  it("an untruthful plant is a story the planter does not hold; a truthful one passes on what they believe, or nothing (ORW-588: never the hidden truth)", () => {
     const lie = planSpeech("plant", ACTOR, EAR, TARGET, false, ctx())!;
     expect(lie).toMatchObject({ speaker: ACTOR, listener: EAR, subject: TARGET, isTrue: false, intent: "mislead" });
     expect(truthOf(lie, none)).toBe(false);
     expect(planSpeech("plant", ACTOR, EAR, TARGET, true, ctx())).toBeUndefined();
-    const real = planSpeech("plant", ACTOR, EAR, TARGET, true, ctx({ facts: { ...none, goalAgainst: (w, t) => w === TARGET && t === EAR } }))!;
-    expect(real).toMatchObject({ kind: "targets-you", isTrue: true, intent: "warn" });
-    // an untruthful plant never tells something true by accident: with every kind true there is no lie to tell
+    // ORW-588: the target's HIDDEN goal against the listener is true, but the planter never learned it: a truthful planter has nothing to say
+    expect(planSpeech("plant", ACTOR, EAR, TARGET, true, ctx({ facts: { ...none, goalAgainst: (w, t) => w === TARGET && t === EAR } }))).toBeUndefined();
+    // a truthful planter who BELIEVES something damaging about the target passes it on as a warning
+    const b: BeliefStore = {};
+    recordClaim(b, { holder: ACTOR, kind: "targets-me", subject: TARGET, object: ACTOR, value: true, origin: "told", confidence: 0.7, week: 1 });
+    expect(planSpeech("plant", ACTOR, EAR, TARGET, true, ctx({ beliefs: b }))).toMatchObject({ speaker: ACTOR, listener: EAR, kind: "going-after", subject: TARGET, object: ACTOR, intent: "warn" });
+    // the engine never steers the choice of a lie by its truth: with every kind true, the lie is still told - and recorded as true by accident
     const all: TruthFacts = { goalAgainst: () => true, votedToEvict: () => true, votedToKeep: () => true, finalTwo: () => true, liedTo: () => true, talkedAbout: () => true };
-    expect(planSpeech("plant", ACTOR, EAR, TARGET, false, ctx({ facts: all }))).toBeUndefined();
+    expect(planSpeech("plant", ACTOR, EAR, TARGET, false, ctx({ facts: all }))).toMatchObject({ intent: "mislead", isTrue: true });
+    // a lie is never something the planter believes: holding "the target is after me", the planter does not tell the listener "the target is going after you"... as that same story
+    const lie2 = planSpeech("plant", ACTOR, EAR, TARGET, false, ctx({ beliefs: b }))!;
+    expect(lie2.intent).toBe("mislead");
   });
 
   it("a leak passes on only what the speaker believes; a fish is answered by the listener's belief", () => {

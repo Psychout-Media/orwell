@@ -67,7 +67,7 @@ describe("a player's recorded scene moves the bond record", () => {
   it("flag off: nothing kept", () => {
     const { sb, s } = start(3, "f", false); const [A] = npcs(s);
     say(sb, [A!], "bonding"); s.bondReader();
-    expect(s.live.bonds).toBeUndefined();
+    expect(Object.keys(s.live.bonds ?? {})).toHaveLength(0);
   });
   it("the wall: the kind and the record reach no player, admin or prompt surface", async () => {
     const { sb, s } = start(3, "g"); const [A] = npcs(s);

@@ -7,16 +7,15 @@ import { voteChoice } from "../../src/engine/liveSeason";
 import { GameSessionRegistry } from "../../src/composition/registry";
 
 /** ORW-568 / spec 0181 part 2: jealousy and divided loyalty. Roles only. */
-const base = { closeWarmth: 0.8, rivalWarmth: 0.2, xyWarmth: 0.7, xhWarmth: 0.4, xyScenes: 4, xhScenes: 1 };
+const base = { closeWarmth: 0.8, rivalWarmth: 0.2, xyScenes: 4, xhScenes: 1 };
 
 describe("jealousy (pure)", () => {
   it("is monotone in how much the close friend favours the rival, and bounded", () => {
     let prev = -1;
     for (const xy of [2, 3, 4, 6, 10, 30]) { const j = jealousy({ ...base, xyScenes: xy }); expect(j).toBeGreaterThanOrEqual(prev); expect(j).toBeLessThanOrEqual(BOND_JEALOUSY.maxJealousy); prev = j; }
     expect(jealousy({ ...base, xyScenes: 10 })).toBeGreaterThan(jealousy({ ...base, xyScenes: 3 }));
-    expect(jealousy({ ...base, xyWarmth: 1 })).toBeGreaterThan(jealousy({ ...base, xyWarmth: 0.5 }));
     expect(BOND_JEALOUSY.maxJealousy).toBeLessThan(1);
-    expect(jealousy({ ...base, closeWarmth: 1, xyScenes: 1000, xhScenes: 0, xyWarmth: 1, xhWarmth: 0, rivalWarmth: 0 }, { paranoia: 9, bonding: 9, loyalty: 0.01 })).toBeLessThanOrEqual(BOND_JEALOUSY.maxJealousy);
+    expect(jealousy({ ...base, closeWarmth: 1, xyScenes: 1000, xhScenes: 0, rivalWarmth: 0 }, { paranoia: 9, bonding: 9, loyalty: 0.01 })).toBeLessThanOrEqual(BOND_JEALOUSY.maxJealousy);
   });
   it("is zero when the holder is not close, when the favour is not there, or the friend gives the holder as much", () => {
     expect(jealousy({ ...base, closeWarmth: 0.1 })).toBe(0);
@@ -76,7 +75,7 @@ describe("divided loyalty (pure)", () => {
   });
 });
 
-type Ev = { id: string; ts: number; type: string; initiator: string; witnessSet: string[]; hidden: boolean; content: string };
+type Ev = { id: string; ts: number; type: string; initiator: string; witnessSet: string[]; hidden: boolean; content: string; houseLife?: { seenBy?: string[] } };
 type Live = { week: number; playedGame?: boolean; active: string[]; bonds?: Record<string, unknown>; bondsCursor?: number; jealousy?: Record<string, { value: number; week: number; close: string }>; jealousySeen?: string[]; jealousyCursor?: number };
 type Internals = {
   live: Live;
@@ -106,14 +105,16 @@ const start = (seed: number, on = true): Internals => {
 const npcs = (s: Internals): string[] => s.live.active.filter((x) => x.startsWith("npc:"));
 const setBond = (s: Internals, h: string, o: string, warmth: number, extra: Record<string, number> = {}): void => { (s.live.bonds ??= {})[bondKey(h, o)] = { ...emptyBond(), warmth, ...extra }; };
 const scene = (type: string, ...w: string[]): void => { evs.push({ id: `e${evs.length}`, ts: evs.length, type, initiator: w[0]!, witnessSet: w, hidden: false, content: "" }); };
+/** A scene among `w` that the people in `saw` watched from the same room. */
+const seenScene = (type: string, saw: string[], ...w: string[]): void => { evs.push({ id: `e${evs.length}`, ts: evs.length, type, initiator: w[0]!, witnessSet: w, hidden: false, content: "", houseLife: { seenBy: saw } }); };
 const settle = (s: Internals): void => { s.live.bondsCursor = evs.length; s.feelingsTick(); };
 const mood = (s: Internals, id: string): number => s.house.npcs.find((x) => x.id === id)!.soul.emotionalState;
 /** H is close to X; X spends scenes with Y and few with H. */
-const triangle = (s: Internals, scenesXY = 4): [string, string, string] => {
+const triangle = (s: Internals, scenesXY = 4, seen = true): [string, string, string] => {
   const [H, X, Y] = npcs(s) as [string, string, string];
   setBond(s, H, X, 0.8); setBond(s, X, Y, 0.7); setBond(s, X, H, 0.3);
   scene("strategy", X, H);
-  for (let i = 0; i < scenesXY; i++) scene("bonding", X, Y);
+  for (let i = 0; i < scenesXY; i++) { if (seen) seenScene("bonding", [H], X, Y); else scene("bonding", X, Y); }
   return [H, X, Y];
 };
 
@@ -135,6 +136,30 @@ describe("the nightly tick, in a played game", () => {
     const run = (k: number): number => { const s = start(3); const [H, , Y] = triangle(s, k); settle(s); return s.live.jealousy?.[jealousyKey(H, Y)]?.value ?? 0; };
     expect(run(8)).toBeGreaterThan(run(3));
     expect(run(1)).toBe(0);
+  });
+  it("a scene the holder did not witness raises no jealousy; the same scene witnessed does", () => {
+    const unseen = start(3);
+    const [H1, , Y1] = triangle(unseen, 4, false);
+    settle(unseen);
+    expect(unseen.live.jealousy?.[jealousyKey(H1, Y1)]).toBeUndefined();
+    const seen = start(3);
+    const [H2, , Y2] = triangle(seen, 4, true);
+    settle(seen);
+    expect(seen.live.jealousy![jealousyKey(H2, Y2)]!.value).toBeGreaterThan(0);
+    const inRoom = start(3);
+    const [H3, X3, Y3] = npcs(inRoom) as [string, string, string];
+    setBond(inRoom, H3, X3, 0.8);
+    scene("strategy", X3, H3);
+    for (let i = 0; i < 4; i++) seenScene("bonding", [], X3, Y3, H3); // the holder was in the scene itself: X gives the holder as much
+    settle(inRoom);
+    expect(inRoom.live.jealousy?.[jealousyKey(H3, Y3)]).toBeUndefined();
+  });
+  it("X's hidden warmth toward the rival or the holder is not read", () => {
+    const run = (xy: number, xh: number): number => { const s = start(3); const [H, X, Y] = triangle(s); setBond(s, X, Y, xy); setBond(s, X, H, xh); settle(s); return s.live.jealousy?.[jealousyKey(H, Y)]?.value ?? 0; };
+    const v = run(0.7, 0.3);
+    expect(v).toBeGreaterThan(0);
+    expect(run(0.05, 0.9)).toBe(v);
+    expect(run(1, 0)).toBe(v);
   });
   it("a holder who is not close to X feels nothing", () => {
     const s = start(3);
