@@ -5,11 +5,8 @@ import type { Room } from "../../src/domain/house";
 import type { TimeOfDay } from "../../src/engine/timeOfDay";
 import { composeRuntime } from "../../src/composition/runtime";
 import { FakeClock } from "../../src/adapters/time/FakeClock";
-import type { SessionSnapshot } from "../../src/engine/sessionSnapshot";
 import type { GameEvent } from "../../src/domain/event";
-import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { PLAYER } from "../../src/domain/ids";
-import { endHeldNight } from "../support/heldNight";
 
 /** ORW-620 night owls (spec 0192): the few still awake gather and talk late; sleepers never scheme; hidden = Vault class. Roles only. */
 const HOLDER = "npc:1", AWAKE_A = "npc:2", AWAKE_B = "npc:3";
@@ -75,41 +72,57 @@ describe("night owls (ORW-620, spec 0192)", () => {
   });
 });
 
-type Life = NonNullable<GameEvent["houseLife"]>;
-async function play(user: string, seed: number, nightOwls: boolean) {
+type S = {
+  livingIds(): string[];
+  houseLifeStretch(events: unknown, awakeIds: readonly string[], stretchIndex: number): unknown[];
+  setNightOwlsEnabled(on: boolean): void;
+  live: { playerRetired?: boolean; nightDepth?: number; timeOfDay?: string; goalApproaches?: Record<string, { desire: string; goalId: string; hour: number }> };
+  presence: Map<string, string>;
+  rel: { edge(a: string, b: string): { affinity: number; trust: number } };
+};
+async function lateNight(seed: number, nightOwls: boolean, playerUp: boolean) {
   const reg = composeRuntime({ clock: new FakeClock(), seed }).registry;
+  const user = `night-owls-${seed}-${nightOwls}-${playerUp}`;
   const mcp = reg.resolver()("player", user);
   await mcp.callTool("createCharacter", { playerName: "The Player", seed, archetype: "floater" });
-  const session = reg.sandboxFor(user).session as GameSessionAdapter;
-  session.setNightOwlsEnabled(nightOwls);
-  let msg = 0;
-  for (let i = 0; i < 400; i++) {
-    await mcp.callTool("noteMessage", { messageId: `${user}-${msg++}` });
-    if (i % 12 === 11) {
-      const adv = (await mcp.callTool("advanceGame", {})) as { pending?: { kind: string; options?: Array<{ id: string }> }; held?: unknown; finished?: boolean };
-      if (adv.held) await endHeldNight((n, a) => mcp.callTool(n, a), `no${seed}`);
-      if (adv.pending) {
-        const p = adv.pending; const o = (k: number) => p.options?.[k]?.id;
-        await mcp.callTool("submitDecision", p.kind === "nominations" ? { kind: p.kind, choice: [o(0), o(1)] } : p.kind === "veto-decision" ? { kind: p.kind, use: false } : p.kind === "comp-intent" || p.kind === "comp-round" ? { kind: p.kind, intent: "compete" } : p.kind === "goodbye-message" ? { kind: p.kind, vote: "respectful" } : { kind: p.kind, vote: o(0) });
-      }
-      if (adv.finished) break;
-    }
-  }
-  const snap = reg.snapshot(user) as SessionSnapshot;
-  return { snap, life: snap.events.filter((e) => e.houseLife) as Array<GameEvent & { houseLife: Life }> };
+  await mcp.callTool("noteMessage", { messageId: "first" }); // a played game
+  const sb = reg.sandboxFor(user);
+  const s = sb.session as unknown as S;
+  s.setNightOwlsEnabled(nightOwls);
+  const npcs = s.livingIds().filter((i) => i !== PLAYER);
+  const awake = npcs.slice(0, 3); // everyone else is asleep: they are simply not in the awake set the tick passes
+  for (const id of [...s.presence.keys()]) s.presence.set(id, "backyard");
+  s.presence.set(PLAYER, "bathroom");
+  for (const id of awake) { s.rel.edge(id, PLAYER).affinity = 0.95; s.rel.edge(id, PLAYER).trust = 0.8; }
+  s.live.timeOfDay = "late-night";
+  if (!playerUp) s.live.playerRetired = true; // the player turned in: the engine's own awake set drops them
+  const before = sb.engine.events.count();
+  for (let i = 0; i < 60; i++) { s.live.nightDepth = 24 + (i % 7); s.houseLifeStretch(sb.engine.events, playerUp ? [...awake, PLAYER] : awake, i); }
+  const life = sb.engine.events.queryAll().slice(before).filter((e) => e.houseLife) as GameEvent[];
+  return { s, awake, asleep: npcs.slice(3), life };
 }
 
-describe("night owls in a played game", () => {
-  it("late-night talks are hidden Vault-class events the player is not in; flag off writes none", async () => {
-    const on = await play("no-on", 5, true);
-    const owlEvents = on.life.filter((e) => e.houseLife.nightOwl);
-    for (const e of owlEvents) {
+describe("night owls in a played game (live stretch, the rest of the house asleep)", () => {
+  it("late-night talks are hidden events among the awake only, never the player, never a sleeper; flag off writes none", async () => {
+    const on = await lateNight(5, true, false);
+    const owl = on.life.filter((e) => e.houseLife!.nightOwl);
+    expect(owl.length, "the awake few talk late").toBeGreaterThan(0);
+    for (const e of owl) {
       expect(e.hidden).toBe(true);
       expect(e.witnessSet).not.toContain(PLAYER);
+      for (const w of e.witnessSet) expect(on.awake, "a sleeper never takes part").toContain(w);
+      expect(e.witnessSet.length).toBeGreaterThanOrEqual(2);
     }
-    const off = await play("no-off", 5, false);
-    expect(off.life.filter((e) => e.houseLife.nightOwl)).toHaveLength(0);
-    console.log(`NIGHT-OWL-EVENTS on=${owlEvents.length} of ${on.life.length} house-life scenes`);
-    expect(owlEvents.length, "a played game has some late-night talks").toBeGreaterThan(0);
-  }, 180_000);
+    for (const e of on.life) for (const a of on.asleep) expect(e.witnessSet).not.toContain(a);
+    const off = await lateNight(5, false, false);
+    expect(off.life.filter((e) => e.houseLife!.nightOwl)).toHaveLength(0);
+  }, 120_000);
+
+  it("a player who stays up can be sought out through the desire clock's own path; one who has turned in never", async () => {
+    const up = await lateNight(7, true, true);
+    const approaches = Object.values(up.s.live.goalApproaches ?? {}).filter((a) => a.goalId === "night-owl");
+    expect(approaches.length, "an awake houseguest comes to the player who is still up").toBeGreaterThan(0);
+    const down = await lateNight(7, true, false);
+    expect(Object.values(down.s.live.goalApproaches ?? {}).filter((a) => a.goalId === "night-owl")).toHaveLength(0);
+  }, 120_000);
 });
