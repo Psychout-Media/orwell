@@ -287,7 +287,7 @@ import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs
 import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "../../engine/beliefDecisions";
 import { CONVICTION, credulityOf, dealTrust, evidenceStep, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
-import { edgeBondReader, recordBondReader, type BondReader } from "../../engine/bonds";
+import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldSave, foldScene, nightPasses, type SceneFold } from "../../engine/bondRecord";
 import type { Stats } from "../../engine/season";
 import {
@@ -5470,8 +5470,11 @@ export class GameSessionAdapter implements GameSession {
   bondReader(): BondReader {
     if (!this.bondRecordEnabled) return edgeBondReader(this.rel, () => this.livingIds(), () => this.live?.dayNumber ?? 1);
     this.foldBonds();
-    return recordBondReader(this.rel, () => this.live?.bonds, () => this.livingIds(), () => this.live?.dayNumber ?? 1);
+    return recordBondReader(this.rel, () => this.live?.bonds, () => this.livingIds(), () => this.live?.dayNumber ?? 1, this.favorDebt ? { favorDebt: this.favorDebt } : {});
   }
+  /** Theme 3 slice 3 (Overseer B): the favor ledger as a second source of a bond's debt (signed like BondView.debt). Absent => the record's own debt only. */
+  private favorDebt?: DebtSource;
+  setFavorDebtSource(fn: DebtSource | undefined): void { this.favorDebt = fn; }
   /** 0175: the bond record (`ORWELL_BOND_RECORD`, default ON; `=0` = the edge-only reader and no record kept). Nothing decides from it yet, so it moves no outcome. */
   private bondRecordEnabled = flagDefaultOn("ORWELL_BOND_RECORD");
   setBondRecordEnabled(on: boolean): void { this.bondRecordEnabled = on; }

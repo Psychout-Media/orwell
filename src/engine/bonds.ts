@@ -97,7 +97,10 @@ export function edgeBondReader(rel: RelationshipModel, living: () => readonly En
  * 0175 - the full reader: the edge plus the BOND RECORD (warmth, debts, resentment, strain, history, commitment, kind) and the holder's private pecking order
  * (their top `BOND.rankTop` by strength, 1 = matters most). Same contract as `edgeBondReader`; a pair with no record reads exactly as the edge-only reader.
  */
-export function recordBondReader(rel: RelationshipModel, store: () => BondStore | undefined, living: () => readonly EntityId[], day: () => number): BondReader {
+/** Extra debt a holder is owed (+) or owes (-) from another source of truth (slice 3's favor ledger), added to the record's own debt (saves) and clamped -1..1. */
+export type DebtSource = (holder: EntityId, other: EntityId) => number;
+
+export function recordBondReader(rel: RelationshipModel, store: () => BondStore | undefined, living: () => readonly EntityId[], day: () => number, opts: { favorDebt?: DebtSource } = {}): BondReader {
   const strengthOf = (holder: EntityId, other: EntityId): number => bondStrengthOf(edgeStrength(rel, holder, other), bondOf(store(), holder, other));
   const ties = (holder: EntityId) => orderTies(living().filter((o) => o !== holder).map((other) => ({ other, strength: strengthOf(holder, other) })));
   return {
@@ -109,7 +112,7 @@ export function recordBondReader(rel: RelationshipModel, store: () => BondStore 
       const at = ranked.findIndex((t) => t.other === other);
       return {
         holder, other, trust: e.trust, affinity: e.affinity, threat: e.threat, reliability: e.reliability,
-        warmth: r.warmth, debt: r.debt, resentment: r.resentment, strain: r.strain, history: r.history,
+        warmth: r.warmth, debt: Math.max(-1, Math.min(1, r.debt + (opts.favorDebt?.(holder, other) ?? 0))), resentment: r.resentment, strain: r.strain, history: r.history,
         kind: kindOf(r), commitment: r.commitment, rank: at >= 0 ? at + 1 : null,
         strength: strengthOf(holder, other),
       };
