@@ -16,13 +16,14 @@ export interface DealsGame {
   more(messages: number, until?: (g: DealsGame) => boolean): Promise<void>;
 }
 
-export async function playDealsGame(seed: number, messages: number, opts: { advanceEvery?: number; until?: (g: DealsGame) => boolean; user?: string } = {}): Promise<DealsGame> {
+export async function playDealsGame(seed: number, messages: number, opts: { advanceEvery?: number; until?: (g: DealsGame) => boolean; user?: string; /** called once with the live session right after the character is created */ setup?: (session: DealsGame["session"]) => void } = {}): Promise<DealsGame> {
   const every = opts.advanceEvery ?? 12;
   const user = opts.user ?? `dealsdrv-${seed}`;
   const reg = composeRuntime({ clock: new FakeClock(), seed }).registry;
   const mcp = reg.resolver()("player", user);
   await mcp.callTool("createCharacter", { playerName: "The Player", seed, archetype: "floater" });
   const session = reg.sandboxFor(user).session as unknown as DealsGame["session"];
+  opts.setup?.(session);
   let tick = 0;
   const g: DealsGame = { user, reg, session, week: () => session.live?.week ?? 1, more: async (n, u) => { await play(n, u); } };
   const play = async (count: number, stop?: (x: DealsGame) => boolean): Promise<void> => {

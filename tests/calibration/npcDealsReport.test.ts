@@ -1,7 +1,5 @@
 import { describe, it } from "vitest";
-import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
-import { GameSessionRegistry } from "../../src/composition/registry";
-import { resolvePending } from "../../features/support/answerPending";
+import { playDealsGame } from "../support/npcDealsDriver";
 import type { DealPlan } from "../../src/engine/npcDeals";
 
 /**
@@ -14,38 +12,31 @@ const RUN = process.env.ORWELL_NPC_DEALS_REPORT === "1";
 const N = Number.parseInt(process.env.ORWELL_NPC_DEALS_REPORT_SEEDS ?? "12", 10);
 const START = Number.parseInt(process.env.ORWELL_NPC_DEALS_REPORT_START ?? "1", 10);
 type Deal = { id: string; status: string; parties: string[]; kind: string };
-type S = { createCharacter(a: unknown): void; advanceGame(): { pending?: unknown }; submitDecision(r: unknown): unknown; noteMessage(a: unknown): void; getGameState(): unknown; turnIn(a: unknown): unknown; settleOvernight(n: number): void; advanceClockPerConversation(): void; setPerConversationClockEnabled(on: boolean): void; deals: { npcOnly(): Deal[] }; setNpcDealsEnabled(on: boolean): void; setPlanSource(s: unknown): void; setRecordPlan(f: unknown): void; live: { houseLeans?: Array<{ id: string }> | Record<string, unknown>; finished?: boolean; nightDepth?: number; timeOfDay?: string; pending?: unknown; winner?: string; finalTwo?: string[]; evictionOrder: string[] } };
+type S = { deals: { npcOnly(): Deal[] }; setNpcDealsEnabled(on: boolean): void; setPlanSource(s: unknown): void; setRecordPlan(f: unknown): void; live: { houseLeans?: Array<{ id: string }> | Record<string, unknown>; finished?: boolean; nightDepth?: number; timeOfDay?: string; pending?: unknown; winner?: string; finalTwo?: string[]; evictionOrder: string[] } };
 interface Row { seed: number; deals: Deal[]; plans: Map<string, DealPlan>; leans: string[]; winner?: string; playerOut: number | null; finished: boolean }
 
-function play(seed: number, on: boolean): Row {
-  GameSessionAdapter.setTimeOfDayEnabled(true);
-  const s = new GameSessionRegistry().sandboxFor(`npcdeals-report-${seed}-${on}`).session as unknown as S;
-  s.createCharacter({ playerName: "P", seed });
+async function play(seed: number, on: boolean): Promise<Row> {
+  const prev = process.env.ORWELL_NPC_DEALS; process.env.ORWELL_NPC_DEALS = on ? "1" : "0";
   const plans = new Map<string, DealPlan>();
-  s.setNpcDealsEnabled(on);
-  if (on) { s.setRecordPlan((d: string, h: string, p: DealPlan) => plans.set(`${d}|${h}`, p)); s.setPlanSource({ planOf: (d: string, h: string) => plans.get(`${d}|${h}`) }); }
-  s.setPerConversationClockEnabled(true);
-  const live = (): S["live"] => s.live;
-  for (let i = 0; i < 80 && live().nightDepth === undefined; i++) s.advanceGame();
-  s.noteMessage({ messageId: "npcdeals-report-0" });
-  for (let step = 0; step < 40_000 && !live().finished; step++) {
-    const l = live();
-    const d = (s.getGameState() as { daySchedule?: { due: boolean } }).daySchedule;
-    if (d?.due || !d || l.pending) { const v = s.advanceGame(); if (v.pending) resolvePending(v.pending as never, (req) => void s.submitDecision(req)); }
-    else if (l.timeOfDay === "night" || l.timeOfDay === "late-night") { const r = s.turnIn({}) as { held?: unknown } | undefined; if (!r?.held) s.settleOvernight(1); }
-    else s.advanceClockPerConversation();
-  }
-  const l = live();
-  const idx = l.evictionOrder.indexOf("player");
-  const leans = Array.isArray(l.houseLeans) ? l.houseLeans.map((x) => x.id) : [];
-  return { seed, deals: s.deals.npcOnly(), plans, leans, ...(l.winner ? { winner: l.winner } : {}), playerOut: idx >= 0 ? idx + 1 : null, finished: l.finished === true };
+  try {
+    // The mix-driver pace (a message per tick, an advance every 6th): the chat-paced path is the one that runs the ceremony hooks the pacts hang on.
+    const g = await playDealsGame(seed, 9000, {
+      advanceEvery: 6, user: `npcdeals-report-${seed}-${on}`,
+      setup: (sess) => { if (on) { const x = sess as unknown as S; x.setRecordPlan((d: string, h: string, p: DealPlan) => plans.set(`${d}|${h}`, p)); x.setPlanSource({ planOf: (d: string, h: string) => plans.get(`${d}|${h}`) }); } },
+      until: (x) => (x.session as unknown as S).live.finished === true,
+    });
+    const s = g.session as unknown as S; const l = s.live;
+    const idx = l.evictionOrder.indexOf("player");
+    const leans = Array.isArray(l.houseLeans) ? l.houseLeans.map((x) => x.id) : [];
+    return { seed, deals: s.deals.npcOnly(), plans, leans, ...(l.winner ? { winner: l.winner } : {}), playerOut: idx >= 0 ? idx + 1 : null, finished: l.finished === true };
+  } finally { if (prev === undefined) delete process.env.ORWELL_NPC_DEALS; else process.env.ORWELL_NPC_DEALS = prev; }
 }
 const count = (rows: Row[], f: (d: Deal) => boolean): number => rows.reduce((a, r) => a + r.deals.filter(f).length, 0);
 
 describe.skipIf(!RUN)("0170 report: NPC deals and plans, paired played seasons (not a gate)", () => {
-  it("prints deals made / kept / broken, by plan kind and by culture", () => {
+  it("prints deals made / kept / broken, by plan kind and by culture", async () => {
     const on: Row[] = [], off: Row[] = [];
-    for (let seed = START; seed < START + N; seed++) { off.push(play(seed, false)); on.push(play(seed, true)); }
+    for (let seed = START; seed < START + N; seed++) { off.push(await play(seed, false)); on.push(await play(seed, true)); }
     for (const [name, rows] of [["OFF", off], ["ON", on]] as const) {
       const made = count(rows, () => true), kept = count(rows, (d) => d.status === "kept"), broken = count(rows, (d) => d.status === "broken"), open = count(rows, (d) => d.status === "open");
       console.log(`NPCDEALS ${name}: seasons ${rows.length} finished ${rows.filter((r) => r.finished).length} | NPC pacts ${made} (${(made / rows.length).toFixed(1)}/season) kept ${kept} broken ${broken} open ${open} | broken share ${((100 * broken) / Math.max(1, made)).toFixed(0)}% | player wins ${rows.filter((r) => r.winner === "player").length}`);
