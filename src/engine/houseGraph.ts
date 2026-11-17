@@ -1,3 +1,4 @@
+import { clamp01 } from "../domain/num";
 import { HOUSE_GRAPH } from "./houseGraphConstants";
 
 /**
@@ -32,7 +33,6 @@ export interface GraphBondReader {
 export interface DailyHouseGraph { readonly day: number | null; readonly graph: HouseGraph }
 
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-const clamp01 = (n: number): number => (Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 0);
 const EMPTY: HouseGraph = { cliques: [], hubs: [], loners: [], brokers: [] };
 
 export function deriveHouseGraph(input: HouseGraphInput): HouseGraph {

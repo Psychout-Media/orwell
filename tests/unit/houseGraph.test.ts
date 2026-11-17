@@ -84,7 +84,7 @@ describe("feature 0177 house graph", () => {
     const walk = (d: string): string[] => readdirSync(d).flatMap((f) => { const p = join(d, f); return statSync(p).isDirectory() ? walk(p) : p.endsWith(".ts") ? [p] : []; });
     for (const dir of ["src/surfaces", "src/adapters/mcp"]) for (const f of walk(dir)) expect(readFileSync(f, "utf8")).not.toMatch(/houseGraph/);
     const src = readFileSync("src/engine/houseGraph.ts", "utf8");
-    expect([...src.matchAll(/^import .* from "(.*)"/gm)].map((m) => m[1])).toEqual(["./houseGraphConstants"]);
+    expect([...src.matchAll(/^import .* from "(.*)"/gm)].map((m) => m[1])).toEqual(["../domain/num", "./houseGraphConstants"]);
     expect(Object.keys(deriveHouseGraph({ members: ["m1"], ties: [] })).sort()).toEqual(["brokers", "cliques", "hubs", "loners"]);
   });
 });
