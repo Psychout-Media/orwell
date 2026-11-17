@@ -297,6 +297,8 @@ import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "..
 import { CONVICTION, credulityOf, dealTrust, evidenceStep, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
+import { CREDIBILITY } from "../../engine/credibilityConstants";
+import { standing, composeWithCredibility, dealWillingnessShift, type HeardWrong } from "../../engine/reputation";
 import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, type SceneFold } from "../../engine/bondRecord";
 import { deriveDailyHouseGraph, type DailyHouseGraph } from "../../engine/houseGraph";
 import type { Stats } from "../../engine/season";
@@ -1186,6 +1188,27 @@ export class GameSessionAdapter implements GameSession {
   /** B48 - credibility memory (`credibility.ts`): how far houseguests believe a speaker's word, from the lies THEY caught. ON unless `ORWELL_CREDIBILITY=0`. */
   private credibilityEnabled = flagDefaultOn("ORWELL_CREDIBILITY");
   setCredibilityEnabled(on: boolean): void { this.credibilityEnabled = on; }
+  /** 0184 (Theme 3 slice 8, part 1): reputations (`ORWELL_REPUTATION`, default ON; `=0` opts out). Played games only, and it needs the bond record. */
+  private reputationEnabled = flagDefaultOn("ORWELL_REPUTATION");
+  setReputationEnabled(on: boolean): void { this.reputationEnabled = on; }
+  private reputationOn(): boolean { return this.reputationEnabled && this.live?.playedGame === true && this.bondRecordEnabled; }
+  /**
+   * 0184: `observer`'s standing for `target` (1 = nothing heard against them), from the observer's OWN belief claims about the target (a wrong they heard of or witnessed done to someone else) and from the
+   * deals the target kept with the observer. The observer's own caught lies are credibility's (B48), not counted here. Pure read: no rng, no writes. Engine-only: never projected.
+   */
+  reputationOf(observer: EntityId, target: EntityId): number {
+    if (!this.reputationOn() || observer === target) return 1;
+    const live = this.live!;
+    const heard: HeardWrong[] = [];
+    for (const c of claimsOf(live.beliefs, observer)) {
+      if (c.kind !== "heard-rumor" || c.subject !== target || c.refuted || !c.value || c.object === observer) continue;
+      if (c.nature !== "lying" && c.nature !== "betrayal") continue;
+      heard.push({ week: c.week, confidence: c.confidence });
+    }
+    let kept = 0;
+    for (const d of this.deals.all) if (d.status === "kept" && d.parties.includes(observer) && d.parties.includes(target)) kept++;
+    return standing(heard, kept, live.week);
+  }
   credibilityEnabledNow(): boolean { return this.credibilityEnabled && this.npcBeliefsEnabled; }
   /**
    * B48 - how far `observer` believes `speaker` (0..1; 1 with no caught lies). Reads ONLY the observer's own `lied-to-me` claims about the speaker (a lie the observer caught: a broken assurance, a
@@ -1486,7 +1509,7 @@ export class GameSessionAdapter implements GameSession {
       trustOf: (listener, speaker) => this.rel.edge(listener, speaker).trust,
       credited: (listener, speaker) => this.reliabilityReader?.(listener).has(speaker) ?? false,
       ...(BELIEF_RULES.strength === "full" ? { credulity: (listener: EntityId) => this.credulityOf(listener) } : {}), // 0160
-      ...(this.credibilityEnabledNow() && live.playedGame === true ? { credibility: (listener: EntityId, speaker: EntityId) => this.credibilityOf(listener, speaker) } : {}), // ORW-587: played games only
+      ...(this.credibilityEnabledNow() && live.playedGame === true ? { credibility: (listener: EntityId, speaker: EntityId) => this.reputationOn() ? composeWithCredibility(this.credibilityOf(listener, speaker), this.reputationOf(listener, speaker), CREDIBILITY.floor) : this.credibilityOf(listener, speaker) } : {}), // ORW-587: played games only; 0184: composed with the speaker's standing in the listener's eyes
     });
     if (told) this.catchContradiction(told);
     return told;
@@ -14420,7 +14443,11 @@ export class GameSessionAdapter implements GameSession {
       favor: memoryFavor(entries, live.week, decay, carry),
       targetsMe: this.npcBeliefsEnabled ? beliefPull(live.beliefs, npcId, PLAYER, live.week) : 0, // 0150: every believed grievance against the player
       jitter,
-      ...(this.moodDealEnabled && this.npcTellsEnabled ? { mood: this.moodDealFor(npcId, kind) + bonus } : bonus ? { mood: bonus } : {}),
+      ...(() => { // 0184: a poor standing in this houseguest's eyes lowers their willingness to deal (the existing signed mood term; 0 with nothing heard => unchanged)
+        const rep = this.reputationOn() ? dealWillingnessShift(this.reputationOf(npcId, PLAYER)) : 0;
+        if (this.moodDealEnabled && this.npcTellsEnabled) return { mood: this.moodDealFor(npcId, kind) + bonus + rep };
+        return bonus || rep ? { mood: bonus + rep } : {};
+      })(),
       ...(live.playedGame === true ? { opposed: this.ownPushAgainstPlayer(npcId) } : {}),
     }, (w) => recordWhy(live, npcId, w)); // ORW-305: record WHY (a record only)
     return d.accept || !d.reason ? null : { refused: true, reason: d.reason, narratable: DEAL_REFUSAL_LINE[d.reason] };
