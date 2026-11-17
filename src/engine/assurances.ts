@@ -42,6 +42,8 @@ export const ASSURANCE = {
   rumoredBreakP: 0.2,
   /** B39: how sure the assured is of the rumored break (a rumor, not a witnessed betrayal). */
   rumoredBreakConfidence: 0.4,
+  /** How sure the assured is that the assurer lied, after a witnessed break (the lied-to-me claim's confidence). */
+  brokenClaimConfidence: 0.8,
   /** The sincerity of an NPC's strategic-lie assurance (B4 slice 7). */
   liarSincerity: 0.1,
 } as const;

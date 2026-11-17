@@ -75,7 +75,10 @@ import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
-import { brokenDealClaimId, brokenDealLieConfidence } from "../../engine/dealCredibility";
+import { brokenDealClaimId, brokenDealLieConfidence, DEAL_BREAK_CREDIBILITY } from "../../engine/dealCredibility";
+import { FavorLedger, type FavorEntry } from "../../engine/favors";
+import { FAVOR } from "../../engine/favorConstants";
+import { counterStreamKey, weighCounter, type CounterAsk, type CounterSide } from "../../engine/favorCounters";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
 import { NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, salience, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
@@ -256,7 +259,8 @@ import { producerReadPrompt, type ExchangeAccounting } from "../../engine/produc
 import { buildShowBrief } from "../../engine/showBrief";
 import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
 import { emptyNarrationUse, narrationAnchor, narrationSeasonLine, narrationUsageSection, recordNarration, restoreNarrationUse, type NarrationUse } from "../../engine/narrationUsage";
-import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerSameDayDealLine, openLedgerSection, partiesOf, recordDealEntry, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
+import { brokenPromiseClaimId, isPromiseWhat, judgePromise, promiseNote, termAssuranceKind, termIdsKnown, type PromiseBoardFact, type PromiseTerm, type PromiseWhat, type PromiseWindow } from "../../engine/promiseTerms";
+import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerSameDayDealLine, openLedgerSection, partiesOf, closeOpenEntry, recordDealEntry, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
 import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
@@ -298,7 +302,7 @@ import { CONVICTION, credulityOf, dealTrust, pathwayEvidence, testRef, underTest
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import { rolesFromGraph, type NetworkRoles } from "../../engine/networkSpread";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
-import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, type SceneFold } from "../../engine/bondRecord";
+import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, sceneRoles, type SceneFold } from "../../engine/bondRecord";
 import { deriveDailyHouseGraph, type DailyHouseGraph, type HouseGraph } from "../../engine/houseGraph";
 import type { Stats } from "../../engine/season";
 import {
@@ -352,6 +356,7 @@ import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
 import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
+import { sameMoment } from "../../engine/claimMoment";
 import { CAUGHT_LIE, contradicts, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
 import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedInText, namedSourceContent, noRecordNote, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
@@ -1150,6 +1155,8 @@ export class GameSessionAdapter implements GameSession {
   private onEvent?: (ev: BeatEvent) => void;
   /** Tracked promises (0039). Player-party deals only here; NPC↔NPC deals live off-screen in the Vault. */
   private readonly deals = new DealLedger();
+  /** 0171 / Theme 3 slice 3 - the append-only favor ledger (engine-only, Vault-held; the SOURCE OF TRUTH for the debt on a bond). Empty unless a favor was ever owed. */
+  private readonly favors = new FavorLedger();
   /** 0107 — live NAMED alliances (engine-only, Vault-sealed). Empty unless the player/NPCs name one ⇒ the
    *  cement provider returns 0 for every pair ⇒ the seeded bloc/vote spine is byte-identical. */
   private readonly alliances = new AllianceStore();
@@ -1375,6 +1382,14 @@ export class GameSessionAdapter implements GameSession {
   /** B38: the (week:HOH) crownings whose pitches are already recorded. Session-local: a restart mid-week may re-record once, which is idempotent for deals (bound-pair check) and only repeats a hidden line. */
   private lobbyRecordedFor = new Set<string>();
 
+  /**
+   * ORW-586 / 0187 - PROMISES BIND: an open-ledger entry may carry a closed typed `term` (`promiseTerms.ts`) that the ENGINE judges from public board facts, folding the result like an assurance (`foldBrokenPromise` /
+   * `foldKeptPromise`); a model's kept or broken on such an entry is refused. Default ON; `=0` => no term is written, none is judged, a model may resolve any entry (byte-identical). Needs `ORWELL_ASSURANCES`.
+   */
+  private promiseTermsEnabled = flagDefaultOn("ORWELL_PROMISE_TERMS");
+  setPromiseTermsEnabled(on: boolean): void { this.promiseTermsEnabled = on; }
+  private get promiseTermsLive(): boolean { return this.promiseTermsEnabled && this.assurancesEnabled && this.openLedgerEnabled; }
+
   /** B4 - record casual assurances (`assurances.ts`) on recorded scenes. ON unless `ORWELL_ASSURANCES=0`. OFF => no ledger on the live state => byte-identical. */
   private assurancesEnabled = flagDefaultOn("ORWELL_ASSURANCES");
   setAssurancesEnabled(on: boolean): void { this.assurancesEnabled = on; }
@@ -1407,10 +1422,18 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** B4 slice 4 - `voter` voted `nominee` out: break the open assurance(s) they made to them (once) and the assured remembers. */
-  assuranceVotedOut(voter: EntityId, nominee: EntityId, sealedAmong?: readonly EntityId[]): void { this.assuranceNominated(voter, nominee, sealedAmong); }
+  assuranceVotedOut(voter: EntityId, nominee: EntityId, sealedAmong?: readonly EntityId[]): void {
+    this.breakAssurances(voter, nominee, sealedAmong);
+    this.settleTermsAt({ kind: "eviction-vote", week: this.live?.week ?? 0, by: voter, votedOut: nominee, sealed: !!sealedAmong, ...(sealedAmong ? { sealedAmong } : {}) });
+  }
 
   /** B4 slice 3 - the HOH nominated an assured houseguest: resolve the open assurance(s) BROKEN (once) and the assured remembers it (a smaller grudge than a broken deal). */
   assuranceNominated(holder: EntityId, nominee: EntityId, sealedAmong?: readonly EntityId[]): void {
+    this.breakAssurances(holder, nominee, sealedAmong);
+    this.settleTermsAt({ kind: "nominated", week: this.live?.week ?? 0, by: holder, nominee }); // ORW-586: a promise that carries a term settles on the same board event
+  }
+  /** B4 slice 4 / ORW-586 - the shared break path of `assuranceNominated` and `assuranceVotedOut` (the assurance side only; behaviour unchanged). */
+  private breakAssurances(holder: EntityId, nominee: EntityId, sealedAmong?: readonly EntityId[]): void {
     if (!this.assurancesEnabled || !this.live?.assurances) return;
     const ledger = AssuranceLedger.fromJSON(this.live.assurances);
     let broke = false;
@@ -1418,23 +1441,41 @@ export class GameSessionAdapter implements GameSession {
     for (const a of ledger.openFor(holder).filter((x) => x.to === nominee)) { if (ledger.resolve(a.id, "broken")) { broke = true; witnesses.push(...(a.heardBy ?? [])); } }
     if (!broke) return;
     this.live.assurances = ledger.toJSON();
-    if (sealedAmong) {
-      // ORW-15 / E12 / #1963: an eviction ballot is SECRET, so a broken assurance must not single out the voter. The engine truth (the ledger) resolves BROKEN, but what the assured carries is shared across every
-      // voter who could have cast it (the real breaker is one of them and carries only its share): a smaller deal-broken memory and trust drop each, NO named lied-to-me claim and NO witness fold (a witness
-      // who learned the breaker would deanonymize the ballot). HOH tie-break (a public act) takes the attributed path below.
-      const pool = [...new Set([...sealedAmong, holder])].filter((id) => id !== nominee).sort();
+    this.foldBrokenPromise({ promiser: holder, assured: nominee, witnesses, ...(sealedAmong ? { sealedAmong } : {}) });
+  }
+
+  /**
+   * ORW-586 - the ONE fold of a broken promise (the assurance break since B4, and a termed promise's break). `promiser` broke their word to `assured`; `witnesses` merely heard it; `sealedAmong` is set when the break
+   * happened at a SECRET ballot (then the effects are pool-split and nobody is named). `claimId` (a termed promise's stable `brokenPromiseClaimId`) makes the lied-to-me claim idempotent through `writeLieCaught`;
+   * absent (the assurance break) the claim is written exactly as before. The effects on the wronged houseguest live in `applyBreakToWronged`.
+   */
+  private foldBrokenPromise(b: { promiser: EntityId; assured: EntityId; witnesses: readonly EntityId[]; sealedAmong?: readonly EntityId[]; claimId?: string }): void {
+    this.applyBreakToWronged({ wronged: b.assured, promisers: b.sealedAmong ? [...new Set([...b.sealedAmong, b.promiser])].filter((id) => id !== b.assured).sort() : [b.promiser], sealed: !!b.sealedAmong, witnesses: b.witnesses, ...(b.claimId ? { claimId: b.claimId } : {}) });
+  }
+  /**
+   * ORW-586 - EVERY effect a broken promise has on the wronged side, in one function (a single seam: ORW-597's "learned of the break" gate wraps this). Sealed (ORW-15 / E12 / #1963): an eviction ballot is SECRET, so a
+   * break must not single out the voter: the engine truth (the ledger) resolves BROKEN, but what the assured carries is shared across every voter who could have cast it (`promisers` is that pool): a smaller deal-broken
+   * memory and trust drop each, NO named lied-to-me claim and NO witness fold. Attributed: a deal-broken memory, the witnesses', and (B4 slice 5) the TRUST drop and the lied-to-me claim; never for a player-assured party
+   * (nothing acts on the player's hidden read, the #1963 rule).
+   */
+  private applyBreakToWronged(w: { wronged: EntityId; promisers: readonly EntityId[]; sealed: boolean; witnesses: readonly EntityId[]; claimId?: string }): void {
+    const nominee = w.wronged;
+    if (w.sealed) {
+      const pool = w.promisers;
       for (const s of pool) this.remember(nominee, s, "deal-broken", ASSURANCE.brokenMemorySeverity / pool.length);
       if (nominee !== PLAYER) for (const s of pool) { const e = this.rel.edge(nominee, s); e.trust = Math.max(0, e.trust - ASSURANCE.brokenTrustDrop / pool.length); }
       return;
     }
+    const holder = w.promisers[0]!;
     this.remember(nominee, holder, "deal-broken", ASSURANCE.brokenMemorySeverity);
-    this.rememberAsWitnesses(witnesses, holder, "deal-broken", ASSURANCE.brokenMemorySeverity, nominee);
+    this.rememberAsWitnesses(w.witnesses, holder, "deal-broken", ASSURANCE.brokenMemorySeverity, nominee);
     // B4 slice 5: the break also costs the assurer the assured's TRUST (smaller than a deal break; rng-free, clamped >= 0) and, with the belief layer on, the assured now believes the assurer lied
     // to them (engine-only claim, voiced only BY that holder). Never for a player-assured party: nothing acts on the player's hidden read (the #1963 rule).
     if (nominee !== PLAYER) {
       const e = this.rel.edge(nominee, holder);
       e.trust = Math.max(0, e.trust - ASSURANCE.brokenTrustDrop);
-      if (this.npcBeliefsEnabled) recordClaim((this.live.beliefs ??= {}), { holder: nominee, kind: "lied-to-me", subject: holder, value: true, origin: "witnessed", confidence: 0.8, week: this.live.week });
+      if (w.claimId) this.writeLieCaught(nominee, holder, ASSURANCE.brokenClaimConfidence, "witnessed", w.claimId);
+      else if (this.npcBeliefsEnabled) recordClaim((this.live!.beliefs ??= {}), { holder: nominee, kind: "lied-to-me", subject: holder, value: true, origin: "witnessed", confidence: ASSURANCE.brokenClaimConfidence, week: this.live!.week });
     }
   }
 
@@ -1505,7 +1546,7 @@ export class GameSessionAdapter implements GameSession {
   /** 0154 trigger 3: a claim just told that cannot be true beside one the same speaker already told the same listener: the listener caught the lie (both planted beliefs are taken back; they cannot know which was false). */
   private catchContradiction(told: SpokenClaim): void {
     if (!this.liesCaughtWriting || !this.live?.claims || told.listener === PLAYER) return;
-    const prior = this.live.claims.items.filter((c) => c.id !== told.id && contradicts(c, told));
+    const prior = this.live.claims.items.filter((c) => c.id !== told.id && contradicts(c, told) && sameMoment(c, told)); // ORW-592: an honest change of position over time is no lie
     if (prior.length === 0) return;
     const held = (id: string): boolean => (this.live!.beliefs?.[told.listener] ?? []).some((b) => b.id.endsWith(`|${id}`) && !b.refuted);
     if (!prior.some((c) => held(c.id)) && !held(told.id)) return;   // already caught: never write the same lie twice
@@ -1858,32 +1899,37 @@ export class GameSessionAdapter implements GameSession {
     for (const a of ledger.all.filter((x) => x.status === "open" && match(x))) if (ledger.resolve(a.id, "kept")) kept.push(a);
     if (kept.length === 0) return;
     this.live.assurances = ledger.toJSON();
-    for (const a of kept) {
-      const holder = a.from, to = a.to;
-      if (sealedAmong) {
-        // ORW-15 / E12: keeping at the SEALED ballot (voting the other nominee out) must not tell the assured who voted; the favor is shared across every voter who could have cast it, with no witness fold and no
-        // rumored-break claim naming the keeper.
-        const pool = [...new Set([...sealedAmong, holder])].filter((id) => id !== to).sort();
-        for (const s of pool) this.remember(to, s, "deal-kept", ASSURANCE.keptMemorySeverity / pool.length);
-        continue;
-      }
-      // B39: sometimes the assured WRONGLY believes a kept assurance was broken (a rumor - wrong by construction). The engine's truth stays "kept"; only the assured's belief is false: a low-confidence
-      // `lied-to-me` claim instead of the favor, from a DEDICATED seeded roll. Needs the belief layer; never for a player-assured party (nothing acts on the player's hidden read).
-      if (to !== PLAYER && this.npcBeliefsEnabled && isRumoredBreak(new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:asr-rumor:${this.live.week}:${holder}:${to}`)).next())) {
-        recordClaim((this.live.beliefs ??= {}), { holder: to, kind: "lied-to-me", subject: holder, value: true, origin: "gossip", nature: "rumored-break", confidence: ASSURANCE.rumoredBreakConfidence, week: this.live.week });
-        continue;
-      }
-      this.remember(to, holder, "deal-kept", ASSURANCE.keptMemorySeverity);
-      this.rememberAsWitnesses(a.heardBy ?? [], holder, "deal-kept", ASSURANCE.keptMemorySeverity, to);
+    for (const a of kept) this.foldKeptPromise({ promiser: a.from, assured: a.to, witnesses: a.heardBy ?? [], ...(sealedAmong ? { sealedAmong } : {}) });
+  }
+  /**
+   * ORW-586 - the ONE fold of a KEPT promise (an assurance kept since B4 slice 8, and a termed promise kept): the assured remembers a (weaker-than-a-grudge) favor, the witnesses too. Sealed (ORW-15 / E12): keeping at the
+   * SECRET ballot must not tell the assured who voted; the favor is shared across every voter who could have cast it, with no witness fold and no rumored-break claim naming the keeper.
+   */
+  private foldKeptPromise(k: { promiser: EntityId; assured: EntityId; witnesses: readonly EntityId[]; sealedAmong?: readonly EntityId[] }): void {
+    const holder = k.promiser, to = k.assured, sealedAmong = k.sealedAmong;
+    if (sealedAmong) {
+      const pool = [...new Set([...sealedAmong, holder])].filter((id) => id !== to).sort();
+      for (const s of pool) this.remember(to, s, "deal-kept", ASSURANCE.keptMemorySeverity / pool.length);
+      return;
     }
+    // B39: sometimes the assured WRONGLY believes a kept assurance was broken (a rumor - wrong by construction). The engine's truth stays "kept"; only the assured's belief is false: a low-confidence
+    // `lied-to-me` claim instead of the favor, from a DEDICATED seeded roll. Needs the belief layer; never for a player-assured party (nothing acts on the player's hidden read).
+    if (to !== PLAYER && this.npcBeliefsEnabled && isRumoredBreak(new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:asr-rumor:${this.live!.week}:${holder}:${to}`)).next())) {
+      recordClaim((this.live!.beliefs ??= {}), { holder: to, kind: "lied-to-me", subject: holder, value: true, origin: "gossip", nature: "rumored-break", confidence: ASSURANCE.rumoredBreakConfidence, week: this.live!.week });
+      return;
+    }
+    this.remember(to, holder, "deal-kept", ASSURANCE.keptMemorySeverity);
+    this.rememberAsWitnesses(k.witnesses, holder, "deal-kept", ASSURANCE.keptMemorySeverity, to);
   }
   /** B4 slice 8 - the HOH finalized nominations without the houseguests they had assured 'loyal': kept. ('safe' is NOT resolved here: the veto and the replacement can still put the assured on the block, so it is settled at the vote tally.) */
   assuranceKeptAtNominations(holder: EntityId, nominees: readonly EntityId[]): void {
     this.keepAssurances((a) => a.from === holder && a.kind === "loyal" && !nominees.includes(a.to));
+    this.settleTermsAt({ kind: "nominations-final", week: this.live?.week ?? 0, by: holder, nominees });
   }
   /** B4 slice 8 - `voter` voted the other nominee out and so spared `spared`: an open 'vote'/'safe' assurance to them was KEPT. */
   assuranceKeptAtVote(voter: EntityId, spared: EntityId, sealedAmong?: readonly EntityId[]): void {
     this.keepAssurances((a) => a.from === voter && (a.kind === "vote" || a.kind === "safe") && a.to === spared, sealedAmong);
+    this.settleTermsAt({ kind: "eviction-vote", week: this.live?.week ?? 0, by: voter, spared, sealed: !!sealedAmong, ...(sealedAmong ? { sealedAmong } : {}) });
   }
   /** B4 slice 8 - the eviction nominees are FINAL (after the veto and any replacement): every open 'safe' assurance whose assured is not on the block was kept. */
   assuranceKeptAtTally(finalNominees: readonly EntityId[]): void {
@@ -4822,6 +4868,8 @@ export class GameSessionAdapter implements GameSession {
       house: this.house ? this.cloneHouse(this.house) : null,
       live: this.live ? fastClone(this.live) : null,
       deals: this.deals.serialize(),
+      // 0171: the append-only favor ledger (accumulates, never thins). Absent when no favor was ever owed => byte-shaped as a pre-0171 save.
+      ...(this.favors.all.length ? { favors: this.favors.serialize() } : {}),
       // 0107: persist named alliances so they survive a restart (accumulate, never thin). Engine-only.
       ...(this.alliances.all().length ? { alliances: this.alliances.serialize() } : {}),
       // ORW-544: the append-only alliance history (ended alliances included) - never thinned.
@@ -5166,6 +5214,8 @@ export class GameSessionAdapter implements GameSession {
     this.live = core.live ? cloneSession(core.live) : null;
     if (this.live?.houseThemeDef) registerHouseTheme(this.live.houseThemeDef); // ORW-509: an authored house resolves again after a restart
     this.deals.load(core.deals ?? []);
+    this.favors.load(core.favors ?? []); // 0171: absent on a pre-0171 save => none; `seq` is recomputed from the loaded ids
+    this.foldLegacyFavors(); // 0171: ONE bank - a 0142 `owedFavors` row in the saved season is copied into the ledger (a superset, nothing banked is lost)
     // 0107: restore named alliances (absent on pre-0107 saves ⇒ none).
     this.alliances.load(core.alliances ?? [], core.allianceHistory ?? []);
     // 0085: restore live campaigns (absent on pre-0085 saves ⇒ none).
@@ -5521,7 +5571,7 @@ export class GameSessionAdapter implements GameSession {
       // 0123 (PO ruling 2026-11-01) — a standing NPC deal offer, voiced in-scene by the narrator (no card).
       // Present ONLY while one stands, so the flag-off payload is byte-identical (no `openDealOffer: null`).
       ...(this.live?.dealOffer ? { openDealOffer: this.openDealOfferView() } : {}),
-      ...(this.live?.owedFavors?.length ? { owedFavors: this.owedFavorsView() } : {}),
+      ...(this.owedFavorsView().length ? { owedFavors: this.owedFavorsView() } : {}),
       // F3: the same public over-signal + broadcast winner the AdvanceView/SeasonRecap expose, so a
       // status-only client learns the season ended (and who won) without separately hitting /state or
       // /recap — otherwise it hangs on the last ceremony state post-season. Vault-free (public winner).
@@ -5543,11 +5593,13 @@ export class GameSessionAdapter implements GameSession {
   bondReader(): BondReader {
     if (!this.bondRecordEnabled) return edgeBondReader(this.rel, () => this.livingIds(), () => this.live?.dayNumber ?? 1);
     this.foldBonds();
-    return recordBondReader(this.rel, () => this.live?.bonds, () => this.livingIds(), () => this.live?.dayNumber ?? 1, this.favorDebt ? { favorDebt: this.favorDebt } : {});
+    return recordBondReader(this.rel, () => this.live?.bonds, () => this.livingIds(), () => this.live?.dayNumber ?? 1, this.favorDebt ?? this.ownFavorDebt() ? { favorDebt: (this.favorDebt ?? this.ownFavorDebt())! } : {});
   }
   /** Theme 3 slice 3 (Overseer B): the favor ledger as a second source of a bond's debt (signed like BondView.debt). Absent => the record's own debt only. */
   private favorDebt?: DebtSource;
   setFavorDebtSource(fn: DebtSource | undefined): void { this.favorDebt = fn; }
+  /** 0171: the favor ledger IS the favor-debt source (signed like `BondView.debt`: + means `other` owes `holder`). Never written into the relationship model's own debt fields. Undefined when favors are off. */
+  private ownFavorDebt(): DebtSource | undefined { return this.favorsEnabled ? (holder, other) => this.favors.debtBetween(holder, other) : undefined; }
   /** 0175: the bond record (`ORWELL_BOND_RECORD`, default ON; `=0` = the edge-only reader and no record kept). Nothing decides from it yet, so it moves no outcome. */
   private bondRecordEnabled = flagDefaultOn("ORWELL_BOND_RECORD");
   setBondRecordEnabled(on: boolean): void { this.bondRecordEnabled = on; }
@@ -5564,6 +5616,11 @@ export class GameSessionAdapter implements GameSession {
     for (let i = live.bondsCursor ?? 0; i < events.length; i++) {
       const e = events[i]!;
       if (!SCENE_FOLDS.has(e.type) || e.witnessSet.length < 2) continue;
+      if (live.playedGame === true) { // ORW-598 (played games only): the scene's principals fold the pair (who started it matters); watchers only their own view
+        const { principals, bystanders } = sceneRoles(e.initiator, e.witnessSet, !!e.houseLife);
+        if (principals.length >= 2) foldScene(store, e.type as SceneFold, principals, { ...(principals.includes(e.initiator) ? { initiator: e.initiator } : {}), bystanders });
+        continue;
+      }
       if (!e.houseLife && e.witnessSet.length > 4) continue; // a whole-house moment is not a pair's scene
       foldScene(store, e.type as SceneFold, e.witnessSet);
     }
@@ -9561,12 +9618,23 @@ export class GameSessionAdapter implements GameSession {
   private bankOwedFavor(honorer: EntityId, honored: EntityId): void {
     const s = this.live;
     if (!s || s.playedGame !== true || honored !== PLAYER || honorer === PLAYER) return;
+    if (this.favorsEnabled) { // ONE bank: the favor ledger (0171). At most 3 open per houseguest, as before.
+      this.foldLegacyFavors();
+      if (this.favors.openHeldBy(PLAYER).filter((f) => f.owedBy === honorer).length < 3) this.favors.owe({ owedBy: honorer, owedTo: PLAYER, origin: `bank:${honorer}:${s.week}`, beat: this.favorBeat() });
+      return;
+    }
     const list = (s.owedFavors ??= []);
     const row = list.find((f) => f.debtor === honorer);
     if (row) row.n = Math.min(3, row.n + 1); else list.push({ debtor: honorer, n: 1, madeWeek: s.week });
   }
 
   private owedFavorsView(): OwedFavorView[] {
+    if (this.favorsEnabled) { // ONE bank: the player's open claims in the favor ledger (the legacy rows are folded in first)
+      this.foldLegacyFavors();
+      const by = new Map<EntityId, number>();
+      for (const f of this.favors.openHeldBy(PLAYER)) by.set(f.owedBy, (by.get(f.owedBy) ?? 0) + 1);
+      return [...by].map(([id, n]) => ({ from: this.named(id)!, n }));
+    }
     return (this.live?.owedFavors ?? []).filter((f) => f.n > 0).map((f) => ({ from: this.named(f.debtor)!, n: f.n }));
   }
 
@@ -9580,16 +9648,20 @@ export class GameSessionAdapter implements GameSession {
     this.guardBeatSeq(expectedBeatSeq);
     const s = this.live;
     if (!s || !this.house || s.playedGame !== true || s.finished) return null;
-    const row = s.owedFavors?.find((f) => f.debtor === npcId && f.n > 0);
-    if (!row || this.dealOfferPartyGone(npcId)) return null;
+    this.foldLegacyFavors();
+    const claim = this.favorsEnabled ? this.favors.openHeldBy(PLAYER).find((f) => f.owedBy === npcId) : undefined;
+    const row = this.favorsEnabled ? undefined : s.owedFavors?.find((f) => f.debtor === npcId && f.n > 0);
+    if ((!row && !claim) || this.dealOfferPartyGone(npcId)) return null;
     if (isPositiveObligation(ask) && !this.dealDepthEnabled) return null;
     if (!GameSessionAdapter.FAVOR_ASK_KINDS.has(ask)) return null; // an unknown kind never spends the favor (protect-third names a third houseguest a favor request cannot carry)
     if (ask === "protect-third") return null; // a favor request carries no third houseguest to protect, so it cannot bind (review of #2839)
     const direction = isPositiveObligation(ask) ? "ask" : undefined;
     const refusal = this.dealConsentRefusal(npcId, ask, direction, DEAL_CONSENT.calledFavorBonus);
-    row.n -= 1;
-    if (row.n <= 0) s.owedFavors = s.owedFavors!.filter((f) => f !== row);
-    if (s.owedFavors?.length === 0) delete s.owedFavors;
+    if (row) {
+      row.n -= 1;
+      if (row.n <= 0) s.owedFavors = s.owedFavors!.filter((f) => f !== row);
+      if (s.owedFavors?.length === 0) delete s.owedFavors;
+    } else if (claim) { this.favors.call(claim.id, this.favorBeat()); this.favors.resolve(claim.id, refusal ? "refused" : "repaid", this.favorBeat()); } // the favor is spent either way, and stays on the ledger
     if (!refusal) {
       const terms = "a favor called in";
       const evId = this.onPlayerEvent?.(`${this.nameOf(PLAYER)} calls in a favor and ${this.nameOf(npcId)} honors it with a ${ask} deal`, [PLAYER, npcId], "deal");
@@ -10306,6 +10378,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId, among?: readonly EntityId[]) => this.assuranceVotedOut(v, n, among) } : {}),
+      ...(this.favorsOn() ? { favorsAtTally: (fn: readonly EntityId[], v: readonly EntityId[]) => this.favorsAtTally(fn, v), favorShieldFor: (n: EntityId, v: EntityId) => this.favorShieldFor(n, v) } : {}),
       ...(this.liesCaughtWriting ? { evictionCountPublic: (t: PublicTally) => this.evictionCountPublic(t) } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceKeptAtNominations: (h: EntityId, ns: readonly EntityId[]) => this.assuranceKeptAtNominations(h, ns), assuranceKeptAtVote: (v: EntityId, sp: EntityId, among?: readonly EntityId[]) => this.assuranceKeptAtVote(v, sp, among), assuranceKeptAtTally: (fn: readonly EntityId[]) => this.assuranceKeptAtTally(fn) } : {}),
@@ -12484,6 +12557,181 @@ export class GameSessionAdapter implements GameSession {
    */
   private goalMoodEnabled = flagDefaultOn("ORWELL_GOAL_MOOD");
   setGoalMoodEnabled(on: boolean): void { this.goalMoodEnabled = on; }
+  /** 0171 / Theme 3 slice 3: counters, favors both ways, a favor economy. `ORWELL_FAVORS=0` opts out. Played games only (headless calibration byte-identical). */
+  private favorsEnabled = flagDefaultOn("ORWELL_FAVORS");
+  setFavorsEnabled(on: boolean): void { this.favorsEnabled = on; }
+  private favorsOn(): boolean { return this.favorsEnabled && this.live?.playedGame === true; }
+  private favorBeat(): number { return this.live?.dayNumber ?? this.live?.week ?? 0; }
+  /** ENGINE-ONLY read of the favor ledger (never a tool, never projected); the engine seam NPC-to-NPC deals will record into. */
+  favorLedger(): readonly FavorEntry[] { return this.favors.all; }
+  /** ENGINE-ONLY seam (not a tool): a favor is owed. Returns the entry, or undefined when favors are off or the pair is the same houseguest. */
+  recordFavor(req: { owedBy: EntityId; owedTo: EntityId; origin: string; witnesses?: readonly EntityId[] }): FavorEntry | undefined {
+    if (!this.favorsOn()) return undefined;
+    return this.favors.owe({ ...req, beat: this.favorBeat() });
+  }
+
+  /**
+   * 0171: the eviction nominees are final. First the counters the player accepted are settled: a condition ("if X goes up", "if X stays safe") books the favor only when it is TRUE at this eviction, else it lapses
+   * unbooked. Then a houseguest NOT on the block passes a favor they hold to a close ally who IS (their closest nominee at or above `FAVOR.passBond`), and every favor held by an NPC nominee is CALLED IN when the
+   * vote is close (`voteStillInDoubt`): an NPC debtor answers aloud BEFORE any ballot (one seeded roll, loyalty-and-bond weighted, scaled by the house's loyalty dial), and the PLAYER, when they are the debtor, is asked
+   * through the one standing offer slot and answers with accept or decline. The engine never calls in a favor the player holds: that is the player's own `callInFavor`. A nominee with no claim on the player may ask them
+   * for a new favor (seeded, only if they read the player warmly). Honoring repays and shields; refusing costs the debtor (`refuseFavor`).
+   */
+  private favorsAtTally(fn: readonly EntityId[], voters: readonly EntityId[]): void {
+    const s = this.live;
+    if (!this.favorsOn() || !s || !this.house) return;
+    this.foldLegacyFavors();
+    const seed = this.gameSeed ?? 0;
+    const beat = this.favorBeat();
+    const nominees = [...fn].sort();
+    this.settleFavorConditions(nominees);
+    if (this.favors.all.length > 0) {
+      for (const h of this.livingIds().filter((id) => id !== PLAYER && !nominees.includes(id)).sort()) {
+        for (const f of this.favors.openHeldBy(h)) {
+          if (f.calledBeat !== undefined) continue;
+          let best: EntityId | undefined;
+          let bestBond = -1;
+          for (const n of nominees) {
+            if (n === f.owedBy) continue;
+            const b = this.rel.bondStrength(h, n);
+            if (b >= FAVOR.passBond && b > bestBond) { best = n; bestBond = b; }
+          }
+          if (!best || !this.voteStillInDoubt(h, best)) continue;
+          const next = this.favors.pass(f.id, best, beat);
+          if (next) this.onPlayerEvent?.(`${this.nameOf(h)} quietly hands ${this.nameOf(best)} a favor that ${this.nameOf(f.owedBy)} owes them`, [h, best], "conversation");
+        }
+      }
+    }
+    for (const n of nominees) {
+      if (n === PLAYER || !this.voteStillInDoubt(n, n)) continue; // the player's own favors are theirs to call in
+      let claimOnPlayer = false;
+      for (const f of this.favors.openHeldBy(n)) {
+        const debtor = f.owedBy;
+        if (debtor === PLAYER) { claimOnPlayer = true; if (voters.includes(PLAYER)) this.callOnPlayer(f, n); continue; }
+        if (f.calledBeat !== undefined || !voters.includes(debtor)) continue;
+        this.favors.call(f.id, beat);
+        const e = this.rel.edge(debtor, n);
+        const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(debtor), this.emotionalReadOf(debtor))));
+        const base = FAVOR.honorBase + FAVOR.honorLoyaltySlope * loyalty + FAVOR.honorBondSlope * ((e.trust + e.affinity) / 2) - FAVOR.honorThreatSlope * e.threat;
+        const p = Math.max(0, Math.min(1, base * this.cultureMult("loyalty"))); // the house's loyalty dial leans how readily a favor is honored
+        const roll = new SeededRandom(hashSeed(`${seed}:favors:call:${f.id}:${s.week}`)).next();
+        if (roll < p) {
+          this.favors.resolve(f.id, "repaid", beat);
+          this.onPlayerEvent?.(`${this.nameOf(debtor)} repays the favor ${this.nameOf(n)} called in`, [debtor, n], "conversation");
+        } else this.refuseFavor(f, n, debtor);
+      }
+      if (!claimOnPlayer && voters.includes(PLAYER)) this.askPlayerForFavor(n);
+    }
+  }
+
+  /** 0171: the NPC holder `n` calls in a favor the PLAYER owes them: the one standing offer slot, facts only. The player answers accept or decline. A taken slot leaves the favor uncalled for a later beat. */
+  private callOnPlayer(f: FavorEntry, n: EntityId): void {
+    const s = this.live;
+    if (!s || s.dealOffer || f.calledBeat !== undefined || s.lastDealOfferWeek === s.week || this.dealOfferPartyGone(n)) return;
+    this.favors.call(f.id, this.favorBeat());
+    s.dealOffer = { id: `offer:${n}:${s.week}`, from: n, kind: "vote", terms: `${this.nameOf(n)} asks ${this.nameOf(PLAYER)} to repay a favor owed, by keeping them at this week's eviction`, madeWeek: s.week, favor: { favorId: f.id } };
+    s.lastDealOfferWeek = s.week;
+    this.onPlayerEvent?.(`${this.nameOf(n)} turns to ${this.nameOf(PLAYER)} to collect on a favor`, [PLAYER, n], "conversation");
+  }
+
+  /** 0171: a nominee at a close vote who reads the player warmly asks them for a NEW favor (seeded side stream, the one standing slot). Taking it puts the houseguest in the player's debt. */
+  private askPlayerForFavor(n: EntityId): void {
+    const s = this.live;
+    if (!s || s.dealOffer || s.lastDealOfferWeek === s.week || this.dealOfferPartyGone(n) || this.memoryBlocksPlayerDeal(n)) return;
+    const e = this.rel.edge(n, PLAYER);
+    if ((e.trust + e.affinity) / 2 < FAVOR.askBond) return;
+    if (new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:favors:ask:${n}:${s.week}`)).next() >= FAVOR.askProb) return;
+    s.dealOffer = { id: `offer:${n}:${s.week}`, from: n, kind: "vote", terms: `${this.nameOf(n)} asks ${this.nameOf(PLAYER)} for a favor: to keep them at this week's eviction`, madeWeek: s.week, favor: {} };
+    s.lastDealOfferWeek = s.week;
+    this.onPlayerEvent?.(`${this.nameOf(n)} asks ${this.nameOf(PLAYER)} for a favor`, [PLAYER, n], "conversation");
+  }
+
+  /**
+   * 0171: a called-in favor was refused (by an NPC's answer, the player's decline, or an offer left unanswered). The favor is marked refused; the wronged side takes `applyRefusalToWronged`; the people PRESENT AND AWAKE
+   * who had heard it promised weigh it at the deal witness factor; the event's witnesses are the refused person, the debtor and whoever was present (so the player only if they were there). Wording differs by whether
+   * the player witnessed it, so a hidden refusal never reads as an echo of a public one.
+   */
+  private refuseFavor(f: FavorEntry, holder: EntityId, debtor: EntityId): void {
+    const s = this.live;
+    if (!s) return;
+    this.favors.resolve(f.id, "refused", this.favorBeat());
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:favors:refuse:${f.id}:${s.week}`));
+    this.applyRefusalToWronged(holder, debtor, f.id, rng);
+    const present = this.coPresentWitnessesOf(debtor).filter((w) => w !== holder);
+    for (const w of present) if (f.witnesses.includes(w)) this.rel.applyDirected(w, debtor, "betrayal", rng, FAVOR.refusalScale * DEAL_BREAK_CREDIBILITY.witnessFactor);
+    const seen = [...new Set([debtor, holder, ...present])];
+    this.onPlayerEvent?.(seen.includes(PLAYER) ? `${this.nameOf(debtor)} turned down the favor ${this.nameOf(holder)} asked back` : `${this.nameOf(holder)} was told no by ${this.nameOf(debtor)} when they went to collect`, seen, "conversation");
+  }
+
+  /**
+   * 0171 (ORW-597 will wrap this): everything the WRONGED side of a refused favor takes, in ONE place: the trust fold toward the refuser, a memory, a grudge in the grudge book (never the player as holder) and the
+   * bond record's break fold. Seeded by the caller's stream; no text.
+   */
+  private applyRefusalToWronged(holder: EntityId, debtor: EntityId, favorId: string, rng: SeededRandom): void {
+    const s = this.live;
+    if (!s) return;
+    this.rel.applyDirected(holder, debtor, "betrayal", rng, FAVOR.refusalScale);
+    if (holder === PLAYER) { if (this.bondRecordEnabled) foldBreak((s.bonds ??= {}), debtor, holder); return; }
+    this.remember(holder, debtor, "deal-broken", ASSURANCE.brokenMemorySeverity * FAVOR.refusalMemoryShare);
+    if (this.grudgesOn()) noteGrudge((s.grudges ??= {}), holder, debtor, "deal-broken", GRUDGES.DEAL_BREAK_SEVERITY * FAVOR.refusalGrudgeShare, s.week, s.dayNumber ?? 1, `favor:${favorId}`);
+    if (this.bondRecordEnabled) foldBreak((s.bonds ??= {}), debtor, holder);
+  }
+
+  /** 0171: settle the accepted counters at this eviction: booked only if the stated condition holds now (the rival is on the block / the protected houseguest is not), else lapsed. Nothing is deleted. */
+  private settleFavorConditions(nominees: readonly EntityId[]): void {
+    const s = this.live;
+    if (!s?.favorConditions) return;
+    const gone = new Set(s.evictionOrder);
+    for (const c of s.favorConditions) {
+      if (c.state !== "waiting") continue;
+      const holds = c.week === s.week && !gone.has(c.target) && (c.kind === "target" ? nominees.includes(c.target) : !nominees.includes(c.target));
+      if (holds) { this.favors.owe({ owedBy: c.owedBy, owedTo: c.owedTo, origin: c.origin, beat: this.favorBeat() }); c.state = "booked"; } else c.state = "lapsed";
+    }
+  }
+
+  /**
+   * 0171 (ONE favor bank): the 0142 bank (`live.owedFavors`, the player's own called-in favors) is folded INTO the favor ledger, one open entry per banked favor, and the legacy rows are dropped only after they are
+   * copied (a superset: nothing banked is lost). Idempotent, no rng; a no-op with the layer off (the legacy bank then works as before).
+   */
+  private foldLegacyFavors(): void {
+    const s = this.live;
+    if (!this.favorsEnabled || !s?.owedFavors?.length) return;
+    for (const row of s.owedFavors) for (let i = 0; i < row.n; i++) this.favors.owe({ owedBy: row.debtor, owedTo: PLAYER, origin: `bank:${row.debtor}:${row.madeWeek}`, beat: row.madeWeek });
+    delete s.owedFavors;
+  }
+
+  /** 0171: the shield a favor `voter` honored for `nominee` at THIS vote adds against evicting them (derived from the ledger, so a restart mid-vote holds it). */
+  private favorShieldFor(nominee: EntityId, voter: EntityId): number {
+    const beat = this.favorBeat();
+    return this.favors.all.some((f) => f.state === "repaid" && f.holder === nominee && nominee !== PLAYER && f.owedBy === voter && f.calledBeat === beat && f.resolvedBeat === beat)
+      ? FAVOR.shieldShareOfDealHonor * DECISION.vote.dealHonorWeight : 0;
+  }
+
+  /**
+   * 0171: a houseguest asking to swap a deal weighs it against THEIR weekly goals: the rival they most want out (the strongest positive agenda pull) and the houseguest they most want kept (the strongest negative pull).
+   * The decision is `weighCounter` round 1 on the seeded side stream `${seed}:favors:${deal}:${week}:1`; only a goal ask (`target` or `protect`) is returned (a vote ask is the swap itself). Undefined when no goal
+   * is worth asking for.
+   */
+  private favorCounterAsk(npc: EntityId, deal: Deal, living: readonly EntityId[]): CounterAsk | undefined {
+    const s = this.live;
+    if (!s) return undefined;
+    let goalTarget: EntityId | undefined;
+    let goalPull = 0;
+    let protectTarget: EntityId | undefined;
+    let protectPull = 0;
+    for (const t of living) {
+      if (t === npc || t === PLAYER) continue;
+      const v = this.agendaPullOf(t, npc).value;
+      if (v > goalPull) { goalPull = v; goalTarget = t; }
+      if (-v > protectPull) { protectPull = -v; protectTarget = t; }
+    }
+    const e = this.rel.edge(npc, PLAYER);
+    const side: CounterSide = { id: npc, ...(goalTarget ? { goalTarget } : {}), goalPull, ...(protectTarget ? { protectTarget, protectPull } : {}), bond: (e.trust + e.affinity) / 2, pullOn: (t) => this.agendaPullOf(t, npc).value };
+    const rng = new SeededRandom(hashSeed(counterStreamKey(this.gameSeed ?? 0, deal.id, s.week, 1)));
+    const r = weighCounter({ round: 1, side, rolls: { counter: rng.next(), settle: rng.next() } });
+    return r.verdict === "counter" && (r.ask?.kind === "target" || r.ask?.kind === "protect") ? r.ask : undefined;
+  }
+
   /** ORW-567 / spec 0185 (Theme 3 slice 15): mood contagion. `ORWELL_MOOD_CONTAGION=0` opts out. Played games only (headless calibration byte-identical). */
   private moodContagionEnabled = flagDefaultOn("ORWELL_MOOD_CONTAGION");
   setMoodContagionEnabled(on: boolean): void { this.moodContagionEnabled = on; }
@@ -12592,6 +12840,7 @@ export class GameSessionAdapter implements GameSession {
         case "nominate": return (s.nominees as readonly EntityId[] | undefined)?.includes(c) === true;
         case "replacement": return s.replacement === c;
         case "veto": return s.saved === c;
+        case "veto-hold": return !s.vetoUsed && (s.beat === "eviction" || s.beat === "final-eviction"); // ORW-578 part 2b: once the ceremony has passed with the veto unused
         case "final-hoh-evict": return s.evictee === c;
         case "deal-renegotiate": return s.dealOffer?.from === r.decider && s.dealOffer.replacesDealId !== undefined;
         case "vote": return s.evictee === c;
@@ -14789,12 +15038,14 @@ export class GameSessionAdapter implements GameSession {
    */
   /**
    * #1963 — is this break tied to the SECRET weekly eviction ballot AND observable through the wronged party's behaviour?
-   * Only an NPC's vote-evict that is backed by the CURRENT staged ballot (`live.eviction.voteOf`) counts: the Final-3 vote is
-   * the final HOH's open personal vote (no secret ballot exists), a stale ballot from a previous week must never attribute a
-   * later break, and a PLAYER-wronged break keeps the full fold (nothing acts on the player's hidden read).
+   * A vote-evict backed by the CURRENT staged ballot (`live.eviction.voteOf`) counts: the Final-3 vote is the final HOH's open personal
+   * vote (no secret ballot exists), a stale ballot from a previous week must never attribute a later break, and a PLAYER-wronged break
+   * keeps the full fold (nothing acts on the player's hidden read). ORW-615: the PLAYER's ballot is as secret from the wronged houseguest
+   * as anyone's (it used to be exempt, so the wronged NPC in effect learned how the player voted). The player's OWN view of their own
+   * break is a separate seal (`DealLedger.reconcile` never projection-seals the player's own vote).
    */
   private sealedBreak(wronged: EntityId, breaker: EntityId, kind: BreakCause): boolean {
-    return kind === "vote-evict" && breaker !== PLAYER && wronged !== PLAYER && this.live?.eviction?.voteOf?.[breaker] === wronged;
+    return kind === "vote-evict" && wronged !== PLAYER && this.live?.eviction?.voteOf?.[breaker] === wronged;
   }
 
   /** Everyone who voted to evict `wronged` on the CURRENT staged weekly ballot (the set a sealed break is shared across). */
@@ -16232,8 +16483,10 @@ export class GameSessionAdapter implements GameSession {
         });
       } else {
         const kind = renegotiatedKind(deal.kind)!;
-        const terms = "I would rather we swap our deal for a lighter one: I will vote to keep you safe at this week's eviction";
-        s.dealOffer = { id: `offer:${npc}:${s.week}`, from: npc, kind, terms, madeWeek: s.week, replacesDealId: deal.id };
+        // 0171: the swap rides this houseguest's weekly goal - a counter asks for the rival they want gone this week (facts only; the narrator voices it).
+        const ask = this.favorsOn() ? this.favorCounterAsk(npc, deal, living) : undefined;
+        const terms = "I would rather we swap our deal for a lighter one: I will vote to keep you safe at this week's eviction" + (ask?.kind === "target" ? `, if ${this.nameOf(ask.target)} goes up` : ask?.kind === "protect" ? `, if ${this.nameOf(ask.target)} stays off the block` : "");
+        s.dealOffer = { id: `offer:${npc}:${s.week}`, from: npc, kind, terms, madeWeek: s.week, replacesDealId: deal.id, ...(ask ? { counter: { round: 1, ask } } : {}) };
         s.lastDealOfferWeek = s.week;
         this.onPlayerEvent?.(`${this.nameOf(npc)} pulls ${this.nameOf(PLAYER)} aside to ask to change their ${deal.kind} deal`, [PLAYER, npc], "conversation");
       }
@@ -16339,6 +16592,14 @@ export class GameSessionAdapter implements GameSession {
         // 0142 idea 4: a renegotiation retires the deal it replaces, neutrally (both sides agreed to swap it; not kept, not broken, no fold).
         const old = o.replacesDealId ? this.deals.all.find((d) => d.id === o.replacesDealId && d.status === "open") : undefined;
         if (old) old.status = "lapsed";
+        if (this.favorsOn()) {
+          // 0171: a counter taken puts the player in the NPC's debt (they met the ask); a swap to a lighter deal puts the NPC in the player's (the player gave up the heavier promise). Hidden ledger, no view.
+          // A counter is a CONDITION: it is booked as "the player owes" only when it is true at this week's eviction (`settleFavorConditions`), else it lapses unbooked.
+          if (o.counter && o.counter.ask.kind !== "vote") (s.favorConditions ??= []).push({ id: `cond:${o.id}:${o.counter.round}`, owedBy: PLAYER, owedTo: o.from, origin: `counter:${o.id}:${o.counter.round}`, kind: o.counter.ask.kind, target: o.counter.ask.target, week: s.week, state: "waiting" });
+          else if (o.favor?.favorId) this.favors.resolve(o.favor.favorId, "repaid", this.favorBeat()); // the player repays a favor an NPC called in
+          else if (o.favor) this.favors.owe({ owedBy: o.from, owedTo: PLAYER, origin: `ask:${o.id}`, beat: this.favorBeat() }); // the player grants a favor an NPC asked for: the NPC now owes
+          else if (old) this.favors.owe({ owedBy: o.from, owedTo: PLAYER, origin: old.id, beat: this.favorBeat(), witnesses: old.formationWitnesses ?? [] });
+        }
       } else {
         this.onPlayerEvent?.(
           `${this.nameOf(PLAYER)} declines ${this.nameOf(o.from)}'s ${o.kind} offer`,
@@ -16347,6 +16608,9 @@ export class GameSessionAdapter implements GameSession {
         // The rebuffed houseguest cools on the player a touch (bounded, seeded, hidden — never surfaced).
         const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? ""}:deal-decline:${o.from}:${o.madeWeek}`));
         this.rel.applyDirected(o.from, PLAYER, "conflict", rng);
+        // 0171: declining a favor the houseguest called in is a refusal: it costs the player the houseguest's trust and that of the present-and-awake witnesses.
+        const called = o.favor?.favorId ? this.favors.get(o.favor.favorId) : undefined;
+        if (called && called.state === "owed" && this.favorsOn()) this.refuseFavor(called, o.from, PLAYER);
       }
       this.persist();
       return this.advanceView(null);
@@ -16376,6 +16640,8 @@ export class GameSessionAdapter implements GameSession {
     const seasonOver = !!s.finished || s.beat === "finale" || s.beat === "complete";
     if (s.week <= o.madeWeek && !seasonOver) return;
     s.dealOffer = undefined;
+    const calledLapsed = o.favor?.favorId ? this.favors.get(o.favor.favorId) : undefined;
+    if (calledLapsed && calledLapsed.state === "owed" && this.favorsOn()) this.refuseFavor(calledLapsed, o.from, PLAYER); // a favor called in and left unanswered is a refusal
     this.onPlayerEvent?.(
       `${this.nameOf(o.from)}'s ${o.kind} offer to ${this.nameOf(PLAYER)} lapsed unanswered`,
       [PLAYER, o.from], "conversation",
@@ -16401,6 +16667,8 @@ export class GameSessionAdapter implements GameSession {
     return {
       from: this.named(o.from)!, kind: o.kind, terms: o.terms, madeWeek: o.madeWeek,
       ...(o.replacesDealId ? { replacesDealId: o.replacesDealId } : {}),
+      ...(o.counter ? { counter: { round: o.counter.round, ask: o.counter.ask.kind !== "vote" ? { kind: o.counter.ask.kind, target: this.named(o.counter.ask.target)! } : { kind: "vote" as const } } } : {}),
+      ...(o.favor ? { favor: { kind: o.favor.favorId ? "called-in" as const : "asked" as const } } : {}),
       howToVoice: "Not a decision card and it never stops the week. Voice this houseguest floating the offer " +
         "in-scene at a natural moment (who, kind, terms). If the player answers in chat, record it with " +
         "submitDecision {kind:\"deal-offer\", vote:\"accept\"|\"decline\"} — never answer for them; an " +
@@ -17572,6 +17840,69 @@ export class GameSessionAdapter implements GameSession {
     return { accepted: true, ...(out.id ? { entryId: out.id } : {}) };
   }
 
+  /**
+   * ORW-586 - the settle funnel: every open entry that carries a term is judged against this ONE public board fact (`judgePromise`), by the engine, from the same hooks that settle assurances. A verdict closes the entry
+   * through `closeOpenEntry` with an engine-authored note. A promise the casual-assurance ledger already folds (`termAssuranceKind`) only has its entry closed here (ONE resolver of the fold); any other termed promise is folded
+   * here (`foldBrokenPromise` / `foldKeptPromise`, the assurance constants, the wronged = who it was made TO; never for a player-assured party). A verdict at a SEALED ballot leaves the visible entry OPEN (a "broken" or "kept"
+   * line would single the voter out, the ORW-456 rule) and folds pool-split, naming nobody. No term / `share-info` / another actor / another week => nothing.
+   */
+  private settleTermsAt(fact: PromiseBoardFact): void {
+    const s = this.live;
+    if (!this.promiseTermsLive || this.openLedgerAsLoaded !== undefined || !s || s.playedGame !== true || this.openLedger.entries.length === 0) return;
+    for (const e of this.openLedger.entries) {
+      if (e.status !== "open" || !e.term) continue;
+      const verdict = judgePromise(e.term, fact);
+      if (!verdict) continue;
+      const sealed = fact.kind === "eviction-vote" && fact.sealed;
+      const covered = termAssuranceKind(e.term) !== undefined;
+      if (!covered) {
+        const witnesses = e.witnesses.filter((w) => w !== OPEN_LEDGER_PLAYER && w !== e.term!.by && w !== e.term!.to) as EntityId[];
+        const among = sealed && fact.kind === "eviction-vote" ? (fact.sealedAmong ?? [e.term.by]) as EntityId[] : undefined;
+        if (verdict === "broken") this.foldBrokenPromise({ promiser: e.term.by as EntityId, assured: e.term.to as EntityId, witnesses, ...(among ? { sealedAmong: among } : {}), ...(sealed ? {} : { claimId: brokenPromiseClaimId(e.term.to, e.term.by, e.id) }) });
+        else this.foldKeptPromise({ promiser: e.term.by as EntityId, assured: e.term.to as EntityId, witnesses, ...(among ? { sealedAmong: among } : {}) });
+      }
+      if (sealed) continue;
+      this.openLedger = closeOpenEntry(this.openLedger, e.id, verdict, promiseNote(verdict, fact), this.beatSeq);
+    }
+  }
+
+  /**
+   * ORW-586 / 0187 - record a promise WITH its term (engine entry point; slice 3 adds the front-end boundary that reaches it). The ids are validated here, everyone involved must be present now (as `recordOpenLedger`), and
+   * the engine stamps the week. For the two kinds the casual-assurance ledger already folds ("will not nominate" = loyal, "will not vote out" = vote) the matching assurance row is written too, so there is ONE resolver.
+   * `share-info` is recorded as open text with no judging. Flag off => refused "off", nothing written.
+   */
+  recordPromiseTerm(req: { by: string; to: string; what: string; subject?: string; window?: string; text?: string }): { accepted: boolean; reason?: string; entryId?: string; duplicate?: boolean } {
+    if (!this.promiseTermsLive) return { accepted: false, reason: "off" };
+    if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
+    if (this.openLedgerAsLoaded !== undefined) return { accepted: false, reason: "locked" };
+    const known = new Set<string>(this.house.npcs.map((n) => n.id as string));
+    const isKnown = (id: string): boolean => id === OPEN_LEDGER_PLAYER || known.has(id);
+    if (!isPromiseWhat(req.what)) return { accepted: false, reason: "bad-shape" };
+    const window: PromiseWindow | undefined = req.window === undefined ? undefined : req.window === "week" || req.window === "season" ? req.window : undefined;
+    if (req.window !== undefined && window === undefined) return { accepted: false, reason: "bad-shape" };
+    const term: PromiseTerm = { by: req.by, to: req.to, what: req.what as PromiseWhat, ...(req.subject ? { subject: req.subject } : {}), ...(window ? { window } : {}), week: this.live.week };
+    if (typeof req.by !== "string" || typeof req.to !== "string" || req.by === req.to || !termIdsKnown(term, isKnown)) return { accepted: false, reason: "bad-speaker" };
+    const phrase = `${this.nameOf(term.by as EntityId)} promised ${this.nameOf(term.to as EntityId)}: ${term.what.replace(/-/g, " ")}${term.subject ? ` ${this.nameOf(term.subject as EntityId)}` : ""}`;
+    const text = typeof req.text === "string" && req.text.trim() ? req.text : phrase;
+    const p = openLedgerProposal({ text, speaker: term.by, addressedTo: [term.to], kind: "promise", ...(term.subject && term.subject !== term.to ? { about: term.subject } : {}) }, known);
+    if (typeof p === "string") return { accepted: false, reason: p };
+    const wa = this.whereabouts();
+    if (!wa) return { accepted: false, reason: "no-game" };
+    const day = this.ledgerDay();
+    const witnesses = wa.present.map((x) => x.id as string);
+    const out = recordOpenEntry(this.openLedger, p, { turn: this.beatSeq, beatSeq: this.beatSeq, room: wa.room, witnesses, ...(day !== undefined ? { day } : {}), term });
+    if (out.outcome === "duplicate") return { accepted: true, duplicate: true, ...(out.id ? { entryId: out.id } : {}) };
+    if (out.outcome !== "recorded") return { accepted: false, reason: out.outcome };
+    this.openLedger = out.ledger;
+    const kind = termAssuranceKind(term);
+    if (kind) {
+      const heardBy = witnesses.filter((w) => w !== OPEN_LEDGER_PLAYER && w !== term.by && w !== term.to) as EntityId[];
+      this.recordAssurance({ from: term.by as EntityId, to: term.to as EntityId, kind, sincerity: 1, source: term.by === OPEN_LEDGER_PLAYER ? "player" : "npc", ...(heardBy.length ? { heardBy } : {}) });
+    }
+    this.backgroundPersist(); // durable, NOT a board beat
+    return { accepted: true, ...(out.id ? { entryId: out.id } : {}) };
+  }
+
   /** ORW-407 slice 2 - mark an open entry kept, broken or withdrawn, with a free-text note and the turn. Changes no relationship number. */
   resolveOpenLedger(req: ResolveOpenLedgerReq): RecordOpenLedgerResolutionResult {
     if (!this.openLedgerEnabled) return { accepted: false, reason: "off" };
@@ -17587,7 +17918,7 @@ export class GameSessionAdapter implements GameSession {
       this.backgroundPersist(); // durable, NOT a board beat
       return { accepted: true };
     }
-    const out = resolveOpenEntry(this.openLedger, req, this.beatSeq);
+    const out = resolveOpenEntry(this.openLedger, req, this.beatSeq, { refuseTermed: this.promiseTermsLive });
     if (out.outcome !== "resolved") return { accepted: false, reason: out.outcome };
     this.openLedger = out.ledger;
     this.backgroundPersist(); // durable, but NOT a board beat
@@ -18034,7 +18365,7 @@ export class GameSessionAdapter implements GameSession {
       pending: this.pendingView(),
       eviction: this.evictionView(),
       ...(this.live?.dealOffer ? { openDealOffer: this.openDealOfferView() } : {}), // 0123: voiced in-scene, never a card
-      ...(this.live?.owedFavors?.length ? { owedFavors: this.owedFavorsView() } : {}), // 0142
+      ...(this.owedFavorsView().length ? { owedFavors: this.owedFavorsView() } : {}), // 0142
       finished: !!this.live?.finished, // B6-01: the over-signal the FE season lifecycle (0057) gates on
       // C8-04: the live ceremony state in the model's persistent context (the same Vault-free public
       // facts gameStatus() exposes), so the narrator voices the REAL HOH/nominees/veto, never invents.

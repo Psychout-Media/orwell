@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BOND, bondOf, bondStrengthOf, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, kindOf, nightPasses, type BondStore } from "../../src/engine/bondRecord";
+import { BOND, bondOf, bondStrengthOf, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, kindOf, sceneRoles, nightPasses, type BondStore } from "../../src/engine/bondRecord";
 
 /** Feature 0175 - the bond record's pure rules. Roles only: a, b (a pair), c (a third). */
 describe("the bond record (bondRecord.ts)", () => {
@@ -75,5 +75,52 @@ describe("the bond record (bondRecord.ts)", () => {
     foldRepair(store, "b", "a", 5);
     expect(store["b|a"]!.strain).toBe(0);
     expect(store["b|a"]!.resentment).toBe(0);
+  });
+
+  describe("ORW-598: principals vs bystanders, and who started it", () => {
+    it("no initiator and no bystanders: byte-identical to the original symmetric fold", () => {
+      const legacy: BondStore = {}; const same: BondStore = {};
+      foldScene(legacy, "conflict", ["a", "b", "c"]);
+      foldScene(same, "conflict", ["a", "b", "c"], {});
+      expect(same).toEqual(legacy);
+      expect(legacy["a|b"]).toEqual(legacy["b|a"]);
+    });
+    it("a bonding scene started by one side: the recipient's view of the starter moves in full, the starter's by a smaller nonzero share", () => {
+      const store: BondStore = {};
+      foldScene(store, "bonding", ["a", "b"], { initiator: "a" });
+      expect(store["b|a"]!.warmth).toBeCloseTo(BOND.warmthPerBond, 12);
+      expect(store["a|b"]!.warmth).toBeCloseTo(BOND.warmthPerBond * BOND.initiatorShare, 12);
+      expect(store["a|b"]!.warmth).toBeGreaterThan(0);
+      expect(store["a|b"]!.history).toBe(1); expect(store["b|a"]!.history).toBe(1);
+    });
+    it("a conflict started by one side hurts the recipient's view of the starter more than the starter's of the recipient", () => {
+      const store: BondStore = {};
+      foldScene(store, "conflict", ["a", "b"], { initiator: "a" });
+      expect(store["b|a"]!.resentment).toBeCloseTo(BOND.resentPerConflict, 12);
+      expect(store["a|b"]!.resentment).toBeCloseTo(BOND.resentPerConflict * BOND.initiatorShare, 12);
+      expect(store["b|a"]!.strain).toBeGreaterThan(store["a|b"]!.strain);
+    });
+    it("a bystander does not move the principals' pair, and moves only their own view of each principal by the bounded share", () => {
+      const store: BondStore = {};
+      foldScene(store, "bonding", ["a", "b"], { initiator: "a", bystanders: ["c"] });
+      expect(Object.keys(store).sort()).toEqual(["a|b", "b|a", "c|a", "c|b"]);
+      expect(store["c|a"]!.warmth).toBeCloseTo(BOND.warmthPerBond * BOND.bystanderShare, 12);
+      expect(store["c|a"]!.history).toBe(0);
+      const alone: BondStore = {};
+      foldScene(alone, "bonding", ["a", "b"], { initiator: "a" });
+      expect(store["a|b"]).toEqual(alone["a|b"]); expect(store["b|a"]).toEqual(alone["b|a"]);
+    });
+    it("a six-witness scene still folds its principals; the other four only watched", () => {
+      const roles = sceneRoles("a", ["a", "b", "c", "d", "e", "f"], false);
+      expect(roles.principals).toEqual(["a", "b"]);
+      expect(roles.bystanders).toEqual(["c", "d", "e", "f"]);
+      const store: BondStore = {};
+      foldScene(store, "bonding", roles.principals, { initiator: "a", bystanders: roles.bystanders });
+      expect(store["b|a"]!.warmth).toBeCloseTo(BOND.warmthPerBond, 12);
+      expect(store["c|d"]).toBeUndefined();
+    });
+    it("a house-life scene's witness set is its participants: all principals", () => {
+      expect(sceneRoles("a", ["a", "b", "c"], true)).toEqual({ principals: ["a", "b", "c"], bystanders: [] });
+    });
   });
 });
