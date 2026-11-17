@@ -55,7 +55,7 @@ describe("pure helpers", () => {
 describe("revenge reads the book", () => {
   it("a fresh grudge crosses the bar that the memory alone does not; flag off it does not", () => {
     const on = start(3, "r1").s; const off = start(3, "r1", false).s;
-    const [H, S] = npcs(on); cut(on, H!, S!); cut(off, npcs(off)[0]!, npcs(off)[1]!);
+    const [H, S] = npcs(on); cut(on, H!, S!); on.grudgeOf(H!, S!); cut(off, npcs(off)[0]!, npcs(off)[1]!); off.grudgeOf(npcs(off)[0]!, npcs(off)[1]!);
     expect(salOf(off, npcs(off)[0]!, npcs(off)[1]!)).toBeLessThan(AGENDA.revengeGrudge);
     expect(salOf(on, H!, S!)).toBeGreaterThanOrEqual(AGENDA.revengeGrudge);
     const board = on.agendaBoard();
@@ -67,7 +67,7 @@ describe("revenge reads the book", () => {
     expect(offGoals).toEqual([]);
   });
   it("an old grudge does not cross; a repaired one falls below the bar and opens no revenge goal", () => {
-    const { s } = start(3, "r2"); const [H, S] = npcs(s); cut(s, H!, S!);
+    const { s } = start(3, "r2"); const [H, S] = npcs(s); cut(s, H!, S!); s.grudgeOf(H!, S!);
     const before = salOf(s, H!, S!);
     s.live.week = 40;
     expect(salOf(s, H!, S!)).toBeLessThan(before);
@@ -76,7 +76,7 @@ describe("revenge reads the book", () => {
     const seeded = seedAgenda(s.agendaView(H!), board, 7);
     const open = recheckAgenda(seeded, s.agendaView(H!), board, "week-start", 7);
     expect(open.goals.some((g) => g.kind === "revenge" && g.target === S && g.status === "active")).toBe(true);
-    keptDeal(s, H!, S!);
+    keptDeal(s, H!, S!); s.grudgeOf(H!, S!);
     expect(salOf(s, H!, S!)).toBeLessThan(AGENDA.revengeGrudge);
     const v = s.agendaView(H!);
     const fresh = recheckAgenda(seedAgenda(v, board, 7), v, board, "week-start", 7);
@@ -84,7 +84,7 @@ describe("revenge reads the book", () => {
   });
   it("a loyal, paranoid house holds it deeper than a neutral one", () => {
     const a = start(3, "r3").s; const b = start(3, "r3b").s;
-    const [H, S] = npcs(a); cut(a, H!, S!); cut(b, H!, S!);
+    const [H, S] = npcs(a); cut(a, H!, S!); cut(b, H!, S!); a.grudgeOf(H!, S!); b.grudgeOf(H!, S!);
     b.live.houseLeans = { leans: [{ id: "ride-or-die", w: 1 }] };
     expect(salOf(b, H!, S!)).toBeGreaterThan(salOf(a, H!, S!));
   });

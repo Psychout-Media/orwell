@@ -5697,7 +5697,7 @@ export class GameSessionAdapter implements GameSession {
    * loyalty (deeper) and paranoia (hair-trigger) within 1/1.35..1.35. A repaired grudge reads fainter, so it can drop below the revenge bar and the existing retirement drops the goal. No rng.
    */
   private foldBookIntoGrudges(owner: EntityId, grudges: AgendaView["grudges"]): void {
-    this.foldGrudges();
+    // a READ: it never folds (the book is folded overnight and by `grudgeOf`), so reading an agenda never moves the season's state (agendaWiring: pull zeroed == no agendas)
     const live = this.live;
     if (!live?.grudges) return;
     const bound = (x: number): number => Math.min(GRUDGES.MAX_FACTOR, Math.max(1 / GRUDGES.MAX_FACTOR, x));
@@ -5706,7 +5706,7 @@ export class GameSessionAdapter implements GameSession {
       if (!key.startsWith(`${owner}|`)) continue;
       const toward = key.slice(owner.length + 1) as EntityId;
       const row = live.grudges[key]!;
-      const g = this.grudgeOf(owner, toward);
+      const g = this.grudgeOf(owner, toward, false);
       if (!g) continue;
       const easedShare = row.peak > 0 ? Math.min(GRUDGES.EASE_CAP, row.eased / row.peak) : 0;
       const at = grudges.findIndex((x) => x.toward === toward);
@@ -5721,9 +5721,9 @@ export class GameSessionAdapter implements GameSession {
    * 0182: what `holder` still holds against `subject`, for the later slices that decide from it. ENGINE-ONLY: not on the GameSession port, never a tool, never projected. Read-only.
    * `freshness` fades with the weeks (loyalty and a grudge-keeper's nature slow it) but is never 0.
    */
-  grudgeOf(holder: EntityId, subject: EntityId): { kind: GrudgeKind; freshness: number; severity: number; peak: number } | null {
+  grudgeOf(holder: EntityId, subject: EntityId, fold = true): { kind: GrudgeKind; freshness: number; severity: number; peak: number } | null {
     if (holder === PLAYER) return null;
-    this.foldGrudges();
+    if (fold) this.foldGrudges();
     const row = this.live?.grudges?.[grudgeKey(holder, subject)];
     if (!row || !this.live) return null;
     const keeper = this.grudgeKeeper(holder, subject);
