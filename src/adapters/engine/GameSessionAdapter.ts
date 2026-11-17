@@ -56,6 +56,7 @@ import { issueNightBatch, validateAllianceName, normName, type TraitTable } from
 import { pairKey, isClosePair, inDebriefWindow, habitRoom, nicknameOf, allianceNameFromHouse, noteIdentity, noteWords, validateGroupIdentity, GROUP_IDENTITY, type PairCloseness } from "../../engine/groupIdentity";
 import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/juryHouse";
 import { JURY_HOUSE } from "../../engine/juryHouseConstants";
+import { juryFadeRate, juryEaseFactor, type JuryPersonality } from "../../engine/juryFade";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
 import { chooseHourAction, assembleScenes, habitsFor, actionLine, ACTIONS as HOUSE_LIFE_ACTIONS, type PlannedAction } from "../../engine/houseLife";
@@ -106,7 +107,7 @@ import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
 import { DEAL_PLANS, PLAN_SEMANTICS, buildDealPlanRetro, decidePlan, fakingLean, isBetrayal, momentDue, planBond, planSourceOf, recordPlan, type PlanSource, type StoredPlan } from "../../engine/dealPlans";
-import { DEAL_CONSENT, DEAL_REFUSAL_LINE } from "../../engine/dealConsentConstants";
+import { DEAL_CONSENT, type DealRefusalReason } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
 import { validateTraits, validateCulture, validateReflection } from "../../engine/npcMindsAuthored";
@@ -299,11 +300,12 @@ import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
-import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, type EdgeDelta } from "../../engine/beliefStore";
+import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, plantedBy, type EdgeDelta } from "../../engine/beliefStore";
 import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs";
-import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "../../engine/beliefDecisions";
+import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances, blameForTargeting } from "../../engine/beliefDecisions";
 import { CONVICTION, credulityOf, dealTrust, pathwayEvidence, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
+import { dissentMove, findScapegoat, heardDissenters, herdPull, herdVoices, holdsGrievance, knownBreaches, normStrength, scapegoatLean, shunMove, weekHardness } from "../../engine/houseNorms";
 import { rolesFromGraph, type NetworkRoles } from "../../engine/networkSpread";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { CREDIBILITY } from "../../engine/credibilityConstants";
@@ -1577,7 +1579,7 @@ export class GameSessionAdapter implements GameSession {
     if (!this.liesCaughtWriting || !this.live?.claims || told.listener === PLAYER) return;
     const prior = this.live.claims.items.filter((c) => c.id !== told.id && contradicts(c, told) && sameMoment(c, told)); // ORW-592: an honest change of position over time is no lie
     if (prior.length === 0) return;
-    const held = (id: string): boolean => (this.live!.beliefs?.[told.listener] ?? []).some((b) => b.id.endsWith(`|${id}`) && !b.refuted);
+    const held = (id: string): boolean => (this.live!.beliefs?.[told.listener] ?? []).some((b) => plantedBy(b, id) && !b.refuted);
     if (!prior.some((c) => held(c.id)) && !held(told.id)) return;   // already caught: never write the same lie twice
     this.catchLie({ holder: told.listener, liar: told.speaker, claimId: [told.id, ...prior.map((c) => c.id)], confidence: CAUGHT_LIE.contradiction });
   }
@@ -1588,7 +1590,7 @@ export class GameSessionAdapter implements GameSession {
   evictionCountPublic(tally: PublicTally): void {
     if (!this.liesCaughtWriting || !this.live?.claims) return;
     const live = this.live;
-    const believed = (holder: EntityId, claimId: string): boolean => (live.beliefs?.[holder] ?? []).some((b) => b.id.endsWith(`|${claimId}`) && !b.refuted);
+    const believed = (holder: EntityId, claimId: string): boolean => (live.beliefs?.[holder] ?? []).some((b) => plantedBy(b, claimId) && !b.refuted) // ORW-591: a repeat that joined an earlier belief is found too;
     for (const c of live.claims!.items) {
       if (c.week !== live.week || c.listener === PLAYER || !voteCountRulesOut(tally, c)) continue;
       if (!believed(c.listener, c.id)) continue;   // already caught
@@ -1722,7 +1724,7 @@ export class GameSessionAdapter implements GameSession {
       } else if (told.object !== undefined) {
         // ORW-594 (Fable T2-13): a believed keep of someone the listener liked earns the speaker a little trust; recorded on the belief, so a caught lie takes it back
         const credit = keepCredit(this.rel.edge(told.listener, told.object).affinity);
-        const belief = (live.beliefs?.[told.listener] ?? []).find((b) => b.id.endsWith(`|${told.id}`) && !b.refuted);
+        const belief = (live.beliefs?.[told.listener] ?? []).find((b) => plantedBy(b, told.id) && !b.refuted);
         if (credit > 0 && belief && !belief.impact) {
           const e = this.rel.edge(told.listener, speaker);
           const before = { trust: e.trust, affinity: e.affinity };
@@ -1831,7 +1833,7 @@ export class GameSessionAdapter implements GameSession {
     const redirectClaims = new Map<EntityId, SpokenClaim>();
     if (answer === "redirect") for (const l of listeners) { const c = this.tellClaim({ speaker: accused, listener: l, kind: "lying-about", subject: caller, isTrue: !isTrue, intent: "deflect" }); if (c) redirectClaims.set(l, c); }
     const beliefs = (live.beliefs ??= {});
-    const find = (holder: EntityId, claimId: string) => (beliefs[holder] ?? []).find((b) => b.id.endsWith(`|${claimId}`));
+    const find = (holder: EntityId, claimId: string) => (beliefs[holder] ?? []).find((b) => plantedBy(b, claimId)); // ORW-591: a folded repeat is found in the belief it joined
     for (const l of listeners) {
       const acc = accusation.get(l); if (!acc) continue;
       const out = listenerOutcome(this.rel.edge(l, caller).trust, this.rel.edge(l, accused).trust, answer);
@@ -3292,8 +3294,8 @@ export class GameSessionAdapter implements GameSession {
    */
   private onSurfaceToHouseguest?: (npcId: EntityId, content: string, subject: EntityId | undefined, pathway: string, confidence: number) => boolean;
   /** 0066 Phase-2: per-NIGHT conflict tally per houseguest (cleared at each new day). A character conflict
-   *  drains the people in it ⇒ they turn in earlier tonight. In-memory + ephemeral (a mid-day reload simply
-   *  resets it); only ever populated on the clock-ON path, so the calibration spine is unaffected. */
+   *  drains the people in it ⇒ they turn in earlier tonight. ORW-581 (Fable T1-14): saved with the season (`nightConflicts`), so a mid-night
+   *  restart turns the same people in at the same hour; only ever populated on the clock-ON path, so the calibration spine is unaffected. */
   private nightConflicts = new Map<EntityId, number>();
 
   /**
@@ -3530,7 +3532,7 @@ export class GameSessionAdapter implements GameSession {
     return mine.filter((f) => contents.has(f.content));
   }
   setNpcMemorySpeechEnabled(on: boolean): void { this.npcMemorySpeechEnabled = on; }
-  /** ORW-131 (Ryne 2026-11-06 "depends on them"): per houseguest, the in-game day and how many `bringUp`s they have used that day, plus the memories they raised lately (so none repeats like a script). Process-local: a restart may allow one extra mention, never a leak. */
+  /** ORW-131 (Ryne 2026-11-06 "depends on them"): per houseguest, the in-game day and how many `bringUp`s they have used that day, plus the memories they raised lately (so none repeats like a script). ORW-581 (Fable T1-14): persisted in the snapshot (`bringUp`), so a restart neither repeats a memory nor grants an extra mention. */
   private bringUp = new Map<EntityId, { day: number; used: number; recent: { key: string; day: number }[] }>();
   /** floor/bar/chanceScale/top as before (ASSUMED, tunable). `repeatDays`: a memory raised in the last N in-game days is not raised again. `maxPerDay`: the ceiling for the most talkative/aggrieved houseguest. */
   private static readonly MEMORY_SPEECH = { top: 3, floor: 0.08, bar: 0.35, chanceScale: 0.8, repeatDays: 3, maxPerDay: 3 } as const;
@@ -5046,6 +5048,9 @@ export class GameSessionAdapter implements GameSession {
       ...(this.legendCount > 0 ? { legendCount: this.legendCount } : {}),
       ...(this.legendLastActTick > 0 ? { legendLastActTick: this.legendLastActTick } : {}),
       ...(this.lastConfessionalSweepDay > 0 ? { lastConfessionalSweepDay: this.lastConfessionalSweepDay } : {}),
+      // ORW-581 (Fable T1-14): tonight's conflict tally and the houseguests' raised-memory record survive a restart (absent => none, byte-shaped as an older save).
+      ...(this.nightConflicts.size ? { nightConflicts: Object.fromEntries(this.nightConflicts) } : {}),
+      ...(this.bringUp.size ? { bringUp: Object.fromEntries([...this.bringUp].map(([k, v]) => [k, { day: v.day, used: v.used, recent: v.recent.map((r) => ({ ...r })) }])) } : {}),
       // 0099 (hidden half) — the DEDICATED secret-barter rng tick counter + the monotonic count of secrets
       // spent into the hidden economy, persisted so the isolated barter stream + the non-degradation count
       // survive a restart (0007/0030). Absent ⇒ 0 on restore (byte-shaped as a pre-0099-barter save / off).
@@ -5381,6 +5386,8 @@ export class GameSessionAdapter implements GameSession {
     this.legendCount = core.legendCount ?? 0;
     this.legendLastActTick = core.legendLastActTick ?? 0;
     this.lastConfessionalSweepDay = core.lastConfessionalSweepDay ?? 0; // 0122 — restore the sweep watermark
+    this.nightConflicts = new Map(Object.entries(core.nightConflicts ?? {})); // ORW-581
+    this.bringUp = new Map(Object.entries(core.bringUp ?? {}).map(([k, v]) => [k, { day: v.day, used: v.used, recent: v.recent.map((r) => ({ ...r })) }] as const)); // ORW-581
     // 0101/#1401: restore the showrunner's production bible + its monotonic count (absent on a pre-0101
     // save / when the layer is off ⇒ []/0 — byte-identical to a pre-feature load).
     this.showrunnerNotes = core.showrunnerNotes ? cloneSession(core.showrunnerNotes) : [];
@@ -5744,8 +5751,97 @@ export class GameSessionAdapter implements GameSession {
   /** Theme 3 slice 3 (Overseer B): the favor ledger as a second source of a bond's debt (signed like BondView.debt). Absent => the record's own debt only. */
   private favorDebt?: DebtSource;
   setFavorDebtSource(fn: DebtSource | undefined): void { this.favorDebt = fn; }
+  /** 0180 (Theme 3 slice 12, part 1): house norms (`ORWELL_HOUSE_NORMS`, default ON; `=0` = no shunning, byte-identical). Played games with beliefs only. */
+  private houseNormsEnabled = flagDefaultOn("ORWELL_HOUSE_NORMS");
+  setHouseNormsEnabled(on: boolean): void { this.houseNormsEnabled = on; }
   /**
-   * ORW-597: overnight, a wronged party who has come to hold that the breaker LIED to them (a caught lie, a told "they lied to you") learns of a quiet break with
+   * 0180: overnight, each houseguest who KNOWS (holds beliefs) that someone broke their word at least `NORMS.threshold` times - to them or to others - shuns that
+   * person: a bounded move in their own read of them (affinity and trust down), deeper per further incident, scaled by the house culture. Each incident is folded
+   * once (`normsApplied`). The player can be the one shunned. Engine-only; a side-stream rng only for the edge's own jitter.
+   */
+  private scapegoatsOn(): boolean { return this.houseNormsEnabled && this.live?.playedGame === true; }
+  private scapegoatCache?: { key: string; scapegoat: EntityId | undefined; hardness: number };
+  /** 0180 part 3: the house's scapegoat this beat (from what each houseguest holds) and how hard the week is (the house's moods). Cached per committed beat. */
+  private houseScapegoat(): { scapegoat: EntityId | undefined; hardness: number } {
+    const s = this.live!;
+    const key = `${s.week}:${s.dayNumber ?? 0}:${this.beatSeq}`;
+    if (this.scapegoatCache?.key !== key) {
+      const living = this.livingIds();
+      const npcs = living.filter((id) => id !== PLAYER);
+      const hardness = weekHardness(npcs.map((id) => this.emotionalReadOf(id)));
+      this.scapegoatCache = { key, hardness, scapegoat: hardness > 0 ? findScapegoat(s.beliefs ?? {}, npcs, living, s.week) : undefined };
+    }
+    return this.scapegoatCache;
+  }
+  /** 0180 part 3: `decider`'s lean toward nominating / evicting `subject` as the house's scapegoat. The player's own choices are theirs (0). */
+  private scapegoatLeanFor(subject: EntityId, decider: EntityId): number {
+    const s = this.live;
+    if (!this.scapegoatsOn() || !s || decider === PLAYER || !s.beliefs) return 0;
+    const { scapegoat, hardness } = this.houseScapegoat();
+    if (scapegoat === undefined || scapegoat === decider) return 0;
+    return scapegoatLean(subject, scapegoat, hardness, holdsGrievance(s.beliefs[decider] ?? [], decider, subject, s.week));
+  }
+  /** 0180 part 2: the herd's pull on `voter` toward evicting `nominee`, from the voices they hold this week, scaled by the culture's alliance-size dial. */
+  private herdFor(nominee: EntityId, voter: EntityId, fn: readonly [EntityId, EntityId]): number {
+    const s = this.live;
+    if (!s || voter === PLAYER) return 0;
+    const i = fn.indexOf(nominee);
+    if (i < 0) return 0;
+    return herdPull(herdVoices(s.beliefs?.[voter] ?? [], voter, fn, s.week), i as 0 | 1, this.cultureMult("allianceSize"));
+  }
+  /**
+   * 0180 part 2 - DISSENT NOTICED. For this week's eviction (the latest vote record): each houseguest who voted WITH the majority (their own ballot, which they know)
+   * and has heard that someone voted the other way cools on them, scaled by how lopsided the count was. Once per pair per week; the player can be the dissenter
+   * (when they told someone how they voted); the player's own feelings are theirs. Engine-only; a side-stream rng only for the edge's own jitter.
+   */
+  private foldDissentOvernight(): void {
+    const s = this.live;
+    if (!this.houseNormsEnabled || !s || s.playedGame !== true || !s.beliefs || !this.npcBeliefsEnabled) return;
+    const rec = s.voteRecord?.[s.voteRecord.length - 1];
+    if (!rec || rec.week !== s.week) return;
+    const ballots = Object.entries(rec.voteOf);
+    const survivor = ballots.map(([, t]) => t).find((t) => t !== rec.evictee);
+    if (!survivor) return; // a unanimous count: no one dissented
+    const move = dissentMove(ballots.filter(([, t]) => t === rec.evictee).length, ballots.length);
+    if (move.affinity === 0 && move.trust === 0) return;
+    const noticed = new Set(s.dissentNoticed ?? []);
+    const living = new Set(this.livingIds());
+    for (const [holder, target] of ballots.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+      if (holder === PLAYER || target !== rec.evictee || !living.has(holder)) continue;
+      for (const d of heardDissenters(s.beliefs[holder] ?? [], holder, rec.evictee, survivor, rec.week)) {
+        const key = `${rec.week}|${holder}|${d}`;
+        if (noticed.has(key) || !living.has(d)) continue;
+        noticed.add(key);
+        this.rel.applyImpactDirected(holder, d, { affinity: move.affinity, trust: move.trust }, new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:dissent:${key}`)));
+      }
+    }
+    if (noticed.size) s.dissentNoticed = [...noticed];
+  }
+  private foldNormsOvernight(): void {
+    const s = this.live;
+    if (!this.houseNormsEnabled || !s || s.playedGame !== true || !s.beliefs || !this.npcBeliefsEnabled || !this.house) return;
+    const living = this.livingIds();
+    const strength = normStrength(this.cultureMult("loyalty"), this.cultureMult("lying"));
+    const applied = (s.normsApplied ??= {});
+    const seed = this.gameSeed ?? 0;
+    const day = s.dayNumber ?? s.week;
+    for (const observer of living) {
+      if (observer === PLAYER) continue;
+      const held = s.beliefs[observer] ?? [];
+      if (held.length === 0) continue;
+      for (const subject of living) {
+        if (subject === observer) continue;
+        const key = `${observer}|${subject}`;
+        const move = shunMove(knownBreaches(held, observer, subject), applied[key] ?? 0, strength);
+        if (move.incidents === 0) continue;
+        applied[key] = (applied[key] ?? 0) + move.incidents;
+        this.rel.applyImpactDirected(observer, subject, { affinity: move.affinity, trust: move.trust }, new SeededRandom(hashSeed(`${seed}:norms:${observer}:${subject}:${day}`)));
+      }
+    }
+  }
+  /**
+   * ORW-597: overnight, a wronged party who has come to hold that the breaker LIED to them (a caught lie, a told "they lied to you"), or that the breaker is TARGETING
+   * them (a told "they're coming after you", a spy's report), learns of a quiet break with
    * that breaker, and only then reacts (`DealLedger.learnOfBreak`). What they hold, never the truth. A side-stream rng only for the shock's own jitter.
    */
   private learnBreaksOvernight(): void {
@@ -5758,7 +5854,9 @@ export class GameSessionAdapter implements GameSession {
       const wronged = deal.parties.find((p) => p !== breaker);
       if (!wronged) continue;
       const caught = (s.beliefs[wronged] ?? []).some((b) => b.value && !b.refuted && b.subject === breaker
-        && (b.kind === "lied-to-me" || (b.kind === "heard-rumor" && b.nature === "lying" && b.object === wronged)));
+        && (b.kind === "lied-to-me" || (b.kind === "heard-rumor" && b.nature === "lying" && b.object === wronged)
+          // ORW-597 follow-up: being told (and believing) the breaker is coming after you exposes their promise to you as hollow (a spy's report, a told claim)
+          || (b.kind === "targets-me" && (b.object === undefined || b.object === wronged))));
       if (!caught) continue;
       this.deals.learnOfBreak(deal as Deal, {
         rel: this.rel, rng: new SeededRandom(hashSeed(`${seed}:learn-break:${deal.id}`)), currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
@@ -5868,6 +5966,32 @@ export class GameSessionAdapter implements GameSession {
     if (seen.size !== before) live.grudgesSeen = [...seen];
   }
 
+  /** ORW-582 (flag `ORWELL_JURY_HOUSE`): the NPC jurors, each with their jury-house personality read toward a subject; undefined when the jury house is off or empty. Engine-only. */
+  private juryPersonalityOf(): Map<EntityId, (subject: EntityId) => JuryPersonality> | undefined {
+    if (!this.juryHouseEnabled || !this.house || !this.live) return undefined;
+    const ids = (this.live.evictionOrder ?? []).slice(this.juryStartIndex()).filter((id) => id !== this.house!.player.id).slice(-9);
+    if (ids.length === 0) return undefined;
+    const seed = hashSeed(`jury-fade:${this.gameSeed ?? ""}`);
+    return new Map(ids.map((id) => [id, (subject: EntityId): JuryPersonality => ({
+      keeper: this.grudgeKeeper(id, subject),
+      volatility: this.soulObj(id)?.volatility ?? 0.5,
+      roll: agendaRoll(seed, id, "jury-fade"),
+    })] as const));
+  }
+
+  /** ORW-582: per juror, the nightly fade rate toward a given subject (one rule; the subject only selects the pair's own forgiveness read). */
+  private juryFadeRateOf(): Map<EntityId, (subject: EntityId) => number> | undefined {
+    const m = this.juryPersonalityOf();
+    if (!m) return undefined;
+    return new Map([...m].map(([id, p]) => [id, (subject: EntityId) => juryFadeRate(p(subject))] as const));
+  }
+
+  /** ORW-582: how much faster `holder`'s grudge eases than in the house (1 for a non-juror). */
+  private juryEaseOf(holder: EntityId, subject: EntityId): number {
+    const p = this.juryPersonalityOf()?.get(holder);
+    return p ? juryEaseFactor(p(subject)) : 1;
+  }
+
   /**
    * 0182 (Fable review) + ORW-597: a grudge from a broken deal counts only for a holder who COULD KNOW of the break. A party to the deal who LEARNED of it (`DealLedger.learnOfBreak` sets `learned`: the breaker's
    * own public act against them, or catching the lie) holds it for good, even once evicted (a juror keeps it). A deal with no learned mark (an older save) counts only for a party still in the house, since an
@@ -5896,7 +6020,7 @@ export class GameSessionAdapter implements GameSession {
     const live = this.live;
     const row = live?.grudges?.[grudgeKey(holder, subject)];
     if (!live || !row || holder === PLAYER) return;
-    const eased = easeGrudge(row, repairAmount(base, { keeper: this.grudgeKeeper(holder, subject), loyalty: this.cultureMult("loyalty") }));
+    const eased = easeGrudge(row, repairAmount(base * this.juryEaseOf(holder, subject), { keeper: this.grudgeKeeper(holder, subject), loyalty: this.cultureMult("loyalty") }));
     if (eased > 0) foldRepair((live.bonds ??= {}), holder, subject, eased);
   }
 
@@ -5976,7 +6100,7 @@ export class GameSessionAdapter implements GameSession {
     const row = this.live?.grudges?.[grudgeKey(holder, subject)];
     if (!row || !this.live) return null;
     const keeper = this.grudgeKeeper(holder, subject);
-    const life = grudgeHalfLife({ loyalty: this.cultureMult("loyalty"), paranoia: this.cultureMult("paranoia"), keeper });
+    const life = grudgeHalfLife({ loyalty: this.cultureMult("loyalty"), paranoia: this.cultureMult("paranoia"), keeper }) / this.juryEaseOf(holder, subject);
     return { kind: row.kind, freshness: grudgeFreshness(row, this.live.week, life), severity: row.severity, peak: row.peak };
   }
 
@@ -8463,6 +8587,7 @@ export class GameSessionAdapter implements GameSession {
       this.resetLegends(); // 0101 — a fresh season has minted no legend, the cap unspent
       this.resetJuryHouse(); // 0100 — a fresh season's jury house has processed no arrivals
     this.lastConfessionalSweepDay = 0; // 0122 — a fresh season hasn't swept any in-game day yet
+    this.nightConflicts = new Map(); this.bringUp = new Map(); // ORW-581: a fresh season starts with no fights tonight and nothing raised
       this.resetSecretBarter(); // 0099 — a fresh season has bartered no secret off-screen
       this.resetShowrunner(); // 0101/#1401 — a fresh season's production bible is empty
       // 0116 — carry the model-authored genesis layer off the warm: the validated tie graph (preferred
@@ -8798,6 +8923,7 @@ export class GameSessionAdapter implements GameSession {
     this.resetLegends(); // 0101 — a warmed/fresh cast has minted no legend, the cap unspent
     this.resetJuryHouse(); // 0100 — a fresh season's jury house has processed no arrivals
     this.lastConfessionalSweepDay = 0; // 0122 — a fresh/warmed season hasn't swept any in-game day yet
+    this.nightConflicts = new Map(); this.bringUp = new Map(); // ORW-581: a fresh season starts with no fights tonight and nothing raised
     this.resetSecretBarter(); // 0099 — a warmed/fresh cast has bartered no secret off-screen
     this.resetShowrunner(); // 0101/#1401 — a warmed/fresh cast carries no producer notes yet
     // 0116 — a freshly-warmed cast carries no model-authored genesis yet (recordCastGenesis, if the FE
@@ -9317,6 +9443,7 @@ export class GameSessionAdapter implements GameSession {
     this.resetLegends(); // 0101 — a fresh season has minted no legend, the cap unspent
     this.resetJuryHouse(); // 0100 — a fresh season's jury house has processed no arrivals
     this.lastConfessionalSweepDay = 0; // 0122 — a fresh season hasn't swept any in-game day yet
+    this.nightConflicts = new Map(); this.bringUp = new Map(); // ORW-581: a fresh season starts with no fights tonight and nothing raised
     this.resetSecretBarter(); // 0099 — a fresh season has bartered no secret off-screen
     this.resetShowrunner(); // 0101/#1401 — a fresh season's production bible is empty
     // Full-fidelity recall (L27b): the authored hidden detail is recorded into each NPC's AUTHORITATIVE
@@ -10559,6 +10686,7 @@ export class GameSessionAdapter implements GameSession {
       } : {}),
       // ORW-568 / 0181: the voter's (or HOH's) real feeling for the person keeps them. Played games with the bond record only, so a headless sim carries no hook (+0, byte-identical).
       ...(this.bondFeelingsOn() ? { feelingKeepFor: (n: EntityId, v: EntityId) => this.feelingKeepOf(n, v) } : {}),
+      ...(this.houseNormsEnabled && this.live?.playedGame === true && this.npcBeliefsEnabled ? { herdFor: (n: EntityId, v: EntityId, fn: readonly [EntityId, EntityId]) => this.herdFor(n, v, fn) } : {}), // 0180 part 2
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId, among?: readonly EntityId[]) => this.assuranceVotedOut(v, n, among) } : {}),
@@ -10566,7 +10694,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.liesCaughtWriting ? { evictionCountPublic: (t: PublicTally) => this.evictionCountPublic(t) } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceKeptAtNominations: (h: EntityId, ns: readonly EntityId[]) => this.assuranceKeptAtNominations(h, ns), assuranceKeptAtVote: (v: EntityId, sp: EntityId, among?: readonly EntityId[]) => this.assuranceKeptAtVote(v, sp, among), assuranceKeptAtTally: (fn: readonly EntityId[]) => this.assuranceKeptAtTally(fn) } : {}),
-      ...(this.npcBeliefNomsEnabled && this.npcBeliefsEnabled ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => this.beliefNomTiltFor(subject, holder) } : {}),
+      ...(this.npcBeliefsEnabled && (this.npcBeliefNomsEnabled || this.scapegoatsOn()) ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => (this.npcBeliefNomsEnabled ? this.beliefNomTiltFor(subject, holder) : 0) + this.scapegoatLeanFor(subject, holder) } : {}), // 0180 part 3: a hard week's scapegoat rides the belief term
       // 0163 / ORW-539: the floater and duo reads see what the HOH can see (full strength only; capped keeps the hidden-truth read, byte-identical).
       // Its own flag, apart from the belief store: what the HOH SAW needs no beliefs (the told part reads allied-with beliefs only when they exist).
       ...(this.perceivedBondsEnabled && BELIEF_RULES.strength === "full" ? { perceivedBondFor: (holder: EntityId, from: EntityId, to: EntityId) => this.perceivedBond(holder, from, to) } : {}),
@@ -10759,6 +10887,8 @@ export class GameSessionAdapter implements GameSession {
     this.mullAgendasOvernight(); // ORW-312: asleep, each houseguest's goals fade without progress (inner processing only: no scheming, no rng)
     this.learnBreaksOvernight(); // ORW-597: a quiet break reaches the wronged side once they have caught the breaker lying to them
     this.foldBonds(); // 0175: the day's shared moments, deals and saves into the bond record (no rng)
+    this.foldNormsOvernight(); // 0180: the house shuns a known promise-breaker (what each houseguest holds, never the truth)
+    this.foldDissentOvernight(); // 0180 part 2: a majority voter cools on a dissenter they heard of (vote talk)
     this.issueNameTickets(); // ORW-566 part c2: tonight's fixed-size batch of sealed naming prompts (keyed hashing, no rng)
     this.feelingsTick(); // ORW-568 / 0181 part 2: jealousy follows the night's favour (no rng, no text)
     this.foldGrudges(); // 0182: the wrongs the engine already recorded into the grudge book (no rng)
@@ -11529,6 +11659,7 @@ export class GameSessionAdapter implements GameSession {
    */
   campaignTick(): void {
     if (!this.campaignsEnabled || !this.house) return;
+    this.syncTargetsMeClaims(); // ORW-581: the threat reads below see the beliefs as of this tick, written here rather than inside the reads
     this.campaignTickCount += 1;
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:campaigns:${this.campaignTickCount}`));
     const beat = this.beatSeqNow();
@@ -11645,6 +11776,7 @@ export class GameSessionAdapter implements GameSession {
       }
     }
     this.drives = nextDrives;
+    this.syncTargetsMeClaims(); // ORW-581: the campaigns just formed or advanced are believed by their targets from now on
     // 0107 Phase B: NPCs name alliances off-screen + pitch the player (gated by campaignsEnabled ⇒ the
     // passive calibration harness forms none ⇒ the cement provider stays 0 ⇒ juryReach byte-identical).
     // ORW-353: a persist inside these commits, and a commit runs the tick again; without a standing cap on alliances each nested tick could found another, so the alliance pass is not re-entered.
@@ -12773,6 +12905,11 @@ export class GameSessionAdapter implements GameSession {
     const seed = this.gameSeed ?? 0;
     const day = s.dayNumber ?? s.week;
     const hour = this.inGameHour() ?? stretchIndex;
+    // ORW-581 (Fable T1-14): the hour's rolls key on (day, hour), so a second stretch in the same game hour (the extra ticks of a beat that covered hours, a nap, a hang-out)
+    // replayed the first one's choices. Count the stretches lived in this absolute hour (persisted with the season, so a restart counts on rather than replaying) and key on it.
+    const absNow = this.inGameAbsHour();
+    let repeat = 0;
+    if (absNow !== undefined) { repeat = s.lifeHour?.at === absNow ? s.lifeHour.n + 1 : 0; s.lifeHour = { at: absNow, n: repeat }; }
     const tod = (s.timeOfDay ?? "afternoon") as LifeTimeOfDay;
     const authored = s.npcMindsAuthored?.traits ?? {};
     const plans: PlannedAction[] = [];
@@ -12806,7 +12943,7 @@ export class GameSessionAdapter implements GameSession {
         ...(showmance && where.has(showmance) ? { showmance } : {}),
         ...this.roommateView(bedsNow, id, inHouse, where),
         ...(kindredOf(id) ? { kindred: kindredOf(id)! } : {}),
-        timeOfDay: tod, day, hour, inCompetition: false,
+        timeOfDay: tod, day, hour, ...(repeat > 0 ? { repeat } : {}), inCompetition: false,
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
         ...(houseCulture ? { culture: houseCulture } : {}),
         ...(habitsOf.get(id) ? { pairHabits: habitsOf.get(id)! } : {}),
@@ -12853,7 +12990,7 @@ export class GameSessionAdapter implements GameSession {
         out.push({ event, type, initiator: p.actor, partner });
         if (p.habit) this.noteHabitScene(p, event);
         // 0153 / ORW-330 slice 3: a speech action is a real claim the engine decides (plant a lie, leak a belief, confirm one, fish for one), checked against its own truth.
-        this.sayInHouseLife(p, partner, `${seed}:speech:${day}:${hour}`);
+        this.sayInHouseLife(p, partner, `${seed}:speech:${day}:${hour}${repeat > 0 ? `r${repeat}` : ""}`); // ORW-581: a repeated hour says things fresh too
       }
     }
     return out;
@@ -14066,6 +14203,7 @@ export class GameSessionAdapter implements GameSession {
     if ((!this.live!.pending || this.live!.pending.kind === "ceremony-step") && !this.live!.finished) {
       const weekBefore = this.live!.week; // the eviction result rolls the week inside this same step
       const cerBefore = ceremonyRef(this.live!); // ORW-281 4a: the open ceremony step (if any) BEFORE this advance
+      this.syncTargetsMeClaims(); // ORW-581: the beliefs the beat's decisions read are written here, at commit time (never inside a scoring read)
       const ev = advanceBeat(this.live!, this.ctx(), this.beatRng());
       const ceremonyHours = this.ceremonyClockHours(cerBefore, ceremonyRef(this.live!));
       if (cerBefore && !this.live!.ceremony) this.ceremonyEcho = cerBefore; // the closing Continue: echo the step that just closed
@@ -14156,6 +14294,7 @@ export class GameSessionAdapter implements GameSession {
     return remember(this.inOneCommit(() => {
       // The beat-deterministic rng lets the Houseguest's-Choice resume run the veto comp reproducibly (B45).
       const cerBefore = ceremonyRef(this.live!);
+      this.syncTargetsMeClaims(); // ORW-581: as before a beat
       const ev = applyDecision(this.live!, this.toDecisionInput(req), this.ctx(), this.beatRng());
       if (cerBefore) { // ORW-281 4a: the binding choice is a ceremony step - it charges its share of the clock
         const h = this.ceremonyClockHours(cerBefore, ceremonyRef(this.live!));
@@ -14361,16 +14500,25 @@ export class GameSessionAdapter implements GameSession {
     if (s.feelDriftDay !== undefined && day <= s.feelDriftDay) return;
     const b = RELATIONSHIP_CONSTANTS.baseline;
     const ref = s.feelRef ?? {};
-    const edges = this.rel.serialize().edges.filter((e) => e.from === PLAYER || e.to === PLAYER);
+    // ORW-582: a juror's feelings toward every houseguest still in the game fade by ONE rule (their own, from who they are), never keyed on the subject.
+    const jurorRate = this.juryFadeRateOf();
+    const living = new Set(this.livingIds());
+    const jurorEdge = (from: EntityId, to: EntityId): boolean => jurorRate !== undefined && jurorRate.has(from) && to !== from && living.has(to);
+    const edges = this.rel.serialize().edges.filter((e) => e.from === PLAYER || e.to === PLAYER || jurorEdge(e.from, e.to));
     const held = new Set<string>();
     for (const e of edges) {
       const r = ref[`${e.from}->${e.to}`] ?? [b.trust, b.affinity, b.threat];
       if (e.trust !== r[0] || e.affinity !== r[1] || e.threat !== r[2]) held.add(`${e.from}->${e.to}`);
     }
-    this.rel.driftTowardBaseline(OVERNIGHT_DRIFT.RATE, (from, to) => (from === PLAYER || to === PLAYER) && !held.has(`${from}->${to}`));
+    this.rel.driftTowardBaselineBy((from, to) => {
+      if (held.has(`${from}->${to}`)) return undefined;
+      const jr = jurorRate?.get(from);
+      if (jr !== undefined && from !== to && living.has(to)) return jr(to);
+      return from === PLAYER || to === PLAYER ? OVERNIGHT_DRIFT.RATE : undefined;
+    });
     const next: Record<string, [number, number, number]> = {};
     for (const e of this.rel.serialize().edges) {
-      if (e.from === PLAYER || e.to === PLAYER) next[`${e.from}->${e.to}`] = [e.trust, e.affinity, e.threat];
+      if (e.from === PLAYER || e.to === PLAYER || jurorEdge(e.from, e.to)) next[`${e.from}->${e.to}`] = [e.trust, e.affinity, e.threat];
     }
     s.feelRef = next;
     s.feelDriftDay = day;
@@ -15036,7 +15184,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private maybeCounterOffer(npcId: EntityId, askedKind: DealReqKind, refusal: DealRefusal): { kind: string; terms: string } | undefined {
     const s = this.live;
-    if (!s || refusal.reason !== "cost" || s.playedGame !== true || !this.npcDealOffersEnabled) return undefined;
+    if (!s || this.refusalReal.get(refusal) !== "cost" || s.playedGame !== true || !this.npcDealOffersEnabled) return undefined;
     if (s.dealOffer || s.finished || s.beat === "finale" || s.beat === "complete" || askedKind === "safety") return undefined;
     if (this.dealOfferPartyGone(npcId) || this.memoryBlocksPlayerDeal(npcId)) return undefined;
     if (this.dealConsentRefusal(npcId, "safety") !== null) return undefined;
@@ -15115,8 +15263,27 @@ export class GameSessionAdapter implements GameSession {
       })(),
       ...(live.playedGame === true ? { opposed: this.ownPushAgainstPlayer(npcId) } : {}),
     }, (w) => recordWhy(live, npcId, w)); // ORW-305: record WHY (a record only)
-    return d.accept || !d.reason ? null : { refused: true, reason: d.reason, narratable: DEAL_REFUSAL_LINE[d.reason] };
+    return d.accept || !d.reason ? null : this.statedRefusal(npcId, d.reason);
   }
+  /**
+   * ORW-608 (Ryne 2026-11-17, (a)): the houseguest gives a reason in their own words - honest, softened or a cover story, as `explainDecision` decides from their candor.
+   * The real reason stays engine-only (the stated-reason record, for the post-crown retrospective; and `refusalReal` for the counteroffer's own read).
+   */
+  private statedRefusal(npcId: EntityId, reason: DealRefusalReason): DealRefusal {
+    const live = this.live!;
+    const real: RealReason = { decision: "deal-consent", decider: npcId, choice: PLAYER, terms: [], refusal: reason };
+    const day = live.dayNumber ?? live.week;
+    const character = this.agendaCharacterOf(npcId);
+    const stated = character ? explainDecision(real, character, this.gameSeed ?? 0, day) : { kind: "nothing-personal" as const, about: PLAYER, candor: "cover" as const };
+    if (live.playedGame === true && !(live.statedReasons ?? []).some((r) => r.week === live.week && r.decider === npcId && r.decision === "deal-consent" && r.day === day)) {
+      (live.statedReasons ??= []).push({ week: live.week, day, decider: npcId, decision: "deal-consent", public: true, real, stated });
+    }
+    const refusal: DealRefusal = { refused: true, reason: stated.kind };
+    this.refusalReal.set(refusal, reason);
+    return refusal;
+  }
+  /** ORW-608: the real reason behind a refusal object, engine-only (never on the object itself, so it can never cross the wall). */
+  private refusalReal = new WeakMap<DealRefusal, DealRefusalReason>();
 
   /**
    * 0093 — the secret-power per-moment seeded rng, keyed on (game seed, use, factId/subject, week, phase).
@@ -16706,27 +16873,60 @@ export class GameSessionAdapter implements GameSession {
   }
 
 
+  /**
+   * The holder's believed grievance against `subject` (0150 `beliefPull`), as a pure read. ORW-581 (Fable T1-14): a scoring read no longer writes. In a played
+   * game the "they are targeting me" claims are written at commit time (`syncTargetsMeClaims`, before a beat or a decision and around the campaign tick); a
+   * headless sim keeps the legacy write-on-read so its seeded spine is byte-identical.
+   */
   private beliefNomTiltFor(subject: EntityId, holder: EntityId): number {
     if (!this.live || holder === PLAYER || !this.npcBeliefsEnabled) return 0;
-    const live = this.live;
+    if (this.live.playedGame !== true) this.noteTargetsMeClaims(holder); // headless only: the legacy write-on-read, byte for byte
+    return beliefPull(this.live.beliefs, holder, subject, this.live.week); // 0150 / ORW-330 slice 2: every believed grievance, at the Q2 strength (full = a goal's scale; capped = the old targets-me tilt)
+  }
+
+  /**
+   * ORW-581 (Fable T1-14): the commit-time step that writes every living houseguest's "they are targeting me" claims, so the scoring reads that use them never
+   * write. Played games only, and only when the belief-nomination layer is on (the only readers); a headless sim is untouched.
+   */
+  private syncTargetsMeClaims(): void {
+    if (!this.live || this.live.playedGame !== true || !this.npcBeliefsEnabled || !this.npcBeliefNomsEnabled) return;
+    for (const id of this.livingIds()) if (id !== PLAYER) this.noteTargetsMeClaims(id);
+  }
+
+  /**
+   * The WRITE: a holder who knows a live evict campaign is aimed at them believes someone is targeting them (a tell, 0.8), and a betrayal rumor heard this week
+   * says the same at half its confidence. Idempotent per week (claim ids key on holder, source and week; `recordClaim` keeps the stronger). In a played game the
+   * name they settle on is their own read (`blameForTargeting`), decided once per campaign and week; a headless sim keeps the legacy flat 20% uniform misread.
+   */
+  private noteTargetsMeClaims(holder: EntityId): void {
+    const live = this.live!;
     const store = (live.beliefs ??= {});
     const week = live.week;
+    const played = live.playedGame === true;
     const living = this.livingIds().filter((id) => id !== holder);
     for (const c of this.campaigns) {
       if (c.status !== "active" || c.goal !== "evict" || c.target !== holder || !c.knownTo.includes(holder)) continue;
       const owner = c.owners[0];
       if (!owner || owner === holder) continue;
+      const tail = `|c:${c.id}|${week}`;
+      if (played && claimsOf(store, holder).some((x) => x.kind === "targets-me" && x.id.startsWith(`${holder}|targets-me|`) && x.id.endsWith(tail))) continue; // ORW-581: the blame for this campaign this week is already settled
       const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:targets-me:${week}:${holder}:${c.id}`));
-      const wrong = rng.next() < 0.2 && living.length > 2;
-      const pool = living.filter((id) => id !== owner);
-      const claimed = wrong ? pool[Math.floor(rng.next() * pool.length)]! : owner;
-      recordClaim(store, { id: `${holder}|targets-me|${claimed}|c:${c.id}|${week}`, holder, kind: "targets-me", subject: claimed, object: holder, value: true, origin: "told", confidence: 0.8, week });
+      let claimed: EntityId;
+      if (played) {
+        claimed = blameForTargeting(owner, living.filter((id) => id !== owner),
+          { trust: (id) => this.rel.edge(holder, id).trust, threat: (id) => this.rel.edge(holder, id).threat },
+          RELATIONSHIP_CONSTANTS.baseline, () => rng.next());
+      } else {
+        const wrong = rng.next() < 0.2 && living.length > 2;
+        const pool = living.filter((id) => id !== owner);
+        claimed = wrong ? pool[Math.floor(rng.next() * pool.length)]! : owner;
+      }
+      recordClaim(store, { id: `${holder}|targets-me|${claimed}${tail}`, holder, kind: "targets-me", subject: claimed, object: holder, value: true, origin: "told", confidence: 0.8, week });
     }
     for (const r of claimsOf(store, holder)) {
       if (r.kind !== "heard-rumor" || r.nature !== "betrayal" || r.refuted || r.week !== week) continue;
       recordClaim(store, { id: `${holder}|targets-me|${r.subject}|r:${r.id}|${week}`, holder, kind: "targets-me", subject: r.subject, object: holder, value: true, origin: "gossip", confidence: Math.max(0, Math.min(1, r.confidence)) * 0.5, week });
     }
-    return beliefPull(store, holder, subject, week); // 0150 / ORW-330 slice 2: every believed grievance, at the Q2 strength (full = a goal's scale; capped = the old targets-me tilt)
   }
 
   /** The residual edge carry for the memory floor: what the relationship edge still holds, so nothing is counted twice. */

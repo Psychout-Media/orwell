@@ -90,3 +90,23 @@ describe("ORW-597: the learned-of-the-break gate", () => {
     expect(view()).toBe("broken");
   });
 });
+
+describe("ORW-597 follow-up: being told the breaker is coming after you reveals their quiet break", () => {
+  it("a wronged houseguest who comes to believe the breaker targets them learns of the break overnight (once)", async () => {
+    const { GameSessionRegistry } = await import("../../src/composition/registry");
+    const sb = new GameSessionRegistry().sandboxFor("learned-targets-me");
+    sb.session.createCharacter({ playerName: "The Player", seed: 37 });
+    const g = sb.session as unknown as { deals: DealLedger; rel: RelationshipModel; live: { week: number; beliefs?: Record<string, unknown[]> }; learnBreaksOvernight(): void };
+    const [breaker, wronged] = sb.session.livingIds().filter((id) => id !== PLAYER);
+    const deal = g.deals.make([breaker!, wronged!], "safety", "you are safe with me", undefined, g.live.week) as Deal;
+    g.deals.breakDeliberately(deal, breaker!, { rel: g.rel, rng: new SeededRandom(3), currentWeek: g.live.week });
+    expect(deal.learned).toBe(false);
+    g.learnBreaksOvernight();
+    expect(deal.learned).toBe(false); // nothing held yet
+    g.live.beliefs = { ...(g.live.beliefs ?? {}), [wronged!]: [{ id: `${wronged}|targets-me|${breaker}|t`, holder: wronged, kind: "targets-me", subject: breaker, object: wronged, value: true, origin: "told", confidence: 0.7, week: g.live.week }] };
+    const before = g.rel.edge(wronged!, breaker!).trust;
+    g.learnBreaksOvernight();
+    expect(deal.learned).toBe(true);
+    expect(g.rel.edge(wronged!, breaker!).trust).toBeLessThan(before);
+  });
+});
