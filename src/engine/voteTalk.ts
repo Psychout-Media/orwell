@@ -1,11 +1,10 @@
 import { clamp01Raw as clamp01 } from "../domain/num";
 import type { EntityId } from "../domain/ids";
-import { PLAYER } from "../domain/ids";
 import type { ClaimInput, SpokenClaimKind } from "./spokenClaims";
 
 /**
  * Feature 0154 / ORW-330 (theme 2, slice 5b) - LYING ABOUT YOUR VOTE. When an eviction is over the vote is public and the ballots stay secret.
- * Each NPC voter may then tell ONE other NPC how they voted: the ENGINE decides whether to say it, whether it is TRUE (from the speaker's real
+ * Each NPC voter may then tell ONE other houseguest how they voted (ORW-613: the player included): the ENGINE decides whether to say it, whether it is TRUE (from the speaker's real
  * ballot, passed in by the adapter and never kept here) and what to say when it is not. Cunning lies more, candor less, and NEED lies most: having
  * voted against someone the listener likes. A speaker who voted with the house (the evictee) to a listener who did not like the evictee has no need.
  *
@@ -33,9 +32,17 @@ export const VOTE_TALK = {
   lieMax: 0.8,
   /** How many tellings one speaker makes per eviction. */
   maxPerSpeaker: 1,
-  /** The listener is drawn from this many of the speaker's closest NPCs (by the listener's liking of the speaker). */
+  /** The listener is drawn from this many of the speaker's closest houseguests (by the listener's liking of the speaker); the player is one of the candidates (ORW-613). */
   listenerPool: 3,
+  /** ORW-594 (Fable T2-13): a believed "I voted to keep the one you liked" earns the speaker this much of the listener's trust and affinity, at full need. Recorded on
+   *  the belief, so catching the lie takes it back. */
+  keepCredit: 0.04,
 } as const;
+
+/** ORW-594: the trust and affinity credit a believed keep earns the speaker with a listener who liked the kept nominee (`likesKept` 0..1; nothing below 0.5). */
+export function keepCredit(likesKept: number): number {
+  return VOTE_TALK.keepCredit * clamp01((likesKept - 0.5) * 2);
+}
 
 /** The claim kind a vote telling uses (one place to change it). */
 export const CLAIM_KIND: SpokenClaimKind = "voted-to-keep";
@@ -53,7 +60,7 @@ export interface VoteTalkRolls { tell: number; pick: number; lie: number }
 
 export interface VoteTalkInput {
   speaker: EntityId;
-  /** The houseguests who could be told (living NPCs other than the speaker); the planner never picks the player. */
+  /** The houseguests who could be told, the player included (ORW-613: the player hears how people voted like anyone); never the speaker. */
   candidates: readonly EntityId[];
   /** Who the speaker REALLY voted to evict (engine truth, from the ballot). */
   real: EntityId;
@@ -86,7 +93,7 @@ export function lieChance(need: number, cunning: number, candor: number): number
  * At most one telling per speaker per eviction (`maxPerSpeaker`), enforced by the caller calling this once per speaker.
  */
 export function decideVoteTalk(i: VoteTalkInput): VoteTalk | undefined {
-  const others = i.candidates.filter((c) => c !== i.speaker && c !== PLAYER);
+  const others = i.candidates.filter((c) => c !== i.speaker);
   if (others.length === 0 || !i.nominees.includes(i.real)) return undefined;
   const pool = [...others].sort((a, b) => i.likes(b, i.speaker) - i.likes(a, i.speaker) || a.localeCompare(b)).slice(0, VOTE_TALK.listenerPool);
   const listener = pool[Math.min(pool.length - 1, Math.floor(i.rolls.pick * pool.length))]!;

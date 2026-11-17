@@ -145,8 +145,8 @@ describe("ORW-618 part 2 (3): player to juror is the player's own words", () => 
 describe("ORW-618 part 2 (4): one side stream, salted in the jury house", () => {
   const first = (i: any, id: string, jury: boolean) => {
     const live = i.live;
-    const key = `${jury ? "jury:" : ""}${id}:${live.week}:${live.dayNumber ?? 0}`;
-    return new SeededRandom(hashSeed(`${i.gameSeed ?? 0}:claims-to-player:${key}:0`)).next();
+    const key = `${jury ? "jury:" : ""}${id}:${live.week}:${live.dayNumber ?? 0}:${live.timeOfDay ?? ""}`; // ORW-594: one roll per part of the day
+    return new SeededRandom(hashSeed(`${i.gameSeed ?? 0}:claims-to-player:${key}`)).next();
   };
   it("the house keeps its own key (unchanged) and the jury house a salted one", () => {
     const house = rig(7010, { playerJuror: false });
@@ -168,7 +168,7 @@ describe("ORW-618 part 2 (4): one side stream, salted in the jury house", () => 
     expect(j.i.claimsToPlayerFor(npc(1), true) !== undefined).toBe(first(j.i, npc(1), true) < c2);
   });
   it("a house with no jury: the in-house call is the same whether or not the jury argument exists (byte-identical default)", () => {
-    expect(readFileSync("src/adapters/engine/GameSessionAdapter.ts", "utf8")).toContain('const attemptKey = `${jury ? "jury:" : ""}${id}:${live.week}:${day}`;');
+    expect(readFileSync("src/adapters/engine/GameSessionAdapter.ts", "utf8")).toContain('const attemptKey = `${jury ? "jury:" : ""}${id}:${live.week}:${day}:${live.timeOfDay ?? ""}`;');
   });
 });
 

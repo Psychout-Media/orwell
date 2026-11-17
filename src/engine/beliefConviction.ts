@@ -1,6 +1,6 @@
 import type { EntityId } from "../domain/ids";
 import { agendaRoll } from "./agenda";
-import type { BeliefClaim } from "./beliefStore";
+import { evidenceKey, type BeliefClaim } from "./beliefStore";
 
 /**
  * Feature 0160 / ORW-330 - CONVICTION (Ryne's ruling on Theme 2 question 2, 2026-11-16: "how much that I believe it depends on how much
@@ -85,10 +85,11 @@ export const testRef = (b: Pick<BeliefClaim, "id">): string => `belief:${b.id}`;
 export function pathwayEvidence(b: BeliefClaim, held: readonly BeliefClaim[], holder: EntityId): number {
   const same = (c: BeliefClaim) => c.id !== b.id && c.kind === b.kind && c.subject === b.subject && (c.object ?? null) === (b.object ?? null);
   const support = new Set(held.filter((c) => same(c) && c.value && !c.refuted && c.source !== undefined && c.source !== b.source).map((c) => c.source)).size;
-  const contradicts = held.filter((c) => !c.refuted && (
+  // ORW-591: a denial repeated by one source is one piece of evidence against, just as a repeat is one piece for (`evidenceKey`).
+  const contradicts = new Set(held.filter((c) => !c.refuted && (
     (same(c) && !c.value)
     || (b.kind === "voted-against-me" && c.kind === "heard-rumor" && c.nature === "voted-to-keep" && c.subject === b.subject && c.object === holder && c.value)
-  )).length;
+  )).map(evidenceKey)).size;
   const sourceLied = b.source !== undefined && held.some((c) => c.kind === "lied-to-me" && c.subject === b.source && c.value && !c.refuted) ? 1 : 0;
   const net = support - contradicts - sourceLied;
   return net > 0 ? CONVICTION.step : net < 0 ? -CONVICTION.step : -CONVICTION.fade;

@@ -31,7 +31,8 @@ When("the player proposes a safety deal to them", function (this: BbWorld) {
 Then("the houseguest refuses the deal", function (this: BbWorld) {
   const r = st(this).result;
   assert.ok(isRefusal(r), "the engine's consent check refuses a distrustful houseguest");
-  assert.equal((r as DealRefusal).reason, "distrust");
+  assert.equal((st(this).s as unknown as { refusalReal: WeakMap<object, string> }).refusalReal.get(r as object), "distrust"); // ORW-608: the real reason is engine-only
+  assert.ok(["didnt-trust-you", "nothing-personal", "house-wants-it"].includes((r as DealRefusal).reason), "the stated reason is one the houseguest would give");
 });
 
 Then("no deal is recorded", function (this: BbWorld) {
@@ -41,5 +42,5 @@ Then("no deal is recorded", function (this: BbWorld) {
 Then("the refusal carries no numbers", function (this: BbWorld) {
   const r = st(this).result as DealRefusal;
   assert.doesNotMatch(JSON.stringify(r), /\d/, "no digit of any kind in the refusal");
-  assert.deepEqual(Object.keys(r).sort(), ["narratable", "reason", "refused"]);
+  assert.deepEqual(Object.keys(r).sort(), ["reason", "refused"]); // ORW-608: no fixed line; the stated reason only
 });

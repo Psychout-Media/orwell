@@ -167,13 +167,23 @@ describe("an alliance that does not hold fades (ORW-353; the measure is the bloc
     expect(allied(s, holder, target), "only two low days since the recovery").toBe(true);
   });
 
-  it("the player's own named pact never fades silently", async () => {
+  it("with group life off the player's own named pact never fades silently (the pre-ORW-616 rule, the kill switch)", async () => {
+    const { s, holder, bond } = await setup();
+    const f = s as unknown as F;
+    (s as unknown as { setGroupRolesEnabled(on: boolean): void }).setGroupRolesEnabled(false);
+    s.alliances.add("Mine", PLAYER, [PLAYER, holder], 1);
+    bond(PLAYER, holder, 0.05);
+    for (let d = 1; d <= ALLIANCE.fadeDays + 3; d++) { day(f, d); f.fadeAlliances(); }
+    expect(allied(s, PLAYER, holder)).toBe(true);
+  });
+
+  it("ORW-616: with group life on the player's own pact fades like any other when the bond goes cold", async () => {
     const { s, holder, bond } = await setup();
     const f = s as unknown as F;
     s.alliances.add("Mine", PLAYER, [PLAYER, holder], 1);
     bond(PLAYER, holder, 0.05);
     for (let d = 1; d <= ALLIANCE.fadeDays + 3; d++) { day(f, d); f.fadeAlliances(); }
-    expect(allied(s, PLAYER, holder)).toBe(true);
+    expect(allied(s, PLAYER, holder)).toBe(false);
   });
 
   it("the alliance's cohesion IS the bloc cohesion: the weakest mutual bond among its members, one shared function", async () => {

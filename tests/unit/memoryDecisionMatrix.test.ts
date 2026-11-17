@@ -34,7 +34,7 @@ const SLICES: Record<Exclude<StrategicDecision, "approaches">, () => string> = {
   houseguestsChoice: () => fnBody("function rollVetoDraw(", "\nfunction resolveVetoDraw(")  /* ORW-281 4b: the draw + NPC Houseguest's-Choice reads live in the shared roll */,
   juryVote: () => fnBody("function precomputeVotes(", "return votes;"),
   final3Eviction: () => fnBody('case "final-eviction": {', "\n    }\n"),
-  secretVetoReplacement: () => fnBody("function playSecretVeto(", "s.finalNominees = [staying, replacement];"),
+  secretVetoReplacement: () => fnBody("function playSecretVeto(", "/**\n * Resolve the battle-back") + fnBody("function npcReplacementPick(", "/** ORW-281 4c: stage the veto ceremony") /* ORW-581: the played read is the shared replacement read; the legacy read stays for headless sims */,
 };
 const readsOf = (body: string): Set<string> => new Set([...body.matchAll(/ctx\.(\w+)/g)].map((m) => m[1]!).filter((n) => MEMORY_LIKE.test(n)));
 
