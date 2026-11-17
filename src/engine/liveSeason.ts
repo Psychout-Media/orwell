@@ -7,6 +7,7 @@ import { resolveCompetition, eliminationOrder, CompetitionIntents } from "../dom
 import { deduceEvictionVoters, deductionSeed } from "./voteDeduction";
 import { questionsAfterVote, type VoteQuestion } from "./voteQuestions";
 import { recordClaim, DEDUCED_CLAIM_CONFIDENCE, type BeliefStore } from "./beliefStore";
+import type { BondStore } from "./bondRecord";
 import { lapseAssurancesAtRoll } from "./assurances";
 import type { CompetitionType, Intent, Competitor, CompetitionResult } from "../domain/competitionOutcome";
 
@@ -691,6 +692,15 @@ export interface LiveSeasonState {
    * this `live` state, so it is persisted and restored with the season exactly like `juryGrudge`.
    */
   beliefs?: BeliefStore;
+  /**
+   * 0175 (Theme 3 Core 1, ORW-552) - the BOND RECORD per ordered pair (`bondRecord.ts`): warmth, debts, resentment, strain, shared history, commitment.
+   * Folded by the engine from the event record and the deal ledger (`bondsCursor` = events folded so far; `bondsSeen` = deal and save marks already
+   * folded; `bondsDay` = the last day night-repair ran). ENGINE-ONLY (Vault class), never projected. Absent => no bond record yet (old saves read neutral).
+   */
+  bonds?: BondStore;
+  bondsCursor?: number;
+  bondsSeen?: string[];
+  bondsDay?: number;
   /**
    * 0149 / ORW-330 (theme 2, slice 1) - the season's CLAIMS (`spokenClaims.ts`): who told whom what about whom, whether it was true and what
    * the speaker meant. ENGINE-ONLY (Vault class), never projected; only `claimsHeardBy(PLAYER)` (the speaker's words, no truth) may go outward.

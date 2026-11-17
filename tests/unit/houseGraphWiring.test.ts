@@ -33,9 +33,10 @@ describe("the house graph accessor on the adapter", () => {
     expect(g2).not.toBe(g1);
     expect(g2.day).toBe((g1.day ?? 1) + 1);
   });
-  it("is derived state: snapshot bytes match a session that never called it", () => {
+  it("is derived state: it adds nothing to the snapshot beyond the bond read it rides on (bondReader() itself catches the bond record up, idempotently)", () => {
     const a = game(), b = game();
     for (let i = 0; i < 4; i++) { a.advanceGame(); b.advanceGame(); }
+    b.bondReader(); // the only snapshot-visible effect of a graph read: the bond record's own fold
     a.houseGraph(); a.houseGraph();
     expect(JSON.stringify(a.snapshot())).toBe(JSON.stringify(b.snapshot()));
     expect(JSON.stringify(a.snapshot())).not.toMatch(/houseGraph/i);

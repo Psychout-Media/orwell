@@ -337,6 +337,7 @@ export class DealLedger {
     actionKind: BreakCause,
     sink: ReconcileSink,
   ): void {
+    deal.brokenBy = breaker; // Theme 3 / 0175: who broke it (the bond record folds the wronged party's resentment toward them). Absent on older saves.
     // 0026 + 0109: the wronged party's hidden read of the breaker takes the large, slow-decaying
     // betrayal hit — SCALED by how much negotiated life the deal had left (a near/at-end or vague break
     // hurts less; a freshly-renewed one more). No duration / no week ⇒ scale 1 ⇒ byte-identical to 0039.
