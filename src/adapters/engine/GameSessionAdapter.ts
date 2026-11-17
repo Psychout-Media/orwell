@@ -366,6 +366,7 @@ import { buildRumorMill } from "../../engine/rumorMill";
 import { drawHouseLeans, describeHouseLeans, dialMult, type DialId } from "../../engine/houseLeans";
 import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingCaller } from "../../engine/houseMeeting";
 import { decideTellToPlayer, presentedBand, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
+import { TRAP, OVERHEAR_PLANT, canaryReturned, canarySubject, claimWords, doubtsDiscretionOf, overhearers, type Trap } from "../../engine/trap";
 import { decidePlantToPlayer, toldTodayBy } from "../../engine/plantToPlayer";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
 import {
@@ -1818,6 +1819,9 @@ export class GameSessionAdapter implements GameSession {
     if (!this.claimsToPlayerEnabled || !this.npcBeliefsEnabled || !live || live.playedGame !== true || this.ceremonyBeat || id === PLAYER) return undefined;
     const done = this.claimsToPlayerDecided.get(id);
     if (done && done.epoch === this.disclosureEpoch) return done.tells;
+    // 0188 / ORW-619: a houseguest who set a trap on the player says the canary the next time they are with them - an ordinary confidence to the narrator, no tell.
+    const canary = this.sayPendingCanary(id);
+    if (canary) { this.claimsToPlayerDecided.set(id, { epoch: this.disclosureEpoch, tells: canary }); return canary; }
     const day = live.dayNumber ?? 0;
     const log = live.claims?.items ?? [];
     const told = log.filter((c) => c.speaker === id && c.listener === PLAYER);
@@ -12125,6 +12129,98 @@ export class GameSessionAdapter implements GameSession {
    * excludes the player, so it never lands on any player OR admin projection; it surfaces to the player
    * only via an existing modeled pathway, never as a Vault read (`tests/unit/secretBarter.test.ts` sentinel).
    */
+  /** 0188 / ORW-619: THE TRAP (`ORWELL_TRAPS`, default ON; `=0` = no traps). Played games with the belief layer only. */
+  private trapsEnabled = flagDefaultOn("ORWELL_TRAPS");
+  setTrapsEnabled(on: boolean): void { this.trapsEnabled = on; }
+  /**
+   * 0188 - once a day (the off-screen tick): (1) watch every open trap - if the canary came back to the setter from anyone but the suspect (a told claim they now
+   * hold, or the fact itself reaching them through the house's spread), the trap springs: the setter knows who leaked; if it never comes back in `TRAP.watchDays`,
+   * the suspect passed. (2) A suspicious houseguest who doubts someone's discretion may set a new trap: a made-up "X is going after me" told to the suspect alone
+   * (and seeded as a fact they hold, so the co-presence spread can carry it on). The player can be the suspect: the canary is then said to them the next time the
+   * setter is with them. Own side stream; engine-only.
+   */
+  trapTick(knowledge: KnowledgeService): void {
+    const s = this.live;
+    if (!this.trapsEnabled || !s || s.playedGame !== true || !this.npcBeliefsEnabled || !this.house) return;
+    const day = s.dayNumber ?? s.week;
+    if (s.trapsDay === day) return;
+    s.trapsDay = day;
+    const living = this.livingIds();
+    const traps = (s.traps ??= []);
+    for (const t of traps) {
+      if (t.status === "pending" && day - t.day >= TRAP.watchDays) { t.status = "lapsed"; continue; }
+      if (t.status !== "open") continue;
+      if (!living.includes(t.setter)) { t.status = "lapsed"; continue; }
+      const viaBelief = canaryReturned(t, s.beliefs?.[t.setter] ?? []);
+      const viaSpread = knowledge.knownTo(t.setter).find((f) => f.factId === t.factId && f.source !== undefined && f.source !== t.setter && f.source !== t.suspect)?.source;
+      const via = viaBelief ?? viaSpread;
+      if (via !== undefined) { this.springTrap(t, via); continue; }
+      if (day - t.day >= TRAP.watchDays) {
+        t.status = "held";
+        if (living.includes(t.suspect)) this.rel.applyImpactDirected(t.setter, t.suspect, { trust: TRAP.heldTrust }, new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:trap-held:${t.id}`)));
+      }
+    }
+    const busy = new Set(traps.filter((t) => t.status === "open" || t.status === "pending").map((t) => t.setter));
+    const awake = this.awakeNow();
+    for (const setter of living.filter((id) => id !== PLAYER && !busy.has(id) && (!awake || awake.has(id))).sort()) {
+      const n = this.house.npcs.find((x) => x.id === setter);
+      if (!n || this.credulityOf(setter) >= TRAP.suspiciousBelow) continue;
+      const suspect = doubtsDiscretionOf(s.beliefs?.[setter] ?? [], setter).find((id) => living.includes(id));
+      if (!suspect) continue;
+      if (new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:trap:${setter}:${s.week}:${day}`)).next() >= TRAP.setChance) continue;
+      const facts = this.truthFacts();
+      const subject = canarySubject(setter, suspect, living, (x) => this.rel.edge(setter, x).threat, (x) => truthOf({ kind: "going-after", listener: suspect, subject: x, object: setter }, facts));
+      if (!subject) continue;
+      const trap: Trap = { id: `trap:${setter}:${suspect}:${s.week}:${day}`, setter, suspect, subject, factId: `canary:${setter}:${suspect}:${s.week}:${day}`, week: s.week, day, status: suspect === PLAYER ? "pending" : "open" };
+      traps.push(trap);
+      if (suspect !== PLAYER) this.plantCanary(trap, knowledge);
+    }
+    if (traps.length === 0) delete s.traps;
+  }
+  /**
+   * 0188 part 2 / ORW-627: who in the room overheard a plant. A houseguest holds that the planter is talking about the target behind their back; the player hears the
+   * words as a scene they were in (never whether it is true). Each bystander on their own keyed roll; the awake only. Flag-gated with the traps.
+   */
+  private overhearPlant(c: SpokenClaim, place: string, presence: ReadonlyMap<EntityId, string>, salt: string): void {
+    const s = this.live;
+    if (!this.trapsEnabled || !s || s.playedGame !== true || !this.npcBeliefsEnabled) return;
+    const awake = this.awakeNow();
+    const room = [...presence.entries()].filter(([, r]) => r === place).map(([id]) => id);
+    const heard = overhearers(room, c.speaker, c.listener, (id) => !awake || awake.has(id), (id) => new SeededRandom(hashSeed(`${salt}:${c.id}:${id}`)).next());
+    for (const id of heard) {
+      if (id === PLAYER) {
+        const words = claimWords(c.kind, this.nameOf(c.subject), c.object !== undefined ? this.nameOf(c.object) : undefined);
+        this.onPlayerEvent?.(`${this.nameOf(PLAYER)} overhears ${this.nameOf(c.speaker)} telling ${this.nameOf(c.listener)} that ${words}`, [PLAYER, c.speaker, c.listener], "overheard");
+        continue;
+      }
+      if (c.subject === id) continue; // hearing a story about yourself is a confrontation, not an overheard plant (a later slice)
+      recordClaim((s.beliefs ??= {}), { id: `${id}|heard-rumor|${c.speaker}|${c.subject}|overheard:${c.id}`, holder: id, kind: "heard-rumor", nature: "talking-about", subject: c.speaker, object: c.subject, value: true, origin: "overheard", source: c.speaker, confidence: OVERHEAR_PLANT.confidence, week: s.week });
+    }
+  }
+  /** 0188: tell the canary to an NPC suspect (a claim only they hear) and seed it as a fact they hold, so the house's spread can carry it on. */
+  private plantCanary(t: Trap, knowledge: KnowledgeService): void {
+    this.tellClaim({ speaker: t.setter, listener: t.suspect, kind: "going-after", subject: t.subject, object: t.setter, isTrue: false, intent: "mislead" });
+    knowledge.seedBelief(t.suspect, { content: `${this.nameOf(t.subject)} is going after ${this.nameOf(t.setter)}`, factId: t.factId, subject: t.subject, confidence: 0.7, source: t.setter, hops: 0, distortion: 0 }, `told-by:${t.setter}`);
+  }
+  /** 0188: a trap set on the PLAYER is said the next time the setter is with them - as an ordinary confidence (the narrator gets the same fields as any). */
+  private sayPendingCanary(setter: EntityId): NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined {
+    const s = this.live;
+    const t = s?.traps?.find((x) => x.status === "pending" && x.setter === setter && x.suspect === PLAYER);
+    if (!s || !t || !this.trapsEnabled) return undefined;
+    const claim = this.tellClaim({ speaker: setter, listener: PLAYER, kind: "going-after", subject: t.subject, object: setter, isTrue: false, intent: "mislead" });
+    if (!claim) return undefined;
+    t.status = "open"; t.day = s.dayNumber ?? s.week; t.week = s.week;
+    const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:trap-band:${t.id}`)).next();
+    return { kind: "going-after", subject: this.nameOf(t.subject), object: this.nameOf(setter), certainty: presentedBand(undefined, roll) };
+  }
+  /** 0188: the canary came back through someone other than the suspect: the setter knows who leaked. Their read of the leaker turns, and they hold that the leaker talks. */
+  private springTrap(t: Trap, via: EntityId): void {
+    const s = this.live!;
+    t.status = "sprung"; t.via = via;
+    if (!this.livingIds().includes(t.suspect)) return;
+    this.rel.applyImpactDirected(t.setter, t.suspect, { trust: TRAP.springTrust, affinity: TRAP.springAffinity }, new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:trap-sprung:${t.id}`)));
+    recordClaim((s.beliefs ??= {}), { id: `${t.setter}|heard-rumor|${t.suspect}|${t.setter}|trap:${t.id}`, holder: t.setter, kind: "heard-rumor", nature: "talking-about", subject: t.suspect, object: t.setter, value: true, origin: "deduced", confidence: TRAP.springConfidence, week: s.week });
+  }
   secretBarterTick(events: EventStore, knowledge: KnowledgeService): void {
     if (!this.secretBarterEnabled || !this.house) return;
     void events; // the transfer records THROUGH `knowledge` (transmitGossip) — the store is the caller's contract
@@ -12465,7 +12561,9 @@ export class GameSessionAdapter implements GameSession {
         out.push({ event, type, initiator: p.actor, partner });
         if (p.habit) this.noteHabitScene(p, event);
         // 0153 / ORW-330 slice 3: a speech action is a real claim the engine decides (plant a lie, leak a belief, confirm one, fish for one), checked against its own truth.
-        this.sayInHouseLife(p, partner, `${seed}:speech:${day}:${hour}`);
+        const said = this.sayInHouseLife(p, partner, `${seed}:speech:${day}:${hour}`);
+        // 0188 part 2 / ORW-627: a story planted in a room can be overheard by anyone else there, awake (the player included)
+        if (said && speechActionOf(p.kind) === "plant") this.overhearPlant(said, p.place, presence, `${seed}:overhear-plant:${day}:${hour}`);
       }
     }
     return out;
