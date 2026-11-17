@@ -58,7 +58,7 @@ import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/jur
 import { JURY_HOUSE } from "../../engine/juryHouseConstants";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
-import { chooseHourAction, assembleScenes, habitsFor, actionLine, ACTIONS as HOUSE_LIFE_ACTIONS, type PlannedAction } from "../../engine/houseLife";
+import { chooseHourAction, assembleScenes, habitsFor, actionLine, formPlan, GOAL_PLAN, ACTIONS as HOUSE_LIFE_ACTIONS, type PlannedAction, type PlanStep } from "../../engine/houseLife";
 import { HOUSE_LIFE } from "../../engine/houseLifeConstants";
 import { REASONS } from "../../engine/agendaConstants";
 import { askDisposition, askRoll } from "../../engine/askAround";
@@ -12598,7 +12598,8 @@ export class GameSessionAdapter implements GameSession {
       const others = actors.filter((x) => x !== id);
       const showmance = this.showmancePartnerOf(id);
       const avoid = tieAvoids(this.agendaView(id)?.character ?? character);
-      plans.push(chooseHourAction({
+      if (this.goalPlansOn()) this.maintainGoalPlans(id, day);
+      const hv: Parameters<typeof chooseHourAction>[0] = {
         owner: id, character, agenda: s.agendas?.[id], ...(avoid.length ? { avoid } : {}), habits: authored[id]?.habits ?? habitsFor(character, id, seed),
         emotional: this.soulObj(id)?.emotionalState ?? 0.5, room: where.get(id)!, whereabouts: view,
         affinity: new Map([...others, ...(playerRoom !== undefined ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).affinity] as const)),
@@ -12612,7 +12613,11 @@ export class GameSessionAdapter implements GameSession {
         ...(houseCulture ? { culture: houseCulture } : {}),
         ...(habitsOf.get(id) ? { pairHabits: habitsOf.get(id)! } : {}),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),
-      }, seed));
+        ...(this.goalPlansOn() ? { plans: this.planStepsFor(id) } : {}), // ORW-625: each goal's stored plan
+      };
+      const chosen = chooseHourAction(hv, seed);
+      plans.push(chosen);
+      if (this.goalPlansOn() && chosen.goalId) this.noteGoalPlan(id, chosen, hv, day); // ORW-625: form or advance the goal's plan
     }
     // They walk there on purpose (one hour is enough to cross the house): both presence views, so the society and the map agree.
     // ORW-507 (#2612): an NPC whose goal plan names the player but whose approach is suppressed (distrust, an avoidant tie, or the desire clock off) does not walk into the player's room for it.
@@ -13300,6 +13305,51 @@ export class GameSessionAdapter implements GameSession {
    */
   private bondFeelingsEnabled = flagDefaultOn("ORWELL_BOND_FEELINGS");
   setBondFeelingsEnabled(on: boolean): void { this.bondFeelingsEnabled = on; }
+  /** ORW-625: stored goal plans (`ORWELL_GOAL_PLANS`, default ON; `=0` = the hour re-rolls each goal's step as before). Played games with agendas only. */
+  private goalPlansEnabled = flagDefaultOn("ORWELL_GOAL_PLANS");
+  setGoalPlansEnabled(on: boolean): void { this.goalPlansEnabled = on; }
+  private goalPlansOn(): boolean { return this.goalPlansEnabled && this.live?.playedGame === true && !!this.live.agendas; }
+  /** ORW-625: the next step of each of `owner`'s active plans (goal id -> step). */
+  private planStepsFor(owner: EntityId): ReadonlyMap<string, PlanStep> {
+    const out = new Map<string, PlanStep>();
+    for (const p of this.live?.goalPlans?.[owner] ?? []) if (p.status === "active" && p.steps[p.at]) out.set(p.goalId, p.steps[p.at]!);
+    return out;
+  }
+  /** ORW-625: drop a plan only for a reason - its goal ended, a partner left the game, or it stalled. The record stays (append-only). */
+  private maintainGoalPlans(owner: EntityId, day: number): void {
+    const s = this.live!;
+    const mine = s.goalPlans?.[owner];
+    if (!mine?.length) return;
+    const goals = new Map((s.agendas?.[owner]?.goals ?? []).map((g) => [g.id, g] as const));
+    const living = new Set(this.livingIds());
+    for (const p of mine) {
+      if (p.status !== "active") continue;
+      const g = goals.get(p.goalId);
+      if (!g || g.status !== "active") { p.status = "dropped"; p.reason = "goal-ended"; continue; }
+      const step = p.steps[p.at];
+      if (step && [...step.with, ...(step.about ? [step.about] : [])].some((x) => !living.has(x))) { p.status = "dropped"; p.reason = "partner-gone"; continue; }
+      if (day - p.lastDay >= GOAL_PLAN.stallDays) { p.status = "dropped"; p.reason = "stalled"; }
+    }
+  }
+  /** ORW-625: the hour's goal action forms the goal's plan (its first step) or advances it (when it is the plan's step). */
+  private noteGoalPlan(owner: EntityId, a: PlannedAction, hv: Parameters<typeof chooseHourAction>[0], day: number): void {
+    const s = this.live!;
+    const goal = (s.agendas?.[owner]?.goals ?? []).find((g) => g.id === a.goalId);
+    if (!goal) return;
+    const mine = ((s.goalPlans ??= {})[owner] ??= []);
+    const plan = mine.find((p) => p.status === "active" && p.goalId === goal.id);
+    if (plan) {
+      const step = plan.steps[plan.at];
+      if (step && step.kind === a.kind && step.with.join() === a.with.join()) {
+        plan.at += 1; plan.lastDay = day;
+        if (plan.at >= plan.steps.length) plan.status = "done";
+      }
+      return;
+    }
+    const seed = this.gameSeed ?? 0;
+    const steps = formPlan(goal, hv, { kind: a.kind, with: [...a.with], ...(a.about ? { about: a.about } : {}) }, (k) => agendaRoll(seed, owner, `plan:${goal.id}:d${day}:${k}`));
+    mine.push({ goalId: goal.id, steps, at: 1, madeDay: day, lastDay: day, status: steps.length > 1 ? "active" : "done" });
+  }
   private bondFeelingsOn(): boolean { return this.bondFeelingsEnabled && this.live?.playedGame === true && this.bondRecordEnabled; }
 
   /** The signed provider value for a vote or a nomination: how much `holder`'s real feeling for `other` keeps them (0 for the player: their own choices are theirs). */

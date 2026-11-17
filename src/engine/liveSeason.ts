@@ -770,6 +770,8 @@ export interface LiveSeasonState {
    * handed to the narrator, under the decider's own voice block, and only for a public act. Append-only, persisted with the season. Absent until the first such decision.
    */
   statedReasons?: StatedReasonRecord[];
+  /** ORW-625: each houseguest's stored goal plans (append-only: a finished or dropped plan keeps its record and reason). ENGINE-ONLY, never projected. */
+  goalPlans?: Record<EntityId, Array<{ goalId: string; steps: import("./houseLife").PlanStep[]; at: number; madeDay: number; lastDay: number; status: "active" | "done" | "dropped"; reason?: "goal-ended" | "partner-gone" | "stalled" }>>;
   /**
    * 0130 — each evictee's exit interview, week by week: their public posture on the way out (a `stance`
    * DERIVED from their manner for an NPC, or the PLAYER's own chosen stance + words). Recorded as the
