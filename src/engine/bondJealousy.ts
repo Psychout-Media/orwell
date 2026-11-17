@@ -4,7 +4,7 @@ import type { BondReader } from "./bonds";
 
 /**
  * Theme 3 slice 4 part 2 (ORW-568, feature 0181) - A BOND'S LIFE: JEALOUSY AND DIVIDED LOYALTY (the NEGATIVE side only; positive triads of closeness are slice 13's).
- * JEALOUSY: a holder close to X watches X spend noticeably more recent shared scenes (and more warmth) on a third person than on the holder: the holder's
+ * JEALOUSY: a holder close to X watches X spend noticeably more of the recent scenes THE HOLDER SAW (was in, or saw from the same room) on a third person than on the holder: the holder's
  * jealousy rises, and the closeness slips (a bounded damp on the holder's feeling-keep for X) unless a bonding scene with X handles it first.
  * DIVIDED LOYALTY: a holder close to two people who fall out is pulled both ways: a bounded extra keep for either, and a higher bar for breaking against either.
  * Pure, engine-only (Vault class: it reads hidden warmth, grudges and strain through the bond reader), no I/O, no rng, no text. Nothing here is shown to the player.
@@ -20,9 +20,8 @@ export const BOND_JEALOUSY = {
   maxJealousy: 0.6,
   /** Jealousy fades by this each night the favour does not keep it up. */
   nightlyFade: 0.1,
-  /** How the favour reads: the scene share against the warmth gap. */
+  /** How the favour reads: the visible scene share only (a houseguest cannot read how X feels about Y). */
   sceneWeight: 0.6,
-  warmthWeight: 0.4,
   /** A rival the holder warms to makes them a little less jealous (0..1). */
   rivalWarmth: 0.5,
   /** At full jealousy the holder's feeling-keep for X is cut by this share (closeness slips). */
@@ -50,30 +49,26 @@ const band = (x: number | undefined): number => {
   return Math.min(BOND_JEALOUSY.maxDial, Math.max(1 / BOND_JEALOUSY.maxDial, v));
 };
 
-/** What the holder sees of one close friend X and one third person Y. All plain numbers (the adapter reads them from the event record and the bond reader). */
+/** What the holder sees of one close friend X and one third person Y. All plain numbers: the holder's own warmth, and the scene counts among scenes the holder saw. */
 export interface JealousyInput {
   /** The holder's warmth for X. */
   closeWarmth: number;
   /** The holder's warmth for Y. */
   rivalWarmth: number;
-  /** X's warmth for Y and for the holder. */
-  xyWarmth: number;
-  xhWarmth: number;
-  /** Recent shared scenes X-with-Y and X-with-the-holder. */
+  /** Recent scenes the holder saw: X-with-Y and X-with-the-holder. */
   xyScenes: number;
   xhScenes: number;
 }
 
 /**
- * The jealousy a holder feels, 0..maxJealousy: zero unless the holder is close to X and X really favours Y (more recent scenes and warmer). Monotone in
+ * The jealousy a holder feels, 0..maxJealousy: zero unless the holder is close to X and X really favours Y in the scenes the holder saw. Monotone in
  * X's scenes with Y, falls as X's scenes with the holder grow, grows with how close the holder is; the culture's paranoia and bonding lean it, loyalty damps it.
  */
 export function jealousy(i: JealousyInput, dials: JealousyDials = {}): number {
   const B = BOND_JEALOUSY;
   if (!(i.closeWarmth >= B.closeBar) || i.xyScenes < B.minScenes || i.xyScenes <= i.xhScenes) return 0;
   const sceneShare = (i.xyScenes - i.xhScenes) / (i.xyScenes + i.xhScenes);
-  const gap = clamp01(i.xyWarmth - i.xhWarmth);
-  const favour = B.sceneWeight * sceneShare + B.warmthWeight * gap;
+  const favour = B.sceneWeight * sceneShare;
   const raw = favour * clamp01(i.closeWarmth) * (1 - B.rivalWarmth * clamp01(i.rivalWarmth));
   const d = band(dials.paranoia) * (1 + B.bondingShare * (band(dials.bonding) - 1)) / band(dials.loyalty);
   return Math.min(B.maxJealousy, raw * d);
@@ -82,6 +77,14 @@ export function jealousy(i: JealousyInput, dials: JealousyDials = {}): number {
 /** The overlay value after a night: it follows a higher reading up at once, and otherwise fades; never above the cap, never below zero. */
 export function nextJealousy(prev: number, reading: number): number {
   return Math.min(BOND_JEALOUSY.maxJealousy, Math.max(0, reading, prev - BOND_JEALOUSY.nightlyFade));
+}
+
+/** One recorded scene as the record holds it: who was in it, and who not in it could see it from the room. */
+export interface SeenScene { readonly witnessSet: readonly EntityId[]; readonly seenBy?: readonly EntityId[] }
+
+/** A holder saw a scene when they were in it or watched it from the same room; a private scene they never saw is not theirs to be jealous over. */
+export function sceneSeenBy(s: SeenScene, holder: EntityId): boolean {
+  return s.witnessSet.includes(holder) || (s.seenBy ?? []).includes(holder);
 }
 
 /** How many of the given scenes (each a witness set) had both people there. */

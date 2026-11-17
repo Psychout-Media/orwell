@@ -34,7 +34,7 @@ import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "..
 import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/voice";
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
-import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sharedScenes } from "../../engine/bondJealousy";
+import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sceneSeenBy, sharedScenes, type SeenScene } from "../../engine/bondJealousy";
 import { GRUDGES, REPAIR, combineSalience, easeGrudge, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, repairAmount, type GrudgeKind } from "../../engine/grudges";
 import { breakDivisor, feelingKeep, feelsGuilt, guiltKey, guiltScale, markFeeling } from "../../engine/bondFeelings";
 import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
@@ -100,7 +100,7 @@ import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAc
 import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
-import { buildDealPlanRetro, decidePlan, momentDue, planSourceOf, recordPlan, type PlanSource, type StoredPlan } from "../../engine/dealPlans";
+import { DEAL_PLANS, PLAN_SEMANTICS, buildDealPlanRetro, decidePlan, fakingLean, isBetrayal, momentDue, planBond, planSourceOf, recordPlan, type PlanSource, type StoredPlan } from "../../engine/dealPlans";
 import { DEAL_CONSENT, DEAL_REFUSAL_LINE } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
@@ -294,11 +294,12 @@ import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../..
 import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, type EdgeDelta } from "../../engine/beliefStore";
 import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs";
 import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "../../engine/beliefDecisions";
-import { CONVICTION, credulityOf, dealTrust, evidenceStep, testRef, underTest } from "../../engine/beliefConviction";
+import { CONVICTION, credulityOf, dealTrust, pathwayEvidence, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
+import { rolesFromGraph, type NetworkRoles } from "../../engine/networkSpread";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, type SceneFold } from "../../engine/bondRecord";
-import { deriveDailyHouseGraph, type DailyHouseGraph } from "../../engine/houseGraph";
+import { deriveDailyHouseGraph, type DailyHouseGraph, type HouseGraph } from "../../engine/houseGraph";
 import type { Stats } from "../../engine/season";
 import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
@@ -350,7 +351,7 @@ import type { TieRevealEvent } from "../../engine/tieReveal";
 import { TIE_REVEAL } from "../../engine/tieRevealConstants";
 import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
-import { beliefTruth, planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
+import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
 import { CAUGHT_LIE, contradicts, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
 import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedInText, namedSourceContent, noRecordNote, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
@@ -1900,7 +1901,10 @@ export class GameSessionAdapter implements GameSession {
       // Review lead 5: a repeat same-kind assurance (same week, from, to) used to get the SAME roll; the 2nd, 3rd... salt the seed with how many already stand (the first keeps its exact seed).
       const prior = ledger.all.filter((x) => x.week === this.live!.week && x.from === a.from && x.to === a.to && x.kind === a.kind).length;
       const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:asr-sincere:${this.live.week}:${a.from}:${a.to}:${a.kind}${prior > 0 ? `:${prior}` : ""}`)).next();
-      sincerity = npcAssuranceSincerity(loyalty, roll);
+      // ORW-601: one faking model - the shared dials (the person's cunning, every promise they have made so far, deals and assurances, and the culture) when deal plans are on.
+      const made = this.deals.all.filter((d) => d.parties.includes(a.from)).length + ledger.all.filter((x) => x.from === a.from).length + 1;
+      const pFake = this.dealPlansEnabled ? Math.max(0, Math.min(1, fakingLean(made, this.fakingCunningOf(a.from)) + DEAL_PLANS.cultureLean * ((this.cultureMult("lying") - 1) - (this.cultureMult("loyalty") - 1)))) : undefined;
+      sincerity = npcAssuranceSincerity(loyalty, roll, pFake);
     }
     const { heardBy, ...rest } = a;
     ledger.add({ ...rest, sincerity, week: this.live.week, ...(this.memoryPromisesEnabled && heardBy && heardBy.length > 0 ? { heardBy: [...heardBy] } : {}) });
@@ -5744,6 +5748,18 @@ export class GameSessionAdapter implements GameSession {
    * not on the GameSession port, never a tool, never projected; later engine slices consume it. Read-only (no rng, no writes, no edge creation); the cache is derived
    * from the bonds and is not persisted, so snapshots are byte-identical whether or not it was ever read.
    */
+  /** 0179 (Theme 3 slice 9): the house's shape in the co-presence spread (`ORWELL_NETWORK_SPREAD`, default ON; `=0` = the spread reads no shape, byte-identical). */
+  private networkSpreadEnabled = flagDefaultOn("ORWELL_NETWORK_SPREAD");
+  setNetworkSpreadEnabled(on: boolean): void { this.networkSpreadEnabled = on; }
+  /** 0179: the roles the spread reads (from today's house graph), or undefined when off. Engine-only. */
+  networkRoles(): NetworkRoles | undefined {
+    if (!this.networkSpreadEnabled || !this.house) return undefined;
+    const graph = this.houseGraph().graph;
+    if (this.networkRolesCache?.graph !== graph) { const reader = this.bondReader(); this.networkRolesCache = { graph, roles: rolesFromGraph(graph, (a, b) => reader.tie(a, b)) }; }
+    return this.networkRolesCache.roles; // one derivation per day's graph (seeking reads it once per holder per move)
+  }
+  private networkRolesCache?: { graph: HouseGraph; roles: NetworkRoles };
+
   houseGraph(): DailyHouseGraph {
     this.houseGraphCache = deriveDailyHouseGraph(this.bondReader(), this.houseGraphCache);
     return this.houseGraphCache;
@@ -10268,7 +10284,8 @@ export class GameSessionAdapter implements GameSession {
       ...(this.tieBehaviorEnabled ? { tieNomPushFor: (t: EntityId, h: EntityId) => this.tieNomPushFor(t, h), tieVotePushFor: (n: EntityId, v: EntityId) => this.tieVotePushFor(n, v) } : {}),
       ...(this.dealNomsEnabled ? { dealNomPushFor: (t: EntityId, h: EntityId) => this.dealNomPushFor(t, h) } : {}),
       // 0160 (Ryne Q3): a deal weighs as far as its holder trusts the other party (full strength only; capped keeps the fixed weight).
-      ...(BELIEF_RULES.strength === "full" || this.dealPlansEnabled ? { dealTrustFor: (h: EntityId, other: EntityId) => this.flipsAtThisVote(h, other) ? -1 : BELIEF_RULES.strength === "full" ? dealTrust(this.rel.edge(h, other).trust) : 1 } : {}), // 0178: a flip plan turns the deal's weight against the one it protected
+      ...(BELIEF_RULES.strength === "full" ? { dealTrustFor: (h: EntityId, other: EntityId) => dealTrust(this.rel.edge(h, other).trust) } : {}), // 0160 (Ryne Q3): a deal weighs as far as the holder trusts the other party
+      ...(this.dealPlansEnabled && this.live?.dealPlans ? { flipVoteFor: (v: EntityId, fn: readonly [EntityId, EntityId]) => fn.find((n) => this.flipsAtThisVote(v, n)) } : {}), // 0178: a flip plan casts the vote
       ...(this.juryMemoryEnabled ? { juryMemoryFor: (j: EntityId, f: EntityId) => this.juryMemoryFor(j, f) } : {}),
       ...(this.vetoMemoryEnabled ? { vetoMemoryFor: (n: EntityId, h: EntityId) => this.vetoMemoryFor(n, h) } : {}),
       ...(this.moodVetoEnabled && this.npcTellsEnabled ? { moodVetoFor: (n: EntityId, h: EntityId) => this.moodVetoFor(n, h) } : {}),
@@ -12425,16 +12442,14 @@ export class GameSessionAdapter implements GameSession {
   private weighEvidenceOvernight(): void {
     const s = this.live;
     if (!s?.agendas || !s.beliefs || BELIEF_RULES.strength !== "full" || !this.npcBeliefsEnabled) return;
-    const facts = this.truthFacts();
-    const day = s.dayNumber ?? s.week;
     for (const [holder, agenda] of Object.entries(s.agendas)) {
       const looking = new Set(agenda.goals.filter((g) => g.status === "active" && g.kind === "find-out" && g.test.kind === "question-answered").map((g) => (g.test as { ref: string }).ref));
       // Visible testing: the beliefs they have a find-out goal for. Quiet testing: the strongest few doubts they keep an eye on (CONVICTION_TESTS_MAX).
       const quiet = new Set((CONVICTION.askAround ? [] : (s.beliefs[holder] ?? []).filter((b) => underTest(b)).sort((x, y) => y.confidence - x.confidence || x.id.localeCompare(y.id)).slice(0, GameSessionAdapter.CONVICTION_TESTS_MAX)).map((b) => b.id));
       for (const b of s.beliefs[holder] ?? []) {
         if (!underTest(b) || !(quiet.has(b.id) || looking.has(testRef(b)))) continue;
-        const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:evidence:${day}:${holder}:${b.id}`)).next();
-        b.confidence = Math.max(0, Math.min(1, b.confidence + evidenceStep(beliefTruth(b, holder, facts), roll)));
+        // ORW-585 (Fable T2): the night's evidence is what the holder holds through pathways - never the engine's truth (a sealed ballot, a hidden goal).
+        b.confidence = Math.max(0, Math.min(1, b.confidence + pathwayEvidence(b, s.beliefs[holder] ?? [], holder)));
         if (b.confidence < CONVICTION.dropBelow) {
           refuteClaim(s.beliefs, holder, b.id, (h, sub) => this.rel.edge(h, sub));
           b.refuted = true; // a belief that moved no edge is still let go
@@ -12884,10 +12899,10 @@ export class GameSessionAdapter implements GameSession {
       for (const a of e.witnessSet) for (const b of e.witnessSet) if (a !== b) soothed.add(jealousyKey(a, b));
     }
     live.jealousyCursor = events.length;
-    const scenes: Array<readonly EntityId[]> = [];
+    const scenes: SeenScene[] = [];
     for (let i = Math.max(0, events.length - BOND_JEALOUSY.window); i < events.length; i++) {
       const e = events[i]!;
-      if (SCENE_FOLDS.has(e.type) && e.witnessSet.length >= 2 && (e.houseLife || e.witnessSet.length <= 4)) scenes.push(e.witnessSet);
+      if (SCENE_FOLDS.has(e.type) && e.witnessSet.length >= 2 && (e.houseLife || e.witnessSet.length <= 4)) scenes.push({ witnessSet: e.witnessSet, ...(e.houseLife?.seenBy ? { seenBy: e.houseLife.seenBy } : {}) });
     }
     const overlay = live.jealousy;
     if (overlay) for (const [k, j] of Object.entries(overlay)) if (soothed.has(jealousyKey(k.split("|")[0]!, j.close))) j.value = 0; // handled: a bonding scene with the close friend came first
@@ -12895,16 +12910,14 @@ export class GameSessionAdapter implements GameSession {
     const reader = this.bondReader();
     const dials = { paranoia: this.cultureMult("paranoia"), bonding: this.cultureMult("bonding"), loyalty: this.cultureMult("loyalty") };
     const readings = new Map<string, { value: number; close: string }>();
-    for (const x of living) for (const y of living) {
-      if (x === y) continue;
-      const xy = sharedScenes(scenes, x, y);
-      if (xy < BOND_JEALOUSY.minScenes) continue;
-      for (const h of living) {
-        if (h === PLAYER || h === x || h === y || soothed.has(jealousyKey(h, x))) continue;
-        const value = jealousy({
-          closeWarmth: reader.bond(h, x).warmth, rivalWarmth: reader.bond(h, y).warmth,
-          xyWarmth: reader.bond(x, y).warmth, xhWarmth: reader.bond(x, h).warmth, xyScenes: xy, xhScenes: sharedScenes(scenes, x, h),
-        }, dials);
+    for (const h of living) {
+      if (h === PLAYER) continue;
+      const saw = scenes.filter((sc) => sceneSeenBy(sc, h)).map((sc) => sc.witnessSet); // only what this holder saw (was in, or watched from the room); told-about claims are not read here
+      for (const x of living) for (const y of living) {
+        if (x === y || h === x || h === y || soothed.has(jealousyKey(h, x))) continue;
+        const xy = sharedScenes(saw, x, y);
+        if (xy < BOND_JEALOUSY.minScenes) continue;
+        const value = jealousy({ closeWarmth: reader.bond(h, x).warmth, rivalWarmth: reader.bond(h, y).warmth, xyScenes: xy, xhScenes: sharedScenes(saw, x, h) }, dials);
         const k = jealousyKey(h, y), prev = readings.get(k);
         if (value > 0 && (!prev || value > prev.value)) readings.set(k, { value, close: x });
       }
@@ -14431,9 +14444,11 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** ORW-87: the NPC's OWN standing plan against the player (an active evict campaign they own, else a held target drive): a drive/campaign push >= 0, read from the same `drivePushFor` the nomination uses. Played games only (the caller gates). */
-  private ownPushAgainstPlayer(npcId: EntityId): number {
-    const own = this.campaigns.find((c) => c.status === "active" && c.owners.includes(npcId) && c.target === PLAYER);
-    return Math.max(0, drivePushFor(this.drives.get(npcId), PLAYER, own ? { goal: own.goal, progress: own.progress } : undefined));
+  private ownPushAgainstPlayer(npcId: EntityId): number { return this.ownPushAgainst(npcId, PLAYER); }
+  /** The NPC's own push against `target` (their active campaign on that seat, else their drive). The same read for the player and for any houseguest (ORW-613). */
+  private ownPushAgainst(npcId: EntityId, target: EntityId): number {
+    const own = this.campaigns.find((c) => c.status === "active" && c.owners.includes(npcId) && c.target === target);
+    return Math.max(0, drivePushFor(this.drives.get(npcId), target, own ? { goal: own.goal, progress: own.progress } : undefined));
   }
 
   private dealConsentRefusal(npcId: EntityId, kind: DealReqKind, direction?: "offer" | "ask", bonus = 0): DealRefusal | null {
@@ -16067,15 +16082,35 @@ export class GameSessionAdapter implements GameSession {
   dealPlanSource(): PlanSource { return planSourceOf(() => this.live?.dealPlans); }
   private twoFacedPlan(dealId: string, holder: EntityId): StoredPlan | undefined {
     const p = this.live?.dealPlans?.[dealId]?.[holder];
-    return p && p.kind !== "keep" ? p : undefined;
+    return p && isBetrayal(p.kind) ? p : undefined;
   }
-  /** 0178: does `holder` hold a flip plan, due at this week's vote, on an open deal that protects `other`? */
+  /**
+   * 0178: does `holder` hold a flip plan, due at this week's vote, on an open deal that protects `other` - with nothing bigger since? Something bigger is: a newer
+   * deal between the two (they recommitted after this deal - by ledger order, so a same-week recommit counts too; Fable T3-5 item 4), or `other` saving `holder`
+   * with the veto this week (a debt the flip would betray outright).
+   */
   private flipsAtThisVote(holder: EntityId, other: EntityId): boolean {
     const s = this.live;
     if (!this.dealPlansEnabled || !s?.dealPlans) return false;
-    return this.deals.open().some((d) => d.parties.includes(holder) && d.parties.includes(other) && d.condition.promisors.includes(holder)
+    if (s.saved === holder && s.vetoHolder === other) return false; // they just saved the flipper
+    const pair = (d: Deal) => d.parties.includes(holder) && d.parties.includes(other);
+    return this.deals.open().some((d) => pair(d) && d.condition.promisors.includes(holder)
       && (d.condition.protect === other || d.condition.promisors.length === 2) // a mutual deal protects each party from the other
-      && (() => { const p = this.twoFacedPlan(d.id, holder); return !!p && p.kind === "flip" && !!p.moment && momentDue(p.moment, s.week, "vote"); })());
+      && (() => {
+        const p = this.twoFacedPlan(d.id, holder);
+        if (!p || PLAN_SEMANTICS[p.kind].carriedOut !== "vote" || !p.moment || !momentDue(p.moment, s.week, "vote")) return false;
+        const all = this.deals.all, at = all.indexOf(d);
+        return !all.some((n, i) => i > at && pair(n)); // recommitted since (made after this deal, same week or later): the newer deal stands
+      })());
+  }
+  /**
+   * 0178 retune: how cunning a houseguest is about faking, 0..1. Low candor reads as cunning; a WILDCARD is unpredictable instead: their cunning is their own
+   * seeded draw across the whole range (one per person per season), so one wildcard fakes like a mastermind and the next keeps every word.
+   */
+  private fakingCunningOf(npc: EntityId): number {
+    const c = this.agendaCharacterOf(npc);
+    if (c?.archetype === "wildcard") return new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:faking-cunning:${npc}`)).next();
+    return 1 - this.candorOf(npc);
   }
   /** Where the week stands for a plan's moment. */
   private planNow(): "nominations" | "veto" | "vote" | "other" {
@@ -16107,14 +16142,14 @@ export class GameSessionAdapter implements GameSession {
         const endgame: 0 | 1 | 2 = s.active.length <= 5 ? 2 : s.active.length <= 10 || s.evictionOrder.length >= 7 ? 1 : 0;
         const w = weighDealBreak({
           kind: deal.kind, threat: e.threat, trust: e.trust, affinity: e.affinity,
-          ownPush: other === PLAYER ? this.ownPushAgainstPlayer(npc) : 0, agendaPull: this.agendaPullOf(other, npc).value,
+          ownPush: this.ownPushAgainst(npc, other), agendaPull: this.agendaPullOf(other, npc).value, // ORW-613: the same push against an NPC partner as against the player
           loyalty: Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(npc), this.emotionalReadOf(npc)))),
           credibility: cred, reliableShare, endgame,
         });
         const rng = new SeededRandom(hashSeed(`${seed}:deal-plan:${deal.id}:${npc}`));
         const plan = decidePlan({
-          kind: deal.kind, margin: w.margin, dealsMade: all.filter((d) => d.parties.includes(npc)).length,
-          temperament: 1 - this.candorOf(npc), loyaltyDial: this.cultureMult("loyalty"), lyingDial: this.cultureMult("lying"), week: s.week,
+          kind: deal.kind, margin: w.margin, bond: planBond(e), dealsMade: all.filter((d) => d.parties.includes(npc)).length,
+          temperament: this.fakingCunningOf(npc), loyaltyDial: this.cultureMult("loyalty"), lyingDial: this.cultureMult("lying"), week: s.week,
         }, { twoFaced: rng.next(), which: rng.next() });
         recordPlan(store, deal.id, npc, plan, s.week);
       }
@@ -16127,12 +16162,13 @@ export class GameSessionAdapter implements GameSession {
       for (const [holder, plan] of Object.entries(byHolder)) {
         if (plan.outcome) continue;
         if (deal.status !== "open") {
-          plan.outcome = plan.kind === "keep" ? (deal.status === "broken" ? "overtaken" : "kept-anyway")
+          plan.outcome = !isBetrayal(plan.kind) ? (deal.status === "broken" ? "overtaken" : "kept-anyway")
             : deal.status === "broken" ? "carried-out" : "kept-anyway";
           continue;
         }
-        if (plan.kind === "keep" || plan.kind === "flip" || gone.has(holder)) continue; // a flip is carried out by the vote itself
-        const due = plan.kind === "cut-final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
+        const how = PLAN_SEMANTICS[plan.kind].carriedOut;
+        if (how === "never" || how === "vote" || gone.has(holder)) continue; // honest; or a flip, which the vote itself carries out
+        const due = how === "final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
         if (!due) continue;
         const rng = new SeededRandom(hashSeed(`${seed}:deal-plan-carry:${dealId}:${holder}:${s.week}`));
         this.deals.breakDeliberately(deal, holder, {

@@ -6,7 +6,7 @@ import type { BondReader } from "../../src/engine/bonds";
 /** Feature 0181 part 2 - drives the pure rules directly. Roles only. */
 type In = Parameters<typeof jealousy>[0];
 type Bag = { input: In; value: number; strengths: Record<string, number>; fall: number };
-const bag = (w: unknown): Bag => ((w as { bj0181?: Bag }).bj0181 ??= { input: { closeWarmth: 0.8, rivalWarmth: 0.2, xyWarmth: 0.7, xhWarmth: 0.4, xyScenes: 4, xhScenes: 1 }, value: 0, strengths: { "H|A": 0.6, "H|B": 0.6 }, fall: 0 });
+const bag = (w: unknown): Bag => ((w as { bj0181?: Bag }).bj0181 ??= { input: { closeWarmth: 0.8, rivalWarmth: 0.2, xyScenes: 4, xhScenes: 1 }, value: 0, strengths: { "H|A": 0.6, "H|B": 0.6 }, fall: 0 });
 
 Given("two close friends and a newcomer one of them favours", function () { bag(this); });
 When("the other watches the favour grow", function () { const b = bag(this); b.value = jealousy(b.input); });
