@@ -77,6 +77,7 @@
 #   ORWELL_HOUSE_CULTURE        0168 / ORW-551 slice 1: a played season draws a loose seeded blend of culture leans, stored engine-only; no dial reads it yet (no change to the house mix).
 #   ORWELL_HOMOPHILY            0176 / ORW-561 slice 10 part 1: houseguests who are alike bond a little faster and sour slower, a mismatched pair the reverse (a played game only; =0 opts out).
 #   ORWELL_TERRITORY            0176 / ORW-561 slice 10 part 2: a hidden tenure map (hours per room), a mild pull toward people who share your top room, a small capped bond nudge for roommates (a played game only; =0 opts out).
+#   ORWELL_MOOD_CONTAGION       0185 / ORW-567 slice 15: a shocking eviction rattles the evictee's close allies most and the house a little; a big win lifts the winner's circle a little (moves the existing mood only; a played game only). ON 2026-11-17.
 #   ORWELL_HOUSE_MEETINGS       0156 / ORW-330 slice 7a: house meetings - an accusation in front of the house, the accused answers, listeners decide who to believe; NPCs call at most one a week. ON (house-mix and late guards pass).
 #   ORWELL_MOOD_CUE             ORW-343 (Ryne audit card 17, 2026-11-04): the cast card shows each houseguest's mood WORD as the player last saw it (a memory, not a live feed; no number, no cause). ON 2026-11-14; read-only projection, moves no outcome.
 #   ORWELL_NPC_MINDS_ENDGAME    ORW-318 (ORW-253 slice 6): juror style from character + NPC Final HOH weighs jury odds. ON 2026-11-12 (Ryne approved the design); balance reported, not gated.
@@ -210,6 +211,7 @@ ORWELL_HOUSE_MEETINGS=1
 ORWELL_HOUSE_CULTURE=1
 ORWELL_HOMOPHILY=1
 ORWELL_TERRITORY=1
+ORWELL_MOOD_CONTAGION=1
 ORWELL_DISCLOSURE_ENGINE=1
 ORWELL_DRIVE_DECISIONS=1
 ORWELL_LIES_CAUGHT=1

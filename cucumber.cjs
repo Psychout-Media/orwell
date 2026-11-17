@@ -151,6 +151,7 @@ module.exports = {
       "docs/features/0169-gossip-feeds-beliefs.feature",
       "docs/features/0177-house-graph.feature",
       "docs/features/0176-homophily-and-territory.feature",
+      "docs/features/0185-mood-contagion.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },
