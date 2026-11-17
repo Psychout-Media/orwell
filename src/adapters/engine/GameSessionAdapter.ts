@@ -34,7 +34,7 @@ import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "..
 import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/voice";
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
-import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sharedScenes } from "../../engine/bondJealousy";
+import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sceneSeenBy, sharedScenes, type SeenScene } from "../../engine/bondJealousy";
 import { GRUDGES, REPAIR, combineSalience, easeGrudge, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, repairAmount, type GrudgeKind } from "../../engine/grudges";
 import { breakDivisor, feelingKeep, feelsGuilt, guiltKey, guiltScale, markFeeling } from "../../engine/bondFeelings";
 import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
@@ -12871,10 +12871,10 @@ export class GameSessionAdapter implements GameSession {
       for (const a of e.witnessSet) for (const b of e.witnessSet) if (a !== b) soothed.add(jealousyKey(a, b));
     }
     live.jealousyCursor = events.length;
-    const scenes: Array<readonly EntityId[]> = [];
+    const scenes: SeenScene[] = [];
     for (let i = Math.max(0, events.length - BOND_JEALOUSY.window); i < events.length; i++) {
       const e = events[i]!;
-      if (SCENE_FOLDS.has(e.type) && e.witnessSet.length >= 2 && (e.houseLife || e.witnessSet.length <= 4)) scenes.push(e.witnessSet);
+      if (SCENE_FOLDS.has(e.type) && e.witnessSet.length >= 2 && (e.houseLife || e.witnessSet.length <= 4)) scenes.push({ witnessSet: e.witnessSet, ...(e.houseLife?.seenBy ? { seenBy: e.houseLife.seenBy } : {}) });
     }
     const overlay = live.jealousy;
     if (overlay) for (const [k, j] of Object.entries(overlay)) if (soothed.has(jealousyKey(k.split("|")[0]!, j.close))) j.value = 0; // handled: a bonding scene with the close friend came first
@@ -12882,16 +12882,14 @@ export class GameSessionAdapter implements GameSession {
     const reader = this.bondReader();
     const dials = { paranoia: this.cultureMult("paranoia"), bonding: this.cultureMult("bonding"), loyalty: this.cultureMult("loyalty") };
     const readings = new Map<string, { value: number; close: string }>();
-    for (const x of living) for (const y of living) {
-      if (x === y) continue;
-      const xy = sharedScenes(scenes, x, y);
-      if (xy < BOND_JEALOUSY.minScenes) continue;
-      for (const h of living) {
-        if (h === PLAYER || h === x || h === y || soothed.has(jealousyKey(h, x))) continue;
-        const value = jealousy({
-          closeWarmth: reader.bond(h, x).warmth, rivalWarmth: reader.bond(h, y).warmth,
-          xyWarmth: reader.bond(x, y).warmth, xhWarmth: reader.bond(x, h).warmth, xyScenes: xy, xhScenes: sharedScenes(scenes, x, h),
-        }, dials);
+    for (const h of living) {
+      if (h === PLAYER) continue;
+      const saw = scenes.filter((sc) => sceneSeenBy(sc, h)).map((sc) => sc.witnessSet); // only what this holder saw (was in, or watched from the room); told-about claims are not read here
+      for (const x of living) for (const y of living) {
+        if (x === y || h === x || h === y || soothed.has(jealousyKey(h, x))) continue;
+        const xy = sharedScenes(saw, x, y);
+        if (xy < BOND_JEALOUSY.minScenes) continue;
+        const value = jealousy({ closeWarmth: reader.bond(h, x).warmth, rivalWarmth: reader.bond(h, y).warmth, xyScenes: xy, xhScenes: sharedScenes(saw, x, h) }, dials);
         const k = jealousyKey(h, y), prev = readings.get(k);
         if (value > 0 && (!prev || value > prev.value)) readings.set(k, { value, close: x });
       }
