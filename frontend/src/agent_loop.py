@@ -7599,13 +7599,28 @@ def _forget_owner_entries(store, keys) -> None:
         raise TypeError(f"no season reset for a {type(store).__name__} store")
 
 
-def _forget_season_pacing(user) -> None:
+# ORW-499 — a per-owner SEASON GENERATION, bumped by every season reset. A restart usually lands INSIDE a
+# turn (the model calls createCharacter and the same loop keeps running), so that turn's later pacing writes
+# would put last season's state back after the reset cleared it. The public turn wrapper records the
+# generation when the turn begins and, if it moved, clears the pacing stores again when the turn ends: a
+# turn that began in an older generation leaves nothing behind. Not a pacing store itself (the reset must
+# never clear it), so it is a Counter and not listed in `_SEASON_PACING_STORES`.
+_SEASON_GENERATION: "collections.Counter[str]" = collections.Counter()
+
+
+def _season_generation(owner) -> int:
+    return _SEASON_GENERATION[_belt_key(owner)]
+
+
+def _forget_season_pacing(user, _bump: bool = True) -> None:
     """ORW-231 — clear this owner's per-season pacing state when a season is created or reset. The
     stores key an owner several ways (`_belt_key`'s "default" sentinel, the raw owner, `owner or ""`,
     and the faith queue's canonical-session key), so every variant is cleared; another owner's state is
     never touched. Registered on `orwell_engine.on_season_reset`; never raises: a store that fails is logged
     and the rest are still cleared."""
     keys = {user, user or "", _belt_key(user)}
+    if _bump:  # ORW-499: turns that began before this reset are now stale (a stale turn's own re-clear must not stale a newer turn)
+        _SEASON_GENERATION[_belt_key(user)] += 1
     try:
         keys.add(_faith_key(user))
     except Exception:
@@ -8157,12 +8172,18 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
     except Exception as _e:  # failsoft-ok: instrumentation only
         logger.debug("223c2: begin_turn failed: %s", _e)
     _ledger_tokens: list = []
+    _gen0 = _season_generation(kwargs.get("owner"))  # ORW-499: the season this turn began in
     try:
         async for _evt in _stream_agent_loop_impl(*args, _ledger_turn_tokens=_ledger_tokens, **kwargs):
             if _ttfw_rec is not None and _ttfw_rec.t_first_word is None:
                 _ttfw.note_stream_event(_ttfw_rec, _evt)
             yield _evt
     finally:
+        try:  # ORW-499: the season restarted mid-turn, so any pacing this turn wrote since is last season's: drop it
+            if _season_generation(kwargs.get("owner")) != _gen0:
+                _forget_season_pacing(kwargs.get("owner"), _bump=False)
+        except Exception as _e:  # failsoft-ok: the reset already cleared the stores once
+            logger.debug("ORW-499: stale-turn pacing clear failed: %s", _e)
         _ANN_HELD.pop(kwargs.get("owner"), None)  # ORW-479: a held announcement's tail window never outlives its turn
         for _tok in _ledger_tokens:  # ORW-435: a turn that raised / was cancelled / never reached record_turn still closes its window (idempotent)
             try:
@@ -8595,6 +8616,12 @@ async def _stream_agent_loop_impl(
             from src import orwell_day_condense, orwell_engine as _oe_dc
             if orwell_day_condense.enabled():
                 _ledger_dc = await _oe_dc.day_ledger(user=owner)
+                try:  # ORW-554: the played day the game is on = the last closed day + 1 (day 1 on an empty ledger), so the token ledger can cost a day
+                    from src import orwell_token_ledger as _tl_day
+                    _tl_day.note_game_day(owner, 1 + max([e.get("day") for e in (_ledger_dc or [])
+                                                          if isinstance(e, dict) and isinstance(e.get("day"), int)] or [0]))
+                except Exception:  # failsoft-ok: telemetry only
+                    pass
                 if _ledger_dc:
                     _pre_view_dc = messages
                     messages = orwell_day_condense.apply_prompt_view(messages, _ledger_dc)
@@ -8716,6 +8743,8 @@ async def _stream_agent_loop_impl(
     real_input_tokens = 0   # Accumulated real usage from API
     real_output_tokens = 0
     real_cached_tokens = 0       # ADR 0010 meter: cached-prompt tokens (cheap reads)
+    real_cache_miss_tokens = None  # ORW-554: the provider-reported uncached prompt tokens, summed over rounds (None until one reports)
+    _usage_rounds = 0            # ORW-554: provider calls folded into this turn's one ledger entry
     real_reasoning_tokens = 0    # ADR 0010 meter: reasoning/thinking tokens (the cost driver)
     real_cost = 0.0              # ADR 0010 meter: authoritative per-request cost (usage.cost)
     real_cost_estimated = False  # A-3: True when any round's cost is the FE's price-table estimate (DeepSeek)
@@ -9508,6 +9537,9 @@ async def _stream_agent_loop_impl(
                         real_output_tokens += u.get("output_tokens", 0)
                         # ADR 0010 meter: accumulate the rest of the envelope per round.
                         real_cached_tokens += u.get("cached_tokens", 0) or 0
+                        _usage_rounds += 1
+                        if u.get("cache_miss_tokens") is not None:
+                            real_cache_miss_tokens = (real_cache_miss_tokens or 0) + (u.get("cache_miss_tokens") or 0)
                         real_reasoning_tokens += u.get("reasoning_tokens", 0) or 0
                         if u.get("cost") is not None:
                             try:
@@ -12899,6 +12931,8 @@ async def _stream_agent_loop_impl(
                 cost_estimated=real_cost_estimated,
                 context_percent=metrics.get("context_percent", 0),
                 provider=_usage_provider,
+                call_site="narrator-turn", model=actual_model, calls=max(1, _usage_rounds),
+                cache_miss_tokens=real_cache_miss_tokens,
             )
         except Exception as _tl_err:
             logger.debug(f"[orwell] token-ledger record failed: {_tl_err}")
