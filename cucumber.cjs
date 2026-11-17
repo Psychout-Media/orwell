@@ -144,6 +144,7 @@ module.exports = {
       "docs/features/0163-decisions-read-what-they-see.feature",
       "docs/features/0175-the-bond-record.feature",
       "docs/features/0178-two-faced-deals.feature",
+      "docs/features/0180-house-norms.feature",
       "docs/features/0162-broken-deal-credibility.feature",
       "docs/features/0161-alliance-history.feature",
       "docs/features/0159-a-lie-planted-on-the-player.feature",
