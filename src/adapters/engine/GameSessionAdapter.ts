@@ -311,6 +311,8 @@ import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } fr
 import { CREDIBILITY } from "../../engine/credibilityConstants";
 import { standing, composeWithCredibility, dealWillingnessShift, type HeardWrong } from "../../engine/reputation";
 import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, recordedSceneRoles, sceneRoles, type SceneFold } from "../../engine/bondRecord";
+import { TRIADS, SWING } from "../../engine/triadsConstants";
+import { commonFriendNudges, kingmakerOf, priceTier, sharedEnemyNudges, strainedTriads, swingRead, triadPairKey, type TriadView } from "../../engine/triads";
 import { deriveDailyHouseGraph, type DailyHouseGraph, type HouseGraph } from "../../engine/houseGraph";
 import type { Stats } from "../../engine/season";
 import {
@@ -4759,6 +4761,13 @@ export class GameSessionAdapter implements GameSession {
       const read = profile.dayOnePerception?.read?.trim();
       if (read) hiddenStory.push({ type: "Hidden side", content: `${nameOf(id)} — day-one read of you: ${read}` });
     }
+    // 0174 (Theme 3 slice 13): the swing votes that were courted and the ballots that decided a close eviction unseal HERE, behind the same terminal gate.
+    for (const c of this.live.triads?.courted ?? []) {
+      hiddenStory.push({ type: "Courted vote", content: `${nameOf(c.voter)} held the deciding vote in week ${c.week} and was pitched by ${c.bidders.map((b) => nameOf(b)).join(" and ")}` });
+    }
+    for (const k of this.live.triads?.kingmakers ?? []) {
+      hiddenStory.push({ type: "Kingmaker", content: `${nameOf(k.voter)} decided week ${k.week}'s eviction of ${nameOf(k.evictee)}${k.courted ? " after being courted for the vote" : ""}` });
+    }
     for (const tie of this.seededRels.ties) {
       hiddenStory.push({ type: "Hidden tie", content: preGameTieToRetrospectiveProse(tie, nameOf) });
     }
@@ -6127,6 +6136,132 @@ export class GameSessionAdapter implements GameSession {
     return this.networkRolesCache.roles; // one derivation per day's graph (seeking reads it once per holder per move)
   }
   private networkRolesCache?: { graph: HouseGraph; roles: NetworkRoles };
+
+  /**
+   * 0174 (Theme 3 slice 13): triads, swing votes, kingmakers (`ORWELL_TRIADS`, default ON; `=0` opts out, byte-identical). Played games only. ENGINE-ONLY (Vault class): the drift, the courting, the price and the
+   * kingmaker are never in a view, a prompt, a tool result or an admin projection; the retrospective alone unseals them. Every roll is keyed (`${seed}:triads:...`), never the shared stream.
+   */
+  private triadsEnabled = flagDefaultOn("ORWELL_TRIADS");
+  setTriadsEnabled(on: boolean): void { this.triadsEnabled = on; }
+  private triadsOn(): boolean { return this.triadsEnabled && this.live?.playedGame === true; }
+  private triadKey(...parts: Array<string | number>): SeededRandom { return new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:triads:${parts.join(":")}`)); }
+
+  /** The holders' own reads as the triad rules want them, from the bond reader only (a read never creates an edge). The player is never a holder (their reads are the engine's, not theirs to be moved), but is a possible enemy, friend or center. */
+  private triadView(reader: BondReader): TriadView {
+    const living = [...reader.living()];
+    const enemies = new Map<EntityId, EntityId[]>();
+    const friends = new Map<EntityId, EntityId[]>();
+    for (const h of living) {
+      if (h === PLAYER) {
+        // the NPCs who count the player a friend: the player's own conduct moves who drifts together
+        friends.set(h, living.filter((o) => o !== PLAYER && reader.strength(o, PLAYER) >= TRIADS.friendBar).sort((a, b) => reader.strength(b, PLAYER) - reader.strength(a, PLAYER) || (a < b ? -1 : 1)).slice(0, TRIADS.friendsPerHolder));
+        enemies.set(h, []);
+        continue;
+      }
+      const rows = living.filter((o) => o !== h).map((o) => { const b = reader.bond(h, o); return { o, score: Math.max(b.threat >= TRIADS.enemyThreat ? b.threat : 0, b.resentment >= TRIADS.enemyResentment ? b.resentment : 0) }; });
+      enemies.set(h, rows.filter((r) => r.score > 0).sort((x, y) => y.score - x.score || (x.o < y.o ? -1 : 1)).slice(0, TRIADS.enemiesPerHolder).map((r) => r.o));
+      friends.set(h, reader.ties(h).filter((t) => t.strength >= TRIADS.friendBar).slice(0, TRIADS.friendsPerHolder).map((t) => t.other));
+    }
+    return { living, enemiesOf: (h) => enemies.get(h) ?? [], friendsOf: (h) => friends.get(h) ?? [], tie: (a, b) => reader.tie(a, b) };
+  }
+
+  /** 0174: once per in-game day (idempotent by day), the enemy of my enemy grows warmer, two friends of one person drift toward each other, and an unbalanced triad strains its center's bond to the one they like less. Small, bounded, keyed. */
+  private triadsTick(): void {
+    const live = this.live;
+    if (!this.triadsOn() || !live || !this.house) return;
+    const day = live.dayNumber ?? 1;
+    const t = (live.triads ??= {});
+    if (t.day === day) return;
+    t.day = day;
+    const reader = this.bondReader();
+    const view = this.triadView(reader);
+    const drift = (t.drift ??= {});
+    const order = (k: string): number => hashSeed(`${this.gameSeed ?? 0}:triads:order:${day}:${k}`);
+    const nudges = [...sharedEnemyNudges(view), ...commonFriendNudges(view)]
+      .filter((n) => n.a !== PLAYER && n.b !== PLAYER)
+      .sort((x, y) => order(triadPairKey(x.a, x.b)) - order(triadPairKey(y.a, y.b)));
+    let done = 0;
+    for (const n of nudges) {
+      if (done >= TRIADS.maxPerDay) break;
+      const key = triadPairKey(n.a, n.b);
+      if ((drift[key] ?? 0) >= TRIADS.driftCap) continue;
+      if (this.triadKey("step", day, key).next() >= TRIADS.stepProb) continue;
+      const rng = this.triadKey("fold", day, key);
+      this.rel.applyImpactDirected(n.a, n.b, { affinity: TRIADS.nudge, trust: TRIADS.nudge / 2 }, rng);
+      this.rel.applyImpactDirected(n.b, n.a, { affinity: TRIADS.nudge, trust: TRIADS.nudge / 2 }, rng);
+      drift[key] = (drift[key] ?? 0) + TRIADS.nudge;
+      done++;
+    }
+    const closeness = (c: EntityId, o: EntityId): number => { const b = reader.bond(c, o); return b.trust + b.affinity + b.warmth; }; // finer than `strength`, which saturates for a close bond
+    for (const st of strainedTriads(view, closeness)) {
+      if (done >= TRIADS.maxPerDay) break;
+      if (st.center === PLAYER) continue;
+      if (this.triadKey("strain", day, st.center, st.weaker).next() >= TRIADS.stepProb) continue;
+      this.rel.applyImpactDirected(st.center, st.weaker, { affinity: -TRIADS.strain }, this.triadKey("strain-fold", day, st.center, st.weaker));
+      done++;
+    }
+  }
+
+  /**
+   * 0174: the nominees are final and the vote is about to open. If it is close, the ballots that could change who leaves are COURTED: each nominee's camp (the nominee, and their closest ally who votes) pitches the swing voter on a keyed roll
+   * weighted by how close the pitcher is to them. A pitch that lands moves the swing voter's read of the pitcher (the existing edges, which the vote already reads) and costs the pitcher favors owed to the swing voter: the price rises with the
+   * rival bidders (`priceTier`). The courted voter holds the flag (history only). When the PLAYER's ballot could decide it, the camps pitch the player: one stands as an offer the player may accept or decline, the rest are said aloud. The player's own vote is never touched.
+   */
+  private swingAtVote(view: { nominees: readonly EntityId[]; voters: readonly EntityId[]; previews: ReadonlyArray<{ voter: EntityId; pick: EntityId; gap: number }> }): void {
+    const s = this.live;
+    if (!this.triadsOn() || !s || !this.house) return;
+    const t = (s.triads ??= {});
+    t.lastGaps = { week: s.week, gaps: Object.fromEntries(view.previews.map((p) => [p.voter, p.gap])) };
+    if ((t.courted ?? []).some((c) => c.week === s.week)) return; // once per vote
+    const read = swingRead(view.previews, view.nominees, view.voters.includes(PLAYER));
+    if (read.swings.length === 0 && !read.playerSwing) return;
+    const reader = this.bondReader();
+    const camps = (): Array<{ nominee: EntityId; pitchers: EntityId[] }> => view.nominees.map((nominee) => {
+      const ally = reader.ties(nominee).find((x) => x.other !== PLAYER && !view.nominees.includes(x.other) && view.voters.includes(x.other) && x.strength >= TRIADS.friendBar)?.other;
+      return { nominee, pitchers: [...(nominee === PLAYER ? [] : [nominee]), ...(ally ? [ally] : [])] };
+    });
+    const landed = (target: EntityId): Array<{ pitcher: EntityId; nominee: EntityId }> => camps().flatMap((c) => c.pitchers.filter((p) => p !== target && c.nominee !== target)
+      .filter((p) => this.triadKey("pitch", s.week, p, target).next() < SWING.pitchBase + SWING.pitchBond * reader.strength(p, target))
+      .map((pitcher) => ({ pitcher, nominee: c.nominee })));
+    for (const v of read.swings) {
+      const bids = landed(v);
+      if (bids.length === 0) continue;
+      const sides = new Set(bids.map((b) => b.nominee)).size;
+      const tier = priceTier(sides - 1);
+      for (const b of bids) {
+        const rng = this.triadKey("pitch-fold", s.week, b.pitcher, v);
+        const g = SWING.gain * (1 + 0.5 * (tier - 1));
+        this.rel.applyImpactDirected(v, b.pitcher, { trust: g, affinity: g, threat: -g }, rng);
+        for (let i = 0; i < tier; i++) this.recordFavor({ owedBy: b.pitcher, owedTo: v, origin: `courted:${s.week}` });
+      }
+      (t.courted ??= []).push({ week: s.week, voter: v, bidders: [...new Set(bids.map((b) => b.pitcher))].sort(), tier, gap: t.lastGaps.gaps[v] ?? 0 });
+    }
+    if (read.playerSwing) {
+      const bids = landed(PLAYER);
+      if (bids.length > 0) {
+        (t.courted ??= []).push({ week: s.week, voter: PLAYER, bidders: [...new Set(bids.map((b) => b.pitcher))].sort(), tier: priceTier(new Set(bids.map((b) => b.nominee)).size - 1), gap: 0 });
+        const [first, ...rest] = bids;
+        if (first && !s.dealOffer && s.lastDealOfferWeek !== s.week && !this.dealOfferPartyGone(first.pitcher) && !this.memoryBlocksPlayerDeal(first.pitcher)) {
+          s.dealOffer = { id: `offer:${first.pitcher}:${s.week}`, from: first.pitcher, kind: "vote", terms: `${this.nameOf(first.pitcher)} asks ${this.nameOf(PLAYER)} to keep ${this.nameOf(first.nominee)} at this week's eviction`, madeWeek: s.week };
+          s.lastDealOfferWeek = s.week;
+          this.onPlayerEvent?.(`${this.nameOf(first.pitcher)} makes their case to ${this.nameOf(PLAYER)} before the vote`, [PLAYER, first.pitcher], "conversation");
+        } else if (first) rest.unshift(first);
+        for (const b of rest) this.onPlayerEvent?.(`${this.nameOf(b.pitcher)} makes their case to ${this.nameOf(PLAYER)} before the vote`, [PLAYER, b.pitcher], "conversation");
+      }
+    }
+  }
+
+  /** 0174: the eviction is decided. A close vote's deciding ballot (the softest on the winning side, or the HOH who broke a tie) is recorded as the kingmaker: history only, shown only in the retrospective. */
+  private triadsAtResult(r: { evictee: EntityId; voteOf: Readonly<Record<EntityId, EntityId>>; hoh: EntityId | undefined }): void {
+    const s = this.live;
+    if (!this.triadsOn() || !s) return;
+    const t = (s.triads ??= {});
+    if ((t.kingmakers ?? []).some((k) => k.week === s.week)) return;
+    const gaps = t.lastGaps?.week === s.week ? t.lastGaps.gaps : {};
+    const voter = kingmakerOf(r.voteOf, r.evictee, (v) => gaps[v], r.hoh);
+    if (!voter) return;
+    (t.kingmakers ??= []).push({ week: s.week, voter, evictee: r.evictee, courted: (t.courted ?? []).some((c) => c.week === s.week && c.voter === voter) });
+  }
 
   houseGraph(): DailyHouseGraph {
     this.houseGraphCache = deriveDailyHouseGraph(this.bondReader(), this.houseGraphCache);
@@ -10763,6 +10898,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId, among?: readonly EntityId[]) => this.assuranceVotedOut(v, n, among) } : {}),
+      ...(this.triadsOn() ? { swingAtVote: (v: Parameters<NonNullable<SeasonCtx["swingAtVote"]>>[0]) => this.swingAtVote(v), triadsAtResult: (r: { evictee: EntityId; voteOf: Readonly<Record<EntityId, EntityId>>; hoh: EntityId | undefined }) => this.triadsAtResult(r) } : {}),
       ...(this.favorsOn() ? { favorsAtTally: (fn: readonly EntityId[], v: readonly EntityId[]) => this.favorsAtTally(fn, v), favorShieldFor: (n: EntityId, v: EntityId) => this.favorShieldFor(n, v) } : {}),
       ...(this.liesCaughtWriting ? { evictionCountPublic: (t: PublicTally) => this.evictionCountPublic(t) } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
@@ -10965,6 +11101,7 @@ export class GameSessionAdapter implements GameSession {
     this.issueNameTickets(); // ORW-566 part c2: tonight's fixed-size batch of sealed naming prompts (keyed hashing, no rng)
     this.feelingsTick(); // ORW-568 / 0181 part 2: jealousy follows the night's favour (no rng, no text)
     this.foldGrudges(); // 0182: the wrongs the engine already recorded into the grudge book (no rng)
+    this.triadsTick(); // 0174: balanced triads - a small, bounded, keyed drift on the edges (played games only)
     return steps;
   }
   /** In-game hours the last hang-out spent, read-and-cleared by the orchestrator so the off-screen society can tick for them. */

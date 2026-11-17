@@ -765,6 +765,19 @@ export interface LiveSeasonState {
    * the season lives; the attribution surfaces only through the post-season retrospective.
    */
   voteRecord?: Array<{ week: number; evictee: EntityId; voteOf: Record<EntityId, EntityId> }>;
+  /**
+   * 0174 (Theme 3 slice 13, ORWELL_TRIADS) - triads, swing votes and kingmakers. ENGINE-ONLY (Vault class), never projected, never a tool, never a number to the player; shown only in the 0048 retrospective.
+   * `day` = the last in-game day the triad drift ran; `drift` = what each pair has drifted so far (kept for good, capped); `courted` = per week, the swing voters pitched this vote with who pitched and the
+   * price tier; `kingmakers` = per week, who decided a close vote (history only). Monotone, never deleted. Absent => none yet (old saves read none).
+   */
+  triads?: {
+    day?: number;
+    drift?: Record<string, number>;
+    courted?: Array<{ week: number; voter: EntityId; bidders: EntityId[]; tier: number; gap: number }>;
+    kingmakers?: Array<{ week: number; voter: EntityId; evictee: EntityId; courted: boolean }>;
+    /** The firmness of each NPC ballot at the last vote's preview (engine-only; replaced each week). */
+    lastGaps?: { week: number; gaps: Record<EntityId, number> };
+  };
   /** ORW-342 (Vault-class, engine-only): the open "who voted against me / who flipped" questions the eviction votes leave NPCs with, each with the holder's OWN deduced suspect (never the sealed ballot). Played games only. */
   voteQuestions?: VoteQuestion[];
   /**
@@ -1202,6 +1215,13 @@ export interface SeasonCtx {
   favorsAtTally?: (finalNominees: readonly EntityId[], voters: readonly EntityId[]) => void;
   /** 0171: the bounded shield a favor `voter` honored for `nominee` at this vote adds against evicting them (>= 0). Absent => 0, byte-identical. */
   favorShieldFor?: (nominee: EntityId, voter: EntityId) => number;
+  /**
+   * 0174 / Theme 3 slice 13 (ORWELL_TRIADS): the nominees are final and the vote is about to open - what each NPC voter would pick and how firmly (the gap between their two scores, >= 0),
+   * so the engine can see which ballot decides it and let both camps court that voter. Read-only preview (no `why` record, no rng); the PLAYER's ballot is never previewed. Played games only; absent => nothing, byte-identical.
+   */
+  swingAtVote?: (view: { nominees: readonly EntityId[]; voters: readonly EntityId[]; previews: ReadonlyArray<{ voter: EntityId; pick: EntityId; gap: number }> }) => void;
+  /** 0174: the eviction is decided - who left, every ballot (`voter -> evicted`) and the HOH, so a close vote's deciding ballot can be recorded as history (never read by a decision). Played games only; absent => nothing. */
+  triadsAtResult?: (r: { evictee: EntityId; voteOf: Readonly<Record<EntityId, EntityId>>; hoh: EntityId | undefined }) => void;
   /**
    * 0006b (PO review 2026-06-28) — the NPC's declared COMPETITION INTENT (compete / throw / play-safe)
    * for a comp over `field`. Like the player, an NPC now has an intent, derived from their game (a nominee
@@ -3113,6 +3133,21 @@ function advanceEviction(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
 function startEvictionVote(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent | null {
   const fn = s.finalNominees!;
   const voters = evictionVoters({ ...weekState(s, ctx), nominees: fn });
+  if (ctx.swingAtVote) {
+    const blocs = currentBlocs(s, ctx);
+    const previews: Array<{ voter: EntityId; pick: EntityId; gap: number }> = [];
+    for (const v of voters) {
+      if (v === ctx.player) continue;
+      let gap = 0;
+      const pick = voteChoice(v, fn, ctx, blocs, s.hoh ?? undefined, (w) => {
+        const o = w.options;
+        const top = o.find((x) => x.role === "chosen"), run = o.find((x) => x.role === "runner-up");
+        gap = Math.max(0, (top?.total ?? 0) - (run?.total ?? 0));
+      });
+      previews.push({ voter: v, pick, gap });
+    }
+    ctx.swingAtVote({ nominees: fn, voters, previews });
+  }
   if (voters.includes(ctx.player)) {
     s.pending = { kind: "eviction-vote", by: ctx.player, nominees: fn };
     return null;
@@ -3129,6 +3164,7 @@ function commitStagedEviction(s: LiveSeasonState, ctx: SeasonCtx, evictee: Entit
   // E12: the ballots are recorded ENGINE-ONLY for the 0048 retrospective unsealing — the week's
   // secret votes become tellable only once the season is over.
   (s.voteRecord ??= []).push({ week: s.week, evictee, voteOf: { ...e.voteOf } });
+  ctx.triadsAtResult?.({ evictee, voteOf: e.voteOf, hoh: s.hoh ?? undefined }); // 0174: a close vote's deciding ballot, history only
   const votesToEvict = Object.entries(e.voteOf).filter(([, t]) => t === evictee).map(([v]) => v);
   ctx.evictionCountPublic?.({ evictee, evictVotes: votesToEvict.length, voters: Object.keys(e.voteOf) }); // 0154: the count is public now; counts and the eligible list only, never who voted for whom
   // ORW-342: the vote leaves some houseguests with a question (who voted against me / who flipped), answered from their OWN deduction, never the ballot. Played games only.

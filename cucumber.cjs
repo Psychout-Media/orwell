@@ -158,6 +158,7 @@ module.exports = {
       "docs/features/0176-homophily-and-territory.feature",
       "docs/features/0173-status-and-the-hoh-court.feature",
       "docs/features/0170-npc-deals-and-hoh-deal.feature",
+      "docs/features/0174-triads-swing-votes-kingmakers.feature",
       "docs/features/0185-mood-contagion.feature",
       "docs/features/0182-grudges.feature",
       "docs/features/0184-reputation.feature",
