@@ -76,6 +76,15 @@ export const isGrudgeKind = (k: MemoryKind): boolean => GRUDGE_KINDS.has(k);
 const FAVOR_KINDS: ReadonlySet<MemoryKind> = new Set(["veto-saved", "deal-kept", "scene-kindness", "secret-given"]);
 
 
+function strongestOf(list: readonly MemoryEntry[], kinds: ReadonlySet<MemoryKind>): MemoryEntry | undefined {
+  let best: MemoryEntry | undefined;
+  for (const e of list) if (kinds.has(e.kind) && (!best || e.severity > best.severity || (e.severity === best.severity && e.week >= best.week))) best = e;
+  return best;
+}
+
+/** ORW-575 (c), PLAYED games only: a remembered favor weighs as much as a remembered wrong (the headless sims keep `NPC_MEMORY.favorMax`, byte-identical). */
+export const PLAYED_NPC_MEMORY: NpcMemoryConstants = { ...NPC_MEMORY, favorMax: NPC_MEMORY.grudgeMax };
+
 /**
  * Record one memory (mutates `ledger`). Over the cap, the entry with the lowest DECAYED weight at the new entry's week
  * drops first (`severity x 0.5^(age / halfLife)`; ties keep the newer), so stale memories go before a fresh one — six old
@@ -83,7 +92,7 @@ const FAVOR_KINDS: ReadonlySet<MemoryKind> = new Set(["veto-saved", "deal-kept",
  */
 export function recordMemory(
   ledger: NpcMemoryLedger, holder: EntityId, subject: EntityId, entry: MemoryEntry,
-  c: NpcMemoryConstants = NPC_MEMORY,
+  c: NpcMemoryConstants = NPC_MEMORY, protectStrongest = false,
 ): void {
   if (holder === subject) return;
   const row = (ledger[holder] ??= {});
@@ -92,12 +101,16 @@ export function recordMemory(
   const now = entry.week;
   const weight = (e: MemoryEntry): number => e.severity * Math.pow(0.5, Math.max(0, now - e.week) / c.halfLifeWeeks);
   while (list.length > c.maxEntriesPerPair) {
-    let drop = 0;
-    for (let i = 1; i < list.length; i++) {
+    // ORW-575 (b), played games only: the strongest grudge and the strongest favor on the pair are never the one dropped (a major betrayal is never pushed out by trivia). By raw severity, the newer on a tie.
+    const keep = protectStrongest ? new Set([strongestOf(list, GRUDGE_KINDS), strongestOf(list, FAVOR_KINDS)]) : undefined;
+    let drop = -1;
+    for (let i = 0; i < list.length; i++) {
       const a = list[i]!;
-      const b = list[drop]!;
-      if (weight(a) < weight(b) || (weight(a) === weight(b) && a.week < b.week)) drop = i;
+      if (keep?.has(a)) continue;
+      const b = drop < 0 ? undefined : list[drop]!;
+      if (!b || weight(a) < weight(b) || (weight(a) === weight(b) && a.week < b.week)) drop = i;
     }
+    if (drop < 0) drop = 0; // only possible when the cap is below the protected pair
     list.splice(drop, 1);
   }
 }
