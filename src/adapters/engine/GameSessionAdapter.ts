@@ -280,6 +280,7 @@ import { recohereCastingTypes } from "../../domain/castingTypes";
 import { traitContradictions, repairHeightBuild } from "../../domain/traitConsistency";
 import { PLAYER } from "../../domain/ids";
 import { pairBondMult } from "../../engine/homophily";
+import { bumpTenure, sharedTopRoom, territoryNudge } from "../../engine/territory";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
@@ -6192,6 +6193,14 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-561 / spec 0176 (slice 10, part 1): like attracts like. `ORWELL_HOMOPHILY=0` opts out. Applies only in a played game (`live.playedGame`), so headless calibration is byte-identical. */
   private homophilyEnabled = flagDefaultOn("ORWELL_HOMOPHILY");
   setHomophilyEnabled(on: boolean): void { this.homophilyEnabled = on; }
+  /** ORW-561 / spec 0176 (slice 10, part 2): territory. `ORWELL_TERRITORY=0` opts out. Played games only (headless calibration byte-identical). */
+  private territoryEnabled = flagDefaultOn("ORWELL_TERRITORY");
+  setTerritoryEnabled(on: boolean): void { this.territoryEnabled = on; }
+  private territoryOn(): boolean { return this.territoryEnabled && this.live?.playedGame === true; }
+  /** The small capped additive on a pair's mutual bond (roommates, a shared top room); 0 when off. Added to the mutual-bond INPUT of blocs and NPC alliances only; the floors and caps never move. */
+  private territoryBondNudge(a: EntityId, b: EntityId): number {
+    return this.territoryOn() ? territoryNudge(this.live?.tenure, this.live?.beds, a, b) : 0;
+  }
   private pairHomophilyMult(a?: EntityId, b?: EntityId): number {
     if (!this.homophilyEnabled || !a || !b || a === b || this.live?.playedGame !== true || !this.house) return 1;
     const facets = (id: EntityId) => (id === PLAYER ? this.house!.player : this.house!.npcs.find((n) => n.id === id))?.character;
@@ -10011,7 +10020,7 @@ export class GameSessionAdapter implements GameSession {
       },
       // 0107: the named-alliance cement into bloc detection — bounded, saturation-diluted; 0 for every
       // pair when no alliance is named ⇒ the seeded bloc/vote read is byte-identical (the calibration spine).
-      allianceTie: (a, b) => allianceTieBoost(this.alliances.all(), a, b),
+      allianceTie: (a, b) => allianceTieBoost(this.alliances.all(), a, b) + this.territoryBondNudge(a, b), // ORW-561: + the territory nudge (0 unless a played game with the flag on)
       // Static disposition (0044): gates which nomination tactic an HOH plays (pawn/backdoor/direct).
       // 0124 (part B): with soul-depth on, the EFFECTIVE disposition (baseline bent by temperament drift)
       // gates it instead — a repeatedly-burned houseguest plays more defensively. Off ⇒ the static baseline.
@@ -11237,7 +11246,7 @@ export class GameSessionAdapter implements GameSession {
     this.alliances.stamp(beat, this.live?.dayNumber ?? this.live?.week);
     const npcs = this.livingIds().filter((id) => id !== PLAYER);
     const bondOf = (a: EntityId, b: EntityId): number => (this.rel.edge(a, b).trust + this.rel.edge(a, b).affinity) / 2;
-    const mutual = (a: EntityId, b: EntityId): number => Math.min(bondOf(a, b), bondOf(b, a));
+    const mutual = (a: EntityId, b: EntityId): number => Math.min(bondOf(a, b), bondOf(b, a)) + this.territoryBondNudge(a, b); // ORW-561: roommates / a shared top room add a small capped nudge to the mutual-bond input (the floors below are unchanged)
     // ORW-341: in a game a person PLAYS an NPC's own agenda also builds alliances (a last-alliance-standing or run-the-house aim founds one; a pull-them-in goal extends or founds one with its target, below).
     const played = this.live?.playedGame === true && this.live.agendas !== undefined;
     // ORW-353: no count cap on agenda-driven alliances (the ORW-341 retune's standing cap of 2 is gone, Ryne 2026-11-14): they form freely, and the ones that do not hold fade (`fadeAlliances`, the bloc cohesion measure).
@@ -11962,6 +11971,13 @@ export class GameSessionAdapter implements GameSession {
     const houseCulture = lns ? { gossip: dialMult(lns, "gossip"), conflict: dialMult(lns, "conflict"), flirting: dialMult(lns, "flirting"), lying: dialMult(lns, "lying"), meetings: dialMult(lns, "meetings") } : undefined;
     // ORW-566 (spec 0183): in the hours after a ceremony, each close pair has a habit spot of their own; built once per stretch, absent outside the window (a habit-free view plans byte-identically).
     const habitsOf = this.pairHabitsFor(actors, seed, dialMult(lns, "loyalty"));
+    // ORW-561 (spec 0176 part 2): the people who share a holder's top room pull a little in partner choice (read from tenure as of the start of the hour).
+    const kindredCache = new Map<EntityId, ReadonlySet<EntityId> | undefined>();
+    const kindredOf = (id: EntityId): ReadonlySet<EntityId> | undefined => {
+      if (!this.territoryOn()) return undefined;
+      if (!kindredCache.has(id)) { const k = sharedTopRoom(s.tenure, id, actors); kindredCache.set(id, k.length ? new Set(k) : undefined); }
+      return kindredCache.get(id);
+    };
     for (const id of actors) {
       const character = this.agendaCharacterOf(id);
       if (!character) continue;
@@ -11978,6 +11994,7 @@ export class GameSessionAdapter implements GameSession {
         mates: [...mates].sort(), ...(s.hoh ? { hoh: s.hoh } : {}), nominees: s.nominees ? [...s.nominees] : [],
         ...(showmance && where.has(showmance) ? { showmance } : {}),
         ...this.roommateView(bedsNow, id, inHouse, where),
+        ...(kindredOf(id) ? { kindred: kindredOf(id)! } : {}),
         timeOfDay: tod, day, hour, inCompetition: false,
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
         ...(houseCulture ? { culture: houseCulture } : {}),
@@ -11995,6 +12012,8 @@ export class GameSessionAdapter implements GameSession {
       presence.set(p.actor, p.place);
       this.presenceBase?.set(p.actor, p.place);
     }
+    // ORW-561 (spec 0176 part 2): after they have walked, each awake houseguest's hour accrues to the hidden tenure map where they ended up (the HOH room too: slice 11 reads that time; the Diary Room is private).
+    if (this.territoryOn()) { const t = (s.tenure ??= {}); for (const id of awakeIds) { const r = presence.get(id); if (r && r !== "diary-room") bumpTenure(t, id, r); } }
     const gate = this.offscreenShowmanceGate();
     const out: OffscreenScene[] = [];
     for (const scene of assembleScenes(plans)) {

@@ -18,6 +18,7 @@
  * (witness set = the participants; the player only when present, which makes it a witnessed, non-secret scene), and folds it through the
  * existing interaction types.
  */
+import { TERRITORY } from "./territory";
 import type { EntityId } from "../domain/ids";
 import type { Room } from "../domain/house";
 import type { InteractionType } from "./relationshipConstants";
@@ -177,6 +178,8 @@ export interface HourView {
   bedroom?: Room;
   roommates?: readonly EntityId[];
   bedPartner?: EntityId;
+  /** ORW-561 (spec 0176 part 2): awake houseguests who share the holder's top room (territory). Absent = no pull = byte-identical. */
+  kindred?: ReadonlySet<EntityId>;
   /** ORW-329: people they avoid in free time (an ex from before the show). A goal step may still seek them out. */
   avoid?: readonly EntityId[];
   /** The candor of the holder's speech (from REASONS candor tables, passed by the caller), 0..1. */
@@ -390,7 +393,7 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
       return finish({ kind: rub ? "chore-fight" : v.timeOfDay === "late-night" || roll("roomie-talk") < 0.7 ? "bed-talk" : "homesick-talk", with: [mate], place: v.bedroom });
     }
   }
-  const partner = byScore(here, (p) => (v.affinity.get(p) ?? 0.4) + roll(`who:${p}`) * 0.3)[0];
+  const partner = byScore(here, (p) => (v.affinity.get(p) ?? 0.4) + roll(`who:${p}`) * 0.3 + (v.kindred?.has(p) ? TERRITORY.PARTNER_PULL : 0))[0]; // ORW-561: a mild pull toward people who share your top room (no extra draw)
   if (!partner) return finish({ kind: v.timeOfDay === "late-night" || v.timeOfDay === "night" ? "mull" : "nap", with: [], ...(v.bedroom && v.timeOfDay !== "late-night" && v.timeOfDay !== "night" ? { place: v.bedroom } : {}) });
   // ORW-324: friction is not only between enemies. Mild dislike plus a short temper or a bad mood is enough for a chore fight.
   const dislike = Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(partner) ?? 0.4)) / HOUSE_LIFE.frictionAffinity;

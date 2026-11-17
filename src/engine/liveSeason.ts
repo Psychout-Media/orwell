@@ -615,6 +615,8 @@ export interface LiveSeasonState {
   groupIdentity?: import("./groupIdentity").GroupIdentityStore;
   /** ORW-566: the absolute in-game hour the last ceremony beat (nominations, veto ceremony, eviction) resolved at; opens the after-ceremony debrief window. Played games only; absent otherwise. Engine-only. */
   lastCeremonyAbsHour?: number;
+  /** ORW-561 / spec 0176 part 2: hidden TENURE - hours each houseguest has spent in each room (monotonic, engine-only, never in a projection). A played game only; absent on older saves and headless games. */
+  tenure?: import("./territory").Tenure;
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
   moodCauses?: Record<EntityId, MoodCause & { week: number }>;
   vetoField?: EntityId[];
