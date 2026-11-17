@@ -7,7 +7,7 @@ import type { AdminPort } from "../../surfaces/admin/AdminPort";
 import type { SummaryService } from "../../services/SummaryService";
 import type { EngineCommands, RecordInteractionReq, SurfaceReq, DiaryRoomReq, RecordImageBeatReq } from "../../ports/EngineCommands";
 import type { EntityId } from "../../domain/ids";
-import type { GameSession, ConfideResult, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordGroupIdentityReq, RecordRoomCanonReq, RecordNarrationUseReq, RecordOpenLedgerReq, ResolveOpenLedgerReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
+import type { GameSession, ConfideResult, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordGroupIdentityReq, RecordAllianceNameReq, RecordRoomCanonReq, RecordNarrationUseReq, RecordOpenLedgerReq, ResolveOpenLedgerReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
 
 
 /** Tools that are deliberately NOT in the advertised player channel allowlist (out-of-band
@@ -451,6 +451,11 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (!isStr(args["groupId"])) refuse("groupId", "a string");
       for (const k of ["name", "ritual", "signal", "insideJoke"]) if (args[k] !== undefined && typeof args[k] !== "string") refuse(k, "a string when present");
       return;
+    case "recordAllianceName":
+      // ORW-566 part c2: both fields are plain strings; a malformed call is refused at the boundary (never a reason about a ticket).
+      if (!isStr(args["ticket"])) refuse("ticket", "a string");
+      if (typeof args["name"] !== "string") refuse("name", "a string");
+      return;
     case "recordHouseCulture":
       // ORW-319: every part OPTIONAL; refuse only a present part of the wrong shape (validated deeper in the adapter).
       if (args["spots"] !== undefined && !Array.isArray(args["spots"])) refuse("spots", "an array when present");
@@ -624,6 +629,12 @@ export class McpServer {
       case "groupsAwaitingWords":
         // ORW-566 part c: the groups still waiting for words (ids and a room only).
         return this.deps.session.groupsAwaitingWords();
+      case "recordAllianceName":
+        // ORW-566 part c2: answer one sealed-prompt ticket (bare receipt for real and decoy alike).
+        return this.deps.session.recordAllianceName(args as unknown as RecordAllianceNameReq);
+      case "allianceNameTickets":
+        // ORW-566 part c2: tonight's fixed-size batch of anonymous naming prompts.
+        return this.deps.session.allianceNameTickets();
       case "recordHouseCulture":
         // ORW-319: freeze the season's house culture (validated, write-once).
         return this.deps.session.recordHouseCulture(args as unknown as RecordHouseCultureReq);
