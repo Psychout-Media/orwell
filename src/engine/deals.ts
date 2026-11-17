@@ -209,9 +209,36 @@ export class DealLedger {
    * its horizon endpoint (a week-scoped deal's eviction vote). A `final-two` keeps binding —
    * and keeps paying — until it is broken or the season ends. Engine-decided, never prose.
    */
+  /**
+   * ORW-597: the wronged party LEARNS of a quiet break (a pathway fired: the breaker's own public act against them, or catching the breaker lying to them).
+   * Applies the reaction the break withheld - the betrayal shock (scaled as at the break), the jury demerit, the formation witnesses' breach fact - once.
+   * Returns true when it learned something new. A sealed or never-broken deal, or one already learned, does nothing.
+   */
+  learnOfBreak(deal: Deal, sink: ReconcileSink = {}): boolean {
+    if (deal.status !== "broken" || deal.learned !== false || deal.secretVote || !deal.brokenBy) return false;
+    const breaker = deal.brokenBy;
+    const wronged = deal.parties.find((p) => p !== breaker);
+    if (!wronged) return false;
+    deal.learned = true;
+    deal.sealedBallot = false; // the quiet break's projection seal lifts: the wronged party now knows (a secret-vote break never gets here)
+    if (sink.rel && sink.rng) sink.rel.applyDirected(wronged, breaker, "betrayal", sink.rng, breakSeverityScale(deal, sink.currentWeek));
+    sink.juryDemerit?.(wronged, breaker, deal);
+    if (sink.dealsWitnesses && deal.formationWitnesses) for (const witness of deal.formationWitnesses) sink.revealToWitness?.(witness, breaker, deal);
+    return true;
+  }
+
   reconcile(action: BindingAction, sink: ReconcileSink = {}): Reconciliation {
     const broken: Deal[] = [];
     const kept: Deal[] = [];
+    // ORW-597: a breaker's own PUBLIC act against the person they quietly broke a deal with is how that person learns of it.
+    if (action.kind !== "vote-evict") {
+      for (const deal of this.deals) {
+        if (deal.status === "broken" && deal.learned === false && deal.brokenBy === action.actor) {
+          const wronged = deal.parties.find((p) => p !== action.actor);
+          if (wronged && action.targets.includes(wronged)) this.learnOfBreak(deal, sink);
+        }
+      }
+    }
     for (const deal of this.deals) {
       if (deal.status !== "open") continue;
       if (actionBreaks(deal, action)) {
@@ -342,6 +369,11 @@ export class DealLedger {
     // betrayal hit — SCALED by how much negotiated life the deal had left (a near/at-end or vague break
     // hurts less; a freshly-renewed one more). No duration / no week ⇒ scale 1 ⇒ byte-identical to 0039.
     const sealed = sink.sealed?.(wronged, breaker, actionKind) ?? false;
+    // ORW-597: the wronged side reacts only once they LEARN of the break. A public act is learned at once; a quiet deliberate break waits for a pathway
+    // (`learnOfBreak`); a sealed ballot is never learned by name (the shared shock below is all the evictee can know).
+    const learned = !sealed && actionKind !== "deliberate";
+    deal.learned = learned;
+    if (sealed) deal.secretVote = true;
     if (sink.rel && sink.rng) {
       const severity = breakSeverityScale(deal, sink.currentWeek);
       if (sealed) {
@@ -350,7 +382,7 @@ export class DealLedger {
         // of them and carries only its share. Ordered for determinism.
         const pool = [...new Set([...(sink.suspects?.(wronged, breaker) ?? []), breaker])].sort();
         for (const suspect of pool) sink.rel.applyDirected(wronged, suspect, "betrayal", sink.rng, severity / pool.length);
-      } else {
+      } else if (learned) {
         sink.rel.applyDirected(wronged, breaker, "betrayal", sink.rng, severity);
       }
     }
@@ -358,8 +390,8 @@ export class DealLedger {
     if (sink.dealDepth) this.streaks.delete(`${breaker}->${wronged}`);
     // 0014: a discrete jury-management demerit (weighs that juror's later lean against the breaker). NOT for a sealed
     // break (#1963): it names the breaker, so a juror's later lean would unseal the ballot; the evictee's blame for a
-    // sealed ballot is the possibly-wrong deduction (0110), never the true voter.
-    if (!sealed) sink.juryDemerit?.(wronged, breaker, deal);
+    // sealed ballot is the possibly-wrong deduction (0110), never the true voter. ORW-597: and not before the wronged party learns of it.
+    if (learned) sink.juryDemerit?.(wronged, breaker, deal);
     // 0002: the wronged party learns it as a witnessed event when they see/learn the break. `actionKind`
     // threads through so the sink can seal a `vote-evict`-triggered reveal (A7/E12) rather than name the
     // breaker while the ballot that produced it is still sealed.
@@ -373,7 +405,7 @@ export class DealLedger {
     // (#1963/E12, BDD audit D1): the reveal names the breaker, so telling the formation witnesses who broke a deal
     // by a secret evict ballot would let them infer who cast that sealed vote — the same reason the jury demerit and
     // the wronged party's own reveal are suppressed above.
-    if (!sealed && sink.dealsWitnesses && deal.formationWitnesses && deal.formationWitnesses.length > 0) {
+    if (learned && sink.dealsWitnesses && deal.formationWitnesses && deal.formationWitnesses.length > 0) {
       for (const witness of deal.formationWitnesses) {
         sink.revealToWitness?.(witness, breaker, deal);
       }
