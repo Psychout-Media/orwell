@@ -16093,7 +16093,7 @@ export class GameSessionAdapter implements GameSession {
         const endgame: 0 | 1 | 2 = s.active.length <= 5 ? 2 : s.active.length <= 10 || s.evictionOrder.length >= 7 ? 1 : 0;
         const w = weighDealBreak({
           kind: deal.kind, threat: e.threat, trust: e.trust, affinity: e.affinity,
-          ownPush: this.ownPushAgainst(npc, other), agendaPull: // ORW-613: the same push against an NPC partner as against the player this.agendaPullOf(other, npc).value,
+          ownPush: this.ownPushAgainst(npc, other), agendaPull: this.agendaPullOf(other, npc).value, // ORW-613: the same push against an NPC partner as against the player
           loyalty: Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(npc), this.emotionalReadOf(npc)))),
           credibility: cred, reliableShare, endgame,
         });
