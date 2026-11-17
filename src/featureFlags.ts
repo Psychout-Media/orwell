@@ -164,6 +164,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_APPROACH_MEMORY', key: 'approachMemory', parser: 'defaultOn' },
   // B7 / #2017 M3: open protective deals also feed the HOH's nominations. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_DEAL_NOMS', key: 'dealNoms', parser: 'defaultOn' },
+  // 0170 (Theme 3 slice 2): the house seals several NPC-to-NPC pacts a week, each side with its own secret plan, and an HOH's nominations read their own plan. ON by default; `=0` restores the single legacy pact.
+  { envKey: 'ORWELL_NPC_DEALS', key: 'npcDeals', parser: 'defaultOn' },
   // B7 / #2017 M4: campaign targets also read grudges and beliefs. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_CAMPAIGN_MEMORY', key: 'campaignMemory', parser: 'defaultOn' },
   // B5 / #2017: vote counting - an evict campaign forms only while the actor believes the count is in doubt. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.

@@ -149,6 +149,7 @@ module.exports = {
       "docs/features/0160-belief-conviction.feature",
       "docs/features/0169-gossip-feeds-beliefs.feature",
       "docs/features/0176-homophily-and-territory.feature",
+      "docs/features/0170-npc-deals-and-hoh-deal.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },
