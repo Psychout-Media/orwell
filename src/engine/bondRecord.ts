@@ -52,6 +52,8 @@ export const BOND = {
   warmthPerKept: 0.05,
   /** A veto save: the saved one owes the saver. */
   debtPerSave: 0.5,
+  /** A repair (an apology, a kept promise toward a wronged party; Theme 3 slice 5): resentment eases by this share of what strain eases. */
+  repairResentShare: 0.5,
   /** Each night: strain eases, a grudge fades slower. */
   nightlyRepair: 0.03,
   nightlyResentFade: 0.01,
@@ -126,6 +128,18 @@ export function foldKept(store: BondStore, a: EntityId, b: EntityId): void {
     r.warmth = clamp(r.warmth + BOND.warmthPerKept, 0, 1);
     r.history += 1;
   }
+}
+
+/**
+ * A repair (Theme 3 slice 5, ORW-569): `holder` - the wronged side - eases toward `other`. Directed: only the holder's side moves. Strain eases by `amount`,
+ * the grudge by `amount x repairResentShare`; the worst of the grudge (`peakResentment`) stays, so the memory stays. A shared moment.
+ */
+export function foldRepair(store: BondStore, holder: EntityId, other: EntityId, amount: number): void {
+  const r = touch(store, holder, other);
+  const a = Math.max(0, amount);
+  r.strain = clamp(r.strain - a, 0, 1);
+  r.resentment = clamp(r.resentment - a * BOND.repairResentShare, 0, 1);
+  r.history += 1;
 }
 
 /** A veto save: `saved` owes `saver` (negative from the saved one's side, positive from the saver's). */
