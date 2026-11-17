@@ -311,7 +311,7 @@ import {
   firstCeremonyBeatResolved,
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
   advanceClock, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, playerNightDeficit, napFactor, npcRestDeficit, isInertBeat, eventBeatHours, spreadClockHours, ceremonyRef, CEREMONY_STEP_TEXT,
-  recordWhy, nightBreakPending, markNightGateCrossed, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
+  honorWeight, recordWhy, nightBreakPending, markNightGateCrossed, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
 } from "../../engine/liveSeason";
@@ -12747,7 +12747,7 @@ export class GameSessionAdapter implements GameSession {
   private favorShieldFor(nominee: EntityId, voter: EntityId): number {
     const beat = this.favorBeat();
     return this.favors.all.some((f) => f.state === "repaid" && f.holder === nominee && nominee !== PLAYER && f.owedBy === voter && f.calledBeat === beat && f.resolvedBeat === beat)
-      ? FAVOR.shieldShareOfDealHonor * DECISION.vote.dealHonorWeight : 0;
+      ? honorWeight() : 0; // ORW-617: the same weight a formal deal carries (the vote term scales it by trust)
   }
 
   /**
