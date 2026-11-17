@@ -442,7 +442,10 @@ export interface HouseMeetingView {
   caller: string;
   accused: string;
   claim: { kind: string; subject: string; object?: string };
-  answer: "deny" | "admit" | "redirect";
+  /** Absent while the accused PLAYER has not answered (ORW-596): the engine never answers for the player. */
+  answer?: "deny" | "admit" | "redirect";
+  /** ORW-596: set while the accusation of the player stands unanswered; the player answers in their own words via `submitDecision({ kind: "meeting-answer", vote, statement })`. */
+  awaitingAnswer?: true;
   redirectTo?: string;
 }
 
@@ -595,6 +598,8 @@ export interface GameStateView {
   sourceNote?: string;
   /** 0156 (theme 2, slice 7b): the house meeting the player was in the house and awake to hear, as the speakers' words (moment prompt only, one turn). Names only; never whether anything said is true, why it was called, ids, or how any houseguest took it. Absent otherwise. */
   houseMeeting?: HouseMeetingView;
+  /** ORW-593 (moment prompt only, one turn): the player's call for a house meeting was refused, and why in the world's terms. Never a number or a hidden reason. */
+  houseMeetingRefused?: "ceremony" | "asleep" | "nobody" | "spent";
   /**
    * #1792 — Producer Read: Vault-free post-scene exchange-accounting string,
    * delivered ONCE in the moment prompt immediately following a substantive
@@ -1647,7 +1652,9 @@ export interface PendingDecisionView {
     // --- NPC-initiated deal offer (0123): a motivated houseguest floats the player a deal. `options` are
     // the two picks (accept / decline); the `offer` detail carries who/kind/terms. Vault-free — a
     // player-witnessed approach, resolved via submitDecision({ kind:"deal-offer", vote:"accept"|"decline" }). ---
-    | "deal-offer";
+    | "deal-offer"
+    // --- ORW-596: the player's answer to an NPC's public accusation is open state like a deal offer (never raised as a pending card); listed so the kind master list matches the request union. ---
+    | "meeting-answer";
   by: NamedRef;
   /** A human-readable instruction for the moment (what the player must choose). */
   prompt: string;
@@ -2658,7 +2665,9 @@ export interface SubmitDecisionReq {
     | "secret-veto"
     // --- NPC deal offer (0123): the player accepts or declines a houseguest's floated deal. The choice
     // ("accept" | "decline") rides the shared `vote` field (a string, like a tone/appeal value). ---
-    | "deal-offer";
+    | "deal-offer"
+    // --- ORW-596: the player's own answer to an NPC's public accusation at a house meeting. The stance ("deny" | "admit" | "redirect") rides `vote`; the player's own words ride `statement`. ---
+    | "meeting-answer";
   /**
    * self-evict (0061): the EXPLICIT confirmation. ONLY `confirmed:true` executes the irreversible
    * walk-out (record the event + fold its impact + flip status through the 0046 door). Anything else

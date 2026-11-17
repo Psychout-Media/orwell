@@ -18,10 +18,22 @@ export const CAUGHT_LIE = {
   impossible: 0.97, // a certainty (a public count rules the claim out): clears the 0150 revenge bar (0.75) at the lied-to-me weight 0.8
   /** Two claims by one speaker to one listener cannot both be true. */
   contradiction: 0.8,
+  /**
+   * ORW-616 ("all 4 equal"): the trust a caught lie costs the liar in the catcher's eyes, at full evidence (scaled by the evidence's confidence). The SAME for the player and
+   * for a houseguest. Sized between a broken casual assurance (`ASSURANCE.brokenTrustDrop` 0.12) and a broken formal deal (`BETRAYAL_SHOCK` trust 0.32): a lie is worse than
+   * a lapsed promise and not as bad as a broken deal. Rng-free and trust-only; the lie's other bite is the `lied-to-me` claim itself (credibility, B48; revenge, 0150).
+   */
+  trustDrop: 0.2,
   /** ORW-594 (Fable T2-13): more "I voted to keep them" claims reached one listener than the public count has keep votes, so some of them lied; the listener suspects the
    *  ones they trust least. A deduction (it can be wrong), so below a certainty and below the 0150 revenge bar on its own. */
   counting: 0.6,
 } as const;
+
+/** ORW-616: how much trust a caught lie costs, from the confidence of the evidence that caught it (0..1). Rng-free, bounded by `CAUGHT_LIE.trustDrop`. */
+export function caughtLieTrustDrop(confidence: number): number {
+  const c = Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0;
+  return CAUGHT_LIE.trustDrop * c;
+}
 
 /** The public face of a finished eviction count: who left, how many votes read "evict", and who was eligible to vote. Never who voted for what. */
 export interface PublicTally { evictee: EntityId; evictVotes: number; voters: readonly EntityId[] }

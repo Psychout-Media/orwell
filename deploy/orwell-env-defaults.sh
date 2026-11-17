@@ -34,7 +34,7 @@
 #       on its own, so a remembered grudge/favor visibly sways nominations and votes (PO: "memories should be turned on"). 3-arm PO bands held (no violations, 100 seeds/arm).
 #   ORWELL_NPC_BELIEFS / ORWELL_NPC_BELIEF_NOMS   (B3/B3b #2017, 2026-11-04) NPCs hold falsifiable beliefs (who is targeting me; sometimes wrong) that tilt the HOH's nominations and the eviction vote
 #       (PO: Ryne, "turn it on"). PO bands re-measured ON in the PR body.
-#   ORWELL_ASSURANCES / PROMISE_TERMS / VOTE_COUNT / VETO_MEMORY / DEAL_NOMS / NPC_DEALS / CAMPAIGN_MEMORY / APPROACH_MEMORY / HC_MEMORY / MEMORY_PROMISES / FORGIVENESS / LOBBYING / DESIRE_CLOCK / WANT_MOVEMENT / MULTI_NIGHT_FATIGUE / MORNING_APPROACH
+#   ORWELL_ASSURANCES / PROMISE_TERMS / VOTE_COUNT / VETO_MEMORY / DEAL_NOMS / NPC_DEALS / TRIADS / CAMPAIGN_MEMORY / APPROACH_MEMORY / HC_MEMORY / MEMORY_PROMISES / FORGIVENESS / LOBBYING / DESIRE_CLOCK / WANT_MOVEMENT / MULTI_NIGHT_FATIGUE / MORNING_APPROACH
 #       (PO ruling 2026-11-05, Ryne: "if it's built, turn it on") every finished #2017 strategy layer is ON in code AND here. ORWELL_GOSSIP_COPRESENCE stays OFF (breaks BDD 0122 under ON - see the flip PR).
 #   ORWELL_ASSURANCES VOTE_COUNT VETO_MEMORY DEAL_NOMS NPC_DEALS CAMPAIGN_MEMORY APPROACH_MEMORY HC_MEMORY MEMORY_PROMISES FORGIVENESS LOBBYING DESIRE_CLOCK WANT_MOVEMENT MULTI_NIGHT_FATIGUE MORNING_APPROACH NPC_TELLS TELL_REACTIONS MOOD_* DRIFT_FIX NPC_MEMORY_SPEECH
 #       (PO ruling 2026-11-05, Ryne: "if it's built, turn it on") every finished #2017 layer is ON in code AND here. ORWELL_GOSSIP_COPRESENCE stays OFF (breaks BDD 0122 under ON).
@@ -78,12 +78,14 @@
 #   ORWELL_GROUP_IDENTITY       0183 / ORW-566 (Theme 3 slice 7 a-b): close pairs keep a private debrief spot after ceremonies, alliances named from the house's own words, a witnessed habit starts a whisper (position only). ON; `=0` is the kill switch.
 #   ORWELL_GROUP_ROLES          0172 / ORW-603, ORW-611 (Theme 3 slice 6): alliances hold hidden roles, an inner circle, a private cut order, a spy or a shadow group, and can crack; a pitch shows only the roster the player was told; plans aimed at the player are acted on. ON; `=0` is the kill switch.
 #   ORWELL_HOMOPHILY            0176 / ORW-561 slice 10 part 1: houseguests who are alike bond a little faster and sour slower, a mismatched pair the reverse (a played game only; =0 opts out).
+#   ORWELL_HOH_COURT            0173 / Theme 3 slice 11: a hidden pecking order and informal leaders, houseguests seeking out the new HOH, power vacuums, and third-person goal actions that move someone (a played game only; =0 opts out).
 #   ORWELL_TERRITORY            0176 / ORW-561 slice 10 part 2: a hidden tenure map (hours per room), a mild pull toward people who share your top room, a small capped bond nudge for roommates (a played game only; =0 opts out).
 #   ORWELL_MOOD_CONTAGION       0185 / ORW-567 slice 15: a shocking eviction rattles the evictee's close allies most and the house a little; a big win lifts the winner's circle a little (moves the existing mood only; a played game only). ON 2026-11-17.
 #   ORWELL_REPUTATION           0184 / ORW-564 slice 8 part 1: what a houseguest has heard or seen of another's lying and turning on people (softened by promises kept to them) scales how far they believe that houseguest and how willing they are to deal with them (hidden; a played game only; needs ORWELL_BOND_RECORD). ON 2026-11-17.
 #   ORWELL_FAVORS               0171 / Theme 3 slice 3: a counter asks for what the houseguest wants this week (rival up), a favor owed is a hidden debt that is called in at a close vote and costs trust (with witnesses) when refused, passed on, remembered; the bond's debt reads the ledger (a played game only). ON 2026-11-17; `=0` is the kill switch.
 #   ORWELL_GRUDGES              0182 / ORW-569 slice 5 PR 1: the grudge book - who holds a grudge against whom and why, fading but never zero (hidden; nothing decides from it yet; a played game only; needs ORWELL_BOND_RECORD). ON 2026-11-17.
 #   ORWELL_BOND_FEELINGS        0181 / ORW-568 slice 4 (part 1): a real feeling for someone holds a houseguest back from cutting them (bounded vote / nomination / alliance-break term) and shakes them after they do (the existing mood, scaled; needs ORWELL_BOND_RECORD; a played game only). ON 2026-11-17.
+#   ORWELL_DEAL_EXPOSURE        0186 / ORW-552 slice 14: a partner who learns their final two is not the only one loses trust in the double-dealer; a partner's HOH win or a double eviction reopens open deals on new terms (a played game only; =0 opts out). ON 2026-11-17.
 #   ORWELL_HOUSE_MEETINGS       0156 / ORW-330 slice 7a: house meetings - an accusation in front of the house, the accused answers, listeners decide who to believe; NPCs call at most one a week. ON (house-mix and late guards pass).
 #   ORWELL_MOOD_CUE             ORW-343 (Ryne audit card 17, 2026-11-04): the cast card shows each houseguest's mood WORD as the player last saw it (a memory, not a live feed; no number, no cause). ON 2026-11-14; read-only projection, moves no outcome.
 #   ORWELL_NPC_MINDS_ENDGAME    ORW-318 (ORW-253 slice 6): juror style from character + NPC Final HOH weighs jury odds. ON 2026-11-12 (Ryne approved the design); balance reported, not gated.
@@ -195,6 +197,7 @@ ORWELL_VOTE_COUNT=1
 ORWELL_VETO_MEMORY=1
 ORWELL_DEAL_NOMS=1
 ORWELL_NPC_DEALS=1
+ORWELL_TRIADS=1
 ORWELL_CAMPAIGN_MEMORY=1
 ORWELL_APPROACH_MEMORY=1
 ORWELL_HC_MEMORY=1
@@ -225,7 +228,9 @@ ORWELL_GROUP_IDENTITY=1
 ORWELL_GROUP_ROLES=1
 ORWELL_HOMOPHILY=1
 ORWELL_TERRITORY=1
+ORWELL_HOH_COURT=1
 ORWELL_MOOD_CONTAGION=1
+ORWELL_DEAL_EXPOSURE=1
 ORWELL_REPUTATION=1
 ORWELL_GRUDGES=1
 ORWELL_BOND_FEELINGS=1
