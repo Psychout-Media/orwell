@@ -107,6 +107,7 @@ import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAc
 import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
+import { DEAL_EXPOSURE, exposureHits, reopened, twistKey, type DealTwist } from "../../engine/dealExposure";
 import { DEAL_PLANS, PLAN_SEMANTICS, buildDealPlanRetro, decidePlan, fakingLean, isBetrayal, momentDue, planBond, planSourceOf, recordPlan, type PlanSource, type StoredPlan } from "../../engine/dealPlans";
 import { DEAL_CONSENT, type DealRefusalReason } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
@@ -11170,6 +11171,7 @@ export class GameSessionAdapter implements GameSession {
     }
     this.mullAgendasOvernight(); // ORW-312: asleep, each houseguest's goals fade without progress (inner processing only: no scheming, no rng)
     this.learnBreaksOvernight(); // ORW-597: a quiet break reaches the wronged side once they have caught the breaker lying to them
+    this.foldExposureOvernight(); // 0186: a houseguest who learns their final two is not the only one loses trust in the double-dealer (what they hold, never the truth)
     this.foldBonds(); // 0175: the day's shared moments, deals and saves into the bond record (no rng)
     this.foldNormsOvernight(); // 0180: the house shuns a known promise-breaker (what each houseguest holds, never the truth)
     this.foldDissentOvernight(); // 0180 part 2: a majority voter cools on a dissenter they heard of (vote talk)
@@ -14556,6 +14558,7 @@ export class GameSessionAdapter implements GameSession {
     // call must reach the player (be voiced) before the week can roll it away (cubic #1911).
     const standingOfferId = this.live!.dealOffer?.id;
     this.planAndCarryOutDeals(); // 0178 (Theme 3 slice 1): a secret plan for every new NPC promise; a two-faced plan is carried out at its moment
+    this.reopenDealsOnTwist(); // 0186: a partner's HOH win or a double eviction reopens open deals on new terms (before the weighing, so a standing renegotiation holds the one-offer slot)
     this.weighDealBreaks(); // 0142 idea 4: a played game only; a houseguest may quietly walk back a deal, or ask to renegotiate it (before the offer pass, so a standing renegotiation holds the one-offer slot)
     this.maybeOfferPlayerDeal();
     // PO ruling 2026-11-01: a floated offer NEVER blocks the week (no pop-up, no freeze). It stands as
@@ -17447,6 +17450,93 @@ export class GameSessionAdapter implements GameSession {
         this.persist();
       }
     }
+  }
+
+  /** 0186 (Theme 3 slice 14): deal exposure and renegotiation after a twist (`ORWELL_DEAL_EXPOSURE`, default ON; `=0` = byte-identical). Played games only. */
+  private dealExposureEnabled = flagDefaultOn("ORWELL_DEAL_EXPOSURE");
+  setDealExposureEnabled(on: boolean): void { this.dealExposureEnabled = on; }
+  private dealExposureOn(): boolean { return this.dealExposureEnabled && this.live?.playedGame === true; }
+  /**
+   * 0186: overnight, a partner who HOLDS (a believed, standing "allied with" claim, or a pair the house has made public) that the houseguest who promised them a final two holds another
+   * with someone else loses trust in that houseguest: the existing betrayal fold at a bounded share (`DEAL_EXPOSURE.SEVERITY`). The deal weight the vote reads follows that trust
+   * (`dealTrustFor`). Once per holder, double-dealer and rival; the player is never a holder (their reads are theirs) but can be the double-dealer. A side-stream rng only for the fold's jitter.
+   */
+  private foldExposureOvernight(): void {
+    const s = this.live;
+    if (!this.dealExposureOn() || !s || !s.beliefs || !this.npcBeliefsEnabled || !this.house) return;
+    const seed = this.gameSeed ?? 0;
+    const done = new Set(s.dealExposed ?? []);
+    const hits = exposureHits({ deals: this.deals.all, beliefs: s.beliefs, living: this.livingIds(), npcs: this.house.npcs.map((n) => n.id), seen: done });
+    for (const h of hits) {
+      done.add(h.key);
+      this.rel.applyDirected(h.holder, h.doubleDealer, "betrayal", new SeededRandom(hashSeed(`${seed}:deal-exposed:${h.key}`)), DEAL_EXPOSURE.SEVERITY);
+    }
+    if (hits.length) s.dealExposed = [...done];
+  }
+  /**
+   * 0186: a twist reopens open deals on new terms, through the existing renegotiation seam (`weighDealBreak` with the floor waived, `renegotiatedKind`, the one standing `dealOffer` with
+   * `replacesDealId`). A partner's HOH win reopens the deals that houseguest is party to; a double eviction reopens every open deal among the living. A deal with the player becomes a
+   * standing offer the player may accept or decline (the engine never accepts for them); a deal between two NPCs is swapped engine-side. A "break" verdict counts as a renegotiation here
+   * (a twist asks for new terms, it does not betray). No new lever, no text for the narrator beyond the existing offer line. Once per deal per twist; a side stream keyed on (seed, deal, twist).
+   */
+  private reopenDealsOnTwist(): void {
+    const s = this.live;
+    if (!this.dealExposureOn() || !this.dealDepthEnabled || !s || !this.house || s.finished || s.hoh === undefined) return;
+    if (s.beat === "finale" || s.beat === "complete" || s.pending || ceremonyRef(s)) return;
+    const gone = new Set(s.evictionOrder);
+    if (gone.has(PLAYER)) return;
+    const living = this.house.npcs.map((n) => n.id).filter((id) => !gone.has(id));
+    const alive = new Set<EntityId>([PLAYER, ...living]);
+    const twists: DealTwist[] = [{ kind: "hoh", hoh: s.hoh }];
+    if (s.twist?.kind === "double-eviction") twists.push({ kind: "double-eviction" });
+    const done = new Set(s.dealReopened ?? []);
+    const seed = this.gameSeed ?? 0;
+    const endgame: 0 | 1 | 2 = s.active.length <= 5 ? 2 : s.active.length <= 10 || s.evictionOrder.length >= 7 ? 1 : 0;
+    for (const twist of twists) {
+      const tk = twistKey(twist, s.week);
+      if (done.has(tk)) continue;
+      let deferred = false;
+      for (const deal of reopened(this.deals.all.filter((d) => isWeighableKind(d.kind) && !d.packageId && !d.sealedBallot), twist, alive)) {
+        const dk = `${deal.id}|${tk}`;
+        if (done.has(dk)) continue;
+        const d = deal as Deal;
+        const npcs = d.parties.filter((p) => p !== PLAYER && living.includes(p)).sort();
+        if (npcs.length === 0) { done.add(dk); continue; }
+        if (d.parties.includes(PLAYER) && (s.dealOffer || renegotiatedKind(d.kind) === undefined)) { if (renegotiatedKind(d.kind) !== undefined) deferred = true; else done.add(dk); continue; }
+        done.add(dk);
+        const w = npcs.map((npc) => {
+          const who = d.parties.find((p) => p !== npc)!;
+          const e = this.rel.edge(npc, who);
+          const others = living.filter((id) => id !== npc);
+          const cred = others.length ? others.reduce((a, id) => a + this.credibilityOf(id, npc), 0) / others.length : 1;
+          const reliableShare = others.length && this.reliabilityReader ? others.filter((id) => this.reliabilityReader!(id).has(npc)).length / others.length : 0;
+          const weighing = weighDealBreak({
+            kind: d.kind, threat: e.threat, trust: e.trust, affinity: e.affinity, ownPush: this.ownPushAgainst(npc, who), agendaPull: this.agendaPullOf(who, npc).value,
+            loyalty: Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(npc), this.emotionalReadOf(npc)))), credibility: cred, reliableShare, endgame, twist: true,
+          });
+          return { npc, who, weighing };
+        }).sort((a, b) => b.weighing.temptation - a.weighing.temptation || (a.npc < b.npc ? -1 : 1))[0]!;
+        const verdict = decideDealBreak(w.weighing, new SeededRandom(hashSeed(`${seed}:deal-twist:${deal.id}:${tk}`)).next());
+        if (verdict === "keep") continue;
+        const kind = renegotiatedKind(d.kind);
+        if (kind === undefined) continue;
+        if (d.parties.includes(PLAYER)) {
+          this.noteDealWeighing(w.npc, "deal-renegotiate", w.weighing);
+          const terms = "the house has changed, so I would rather we swap our deal for a lighter one: I will vote to keep you safe at this week's eviction";
+          s.dealOffer = { id: `offer:${w.npc}:${s.week}`, from: w.npc, kind, terms, madeWeek: s.week, replacesDealId: d.id };
+          s.lastDealOfferWeek = s.week;
+          this.onPlayerEvent?.(`${this.nameOf(w.npc)} pulls ${this.nameOf(PLAYER)} aside to reopen their ${d.kind} deal after the twist`, [PLAYER, w.npc], "conversation");
+        } else {
+          d.status = "lapsed"; // both sides swap it neutrally (not kept, not broken, no fold)
+          const terms = `both agree to a lighter deal in place of the ${d.kind} deal: vote to keep each other safe at this week's eviction`;
+          const evId = this.onPlayerEvent?.(`${this.nameOf(w.npc)} and ${this.nameOf(w.who)} reopened their ${d.kind} deal off-screen`, [w.npc, w.who], "deal");
+          this.trackDealMade(this.deals.make([w.npc, w.who], kind, terms, evId, s.week));
+        }
+        this.persist();
+      }
+      if (!deferred) done.add(tk);
+    }
+    if (done.size !== (s.dealReopened?.length ?? 0)) s.dealReopened = [...done];
   }
 
   /**

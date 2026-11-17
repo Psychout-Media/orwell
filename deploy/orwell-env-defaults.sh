@@ -85,6 +85,7 @@
 #   ORWELL_FAVORS               0171 / Theme 3 slice 3: a counter asks for what the houseguest wants this week (rival up), a favor owed is a hidden debt that is called in at a close vote and costs trust (with witnesses) when refused, passed on, remembered; the bond's debt reads the ledger (a played game only). ON 2026-11-17; `=0` is the kill switch.
 #   ORWELL_GRUDGES              0182 / ORW-569 slice 5 PR 1: the grudge book - who holds a grudge against whom and why, fading but never zero (hidden; nothing decides from it yet; a played game only; needs ORWELL_BOND_RECORD). ON 2026-11-17.
 #   ORWELL_BOND_FEELINGS        0181 / ORW-568 slice 4 (part 1): a real feeling for someone holds a houseguest back from cutting them (bounded vote / nomination / alliance-break term) and shakes them after they do (the existing mood, scaled; needs ORWELL_BOND_RECORD; a played game only). ON 2026-11-17.
+#   ORWELL_DEAL_EXPOSURE        0186 / ORW-552 slice 14: a partner who learns their final two is not the only one loses trust in the double-dealer; a partner's HOH win or a double eviction reopens open deals on new terms (a played game only; =0 opts out). ON 2026-11-17.
 #   ORWELL_HOUSE_MEETINGS       0156 / ORW-330 slice 7a: house meetings - an accusation in front of the house, the accused answers, listeners decide who to believe; NPCs call at most one a week. ON (house-mix and late guards pass).
 #   ORWELL_MOOD_CUE             ORW-343 (Ryne audit card 17, 2026-11-04): the cast card shows each houseguest's mood WORD as the player last saw it (a memory, not a live feed; no number, no cause). ON 2026-11-14; read-only projection, moves no outcome.
 #   ORWELL_NPC_MINDS_ENDGAME    ORW-318 (ORW-253 slice 6): juror style from character + NPC Final HOH weighs jury odds. ON 2026-11-12 (Ryne approved the design); balance reported, not gated.
@@ -228,6 +229,7 @@ ORWELL_HOMOPHILY=1
 ORWELL_TERRITORY=1
 ORWELL_HOH_COURT=1
 ORWELL_MOOD_CONTAGION=1
+ORWELL_DEAL_EXPOSURE=1
 ORWELL_REPUTATION=1
 ORWELL_GRUDGES=1
 ORWELL_BOND_FEELINGS=1
