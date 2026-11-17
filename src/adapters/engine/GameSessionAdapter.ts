@@ -35,6 +35,7 @@ import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/v
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
 import { GRUDGES, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, type GrudgeKind } from "../../engine/grudges";
+import { breakDivisor, feelingKeep, feelsGuilt, guiltKey, guiltScale, markFeeling } from "../../engine/bondFeelings";
 import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
 import type { VoiceProfile } from "../../domain/voiceProfile";
 import { NO_NPC_PATHWAY, beatForMoment, producerPrompt, playerDiaryStrategy } from "../../engine/diaryRoom";
@@ -10193,6 +10194,8 @@ export class GameSessionAdapter implements GameSession {
         agendaPullFor: (t: EntityId, d: EntityId) => this.agendaPullOf(t, d),
         statedReasonFor: (real: RealReason, day: number) => explainDecision(real, this.agendaCharacterOf(real.decider)!, this.gameSeed ?? 0, day),
       } : {}),
+      // ORW-568 / 0181: the voter's (or HOH's) real feeling for the person keeps them. Played games with the bond record only, so a headless sim carries no hook (+0, byte-identical).
+      ...(this.bondFeelingsOn() ? { feelingKeepFor: (n: EntityId, v: EntityId) => this.feelingKeepOf(n, v) } : {}),
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId, among?: readonly EntityId[]) => this.assuranceVotedOut(v, n, among) } : {}),
@@ -11336,7 +11339,8 @@ export class GameSessionAdapter implements GameSession {
         const goal = goals[0];
         if (!goal || !this.alliances.byId(al.id)) continue;
         const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:alliance-clash:${al.id}:${m}:${day}`)).next();
-        if (roll >= ALLIANCE.goalClashBreak / this.cultureMult("loyalty")) continue; // ORW-551 slice 3: a loyal house breaks over a goal clash less often (threshold only; the draw is unchanged)
+        const hold = this.bondFeelingsOn() ? breakDivisor(this.bondReader().bond(m, goal.target!)) : 1; // ORW-568 / 0181: a real feeling for the target raises the bar (threshold only; the draw is unchanged)
+        if (roll >= ALLIANCE.goalClashBreak / this.cultureMult("loyalty") / hold) continue; // ORW-551 slice 3: a loyal house breaks over a goal clash less often (threshold only; the draw is unchanged)
         const target = goal.target!;
         this.alliances.stamp(this.beatSeqNow(), day);
         this.alliances.removeMember(al.id, m); // FIRST: the member is out before any side effect can re-enter the tick (recording the scene commits, and a commit runs the tick again)
@@ -11344,6 +11348,7 @@ export class GameSessionAdapter implements GameSession {
         e.threat = Math.min(1, e.threat + ALLIANCE.betrayalThreatBump);
         e.affinity = Math.max(0, e.affinity - ALLIANCE.betrayalThreatBump);
         recordDealBetrayal(live, target, m);
+        this.feelGuilt(m, target); // ORW-568 / 0181
         this.onPlayerEvent?.(`${this.nameOf(m)} turned on the alliance "${al.name}", moving against ${this.nameOf(target)}`, [target, m], "betrayal");
         this.flushAllianceEvents();
         changed = true;
@@ -12589,6 +12594,7 @@ export class GameSessionAdapter implements GameSession {
         const hit = this.blindsideClosestAlly(evictee);
         // ORW-567 (mood contagion): a shocking exit rattles the evictee's circle most and the house a little (the closest ally already took the full blindside).
         this.spreadMood(evictee, shockOf(s?.mannerByEvictee?.[evictee]), "bad", "blindside", hit);
+        this.feelEvictionGuilt(evictee); // ORW-568 / 0181: a voter who truly liked the evictee is shaken (private; the ballot is secret)
         // E51: the nominee who sat on the block and SURVIVED is emboldened — the 0041 arc beat.
         const survivor = s?.eviction?.nominees.find((n) => n !== evictee);
         if (survivor) this.inflect(survivor, "survived-vote");
@@ -12624,6 +12630,42 @@ export class GameSessionAdapter implements GameSession {
     const candidates = this.livingIds().filter((id) => id !== PLAYER && id !== source && id !== skip);
     const dials = { paranoia: this.cultureMult("paranoia"), bonding: this.cultureMult("bonding"), loyalty: this.cultureMult("loyalty") };
     for (const { id, scale } of catchScales({ reader: this.bondReader(), source, magnitude, mood, candidates, dials })) this.catchMood(id, event, scale);
+  }
+
+  /**
+   * ORW-568 / spec 0181 (Theme 3 slice 4, part 1): A BOND'S LIFE - feelings vs strategy. `ORWELL_BOND_FEELINGS=0` opts out. Played games with the bond record only (headless calibration byte-identical).
+   * Engine-only: a real feeling for someone holds a houseguest back from cutting them (a bounded vote / nomination / alliance-break term) and shakes them after they do (the existing 'betrayed' mood, scaled).
+   */
+  private bondFeelingsEnabled = flagDefaultOn("ORWELL_BOND_FEELINGS");
+  setBondFeelingsEnabled(on: boolean): void { this.bondFeelingsEnabled = on; }
+  private bondFeelingsOn(): boolean { return this.bondFeelingsEnabled && this.live?.playedGame === true && this.bondRecordEnabled; }
+
+  /** The signed provider value for a vote or a nomination: how much `holder`'s real feeling for `other` keeps them (0 for the player: their own choices are theirs). */
+  private feelingKeepOf(other: EntityId, holder: EntityId): number {
+    if (holder === PLAYER || other === holder || !this.bondFeelingsOn()) return 0;
+    return feelingKeep(this.bondReader().bond(holder, other));
+  }
+
+  /**
+   * After a betrayal: the betrayer is shaken by how much they truly liked the wronged (the existing 'betrayed' impulse, scaled: no new emotion, no memory note, no rng, no resentment).
+   * Deduped per betrayer, wronged and week (`live.feelingsSeen`); never the player; the culture's loyalty, bonding and paranoia dials lean it. Surfaces only through the existing mood word.
+   */
+  private feelGuilt(betrayer: EntityId, wronged: EntityId): void {
+    const live = this.live;
+    if (!live || betrayer === PLAYER || betrayer === wronged || !this.bondFeelingsOn() || !this.house) return;
+    const view = this.bondReader().bond(betrayer, wronged);
+    if (!feelsGuilt(view)) return;
+    if (!markFeeling((live.feelingsSeen ??= []), guiltKey(live.week, betrayer, wronged))) return;
+    const scale = guiltScale(view, { loyalty: this.cultureMult("loyalty"), bonding: this.cultureMult("bonding"), paranoia: this.cultureMult("paranoia") });
+    if (scale > 0) this.catchMood(betrayer, "betrayed", scale);
+  }
+
+  /** The voters who sent `evictee` home this week each weigh it, in sorted id order (the secret ballot stays secret: nothing is announced). */
+  private feelEvictionGuilt(evictee: EntityId): void {
+    const rec = this.live?.voteRecord;
+    const last = rec && rec.length > 0 ? rec[rec.length - 1] : undefined;
+    if (!this.bondFeelingsOn() || !last || last.evictee !== evictee) return;
+    for (const v of Object.keys(last.voteOf).sort()) if (last.voteOf[v] === evictee) this.feelGuilt(v, evictee);
   }
 
   /** A caught mood: the arc moves by a fraction (no rng, no memory note, no recall record: filler would drown real recall, the C12/E55 lesson). The history still records it. */
@@ -14485,7 +14527,7 @@ export class GameSessionAdapter implements GameSession {
           e.threat = Math.min(1, e.threat + ALLIANCE.betrayalThreatBump / pool.length);
           e.affinity = Math.max(0, e.affinity - ALLIANCE.betrayalThreatBump / pool.length);
         }
-        if (!sealed) recordDealBetrayal(this.live, target, action.actor);
+        if (!sealed) { recordDealBetrayal(this.live, target, action.actor); this.feelGuilt(action.actor, target); } // ORW-568 / 0181
         // A7/E12: mirrors the deal-break seal below — a betrayal TRIGGERED by the SEALED eviction
         // ballot must not name the betrayer to the wronged ally before the retrospective unseals it
         // (nominate/replace are public ceremonies and reveal normally; the player's OWN vote is never
@@ -14971,7 +15013,7 @@ export class GameSessionAdapter implements GameSession {
           [witness], "betrayal",
         );
       },
-      juryDemerit: (wronged, breaker) => recordDealBetrayal(this.live!, wronged, breaker),
+      juryDemerit: (wronged, breaker) => { recordDealBetrayal(this.live!, wronged, breaker); this.feelGuilt(breaker, wronged); }, // ORW-568 / 0181
       // #1963: a break tied to a SECRET eviction ballot (an NPC's vote-evict; the player's own vote is never sealed from
       // themselves) is not attributable by any hidden fold an NPC acts on, so it is skipped when the PLAYER is the wronged
       // party (nothing acts on the player's hidden read). The suspects are every voter who voted to evict the wronged.
@@ -15782,7 +15824,7 @@ export class GameSessionAdapter implements GameSession {
       if (verdict === "break") {
         this.deals.breakDeliberately(deal, npc, {
           rel: this.rel, rng, currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
-          juryDemerit: (wronged, breaker) => recordDealBetrayal(s, wronged, breaker),
+          juryDemerit: (wronged, breaker) => { recordDealBetrayal(s, wronged, breaker); this.feelGuilt(breaker, wronged); }, // ORW-568 / 0181
           revealToWitness: (witness, breaker) => { this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
           // Vault-held: no player witness, so the event-visibility invariant keeps it hidden until a pathway or the 0048 unseal.
           reveal: (wronged, breaker, d) => this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a ${d.kind} deal with ${this.nameOf(wronged)} off-screen`, [breaker], "betrayal"), // distinct wording from the later PUBLIC break of the same deal (identical words would read as a Vault echo to the integrity checkpoint)
