@@ -1,4 +1,4 @@
-# Feature 0182 - the grudge book (Theme 3 slice 5, PR 1). Design note: 0182-grudges.md. Engine-only: nothing is shown and nothing decides from it yet. Roles only.
+# Feature 0182 - the grudge book (Theme 3 slice 5, PR 1 and 2). Design note: 0182-grudges.md. Engine-only: nothing is shown. Roles only.
 
 Feature: A broken bond leaves a grudge with a memory that fades but is never zero
 
@@ -19,3 +19,8 @@ Feature: A broken bond leaves a grudge with a memory that fades but is never zer
     When the same ally lies to them later and harder
     Then the grudge remembers the lie
     And the strongest severity held is kept
+
+  Scenario: A rift can be partly repaired
+    Given two houseguests who fell out
+    When one keeps a promise to the other
+    Then the strain eases, but the memory stays
