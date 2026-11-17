@@ -3113,6 +3113,30 @@ def _validate_assurance(raw, scene_ids) -> dict | None:
     return None
 
 
+# ORW-586 / 0187: the promise kinds the engine JUDGES from the board (the closed set of `PROMISE_WHATS` in src/engine/promiseTerms.ts, minus the open-text `share-info`, which the open-ledger extractor keeps as free text).
+_PROMISE_WHATS = ("no-nominate", "no-evict-vote", "use-veto-on", "not-use-veto-on", "final-two")
+
+
+def _validate_promise(raw, scene_ids, roster_ids) -> dict | None:
+    """ORW-586: validate the extraction's optional TYPED promise. `what` must be a promise kind the engine judges (closed set); WHO promised is "player" (the default) or an NPC id actually in the scene (`scene_ids`);
+    `subject` (optional, who it concerns when not the person spoken to) must be a roster id. Anything else is dropped, never coerced. No number or free text crosses: the engine validates ids and presence again,
+    judges kept or broken from the board itself, and ignores the whole field unless ORWELL_PROMISE_TERMS is on."""
+    if not isinstance(raw, dict) or raw.get("what") not in _PROMISE_WHATS:
+        return None
+    out: dict = {"what": raw["what"]}
+    by = raw.get("by")
+    if by not in (None, "", "player"):
+        if not (isinstance(by, str) and by in (scene_ids or [])):
+            return None
+        out["from"] = by
+    subject = raw.get("subject")
+    if subject not in (None, ""):
+        if not (isinstance(subject, str) and subject in (roster_ids or [])):
+            return None
+        out["subject"] = subject
+    return out
+
+
 def _validate_heard_about_me(raw, scene_ids) -> dict | None:
     """ORW-104 (B24): validate the extraction's optional heard-about-me proposal - an NPC in the scene TOLD the others something about the PLAYER. Only the closed `nature` and WHO told (`by`,
     which MUST be an NPC id actually in the scene; the player telling is not this field) come from the model; anything else is dropped, never coerced. No number or free text crosses: the
@@ -3335,7 +3359,8 @@ async def _settle_pending_fold(owner, session_id) -> bool:
                 felt_minutes=entry["felt_minutes"], user=owner, defer_fold=False,
                 idempotency_key=entry["idempotency_key"],
                 **({"assurance": entry["assurance"]} if entry.get("assurance") else {}),
-                **({"heard_about_me": entry["heard_about_me"]} if entry.get("heard_about_me") else {}))
+                **({"heard_about_me": entry["heard_about_me"]} if entry.get("heard_about_me") else {}),
+                **({"promise": entry["promise"]} if entry.get("promise") else {}))
         except Exception as _e:
             logger.warning(f"[orwell] settle deferred fold failed, re-queuing at front for retry: {_e}")
             _fl.requeue_pending_fold_front(owner, session_id, entry)
@@ -4082,6 +4107,7 @@ _SCENE_EXTRACT_INSTRUCTIONS = (
     '"feltMinutes":<how long the scene took IN-FICTION, in minutes: a quick word ~15-30, an '
     'ordinary chat ~45-90, a long strategy summit ~120-240>,'
     '"assurance":{"kind":"<safe|vote|loyal>","by":"<player, or the houseguest id who made it>"},'
+    '"promise":{"what":"<the promise kind>","subject":"<houseguest id it concerns>","by":"<player, or the houseguest id who made it>"},'
     '"heardAboutMe":{"nature":"<targeting|betrayal>","by":"<the houseguest id who told the others>"},'
     '"consequence":{"edges":[{"toward":"<houseguest id>",'
     '"direction":"<one of: warmer, cooler, more-trust, less-trust, more-threatened, '
@@ -4090,7 +4116,7 @@ _SCENE_EXTRACT_INSTRUCTIONS = (
     '"about":"<a DIFFERENT third houseguest, never the player>",'
     '"direction":"<same 8 options as above>","emphasis":"<slight|notable|strong>"}],'
     '"rationale":"<why, grounded in the scene>"}}\n'
-    "Add `assurance` ONLY when someone made a cheap, explicit promise in the scene — 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal); `by` is 'player' when the player promised, else the id of the houseguest who promised the player. Never for hints, hopes or mere friendliness; otherwise omit it. Add `heardAboutMe` ONLY when, in the scene, a houseguest TOLD the other houseguests present something about the player — that the player is gunning for them (targeting) or has betrayed someone (betrayal); `by` is the id of the houseguest who said it (never the player); otherwise omit it. Always set `feltMinutes` to how long the exchange plausibly took in the house — it is a note "
+    "Add `assurance` ONLY when someone made a cheap, explicit promise in the scene — 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal); `by` is 'player' when the player promised, else the id of the houseguest who promised the player. Never for hints, hopes or mere friendliness; otherwise omit it. Add `promise` ONLY when someone made an explicit promise about what they will or will not do on the board, in their own words in the scene. `what` names the promise kind and must be exactly a kind the engine judges: no-nominate (will not nominate them), no-evict-vote (will not vote them out), use-veto-on (will use the veto on them), not-use-veto-on (will not use the veto on them), final-two (will take them to the final two). `by` is 'player' when the player promised, else the id of the houseguest who promised the player; `subject` is the id of the houseguest it concerns, and is left out when it concerns the one spoken to. Never for hints, hopes, a threat or a mere wish, and never a promise about anything the board cannot test; otherwise omit it. Add `heardAboutMe` ONLY when, in the scene, a houseguest TOLD the other houseguests present something about the player — that the player is gunning for them (targeting) or has betrayed someone (betrayal); `by` is the id of the houseguest who said it (never the player); otherwise omit it. Always set `feltMinutes` to how long the exchange plausibly took in the house — it is a note "
     "recorded with the scene (the in-game clock itself runs by message count), so a brief hallway word is ~15-30 "
     "and a long backyard strategy session is a couple of hours. Pick the kind matching the "
     "emotional/strategic direction. Add `consequence` ONLY when "
@@ -4345,6 +4371,7 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                 logger.info(f"[orwell] scene-check: trimmed the record, codes={_gate.codes}")
         assurance = _validate_assurance(obj.get("assurance"), ids)
         heard_about_me = _validate_heard_about_me(obj.get("heardAboutMe"), ids)
+        promise = _validate_promise(obj.get("promise"), ids, valid)
         # 0065 Part A: attach the CAS token + refresh last-seen from the response. A single stale 409
         # (the board moved under us mid-turn) is reconciled-and-RETRIED (#591); a SECOND consecutive one
         # is DEFERRED (CON-11, `defer_fold=True`) rather than dropped — this is frequently the scene's
@@ -4368,7 +4395,7 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
             from src import fold_ledger as _fl
             _fl.stage_pending_fold(owner, session_id, content=content[:400], with_ids=ids,
                                    kind=kind, consequence=consequence, felt_minutes=felt_minutes,
-                                   idempotency_key=_scene_idem_key, assurance=assurance, heard_about_me=heard_about_me)
+                                   idempotency_key=_scene_idem_key, assurance=assurance, heard_about_me=heard_about_me, promise=promise)
             logger.info(f"[orwell] staged scene fold for deferred settle (kind={kind}, with={ids}, "
                         f"edges={n_edges}, aboutEdges={n_about}, feltMinutes={felt_minutes}) user={owner}")
         else:
@@ -4380,7 +4407,8 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                                         user=owner, defer_fold=True,
                                         idempotency_key=_scene_idem_key,
                                         **({"assurance": assurance} if assurance else {}),
-                                        **({"heard_about_me": heard_about_me} if heard_about_me else {})) is None:
+                                        **({"heard_about_me": heard_about_me} if heard_about_me else {}),
+                                        **({"promise": promise} if promise else {})) is None:
                 return False
             logger.info(f"[orwell] auto-recorded scene (kind={kind}, with={ids}, "
                         f"edges={n_edges}, aboutEdges={n_about}, feltMinutes={felt_minutes}) user={owner}")
@@ -10763,7 +10791,7 @@ async def _stream_agent_loop_impl(
                         # free text (engine-validated; fail-soft; same gating as the room canon above).
                         try:
                             from src import orwell_open_ledger as _ol
-                            await _ol.after_turn(_turn_narration_visible, owner, _belt_endpoint, _belt_model, _belt_headers)
+                            await _ol.after_turn(_turn_narration_visible, owner, _belt_endpoint, _belt_model, _belt_headers, player_message=_extract_last_user_message(messages) or "")  # ORW-586: the player's own typed words reach the extractor (T2-11)
                         except Exception as _ol_e:  # failsoft-ok: open-ledger-hook (after_turn records its own failures RED; this guards the import and the call itself)
                             logger.debug(f"[open-ledger] skipped: {_ol_e}")
 

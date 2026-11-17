@@ -85,6 +85,7 @@ import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
 import { DEAL_NOMS } from "../../engine/dealNomConstants";
+import { proposeNpcDeals, planAwareDealPush, type PairBondRead } from "../../engine/npcDeals";
 import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosure, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, BreakCause, Deal } from "../../engine/deals";
@@ -5621,6 +5622,29 @@ export class GameSessionAdapter implements GameSession {
   /** Theme 3 slice 3 (Overseer B): the favor ledger as a second source of a bond's debt (signed like BondView.debt). Absent => the record's own debt only. */
   private favorDebt?: DebtSource;
   setFavorDebtSource(fn: DebtSource | undefined): void { this.favorDebt = fn; }
+  /**
+   * ORW-597: overnight, a wronged party who has come to hold that the breaker LIED to them (a caught lie, a told "they lied to you") learns of a quiet break with
+   * that breaker, and only then reacts (`DealLedger.learnOfBreak`). What they hold, never the truth. A side-stream rng only for the shock's own jitter.
+   */
+  private learnBreaksOvernight(): void {
+    const s = this.live;
+    if (!s || !s.beliefs) return;
+    const seed = this.gameSeed ?? 0;
+    for (const deal of this.deals.all) {
+      if (deal.status !== "broken" || deal.learned !== false || deal.secretVote || !deal.brokenBy) continue;
+      const breaker = deal.brokenBy;
+      const wronged = deal.parties.find((p) => p !== breaker);
+      if (!wronged) continue;
+      const caught = (s.beliefs[wronged] ?? []).some((b) => b.value && !b.refuted && b.subject === breaker
+        && (b.kind === "lied-to-me" || (b.kind === "heard-rumor" && b.nature === "lying" && b.object === wronged)));
+      if (!caught) continue;
+      this.deals.learnOfBreak(deal as Deal, {
+        rel: this.rel, rng: new SeededRandom(hashSeed(`${seed}:learn-break:${deal.id}`)), currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
+        juryDemerit: (w, b) => recordDealBetrayal(s, w, b),
+        revealToWitness: (witness, b) => { this.onPlayerEvent?.(`${this.nameOf(b)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
+      });
+    }
+  }
   /** 0171: the favor ledger IS the favor-debt source (signed like `BondView.debt`: + means `other` owes `holder`). Never written into the relationship model's own debt fields. Undefined when favors are off. */
   private ownFavorDebt(): DebtSource | undefined { return this.favorsEnabled ? (holder, other) => this.favors.debtBetween(holder, other) : undefined; }
   /** 0175: the bond record (`ORWELL_BOND_RECORD`, default ON; `=0` = the edge-only reader and no record kept). Nothing decides from it yet, so it moves no outcome. */
@@ -5653,7 +5677,8 @@ export class GameSessionAdapter implements GameSession {
     const open = new Map<string, string[]>();
     for (const d of this.deals.all) {
       const [a, b] = d.parties;
-      if (d.status === "broken" && d.brokenBy && mark(`broken:${d.id}`)) foldBreak(store, d.brokenBy, d.brokenBy === a ? b : a);
+      // ORW-597: a break reaches the bond only once the wronged side has learned of it, and a sealed ballot never names its breaker.
+      if (d.status === "broken" && d.brokenBy && (d.learned === true || (d.learned === undefined && !d.sealedBallot)) && mark(`broken:${d.id}`)) foldBreak(store, d.brokenBy, d.brokenBy === a ? b : a);
       else if (d.status === "kept" && mark(`kept:${d.id}`)) foldKept(store, a, b);
       else if (d.status === "open") for (const [x, y] of [[a, b], [b, a]] as const) (open.get(bondKey(x, y)) ?? open.set(bondKey(x, y), []).get(bondKey(x, y))!).push(d.kind);
     }
@@ -5694,7 +5719,7 @@ export class GameSessionAdapter implements GameSession {
       }
     }
     for (const d of this.deals.all) {
-      if (d.status !== "broken" || !d.brokenBy) continue;
+      if (d.status !== "broken" || !d.brokenBy || !(d.learned === true || (d.learned === undefined && !d.sealedBallot))) continue; // ORW-597: no grudge before they learn of it; never against a secret voter
       const [a, b] = d.parties;
       note(`d:${d.id}`, d.brokenBy === a ? b : a, d.brokenBy, "deal-broken", GRUDGES.DEAL_BREAK_SEVERITY, live.week);
     }
@@ -10664,6 +10689,7 @@ export class GameSessionAdapter implements GameSession {
       for (let i = 0; i < steps; i++) evolveEmotion(hg.soul, "calm", undefined, undefined, { soulDepth: this.soulDepthEnabled });
     }
     this.mullAgendasOvernight(); // ORW-312: asleep, each houseguest's goals fade without progress (inner processing only: no scheming, no rng)
+    this.learnBreaksOvernight(); // ORW-597: a quiet break reaches the wronged side once they have caught the breaker lying to them
     this.foldBonds(); // 0175: the day's shared moments, deals and saves into the bond record (no rng)
     this.issueNameTickets(); // ORW-566 part c2: tonight's fixed-size batch of sealed naming prompts (keyed hashing, no rng)
     this.feelingsTick(); // ORW-568 / 0181 part 2: jealousy follows the night's favour (no rng, no text)
@@ -15787,7 +15813,7 @@ export class GameSessionAdapter implements GameSession {
     if (ev) this.recordCeremonyConfessionals(ev);
     // E46: as the block goes up, the tightest unbound NPC pair may seal a hidden pact of their own.
     if (ev && ev.beat === "hoh-competition" && ev.participants[0]) this.recordLobbyPitches(ev.participants[0]); // B38: the pitches made to the new HOH are real, mostly hidden, events
-    if (ev && ev.beat === "nominations") this.mintNpcDeal();
+    if (ev && ev.beat === "nominations") { this.mintNpcDeal(); if (this.npcDealsEnabled) this.mintManyNpcDeals(); }
     // 0142 idea 3 (information): an NPC who promised to tell the player what they hear does so when the two are together. No open information deal (always so in a headless/unplayed game) => no-op, no rng.
     if (ev) this.deliverInformationDeals();
     // 0041: the season changes a houseguest — fold the beat's emotional impact into the involved souls
@@ -16214,7 +16240,52 @@ export class GameSessionAdapter implements GameSession {
   dealNomPushFor(target: EntityId, holder: EntityId): number {
     if (!this.dealNomsEnabled || holder === PLAYER || target === holder) return 0;
     const bound = this.deals.open().some((d) => (d.kind === "safety" || d.kind === "final-two") && d.condition.promisors.includes(holder) && d.parties.includes(target));
-    return bound ? DEAL_NOMS.protectivePush * (BELIEF_RULES.strength === "full" ? dealTrust(this.rel.edge(holder, target).trust) : 1) : 0; // 0160 (Ryne Q3): a low-trust deal protects less
+    const base = bound ? DEAL_NOMS.protectivePush * (BELIEF_RULES.strength === "full" ? dealTrust(this.rel.edge(holder, target).trust) : 1) : 0; // 0160 (Ryne Q3): a low-trust deal protects less
+    // 0170: the holder's OWN secret plan (flip / break at the nominations) turns the protective push into a positive one. No plan source / flag off => `base` unchanged.
+    return this.npcDealsEnabled && this.live ? planAwareDealPush(base, holder, target, this.live.week, this.deals.serialize(), this.planSourceOverride ?? this.dealPlanSource()) : base;
+  }
+
+  /** 0170 (Theme 3 slice 2) - NPC deals and the HOH deal. ON unless `ORWELL_NPC_DEALS=0`; OFF => `mintNpcDeal` alone, byte-identical to before. */
+  private npcDealsEnabled = flagDefaultOn("ORWELL_NPC_DEALS");
+  setNpcDealsEnabled(on: boolean): void { this.npcDealsEnabled = on; }
+  /** The secret plan store (the Auditor's 0178, `live.dealPlans`) is the ONE plan model: the holder's own plan is read through `dealPlanSource()`. A test may inject its own read. */
+  private planSourceOverride?: PlanSource;
+  setPlanSource(src: PlanSource | undefined): void { this.planSourceOverride = src; }
+
+  /** The bond read this slice needs, over today's relationship model WITHOUT creating an edge: one snapshot per call, an unknown pair reads as the baseline. */
+  private pairBondRead(): PairBondRead {
+    const base = RELATIONSHIP_CONSTANTS.baseline;
+    const edges = new Map<string, { trust: number; affinity: number }>();
+    for (const e of this.rel.serialize().edges) edges.set(`${e.from}->${e.to}`, e);
+    const span = DECISION.nomination.floaterBondSpan;
+    return {
+      bond: (holder, other) => {
+        const e = edges.get(`${holder}->${other}`) ?? base;
+        const strength = Math.max(0, Math.min(1, ((e.trust + e.affinity) / 2 - (base.trust + base.affinity) / 2) / span));
+        return { trust: e.trust, warmth: e.affinity, strength };
+      },
+    };
+  }
+
+  /**
+   * 0170 - at the nomination ceremony the house may seal several NPC-to-NPC pacts, each side's secret plan comes from the 0178 planner like every deal. Hidden like the legacy pact (witnesses = the two NPCs);
+   * its own seeded side stream `${seed}:npc-deals:${week}:${pairKey}`, so no shared stream moves. The pact itself is the ordinary ledger entry.
+   */
+  private mintManyNpcDeals(): void {
+    const s = this.live;
+    if (!s || !this.house || !this.onPlayerEvent) return;
+    const npcs = s.active.filter((id) => id !== PLAYER);
+    const seed = this.gameSeed ?? "";
+    const proposals = proposeNpcDeals({
+      week: s.week, npcs, bonds: this.pairBondRead(),
+      isTaken: (a, b) => this.deals.open().some((d) => (d.parties.includes(a) && d.parties.includes(b)) || ((d.parties.includes(a) || d.parties.includes(b)) && d.madeWeek === s.week)),
+      stream: (pairKey) => new SeededRandom(hashSeed(`${seed}:npc-deals:${s.week}:${pairKey}`)),
+    });
+    for (const p of proposals) {
+      const [a, b] = p.parties;
+      const evId = this.onPlayerEvent(`${this.nameOf(a)} and ${this.nameOf(b)} settle a quiet ${p.kind} understanding`, [a, b], "deal");
+      this.deals.make(p.parties, p.kind, "a quiet pact sealed away from the cameras", evId, s.week); // its plans: main's planAndCarryOutDeals, like every deal
+    }
   }
 
   /** B26 - a juror's finale lean reads their memory of the finalist too. ON unless `ORWELL_JURY_MEMORY=0`. OFF => no ctx provider => byte-identical. */
@@ -16512,6 +16583,8 @@ export class GameSessionAdapter implements GameSession {
             : deal.status === "broken" ? "carried-out" : "kept-anyway";
           continue;
         }
+        const partner = deal.parties.find((p) => p !== holder);
+        if (partner !== undefined && gone.has(partner)) { plan.outcome = "overtaken"; continue; } // ORW-597: never against an evicted partner (nothing to betray in the house)
         const how = PLAN_SEMANTICS[plan.kind].carriedOut;
         if (how === "never" || how === "vote" || gone.has(holder)) continue; // honest; or a flip, which the vote itself carries out
         const due = how === "final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
@@ -17998,6 +18071,17 @@ export class GameSessionAdapter implements GameSession {
     return { accepted: true, ...(out.id ? { entryId: out.id } : {}) };
   }
 
+  /** ORW-586: how many assurance rows exist (lets the promise sink know whether its term wrote the matching row). */
+  assuranceCount(): number { return this.live?.assurances?.items.length ?? 0; }
+
+  /** ORW-586: lapse the open assurance row a termed promise wrote (none, flag off or no ledger => nothing). Never folds. */
+  private lapseTermAssurance(term: PromiseTerm): void {
+    const kind = termAssuranceKind(term);
+    if (!kind || !this.assurancesEnabled || !this.live?.assurances) return;
+    const ledger = AssuranceLedger.fromJSON(this.live.assurances);
+    if (ledger.lapseMatching({ from: term.by as EntityId, to: term.to as EntityId, kind, ...(term.week !== undefined ? { week: term.week } : {}) }) > 0) this.live.assurances = ledger.toJSON();
+  }
+
   /** ORW-407 slice 2 - mark an open entry kept, broken or withdrawn, with a free-text note and the turn. Changes no relationship number. */
   resolveOpenLedger(req: ResolveOpenLedgerReq): RecordOpenLedgerResolutionResult {
     if (!this.openLedgerEnabled) return { accepted: false, reason: "off" };
@@ -18013,9 +18097,12 @@ export class GameSessionAdapter implements GameSession {
       this.backgroundPersist(); // durable, NOT a board beat
       return { accepted: true };
     }
+    const before = this.openLedger.entries.find((e) => e.id === sr.entryId);
     const out = resolveOpenEntry(this.openLedger, req, this.beatSeq, { refuseTermed: this.promiseTermsLive });
     if (out.outcome !== "resolved") return { accepted: false, reason: out.outcome };
     this.openLedger = out.ledger;
+    // ORW-586: a WITHDRAWN termed promise also lapses its assurance row (no fold), so a later board event cannot break what the speaker took back.
+    if (this.promiseTermsLive && (req as { status?: unknown }).status === "withdrawn" && before?.term) this.lapseTermAssurance(before.term);
     this.backgroundPersist(); // durable, but NOT a board beat
     return { accepted: true };
   }
