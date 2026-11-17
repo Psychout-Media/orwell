@@ -68,6 +68,7 @@ import type { Stats } from "./season";
 import { nominationStrategy, nominationPlan, nominationScore, nominationBaseVals, replacementPick, tallyJury } from "./season";
 import { sumVals, whyOption, runnerUp, type DecisionWhy, type WhySink } from "./decisionWhy";
 import type { NpcMemoryLedger } from "./npcMemory";
+import type { GrudgeBook } from "./grudges";
 import { detectBlocs, blocTerm } from "./blocs";
 import type { Bloc } from "./blocs";
 import { DECISION } from "./decisionConstants";
@@ -705,6 +706,12 @@ export interface LiveSeasonState {
   bondsCursor?: number;
   bondsSeen?: string[];
   bondsDay?: number;
+  /**
+   * 0182 (Theme 3 slice 5, ORW-569) - the GRUDGE BOOK (`grudges.ts`): one row per directed pair `holder|subject` for a wrong the holder remembers. Folded by the engine from the
+   * records that already exist (`grudgesSeen` = marks already folded). Monotone, never deleted. ENGINE-ONLY (Vault class), never projected. Absent => no grudges yet (old saves read none).
+   */
+  grudges?: GrudgeBook;
+  grudgesSeen?: string[];
   /**
    * 0149 / ORW-330 (theme 2, slice 1) - the season's CLAIMS (`spokenClaims.ts`): who told whom what about whom, whether it was true and what
    * the speaker meant. ENGINE-ONLY (Vault class), never projected; only `claimsHeardBy(PLAYER)` (the speaker's words, no truth) may go outward.
