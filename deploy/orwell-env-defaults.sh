@@ -75,6 +75,7 @@
 #   ORWELL_NAP                  0148 / ORW-417 (Ryne 2026-11-15): the player's daytime nap - 0.5-3h in the morning/afternoon, every 2h halves the sleep deficit (never to zero), an event always wakes the player. ON 2026-11-15; off => the lever refuses 'not available'.
 #   ORWELL_CLAIMS_TO_PLAYER     0151 / ORW-330 slice 4a: a houseguest who trusts the player may pass on one belief a day, hedged by certainty (engine-decided, no outcome moves). ON.
 #   ORWELL_HOUSE_CULTURE        0168 / ORW-551 slice 1: a played season draws a loose seeded blend of culture leans, stored engine-only; no dial reads it yet (no change to the house mix).
+#   ORWELL_GROUP_IDENTITY       0183 / ORW-566 (Theme 3 slice 7 a-b): close pairs keep a private debrief spot after ceremonies, alliances named from the house's own words, a witnessed habit starts a whisper (position only). ON; `=0` is the kill switch.
 #   ORWELL_HOMOPHILY            0176 / ORW-561 slice 10 part 1: houseguests who are alike bond a little faster and sour slower, a mismatched pair the reverse (a played game only; =0 opts out).
 #   ORWELL_TERRITORY            0176 / ORW-561 slice 10 part 2: a hidden tenure map (hours per room), a mild pull toward people who share your top room, a small capped bond nudge for roommates (a played game only; =0 opts out).
 #   ORWELL_MOOD_CONTAGION       0185 / ORW-567 slice 15: a shocking eviction rattles the evictee's close allies most and the house a little; a big win lifts the winner's circle a little (moves the existing mood only; a played game only). ON 2026-11-17.
@@ -209,6 +210,7 @@ ORWELL_NAP=1
 ORWELL_CLAIMS_TO_PLAYER=1
 ORWELL_HOUSE_MEETINGS=1
 ORWELL_HOUSE_CULTURE=1
+ORWELL_GROUP_IDENTITY=1
 ORWELL_HOMOPHILY=1
 ORWELL_TERRITORY=1
 ORWELL_MOOD_CONTAGION=1

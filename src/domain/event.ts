@@ -39,7 +39,7 @@ export interface GameEvent {
    * it rides hidden events, never a projection.
    */
   houseLife?: { action: string; place: string; manner: string; truthful: boolean; about?: string; /** ORW-337: the PUBLIC name of the house ritual this scene was, when it was one */ ritual?: string; /** the stretch (one hour of house life) it belongs to */ stretch: number; /** ORW-473: the absolute in-game hour it happened (days elapsed * 24 + clock hour); absent when the clock was off */ at?: number;
-    /** ORW-539: the houseguests (not taking part) who were in that room when it happened and so could SEE it. Engine-only; never projected. Absent = nobody / an older save. */ seenBy?: string[] };
+    /** ORW-539: the houseguests (not taking part) who were in that room when it happened and so could SEE it. Engine-only; never projected. Absent = nobody / an older save. */ seenBy?: string[]; /** ORW-566 (spec 0183): the key of the private pair habit this scene was (a debrief at the pair's own spot). Engine-only; never projected. */ habit?: string };
 }
 
 export type Visibility = "VISIBLE" | "HIDDEN";

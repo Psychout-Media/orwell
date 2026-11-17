@@ -73,7 +73,7 @@ export function validateCulture(raw: unknown): HouseCulture | undefined {
     const o = (s ?? {}) as Record<string, unknown>;
     const name = cleanText(o["name"], AUTHORED.maxName);
     const a = o["action"];
-    const ok = typeof a === "string" && a in ACTIONS && ACTIONS[a as ActionKind].family === "house-life" && !ACTIONS[a as ActionKind].publicOnly;
+    const ok = typeof a === "string" && a in ACTIONS && ACTIONS[a as ActionKind].family === "house-life" && !ACTIONS[a as ActionKind].publicOnly && a !== "debrief"; // a debrief is a pair's own habit (spec 0183), never a house-wide ritual
     if (typeof o["timeOfDay"] === "string" && (TIMES as string[]).includes(o["timeOfDay"]) && ok && name) {
       rituals.push({ timeOfDay: o["timeOfDay"] as TimeOfDay, action: a as ActionKind, name });
     }
