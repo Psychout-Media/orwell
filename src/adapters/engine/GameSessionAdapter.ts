@@ -313,7 +313,7 @@ import {
   firstCeremonyBeatResolved,
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
   advanceClock, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, playerNightDeficit, napFactor, npcRestDeficit, isInertBeat, eventBeatHours, spreadClockHours, ceremonyRef, CEREMONY_STEP_TEXT,
-  recordWhy, nightBreakPending, markNightGateCrossed, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
+  honorWeight, recordWhy, nightBreakPending, markNightGateCrossed, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
 } from "../../engine/liveSeason";
@@ -10709,13 +10709,31 @@ export class GameSessionAdapter implements GameSession {
     const hg = this.house?.npcs.find((n) => n.id === id);
     if (!hg) return "compete";
     const others = field.filter((o) => o !== id);
-    return deriveNpcCompIntent({
+    const intent = deriveNpcCompIntent({
       aggression: ARCHETYPE_AGGRESSION[hg.character.archetype] ?? 0.5,
       nominee: this.live?.nominees?.includes(id) ?? false,
       hasOthers: others.length > 0,
       bestAllyBond: others.length ? Math.max(...others.map((o) => this.rel.bondStrength(id, o))) : 0,
       maxThreatOnMe: others.length ? Math.max(...others.map((o) => this.rel.edge(o, id).threat)) : 0,
     });
+    if (intent === "throw") this.noteCompThrowReason(id, others);
+    return intent;
+  }
+  /**
+   * ORW-578 part 3: an NPC who throws a competition does it FOR someone - the closest ally in the field (the same bond read that made them throw). A thrown comp
+   * is never admitted aloud (`public: false`): the reason is a record for the post-crown retrospective only. No rng; once per week per houseguest.
+   */
+  private noteCompThrowReason(id: EntityId, others: readonly EntityId[]): void {
+    const s = this.live;
+    if (!s || s.playedGame !== true || others.length === 0) return;
+    const log = (s.statedReasons ??= []);
+    if (log.some((r) => r.week === s.week && r.decider === id && r.decision === "comp-throw")) return;
+    const ally = [...others].sort((a, b) => this.rel.bondStrength(id, b) - this.rel.bondStrength(id, a) || (a < b ? -1 : a > b ? 1 : 0))[0]!;
+    const character = this.agendaCharacterOf(id);
+    if (!character) return;
+    const real: RealReason = { decision: "comp-throw", decider: id, choice: ally, terms: [{ name: "bond", value: this.rel.bondStrength(id, ally) }] };
+    const day = s.dayNumber ?? s.week;
+    log.push({ week: s.week, day, decider: id, decision: "comp-throw", public: false, real, stated: explainDecision(real, character, this.gameSeed ?? 0, day) });
   }
 
   /** Turn the RELATIONSHIP-TRAJECTORY layer on/off (0087). Off by default — the calibration harness leaves
@@ -12803,7 +12821,7 @@ export class GameSessionAdapter implements GameSession {
   private favorShieldFor(nominee: EntityId, voter: EntityId): number {
     const beat = this.favorBeat();
     return this.favors.all.some((f) => f.state === "repaid" && f.holder === nominee && nominee !== PLAYER && f.owedBy === voter && f.calledBeat === beat && f.resolvedBeat === beat)
-      ? FAVOR.shieldShareOfDealHonor * DECISION.vote.dealHonorWeight : 0;
+      ? honorWeight() : 0; // ORW-617: the same weight a formal deal carries (the vote term scales it by trust)
   }
 
   /**
@@ -12917,6 +12935,7 @@ export class GameSessionAdapter implements GameSession {
         case "replacement": return s.replacement === c;
         case "veto": return s.saved === c;
         case "veto-hold": return !s.vetoUsed && (s.beat === "eviction" || s.beat === "final-eviction"); // ORW-578 part 2b: once the ceremony has passed with the veto unused
+        case "hc-pick": return s.vetoField?.includes(c) === true; // ORW-578 part 3: the pick is public once the draw is
         case "final-hoh-evict": return s.evictee === c;
         case "deal-renegotiate": return s.dealOffer?.from === r.decider && s.dealOffer.replacesDealId !== undefined;
         case "vote": return s.evictee === c;
