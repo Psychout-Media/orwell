@@ -23,22 +23,28 @@ function game(played = true) {
   const npc = [...sb.session.livingIds()].find((i) => i !== PLAYER)!;
   return { s: sb.session, g, npc };
 }
+/** ONE bank (0171): the player's open favor claims, read from the favor ledger, grouped like the old `owedFavors` rows; undefined when nothing is owed. */
+const bank = (s: { favorLedger(): ReadonlyArray<{ owedBy: string; holder: string; state: string }> }): Array<{ debtor: string; n: number }> | undefined => {
+  const by = new Map<string, number>();
+  for (const f of s.favorLedger()) if (f.state === "owed" && f.holder === PLAYER) by.set(f.owedBy, (by.get(f.owedBy) ?? 0) + 1);
+  return by.size ? [...by].map(([debtor, n]) => ({ debtor, n })) : undefined;
+};
 const dealsWith = (s: ReturnType<typeof game>["s"], npc: string) => (s.getGameState().deals ?? []).filter((d) => d.parties.some((p) => p.id === npc));
 
 describe("banking", () => {
   it("a kept deal banks a favor owed to the player (played game), capped at 3, and it shows on the state view", () => {
     const { s, g, npc } = game();
     for (let i = 0; i < 5; i++) g.bankOwedFavor(npc, PLAYER);
-    expect(g.live.owedFavors).toEqual([{ debtor: npc, n: 3, madeWeek: expect.any(Number) }]);
+    expect(bank(s as never)).toEqual([{ debtor: npc, n: 3 }]);
     expect(s.getGameState().owedFavors?.[0]?.n).toBe(3);
     expect(s.getGameState().owedFavors?.[0]?.from.id).toBe(npc);
   });
   it("banks nothing for a game nobody plays, for a favor owed BY the player, or between NPCs", () => {
     const a = game(false); a.g.bankOwedFavor(a.npc, PLAYER);
-    expect(a.g.live.owedFavors).toBeUndefined();
+    expect(bank(a.s as never)).toBeUndefined();
     expect(a.s.getGameState().owedFavors).toBeUndefined();
     const b = game(); b.g.bankOwedFavor(PLAYER, b.npc); b.g.bankOwedFavor(b.npc, b.npc);
-    expect(b.g.live.owedFavors).toBeUndefined();
+    expect(bank(b.s as never)).toBeUndefined();
   });
 });
 
@@ -51,8 +57,8 @@ describe("end to end: a deal played to KEPT banks the favor", () => {
       const deal = d.deals.make([npc, PLAYER], "comp-throw", "throw it", undefined, 1);
       d.reconcileDeals({ actor: npc, kind: "compete", targets: [], outcome: "threw" });
       expect(deal.status).toBe("kept");
-      if (played) expect(d.live.owedFavors?.[0]).toMatchObject({ debtor: npc, n: 1 });
-      else expect(d.live.owedFavors).toBeUndefined();
+      if (played) expect(bank(g as never)).toMatchObject([{ debtor: npc, n: 1 }]);
+      else expect(bank(g as never)).toBeUndefined();
     }
   });
 });
@@ -73,7 +79,7 @@ describe("calling a favor in", () => {
     const r = s.callInFavor(npc, "comp-throw")!;
     expect(r.honored).toBe(true);
     expect(dealsWith(s, npc)).toHaveLength(1);
-    expect(g.live.owedFavors).toBeUndefined();
+    expect(bank(s as never)).toBeUndefined();
     expect(s.callInFavor(npc, "comp-throw")).toBeNull(); // spent
   });
   it("a called-in target-other favor binds the NPC who honored it (the promisor), not the player (ORW-504, provisional default)", () => {
@@ -86,13 +92,13 @@ describe("calling a favor in", () => {
     const { s, g, npc } = game();
     g.bankOwedFavor(npc, PLAYER);
     expect(s.callInFavor(npc, "not-a-kind" as never)).toBeNull();
-    expect(g.live.owedFavors).toHaveLength(1);
+    expect(bank(s as never)).toHaveLength(1);
   });
   it("a favor cannot be called in for protect-third (it names no third houseguest) and is not spent", () => {
     const { s, g, npc } = game();
     g.bankOwedFavor(npc, PLAYER);
     expect(s.callInFavor(npc, "protect-third")).toBeNull();
-    expect(g.live.owedFavors).toHaveLength(1);
+    expect(bank(s as never)).toHaveLength(1);
   });
   it("a feared/distrusted player is still refused: no deal, the favor is spent, and the player's read of them drops", () => {
     const { s, g, npc } = game();
@@ -102,7 +108,7 @@ describe("calling a favor in", () => {
     const r = s.callInFavor(npc, "vote")!;
     expect(r.honored).toBe(false);
     expect(dealsWith(s, npc)).toHaveLength(0);
-    expect(g.live.owedFavors).toBeUndefined();
+    expect(bank(s as never)).toBeUndefined();
     expect(g.rel.edge(PLAYER, npc).trust).toBeLessThan(before);
   });
 });

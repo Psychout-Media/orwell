@@ -155,6 +155,7 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_TERRITORY', key: 'territory', parser: 'defaultOn' },
   // 0185 / ORW-567 (theme 3 slice 15): mood contagion - a shocking eviction rattles the evictee's close allies most and the house a little; a big win lifts the winner's circle a little. Moves the existing mood only. A played game only. `=0` opts out.
   { envKey: 'ORWELL_MOOD_CONTAGION', key: 'moodContagion', parser: 'defaultOn' },
+  { envKey: 'ORWELL_FAVORS', key: 'favors', parser: 'defaultOn' },
   // 0182 / ORW-569 (theme 3 slice 5, PR 1): the grudge book - a hidden record of who holds a grudge against whom and why, fading but never zero. Nothing decides from it yet. A played game only; needs ORWELL_BOND_RECORD. `=0` opts out.
   { envKey: 'ORWELL_GRUDGES', key: 'grudges', parser: 'defaultOn' },
   // 0181 / ORW-568 (theme 3 slice 4, part 1): a bond's life - a real feeling for someone holds a houseguest back from cutting them (a bounded vote / nomination / alliance-break term) and shakes them after they do (the existing mood, scaled). Needs the bond record. A played game only. `=0` opts out.

@@ -662,7 +662,9 @@ export interface LiveSeasonState {
    */
   /** 0178 (Theme 3 slice 1): each NPC's SECRET PLAN for each deal they agreed to (`dealPlans.ts`). Append-only, engine-only (Vault class), never projected; the retrospective shows it after the crown. */
   dealPlans?: PlanStore;
-  dealOffer?: { id: string; from: EntityId; kind: DealKind; terms: string; madeWeek: number; /** 0142 idea 4: the open deal this offer would REPLACE (a houseguest renegotiating instead of breaking). Accepting retires that deal neutrally. */ replacesDealId?: string };
+  dealOffer?: { id: string; from: EntityId; kind: DealKind; terms: string; madeWeek: number; /** 0142 idea 4: the open deal this offer would REPLACE (a houseguest renegotiating instead of breaking). Accepting retires that deal neutrally. */ replacesDealId?: string; /** 0171 (ORWELL_FAVORS): a counter in play - the round it is and what the houseguest asks for instead. Rides the one standing offer slot. */ counter?: { round: number; ask: { kind: "target" | "protect"; target: EntityId } | { kind: "vote" } }; /** 0171: this standing offer is a FAVOR between the houseguest and the player: `favorId` set = the houseguest calls in a favor the player owes them; absent = they ask the player for a new one. */ favor?: { favorId?: string } };
+  /** 0171: counters the player accepted whose condition (a rival goes up / someone is kept safe) is not yet true. Booked as a favor only when the condition holds at that week's eviction; otherwise lapsed. Append-only, engine-only. */
+  favorConditions?: Array<{ id: string; owedBy: EntityId; owedTo: EntityId; origin: string; kind: "target" | "protect"; target: EntityId; week: number; state: "waiting" | "booked" | "lapsed" }>;
   lastDealOfferWeek?: number;
   /**
    * 0142 / ORW-88 idea 2 - favors the PLAYER is owed: a houseguest (`debtor`) kept a deal with the player, which banked one favor (`n`, capped) the player can call in
@@ -1139,6 +1141,8 @@ export interface SeasonCtx {
   beliefTiltFor?: (subject: EntityId, holder: EntityId) => number;
   /** 0163 / ORW-539: the bond between two OTHER houseguests as `holder` can see it (witnessed bonding + allied-with beliefs). Absent => the hidden truth, byte-identical. */
   perceivedBondFor?: (holder: EntityId, from: EntityId, to: EntityId) => number;
+  /** 0178: the nominee `voter` votes out because their secret plan was to flip on them at this vote (unless something bigger happened since). Absent => no flip. */
+  flipVoteFor?: (voter: EntityId, fn: readonly [EntityId, EntityId]) => EntityId | undefined;
   /** 0160 / ORW-330 (Ryne's Q3 ruling: "Low trust in the person would create a low trust deal"): how much a deal with `other` weighs for `holder`, 0..1. Absent => 1, byte-identical. */
   dealTrustFor?: (holder: EntityId, other: EntityId) => number;
   /** B6 slice 2 (ORWELL_LOBBYING): the nomination-score tilt from the pitches other houseguests made to `holder` about `subject`. Absent => byte-identical. */
@@ -1177,6 +1181,10 @@ export interface SeasonCtx {
   assuranceKeptAtVote?: (voter: EntityId, spared: EntityId, sealedAmong?: readonly EntityId[]) => void;
   /** B4 slice 8: the eviction nominees are final (after the veto and any replacement) - every open 'safe' assurance whose assured is NOT on the block was kept. */
   assuranceKeptAtTally?: (finalNominees: readonly EntityId[]) => void;
+  /** 0171 / Theme 3 slice 3 (ORWELL_FAVORS): the nominees are final and these houseguests vote - favors owed to a nominee are passed on and called in here, before any ballot is cast (a spoken ask, never a ballot attribution). Played games only; absent => nothing, byte-identical. */
+  favorsAtTally?: (finalNominees: readonly EntityId[], voters: readonly EntityId[]) => void;
+  /** 0171: the bounded shield a favor `voter` honored for `nominee` at this vote adds against evicting them (>= 0). Absent => 0, byte-identical. */
+  favorShieldFor?: (nominee: EntityId, voter: EntityId) => number;
   /**
    * 0006b (PO review 2026-06-28) — the NPC's declared COMPETITION INTENT (compete / throw / play-safe)
    * for a comp over `field`. Like the player, an NPC now has an intent, derived from their game (a nominee
@@ -2193,6 +2201,13 @@ export function voteChoice(
   voter: EntityId, fn: [EntityId, EntityId], ctx: SeasonCtx, blocs: readonly Bloc[] = [], hoh?: EntityId, why?: WhySink,
 ): EntityId {
   const V = DECISION.vote;
+  // 0178 (Theme 3 slice 1): a voter whose SECRET PLAN is to flip on a nominee at this vote casts that vote - the plan decides it, not a small weight
+  // (unless something bigger has happened since; the adapter's `flipVoteFor` checks that). Absent hook => byte-identical.
+  const flipOn = ctx.flipVoteFor?.(voter, fn);
+  if (flipOn !== undefined && fn.includes(flipOn)) {
+    if (why) why({ kind: "vote", rule: "flip-plan", options: [{ option: flipOn, role: "chosen", total: 1, terms: [["deal", 1]] }, { option: fn[0] === flipOn ? fn[1] : fn[0], role: "runner-up", total: 0, terms: [] }] });
+    return flipOn;
+  }
   // The REFERENDUM ON THE HOH (PO ruling 2026-11-02): the HOH's target is the nominee the HOH reads
   // as the bigger threat. A voter aligned with the HOH gives it to them; an opposed voter keeps the
   // target and sends the pawn home. No HOH (or the voter IS the HOH, e.g. a tie-break) ⇒ no term.
@@ -2233,6 +2248,8 @@ export function voteChoice(
     ctx.agendaPullFor?.(n, voter).value ?? 0,
     // ORW-568 / 0181: the voter's real feeling for `n` keeps them (a friend is hard to cut, a stranger or a grudge is not). Absent provider => 0 => byte-identical.
     -(ctx.feelingKeepFor?.(n, voter) ?? 0),
+    // 0171: a favor this voter was owed-and-honored to `n` at this vote shields them. Absent provider => 0 => byte-identical.
+    -(ctx.favorShieldFor?.(n, voter) ?? 0),
   ];
   const v0 = termVals(fn[0]);
   const v1 = termVals(fn[1]);
@@ -2250,7 +2267,7 @@ export function voteChoice(
 }
 
 /** ORW-305: the vote score's term names, in the order `voteChoice` adds them. */
-export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum", "agenda", "feeling"] as const;
+export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum", "agenda", "feeling", "favor"] as const;
 
 /** Count the eviction votes (NPCs threat-driven; the player's own vote, if any) WITHOUT breaking a tie. */
 function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: EntityId): {
@@ -2260,6 +2277,7 @@ function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: Ent
   const voters = evictionVoters({ ...weekState(s, ctx), nominees: fn });
   const blocs = currentBlocs(s, ctx); // one derived read for the whole vote — the bloc votes together
   ctx.assuranceKeptAtTally?.(fn); // B4 slice 8: nominees are final here - settle the 'safe' assurances of everyone who stayed off the block
+  ctx.favorsAtTally?.(fn, voters); // 0171: pass on and call in the favors owed to a nominee, before the first ballot
   const votes: Record<EntityId, number> = { [fn[0]]: 0, [fn[1]]: 0 };
   const voteOf = new Map<EntityId, EntityId>();
   for (const v of voters) {
