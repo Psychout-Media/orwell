@@ -131,12 +131,13 @@ describe("the engine: effort is observable, gated, and never changes a result", 
 });
 
 describe("the staged comp tally (liveSeason) is played-only and leaves the result untouched", () => {
-  type G = S & { advanceGame(): { pending?: unknown }; submitDecision(r: unknown): unknown; setAdvanceGateEnabled(on: boolean): void; setGoalMoodEnabled(on: boolean): void };
+  type G = S & { advanceGame(): { pending?: unknown }; submitDecision(r: unknown): unknown; setAdvanceGateEnabled(on: boolean): void; setGoalMoodEnabled(on: boolean): void; setHohRoomEnabled(on: boolean): void };
   const play = (played: boolean, seed: number): { hohs: string[]; effort: boolean } => {
     const s = new GameSessionRegistry().sandboxFor(`cet-${played}-${seed}`).session as unknown as G;
     s.createCharacter({ playerName: "The Player", seed });
     s.setAdvanceGateEnabled(false); // ORW-97: this test drives raw advances; the schedule hold is not under test here
     s.setGoalMoodEnabled(false); // ORW-317: a played game's settled goals move mood (and so comp odds); this test isolates the comp-effort tally
+    s.setHohRoomEnabled(false); // ORW-629: the HOH room's snubs and slips move a played game's bonds (and so later comps); this test isolates the comp-effort tally
     const hohs: string[] = [];
     let effort = false;
     for (let i = 0; i < 400 && hohs.length < 4; i++) {

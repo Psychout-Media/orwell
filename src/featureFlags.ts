@@ -108,6 +108,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // B4 / #2017: casual assurances ("you're safe with me") recorded on scenes. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'defaultOn' },
   // ORW-620 (spec 0192): late-night talks among the houseguests still awake, catchable by a player who stays up; sleepers never scheme. ON by default; `=0` turns it off.
+  // ORW-629 (spec 0199): the HOH room is opened to the whole house; a rare snub the house reads as rude; a mask that slips by how well a guest can act; photos and a letter reveal one true backstory fact. ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_HOH_ROOM', key: 'hohRoom', parser: 'defaultOn' },
   { envKey: 'ORWELL_NIGHT_OWLS', key: 'nightOwls', parser: 'defaultOn' },
   // ORW-473 amendment (0192): the walk-in rule also catches a talk among three or more, not only a pair. Played games only. ON by default; `=0` limits it to a pair.
   { envKey: 'ORWELL_WALKIN_GROUPS', key: 'walkinGroups', parser: 'defaultOn' },
