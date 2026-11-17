@@ -44,3 +44,29 @@ Feature: A second final two costs the double-dealer trust, and a twist reopens d
     And partner one holds that the double-dealer is allied with partner two
     Then exposed: two runs give identical hits
     And exposed: the hit carries no number the player could read
+
+  # Amendment: a twist that makes a promise impossible to keep. The promiser's own secret plan (0178) decides whether it was a real betrayal or a forced, innocent break.
+  Scenario: A twist breaks a promise and the promiser held a faking plan
+    Given twistbreak: a final two between two houseguests after a double eviction
+    When twistbreak: the promiser held a faking plan
+    Then twistbreak: the deal is quietly broken, not yet learned, and still reads open to the partner
+
+  Scenario: A twist breaks a promise and the promiser held no faking plan
+    Given twistbreak: a final two between two houseguests after a double eviction
+    When twistbreak: the promiser held an honest plan
+    Then twistbreak: nobody is betrayed and no trust moves
+
+  Scenario: The partner learns of the quiet betrayal only through the existing gate
+    Given twistbreak: a final two between two houseguests after a double eviction
+    When twistbreak: the promiser held a faking plan
+    Then twistbreak: the partner's read of the promiser moves only once the break is learned
+
+  Scenario: With the plan model off a twist behaves as it did
+    Given twistbreak: a final two between two houseguests after a double eviction
+    When twistbreak: the plan model is off and the promiser held a faking plan
+    Then twistbreak: nobody is betrayed and no trust moves
+
+  Scenario: Nothing of the plan reaches an outward view
+    Given twistbreak: a final two between two houseguests after a double eviction
+    When twistbreak: the promiser held a faking plan
+    Then twistbreak: no outward view carries the plan

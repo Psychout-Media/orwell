@@ -17802,6 +17802,20 @@ export class GameSessionAdapter implements GameSession {
         }).sort((a, b) => b.weighing.temptation - a.weighing.temptation || (a.npc < b.npc ? -1 : 1))[0]!;
         const verdict = decideDealBreak(w.weighing, new SeededRandom(hashSeed(`${seed}:deal-twist:${deal.id}:${tk}`)).next());
         if (verdict === "keep") continue;
+        // 0186 amendment: when the twist makes the promise impossible to keep ("break" verdict), the promiser's own SECRET PLAN (0178) decides what it was. A faking plan (`isBetrayal`)
+        // uses the twist as cover: a REAL, quiet betrayal through `breakDeliberately` (the usual fold; the wronged party learns only through `learnOfBreak`'s pathways; the deal keeps
+        // projecting open; nothing is narrated). Any other plan (keep / this-week / no plan) is the forced, innocent break: the renegotiation below, no betrayal, no fold.
+        if (verdict === "break" && this.dealPlansEnabled && d.condition.promisors.includes(w.npc) && this.twoFacedPlan(d.id, w.npc)) {
+          if (d.parties.includes(PLAYER)) this.noteDealWeighing(w.npc, "deal-break", w.weighing);
+          this.deals.breakDeliberately(d, w.npc, {
+            rel: this.rel, rng: new SeededRandom(hashSeed(`${seed}:deal-twist-betray:${deal.id}:${tk}`)), currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
+            juryDemerit: (wronged, breaker) => { recordDealBetrayal(s, wronged, breaker); this.feelGuilt(breaker, wronged); },
+            revealToWitness: (witness, breaker) => { this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
+            reveal: (wronged, breaker, bd) => this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a ${bd.kind} deal with ${this.nameOf(wronged)} off-screen`, [breaker], "betrayal"),
+          });
+          this.persist();
+          continue;
+        }
         const kind = renegotiatedKind(d.kind);
         if (kind === undefined) continue;
         if (d.parties.includes(PLAYER)) {
