@@ -42,3 +42,31 @@ Then("the strain eases, but the memory stays", function () {
   assert.ok(freshness(row(this), 1) < rift(this).fresh0);
   assert.equal(row(this).peak, 0.5);
 });
+
+// PR 3: bitter jurors, through the real adapter at a real Final-2 finale (roles only).
+import { liveFinale, JURY9 } from "../support/liveFinale";
+import { PLAYER, npc } from "../../src/domain/ids";
+import { bitterJurorExtra } from "../../src/engine/jury";
+import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
+import type { SessionSnapshot } from "../../src/engine/sessionSnapshot";
+
+type Bitter = { fresh: number; old: number; none: number };
+const lean = async (user: string, week: number, grudgeWeek: number | null): Promise<number> => {
+  const { reg } = await liveFinale(user, 3, { finalists: [PLAYER, npc(10)], jury: JURY9 });
+  const snap = reg.snapshot(user) as SessionSnapshot;
+  const live = snap.live as unknown as { week: number; playedGame?: boolean; grudges?: GrudgeBook };
+  live.week = week; live.playedGame = true;
+  if (grudgeWeek !== null) live.grudges = { [`${JURY9[0]}|${PLAYER}`]: { kind: "cut-by-ally", week: grudgeWeek, day: 1, severity: 0.9, peak: 0.9, eased: 0, refKey: "k" } };
+  reg.restore(user, snap);
+  return (reg.sandboxFor(user).session as GameSessionAdapter).juryGrudgeFor(JURY9[0]!, PLAYER);
+};
+Given("a juror whose ally cut them and who now sits on the jury against that ally", async function () {
+  (this as { bitter0182?: Bitter }).bitter0182 = { fresh: await lean("bj-f", 60, 60), old: await lean("bj-o", 60, 1), none: await lean("bj-n", 60, null) };
+});
+Then("at the finale the juror leans against that finalist", function () { const b = (this as unknown as { bitter0182: Bitter }).bitter0182; assert.equal(b.none, 0); assert.ok(b.fresh < 0); });
+Then("the lean is sharper when the grudge is fresh than when it is old", function () { const b = (this as unknown as { bitter0182: Bitter }).bitter0182; assert.ok(b.fresh < b.old); });
+Then("the lean is still there when the grudge is old", function () { assert.ok((this as unknown as { bitter0182: Bitter }).bitter0182.old < 0); });
+Then("a juror whose only wrong is already counted as a manner grievance gets nothing extra", function () {
+  const b = (this as unknown as { bitter0182: Bitter }).bitter0182;
+  assert.equal(Math.abs(bitterJurorExtra(b.fresh, 0.48)), 0);
+});

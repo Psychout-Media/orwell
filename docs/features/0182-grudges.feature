@@ -1,4 +1,4 @@
-# Feature 0182 - the grudge book (Theme 3 slice 5, PR 1 and 2). Design note: 0182-grudges.md. Engine-only: nothing is shown. Roles only.
+# Feature 0182 - the grudge book (Theme 3 slice 5, PR 1 to 3). Design note: 0182-grudges.md. Engine-only: nothing is shown. Roles only.
 
 Feature: A broken bond leaves a grudge with a memory that fades but is never zero
 
@@ -24,3 +24,10 @@ Feature: A broken bond leaves a grudge with a memory that fades but is never zer
     Given two houseguests who fell out
     When one keeps a promise to the other
     Then the strain eases, but the memory stays
+
+  Scenario: A betrayed juror votes bitter
+    Given a juror whose ally cut them and who now sits on the jury against that ally
+    Then at the finale the juror leans against that finalist
+    And the lean is sharper when the grudge is fresh than when it is old
+    And the lean is still there when the grudge is old
+    And a juror whose only wrong is already counted as a manner grievance gets nothing extra

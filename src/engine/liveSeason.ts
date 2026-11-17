@@ -79,7 +79,7 @@ import type { RelationshipDisposition } from "./relationshipConstants";
 import type { RelationshipModel } from "./relationships";
 import {
   runFinale as buildFinaleScript, castJuryVote, juryLean, appealEffect, bestAppeal, gameRespectTerm, JURY_WEIGHTS,
-  FINALE_APPEALS, type EvictionManner, type FinaleAppeal, type FinaleScript, type JuryRel,
+  FINALE_APPEALS, bitterJurorExtra, mannerLeanOf, type EvictionManner, type FinaleAppeal, type FinaleScript, type JuryRel,
 } from "./jury";
 import { MANNER_THRESHOLDS, MANNER_GRADING, MEND_TRACE } from "./juryConstants";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
@@ -1222,6 +1222,8 @@ export interface SeasonCtx {
    */
   /** B26 (ORWELL_JURY_MEMORY): a juror's signed MEMORY lean toward a finalist (+ favors them, - holds a grudge), bounded. Absent => +0, byte-identical. */
   juryMemoryFor?: (juror: EntityId, finalist: EntityId) => number;
+  /** 0182 PR 3 (ORWELL_GRUDGES, played games only): a BITTER juror's signed lean (<= 0) from the grudge book (fresher and graver hits harder), bounded under the manner term. Netted against the manner and memory terms in `precomputeVotes` (no double count). Absent => +0, byte-identical. */
+  juryGrudgeFor?: (juror: EntityId, finalist: EntityId) => number;
   jurorProfiles?: boolean;
   jurorProfileSalt?: string | number;
   /**
@@ -3210,18 +3212,27 @@ function precomputeVotes(s: LiveSeasonState, ctx: SeasonCtx, f: FinaleProgress, 
     if (votes[juror]) continue; // the player's own vote (recorded interactively) is kept
     const fromCharacter = ctx.jurorProfiles ? ctx.jurorArchetypeFor?.(juror) : undefined; // ORW-318: the juror's style from who they are
     const prof = ctx.jurorProfiles ? (fromCharacter ? profileOfArchetype(fromCharacter) : jurorProfile(juror, ctx.jurorProfileSalt ?? 0)) : undefined; // A2: this juror's OWN profile (flag-gated; no rng)
+    // 0182 PR 3: the grudge adds only what the manner term and the memory term do not already count (`bitterJurorExtra`). No provider => exactly 0.
+    const bitterTerm = (fin: EntityId, mannerW: number): number => {
+      const raw = ctx.juryGrudgeFor?.(juror, fin) ?? 0;
+      if (raw === 0) return 0;
+      const covered = mannerW * Math.max(0, -mannerLeanOf(mannerForVote(s, ctx, f, juror, fin))) + Math.max(0, -(ctx.juryMemoryFor?.(juror, fin) ?? 0));
+      return bitterJurorExtra(raw, covered);
+    };
     const leanFor = prof
       ? (fin: EntityId): number =>
           profiledLean(edgeAsJuryRel(s, juror, fin, ctx), mannerForVote(s, ctx, f, juror, fin), prof) +
           profiledWeights(prof).gameRespect * gameRespectTerm(s.resume?.[fin] ?? 0, s.resume?.[otherFinalist(f.finalists, fin)] ?? 0) +
-          (ctx.juryMemoryFor?.(juror, fin) ?? 0)
+          (ctx.juryMemoryFor?.(juror, fin) ?? 0) +
+          bitterTerm(fin, profiledWeights(prof).manner)
       : (fin: EntityId): number =>
       juryLean(edgeAsJuryRel(s, juror, fin, ctx), mannerForVote(s, ctx, f, juror, fin)) +
       // GAME RESPECT (ruling 2026-06-11): jurors weigh who actually PLAYED — the public resume
       // (comp wins) splits the two finalists; a goat with no game starts every juror down a
       // bounded notch. Grievance (manner) can still outvote it: bitter juries stay possible.
       JURY_WEIGHTS.gameRespect * gameRespectTerm(s.resume?.[fin] ?? 0, s.resume?.[otherFinalist(f.finalists, fin)] ?? 0) +
-      (ctx.juryMemoryFor?.(juror, fin) ?? 0); // B26: the juror's memory of the finalist (flag-gated provider)
+      (ctx.juryMemoryFor?.(juror, fin) ?? 0) + // B26: the juror's memory of the finalist (flag-gated provider)
+      bitterTerm(fin, JURY_WEIGHTS.manner); // 0182 PR 3: the bitter juror, net of manner + memory
     // Each juror questioned BOTH finalists (18-Q&A), so each has a recorded appeal here — scored
     // symmetrically by the same `appealEffect`; the player's own answers are exactly as weighted as the NPC's.
     const perfFor = (fin: EntityId): number => appealPerf(f, fin, juror, ctx, s);
