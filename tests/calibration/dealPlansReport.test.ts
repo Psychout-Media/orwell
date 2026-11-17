@@ -16,7 +16,9 @@ describe.skipIf(!RUN)("two-faced deals report (not a gate)", () => {
   it("prints the rate of two-faced plans, by kind and by deals made before", async () => {
     const byKind: Record<string, number> = {}, byCount: Record<string, { n: number; twoFaced: number }> = {}, outcomes: Record<string, number> = {};
     let total = 0;
+    const perSeed: string[] = [];
     for (let seed = 1; seed <= N; seed++) {
+      const before = total, keepBefore = byKind.keep ?? 0;
       await playMixGame(seed, MSGS, { advanceEvery: 6, inspect: (s) => {
         const sess = s as { live?: { dealPlans?: PlanStore }; deals: { all: readonly Deal[] } };
         const plans = sess.live?.dealPlans ?? {};
@@ -34,10 +36,13 @@ describe.skipIf(!RUN)("two-faced deals report (not a gate)", () => {
           }
         }
       } });
+      const n = total - before, keeps = (byKind.keep ?? 0) - keepBefore;
+      perSeed.push(`${seed}:${n ? ((100 * (n - keeps)) / n).toFixed(0) : "-"}% of ${n}`);
     }
     const pct = (a: number, b: number) => (b ? ((100 * a) / b).toFixed(1) : "-");
     console.log(`DEALPLANS seeds=${N} plans=${total} two-faced=${pct(total - (byKind.keep ?? 0), total)}% by-kind ${JSON.stringify(byKind)}`);
     console.log(`DEALPLANS by deals-made-before: ${Object.entries(byCount).sort().map(([k, v]) => `${k}: ${pct(v.twoFaced, v.n)}% of ${v.n}`).join(" | ")}`);
     console.log(`DEALPLANS outcomes ${JSON.stringify(outcomes)}`);
+    console.log(`DEALPLANS two-faced share per season: ${perSeed.join(" | ")}`);
   }, 3_600_000);
 });
