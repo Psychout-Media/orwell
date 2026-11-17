@@ -16773,15 +16773,15 @@ export class GameSessionAdapter implements GameSession {
       const pairs = new Map<string, number>();
       const net = new Map<string, number>();
       for (const e of events) {
-        const warm = OWN_VIEW.warmScenes.includes(e.type), cold = OWN_VIEW.coldScenes.includes(e.type);
-        if (!warm && !cold) continue;
+        const valence = Object.hasOwn(OWN_VIEW.sceneValence, e.type) ? OWN_VIEW.sceneValence[e.type]! : 0;
+        if (valence === 0) continue;
         const inScene = e.witnessSet.includes(holder);
         if (!inScene && !(e.houseLife?.seenBy ?? []).includes(holder)) continue; // ORW-539 v2: a scene they were in OR saw from the same room
         const people = e.witnessSet.filter((x) => x !== holder);
         if (people.length !== 2) continue;
         const k = [...people].sort().join("|");
         if (e.type === "bonding" || e.type === "showmance") pairs.set(k, (pairs.get(k) ?? 0) + 1);
-        net.set(k, (net.get(k) ?? 0) + (warm ? 1 : -1)); // ORW-596: every warm or cold scene between them the holder saw
+        net.set(k, (net.get(k) ?? 0) + valence); // ORW-596: every warm or cold scene between them the holder saw
       }
       cache = { n: events.length, pairs, net };
       this.seenBondsCache.set(holder, cache);

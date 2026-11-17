@@ -157,9 +157,8 @@ export const OWN_VIEW = {
   assured: 0.15,
   /** A public read of competition strength: how much each public comp win adds (on the (physical + mental) / 2 - 0.5 scale). */
   strengthPerWin: 0.1,
-  /** Witnessed social scenes that read as warm or cold between two others (ORW-596: the remainder of the floater/duo read was the hidden bond). */
-  warmScenes: ["bonding", "showmance", "alliance", "strategy", "gossip"] as readonly string[],
-  coldScenes: ["conflict", "betrayal"] as readonly string[],
+  /** Witnessed social scenes that read as warm (+1) or cold (-1) between two others, by event type (ORW-596: the remainder of the floater/duo read was the hidden bond). A scene type not named reads neutral. */
+  sceneValence: { bonding: 1, showmance: 1, alliance: 1, strategy: 1, gossip: 1, conflict: -1, betrayal: -1 } as Readonly<Record<string, number>>,
 } as const;
 
 /** ORW-574: what the holder's own beliefs say about how `other` regards them: `against` (a believed grievance, 0..1) and `assured` (an assured-me they hold, by confidence, 0..1). */
