@@ -11,9 +11,21 @@ Summary: the house enforces its own rules. A houseguest the house KNOWS has brok
 - **The culture moves it:** strength = 1 + 0.6 × ((loyalty dial − 1) − (lying dial − 1)), floored at 0. An honest, loyal house shuns harder; a house of liars barely notices.
 - **Overnight, once:** the fold runs in the overnight step after the learned-of-the-break gate (ORW-597). It records what it has already applied per observer and subject, so the same knowledge never moves the edge twice.
 
+## Part 2: bandwagons and dissent
+- **The herd:** before a vote, a voter reads where the house is going from who they have heard is going after each nominee: `heard-rumor`, nature `going-after`, this week, one voice per houseguest.
+  - It takes at least two voices.
+  - A bounded term (`HERD.weight` 0.18 at a unanimous read) pulls toward the house's side. It only tips a close call; a voter with a strong reason of their own keeps it.
+  - The culture's alliance-size dial ("a majority bloc") makes the house herd harder.
+  - It is a vote term named `herd`, so the decision's "why" records it.
+- **Dissent noticed:** after the vote, a houseguest who voted with the majority (their own ballot, which they know) and has heard through vote talk that someone voted the other way cools on them.
+  - The cooling scales with how lopsided the count was: nothing below a 60% majority, and the most for a lone dissent.
+  - It happens once per pair per week (`live.dissentNoticed`).
+  - Ballots stay secret: only what was said and heard counts.
+
 ## The player in both directions
 - **The player's actions move NPC state:** a player who breaks their word to two people, once the house knows, is shunned like anyone.
 - **NPCs act toward the player:** the shunning is the same hidden edge every nomination, vote and deal decision already reads, so it shows up in how the house treats the player.
+- **Dissent:** a player who tells someone they voted against the house is noticed like anyone. The houseguests the player is heard to be going after count as voices in the herd. The player's own vote stays theirs.
 - **Known gap:** the player exposing a liar does not yet shun them. What the player says becomes no claim (Fable P-5, a separate card). When P-5 lands, the player's own words become one more pathway.
 
 ## Wall

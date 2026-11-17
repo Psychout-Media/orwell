@@ -712,6 +712,8 @@ export interface LiveSeasonState {
   bonds?: BondStore;
   /** 0180 (Theme 3 slice 12, house norms): per `observer|subject`, how many known breaches of word have already been folded into the observer's read (never re-applied). Engine-only. */
   normsApplied?: Record<string, number>;
+  /** 0180 part 2: the dissent already noticed, `${week}|${holder}|${dissenter}` (engine-only; idempotent). */
+  dissentNoticed?: string[];
   bondsCursor?: number;
   bondsSeen?: string[];
   bondsDay?: number;
@@ -1167,6 +1169,8 @@ export interface SeasonCtx {
   assuranceVoteFor?: (nominee: EntityId, voter: EntityId) => number;
   /** ORW-568 / 0181 (ORWELL_BOND_FEELINGS): how much `voter`'s real feeling for `nominee` keeps them (positive = keep; bounded, from the bond record's warmth and resentment). Played games only; absent => 0, byte-identical. */
   feelingKeepFor?: (nominee: EntityId, voter: EntityId) => number;
+  /** 0180 part 2: the herd's pull on `voter` toward evicting `nominee` (signed), from who they heard is going after each nominee this week. Absent => 0 => byte-identical. */
+  herdFor?: (nominee: EntityId, voter: EntityId, fn: readonly [EntityId, EntityId]) => number;
   /** B4 slice 4: `voter` actually voted `nominee` out - any open assurance they made to `nominee` is broken (resolved + folded by the adapter). */
   assuranceVotedOut?: (voter: EntityId, nominee: EntityId, sealedAmong?: readonly EntityId[]) => void;
   /** B4 slice 3: the HOH actually nominated `nominee` - any open assurance the HOH made to them is broken (resolved + folded by the adapter). */
@@ -2235,6 +2239,8 @@ export function voteChoice(
     ctx.agendaPullFor?.(n, voter).value ?? 0,
     // ORW-568 / 0181: the voter's real feeling for `n` keeps them (a friend is hard to cut, a stranger or a grudge is not). Absent provider => 0 => byte-identical.
     -(ctx.feelingKeepFor?.(n, voter) ?? 0),
+    // 0180 part 2: the herd - where this voter has heard the house is going (tips a close call only). Absent provider => 0 => byte-identical.
+    ctx.herdFor?.(n, voter, fn) ?? 0,
   ];
   const v0 = termVals(fn[0]);
   const v1 = termVals(fn[1]);
@@ -2252,7 +2258,7 @@ export function voteChoice(
 }
 
 /** ORW-305: the vote score's term names, in the order `voteChoice` adds them. */
-export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum", "agenda", "feeling"] as const;
+export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum", "agenda", "feeling", "herd"] as const;
 
 /** Count the eviction votes (NPCs threat-driven; the player's own vote, if any) WITHOUT breaking a tie. */
 function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: EntityId): {

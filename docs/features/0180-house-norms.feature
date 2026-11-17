@@ -38,3 +38,23 @@ Feature: House norms
     And an observer who holds that a houseguest lied to two different people
     When the night passes
     Then no player or admin view carries a norm, a count of broken words or the shunning
+
+  # Part 2 - bandwagons and dissent: what each voter heard, never anyone's ballot.
+  Scenario: A waverer joins the side they heard the house is on
+    Given a played season with house norms on
+    And a voter torn between two nominees
+    When they have heard that most of the house is going after one of them
+    Then they vote with the house
+    And a voter with a strong reason of their own keeps it
+
+  Scenario: A lone dissent in a lopsided vote is noticed by a majority voter who heard of it
+    Given a played season with house norms on
+    And a lopsided eviction where one houseguest voted the other way, and a majority voter heard about it
+    When the night passes
+    Then the majority voter's read of the dissenter cools, once
+
+  Scenario: The player who tells the house they voted against it is noticed like anyone
+    Given a played season with house norms on
+    And a lopsided eviction where the player voted the other way, and a majority voter heard about it
+    When the night passes
+    Then the majority voter's read of the player cools
