@@ -287,6 +287,7 @@ import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs
 import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances } from "../../engine/beliefDecisions";
 import { CONVICTION, credulityOf, dealTrust, evidenceStep, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
+import { edgeBondReader, type BondReader } from "../../engine/bonds";
 import type { Stats } from "../../engine/season";
 import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
@@ -5461,6 +5462,14 @@ export class GameSessionAdapter implements GameSession {
 
   /** The houseguests still in the game (player + non-evicted NPCs) — the legal references for an
    *  interaction (B39). Empty before a game starts. */
+  /**
+   * Theme 3 Core 1 (ORW-552): the engine's bond read - one directed bond per pair (`src/engine/bonds.ts`). ENGINE-ONLY: never registered as a tool, never projected;
+   * the house graph (Overseer B) and Theme 3's decisions read it. Read-only (a read never creates an edge). Feature 0175 swaps in the full bond record behind it.
+   */
+  bondReader(): BondReader {
+    return edgeBondReader(this.rel, () => this.livingIds(), () => this.live?.dayNumber ?? 1);
+  }
+
   livingIds(): EntityId[] {
     if (!this.house) return [];
     const evicted = new Set(this.live?.evictionOrder ?? []);
