@@ -1182,6 +1182,8 @@ export interface SeasonCtx {
   perceivedTrustFor?: (holder: EntityId, from: EntityId, to: EntityId) => number;
   /** ORW-574: how much `from` reads `to` as a threat, as `holder` can see it (public menace, their own read, their beliefs). Played games only; absent => the hidden read, byte-identical. */
   perceivedThreatFor?: (holder: EntityId, from: EntityId, to: EntityId) => number;
+  /** ORW-573: which of the final two `voter` reads as the HOH's target, from what the voter knows (beliefs, the HOH's public reasons, how the block was set). Absent => the hidden read (byte-identical). */
+  hohTargetReadFor?: (voter: EntityId, hoh: EntityId, fn: readonly [EntityId, EntityId]) => EntityId;
   /** 0178: the nominee `voter` votes out because their secret plan was to flip on them at this vote (unless something bigger happened since). Absent => no flip. */
   flipVoteFor?: (voter: EntityId, fn: readonly [EntityId, EntityId]) => EntityId | undefined;
   /** 0160 / ORW-330 (Ryne's Q3 ruling: "Low trust in the person would create a low trust deal"): how much a deal with `other` weighs for `holder`, 0..1. Absent => 1, byte-identical. */
@@ -2298,10 +2300,12 @@ export function voteChoice(
   // as the bigger threat. A voter aligned with the HOH gives it to them; an opposed voter keeps the
   // target and sends the pawn home. No HOH (or the voter IS the HOH, e.g. a tie-break) ⇒ no term.
   const B = RELATIONSHIP_CONSTANTS.baseline;
-  // ORW-574: who the HOH is after, as the VOTER reads it (absent hook => the HOH's hidden threat edges, byte-identical)
+  // ORW-573 (Fable T1-5): in a played game the voter reads the HOH's target from what THEY know (`hohTargetReadFor`: what they were told, what the HOH said
+  // aloud, how the block was set) - never the HOH's hidden threat numbers. ORW-574: without that hook, the voter's own read of the HOH's threat edges
+  // (`perceivedThreatFor`). A headless sim carries neither hook and keeps the hidden read (byte-identical).
   const hohThreat = (n: EntityId): number => (ctx.perceivedThreatFor ? ctx.perceivedThreatFor(voter, hoh!, n) : ctx.rel.edge(hoh!, n).threat);
   const hohTarget = hoh && hoh !== voter && !fn.includes(hoh)
-    ? (hohThreat(fn[0]) >= hohThreat(fn[1]) ? fn[0] : fn[1])
+    ? (ctx.hohTargetReadFor ? ctx.hohTargetReadFor(voter, hoh, fn) : (hohThreat(fn[0]) >= hohThreat(fn[1]) ? fn[0] : fn[1]))
     : undefined;
   const hohAlignment = hohTarget
     ? (ctx.rel.bondStrength(voter, hoh!) - (B.trust + B.affinity) / 2) - (ctx.rel.edge(voter, hoh!).threat - B.threat)
