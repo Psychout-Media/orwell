@@ -82,3 +82,12 @@ def test_record_turn_uses_the_helpers():
     assert src.index("_rounds_sent += 1") < src.index("async for chunk in _pd_bounded_stream(")
     assert "_usage_rounds" not in inspect.getsource(al)
     assert "real_cache_miss_tokens" not in inspect.getsource(al)
+
+
+def test_a_round_with_no_cache_info_counts_its_whole_input_once_another_round_reports():
+    # a round that reported usage but no cache fields had nothing cached: its whole input missed
+    rounds = [
+        {"input_tokens": 8000, "cached_tokens": 6000, "cache_miss_tokens": 2000},
+        {"input_tokens": 3000, "cached_tokens": None, "cache_miss_tokens": None},
+    ]
+    assert al.turn_cache_miss_tokens(rounds) == 5000  # equals (8000 + 3000) - 6000

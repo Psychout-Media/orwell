@@ -8117,22 +8117,22 @@ def turn_cache_miss_tokens(round_usages: List[Dict]) -> Optional[int]:
     cacheMissTokens stops equalling inputTokens − cachedTokens. A round with no cache information
     at all contributes nothing, so a turn where no round reports anything stays None (the ledger's
     whole-turn derivation then stands)."""
-    total = None
-    for u in round_usages:
-        if not isinstance(u, dict):
-            continue
+    rounds = [u for u in round_usages if isinstance(u, dict)]
+    if not any(u.get("cache_miss_tokens") is not None or u.get("cached_tokens") is not None for u in rounds):
+        return None
+    # Once any round reports cache information, EVERY round contributes, so the turn's miss total keeps
+    # equalling inputTokens - cachedTokens: a round with no cache info had nothing cached (its whole input missed).
+    total = 0
+    for u in rounds:
         miss = u.get("cache_miss_tokens")
-        cached = u.get("cached_tokens")
-        if miss is None and cached is None:
-            continue
         try:
             if miss is not None:
                 piece = max(0, int(miss))
             else:
-                piece = max(0, int(u.get("input_tokens") or 0) - int(cached))
+                piece = max(0, int(u.get("input_tokens") or 0) - int(u.get("cached_tokens") or 0))
         except (TypeError, ValueError):
             continue
-        total = (total or 0) + piece
+        total += piece
     return total
 
 
