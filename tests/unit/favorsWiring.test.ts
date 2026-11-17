@@ -57,8 +57,8 @@ describe("called-in favors at a close vote", () => {
 });
 
 describe("the vote term", () => {
-  it("is last and named, and an honored favor tips an even call toward keeping the holder; absent, it is byte-identical", () => {
-    expect(VOTE_TERM_NAMES.at(-1)).toBe("favor");
+  it("is named (after 0180's herd joined the list, no longer last), and an honored favor tips an even call toward keeping the holder; absent, it is byte-identical", () => {
+    expect(VOTE_TERM_NAMES).toContain("favor");
     const rel = new RelationshipModel(0.5);
     const base = { rel, player: "player" } as unknown as Parameters<typeof voteChoice>[2];
     const withShield = { ...base, favorShieldFor: (n: string, v: string) => (n === "holder" && v === "voter" ? 0.2 : 0) } as unknown as Parameters<typeof voteChoice>[2];
