@@ -104,6 +104,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // B27: the forgiveness trait (a seeded ~1-in-6 grudge-keeper whose real betrayals keep a floor; everyone else's favors fade fast). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_FORGIVENESS', key: 'forgiveness', parser: 'defaultOn' },
   { envKey: 'ORWELL_GOAL_MOOD',               key: 'goalMood',               parser: 'defaultOn' },
+  // ORW-625: plans that last longer than an hour - each goal's stored short plan, carried across hours and days, dropped only for a reason. `=0` = the hour re-rolls each step.
+  { envKey: 'ORWELL_GOAL_PLANS', key: 'goalPlans', parser: 'defaultOn' },
   // ORW-546 (0169): off-screen gossip feeds beliefs - a heard rumor carries its teller and a conviction, counts as a soft grievance in decisions, and moves feelings in proportion. ON by default (PO: "if it's built, turn it on"); `=0` restores the record-only rumor.
   { envKey: 'ORWELL_GOSSIP_BELIEFS', key: 'gossipBeliefs', parser: 'defaultOn' },
   { envKey: 'ORWELL_GOSSIP_CONSEQUENCE',      key: 'gossipConsequence',      parser: 'defaultOn' },

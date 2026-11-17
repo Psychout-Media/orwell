@@ -800,6 +800,8 @@ export interface LiveSeasonState {
    * handed to the narrator, under the decider's own voice block, and only for a public act. Append-only, persisted with the season. Absent until the first such decision.
    */
   statedReasons?: StatedReasonRecord[];
+  /** ORW-625: each houseguest's stored goal plans (append-only: a finished or dropped plan keeps its record and reason). ENGINE-ONLY, never projected. */
+  goalPlans?: Record<EntityId, Array<{ goalId: string; steps: import("./houseLife").PlanStep[]; at: number; madeDay: number; lastDay: number; status: "active" | "done" | "dropped"; reason?: "goal-ended" | "partner-gone" | "stalled" }>>;
   /** ORW-624: the audience outside - the public's view (what the house saw) and the full view (with hidden moments, read only after the crown), what was folded, the crowd at each walk-out and the fan rewards. ENGINE-ONLY, never projected. */
   audience?: { live: import("./audience").Standing; full: import("./audience").Standing; cursor: number; weeks: number[]; crowd: Array<{ week: number; evictee: EntityId; reaction: import("./audience").CrowdReaction }>; perks: Array<{ week: number; to: EntityId }> };
   /** 0188 / ORW-619: the traps houseguests have set (a made-up secret told to one person, watched). ENGINE-ONLY (Vault class), never projected; persisted. */
