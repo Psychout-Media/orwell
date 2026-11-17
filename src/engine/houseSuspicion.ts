@@ -85,9 +85,19 @@ export function whisperConspicuousPairings(deps: HouseSuspicionDeps): WhisperedP
   const pull = (id: EntityId): number => Math.max(affinity(id, chosen.pair[0]), affinity(id, chosen.pair[1]));
   const origin = onlookers.reduce((best, id) => (pull(id) > pull(best) ? id : best));
 
-  // 3. Diffuse the Vault-free POSITION suspicion (names + room + "keep slipping off" — never the scene's
-  //    content) NPC-to-NPC along the affinity graph. NO `rel`/`subjects` ⇒ NO fold (texture only); the
-  //    dedicated rng ⇒ zero shared-stream draws. A chain reaching the player lands a player belief.
+  // 3. Diffuse the Vault-free POSITION suspicion (names + room + "keep slipping off" - never the scene's
+  //    content) NPC-to-NPC along the affinity graph. NO `rel`/`subjects` => NO fold (texture only); the
+  //    dedicated rng => zero shared-stream draws. A chain reaching the player lands a player belief.
+  if (!spreadSuspicion(deps, origin, `word in the house: ${nameOf(chosen.pair[0])} and ${nameOf(chosen.pair[1])} keep slipping off to ${deps.roomRef ? deps.roomRef(chosen.room) : `the ${roomDisplayName(chosen.room)}`} together`)) return [];
+  return [{ pair: chosen.pair, room: chosen.room, origin }];
+}
+
+/**
+ * Diffuse one Vault-free position fact NPC-to-NPC along the affinity graph from `origin` (no relationship fold: texture only, a dedicated rng).
+ * False when no edge exists to carry it. Shared by the closed-door whisper above and the public-habit whisper below.
+ */
+function spreadSuspicion(deps: HouseSuspicionDeps, origin: EntityId, content: string): boolean {
+  const { npcs, player, affinity, knowledge, rng } = deps;
   const everyone = deps.playerAsleep ? [...npcs] : [player, ...npcs];
   const edges: Array<readonly [EntityId, EntityId]> = [];
   for (let i = 0; i < everyone.length; i++) {
@@ -95,18 +105,37 @@ export function whisperConspicuousPairings(deps: HouseSuspicionDeps): WhisperedP
       if (affinity(everyone[i]!, everyone[j]!) > GOSSIP.affinityEdge) edges.push([everyone[i]!, everyone[j]!] as const);
     }
   }
-  if (edges.length === 0) return [];
+  if (edges.length === 0) return false;
   diffuseGossip({
     knowledge,
     graph: makeSocialGraph(edges),
     rng,
     origin,
-    fact: { content: `word in the house: ${nameOf(chosen.pair[0])} and ${nameOf(chosen.pair[1])} keep slipping off to ${deps.roomRef ? deps.roomRef(chosen.room) : `the ${roomDisplayName(chosen.room)}`} together` },
+    fact: { content },
     rounds: GOSSIP.rounds,
     transmitProb: GOSSIP.transmitProb,
     decay: GOSSIP.decay,
-    // Deliberately NO rel/subjects/sceneType — a position whisper moves no relationship edge (the
-    // player FORMS the read; 0017). This is exactly what keeps the calibration spine byte-identical.
+    // Deliberately NO rel/subjects/sceneType: a position whisper moves no relationship edge (the player FORMS the read; 0017).
   });
-  return [{ pair: chosen.pair, room: chosen.room, origin }];
+  return true;
+}
+
+/** ORW-566 / spec 0183 (part b): a private pair habit kept at a PUBLIC spot was SEEN by the houseguests who stood in that room (`seenBy`). */
+export interface HabitSighting { pair: readonly [EntityId, EntityId]; room: Room; onlookers: readonly EntityId[] }
+
+/**
+ * A witnessed habit starts a whisper: the onlooker most motivated to notice (highest affinity toward either of the pair) tells the house the PAIR keeps
+ * ending up at that spot after the ceremonies - position only, never what was said. Occasional (the same gate as the closed-door whisper), on the
+ * caller's DEDICATED rng, no relationship fold. Returns the pairing whispered or undefined.
+ */
+export function whisperHabitSighting(deps: HouseSuspicionDeps, s: HabitSighting): WhisperedPairing | undefined {
+  const npcSet = new Set(deps.npcs);
+  const onlookers = s.onlookers.filter((id) => npcSet.has(id) && !s.pair.includes(id));
+  if (onlookers.length === 0) return undefined;
+  if (deps.rng.next() >= PRIVACY.whisperProb) return undefined;
+  const pull = (id: EntityId): number => Math.max(deps.affinity(id, s.pair[0]), deps.affinity(id, s.pair[1]));
+  const origin = onlookers.reduce((best, id) => (pull(id) > pull(best) ? id : best));
+  const where = deps.roomRef ? deps.roomRef(s.room) : `the ${roomDisplayName(s.room)}`;
+  if (!spreadSuspicion(deps, origin, `word in the house: ${deps.nameOf(s.pair[0])} and ${deps.nameOf(s.pair[1])} keep ending up in ${where} together after the ceremonies`)) return undefined;
+  return { pair: [s.pair[0], s.pair[1]], room: s.room, origin };
 }
