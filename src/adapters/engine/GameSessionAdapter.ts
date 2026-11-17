@@ -12164,6 +12164,7 @@ export class GameSessionAdapter implements GameSession {
         const partner = p.with[0];
         if (p.goalKind === "pull-them-in" && partner && (p.kind === "pitch" || p.kind === "recruit")) (s.pitched ??= {})[`${p.actor}>${partner}`] = s.week; // ORW-341: the alliance tick counts a target pitched this week a little warmer
         // ORW-340: a plan made for one of the NPC's own GOALS that names the player is not a hidden scene (the player is not in it): it becomes an APPROACH, raised through the desire clock's own path (and its guards: cooldown, one in flight, never in a ceremony, asleep = never).
+        if (p.goalId && s.playedGame === true) this.noteGoalServed(p.actor, p.goalId); // ORW-571: a step made for the goal is progress for tonight's mull
         if (p.goalId && p.with.includes(house.player.id) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: p.goalId, hour: this.absHour() };
         }
@@ -12337,6 +12338,12 @@ export class GameSessionAdapter implements GameSession {
       }
     } catch { /* fail-soft */ }
   }
+  /** ORW-571: remember that `owner` acted for goal `goalId` today (kept on their agenda until the night's mull reads it). */
+  private noteGoalServed(owner: EntityId, goalId: string): void {
+    const a = this.live?.agendas?.[owner];
+    if (!a || a.served?.includes(goalId)) return;
+    a.served = [...(a.served ?? []), goalId];
+  }
   /** The nightly mull (ORW-256 sleep step): once per night, every agenda fades what made no progress. Inner processing only. */
   private mullAgendasOvernight(): void {
     try {
@@ -12349,7 +12356,9 @@ export class GameSessionAdapter implements GameSession {
       this.weighEvidenceOvernight(); // 0160: what they looked into today moves what they believe, before the night's mull
       for (const id of Object.keys(s.agendas)) {
         const view = this.agendaView(id);
-        if (view) { const before = s.agendas[id]; s.agendas[id] = mullAgenda(before!, view, board, seed); this.appraiseSettled(id, before, s.agendas[id]!); }
+        // ORW-571: a goal a decision today was reasoned from (a nomination, a vote, a veto) moved forward too; the hourly steps are already on the agenda's `served`.
+        const decided = new Set((s.statedReasons ?? []).filter((r) => r.decider === id && r.day === board.day && r.real.goalId).map((r) => r.real.goalId!));
+        if (view) { const before = s.agendas[id]; s.agendas[id] = mullAgenda(before!, view, board, seed, decided); this.appraiseSettled(id, before, s.agendas[id]!); }
       }
     } catch { /* fail-soft */ }
   }
