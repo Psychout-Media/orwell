@@ -25,7 +25,9 @@ import { playMixGame, mixShares } from "../support/houseMixDriver";
 // The three tolerances below are the owner's numbers: never widened to make a run pass.
 // ORW-568 (Theme 3 slice 4, bond feelings) re-baselined the pin: homophily (0176), territory (0176 part 2), the veto-day pacing (ORW-565), mood contagion (0185) and bond feelings
 // moved the week-1 mix; main + this change measured by this guard: 33.2 / 34.0 / 26.0 / 6.8 over 3181 week-1 scenes (main alone, Auditor, f2ba4f19a: 33.2 / 33.6 / 27.0 / 6.2 over 3303).
-export const REFERENCE = { bonding: 33.2, strategy: 34.0, gossip: 26.0, conflict: 6.8 } as const;
+// ORW-571 (goals no longer fade on a nightly timer while they are being served) deliberately moved the week-1 mix: a served goal keeps acting, so more bonding and a little less gossip;
+// main + this change measured by this guard: 36.7 / 33.5 / 23.8 / 6.0 over 3046 week-1 scenes (was 33.2 / 34.0 / 26.0 / 6.8, 12-season, main + bond feelings + jealousy).
+export const REFERENCE = { bonding: 36.7, strategy: 33.5, gossip: 23.8, conflict: 6.0 } as const;
 export const AVG_TOLERANCE = 5; // points: the 12-season average, each category, against REFERENCE
 export const MIN_SPREAD = 15; // points: at least one of bonding / strategy / gossip, most minus least extreme season
 export const MAX_DEVIATION = 25; // points: no season, in any category, further than this from REFERENCE. 20 was proposed; 25 chosen (Coordinator) because 1 of 12 healthy seasons on main is 22 off (seed 9 strategy); still catches a dead or runaway season
