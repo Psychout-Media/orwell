@@ -234,7 +234,7 @@ def test_clear_is_per_user_scoped():
 
 def test_flush_returns_true_and_makes_the_entry_visible_on_disk(tmp_path):
     ledger.record_turn("player", session="s", turn_id="t1", cost=0.5)
-    assert ledger.flush() is True  # drained within the timeout
+    assert ledger.drain_pending_writes() is True  # drained within the timeout
     import json
 
     stored = json.loads((tmp_path / "orwell_token_ledger.json").read_text())
@@ -257,7 +257,7 @@ def test_records_from_many_threads_all_land_after_flush(tmp_path):
         t.start()
     for t in threads:
         t.join()
-    assert ledger.flush(timeout=10.0) is True
+    assert ledger.drain_pending_writes(timeout=10.0) is True
 
     stored = json.loads((tmp_path / "orwell_token_ledger.json").read_text())
     ids = [e["turnId"] for e in stored["player"]]

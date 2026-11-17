@@ -245,7 +245,7 @@ def _seed():
 
 def test_report_per_site_hit_rate_and_cost_per_day():
     _seed()
-    ledger.flush()
+    ledger.drain_pending_writes()
     rep = report.build_report(json.loads(ledger._rollup_path().read_text()))
     s = rep["bySite"]
     assert list(s) == ["narrator-turn", "npc-minds"]  # sorted by cost
@@ -260,7 +260,7 @@ def test_report_per_site_hit_rate_and_cost_per_day():
 def test_report_filters_user_and_renders_text_without_ids():
     _seed()
     ledger.record_turn("other", call_site="zeitgeist", cost=9.0)
-    ledger.flush()
+    ledger.drain_pending_writes()
     data = json.loads(ledger._rollup_path().read_text())
     assert "zeitgeist" not in report.build_report(data, user="player")["bySite"]
     text = report.render(report.build_report(data, user="player", days=1))
@@ -269,7 +269,7 @@ def test_report_filters_user_and_renders_text_without_ids():
 
 def test_report_cli_json_and_missing_file(tmp_path, capsys):
     _seed()
-    ledger.flush()
+    ledger.drain_pending_writes()
     assert report.main(["--rollup", str(ledger._rollup_path()), "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["total"]["calls"] == 6
     assert report.main(["--rollup", str(tmp_path / "nope.json")]) == 1
@@ -287,7 +287,7 @@ def test_a_user_named_like_the_old_rollup_key_collides_with_nothing():
 
 def test_a_bar_in_the_call_site_cannot_split_the_row_key():
     ledger.record_turn("player", call_site="a|b", model="m", cost=0.1)
-    ledger.flush()
+    ledger.drain_pending_writes()
     (rows,) = ledger.get_rollup("player")["daily"].values()
     assert list(rows) == ["a/b|m"]
     assert list(report.build_report(json.loads(ledger._rollup_path().read_text()))["bySite"]) == ["a/b"]
@@ -295,7 +295,7 @@ def test_a_bar_in_the_call_site_cannot_split_the_row_key():
 
 def test_report_skips_a_damaged_user_row():
     _seed()
-    ledger.flush()
+    ledger.drain_pending_writes()
     data = json.loads(ledger._rollup_path().read_text())
     data["broken"] = "not a dict"
     assert report.build_report(data)["total"]["calls"] == 6

@@ -36,7 +36,7 @@ Boundaries (mirrors the sync ledger)
   * **Logging must never hurt the app.** The recorder swallows its own errors.
   * **Writing is off the caller's thread.** ``record_turn`` builds the entry (so the
     call-site / day context of the caller applies), then hands it to ONE daemon writer
-    thread. Readers and ``clear`` drain the queue first (``flush``) so they never miss a
+    thread. Readers and ``clear`` drain the queue first (``drain_pending_writes``) so they never miss a
     just-recorded entry; an ``atexit`` hook drains it at shutdown.
 """
 
@@ -77,7 +77,7 @@ _MAX_ID_LEN = 80
 # The per-call write runs on ONE daemon writer thread off a queue, so a model-call turn never
 # pays for a read/append/trim/write of the (growing) store on its own thread. The entry is still
 # BUILT on the caller's thread (call-site / played-day context lives there); only the locked
-# load/append/rollup/write + the log line move to the writer. Readers and ``clear`` call ``flush``
+# load/append/rollup/write + the log line move to the writer. Readers and ``clear`` call ``drain_pending_writes``
 # so they see everything recorded before them; ``atexit`` drains at shutdown.
 _QUEUE: "queue.Queue[tuple[str, dict] | None]" = queue.Queue()
 _WRITER_STARTED = False
@@ -138,7 +138,7 @@ def _ensure_writer() -> None:
         _WRITER_STARTED = True
 
 
-def flush(timeout: float = 5.0) -> bool:
+def drain_pending_writes(timeout: float = 5.0) -> bool:
     """Block until every entry queued SO FAR has been written; ``True`` when drained within
     ``timeout``. Cheap no-op when nothing is pending. Never raises."""
     try:
@@ -161,7 +161,7 @@ def flush(timeout: float = 5.0) -> bool:
 
 def _atexit_flush() -> None:
     """Drain at shutdown so trailing entries are not lost (daemon threads die at interpreter exit)."""
-    flush(5.0)
+    drain_pending_writes(5.0)
 
 
 atexit.register(_atexit_flush)
@@ -458,7 +458,7 @@ def _roll_up(roll: dict, user_key: str, entry: dict) -> None:
 
 def get_rollup(user: str | None) -> dict:
     """The user's roll-up ``{"daily": {date: {"site|model": counters}}, "gameDays": {"session:day": counters}}``."""
-    flush()
+    drain_pending_writes()
     with _LOCK:
         roll = _load_rollup()
     u = roll.get(_key(user))
@@ -505,7 +505,7 @@ def record_turn(
     by careful callers. Errors are swallowed: ledgering must never hurt the app.
 
     The entry is BUILT here (so the caller's call-site / played-day context applies) and the
-    store write happens on the daemon writer thread; readers and ``clear`` drain via ``flush``."""
+    store write happens on the daemon writer thread; readers and ``clear`` drain via ``drain_pending_writes``."""
     try:
         entry = _entry(
             session=session,
@@ -539,7 +539,7 @@ def record_turn(
 def game_cost_total(user: str | None, session: Any) -> float:
     """Sum of ``cost`` over this user's entries for ``session`` (per-user scoped).
     A missing/corrupt store or an unknown session answers ``0.0``."""
-    flush()
+    drain_pending_writes()
     sess = _clean_id(session)
     with _LOCK:
         bucket = _load().get(_key(user))
@@ -556,7 +556,7 @@ def get_recent(user: str | None, limit: int = 50) -> list[dict]:
     """The user's most-recent ledger entries (newest last), capped at ``limit``.
     Strictly per-user: never returns another user's entries. A missing/corrupt store
     answers ``[]``."""
-    flush()
+    drain_pending_writes()
     try:
         n = int(limit)
     except (TypeError, ValueError):
@@ -573,7 +573,7 @@ def get_recent(user: str | None, limit: int = 50) -> list[dict]:
 def check_soft_alert(user: str | None, session: Any, threshold_usd: Any) -> bool:
     """``True`` iff this user's running cost for ``session`` is strictly over
     ``threshold_usd``. A non-positive (or unusable) threshold ⇒ ``False`` (no alert)."""
-    flush()
+    drain_pending_writes()
     try:
         threshold = float(threshold_usd)
     except (TypeError, ValueError):
@@ -585,7 +585,7 @@ def check_soft_alert(user: str | None, session: Any, threshold_usd: Any) -> bool
 
 def clear(user: str | None) -> None:
     """Drop the user's ledger (used by a full account/factory reset). Per-user scoped."""
-    flush()
+    drain_pending_writes()
     k = _key(user)
     with _LOCK:
         data = _load()
