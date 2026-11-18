@@ -1508,8 +1508,8 @@ export class GameSessionAdapter implements GameSession {
     if (!this.lobbyingEnabled || !s || !this.house || !this.onPlayerEvent) return;
     if (hoh === PLAYER) { this.courtThePlayerHoh(); return; }
     const key = `${s.week}:${hoh}`;
-    if (this.lobbyRecordedFor.has(key)) return;
-    this.lobbyRecordedFor.add(key);
+    if (s.lobbiesRecorded?.includes(key)) return; // ORW-686: kept on the live season (persisted, append-only), so a restart never re-rolls a week's lobbying
+    (s.lobbiesRecorded ??= []).push(key);
     for (const p of this.derivePitches(hoh)) {
       if (p.from === PLAYER) continue; // ORW-610: weighed only, never voiced as the player's act
       const witnesses = [...new Set([p.from, hoh, ...this.coPresentWitnessesOf(p.from)])];
@@ -1530,8 +1530,8 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live;
     if (!this.hohCourtOn() || !s || !this.house) return;
     const key = `${s.week}:${PLAYER}`;
-    if (this.lobbyRecordedFor.has(key)) return;
-    this.lobbyRecordedFor.add(key);
+    if (s.lobbiesRecorded?.includes(key)) return; // ORW-686: kept on the live season (persisted, append-only), so a restart never re-rolls a week's lobbying
+    (s.lobbiesRecorded ??= []).push(key);
     for (const p of this.derivePitches(PLAYER)) {
       if (p.from === PLAYER) continue;
       (s.goalApproaches ??= {})[p.from] = { desire: p.kind === "safety" ? "plea" : p.kind === "threat" ? "probe" : "campaign", goalId: "court", hour: this.absHour() };
@@ -1667,7 +1667,6 @@ export class GameSessionAdapter implements GameSession {
     }
   }
   /** B38: the (week:HOH) crownings whose pitches are already recorded. Session-local: a restart mid-week may re-record once, which is idempotent for deals (bound-pair check) and only repeats a hidden line. */
-  private lobbyRecordedFor = new Set<string>();
 
   /**
    * ORW-586 / 0187 - PROMISES BIND: an open-ledger entry may carry a closed typed `term` (`promiseTerms.ts`) that the ENGINE judges from public board facts, folding the result like an assurance (`foldBrokenPromise` /
@@ -2231,7 +2230,6 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-551 (spec 0168 slice 3): the live culture's multiplier on one house dial, read at the CALL SITE from live state. EXACTLY 1 with the flag off, no live game, or no culture (headless games, old saves) so every consumer stays byte-identical. Engine-only: never projected. */
   private cultureMult(dial: DialId): number { return dialMult(this.houseCultureEnabled ? this.live?.houseLeans : undefined, dial); }
   setHouseMeetingsEnabled(on: boolean): void { this.houseMeetingsEnabled = on; }
-  private meetingCallDecided = new Set<string>();
   /**
    * ORW-593/596: why a meeting cannot be held now, or `"invalid"` for a call that is simply not a legal accusation (silent, as before). The ONE gate for every caller (the player's words, an NPC's grievance) and
    * every accused (an NPC, or the player). The player can be accused by an NPC on the same terms as an NPC is; only the player cannot accuse themselves.
@@ -2361,8 +2359,8 @@ export class GameSessionAdapter implements GameSession {
     if (!this.houseMeetingsEnabled || !this.npcBeliefsEnabled || !live || !this.house || live.playedGame !== true) return;
     const day = live.dayNumber ?? 1;
     const key = `${live.week}:${day}`;
-    if (this.meetingCallDecided.has(key)) return;
-    this.meetingCallDecided.add(key);
+    if (live.meetingCallsDecided?.includes(key)) return; // ORW-686: kept on the live season (persisted, append-only), so a restart never re-rolls the day's call
+    (live.meetingCallsDecided ??= []).push(key);
     const calledThisWeek = (live.houseMeetings ?? []).some((m) => m.week === live.week);
     if (calledThisWeek) return;
     const awake = this.awakeNow();
@@ -19854,7 +19852,19 @@ export class GameSessionAdapter implements GameSession {
       if (r.kind !== "heard-rumor" || r.nature !== "betrayal" || r.refuted || r.week !== week) continue;
       // ORW-686 item 5 (played games): a betrayal rumor says its subject betrayed SOMEONE. It is "they target me" only when the holder is the one betrayed; otherwise the rumor
       // stays what it is (the heard-rumor belief, already read as a grievance where gossip beliefs are on) and is not folded a second time into a claim nobody made.
-      if (played && r.object !== holder) continue;
+      // ORW-686 follow-up (victim-aware): a rumor that names no victim, or names someone else, makes everyone but the victim distrust its SUBJECT. A gossip-origin rumor already did
+      // that at receipt (its E44 edge fold); a told one (`recordHeardAboutMe`) moved no edge, so it takes the same bounded fold here, once (the claim's `impact` is the mark and the
+      // refutation record), on a stream of its own keyed by the claim (no shared draw). No writer records a victim today, so in practice every hearer lands here.
+      if (played && r.object !== holder) {
+        const heard = GOSSIP_HEARD[r.nature];
+        if (r.origin === "told" && r.impact === undefined && heard && r.subject !== holder) {
+          const e = this.rel.edge(holder, r.subject);
+          const before = { trust: e.trust, affinity: e.affinity, threat: e.threat };
+          this.rel.applyImpactDirected(holder, r.subject, scaleImpact(heard, Math.max(0, Math.min(1, r.confidence))), new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:rumor-distrust:${r.id}`)));
+          r.impact = edgeDelta(before, this.rel.edge(holder, r.subject));
+        }
+        continue;
+      }
       recordClaim(store, { id: `${holder}|targets-me|${r.subject}|r:${r.id}|${week}`, holder, kind: "targets-me", subject: r.subject, object: holder, value: true, origin: "gossip", confidence: Math.max(0, Math.min(1, r.confidence)) * 0.5, week });
     }
   }

@@ -654,6 +654,10 @@ export interface LiveSeasonState {
   toldLeads?: import("./toldLeads").ToldLead[];
   /** ORW-686: the evictions whose vote talk has already been had (`week:evictee`, append-only), so a save/restore mid-week does not let the same houseguests lobby again. Absent in an old save (loads as empty). Engine-only, never projected. */
   votesTalked?: string[];
+  /** ORW-686: the (week:HOH) crownings whose lobbying has been recorded (append-only), so a restart does not re-roll it. Absent in an old save (loads as empty). Engine-only, never projected. */
+  lobbiesRecorded?: string[];
+  /** ORW-686: the (week:day) days whose NPC house-meeting call has been decided (append-only), so a restart does not re-roll it. Absent in an old save (loads as empty). Engine-only, never projected. */
+  meetingCallsDecided?: string[];
   /** 0203 / ORW-646 (VAULT-CLASS, engine-only, persisted, append-only): every coming-clean act (a confession, a loop-in), each naming the claim it is about. Absent until one is done. */
   cleanActs?: import("./comingClean").CleanAct[];
   /** 0203: the last in-game day the NPC coming-clean pass ran (it runs once a day). */

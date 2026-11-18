@@ -1003,6 +1003,9 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
 
   // votesTalked (ORW-686): an eviction whose vote talk was had is never un-had (append-only; a restore must not re-roll it).
   if ((earlier.live?.votesTalked ?? []).some((k) => !(later.live?.votesTalked ?? []).includes(k))) return "votesTalked";
+  // lobbiesRecorded / meetingCallsDecided (ORW-686): once-per-key decisions are never un-made (append-only; a restore must not re-roll them).
+  if ((earlier.live?.lobbiesRecorded ?? []).some((k) => !(later.live?.lobbiesRecorded ?? []).includes(k))) return "lobbiesRecorded";
+  if ((earlier.live?.meetingCallsDecided ?? []).some((k) => !(later.live?.meetingCallsDecided ?? []).includes(k))) return "meetingCallsDecided";
 
   // bonds, grudges, group identity (ORW-606): the season-long stores of Theme 3 are never thinned. (Room tenure is deliberately outside: it resets whenever a houseguest moves.)
   if (!bondStoreSuperset(later.live?.bonds, earlier.live?.bonds)) return "bonds";

@@ -52,3 +52,76 @@ describe("restart does not re-roll the vote talk (item 6)", () => {
   });
 });
 
+
+describe("restart does not re-roll the lobbying or the NPC meeting call (item 2 follow-up)", () => {
+  type Once = {
+    live: { playedGame?: boolean; lobbiesRecorded?: string[]; meetingCallsDecided?: string[] };
+    recordLobbyPitches(hoh: string): void;
+    npcCallsHouseMeeting(): void;
+    derivePitches: (hoh: string) => unknown[];
+    awakeNow: () => unknown;
+  };
+  function fresh(name: string) {
+    const sb = new GameSessionRegistry().sandboxFor(name);
+    sb.session.createCharacter({ playerName: "The Player", seed: 7 });
+    (sb.session as unknown as Once).live.playedGame = true;
+    return sb;
+  }
+  /** Count how often a private step is reached past its once-guard. */
+  function spy<K extends "derivePitches" | "awakeNow">(s: Once, k: K): { n: number } {
+    const c = { n: 0 };
+    const orig = s[k] as (...a: unknown[]) => unknown;
+    (s as unknown as Record<string, unknown>)[k] = (...a: unknown[]) => { c.n++; return orig.apply(s, a); };
+    return c;
+  }
+  it("a week's lobbying is not recorded again after a save and restore; an old save loads as empty", () => {
+    const sb = fresh("orw686-lobby");
+    const s = sb.session as unknown as Once;
+    const hoh = sb.session.livingIds().find((id) => id !== PLAYER)!;
+    s.recordLobbyPitches(hoh);
+    expect(s.live.lobbiesRecorded?.length).toBe(1);
+    const snap = JSON.parse(JSON.stringify(sb.session.snapshot()));
+    const sb2 = new GameSessionRegistry().sandboxFor("orw686-lobby-restored");
+    sb2.session.restore(snap);
+    const s2 = sb2.session as unknown as Once;
+    const again = spy(s2, "derivePitches");
+    s2.recordLobbyPitches(hoh);
+    expect(again.n).toBe(0);
+    // an old save without the field loads as empty and lobbies once
+    const old = JSON.parse(JSON.stringify(snap));
+    delete old.live.lobbiesRecorded;
+    const sb3 = new GameSessionRegistry().sandboxFor("orw686-lobby-old");
+    sb3.session.restore(old);
+    const s3 = sb3.session as unknown as Once;
+    const once = spy(s3, "derivePitches");
+    s3.recordLobbyPitches(hoh);
+    expect(once.n).toBe(1);
+    // the save check accepts growth and refuses a save that forgot it
+    const grown = JSON.parse(JSON.stringify(snap));
+    grown.live.lobbiesRecorded.push("later");
+    expect(sessionCoreSupersetViolation(grown as never, snap as never)).toBeNull();
+    expect(sessionCoreSupersetViolation(old as never, snap as never)).toBe("lobbiesRecorded");
+  });
+  it("a day's NPC meeting call is not decided again after a save and restore", () => {
+    const sb = fresh("orw686-call");
+    const s = sb.session as unknown as Once;
+    s.npcCallsHouseMeeting();
+    expect(s.live.meetingCallsDecided?.length).toBe(1);
+    const snap = JSON.parse(JSON.stringify(sb.session.snapshot()));
+    const sb2 = new GameSessionRegistry().sandboxFor("orw686-call-restored");
+    sb2.session.restore(snap);
+    const s2 = sb2.session as unknown as Once;
+    const again = spy(s2, "awakeNow");
+    s2.npcCallsHouseMeeting();
+    expect(again.n).toBe(0);
+    const old = JSON.parse(JSON.stringify(snap));
+    delete old.live.meetingCallsDecided;
+    const sb3 = new GameSessionRegistry().sandboxFor("orw686-call-old");
+    sb3.session.restore(old);
+    const s3 = sb3.session as unknown as Once;
+    const once = spy(s3, "awakeNow");
+    s3.npcCallsHouseMeeting();
+    expect(once.n).toBe(1);
+    expect(sessionCoreSupersetViolation(old as never, snap as never)).toBe("meetingCallsDecided");
+  });
+});
