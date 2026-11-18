@@ -1063,7 +1063,17 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "voice each from its own facts, who was in it, what it was called, its words if any, where it met, the weeks it " +
     "stood, how it ended and whether the player knew, in fresh wording each time, treating `line` as a bare fallback. " +
     "Say plainly what the player never knew. Add no member, word, place or week that is not in the facts, and show " +
-    "no number or id.",
+    "no number or id. " +
+    // ORW-649 / ORW-648 (0211): the rules for `reunion` and `yourStories` ride this fragment too.
+    "When seasonRetrospective carries `reunion`, host it as a scene from those threads: each confrontation, lie or alliance " +
+    "is aired between the people named, in their own voices, in fresh wording each time, treating `line` as a bare fallback. " +
+    "Where a thread has the player in it (`youAreIn`, or `youAre`), stop and ask the player what they say, and wait: " +
+    "the player answers in their own words and you never speak or decide for them. Add nothing the facts do not hold, " +
+    "and show no number or id. " +
+    "When seasonRetrospective carries `yourStories`, tell the player the story of them and each houseguest in a few " +
+    "plain sentences from that houseguest's own facts: how it began, the turning points, how it ended, and whether their " +
+    "view of the player warmed, cooled, turned or held steady. Write it fresh each time, treating `line` as a bare " +
+    "fallback; be honest, never flatter, and show no number or id.",
   "self-evicted":
     "MOMENT — Self-eviction (the player WALKED OUT). The player made the deliberate, confirmed choice to " +
     "leave the game — they quit, and the game has RECORDED it: their season is over and they have " +

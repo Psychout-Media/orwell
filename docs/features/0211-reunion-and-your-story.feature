@@ -1,4 +1,3 @@
-# spec-only: 0211 (ORW-649 + ORW-648) - the foundation (src/engine/reunion.ts) is built and unit-tested; the build wires these scenarios (A or B).
 # Feature 0211 - the reunion and the story of you and them (Ryne approved both 2026-11-17). Design: 0211-reunion-and-your-story.md. Roles only.
 
 Feature: The reunion and the story of you and them
@@ -18,7 +17,7 @@ Feature: The reunion and the story of you and them
 
   # ORW-648
   Scenario: Each houseguest has a story with the player
-    Given a finished season
+    Given a finished season whose houseguests held a view of the player
     Then for each houseguest there is a story of them and the player: how they met, the turning points, and how it ended
     And its shape follows how their view of the player really moved, warmed, cooled, turned or steady
     And no number is shown

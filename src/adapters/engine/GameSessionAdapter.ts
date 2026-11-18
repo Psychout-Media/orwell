@@ -114,6 +114,8 @@ import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { PULL_QUOTE } from "../../engine/pullQuoteConstants";
 import { buildGroupLife, type GroupLifeRow, type GroupLifeView } from "../../engine/groupLifeRetro";
+import { buildReunion, buildYourStories, type ReunionView, type StoryGuest, type YourStoriesView } from "../../engine/reunionRetro";
+import { claimText } from "../../engine/rumorMill";
 import { buildYourEdit, sceneMoment, weekMoments, weeksOfLog, type YourEditView } from "../../engine/yourEdit";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
 import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOut";
@@ -5221,6 +5223,66 @@ export class GameSessionAdapter implements GameSession {
       ...(finale?.votes ? { jury: { finalists: finale.finalists, votes: Object.values(finale.votes).map((votedFor) => ({ votedFor })) } } : {}),
     });
   }
+  /** 0211 / ORW-649: the reunion on finale night (`ORWELL_REUNION`, default ON; `=0` = none). Played, finished games only; the caller holds the crown gate. Read-only: nothing is recorded or folded, no rng. */
+  private reunionEnabled = flagDefaultOn("ORWELL_REUNION");
+  setReunionEnabled(on: boolean): void { this.reunionEnabled = on; }
+  private buildReunionView(): ReunionView | undefined {
+    const s = this.live;
+    if (!this.reunionEnabled || !s?.finished || s.playedGame !== true || !this.house) return undefined;
+    const grudges = Object.entries(s.grudges ?? {}).map(([k, row]) => { const [holder, at] = k.split("|") as [EntityId, EntityId]; return { holder, at, size: row.peak, kind: row.kind }; })
+      .sort((a, b) => `${a.holder}|${a.at}`.localeCompare(`${b.holder}|${b.at}`));
+    const caught = (listener: EntityId, speaker: EntityId): boolean => listener !== PLAYER && claimsOf(s.beliefs, listener).some((c) => c.kind === "lied-to-me" && c.subject === speaker && !c.refuted && !!c.value);
+    const claims = (s.claims?.items ?? []).map((c) => ({
+      id: c.id, speaker: c.speaker, listener: c.listener, isTrue: c.isTrue, caught: caught(c.listener, c.speaker), week: c.week,
+      said: claimText(c.kind, this.nameOf(c.subject), c.object ? this.nameOf(c.object) : undefined, c.label),
+    }));
+    const store = s.groupIdentity ?? {};
+    const history = this.alliances.history();
+    const groups = [...new Set(history.map((h) => h.allianceId))].filter((id) => history.some((h) => h.allianceId === id && h.kind === "formed")).map((id) => {
+      const mine = history.filter((h) => h.allianceId === id);
+      const e = store[id];
+      const members = [...new Set(mine.flatMap((h) => [...h.members, ...(h.who ? [h.who] : [])]))].sort();
+      const hidden = !members.includes(PLAYER) && !mine.some((h) => h.playerKnew);
+      const name = e?.sealed?.name ?? e?.words?.name ?? this.alliances.byId(id)?.name ?? mine[mine.length - 1]!.name;
+      const fromWeek = e?.week ?? 1;
+      const untilWeek = this.alliances.byId(id) ? undefined : (e?.endedWeek ?? s.week);
+      return { id, members, hiddenFrom: hidden ? [PLAYER] : [], weeks: Math.max(1, (untilWeek ?? s.week) - fromWeek + 1), name: this.retroScrub(name), fromWeek, ...(untilWeek !== undefined ? { untilWeek } : {}) };
+    });
+    return buildReunion({ finished: true, nameOf: (id) => this.nameOf(id), grudges, claims, groups });
+  }
+  /** 0211 / ORW-648: the story of you and them (`ORWELL_YOUR_STORY`, default ON; `=0` = no samples, no stories). Played, finished games only; the caller holds the crown gate. */
+  private yourStoryEnabled = flagDefaultOn("ORWELL_YOUR_STORY");
+  setYourStoryEnabled(on: boolean): void { this.yourStoryEnabled = on; }
+  /** ORW-648: one sample a week (the latest of the week) of each living houseguest's OWN view of the player. A pure read (`peek` creates no edge), no rng, played games only. */
+  private yourStoryTick(): void {
+    const s = this.live;
+    if (!this.yourStoryEnabled || !s || s.playedGame !== true || s.finished || !this.house) return;
+    const store = (s.viewOfPlayer ??= {});
+    const two = (x: number): number => Math.round(x * 100) / 100;
+    for (const id of s.active) {
+      if (id === PLAYER) continue;
+      const e = this.rel.peek(id, PLAYER);
+      const row = (store[id] ??= []);
+      const point = { week: s.week, trust: two(e.trust), affinity: two(e.affinity) };
+      const last = row[row.length - 1];
+      if (last && last.week === s.week) row[row.length - 1] = point; else row.push(point);
+    }
+  }
+  private buildYourStoriesView(): YourStoriesView | undefined {
+    const s = this.live;
+    if (!this.yourStoryEnabled || !s?.finished || s.playedGame !== true || !this.house) return undefined;
+    const events = this.record?.events() ?? [];
+    const maxWeek = (s.weekDigests ?? []).reduce((m, d) => Math.max(m, d.week), 1);
+    const weeks = weeksOfLog(events, PULL_QUOTE.evictionCue, maxWeek);
+    const finalists = new Set<EntityId>(s.finale?.finalists ?? s.finalTwo ?? []);
+    const guests: StoryGuest[] = this.house.npcs.map((n) => n.id).sort().map((id) => {
+      const scenes = events.flatMap((e, i) => (!e.hidden && e.type !== "house-event" && (e.witnessSet.includes(id) || e.initiator === id) && (e.witnessSet.includes(PLAYER) || e.initiator === PLAYER)) ? [{ week: weeks[i]!, kind: e.type }] : []);
+      const out = (s.weekDigests ?? []).find((d) => d.evictee === id);
+      const votedFor = s.finale?.votes?.[id];
+      return { id, points: s.viewOfPlayer?.[id] ?? [], scenes, ...(out ? { evictedWeek: out.week } : {}), ...(votedFor ? { votedFor } : {}), ...(finalists.has(id) ? { finalist: true } : {}) };
+    });
+    return buildYourStories({ finished: true, nameOf: (id) => this.nameOf(id), winner: s.winner ?? null, guests });
+  }
   /** ORW-566 part d (0183): every alliance and close-pair habit the season held, hidden ones included (the retrospective is the sanctioned unsealing; the caller holds the crown gate). Names only. */
   private buildGroupLifeView(): GroupLifeView | undefined {
     const s = this.live;
@@ -5286,7 +5348,9 @@ export class GameSessionAdapter implements GameSession {
     const yourEdit = this.buildYourEditView(); // 0200 / ORW-632: after the crown only (the same gate); facts only
     const groupLife = this.buildGroupLifeView(); // 0183 part d: the sanctioned unsealing of hidden groups' names and words; same gate; facts only
     const socialMap = this.socialMapRetro(); // 0184 part 2c: after the crown only
-    return { ...(socialMap ? { socialMap } : {}), ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
+    const reunion = this.buildReunionView(); // 0211 / ORW-649: after the crown only (the same gate); read-only facts
+    const yourStories = this.buildYourStoriesView(); // 0211 / ORW-648: after the crown only (the same gate); read-only facts
+    return { ...(reunion ? { reunion } : {}), ...(yourStories ? { yourStories } : {}), ...(socialMap ? { socialMap } : {}), ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
@@ -12982,6 +13046,7 @@ export class GameSessionAdapter implements GameSession {
    */
   campaignTick(): void {
     if (!this.campaignsEnabled || !this.house) return;
+    this.yourStoryTick(); // ORW-648: a read-only weekly sample (no rng, no edge created)
     this.syncTargetsMeClaims(); // ORW-581: the threat reads below see the beliefs as of this tick, written here rather than inside the reads
     this.campaignTickCount += 1;
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:campaigns:${this.campaignTickCount}`));

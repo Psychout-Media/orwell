@@ -1,5 +1,7 @@
 # 0211 - The reunion and the story of you and them (ORW-649 + ORW-648)
 
+**Status: built (ORW-649 + ORW-648, 2026-11-18): the reunion and the stories ride the post-crown retrospective as read-only facts (`reunion`, `yourStories`; `src/engine/reunionRetro.ts`); gate `tests/unit/reunionRetro.test.ts` + BDD `0211-reunion-and-your-story.feature`. Flags `ORWELL_REUNION`, `ORWELL_YOUR_STORY` (default ON). Not built: the player-answer pending stage and `live.reunion` store (the player answers in chat; see the notes below).**
+
 Cards: ORW-649 (reunion on finale night) and ORW-648 (the story of you and them). Ryne approved both 2026-11-17. Executable spec: `0211-reunion-and-your-story.feature` (spec-only until the build). Foundation: `src/engine/reunion.ts` + `tests/unit/reunion.test.ts` (built, BDD Auditor). The build: Overseer A or B, through the Coordinator.
 
 Both are post-crown only. They read only what the 0048 retrospective may unseal (the sanctioned season-end unsealing). Nothing here runs before `live.finished`.
@@ -27,3 +29,8 @@ Both are post-crown only. They read only what the 0048 retrospective may unseal 
 - No short lists.
 - The wall: post-crown only; a boundary test proves the reunion and the stories are absent before the crown.
 - Never shown as numbers.
+
+## As built (2026-11-18)
+- **Presentation over the record.** Nothing is recorded, nothing folds, no rng: `RetrospectiveView.reunion` (threads: confrontation, lie, alliance) and `RetrospectiveView.yourStories` are pure reads at the crown gate (`finished` + a played game). The only new state is `live.viewOfPlayer` (one sample per houseguest per week, the week's latest, via `peek` so no edge is ever created; played games only).
+- **Sources, all already behind the retrospective door:** the grudge book (pair, who held it, the wrong's kind key; never a size), the claim log (uncaught lies, the claim in plain words), the alliance history (an alliance the player never knew of), the event record (the kinds of scenes the player shared with the houseguest, by week), the week digests and the jury vote (public at the finale). The per-voter eviction ballot is not read.
+- **The player's words.** A thread with the player in it is flagged (`youAreIn` / `youAre`); the narrator asks and waits in chat. No pending stage and no `live.reunion.answers` store were built: a new post-crown stage with pendings changes the finale flow and records the player's words, which is a separate decision.
