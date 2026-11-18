@@ -171,6 +171,10 @@ export function planSourceOf(store: () => PlanStore | undefined): PlanSource {
   return { planOf: (dealId, holder) => store()?.[dealId]?.[holder] };
 }
 
+/** ORW-586 slice 5: the plan key for an open-ledger promise - its own namespace, so no deal-id reader ever matches it. */
+export const ledgerPlanKey = (entryId: string): string => `ledger:${entryId}`;
+export const isLedgerPlanKey = (key: string): boolean => key.startsWith("ledger:");
+
 /** Is a moment due now? (`at` order: nominations < veto < vote; a later week is always due.) */
 export function momentDue(m: PlanMoment, week: number, now: "nominations" | "veto" | "vote" | "other"): boolean {
   if (week > m.week) return true;
