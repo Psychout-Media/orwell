@@ -40,6 +40,8 @@ import { SECRET_BREAK, breakDecision, breakLine, keptOutGrudge, pickSpoken, stan
 import { HOH_ROOM, decideVisit, backstoryFacets, pickBackstoryFact } from "../../engine/hohRoom";
 import { GRUDGES, REPAIR, combineSalience, easeGrudge, easedShareOf, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, repairAmount, wrongWeight, type GrudgeKind } from "../../engine/grudges";
 import { breakDivisor, feelingKeep, feelsGuilt, guiltKey, guiltScale, markFeeling } from "../../engine/bondFeelings";
+import { HEART, heartAgainstGame, keepAfterHeart, romancePairKey, sentimentOf, shakenKey, type HeartOutcome } from "../../engine/heartAgainstGame";
+import { npcDrawnToPlayer, playerInShowmanceWith } from "../../engine/playerShowmance";
 import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
 import type { VoiceProfile } from "../../domain/voiceProfile";
 import { NO_NPC_PATHWAY, beatForMoment, producerPrompt, playerDiaryStrategy } from "../../engine/diaryRoom";
@@ -326,7 +328,7 @@ import { rolesFromGraph, type NetworkRoles } from "../../engine/networkSpread";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { CREDIBILITY } from "../../engine/credibilityConstants";
 import { standing, composeWithCredibility, dealWillingnessShift, type HeardWrong } from "../../engine/reputation";
-import { SCENE_FOLDS, bondKey, bondOf, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, recordedSceneRoles, sceneRoles, sceneScale, type BookWrong, type SceneFold } from "../../engine/bondRecord";
+import { SCENE_FOLDS, bondKey, bondOf, commitmentFor, emptyBond, foldBreak, foldBreakup, foldKept, foldRepair, foldSave, foldScene, foldShaken, kindOf, nightPasses, recordedSceneRoles, sceneRoles, sceneScale, strandsOf, type BookWrong, type SceneFold } from "../../engine/bondRecord";
 import { TRIADS, SWING } from "../../engine/triadsConstants";
 import { commonFriendNudges, kingmakerOf, priceTier, sharedEnemyNudges, strainedTriads, swingRead, triadPairKey, type TriadView } from "../../engine/triads";
 import { deriveDailyHouseGraph, type DailyHouseGraph, type HouseGraph } from "../../engine/houseGraph";
@@ -6351,6 +6353,13 @@ export class GameSessionAdapter implements GameSession {
   /** Theme 3 slice 3 (Overseer B): the favor ledger as a second source of a bond's debt (signed like BondView.debt). Absent => the record's own debt only. */
   private favorDebt?: DebtSource;
   setFavorDebtSource(fn: DebtSource | undefined): void { this.favorDebt = fn; }
+  /** ORW-634: the house's typical bond - bond strength, averaged over every ordered pair still in the house (the centre of the HOH referendum). Pure read. */
+  private houseTypicalBond(): number {
+    const ids = this.livingIds();
+    let sum = 0, n = 0;
+    for (const a of ids) for (const b of ids) if (a !== b) { sum += this.rel.peekBondStrength(a, b); n++; } // peek: a read must never create an edge (bondStrength does), or a refused commit is not rolled back
+    return n ? sum / n : 0;
+  }
   /** 0193 (ORW-623): the endgame changes the rules of trust (`ORWELL_ENDGAME_TRUST`, default ON; `=0` = byte-identical). Played games only, at four left or fewer. */
   private endgameTrustEnabled = flagDefaultOn("ORWELL_ENDGAME_TRUST");
   setEndgameTrustEnabled(on: boolean): void { this.endgameTrustEnabled = on; }
@@ -6397,6 +6406,7 @@ export class GameSessionAdapter implements GameSession {
     }
   }
 
+  /** 0180 (Theme 3 slice 12, part 1): house norms (`ORWELL_HOUSE_NORMS`, default ON; `=0` = no shunning, byte-identical). Played games with beliefs only. */
   private houseNormsEnabled = flagDefaultOn("ORWELL_HOUSE_NORMS");
   setHouseNormsEnabled(on: boolean): void { this.houseNormsEnabled = on; }
   /**
@@ -6576,6 +6586,7 @@ export class GameSessionAdapter implements GameSession {
     const day = live.dayNumber ?? 1;
     for (let d = live.bondsDay ?? day; d < day; d++) nightPasses(store);
     live.bondsDay = day;
+    if (this.showmancesOn()) this.noteRomances(store);
   }
 
   /** ORW-605: per-person / pair / house scene weights in the bond record (played games only). `ORWELL_BOND_RATES=0` opts out to the flat base fold. */
@@ -6639,8 +6650,49 @@ export class GameSessionAdapter implements GameSession {
       if (c.kind === "lied-to-me") note(`c:${c.id}`, holder, c.subject, "lied-to", c.confidence, c.week);
       else if (c.kind === "voted-against-me") note(`c:${c.id}`, holder, c.subject, "vote-against", c.confidence, c.week);
     }
+    this.foldBreakups(note);
     this.foldRepairs(seen);
     if (seen.size !== before) live.grudgesSeen = [...seen];
+  }
+
+  /**
+   * THEME A / A3 (0207): AN IN-HOUSE BREAKUP IS THE WORST RUPTURE. A showmance that was real (`live.romances`) ends the first time one of them wrongs the other in the house: any wrong the grudge
+   * book just took between the two (a broken deal, a cut, a vote against, a lie found out), or a clash scene between the two (the one who started it is the one who left). The wronged side
+   * then holds a `heartbreak` grudge at `GRUDGES.HEARTBREAK_SEVERITY` (above every other single wrong) and the bond record takes the deepest strain it carries (`foldBreakup`); the jury, the
+   * revenge goal and the bitter-juror read it through the one grudge weight. Once per pair; deterministic, no rng, no text. An evicted wronged side still holds it (a juror keeps it).
+   */
+  private foldBreakups(note: (mark: string, holder: EntityId, subject: EntityId, kind: GrudgeKind, severity: number, week: number) => void): void {
+    const live = this.live;
+    if (!live || !this.showmancesOn() || !live.romances) return;
+    const ended = new Set(live.breakups ?? []);
+    const found = new Map<string, { leaver: EntityId; wronged: EntityId }>();
+    const events = this.record?.events() ?? [];
+    for (let i = live.breakupCursor ?? 0; i < events.length; i++) {
+      const e = events[i]!;
+      const recorded = e.type === "conversation" && e.interactionKind === "conflict" && e.witnessSet.includes(PLAYER);
+      if (!recorded && !(e.type === "conflict" && e.witnessSet.length >= 2)) continue;
+      const pair = recorded ? (() => { const r = recordedSceneRoles(e.initiator, e.witnessSet); return [r.actor, r.recipient]; })() : sceneRoles(e.initiator, e.witnessSet, !!e.houseLife).principals;
+      const [a, b] = pair;
+      if (!a || !b || a === b) continue;
+      const pk = romancePairKey(a, b);
+      if (live.romances[pk] === undefined || ended.has(pk) || found.has(pk)) continue;
+      const leaver = a === e.initiator ? a : b === e.initiator ? b : a;
+      found.set(pk, { leaver, wronged: leaver === a ? b : a });
+    }
+    live.breakupCursor = events.length;
+    for (const pk of Object.keys(live.romances).sort()) {
+      if (ended.has(pk) || found.has(pk)) continue;
+      const [a, b] = pk.split("|") as [EntityId, EntityId];
+      for (const [h, who] of [[a, b], [b, a]] as const) {
+        const row = live.grudges?.[grudgeKey(h, who)];
+        if (row && row.kind !== "heartbreak" && row.day >= live.romances[pk]!) { found.set(pk, { leaver: who, wronged: h }); break; }
+      }
+    }
+    for (const [pk, { leaver, wronged }] of [...found].sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0))) {
+      (live.breakups ??= []).push(pk);
+      foldBreakup((live.bonds ??= {}), leaver, wronged, { bookHoldsWrong: true });
+      note(`b:${pk}`, wronged, leaver, "heartbreak", GRUDGES.HEARTBREAK_SEVERITY, live.week);
+    }
   }
 
   /** ORW-582 (flag `ORWELL_JURY_HOUSE`): the NPC jurors, each with their jury-house personality read toward a subject; undefined when the jury house is off or empty. Engine-only. */
@@ -11883,6 +11935,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.live?.playedGame === true && this.live.agendas ? {
         agendaPullFor: (t: EntityId, d: EntityId, at?: "veto") => this.agendaPullOf(t, d, at),
         hohTargetReadFor: (v: EntityId, h: EntityId, fn: readonly [EntityId, EntityId]) => this.hohTargetReadOf(v, h, fn), // ORW-573: what the voter knows, never the HOH's hidden reads
+        ...(this.ownViewOn() ? { hohReferendumCentre: () => this.houseTypicalBond() } : {}), // ORW-634: alignment with the HOH is read against the house's own typical bond (with the own view, ORW-574: decisions read the relationships the house holds)
         statedReasonFor: (real: RealReason, day: number) => explainDecision(real, this.agendaCharacterOf(real.decider)!, this.gameSeed ?? 0, day),
       } : {}),
       // ORW-568 / 0181: the voter's (or HOH's) real feeling for the person keeps them. Played games with the bond record only, so a headless sim carries no hook (+0, byte-identical).
@@ -15385,6 +15438,7 @@ export class GameSessionAdapter implements GameSession {
         this.spreadMood(evictee, shockOf(s?.mannerByEvictee?.[evictee]), "bad", "blindside", hit);
         this.noteFriendEvicted(evictee); // 0194: a close friend gone is a mood cause
         this.feelEvictionGuilt(evictee); // ORW-568 / 0181: a voter who truly liked the evictee is shaken (private; the ballot is secret)
+        this.foldHeartAtEviction(evictee); // 0207 A3: heart against game, shaken either way
         // E51: the nominee who sat on the block and SURVIVED is emboldened — the 0041 arc beat.
         const survivor = s?.eviction?.nominees.find((n) => n !== evictee);
         if (survivor) this.inflect(survivor, "survived-vote");
@@ -15484,7 +15538,104 @@ export class GameSessionAdapter implements GameSession {
   private feelingKeepOf(other: EntityId, holder: EntityId): number {
     if (holder === PLAYER || other === holder || !this.bondFeelingsOn()) return 0;
     const reader = this.bondReader();
-    return adjustedKeep(feelingKeep(reader.bond(holder, other)), this.jealousyOf(holder, other), loyaltySplitOver(holder, other, reader)); // 0181 part 2: jealousy slips the closeness, a divided loyalty adds to it
+    const keep = adjustedKeep(feelingKeep(reader.bond(holder, other)), this.jealousyOf(holder, other), loyaltySplitOver(holder, other, reader)); // 0181 part 2: jealousy slips the closeness, a divided loyalty adds to it
+    return this.showmancesOn() ? keepAfterHeart(keep, this.heartCaseOf(holder, other, reader)) : keep; // 0207 A3: heart against game
+  }
+
+  /**
+   * THEME A (0207, ORW-657..661; `ORWELL_SHOWMANCES`, default ON; `=0` opts out): showmances. A played game with the bond record only, so a headless sim is byte-identical. The flag is the whole
+   * of the slice: A3 (heart against game, the breakup rupture) and A4 (the player's own showmance) all stand behind it. Needs `ORWELL_BOND_FEELINGS` (the hook the nudge rides) and `ORWELL_GRUDGES`
+   * (the breakup's grudge); without either, the part that rides it simply does not run.
+   */
+  private showmancesEnabled = flagDefaultOn("ORWELL_SHOWMANCES");
+  setShowmancesEnabled(on: boolean): void { this.showmancesEnabled = on; }
+  private showmancesOn(): boolean { return this.showmancesEnabled && this.live?.playedGame === true && this.bondRecordEnabled; }
+
+  /**
+   * A4: is the player in a showmance with this houseguest. ONLY by the player's own acts: the showmance scenes the PLAYER started (recorded, in-character), answered by a houseguest drawn to the
+   * player under the foundation's own rule. The player's gender is read only if the player has set it (unset => nobody is drawn to the player); their orientation is never read or modelled.
+   * Derived each read from the record, never stored, never engine-decided. Engine-only.
+   */
+  private playerShowmanceWith(npc: EntityId, store: Record<string, import("../../engine/bondRecord").BondRecord>): boolean {
+    const n = this.house?.npcs.find((x) => x.id === npc);
+    if (!n || !this.house || n.character.genderPresentation === undefined) return false;
+    const orientation = (n.character.outOrientation as Orientation | undefined) ?? this.privateOrientations[npc] ?? "straight";
+    const answered = strandsOf(store[bondKey(npc, PLAYER)] ?? emptyBond()).romance ?? 0;
+    const drawn = npcDrawnToPlayer({ orientation, gender: n.character.genderPresentation }, this.house.player.character.genderPresentation, answered);
+    return playerInShowmanceWith(this.record?.events() ?? [], npc, drawn);
+  }
+
+  /** 0207 A3: remember each pair whose record reads as a showmance (once, with the day), so a later rupture knows it was one. A pair with the player counts only by the player's own acts (A4). */
+  private noteRomances(store: Record<string, import("../../engine/bondRecord").BondRecord>): void {
+    const live = this.live;
+    if (!live) return;
+    for (const key of Object.keys(store).sort()) {
+      if (kindOf(store[key]!) !== "showmance") continue;
+      const [h, o] = key.split("|") as [EntityId, EntityId];
+      const pk = romancePairKey(h, o);
+      if (live.romances?.[pk] !== undefined) continue;
+      if ((h === PLAYER || o === PLAYER) && !this.playerShowmanceWith(h === PLAYER ? o : h, store)) continue;
+      (live.romances ??= {})[pk] = live.dayNumber ?? 1;
+    }
+  }
+
+  /** 0207 A3: the strongest pull an alliance `holder` is in puts on `partner` being cut: its own HOH put them on the block, or a member's private read of them as a threat, weighted by how much of a friend (or a pact) that member is to the holder. */
+  private allianceAgainstOf(holder: EntityId, partner: EntityId, reader: BondReader): number {
+    const live = this.live;
+    const nominees: readonly EntityId[] = live?.nominees ?? [];
+    const onBlock = nominees.includes(partner);
+    const base = RELATIONSHIP_CONSTANTS.baseline.threat;
+    let best = 0;
+    for (const al of this.alliances.forMember(holder)) {
+      if (al.members.includes(partner)) continue;
+      for (const m of al.members) {
+        if (m === holder) continue;
+        const isHoh = m === live?.hoh && onBlock;
+        if (m === PLAYER && !isHoh) continue; // the player's own mind is never read from here
+        const stance = isHoh ? HEART.hohPull : Math.min(1, Math.max(0, (this.rel.peek(m, partner).threat - base) * 2));
+        const st = reader.bond(holder, m).strands; // the same footing as the romance strand: how much of a friend or a pact the member is to the holder (0..1)
+        best = Math.max(best, Math.max(st.friendship ?? 0, st.pact ?? 0) * stance);
+      }
+    }
+    return best;
+  }
+
+  /** 0207 A3: the heart-against-game weighing for `holder` over their showmance partner `partner` right now (no conflict unless the pair is a live showmance and an alliance pulls the other way). */
+  private heartCaseOf(holder: EntityId, partner: EntityId, reader: BondReader): HeartOutcome {
+    const live = this.live;
+    const pk = romancePairKey(holder, partner);
+    if (!live?.romances || live.romances[pk] === undefined || (live.breakups ?? []).includes(pk)) return { conflict: false, heartWon: false, margin: 0 };
+    const hg = this.house?.npcs.find((n) => n.id === holder);
+    return heartAgainstGame({
+      romanceTie: reader.bond(holder, partner).strands.romance ?? 0,
+      allianceTie: this.allianceAgainstOf(holder, partner, reader),
+      sentiment: sentimentOf({ ...(hg?.character.strategyStyle !== undefined ? { style: hg.character.strategyStyle } : {}), volatility: this.soulObj(holder)?.volatility ?? 0.5, keeper: this.grudgeKeeper(holder, partner), bonding: this.cultureMult("bonding") }),
+      mutual: (reader.bond(partner, holder).strands.romance ?? 0) >= HEART.romanceBar,
+      loyalty: this.cultureMult("loyalty"),
+    });
+  }
+
+  /**
+   * 0207 A3, after an eviction vote: a voter whose showmance partner sat on the block while their alliance wanted them gone is SHAKEN either way - the one who sent their partner out
+   * strains toward them; the one who kept them strains toward the ally whose block it was. Once per voter, partner and week; private, no rng, no text. Bond strain only.
+   */
+  private foldHeartAtEviction(evictee: EntityId): void {
+    const live = this.live;
+    const last = live?.voteRecord?.[live.voteRecord.length - 1];
+    if (!live || !last || last.evictee !== evictee || !this.showmancesOn() || !this.bondFeelingsOn() || !live.romances) return;
+    const reader = this.bondReader();
+    const block = new Set<EntityId>([evictee, ...Object.values(last.voteOf)]);
+    for (const voter of Object.keys(last.voteOf).sort() as EntityId[]) {
+      if (voter === PLAYER) continue;
+      for (const partner of [...block].sort()) {
+        if (partner === voter || partner === undefined) continue;
+        const c = this.heartCaseOf(voter, partner, reader);
+        if (!c.conflict || !markFeeling((live.feelingsSeen ??= []), shakenKey(live.week, voter, partner))) continue;
+        const store = (live.bonds ??= {});
+        if (last.voteOf[voter] === partner) foldShaken(store, voter, partner, HEART.shaken); // the heart lost
+        else if (live.hoh && live.hoh !== voter) foldShaken(store, voter, live.hoh, HEART.shaken); // the heart won against the ally whose block it was
+      }
+    }
   }
 
   /** 0181 part 2: how jealous `holder` is right now over the close friend `close` (0 when none). */

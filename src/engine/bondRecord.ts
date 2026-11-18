@@ -53,6 +53,11 @@ export const BOND = {
   resentPerBreak: 0.35,
   strainPerBreak: 0.35,
   breakerStrain: 0.15,
+  /** THEME A / A3 (0207): a showmance that ends in the house is the worst rupture - deeper than a broken deal on every count. The wronged side's strain and warmth lost, the leaver's own. */
+  breakupStrain: 0.55,
+  breakupWarmthLoss: 0.45,
+  breakerBreakupStrain: 0.3,
+  breakerWarmthLoss: 0.2,
   /** A kept deal: a shared moment and a little warmth. */
   warmthPerKept: 0.05,
   /** A veto save: the saved one owes the saver. */
@@ -196,6 +201,33 @@ export function foldBreak(store: BondStore, breaker: EntityId, wronged: EntityId
   const b = touch(store, breaker, wronged);
   b.strain = clamp(b.strain + BOND.breakerStrain, 0, 1);
   b.history += 1;
+}
+
+/**
+ * THEME A / A3 (0207): a showmance ended in the house. The wronged side's view of the leaver takes the heaviest strain the record carries and loses most of its warmth (so the romance strand
+ * and the showmance kind fall away through the readers that already read them); the leaver strains and cools less. As with a broken deal (ORW-607 part 2), with `bookHoldsWrong` the GRUDGE is
+ * the book's (a `heartbreak` row) and is not written here; without it the record carries the resentment too. Both views keep their history and romance count (non-degradation).
+ */
+export function foldBreakup(store: BondStore, leaver: EntityId, wronged: EntityId, opts: { bookHoldsWrong?: boolean } = {}): void {
+  const w = touch(store, wronged, leaver);
+  if (opts.bookHoldsWrong !== true) {
+    w.resentment = clamp(w.resentment + BOND.resentPerBreak * 2, 0, 1);
+    w.peakResentment = Math.max(w.peakResentment, w.resentment);
+  }
+  w.strain = clamp(w.strain + BOND.breakupStrain, 0, 1);
+  w.warmth = clamp(w.warmth - BOND.breakupWarmthLoss, 0, 1);
+  w.history += 1;
+  const l = touch(store, leaver, wronged);
+  l.strain = clamp(l.strain + BOND.breakerBreakupStrain, 0, 1);
+  l.warmth = clamp(l.warmth - BOND.breakerWarmthLoss, 0, 1);
+  l.history += 1;
+}
+
+/** THEME A / A3 (0207): a decision where heart and game pulled apart leaves strain on the holder's own view of the tie that lost. Directed; only the holder's side moves. */
+export function foldShaken(store: BondStore, holder: EntityId, other: EntityId, amount: number): void {
+  const r = touch(store, holder, other);
+  r.strain = clamp(r.strain + Math.max(0, amount), 0, 1);
+  r.history += 1;
 }
 
 /** A deal kept: a shared moment and a little warmth, both ways. */
