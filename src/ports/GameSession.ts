@@ -2113,6 +2113,11 @@ export interface WhereaboutsView {
    */
   sinceSend?: { arrived: string[]; departed: string[] };
   /**
+   * 0197 / ORW-631: a lead a houseguest gave the player (ORW-475, asking around) that the player has since SEEN did not hold up: the room named, and where the player found the person if they did. Plain observed
+   * facts, shown for a few turns. It never says whether the lead was stale or meant to mislead; the player decides whether to call it out. Absent when none lately.
+   */
+  leadsFoundWrong?: Array<{ toldBy: NamedRef; about: NamedRef; saidRoom: string; foundRoom?: string; fact: string }>;
+  /**
    * 0106 — a LIVE whole-house EVENT is in session: an EXCLUSIVE set-piece (a competition, or a
    * nomination / veto / eviction ceremony). When present, the whole house is gathered for it — so
    * `present` lists everyone and `nearby` is empty (there are no side rooms to slip into, and the player
@@ -2541,6 +2546,8 @@ export interface RetrospectiveView {
   dealPlans?: DealPlanRetro;
   /** 0200 / ORW-632: "your edit", the season as TV would have cut it: per-week episode facts (+ a composed floor title), who was cut a hero and a villain, how you came across. Facts only; the narrator voices the titles. Present ONLY on the post-season retrospective, only for a played game, never a number. */
   yourEdit?: import("../engine/yourEdit").YourEditView;
+  /** ORW-566 part d (0183): the season's alliances and close-pair habits as facts (names, the group's name, its words, the spot, the weeks, whether you knew). Present ONLY on the post-season retrospective, only for a played game with a group, never an id or a number. */
+  groupLife?: import("../engine/groupLifeRetro").GroupLifeView;
   /** ORW-624: America's Favorite, the public's pick after the crown (a name only, never a number). */
   americasFavorite?: { id: string; name: string };
   /** ORW-525 (spec 0157): the rumor mill. Present ONLY on the post-season retrospective, and only when the season held a false claim. */

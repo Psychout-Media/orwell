@@ -18,6 +18,7 @@ const relOf = (s: GameSessionAdapter) => (s as unknown as { rel: { edge(a: strin
 function premiere(played = true) {
   const s = new GameSessionRegistry().sandboxFor(`bedpick-${Math.random()}`).session as GameSessionAdapter;
   s.setPremiereEntrancesEnabled(true);
+  s.setBedRushEnabled(false); // ORW-672 / 0201: these pin the OLD walk-in-order claim (flag off); the bed rush has its own tests (bedRush.test.ts)
   s.createCharacter({ playerName: "P", seed: 11 });
   if (played) liveOf(s).playedGame = true; // a person is playing
   return s;

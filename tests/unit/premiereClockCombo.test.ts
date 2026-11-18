@@ -16,6 +16,7 @@ function shipped(seed: number) {
   const sb = new GameSessionRegistry().sandboxFor(`combo-${seed}-${Math.random()}`);
   const s = sb.session as GameSessionAdapter;
   s.setPremiereEntrancesEnabled(true);
+  s.setBedRushEnabled(false); // ORW-672 / 0201: this isolation test pins the old claim-as-they-walk-in premiere (flag off); the rush has its own tests (bedRush.test.ts)
   s.createCharacter({ playerName: "The Player", archetype: "floater", seed });
   s.setPerConversationClockEnabled(true);
   return s;

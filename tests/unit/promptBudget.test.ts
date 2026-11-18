@@ -62,7 +62,7 @@ describe("#1391 — narrator-prompt token budget (anti-re-bloat gate)", () => {
   });
 
   it("the premiere fragment stays under its budget", () => {
-    const BUDGET = 7_000; // ~1.75k tok — over the 6,795-char size
+    const BUDGET = 8_300; // ~2.1k tok — ORW-672 / 0201: the bed-rush instruction joined the bedroom pick (was 7,000 over a 6,795-char size)
     expect(MOMENT_PROMPTS["premiere"]!.length).toBeLessThanOrEqual(BUDGET);
   });
 

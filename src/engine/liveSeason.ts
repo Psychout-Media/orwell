@@ -588,6 +588,8 @@ export interface LiveSeasonState {
    */
   /** ORW-466 (Ryne 2026-11-15): assigned beds - each houseguest's bed and the append-only claim history. A played game only; absent on older saves and headless games. */
   beds?: import("./beds").BedsState;
+  /** ORW-672 / 0201: the bed rush (who races for which room, when they reach it, the claims made). Append-only log, monotonic tick; absent unless the rush ran. */
+  bedRush?: import("./bedRush").BedRushState;
   /** ORW-466 themes: the season's house theme id (`HOUSE_THEMES`); absent => plain room labels. Set by the themes wiring slice. */
   houseTheme?: string;
   /** ORW-509: the full definition when the season's house was authored by the writer (accepted by `acceptHouseThemeDraft`); re-registered on load so `houseTheme` resolves. Absent for a library theme or none. */
@@ -637,6 +639,8 @@ export interface LiveSeasonState {
   moodCauses?: Record<EntityId, MoodCause & { week: number }>;
   /** 0194 / ORW-626: every other mood CAUSE a houseguest has had (a lie found out, a friend gone, a bad night, a win or loss), append-only. Vault-class; voiced only when the houseguest chooses to say it. Played games only; absent otherwise. */
   moodCauseLog?: import("./moodCauses").MoodCauseEntry[];
+  /** 0197 / ORW-631: every lead a houseguest gave the player when asked where someone is (the room they named, whether they misled, how it later resolved by what the player saw). Append-only. Vault-class: the truth and the misled flag are never projected. Played games only; absent otherwise. */
+  toldLeads?: import("./toldLeads").ToldLead[];
   vetoField?: EntityId[];
   /** ORW-565: the absolute in-game hour ((day-1)*24 + clock hour) the veto DRAW finished (the field was published). Played games only; the competition waits a minimum gap after it. Re-armed each week. */
   vetoDrawnAtAbs?: number;
@@ -673,6 +677,8 @@ export interface LiveSeasonState {
    */
   /** 0178 (Theme 3 slice 1): each NPC's SECRET PLAN for each deal they agreed to (`dealPlans.ts`). Append-only, engine-only (Vault class), never projected; the retrospective shows it after the crown. */
   dealPlans?: PlanStore;
+  /** 0195 (ORW-628): evictees whose holdings were settled (deals lapsed, favors passed or lapsed, assurances lapsed). Engine-only, once each. */
+  evictedTaken?: EntityId[];
   dealOffer?: { id: string; from: EntityId; kind: DealKind; terms: string; madeWeek: number; /** 0142 idea 4: the open deal this offer would REPLACE (a houseguest renegotiating instead of breaking). Accepting retires that deal neutrally. */ replacesDealId?: string; /** 0171 (ORWELL_FAVORS): a counter in play - the round it is and what the houseguest asks for instead. Rides the one standing offer slot. */ counter?: { round: number; ask: { kind: "target" | "protect"; target: EntityId } | { kind: "vote" } }; /** 0171: this standing offer is a FAVOR between the houseguest and the player: `favorId` set = the houseguest calls in a favor the player owes them; absent = they ask the player for a new one. */ favor?: { favorId?: string } };
   /** 0171: counters the player accepted whose condition (a rival goes up / someone is kept safe) is not yet true. Booked as a favor only when the condition holds at that week's eviction; otherwise lapsed. Append-only, engine-only. */
   favorConditions?: Array<{ id: string; owedBy: EntityId; owedTo: EntityId; origin: string; kind: "target" | "protect"; target: EntityId; week: number; state: "waiting" | "booked" | "lapsed" }>;

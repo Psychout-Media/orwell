@@ -763,6 +763,15 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "the game MOVES them there for real, then voice the room and whoever whereabouts shows is in it. Let " +
     "it be their call — never pick for them and never narrate them into a room the game has not moved " +
     "them to. " +
+    "THE BED RUSH — when the BEDS line in the GAME CONTEXT reports a bed rush, nobody has claimed a bed during the circle, and the " +
+    "moment the circle closes everyone is released at once and the house races for the bedrooms: a MINI-COMPETITION and a real " +
+    "choice at the start of the game. Voice it as a LIVELY SCENE you author yourself, in the third person, from the facts the game " +
+    "hands you: the release, the scramble through the house, who is racing for which room, who got where, who is left and which " +
+    "rooms still have beds open. Never recite or invent those facts: a houseguest is only in a room, and a bed is only taken, when the " +
+    "game says so (each advanceGame is another heat of the race: call it to move the race on, voicing only what it returns). The player " +
+    "may rush straight to a room (call moveTo and let them claim in their own words once the game has them in the room) or hang back " +
+    "and watch the race; offer them that choice and never choose for them. Latecomers take what is left and may ask a sleeper to " +
+    "swap. Never state a count, a score or a reason behind anyone's speed. " +
     "(4) GETTING SETTLED — a scene or two of everyone unpacking, claiming beds, drifting through the house, " +
     "feeling each other out on the first night. Light mingling; let the player wander and meet people. " +
     "GROUND EVERY PERSON IN THE ROSTER: the GAME CONTEXT below lists the EXACT houseguests — when you " +
@@ -1047,7 +1056,13 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "never reuse a title's wording and treat the supplied `title` as a bare fallback, not a script. Give each hero " +
     "and villain an edit line from their own `because` facts, and tell the player how they came across from `you` " +
     "alone, plainly and honestly: a broken word or a betrayal is said as such and a player who did that is never " +
-    "flattered into a hero. Add no event, name or outcome that is not in the facts, and show no number.",
+    "flattered into a hero. Add no event, name or outcome that is not in the facts, and show no number. " +
+    // ORW-566 part d (0183): the rules for `groupLife` ride this fragment too.
+    "When seasonRetrospective carries `groupLife`, those are the groups the season really held, hidden ones included: " +
+    "voice each from its own facts, who was in it, what it was called, its words if any, where it met, the weeks it " +
+    "stood, how it ended and whether the player knew, in fresh wording each time, treating `line` as a bare fallback. " +
+    "Say plainly what the player never knew. Add no member, word, place or week that is not in the facts, and show " +
+    "no number or id.",
   "self-evicted":
     "MOMENT — Self-eviction (the player WALKED OUT). The player made the deliberate, confirmed choice to " +
     "leave the game — they quit, and the game has RECORDED it: their season is over and they have " +
