@@ -414,6 +414,10 @@ import { onNarrowChange } from './platform.js';
           <div class="os-row" id="os-last-evict-row" hidden><span class="os-k">Last out</span><span class="os-v" id="os-last-evict">—</span></div>
         </div>
         <div class="os-roster-h" id="os-roster-h" role="heading" aria-level="3">The House</div>
+        <section class="os-couch" id="os-couch" hidden aria-labelledby="os-couch-h">
+          <div class="os-couch-h" id="os-couch-h" role="heading" aria-level="3"></div>
+          <ol class="os-couch-list" id="os-couch-list"></ol>
+        </section>
         <div id="os-announce" aria-live="polite" style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);"></div>`;
 
     // Collapse persistence stays E71 per user+game — the kit drives the DOM (class + chevron +
@@ -757,6 +761,29 @@ import { onNarrowChange } from './platform.js';
     strip.hidden = false;
   }
 
+  // ORW-650 (0133 watch mode): the engine's own public moment strings for a WATCHING evictee, oldest first, shown verbatim.
+  // Pure: absent/empty/non-array (an active player, skip mode, a juror) -> [].
+  function couchMoments(state) {
+    const w = state && state.watching;
+    const list = w && Array.isArray(w.moments) ? w.moments : [];
+    return list.filter((m) => typeof m === "string" && m.trim()).map((m) => m.trim());
+  }
+
+  // Heading composed from the HUD's own roster heading + the player's own status word (no phrase menu).
+  function renderCouch(el, state) {
+    const sec = el.querySelector("#os-couch");
+    if (!sec) return;
+    const moments = couchMoments(state);
+    if (!moments.length) { sec.hidden = true; return; }
+    const pl = state.player || {};
+    const base = ((el.querySelector("#os-roster-h") || {}).textContent || "The House").split(" · ")[0];
+    setText(el.querySelector("#os-couch-h"), pl.status ? base + " · " + pl.status : base);
+    const ol = el.querySelector("#os-couch-list");
+    ol.textContent = "";
+    for (const m of moments) { const li = document.createElement("li"); li.textContent = m; ol.appendChild(li); }
+    sec.hidden = false;
+  }
+
   // The head-count tally + the player's own public role badge. From getGameState().house[] + the
   // ceremony status. No numbers. #955: the per-person NAME LIST was removed — it duplicated the
   // cast PHOTO gallery (#orwell-cast), which is now the single roster surface. This keeps only the
@@ -788,6 +815,8 @@ import { onNarrowChange } from './platform.js';
         });
       }
     }
+
+    renderCouch(el, state); // ORW-650: refreshed on every render (poll + orwell:gamechanged); hidden when absent
 
     // SG-15: the phase-conditional eviction-night seat cue.
     const hintEl = el.querySelector("#os-you-hint");
