@@ -28,9 +28,11 @@ function resolve(s: GameSessionAdapter, p: NonNullable<AdvanceView["pending"]>, 
 }
 
 let seq = 0;
-function watcher(mode: "watch" | "skip" = "watch"): { s: GameSessionAdapter; plant: (hidden: boolean, id: string, content: string) => void } {
+function watcher(mode: "watch" | "skip" = "watch"): { s: GameSessionAdapter; mcp: { callTool(name: string, args: unknown): Promise<unknown> }; plant: (hidden: boolean, id: string, content: string) => void } {
   for (let seed = 1; seed <= 60; seed++) {
-    const sb = new GameSessionRegistry().sandboxFor(`cw${seq++}`);
+    const reg = new GameSessionRegistry();
+    const user = `cw${seq++}`;
+    const sb = reg.sandboxFor(user);
     const s = sb.session;
     s.createCharacter({ playerName: "P", seed });
     for (let i = 0; i < 8000; i++) {
@@ -40,6 +42,7 @@ function watcher(mode: "watch" | "skip" = "watch"): { s: GameSessionAdapter; pla
         const ev = sb.engine.events;
         return {
           s,
+          mcp: reg.resolver()("player", user) as unknown as { callTool(name: string, args: unknown): Promise<unknown> },
           plant: (hidden: boolean, id: string, content: string) => void ev.record({ id, ts: ev.count(), type: "house-event", initiator: "x", witnessSet: hidden ? ["x"] : ["x", "player"], hidden, content }),
         };
       }
@@ -83,6 +86,20 @@ describe("watching from the couch (ORW-650)", () => {
     expect(before).toBeDefined();
     const k = watcher("skip"); k.s.advanceGame();
     expect(moments(k.s)).toBeUndefined();
+  });
+
+  it("boundary: the field rides getGameState through McpServer.callTool, public only, and a rebuilt session from the snapshot keeps the stamp", async () => {
+    const w = watcher("watch");
+    w.plant(true, "season:hidden-sentinel", "WALLSENTINEL hidden scheme");
+    w.s.advanceGame();
+    const viaTool = (await w.mcp.callTool("getGameState", {})) as { watching?: { moments: string[] } };
+    expect(viaTool.watching?.moments?.length, "the tool layer returns the field").toBeGreaterThan(0);
+    expect(viaTool.watching!.moments).toEqual(moments(w.s));
+    expect(JSON.stringify(viaTool)).not.toContain("WALLSENTINEL");
+    const snap = JSON.parse(JSON.stringify(w.s.snapshot()));
+    const t = new GameSessionRegistry().sandboxFor(`cw-restore-${seq++}`).session as unknown as { restore(x: unknown): void; live: { couchFromEvent?: number } };
+    t.restore(snap);
+    expect(t.live.couchFromEvent).toBe((w.s as unknown as { live: { couchFromEvent?: number } }).live.couchFromEvent);
   });
 
   it("is absent for an active player", () => {
