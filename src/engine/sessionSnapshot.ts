@@ -12,6 +12,7 @@ import type { Alliance } from "./alliances";
 import { isAgendaSuperset } from "./agenda";
 import { beliefStoreSuperset } from "./beliefStore";
 import { claimLogSuperset } from "./spokenClaims";
+import { sourceAsksSuperset } from "./sourceAsk";
 import { toldLeadsSuperset } from "./toldLeads";
 import { cleanActsSuperset } from "./comingClean";
 import { grudgeBookSuperset } from "./grudges";
@@ -980,6 +981,9 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
   // claims (0149 / ORW-591): the season's claim log is append-only - no claim told is ever lost, and its id counter never goes back.
   if (!claimLogSuperset(later.live?.claims, earlier.live?.claims)) return "claims";
 
+  // sourceAsks (ORW-687): the questions houseguests put to the player are append-only, and a read once made stays.
+  if (!sourceAsksSuperset(later.live?.sourceAsks, earlier.live?.sourceAsks)) return "sourceAsks";
+
   // toldLeads (0197 / ORW-631): the leads houseguests gave the player are append-only - none is ever lost.
   if (!toldLeadsSuperset(later.live?.toldLeads, earlier.live?.toldLeads)) return "toldLeads";
 
@@ -999,6 +1003,9 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
 
   // votesTalked (ORW-686): an eviction whose vote talk was had is never un-had (append-only; a restore must not re-roll it).
   if ((earlier.live?.votesTalked ?? []).some((k) => !(later.live?.votesTalked ?? []).includes(k))) return "votesTalked";
+  // lobbiesRecorded / meetingCallsDecided (ORW-686): once-per-key decisions are never un-made (append-only; a restore must not re-roll them).
+  if ((earlier.live?.lobbiesRecorded ?? []).some((k) => !(later.live?.lobbiesRecorded ?? []).includes(k))) return "lobbiesRecorded";
+  if ((earlier.live?.meetingCallsDecided ?? []).some((k) => !(later.live?.meetingCallsDecided ?? []).includes(k))) return "meetingCallsDecided";
 
   // bonds, grudges, group identity (ORW-606): the season-long stores of Theme 3 are never thinned. (Room tenure is deliberately outside: it resets whenever a houseguest moves.)
   if (!bondStoreSuperset(later.live?.bonds, earlier.live?.bonds)) return "bonds";
