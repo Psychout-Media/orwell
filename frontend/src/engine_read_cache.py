@@ -36,6 +36,7 @@ CACHEABLE = frozenset({"getGameState", "gameStatus"})
 PURE_READS = frozenset({
     "getGameState", "gameStatus", "getMomentPrompt", "stateDelta", "getVisibleStateFor", "whereabouts", "renderScene", "socialRead", "seasonRecap",
     "dailyRecap", "playerReceipts", "playerDossier", "playerTagline", "socialInitiatives", "worldSnapshotView", "npcVoice", "competitionStagingView", "openLedgerHere", "groupsAwaitingWords",
+    "hallOfFame",  # 0208 B3: a read of the per-user hall; commits nothing
     "beatLog",  # ORW-439: the engine's per-bump cause log (diagnostic read; commits and bumps nothing)
 })
 
