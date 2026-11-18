@@ -257,17 +257,25 @@ def test_ledger_entry_recorded(env):
         and rows[0]["provider"] == "deepseek"
 
 
-def test_runs_inside_the_portrait_semaphore(env, monkeypatch):
+def test_the_check_runs_after_the_image_slot_is_released(env, monkeypatch):
+    """Casting in the background, stage 1: the image slot covers only the generation. The check no longer holds it, so
+    checks may overlap other shots, while at most `portrait_parallel` images are ever being generated at once."""
     live = {"n": 0, "max": 0}
     monkeypatch.setattr(P, "portrait_parallel", lambda user=None: 1)
 
-    async def call(png, facts, user):
+    async def gen(prompt, user, reference_png=None, keep_identity=True):
         live["n"] += 1
         live["max"] = max(live["max"], live["n"])
         await asyncio.sleep(0.02)
         live["n"] -= 1
+        env.shots.append((prompt, reference_png))
+        return b"PNG"
+
+    async def call(png, facts, user):
+        await asyncio.sleep(0.05)
         return {"ok": True, "problems": []}
 
+    monkeypatch.setattr(P, "_generate_one", gen)
     monkeypatch.setattr(C, "check_portrait", call)
     _run(P.generate_and_store([_entry("npc:1"), _entry("npc:2")], "u", record_beats=False))
     assert live["max"] == 1 and len(env.shots) == 2
