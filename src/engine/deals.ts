@@ -74,6 +74,8 @@ export interface ReconcileSink {
   currentWeek?: number;
   /** Record a jury-management demerit: `wronged` will weigh `breaker`'s betrayal in their later lean. */
   juryDemerit?: (wronged: EntityId, breaker: EntityId, deal: Deal) => void;
+  /** 0194 follow-up: called once when a quiet break is LEARNED (`learnOfBreak`), so the wronged party's mood cause can be recorded. Engine-only; no rng. */
+  learned?: (wronged: EntityId, breaker: EntityId, deal: Deal) => void;
   /**
    * Record the witnessed reveal of a break into the wronged party's knowledge (returns its event id).
    * Receives the TRIGGERING action's `kind` (A7/E12) so the caller can seal ballot-tied attribution —
@@ -223,6 +225,7 @@ export class DealLedger {
     deal.sealedBallot = false; // the quiet break's projection seal lifts: the wronged party now knows (a secret-vote break never gets here)
     if (sink.rel && sink.rng) sink.rel.applyDirected(wronged, breaker, "betrayal", sink.rng, breakSeverityScale(deal, sink.currentWeek));
     sink.juryDemerit?.(wronged, breaker, deal);
+    sink.learned?.(wronged, breaker, deal);
     if (sink.dealsWitnesses && deal.formationWitnesses) for (const witness of deal.formationWitnesses) sink.revealToWitness?.(witness, breaker, deal);
     return true;
   }
