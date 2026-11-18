@@ -36,7 +36,7 @@ describe("0209: a routine decides where someone usually is", () => {
   it("the same inputs give the same day (keyed, no shared draw)", () => {
     expect(days(hv(), 60)).toEqual(days(hv(), 60));
   });
-  it("company is only whoever is already there; a regular is the closest bond and only if they are there", () => {
+  it("company is only whoever is already there; a regular is the closest bond if they are there", () => {
     const there = new Map<string, Room>([[HOLDER, "living-room"], [OTHER, "backyard"]]);
     const withRegular = days(hv({ routines: [{ ...strong, company: "a-regular", action: "work-out" }], whereabouts: there })).filter((p) => p.routine);
     expect(withRegular.length).toBeGreaterThan(0);
@@ -52,13 +52,13 @@ describe("0209: a routine decides where someone usually is", () => {
 });
 
 describe("0209: routines come from who the houseguest is", () => {
-  it("two to four per houseguest at distinct times, each a time, a place and an act; deterministic; many different compositions", () => {
+  it("two to four per houseguest, each a different act, each a time, a place and an act; deterministic; many different compositions", () => {
     const seen = new Set<string>();
     for (let seed = 1; seed <= 60; seed++) {
       const rs = floorRoutinesFor(char, `npc:${seed}`, seed);
       expect(rs.length).toBeGreaterThanOrEqual(ROUTINES.perPerson.min);
       expect(rs.length).toBeLessThanOrEqual(ROUTINES.perPerson.max);
-      expect(new Set(rs.map((r) => r.slot)).size).toBe(rs.length);
+      expect(new Set(rs.map((r) => r.action)).size).toBe(rs.length);
       expect(floorRoutinesFor(char, `npc:${seed}`, seed)).toEqual(rs);
       for (const r of rs) seen.add(routineKey(r));
     }

@@ -154,7 +154,8 @@ const ROUTINE_ROOMS: readonly Room[] = HOUSE_ROOMS.filter((r) => !r.startsWith("
 /** The acts a habit can be: ordinary life done alone or in company (never strategy, never a competition reaction, never the private diary room). Derived from the action library, not listed. */
 const ROUTINE_ACTIONS: readonly ActionKind[] = (Object.keys(ACTIONS) as ActionKind[]).filter((k) => {
   const a = ACTIONS[k];
-  return (a.family === "house-life" || a.family === "alone") && a.partners.min === 0 && !a.publicOnly && a.place !== "diary-room";
+  // done alone or in company, or a shared pastime with a usual place that needs someone there (a clash is never a habit)
+  return (a.family === "house-life" || a.family === "alone") && (a.partners.min === 0 || a.place !== undefined) && !a.publicOnly && a.place !== "diary-room" && a.fold !== "conflict";
 });
 
 /**
@@ -164,16 +165,22 @@ const ROUTINE_ACTIONS: readonly ActionKind[] = (Object.keys(ACTIONS) as ActionKi
  */
 export function floorRoutinesFor(c: AgendaCharacter, owner: EntityId, seed: number): Routine[] {
   const lean = (HOUSE_LIFE.habitLean[c.archetype] ?? []).map((h) => HABIT_ACTION[h].action);
-  const acts: readonly ActionKind[] = [...ROUTINE_ACTIONS, ...lean.filter((k) => ROUTINE_ACTIONS.includes(k))];
   const { min, max } = ROUTINES.perPerson;
   const count = min + Math.min(max - min, Math.floor(agendaRoll(seed, owner, "routine-count") * (max - min + 1)));
-  const slots = [...TIME_OF_DAY_ORDER].sort((a, b) => agendaRoll(seed, owner, `routine-slot:${a}`) - agendaRoll(seed, owner, `routine-slot:${b}`)).slice(0, count);
-  return slots.map((slot, i) => {
-    const r = composeFloorRoutine({ slots: [slot], rooms: ROUTINE_ROOMS, actions: acts }, {
-      slot: 0, place: agendaRoll(seed, owner, `routine-place:${i}`), action: agendaRoll(seed, owner, `routine-act:${i}`),
-      company: agendaRoll(seed, owner, `routine-company:${i}`), strength: agendaRoll(seed, owner, `routine-strength:${i}`),
+  // which acts: each act's own keyed roll, the archetype's lean adding a bonus (the old habit draw's shape), the top `count`; so the acts are distinct
+  const acts = [...ROUTINE_ACTIONS].map((k) => ({ k, w: (lean.includes(k) ? HOUSE_LIFE.habitLeanBonus : 0) + agendaRoll(seed, owner, `routine-act:${k}`) }))
+    .sort((a, b) => b.w - a.w || a.k.localeCompare(b.k)).slice(0, count).map((x) => x.k);
+  return acts.map((k, i) => {
+    // when: a time the act naturally belongs to (the times the old habits kept it); an act with none is kept at a time of day when the house is up
+    const natural = [...new Set(Object.values(HABIT_ACTION).filter((h) => h.action === k).flatMap((h) => h.when))];
+    const slots = natural.length ? natural : TIME_OF_DAY_ORDER.filter((t) => t !== "late-night");
+    const r = composeFloorRoutine({ slots, rooms: ROUTINE_ROOMS, actions: [k] }, {
+      slot: agendaRoll(seed, owner, `routine-slot:${i}`), place: agendaRoll(seed, owner, `routine-place:${i}`), action: 0,
+      company: agendaRoll(seed, owner, `routine-company:${i}`), strength: 0,
     });
-    return { ...r, place: ACTIONS[r.action as ActionKind].place ?? r.place };
+    const spec = ACTIONS[k];
+    // an act that can be shared is not kept alone on the floor (a houseguest who does it alone is the authored case); the floor keeps a routine firmly (0.9 to 1: the pull itself is capped at 0.7)
+    return { ...r, place: spec.place ?? r.place, company: spec.partners.max > 0 && r.company === "alone" ? (agendaRoll(seed, owner, `routine-who:${i}`) < 0.6 ? "whoever" : "a-regular") : r.company, strength: 0.9 + 0.1 * agendaRoll(seed, owner, `routine-strength:${i}`) };
   });
 }
 
@@ -507,8 +514,9 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
       const spot = k === "nap" && v.bedroom ? v.bedroom : r.place;
       const there = pool.filter((p) => roomOf(v, p) === spot && !avoid.has(p));
       const regular = byScore(pool.filter((p) => !avoid.has(p)), (p) => v.affinity.get(p) ?? 0.4)[0];
-      const company = r.company === "alone" ? [] : r.company === "a-regular" ? (regular !== undefined && there.includes(regular) ? [regular] : []) : there;
-      return { ...finish({ kind: k, with: company.slice(0, ACTIONS[k].partners.max), place: spot }), routine: routineKey(r) };
+      const company = r.company === "alone" ? [] : r.company === "a-regular" ? (regular !== undefined && there.includes(regular) ? [regular] : there) : there; // a regular is the closest bond if they are there, else whoever is
+      // a pastime that needs company and finds none falls through to ordinary life (the same as a ritual with nobody to share it)
+      if (company.length >= ACTIONS[k].partners.min) return { ...finish({ kind: k, with: company.slice(0, ACTIONS[k].partners.max), place: spot }), routine: routineKey(r) };
     }
   }
   const habit = v.routines ? undefined : v.habits.find((h) => HABIT_ACTION[h].when.includes(v.timeOfDay) && roll(`habit:${h}`) < HOUSE_LIFE.habitChance);

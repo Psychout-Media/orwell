@@ -23,11 +23,11 @@ const run = (v: HourView, n = 400): PlannedAction[] => Array.from({ length: n },
 const keeps = (ps: PlannedAction[]): number => ps.filter((p) => p.routine === routineKey(evening) && p.place === "backyard").length / ps.length;
 
 Given("habits: a cast of houseguests of one archetype", function () { base = view(); });
-Then("habits: each houseguest has two to four routines at different times of day, each a time, a place and an act", function () {
+Then("habits: each houseguest has two to four routines each a different act, each a time, a place and an act", function () {
   for (let seed = 1; seed <= 30; seed++) {
     const rs = floorRoutinesFor(char, `npc:${seed}`, seed);
     assert.ok(rs.length >= ROUTINES.perPerson.min && rs.length <= ROUTINES.perPerson.max);
-    assert.equal(new Set(rs.map((r) => r.slot)).size, rs.length);
+    assert.equal(new Set(rs.map((r) => r.action)).size, rs.length);
     assert.ok(rs.every((r) => r.place && r.action));
   }
 });

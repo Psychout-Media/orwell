@@ -6,7 +6,7 @@ Feature: Habits and routines
 
   Scenario: Routines are composed, two to four each, and differ from person to person
     Given habits: a cast of houseguests of one archetype
-    Then habits: each houseguest has two to four routines at different times of day, each a time, a place and an act
+    Then habits: each houseguest has two to four routines each a different act, each a time, a place and an act
     And habits: the same houseguest always composes the same routines, and the cast shares no fixed menu
 
   Scenario: A routine decides where someone usually is
