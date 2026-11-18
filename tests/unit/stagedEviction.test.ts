@@ -100,8 +100,11 @@ describe("eviction as a staged ceremony - NPC HOH, player votes", () => {
   });
   it("same evictee as the headless one-beat path (one rng order)", () => {
     const staged = boot(dir());
+    // ORW-574: the own view (played games only) is a deliberate played-vs-headless difference; this parity check is about the STAGING, so it is off on both
+    staged.setOwnViewEnabled(false);
     toEviction(staged, "npc");
     const headless = boot(dir(), false);
+    headless.setOwnViewEnabled(false);
     toEviction(headless, "npc");
     const sl = staged.live as LiveSeasonState, hl = headless.live as LiveSeasonState;
     expect(sl.finalNominees).toEqual(hl.finalNominees);

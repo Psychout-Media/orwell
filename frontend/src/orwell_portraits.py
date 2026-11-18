@@ -708,7 +708,9 @@ def log_attempt(houseguest_id: str, ok: bool, error_class: Optional[str] = None,
         entry["provider"] = {"model": str(provider.get("model") or "")[:80], "route": str(provider["route"])[:24]}   # ORW-480: who made the image
     if isinstance(cost, (int, float)) and not isinstance(cost, bool) and cost >= 0:
         entry["costUsd"] = round(float(cost), 6)  # ORW-480: only when the provider returned one (images, the check and any re-shoot)
-    if isinstance(check, dict):  # ORW-384: the photo-check verdict (codes only, never a prompt or image)
+    if isinstance(check, dict) and check.get("unverified"):  # the check was on but gave no verdict: recorded as unverified, never as passed
+        entry["checkUnverified"] = True
+    elif isinstance(check, dict):  # ORW-384: the photo-check verdict (codes only, never a prompt or image)
         entry["check"] = {k: v for k, v in check.items() if k in ("ok", "problems", "reshot", "first")}
     try:
         lines = []
@@ -1845,6 +1847,10 @@ async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref
         elif first is not None and border and "frame-or-border" not in first["problems"]:
             first = {"ok": False, "problems": list(first["problems"]) + ["frame-or-border"]}
         if first is None:
+            if C.check_enabled(user) and not image_gen_disabled():
+                # the check was on but gave no verdict (an empty answer, a timeout, an error): the photo is kept, but it is recorded as UNVERIFIED, never as passed
+                logger.warning("[portraits] photo check for %s gave no verdict: kept unverified", _hid_tag())
+                return png, {"unverified": True}
             return png, None
         logger.info("[portraits] photo check for %s: %s", _hid_tag(), "ok" if first["ok"] else "problems " + ",".join(map(str, first["problems"])))
         if first["ok"]:
@@ -1937,7 +1943,9 @@ def _write_portrait(user: Optional[str], houseguest_id: str, png: bytes, name: s
         entry["castLookReshot"] = True
     if isinstance(provider, dict) and provider.get("route"):  # ORW-480: which provider and route made this image (a Gemini fallback image can carry a watermark)
         entry["provider"] = {"model": str(provider.get("model") or "")[:80], "route": str(provider["route"])[:24]}
-    if isinstance(check, dict):  # ORW-384: {ok, problems, reshot} from the automatic photo check
+    if isinstance(check, dict) and check.get("unverified"):  # the check was on but gave no verdict: recorded as unverified, never as passed
+        entry["checkUnverified"] = True
+    elif isinstance(check, dict):  # ORW-384: {ok, problems, reshot} from the automatic photo check
         entry["check"] = {"ok": bool(check.get("ok")), "problems": list(check.get("problems") or []),
                           "reshot": bool(check.get("reshot"))}
         if check.get("retry") and not check.get("ok"):
