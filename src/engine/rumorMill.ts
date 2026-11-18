@@ -11,7 +11,7 @@
  * first; a belief-only row names the belief's recorded source, else the holder (they worked it out themselves).
  *
  * A "false belief" is a group of false claims (`isTrue` false) sharing one kind, subject and second party. DEFINITIONS (deterministic):
- *  - believers: the distinct NPCs those false claims were told to (the player is not a believer: the player holds no belief, and has `toldToYou`).
+ *  - believers: the distinct NPCs those false claims were told to, minus any who caught it (the belief that telling planted is refuted; ORW-595) (the player is not a believer: the player holds no belief, and has `toldToYou`).
  *  - starter: the speaker of the EARLIEST false claim in the group (log order). Later tellers whose intent was `inform` are `passedOn` (leaks, not
  *    starters); a later teller who meant to mislead, deflect, recruit, warn or protect is not listed as a leak.
  *  - biggest: rank by number of believers, then number of tellings, then the earliest claim; the top `RUMOR_MILL_CAP`.
@@ -22,7 +22,7 @@
 import type { EntityId } from "../domain/ids";
 import { PLAYER } from "../domain/ids";
 import type { ClaimLog, SpokenClaim, SpokenClaimKind } from "./spokenClaims";
-import { claimsOf, type BeliefStore } from "./beliefStore";
+import { claimsOf, plantedBy, type BeliefStore } from "./beliefStore";
 import { claimFromBelief, truthOf, type TruthFacts } from "./houseSpeech";
 import type { NamedRef, RumorMill, RumorMillBelief } from "../ports/GameSession";
 
@@ -78,7 +78,9 @@ export function buildRumorMill(log: ClaimLog | undefined, nameOf: (id: EntityId)
   const aboutOnly = new Set<Group>();
   const rows = [...groups.values()].map((g) => {
     const start = g.claims[0]!;
-    const believers = [...new Set(g.claims.filter((c) => c.listener !== PLAYER).map((c) => c.listener))].sort();
+    // ORW-595 (Fable T2-14): a listener who caught the lie (the belief this very telling planted is refuted) no longer believes it; being told is not believing.
+    const letGo = (c: SpokenClaim): boolean => (beliefs?.[c.listener] ?? []).some((b) => b.refuted === true && plantedBy(b, c.id));
+    const believers = [...new Set(g.claims.filter((c) => c.listener !== PLAYER && !letGo(c)).map((c) => c.listener))].sort();
     const passed = [...new Set(g.claims.slice(1).filter((c) => c.intent === "inform" && c.speaker !== start.speaker).map((c) => c.speaker))].sort();
     const row: RumorMillBelief = {
       claim: claimText(start.kind, nameOf(start.subject), start.object ? nameOf(start.object) : undefined, start.label),
