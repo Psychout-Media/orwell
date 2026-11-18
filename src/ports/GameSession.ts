@@ -2621,6 +2621,10 @@ export interface RetrospectiveView {
   socialMap?: { people: Array<{ id: EntityId; name: string; heldAs: Array<{ role: string; by: number }> }> };
   /** 0200 / ORW-632: "your edit", the season as TV would have cut it: per-week episode facts (+ a composed floor title), who was cut a hero and a villain, how you came across. Facts only; the narrator voices the titles. Present ONLY on the post-season retrospective, only for a played game, never a number. */
   yourEdit?: import("../engine/yourEdit").YourEditView;
+  /** ORW-649 (0211): the reunion on finale night, as facts: the confrontations, the lies that come out and the alliances to explain (names, plain kinds, weeks; the player in either seat). Present ONLY on the post-season retrospective, only for a played game, never an id or a number. */
+  reunion?: import("../engine/reunionRetro").ReunionView;
+  /** ORW-648 (0211): the story of you and each houseguest, as facts (how you met, the turning points, how it ended, the shape of their view of you). Present ONLY on the post-season retrospective, only for a played game, never an id or a number. */
+  yourStories?: import("../engine/reunionRetro").YourStoriesView;
   /** ORW-566 part d (0183): the season's alliances and close-pair habits as facts (names, the group's name, its words, the spot, the weeks, whether you knew). Present ONLY on the post-season retrospective, only for a played game with a group, never an id or a number. */
   groupLife?: import("../engine/groupLifeRetro").GroupLifeView;
   /** ORW-656: the season's notable NPC decisions as facts: week, kind, who decided, who it was about, and the closed kind of the reason they SAID beside the REAL one (the unsealing). Present ONLY on the post-season retrospective, only for a played game with a recorded decision, bounded, never an id or a number. */

@@ -75,6 +75,8 @@
 #   ORWELL_FINAL_HOH_THREE_PART Three-part Final HOH (0128, #2045) - endurance / physical+mental hybrid / quiz instead of one Final-3 comp. PO ruling 2026-11-04:
 #       on (engine default ON too; listed here so a box's .env states its posture). juryReach + calibrationGradient held their bands ON.
 #   ORWELL_WIPEOUT_REEL         Wipeout Reel (C1, #1788) - archetype-flavored failure text on staged-comp drops; presentation only, outcomes byte-identical. ON 2026-11-06 (ORW-16).
+#   ORWELL_REUNION              0211 / ORW-649: the reunion on finale night - after the crown the retrospective also carries the confrontations, the lies that come out and the alliances to explain, as facts the narrator voices (a played, finished game only; read-only; =0 opts out).
+#   ORWELL_YOUR_STORY           0211 / ORW-648: the story of you and them - each houseguest's own view of the player is sampled weekly (read-only, no rng) and after the crown the retrospective carries each story as facts (a played game only; =0 opts out).
 #   ORWELL_YOUR_EDIT            0200 / ORW-632: your edit - after the crown the post-season retrospective also carries the season as TV would have cut it (episode facts, who was cut a hero and a villain, how you came across); facts only, the narrator voices the titles (a played, finished game only). ON 2026-11-17.
 #   ORWELL_JUROR_PROFILES       Per-juror vote profiles (A2/A63) - measured calibration-neutral. ON 2026-11-06 (ORW-16).
 #   ORWELL_DIARY_CALLS          0210 / ORW-668 (Theme C slice 2): production visibly calls a houseguest to the Diary Room; the house sees who went, how long and how they looked coming back, never what was said; the player is invited, never sent (a played game only; no outcome changes). ON; `=0` is the kill switch.
@@ -92,6 +94,7 @@
 #   ORWELL_TERRITORY            0176 / ORW-561 slice 10 part 2: a hidden tenure map (hours per room), a mild pull toward people who share your top room, a small capped bond nudge for roommates (a played game only; =0 opts out).
 #   ORWELL_MOOD_CONTAGION       0185 / ORW-567 slice 15: a shocking eviction rattles the evictee's close allies most and the house a little; a big win lifts the winner's circle a little (moves the existing mood only; a played game only). ON 2026-11-17.
 #   ORWELL_REPUTATION           0184 / ORW-564 slice 8 part 1: what a houseguest has heard or seen of another's lying and turning on people (softened by promises kept to them) scales how far they believe that houseguest and how willing they are to deal with them (hidden; a played game only; needs ORWELL_BOND_RECORD). ON 2026-11-17.
+#   ORWELL_SAID_ALOUD_MEMORY    ORW-578 (b): a reason an NPC gave aloud at a public act is kept as a witnessed event the player (and the house) heard: the said kind in words only, never the real reason (a played game only; =0 opts out).
 #   ORWELL_ROOM_LIFE            0198 / ORW-621: the houseguests in the player's own room take their goal steps there, in the player's view (a bounded few per hour; the player is never moved or spoken for; a played game only; =0 opts out).
 #   ORWELL_FAVORS               0171 / Theme 3 slice 3: a counter asks for what the houseguest wants this week (rival up), a favor owed is a hidden debt that is called in at a close vote and costs trust (with witnesses) when refused, passed on, remembered; the bond's debt reads the ledger (a played game only). ON 2026-11-17; `=0` is the kill switch.
 #   ORWELL_GRUDGES              0182 / ORW-569 slice 5 PR 1: the grudge book - who holds a grudge against whom and why, fading but never zero (hidden; nothing decides from it yet; a played game only; needs ORWELL_BOND_RECORD). ON 2026-11-17.
@@ -268,9 +271,11 @@ ORWELL_PROMISE_TERMS=1
 ORWELL_REACTIVE_TWISTS=1
 ORWELL_REPLACEMENT_TERMS=1
 ORWELL_REPUTATION=1
+ORWELL_REUNION=1
 ORWELL_ROOM_CANON=1
 ORWELL_ROOM_LIFE=1
 ORWELL_ROUTINES=1
+ORWELL_SAID_ALOUD_MEMORY=1
 ORWELL_SCHEME_TARGETS=1
 ORWELL_SEASON_MEMORY=1
 ORWELL_SECRET_BARTER=1
@@ -302,5 +307,6 @@ ORWELL_WANT_MOVEMENT=1
 ORWELL_WEEK_CHAPTERS=1
 ORWELL_WIPEOUT_REEL=1
 ORWELL_YOUR_EDIT=1
+ORWELL_YOUR_STORY=1
 EOF
 }

@@ -252,12 +252,16 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // ORW-639 (Fable stacking audit S-10): the replacement nominee is picked with the same deal, pre-show tie, lobbying and kept-assurance terms as the original nominations (they were dropped before). A played game only; `=0` opts out.
   { envKey: 'ORWELL_REPLACEMENT_TERMS', key: 'replacementTerms', parser: 'defaultOn' },
   { envKey: 'ORWELL_REPUTATION', key: 'reputation', parser: 'defaultOn' },
+  // 0211 / ORW-649 (Ryne approved 2026-11-17): the reunion on finale night - after the crown the retrospective also carries the confrontations, the lies that come out and the alliances to explain, as facts the narrator voices. Read-only: a played, finished game only; `=0` = none.
+  { envKey: 'ORWELL_REUNION', key: 'reunion', parser: 'defaultOn' },
   // ORW-223 slice 1 (Showrunner memory part B): the room canon ledger - the narrated texture of a room is recorded as canon and listed in the Show Brief. ON by default ("built means on"); `=0` turns it off.
   { envKey: 'ORWELL_ROOM_CANON', key: 'roomCanon', parser: 'defaultOn' },
   // ORW-621 (spec 0198): the houseguests in the player's own room take their goal steps there, in the player's view (a bounded few; the player is never moved or spoken for). ON by default; `=0` turns it off.
   { envKey: 'ORWELL_ROOM_LIFE', key: 'roomLife', parser: 'defaultOn' },
   // 0209 / ORW-651 (Ryne approved 2026-11-17): each houseguest's routines (a time, a place, an act, composed from the character) shape where they are and what they do in a free hour, replacing the named-habit pull; the player learns one by seeing it on three separate days. Played games only; `=0` = the old habit branch.
   { envKey: 'ORWELL_ROUTINES', key: 'routines', parser: 'defaultOn' },
+  // ORW-578 (b): a reason an NPC gave aloud at a public act is kept as a witnessed event (the said kind in words only; never the real reason). ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_SAID_ALOUD_MEMORY', key: 'saidAloudMemory', parser: 'defaultOn' },
   { envKey: 'ORWELL_SCHEME_TARGETS',         key: 'schemeTargets',          parser: 'defaultOn' },
   // 0208 / ORW-662,663 (Theme B, Ryne approved 2026-11-18): seasons remember. A finished, played season's houseguests are archived per player, and a RETURN may cast one back (softened feelings, their own account); `=0` archives nothing and casts none.
   // 0208 / ORW-664 (Theme B slice B2, Ryne approved 2026-11-18): a returning player's reputation walks in deeper - the house's heard record of their broken word at season end (0184 standing, a bounded mean) feeds the treachery the next cast reads on day one, and the narrator is told the name they carry. Only when the player returns as the same character (0104); a new start gets nothing. `=0` is today's 0104 alone.
@@ -308,6 +312,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_WIPEOUT_REEL',            key: 'wipeoutReel',            parser: 'defaultOn' },
   // 0200 / ORW-632: your edit - after the crown, the season as TV would have cut it (episode facts, hero and villain edits, how the player came across); rides the post-season retrospective. `=0` = none.
   { envKey: 'ORWELL_YOUR_EDIT', key: 'yourEdit', parser: 'defaultOn' },
+  // 0211 / ORW-648 (Ryne approved 2026-11-17): the story of you and them - each houseguest's own view of the player is sampled weekly (read-only, no rng) and after the crown the retrospective carries each story as facts. A played game only; `=0` = no samples, no stories.
+  { envKey: 'ORWELL_YOUR_STORY', key: 'yourStory', parser: 'defaultOn' },
 ];
 
 /** The parsers, keyed by kind, to avoid re-creating closures on every call. */

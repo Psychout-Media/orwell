@@ -116,6 +116,8 @@ import { PULL_QUOTE } from "../../engine/pullQuoteConstants";
 import { buildDecisionReveal } from "../../engine/decisionReveal";
 import { buildGroupLife, type GroupLifeRow, type GroupLifeView } from "../../engine/groupLifeRetro";
 import { buildHallRecord, hallView, mergeHall, type HallOfFameView, type HallRecord } from "../../engine/hallOfFame";
+import { buildReunion, buildYourStories, type ReunionView, type StoryGuest, type YourStoriesView } from "../../engine/reunionRetro";
+import { claimText } from "../../engine/rumorMill";
 import { buildYourEdit, sceneMoment, weekMoments, weeksOfLog, type YourEditView } from "../../engine/yourEdit";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
 import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOut";
@@ -3913,6 +3915,9 @@ export class GameSessionAdapter implements GameSession {
   private npcTellsEnabled = flagDefaultOn("ORWELL_NPC_TELLS");
   /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default ON; needs the memory ledger): npcVoice hands the narrator what this houseguest remembers about the PLAYER (top 3, plain words) and an engine-decided `bringUp`. */
   private npcMemorySpeechEnabled = flagDefaultOn("ORWELL_NPC_MEMORY_SPEECH");
+  /** ORW-578 (b, ORWELL_SAID_ALOUD_MEMORY, default ON, played games): a reason given aloud at a public act is kept as a witnessed event. Settable for tests. */
+  private saidAloudMemoryEnabled = flagDefaultOn("ORWELL_SAID_ALOUD_MEMORY");
+  setSaidAloudMemoryEnabled(on: boolean): void { this.saidAloudMemoryEnabled = on; }
   /**
    * ORW-343 (ORWELL_MOOD_CUE, default ON; Ryne audit card 17, 2026-11-04: "a qualitative cue on the roster card, no numbers, no hidden cause"): each ACTIVE houseguest's cast card carries the mood word as the PLAYER LAST SAW
    * it: captured whenever the player shares a room with them while they are awake, and kept (not read live) until the player is with them again. A memory of what the player saw, never a live feed through walls (ADR 0003:
@@ -5254,10 +5259,72 @@ export class GameSessionAdapter implements GameSession {
       player: PLAYER, cast: this.house.npcs.map((n) => n.id).sort(), nameOf: (id) => this.nameOf(id),
       digests: s.weekDigests ?? [], voteRecord: s.voteRecord ?? [], calledPawn: (w, e) => this.calledPawn(w, e),
       events: events.map((e) => ({ type: e.type, initiator: e.initiator, witnessSet: e.witnessSet, hidden: e.hidden, content: e.content, ...(e.houseLife?.seenBy ? { seenBy: e.houseLife.seenBy } : {}) })),
-      eventWeeks: weeksOfLog(events, PULL_QUOTE.evictionCue, maxWeek),
+      eventWeeks: this.logWeeks(events, maxWeek),
       deals: this.deals.all, winner: s.winner ?? null,
       ...(finale?.votes ? { jury: { finalists: finale.finalists, votes: Object.values(finale.votes).map((votedFor) => ({ votedFor })) } } : {}),
     });
+  }
+  /** 0211 / ORW-649: the reunion on finale night (`ORWELL_REUNION`, default ON; `=0` = none). Played, finished games only; the caller holds the crown gate. Read-only: nothing is recorded or folded, no rng. */
+  private reunionEnabled = flagDefaultOn("ORWELL_REUNION");
+  setReunionEnabled(on: boolean): void { this.reunionEnabled = on; }
+  /** The reconstructed week of every log position (one place reads the eviction cue). */
+  private logWeeks(events: Parameters<typeof weeksOfLog>[0], maxWeek: number): number[] { return weeksOfLog(events, PULL_QUOTE.evictionCue, maxWeek); }
+  private buildReunionView(): ReunionView | undefined {
+    const s = this.live;
+    if (!this.reunionEnabled || !s?.finished || s.playedGame !== true || !this.house) return undefined;
+    const grudges = Object.entries(s.grudges ?? {}).map(([k, row]) => { const [holder, at] = k.split("|") as [EntityId, EntityId]; return { holder, at, size: row.peak, kind: row.kind }; })
+      .sort((a, b) => `${a.holder}|${a.at}`.localeCompare(`${b.holder}|${b.at}`));
+    const caught = (listener: EntityId, speaker: EntityId): boolean => listener !== PLAYER && claimsOf(s.beliefs, listener).some((c) => c.kind === "lied-to-me" && c.subject === speaker && !c.refuted && !!c.value);
+    const claims = (s.claims?.items ?? []).map((c) => ({
+      id: c.id, speaker: c.speaker, listener: c.listener, isTrue: c.isTrue, caught: caught(c.listener, c.speaker), week: c.week,
+      said: claimText(c.kind, this.nameOf(c.subject), c.object ? this.nameOf(c.object) : undefined, c.label),
+    }));
+    const store = s.groupIdentity ?? {};
+    const history = this.alliances.history();
+    const groups = [...new Set(history.map((h) => h.allianceId))].filter((id) => history.some((h) => h.allianceId === id && h.kind === "formed")).map((id) => {
+      const mine = history.filter((h) => h.allianceId === id);
+      const e = store[id];
+      const members = [...new Set(mine.flatMap((h) => [...h.members, ...(h.who ? [h.who] : [])]))].sort();
+      const hidden = !members.includes(PLAYER) && !mine.some((h) => h.playerKnew);
+      const name = e?.sealed?.name ?? e?.words?.name ?? this.alliances.byId(id)?.name ?? mine[mine.length - 1]!.name;
+      const fromWeek = e?.week ?? 1;
+      const untilWeek = this.alliances.byId(id) ? undefined : (e?.endedWeek ?? s.week);
+      return { id, members, hiddenFrom: hidden ? [PLAYER] : [], weeks: Math.max(1, (untilWeek ?? s.week) - fromWeek + 1), name: this.retroScrub(name), fromWeek, ...(untilWeek !== undefined ? { untilWeek } : {}) };
+    });
+    return buildReunion({ finished: true, nameOf: (id) => this.nameOf(id), grudges, claims, groups });
+  }
+  /** 0211 / ORW-648: the story of you and them (`ORWELL_YOUR_STORY`, default ON; `=0` = no samples, no stories). Played, finished games only; the caller holds the crown gate. */
+  private yourStoryEnabled = flagDefaultOn("ORWELL_YOUR_STORY");
+  setYourStoryEnabled(on: boolean): void { this.yourStoryEnabled = on; }
+  /** ORW-648: one sample a week (the latest of the week) of each living houseguest's OWN view of the player. A pure read (`peek` creates no edge), no rng, played games only. */
+  private yourStoryTick(): void {
+    const s = this.live;
+    if (!this.yourStoryEnabled || !s || s.playedGame !== true || s.finished || !this.house) return;
+    const store = (s.viewOfPlayer ??= {});
+    const two = (x: number): number => Math.round(x * 100) / 100;
+    for (const id of s.active) {
+      if (id === PLAYER) continue;
+      const e = this.rel.peek(id, PLAYER);
+      const row = (store[id] ??= []);
+      const point = { week: s.week, trust: two(e.trust), affinity: two(e.affinity) };
+      const last = row[row.length - 1];
+      if (last && last.week === s.week) row[row.length - 1] = point; else row.push(point);
+    }
+  }
+  private buildYourStoriesView(): YourStoriesView | undefined {
+    const s = this.live;
+    if (!this.yourStoryEnabled || !s?.finished || s.playedGame !== true || !this.house) return undefined;
+    const events = this.record?.events() ?? [];
+    const maxWeek = (s.weekDigests ?? []).reduce((m, d) => Math.max(m, d.week), 1);
+    const weeks = this.logWeeks(events, maxWeek);
+    const finalists = new Set<EntityId>(s.finale?.finalists ?? s.finalTwo ?? []);
+    const guests: StoryGuest[] = this.house.npcs.map((n) => n.id).sort().map((id) => {
+      const scenes = events.flatMap((e, i) => (!e.hidden && e.type !== "house-event" && (e.witnessSet.includes(id) || e.initiator === id) && (e.witnessSet.includes(PLAYER) || e.initiator === PLAYER)) ? [{ week: weeks[i]!, kind: e.type }] : []);
+      const out = (s.weekDigests ?? []).find((d) => d.evictee === id);
+      const votedFor = s.finale?.votes?.[id];
+      return { id, points: s.viewOfPlayer?.[id] ?? [], scenes, ...(out ? { evictedWeek: out.week } : {}), ...(votedFor ? { votedFor } : {}), ...(finalists.has(id) ? { finalist: true } : {}) };
+    });
+    return buildYourStories({ finished: true, nameOf: (id) => this.nameOf(id), winner: s.winner ?? null, guests });
   }
   /** ORW-566 part d (0183): every alliance and close-pair habit the season held, hidden ones included (the retrospective is the sanctioned unsealing; the caller holds the crown gate). Names only. */
   private buildGroupLifeView(): GroupLifeView | undefined {
@@ -5325,7 +5392,9 @@ export class GameSessionAdapter implements GameSession {
     const groupLife = this.buildGroupLifeView(); // 0183 part d: the sanctioned unsealing of hidden groups' names and words; same gate; facts only
     const decisionReveal = this.live.playedGame === true ? buildDecisionReveal({ records: this.live.statedReasons, voteRecord: this.live.voteRecord, nameOf: (id) => this.nameOf(id) }) : undefined; // ORW-656: said vs real reason kinds, words only; same crown gate
     const socialMap = this.socialMapRetro(); // 0184 part 2c: after the crown only
-    return { ...(socialMap ? { socialMap } : {}), ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(decisionReveal ? { decisionReveal } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
+    const reunion = this.buildReunionView(); // 0211 / ORW-649: after the crown only (the same gate); read-only facts
+    const yourStories = this.buildYourStoriesView(); // 0211 / ORW-648: after the crown only (the same gate); read-only facts
+    return { ...(reunion ? { reunion } : {}), ...(yourStories ? { yourStories } : {}), ...(socialMap ? { socialMap } : {}), ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(decisionReveal ? { decisionReveal } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
@@ -13102,6 +13171,7 @@ export class GameSessionAdapter implements GameSession {
    */
   campaignTick(): void {
     if (!this.campaignsEnabled || !this.house) return;
+    this.yourStoryTick(); // ORW-648: a read-only weekly sample (no rng, no edge created)
     this.syncTargetsMeClaims(); // ORW-581: the threat reads below see the beliefs as of this tick, written here rather than inside the reads
     this.campaignTickCount += 1;
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:campaigns:${this.campaignTickCount}`));
@@ -15614,23 +15684,49 @@ export class GameSessionAdapter implements GameSession {
     return first ?? fn[0];
   }
 
+  /**
+   * ORW-578 (b): a reason an NPC gave aloud at a public act stays in the house's shared memory. When the act is on the board (the same window the narrator may voice it in), the
+   * reason is recorded ONCE as a witnessed event: the speaker and everyone then in the house heard it, the player among them, so it is never hidden. The event holds only the SAID kind
+   * and the subject, composed in words from the closed kind and the names; the real reason (goal, terms, candor) never leaves `live.statedReasons`, and the record keeps the event's id
+   * (`saidEventId`) so a later recall can set what was said beside what drove it. No rng, no fold, no relationship change: a record only. A played game with the flag on; the player must have been in the house.
+   */
+  private recordSaidAloud(): void {
+    const s = this.live;
+    if (!this.saidAloudMemoryEnabled || !s || s.playedGame !== true || !this.house || !this.onPlayerEvent || !s.statedReasons?.length) return;
+    const out = new Set(s.evictionOrder);
+    for (const r of s.statedReasons) {
+      if (r.saidEventId !== undefined || !r.public) continue;
+      const evicted = (r.decision === "vote" || r.decision === "final-hoh-evict") && out.has(r.real.choice); // the result rolled the week in the same step: the eviction itself is the carry
+      if (!evicted && !(r.week === s.week && this.statedReasonCarried(s, r))) continue;
+      const v = voiceableReason(r.stated);
+      const heard = [...new Set([r.decider, v.about, ...this.livingIds()])];
+      if (!heard.includes(PLAYER)) continue; // a player who was no longer in the house did not hear it, so it is not their witnessed memory
+      const words = (slug: string): string => slug.replace(/-/g, " ");
+      const id = this.onPlayerEvent(`${this.nameOf(r.decider)} gave a reason aloud (${words(r.decision)}, about ${this.nameOf(v.about)}): ${words(v.kind)} (week ${weekWords(r.week)})`, heard, "said-aloud");
+      if (id !== undefined) r.saidEventId = id;
+    }
+  }
+
+  /** Whether a stated reason's public act is on the board right now (the voiceable window). Shared by the narrator's view and the said-aloud memory sweep. */
+  private statedReasonCarried(s: LiveSeasonState, r: StatedReasonRecord): boolean {
+    const c = r.real.choice;
+    switch (r.decision) {
+      case "nominate": return (s.nominees as readonly EntityId[] | undefined)?.includes(c) === true;
+      case "replacement": return s.replacement === c;
+      case "veto": return s.saved === c;
+      case "veto-hold": return !s.vetoUsed && (s.beat === "eviction" || s.beat === "final-eviction"); // ORW-578 part 2b: once the ceremony has passed with the veto unused
+      case "hc-pick": return s.vetoField?.includes(c) === true; // ORW-578 part 3: the pick is public once the draw is
+      case "final-hoh-evict": return s.evictee === c;
+      case "deal-renegotiate": return s.dealOffer?.from === r.decider && s.dealOffer.replacesDealId !== undefined;
+      case "vote": return s.evictee === c;
+      default: return false;
+    }
+  }
+
   private statedReasonsFor(id: EntityId): StatedReasonView[] {
     const s = this.live;
     if (!s || s.playedGame !== true || !s.statedReasons?.length) return [];
-    const carried = (r: StatedReasonRecord): boolean => {
-      const c = r.real.choice;
-      switch (r.decision) {
-        case "nominate": return (s.nominees as readonly EntityId[] | undefined)?.includes(c) === true;
-        case "replacement": return s.replacement === c;
-        case "veto": return s.saved === c;
-        case "veto-hold": return !s.vetoUsed && (s.beat === "eviction" || s.beat === "final-eviction"); // ORW-578 part 2b: once the ceremony has passed with the veto unused
-        case "hc-pick": return s.vetoField?.includes(c) === true; // ORW-578 part 3: the pick is public once the draw is
-        case "final-hoh-evict": return s.evictee === c;
-        case "deal-renegotiate": return s.dealOffer?.from === r.decider && s.dealOffer.replacesDealId !== undefined;
-        case "vote": return s.evictee === c;
-        default: return false;
-      }
-    };
+    const carried = (r: StatedReasonRecord): boolean => this.statedReasonCarried(s, r);
     return s.statedReasons
       .filter((r) => r.week === s.week && r.public && r.decider === id && carried(r))
       .map((r) => { const v = voiceableReason(r.stated); return { decision: r.decision, kind: v.kind, about: { id: v.about, name: this.nameOf(v.about) } }; });
@@ -16974,7 +17070,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-382 (Ryne, playtest 11-15: no day-in-review when he went to bed on Day 1): the premiere night and any quiet day have no ceremony/deal, so the review was EMPTY and the narrator rightly skipped it. The scenes the player
     // witnessed themselves (never hidden, in their own witness set) are their own knowledge - the review is built from those too. Capped, trimmed, no rng.
     const yourDay = allEvents.slice(evFrom)
-      .filter((e) => !e.hidden && !isHighlight(e) && e.type !== "surfacing" && e.type !== "gossip" && e.type !== "diary-room" && !(e.type === "diary-call" && e.initiator === PLAYER) && e.witnessSet.includes(PLAYER) && e.content.trim().length > 0 && !e.content.startsWith("surfaced to player via ")) // ORW-385: the player's own Diary Room is out-of-character and never enters "your day" (0013, 0102). review of #2664/#2672: by kind, never by matching text (a separate scene with identical words stays); bookkeeping kinds never ride // the provenance bookkeeping event is not a scene (live check: it reached the model raw)
+      .filter((e) => !e.hidden && !isHighlight(e) && e.type !== "surfacing" && e.type !== "gossip" && e.type !== "said-aloud" && e.type !== "diary-room" && !(e.type === "diary-call" && e.initiator === PLAYER) && e.witnessSet.includes(PLAYER) && e.content.trim().length > 0 && !e.content.startsWith("surfaced to player via ")) // ORW-385: the player's own Diary Room is out-of-character and never enters "your day" (0013, 0102). review of #2664/#2672: by kind, never by matching text (a separate scene with identical words stays); bookkeeping kinds never ride // the provenance bookkeeping event is not a scene (live check: it reached the model raw)
       .map((e) => e.content.trim().slice(0, 200)).slice(-5);
     const knownAll = this.playerKnowledgeReader?.() ?? [];
     const knFrom = Math.min(s.dailyRecapKnowledgeCursor ?? 0, knownAll.length);
@@ -18833,6 +18929,7 @@ export class GameSessionAdapter implements GameSession {
     // step and a T0-2 auto-advanced beat chained off `submitDecision` (both call `commit`), so the two
     // paths announce identically — the whole point of the fix.
     this.recordAnnouncements(ev);
+    this.recordSaidAloud(); // ORW-578 (b): a reason said aloud at a public act is kept as a witnessed event before the week can roll it away
     this.syncProjection();
     this.prunePresence(); // the just-evicted occupy no room (0049)
     this.persist();

@@ -623,6 +623,8 @@ export interface LiveSeasonState {
   groupIdentity?: import("./groupIdentity").GroupIdentityStore;
   /** 0172 / ORW-603, ORW-611 (Theme 3 slice 6; VAULT-CLASS, engine-only, persisted, never projected): per NPC alliance id, its hidden group life (roles, inner circle, purpose, private cut orders, a spy, a shadow link). Absent unless ORWELL_GROUP_ROLES drew one. */
   groupLife?: Record<string, import("./groupLife").GroupLife>;
+  /** ORW-648 (0211; VAULT-CLASS, engine-only, persisted, never projected): each houseguest's OWN view of the player, one sample per week (the latest of that week; trust and affinity, two decimals). Played games with ORWELL_YOUR_STORY only; read only after the crown. */
+  viewOfPlayer?: Record<string, Array<{ week: number; trust: number; affinity: number }>>;
   /** 0172: the last in-game day the group-life pass ran (it runs once a day). */
   groupLifeDay?: number;
   /** ORW-566 part c2 (VAULT-CLASS, engine-only): alliances whose secret name still waits for an authored one (oldest first); the open sealed naming tickets; the last night a batch was issued. */
