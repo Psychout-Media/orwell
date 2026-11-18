@@ -65,7 +65,10 @@ import { juryFadeRate, juryEaseFactor, juryPersonalityMult, type JuryPersonality
 import { planJuryNotes } from "../../engine/juryNotes";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
-import { chooseHourAction, assembleScenes, habitsFor, actionLine, roomActLine, formPlan, GOAL_PLAN, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction, type PlanStep } from "../../engine/houseLife";
+import { chooseHourAction, assembleScenes, habitsFor, floorRoutinesFor, routinesFromHabits, actionLine, roomActLine, formPlan, GOAL_PLAN, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction, type PlanStep } from "../../engine/houseLife";
+import { addRoutines, noteSighting, routineKey } from "../../engine/routineLife";
+import type { Routine } from "../../engine/routines";
+import type { Habit } from "../../engine/houseLifeConstants";
 import { HOUSE_LIFE, ROOM_LIFE } from "../../engine/houseLifeConstants";
 import { REASONS } from "../../engine/agendaConstants";
 import { askDisposition, askRoll } from "../../engine/askAround";
@@ -13483,7 +13486,12 @@ export class GameSessionAdapter implements GameSession {
       if (e.kind === "joined" || e.kind === "left" || GROUP_CHANGES.has(e.kind)) { this.alliances.markRecorded(e.seq, "none"); continue; }
       if (e.kind === "betrayed" || (e.kind === "formed" && e.founder === PLAYER)) { this.alliances.markRecorded(e.seq, "existing"); continue; }
       const who = e.members.map((m) => this.nameOf(m)).join(", ");
-      const witnesses = e.playerKnew && !e.members.includes(PLAYER) ? [...e.members, PLAYER] : [...e.members];
+      // Only members still IN the game witness the event: a member already out (evicted, maybe sent to the jury house) is never put in a scene with the houseguests who are still playing (jury sequestration, 0129);
+      // the full roster stays in the append-only alliance history, so nothing is lost. An alliance with nobody left in the game records no event (the history is its record).
+      const inGame = (m: EntityId): boolean => m === PLAYER || (this.live?.active ?? []).includes(m);
+      const present = e.members.filter(inGame);
+      if (present.length === 0) { this.alliances.markRecorded(e.seq, "none"); continue; }
+      const witnesses = e.playerKnew && !present.includes(PLAYER) ? [...present, PLAYER] : [...present];
       // A DISSOLUTION the player witnesses never lists the roster that ended it: the member who left (a sealed eviction ballot, E12 / A7) would be named by elimination. The Vault-side copy keeps the full roster.
       const roster = (e.kind === "dissolved" || (e.kind === "faded" && this.groupRolesOn())) && witnesses.includes(PLAYER) ? "" : `: ${who}`;
       const content = e.kind === "formed" ? `The alliance "${e.name}" formed${roster}`
@@ -14512,6 +14520,27 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-620 (night owls): late-night talks among the houseguests still up, catchable by a player who stays up. ON unless `ORWELL_NIGHT_OWLS=0`. Played games only; OFF => the hour view carries no `nightOwl` => byte-identical. */
   private nightOwlsEnabled = flagDefaultOn("ORWELL_NIGHT_OWLS");
   setNightOwlsEnabled(on: boolean): void { this.nightOwlsEnabled = on; }
+  /** ORW-651 / spec 0209 (habits and routines): each houseguest's routines (a time, a place, an act) shape where they are and what they do in a free hour, replacing the named-habit pull; the player learns one by seeing it on separate days. ON unless `ORWELL_ROUTINES=0`. Played games only; OFF => no routine on the hour view => the old habit branch, byte-identical. */
+  private routinesEnabled = flagDefaultOn("ORWELL_ROUTINES");
+  setRoutinesEnabled(on: boolean): void { this.routinesEnabled = on; }
+  /** A houseguest's routines, composed once (the cast-authoring habits mapped when they landed, else the engine floor from the character) and kept for the season: never replaced or thinned. Engine-only. */
+  private routinesOf(id: EntityId, character: AgendaCharacter, authoredHabits: readonly Habit[] | undefined, seed: number): Routine[] {
+    const store = (this.live!.routines ??= {});
+    return store[id] ?? addRoutines(store, id, authoredHabits?.length ? routinesFromHabits(authoredHabits, id, seed) : floorRoutinesFor(character, id, seed));
+  }
+  /**
+   * ORW-651: the player is where a routine puts its holder, awake, on this day: count it. On the third separate day the player knows the routine, as a third-person fact the narrator may voice
+   * (the holder's name, the room, the time of day, the act or the authored words); the numbers and the routine record itself stay engine-side.
+   */
+  private noteRoutineSighting(p: PlannedAction, day: number, knowledge: KnowledgeService | undefined): void {
+    if (!p.routine || !this.live) return;
+    const { learned } = noteSighting((this.live.routineSightings ??= {}), p.actor, p.routine, day);
+    if (!learned || !knowledge) return;
+    const me = this.house!.player.id;
+    const r = this.live.routines?.[p.actor]?.find((x) => routineKey(x) === p.routine);
+    const content = `${this.nameOf(p.actor)} is usually in the ${p.place.replace(/-/g, " ")} in the ${p.routine.split(":")[0]!.replace(/-/g, " ")}, ${r?.gist ?? `their usual: ${p.kind.replace(/-/g, " ")}`}`;
+    if (!knowledge.knownTo(me).some((f) => f.content === content)) knowledge.seedBelief(me, { content, factId: `routine:${p.actor}:${p.routine}`, confidence: 1, hops: 0, distortion: 0 }, "witnessed");
+  }
   setHouseLifeEnabled(on: boolean): void { this.houseLifeEnabled = on; }
   houseLifeActiveNow(): boolean {
     return this.houseLifeEnabled && this.live?.playedGame === true && !!this.live.agendas && !!this.house && !!this.presence;
@@ -14837,6 +14866,7 @@ export class GameSessionAdapter implements GameSession {
       if (!room && this.goalPlansOn()) this.maintainGoalPlans(id, day); // ORW-625: goal plans advance only for the usual stretch, never for the room's speculative look
       const hv: Parameters<typeof chooseHourAction>[0] = {
         owner: id, character, agenda: s.agendas?.[id], ...(avoid.length ? { avoid } : {}), habits: authored[id]?.habits ?? habitsFor(character, id, seed),
+        ...(this.routinesEnabled && s.playedGame === true ? { routines: this.routinesOf(id, character, authored[id]?.habits, seed) } : {}), // ORW-651
         emotional: this.soulObj(id)?.emotionalState ?? 0.5, room: whereM.get(id)!, whereabouts: viewM,
         affinity: new Map([...others, ...(withPlayerView ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).affinity] as const)),
         threat: new Map([...others, ...(withPlayerView ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).threat] as const)), // ORW-507 (#2612): the player is in the threat map too (the planner used a flat 0.3 for them)
@@ -14875,6 +14905,7 @@ export class GameSessionAdapter implements GameSession {
       if (presence.get(p.actor) !== p.place) { this.presenceTenure?.set(p.actor, 0); this.presenceZone?.delete(p.actor); } // ORW-386: walking to another room is a fresh arrival; the tenure used to keep counting through this move (Marisol: "22 turns" in a kitchen she had just walked into)
       presence.set(p.actor, p.place);
       this.presenceBase?.set(p.actor, p.place);
+      if (p.routine && playerUp && p.place === playerRoom) this.noteRoutineSighting(p, day, knowledge); // ORW-651: the player is there, awake, and sees them keep it
     }
     // ORW-561 (spec 0176 part 2): after they have walked, each awake houseguest's hour accrues to the hidden tenure map where they ended up (the HOH room too: slice 11 reads that time; the Diary Room is private).
     if (this.territoryOn()) { const t = (s.tenure ??= {}); for (const id of awakeIds) { const r = presence.get(id); if (r && r !== "diary-room") bumpTenure(t, id, r); }

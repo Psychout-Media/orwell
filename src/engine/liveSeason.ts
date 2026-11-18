@@ -1001,6 +1001,9 @@ export interface LiveSeasonState {
   lifeHour?: { at: number; n: number };
   /** ORW-668 (0210 C2, played games only): the Diary Room calls - who is in there now, the append-only record of finished calls (`diaryCallSeen`, no content field), calls per day, the player's last recorded visit. Engine-only. Absent in headless sims => byte-identical. */
   diaryCalls?: import("./diaryCalls").DiaryCallsState;
+  /** ORW-651 / spec 0209 (VAULT-CLASS, engine-only, never projected): each houseguest's routines, composed once and kept (never replaced or thinned); and the days the player has seen each kept (3 separate days = known). A played game only. */
+  routines?: Record<EntityId, import("./routines").Routine[]>;
+  routineSightings?: import("./routineLife").RoutineSightings;
   interruption?: { npc: string; desire: string; atHour: number; /** ORW-261: a VOLUNTEERED (nobody asked) private-orientation disclosure the houseguest chose to make as they step in (the engine-authored sentence; also recorded as a told-by fact). */ tells?: string };
   /** ORW-443: the #2736 cap withheld an approach THIS turn (per-turn; cleared at the next conversation tick). Vault-free flag, narration-only. */
   approachHeld?: true;

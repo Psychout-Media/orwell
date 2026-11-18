@@ -250,6 +250,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_ROOM_CANON', key: 'roomCanon', parser: 'defaultOn' },
   // ORW-621 (spec 0198): the houseguests in the player's own room take their goal steps there, in the player's view (a bounded few; the player is never moved or spoken for). ON by default; `=0` turns it off.
   { envKey: 'ORWELL_ROOM_LIFE', key: 'roomLife', parser: 'defaultOn' },
+  // 0209 / ORW-651 (Ryne approved 2026-11-17): each houseguest's routines (a time, a place, an act, composed from the character) shape where they are and what they do in a free hour, replacing the named-habit pull; the player learns one by seeing it on three separate days. Played games only; `=0` = the old habit branch.
+  { envKey: 'ORWELL_ROUTINES', key: 'routines', parser: 'defaultOn' },
   { envKey: 'ORWELL_SCHEME_TARGETS',         key: 'schemeTargets',          parser: 'defaultOn' },
   { envKey: 'ORWELL_SECRET_BARTER',          key: 'secretBarter',           parser: 'defaultOn' },
   // ORW-647 (spec 0204): the night it all comes out - a fact enough houseguests hold breaks in front of the awake house, or its own subject blows it up when pressured; consequences land through the bond, belief and grudge stores. ON by default; `=0` turns it off.
