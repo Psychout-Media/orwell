@@ -760,6 +760,7 @@ describe("review: a REFUSED commit rolls the ledger back, and the next good comm
       expect(() => step(cur(), viewBefore)).toThrow();
       save.mockImplementation((u: string) => realSave(u));
       cur().setAdvanceGateEnabled(false); // the rebuilt session starts with its defaults; the test's setup is re-applied
+      (cur() as unknown as { setOwnViewEnabled(on: boolean): void }).setOwnViewEnabled(false); // ...all of it: the twin runs with the own view off (ORW-574, and ORW-634's referendum rides it)
       expect(ledgerJson(cur()), "rolled back to the pre-commit ledger").toBe(beforeJson);
       if (evicts) { refusedEviction++; for (const e of priv(cur()).openLedger.entries) expect(["open"]).toContain(e.status); } else refusedChange++;
       expect(priv(cur()).openLedger.due ?? {}).toEqual(JSON.parse(beforeJson).due ?? {});

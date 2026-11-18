@@ -121,12 +121,15 @@ export function beliefStoreSuperset(later: BeliefStore | undefined, earlier: Bel
     const next = later?.[holder as EntityId] ?? [];
     const byId = new Map(next.map((b) => [b.id, b] as const));
     const atCap = next.length >= BELIEF_CAP_PER_HOLDER;
-    const refutedKept = prev.some((b) => b.refuted === true && byId.has(b.id));
+    // The oldest week among the already-refuted beliefs that survived. A belief live at the earlier save may have been refuted LATER IN THE SAME COMMIT
+    // and then been the cap's refuted-first victim (oldest refuted week wins), so a live loss is legal while every surviving refuted belief is not older.
+    let oldestRefutedKept = Infinity;
+    for (const b of prev) if (b.refuted === true && byId.has(b.id) && b.week < oldestRefutedKept) oldestRefutedKept = b.week;
     for (const b of prev) {
       const now = byId.get(b.id);
       if (!now) {
         if (!atCap) return false;                          // only the cap ever lets a belief go
-        if (b.refuted !== true && refutedKept) return false; // ... and it takes a refuted belief before a live one
+        if (b.refuted !== true && b.week > oldestRefutedKept) return false; // ... and it takes a refuted belief before a live one (see above)
         continue;
       }
       for (const id of b.alsoClaims ?? []) if (!(now.alsoClaims ?? []).includes(id)) return false;

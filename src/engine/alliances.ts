@@ -85,16 +85,8 @@ export const ALLIANCE: AllianceConstants = {
   betrayalThreatBump: 0.18,
 };
 
-/** Generic, BB-plausible alliance NAMES (never a houseguest name) — an NPC names theirs from this pool. */
-export const ALLIANCE_NAMES: readonly string[] = [
-  "The Brigade", "The Committee", "The Core", "The Nucleus", "Final Four", "The Quad", "Six Pack",
-  "The Pact", "The Syndicate", "The Inner Circle", "The Crew", "The Founders", "The Outsiders",
-  "The Regulators", "The Hitmen", "The Bloc Party", "The Round Table", "The Cartel",
-];
-
 /**
- * ORW-509: the composed alliance-name floor. A house of 18 names ran dry and fell back to "The Core 2"; names are now composed from parts (the 18 classics
- * stay as one region), so a season never repeats a name and two seasons rarely share one. The writer still names live alliances from the cast's own
+ * ORW-509: the composed alliance-name floor. A fixed house of names ran dry and fell back to "The Core 2"; names are now composed from parts (no dealt list), so a season never repeats a name and two seasons rarely share one. The writer still names live alliances from the cast's own
  * story; this is what the engine says offline. Generic, BB-plausible, never a houseguest name.
  */
 const ALLIANCE_COLLECTIVES: readonly string[] = [
@@ -115,12 +107,11 @@ const ALLIANCE_PLACES: readonly string[] = [
 const ALLIANCE_NUMBERS: readonly string[] = ["Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"];
 const ALLIANCE_NUMBER_NOUNS: readonly string[] = ["Pack", "Squad", "Strong", "Deep", "Club", "Alliance", "Plan", "Rule", "Pact", "Count"];
 
-/** Every composed name, once: the 18 classics first, then the four composed shapes with any repeat of an earlier name dropped (a name never sits in two regions). */
+/** Every composed name, once: the four composed shapes with any repeat of an earlier name dropped (a name never sits in two regions). */
 const ALLIANCE_NAME_LIST: readonly string[] = (() => {
   const seen = new Set<string>();
   const out: string[] = [];
   const add = (n: string): void => { if (!seen.has(n)) { seen.add(n); out.push(n); } };
-  for (const n of ALLIANCE_NAMES) add(n);
   for (const c of ALLIANCE_COLLECTIVES) add(`The ${c}`);
   for (const q of ALLIANCE_QUALITIES) for (const c of ALLIANCE_COLLECTIVES) add(`The ${q} ${c}`);
   for (const w of ALLIANCE_PLACES) for (const c of ALLIANCE_COLLECTIVES) add(`${w} ${c}`);
