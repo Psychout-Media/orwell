@@ -254,7 +254,7 @@ import type { PhysicalCharacteristics } from "../../domain/physicalCharacteristi
 import { cleanWardrobe, cleanOnCamera, cleanPhotoHair, cleanLookSignature, cleanStyleLine, clipCodePoints } from "../../domain/physicalCharacteristics";
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
-import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
+import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ, MEET_FIRST_IMPRESSION, firstImpressionLean, meetMannerOf } from "../../engine/premiereEntrances";
 import type { Houseguest } from "../../engine/characterFactory";
 import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, ARCHETYPES, VOL_OF, articleFor } from "../../engine/characterFactory";
 import type { Disposition } from "../../engine/characterFactory";
@@ -768,6 +768,8 @@ const PREMIERE_ENTRANCES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PREMIERE_ENTRAN
 const BED_RUSH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_BED_RUSH");
 /** ORW-654 / 0206 - the SELF-GUIDED TOUR: after walking in the player explores the house until production calls the circle; the houseguests mostly gather in the common area; the first entry into each room is a one-time room card. A played game only. ON by default; `=0` restores the held premiere. */
 const HOUSE_TOUR_ENABLED_DEFAULT = flagDefaultOn("ORWELL_HOUSE_TOUR");
+/** ORW-653 / 0205: meet the cast at the champagne circle (introductions + first impressions). ON by default; `ORWELL_MEET_THE_CAST=0` restores the old circle. Read once. */
+const MEET_THE_CAST_ENABLED_DEFAULT = flagDefaultOn("ORWELL_MEET_THE_CAST");
 
 /**
  * "Hang out until X" (PO 2026-11-04) - the safe fast-forward lever (`hangOut`). ON unless `ORWELL_HANGOUT=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`) - flipped ON 2026-11-04 (PO: Ryne) after the live rerun showed it stops exactly at the scheduled event and the HOH comp stages when due. Off => `hangOut()` returns `{ ok:false }` with no state change and the spine is byte-identical.
@@ -2616,6 +2618,8 @@ export class GameSessionAdapter implements GameSession {
   private bedRushEnabled = BED_RUSH_ENABLED_DEFAULT;
   /** ORW-654 / 0206: the self-guided tour (see `HOUSE_TOUR_ENABLED_DEFAULT`). */
   private houseTourEnabled = HOUSE_TOUR_ENABLED_DEFAULT;
+  /** ORW-653 / 0205: meet the cast (see `MEET_THE_CAST_ENABLED_DEFAULT`). */
+  private meetTheCastEnabled = MEET_THE_CAST_ENABLED_DEFAULT;
   private finalHohThreePartEnabled = FINAL_HOH_THREE_PART_ENABLED_DEFAULT;
   private jurorProfilesEnabled = JUROR_PROFILES_ENABLED_DEFAULT;
   private hangOutEnabled = HANGOUT_ENABLED_DEFAULT;
@@ -9082,10 +9086,13 @@ export class GameSessionAdapter implements GameSession {
     const me = this.house!.player.id;
     const arrivedIds = pe.order.slice(0, pe.arrived);
     const lastId = pe.arrived > 0 ? pe.order[pe.arrived - 1] : undefined;
-    const speakerOf = (x: string): { id?: string; name: string; host?: true; isPlayer?: true } =>
-      x === "host" ? { name: "The host", host: true } :
-      x === me ? { id: x, name: this.nameOf(x), isPlayer: true } : { id: x, name: this.nameOf(x) };
-    let speakers: Array<{ id?: string; name: string; host?: true; isPlayer?: true }> | undefined;
+    const speakerOf = (x: string): { id?: string; name: string; host?: true; isPlayer?: true; manner?: "drawn-to" | "even" | "guarded" } => {
+      if (x === "host") return { name: "The host", host: true };
+      if (x === me) return { id: x, name: this.nameOf(x), isPlayer: true };
+      const lean = pe.introduced ? this.meetLean(x) : undefined; // ORW-653 / 0205: the visible manner of an introduced houseguest toward the player, a plain word
+      return { id: x, name: this.nameOf(x), ...(lean !== undefined ? { manner: meetMannerOf(lean) } : {}) };
+    };
+    let speakers: Array<{ id?: string; name: string; host?: true; isPlayer?: true; manner?: "drawn-to" | "even" | "guarded" }> | undefined;
     if (pe.stage !== "entrances" && pe.spoke.length > 0) {
       const len = pe.spoke.length;
       const from = len % TOAST_BATCH === 0 ? len - TOAST_BATCH : len - (len % TOAST_BATCH);
@@ -9104,6 +9111,7 @@ export class GameSessionAdapter implements GameSession {
       ...(lastId && lastId !== me ? { justArrived: { id: lastId, name: this.nameOf(lastId) } } : {}),
       ...(lastId && lastId === me ? { playerJustEntered: true as const } : {}),
       ...(speakers ? { speakers } : {}),
+      ...(pe.introduced && pe.stage === "toast" ? { meetTheCast: true as const } : {}), // ORW-653 / 0205
       // ORW-368: `toastRemaining` ("N more after this batch") exists only once a batch has been released; before the first one there is no "this batch" to count from.
       // ORW-368: the player's own slot, from the engine's done list: not yet, in the latest batch, or passed.
       ...(pe.stage === "toast" && speakers ? { toastRemaining: Math.max(0, toastSpeakers(pe.order).length - pe.spoke.length) } : {}),
@@ -9153,6 +9161,7 @@ export class GameSessionAdapter implements GameSession {
       // convened for a ceremony); the circle then runs as ever (toast, then the bed rush).
       pe.stage = "toast";
       s.champagneCircle = "gathered";
+      if (this.meetTheCastEnabled && s.playedGame === true) pe.introduced = []; // ORW-653 / 0205: the circle is the meet-the-cast moment (armed only here, so nothing is introduced before the circle is called)
       this.presence?.set(me, "living-room"); this.presenceBase?.set(me, "living-room");
       // The tour's placement was a player-facing overlay only: when it ends the house goes back to the seats its own (untouched) movement gave it, so the tour leaves no trace on the week-1 society
       for (const [id, room] of this.presenceBase ?? []) if (id !== me && this.presence?.has(id)) { this.presence.set(id, room); this.presenceTenure?.set(id, 0); this.presenceZone?.delete(id); }
@@ -9202,6 +9211,7 @@ export class GameSessionAdapter implements GameSession {
       if (sp === "host") this.onPlayerEvent?.("The host opens the toast", [...pe.order], "toast-speech");
       else if (sp !== me) this.onPlayerEvent?.(`${this.nameOf(sp)} gives a toast`, [...pe.order], "toast-speech");
       pe.spoke.push(sp); // the player's slot is a marker only - chat-authored, never recorded here
+      if (pe.introduced && sp !== "host") this.recordIntroduction(sp);
     }
     this.persist();
     const view = this.advanceView(null);
@@ -9217,6 +9227,32 @@ export class GameSessionAdapter implements GameSession {
         },
       },
     };
+  }
+
+  /**
+   * ORW-653 / 0205 - one houseguest's official introduction at the circle: recorded once (append-only), marked met, and (an NPC) their first impression of the player folded into the hidden relationship
+   * layer at a small bounded magnitude from a keyed side stream. The player's own slot only records THAT the player was introduced; the engine never writes or voices the player's words. No persist (caller's).
+   */
+  private recordIntroduction(id: EntityId): void {
+    const pe = this.live!.premiereEntrance!;
+    const me = this.house!.player.id;
+    if (!pe.introduced || pe.introduced.includes(id)) return;
+    pe.introduced.push(id);
+    if (id === me) return;
+    this.premiereMet.add(id);
+    this.premiereHotReads.add(id);
+    this.introducedNames.add(id);
+    const lean = this.meetLean(id);
+    if (lean === undefined) return;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:meet-impression-fold:${id}`));
+    this.rel.applyImpactDirected(id, me, { affinity: lean * MEET_FIRST_IMPRESSION.affinity, trust: lean * MEET_FIRST_IMPRESSION.trust }, rng);
+  }
+
+  /** ORW-653 / 0205: how one houseguest takes to the player on meeting, in [-1, 1] (engine-only; only its plain-word manner ever leaves). */
+  private meetLean(id: EntityId): number | undefined {
+    const npc = this.house?.npcs.find((n) => n.id === id);
+    if (!npc || !this.house) return undefined;
+    return firstImpressionLean(this.gameSeed ?? 0, id, npc.character.age, this.house.player.character.age, npc.character.stats?.social);
   }
 
   /**
@@ -11913,6 +11949,7 @@ export class GameSessionAdapter implements GameSession {
   setBedRushEnabled(on: boolean): void { this.bedRushEnabled = on; }
   /** ORW-654 / 0206: turn the self-guided tour on/off for this session (tests/BDD; the deploy sets `ORWELL_HOUSE_TOUR`). */
   setHouseTourEnabled(on: boolean): void { this.houseTourEnabled = on; }
+  setMeetTheCastEnabled(on: boolean): void { this.meetTheCastEnabled = on; }
   premiereEntrancesEnabledNow(): boolean { return this.premiereEntrancesEnabled; }
   /** 0128 - turn the three-part Final HOH on/off for this session (tests/BDD; the deploy sets `ORWELL_FINAL_HOH_THREE_PART`). */
   setFinalHohThreePartEnabled(on: boolean): void { this.finalHohThreePartEnabled = on; }

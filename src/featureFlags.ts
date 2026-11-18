@@ -162,6 +162,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_LIES_CAUGHT', key: 'liesCaught', parser: 'defaultOn' },
   // B6 / #2017: NPC-to-NPC lobbying of the HOH (a bounded pitch tilt in the nomination score). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_LOBBYING', key: 'lobbying', parser: 'defaultOn' },
+  // ORW-653 / 0205: MEET THE CAST - the champagne circle's toast speakers are officially introduced one by one and each forms a first impression of the player (a small hidden fold); the narrator is handed their visible manner as facts. A played game only. `=0` = the old circle.
+  { envKey: 'ORWELL_MEET_THE_CAST', key: 'meetTheCast', parser: 'defaultOn' },
   // B25-friends layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_MEMORY_FRIENDS', key: 'memoryFriends', parser: 'defaultOn' },
   // B22: houseguests who HEARD a promise (a casual assurance) remember its keeping / breaking too, at a lower weight. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
