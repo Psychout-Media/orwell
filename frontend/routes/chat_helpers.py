@@ -841,7 +841,7 @@ def _premiere_not_yet_steer(ds: Optional[dict] = None, briefing=None) -> str:
 _PREMIERE_CLOCK_STARTED: set = set()  # runway keys whose first day-schedule board (the premiere's day-break) already armed its narration steer
 _PREMIERE_CLOCK_HOLD: dict = {}  # runway key -> True while the engine clock says the first HOH is not yet due (premiere phase, clock live)
 _PREMIERE_TOAST_SPEAKERS: dict = {}  # runway key -> names of the current toast batch ('host' for the host) - for the voice-hold in agent_loop
-_PREMIERE_ENTRANCE_STAGE: dict = {}  # runway key -> "entrances" | "toast" (only while the A9 entrance stage is live)
+_PREMIERE_ENTRANCE_STAGE: dict = {}  # runway key -> "entrances" | "toast" | "tour" (only while the A9 entrance stage is live; "tour" = everyone is in and the player is exploring, ORW-654)
 
 
 def _entrance_stage_of(game_state) -> Optional[str]:
@@ -850,6 +850,9 @@ def _entrance_stage_of(game_state) -> Optional[str]:
         pr = (game_state or {}).get("premiere") if isinstance(game_state, dict) else None
         ent = pr.get("entrance") if isinstance(pr, dict) else None
         st = ent.get("stage") if isinstance(ent, dict) else None
+        # ORW-654 / 0206: the self-guided tour is the engine's `entrances` stage with every houseguest inside and the house open; the FE only reads that flag (it never infers the stage), so the arrival cadence stops.
+        if st == "entrances" and isinstance(ent.get("tour"), dict) and ent["tour"].get("everyoneIn") is True:
+            return "tour"
         return st if st in ("entrances", "toast", "done") else None
     except Exception:
         return None
@@ -897,7 +900,7 @@ def note_premiere_turn(user, game_state) -> None:
         _PREMIERE_RELEASED_THIS_TURN.discard(key)  # ORW-148 B: a new framed turn resets the one-release-per-turn allowance
         phase = str((game_state or {}).get("phase") or "").lower() if isinstance(game_state, dict) else ""
         stage = _entrance_stage_of(game_state) if phase == "premiere" else None
-        if stage in ("entrances", "toast"):
+        if stage in ("entrances", "toast", "tour"):
             _PREMIERE_ENTRANCE_STAGE[key] = stage
             _PREMIERE_MSGS.pop(key, None)
             # ORW-301: the engine names exactly ONE arrival per released entrance ("JUST ARRIVED: <name>") and tells the narrator to voice it, but nothing checked that the reply actually names that houseguest

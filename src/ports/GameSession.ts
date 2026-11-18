@@ -1962,6 +1962,8 @@ export interface PremiereIntrosView {
     insideCount: number;
     /** ORW-205: has the player walked in yet (so "N of you" may or may not include them). */
     playerInside: boolean;
+    /** ORW-654 / 0206: the self-guided tour is open - the player has walked in and is free to explore until production calls the circle; `everyoneIn` once the last houseguest has arrived. Absent otherwise. */
+    tour?: { open: true; everyoneIn: boolean };
     /** ORW-205: the engine's ready-made headcount sentence, e.g. "12 of 16 are inside (the player is one of them)". The narrator quotes it and never counts on its own. */
     headcount: string;
     arrivedNames: string[];
@@ -2044,6 +2046,12 @@ export interface ResolvePlayerMoveReq { text: string; expectedBeatSeq?: number; 
 /** ORW-419 - the result: the recorded `playerMove` (null when the words held no clear move) + the resulting whereabouts. */
 export interface ResolvePlayerMoveResult { playerMove: PlayerMoveView | null; whereabouts: WhereaboutsView | null; beatSeq?: number }
 
+/**
+ * ORW-654 / 0206: the one-time card for a room the player has stepped into for the first time. The season's own name and look for it (the house theme), who is in it and what opens onto it (names only: third person, no number, nothing hidden).
+ * The narrator authors the arrival moment live from these; the card is handed over once per room per game and only for the player.
+ */
+export interface RoomCardView { room: string; name: string; look?: string; here: string[]; opensOnto: string[] }
+
 export interface WhereaboutsView {
   /** The room the player is in. */
   room: string;
@@ -2051,6 +2059,8 @@ export interface WhereaboutsView {
   roomNames?: Partial<Record<string, string>>;
   /** ORW-466: one line of what the player's room looks like this season (the house theme), for the narrator. */
   roomLook?: string;
+  /** ORW-654 / 0206: present only on the turn the player first steps into this room (a one-time card). */
+  roomCard?: RoomCardView;
   /**
    * The player's SUB-ZONE within a big, zoned room (0077 — "over by the pool" / "the workout corner").
    * Present ONLY in a zoned room (backyard, lounge); absent everywhere else. Pure flavor — eyeshot stays
