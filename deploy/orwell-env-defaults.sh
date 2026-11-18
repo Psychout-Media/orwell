@@ -70,6 +70,7 @@
 #   ORWELL_WEEK_CHAPTERS        Week chapters (ORW-275) - the bed on eviction night closes the week with a recap.
 #   ORWELL_COMP_MECHANICS_PLUS  Expanded competition mechanics (0126) — 12 => 30 no-repeat pool.
 #   ORWELL_COMP_MIXED           Mixed-type/HYBRID competitions (0127) — secondary aptitude blended (65/35).
+#   ORWELL_COMP_REACTIONS       ORW-580: while a staged competition runs, the houseguests who are not still in it cheer, taunt or sulk (one public reaction per hour; a played game only; =0 opts out).
 #   ORWELL_FINAL_HOH_THREE_PART Three-part Final HOH (0128, #2045) - endurance / physical+mental hybrid / quiz instead of one Final-3 comp. PO ruling 2026-11-04:
 #       on (engine default ON too; listed here so a box's .env states its posture). juryReach + calibrationGradient held their bands ON.
 #   ORWELL_WIPEOUT_REEL         Wipeout Reel (C1, #1788) - archetype-flavored failure text on staged-comp drops; presentation only, outcomes byte-identical. ON 2026-11-06 (ORW-16).
@@ -165,6 +166,7 @@ ORWELL_CLAIMS_TO_PLAYER=1
 ORWELL_COMP_INTENT=1
 ORWELL_COMP_MECHANICS_PLUS=1
 ORWELL_COMP_MIXED=1
+ORWELL_COMP_REACTIONS=1
 ORWELL_CONFESSIONAL_DEPTH=1
 ORWELL_CREDIBILITY=1
 ORWELL_DAY_CONDENSE=1

@@ -410,6 +410,8 @@ import { nameGenderOf, nameGenderStrict, pickGivenNameFor } from "../../engine/d
 import { avoidFromWire, type AvoidSets } from "../../domain/recentSeasons";
 import { dealEraGivenNames, dealSurnames, censusGroupOfHeritage } from "../../engine/data/worldNames";
 import type { Orientation, GenderPresentation } from "../../engine/diversityConstants";
+import { ATTRACTION_LIFE, attractionOf, chemistryFor, drawnTo, type AttractionIdentity } from "../../engine/attractionLife"; // 0207 A1
+import { chemistryKey, readsAsCouple, coupleNomPush } from "../../engine/attraction";
 import { ALL_ETHNICITIES, GENDER_PRESENTATIONS } from "../../engine/diversityConstants";
 import { isGenderPresentation } from "../../domain/gender"; // #1326
 import { foldHiddenImpact } from "../../engine/consequence";
@@ -11943,6 +11945,7 @@ export class GameSessionAdapter implements GameSession {
       // ORW-568 / 0181: the voter's (or HOH's) real feeling for the person keeps them. Played games with the bond record only, so a headless sim carries no hook (+0, byte-identical).
       ...(this.bondFeelingsOn() ? { feelingKeepFor: (n: EntityId, v: EntityId) => this.feelingKeepOf(n, v) } : {}),
       ...(this.houseNormsEnabled && this.live?.playedGame === true && this.npcBeliefsEnabled ? { herdFor: (n: EntityId, v: EntityId, fn: readonly [EntityId, EntityId]) => this.herdFor(n, v, fn) } : {}), // 0180 part 2
+      ...(this.showmancesEnabled && this.live?.playedGame === true ? { couplePushFor: (t: EntityId, h: EntityId) => this.couplePushFor(t, h) } : {}), // 0207 A2: a pair the HOH reads as a couple is a target
       ...(this.endgameTrustEnabled && this.live?.playedGame === true ? { endgameFor: (t: EntityId, d: EntityId) => this.endgameFor(t, d) } : {}), // 0193
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
@@ -14381,6 +14384,81 @@ export class GameSessionAdapter implements GameSession {
   houseLifeActiveNow(): boolean {
     return this.houseLifeEnabled && this.live?.playedGame === true && !!this.live.agendas && !!this.house && !!this.presence;
   }
+  /**
+   * 0207 Theme A, A1 (ORW-658; `ORWELL_SHOWMANCES`, default ON; `=0` opts out): attraction is real and private. A played game only (headless sims never reach house life, so they stay byte-identical). The chemistry
+   * ceiling per ordered pair is a keyed side roll (never the shared rng), grows with the stretches the pair spends in one room, and bends only who a houseguest seeks out and flirts with.
+   * Never projected; no number, no label. Who may be drawn to whom is read from the two characters' own data (`attractionLife.drawnTo`): nothing is inferred, and a houseguest with no orientation or presentation on file is drawn to no one.
+   */
+  private attractionOn(): boolean { return this.showmancesEnabled && this.live?.playedGame === true; } // the one flag (declared with A3/A4 below)
+  private attractionIdentityOf(id: EntityId): AttractionIdentity | undefined {
+    const n = this.house?.npcs.find((x) => x.id === id);
+    if (!n) return undefined;
+    // the same sources the 0063 eligibility predicate reads: the out orientation on the character, else the engine-only private one, else the cast default (straight is the absence of a queer orientation in this data)
+    return { orientation: (n.character.outOrientation as Orientation | undefined) ?? this.privateOrientations[id] ?? "straight", gender: n.character.genderPresentation };
+  }
+  /** The player's own stated presentation (casting or later); undefined = they have not said, and nobody is drawn to them. Their orientation is never read. */
+  private playerStatedGender(): GenderPresentation | undefined { return this.house?.player.character.genderPresentation; }
+  /** Draw the private chemistry once (every ordered pair among the cast, on keyed side rolls, seeded showmances starting high), and the houseguest-to-player ceilings as soon as the player has said how they present. Idempotent; an entry is never removed. */
+  private ensureChemistry(): void {
+    const s = this.live, house = this.house;
+    if (!s || !house) return;
+    const seed = this.gameSeed ?? 0;
+    const chem = (s.chemistry ??= {});
+    if (!s.together) {
+      s.together = {};
+      const ids = house.npcs.map((n) => n.id);
+      for (const a of ids) for (const b of ids) {
+        if (a === b) continue;
+        const c = chemistryFor(seed, a, b, drawnTo(this.attractionIdentityOf(a), house.npcs.find((n) => n.id === b)?.character.genderPresentation));
+        if (c > 0) chem[chemistryKey(a, b)] = c;
+      }
+      for (const sm of this.seededRels.showmances) {
+        for (const [a, b] of [[sm.a, sm.b], [sm.b, sm.a]] as const) {
+          if (!drawnTo(this.attractionIdentityOf(a), house.npcs.find((n) => n.id === b)?.character.genderPresentation)) continue;
+          const key = chemistryKey(a, b);
+          chem[key] = Math.max(chem[key] ?? 0, ATTRACTION_LIFE.seededChemistry);
+          s.together[key] = Math.max(s.together[key] ?? 0, ATTRACTION_LIFE.seededDays * ATTRACTION_LIFE.stretchesPerDay);
+        }
+      }
+    }
+    const pg = this.playerStatedGender();
+    if (pg !== undefined) {
+      for (const n of house.npcs) {
+        const key = chemistryKey(n.id, house.player.id);
+        if (chem[key] !== undefined) continue;
+        const c = chemistryFor(seed, n.id, house.player.id, drawnTo(this.attractionIdentityOf(n.id), pg));
+        if (c > 0) chem[key] = c;
+      }
+    }
+  }
+  /** One stretch of shared time: every pair with chemistry that is awake in the same room this stretch counts it (monotonic). */
+  private countTogether(presence: ReadonlyMap<EntityId, Room>, up: ReadonlySet<EntityId>): void {
+    const s = this.live;
+    if (!s?.chemistry) return;
+    const tg = (s.together ??= {});
+    for (const key of Object.keys(s.chemistry)) {
+      const gt = key.indexOf(">");
+      const from = key.slice(5, gt) as EntityId, to = key.slice(gt + 1) as EntityId;
+      const r = presence.get(from);
+      if (r !== undefined && r !== "diary-room" && r === presence.get(to) && up.has(from) && up.has(to)) tg[key] = (tg[key] ?? 0) + 1;
+    }
+  }
+  /** What `id` is drawn to among `targets` right now (only people they are drawn to), and which of those a flirt may start with. Undefined when there is nothing to feel (byte-identical hour view). */
+  private attractionViewOf(id: EntityId, targets: readonly EntityId[]): { attract: Map<EntityId, number>; flirtable: Set<EntityId> } | undefined {
+    const s = this.live, house = this.house;
+    if (!s?.chemistry || !house) return undefined;
+    const attract = new Map<EntityId, number>(), flirtable = new Set<EntityId>();
+    const gate = this.offscreenShowmanceGate();
+    const pg = this.playerStatedGender();
+    for (const t of targets) {
+      if (t === house.player.id && !drawnTo(this.attractionIdentityOf(id), pg)) continue; // read-time: the player may have unsaid their gender
+      const a = attractionOf(s.chemistry, s.together, id, t);
+      if (a <= 0) continue;
+      attract.set(t, a);
+      if (t !== house.player.id && gate.plausible(id, t) && !gate.hasActiveShowmance(id) && !gate.hasActiveShowmance(t)) flirtable.add(t);
+    }
+    return attract.size ? { attract, flirtable } : undefined;
+  }
   /** The active showmance partner of `id` (engine-only seeded relationships), if any. */
   private showmancePartnerOf(id: EntityId): EntityId | undefined {
     const evicted = new Set(this.live?.evictionOrder ?? []);
@@ -14504,6 +14582,9 @@ export class GameSessionAdapter implements GameSession {
       const spin = 1 + LIE_AUDIENCE.rotation * agendaRoll(seed, listener, `lie-audience:d${day}h${hour}r${repeat}:${target}`);
       return pivot * (LIE_AUDIENCE.credulityBase + this.credulityOf(listener)) * spin;
     } : undefined;
+    const attractOn = this.attractionOn();
+    if (attractOn) this.ensureChemistry(); // 0207 A1: the private chemistry (keyed side rolls; idempotent)
+    const attractView = attractOn ? (id: EntityId, targets: readonly EntityId[]) => this.attractionViewOf(id, targets) : undefined;
     const playerUp = playerRoom !== undefined && (this.awakeNow()?.has(house.player.id) ?? false); // ORW-620: a player who stays up is a night owl too
     // ORW-621: one houseguest's hour, built once for the people in other rooms (the usual stretch) and once, in `room` mode, for the people in the player's own room: a view of that room's houseguests only (the player is never a partner, never moved).
     const planFor = (id: EntityId, whereM: ReadonlyMap<EntityId, Room>, viewM: ReadonlyMap<EntityId, Room>, others: readonly EntityId[], room: boolean): PlannedAction | undefined => {
@@ -14523,9 +14604,10 @@ export class GameSessionAdapter implements GameSession {
         threat: new Map([...others, ...(withPlayerView ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).threat] as const)), // ORW-507 (#2612): the player is in the threat map too (the planner used a flat 0.3 for them)
         mates: [...mates].sort(), ...(s.hoh ? { hoh: s.hoh } : {}), nominees: s.nominees ? [...s.nominees] : [],
         ...(showmance && whereM.has(showmance) ? { showmance } : {}),
+        ...(attractView ? (() => { const av = attractView(id, [...others, ...(withPlayerView ? [house.player.id] : [])]); return av ? { attract: av.attract, flirtable: av.flirtable } : {}; })() : {}), // 0207 A1: private attraction (played games, flag on)
         ...this.roommateView(bedsNow, id, inHouse, whereM),
         ...(!room && kindredOf(id) ? { kindred: kindredOf(id)! } : {}),
-        timeOfDay: tod, day, hour, ...(repeat > 0 ? { repeat } : {}), inCompetition: false,
+        timeOfDay: tod, day, hour, ...(repeat > 0 ? { repeat } : {}), inCompetition: this.compReactionsOn() && !!s.competition && !s.competition.stillIn.includes(id),
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
         ...(houseCulture ? { culture: houseCulture } : {}),
         ...(swingRead ? { swing: swingRead } : {}),
@@ -14551,7 +14633,7 @@ export class GameSessionAdapter implements GameSession {
     const approachAllowed = (p: PlannedAction): boolean => this.desireClockEnabled && (hostileAtPlayer(p) || this.rel.edge(p.actor, house.player.id).trust >= DESIRE.goalMinTrust) && !tieAvoids(this.agendaView(p.actor)?.character ?? this.agendaCharacterOf(p.actor)!).includes(house.player.id);
     for (const p of plans) {
       if (p.place === "diary-room" || !where.has(p.actor)) continue;
-      if ((p.goalId || p.nightOwl) && p.with.includes(house.player.id) && !approachAllowed(p)) continue;
+      if ((p.goalId || p.nightOwl || p.drawn) && p.with.includes(house.player.id) && !approachAllowed(p)) continue;
       if (presence.get(p.actor) !== p.place) { this.presenceTenure?.set(p.actor, 0); this.presenceZone?.delete(p.actor); } // ORW-386: walking to another room is a fresh arrival; the tenure used to keep counting through this move (Marisol: "22 turns" in a kitchen she had just walked into)
       presence.set(p.actor, p.place);
       this.presenceBase?.set(p.actor, p.place);
@@ -14562,6 +14644,11 @@ export class GameSessionAdapter implements GameSession {
       // ORW-614 (P-11): the player's own hours count toward the crowd they keep, like anyone's (never while napping; the Diary Room is private).
       const pr = presence.get(house.player.id);
       if (pr && pr !== "diary-room" && !awakeIds.includes(house.player.id) && (this.awakeNow()?.has(house.player.id) ?? true)) bumpTenure(t, house.player.id, pr);
+    }
+    if (attractOn) { // 0207 A1: this stretch's shared time (awake houseguests in one room; the player counts when up)
+      const up = new Set<EntityId>(awakeIds);
+      if (this.awakeNow()?.has(house.player.id) ?? true) up.add(house.player.id);
+      this.countTogether(presence, up);
     }
     const gate = this.offscreenShowmanceGate();
     const out: OffscreenScene[] = [];
@@ -14575,6 +14662,8 @@ export class GameSessionAdapter implements GameSession {
           (s.goalApproaches ??= {})[p.actor] = { desire: hostileAtPlayer(p) ? "probe" : desireForAction(p.kind), goalId: p.goalId, hour: this.absHour() };
         } else if (p.nightOwl && p.with.includes(house.player.id) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: "night-owl", hour: this.absHour() }; // ORW-620: an awake houseguest comes to the player who is still up, through the desire clock's own path and guards
+        } else if (p.drawn && p.with.includes(house.player.id) && approachAllowed(p)) {
+          (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: "attraction", hour: this.absHour() }; // 0207 A1: drawn to the player, they come to them through the desire clock's own path and guards (what the player does about it is theirs)
         } else if (p.court && p.with.includes(house.player.id) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: "court", hour: this.absHour() }; // 0173: the player is the HOH: the court comes to them, through the desire clock's own path and guards
         }
@@ -14607,6 +14696,10 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** ORW-621 (spec 0198, the people in your room live too): the houseguests in the player's own room take their goal steps there. ON unless `ORWELL_ROOM_LIFE=0`. Played games only; OFF => no room step is planned => byte-identical. */
+  /** ORW-580: while a staged competition runs, the houseguests who are not still in it react in public (cheer / taunt / sulk). ON unless `ORWELL_COMP_REACTIONS=0`. Played games only (the hour planner never runs headless); OFF => byte-identical. */
+  private compReactionsEnabled = flagDefaultOn("ORWELL_COMP_REACTIONS");
+  setCompReactionsEnabled(on: boolean): void { this.compReactionsEnabled = on; }
+  private compReactionsOn(): boolean { return this.compReactionsEnabled && this.live?.playedGame === true; }
   private roomLifeEnabled = flagDefaultOn("ORWELL_ROOM_LIFE");
   setRoomLifeEnabled(on: boolean): void { this.roomLifeEnabled = on; }
   private roomLifeOn(): boolean { return this.roomLifeEnabled && this.live?.playedGame === true; }
@@ -15432,6 +15525,44 @@ export class GameSessionAdapter implements GameSession {
     return new Map(others.map((o) => [o, reader.bond(holder, o).strands.rivalry ?? 0] as const).filter(([, v]) => v > 0));
   }
   private bondFeelingsOn(): boolean { return this.bondFeelingsEnabled && this.live?.playedGame === true && this.bondRecordEnabled; }
+
+  /** 0207 A2: the romance scenes `holder` registered (they were in it, or watched it from the room), as unordered pair keys; cached by the record's length. A hiding pair's scenes are caught only on a roll (0184 2b), so this is only what they caught. */
+  private seenRomanceCache = new Map<EntityId, { n: number; pairs: Set<string> }>();
+  private romanceSeenBy(holder: EntityId, a: EntityId, b: EntityId): boolean {
+    const events = this.record?.events() ?? [];
+    let c = this.seenRomanceCache.get(holder);
+    if (!c || c.n !== events.length) {
+      const pairs = new Set<string>();
+      for (const e of events) {
+        if (e.type !== "showmance" || e.witnessSet.length < 2) continue;
+        if (!e.witnessSet.includes(holder) && !(e.houseLife?.seenBy ?? []).includes(holder)) continue;
+        const people = e.witnessSet.filter((x) => x !== holder);
+        if (people.length === 2) pairs.add([...people].sort().join("|"));
+      }
+      c = { n: events.length, pairs };
+      this.seenRomanceCache.set(holder, c);
+    }
+    return c.pairs.has([a, b].sort().join("|"));
+  }
+  /**
+   * 0207 A2 (ORW-659): the couple is a target. An NPC HOH outside a pair they READ as a couple (their own view of the pair's bond at the foundation's bar, plus a romance scene they were in or watched) puts
+   * `coupleNomPush` on ONE of the two: whichever of them the HOH reads as the bigger threat (ties by id), so the other is pulled in beside them by the duo read. Perceived, never the truth: a pair nobody caught
+   * is no couple to this HOH, and a couple that hides it (faked distance) is read only by those who caught them. The push scales with how coupled the pair looks. Played games only, no rng.
+   */
+  private couplePushFor(target: EntityId, hoh: EntityId): number {
+    const s = this.live;
+    if (!this.showmancesEnabled || !s || s.playedGame !== true || hoh === PLAYER || target === hoh) return 0;
+    let best = 0;
+    for (const other of s.active) {
+      if (other === target || other === hoh) continue;
+      const bond = this.perceivedBond(hoh, target, other);
+      if (!readsAsCouple(bond, this.romanceSeenBy(hoh, target, other))) continue;
+      const mine = this.rel.edge(hoh, target).threat, theirs = this.rel.edge(hoh, other).threat;
+      if (mine < theirs || (mine === theirs && target > other)) continue; // the push lands on the bigger threat of the two
+      best = Math.max(best, coupleNomPush(true, false) * Math.min(1, bond));
+    }
+    return best;
+  }
 
   /** The signed provider value for a vote or a nomination: how much `holder`'s real feeling for `other` keeps them (0 for the player: their own choices are theirs). */
   private feelingKeepOf(other: EntityId, holder: EntityId): number {

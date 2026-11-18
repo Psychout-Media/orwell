@@ -633,6 +633,10 @@ export interface LiveSeasonState {
   lastCeremonyAbsHour?: number;
   /** ORW-561 / spec 0176 part 2: hidden TENURE - hours each houseguest has spent in each room (monotonic, engine-only, never in a projection). A played game only; absent on older saves and headless games. */
   tenure?: import("./territory").Tenure;
+  /** 0207 A1 (ORW-658; VAULT-CLASS, engine-only, never projected): the private chemistry ceiling per ORDERED pair (`chem:from>to`), drawn on a keyed side roll; only pairs with any chemistry are stored, and an entry is never removed
+   *  (non-degradation). `together`: the house-life stretches each such pair has spent in the same room (monotonic). Played games only; absent otherwise and on older saves. */
+  chemistry?: Record<string, number>;
+  together?: Record<string, number>;
   /** 0173 (Theme 3 slice 11): the hidden pecking order (coarse tiers), the informal leader and lieutenants, any open vacuum, and the history. VAULT-CLASS, engine-only, monotonic count, never projected. A played game only. */
   status?: import("./hohCourt").StatusRecord;
   /** ORW-610: the player's own recorded talk to the sitting HOH this week (counts as a pitch on the NPC terms). Engine-only; played games only. */
@@ -1271,6 +1275,8 @@ export interface SeasonCtx {
   evictionCountPublic?: (tally: { evictee: EntityId; evictVotes: number; voters: readonly EntityId[] }) => void;
   /** 0193 (ORW-623): at four left or fewer, "can I beat you?" as a push on evicting / nominating `target` (+ = the decider can't beat them). Absent => 0 => byte-identical. */
   endgameFor?: (target: EntityId, decider: EntityId) => number;
+  /** 0207 A2 (ORW-659): the push an NPC HOH puts on `target` because the HOH reads them and another as a couple (the one of the two the HOH finds the bigger threat). Absent => 0 => byte-identical. */
+  couplePushFor?: (target: EntityId, hoh: EntityId) => number;
   /**
    * ORW-624: the crowd the evictee walks out to, decided as their exit interview begins (the audience folds the week so far; the house hears it through the door, a
    * player-evictee hears their own). Absent / undefined => the exit interview is byte-identical. Reads no rng from the season stream.
@@ -3694,6 +3700,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         ...(ctx.agendaPullFor ? { agendaPush: (t: EntityId) => ctx.agendaPullFor!(t, s.hoh!).value } : {}), // ORW-314: the HOH's goals move the block at full strength
         ...(ctx.feelingKeepFor ? { feelingPush: (t: EntityId) => -ctx.feelingKeepFor!(t, s.hoh!) } : {}), // ORW-568 / 0181: someone the HOH truly likes is harder to put up
         ...(ctx.endgameFor ? { endgamePush: (t: EntityId) => ctx.endgameFor!(t, s.hoh!) } : {}), // 0193: at four left, who the HOH can't beat goes up
+        ...(ctx.couplePushFor ? { couplePush: (t: EntityId) => ctx.couplePushFor!(t, s.hoh!) } : {}), // 0207 A2: a pair the HOH reads as a couple is a target
         ...(ctx.assuranceProtects ? { protectedByAssurance: (t: EntityId) => ctx.assuranceProtects!(t, s.hoh!) } : {}),
         why: reasonSinkFor(s, ctx, s.hoh!), // ORW-305: record WHY (a record only); ORW-314: and the stated reason
       });
@@ -4002,6 +4009,7 @@ function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId,
     ...(ctx.agendaPullFor ? { agendaPush: (t: EntityId) => ctx.agendaPullFor!(t, s.hoh!).value } : {}), // ORW-314
     ...(ctx.feelingKeepFor ? { feelingPush: (t: EntityId) => -ctx.feelingKeepFor!(t, s.hoh!) } : {}), // ORW-568 / 0181
     ...(ctx.endgameFor ? { endgamePush: (t: EntityId) => ctx.endgameFor!(t, s.hoh!) } : {}), // 0193
+    ...(ctx.couplePushFor ? { couplePush: (t: EntityId) => ctx.couplePushFor!(t, s.hoh!) } : {}), // 0207 A2
     ...(ctx.replacementFullTerms ? nominationOnlyTerms(s, ctx) : {}), // ORW-639: the four terms nominations read that the replacement used to drop
     why, // ORW-305: record WHY (a record only); ORW-314: and the stated reason
   });
