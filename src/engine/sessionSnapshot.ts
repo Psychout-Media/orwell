@@ -14,6 +14,9 @@ import { beliefStoreSuperset } from "./beliefStore";
 import { claimLogSuperset } from "./spokenClaims";
 import { toldLeadsSuperset } from "./toldLeads";
 import { cleanActsSuperset } from "./comingClean";
+import { grudgeBookSuperset } from "./grudges";
+import { bondStoreSuperset } from "./bondRecord";
+import { groupIdentitySuperset } from "./groupIdentity";
 import { houseTourSuperset } from "./houseTour";
 import type { KnowledgeSnapshot } from "../domain/knowledge";
 import type { EdgeRecord, GameState, PersistedCharacter, PersistedSoul } from "../domain/saveState";
@@ -996,6 +999,11 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
 
   // votesTalked (ORW-686): an eviction whose vote talk was had is never un-had (append-only; a restore must not re-roll it).
   if ((earlier.live?.votesTalked ?? []).some((k) => !(later.live?.votesTalked ?? []).includes(k))) return "votesTalked";
+
+  // bonds, grudges, group identity (ORW-606): the season-long stores of Theme 3 are never thinned. (Room tenure is deliberately outside: it resets whenever a houseguest moves.)
+  if (!bondStoreSuperset(later.live?.bonds, earlier.live?.bonds)) return "bonds";
+  if (!grudgeBookSuperset(later.live?.grudges, earlier.live?.grudges)) return "grudges";
+  if (!groupIdentitySuperset(later.live?.groupIdentity, earlier.live?.groupIdentity)) return "groupIdentity";
 
   return null;
 }
