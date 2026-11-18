@@ -272,7 +272,7 @@ import { producerReadPrompt, type ExchangeAccounting } from "../../engine/produc
 import { buildShowBrief } from "../../engine/showBrief";
 import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
 import { emptyNarrationUse, narrationAnchor, narrationSeasonLine, narrationUsageSection, recordNarration, restoreNarrationUse, type NarrationUse } from "../../engine/narrationUsage";
-import { brokenPromiseClaimId, isPromiseWhat, judgePromise, promiseNote, termAssuranceKind, termIdsKnown, type PromiseBoardFact, type PromiseTerm, type PromiseWhat, type PromiseWindow } from "../../engine/promiseTerms";
+import { brokenPromiseClaimId, isPromiseWhat, judgePromise, PROMISE_VETO_LEAN, promiseNote, termAssuranceKind, termIdsKnown, termSubject, type PromiseBoardFact, type PromiseTerm, type PromiseWhat, type PromiseWindow } from "../../engine/promiseTerms";
 import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerSameDayDealLine, openLedgerSection, partiesOf, closeOpenEntry, recordDealEntry, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
 import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
@@ -1547,6 +1547,42 @@ export class GameSessionAdapter implements GameSession {
     const keepWeight = assuranceKeepWeight({ loyalty, aggression: stats ? Math.max(0, Math.min(1, 1 - stats.social)) : 0.5 });
     const breakBenefit = Math.max(0, Math.min(1, this.rel.edge(voter, n).threat));
     return open.every((a) => decideKeep({ keepWeight, sincerity: a.sincerity, breakBenefit })) ? 0.5 * DECISION.vote.dealHonorWeight : 0;
+  }
+
+  /**
+   * ORW-586 slice 4 - the NPC PROMISER's own read of their open TERMED promises of one kind (use-veto-on, not-use-veto-on, final-two): the same keep-or-break call as a casual assurance (`decideKeep`, the promiser's
+   * `assuranceKeepWeight` from loyalty and aggression, the promise sincerity 1 an engine-recorded term carries), the benefit of breaking being what breaking would gain THEM (a use-veto-on / final-two promise: how threatening the
+   * promised one reads; a not-use-veto-on promise: how much they trust the one they would be saving). Deterministic, no rng. Only the promiser reads it (the NPC's own decision), only open entries of this week
+   * (or a season window), only a played game with promise terms live; the player is never a promiser here (the engine never acts for the player). The judge (`judgePromise`) closes the entry on the same public fact.
+   */
+  private termKeepsOf(holder: EntityId, what: "use-veto-on" | "not-use-veto-on" | "final-two"): Array<{ subject: EntityId; keep: boolean }> {
+    if (!this.promiseTermsLive || this.live?.playedGame !== true || holder === (OPEN_LEDGER_PLAYER as string)) return [];
+    const week = this.live.week;
+    const out: Array<{ subject: EntityId; keep: boolean }> = [];
+    for (const e of this.openLedger.entries) {
+      const term = e.term;
+      if (e.status !== "open" || !term || term.by !== holder || term.what !== what) continue;
+      if ((term.window ?? "week") === "week" && term.week !== undefined && term.week !== week) continue;
+      const subject = termSubject(term) as EntityId;
+      const stats = this.house?.npcs.find((n) => n.id === holder)?.character.stats;
+      const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(holder), this.emotionalReadOf(holder))));
+      const keepWeight = assuranceKeepWeight({ loyalty, aggression: stats ? Math.max(0, Math.min(1, 1 - stats.social)) : 0.5 });
+      const edge = this.rel.edge(holder, subject);
+      const breakBenefit = Math.max(0, Math.min(1, what === "not-use-veto-on" ? edge.trust : edge.threat));
+      out.push({ subject, keep: decideKeep({ keepWeight, sincerity: 1, breakBenefit }) });
+    }
+    return out;
+  }
+  /** ORW-586 slice 4 - the signed lean a KEPT veto promise gives `holder`'s save of `nominee` (see `termKeepsOf`). */
+  promiseVetoFor(nominee: EntityId, holder: EntityId): number {
+    let lean = 0;
+    for (const k of this.termKeepsOf(holder, "use-veto-on")) if (k.keep && k.subject === nominee) lean += PROMISE_VETO_LEAN;
+    for (const k of this.termKeepsOf(holder, "not-use-veto-on")) if (k.keep && k.subject === nominee) lean -= PROMISE_VETO_LEAN;
+    return Math.max(-PROMISE_VETO_LEAN, Math.min(PROMISE_VETO_LEAN, lean));
+  }
+  /** ORW-586 slice 4 - the Final-3 rival the final HOH keeps a final-two promise to (see `termKeepsOf`). */
+  promiseFinalTwoFor(hoh: EntityId, rivals: readonly EntityId[]): EntityId | undefined {
+    return this.termKeepsOf(hoh, "final-two").find((k) => k.keep && rivals.includes(k.subject))?.subject;
   }
 
   /** B4 slice 4 - `voter` voted `nominee` out: break the open assurance(s) they made to them (once) and the assured remembers. */
@@ -11439,6 +11475,13 @@ export class GameSessionAdapter implements GameSession {
       ...(this.audienceEnabled ? { exitCrowd: (id: EntityId) => this.exitCrowd(id) } : {}),
       ...(this.replacementTermsEnabled ? { replacementFullTerms: true } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
+      // ORW-586 slice 4: an NPC promiser's veto / final-two promises are read by their own decisions and settled on the veto and the Final 2 (played games with promise terms only; off => no hook, byte-identical).
+      ...(this.promiseTermsLive && this.live?.playedGame === true ? {
+        promiseVetoFor: (n: EntityId, h: EntityId) => this.promiseVetoFor(n, h),
+        promiseFinalTwoFor: (h: EntityId, r: readonly EntityId[]) => this.promiseFinalTwoFor(h, r),
+        promiseVetoSettled: (h: EntityId, on: EntityId | undefined) => this.settleTermsAt({ kind: "veto-used", week: this.live?.week ?? 0, by: h, ...(on !== undefined ? { on } : {}) }),
+        promiseFinalTwoSettled: (f: readonly EntityId[]) => this.settleTermsAt({ kind: "final-two", week: this.live?.week ?? 0, finalists: f }),
+      } : {}),
       ...(this.assurancesEnabled ? { assuranceKeptAtNominations: (h: EntityId, ns: readonly EntityId[]) => this.assuranceKeptAtNominations(h, ns), assuranceKeptAtVote: (v: EntityId, sp: EntityId, among?: readonly EntityId[]) => this.assuranceKeptAtVote(v, sp, among), assuranceKeptAtTally: (fn: readonly EntityId[]) => this.assuranceKeptAtTally(fn) } : {}),
       ...(this.npcBeliefsEnabled && (this.npcBeliefNomsEnabled || this.scapegoatsOn()) ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => (this.npcBeliefNomsEnabled ? this.beliefNomTiltFor(subject, holder) : 0) + this.scapegoatLeanFor(subject, holder) } : {}), // 0180 part 3: a hard week's scapegoat rides the belief term
       // 0163 / ORW-539: the floater and duo reads see what the HOH can see (full strength only; capped keeps the hidden-truth read, byte-identical).
