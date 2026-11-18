@@ -391,6 +391,7 @@ import { buildRumorMill } from "../../engine/rumorMill";
 import { drawHouseLeans, describeHouseLeans, dialMult, type DialId } from "../../engine/houseLeans";
 import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, meetingClaimFor, meetingWeekSpent, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingAnswer, type MeetingCaller, type MeetingRefusal } from "../../engine/houseMeeting";
 import { decideTellToPlayer, presentedBand, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
+import { HIDE, HIDDEN_TYPES, hideChance } from "../../engine/fakedDistance";
 import { TRAP, OVERHEAR_PLANT, canaryReturned, canarySubject, claimWords, doubtsDiscretionOf, overhearers, type Trap } from "../../engine/trap";
 import { decidePlantToPlayer, toldTodayBy } from "../../engine/plantToPlayer";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
@@ -14258,9 +14259,10 @@ export class GameSessionAdapter implements GameSession {
           id: `offscreen:${type}:${events.count()}:${hashSeed(`${seed}:life:${day}:${hour}:${p.actor}:${p.kind}`) % 1_000_000_000}`,
           ts: stretchIndex, type, initiator: p.actor, witnessSet: people, hidden: true, content, baseContent: content,
           houseLife: { ...(p.nightOwl ? { nightOwl: true } : {}), action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), ...(p.ritual ? { ritual: p.ritual } : {}), ...(p.habit ? { habit: p.habit } : {}), stretch: stretchIndex, ...(this.inGameAbsHour() !== undefined ? { at: this.inGameAbsHour() } : {}),
-            ...(() => { const seen = [...presence.entries()].filter(([id, room]) => room === p.place && !people.includes(id) && id !== house.player.id).map(([id]) => id).sort(); return seen.length ? { seenBy: seen } : {}; })() }, // ORW-539: who could see it
+            ...(() => { const seen = this.onlookers([...presence.entries()].filter(([id, room]) => room === p.place && !people.includes(id) && id !== house.player.id).map(([id]) => id).sort(), type, people, `${seed}:hide-catch:${day}:${hour}:${p.actor}:${p.kind}`); return seen.length ? { seenBy: seen } : {}; })() }, // ORW-539: who could see it; 0184 part 2b: a hiding pair's time together is caught only on a roll
         };
         events.record(event);
+        this.playerCatchesHiddenPair(type, people, p.place, presence, `${seed}:hide-catch:${day}:${hour}:${p.actor}:${p.kind}`); // 0184 part 2b
         out.push({ event, type, initiator: p.actor, partner });
         if (p.habit) this.noteHabitScene(p, event);
         }
@@ -18396,6 +18398,43 @@ export class GameSessionAdapter implements GameSession {
    * ORW-596 / ORW-574: in a PLAYED game (`ownViewOn`) the read is ONLY what the holder saw (every warm or cold scene between the two, plus allied-with beliefs), with no
    * true-bond half, and someone's warmth toward the holder is the holder's perception (`perceivedTrust`). Headless games keep the v2 blend, byte for byte.
    */
+  /** 0184 part 2b (ORW-564): faked distance (`ORWELL_FAKED_DISTANCE`, default ON; `=0` = no pair hides). Played games only. */
+  private fakedDistanceEnabled = flagDefaultOn("ORWELL_FAKED_DISTANCE");
+  setFakedDistanceEnabled(on: boolean): void { this.fakedDistanceEnabled = on; }
+  private fakedDistanceOn(): boolean { return this.fakedDistanceEnabled && this.live?.playedGame === true; }
+  /**
+   * 0184 part 2b: the close pairs faking distance this week, decided once a week and kept. A pair hides when each feels close to the other (`HIDE.bondAtLeast`) and its keyed
+   * weekly roll falls under `hideChance` (either one's cunning, the house's paranoia). NPC pairs only (the player's own scenes are never registered by onlookers). Side stream; no rng drawn
+   * from any other stream.
+   */
+  /** 0184 part 2b: the onlookers who register a scene. A hiding pair's warm time together is registered only by those who catch it (each on their own keyed roll). */
+  private onlookers(room: readonly EntityId[], type: string, people: readonly EntityId[], salt: string): EntityId[] {
+    if (!HIDDEN_TYPES.has(type) || people.length !== 2 || !this.hidingPairs().has(pairKey(people[0]!, people[1]!))) return [...room];
+    return room.filter((id) => new SeededRandom(hashSeed(`${salt}:${id}`)).next() < HIDE.catchChance);
+  }
+  /** 0184 part 2b: the player in the room may catch a hiding pair slipping off together: a scene the player witnessed (their own read to make). Same keyed roll as any onlooker. */
+  private playerCatchesHiddenPair(type: string, people: readonly EntityId[], place: string, presence: ReadonlyMap<EntityId, string>, salt: string): void {
+    if (!HIDDEN_TYPES.has(type) || people.length !== 2 || presence.get(PLAYER) !== place || !this.hidingPairs().has(pairKey(people[0]!, people[1]!))) return;
+    if (new SeededRandom(hashSeed(`${salt}:${PLAYER}`)).next() >= HIDE.catchChance) return;
+    this.onPlayerEvent?.(`${this.nameOf(PLAYER)} catches ${this.nameOf(people[0]!)} and ${this.nameOf(people[1]!)} slipping off for a quiet word, away from the others`, [PLAYER], "overheard");
+  }
+  hidingPairs(): ReadonlySet<string> {
+    const s = this.live;
+    if (!this.fakedDistanceOn() || !s || !this.house) return new Set();
+    if (s.hiding?.week !== s.week) {
+      const ids = this.livingIds().filter((id) => id !== PLAYER).sort(); // NPC pairs: under own-view no onlooker ever registers the player's own scenes, so a pair with the player has nothing to hide
+      const pairs: string[] = [];
+      for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+        const a = ids[i]!, b = ids[j]!;
+        if (this.rel.bondStrength(a, b) < HIDE.bondAtLeast || this.rel.bondStrength(b, a) < HIDE.bondAtLeast) continue;
+        const cunning = Math.max(this.fakingCunningOf(a), this.fakingCunningOf(b));
+        const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:hide:${s.week}:${pairKey(a, b)}`)).next();
+        if (roll < hideChance(cunning, this.cultureMult("paranoia"))) pairs.push(pairKey(a, b));
+      }
+      s.hiding = { week: s.week, pairs };
+    }
+    return new Set(s.hiding.pairs);
+  }
   private perceivedBond(holder: EntityId, from: EntityId, to: EntityId): number {
     const own = this.ownViewOn();
     // ORW-574: in a played game, how warm the OTHER one is to the holder is the holder's perception of it (their own bond, shaded by what they believe), never the other's hidden edge
