@@ -28,6 +28,9 @@ import type { UserSaveStore } from "../ports/UserSaveStore";
 import type { UserNotorietyStore } from "../ports/UserNotorietyStore";
 import { InMemoryUserNotorietyStore } from "../adapters/engine/FileUserNotorietyStore";
 import { deriveNotoriety } from "../engine/notoriety";
+import { nextSeasonNumber } from "../engine/returnees";
+import type { UserSeasonArchive } from "../ports/UserSeasonArchive";
+import { InMemoryUserSeasonArchive } from "../adapters/engine/FileUserSeasonArchive";
 import type { BehavioralFlags, PreSeedNextSeasonReq, PreSeedNextSeasonView } from "../ports/GameSession";
 import { SNAPSHOT_VERSION, snapshotCompatible } from "../engine/sessionSnapshot";
 import type { SessionSnapshot } from "../engine/sessionSnapshot";
@@ -611,11 +614,14 @@ export class GameSessionRegistry {
    * cutover by construction, R4).
    */
   private readonly notorietyStore: UserNotorietyStore;
+  /** 0208 / ORW-663 (B1) - the per-user archive of finished seasons' houseguests (engine-only; survives `resetUser` like the notoriety store). */
+  private readonly seasonArchive: UserSeasonArchive;
 
   constructor(
     private readonly saveStore?: UserSaveStore,
-    opts: { maxResident?: number; notorietyStore?: UserNotorietyStore } = {},
+    opts: { maxResident?: number; notorietyStore?: UserNotorietyStore; seasonArchive?: UserSeasonArchive } = {},
   ) {
+    this.seasonArchive = opts.seasonArchive ?? new InMemoryUserSeasonArchive();
     this.maxResident = Math.max(1, opts.maxResident ?? GameSessionRegistry.DEFAULT_MAX_RESIDENT);
     this.notorietyStore = opts.notorietyStore ?? new InMemoryUserNotorietyStore();
   }
@@ -736,6 +742,8 @@ export class GameSessionRegistry {
       // never another user's. `resetUser` (above) already derived + accumulated the DEAD season's
       // notoriety, so a returning player's reputation reflects the season they just finished.
       if (req.carriesNotoriety) fresh.session.setNotoriety(this.notorietyStore.read(user));
+      // 0208 (B1) - a RETURN (the same player coming back) may cast a houseguest from a season this user actually played; a new start carries nothing.
+      if (req.carriesNotoriety) fresh.session.setReturnArchive(this.seasonArchive.read(user));
       return fresh.session.createCharacter(req);
     });
     // 0065 (advance-warm) — the NEXT-season warm routes to the registry-level holding store (the running
@@ -958,6 +966,13 @@ export class GameSessionRegistry {
       const outcome = this.sandboxes.get(user)?.session.openSetOutcome();
       if (outcome) this.notorietyStore.accumulate(user, deriveNotoriety(outcome));
     } catch { /* notoriety is a retention nicety — never let it wedge a reset */ }
+    // 0208 (B1) - archive the finished, PLAYED season's houseguests beside the notoriety (best-effort; never wedges the cutover). The season number is one past the latest on file.
+    try {
+      const sess = this.sandboxes.get(user)?.session;
+      const known = this.seasonArchive.read(user);
+      const entries = sess?.archiveFinishedSeason(nextSeasonNumber(known));
+      if (entries && entries.length > 0) this.seasonArchive.append(user, entries);
+    } catch { /* the archive is a retention nicety - never let it wedge a reset */ }
     // G12: the dead season's queued (derived) soul-index work must not crowd the shared
     // breathing lane the new season seeds through — discard it with the sandbox it served.
     this.sandboxes.get(user)?.engine.soul.discardPending();

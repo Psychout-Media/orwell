@@ -28,3 +28,7 @@ Executable spec: `0172-groups-roles-and-cracking.feature` (wired into `cucumber.
 
 ## Streams
 No shared stream is drawn: every roll is a keyed `agendaRoll` (or a name draw on its own `SeededRandom`), so a flag-off season is byte-identical.
+
+## Amendment 2026-11-18 (ORW-611, the player plugged in: a step aimed at the player is recorded)
+
+Premise check against main: the card's second and third claims were already built by slice 6 (a hostile goal aimed at the player is raised as an open approach without the trust floor, a pull-them-in goal whose target is the player is a pitch through the player's own consent, a group that settles on the player presses them and withdraws a pitch it no longer wants). The first claim was still true: a goal step aimed at the player was raised as an approach but recorded nothing. Now, behind `ORWELL_PLAYER_AIMED` (default ON, played games only, `=0` is byte-identical): the step is written to an append-only `aimedAtPlayer` record (who, which goal kind, hostile or not, status); when it surfaces as the approach the player sees, the daily tick records a player-witnessed event (never hidden); talking to that houseguest or striking a deal with them answers it; a hostile one nobody answers within the answer window closes as `ignored` and costs that houseguest's read of the player (the existing squeeze shape, bounded, on its own keyed stream); a non-hostile one fades. The engine never answers for the player, and nothing is removed.

@@ -603,6 +603,11 @@ export interface GameStateView {
    * Vault-free by construction — open-set flavor strings only, never numbers or hidden state.
    */
   notorietyLegend?: string[];
+  /**
+   * 0208 / ORW-663 (B1): a houseguest in this cast played a past season WITH this player. Present on premiere and week-1 social only, and only when a
+   * RETURN cast one. Public facts only: the name, how many seasons ago, and the public finish. No feeling, claim or hidden state ever rides here.
+   */
+  returningHouseguests?: Array<{ name: string; seasonsAgo: number; placement: number; juror: boolean }>;
   /** 0148: the one-shot "while you slept" read the narrator gets on the first prompt after a nap (Vault-free: where the player is, who is in the room, who came and went, the time of day). Absent otherwise. */
   whileYouSlept?: string;
   /** 0148: a nap is open to the player right now (played game, clock running, morning or afternoon, no event or decision in the way). Only then does the narrator get the NAP line, so the fixed prompt pays nothing for it. Absent otherwise. */
@@ -1149,6 +1154,12 @@ export interface CreateCharacterReq {
    * a no-op on a fresh (no prior game) creation. Absent/false ⇒ a normal fresh creation (re-run casting).
    */
   keepCharacter?: boolean;
+  /**
+   * 0208 / ORW-663: how the player starts a later season, THEIR choice. "new" = a clean slate (no reputation, no returning houseguest); "return" = their
+   * reputation walks in and a houseguest from a season they played may be cast back. Absent = today's behaviour (a same-character `keepCharacter` restart returns,
+   * anything else is new). Only meaningful with `confirmRestart`; any other value is refused. Returns nothing hidden.
+   */
+  start?: "new" | "return";
   /**
    * Cross-season name memory (NAME-1 / #547) — names used by PRIOR seasons in the SAME game, so a new
    * season's corpus-sampled cast AVOIDS them (replayability/sameness, mandate #4). Carries both full
