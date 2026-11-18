@@ -138,6 +138,9 @@ export const OPEN_LEDGER_COMMITMENT_WORDS: readonly string[] = [
 ];
 const COMMITMENT_RE = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${OPEN_LEDGER_COMMITMENT_WORDS.join("|")})(?![\\p{L}\\p{N}_])`, "iu");
 
+/** ORW-602: is this free-text `kind` commitment-like (whole words, so "pledge", "oath", "agreement" and "commitment" count)? The retrospective's promise record reads it; a typed `term` counts whatever the kind. */
+export const openLedgerCommitmentKind = (kind: string): boolean => COMMITMENT_RE.test(kind);
+
 /** ORW-448: may this entry be linked to a deal? Only a commitment-like kind (see OPEN_LEDGER_COMMITMENT_WORDS) that is not about a third person. */
 export function openLedgerLinkable(p: Pick<OpenLedgerProposal, "kind" | "about">): boolean {
   return !p.about && COMMITMENT_RE.test(p.kind);

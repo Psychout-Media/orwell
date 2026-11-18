@@ -36,3 +36,11 @@ Until now an NPC's improvised termed promise was always sincere in the slice 4 r
 - Hidden: the plan and its key are Vault-class and never reach the narrator, the player or the admin views. After the crown only, the retrospective lists each plan beside how the engine settled the promise, beside the deal plans (`ledgerPlanRetroRows`; the shared `buildDealPlanRetro` is untouched).
 - Both flags must be on: `ORWELL_PROMISE_TERMS` (default ON) and `ORWELL_DEAL_PLANS` (default ON). Off: no plan is made or read.
 Gates: `tests/unit/promiseLedgerPlans.test.ts`, the new BDD scenarios, and the unchanged deal-plan tests.
+
+## Amendment 2026-11-18 - the player's promise record in the retrospective (ORW-602)
+The post-crown `dealPlans.yourPromises` list is now ONE record of what the player promised, read from the engine's settled state (no flag: a pure additive projection behind the existing crown gate).
+- One row per promise: a ledger line that only mirrors a deal (`dealId` set) is dropped, because the deal's own row is the record; a deal only the houseguest promised in is never listed as the player's.
+- By meaning, not keyword: a typed `term` made by the player counts whatever its free-text kind; a free-text line counts when its kind holds a commitment word as a whole word (the ledger's own list: promise, pact, deal, agreement, alliance, vow, oath, pledge, commitment and their forms); a line about a third person's business is a claim, not a promise.
+- Casual assurances the player made (the engine-judged kept/broken ledger) are listed as `source: "assured"`, except the ones a typed promise already wrote (one resolver, one record).
+- Each row says who settled it (`judgedBy`: `engine` for a deal, a typed term and an assurance; `narrator` for a free-text line or an open-text `share-info`), carries the engine's typed key (`what`), who it concerned when that was not the one it was made to (`about`), the week (typed terms, deals, assurances) or day (said lines). Withdrawn, lapsed and still-open rows keep that status. Facts only, no number, no hidden plan; the narrator voices the rest.
+Gates: `tests/unit/promiseRecordRetro.test.ts` (the pure record, and the MCP `seasonRetrospective` boundary: null before the crown).
