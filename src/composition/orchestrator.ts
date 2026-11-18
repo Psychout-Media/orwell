@@ -322,7 +322,7 @@ export class Orchestrator {
    *  nothing to add is a clean no-op, not a `no-daily-event` fault (the daily-event invariant is
    *  the live loop's own beats, not this supplementary tick). Non-degradation and the Vault Wall are
    *  still enforced. A direct off-screen tick (no flag) keeps the daily-event check. */
-  advance(user: string, trigger: Trigger, opts: { baseline?: SessionSnapshot; supplementary?: boolean; rng?: SeededRandom } = {}): AdvanceResult {
+  advance(user: string, trigger: Trigger, opts: { baseline?: SessionSnapshot; supplementary?: boolean; rng?: SeededRandom; settleOnly?: boolean } = {}): AdvanceResult {
     // The circuit breaker (B58/E6): after repeated identical faults, off-screen ticks SKIP this
     // sandbox instead of blindly retrying — the flag shows in health; a good player turn resets it.
     if (trigger === "offscreen-tick" && this.circuitOpen(user)) {
@@ -334,7 +334,7 @@ export class Orchestrator {
     // fault: the daily-event invariant belongs to the live loop's own beats (the finale is full of
     // them), and flagging the empty house would log a false fault on every finale turn of a
     // healthy, player-won game.
-    if (trigger === "offscreen-tick" && this.offscreenPoolSize(user) < 2) {
+    if (trigger === "offscreen-tick" && !opts.settleOnly && this.offscreenPoolSize(user) < 2) {
       return { events: 0, integrity: "ok", faults: [] };
     }
     const sandbox = this.registry.sandboxFor(user);
@@ -345,7 +345,8 @@ export class Orchestrator {
 
     let produced = 0;
     if (trigger !== "audit") {
-      produced = this.applyFn(sandbox, trigger, opts.rng ?? this.rngFor(user), this.clock.now(), this.offscreenInteractions);
+      // ORW-529 settleOnly: the overnight settle already ran (outside the commit seam) and no society tick runs, so the checkpoint + save below persist it.
+      if (!opts.settleOnly) produced = this.applyFn(sandbox, trigger, opts.rng ?? this.rngFor(user), this.clock.now(), this.offscreenInteractions);
       // R3 — `applyFn` mutated the sandbox OUTSIDE the `commit` seam (it never fires `onPersist`), so the
       // registry's snapshot cache must be invalidated before we read the candidate, or it would hand back
       // the pre-tick capture. (An `audit` produces nothing, so its candidate IS the current cache.)
@@ -595,6 +596,8 @@ export class Orchestrator {
       absNow !== undefined && lastAbs !== undefined ? absNow - lastAbs : 0);
     this.noteTickAbs(user, session);
     if (plan.settleSteps > 0) session.settleOvernight(plan.settleSteps); // inner processing while the house sleeps: deterministic, draws no rng
+    // ORW-529: at Final 2 (fewer than two living NPCs) the tick below is a no-op that never saves, so the settled moods would be lost on a reload. Persist them through the same checkpointed advance (no tick, no rng, no beatSeq change).
+    if (plan.settleSteps > 0 && this.offscreenPoolSize(user) < 2) this.advance(user, "offscreen-tick", { baseline: candidate, supplementary: true, settleOnly: true });
     // R3: the commit just exported this. A9: a supplementary tick — an empty society this tick is
     // a clean no-op, not a daily-event fault (the live loop owns that invariant via its beats).
     this.advance(user, "offscreen-tick", { baseline: candidate, supplementary: true });
