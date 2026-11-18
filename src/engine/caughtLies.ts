@@ -97,3 +97,19 @@ export function refuteToldBelief(store: BeliefStore | undefined, holder: EntityI
   belief.refuted = true;
   return true;
 }
+
+/**
+ * ORW-646 (0203) - a belief TAKEN BACK by its teller (a confession) is dated to the retraction, not to the telling, and filed last. The per-holder cap
+ * lets go of the OLDEST refuted belief first (`compactionVictim`); a belief confessed away in a window would otherwise be older than every belief
+ * already refuted and be the first the cap takes, ahead of them, while a live belief of the holder was never at risk: the save check (`beliefStoreSuperset`)
+ * reads that as a refuted belief surviving while a live one went. Dated to the retraction it queues behind the older refutations (and, on a tie of weeks,
+ * behind them by position), so the cap lets go of those first. The id, the planted claim, `refuted` and `reversed` are untouched. Returns whether it moved.
+ */
+export function dateRetraction(store: BeliefStore | undefined, holder: EntityId, claimId: string, week: number): boolean {
+  const list = store?.[holder];
+  const at = list?.findIndex((c) => plantedBy(c, claimId) && c.refuted === true) ?? -1;
+  if (!list || at < 0) return false;
+  const [b] = list.splice(at, 1);
+  list.push({ ...b!, week: Math.max(b!.week, week) });
+  return true;
+}

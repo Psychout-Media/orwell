@@ -385,7 +385,7 @@ import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type Hea
 import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
 import { sameMoment } from "../../engine/claimMoment";
 import { COMING_CLEAN, confessable, confessionTrustDrop, loopInTrustGain, catchRisk, confessChance, cleanActDone, otherVersionNear } from "../../engine/comingClean";
-import { CAUGHT_LIE, caughtLieTrustDrop, contradicts, overclaimedKeeps, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
+import { CAUGHT_LIE, caughtLieTrustDrop, contradicts, dateRetraction, overclaimedKeeps, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
 import { claimProblem, liesBy, claimsHeardBy, tellClaim, labelOfNature, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedInText, namedSourceContent, noRecordNote, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
@@ -13075,7 +13075,7 @@ export class GameSessionAdapter implements GameSession {
     const living = this.livingIds();
     if (!this.openLie(c) || c.speaker !== by || c.listener !== to || by === to || !living.includes(by) || !living.includes(to)) return false;
     if (to !== PLAYER) {
-      refuteToldBelief(live.beliefs, to, c.id, (h, x) => this.rel.edge(h, x));
+      if (refuteToldBelief(live.beliefs, to, c.id, (h, x) => this.rel.edge(h, x))) dateRetraction(live.beliefs, to, c.id, live.week); // ORW-646: queued behind older refutations at the per-holder cap
       const e = this.rel.edge(to, by);
       e.trust = Math.max(0, e.trust - confessionTrustDrop());
     }
