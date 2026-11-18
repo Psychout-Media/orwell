@@ -325,7 +325,7 @@ import { dissentMove, findScapegoat, heardDissenters, herdPull, herdVoices, hold
 import { rolesFromGraph, type NetworkRoles } from "../../engine/networkSpread";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { CREDIBILITY } from "../../engine/credibilityConstants";
-import { standing, composeWithCredibility, dealWillingnessShift, type HeardWrong } from "../../engine/reputation";
+import { REPUTATION, standing, composeWithCredibility, dealWillingnessShift, type HeardWrong } from "../../engine/reputation";
 import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, recordedSceneRoles, sceneRoles, type BookWrong, type SceneFold } from "../../engine/bondRecord";
 import { TRIADS, SWING } from "../../engine/triadsConstants";
 import { commonFriendNudges, kingmakerOf, priceTier, sharedEnemyNudges, strainedTriads, swingRead, triadPairKey, type TriadView } from "../../engine/triads";
@@ -1238,6 +1238,23 @@ export class GameSessionAdapter implements GameSession {
    * 0184: `observer`'s standing for `target` (1 = nothing heard against them), from the observer's OWN belief claims about the target (a wrong they heard of or witnessed done to someone else) and from the
    * deals the target kept with the observer. The observer's own caught lies are credibility's (B48), not counted here. Pure read: no rng, no writes. Engine-only: never projected.
    */
+  /** 0184 part 2c: does either of the two hold the other at a bad name (`REPUTATION.pactBar`)? Then no pact or alliance between them (the player's name counts like anyone's). Played games with reputations on only. */
+  /** 0184 part 2c: the house's social map for the post-crown retrospective (the caller is behind the crown gate): each person's roles as the houseguests read them. */
+  private socialMapRetro(): NonNullable<RetrospectiveView["socialMap"]> | undefined {
+    const s = this.live;
+    if (!s?.finished || !this.house || !this.socialRolesOn()) return undefined;
+    const npcs = this.house.npcs.map((n) => n.id);
+    const people = [PLAYER, ...npcs].map((id) => {
+      const counts = new Map<string, number>();
+      for (const o of npcs) { if (o === id) continue; const r = this.roleOf(o, id); if (r) counts.set(r, (counts.get(r) ?? 0) + 1); }
+      return { id, name: this.nameOf(id), heldAs: [...counts].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).map(([role, by]) => ({ role, by })) };
+    }).filter((p) => p.heldAs.length > 0);
+    return people.length ? { people } : undefined; // the pairs that faked distance join here once 0184 part 2b (#3031) keeps a weekly record
+  }
+  private badNameBetween(a: EntityId, b: EntityId): boolean {
+    if (!this.reputationOn() || this.live?.playedGame !== true) return false;
+    return (a !== PLAYER && this.reputationOf(a, b) <= REPUTATION.pactBar) || (b !== PLAYER && this.reputationOf(b, a) <= REPUTATION.pactBar);
+  }
   reputationOf(observer: EntityId, target: EntityId): number {
     if (!this.reputationOn() || observer === target) return 1;
     const live = this.live!;
@@ -5255,7 +5272,8 @@ export class GameSessionAdapter implements GameSession {
     const americasFavorite = this.americasFavorite(); // ORW-624: after the crown only
     const yourEdit = this.buildYourEditView(); // 0200 / ORW-632: after the crown only (the same gate); facts only
     const groupLife = this.buildGroupLifeView(); // 0183 part d: the sanctioned unsealing of hidden groups' names and words; same gate; facts only
-    return { ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
+    const socialMap = this.socialMapRetro(); // 0184 part 2c: after the crown only
+    return { ...(socialMap ? { socialMap } : {}), ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
@@ -13388,7 +13406,7 @@ export class GameSessionAdapter implements GameSession {
         .filter((m) => m !== founder)
         .sort((a, b) => mutual(founder, b) - mutual(founder, a) || a.localeCompare(b))
         .slice(0, maxSize - 1);
-      const willing = willingMembers(founder, proposed, (m) => mutual(founder, m), npcFloor);
+      const willing = willingMembers(founder, proposed.filter((m) => !this.badNameBetween(founder, m)), (m) => mutual(founder, m), npcFloor); // 0184 part 2c: neither takes a bad name into an alliance
       if (willing.length < 2) continue; // nobody bonded enough — no alliance this tick
       if (!holds([founder, ...willing])) continue; // ORW-353: not hollow: the same cohesion that would fade it must clear the floor at the start
       if (this.alliances.all().some((a) => sameMembers(a.members, willing))) continue; // dedup
@@ -13396,7 +13414,7 @@ export class GameSessionAdapter implements GameSession {
       const a = this.alliances.add(name, founder, willing, beat);
       this.noteAllianceIdentity(a.id, a.name, founder);
       // Pitch the player: a founder bonded enough reveals the alliance so the player can accept it.
-      if (mutual(founder, PLAYER) >= ALLIANCE.pitchPlayerFloor) this.alliances.reveal(a.id, PLAYER, this.groupRolesOn() ? a.members : undefined);
+      if (mutual(founder, PLAYER) >= ALLIANCE.pitchPlayerFloor && !this.badNameBetween(founder, PLAYER)) this.alliances.reveal(a.id, PLAYER, this.groupRolesOn() ? a.members : undefined);
       this.flushAllianceEvents(); // after the player pitch above, so a pitched player is told
       this.agendaRecheck("alliance-changed"); // ORW-312
       this.persist();
@@ -18473,6 +18491,7 @@ export class GameSessionAdapter implements GameSession {
     });
     for (const p of proposals) {
       const [a, b] = p.parties;
+      if (this.badNameBetween(a, b)) continue; // 0184 part 2c: a pact needs both to hold the other above a bad name
       const evId = this.onPlayerEvent(`${this.nameOf(a)} and ${this.nameOf(b)} settle a quiet ${p.kind} understanding`, [a, b], "deal");
       this.deals.make(p.parties, p.kind, "a quiet pact sealed away from the cameras", evId, s.week); // its plans: main's planAndCarryOutDeals, like every deal
     }

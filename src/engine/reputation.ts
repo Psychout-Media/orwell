@@ -17,6 +17,8 @@ export const REPUTATION = {
   floor: 0.35,
   /** An observer willing to deal with a target they hold at standing s loses this x (1 - s) of their willingness (the existing signed mood term). */
   dealDrag: 0.12,
+  /** 0184 part 2c: a houseguest the other holds at or below this standing (a bad name: two or three heard wrongs) is not taken into a pact or an alliance by them. */
+  pactBar: 0.7,
   /** Technical bound on the evidence read per pair (not a gameplay cap). */
   evidenceSafetyValve: 500,
 } as const;
