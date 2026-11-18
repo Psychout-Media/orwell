@@ -116,7 +116,7 @@ describe("the adapter's own ctx carries the endgame memory into the live loop", 
 
 describe("the decision x source table", () => {
   it("lists both endgame decisions with their provider", () => {
-    expect(DECISION_SOURCES.final3Eviction).toEqual(["endgameMemoryFor"]);
+    expect(DECISION_SOURCES.final3Eviction).toEqual(["endgameMemoryFor", "promiseFinalTwoFor"]);
     // ORW-581: a played game's secret-veto replacement goes through the full replacement read (the endgame memory still among its sources)
     expect(DECISION_SOURCES.secretVetoReplacement).toContain("endgameMemoryFor");
     expect(DECISION_SOURCES.secretVetoReplacement).toEqual(["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor", "feelingKeepFor", "endgameMemoryFor", "dealNomPushFor", "tieNomPushFor", "pitchTiltFor", "assuranceProtects"]);
