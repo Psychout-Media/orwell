@@ -88,6 +88,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // The houseguests who are not in a running staged competition cheer, taunt or sulk through it (played games only). ON by default; `=0` turns it off.
   { envKey: 'ORWELL_COMP_REACTIONS',          key: 'compReactions',          parser: 'defaultOn' },
   { envKey: 'ORWELL_CONFESSIONAL_DEPTH',     key: 'confessionalDepth',      parser: 'defaultOn' },
+  // ORW-650 (0133): watching from the couch, richer - an evicted player who keeps watching gets the season's real public moments (ceremonies, competition results), never anything hidden. ON by default; `=0` keeps the skeleton digests only.
+  { envKey: 'ORWELL_COUCH_WATCH', key: 'couchWatch', parser: 'defaultOn' },
   // B48-credibility layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_CREDIBILITY', key: 'credibility', parser: 'defaultOn' },
   // ORW-271 slice 1: the append-only per-night day ledger (a floor entry at each turnIn + the FE-driven recordDaySummary write-back) for a played game. ON by default; `=0` turns it off.
