@@ -11741,7 +11741,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.live?.playedGame === true && this.live.agendas ? {
         agendaPullFor: (t: EntityId, d: EntityId, at?: "veto") => this.agendaPullOf(t, d, at),
         hohTargetReadFor: (v: EntityId, h: EntityId, fn: readonly [EntityId, EntityId]) => this.hohTargetReadOf(v, h, fn), // ORW-573: what the voter knows, never the HOH's hidden reads
-        hohReferendumCentre: () => this.houseTypicalBond(), // ORW-634: alignment with the HOH is read against the house's own typical bond
+        ...(this.ownViewOn() ? { hohReferendumCentre: () => this.houseTypicalBond() } : {}), // ORW-634: alignment with the HOH is read against the house's own typical bond (with the own view, ORW-574: decisions read the relationships the house holds)
         statedReasonFor: (real: RealReason, day: number) => explainDecision(real, this.agendaCharacterOf(real.decider)!, this.gameSeed ?? 0, day),
       } : {}),
       // ORW-568 / 0181: the voter's (or HOH's) real feeling for the person keeps them. Played games with the bond record only, so a headless sim carries no hook (+0, byte-identical).
