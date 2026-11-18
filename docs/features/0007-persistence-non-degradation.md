@@ -72,3 +72,9 @@ Save = { coreVersion, vaultStore, journalStore }
 
 `bb-sim-spec.md` §4, §9, §11, §12 (Persistence integrity), §16.5;
 `CLAUDE_CODE_INSTRUCTIONS.md` §7, §15.5; `CLAUDE.md` mandate #4.
+
+## 8. Amendment 2026-11-18 (ORW-682): the belief-store check and the cap's compaction agree
+
+The `beliefs` allowance in `sessionCoreSupersetViolation` (`beliefStoreSuperset`) accepts a lost belief only under the per-holder cap's compaction
+(refuted first, else oldest). One commit can refute a belief and then compact it away; the check now accepts a lost live belief when no surviving
+already-refuted belief is older than it. A live belief lost ahead of an older refuted survivor, or below the cap, is still refused.
