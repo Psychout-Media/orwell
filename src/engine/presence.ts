@@ -420,6 +420,8 @@ export function rollOverhears(deps: {
    * pre-ruling adjacent-room-only path. The off-screen society/spine passes neither (calibration sacred).
    */
   sceneZone?: Zone;
+  /** ORW-579: what a listener could actually hear (built from the act, never from the engine's motive label). When given, it IS the fragment (a prefix of the line cut before the label); absent = the player's own words, sliced as before. */
+  heard?: string;
   zoneOf?: (id: EntityId) => Zone | undefined;
 }): EntityId[] {
   const listeners: EntityId[] = [];
@@ -440,7 +442,7 @@ export function rollOverhears(deps: {
   // Partial by DESIGN and by construction: the overhearer catches a strict fragment (never the
   // whole line), so a hidden scene's full content can never reach anyone verbatim through a wall —
   // the orchestrator's vault-leak checkpoint (a full-content substring sweep) stays strict and green.
-  const caught = deps.content.slice(0, Math.max(1, Math.floor(deps.content.length * PRESENCE.overhearFraction)));
+  const caught = deps.heard ?? deps.content.slice(0, Math.max(1, Math.floor(deps.content.length * PRESENCE.overhearFraction)));
   deps.knowledge.surfaceInformationTo(
     who,
     { content: `(overheard, muffled) ${caught}…`, confidence: PRESENCE.overhearConfidence },
