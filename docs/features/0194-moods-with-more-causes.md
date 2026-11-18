@@ -29,3 +29,7 @@ BDD `0194-moods-with-more-causes.feature`, `tests/unit/moodCauses.test.ts` (pure
 - **Cast-card line: not done.** A cause line on the roster card would either reveal who counted on whom (the friend-evicted bond is hidden) or need a new public-cause projection with its own boundary test; that is more than a small additive field, so it stays for its own slice.
 
 Left: one mood source for word, tells and decisions (ORW-576); the public-cause cast-card line.
+
+## Amendment 2026-11-18 (ORW-614, P-11): flirt, strategy and gossip scenes move mood and memory
+
+Only four scene kinds (betrayal, conflict, bonding, alliance) moved a houseguest's mood and memory when the player was in the scene; flirt (showmance), strategy and gossip moved nothing, while the same scenes between two houseguests moved their moods. With `ORWELL_PLAYER_SCENE_MOVES` (default ON, played games only; `=0` byte-identical) a showmance or strategy scene is remembered as a small warmth (a kindness entry, smaller than bonding: 0.25 and 0.15) and a gossip scene moves the touched houseguest's mood only; the mood event is the houseguest-side event the off-screen scene already uses. One table (`SCENE_MEMORY_SEVERITY_MORE` in `npcMemory.ts`) serves both the player's scenes and the scenes between houseguests, so the two read alike. Bounded by the ledger's per-pair cap and the existing drift scale; no rng, no new stream. Gate: `tests/unit/orw614PlayerSceneMoves.test.ts`. The older pin in `sceneMemoryWrite.test.ts` (strategy / gossip write none) is a not-played game and still holds.
