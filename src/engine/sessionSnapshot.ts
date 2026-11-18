@@ -986,6 +986,10 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
   // houseTour (0206 / ORW-654): a room the player has stepped into is never forgotten (its one-time card has been given).
   if (!houseTourSuperset(later.live?.houseTour, earlier.live?.houseTour)) return "houseTour";
 
+  // premiere introductions (0205 / ORW-653): a houseguest officially introduced at the circle is never un-introduced (append-only while the staged premiere lasts).
+  const introBefore = earlier.live?.premiereEntrance?.introduced, introAfter = later.live?.premiereEntrance;
+  if (introBefore && introAfter && !introBefore.every((id) => (introAfter.introduced ?? []).includes(id))) return "premiereIntroductions";
+
   // beliefs (#2017 / ORW-591): a belief once held is never lost (nor a telling folded into it), except by the per-holder cap's compaction, which
   // takes refuted beliefs before live ones (`beliefStoreSuperset`).
   if (!beliefStoreSuperset(later.live?.beliefs, earlier.live?.beliefs)) return "beliefs";

@@ -1,6 +1,7 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { composedAt, composedSize, composeAll, pickComposed, firstAccepted, sideStream } from "../../src/engine/data/composedFloor";
-import { pickAllianceName, allianceNameAt, ALLIANCE_NAME_SPACE, ALLIANCE_NAMES } from "../../src/engine/alliances";
+import { pickAllianceName, allianceNameAt, ALLIANCE_NAME_SPACE } from "../../src/engine/alliances";
 import { nextHouseEvent, houseEventLineAt, HOUSE_EVENT_SPACE, HOUSE_EVENT_POOL } from "../../src/engine/houseEvents";
 import { themeForWeek, applyTheme, COMPETITION_THEMES, BEAT_FLOURISHES } from "../../src/engine/competitionThemes";
 import { COMPETITION_LIBRARY } from "../../src/engine/competitionLibrary";
@@ -53,9 +54,10 @@ describe("ORW-509 composed floor helpers", () => {
 });
 
 describe("ORW-509 alliance names", () => {
-  it("the composed space is large and keeps the 18 classics first", () => {
+  it("the composed space is large and no fixed short list stands behind it", () => {
     expect(ALLIANCE_NAME_SPACE).toBeGreaterThan(1500);
-    expect(ALLIANCE_NAMES.map((_, i) => allianceNameAt(i))).toEqual([...ALLIANCE_NAMES]);
+    expect(readFileSync("src/engine/alliances.ts", "utf8")).not.toMatch(/ALLIANCE_NAMES\b/);
+    expect(new Set(Array.from({ length: ALLIANCE_NAME_SPACE }, (_, i) => allianceNameAt(i))).size).toBe(ALLIANCE_NAME_SPACE);
   });
   it("takes exactly one draw and never needs a numbered fallback in a season", () => {
     const { rng, draws } = counting(9);
@@ -154,5 +156,14 @@ describe("ORW-509 curiosity needle", () => {
     const a = composedCuriosityNeedle(1);
     expect(composedCuriosityNeedle(1, [a])).not.toBe(a);
     expect(CURIOSITY_NEEDLES.length).toBe(5);
+  });
+});
+
+describe("ORW-604 alliance name floor", () => {
+  it("is composed (no dealt short list), deterministic per seed, and unique within a game", () => {
+    const run = (seed: number): string[] => { const r = new SeededRandom(seed), taken = new Set<string>(); for (let i = 0; i < 30; i++) taken.add(pickAllianceName(r, taken)); return [...taken]; };
+    expect(run(7)).toEqual(run(7));
+    expect(run(7)).toHaveLength(30);
+    expect(ALLIANCE_NAME_SPACE).toBeGreaterThan(1500);
   });
 });

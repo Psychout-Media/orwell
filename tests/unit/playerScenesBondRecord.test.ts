@@ -6,13 +6,14 @@ import { BOND, type BondStore } from "../../src/engine/bondRecord";
 type Internals = {
   live: { active: string[]; playedGame?: boolean; bonds?: BondStore; bondsCursor?: number };
   snapshot(): unknown; restore(c: unknown): void; bondReader(): unknown;
-  setBondRecordEnabled(on: boolean): void;
+  setBondRecordEnabled(on: boolean): void; setBondRatesEnabled(on: boolean): void;
 };
 const PLAYER = "player";
 const start = (seed: number, n: string, bondOn = true) => {
   const sb = new GameSessionRegistry().sandboxFor(`g609-${n}-${seed}-${bondOn}`);
   sb.session.createCharacter({ playerName: "The Player", seed });
   (sb.session as unknown as Internals).setBondRecordEnabled(bondOn);
+  (sb.session as unknown as Internals).setBondRatesEnabled(false); // these pin the flat BASE fold; ORW-605's per-person weights have their own file
   sb.session.noteMessage({ messageId: "m1" });
   return { sb, s: sb.session as unknown as Internals };
 };

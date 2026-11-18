@@ -254,7 +254,7 @@ import type { PhysicalCharacteristics } from "../../domain/physicalCharacteristi
 import { cleanWardrobe, cleanOnCamera, cleanPhotoHair, cleanLookSignature, cleanStyleLine, clipCodePoints } from "../../domain/physicalCharacteristics";
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
-import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
+import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ, MEET_FIRST_IMPRESSION, firstImpressionLean, meetMannerOf } from "../../engine/premiereEntrances";
 import type { Houseguest } from "../../engine/characterFactory";
 import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, ARCHETYPES, VOL_OF, articleFor } from "../../engine/characterFactory";
 import type { Disposition } from "../../engine/characterFactory";
@@ -326,7 +326,7 @@ import { rolesFromGraph, type NetworkRoles } from "../../engine/networkSpread";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { CREDIBILITY } from "../../engine/credibilityConstants";
 import { standing, composeWithCredibility, dealWillingnessShift, type HeardWrong } from "../../engine/reputation";
-import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, recordedSceneRoles, sceneRoles, type BookWrong, type SceneFold } from "../../engine/bondRecord";
+import { SCENE_FOLDS, bondKey, bondOf, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, recordedSceneRoles, sceneRoles, sceneScale, type BookWrong, type SceneFold } from "../../engine/bondRecord";
 import { TRIADS, SWING } from "../../engine/triadsConstants";
 import { commonFriendNudges, kingmakerOf, priceTier, sharedEnemyNudges, strainedTriads, swingRead, triadPairKey, type TriadView } from "../../engine/triads";
 import { deriveDailyHouseGraph, type DailyHouseGraph, type HouseGraph } from "../../engine/houseGraph";
@@ -770,6 +770,8 @@ const PREMIERE_ENTRANCES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PREMIERE_ENTRAN
 const BED_RUSH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_BED_RUSH");
 /** ORW-654 / 0206 - the SELF-GUIDED TOUR: after walking in the player explores the house until production calls the circle; the houseguests mostly gather in the common area; the first entry into each room is a one-time room card. A played game only. ON by default; `=0` restores the held premiere. */
 const HOUSE_TOUR_ENABLED_DEFAULT = flagDefaultOn("ORWELL_HOUSE_TOUR");
+/** ORW-653 / 0205: meet the cast at the champagne circle (introductions + first impressions). ON by default; `ORWELL_MEET_THE_CAST=0` restores the old circle. Read once. */
+const MEET_THE_CAST_ENABLED_DEFAULT = flagDefaultOn("ORWELL_MEET_THE_CAST");
 
 /**
  * "Hang out until X" (PO 2026-11-04) - the safe fast-forward lever (`hangOut`). ON unless `ORWELL_HANGOUT=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`) - flipped ON 2026-11-04 (PO: Ryne) after the live rerun showed it stops exactly at the scheduled event and the HOH comp stages when due. Off => `hangOut()` returns `{ ok:false }` with no state change and the spine is byte-identical.
@@ -2618,6 +2620,8 @@ export class GameSessionAdapter implements GameSession {
   private bedRushEnabled = BED_RUSH_ENABLED_DEFAULT;
   /** ORW-654 / 0206: the self-guided tour (see `HOUSE_TOUR_ENABLED_DEFAULT`). */
   private houseTourEnabled = HOUSE_TOUR_ENABLED_DEFAULT;
+  /** ORW-653 / 0205: meet the cast (see `MEET_THE_CAST_ENABLED_DEFAULT`). */
+  private meetTheCastEnabled = MEET_THE_CAST_ENABLED_DEFAULT;
   private finalHohThreePartEnabled = FINAL_HOH_THREE_PART_ENABLED_DEFAULT;
   private jurorProfilesEnabled = JUROR_PROFILES_ENABLED_DEFAULT;
   private hangOutEnabled = HANGOUT_ENABLED_DEFAULT;
@@ -6525,19 +6529,26 @@ export class GameSessionAdapter implements GameSession {
     const live = this.live;
     if (!this.bondRecordEnabled || !live || !this.house) return;
     const store = (live.bonds ??= {});
+    // ORW-605 (played games only): one scene weighs differently for each holder: their own warmth-proneness, the pair's history, the house's bonding lean, a keyed seeded jitter per holder and other, a steady quirk not a per-scene roll (no shared rng).
+    const jitterSeed = hashSeed(`bond-scene:${this.gameSeed ?? ""}`);
+    const scaled = (_eventId: string): ((holder: EntityId, other: EntityId, kind: SceneFold) => number) | undefined => live.playedGame === true && this.bondRatesEnabled
+      ? (holder, other, kind) => sceneScale(kind === "conflict" ? "souring" : "warming", {
+        lean: this.warmLeanOf(holder, other), pair: { history: bondOf(store, holder, other).history }, dial: this.cultureMult("bonding"), jitter: agendaRoll(jitterSeed, holder, `bond-scene:${other}`),
+      })
+      : undefined;
     const events = this.record?.events() ?? [];
     for (let i = live.bondsCursor ?? 0; i < events.length; i++) {
       const e = events[i]!;
       if (live.playedGame === true && e.type === "conversation" && e.interactionKind !== undefined && SCENE_FOLDS.has(e.interactionKind) && e.witnessSet.includes(PLAYER)) {
         // ORW-609 (played games only): a recorded scene the player is in folds as the kind it was filed under, with the REAL actor: the player (to the first houseguest named) or the houseguest who acted (to the player); the rest only watched.
         const { actor, recipient, bystanders } = recordedSceneRoles(e.initiator, e.witnessSet);
-        if (recipient !== undefined) foldScene(store, e.interactionKind as SceneFold, [actor, recipient], { initiator: actor, bystanders });
+        if (recipient !== undefined) foldScene(store, e.interactionKind as SceneFold, [actor, recipient], { initiator: actor, bystanders, ...(scaled(e.id) ? { scaleFor: scaled(e.id)! } : {}) });
         continue;
       }
       if (!SCENE_FOLDS.has(e.type) || e.witnessSet.length < 2) continue;
       if (live.playedGame === true) { // ORW-598 (played games only): the scene's principals fold the pair (who started it matters); watchers only their own view
         const { principals, bystanders } = sceneRoles(e.initiator, e.witnessSet, !!e.houseLife);
-        if (principals.length >= 2) foldScene(store, e.type as SceneFold, principals, { ...(principals.includes(e.initiator) ? { initiator: e.initiator } : {}), bystanders });
+        if (principals.length >= 2) foldScene(store, e.type as SceneFold, principals, { ...(principals.includes(e.initiator) ? { initiator: e.initiator } : {}), bystanders, ...(scaled(e.id) ? { scaleFor: scaled(e.id)! } : {}) });
         continue;
       }
       if (!e.houseLife && e.witnessSet.length > 4) continue; // a whole-house moment is not a pair's scene
@@ -6567,6 +6578,16 @@ export class GameSessionAdapter implements GameSession {
     live.bondsDay = day;
   }
 
+  /** ORW-605: per-person / pair / house scene weights in the bond record (played games only). `ORWELL_BOND_RATES=0` opts out to the flat base fold. */
+  private bondRatesEnabled = flagDefaultOn("ORWELL_BOND_RATES");
+  setBondRatesEnabled(on: boolean): void { this.bondRatesEnabled = on; }
+  /** ORW-605: -1..1, how warm-prone `holder` is toward `other`: a volatile (sentimental) soul leans warm, a grudge-keeper leans guarded. The player (no soul) leans 0. Engine-only, no rng. */
+  private warmLeanOf(holder: EntityId, other: EntityId): number {
+    if (holder === PLAYER) return 0;
+    const v = ((this.soulObj(holder)?.volatility ?? 0.5) - 0.5) * 2;
+    return Math.max(-1, Math.min(1, 0.6 * v - (this.grudgeKeeper(holder, other) ? 0.4 : 0)));
+  }
+
   /** 0182 (Theme 3 slice 5, PR 1): the grudge book (`ORWELL_GRUDGES`, default ON; `=0` opts out). Played games only, and it needs the bond record. Nothing decides from it yet. */
   private grudgesEnabled = flagDefaultOn("ORWELL_GRUDGES");
   setGrudgesEnabled(on: boolean): void { this.grudgesEnabled = on; }
@@ -6586,7 +6607,7 @@ export class GameSessionAdapter implements GameSession {
     const note = (mark: string, holder: EntityId, subject: EntityId, kind: GrudgeKind, severity: number, week: number): void => {
       if (holder === PLAYER || seen.has(mark)) return;
       seen.add(mark);
-      noteGrudge((live.grudges ??= {}), holder, subject, kind, severity, week, day, mark);
+      if (noteGrudge((live.grudges ??= {}), holder, subject, kind, severity, week, day, mark) && live.grudges[grudgeKey(holder, subject)]!.refKey === mark) live.grudges[grudgeKey(holder, subject)]!.seenAt = (this.record?.events() ?? []).length; // ORW-605: stamp when this wrong was noted
     };
     for (const holder of Object.keys(live.npcMemory ?? {}).sort() as EntityId[]) {
       const row = live.npcMemory![holder] ?? {};
@@ -6711,6 +6732,7 @@ export class GameSessionAdapter implements GameSession {
       if (!holder || holder === PLAYER) continue;
       const row = live.grudges[grudgeKey(holder, wrongdoer)];
       if (!row || live.week - row.week > 1 || day - row.day > REPAIR.sceneDays || day < row.day) continue;
+      if (row.seenAt !== undefined && row.seenAt <= events.length && i < row.seenAt) continue; // ORW-605: a warm scene from BEFORE the wrong is not an apology (a record shorter than the stamp was replaced, so the stamp says nothing)
       if (mark(`repair:scene:${holder}|${wrongdoer}|${live.week}`)) this.repairGrudge(holder, wrongdoer, REPAIR.scene);
     }
     live.grudgesCursor = events.length;
@@ -9099,10 +9121,13 @@ export class GameSessionAdapter implements GameSession {
     const me = this.house!.player.id;
     const arrivedIds = pe.order.slice(0, pe.arrived);
     const lastId = pe.arrived > 0 ? pe.order[pe.arrived - 1] : undefined;
-    const speakerOf = (x: string): { id?: string; name: string; host?: true; isPlayer?: true } =>
-      x === "host" ? { name: "The host", host: true } :
-      x === me ? { id: x, name: this.nameOf(x), isPlayer: true } : { id: x, name: this.nameOf(x) };
-    let speakers: Array<{ id?: string; name: string; host?: true; isPlayer?: true }> | undefined;
+    const speakerOf = (x: string): { id?: string; name: string; host?: true; isPlayer?: true; manner?: "drawn-to" | "even" | "guarded" } => {
+      if (x === "host") return { name: "The host", host: true };
+      if (x === me) return { id: x, name: this.nameOf(x), isPlayer: true };
+      const lean = pe.introduced ? this.meetLean(x) : undefined; // ORW-653 / 0205: the visible manner of an introduced houseguest toward the player, a plain word
+      return { id: x, name: this.nameOf(x), ...(lean !== undefined ? { manner: meetMannerOf(lean) } : {}) };
+    };
+    let speakers: Array<{ id?: string; name: string; host?: true; isPlayer?: true; manner?: "drawn-to" | "even" | "guarded" }> | undefined;
     if (pe.stage !== "entrances" && pe.spoke.length > 0) {
       const len = pe.spoke.length;
       const from = len % TOAST_BATCH === 0 ? len - TOAST_BATCH : len - (len % TOAST_BATCH);
@@ -9121,6 +9146,7 @@ export class GameSessionAdapter implements GameSession {
       ...(lastId && lastId !== me ? { justArrived: { id: lastId, name: this.nameOf(lastId) } } : {}),
       ...(lastId && lastId === me ? { playerJustEntered: true as const } : {}),
       ...(speakers ? { speakers } : {}),
+      ...(pe.introduced && pe.stage === "toast" ? { meetTheCast: true as const } : {}), // ORW-653 / 0205
       // ORW-368: `toastRemaining` ("N more after this batch") exists only once a batch has been released; before the first one there is no "this batch" to count from.
       // ORW-368: the player's own slot, from the engine's done list: not yet, in the latest batch, or passed.
       ...(pe.stage === "toast" && speakers ? { toastRemaining: Math.max(0, toastSpeakers(pe.order).length - pe.spoke.length) } : {}),
@@ -9170,6 +9196,7 @@ export class GameSessionAdapter implements GameSession {
       // convened for a ceremony); the circle then runs as ever (toast, then the bed rush).
       pe.stage = "toast";
       s.champagneCircle = "gathered";
+      if (this.meetTheCastEnabled && s.playedGame === true) pe.introduced = []; // ORW-653 / 0205: the circle is the meet-the-cast moment (armed only here, so nothing is introduced before the circle is called)
       this.presence?.set(me, "living-room"); this.presenceBase?.set(me, "living-room");
       // The tour's placement was a player-facing overlay only: when it ends the house goes back to the seats its own (untouched) movement gave it, so the tour leaves no trace on the week-1 society
       for (const [id, room] of this.presenceBase ?? []) if (id !== me && this.presence?.has(id)) { this.presence.set(id, room); this.presenceTenure?.set(id, 0); this.presenceZone?.delete(id); }
@@ -9219,6 +9246,7 @@ export class GameSessionAdapter implements GameSession {
       if (sp === "host") this.onPlayerEvent?.("The host opens the toast", [...pe.order], "toast-speech");
       else if (sp !== me) this.onPlayerEvent?.(`${this.nameOf(sp)} gives a toast`, [...pe.order], "toast-speech");
       pe.spoke.push(sp); // the player's slot is a marker only - chat-authored, never recorded here
+      if (pe.introduced && sp !== "host") this.recordIntroduction(sp);
     }
     this.persist();
     const view = this.advanceView(null);
@@ -9234,6 +9262,32 @@ export class GameSessionAdapter implements GameSession {
         },
       },
     };
+  }
+
+  /**
+   * ORW-653 / 0205 - one houseguest's official introduction at the circle: recorded once (append-only), marked met, and (an NPC) their first impression of the player folded into the hidden relationship
+   * layer at a small bounded magnitude from a keyed side stream. The player's own slot only records THAT the player was introduced; the engine never writes or voices the player's words. No persist (caller's).
+   */
+  private recordIntroduction(id: EntityId): void {
+    const pe = this.live!.premiereEntrance!;
+    const me = this.house!.player.id;
+    if (!pe.introduced || pe.introduced.includes(id)) return;
+    pe.introduced.push(id);
+    if (id === me) return;
+    this.premiereMet.add(id);
+    this.premiereHotReads.add(id);
+    this.introducedNames.add(id);
+    const lean = this.meetLean(id);
+    if (lean === undefined) return;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:meet-impression-fold:${id}`));
+    this.rel.applyImpactDirected(id, me, { affinity: lean * MEET_FIRST_IMPRESSION.affinity, trust: lean * MEET_FIRST_IMPRESSION.trust }, rng);
+  }
+
+  /** ORW-653 / 0205: how one houseguest takes to the player on meeting, in [-1, 1] (engine-only; only its plain-word manner ever leaves). */
+  private meetLean(id: EntityId): number | undefined {
+    const npc = this.house?.npcs.find((n) => n.id === id);
+    if (!npc || !this.house) return undefined;
+    return firstImpressionLean(this.gameSeed ?? 0, id, npc.character.age, this.house.player.character.age, npc.character.stats?.social);
   }
 
   /**
@@ -11930,6 +11984,7 @@ export class GameSessionAdapter implements GameSession {
   setBedRushEnabled(on: boolean): void { this.bedRushEnabled = on; }
   /** ORW-654 / 0206: turn the self-guided tour on/off for this session (tests/BDD; the deploy sets `ORWELL_HOUSE_TOUR`). */
   setHouseTourEnabled(on: boolean): void { this.houseTourEnabled = on; }
+  setMeetTheCastEnabled(on: boolean): void { this.meetTheCastEnabled = on; }
   premiereEntrancesEnabledNow(): boolean { return this.premiereEntrancesEnabled; }
   /** 0128 - turn the three-part Final HOH on/off for this session (tests/BDD; the deploy sets `ORWELL_FINAL_HOH_THREE_PART`). */
   setFinalHohThreePartEnabled(on: boolean): void { this.finalHohThreePartEnabled = on; }

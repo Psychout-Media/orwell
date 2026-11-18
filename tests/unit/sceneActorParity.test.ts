@@ -7,13 +7,14 @@ import { BOND, type BondStore } from "../../src/engine/bondRecord";
  * ORW-609 (widened): a recorded scene carries its REAL actor. The same act done by the player to a houseguest and by a houseguest to the player (or another houseguest) moves the same stores
  * with the roles substituted; a houseguest who acts is the one the witnesses sour toward and the one remembered, never the player. Roles only.
  */
-type Internals = { live: { active: string[]; bonds?: BondStore }; bondReader(): unknown; setBondRecordEnabled(on: boolean): void };
+type Internals = { live: { active: string[]; bonds?: BondStore }; bondReader(): unknown; setBondRecordEnabled(on: boolean): void; setBondRatesEnabled(on: boolean): void };
 type Ledger = Record<string, Record<string, { kind: string; severity: number }[]>>;
 function start(n: string, seed = 3) {
   const sb = new GameSessionRegistry().sandboxFor(`g609p-${n}-${seed}`);
   sb.session.createCharacter({ playerName: "The Player", seed });
   const s = sb.session as unknown as Internals;
   s.setBondRecordEnabled(true);
+  s.setBondRatesEnabled(false); // pins the flat BASE fold; ORW-605 has its own file
   sb.session.noteMessage({ messageId: "m1" });
   const [A, B, C] = s.live.active.filter((x) => x.startsWith("npc:")) as [string, string, string];
   (sb.session as unknown as { presence: Map<string, string> }).presence = new Map([[PLAYER, "kitchen"], [A, "kitchen"], [B, "kitchen"], [C, "kitchen"]]);
