@@ -14501,7 +14501,7 @@ export class GameSessionAdapter implements GameSession {
         ...(showmance && whereM.has(showmance) ? { showmance } : {}),
         ...this.roommateView(bedsNow, id, inHouse, whereM),
         ...(!room && kindredOf(id) ? { kindred: kindredOf(id)! } : {}),
-        timeOfDay: tod, day, hour, ...(repeat > 0 ? { repeat } : {}), inCompetition: false,
+        timeOfDay: tod, day, hour, ...(repeat > 0 ? { repeat } : {}), inCompetition: this.compReactionsOn() && !!s.competition && !s.competition.stillIn.includes(id),
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
         ...(houseCulture ? { culture: houseCulture } : {}),
         ...(swingRead ? { swing: swingRead } : {}),
@@ -14582,6 +14582,10 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** ORW-621 (spec 0198, the people in your room live too): the houseguests in the player's own room take their goal steps there. ON unless `ORWELL_ROOM_LIFE=0`. Played games only; OFF => no room step is planned => byte-identical. */
+  /** ORW-580: while a staged competition runs, the houseguests who are not still in it react in public (cheer / taunt / sulk). ON unless `ORWELL_COMP_REACTIONS=0`. Played games only (the hour planner never runs headless); OFF => byte-identical. */
+  private compReactionsEnabled = flagDefaultOn("ORWELL_COMP_REACTIONS");
+  setCompReactionsEnabled(on: boolean): void { this.compReactionsEnabled = on; }
+  private compReactionsOn(): boolean { return this.compReactionsEnabled && this.live?.playedGame === true; }
   private roomLifeEnabled = flagDefaultOn("ORWELL_ROOM_LIFE");
   setRoomLifeEnabled(on: boolean): void { this.roomLifeEnabled = on; }
   private roomLifeOn(): boolean { return this.roomLifeEnabled && this.live?.playedGame === true; }
