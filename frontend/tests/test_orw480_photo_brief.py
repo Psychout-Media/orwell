@@ -102,6 +102,13 @@ def test_anchors_are_seeded_even_and_near_work_is_capped():
         assert x["weather"] in B.SEASONS[x["season"]]
 
 
+SECRET = " She keeps her job a secret from everyone in the house."
+
+
+def secret(c):
+    return {**c, "biography": c["biography"] + SECRET}
+
+
 def test_a_good_brief_passes_and_every_rule_has_a_failing_case():
     cs = cards()
     anchors = B.deal_anchors(cs, 1)
@@ -125,10 +132,11 @@ def test_a_good_brief_passes_and_every_rule_has_a_failing_case():
     for code, patch in cases.items():
         assert code in B.check_brief(c, an, {**ok, **patch}), code
     assert "missing" in B.check_brief(c, an, None) and "missing-why" in B.check_brief(c, an, {k: v for k, v in ok.items() if k != "why"})
-    # the job is not a caption, unless the facet is near work
+    # round 22: a job that is not a secret may show; a SECRET job is not a caption, unless the facet is at work
     cap = {**ok, "doing": "paused in the middle of her technician job"}
-    assert "job-caption" in B.check_brief(c, {**an, "facet": "a hobby"}, cap)
-    assert "job-caption" not in B.check_brief(c, {**an, "facet": B.NEAR_WORK}, cap)
+    assert "job-caption" not in B.check_brief(c, {**an, "facet": "a hobby"}, cap)
+    assert "job-caption" in B.check_brief(secret(c), {**an, "facet": "a hobby"}, cap)
+    assert "job-caption" not in B.check_brief(secret(c), {**an, "facet": B.NEAR_WORK}, cap)
     # a talking person may hold a hand out
     assert "open-palm-to-nobody" not in B.check_brief(c, an, {**ok, "expressionBody": "one hand open, mid-sentence to a friend"})
 
@@ -157,7 +165,7 @@ def test_the_pipeline_accepts_good_briefs_in_two_writer_calls_and_names_no_one_t
     sysm = calls[0][0]["content"]
     for bad_word in ("such as", "for example", "e.g.", "clam dock", "drainage"):
         assert bad_word not in sysm                                                     # rules and the person, never an example list
-    for must in ("JSON only", "pre-season", "No eyes shut", "no hat or sunglasses indoors", "Only the person is in sharp focus", "No readable brand names", "ONE person only", "tie:"):
+    for must in ("JSON only", "pre-season", "No eyes shut", "no hat or sunglasses indoors", "Only the person is in sharp focus", "No readable signs or text", "ONE person only", "tie:"):
         assert must in sysm
 
 
@@ -646,7 +654,7 @@ def test_p2_the_objects_ask_lands_when_the_wear_has_a_layer_and_in_any_reply_sha
 
 def test_p3_job_caption_only_when_the_place_is_the_workplace_or_the_action_is_the_job():
     cs = cards()
-    c = {**cs[0], "vocation": "community-theater actor", "biography": cs[0]["biography"] + " She works toward the next production at the community theater in Lake Havasu City."}
+    c = {**cs[0], "vocation": "community-theater actor", "biography": cs[0]["biography"] + " She works toward the next production at the community theater in Lake Havasu City." + SECRET}
     an = {**B.deal_anchors(cs, 1)["npc:1"], "facet": "their own street or block"}
     ok = {**good_brief(cs[0], 0), "where": "a lakeside park near the community theater in Lake Havasu City, wet picnic tables and a low lawn, the water beyond", "tie": '"community theater in Lake Havasu City"'}
     assert "job-caption" not in B.check_brief(c, an, ok)
@@ -654,6 +662,9 @@ def test_p3_job_caption_only_when_the_place_is_the_workplace_or_the_action_is_th
     assert "job-caption" not in B.check_brief(c, an, own)
     assert "job-caption" in B.check_brief(c, an, {**ok, "where": "the stage of the community theater in Lake Havasu City, the wings behind her"})
     assert "job-caption" in B.check_brief(c, an, {**ok, "doing": "running lines as the actor she is, a script in hand"})
+    # round 22: when the job is not a secret, the stage of the theater is a fine place
+    open_c = {**c, "biography": c["biography"].replace(SECRET, "")}
+    assert "job-caption" not in B.check_brief(open_c, an, {**ok, "where": "the stage of the community theater in Lake Havasu City, the wings behind her"})
 
 
 # ---------------------------------------------------------------------------------------------------- round 12 (cast 1133, run at 84076224)
@@ -702,7 +713,7 @@ def test_q3_the_time_of_day_is_spread_over_the_parts_of_the_day_and_passed_as_us
 
 def test_q4_at_most_one_object_may_hint_at_the_job():
     cs = cards()
-    c = {**cs[0], "vocation": "home-health aide"}
+    c = secret({**cs[0], "vocation": "home-health aide"})
     an = {**B.deal_anchors(cs, 1)["npc:1"], "facet": "home and family"}
     ok = good_brief(cs[0], 0)
     assert B.check_brief(c, an, {**ok, "jobHints": []}) == []
@@ -710,7 +721,9 @@ def test_q4_at_most_one_object_may_hint_at_the_job():
     assert "job-objects" not in B.check_brief(c, an, {**ok, "inFrame": ["a portable oxygen tank", "a family photo album"], "jobHints": ["a portable oxygen tank"]})
     assert "job-objects" in B.check_brief(c, an, {**ok, "inFrame": ["a health-visit folder", "a home-health binder"], "jobHints": []})      # a word of the job title counts without a list
     assert "job-objects" not in B.check_brief(c, {**an, "facet": B.NEAR_WORK}, {**ok, "inFrame": ["a portable oxygen tank", "a laminated schedule"], "jobHints": ["a portable oxygen tank", "a laminated schedule"]})
-    assert "jobHints" in B.SYSTEM and "at most ONE" in B.SYSTEM and "never a total tell" in B.SYSTEM
+    assert "jobHints" in B.SYSTEM and "at most ONE" in B.SYSTEM and "for everyone else the job may show naturally" in B.SYSTEM
+    open_c = {**c, "biography": cs[0]["biography"]}
+    assert "job-objects" not in B.check_brief(open_c, an, {**ok, "inFrame": ["a portable oxygen tank", "a laminated schedule"], "jobHints": ["a portable oxygen tank", "a laminated schedule"]})
     assert B.clean_brief({**ok, "jobHints": ["a thing", 3, ""]})["jobHints"] == ["a thing"]
 
 
@@ -908,7 +921,7 @@ def test_round22_no_writing_on_objects():
 
 
 def test_round22_the_place_itself_can_tell_the_job():
-    cs = cards(); c = {**cs[0], "vocation": "funeral director"}; an = {**B.deal_anchors(cs, 1)["npc:1"], "facet": B.FACETS[0]}
+    cs = cards(); c = secret({**cs[0], "vocation": "funeral director"}); an = {**B.deal_anchors(cs, 1)["npc:1"], "facet": B.FACETS[0]}
     base = good_brief(c, 0)
     assert "job-caption" in B.check_brief(c, an, {**base, "where": "a quiet cemetery path in Akron, Ohio, beside a headstone with fresh flowers"})
     assert "job-caption" not in B.check_brief(c, an, {**base, "where": "the back porch of her house in Akron, Ohio, with the garden hose coiled up"})
@@ -939,7 +952,7 @@ def test_round22_a_footwear_signature_is_not_kept_in_a_half_length_frame():
 # ---------------------------------------------------------------------------------------------------- round 19 (ORW-480: the place, the clothes and the grime stop telling the job)
 def _r19(job, where, facet, **kw):
     cs = cards()
-    c = {**cs[0], "vocation": job}
+    c = secret({**cs[0], "vocation": job})
     an = {**B.deal_anchors(cs, 1)["npc:1"], "facet": facet, "season": "autumn", "weather": "a windy day", **kw}
     b = {**good_brief(c, 0), "where": where, "tie": '"' + where.split(",")[0] + '"', "wear": "a cream knit, dark jeans, a grey wool cardigan"}
     return c, an, b
@@ -975,7 +988,7 @@ def test_round19_a_workplace_is_never_the_place_even_when_the_facet_is_near_work
 def test_round19_a_failing_place_goes_to_the_rewrite_not_the_floor():
     cs = cards()
     jobs = {"npc:1": "deckhand"}
-    cs = [{**c, "vocation": jobs.get(c["id"], c["vocation"])} for c in cs]
+    cs = [secret({**c, "vocation": jobs.get(c["id"], c["vocation"])}) if c["id"] in jobs else c for c in cs]
     an = B.deal_anchors(cs, 1)
     an["npc:1"] = {**an["npc:1"], "facet": B.NEAR_WORK}
     bad = lambda b: {**b, "where": "the dock in Cedar Key, Florida, with crab pots stacked at the end", "tie": '"the clam docks"', "inFrame": ["crab pots stacked behind", "a coil of rope"]}  # noqa: E731
@@ -985,7 +998,7 @@ def test_round19_a_failing_place_goes_to_the_rewrite_not_the_floor():
     assert "place-is-workplace" in res["rejected"] and "npc:1" in res["briefs"] and "npc:1" not in res["floor"]
     assert not B.workplace_hit("deckhand", res["briefs"]["npc:1"]["where"]) and res["rewritten"] >= 1
     assert any("rewrite" in json.loads(m[-1]["content"]) for m in calls)
-    assert "would a stranger guess" in B.SYSTEM and "would a stranger guess" in B.EDITOR_SYSTEM
+    assert "would guess the job" in B.SYSTEM
 
 
 def test_round19_the_season_and_weather_reach_the_clothes():
@@ -1025,21 +1038,12 @@ def test_round19_no_work_grime_unless_the_life_area_is_that():
     assert "grime" in B.SYSTEM and "work-grime" in B.CODE_WORDS
 
 
-def test_round20_clothes_carry_no_team_school_or_brand_name():
-    # round 20: a brief dressed a prison chaplain in "Worn-in LSU Tigers striped polo shirt"
-    for t in ("Worn-in LSU Tigers striped polo shirt, Lightweight khaki trousers", "a faded varsity jacket over a white tee",
-              "a grey hoodie with the university crest", "a navy cap with a team logo", "a black graphic tee, ripped jeans"):
-        assert B.clothes_has_text(t), t
-    # ordinary outfits, including the capitalized item lists the writer often gives, are not names
-    for t in ("a faded navy polo shirt, khaki trousers", "a cream cable-knit sweater", "Navy hoodie, Black denim jacket, grey joggers",
-              "Lightweight khaki trousers; Canvas sneakers", "a soft cream knit cardigan over a smocked cotton blouse"):
-        assert not B.clothes_has_text(t), t
+def test_round22_there_is_no_clothes_text_check_any_more():
+    # Kevin, round 22: "we do not need a no logos rule". A team shirt is a normal garment and never fails a brief.
+    assert "clothes-text" not in B.CODE_WORDS
     cs = cards(); c = cs[0]
     an = B.deal_anchors(cs, 1)["npc:1"]
     base = good_brief(c, 0)
-    bad = {**base, "wear": "Worn-in LSU Tigers striped polo shirt, Lightweight khaki trousers"}
-    assert "clothes-text" in B.check_brief(c, an, bad)
-    assert "clothes-text" not in B.check_brief(c, an, {**base, "wear": "Navy hoodie, Black denim jacket, grey joggers"})
-    # the repair drops the printed garment's clause and keeps the rest
-    fixed = B.repair_brief(c, bad, an)
-    assert "LSU" not in fixed["wear"] and "khaki trousers" in fixed["wear"].lower()
+    codes = B.check_brief(c, an, {**base, "wear": "Worn-in LSU Tigers striped polo shirt, Lightweight khaki trousers"})
+    assert "clothes-text" not in codes and "text-or-brand" not in codes
+    assert "logo" not in B.SYSTEM.lower().replace("no readable signs", "")
