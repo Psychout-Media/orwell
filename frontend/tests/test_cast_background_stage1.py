@@ -231,3 +231,35 @@ def test_the_front_end_cue_reads_the_counts_endpoint_and_invents_nothing():
     assert "/api/orwell/cast-progress" in js and "_castCueStart()" in js
     assert "p.faces" in js and "p.total" in js
     assert "Math.random" not in js[js.index("_castCueText"):js.index("_castCueStart")]
+
+
+def test_an_in_flight_402_shrinks_the_queue_to_one_until_a_shot_lands(env, monkeypatch):
+    monkeypatch.setattr(P, "INFLIGHT_RETRY_WAITS_S", (0.01, 0.01, 0.01))
+    monkeypatch.setitem(P._PROVIDER_PROVEN, "ok", True)
+    P._clear_backpressure()
+    live = {"n": 0, "max_after": 0, "refused": False, "landed": False}
+
+    async def inner(prompt, user, reference_png=None, keep_identity=True, _ctx=None):
+        _ctx["host"] = "openrouter.ai"
+        live["n"] += 1
+        if live["refused"] and not live["landed"]:
+            live["max_after"] = max(live["max_after"], live["n"])
+        await asyncio.sleep(0.03)
+        live["n"] -= 1
+        if prompt == "p0" and not live["refused"]:
+            live["refused"] = True
+            P._note_gen_error("http-402", "would exceed your available credits given your current in-flight requests")
+            return None
+        if live["refused"]:
+            live["landed"] = True
+        return b"png"
+
+    monkeypatch.setattr(P, "_generate_one_inner", inner)
+
+    async def go():
+        return await asyncio.gather(*[P._generate_one(f"p{i}", "u") for i in range(8)])
+
+    out = _run(go())
+    assert all(o == b"png" for o in out)
+    assert P.billing_breaker_open() is False
+    assert P.effective_image_parallel() == 3  # a landed shot lifts the back-pressure

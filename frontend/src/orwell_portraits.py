@@ -1569,6 +1569,25 @@ def _face_priority(user: Optional[str], sid: Optional[str]) -> int:
     return 0 if (sid and sid in _OPENING_IDS.get(_safe_user(user), ())) else 1
 
 
+# Back-pressure: OpenRouter refuses when the maximum possible cost of ALL in-flight requests would exceed the account
+# balance, so when it says so the queue shrinks to ONE in flight (the refused face requeues) and stays shrunk until a
+# shot succeeds or the window passes. This never opens the billing breaker.
+BACKPRESSURE_WINDOW_S = 60.0
+_BACKPRESSURE = {"until": 0.0}
+
+
+def _note_backpressure() -> None:
+    _BACKPRESSURE["until"] = time.monotonic() + BACKPRESSURE_WINDOW_S
+
+
+def _clear_backpressure() -> None:
+    _BACKPRESSURE["until"] = 0.0
+
+
+def effective_image_parallel() -> int:
+    return 1 if time.monotonic() < _BACKPRESSURE["until"] else portrait_parallel()
+
+
 class _ImageGate:
     """The process-wide image queue: a counting gate whose limit is read at each grant (so the `portrait_parallel`
     setting stays live) and whose waiters are served opening-scene faces first, then in arrival order."""
@@ -1580,7 +1599,7 @@ class _ImageGate:
         self._seq = 0
 
     def _grant(self) -> None:
-        while self._waiters and self.live < portrait_parallel():
+        while self._waiters and self.live < effective_image_parallel():
             best = min(self._waiters, key=lambda w: (_face_priority(w[1], w[2]), w[0]))
             self._waiters.remove(best)
             if best[3].done():
@@ -1643,7 +1662,13 @@ async def _generate_one(prompt: str, user: Optional[str],
     while True:
         async with image_gate().slot(user):
             png = await _generate_one_gated(prompt, user, reference_png, keep_identity)
-        if png or not is_inflight_credit_error(*_peek_gen_error()) or attempt >= len(INFLIGHT_RETRY_WAITS_S):
+        if png:
+            _clear_backpressure()
+            return png
+        if not is_inflight_credit_error(*_peek_gen_error()):
+            return png
+        _note_backpressure()  # the queue drops to one in flight until a shot lands
+        if attempt >= len(INFLIGHT_RETRY_WAITS_S):
             return png
         logger.info("[portraits] provider credits are held by in-flight requests for %s: requeue %d after %.0fs",
                     _hid_tag(), attempt + 1, INFLIGHT_RETRY_WAITS_S[attempt])
