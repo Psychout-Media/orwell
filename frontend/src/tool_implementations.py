@@ -6145,6 +6145,9 @@ async def do_make_deal(content: str, owner: Optional[str] = None) -> Dict:
             if len(_parts) != 2:
                 return {"error": "parts (exactly two promises, each {kind, third?, terms?}) is required for a package deal", "exit_code": 1}
             _extra["parts"] = _parts
+        _counters = args.get("countersOffer")
+        if isinstance(_counters, str) and _counters.strip():  # ORW-614 (P-12): the player's own terms answer a standing offer
+            _extra["counters_offer"] = _counters.strip()[:80]
         res = await orwell_engine.make_deal(with_id, kind, terms, leverage=leverage,
                                             traded_secret=traded_secret, user=owner, **_extra)
         if is_deal_refusal(res):  # the engine decided the NPC declines: surface it as a refusal, never as a recorded deal

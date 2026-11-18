@@ -91,7 +91,7 @@ import { FavorLedger, type FavorEntry } from "../../engine/favors";
 import { FAVOR } from "../../engine/favorConstants";
 import { counterStreamKey, weighCounter, type CounterAsk, type CounterSide } from "../../engine/favorCounters";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
-import { NPC_MEMORY, PLAYED_NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, salience, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, BOOK_FOLDED_KINDS, type BookRead, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
+import { NPC_MEMORY, PLAYED_NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, salience, SCENE_MEMORY_SEVERITY, SCENE_MEMORY_SEVERITY_MORE, SCENE_MOOD_ONLY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, BOOK_FOLDED_KINDS, type BookRead, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
@@ -14595,14 +14595,15 @@ export class GameSessionAdapter implements GameSession {
     void events; // the transfer records THROUGH `knowledge` (transmitGossip) — the store is the caller's contract
     const npcs = this.awakeAmong(this.livingIds().filter((id) => id !== PLAYER)); // ORW-572: only the awake trade secrets
     if (npcs.length < 2) return; // nobody to trade between
-    // A holder's TRADEABLE secrets: a learned belief ABOUT a still-active NPC houseguest (never themselves,
-    // never the player — a player-subject belief rides the ordinary PV1/gossip path, not a barter). Stable
-    // key order so the dedicated draw sequence is reproducible.
+    // A holder's TRADEABLE secrets: a learned belief ABOUT a still-active NPC houseguest (never themselves). ORW-614 (P-11, `ORWELL_SECRET_BARTER_PLAYER`, played games): a belief ABOUT THE PLAYER is tradeable
+    // the same way (the player is a subject like any houseguest; the transfer is the same hidden NPC-to-NPC told-by event the player never witnesses, so nothing reaches the player or the narrator except through a
+    // later in-game pathway with a source). Stable key order so the dedicated draw sequence is reproducible.
+    const playerSubjectOk = this.secretBarterPlayerEnabled && this.live?.playedGame === true;
     const tradeableOf = (holder: EntityId) =>
       knowledge.knownTo(holder)
         .filter((k) => {
           const subj = k.subject;
-          return subj !== undefined && subj !== holder && subj !== PLAYER && this.isActiveNpc(subj);
+          return subj !== undefined && subj !== holder && (this.isActiveNpc(subj) || (subj === PLAYER && playerSubjectOk));
         })
         .sort((a, b) => (a.factId ?? a.id).localeCompare(b.factId ?? b.id));
     // Holders with something to spend, in deterministic order, capped for work. A tick with NOTHING to
@@ -14687,6 +14688,10 @@ export class GameSessionAdapter implements GameSession {
       recipientTrustOfPlayer: this.rel.edge(recipient, giver).trust, // source-trust slot — the giver, for a barter
     };
   }
+
+  /** ORW-614 (P-11, `ORWELL_SECRET_BARTER_PLAYER`, default ON; `=0` byte-identical): houseguests may trade a secret ABOUT the player among themselves (played games only; needs the barter layer). */
+  private secretBarterPlayerEnabled = flagDefaultOn("ORWELL_SECRET_BARTER_PLAYER");
+  setSecretBarterPlayerEnabled(on: boolean): void { this.secretBarterPlayerEnabled = on; }
 
   /** Turn the off-screen SECRET BARTER on/off (0099). Off by default — the calibration harness leaves it
    *  off (with it off `secretBarterTick` returns before any draw ⇒ the seeded spine is byte-identical). */
@@ -17704,11 +17709,13 @@ export class GameSessionAdapter implements GameSession {
       if (refusal) {
         const counter = this.maybeCounterOffer(target, req.kind, refusal);
         if (counter) refusal.counteroffer = counter;
+        if (this.closeCounteredOffer(req.countersOffer, target)) this.persist(); // a refused counter still spends the offer it answered
         if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, refusal);
         return refusal;
       }
     }
     const terms = (req.terms ?? "").slice(0, 200);
+    this.closeCounteredOffer(req.countersOffer, target); // ORW-614 (P-12): the player's own terms answer a standing offer from this houseguest; the offer is spent, the consent read above already ran on the player's terms
     const evId = this.onPlayerEvent?.(
       `${this.nameOf(PLAYER)} and ${this.nameOf(target)} make a ${req.kind} deal: ${terms}`,
       [PLAYER, target], "deal",
@@ -19281,16 +19288,28 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-616 (2): the memory half of a scene between houseguests: `holder` remembers `actor` by the scene's kind (no soul inflection here: the off-screen path already moves both souls). */
   private rememberSceneAbout(holder: EntityId, sceneKind: string, actor: EntityId): void {
     if (!this.npcMemoryWritersEnabled || holder === PLAYER || actor === PLAYER) return;
-    const m = SCENE_MEMORY_SEVERITY[sceneKind];
+    const m = SCENE_MEMORY_SEVERITY[sceneKind] ?? (this.playerSceneMovesOn() ? SCENE_MEMORY_SEVERITY_MORE[sceneKind] : undefined);
     if (m) this.remember(holder, actor, m.kind, m.severity);
   }
+  /** ORW-614 (P-11, `ORWELL_PLAYER_SCENE_MOVES`, default ON; `=0` byte-identical): flirt, strategy and gossip scenes move mood and memory like the four kinds that already did, for a scene the player is in AND one between houseguests. Played games only. */
+  private playerSceneMovesEnabled = flagDefaultOn("ORWELL_PLAYER_SCENE_MOVES");
+  setPlayerSceneMovesEnabled(on: boolean): void { this.playerSceneMovesEnabled = on; }
+  private playerSceneMovesOn(): boolean { return this.playerSceneMovesEnabled && this.live?.playedGame === true; }
 
   /** P4g - the NPCs a recorded PLAYER scene touched remember it: a betrayal / conflict (grudge) or a kindness (favor) about the PLAYER, through the existing 0024 ledger. Needs the
    *  memory layer + writers on (default ON); other kinds write nothing. Deterministic, no rng, bounded by the ledger cap. */
   rememberPlayerScene(holders: readonly EntityId[], sceneKind: string, subject: EntityId = PLAYER): void {
     if (!this.npcMemoryWritersEnabled) return;
-    const m = SCENE_MEMORY_SEVERITY[sceneKind];
-    if (!m) return;
+    const more = this.playerSceneMovesOn();
+    const m = SCENE_MEMORY_SEVERITY[sceneKind] ?? (more ? SCENE_MEMORY_SEVERITY_MORE[sceneKind] : undefined);
+    if (!m) {
+      // ORW-614 (P-11): a scene that writes no memory still moves the mood of the houseguests it touched, the way the same scene between houseguests does (the partner's side, scaled down like the other scene moods). Same gate as the mood below.
+      const moodOnly = more ? SCENE_MOOD_ONLY_SEVERITY[sceneKind] : undefined;
+      if (moodOnly !== undefined && this.driftFixEnabled && this.soulDepthEnabled) {
+        for (const h of holders) if (h !== PLAYER) this.inflect(h, offscreenEmotion(sceneKind as InteractionType, "partner"), (moodOnly / 0.6) * (0.75 + 0.5 * Math.max(0, Math.min(1, this.rel.edge(h, subject).trust))));
+      }
+      return;
+    }
     for (const h of holders) this.remember(h, subject, m.kind, m.severity); // ORW-609: `subject` is whoever ACTED in the scene (the player unless a houseguest did it)
     // B32 / #2017 15.7 E5 (ORWELL_DRIFT_FIX): the chat scene feeds the emotional arc too - a betrayal / conflict hardens the wronged NPC, kindness softens - weighted by severity and by how much the NPC TRUSTED the player (a friend's betrayal cuts deeper).
     if (this.driftFixEnabled && this.soulDepthEnabled) {
@@ -19298,7 +19317,7 @@ export class GameSessionAdapter implements GameSession {
         if (h === PLAYER) continue;
         const trust = this.rel.edge(h, subject).trust;
         const scale = (m.severity / 0.6) * (0.75 + 0.5 * Math.max(0, Math.min(1, trust)));
-        this.inflect(h, m.kind === "scene-kindness" ? "bond" : "betrayed", scale);
+        this.inflect(h, sceneKind in SCENE_MEMORY_SEVERITY_MORE && more ? offscreenEmotion(sceneKind as InteractionType, "partner") : m.kind === "scene-kindness" ? "bond" : "betrayed", scale);
       }
     }
     // B25: the touched houseguests' closest ties remember the player's treatment of their friend too - smaller, bond-weighted, once per friend (the strongest tie to any touched houseguest).
@@ -20201,6 +20220,24 @@ export class GameSessionAdapter implements GameSession {
     });
   }
 
+  /** ORW-614 (P-12, `ORWELL_DEAL_COUNTER`, default ON; `=0` byte-identical): the player may answer a standing offer with their own terms through `makeDeal` (`countersOffer` = the offer's id). Played games only. */
+  private dealCounterEnabled = flagDefaultOn("ORWELL_DEAL_COUNTER");
+  setDealCounterEnabled(on: boolean): void { this.dealCounterEnabled = on; }
+  /**
+   * The player's counter spends the offer it answers (it is neither accepted nor declined, so no cooling and no decline event): a recorded conversation, then the offer slot clears. It only matches an offer from
+   * the SAME houseguest the counter is made with and only while that offer stands. The engine never writes the counter itself: the terms, kind and price are the player's. Returns true when an offer was closed.
+   */
+  private closeCounteredOffer(offerId: string | undefined, target: EntityId): boolean {
+    const s = this.live;
+    if (!this.dealCounterEnabled || !s || s.playedGame !== true || typeof offerId !== "string" || offerId === "") return false;
+    const slot = s.dealOffer?.id === offerId ? "deal" : s.votePitch?.id === offerId ? "pitch" : undefined;
+    const o = slot === "deal" ? s.dealOffer : slot === "pitch" ? s.votePitch : undefined;
+    if (!slot || !o || o.from !== target || this.dealOfferPartyGone(o.from) || s.finished) return false;
+    if (slot === "deal") s.dealOffer = undefined; else s.votePitch = undefined;
+    this.onPlayerEvent?.(`${this.nameOf(PLAYER)} answers ${this.nameOf(o.from)}'s ${o.kind} offer with terms of their own`, [PLAYER, o.from], "conversation");
+    return true;
+  }
+
   /**
    * 0123 (PO ruling 2026-11-01) — an offer the player never answered LAPSES when the in-game week rolls
    * past the week it was made. No deal is created. The houseguest cools on the player by an amount that
@@ -20260,14 +20297,17 @@ export class GameSessionAdapter implements GameSession {
     // standing prompt cost (the #1391 budget) and nothing at all when the layer is off / no offer stands.
     return {
       from: this.named(o.from)!, kind: o.kind, terms: o.terms, madeWeek: o.madeWeek,
-      ...(o === this.live?.votePitch ? { id: o.id } : {}),
+      ...(o === this.live?.votePitch || (this.dealCounterEnabled && this.live?.playedGame === true) ? { id: o.id } : {}),
       ...(o.replacesDealId ? { replacesDealId: o.replacesDealId } : {}),
       ...(o.counter ? { counter: { round: o.counter.round, ask: o.counter.ask.kind !== "vote" ? { kind: o.counter.ask.kind, target: this.named(o.counter.ask.target)! } : { kind: "vote" as const } } } : {}),
       ...(o.favor ? { favor: { kind: o.favor.favorId ? "called-in" as const : "asked" as const } } : {}),
       howToVoice: "Not a decision card and it never stops the week. Voice this houseguest floating the offer " +
         "in-scene at a natural moment (who, kind, terms). If the player answers in chat, record it with " +
         "submitDecision {kind:\"deal-offer\", vote:\"accept\"|\"decline\"} — never answer for them; an " +
-        "ignored offer lapses on its own at week's end.",
+        "ignored offer lapses on its own at week's end." +
+        (this.dealCounterEnabled && this.live?.playedGame === true
+          ? " If the player answers with terms of their own, record them with makeDeal to this houseguest and countersOffer set to this offer's id; the houseguest's own read decides, never the engine for the player."
+          : ""),
     };
   }
 
