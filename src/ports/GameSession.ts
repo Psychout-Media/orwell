@@ -8,6 +8,8 @@ import type { StructuralMilestone } from "../engine/daySchedule";
 import type { TimeOfDay } from "../engine/timeOfDay";
 import type { DiaryCallView } from "../engine/diaryCalls";
 export type { DiaryCallView };
+import type { PushbackView } from "../engine/producerPushback";
+export type { PushbackView };
 import type { DealPlanRetro } from "../engine/dealPlans";
 
 /**
@@ -639,6 +641,10 @@ export interface GameStateView {
    * and whether the player is invited this beat. Names and words only: no content of any confessional, no id, no number. Absent for headless games or with the flag off.
    */
   diaryCall?: DiaryCallView;
+  /**
+   * ORW-669 (0210 C3, `ORWELL_PRODUCER_PUSHBACK`): while the player is in the Diary Room, the contradictions between their own recorded word and their own recorded acts, as facts the narrator voices the producer's question from. Names and words only: no id, no number, nothing from the entry text. Absent otherwise.
+   */
+  producerPushback?: PushbackView;
   /**
    * 0115 — the player's recent Diary-Room STRATEGY, in their own words (most-recent-first, capped).
    * Vault-free by construction: it is the player's OWN out-of-character `NO_NPC_PATHWAY` knowledge —
@@ -2606,6 +2612,8 @@ export interface RetrospectiveView {
   yourEdit?: import("../engine/yourEdit").YourEditView;
   /** ORW-566 part d (0183): the season's alliances and close-pair habits as facts (names, the group's name, its words, the spot, the weeks, whether you knew). Present ONLY on the post-season retrospective, only for a played game with a group, never an id or a number. */
   groupLife?: import("../engine/groupLifeRetro").GroupLifeView;
+  /** ORW-656: the season's notable NPC decisions as facts: week, kind, who decided, who it was about, and the closed kind of the reason they SAID beside the REAL one (the unsealing). Present ONLY on the post-season retrospective, only for a played game with a recorded decision, bounded, never an id or a number. */
+  decisionReveal?: import("../engine/decisionReveal").DecisionRevealView;
   /** ORW-624: America's Favorite, the public's pick after the crown (a name only, never a number). */
   americasFavorite?: { id: string; name: string };
   /** ORW-525 (spec 0157): the rumor mill. Present ONLY on the post-season retrospective, and only when the season held a false claim. */
