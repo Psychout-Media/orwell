@@ -90,6 +90,7 @@ import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness"
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
 import { DEAL_NOMS } from "../../engine/dealNomConstants";
 import { proposeNpcDeals, planAwareDealPush, type PairBondRead } from "../../engine/npcDeals";
+import { decideDodge, type DodgeFact } from "../../engine/dodging";
 import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosure, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { heirOf, partnerReaction, debtorRelief } from "../../engine/evictedTake";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
@@ -103,9 +104,11 @@ import { confessionalFor, involvedConfessionals, isBareGame, recordConfessionalT
 import type { ConfessionalContext, ConfessionalDepth } from "../../engine/confessionals";
 import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
+import { PULL_QUOTE } from "../../engine/pullQuoteConstants";
+import { buildYourEdit, sceneMoment, weekMoments, weeksOfLog, type YourEditView } from "../../engine/yourEdit";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
 import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOut";
-import { SEEK } from "../../engine/copresenceSpread";
+import { CUNNING, LEAKY, SEEK } from "../../engine/copresenceSpread";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, streakHolds, nextStreak, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
@@ -249,7 +252,7 @@ import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearanc
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
 import type { Houseguest } from "../../engine/characterFactory";
-import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, VOL_OF, articleFor } from "../../engine/characterFactory";
+import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, ARCHETYPES, VOL_OF, articleFor } from "../../engine/characterFactory";
 import type { Disposition } from "../../engine/characterFactory";
 import type { GameHouse, StrategyStyle, Soul, HiddenElement, Character } from "../../engine/characterFactory";
 import { evolveEmotion, arcNote, offscreenEmotion, composedEmotion, effectiveDisposition, settleScaleOf } from "../../engine/emotionalArc";
@@ -308,7 +311,7 @@ import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
 import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, plantedBy, type EdgeDelta } from "../../engine/beliefStore";
 import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs";
-import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances, blameForTargeting } from "../../engine/beliefDecisions";
+import { BELIEF_RULES, PERCEIVED_BOND, OWN_VIEW, beliefPull, believedGrievances, blameForTargeting, believedRegard } from "../../engine/beliefDecisions";
 import { CONVICTION, credulityOf, dealTrust, pathwayEvidence, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import { dissentMove, findScapegoat, heardDissenters, herdPull, herdVoices, holdsGrievance, knownBreaches, normStrength, scapegoatLean, shunMove, weekHardness } from "../../engine/houseNorms";
@@ -389,7 +392,7 @@ import {
 } from "../../engine/diversity";
 import type { ProposedIdentityFacets } from "../../engine/diversity";
 import { renameGivenNameInProse } from "../../engine/diversity";
-import { nameGenderOf, pickGivenNameFor } from "../../engine/data/nameGender";
+import { nameGenderOf, nameGenderStrict, pickGivenNameFor } from "../../engine/data/nameGender";
 import { avoidFromWire, type AvoidSets } from "../../domain/recentSeasons";
 import { dealEraGivenNames, dealSurnames, censusGroupOfHeritage } from "../../engine/data/worldNames";
 import type { Orientation, GenderPresentation } from "../../engine/diversityConstants";
@@ -1337,6 +1340,9 @@ export class GameSessionAdapter implements GameSession {
   /** 0163 / ORW-539: the HOH's floater and duo reads see the bonds the HOH could see (`ORWELL_PERCEIVED_BONDS`, default ON; OFF => the hidden-truth read, byte-identical). */
   private perceivedBondsEnabled = flagDefaultOn("ORWELL_PERCEIVED_BONDS");
   setPerceivedBondsEnabled(on: boolean): void { this.perceivedBondsEnabled = on; }
+  /** 0191 / ORW-574 (Fable T1-6): in a played game NPC decisions read the decider's own view (`ORWELL_OWN_VIEW`, default ON; OFF => the hidden reads, byte-identical). */
+  private ownViewEnabled = flagDefaultOn("ORWELL_OWN_VIEW");
+  setOwnViewEnabled(on: boolean): void { this.ownViewEnabled = on; }
   /**
    * B2 / #2017 — read the 0024 NPC memory ON ITS OWN (no edge-carry subtraction) so a remembered betrayal/favor VISIBLY sways nominations and votes (PO ruling 2026-11-03). ON unless
    * `ORWELL_NPC_MEMORY_STANDALONE=0` (flipped ON with the memories, #2059; the 3-arm PO bands held). OFF ⇒ the
@@ -1386,7 +1392,8 @@ export class GameSessionAdapter implements GameSession {
     for (const npc of this.house.npcs) {
       const id = npc.id;
       if (id === holder || evicted.has(id) || (awake && !awake.has(id))) continue;
-      const threat = Math.max(0, Math.min(1, this.rel.edge(holder, id).threat));
+      // ORW-574: in a played game the pitcher's stake is how much THEY believe the HOH reads them as a threat (their perception), never the HOH's hidden edge
+      const threat = Math.max(0, Math.min(1, this.ownViewOn() ? this.perceivedThreat(id, holder, id) : this.rel.edge(holder, id).threat));
       if (threat <= 0) continue;
       const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(id), this.emotionalReadOf(id))));
       const cunning = Math.max(0, Math.min(1, npc.character.stats.mental));
@@ -3685,6 +3692,33 @@ export class GameSessionAdapter implements GameSession {
   private disclosureEngineEnabled = flagDefaultOn("ORWELL_DISCLOSURE_ENGINE");
   setDisclosureEngineEnabled(on: boolean): void { this.disclosureEngineEnabled = on; }
   private disclosureEngineOn(): boolean { return this.disclosureEngineEnabled && this.live?.playedGame === true; }
+  /**
+   * 0196 / ORW-630 (ORWELL_DODGING, default ON; Ryne 11-17): when a played-game press is declined (the A52 deflect), the engine also decides HOW they dodge from their character, their bond to the asker and the stakes, on a keyed side stream
+   * (never the shared rng), appends it to a saved log, and `npcVoice.dodge` hands the narrator that third-person fact. Off, or headless => no key, no draw, nothing saved.
+   */
+  private dodgingEnabled = flagDefaultOn("ORWELL_DODGING");
+  setDodgingEnabled(on: boolean): void { this.dodgingEnabled = on; }
+  private dodgingOn(): boolean { return this.dodgingEnabled && this.disclosureEngineOn(); }
+  /** Append-only: one entry per (houseguest, week, phase) press that was turned aside. Saved when non-empty. */
+  private dodgeLog: Array<{ npc: EntityId; week: number; phase: string } & DodgeFact> = [];
+  private recordDodge(npc: { id: EntityId; character: { strategyStyle?: import("../../engine/characterFactory").StrategyStyle } }, signals: ConfidenceSignals): void {
+    if (!this.dodgingOn()) return;
+    const phase = String(this.phase);
+    if (this.dodgeLog.some((d) => d.npc === npc.id && d.week === this.week && d.phase === phase)) return;
+    const style = npc.character.strategyStyle;
+    const vol = this.soulObj(npc.id)?.volatility ?? 0.3;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:dodge:${npc.id}:${this.week}:${phase}`));
+    const fact = decideDodge({
+      cunning: style ? CUNNING[style] ?? 0.3 : 0.3, leakiness: (style ? LEAKY[style] ?? 0.3 : 0.3) + 0.2 * vol, rattled: Math.max(0, vol - 0.5) * 2,
+      trustInAsker: signals.npcTrust, stakes: 0.3,
+    }, [rng.next(), rng.next(), rng.next()]);
+    this.dodgeLog.push({ npc: npc.id, week: this.week, phase, ...fact });
+  }
+  /** The dodge the engine decided for `npc` in the current week and phase (the voice shows it only while the press is this beat's). */
+  private dodgeFor(npc: EntityId): DodgeFact | undefined {
+    const d = this.dodgeLog.find((x) => x.npc === npc && x.week === this.week && x.phase === String(this.phase));
+    return d ? { approach: d.approach, openness: d.openness, pushesBack: d.pushesBack } : undefined;
+  }
   /** The facts `holder` knows, cut to what the player also holds when the disclosure engine is on (a match by lineage when both copies carry a `factId`, OR by identical content). */
   private voiceKnownFacts(holder: EntityId): ReadonlyArray<{ content: string; factId?: string }> {
     const mine = this.npcKnowledge?.known(holder) ?? [];
@@ -3895,6 +3929,8 @@ export class GameSessionAdapter implements GameSession {
       knows: dedupeKeepNewest(this.voiceKnownFacts(id).map((f) => this.humanizeTidy(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP),
       // A52: a live press the engine declined this beat - the houseguest deflects (absent unless the disclosure engine decided it).
       ...(isActive && this.disclosureEngineOn() && this.disclosureThisBeat(id)?.outcome === "deflect" ? { deflect: true as const } : {}),
+      // 0196: HOW the declined press was turned aside (approach / carriage / pushes back) - a third-person fact for the narrator to voice, no content and no number.
+      ...(isActive && this.dodgingOn() && this.disclosureThisBeat(id)?.outcome === "deflect" ? (() => { const d = this.dodgeFor(id); return d ? { dodge: d } : {}; })() : {}),
       suspects: (() => {
         const base = this.voiceSuspectFacts(id)
           .slice(-GameSessionAdapter.VOICE_SUSPECTS_CAP)
@@ -4759,7 +4795,7 @@ export class GameSessionAdapter implements GameSession {
       const parts = n.name.split(" ");
       const given = parts[0]!;
       const opposite = gender === "man" ? "woman" : "man";
-      if (nameGenderOf(given) !== opposite) continue; // coherent (same-gender OR unisex) — leave the name
+      if (nameGenderStrict(given) !== opposite) continue; // coherent (same-gender, near-even or unlisted) — leave the name; the strict read also knows names the lexicon does not list (a man named Beth)
       used.delete(given); // free the wrong-gender given before picking its replacement
       const next = pickGivenNameFor(gender, rng, used);
       used.add(next);
@@ -4836,24 +4872,14 @@ export class GameSessionAdapter implements GameSession {
       const key = evictionKey(d.week, d.evictee);
       if (a.folded?.includes(key) || a.weeks.includes(d.week)) continue; // `weeks` = folds saved before the key
       (a.folded ??= []).push(key);
-      if (d.hoh) fold({ kind: "comp-win", actor: d.hoh, week: d.week, public: true });
-      for (const n of d.nominees) fold({ kind: "nomination", ...(d.hoh ? { actor: d.hoh } : {}), subject: n, week: d.week, public: true });
-      if (d.vetoHolder) fold({ kind: d.vetoUsed ? "veto-save" : "veto-kept", actor: d.vetoHolder, week: d.week, public: true });
       const rec = (s.voteRecord ?? []).find((r) => r.week === d.week && r.evictee === d.evictee);
-      const ballots = rec ? Object.values(rec.voteOf) : [];
-      const margin = ballots.length ? Math.abs(ballots.filter((t) => t === d.evictee).length * 2 - ballots.length) / ballots.length : 1;
-      const calledPawn = (s.statedReasons ?? []).some((r) => r.week === d.week && r.public && r.decision === "nominate" && r.real.choice === d.evictee && r.stated.kind === "pawn-youll-be-fine");
-      fold({ kind: calledPawn ? "blindside" : "eviction", ...(d.hoh ? { actor: d.hoh } : {}), subject: d.evictee, week: d.week, twist: 1 - margin, public: true });
+      for (const m of weekMoments(d, rec ? Object.values(rec.voteOf) : [], this.calledPawn(d.week, d.evictee))) fold(m); // 0200: the one shared week-to-moments map (the same moments, in the same order, as before)
     }
     // (2) the scenes since the last fold: conflict, betrayal and romance are edit-worthy; public = the player saw it (the house's view of it); hidden = recap only
     const events = this.record?.events() ?? [];
-    const KIND: Partial<Record<string, EditMomentKind>> = { conflict: "blowup", betrayal: "betrayal", showmance: "showmance" };
     for (let i = a.cursor; i < events.length; i++) {
-      const e = events[i]!;
-      const kind = KIND[e.type];
-      if (!kind || e.witnessSet.length < 2) continue;
-      const other = e.witnessSet.find((w) => w !== e.initiator);
-      fold({ kind, actor: e.initiator, ...(other ? { subject: other } : {}), week: s.week, crowd: e.witnessSet.length + (e.houseLife?.seenBy?.length ?? 0), public: !e.hidden });
+      const m = sceneMoment({ ...events[i]!, ...(events[i]!.houseLife?.seenBy ? { seenBy: events[i]!.houseLife!.seenBy } : {}) }, s.week);
+      if (m) fold(m);
     }
     a.cursor = events.length;
     return a;
@@ -4880,6 +4906,29 @@ export class GameSessionAdapter implements GameSession {
     const pending: WeekDigest = { week: s.week, hoh: s.hoh ?? null, nominees: [...(s.finalNominees ?? s.nominees ?? [])], vetoHolder: s.vetoHolder ?? null, vetoUsed: !!s.vetoUsed, evictee, juryCount: 0 };
     return this.walkOut(this.audienceFold(pending), s.week, evictee);
   }
+  /** 0200: the eviction was called a blindside when the HOH had publicly named the evictee a pawn (the public stated reason). */
+  private calledPawn(week: number, evictee: EntityId): boolean {
+    return (this.live?.statedReasons ?? []).some((r) => r.week === week && r.public && r.decision === "nominate" && r.real.choice === evictee && r.stated.kind === "pawn-youll-be-fine");
+  }
+  /** 0200 / ORW-632: "your edit" (`ORWELL_YOUR_EDIT`, default ON; `=0` = none). Played, finished games only; the caller holds the crown gate. */
+  private yourEditEnabled = flagDefaultOn("ORWELL_YOUR_EDIT");
+  setYourEditEnabled(on: boolean): void { this.yourEditEnabled = on; }
+  yourEditOn(): boolean { return this.yourEditEnabled; }
+  private buildYourEditView(): YourEditView | undefined {
+    const s = this.live;
+    if (!this.yourEditEnabled || !s?.finished || s.playedGame !== true || !this.house) return undefined;
+    const events = this.record?.events() ?? [];
+    const maxWeek = (s.weekDigests ?? []).reduce((m, d) => Math.max(m, d.week), 1);
+    const finale = s.finale;
+    return buildYourEdit({
+      player: PLAYER, cast: this.house.npcs.map((n) => n.id).sort(), nameOf: (id) => this.nameOf(id),
+      digests: s.weekDigests ?? [], voteRecord: s.voteRecord ?? [], calledPawn: (w, e) => this.calledPawn(w, e),
+      events: events.map((e) => ({ type: e.type, initiator: e.initiator, witnessSet: e.witnessSet, hidden: e.hidden, content: e.content, ...(e.houseLife?.seenBy ? { seenBy: e.houseLife.seenBy } : {}) })),
+      eventWeeks: weeksOfLog(events, PULL_QUOTE.evictionCue, maxWeek),
+      deals: this.deals.all, winner: s.winner ?? null,
+      ...(finale?.votes ? { jury: { finalists: finale.finalists, votes: Object.values(finale.votes).map((votedFor) => ({ votedFor })) } } : {}),
+    });
+  }
   /** ORW-624: America's Favorite - after the crown only (it may read the hidden moments then: the recap). */
   private americasFavorite(): { id: EntityId; name: string } | undefined {
     const a = this.live?.audience;
@@ -4895,7 +4944,8 @@ export class GameSessionAdapter implements GameSession {
     const houseCultureWords = describeHouseLeans(this.live.houseLeans); // ORW-551 (spec 0168): texture words only, same crown gate; absent when no culture was drawn
     const dealPlans = buildDealPlanRetro(this.live.dealPlans, this.deals.all, this.openLedger.entries, PLAYER, (id) => this.nameOf(id)); // 0178 (Ryne Q2): the secret plans beside the player's own promise record; same crown gate
     const americasFavorite = this.americasFavorite(); // ORW-624: after the crown only
-    return { ...(americasFavorite ? { americasFavorite } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
+    const yourEdit = this.buildYourEditView(); // 0200 / ORW-632: after the crown only (the same gate); facts only
+    return { ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
@@ -5400,6 +5450,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.jurorTold.size ? { jurorTold: [...this.jurorTold] } : {}),
       ...(this.lieCount > 0 ? { confideLieCount: this.lieCount } : {}),
       ...(Object.keys(this.confideLiesBy).length ? { confideLiesBy: { ...this.confideLiesBy } } : {}),
+      ...(this.dodgeLog.length ? { dodgeLog: this.dodgeLog.map((d) => ({ ...d })) } : {}),
       // 0093/0099 — secrets as power: which learned secrets the player has SPENT (`usedAs`) + the per-
       // season expose/trade/bluff counts. Persisted so a restored game remembers a spent secret can't be
       // re-wielded and the season caps don't reopen (non-degradation, 0007/0030). Engine-only.
@@ -5772,6 +5823,7 @@ export class GameSessionAdapter implements GameSession {
     this.jurorTold = new Set(core.jurorTold ?? []);
     this.lieCount = core.confideLieCount ?? 0;
     this.confideLiesBy = core.confideLiesBy ? { ...core.confideLiesBy } : {};
+    this.dodgeLog = core.dodgeLog ? core.dodgeLog.map((d) => ({ ...d })) as typeof this.dodgeLog : [];
     // 0093/0099 — restore the secrets-as-power ledger (absent on pre-0093 saves ⇒ empty/zero): which
     // secrets the player has spent + the per-season caps, so a spent secret stays spent across a restart.
     this.secretUsedAs = core.secretUsedAs ? cloneSession(core.secretUsedAs) : {};
@@ -8225,7 +8277,7 @@ export class GameSessionAdapter implements GameSession {
     // own words, never a canned pretext line), so no trust/threat read leaks across the wall.
     const stretchKey = `${this.week}:${this.phase}`;
     const rng = new SeededRandom(hashSeed(`approaches:${this.gameSeed ?? ""}:${stretchKey}`));
-    const ranked = rankApproaches(player, npcIds, this.rel, rng, undefined, this.approachBiasHook(player));
+    const ranked = rankApproaches(player, npcIds, this.rel, rng, undefined, this.approachBiasHook(player), this.grudgeStanceHook(player));
     // #1322: a player-facing-projection-only anti-recency filter — an NPC who led a recent stretch
     // sinks below everyone still eligible, so the same seeded-affinity NPC can't monopolize every
     // stretch. `rankApproaches` itself is untouched/pure; see `applyApproachCooldown`'s own doc.
@@ -9029,7 +9081,7 @@ export class GameSessionAdapter implements GameSession {
       this.triggerTickCount = 0;
       this.confideState = {};
     this.jurorTold = new Set();
-      this.lieCount = 0; this.confideLiesBy = {};
+      this.lieCount = 0; this.confideLiesBy = {}; this.dodgeLog = [];
       this.resetSecretPower(); // 0093/0099 — a fresh season has spent no secrets and an unspent cap
       this.resetTieSurfacing(); // 0059 §5 — a fresh season: no tie discovered, the player-surface cap unspent
       this.resetSecretPacing(); // 0092 — a fresh season: the weekly drip cadence + anti-spam start clean
@@ -9365,7 +9417,7 @@ export class GameSessionAdapter implements GameSession {
     this.triggerTickCount = 0;
     this.confideState = {};
     this.jurorTold = new Set();
-    this.lieCount = 0; this.confideLiesBy = {};
+    this.lieCount = 0; this.confideLiesBy = {}; this.dodgeLog = [];
     this.resetSecretPower(); // 0093/0099 — a warmed/fresh cast has spent no secrets, the caps unspent
     this.resetTieSurfacing(); // 0059 §5 — a warmed/fresh cast carries no tie-surfacing history
     this.resetSecretPacing(); // 0092 — a warmed/fresh cast carries no secret-pacing drip history
@@ -9883,7 +9935,7 @@ export class GameSessionAdapter implements GameSession {
     // 0075 — a fresh season has heard no confidences and spent no lies.
     this.confideState = {};
     this.jurorTold = new Set();
-    this.lieCount = 0; this.confideLiesBy = {};
+    this.lieCount = 0; this.confideLiesBy = {}; this.dodgeLog = [];
     this.resetSecretPower(); // 0093/0099 — a fresh season has spent no secrets, the caps unspent
     // 0059 §5 — a fresh season: no tie discovered, the player-surface cap unspent, the stream at 0.
     this.resetTieSurfacing();
@@ -11149,7 +11201,12 @@ export class GameSessionAdapter implements GameSession {
       ...(this.npcBeliefsEnabled && (this.npcBeliefNomsEnabled || this.scapegoatsOn()) ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => (this.npcBeliefNomsEnabled ? this.beliefNomTiltFor(subject, holder) : 0) + this.scapegoatLeanFor(subject, holder) } : {}), // 0180 part 3: a hard week's scapegoat rides the belief term
       // 0163 / ORW-539: the floater and duo reads see what the HOH can see (full strength only; capped keeps the hidden-truth read, byte-identical).
       // Its own flag, apart from the belief store: what the HOH SAW needs no beliefs (the told part reads allied-with beliefs only when they exist).
-      ...(this.perceivedBondsEnabled && BELIEF_RULES.strength === "full" ? { perceivedBondFor: (holder: EntityId, from: EntityId, to: EntityId) => this.perceivedBond(holder, from, to) } : {}),
+      ...((this.perceivedBondsEnabled || this.ownViewOn()) && BELIEF_RULES.strength === "full" ? { perceivedBondFor: (holder: EntityId, from: EntityId, to: EntityId) => this.perceivedBond(holder, from, to) } : {}),
+      // ORW-574 (Fable T1-6): how someone else trusts / reads a threat in someone, as the DECIDER can see it. Played games only (`ownViewOn`); absent => the old reads, byte-identical.
+      ...(this.ownViewOn() ? {
+        perceivedTrustFor: (holder: EntityId, from: EntityId, to: EntityId) => this.perceivedTrust(holder, from, to),
+        perceivedThreatFor: (holder: EntityId, from: EntityId, to: EntityId) => this.perceivedThreat(holder, from, to),
+      } : {}),
       // #1937 — the same aware-only, character-mediated campaign push, signed (evict +, protect −) and bounded, on
       // the NPC HOH's nominations / replacement and the NPC veto holder's save read. 0 for the player as decider.
       ...(this.campaignsEnabled ? {
@@ -11247,7 +11304,7 @@ export class GameSessionAdapter implements GameSession {
     const m = nextMilestone(live);
     const noms = new Set<EntityId>(this.ceremony.nominees ?? []);
     const rng = new SeededRandom(hashSeed(`desire:${this.gameSeed ?? ""}:${Math.floor(this.absHour() * 10)}`));
-    const drive = new Map(rankApproaches(PLAYER, ids, this.rel, rng, undefined, this.approachBiasHook(PLAYER)).map((a) => [a.npc, a.drive] as const));
+    const drive = new Map(rankApproaches(PLAYER, ids, this.rel, rng, undefined, this.approachBiasHook(PLAYER), this.grudgeStanceHook(PLAYER)).map((a) => [a.npc, a.drive] as const));
     const since = live.desireApproachedAt ?? {};
     const cands: Candidate[] = [];
     for (const id of ids) {
@@ -11430,7 +11487,8 @@ export class GameSessionAdapter implements GameSession {
       nominee: this.live?.nominees?.includes(id) ?? false,
       hasOthers: others.length > 0,
       bestAllyBond: others.length ? Math.max(...others.map((o) => this.rel.bondStrength(id, o))) : 0,
-      maxThreatOnMe: others.length ? Math.max(...others.map((o) => this.rel.edge(o, id).threat)) : 0,
+      // ORW-574: in a played game, how much a rival reads ME as a threat is my perception of it (my public menace, my own wariness mirrored, my beliefs), never their hidden edge
+      maxThreatOnMe: others.length ? Math.max(...others.map((o) => (this.ownViewOn() ? this.perceivedThreat(id, o, id) : this.rel.edge(o, id).threat))) : 0,
       ...(this.hohCourtOn() && this.agendaWantsPower(id) ? { wantsPower: true } : {}), // ORW-577: an active win-power goal keeps them in the fight
     });
     if (intent === "throw") this.noteCompThrowReason(id, others);
@@ -12068,8 +12126,10 @@ export class GameSessionAdapter implements GameSession {
   private voteStillInDoubt(actor: EntityId, target: EntityId): boolean {
     const voters = this.livingIds().filter((v) => v !== actor && v !== target);
     if (voters.length === 0) return true;
+    // ORW-574 (Fable T1-6): in a played game the actor counts each voter from what THEY can see (how that voter reads the target, as the actor perceives it), never the voter's hidden edge
+    const own = this.ownViewOn();
     const trueSupport = voters.map((v) => {
-      const e = this.rel.edge(v, target);
+      const e = own ? { threat: this.perceivedThreat(actor, v, target), trust: this.perceivedTrust(actor, v, target) } : this.rel.edge(v, target);
       return Math.max(0, Math.min(1, 0.5 + 0.6 * (e.threat - 0.5 * e.trust)));
     });
     const oc = 0.2 + 0.6 * ((hashSeed(`${this.gameSeed ?? 0}:overconfidence:${actor}`) % 1000) / 1000);
@@ -14111,7 +14171,9 @@ export class GameSessionAdapter implements GameSession {
     const me = this.agendaCharacterOf(hoh);
     if (!me || rivals.length !== 2) return undefined;
     const rel = this.rel;
-    const bond = (a: EntityId, b: EntityId): number => { const e = rel.edge(a, b); return (e.trust + e.affinity) / 2; };
+    // ORW-574 (Fable T1-6): in a played game the HOH's estimate reads how close the RIVAL is to each juror as the HOH could see it (`perceivedBond`), never the rival's hidden edges
+    const own = this.ownViewOn();
+    const bond = (a: EntityId, b: EntityId): number => { if (own && a !== hoh) return this.perceivedBond(hoh, a, b); const e = rel.edge(a, b); return (e.trust + e.affinity) / 2; };
     const resume = (id: EntityId): number => this.live?.resume?.[id] ?? 0;
     const options: FinalHohOption[] = rivals.map((evict) => {
       const keep = rivals.find((r) => r !== evict)!;
@@ -15579,7 +15641,7 @@ export class GameSessionAdapter implements GameSession {
           if (!approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;
           const ids = awakeNpcs();
           if (ids.length === 0) return null;
-          const top = rankApproaches(PLAYER, ids, this.rel, r, undefined, this.approachBiasHook(PLAYER))[0];
+          const top = rankApproaches(PLAYER, ids, this.rel, r, undefined, this.approachBiasHook(PLAYER), this.grudgeStanceHook(PLAYER))[0];
           return top ? { npc: this.nameOf(top.npc) } : null;
         },
         observed: (r) => {
@@ -16566,7 +16628,7 @@ export class GameSessionAdapter implements GameSession {
       decision = routed.decision; disclosureEvent = routed.event;
     }
     this.noteDisclosure(npcId, disclosureEvent); // B33: the closed-set record of what the engine just rolled
-    if (!decision.disclosed) return none;
+    if (!decision.disclosed) { if (this.live.playedGame) this.recordDodge(npc, signals); return none; }
 
     // Monotonic: never re-tell a TRUE secret at a LOWER tier than already reached — idempotent, no new
     // fold (the house's memory only deepens; it never thins, 0007/0030). A lie is its own track.
@@ -17614,18 +17676,21 @@ export class GameSessionAdapter implements GameSession {
     if (!this.hcStrategyEnabled || holder === PLAYER || candidate === holder) return 0;
     const noms = this.live?.nominees;
     if (!noms) return 0;
-    const st = this.statsOf(candidate);
-    const strength = (st.physical + st.mental) / 2 - 0.5;
     const rel = this.rel;
+    // ORW-574 (Fable T1-6): in a played game the holder reads the candidate's strength from the PUBLIC record (archetype, comp wins) and how the candidate feels about anyone
+    // through their own perception (`perceivedTrust` / `perceivedBond`) - never the candidate's hidden stats or edges.
+    const own = this.ownViewOn();
+    const strength = own ? this.publicStrength(candidate) : ((st) => (st.physical + st.mental) / 2 - 0.5)(this.statsOf(candidate));
+    const bondOf = (from: EntityId, to: EntityId): number => (own ? this.perceivedBond(holder, from, to) : rel.bondStrength(from, to));
     let s: number;
     if (noms.includes(holder)) {
-      s = 0.8 * (rel.edge(candidate, holder).trust - 0.5) + 0.6 * strength;
+      s = 0.8 * ((own ? this.perceivedTrust(holder, candidate, holder) : rel.edge(candidate, holder).trust) - 0.5) + 0.6 * strength;
     } else if (this.live?.hoh === holder) {
-      const rescue = Math.max(...noms.map((n) => rel.bondStrength(candidate, n)));
+      const rescue = Math.max(...noms.map((n) => bondOf(candidate, n)));
       s = -0.8 * (rescue - 0.5) - 0.2 * strength;
     } else {
       const ally = noms.filter((n) => n !== candidate).sort((a, b) => rel.bondStrength(holder, b) - rel.bondStrength(holder, a))[0];
-      if (ally !== undefined && rel.vetoSaveScore(holder, ally) > 0.5) s = 0.6 * strength + 0.5 * (rel.bondStrength(candidate, ally) - 0.5);
+      if (ally !== undefined && rel.vetoSaveScore(holder, ally) > 0.5) s = 0.6 * strength + 0.5 * (bondOf(candidate, ally) - 0.5);
       else s = -0.6 * strength - 0.5 * rel.edge(holder, candidate).threat;
     }
     return Math.max(-1, Math.min(1, s));
@@ -17641,6 +17706,21 @@ export class GameSessionAdapter implements GameSession {
   /** Review lead 1: ONE bias provider for every place the NPCs' drive to seek the player is ranked (social initiatives, the hang-out approach, the desire clock's drive). Undefined when neither layer is on => byte-identical. */
   private approachBiasHook(player: EntityId): ((n: EntityId) => number) | undefined {
     return this.approachMemoryEnabled || this.moodApproachEnabled ? (n) => (this.approachMemoryEnabled ? this.approachMemoryFor(n, player) : 0) + this.moodApproachFor(n) : undefined;
+  }
+  /** ORW-638 (S-12): the stance hook for `rankApproaches` (rides the approach-memory flag; undefined when off => byte-identical). */
+  private grudgeStanceHook(player: EntityId): ((n: EntityId) => number) | undefined {
+    return this.approachMemoryEnabled && this.npcMemoryEnabled ? (n) => this.grudgeStanceFor(n, player) : undefined;
+  }
+  /**
+   * ORW-638 (S-12): a wronged houseguest does not simply approach more. Holding a grudge toward the player, a volatile temperament goes at them (+) and a calm one keeps away (-), with a personal keyed
+   * offset (agendaRoll, no shared rng) so no two of the same temper agree. Scaled by the grudge's size; 0 with no grudge. Deterministic, [-1, 1].
+   */
+  grudgeStanceFor(npc: EntityId, player: EntityId): number {
+    if (npc === PLAYER) return 0;
+    const grudge = Math.max(0, Math.min(1, this.memoryTiltFor(player, npc)));
+    if (grudge <= 0) return 0;
+    const temper = 0.7 * (this.soulObj(npc)?.volatility ?? 0.5) + 0.3 * agendaRoll(this.gameSeed ?? 0, npc, `grudge-stance:${player}`);
+    return grudge * Math.max(-1, Math.min(1, (temper - 0.5) * 3));
   }
   approachMemoryFor(npc: EntityId, player: EntityId): number {
     if (!this.approachMemoryEnabled || npc === PLAYER) return 0;
@@ -17668,14 +17748,19 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** 0163 / ORW-539: per holder, the bonding scenes they witnessed between each pair (cached until the event record grows). */
-  private seenBondsCache = new Map<EntityId, { n: number; pairs: Map<string, number> }>();
+  private seenBondsCache = new Map<EntityId, { n: number; pairs: Map<string, number>; net: Map<string, number> }>();
   /**
    * 0163 / ORW-539 - the bond between two OTHER houseguests as `holder` can SEE it: the edge baseline, raised by the bonding / showmance scenes
    * the holder witnessed between them (PERCEIVED_BOND.perScene each) and by the holder's allied-with belief about them (its confidence), up to
    * the full floater span. A pair that bonds only out of sight reads as strangers; a pair the holder watched, or was told about, reads tight.
    * Engine-only, deterministic, no rng. Symmetric: what the holder sees is the pair, not who leans on whom.
+   * ORW-596 / ORW-574: in a PLAYED game (`ownViewOn`) the read is ONLY what the holder saw (every warm or cold scene between the two, plus allied-with beliefs), with no
+   * true-bond half, and someone's warmth toward the holder is the holder's perception (`perceivedTrust`). Headless games keep the v2 blend, byte for byte.
    */
   private perceivedBond(holder: EntityId, from: EntityId, to: EntityId): number {
+    const own = this.ownViewOn();
+    // ORW-574: in a played game, how warm the OTHER one is to the holder is the holder's perception of it (their own bond, shaded by what they believe), never the other's hidden edge
+    if (own && holder === to && holder !== from) return this.perceivedTrust(holder, from, holder, this.rel.bondStrength(holder, from));
     if (holder === from || holder === to) return this.rel.bondStrength(from, to); // their OWN bond: they know how they feel (and how warm the other has been to them)
     const C = RELATIONSHIP_CONSTANTS.baseline;
     const base = (C.trust + C.affinity) / 2;
@@ -17683,25 +17768,81 @@ export class GameSessionAdapter implements GameSession {
     let cache = this.seenBondsCache.get(holder);
     if (!cache || cache.n !== events.length) {
       const pairs = new Map<string, number>();
+      const net = new Map<string, number>();
       for (const e of events) {
-        if (e.type !== "bonding" && e.type !== "showmance") continue;
+        const valence = Object.hasOwn(OWN_VIEW.sceneValence, e.type) ? OWN_VIEW.sceneValence[e.type]! : 0;
+        if (valence === 0) continue;
         const inScene = e.witnessSet.includes(holder);
         if (!inScene && !(e.houseLife?.seenBy ?? []).includes(holder)) continue; // ORW-539 v2: a scene they were in OR saw from the same room
         const people = e.witnessSet.filter((x) => x !== holder);
         if (people.length !== 2) continue;
         const k = [...people].sort().join("|");
-        pairs.set(k, (pairs.get(k) ?? 0) + 1);
+        if (e.type === "bonding" || e.type === "showmance") pairs.set(k, (pairs.get(k) ?? 0) + 1);
+        net.set(k, (net.get(k) ?? 0) + valence); // ORW-596: every warm or cold scene between them the holder saw
       }
-      cache = { n: events.length, pairs };
+      cache = { n: events.length, pairs, net };
       this.seenBondsCache.set(holder, cache);
     }
-    const seen = cache.pairs.get([from, to].sort().join("|")) ?? 0;
+    const key = [from, to].sort().join("|");
+    const seen = cache.pairs.get(key) ?? 0;
     const told = claimsOf(this.live?.beliefs, holder)
       .filter((c) => c.kind === "allied-with" && c.value && !c.refuted && ((c.subject === from && c.object === to) || (c.subject === to && c.object === from)))
       .reduce((m, c) => Math.max(m, c.confidence), 0);
+    // ORW-596 (Coordinator, under Ryne's 11-03 own-view rule): in a played game the read is ONLY what the holder could see - every warm or cold scene between the two
+    // they were in or watched, plus their allied-with beliefs. A pair that bonds only out of sight reads as strangers. Unplayed (headless) games keep the v2 blend below.
+    if (own) return Math.max(0, Math.min(1, base + DECISION.nomination.floaterBondSpan * Math.max(-1, Math.min(1, (cache.net.get(key) ?? 0) * PERCEIVED_BOND.perScene + told))));
     const visible = base + DECISION.nomination.floaterBondSpan * Math.min(1, seen * PERCEIVED_BOND.perScene + told);
     // ORW-539 v2: BLEND what they can see with the true bond (a house reads more than its own scenes: tone, glances), never replace it.
     return PERCEIVED_BOND.seenShare * visible + (1 - PERCEIVED_BOND.seenShare) * this.rel.bondStrength(from, to);
+  }
+
+  /**
+   * ORW-574 (Fable T1-6): the OWN-VIEW gate. A played game (`live.playedGame`) with `ORWELL_OWN_VIEW` on (0191; widens 0163, "decisions read what the decider can see"):
+   * a decision reads how someone else feels only through the decider's perception. Headless seeded sims (calibration, jury reach, UAT) never set `playedGame`, so they keep the
+   * old reads byte for byte.
+   */
+  private ownViewOn(): boolean { return this.ownViewEnabled && this.live?.playedGame === true; }
+  /** ORW-574: the public menace of a houseguest anyone can read - the edge baseline, the public archetype's competitive menace (the move-in read) and the public comp wins. */
+  private publicMenace(id: EntityId): number {
+    const { baseline, MOVE_IN } = RELATIONSHIP_CONSTANTS;
+    const arch = id === PLAYER ? this.house?.player.character.archetype : this.house?.npcs.find((n) => n.id === id)?.character.archetype;
+    return Math.max(0, Math.min(1, baseline.threat + (arch ? MOVE_IN.threatWeight * archetypeMenace(arch) : 0) + OWN_VIEW.threatPerWin * (this.live?.resume?.[id] ?? 0)));
+  }
+  /** ORW-574: a houseguest's competition strength as anyone can read it (their public archetype's aptitudes and their public comp wins), on the hidden-stat scale ((physical + mental) / 2 - 0.5). Never their hidden stats. */
+  private publicStrength(id: EntityId): number {
+    const arch = id === PLAYER ? this.house?.player.character.archetype : this.house?.npcs.find((n) => n.id === id)?.character.archetype;
+    const bias = ARCHETYPES.find((a) => a.archetype === arch)?.bias;
+    const base = bias ? (bias.physical + bias.mental) / 2 - 0.5 : 0;
+    return Math.max(-0.5, Math.min(0.5, base + OWN_VIEW.strengthPerWin * (this.live?.resume?.[id] ?? 0)));
+  }
+  /**
+   * ORW-574: how much `from` TRUSTS `to`, as `holder` can see it. The holder's own trust when it is theirs; how `from` feels about the HOLDER is the holder's own trust in them
+   * (`ownRead` overrides it, e.g. their bond) moved by what they believe (an assurance up, a believed grievance down); between two others it is the bond the holder can see.
+   */
+  private perceivedTrust(holder: EntityId, from: EntityId, to: EntityId, ownRead?: number): number {
+    if (holder === from) return this.rel.edge(holder, to).trust;
+    if (holder === to) {
+      const r = believedRegard(this.live?.beliefs, holder, from, this.live?.week ?? 1);
+      return Math.max(0, Math.min(1, (ownRead ?? this.rel.edge(holder, from).trust) + OWN_VIEW.assured * r.assured - OWN_VIEW.grievance * r.against));
+    }
+    return this.perceivedBond(holder, from, to);
+  }
+  /**
+   * ORW-574: how much `from` reads `to` as a THREAT, as `holder` can see it. Their own read when it is theirs; on the holder themselves, the holder's public menace, part of their own
+   * wariness of `from` mirrored back and their believed grievances against `from`; between two others, half the holder's own read of `to` and half `to`'s public menace, plus a
+   * rumor the holder heard that `from` is going after `to`. Never `from`'s hidden edge.
+   */
+  private perceivedThreat(holder: EntityId, from: EntityId, to: EntityId): number {
+    const B = RELATIONSHIP_CONSTANTS.baseline;
+    if (holder === from) return this.rel.edge(holder, to).threat;
+    if (holder === to) {
+      const r = believedRegard(this.live?.beliefs, holder, from, this.live?.week ?? 1);
+      return Math.max(0, Math.min(1, this.publicMenace(holder) + OWN_VIEW.mirror * (this.rel.edge(holder, from).threat - B.threat) + OWN_VIEW.grievance * r.against));
+    }
+    const heard = claimsOf(this.live?.beliefs, holder)
+      .filter((c) => c.kind === "heard-rumor" && c.nature === "going-after" && c.value && !c.refuted && c.subject === from && c.object === to)
+      .reduce((m, c) => Math.max(m, c.confidence), 0);
+    return Math.max(0, Math.min(1, 0.5 * this.rel.edge(holder, to).threat + 0.5 * this.publicMenace(to) + OWN_VIEW.grievance * heard));
   }
 
 
@@ -18953,7 +19094,7 @@ export class GameSessionAdapter implements GameSession {
         moment, narrView, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
         // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
-        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled || this.moodCausesEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() && !this.juryHouseView() },
+        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled || this.moodCausesEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() && !this.juryHouseView(), dodging: this.dodgingOn() && !this.juryHouseView() },
       ),
       ...(hardConstraints ? { hardConstraints } : {}),
       // The producer's public name — the byline the FE renders as the chat sender (producer-persona

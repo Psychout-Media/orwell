@@ -8,11 +8,12 @@ import { resolvePending } from "../../features/support/answerPending";
  * orchestrator's sleep step (`settleOvernight`) after each night. Roles only. `maxSteps` bounds the loop; `stopAtWeek` ends it after that many weeks have closed (for the 3-week case).
  */
 export interface PlayedSeason { s: GameSessionAdapter; nights: number; finished: boolean }
-export function playSeason(seed: number, opts: { stopAtWeek?: number; maxSteps?: number; mull?: boolean; observe?: (live: Record<string, unknown> & { week: number }) => void } = {}): PlayedSeason {
+export function playSeason(seed: number, opts: { stopAtWeek?: number; maxSteps?: number; mull?: boolean; ownViewOff?: boolean; observe?: (live: Record<string, unknown> & { week: number }) => void } = {}): PlayedSeason {
   GameSessionAdapter.setTimeOfDayEnabled(true);
   const s = new GameSessionRegistry().sandboxFor(`agenda-${seed}-${Math.random()}`).session as GameSessionAdapter;
   s.createCharacter({ playerName: "P", seed });
   s.setPerConversationClockEnabled(true);
+  if (opts.ownViewOff) (s as unknown as { setOwnViewEnabled(on: boolean): void }).setOwnViewEnabled(false); // ORW-574: a test that isolates one effect can take the decider's own view out of the season
   const live = () => s.snapshot().live as unknown as { evictionOrder?: string[]; nightDepth?: number; timeOfDay?: string; finished?: boolean; week: number };
   for (let i = 0; i < 80 && live().nightDepth === undefined; i++) s.advanceGame();
   s.noteMessage({ messageId: "agenda-0" });

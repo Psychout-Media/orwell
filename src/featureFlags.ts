@@ -93,6 +93,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // A8: the NPC desire clock (an NPC whose want crossed its threshold cuts in). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_DESIRE_CLOCK', key: 'desireClock', parser: 'defaultOn' },
   { envKey: 'ORWELL_DISCLOSURE_ENGINE', key: 'disclosureEngine', parser: 'defaultOn' },
+  // 0196 / ORW-630: a pressed houseguest the engine has decided will not answer also gets HOW they dodge (what they do with the question, how their carriage reads, whether they hand it back), decided on a keyed side stream from their character, bond and the stakes, saved, and handed to the narrator as a third-person fact. A played game only. `=0` turns it off.
+  { envKey: 'ORWELL_DODGING', key: 'dodging', parser: 'defaultOn' },
   // B32 / #2017 E5: chat betrayal/conflict feed the emotional arc and temperament drift gets a negativity bias (clash x1.5, bond x0.75) so hardening is reachable. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_DRIFT_FIX', key: 'driftFix', parser: 'defaultOn' },
   // B51 / AMEND 3b: the HOH's / veto holder's own drive (target adds, build protects) feeds its nomination and veto-save scores. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
@@ -198,6 +200,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_NPC_TELLS', key: 'npcTells', parser: 'defaultOn' },
   // ORW-407 slices 1-2: the open ledger - a commitment, group pact, plan or claim (about someone or something) said to or by the player, or overheard by them, is kept as free text, can be marked kept, broken or withdrawn, and is shown back when the people it concerns are present. ON by default ("built means on"); `=0` turns it off.
   { envKey: 'ORWELL_OPEN_LEDGER', key: 'openLedger', parser: 'defaultOn' },
+  // 0191 / ORW-574 (Fable T1-6): in a PLAYED game an NPC's decisions read the decider's own view (what they saw, were told, believe, and the public record), never another houseguest's hidden edges or stats. `=0` = the hidden reads, byte-identical.
+  { envKey: 'ORWELL_OWN_VIEW', key: 'ownView', parser: 'defaultOn' },
   // 0163 / ORW-539: the HOH's floater and duo reads see the bonds the HOH could see (scenes they were in or watched, allied-with beliefs), blended with the truth. `=0` = the hidden-truth read.
   { envKey: 'ORWELL_PERCEIVED_BONDS', key: 'perceivedBonds', parser: 'defaultOn' },
   // ORW-37 / B40: lasting game philosophies - each NPC plays one philosophy (a seeded draw conditioned on archetype) that sets the nomination style they play. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
@@ -255,6 +259,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // ORW-275: week chapters - the played-game turnIn that crosses a week boundary (bed on eviction night) carries a Vault-free `weekChapter` recap. ON by default; `=0` turns it off.
   { envKey: 'ORWELL_WEEK_CHAPTERS', key: 'weekChapters', parser: 'defaultOn' },
   { envKey: 'ORWELL_WIPEOUT_REEL',            key: 'wipeoutReel',            parser: 'defaultOn' },
+  // 0200 / ORW-632: your edit - after the crown, the season as TV would have cut it (episode facts, hero and villain edits, how the player came across); rides the post-season retrospective. `=0` = none.
+  { envKey: 'ORWELL_YOUR_EDIT', key: 'yourEdit', parser: 'defaultOn' },
 ];
 
 /** The parsers, keyed by kind, to avoid re-creating closures on every call. */
