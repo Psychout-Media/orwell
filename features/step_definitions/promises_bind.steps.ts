@@ -148,3 +148,23 @@ Then("promise terms: nothing is folded and the assurance row is lapsed", functio
   const rows = (b.g!.live as { assurances?: { items: Array<{ status: string }> } }).assurances!.items;
   assert.deepEqual(rows.map((r) => r.status), ["lapsed"]);
 });
+
+// Slice 4: NPC binding reads for the veto and final-two kinds.
+type Hooks = { promiseVetoFor?: (n: string, h: string) => number; promiseVetoSettled?: (h: string, on: string | undefined) => void; promiseFinalTwoSettled?: (f: readonly string[]) => void };
+type Slice4 = Omit<Priv, "rel"> & { ctx(): Hooks; rel: { edge(a: string, b: string): { trust: number; threat: number } } };
+const hooks = (b: Bag): Hooks => (b.g as unknown as Slice4).ctx();
+Given("promise terms: a house where a promiser has promised a promisee to use the veto on them", function () { promise(this, "use-veto-on"); });
+Given("promise terms: a house where a promiser has promised a promisee to take them to the final two", function () { promise(this, "final-two"); });
+Given("promise terms: the promiser has nothing to gain from breaking it", function () { const b = bag(this); (b.g as unknown as Slice4).rel.edge(b.promiser!, b.promisee!).threat = 0; });
+Given("promise terms: breaking it would pay the promiser in full", function () { const b = bag(this); (b.g as unknown as Slice4).rel.edge(b.promiser!, b.promisee!).threat = 1; });
+Then("promise terms: the promiser's own save read leans toward the promisee", function () { const b = bag(this); assert.ok(hooks(b).promiseVetoFor!(b.promisee!, b.promiser!) > 0); });
+Then("promise terms: the promiser's own save read has no lean toward the promisee", function () { const b = bag(this); assert.equal(hooks(b).promiseVetoFor!(b.promisee!, b.promiser!), 0); });
+When("promise terms: the promiser uses the veto on a third houseguest", function () { const b = bag(this); hooks(b).promiseVetoSettled!(b.promiser!, b.third!); });
+When("promise terms: the final two is the promiser and a third houseguest", function () { const b = bag(this); hooks(b).promiseFinalTwoSettled!([b.promiser!, b.third!]); });
+const brokenAndLessTrust = (w: unknown): void => {
+  const b = bag(w);
+  assert.equal(entry(b).status, "broken");
+  assert.ok(b.g!.rel.edge(b.promisee!, b.promiser!).trust < b.trust0!);
+};
+Then("promise terms: the veto promise is closed as broken by the engine and the promisee trusts the promiser less", function () { brokenAndLessTrust(this); });
+Then("promise terms: the final-two promise is closed as broken by the engine and the promisee trusts the promiser less", function () { brokenAndLessTrust(this); });

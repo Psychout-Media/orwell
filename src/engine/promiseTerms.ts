@@ -108,3 +108,10 @@ export function judgePromise(term: PromiseTerm, fact: PromiseBoardFact): Promise
 export function termIdsKnown(t: PromiseTerm, known: (id: string) => boolean): boolean {
   return known(t.by) && known(t.to) && (t.subject === undefined || known(t.subject));
 }
+
+/**
+ * Slice 4 (NPC binding reads). How hard a KEPT veto promise leans the promiser's own save read: toward saving the one they promised to use the veto on (+), away from saving the one they promised
+ * NOT to use it on (-). Sized to the identity range of the summed save bias (the same scale as the other named bias terms), so a kept promise tips a save that would otherwise fall under the bar
+ * without overriding the holder's own seat on the block. The keep-or-break call is the casual-assurance one (`decideKeep`); this is only the lean when it keeps.
+ */
+export const PROMISE_VETO_LEAN = 0.8;

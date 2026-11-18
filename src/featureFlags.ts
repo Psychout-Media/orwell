@@ -105,6 +105,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_DRIVE_DECISIONS', key: 'driveDecisions', parser: 'defaultOn' },
   // ORW-87 / B7 remainder: the NPC final HOH's Final-3 eviction and the secret-veto replacement read the NPC's memory ledger (grudge/favor), for a played game only. ON by default; `=0` turns it off.
   { envKey: 'ORWELL_ENDGAME_MEMORY', key: 'endgameMemory', parser: 'defaultOn' },
+  // 0193 / ORW-623: the endgame changes the rules of trust - at four left, "can I beat you?" pushes nominations and the vote, tilts reassurances toward faking, and final twos get tested out loud. `=0` = off.
+  { envKey: 'ORWELL_ENDGAME_TRUST', key: 'endgameTrust', parser: 'defaultOn' },
   // 0195 / ORW-628: what the evicted take with them - their deals, favors and assurances leave with them (a held favor may pass to their closest ally), and the house reacts. `=0` = off.
   { envKey: 'ORWELL_EVICTED_TAKE', key: 'evictedTake', parser: 'defaultOn' },
   { envKey: 'ORWELL_FAVORS', key: 'favors', parser: 'defaultOn' },

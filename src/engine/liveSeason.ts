@@ -915,6 +915,8 @@ export interface LiveSeasonState {
    * bookkeeping of already-broadcast events; persisted (0030); legacy saves default to empty.
    */
   resume?: Record<EntityId, number>;
+  /** 0193: the endgame weeks whose final-two promises were tested out loud (once each). Engine-only. */
+  endgameTested?: number[];
   /** This week's drawn veto comp (def id) — held across a Houseguest's-Choice pause so the resume runs the SAME comp. */
   vetoComp?: string;
   /**
@@ -1238,6 +1240,8 @@ export interface SeasonCtx {
   assuranceNominated?: (holder: EntityId, nominee: EntityId) => void;
   /** 0154 (caught in a lie): the eviction count is PUBLIC (who left, how many votes read "evict", who was eligible to vote) - never a ballot. The adapter catches any "I voted to keep you" the count rules out. Absent => nothing. */
   evictionCountPublic?: (tally: { evictee: EntityId; evictVotes: number; voters: readonly EntityId[] }) => void;
+  /** 0193 (ORW-623): at four left or fewer, "can I beat you?" as a push on evicting / nominating `target` (+ = the decider can't beat them). Absent => 0 => byte-identical. */
+  endgameFor?: (target: EntityId, decider: EntityId) => number;
   /**
    * ORW-624: the crowd the evictee walks out to, decided as their exit interview begins (the audience folds the week so far; the house hears it through the door, a
    * player-evictee hears their own). Absent / undefined => the exit interview is byte-identical. Reads no rng from the season stream.
@@ -1249,6 +1253,14 @@ export interface SeasonCtx {
   assuranceKeptAtVote?: (voter: EntityId, spared: EntityId, sealedAmong?: readonly EntityId[]) => void;
   /** B4 slice 8: the eviction nominees are final (after the veto and any replacement) - every open 'safe' assurance whose assured is NOT on the block was kept. */
   assuranceKeptAtTally?: (finalNominees: readonly EntityId[]) => void;
+  /** ORW-586 slice 4: the signed lean a KEPT veto promise gives `holder`'s save of `nominee` (use-veto-on +, not-use-veto-on -; 0 when none, or the holder deliberately breaks it). Played games with promise terms only. */
+  promiseVetoFor?: (nominee: EntityId, holder: EntityId) => number;
+  /** ORW-586 slice 4: the Final-3 rival the final HOH keeps a final-two promise to (undefined = none, or they deliberately break it). */
+  promiseFinalTwoFor?: (hoh: EntityId, rivals: readonly EntityId[]) => EntityId | undefined;
+  /** ORW-586 slice 4: the veto is decided (the holder used it on `on`, or `on` is absent when it was not used): settle the termed veto promises. */
+  promiseVetoSettled?: (holder: EntityId, on: EntityId | undefined) => void;
+  /** ORW-586 slice 4: the Final 2 is set: settle the termed final-two promises. */
+  promiseFinalTwoSettled?: (finalists: readonly EntityId[]) => void;
   /** 0171 / Theme 3 slice 3 (ORWELL_FAVORS): the nominees are final and these houseguests vote - favors owed to a nominee are passed on and called in here, before any ballot is cast (a spoken ask, never a ballot attribution). Played games only; absent => nothing, byte-identical. */
   favorsAtTally?: (finalNominees: readonly EntityId[], voters: readonly EntityId[]) => void;
   /** 0171: the bounded shield a favor `voter` honored for `nominee` at this vote adds against evicting them (>= 0). Absent => 0, byte-identical. */
@@ -2382,6 +2394,8 @@ export function voteChoice(
     -((ctx.favorShieldFor?.(n, voter) ?? 0) * (ctx.dealTrustFor?.(voter, n) ?? 1)), // ORW-617: scaled by trust like a deal, so any holder's honored favor weighs the same
     // 0180 part 2: the herd - where this voter has heard the house is going (tips a close call only). Absent provider => 0 => byte-identical.
     ctx.herdFor?.(n, voter, fn) ?? 0,
+    // 0193 (ORW-623): at four left or fewer, the voter's own "can I beat you?" read. Absent provider => 0 => byte-identical.
+    ctx.endgameFor?.(n, voter) ?? 0,
   ];
   const v0 = termVals(fn[0]);
   const v1 = termVals(fn[1]);
@@ -2399,7 +2413,7 @@ export function voteChoice(
 }
 
 /** ORW-305: the vote score's term names, in the order `voteChoice` adds them. */
-export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum", "agenda", "feeling", "favor", "herd"] as const;
+export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum", "agenda", "feeling", "favor", "herd", "endgame"] as const;
 
 /** Count the eviction votes (NPCs threat-driven; the player's own vote, if any) WITHOUT breaking a tie. */
 function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: EntityId): {
@@ -2943,6 +2957,7 @@ export function raiseSpectatorChoice(s: LiveSeasonState, player: EntityId): bool
 function applyEviction(s: LiveSeasonState, evictee: EntityId, ctx: SeasonCtx, responsible: EntityId[]): void {
   recordEvictionManner(s, evictee, responsible, ctx);
   removeEvictee(s, evictee);
+  if (s.active.length === 2) ctx.promiseFinalTwoSettled?.([...s.active]); // ORW-586 slice 4: the Final 2 is set
   rollWeek(s);
 }
 
@@ -3573,8 +3588,13 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       // ORW-318 (ORW-253 slice 6): an NPC Final HOH reasons from character - who they can beat in front of the jury, the threat, the bond.
       let mindWhy: Omit<DecisionWhy, "by" | "week"> | undefined;
       const minded = ctx.finalHohMind?.(s.hoh!, rivals, s.evictionOrder.slice(preJuryEvictionCount(s)), (w) => { mindWhy = w; });
-      const evictee = minded ?? [...rivals].sort((a, b) => evictScore(b) - evictScore(a))[0]!;
-      if (minded !== undefined && mindWhy) reasonSinkFor(s, ctx, s.hoh!)(mindWhy);
+      let evictee = minded ?? [...rivals].sort((a, b) => evictScore(b) - evictScore(a))[0]!;
+      // ORW-586 slice 4: a final-two promise the HOH keeps (the keep-or-break call is theirs, `decideKeep`) spares the one they promised, whoever the read would have sent out.
+      const owed = ctx.promiseFinalTwoFor?.(s.hoh!, rivals);
+      const promiseKept = owed !== undefined && evictee === owed && rivals.length === 2;
+      if (promiseKept) evictee = rivals.find((r) => r !== owed)!;
+      if (promiseKept) reasonSinkFor(s, ctx, s.hoh!)({ kind: "final-hoh-eviction", rule: "keeps-final-two-promise", options: [whyOption(evictee, "chosen", ["threat", "memory", "agenda"], evictVals(evictee), evictScore(evictee)), whyOption(owed!, "runner-up", ["threat", "memory", "agenda"], evictVals(owed!), evictScore(owed!))] });
+      else if (minded !== undefined && mindWhy) reasonSinkFor(s, ctx, s.hoh!)(mindWhy);
       else {
         const nm = ["threat", "memory", "agenda"] as const;
         const ru = rivals.find((r) => r !== evictee);
@@ -3637,6 +3657,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         ...(ctx.pitchTiltFor ? { pitchPush: (t: EntityId) => ctx.pitchTiltFor!(t, s.hoh!) } : {}),
         ...(ctx.agendaPullFor ? { agendaPush: (t: EntityId) => ctx.agendaPullFor!(t, s.hoh!).value } : {}), // ORW-314: the HOH's goals move the block at full strength
         ...(ctx.feelingKeepFor ? { feelingPush: (t: EntityId) => -ctx.feelingKeepFor!(t, s.hoh!) } : {}), // ORW-568 / 0181: someone the HOH truly likes is harder to put up
+        ...(ctx.endgameFor ? { endgamePush: (t: EntityId) => ctx.endgameFor!(t, s.hoh!) } : {}), // 0193: at four left, who the HOH can't beat goes up
         ...(ctx.assuranceProtects ? { protectedByAssurance: (t: EntityId) => ctx.assuranceProtects!(t, s.hoh!) } : {}),
         why: reasonSinkFor(s, ctx, s.hoh!), // ORW-305: record WHY (a record only); ORW-314: and the stated reason
       });
@@ -3736,6 +3757,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
           participants: [],
         };
       }
+      if (s.vetoHolder) ctx.promiseVetoSettled?.(s.vetoHolder, s.vetoUsed ? s.saved : undefined); // ORW-586 slice 4: the veto is decided; settle the termed veto promises (idempotent: a closed entry is never judged again)
       if (s.eviction) return advanceEviction(s, ctx, rng); // a reveal is already staging — step it
       // 0025 secret veto: a final nominee secretly holds the unplayed safety — they may pull off the
       // block before the vote (player: their choice; NPC: a rational self-save). One eviction still lands.
@@ -3893,12 +3915,12 @@ function npcVetoSave(s: LiveSeasonState, ctx: SeasonCtx): EntityId | undefined {
     return holder;
   }
   // #1937: a protect campaign on a nominee pushes the holder toward saving them, an evict one away.
-  const hasBias = !!(ctx.campaignPushFor || ctx.vetoMemoryFor || ctx.moodVetoFor || ctx.drivePushFor || ctx.agendaPullFor);
+  const hasBias = !!(ctx.campaignPushFor || ctx.vetoMemoryFor || ctx.moodVetoFor || ctx.drivePushFor || ctx.agendaPullFor || ctx.promiseVetoFor);
   const biasParts = new Map<EntityId, number[]>();
   const bias = hasBias
     ? (n: EntityId): number => {
       // ORW-305: the four named bias terms, in the order they were always added; the bias is their sum.
-      const parts = [ctx.campaignPushFor ? -ctx.campaignPushFor(n, holder) : 0, ctx.vetoMemoryFor?.(n, holder) ?? 0, ctx.moodVetoFor?.(n, holder) ?? 0, -(ctx.drivePushFor?.(n, holder) ?? 0), -(ctx.agendaPullFor?.(n, holder, "veto").value ?? 0)]; // ORW-314: the holder's goals - a get-them-out / revenge pull cuts the save, a protect / pull-them-in / mark-before-its-stage pull raises it, FULL strength
+      const parts = [ctx.campaignPushFor ? -ctx.campaignPushFor(n, holder) : 0, ctx.vetoMemoryFor?.(n, holder) ?? 0, ctx.moodVetoFor?.(n, holder) ?? 0, -(ctx.drivePushFor?.(n, holder) ?? 0), -(ctx.agendaPullFor?.(n, holder, "veto").value ?? 0), ...(ctx.promiseVetoFor ? [ctx.promiseVetoFor(n, holder)] : [])]; // ORW-586: a kept veto promise is the 6th part, present only when the hook is; ORW-314: the holder's goals - a get-them-out / revenge pull cuts the save, a protect / pull-them-in / mark-before-its-stage pull raises it, FULL strength
       biasParts.set(n, parts);
       return softStackSigned(sumVals(parts)); // ORW-638 (S-8): the summed bias is bounded (identity inside +-0.8, never beyond +-1.2) so stacked parts cannot run far past the 0.6 bar; monotone
     }
@@ -3909,7 +3931,7 @@ function npcVetoSave(s: LiveSeasonState, ctx: SeasonCtx): EntityId | undefined {
   const names = ["trust", "reliability", "bias"] as const;
   const opt = (r: (typeof rows)[number], role: "chosen" | "runner-up") => {
     const p = biasParts.get(r.c);
-    return whyOption(r.c, role, names, [r.trust, r.reliability, r.bias], total(r), p ? { campaign: p[0]! + 0, memory: p[1]! + 0, mood: p[2]! + 0, drive: p[3]! + 0, agenda: p[4]! + 0 } : undefined);
+    return whyOption(r.c, role, names, [r.trust, r.reliability, r.bias], total(r), p ? { campaign: p[0]! + 0, memory: p[1]! + 0, mood: p[2]! + 0, drive: p[3]! + 0, agenda: p[4]! + 0, ...(p.length > 5 ? { promise: p[5]! + 0 } : {}) } : undefined);
   };
   const total = (r: (typeof rows)[number]): number => sumVals([r.trust, r.reliability, r.bias]);
   if (saved) {
@@ -3943,6 +3965,7 @@ function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId,
     ...(ctx.perceivedBondFor ? { bondOf: (from: EntityId, to: EntityId) => ctx.perceivedBondFor!(s.hoh!, from, to) } : {}),
     ...(ctx.agendaPullFor ? { agendaPush: (t: EntityId) => ctx.agendaPullFor!(t, s.hoh!).value } : {}), // ORW-314
     ...(ctx.feelingKeepFor ? { feelingPush: (t: EntityId) => -ctx.feelingKeepFor!(t, s.hoh!) } : {}), // ORW-568 / 0181
+    ...(ctx.endgameFor ? { endgamePush: (t: EntityId) => ctx.endgameFor!(t, s.hoh!) } : {}), // 0193
     ...(ctx.replacementFullTerms ? nominationOnlyTerms(s, ctx) : {}), // ORW-639: the four terms nominations read that the replacement used to drop
     why, // ORW-305: record WHY (a record only); ORW-314: and the stated reason
   });
