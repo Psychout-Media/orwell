@@ -2271,6 +2271,10 @@ export interface NpcVoiceView {
   deflect?: true;
   /** ORW-685 (ORWELL_DISCLOSURE_SPIN, played games): the houseguest has just given the player a confidence and framed it in their own favour (the engine's decision, never a number). The facts stay what the engine put on the table; only the manner is slanted. Absent otherwise. */
   slants?: true;
+  /** ORW-687 (ORWELL_COVER_SLIPS, played games): this houseguest has asked the player "who told you that?" about a claim the player passed on, and the player has not answered. The value is the claim in public names. The question is the player's to answer in their own words or leave; never answer it for them, and the engine names no source. Absent otherwise. */
+  asksSource?: string;
+  /** ORW-687: the houseguest has just heard the player's answer and read it: `believed` (it fits what they know), `noticed-a-dodge` (the player named no one), `doubts-it` (the name does not fit). Voice how they take it; add no fact and never say what the truth is. Absent otherwise. */
+  readsAnswer?: "believed" | "noticed-a-dodge" | "doubts-it";
   /** 0196 (ORWELL_DODGING, played games): with `deflect`, HOW they turn the press aside - `approach` is what they do with the question, `openness` how their carriage reads, `pushesBack` whether they hand it back to the asker. Third-person facts only: never what they hold, never why, never a number. Absent otherwise. */
   dodge?: { approach: string; openness: string; pushesBack: boolean };
   /** ORW-314: the reasons this houseguest gave aloud for a public act on the board this week (nominations, the replacement, the veto, the Final HOH's eviction). Voice THAT reason; never invent another. Absent when none. */
