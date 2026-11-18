@@ -5,7 +5,7 @@ import type {
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, NapReq, NapView, NapRefusal, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
-  FinaleView, EvictionView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, WalkedInView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
+  FinaleView, EvictionView, HostView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, WalkedInView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, ProducerVaultView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
   DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
@@ -132,6 +132,7 @@ import { AUDIENCE, crowdFor, emptyStanding, evictionKey, fanThreatFor, favoriteO
 import type { EditMoment, EditMomentKind } from "../../engine/editWorthiness";
 import { questionLive, questionAnswered } from "../../engine/voteQuestions";
 import { agendaDumpRows } from "../../engine/agendaDump";
+import { hostRegister, registerWords, hostQuestionTexts, playerRoles, type HostLine } from "../../engine/productionHost";
 import { buildHouseStories } from "../../engine/houseStory";
 import type { StatedReasonView } from "../../ports/GameSession";
 import { goalPull, explainDecision, voiceableReason, type GoalPull, type RealReason, type StatedReasonRecord } from "../../engine/agendaDecisions";
@@ -20197,6 +20198,39 @@ export class GameSessionAdapter implements GameSession {
         votedFor: ref(e.voteOf[voter]!),
       })),
       ...(e.evictee ? { evictee: ref(e.evictee) } : {}),
+      ...(this.hostEnabled && this.live?.playedGame === true && !this.live.spectator ? { host: this.hostView(e) } : {}),
+    };
+  }
+
+  /** ORW-667 (0210 C1, `ORWELL_HOST`, default ON; `=0` = no host block): the host of a PLAYED eviction night. Facts only; changes no outcome and draws no rng. */
+  private hostEnabled = flagDefaultOn("ORWELL_HOST");
+  setHostEnabled(on: boolean): void { this.hostEnabled = on; }
+  private hostView(e: EvictionProgress): HostView {
+    const s = this.live!;
+    const nm = (id: EntityId): string => this.nameOf(id);
+    const player = this.house!.player.id;
+    const nominees = [...(s.finalNominees ?? e.nominees)];
+    const roles = playerRoles({ player, hoh: s.hoh, nominees, vetoHolder: s.vetoHolder, vetoUsed: s.vetoUsed, evictee: e.evictee });
+    let questions: string[] | undefined;
+    if (e.evictee && (e.stage === "goodbye" || e.stage === "exit-interview" || e.stage === "result")) {
+      const ev = e.evictee;
+      const lines: HostLine[] = [];
+      const fact = (id: string, actor: EntityId, drama: number, week: number, text: string): void => { lines.push({ id, actor, public: true, hidden: false, drama, week, text }); };
+      if (s.hoh && nominees.includes(ev)) fact("nom", s.hoh, 0.6, s.week, `${nm(s.hoh)} put ${nm(ev)} on the block this week`);
+      if (s.vetoHolder === ev) fact("veto", ev, 0.5, s.week, `${nm(ev)} held the veto this week and ${s.vetoUsed ? "used it" : "did not use it"}`);
+      for (const d of s.weekDigests ?? []) {
+        if (d.hoh === ev) fact(`hoh${d.week}`, ev, 0.8, d.week, `${nm(ev)} was Head of Household in week ${d.week}`);
+        else if (d.nominees.includes(ev) && d.evictee !== ev && d.hoh) fact(`blk${d.week}`, d.hoh, 0.7, d.week, `${nm(ev)} survived the block in week ${d.week}`);
+      }
+      const qs = hostQuestionTexts(lines, ev);
+      if (qs.length) questions = qs;
+    }
+    return {
+      register: registerWords(hostRegister(this.gameSeed ?? 0)),
+      ...(s.hoh ? { hoh: nm(s.hoh) } : {}),
+      ...(s.vetoHolder ? { vetoHolder: nm(s.vetoHolder), vetoUsed: !!s.vetoUsed } : {}),
+      ...(roles.length ? { playerRoles: roles } : {}),
+      ...(questions ? { questions } : {}),
     };
   }
 
