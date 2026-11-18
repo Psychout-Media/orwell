@@ -160,7 +160,7 @@ export function toolsFor(channel: OutwardChannel): readonly ToolDescriptor[] {
  */
 // (E20: resolveCompetition is gone from the channel entirely — runCompetition has been the single
 // competition authority since B37; an un-advertised-but-callable second resolver was still a seam.)
-const INFRA_LEVERS: ReadonlySet<string> = new Set(["getMomentPrompt", "endOfSessionSummary", "playerTagline", "finaleView", "getPortraitPrompt", "recordImageBeat",
+const INFRA_LEVERS: ReadonlySet<string> = new Set(["hallOfFame" /* 0208 B3: an FE-driven read outside any game (the hall-of-fame screen), not a model lever */, "getMomentPrompt", "endOfSessionSummary", "playerTagline", "finaleView", "getPortraitPrompt", "recordImageBeat",
   // Feature #1394: `recallSceneMemories` is FE framing infrastructure — the front-end weaves the
   // recalled witnessed moments into the moment prompt (like `getMomentPrompt`/`stateDelta`), NOT a
   // game-driving lever the GM model pulls. Excluded from the base prompt's lever manifest so the

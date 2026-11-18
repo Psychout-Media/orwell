@@ -55,7 +55,7 @@ def _admin_tool_names() -> set[str]:
 # as mutating and MUST be in the manifest — see the module docstring.
 READ_ONLY_TOOLS = frozenset({
     # Pure reads / Vault-free projections.
-    "getGameState", "gameStatus", "stateDelta", "playerTagline", "finaleView",
+    "getGameState", "gameStatus", "stateDelta", "playerTagline", "finaleView", "hallOfFame",
     "getMomentPrompt", "recallSceneMemories", "getVisibleStateFor", "renderScene",
     "socialRead", "socialInitiatives", "whereabouts", "premiereIntros", "seasonRecap",
     "dailyRecap", "seasonRetrospective", "npcVoice", "getPortraitPrompt",
