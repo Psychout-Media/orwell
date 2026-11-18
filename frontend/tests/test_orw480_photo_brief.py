@@ -238,9 +238,12 @@ def test_apply_briefs_authors_once_caches_and_reuses_for_one_reshoot(tmp_path, m
     assert [o["prompt"] for o in out2].count(FLOOR) in (0, 15)
 
 
-def test_the_setting_is_off_by_default_and_generate_and_store_is_unchanged_when_off():
+def test_the_setting_is_on_by_default_and_a_user_can_still_turn_it_off(monkeypatch):
+    # ORW-480: on by default since the shot cards alone gave a live cast its costumes and look-alikes (the brief writer is what rounds 18 to 21 tested).
     from src import settings
-    assert settings.DEFAULT_SETTINGS["portrait_brief_enabled"] is False
+    assert settings.DEFAULT_SETTINGS["portrait_brief_enabled"] is True
+    assert B.brief_enabled("u") is True
+    monkeypatch.setattr(settings, "get_user_setting", lambda key, owner="", default=None: "off" if key == "portrait_brief_enabled" else default)
     assert B.brief_enabled("u") is False
 
 

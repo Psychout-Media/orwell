@@ -4834,6 +4834,15 @@ async def do_create_character(
                 _genesis_kick.run_genesis(_warm.get("house") or [], _cast_seed, owner),
                 timeout=_GENESIS_WALL_CLOCK_BACKSTOP_S,
             )
+        # ORW-480: the same belt for the identity step. When the interview-time warm failed (an outage), genesis is re-run just above but nothing re-ran identity, so the
+        # engine's dealt genders, heritages and ages stood beside names the writer chose later (a man named Beth, a "Greek American" Marisol Vega).
+        if isinstance(_warm, dict) and _warm.get("warmed") and _warm.get("house"):
+            from src import orwell_cast_identity as _identity_belt
+            if not _identity_belt.applied_for(owner, _cast_seed):
+                _roster = await orwell_engine.pre_seed_cast(seed=args.get("seed"), user=owner)
+                if isinstance(_roster, dict) and _roster.get("house"):
+                    await asyncio.wait_for(_identity_belt.ensure_identity(_roster["house"], owner, _cast_seed),
+                                           timeout=_GENESIS_WALL_CLOCK_BACKSTOP_S)
     except Exception as e:
         logger.warning("[cast-genesis] pre-finalize genesis kick failed open for %s: %s", owner, e)
     # 0116 — the model-authored cast-genesis LOUD PRE-FINALIZE GATE (§4 / #1313 precedent). Genesis
