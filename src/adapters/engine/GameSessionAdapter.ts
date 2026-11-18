@@ -6333,7 +6333,7 @@ export class GameSessionAdapter implements GameSession {
   private houseTypicalBond(): number {
     const ids = this.livingIds();
     let sum = 0, n = 0;
-    for (const a of ids) for (const b of ids) if (a !== b) { sum += this.rel.bondStrength(a, b); n++; }
+    for (const a of ids) for (const b of ids) if (a !== b) { sum += this.rel.peekBondStrength(a, b); n++; } // peek: a read must never create an edge (bondStrength does), or a refused commit is not rolled back
     return n ? sum / n : 0;
   }
   /** 0193 (ORW-623): the endgame changes the rules of trust (`ORWELL_ENDGAME_TRUST`, default ON; `=0` = byte-identical). Played games only, at four left or fewer. */

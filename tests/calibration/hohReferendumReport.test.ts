@@ -17,7 +17,7 @@ const MSGS = Number.parseInt(process.env.ORWELL_HOH_REPORT_MESSAGES ?? "2000", 1
 /** A popularity gap beyond this is "liked" / "disliked". */
 const BAND = 0.03;
 
-type Rel = { bondStrength(a: string, b: string): number };
+type Rel = { peekBondStrength(a: string, b: string): number };
 type Live = { week: number; hoh?: string; active: string[]; eviction?: { nominees?: string[] }; finalNominees?: string[]; nominees?: string[]; voteRecord?: Array<{ week: number; evictee: string; voteOf: Record<string, string> }>; weekDigests?: Array<{ week: number; hoh: string | null; nominees: string[]; evictee: string | null }>; decisionWhy?: DecisionWhy[] };
 type Row = { popularity: number; targetWent: boolean; opposed: number; opposedEvictedTarget: number; refAbs: number[]; threatGap: number[]; threatBeatRef: number };
 const median = (xs: number[]) => { if (!xs.length) return 0; const s = [...xs].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2; };
@@ -40,9 +40,9 @@ describe.skipIf(!RUN)("HOH referendum report (not a gate)", () => {
           const voters = live.active.filter((v) => v !== live.hoh && !fn.includes(v));
           const ids = live.active;
           let sum = 0, n = 0;
-          for (const a of ids) for (const b of ids) if (a !== b) { sum += sess.rel.bondStrength(a, b); n++; }
+          for (const a of ids) for (const b of ids) if (a !== b) { sum += sess.rel.peekBondStrength(a, b); n++; }
           const house = n ? sum / n : 0;
-          const toHoh = voters.length ? voters.reduce((t, v) => t + sess.rel.bondStrength(v, live.hoh!), 0) / voters.length : house;
+          const toHoh = voters.length ? voters.reduce((t, v) => t + sess.rel.peekBondStrength(v, live.hoh!), 0) / voters.length : house;
           popAt.set(live.week, { hoh: live.hoh, pop: toHoh - house });
         },
         inspect: (s) => {
