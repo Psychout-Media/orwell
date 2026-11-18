@@ -348,7 +348,7 @@ import { APPROACH_GATE, APPROACH_COOLDOWN_STRETCHES } from "../../engine/decisio
 import { FINALE_APPEALS, type FinaleAppeal } from "../../engine/jury";
 import { loadReserveTwists, planReserveTwists, RESERVE_POOL } from "../../engine/reserveTwists";
 import {
-  generateCastDeepLayer, deepProfileToVaultContent, generateDeepProfile, deriveStoryThreads,
+  generateCastDeepLayer, recohereHair, deepProfileToVaultContent, generateDeepProfile, deriveStoryThreads,
   defaultTriggerConditionFor, triggerMet, sourceWindowClosed, threadRumor,
   storyThreadToRetrospectiveProse,
   type SeasonPosition,
@@ -9906,6 +9906,16 @@ export class GameSessionAdapter implements GameSession {
       npcs.map((n) => n.character.age),
       npcs.map((n) => ({ archetype: n.character.archetype, strategyStyle: n.character.strategyStyle, demeanor: n.character.demeanor, genderPresentation: n.character.genderPresentation })),
     );
+    // ORW-480: the dealt hair follows the final gender and heritage (identity and genesis may have changed either since the look was dealt)
+    const hairFixes = recohereHair(new SeededRandom(hashSeed(`${seed}:look-gender`)), npcs.map((n) => ({
+      id: n.id, hair: n.character.physicalCharacteristics?.hair, age: n.character.age,
+      ...(n.character.genderPresentation !== undefined ? { gender: n.character.genderPresentation } : {}),
+      ...(n.character.ethnicity !== undefined ? { heritage: n.character.ethnicity } : {}),
+    })));
+    for (const n of npcs) {
+      const h = hairFixes[n.id];
+      if (h !== undefined && n.character.physicalCharacteristics) n.character.physicalCharacteristics = { ...n.character.physicalCharacteristics, hair: h };
+    }
     const changed: EntityId[] = [];
     npcs.forEach((n, i) => {
       const t = types[i]!;
