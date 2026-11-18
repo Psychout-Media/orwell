@@ -117,3 +117,25 @@ describe("hall of fame: in a played game", () => {
     expect(one()).toEqual(one());
   });
 });
+
+describe("0208 B3: the hall outlives the game (the known-user gate)", () => {
+  it("a user with filed seasons and no save is a KNOWN user (they can read their hall between seasons); a stranger is not, and nothing is minted", async () => {
+    const { composeRuntime } = await import("../../src/composition/runtime");
+    const { FileSaveStore } = await import("../../src/adapters/engine/FileSaveStore");
+    const { FakeClock } = await import("../../src/adapters/time/FakeClock");
+    const dir = mkdtempSync(join(tmpdir(), "hall-known-"));
+    const prev = process.env.ORWELL_DATA_DIR;
+    process.env.ORWELL_DATA_DIR = dir;
+    try {
+      new FileUserHallOfFameStore(dir).append("u-with-hall", rec(1));
+      const rt = composeRuntime({ saveStore: new FileSaveStore(dir), clock: new FakeClock() });
+      expect(rt.registry.usernames()).not.toContain("u-with-hall");
+      expect(rt.knownUser("u-with-hall")).toBe(true);
+      expect(rt.knownUser("a-stranger")).toBe(false);
+      expect(rt.registry.usernames(), "the check alone mints no sandbox").toEqual([]);
+    } finally {
+      if (prev === undefined) delete process.env.ORWELL_DATA_DIR; else process.env.ORWELL_DATA_DIR = prev;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

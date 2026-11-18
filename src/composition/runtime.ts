@@ -213,7 +213,8 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
     clock,
     beginShutdown: () => { shuttingDown = true; },
     isShuttingDown: () => shuttingDown,
-    knownUser: (user) => registry.usernames().includes(user) || (saveStore?.hasSave(user) ?? false),
+    // A user with filed hall-of-fame seasons is known even with no save (0208 B3: the hall lives outside any game, so after a season is reset the player must still be able to read it); an unknown user still mints nothing.
+    knownUser: (user) => registry.usernames().includes(user) || (saveStore?.hasSave(user) ?? false) || (hallStore?.read(user).length ?? 0) > 0,
     resumeSaved,
     warmSaved,
     warmStatus: () => ({ warmed: !warmPending || warmMs !== null, warmMs }),
