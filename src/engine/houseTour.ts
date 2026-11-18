@@ -9,13 +9,15 @@ import type { Room } from "../domain/house";
 import { HOUSE_ROOMS, WALKABLE_ROOMS } from "../domain/house";
 import { SeededRandom } from "../adapters/random/SeededRandom";
 import { hashSeed } from "./characterFactory";
-import type { LiveSeasonState } from "./liveSeason";
 
 /** The tour's tuning. `wanderShare` is the chance, per houseguest per step, that they are somewhere other than their spot in the common area. */
 export const HOUSE_TOUR = { wanderShare: 0.2 } as const;
 
 /** The persisted tour record: the rooms the player has stepped into (append-only; the first entry into each is the one-time card). */
 export interface HouseTourState { seen: string[] }
+
+/** The slice of the live season the tour reads (structural, so this module never imports `liveSeason`, which carries `HouseTourState`: no import cycle). */
+export interface TourSeasonView { houseTour?: HouseTourState; premiereEntrance?: { stage: string; arrived: number; playerPos: number; order: readonly unknown[] } }
 
 /** The open common area: the open-plan rooms a houseguest settles in before anything is called. */
 export function isCommonArea(room: Room): boolean {
@@ -40,13 +42,13 @@ export function tourRoomFor(seed: number | string, id: string, step: number | st
  * Is the player free to walk the house right now? True only for an armed tour (a played game with the flag on) from the moment the player has walked in
  * until the circle is called (the premiere stays in its `entrances` stage through the tour, so the toast and the bed rush keep their places).
  */
-export function tourFree(s: LiveSeasonState | null | undefined): boolean {
+export function tourFree(s: TourSeasonView | null | undefined): boolean {
   const pe = s?.premiereEntrance;
   return !!s?.houseTour && !!pe && pe.stage === "entrances" && pe.arrived > pe.playerPos;
 }
 
 /** Has every houseguest walked in (the tour's second half: the house is full and production has not yet called the circle)? */
-export function everyoneIn(s: LiveSeasonState | null | undefined): boolean {
+export function everyoneIn(s: TourSeasonView | null | undefined): boolean {
   const pe = s?.premiereEntrance;
   return !!pe && pe.arrived >= pe.order.length;
 }
