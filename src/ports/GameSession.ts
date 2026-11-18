@@ -1670,6 +1670,8 @@ export interface OpenDealOfferView {
   counter?: { round: number; ask: { kind: "target" | "protect"; target: NamedRef } | { kind: "vote" } };
   /** 0171: this offer is a favor between the houseguest and the player: `called-in` = they are collecting one the player owes them, `asked` = they ask for a new one. Facts only. */
   favor?: { kind: "called-in" | "asked" };
+  /** ORW-614: set when the player's counter was refused and the houseguest kept this offer open (facts only). */
+  counterRefusedStillStands?: true;
   /** The narrator's voicing instruction for this offer (carried here, not in the base prompt). */
   howToVoice: string;
 }

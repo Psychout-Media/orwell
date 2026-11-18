@@ -14,3 +14,19 @@ export const NPC_DEALS = {
   proposePerTrust: 0.5,
   proposePerWarmth: 0.15,
 } as const;
+
+/**
+ * ORW-614 follow-up (flag ORWELL_DEAL_COUNTER) - when the player's counter to a standing offer is REFUSED, does the original offer still stand? The houseguest's own temperament decides
+ * (hidden; never shown): a touchy houseguest (high soul volatility) or an unsteady one (low emotional steadiness) pulls it, a calm and steady one keeps it open.
+ */
+export const COUNTER_STANDS = {
+  /** The chance the offer stands for a houseguest of middling volatility and steadiness. */
+  base: 0.5,
+  /** How far volatility above/below the middle lowers/raises the chance (a touchy houseguest takes a refused counter as an insult). */
+  perVolatility: 0.5,
+  /** How far steadiness above/below the middle raises/lowers the chance. */
+  perSteadiness: 0.3,
+  /** The band the chance is held in so both outcomes stay possible for every houseguest (never exactly 0 or 1). */
+  floor: 0.08,
+  ceiling: 0.92,
+} as const;

@@ -124,6 +124,7 @@ import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOu
 import { CUNNING, LEAKY, SEEK, SPIN } from "../../engine/copresenceSpread";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, streakHolds, nextStreak, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
+import { offerStandsAfterRefusedCounter } from "../../engine/dealCounterStands";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
 import { DEAL_EXPOSURE, exposureHits, reopened, twistKey, type DealTwist } from "../../engine/dealExposure";
@@ -17741,7 +17742,7 @@ export class GameSessionAdapter implements GameSession {
       if (refusal) {
         const counter = this.maybeCounterOffer(target, req.kind, refusal);
         if (counter) refusal.counteroffer = counter;
-        if (this.closeCounteredOffer(req.countersOffer, target)) this.persist(); // a refused counter still spends the offer it answered
+        if (this.closeCounteredOffer(req.countersOffer, target, true)) this.persist(); // a refused counter: the houseguest's temperament decides whether the offer it answered still stands
         if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, refusal);
         return refusal;
       }
@@ -20282,14 +20283,26 @@ export class GameSessionAdapter implements GameSession {
    * The player's counter spends the offer it answers (it is neither accepted nor declined, so no cooling and no decline event): a recorded conversation, then the offer slot clears. It only matches an offer from
    * the SAME houseguest the counter is made with and only while that offer stands. The engine never writes the counter itself: the terms, kind and price are the player's. Returns true when an offer was closed.
    */
-  private closeCounteredOffer(offerId: string | undefined, target: EntityId): boolean {
+  private closeCounteredOffer(offerId: string | undefined, target: EntityId, refused = false): boolean {
     const s = this.live;
     if (!this.dealCounterEnabled || !s || s.playedGame !== true || typeof offerId !== "string" || offerId === "") return false;
     const slot = s.dealOffer?.id === offerId ? "deal" : s.votePitch?.id === offerId ? "pitch" : undefined;
     const o = slot === "deal" ? s.dealOffer : slot === "pitch" ? s.votePitch : undefined;
     if (!slot || !o || o.from !== target || this.dealOfferPartyGone(o.from) || s.finished) return false;
+    const who = this.nameOf(o.from);
+    this.onPlayerEvent?.(`${this.nameOf(PLAYER)} answers ${who}'s ${o.kind} offer with terms of their own`, [PLAYER, o.from], "conversation");
+    if (refused) {
+      // Its own keyed side stream (never the shared rng), so asking again gives the same answer. Hidden reads: only the outcome is recorded.
+      const soul = this.soulObj(o.from);
+      const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? ""}:counter-stands:${o.id}`)).next();
+      if (offerStandsAfterRefusedCounter({ volatility: soul?.volatility ?? 0.5, steadiness: soul?.emotionalState ?? 0.5 }, roll)) {
+        o.counterRefused = true;
+        this.onPlayerEvent?.(`${who} turns down the player's terms but keeps the ${o.kind} offer open`, [PLAYER, o.from], "conversation");
+        return true;
+      }
+      this.onPlayerEvent?.(`${who} turns down the player's terms and pulls the ${o.kind} offer`, [PLAYER, o.from], "conversation");
+    }
     if (slot === "deal") s.dealOffer = undefined; else s.votePitch = undefined;
-    this.onPlayerEvent?.(`${this.nameOf(PLAYER)} answers ${this.nameOf(o.from)}'s ${o.kind} offer with terms of their own`, [PLAYER, o.from], "conversation");
     return true;
   }
 
@@ -20355,6 +20368,7 @@ export class GameSessionAdapter implements GameSession {
       ...(o === this.live?.votePitch || (this.dealCounterEnabled && this.live?.playedGame === true) ? { id: o.id } : {}),
       ...(o.replacesDealId ? { replacesDealId: o.replacesDealId } : {}),
       ...(o.counter ? { counter: { round: o.counter.round, ask: o.counter.ask.kind !== "vote" ? { kind: o.counter.ask.kind, target: this.named(o.counter.ask.target)! } : { kind: "vote" as const } } } : {}),
+      ...(o.counterRefused && this.dealCounterEnabled ? { counterRefusedStillStands: true as const } : {}),
       ...(o.favor ? { favor: { kind: o.favor.favorId ? "called-in" as const : "asked" as const } } : {}),
       howToVoice: "Not a decision card and it never stops the week. Voice this houseguest floating the offer " +
         "in-scene at a natural moment (who, kind, terms). If the player answers in chat, record it with " +
@@ -20362,7 +20376,8 @@ export class GameSessionAdapter implements GameSession {
         "ignored offer lapses on its own at week's end." +
         (this.dealCounterEnabled && this.live?.playedGame === true
           ? " If the player answers with terms of their own, record them with makeDeal to this houseguest and countersOffer set to this offer's id; the houseguest's own read decides, never the engine for the player."
-          : ""),
+          : "") +
+        (o.counterRefused && this.dealCounterEnabled ? " The houseguest turned down the player's own terms and kept this offer open: it still stands for the player to accept, decline or answer again." : ""),
     };
   }
 
