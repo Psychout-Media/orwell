@@ -2113,6 +2113,11 @@ export interface WhereaboutsView {
    */
   sinceSend?: { arrived: string[]; departed: string[] };
   /**
+   * 0197 / ORW-631: a lead a houseguest gave the player (ORW-475, asking around) that the player has since SEEN did not hold up: the room named, and where the player found the person if they did. Plain observed
+   * facts, shown for a few turns. It never says whether the lead was stale or meant to mislead; the player decides whether to call it out. Absent when none lately.
+   */
+  leadsFoundWrong?: Array<{ toldBy: NamedRef; about: NamedRef; saidRoom: string; foundRoom?: string; fact: string }>;
+  /**
    * 0106 — a LIVE whole-house EVENT is in session: an EXCLUSIVE set-piece (a competition, or a
    * nomination / veto / eviction ceremony). When present, the whole house is gathered for it — so
    * `present` lists everyone and `nearby` is empty (there are no side rooms to slip into, and the player

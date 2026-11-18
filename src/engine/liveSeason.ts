@@ -639,6 +639,8 @@ export interface LiveSeasonState {
   moodCauses?: Record<EntityId, MoodCause & { week: number }>;
   /** 0194 / ORW-626: every other mood CAUSE a houseguest has had (a lie found out, a friend gone, a bad night, a win or loss), append-only. Vault-class; voiced only when the houseguest chooses to say it. Played games only; absent otherwise. */
   moodCauseLog?: import("./moodCauses").MoodCauseEntry[];
+  /** 0197 / ORW-631: every lead a houseguest gave the player when asked where someone is (the room they named, whether they misled, how it later resolved by what the player saw). Append-only. Vault-class: the truth and the misled flag are never projected. Played games only; absent otherwise. */
+  toldLeads?: import("./toldLeads").ToldLead[];
   vetoField?: EntityId[];
   /** ORW-565: the absolute in-game hour ((day-1)*24 + clock hour) the veto DRAW finished (the field was published). Played games only; the competition waits a minimum gap after it. Re-armed each week. */
   vetoDrawnAtAbs?: number;
