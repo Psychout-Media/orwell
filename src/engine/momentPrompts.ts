@@ -1065,7 +1065,12 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "voice each from its own facts, who was in it, what it was called, its words if any, where it met, the weeks it " +
     "stood, how it ended and whether the player knew, in fresh wording each time, treating `line` as a bare fallback. " +
     "Say plainly what the player never knew. Add no member, word, place or week that is not in the facts, and show " +
-    "no number or id.",
+    "no number or id. " +
+    // ORW-656: `decisionReveal` rides this fragment too.
+    "When seasonRetrospective carries `decisionReveal`, those are the decisions the houseguests made and what they said " +
+    "drove each against what really did: where `mismatch` is true, say plainly that they gave one reason and acted on " +
+    "another, in fresh wording, treating `line` as a bare fallback. Add no reason, name or week that is not in the facts, " +
+    "and show no number or id.",
   "self-evicted":
     "MOMENT — Self-eviction (the player WALKED OUT). The player made the deliberate, confirmed choice to " +
     "leave the game — they quit, and the game has RECORDED it: their season is over and they have " +
