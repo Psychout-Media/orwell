@@ -21,3 +21,13 @@ Never projected, never a tool result, never a prompt line, never a number or lab
 
 ## Deferred to part 2
 Reputation voiced as gossip about NPCs and the player, social roles, reputation read by NPC-to-NPC deals and alliance offers, perceived bonds beyond the HOH read, faked distance, and the retrospective.
+
+## Part 2b: a close pair fakes distance in public (ORW-564; flag `ORWELL_FAKED_DISTANCE`, default ON)
+- **Who hides (`src/engine/fakedDistance.ts`).** Each week, a pair where each feels close to the other (`HIDE.bondAtLeast`) decides whether to hide it. The chance rises with either one's cunning and with the house's paranoia dial. It's decided once a week on its own seeded side stream and kept on the season (`live.hiding`). A pair with the player hides on the NPC's say.
+- **What hiding does.**
+  - Their warm time together (bonding, showmance, strategy, alliance talk) stays low-key: someone else in the room registers it only on a keyed catch roll (`HIDE.catchChance`). A fight is never hidden.
+  - Someone who never caught them reads only a little of their true closeness (`HIDE.leak`) in the perceived-bond read (0163). Anyone who caught them together, or was told, reads them as before.
+- **The player in both directions.**
+  - An NPC close to the player can hide it, and the house then reads the player as less tied to them (the floater and duo reads see what the house sees).
+  - The player in the room can catch a hiding pair slipping off together, as a scene only the player saw (their own read to make).
+- **Measured:** see the PR (the 12-season mix guard; scene types are unchanged, only who registers them).
