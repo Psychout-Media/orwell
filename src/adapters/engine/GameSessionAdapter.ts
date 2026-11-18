@@ -92,6 +92,7 @@ import { DEAL_NOMS } from "../../engine/dealNomConstants";
 import { proposeNpcDeals, planAwareDealPush, type PairBondRead } from "../../engine/npcDeals";
 import { decideDodge, type DodgeFact } from "../../engine/dodging";
 import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosure, type DisclosureEvent } from "../../engine/disclosureRoute";
+import { heirOf, partnerReaction, debtorRelief } from "../../engine/evictedTake";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, BreakCause, Deal } from "../../engine/deals";
 import { isPositiveObligation, RELIABLE_FACT_PREFIX } from "../../domain/deal";
@@ -14862,7 +14863,54 @@ export class GameSessionAdapter implements GameSession {
     if (scale > 0) this.catchMood(betrayer, "betrayed", scale);
   }
 
-  /** The voters who sent `evictee` home this week each weigh it, in sorted id order (the secret ballot stays secret: nothing is announced). */
+  /** 0195 (ORW-628): what the evicted take with them (`ORWELL_EVICTED_TAKE`, default ON; `=0` = byte-identical). Played games only. */
+  private evictedTakeEnabled = flagDefaultOn("ORWELL_EVICTED_TAKE");
+  setEvictedTakeEnabled(on: boolean): void { this.evictedTakeEnabled = on; }
+  /**
+   * 0195 (ORW-628) - after an eviction, what the evictee held leaves with them, once per evictee:
+   *   - their open deals lapse (neutral, no fold); each living partner reacts - relief if their own secret plan was to break it, worry by how much it shielded them;
+   *   - a favor owed TO an NPC evictee passes to their closest ally still in the house (`heirOf`, the engine's call) or lapses; the player's own held favors are never
+   *     passed for them (they lapse); a favor the evictee OWED lapses; each NPC debtor let off is relieved;
+   *   - their open assurances, both ways, lapse.
+   * What they knew goes to the jury house with them: spread runs over the living (by presence), so nothing new leaves them. Moods move through `catchMood` (no rng).
+   */
+  evictedTakeWithThem(): void {
+    const s = this.live;
+    if (!this.evictedTakeEnabled || !s || s.playedGame !== true || !this.house) return;
+    const evictee = s.evictionOrder[s.evictionOrder.length - 1];
+    if (!evictee || s.active.includes(evictee)) return;
+    const done = (s.evictedTaken ??= []);
+    if (done.includes(evictee)) return;
+    done.push(evictee);
+    const living = this.livingIds();
+    // (1) open deals lapse; partners react
+    for (const d of this.deals.all) {
+      if (d.status !== "open" || !d.parties.includes(evictee)) continue;
+      d.status = "lapsed";
+      const partner = d.parties[0] === evictee ? d.parties[1] : d.parties[0];
+      if (!living.includes(partner) || partner === PLAYER) continue; // the player feels their own way about it
+      const plan = this.dealPlansEnabled ? s.dealPlans?.[d.id]?.[partner] : undefined;
+      const r = partnerReaction(d.kind, !!plan && isBetrayal(plan.kind));
+      if (r) this.catchMood(partner, r.kind === "relief" ? "survived-vote" : "nominated", r.scale);
+    }
+    // (2) favors: held by the evictee pass to an heir (an NPC evictee only) or lapse; owed by the evictee lapse
+    if (this.favorsOn()) {
+      const beat = this.favorBeat();
+      const freed = new Map<EntityId, number>();
+      for (const f of this.favors.openHeldBy(evictee)) {
+        const heir = evictee === PLAYER ? undefined : heirOf(evictee, f.owedBy, living, (a, b) => this.rel.bondStrength(a, b), FAVOR.passBond);
+        if (heir && this.favors.pass(f.id, heir, beat)) continue;
+        if (this.favors.lapse(f.id, beat)) freed.set(f.owedBy, (freed.get(f.owedBy) ?? 0) + 1);
+      }
+      for (const f of this.favors.openOwedBy(evictee)) this.favors.lapse(f.id, beat);
+      for (const [debtor, n] of [...freed].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+        if (debtor !== PLAYER && living.includes(debtor)) this.catchMood(debtor, "survived-vote", debtorRelief(n));
+      }
+    }
+    // (3) open assurances, both ways, lapse
+    if (this.assurancesEnabled && s.assurances) for (const a of s.assurances.items) if (a.status === "open" && (a.from === evictee || a.to === evictee)) a.status = "lapsed";
+  }
+
   private feelEvictionGuilt(evictee: EntityId): void {
     const rec = this.live?.voteRecord;
     const last = rec && rec.length > 0 ? rec[rec.length - 1] : undefined;
@@ -17427,6 +17475,7 @@ export class GameSessionAdapter implements GameSession {
       this.rel.decay(RELATIONSHIP_CONSTANTS.DECAY_RATE);
       this.deals.expireWeekScoped(this.live?.week ?? 0);
       this.talkAboutTheVote(); // 0154 slice 5b: after the eviction the voters may tell each other how they voted (flag-gated, own seeded stream)
+      this.evictedTakeWithThem(); // 0195: what the evictee held leaves with them, and the house reacts
       this.audienceAfterEviction(); // ORW-624: the audience outside - the crowd as the evictee walks out, and a fan reward in its weeks
     }
     // T0-3 (issue #1778) — derive this beat's Vault-free broadcast chyron(s), IF ANY, from the SAME
