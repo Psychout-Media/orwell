@@ -167,3 +167,21 @@ allies every week. Before, it ran a single burst of premiere scenes that decayed
 ## 10. Amendment — 2026-11-18 (ORW-639, Fable stacking audit S-10)
 
 The replacement nominee used to be picked with fewer terms than the original nominations: the deal push, the pre-show tie, lobbying and the kept-assurance shield were dropped, so a houseguest the HOH protected at nominations was not protected as a replacement (and a pitch to the HOH did nothing for the replacement). The NPC replacement pick now reads the same four terms, built by one expression the nominations also use (`nominationOnlyTerms` in `liveSeason.ts`; the deal push and the tie still sum under one name, `deals`). A kept assurance filters the options like the agenda shield does: one seat, so one unshielded candidate is enough. No rng is drawn or reordered. Played games only, flag `ORWELL_REPLACEMENT_TERMS` (default ON; `=0` restores the old read byte for byte). The human HOH's own pick is never touched (the engine does not act for the player).
+
+## 11. Amendment — 2026-11-18 (ORW-636, Fable stacking audit S-3/S-4: do the small terms fire?)
+
+The audit's six played seasons used a silent test player, and the small terms were measured at zero decisions. Re-measured with an ACTIVE player (8 seeded chat-paced seasons, `tests/calibration/stackingReport.test.ts`, which now also has the houseguest assure the player, prints every named term that was never non-zero, and a census of what the never-firing terms' sources produced). Median gaps: eviction vote 0.59 (the audit's 1.1 predates the HOH-referendum recentring), nomination target 0.35, seat 0.18, replacement 0.21, jury vote 0.41.
+
+| Term (decision) | In option rows | Avg / max size | Decisive | Verdict |
+|---|---|---|---|---|
+| memory (vote / nom target / replacement / jury) | 52% / 70% / 53% / 59% | 0.05 / 0.065 / 0.04 / 0.055, max 0.15 | 1.1% / 1.4% / 5.3% / 7.4% | LIVE, small by design (a bounded tilt beside the edge, which already carries a fresh betrayal) |
+| campaign (vote / nom) | 26% / 15% | 0.019 / 0.016, max 0.07 | 0% | WEAK by design (persuasiveness x susceptibility x trust x progress); the campaign also moves the threat read |
+| mood (vote / nom) | 1.4% / 6.5% | 0.03, max 0.06 | 0% | RARE by design (a visibly rattled houseguest only, and it decays) |
+| jury-management (vote) | 96% | 0.034, max 0.10 | 0.5% | WEAK by design (`juryManagementWeight` 0.1 x the nominee's trust: a light tie-leaner, ruling 0014) |
+| lobbying (nom target / seat / replacement) | 82% / 81% / 97% | 0.027, max 0.11 | 4.3% / 3.0% / 0% | LIVE; capped at 0.18, below the bloc term, by its design |
+| deal push + pre-show tie ("deals", nom) | 1.4% / 3.7% / 2.6% | 0.19-0.25 | 1.4% / 1.5% / 0% | RARE (needs an open protective deal); size is not the limit |
+| herd (vote) | 0.2% | 0.17 | 0% | RARE: needs two distinct houseguests heard going after one nominee this week |
+| assurance (vote) | 0.5% | 0.15 | 0% | RARE: only an NPC-made kept assurance counts (the player's own are never an NPC voter's); the audit's silent player made none |
+| pre-show tie (vote) | 0 of 554 | 0.3 when it applies | - | RARE by the 0059 sparse design (0-2 ties a season, half loaded, only family / rival / old-friend change a decision: 1 such tie in 8 seasons); wiring proven by `tieBehaviorWired.test.ts` |
+
+Finding: no term is dead through a wiring fault. The terms the audit saw at zero are either small by design (a tilt that decides only a near tie), or need a state a silent player never creates (an NPC assurance, a heard rumour, an open deal). No constant was changed: with the vote gap at 0.59, memory's 0.15 maximum is a quarter of the typical gap, and lifting the tilts would move the house-mix and jury-reach calibration for no measured need. Re-run the report after any change to these terms.
