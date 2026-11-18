@@ -325,7 +325,7 @@ import { rolesFromGraph, type NetworkRoles } from "../../engine/networkSpread";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { CREDIBILITY } from "../../engine/credibilityConstants";
 import { standing, composeWithCredibility, dealWillingnessShift, type HeardWrong } from "../../engine/reputation";
-import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, recordedSceneRoles, sceneRoles, type SceneFold } from "../../engine/bondRecord";
+import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, recordedSceneRoles, sceneRoles, type BookWrong, type SceneFold } from "../../engine/bondRecord";
 import { TRIADS, SWING } from "../../engine/triadsConstants";
 import { commonFriendNudges, kingmakerOf, priceTier, sharedEnemyNudges, strainedTriads, swingRead, triadPairKey, type TriadView } from "../../engine/triads";
 import { deriveDailyHouseGraph, type DailyHouseGraph, type HouseGraph } from "../../engine/houseGraph";
@@ -6324,7 +6324,18 @@ export class GameSessionAdapter implements GameSession {
   bondReader(): BondReader {
     if (!this.bondRecordEnabled) return edgeBondReader(this.rel, () => this.livingIds(), () => this.live?.dayNumber ?? 1);
     this.foldBonds();
-    return recordBondReader(this.rel, () => this.live?.bonds, () => this.livingIds(), () => this.live?.dayNumber ?? 1, this.favorDebt ?? this.ownFavorDebt() ? { favorDebt: (this.favorDebt ?? this.ownFavorDebt())! } : {});
+    const favor = this.favorDebt ?? this.ownFavorDebt();
+    const wrong = this.grudgesOn() ? (this.foldGrudges(), { wrong: (h: EntityId, o: EntityId) => this.bookWrongOf(h, o) }) : {};
+    return recordBondReader(this.rel, () => this.live?.bonds, () => this.livingIds(), () => this.live?.dayNumber ?? 1, { ...(favor ? { favorDebt: favor } : {}), ...wrong });
+  }
+  /** ORW-607 part 2: the grudge book's wrong `holder` carries toward `other` (weight on its curve now, and the row's peak), for the bond reader. Read-only; undefined with no row. */
+  private bookWrongOf(holder: EntityId, other: EntityId): BookWrong | undefined {
+    const g = this.grudgeOf(holder, other, false);
+    return g ? { weight: g.weight, peak: g.peak } : undefined;
+  }
+  /** ORW-607 part 2 (ENGINE-ONLY, never a tool or projection): the ONE grievance `holder` carries toward `other` - the book's wrong plus the record's friction resentment, summed once, 0..1. Headless / flag off: the record's resentment. */
+  grievanceOf(holder: EntityId, other: EntityId): number {
+    return this.bondReader().bond(holder, other).resentment;
   }
   /** Theme 3 slice 3 (Overseer B): the favor ledger as a second source of a bond's debt (signed like BondView.debt). Absent => the record's own debt only. */
   private favorDebt?: DebtSource;
@@ -6532,7 +6543,11 @@ export class GameSessionAdapter implements GameSession {
     for (const d of this.deals.all) {
       const [a, b] = d.parties;
       // ORW-597: a break reaches the bond only once the wronged side has learned of it, and a sealed ballot never names its breaker.
-      if (d.status === "broken" && d.brokenBy && (d.learned === true || (d.learned === undefined && !d.sealedBallot)) && mark(`broken:${d.id}`)) foldBreak(store, d.brokenBy, d.brokenBy === a ? b : a);
+      if (d.status === "broken" && d.brokenBy && (d.learned === true || (d.learned === undefined && !d.sealedBallot)) && mark(`broken:${d.id}`)) {
+        const wronged = d.brokenBy === a ? b : a;
+        // ORW-607 part 2 (played games with the grudge book): the book records this wrong (the same `holderKnowsOfBreak` gate `foldGrudges` uses; never a player holder), so the record keeps only the strain.
+        foldBreak(store, d.brokenBy, wronged, this.grudgesOn() && wronged !== PLAYER && this.holderKnowsOfBreak(wronged, d) ? { bookHoldsWrong: true } : {});
+      }
       else if (d.status === "kept" && mark(`kept:${d.id}`)) foldKept(store, a, b);
       else if (d.status === "open") for (const [x, y] of [[a, b], [b, a]] as const) (open.get(bondKey(x, y)) ?? open.set(bondKey(x, y), []).get(bondKey(x, y))!).push(d.kind);
     }
@@ -14657,7 +14672,7 @@ export class GameSessionAdapter implements GameSession {
     if (holder === PLAYER) { if (this.bondRecordEnabled) foldBreak((s.bonds ??= {}), debtor, holder); return; }
     this.remember(holder, debtor, "deal-broken", ASSURANCE.brokenMemorySeverity * FAVOR.refusalMemoryShare);
     if (this.grudgesOn()) noteGrudge((s.grudges ??= {}), holder, debtor, "deal-broken", GRUDGES.DEAL_BREAK_SEVERITY * FAVOR.refusalGrudgeShare, s.week, s.dayNumber ?? 1, `favor:${favorId}`);
-    if (this.bondRecordEnabled) foldBreak((s.bonds ??= {}), debtor, holder);
+    if (this.bondRecordEnabled) foldBreak((s.bonds ??= {}), debtor, holder, this.grudgesOn() ? { bookHoldsWrong: true } : {}); // ORW-607 part 2: the wrong is in the book (just noted above), so the record keeps only its strain
   }
 
   /** 0171: settle the accepted counters at this eviction: booked only if the stated condition holds now (the rival is on the block / the protected houseguest is not), else lapsed. Nothing is deleted. */
