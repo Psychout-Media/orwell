@@ -4,6 +4,7 @@ import { LogicalClock } from "../adapters/time/LogicalClock";
 import { FileSaveStore } from "../adapters/engine/FileSaveStore";
 import { SqliteSaveStore } from "../adapters/sqlite/SqliteSaveStore";
 import { FileUserNotorietyStore } from "../adapters/engine/FileUserNotorietyStore";
+import { FileUserSeasonArchive } from "../adapters/engine/FileUserSeasonArchive";
 import { GameSessionAdapter } from "../adapters/engine/GameSessionAdapter";
 import type { Clock } from "../ports/Clock";
 import type { UserSaveStore, SaveDurability } from "../ports/UserSaveStore";
@@ -121,9 +122,11 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
   // from the per-season saves, so the season-restart rotation never touches it — account reputation
   // survives the cutover). In-memory otherwise (the registry defaults to an in-memory store).
   const notorietyStore = saveStore ? new FileUserNotorietyStore() : undefined;
+  const seasonArchive = saveStore ? new FileUserSeasonArchive() : undefined; // 0208 (B1): the same separate-subtree durability
   const registry = new GameSessionRegistry(saveStore, {
     ...(maxResident !== undefined ? { maxResident } : {}),
     ...(notorietyStore ? { notorietyStore } : {}),
+    ...(seasonArchive ? { seasonArchive } : {}),
   });
   // The house lives ONLY on the player's play-clock: `turnDriven` fires one bounded off-screen tick
   // per player turn (there is no wall-clock watcher — deleted by design). `auxTicksNever` (0108/M0-9):
