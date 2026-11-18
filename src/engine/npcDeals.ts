@@ -2,7 +2,7 @@ import type { EntityId } from "../domain/ids";
 import { clamp01Raw as clamp01 } from "../domain/num";
 import { NPC_DEALS } from "./npcDealConstants";
 import { NPC_DEAL_PUSH } from "./dealNomConstants";
-import { PLAN_SEMANTICS, isBetrayal, type DealPlan, type PlanSource, type StoredPlan } from "./dealPlans";
+import { planSemantics, isBetrayal, type DealPlan, type PlanSource, type StoredPlan } from "./dealPlans";
 
 /**
  * Feature 0170 (Theme 3 slice 2) - NPC deals and the HOH deal. PURE: no I/O, no Vault handle, no wording, one draw (the propose roll) from a seeded side stream
@@ -79,7 +79,7 @@ export function planAwareDealPush(base: number, holder: EntityId, target: Entity
   for (const d of deals) {
     if (!d.parties.includes(holder) || !d.parties.includes(target)) continue;
     const plan = plans.planOf(d.id, holder) as PlanRead | undefined;
-    if (!plan || !isBetrayal(plan.kind) || PLAN_SEMANTICS[plan.kind].carriedOut !== "break-at-moment" || plan.moment?.at !== "nominations" || week !== plan.moment.week) continue;
+    if (!plan || !isBetrayal(plan.kind) || planSemantics(plan.kind).carriedOut !== "break-at-moment" || plan.moment?.at !== "nominations" || week !== plan.moment.week) continue;
     const live = d.status === "open" || (d.status === "broken" && plan.outcome === "carried-out");
     if (live) best = Math.max(best, NPC_DEAL_PUSH.breakAtNominations);
   }

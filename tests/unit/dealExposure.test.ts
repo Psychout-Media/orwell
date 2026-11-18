@@ -225,7 +225,7 @@ describe("a twist that makes a promise impossible: the plan decides betrayal or 
   });
   it("the same twist with no betraying plan is the forced innocent break: no betrayal, no fold", () => {
     for (const seed of seeds) {
-      for (const kind of ["keep", "this-week"]) {
+      for (const kind of ["keep", "a-retired-kind"]) {
         const r = run(seed, kind);
         expect(r.deal.status).not.toBe("broken");
         expect(r.deal.brokenBy).toBeUndefined();
