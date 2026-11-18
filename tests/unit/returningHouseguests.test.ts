@@ -87,7 +87,7 @@ describe("B1: the carried feeling softens with the seasons and never exceeds the
 });
 
 /** Play and finish a season for a user, then return; scan seeds until a returner is cast. */
-type Internals = { house: { npcs: Array<{ character: { hiddenElements: Array<{ detail: string }> } }> } | null; live: { returners?: Record<string, unknown>; beliefs?: Record<string, unknown[]> } | null };
+type Internals = { house: { npcs: Array<{ id: string; name: string; character: Record<string, unknown> & { hiddenElements: Array<{ detail: string }> } }> } | null; live: { returners?: Record<string, unknown>; beliefs?: Record<string, unknown[]> } | null };
 function twoSeasons(user: string, firstSeed: number, returnSeed: number, archive = new InMemoryUserSeasonArchive()) {
   const reg = new GameSessionRegistry(undefined, { seasonArchive: archive });
   const sb = reg.sandboxFor(user);
@@ -165,5 +165,74 @@ describe("B1: a two-season player gets a real past houseguest back, with the wal
       return JSON.stringify(r.after.session.getGameState().house.map((h) => h.name));
     };
     expect(run()).toBe(run());
+  });
+});
+
+/** Finish a played season for `user` and restart with the given createCharacter args THROUGH the player tool door (McpServer.callTool). */
+async function restartVia(user: string, seed: number, args: Record<string, unknown>) {
+  const archive = new InMemoryUserSeasonArchive();
+  const reg = new GameSessionRegistry(undefined, { seasonArchive: archive });
+  const sb = reg.sandboxFor(user);
+  sb.session.createCharacter({ playerName: "The Player", seed: 7 });
+  sb.session.noteMessage({ messageId: "m1" });
+  expect(sb.session.advanceToFinale().finished).toBe(true);
+  const firstCast = (sb.session as never as Internals).house!.npcs.map((n) => n.name);
+  await sb.mcp.player.callTool("createCharacter", { playerName: "The Player", seed, confirmRestart: true, ...args });
+  const after = reg.sandboxFor(user);
+  return { archive, firstCast, after, inner: after.session as never as Internals };
+}
+
+describe("B1: the player's own start choice on the createCharacter tool", () => {
+  it("an unknown start value is refused, typed, through the tool door", async () => {
+    const reg = new GameSessionRegistry();
+    const sb = reg.sandboxFor("u-bad-start");
+    await expect(sb.mcp.player.callTool("createCharacter", { playerName: "The Player", seed: 7, start: "sideways" })).rejects.toThrow(/start/);
+    await expect(sb.mcp.player.callTool("createCharacter", { playerName: "The Player", seed: 7, start: 3 })).rejects.toThrow(/start/);
+  });
+
+  it("start 'return' brings reputation and may cast a returner even with a NEW character; 'new' is a clean slate even when keeping the character", async () => {
+    let returned = false;
+    for (let seed = 100; seed < 140 && !returned; seed++) {
+      const r = await restartVia(`u-ret-${seed}`, seed, { start: "return" });
+      expect(r.after.session.carriedNotoriety()).not.toBeNull();
+      returned = !!r.inner.live?.returners;
+      if (returned) expect(JSON.stringify(r.after.session.getGameState())).not.toContain("endToward");
+    }
+    expect(returned, "some seed casts a returner on start 'return'").toBe(true);
+    for (let seed = 100; seed < 115; seed++) {
+      const n = await restartVia(`u-new-${seed}`, seed, { start: "new", keepCharacter: true });
+      expect(n.after.session.carriedNotoriety()).toBeNull();
+      expect(n.inner.live?.returners).toBeUndefined();
+      expect(n.after.session.getGameState().returningHouseguests).toBeUndefined();
+    }
+  });
+
+  it("absent start is today's behaviour: keepCharacter returns, a new character does not", async () => {
+    const keep = await restartVia("u-def-keep", 111, { keepCharacter: true });
+    expect(keep.after.session.carriedNotoriety()).not.toBeNull();
+    const fresh = await restartVia("u-def-new", 111, {});
+    expect(fresh.after.session.carriedNotoriety()).toBeNull();
+    expect(fresh.inner.live?.returners).toBeUndefined();
+  });
+});
+
+describe("B1: a returner keeps who they are and gets fresh season state", () => {
+  it("identity, personality, backstory and voice facets match the archive; secrets in play are fresh", () => {
+    let done = false;
+    for (let seed = 100; seed < 140 && !done; seed++) {
+      const r = twoSeasons(`u-id-${seed}`, 7, seed);
+      const inner = r.after.session as never as Internals;
+      if (!inner.live?.returners) continue;
+      done = true;
+      const arch = r.archive.read(r.user);
+      const seat = Object.keys(inner.live.returners)[0]!;
+      const npc = inner.house!.npcs.find((n) => n.id === seat)!;
+      const entry = arch.find((h) => h.name === npc.name)!;
+      for (const k of ["archetype", "strategyStyle", "identityConcept", "background", "vocation", "hometown", "demeanor", "voice", "biography", "age", "presentation", "castingType", "ethnicity", "genderPresentation"]) {
+        expect(JSON.stringify(npc.character[k]), k).toBe(JSON.stringify((entry.persona as unknown as Record<string, unknown>)[k]));
+      }
+      expect(JSON.stringify(npc.character.hiddenElements).includes(SENTINEL)).toBe(false);
+    }
+    expect(done).toBe(true);
   });
 });

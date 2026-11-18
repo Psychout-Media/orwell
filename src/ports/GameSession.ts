@@ -1142,6 +1142,12 @@ export interface CreateCharacterReq {
    */
   keepCharacter?: boolean;
   /**
+   * 0208 / ORW-663: how the player starts a later season, THEIR choice. "new" = a clean slate (no reputation, no returning houseguest); "return" = their
+   * reputation walks in and a houseguest from a season they played may be cast back. Absent = today's behaviour (a same-character `keepCharacter` restart returns,
+   * anything else is new). Only meaningful with `confirmRestart`; any other value is refused. Returns nothing hidden.
+   */
+  start?: "new" | "return";
+  /**
    * Cross-season name memory (NAME-1 / #547) — names used by PRIOR seasons in the SAME game, so a new
    * season's corpus-sampled cast AVOIDS them (replayability/sameness, mandate #4). Carries both full
    * names and given names. ENGINE-INTERNAL: set on a confirmed restart from the dead season's roster

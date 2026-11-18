@@ -9616,6 +9616,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   createCharacter(req: CreateCharacterReq): GameStateView {
+    if (req.start !== undefined && req.start !== "new" && req.start !== "return") throw new EngineRefusal(`invalid args for createCharacter: "start" must be 'new' or 'return' when present`);
     // 0056 — "keep the existing character": on a CONFIRMED restart with `keepCharacter`, capture the
     // prior player's AUTHORED fields HERE (the only point the prior season still exists, before any
     // reset) and fold them under the explicit req. The static CHARACTER is seed-independent, so re-
@@ -9642,7 +9643,8 @@ export class GameSessionAdapter implements GameSession {
       // 0104 (R4) — signal a SAME-CHARACTER return so the registry folds this user's notoriety into the
       // new cast's day-one reads. Derived from `keepCharacter` here because the line above strips it to
       // false (the fresh session has no prior house to carry from, so the flag would otherwise be lost).
-      ...(carried ? { carriesNotoriety: true } : {}),
+      // 0208: an explicit `start` is the player's own choice and wins ("return" brings reputation + a possible returner even with a new character; "new" is a clean slate even when keeping the character).
+      ...((req.start !== undefined ? req.start === "return" : !!carried) ? { carriesNotoriety: true } : {}),
     };
     // Non-degradation at its single most destructive point (B36/audit A2): an already-started game is
     // NEVER silently wiped. Without an explicit `confirmRestart`, a second createCharacter (a stray GM

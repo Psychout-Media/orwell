@@ -4,6 +4,9 @@ Card: ORW-662 (Ryne approved all three slices 2026-11-18). Executable spec: `020
 
 Ryne's rules (2026-11-18): the player chooses to start new or return; returning brings reputation. "Old players can return no matter what. One from your old season or not." Returning NPCs must be real NPCs from seasons this player actually played: "don't make a returning player as simply as part of a backstory".
 
+## Built: B1 (ORW-663)
+Returning houseguests are built: the per-user `UserSeasonArchive` (engine-only, append-only, separate subtree), `src/engine/returnees.ts` (the `resolveReturnee` validator, keyed `planReturner`, the softened carry), `createCharacter.start?: "new" | "return"` (the player's own choice; unknown values refused typed at the tool door; absent = today's `keepCharacter` behaviour), flag `ORWELL_SEASON_MEMORY` (default ON). A returner keeps who they are (identity, personality, backstory, voice, age, look: the archived public persona, never the hidden layer) and their feelings toward the player, softened by the seasons since; goals, agenda, plans and secrets in play are fresh for the new season, and no past event is invented. Scenarios: `0208-returning-houseguests.feature`. Not built: the FE choice UI and FE tool-schema entry for `start` (a follow-up); B2 and B3.
+
 ## What exists today
 - **0104 notoriety:** `UserNotorietyStore` (per user, survives `registry.resetUser`), `deriveNotoriety` at season end, `notorietyBias` on day-one reads with a per-NPC recognition. B2 builds on it.
 - **`priorSeasonNames`** (cast genesis) keeps new casts from reusing past first names. A returner is the one deliberate exception.
