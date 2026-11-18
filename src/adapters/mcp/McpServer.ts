@@ -106,6 +106,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         if (!isEntityId(ss["to"]) || !isEntityId(ss["about"])) refuse("statement", "{ to, about: houseguest ids, kind: a claim kind } when present");
         if (typeof ss["kind"] !== "string" || ss["kind"] === "") refuse("statement", "{ kind: a non-empty string } when present");
         if (ss["object"] !== undefined && !isEntityId(ss["object"])) refuse("statement", "a houseguest id for `object` when present");
+        if (ss["label"] !== undefined && (typeof ss["label"] !== "string" || ss["label"] === "" || ss["label"].length > 32)) refuse("statement", "a short role word for `label` when present"); // 0184 part 2a
       }
       if (args["heardAboutMe"] !== undefined) {
         const h = args["heardAboutMe"];

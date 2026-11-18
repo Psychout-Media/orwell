@@ -48,7 +48,8 @@ def _prompt_id(entry) -> Optional[str]:
 
 class _Warm:
     __slots__ = ("seed", "prompts", "author_done", "author_started", "portraits_started",
-                 "npc_authored")
+                 "npc_authored", "attempts", "retry_task", "kick", "interview_over", "ok",
+                 "identity_applied", "deps")
 
     def __init__(self) -> None:
         self.seed = None
@@ -59,6 +60,15 @@ class _Warm:
         # Per-NPC completion gates (#7): an Event per houseguest id, set the moment THAT NPC's
         # authoring write-back lands, so its portrait shoots as soon as it is authored — never before.
         self.npc_authored: dict[str, asyncio.Event] = {}
+        # Self-healing (stage 0): a warm that ended failed is retried with backoff until it succeeds or
+        # the interview ends. `kick` skips the current wait (a later prewarm call / a finalize refusal).
+        self.attempts = 0
+        self.retry_task = None
+        self.kick: Optional[asyncio.Event] = None
+        self.interview_over = False
+        self.ok = False
+        self.identity_applied = False
+        self.deps: dict = {}
 
     def npc_event(self, hid: str) -> asyncio.Event:
         ev = self.npc_authored.get(hid)
@@ -113,10 +123,14 @@ def reset(user: Optional[str] = None) -> None:
     rotates. A GLOBAL reset (``user=None``) does cancel the polls too, since nothing should survive a
     process-wide wipe."""
     if user is None:
+        for _st in list(_STATE.values()):
+            _cancel_retry(_st)
         _STATE.clear()
         cancel_next_season(None)
     else:
-        _STATE.pop(_key(user), None)
+        _old = _STATE.pop(_key(user), None)
+        if _old is not None:
+            _cancel_retry(_old)
 
 
 def reset_user_season(user: Optional[str]) -> None:
@@ -157,7 +171,7 @@ def reset_user_season(user: Optional[str]) -> None:
 
 
 async def prewarm_cast(user: Optional[str] = None, *, engine=None, authoring=None, identity=None,
-                       genesis=None) -> dict:
+                       genesis=None, server_portraits: bool = True) -> dict:
     """AUTHOR WARM (earliest): pre-seed the cast in the engine, model-author its SKELETON (0116 genesis),
     AI-seed its descriptive identity (#544), then deeply author it in the background.
 
@@ -199,27 +213,197 @@ async def prewarm_cast(user: Optional[str] = None, *, engine=None, authoring=Non
     seed = res.get("seed")
     st = _state(user)
     if st.author_started and st.seed == seed:
-        return {"warmed": True, "alreadyWarmed": True, "count": len(st.prompts)}
+        if st.ok or st.interview_over or not _warm_failed(user, st):
+            return {"warmed": True, "alreadyWarmed": True, "count": len(st.prompts)}
+        # A warm that FAILED (a provider 402, a timeout) is not a permanent no-op: this call restarts
+        # it now instead of waiting out the backoff.
+        _ensure_retry(user, st, immediate=True)
+        return {"warmed": True, "restarted": True, "count": len(st.prompts)}
     if st.author_started and st.seed != seed:
+        _cancel_retry(st)
         reset(user)  # a fresh cast (new season): drop the stale gate + prompts and re-warm
         st = _state(user)
     st.seed = seed
     st.prompts = res.get("portraitPrompts") or []
     cast = res.get("house") or []
     st.author_started = True
+    st.deps = {"engine": engine, "authoring": authoring, "identity": identity, "genesis": genesis,
+               "server_portraits": server_portraits}
+    await _run_stages(user, st, seed, cast)
+    return {"warmed": True, "count": len(st.prompts)}
 
-    # 0116 — model-authored cast GENESIS runs FIRST (skeleton BEFORE identity + depth). The producer-LLM
-    # proposes the ENTIRE cast skeleton (names, freeform identities, personas, hidden elements, BANDED
-    # stats, the pre-show tie graph), steered ONLY by a seeded season brief (PLAYER-BLIND), and the engine
-    # validates/clamps/commits it onto the warmed floor (recordCastGenesis). A PRE-GAME operation (refused
-    # once the season runs), so it rides THIS pre-warm during the casting interview — game start never
-    # blocks on it. Best-effort + fail-soft: no model ⇒ the deterministic floor stands byte-identically
-    # (under strict policy the failure is loud + latches the do_create_character pre-finalize gate). When
-    # it committed a skeleton, RE-FETCH the warmed roster so identity + authoring read the genesis-committed
-    # ground truth (pipeline order: SKELETON → identity → author → shoot).
+
+# Backoff between self-healing attempts of a failed cast warm (seconds). The last value repeats until the
+# warm succeeds or the interview ends; one loud admin alert is raised when the schedule is first exhausted.
+_RETRY_BACKOFF_S = (10.0, 30.0, 90.0, 300.0)
+
+
+def _warm_failed(user: Optional[str], st: "_Warm") -> bool:
+    """Whether the cast warm for this user has ENDED in failure: the whole-cast authoring finished (success or not)
+    and the strict failure latches (genesis, deeper backstories) say a required step did not land. Soft policy never
+    latches, so a soft-policy warm is never retried (the floor is the legacy, accepted outcome there)."""
+    if not st.author_done.is_set():
+        return False  # still running
+    for key in ("authoring", "genesis"):
+        mod = st.deps.get(key)
+        fn = getattr(mod, "strict_failed", None)
+        if fn is None:
+            continue
+        try:
+            if fn(user):
+                return True
+        except Exception:  # failsoft-ok: observability (a latch read must never break the warm)
+            continue
+    return False
+
+
+def _cancel_retry(st: "_Warm") -> None:
+    task = st.retry_task
+    st.retry_task = None
+    if task is not None and not task.done():
+        try:
+            task.cancel()
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+
+def interview_ended(user: Optional[str] = None) -> None:
+    """The casting interview is over (the engine committed the player): stop the backoff retries. From here the
+    house-entry gate and the portrait queue own the rest."""
+    st = _STATE.get(_key(user))
+    if st is None:
+        return
+    st.interview_over = True
+    _cancel_retry(st)
+
+
+def _ensure_retry(user: Optional[str], st: "_Warm", *, immediate: bool = False) -> bool:
+    """Make sure ONE retry loop is running for this warm; `immediate` skips the current backoff wait. Returns whether a
+    loop is (now) running."""
+    if st.interview_over or st.ok or not st.deps:
+        return False
+    task = st.retry_task
+    if task is not None and not task.done():
+        if immediate and st.kick is not None:
+            st.kick.set()
+        return True
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    st.kick = asyncio.Event()
+    if immediate:
+        st.kick.set()
+    st.retry_task = loop.create_task(_retry_loop(user, st))
+    return True
+
+
+async def _sleep_or_kick(st: "_Warm", delay: float) -> None:
+    try:
+        await asyncio.wait_for(st.kick.wait(), timeout=delay)
+    except asyncio.TimeoutError:
+        pass
+    st.kick.clear()
+
+
+async def _retry_loop(user: Optional[str], st: "_Warm") -> None:
+    """Re-run a failed warm with backoff until it succeeds, the interview ends, or the warm is replaced (a new
+    season). Never raises; never blocks other work (it is its own task)."""
+    n = 0
+    alerted = False
+    try:
+        while True:
+            delay = 0.0 if (st.kick is not None and st.kick.is_set()) else _RETRY_BACKOFF_S[min(n, len(_RETRY_BACKOFF_S) - 1)]
+            await _sleep_or_kick(st, delay)
+            if _STATE.get(_key(user)) is not st or st.interview_over or st.ok:
+                return
+            n += 1
+            st.attempts += 1
+            try:
+                eng = st.deps["engine"]
+                res = await eng.pre_seed_cast(user=user)
+                if not isinstance(res, dict) or not res.get("warmed") or res.get("seed") != st.seed:
+                    return  # a different season took over (or the engine refused): nothing of ours to heal
+                cast = res.get("house") or []
+                st.prompts = res.get("portraitPrompts") or st.prompts
+                logger.info("[prewarm] cast warm retry %d for %s", st.attempts, _key(user))
+                await _run_stages(user, st, st.seed, cast, retry=True)
+                await st.author_done.wait()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # a retry attempt must never kill the loop
+                logger.info("[prewarm] cast warm retry failed: %s", e)
+                st.author_done.set()
+            if not _warm_failed(user, st):
+                st.ok = True
+                return
+            if n >= len(_RETRY_BACKOFF_S) and not alerted:
+                alerted = True
+                try:
+                    from src import enrichment_policy
+                    enrichment_policy.record_failure(
+                        user, "cast-prewarm", "the cast warm is still failing after repeated retries",
+                        detail=f"{st.attempts} retries so far; it keeps retrying until the interview ends")
+                except Exception:  # failsoft-ok: observability
+                    pass
+    finally:
+        if st.retry_task is asyncio.current_task():
+            st.retry_task = None
+
+
+async def restart_warm(user: Optional[str] = None) -> dict:
+    """Start (or hurry) the cast warm NOW: a finalize refusal calls this so nothing is left idle. Safe to call at any
+    time; returns ``{restarted, reason?}``."""
+    st = _STATE.get(_key(user))
+    if st is None or not st.author_started or not st.deps:
+        try:
+            res = await prewarm_cast(user)
+            return {"restarted": bool(res.get("warmed")), "fresh": True}
+        except Exception as e:  # failsoft-ok: best-effort
+            logger.info("[prewarm] restart_warm failed: %s", e)
+            return {"restarted": False, "reason": "prewarm-failed"}
+    if st.interview_over:
+        st.interview_over = False  # the caller is still casting: the retries own the warm again
+    st.ok = False
+    if not st.author_done.is_set():
+        return {"restarted": False, "reason": "still-running"}
+    return {"restarted": _ensure_retry(user, st, immediate=True)}
+
+
+def _start_portraits(user: Optional[str], st: "_Warm") -> None:
+    """Server-owned portrait start: the portrait warm no longer hangs on one browser call. Idempotent and safe next to
+    the browser's own call (the shots dedupe on the in-flight claim and the on-disk check)."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    st.portraits_started = False  # a retried warm re-opens the gate for the faces its retry authored
+    task = loop.create_task(warm_portraits(user))
+
+    def _done(t):
+        try:
+            t.result()
+        except Exception as e:  # pragma: no cover - defensive
+            logger.info("[prewarm] server portrait start failed: %s", e)
+
+    task.add_done_callback(_done)
+
+
+async def _run_stages(user: Optional[str], st: "_Warm", seed, cast: list, *, retry: bool = False) -> None:
+    engine = st.deps["engine"]
+    authoring = st.deps["authoring"]
+    identity = st.deps.get("identity")
+    genesis = st.deps.get("genesis")
+    st.author_done.clear()
+
+    # 0116 - model-authored cast GENESIS runs FIRST (skeleton BEFORE identity + depth): player-blind, a PRE-GAME
+    # operation (recordCastGenesis is refused once the season runs), so it rides this pre-warm during the casting
+    # interview. Best-effort + fail-soft: a failure latches the strict gate (the retry loop re-runs it). When it
+    # committed a skeleton, RE-FETCH the warmed roster so identity + authoring read the committed ground truth.
     try:
         if genesis is None:
             from src import orwell_cast_genesis as genesis
+            st.deps["genesis"] = genesis
         gres = await genesis.run_genesis(cast, seed, user)
         if isinstance(gres, dict) and gres.get("committed"):
             again = await engine.pre_seed_cast(user=user)
@@ -229,58 +413,64 @@ async def prewarm_cast(user: Optional[str] = None, *, engine=None, authoring=Non
     except Exception as e:  # genesis must never block onboarding
         logger.info("[prewarm] cast-genesis skipped: %s", e)
 
-    # ORW-509 - the season's HOUSE is authored at this same setup moment: one bounded call (plus one retry on an engine refusal) from the season brief and random anchors,
-    # read by the engine's acceptance rules; a refusal leaves the plain room labels. Fail-soft, never blocks onboarding.
+    # ORW-509 - the season's HOUSE is authored at this same setup moment (one bounded call from the season brief);
+    # a refusal leaves the plain room labels. Fail-soft, never blocks onboarding.
     try:
         from src import orwell_house_authoring
         await orwell_house_authoring.run_house(seed, user)
     except Exception as e:
         logger.info("[prewarm] house authoring skipped: %s", e)
 
-    # #544 — the AI-driven IDENTITY seed runs FIRST (before deep authoring), so the engine has validated /
-    # repaired / folded the cast's descriptive identity (re-grounding skin tone from the final heritage)
-    # BEFORE the authoring prompt reads each houseguest's heritage. Best-effort + fail-soft: a missing model
-    # is a silent no-op and the engine's deterministic weighted floor stands. When it applied facets, RE-FETCH
-    # the warmed roster (pre_seed_cast is idempotent) so authoring + portraits read the AI-grounded cast.
-    try:
-        if identity is None:
-            from src import orwell_cast_identity as identity
-        import inspect
-        _takes_seed = "seed" in inspect.signature(identity.run_identity).parameters  # an injected dependency may not take the season seed
-        applied = await (identity.run_identity(cast, user, seed=seed) if _takes_seed else identity.run_identity(cast, user))
-        if applied:
-            again = await engine.pre_seed_cast(user=user)
-            if isinstance(again, dict) and again.get("house"):
-                cast = again.get("house") or cast
-                st.prompts = again.get("portraitPrompts") or st.prompts
-    except Exception as e:  # identity seeding must never block onboarding
-        logger.info("[prewarm] cast-identity seed skipped: %s", e)
+    # #544 - the AI-driven IDENTITY seed runs BEFORE deep authoring, so authoring reads the engine-validated
+    # heritage. Best-effort + fail-soft; once applied it is not repeated by a retry.
+    if not st.identity_applied:
+        try:
+            if identity is None:
+                from src import orwell_cast_identity as identity
+                st.deps["identity"] = identity
+            import inspect
+            _takes_seed = "seed" in inspect.signature(identity.run_identity).parameters  # an injected dependency may not take the season seed
+            applied = await (identity.run_identity(cast, user, seed=seed) if _takes_seed else identity.run_identity(cast, user))
+            if applied:
+                st.identity_applied = True
+                again = await engine.pre_seed_cast(user=user)
+                if isinstance(again, dict) and again.get("house"):
+                    cast = again.get("house") or cast
+                    st.prompts = again.get("portraitPrompts") or st.prompts
+        except Exception as e:  # identity seeding must never block onboarding
+            logger.info("[prewarm] cast-identity seed skipped: %s", e)
 
-    # Pre-create a per-NPC gate for every houseguest that has a portrait prompt (#7), so portrait warm
-    # can wait on the SAME Event objects the authoring callback sets — even if authoring is slow to start.
+    # Pre-create a per-NPC gate for every houseguest that has a portrait prompt (#7), so portrait warm can wait on
+    # the SAME Event objects the authoring callback sets - even if authoring is slow to start.
     for entry in st.prompts:
         hid = _prompt_id(entry)
         if hid:
             st.npc_event(hid)
 
     def _on_authored(hid: str) -> None:
-        # THIS NPC's write-back landed → open its gate so its portrait shoots now (never before).
+        # THIS NPC's write-back landed -> open its gate so its portrait shoots now (never before).
         st.npc_event(str(hid)).set()
 
     def _on_done() -> None:
-        # Whole-cast authoring finished (success OR failure): release the fallback gate ONLY.
-        # ADR 0013 — do NOT force-open a per-NPC gate that never fired: an NPC the model couldn't
-        # author must get NO photo (a seeded/un-authored face would mismatch the real, authored text).
-        # The portrait backfill shoots it if/when its authoring actually lands.
+        # Whole-cast authoring finished (success OR failure): release the fallback gate. ADR 0013 - never force-open
+        # a per-NPC gate that never fired: an NPC the model could not author gets NO photo until its authoring lands.
         st.author_done.set()
+        if _STATE.get(_key(user)) is not st:
+            return
+        if _warm_failed(user, st):
+            _ensure_retry(user, st)  # self-healing: retry with backoff until it lands or the interview ends
+        else:
+            st.ok = True
+        if st.deps.get("server_portraits", True):
+            _start_portraits(user, st)  # the server owns the portrait start (the browser call is a harmless duplicate)
 
-    # Author the cast in the background; ALWAYS release the gates when done (the seeded floor is still a
-    # complete cast), so the gated portrait warm proceeds even if a houseguest couldn't be authored.
-    # T0-6: thread the season `seed` so the FacetLedger mints — this is the EARLIEST kickoff (fired at
-    # casting-interview open), so it is also where the ledger's dealt hands first reach a prompt.
-    authoring.kickoff_authoring(cast, user, then=_on_done, on_authored=_on_authored, seed=seed)
-    return {"warmed": True, "count": len(st.prompts)}
-
+    # A retry re-authors only the houseguests still on the floor (a partial run is never redone from zero).
+    todo = cast
+    if retry:
+        pending = [c for c in cast if isinstance(c, dict) and c.get("authored") is not True]
+        todo = pending or cast
+    # T0-6: thread the season `seed` so the FacetLedger mints.
+    authoring.kickoff_authoring(todo, user, then=_on_done, on_authored=_on_authored, seed=seed)
 
 async def warm_next_season(user: Optional[str] = None, *, engine=None, authoring=None) -> dict:
     """The REAL mid-season next-season warm (the engine now supports it directly).

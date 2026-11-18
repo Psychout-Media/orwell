@@ -574,3 +574,15 @@ export function actionLine(p: PlannedAction): string {
   const about = p.about && !p.with.includes(p.about) ? (p.kind === "lobby-for" ? ` for ${p.about}` : ` about ${p.about}`) : "";
   return `${p.actor} ${VERB[p.kind]}${who}${about}`;
 }
+
+/**
+ * ORW-621 (0198): what the player SEES of a step taken in their own room - the act and the manner, never why. A goal step (a pitch, a plant, a flip, a plea) shows as
+ * the plain act of having a word with someone; a house-life or romance act, and a clash, show as themselves. The subject of a rumor, the goal and the truth of what was
+ * said never appear. The words are the existing action vocabulary (`VERB`); `name` turns an id into the name the player knows.
+ */
+export function roomActLine(p: Pick<PlannedAction, "actor" | "kind" | "with" | "manner">, name: (id: EntityId) => string): string {
+  const spec = ACTIONS[p.kind];
+  const shown: ActionKind = spec.fold === "conflict" || spec.family === "house-life" || spec.family === "romance" ? p.kind : "check-in";
+  const who = p.with.length ? ` ${p.with.map(name).join(", ")}` : "";
+  return `${name(p.actor)} ${VERB[shown]}${who} (${p.manner})`;
+}
