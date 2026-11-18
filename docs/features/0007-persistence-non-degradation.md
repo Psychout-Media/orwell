@@ -78,3 +78,6 @@ Save = { coreVersion, vaultStore, journalStore }
 The `beliefs` allowance in `sessionCoreSupersetViolation` (`beliefStoreSuperset`) accepts a lost belief only under the per-holder cap's compaction
 (refuted first, else oldest). One commit can refute a belief and then compact it away; the check now accepts a lost live belief when no surviving
 already-refuted belief is older than it. A live belief lost ahead of an older refuted survivor, or below the cap, is still refused.
+## 9. Amendment 2026-11-18 (ORW-682, part 2): a read never writes
+
+`RelationshipModel.bondStrength` is a pure read (it delegates to `peekBondStrength`); it used to create a baseline edge on first read, and that edge then decayed and serialized, so a read changed later play. Seed-pinned heavy sims may shift accordingly.
