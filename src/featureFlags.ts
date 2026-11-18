@@ -98,6 +98,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_DEAL_WITNESSES', key: 'dealsWitnesses', parser: 'defaultOn' },
   // A8: the NPC desire clock (an NPC whose want crossed its threshold cuts in). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_DESIRE_CLOCK', key: 'desireClock', parser: 'defaultOn' },
+  // ORW-668 / 0210 C2: production visibly calls a houseguest to the Diary Room and the house sees them go and come back (who, how long, how they looked; never what was said); the player is invited, never sent. A played game only; changes no outcome. `=0` opts out.
+  { envKey: 'ORWELL_DIARY_CALLS', key: 'diaryCalls', parser: 'defaultOn' },
   { envKey: 'ORWELL_DISCLOSURE_ENGINE', key: 'disclosureEngine', parser: 'defaultOn' },
   // 0196 / ORW-630: a pressed houseguest the engine has decided will not answer also gets HOW they dodge (what they do with the question, how their carriage reads, whether they hand it back), decided on a keyed side stream from their character, bond and the stakes, saved, and handed to the narrator as a third-person fact. A played game only. `=0` turns it off.
   { envKey: 'ORWELL_DODGING', key: 'dodging', parser: 'defaultOn' },

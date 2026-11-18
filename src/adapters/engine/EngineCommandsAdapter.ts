@@ -60,6 +60,9 @@ export class EngineCommandsAdapter implements EngineCommands {
   /** ORW-212: told the NPC partners of each recorded player scene (who the player is actually talking to). */
   private sceneSink?: (partners: EntityId[]) => void;
   setSceneSink(fn: (partners: EntityId[]) => void): void { this.sceneSink = fn; }
+  /** ORW-668 (0210 C2): told that the player went to the Diary Room. Carries NOTHING from the entry (no text, no subject): the wall holds by the signature. */
+  private diaryVisitSink?: () => void;
+  setDiaryVisitSink(fn: () => void): void { this.diaryVisitSink = fn; }
   /**
    * ADR 0006 — who is still AWAKE right now (`null` ⇒ the clock is off ⇒ everyone is up). A houseguest who
    * has turned in for the night has left the floor, so they neither witness nor overhear a player scene —
@@ -739,6 +742,7 @@ export class EngineCommandsAdapter implements EngineCommands {
     // witness set is the player alone, and deriveNpcKnowledge filters the diary-room pathway —
     // so the house can never learn it. The player's strategy may inform the engine, never NPCs.
     this.knowledge.recordDiaryRoom(req.entry, req.subjectId);
+    this.diaryVisitSink?.(); // ORW-668: the house sees the player go; never what was said
     this.onPersist?.(); // durable save (0030): the player's DR is their persisted knowledge
     return { recorded: true };
   }

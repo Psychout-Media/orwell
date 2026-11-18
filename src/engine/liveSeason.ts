@@ -991,6 +991,8 @@ export interface LiveSeasonState {
   goalApproaches?: Record<string, { desire: string; goalId: string; hour: number }>;
   /** ORW-581 (Fable T1-14, played games only): the absolute in-game hour of the last house-life stretch and how many stretches came before it in that same hour (0 = it was the first). Keys a repeated hour's rolls fresh. */
   lifeHour?: { at: number; n: number };
+  /** ORW-668 (0210 C2, played games only): the Diary Room calls - who is in there now, the append-only record of finished calls (`diaryCallSeen`, no content field), calls per day, the player's last recorded visit. Engine-only. Absent in headless sims => byte-identical. */
+  diaryCalls?: import("./diaryCalls").DiaryCallsState;
   interruption?: { npc: string; desire: string; atHour: number; /** ORW-261: a VOLUNTEERED (nobody asked) private-orientation disclosure the houseguest chose to make as they step in (the engine-authored sentence; also recorded as a told-by fact). */ tells?: string };
   /** ORW-443: the #2736 cap withheld an approach THIS turn (per-turn; cleared at the next conversation tick). Vault-free flag, narration-only. */
   approachHeld?: true;
