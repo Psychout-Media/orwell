@@ -257,6 +257,18 @@ def _reset_portrait_billing_breaker() -> None:
     except Exception:  # failsoft-ok: test-hygiene (module may be unimportable in a narrow test)
         pass
     yield
+    # Casting in the background: the per-photo retry timers, the opening-scene order, the image gates and the cast-warm retry tasks are
+    # process state too; a test that fakes a failed shot must not leave a timer that fires inside the next test.
+    try:
+        from src import orwell_portraits, orwell_prewarm
+        for _u in list(orwell_portraits._FACE_RETRY):
+            orwell_portraits.cancel_face_retries(_u)
+        orwell_portraits._OPENING_IDS.clear()
+        orwell_portraits._IMAGE_GATES.clear()
+        for _st in list(orwell_prewarm._STATE.values()):
+            orwell_prewarm._cancel_retry(_st)
+    except Exception:  # failsoft-ok: test-hygiene
+        pass
 
 
 @pytest.fixture(autouse=True)

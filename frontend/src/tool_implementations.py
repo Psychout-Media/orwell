@@ -4707,6 +4707,31 @@ def _cast_coherence_detail(repaired: int, floored: int, corrected: list, limit: 
     return json.dumps({"repaired": repaired, "floored": floored, "omitted": len(corrected) - len(kept), "houseguests": kept}, separators=(",", ":"))
 
 
+async def _set_opening_scene_faces(owner) -> None:
+    """Order the image queue so the houseguests in the opening scene (everyone already inside when the player walks in,
+    plus whoever is walking in) are shot first. Reads only the existing public premiere view (names), maps them to
+    ids through the roster; any trouble leaves the queue in arrival order. Never raises."""
+    try:
+        from src import orwell_engine, orwell_portraits
+        view = await orwell_engine.premiere_intros(user=owner)
+        ent = view.get("entrance") if isinstance(view, dict) else None
+        if not isinstance(ent, dict):
+            return
+        names = {str(n).strip().casefold() for n in (ent.get("arrivedNames") or []) if n}
+        just = ent.get("justArrived")
+        if isinstance(just, dict) and just.get("name"):
+            names.add(str(just["name"]).strip().casefold())
+        if not names:
+            return
+        state = await orwell_engine.get_game_state(user=owner)
+        ids = [str(c["id"]) for c in (state.get("house") or []) if isinstance(c, dict) and c.get("id")
+               and str(c.get("name") or "").strip().casefold() in names]
+        if ids:
+            orwell_portraits.set_opening_ids(owner, ids)
+    except Exception as e:  # failsoft-ok: best-effort (the queue stays in arrival order)
+        logger.info("[cast] opening-scene faces not ordered: %s", e)
+
+
 async def _refusal_with_warm(owner, base_message: str) -> str:
     """A strict casting-finalize refusal must never leave the cast idle: start the cast warm now (it retries with
     backoff until it lands) and tell the producer the truth, so it keeps talking instead of announcing a cast that
@@ -5040,6 +5065,7 @@ async def do_create_character(
                 # Idempotent (generate_and_store skips faces already on disk), budget-bounded (routes
                 # through the standard pipeline), fail-soft (no image provider ⇒ silent no-op),
                 # Vault-free (the same public-facet prompts).
+                await _set_opening_scene_faces(owner)  # the faces in the opening scene are shot first
                 portraits_started = False
                 try:
                     from src import orwell_prewarm

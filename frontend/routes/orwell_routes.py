@@ -1369,6 +1369,18 @@ def setup_orwell_routes() -> APIRouter:
             logger.info(f"[orwell] prewarm-cast failed: {e}")
             return {"warmed": False, "count": 0}
 
+    @router.get("/cast-progress")
+    async def orwell_cast_progress(request: Request):
+        """Counts-only progress of the cast behind the casting interview (what is ready, what is being made), for the
+        interview's honest progress cue. Player-channel, Vault-free; fail-open."""
+        user = _current_user(request)
+        try:
+            from src import orwell_prewarm
+            return orwell_prewarm.cast_progress(user)
+        except Exception as e:
+            logger.info(f"[orwell] cast-progress failed: {e}")
+            return {"phase": "none"}
+
     @router.post("/warm-portraits")
     async def orwell_warm_portraits(request: Request):
         """PORTRAIT WARM (held until the first interview turn): generate the cast portraits in the

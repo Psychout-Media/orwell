@@ -685,3 +685,39 @@ def warm_state(user: Optional[str] = None) -> dict:
         "promptCount": len(st.prompts),
         "nextSeasonArmed": armed,
     }
+
+
+def cast_progress(user: Optional[str] = None, *, portraits=None) -> dict:
+    """The honest, counts-only progress of the cast behind the casting interview, for the front-end cue: what is
+    ready and what is being made. No cast content crosses. ``phase``: ``none`` (no warm), ``authoring``,
+    ``retrying`` (a step failed and is being tried again), ``faces`` (profiles done, screen-test photos in
+    progress), ``ready`` (everything is in hand)."""
+    st = _STATE.get(_key(user))
+    if st is None or not st.author_started:
+        return {"phase": "none"}
+    if portraits is None:
+        from src import orwell_portraits as portraits
+    ids = [h for h in (_prompt_id(e) for e in st.prompts) if h]
+    total = len(ids)
+    authored = sum(1 for h in ids if st.npc_authored.get(h) is not None and st.npc_authored[h].is_set())
+    faces = 0
+    for h in ids:
+        try:
+            if portraits.portrait_file(user, h) is not None:
+                faces += 1
+        except Exception:  # failsoft-ok: observability (a read hiccup counts as not ready)
+            pass
+    if not st.author_done.is_set():
+        phase = "authoring"
+    elif _warm_failed(user, st):
+        phase = "retrying"
+    elif total and faces >= total:
+        phase = "ready"
+    else:
+        phase = "faces"
+    out = {"phase": phase, "authored": authored, "faces": faces, "total": total, "attempts": st.attempts}
+    try:
+        out["facesRetrying"] = len(portraits.face_retry_pending(user))
+    except Exception:  # failsoft-ok: observability
+        pass
+    return out
