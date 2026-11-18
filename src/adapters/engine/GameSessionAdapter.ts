@@ -2473,9 +2473,28 @@ export class GameSessionAdapter implements GameSession {
       if (h.nature === "targeting") {
         recordClaim(store, { id: `${listener}|targets-me|${subject}|told:${h.teller}|${live.week}`, holder: listener, kind: "targets-me", subject, object: listener, value: true, origin: "told", source: h.teller, confidence, week: live.week });
       } else {
-        recordClaim(store, { id: `${listener}|heard-rumor|${subject}|told:${h.teller}|${live.week}`, holder: listener, kind: "heard-rumor", subject, value: true, origin: "told", nature: "betrayal", source: h.teller, confidence, week: live.week });
+        // ORW-686 (victim recorded from the real event): a played game's betrayal tell names who was betrayed ONLY when the subject really did betray someone (a recorded broken deal or assurance).
+        // `object` is the existing "the one betrayed" slot the victim-aware fold reads; an invented or misheard tell with no such event stays victim-less (never guessed). Absent in a headless sim.
+        const victim = live.playedGame === true ? this.recordedBetrayalVictim(subject) : undefined;
+        recordClaim(store, { id: `${listener}|heard-rumor|${subject}|told:${h.teller}|${live.week}`, holder: listener, kind: "heard-rumor", subject, ...(victim !== undefined ? { object: victim } : {}), value: true, origin: "told", nature: "betrayal", source: h.teller, confidence, week: live.week });
       }
     }
+  }
+  /**
+   * ORW-686: who `betrayer` REALLY betrayed, read from the recorded events: the most recent deal they broke (never a sealed-ballot break, never one the wronged side has not learned of) or assurance they
+   * broke, and the other party to it. Undefined when no such event exists (so a rumor with no real betrayal behind it stays victim-less). Pure read; no rng; engine-only.
+   */
+  private recordedBetrayalVictim(betrayer: EntityId): EntityId | undefined {
+    const found: Array<{ week: number; victim: EntityId }> = [];
+    for (const d of this.deals.all) {
+      if (d.status !== "broken" || d.brokenBy !== betrayer || d.sealedBallot === true || d.secretVote === true || d.learned === false) continue;
+      const other = d.parties.find((p) => p !== betrayer);
+      if (other !== undefined) found.push({ week: d.madeWeek ?? 0, victim: other });
+    }
+    if (this.live?.assurances) for (const a of AssuranceLedger.fromJSON(this.live.assurances).all) if (a.status === "broken" && a.from === betrayer && a.to !== betrayer) found.push({ week: a.week, victim: a.to });
+    let best: { week: number; victim: EntityId } | undefined;
+    for (const f of found) if (best === undefined || f.week >= best.week) best = f; // the latest; a tie goes to the later record
+    return best !== undefined && this.livingIds().includes(best.victim) ? best.victim : undefined;
   }
   private rememberAsWitnesses(witnesses: readonly EntityId[], about: EntityId, kind: "deal-kept" | "deal-broken", severity: number, assured: EntityId): void {
     if (!this.memoryPromisesEnabled) return;
