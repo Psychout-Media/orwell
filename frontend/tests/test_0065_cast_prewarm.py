@@ -161,7 +161,7 @@ def test_warm_portraits_declines_when_no_author_warm_ran():
 
 def test_warm_portraits_shoots_after_author_warm_finished():
     eng, auth, port = _FakeEngine(_WARM_RES), _FakeAuthoring(auto_finish=True), _FakePortraits()
-    _run(P.prewarm_cast("u1", engine=eng, authoring=auth))  # author warm already done (auto_finish)
+    _run(P.prewarm_cast("u1", engine=eng, authoring=auth, server_portraits=False))  # author warm already done (auto_finish); the browser path is under test
     res = _run(P.warm_portraits("u1", portraits=port))
     assert res["started"] is True
     _drive()  # let the gated background task run
@@ -253,7 +253,7 @@ def test_portraits_unauthored_npc_gets_NO_face_even_at_authoring_end():
 
 def test_warm_portraits_is_idempotent():
     eng, auth, port = _FakeEngine(_WARM_RES), _FakeAuthoring(), _FakePortraits()
-    _run(P.prewarm_cast("u1", engine=eng, authoring=auth))
+    _run(P.prewarm_cast("u1", engine=eng, authoring=auth, server_portraits=False))
     _run(P.warm_portraits("u1", portraits=port))
     again = _run(P.warm_portraits("u1", portraits=port))
     assert again.get("alreadyStarted") is True

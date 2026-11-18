@@ -1247,7 +1247,7 @@ export interface RecordOpenLedgerReq {
    * extraction proposes it). The engine re-validates it, gives it its truth from its own records, and every listener holds it as a belief.
    * Absent (or not understood) => the entry is kept exactly as before and no claim is made.
    */
-  claim?: { kind: string; subject: string; object?: string };
+  claim?: { kind: string; subject: string; object?: string; /** 0184 part 2a: a `has-reputation` claim's label */ label?: string };
 }
 
 /** ORW-407 slice 2: mark one open entry kept, broken or withdrawn, with a free-text note. */
@@ -2364,7 +2364,7 @@ export interface PresentKnowledgeView {
    * 0151: a confidence the engine decided this houseguest passes to the player THIS turn: ONLY the speaker's words (the claim kind, who it is about, the second party) and how sure they sound. Never whether
    * it is true, never why they are telling, never a claim id. Names, not ids.
    */
-  tellsYou?: { kind: "targets-you" | "voted-to-evict-you" | "final-two-with" | "going-after" | "talking-about" | "lying-about" | "voted-against" | "voted-to-keep"; subject: string; object?: string; certainty: "sure" | "fairly-sure" | "not-sure" };
+  tellsYou?: { kind: "targets-you" | "voted-to-evict-you" | "final-two-with" | "going-after" | "talking-about" | "lying-about" | "voted-against" | "voted-to-keep" | "has-reputation"; subject: string; object?: string; /** 0184 part 2a: a `has-reputation`'s role or name (an engine word the narrator voices as gossip, never shown as a label) */ label?: string; certainty: "sure" | "fairly-sure" | "not-sure" };
 }
 
 /**
