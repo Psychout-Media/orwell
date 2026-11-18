@@ -22,7 +22,9 @@ _spec.loader.exec_module(dc)
 CSS = open(dc.CSS_PATH, encoding="utf-8").read()
 
 # before: 1,056,894 bytes. After the ORW-159 prune: see SIZE_CEILING (small headroom for organic growth).
-SIZE_CEILING = 982_000
+# 2026-11-18 (ORW-683): ratcheted DOWN from 982_000 after shortening unpinned long comment essays
+# (style.css was 18 bytes under the old ceiling); the file is 895_539 bytes, so about 2_400 bytes of headroom.
+SIZE_CEILING = 898_000
 DEAD_ALLOWANCE = 5
 
 # A representative sample of removed families (class names with no emitter anywhere in the game sources).
