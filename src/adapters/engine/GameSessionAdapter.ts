@@ -325,7 +325,7 @@ import { rolesFromGraph, type NetworkRoles } from "../../engine/networkSpread";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { CREDIBILITY } from "../../engine/credibilityConstants";
 import { standing, composeWithCredibility, dealWillingnessShift, type HeardWrong } from "../../engine/reputation";
-import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, recordedSceneRoles, sceneRoles, type SceneFold } from "../../engine/bondRecord";
+import { SCENE_FOLDS, bondKey, bondOf, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, recordedSceneRoles, sceneRoles, sceneScale, type SceneFold } from "../../engine/bondRecord";
 import { TRIADS, SWING } from "../../engine/triadsConstants";
 import { commonFriendNudges, kingmakerOf, priceTier, sharedEnemyNudges, strainedTriads, swingRead, triadPairKey, type TriadView } from "../../engine/triads";
 import { deriveDailyHouseGraph, type DailyHouseGraph, type HouseGraph } from "../../engine/houseGraph";
@@ -6507,19 +6507,26 @@ export class GameSessionAdapter implements GameSession {
     const live = this.live;
     if (!this.bondRecordEnabled || !live || !this.house) return;
     const store = (live.bonds ??= {});
+    // ORW-605 (played games only): one scene weighs differently for each holder: their own warmth-proneness, the pair's history, the house's bonding lean, a keyed seeded jitter per holder and other, a steady quirk not a per-scene roll (no shared rng).
+    const jitterSeed = hashSeed(`bond-scene:${this.gameSeed ?? ""}`);
+    const scaled = (_eventId: string): ((holder: EntityId, other: EntityId, kind: SceneFold) => number) | undefined => live.playedGame === true && this.bondRatesEnabled
+      ? (holder, other, kind) => sceneScale(kind === "conflict" ? "souring" : "warming", {
+        lean: this.warmLeanOf(holder, other), pair: { history: bondOf(store, holder, other).history }, dial: this.cultureMult("bonding"), jitter: agendaRoll(jitterSeed, holder, `bond-scene:${other}`),
+      })
+      : undefined;
     const events = this.record?.events() ?? [];
     for (let i = live.bondsCursor ?? 0; i < events.length; i++) {
       const e = events[i]!;
       if (live.playedGame === true && e.type === "conversation" && e.interactionKind !== undefined && SCENE_FOLDS.has(e.interactionKind) && e.witnessSet.includes(PLAYER)) {
         // ORW-609 (played games only): a recorded scene the player is in folds as the kind it was filed under, with the REAL actor: the player (to the first houseguest named) or the houseguest who acted (to the player); the rest only watched.
         const { actor, recipient, bystanders } = recordedSceneRoles(e.initiator, e.witnessSet);
-        if (recipient !== undefined) foldScene(store, e.interactionKind as SceneFold, [actor, recipient], { initiator: actor, bystanders });
+        if (recipient !== undefined) foldScene(store, e.interactionKind as SceneFold, [actor, recipient], { initiator: actor, bystanders, ...(scaled(e.id) ? { scaleFor: scaled(e.id)! } : {}) });
         continue;
       }
       if (!SCENE_FOLDS.has(e.type) || e.witnessSet.length < 2) continue;
       if (live.playedGame === true) { // ORW-598 (played games only): the scene's principals fold the pair (who started it matters); watchers only their own view
         const { principals, bystanders } = sceneRoles(e.initiator, e.witnessSet, !!e.houseLife);
-        if (principals.length >= 2) foldScene(store, e.type as SceneFold, principals, { ...(principals.includes(e.initiator) ? { initiator: e.initiator } : {}), bystanders });
+        if (principals.length >= 2) foldScene(store, e.type as SceneFold, principals, { ...(principals.includes(e.initiator) ? { initiator: e.initiator } : {}), bystanders, ...(scaled(e.id) ? { scaleFor: scaled(e.id)! } : {}) });
         continue;
       }
       if (!e.houseLife && e.witnessSet.length > 4) continue; // a whole-house moment is not a pair's scene
@@ -6545,6 +6552,16 @@ export class GameSessionAdapter implements GameSession {
     live.bondsDay = day;
   }
 
+  /** ORW-605: per-person / pair / house scene weights in the bond record (played games only). `ORWELL_BOND_RATES=0` opts out to the flat base fold. */
+  private bondRatesEnabled = flagDefaultOn("ORWELL_BOND_RATES");
+  setBondRatesEnabled(on: boolean): void { this.bondRatesEnabled = on; }
+  /** ORW-605: -1..1, how warm-prone `holder` is toward `other`: a volatile (sentimental) soul leans warm, a grudge-keeper leans guarded. The player (no soul) leans 0. Engine-only, no rng. */
+  private warmLeanOf(holder: EntityId, other: EntityId): number {
+    if (holder === PLAYER) return 0;
+    const v = ((this.soulObj(holder)?.volatility ?? 0.5) - 0.5) * 2;
+    return Math.max(-1, Math.min(1, 0.6 * v - (this.grudgeKeeper(holder, other) ? 0.4 : 0)));
+  }
+
   /** 0182 (Theme 3 slice 5, PR 1): the grudge book (`ORWELL_GRUDGES`, default ON; `=0` opts out). Played games only, and it needs the bond record. Nothing decides from it yet. */
   private grudgesEnabled = flagDefaultOn("ORWELL_GRUDGES");
   setGrudgesEnabled(on: boolean): void { this.grudgesEnabled = on; }
@@ -6564,7 +6581,7 @@ export class GameSessionAdapter implements GameSession {
     const note = (mark: string, holder: EntityId, subject: EntityId, kind: GrudgeKind, severity: number, week: number): void => {
       if (holder === PLAYER || seen.has(mark)) return;
       seen.add(mark);
-      noteGrudge((live.grudges ??= {}), holder, subject, kind, severity, week, day, mark);
+      if (noteGrudge((live.grudges ??= {}), holder, subject, kind, severity, week, day, mark) && live.grudges[grudgeKey(holder, subject)]!.refKey === mark) live.grudges[grudgeKey(holder, subject)]!.seenAt = (this.record?.events() ?? []).length; // ORW-605: stamp when this wrong was noted
     };
     for (const holder of Object.keys(live.npcMemory ?? {}).sort() as EntityId[]) {
       const row = live.npcMemory![holder] ?? {};
@@ -6689,6 +6706,7 @@ export class GameSessionAdapter implements GameSession {
       if (!holder || holder === PLAYER) continue;
       const row = live.grudges[grudgeKey(holder, wrongdoer)];
       if (!row || live.week - row.week > 1 || day - row.day > REPAIR.sceneDays || day < row.day) continue;
+      if (row.seenAt !== undefined && row.seenAt <= events.length && i < row.seenAt) continue; // ORW-605: a warm scene from BEFORE the wrong is not an apology (a record shorter than the stamp was replaced, so the stamp says nothing)
       if (mark(`repair:scene:${holder}|${wrongdoer}|${live.week}`)) this.repairGrudge(holder, wrongdoer, REPAIR.scene);
     }
     live.grudgesCursor = events.length;

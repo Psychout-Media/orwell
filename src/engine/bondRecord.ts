@@ -63,6 +63,14 @@ export const BOND = {
   initiatorShare: 0.6,
   /** ORW-598: a bystander (in the room, not in the scene) moves only their own view of each principal, by this small share of the scene's weight; the principals' pair is untouched. */
   bystanderShare: 0.15,
+  /** ORW-605: how far a person, a pair and the house can lean one scene's weight. Bounded; 1 with no traits, no pair and no dial. */
+  sceneLeanTrait: 0.3,
+  sceneFamiliarityMax: 6,
+  scenePairSpan: 0.3,
+  sceneJitter: 0.1,
+  sceneScaleMin: 0.6,
+  sceneScaleMax: 1.5,
+  sceneDialBand: 1.35,
   /** Each night: strain eases, a grudge fades slower. */
   nightlyRepair: 0.03,
   nightlyResentFade: 0.01,
@@ -100,6 +108,24 @@ export type SceneFold = "bonding" | "alliance" | "showmance" | "strategy" | "con
 export const SCENE_FOLDS: ReadonlySet<string> = new Set<SceneFold>(["bonding", "alliance", "showmance", "strategy", "conflict"]);
 
 /** The scene's effect on one directed record, at `scale` of its full weight (1 = exactly the old fold). `moment` = it counts as a shared key moment (a bystander's does not). */
+export type SceneScaleKind = "warming" | "souring";
+
+/**
+ * ORW-605: how much one scene weighs for ONE holder toward ONE other, bounded to [sceneScaleMin, sceneScaleMax]. Pure, no rng: `lean` -1..1 is the holder's own warmth-proneness (a guarded
+ * holder is negative: slower to warm, quicker to sour), `pair` is the holder's existing record of the other (a new pair moves more per scene, a deep one less), `dial` the house's bonding
+ * lean (warming x dial, souring / dial, clamped to 1/1.35..1.35), `jitter` a keyed 0..1 roll supplied by the caller (0.5 = none). All absent => exactly 1.
+ */
+export function sceneScale(kind: SceneScaleKind, who: { lean?: number; pair?: { history: number }; dial?: number; jitter?: number } = {}): number {
+  const lean = clamp(who.lean ?? 0, -1, 1);
+  const trait = 1 + (kind === "warming" ? 1 : -1) * BOND.sceneLeanTrait * lean;
+  const familiarity = who.pair ? clamp(who.pair.history / BOND.sceneFamiliarityMax, 0, 1) : 0.5;
+  const pair = 1 + BOND.scenePairSpan * (0.5 - familiarity);
+  const d = clamp(who.dial ?? 1, 1 / BOND.sceneDialBand, BOND.sceneDialBand);
+  const dial = kind === "warming" ? d : 1 / d;
+  const jitter = 1 + BOND.sceneJitter * 2 * ((who.jitter ?? 0.5) - 0.5);
+  return clamp(trait * pair * dial * jitter, BOND.sceneScaleMin, BOND.sceneScaleMax);
+}
+
 function applyScene(r: BondRecord, kind: SceneFold, scale: number, moment: boolean): void {
   if (moment) r.history += 1;
   if (kind === "bonding" || kind === "alliance") { r.warmth = clamp(r.warmth + BOND.warmthPerBond * scale, 0, 1); r.strain = clamp(r.strain - BOND.repairPerBond * scale, 0, 1); }
@@ -139,15 +165,16 @@ export function recordedSceneRoles(initiator: EntityId, witnessSet: readonly Ent
  * ORW-598: with `who.initiator`, the recipient's view of the initiator moves by the full weight and the initiator's view of the recipient by `initiatorShare` of it;
  * `who.bystanders` (watchers, not in the scene) move only their own view of each participant, by `bystanderShare`, never the participants' pair.
  */
-export function foldScene(store: BondStore, kind: SceneFold, participants: readonly EntityId[], who?: { initiator?: EntityId; bystanders?: readonly EntityId[] }): void {
+export function foldScene(store: BondStore, kind: SceneFold, participants: readonly EntityId[], who?: { initiator?: EntityId; bystanders?: readonly EntityId[]; /** ORW-605: a per-holder multiplier on the scene's weight (absent => the old flat fold, byte-identical) */ scaleFor?: (holder: EntityId, other: EntityId, kind: SceneFold) => number }): void {
+  const k = (h: EntityId, o: EntityId): number => who?.scaleFor?.(h, o, kind) ?? 1;
   const people = [...new Set(participants)];
   for (const a of people) for (const b of people) {
     if (a === b) continue;
-    applyScene(touch(store, a, b), kind, who?.initiator !== undefined && a === who.initiator ? BOND.initiatorShare : 1, true);
+    applyScene(touch(store, a, b), kind, (who?.initiator !== undefined && a === who.initiator ? BOND.initiatorShare : 1) * k(a, b), true);
   }
   for (const w of new Set(who?.bystanders ?? [])) {
     if (people.includes(w)) continue;
-    for (const p of people) applyScene(touch(store, w, p), kind, BOND.bystanderShare, false);
+    for (const p of people) applyScene(touch(store, w, p), kind, BOND.bystanderShare * k(w, p), false);
   }
 }
 
