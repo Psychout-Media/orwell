@@ -31,3 +31,32 @@ describe("a betrayal rumor is not turned into 'they target me' (item 5)", () => 
     expect(rumor(false)).toHaveLength(1);
   });
 });
+
+describe("a betrayal rumor is victim-aware (follow-up)", () => {
+  function told(object?: "holder" | "other") {
+    const sb = new GameSessionRegistry().sandboxFor(`orw686-victim-${object ?? "none"}`);
+    sb.session.createCharacter({ playerName: "The Player", seed: 5 });
+    const s = sb.session as unknown as Seam & { rel: { edge(a: string, b: string): { trust: number } } };
+    s.live.playedGame = true;
+    const [h, b, v] = sb.session.livingIds().filter((id) => id !== PLAYER);
+    (s.live.beliefs ??= {})[h!] = [{ id: `${h}|heard-rumor|${b}|told`, holder: h!, kind: "heard-rumor", subject: b!, ...(object === "holder" ? { object: h! } : object === "other" ? { object: v! } : {}), value: true, origin: "told", nature: "betrayal", source: v!, confidence: 0.8, week: s.live.week } as BeliefClaim];
+    const trust = s.rel.edge(h!, b!).trust;
+    s.noteTargetsMeClaims(h!);
+    s.noteTargetsMeClaims(h!); // idempotent
+    return { drop: trust - s.rel.edge(h!, b!).trust, targets: (s.live.beliefs[h!] ?? []).filter((c) => c.kind === "targets-me"), claim: s.live.beliefs[h!]![0]! };
+  }
+  it("the victim folds 'targets me' about the betrayer and takes no trust fold", () => {
+    const r = told("holder");
+    expect(r.targets).toHaveLength(1);
+    expect(r.drop).toBe(0);
+  });
+  it("everyone else (a named other victim, or none recorded) distrusts the betrayer, once, bounded", () => {
+    for (const o of ["other", undefined] as const) {
+      const r = told(o);
+      expect(r.targets).toEqual([]);
+      expect(r.drop).toBeGreaterThan(0);
+      expect(r.drop).toBeLessThan(0.1);
+      expect(r.claim.impact?.trust).toBeLessThan(0);
+    }
+  });
+});

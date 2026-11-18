@@ -374,7 +374,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   //      so the E9 content-lineage check accepts it as a BELIEF (source + confidence) — never an invented
   //      fact. An unanchored attempt is correctly downgraded to a suspicion by 0002. Returns whether the
   //      player actually came to hold the belief (the scheduler counts it once against the season cap).
-  session.setOnThreadSurfaceToPlayer((subject, rumor) => {
+  session.setOnThreadSurfaceToPlayer((subject, rumor, confidenceScale) => {
     const core = session.snapshot();
     if (!core.house) return false;
     const evicted = new Set(core.live?.evictionOrder ?? []);
@@ -385,7 +385,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
     const factId = `thread-belief:${subject}:${engine.events.count()}`;
     // The confidant first HOLDS the rumor (an origin belief), so the told-by pathway is content-anchored.
     engine.knowledge.seedBelief(confidant, { content: rumor, originalContent: rumor, factId, confidence: 0.6, hops: 1, distortion: 1, source: confidant }, "origin");
-    const fact = engine.knowledge.surfaceInformationTo(PLAYER, { content: rumor, subject, confidence: 0.5 }, `told-by:${confidant}`);
+    const fact = engine.knowledge.surfaceInformationTo(PLAYER, { content: rumor, subject, confidence: 0.5 * (confidenceScale ?? 1) }, `told-by:${confidant}`); // ORW-687: a slanted drip is taken at the spin confidence; absent => 0.5 exactly
     return fact !== null;
   });
   // 0059 §5 — a sealed pre-game TIE surfaces TO THE PLAYER (rare): the SAME anchored-pathway machinery the
