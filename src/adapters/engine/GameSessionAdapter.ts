@@ -32,7 +32,7 @@ import { singlePickId } from "./decisionFields";
 import type { GameEvent } from "../../domain/event";
 import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "../../engine/presence";
 import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/voice";
-import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
+import { tellsOf, narratedTellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
 import { MOOD_CAUSES, causeLine, isBadNight, isCloseFriend, mayShareEventCause, strongestCause, type MoodCauseSource } from "../../engine/moodCauses";
 import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sceneSeenBy, sharedScenes, type SeenScene } from "../../engine/bondJealousy";
@@ -3843,6 +3843,11 @@ export class GameSessionAdapter implements GameSession {
     if (!soul) return {};
     // B28: the persisted record (hysteresis against the previous tells) when the arc has refreshed it; a houseguest the arc has not touched yet falls back to a fresh read of the soul.
     const t = soul.tells ? soul.tells.map((x) => ({ kind: x.kind, band: x.band, channel: tellChannel(x.kind) })) : tellsOf(soul);
+    // ORW-576: in a PLAYED game the narrator/chip sees the narrated read (reachable tiers, agreeing with the mood word); the persisted tells that feed decisions are untouched, so a headless game is byte-identical.
+    if (this.live?.playedGame === true) {
+      const n = narratedTellsOf(soul, t);
+      return n.length ? { tells: n.map((x) => ({ kind: x.kind, band: x.band, channel: x.channel })) } : {};
+    }
     return t.length ? { tells: t.map((x) => ({ kind: x.kind, band: x.band, channel: x.channel })) } : {};
   }
   npcVoice(idOrName: EntityId): NpcVoiceView | null {
