@@ -388,7 +388,7 @@ import {
 } from "../../engine/diversity";
 import type { ProposedIdentityFacets } from "../../engine/diversity";
 import { renameGivenNameInProse } from "../../engine/diversity";
-import { nameGenderOf, pickGivenNameFor } from "../../engine/data/nameGender";
+import { nameGenderOf, nameGenderStrict, pickGivenNameFor } from "../../engine/data/nameGender";
 import { avoidFromWire, type AvoidSets } from "../../domain/recentSeasons";
 import { dealEraGivenNames, dealSurnames, censusGroupOfHeritage } from "../../engine/data/worldNames";
 import type { Orientation, GenderPresentation } from "../../engine/diversityConstants";
@@ -4758,7 +4758,7 @@ export class GameSessionAdapter implements GameSession {
       const parts = n.name.split(" ");
       const given = parts[0]!;
       const opposite = gender === "man" ? "woman" : "man";
-      if (nameGenderOf(given) !== opposite) continue; // coherent (same-gender OR unisex) — leave the name
+      if (nameGenderStrict(given) !== opposite) continue; // coherent (same-gender, near-even or unlisted) — leave the name; the strict read also knows names the lexicon does not list (a man named Beth)
       used.delete(given); // free the wrong-gender given before picking its replacement
       const next = pickGivenNameFor(gender, rng, used);
       used.add(next);

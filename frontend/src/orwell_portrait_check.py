@@ -39,6 +39,8 @@ PROBLEM_WORDS = {
     "wrong-age": "the stated age",
     "wrong-clothes": "the stated clothing",
     "wrong-presentation": "clothes that match the stated gender presentation",
+    # the person themselves reads as the stated presentation (a man or a woman as the card says; never judged for a nonbinary card)
+    "wrong-gender": "a person who reads as the gender presentation the card states (man or woman), exactly as the card describes them",
     "eyes-off": "eyes looking straight at the camera",
     "not-a-portrait": "a head-and-shoulders portrait photo",
     "missing-feature": "every stated visible feature (glasses, piercings, facial hair, hair colour, length and style)",
@@ -253,7 +255,10 @@ def facts_block(facts: dict) -> str:
     if facts.get("age"):
         lines.append(f"Stated age: {int(facts['age'])}")
     if facts.get("gender"):
-        note = " (any clothing fits; never report wrong-presentation)" if facts["gender"] == "nonbinary" else ""
+        if facts["gender"] == "nonbinary":
+            note = " (any clothing and any look fit; never report wrong-presentation or wrong-gender)"
+        else:
+            note = " (the card's own statement: judge the whole person; hair length, build and clothes alone never make this wrong)"
         lines.append(f"Stated gender presentation: {facts['gender']}{note}")
     if facts.get("clothing"):
         lines.append(f"Main clothing piece: {facts['clothing']}")
@@ -275,6 +280,7 @@ _CHECKLIST = (
     "wrong-age (the person reads more than about 8 years off the stated age), "
     "wrong-clothes (the main clothing piece is missing or clearly different), "
     "wrong-presentation (the clothes contradict the stated gender presentation), "
+    "wrong-gender (the person plainly reads as the other gender than the one stated, judged on the whole person: short or long hair, build, height, clothes and make-up are never evidence on their own; a person who plausibly fits the stated presentation is fine; use it only when the stated man clearly reads as a woman or the stated woman clearly reads as a man), "
     "eyes-off (eyes not on the camera; only judge this when the facts say eyes on camera was asked), "
     "not-a-portrait (not a head-and-shoulders or waist-up portrait photo), "
     "missing-feature (a stated visible feature, such as glasses, a piercing, facial hair, the hair colour, length or style, is not in the photo), "
@@ -481,9 +487,9 @@ async def _call(png: bytes, facts: dict, user) -> Optional[dict]:
             return None
     cost = _record_spend(user, data)
     problems = _parse_problems(data)
-    if problems and facts.get("gender") == "nonbinary":
-        # no clothing contradicts a nonbinary presentation: the rule has no meaning there (review of #2748)
-        problems = [p for p in problems if p != "wrong-presentation"]
+    if problems and facts.get("gender") not in ("man", "woman", "boy", "girl"):
+        # no clothing contradicts a nonbinary presentation, and nobody is judged against a binary gender the card does not state (review of #2748)
+        problems = [p for p in problems if p not in ("wrong-presentation", "wrong-gender")]
     if problems is None:
         return None
     if cost is not None:
