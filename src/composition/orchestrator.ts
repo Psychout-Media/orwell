@@ -998,7 +998,17 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
         threat: (a, b) => relm.edge(a, b).threat,
         style: (id) => npcsById.get(id)?.character.strategyStyle,
         volatility: (id) => npcsById.get(id)?.soul.volatility ?? 0.3,
-        audienceOf: () => 0,
+        // ORW-589 (ORWELL_GOSSIP_DRIFT, default ON; a played game only, so the headless calibration spine is untouched): the awake houseguests standing in the pair's room hear it too, and each retelling drifts
+        // like the graph path's (a forked stream per telling, the teller's public voice). Absent => audience 0 and the text unchanged (byte-identical).
+        ...(sandbox.session.gossipDriftEnabledNow() && sandbox.session.houseLifeActiveNow() && occupancy
+          ? {
+              audienceOf: (h: EntityId, l: EntityId): number => {
+                const room = occupancy.get(h);
+                return room === undefined ? 0 : awakeIds.filter((id) => id !== h && id !== l && occupancy.get(id) === room).length;
+              },
+              drift: { voiceOf: (id: EntityId): VoiceProfile | undefined => npcsById.get(id)?.character.voice },
+            }
+          : { audienceOf: () => 0 }),
         // 0179 (Theme 3 slice 9, ORWELL_NETWORK_SPREAD, default ON): the house's shape adds to the motive - brokers carry news across cliques, weak ties carry across, loners hear late. Undefined when off => byte-identical.
         ...((): { network?: NetworkRoles } => { const n = sandbox.session.networkRoles(); return n ? { network: n } : {}; })(),
         // B48 (ORWELL_CREDIBILITY, default ON): a lie's arriving confidence scales with how far the LISTENER believes the holder (their own caught-lie evidence + repeats to their ear). Absent => the B34 stand-in.

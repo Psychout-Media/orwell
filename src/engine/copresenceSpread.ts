@@ -3,7 +3,9 @@ import type { KnowledgeService } from "../ports/KnowledgeService";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { disclosureDecision, topHeldFacts, type DisclosureInput, type HeldFact } from "./disclosure";
 import { heldCandidates, type ToldLedger, type Told } from "./heldFacts";
-import { GOSSIP } from "./gossip";
+import { GOSSIP, driftRetelling } from "./gossip";
+import { GOSSIP_DRIFT } from "./gossipDriftConstants";
+import type { VoiceProfile } from "../domain/voiceProfile";
 import type { StrategyStyle } from "./characterFactory";
 import { networkMotive, type NetworkRoles } from "./networkSpread";
 
@@ -46,6 +48,11 @@ export interface SpreadDeps {
   onTold?: (r: { holder: EntityId; listener: EntityId; subject: EntityId; factId: string; confidence: number; slipped: boolean; content: string }) => void;
   /** 0179 (Theme 3 slice 9): the house's shape (brokers, cliques, weak ties, loners) adds to the share motive (`networkSpread.ts`). Absent => byte-identical. */
   network?: NetworkRoles;
+  /**
+   * ORW-589 (ORWELL_GOSSIP_DRIFT): present => each transmitted retelling drifts like the graph path's (`driftRetelling`: from the 2nd retelling a scene rumor's nature may move a rung and a hedge in the
+   * reteller's PUBLIC voice is added), on a FORK of the pair's rng so no other draw moves. Absent => the text passes through unchanged (byte-identical).
+   */
+  drift?: { voiceOf?: (id: EntityId) => VoiceProfile | undefined };
 }
 
 /**
@@ -128,12 +135,13 @@ export function spreadBetween(holder: EntityId, listener: EntityId, d: SpreadDep
         const spinConf = decision !== "share" ? 1 : spin === "lie" ? SPIN.lieConfidence * lieCredibility : spin === "spun" ? SPIN.spunConfidence : 1;
         const spinDist = decision !== "share" ? 0 : spin === "lie" ? SPIN.lieDistortion : spin === "spun" ? SPIN.spunDistortion : 0;
         const base = (src.confidence ?? 1) * GOSSIP.decay * (decision === "slip" ? 0.8 : 1) * spinConf;
+        const retold = d.drift ? driftRetelling(src.content, hops, rng.fork(`gossip-drift:${h.factId}:${holder}:${listener}:${hops}`), d.drift.voiceOf?.(holder)) : { content: src.content, drifted: false };
         d.knowledge.transmitGossip(holder, listener, {
-          content: src.content, originalContent: src.originalContent ?? src.content, factId: h.factId, confidence: base, source: holder, hops,
-          distortion: Math.min(1, Math.max(src.distortion ?? 0, spinDist) + (spinDist > 0 ? 0 : 0)), ...(src.subject !== undefined ? { subject: src.subject } : {}),
+          content: retold.content, originalContent: src.originalContent ?? src.content, factId: h.factId, confidence: base, source: holder, hops,
+          distortion: Math.min(1, Math.max(src.distortion ?? 0, spinDist) + (retold.drifted ? GOSSIP_DRIFT.sameRoomDistortionStep : 0)), ...(src.subject !== undefined ? { subject: src.subject } : {}),
         }, `told-by:${holder}`);
         transmitted = true;
-        if (d.onTold && src.subject !== undefined) d.onTold({ holder, listener, subject: src.subject, factId: h.factId, confidence: base, slipped: decision === "slip", content: src.content });
+        if (d.onTold && src.subject !== undefined) d.onTold({ holder, listener, subject: src.subject, factId: h.factId, confidence: base, slipped: decision === "slip", content: retold.content });
       }
     }
     out.push({ holder, listener, factId: h.factId, decision: told, transmitted });

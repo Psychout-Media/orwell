@@ -218,6 +218,28 @@ function swapSubject(
 }
 
 /**
+ * ORW-589 - the SAME-ROOM retelling drift. The co-presence spread (`copresenceSpread.ts`) moves a fact one hop inside a scene; before this the text passed through unchanged, so the
+ * per-retelling drift above lived only on the graph path that the default-ON same-room flag bypasses (and that path's scene rumors are no longer minted while the spread is on: what the spread
+ * actually carries in a played game is the house's observations and overheard scenes, free text with no nature). This applies the graph path's rules to ONE retelling: from the second retelling on
+ * (`CONTENT_DRIFT_MIN_HOPS`) a hedge in the reteller's PUBLIC voice replaces the last teller's, and when the text carries a scene nature (`RUMOR_GLOSS`) that nature may move one rung (the voice biases
+ * which way). The engine holds no structured claim for the free-text facts, so it never rewrites them: the retelling only changes how sure it sounds and its recorded distortion. All draws come from the
+ * caller's FORKED stream (never the shared rng); `originalContent` is never passed in, so the Vault truth cannot move. Returns the new text and whether it changed. Pure; no I/O.
+ */
+export function driftRetelling(content: string, hops: number, rng: RandomnessSource, voice?: VoiceProfile): { content: string; drifted: boolean } {
+  if (hops < CONTENT_DRIFT_MIN_HOPS) return { content, drifted: false };
+  const body = content.replace(/ · .*$/, "");
+  const nature = Object.entries(RUMOR_GLOSS).find(([, gloss]) => body.includes(gloss))?.[0];
+  const escalation = voice ? voiceEscalationBias(voice) : GOSSIP_DRIFT.baseEscalationBias;
+  const hedge = voice ? voiceHedgePool(voice) : HEDGE_POOLS.base;
+  let next = body;
+  if (nature !== undefined && rng.next() < GOSSIP_DRIFT.baseTypeDriftProb) {
+    const moved = driftSeverity(nature, rng, escalation);
+    if (moved !== nature) next = body.replace(RUMOR_GLOSS[nature]!, RUMOR_GLOSS[moved] ?? RUMOR_GLOSS[nature]!);
+  }
+  return { content: distort(next, rng, hedge), drifted: true };
+}
+
+/**
  * Diffuse a hidden fact NPC-to-NPC across the social graph, one hop per round.
  * Every retelling is recorded as its own event (via `transmitGossip`), each
  * recipient holds the fact as a belief with provenance + confidence (decaying

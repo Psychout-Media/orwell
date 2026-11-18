@@ -121,6 +121,7 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_GOSSIP_CONSEQUENCE',      key: 'gossipConsequence',      parser: 'defaultOn' },
   // B10 / B11 / #2017: information spreads only by co-presence, by the holder's choice (share / slip / hold) instead of automatic graph diffusion. ON by default; `=0` turns it off.
   { envKey: 'ORWELL_GOSSIP_COPRESENCE', key: 'gossipCopresence', parser: 'defaultOn' },
+  // #1397 / ORW-589: character-mediated gossip drift. Also drives the same-room retelling drift (from the 2nd retelling, a hedge in the teller's voice and a fractional distortion) and the room's awake people counting as the audience. Played games only for the same-room part. `=0` is byte-identical.
   { envKey: 'ORWELL_GOSSIP_DRIFT',           key: 'gossipDrift',            parser: 'defaultOn' },
   // 0183 / ORW-566 (Theme 3 slice 7 a-b): close pairs keep a private debrief spot after ceremonies, alliances are named from the house's own authored words, a third houseguest who sees a habit starts to suspect the pair. Played games only. `=0` is the kill switch.
   { envKey: 'ORWELL_GROUP_IDENTITY', key: 'groupIdentity', parser: 'defaultOn' },
