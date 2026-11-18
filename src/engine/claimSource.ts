@@ -63,6 +63,7 @@ const HELD_AS: Record<SpokenClaimKind, readonly BeliefClaim["kind"][]> = {
   "lying-about": ["lied-to-me", "heard-rumor"],
   "voted-against": ["voted-against-me", "heard-rumor"], // 0153: "X voted to evict me / them"
   "voted-to-keep": ["assured-me", "heard-rumor"],        // 0153: "X voted to keep me / them"
+  "has-reputation": ["heard-rumor"],                       // 0184 part 2a: "X has a name as ..." (a heard reputation, `rep:<label>`)
 };
 
 /**
@@ -145,7 +146,7 @@ export function namedSourceContent(holderName: string, sourceName: string, claim
 }
 
 /** The claim as a plain statement (what was said, never whether it is true). `playerName` is who "you" is in the claim. */
-export function claimPhrase(c: Pick<SpokenClaim, "kind" | "subject" | "object">, nameOf: (id: EntityId) => string, playerName: string): string {
+export function claimPhrase(c: Pick<SpokenClaim, "kind" | "subject" | "object" | "label">, nameOf: (id: EntityId) => string, playerName: string): string {
   const subj = nameOf(c.subject);
   const obj = c.object !== undefined ? nameOf(c.object) : undefined;
   switch (c.kind) {
@@ -159,6 +160,7 @@ export function claimPhrase(c: Pick<SpokenClaim, "kind" | "subject" | "object">,
     case "lying-about": return `${subj} is lying to ${obj ?? playerName}`;
     case "voted-against": return `${subj} voted to evict ${obj ?? playerName}`;
     case "voted-to-keep": return `${subj} voted to keep ${obj ?? playerName}`;
+    case "has-reputation": return `the house has a name for ${subj}`; // Ryne 11-17: no role word is ever shown; the narrator words it from the claim
   }
 }
 

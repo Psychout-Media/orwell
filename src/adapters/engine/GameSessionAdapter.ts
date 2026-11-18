@@ -322,7 +322,8 @@ import { SCENE_FOLDS, bondKey, commitmentFor, emptyBond, foldBreak, foldKept, fo
 import { TRIADS, SWING } from "../../engine/triadsConstants";
 import { commonFriendNudges, kingmakerOf, priceTier, sharedEnemyNudges, strainedTriads, swingRead, triadPairKey, type TriadView } from "../../engine/triads";
 import { deriveDailyHouseGraph, type DailyHouseGraph, type HouseGraph } from "../../engine/houseGraph";
-import type { Stats } from "../../engine/season";
+import { floaterRead, type Stats } from "../../engine/season";
+import { ROLES, EVERYONE, roleEvidence, roleRead, isRoleLabel, type RoleLabel, type RoleScene } from "../../engine/socialRoles";
 import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
   firstCeremonyBeatResolved,
@@ -376,7 +377,7 @@ import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type Hea
 import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
 import { sameMoment } from "../../engine/claimMoment";
 import { CAUGHT_LIE, caughtLieTrustDrop, contradicts, overclaimedKeeps, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
-import { claimProblem, liesBy, claimsHeardBy, tellClaim, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
+import { claimProblem, liesBy, claimsHeardBy, tellClaim, labelOfNature, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedInText, namedSourceContent, noRecordNote, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
@@ -1227,7 +1228,8 @@ export class GameSessionAdapter implements GameSession {
     const heard: HeardWrong[] = [];
     for (const c of claimsOf(live.beliefs, observer)) {
       if (c.kind !== "heard-rumor" || c.subject !== target || c.refuted || !c.value || c.object === observer) continue;
-      if (c.nature !== "lying" && c.nature !== "betrayal") continue;
+      const told = labelOfNature(c.nature); // 0184 part 2a: being TOLD someone is a snake or a villain is a heard wrong too
+      if (c.nature !== "lying" && c.nature !== "betrayal" && told !== "snake" && told !== "villain") continue;
       heard.push({ week: c.week, confidence: c.confidence });
     }
     let kept = 0;
@@ -1739,6 +1741,7 @@ export class GameSessionAdapter implements GameSession {
     const said = planSpeech(action, p.actor, partner, p.about, p.truthful, {
       living: this.livingIds(), beliefs: this.live.beliefs, facts: this.truthFacts(),
       roll: new SeededRandom(hashSeed(`${salt}:${p.actor}:${p.kind}`)).next(),
+      ...(this.socialRolesOn() ? { roleOf: (h: EntityId, x: EntityId) => this.roleOf(h, x) } : {}), // 0184 part 2a: a leak with nothing else to pass on may voice a role
     });
     return said ? this.tellClaim(said) : undefined;
   }
@@ -1748,7 +1751,7 @@ export class GameSessionAdapter implements GameSession {
    * own records (`truthOf`); its intent is "inform" (the narrator's speaker's real reason is unknown). A kind the claim set does not have, or ids
    * not in the house, make no claim (`tellClaim` refuses). Returns the claims told.
    */
-  private tellNarratedClaim(c: { kind: string; subject: string; object?: string }, speaker: string, addressees: readonly string[], present: readonly string[], origin: "narrated" | "player" = "narrated"): SpokenClaim[] {
+  private tellNarratedClaim(c: { kind: string; subject: string; object?: string; label?: string }, speaker: string, addressees: readonly string[], present: readonly string[], origin: "narrated" | "player" = "narrated"): SpokenClaim[] {
     if (!(SPOKEN_CLAIM_KINDS as readonly string[]).includes(c.kind)) return [];
     const kind = c.kind as SpokenClaimKind;
     const live = this.live;
@@ -1771,7 +1774,7 @@ export class GameSessionAdapter implements GameSession {
         // a bystander hears it as said about each person it was told to (the player included), never about themself
         for (const to of addressed.filter((a) => a !== c.subject && a !== listener)) said.push({ speaker, listener, kind: third, subject: c.subject, object: to });
       } else {
-        said.push({ speaker, listener, kind, subject: c.subject, ...(c.object !== undefined ? { object: c.object } : {}) });
+        said.push({ speaker, listener, kind, subject: c.subject, ...(c.object !== undefined ? { object: c.object } : {}), ...(c.label !== undefined ? { label: c.label } : {}) });
       }
     }
     for (const base of said) {
@@ -1877,7 +1880,51 @@ export class GameSessionAdapter implements GameSession {
       finalTwo: (a, b) => this.deals.forParty(a).some((d) => d.status === "open" && d.kind === "final-two" && d.parties.includes(b)),
       liedTo: (a, b) => liesBy(live?.claims, a).some((c) => c.listener === b),
       talkedAbout: (a, b) => (live?.claims?.items ?? []).some((c) => c.speaker === a && (c.subject === b || c.object === b)),
+      ...(this.socialRolesOn() ? { roleOf: (who: EntityId) => this.roleTruth(who) } : {}), // 0184 part 2a
     };
+  }
+  /** 0184 part 2a (ORW-564): social roles, read and voiced as gossip (`ORWELL_SOCIAL_ROLES`, default ON; `=0` = no role is read or said). Played games with the belief layer only. */
+  private socialRolesEnabled = flagDefaultOn("ORWELL_SOCIAL_ROLES");
+  setSocialRolesEnabled(on: boolean): void { this.socialRolesEnabled = on; }
+  private socialRolesOn(): boolean { return this.socialRolesEnabled && this.live?.playedGame === true && this.npcBeliefsEnabled; }
+  private roleScenesCache?: { n: number; scenes: RoleScene[] };
+  /** The recent scenes a role is read from (people = the witness set; `seenBy` = who saw it from the room). Cached per event count. */
+  private roleScenes(): RoleScene[] {
+    const events = this.record?.events() ?? [];
+    if (this.roleScenesCache?.n === events.length) return this.roleScenesCache.scenes;
+    const SCENES = new Set(["conflict", "betrayal", "bonding", "showmance", "gossip", "strategy", "alliance", "conversation"]);
+    const scenes: RoleScene[] = [];
+    for (const e of events.slice(-2 * ROLES.recentEvents)) if (SCENES.has(e.type) && e.witnessSet.length >= 2) scenes.push({ type: e.type, initiator: e.initiator, people: e.witnessSet, seenBy: e.houseLife?.seenBy ?? [] });
+    this.roleScenesCache = { n: events.length, scenes };
+    return scenes;
+  }
+  private hasHumor(id: EntityId): boolean {
+    const h = this.house?.npcs.find((n) => n.id === id)?.character.voice?.humor;
+    return typeof h === "string" && h.trim() !== "" && !/^\s*none\b/i.test(h);
+  }
+  /**
+   * 0184 part 2a: the role `observer` reads in `subject`, from what THEY saw (`roleEvidence`), their own reputation read (part 1), the floater read through the bonds they can
+   * see, and the labels they were TOLD (their heard reputations). Undefined = no role. Engine-only; never a number or a label to anyone - voiced only as gossip.
+   */
+  roleOf(observer: EntityId, subject: EntityId): RoleLabel | undefined {
+    if (!this.socialRolesOn() || observer === subject || !this.live) return undefined;
+    const live = this.live;
+    const told: Partial<Record<RoleLabel, number>> = {};
+    for (const c of claimsOf(live.beliefs, observer)) {
+      if (c.kind !== "heard-rumor" || c.subject !== subject || !c.value || c.refuted) continue;
+      const l = labelOfNature(c.nature);
+      if (isRoleLabel(l)) told[l] = Math.max(told[l] ?? 0, c.confidence);
+    }
+    const standingValue = this.reputationOn() ? this.reputationOf(observer, subject) : 1;
+    const floater = floaterRead(subject, this.livingIds(), this.rel, (a, b) => (this.perceivedBondsEnabled ? this.perceivedBond(observer, a, b) : this.rel.bondStrength(a, b)));
+    return roleRead(roleEvidence(this.roleScenes(), observer, subject, this.hasHumor(subject)), standingValue, floater, told);
+  }
+  /** 0184 part 2a: the role the record supports, as if every scene were seen (a told label is TRUE when it matches): the engine's truth for `truthOf`, never voiced. */
+  private roleTruth(who: EntityId): RoleLabel | undefined {
+    const live = this.live;
+    if (!live) return undefined;
+    const lies = liesBy(live.claims, who).map((c) => ({ week: c.week, confidence: 1 }));
+    return roleRead(roleEvidence(this.roleScenes(), EVERYONE, who, this.hasHumor(who)), standing(lies, 0, live.week), floaterRead(who, this.livingIds(), this.rel), {});
   }
   /** 0149 - the narrator seam (wired in slice 4): the claims the PLAYER heard, as the speakers' words. Never the truth or the intent. */
   claimsThePlayerHeard(): HeardClaim[] {
@@ -1895,7 +1942,7 @@ export class GameSessionAdapter implements GameSession {
   /** The engine's own check of whether a believed thing is TRUE (never handed outward): the ONE truth rule, slice 3's `truthOf` over `truthFacts()` (review by the claims-core owner: slice 4 used its own cheaper reads before). */
   private believedThingIsTrue(b: SayableBelief): boolean {
     if (!this.live) return false;
-    return truthOf({ kind: b.kind, listener: PLAYER, subject: b.subject, ...(b.object !== undefined ? { object: b.object } : {}) }, this.truthFacts());
+    return truthOf({ kind: b.kind, listener: PLAYER, subject: b.subject, ...(b.object !== undefined ? { object: b.object } : {}), ...(b.label !== undefined ? { label: b.label } : {}) }, this.truthFacts());
   }
   /**
    * 0156 / ORW-330 (theme 2, slice 7a) - HOUSE MEETINGS (`houseMeeting.ts` holds the rules). `caller` accuses `accused` (an NPC; the claim is about them) in front of the awake house: the accusation is `tellClaim`ed from the
@@ -2092,8 +2139,8 @@ export class GameSessionAdapter implements GameSession {
     let tells: NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined;
     if (decided) {
       const b = decided.belief;
-      const claim = this.tellClaim({ speaker: id, listener: PLAYER, kind: b.kind, subject: b.subject, ...(b.object !== undefined ? { object: b.object } : {}), isTrue: this.believedThingIsTrue(b), intent: "inform" });
-      if (claim) tells = { kind: b.kind, subject: this.nameOf(b.subject), ...(b.object !== undefined ? { object: this.nameOf(b.object) } : {}), certainty: decided.band };
+      const claim = this.tellClaim({ speaker: id, listener: PLAYER, kind: b.kind, subject: b.subject, ...(b.object !== undefined ? { object: b.object } : {}), ...(b.label !== undefined ? { label: b.label } : {}), isTrue: this.believedThingIsTrue(b), intent: "inform" });
+      if (claim) tells = { kind: b.kind, subject: b.subject === PLAYER ? "the player" : this.nameOf(b.subject), ...(b.object !== undefined ? { object: this.nameOf(b.object) } : {}), ...(b.label !== undefined ? { label: b.label } : {}), certainty: decided.band };
     }
     if (!tells && !jury) tells = this.plantOnPlayer(id, day, toldTodayBy(told, live.week, day));
     this.claimsToPlayerDecided.set(id, { epoch: this.disclosureEpoch, ...(tells ? { tells } : {}) });
@@ -19548,7 +19595,7 @@ export class GameSessionAdapter implements GameSession {
    * and a false claim is a lie on the record (the player holds no engine beliefs). A kind outside the claim set, an unknown or absent houseguest, or a refused entry makes no claim and never throws. Gated by ORWELL_PROMISE_TERMS
    * and the open ledger; off => nothing.
    */
-  recordPlayerStatement(req: { to: string; about: string; kind: string; object?: string }): { accepted: boolean; reason?: string } {
+  recordPlayerStatement(req: { to: string; about: string; kind: string; object?: string; label?: string }): { accepted: boolean; reason?: string } {
     if (!this.promiseTermsLive) return { accepted: false, reason: "off" };
     if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
     if (!req || typeof req.to !== "string" || typeof req.about !== "string" || typeof req.kind !== "string") return { accepted: false, reason: "bad-shape" };
@@ -19557,7 +19604,7 @@ export class GameSessionAdapter implements GameSession {
     const objectOk = req.object === undefined || (typeof req.object === "string" && known.has(req.object));
     if (!known.has(req.to) || !known.has(req.about) || !objectOk || req.to === req.about) return { accepted: false, reason: "bad-speaker" };
     const text = `${this.nameOf(PLAYER)} told ${this.nameOf(req.to as EntityId)} about ${this.nameOf(req.about as EntityId)}${req.object ? ` and ${this.nameOf(req.object as EntityId)}` : ""} (${req.kind.replace(/-/g, " ")})`;
-    const r = this.recordOpenLedger({ text, speaker: OPEN_LEDGER_PLAYER, addressedTo: [req.to], kind: "statement", about: req.about, claim: { kind: req.kind, subject: req.about, ...(req.object ? { object: req.object } : {}) } });
+    const r = this.recordOpenLedger({ text, speaker: OPEN_LEDGER_PLAYER, addressedTo: [req.to], kind: "statement", about: req.about, claim: { kind: req.kind, subject: req.about, ...(req.object ? { object: req.object } : {}), ...(req.label ? { label: req.label } : {}) } });
     return r.accepted ? { accepted: true } : { accepted: false, reason: r.reason ?? "refused" };
   }
 
