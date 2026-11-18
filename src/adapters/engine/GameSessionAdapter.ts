@@ -300,6 +300,7 @@ const MAX_PRIOR_HOUSE_THEMES = 6;
 import { BED_MOVES, BED_RULES, applyMove, bedmateShare, bedroomNames, decideSwap, freeBedIn, otherHalf, parsePlayerBedIntent, pickBedFor, planGoalMove, spotScore, swapBeds, type BedGoals, type BedReader } from "../../engine/bedClaims";
 import { BEDROOM_LAYOUT, spotsIn } from "../../engine/data/bedrooms";
 import { recohereCastingTypes } from "../../domain/castingTypes";
+import { familyForLabel } from "../../domain/styleFamilies";
 import { traitContradictions, repairHeightBuild } from "../../domain/traitConsistency";
 import { PLAYER } from "../../domain/ids";
 import { pairBondMult } from "../../engine/homophily";
@@ -4395,6 +4396,14 @@ export class GameSessionAdapter implements GameSession {
       }
     }
 
+    // ORW-563: a re-picked style family (the gate's outlier repair). A known label no other houseguest holds, never after the player met them.
+    if (typeof req.presentation === "string" && !this.introducedNames.has(target.id)) {
+      const label = req.presentation.trim();
+      if (familyForLabel(label) !== undefined && !ctx.npcs.some((n) => n.id !== target.id && n.character.presentation === label)) {
+        if (target.character.presentation !== label) { target.character.presentation = label; publicFields.push("presentation"); }
+      }
+    }
+
     // (1) PUBLIC fold onto the byte-stable Character — these cross to the player.
     // OCCUPATION/VOCATION LOCKSTEP (#849): the public `vocation` is the job the player reads — and the
     // hidden secret STAKE is keyed off it (deepProfile's `sectorOf(vocation)`). The authoring LLM can
@@ -4770,6 +4779,8 @@ export class GameSessionAdapter implements GameSession {
       })),
       playerId: PLAYER,
       ...(this.intake.playerName && this.intake.playerName.trim() ? { playerName: this.intake.playerName.trim() } : {}),
+      ...(() => { const a = avoidFromWire(req.avoid); return a && a.names.size ? { avoidNames: [...a.names] } : {}; })(),
+      ...(req.keepDealtSurname ? { keepDealtSurname: true } : {}),
     };
     const result = validateCastGenesis(req as unknown as CastGenesisProposal, gctx);
 
