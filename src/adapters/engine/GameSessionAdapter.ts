@@ -106,6 +106,7 @@ import type { ConfessionalContext, ConfessionalDepth } from "../../engine/confes
 import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { PULL_QUOTE } from "../../engine/pullQuoteConstants";
+import { buildGroupLife, type GroupLifeRow, type GroupLifeView } from "../../engine/groupLifeRetro";
 import { buildYourEdit, sceneMoment, weekMoments, weeksOfLog, type YourEditView } from "../../engine/yourEdit";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
 import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOut";
@@ -5012,6 +5013,45 @@ export class GameSessionAdapter implements GameSession {
       ...(finale?.votes ? { jury: { finalists: finale.finalists, votes: Object.values(finale.votes).map((votedFor) => ({ votedFor })) } } : {}),
     });
   }
+  /** ORW-566 part d (0183): every alliance and close-pair habit the season held, hidden ones included (the retrospective is the sanctioned unsealing; the caller holds the crown gate). Names only. */
+  private buildGroupLifeView(): GroupLifeView | undefined {
+    const s = this.live;
+    if (!this.groupIdentityEnabled || !s?.finished || s.playedGame !== true || !this.house) return undefined;
+    const store = s.groupIdentity ?? {};
+    const scrub = (t: string | undefined): string | undefined => (t ? this.retroScrub(t) : undefined);
+    const phrase: Record<string, string> = { betrayal: "a betrayal broke it", cohesion: "it faded", "evicted-out": "evictions emptied it", evicted: "evictions emptied it", "too-few-members": "too few were left", crack: "it cracked apart" };
+    const rows: GroupLifeRow[] = [];
+    const history = this.alliances.history();
+    for (const id of [...new Set(history.map((h) => h.allianceId))]) {
+      const mine = history.filter((h) => h.allianceId === id);
+      if (!mine.some((h) => h.kind === "formed")) continue;
+      const e = store[id];
+      const live = this.alliances.byId(id);
+      const ids = [...new Set(mine.flatMap((h) => [...h.members, ...(h.who ? [h.who] : [])]))];
+      const shown = live?.name ?? mine[mine.length - 1]!.name;
+      const name = e?.sealed?.name ?? e?.words?.name ?? shown;
+      const end = live ? undefined : [...mine].reverse().find((h) => h.kind === "dissolved");
+      const w = e?.words;
+      const row: GroupLifeRow = {
+        kind: "alliance", name: scrub(name) ?? name, members: ids.map((m) => this.nameOf(m)).sort(), youWere: ids.includes(PLAYER), youKnew: mine.some((h) => h.playerKnew),
+        ...(shown !== name ? { knownAs: shown } : {}), ...(e?.spot ? { spot: e.spot } : {}),
+        ...(w?.ritual ? { ritual: scrub(w.ritual)! } : {}), ...(w?.signal ? { signal: scrub(w.signal)! } : {}), ...(w?.insideJoke ? { insideJoke: scrub(w.insideJoke)! } : {}),
+        ...(e?.week !== undefined ? { formedWeek: e.week } : {}), ...(!live ? { endedWeek: e?.endedWeek ?? s.week, endedHow: phrase[end?.why ?? ""] ?? "it came to an end" } : {}),
+      };
+      rows.push(row);
+    }
+    for (const [id, e] of Object.entries(store)) {
+      if (e.kind !== "debrief" || !e.spot) continue;
+      const ids = id.split("|");
+      const w = e.words;
+      rows.push({
+        kind: "pair", members: ids.map((m) => this.nameOf(m)).sort(), youWere: ids.includes(PLAYER), youKnew: e.seen === true || ids.includes(PLAYER), spot: e.spot,
+        ...(w?.name ? { name: scrub(w.name)! } : {}), ...(w?.ritual ? { ritual: scrub(w.ritual)! } : {}), ...(w?.signal ? { signal: scrub(w.signal)! } : {}), ...(w?.insideJoke ? { insideJoke: scrub(w.insideJoke)! } : {}),
+        ...(e.week !== undefined ? { formedWeek: e.week } : {}),
+      });
+    }
+    return buildGroupLife(rows);
+  }
   /** ORW-624: America's Favorite - after the crown only (it may read the hidden moments then: the recap). */
   private americasFavorite(): { id: EntityId; name: string } | undefined {
     const a = this.live?.audience;
@@ -5028,7 +5068,8 @@ export class GameSessionAdapter implements GameSession {
     const dealPlans = buildDealPlanRetro(this.live.dealPlans, this.deals.all, this.openLedger.entries, PLAYER, (id) => this.nameOf(id)); // 0178 (Ryne Q2): the secret plans beside the player's own promise record; same crown gate
     const americasFavorite = this.americasFavorite(); // ORW-624: after the crown only
     const yourEdit = this.buildYourEditView(); // 0200 / ORW-632: after the crown only (the same gate); facts only
-    return { ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
+    const groupLife = this.buildGroupLifeView(); // 0183 part d: the sanctioned unsealing of hidden groups' names and words; same gate; facts only
+    return { ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
@@ -12912,11 +12953,11 @@ export class GameSessionAdapter implements GameSession {
     if (culture) {
       const spot = nicknameOf(culture, this.presence?.get(founder));
       if (culture.spots.some((x) => x.nickname === name) || culture.rituals.some((r) => r.name === name) || (culture.runningJoke ?? "").startsWith(name)) {
-        noteIdentity((s.groupIdentity ??= {}), id, { kind: "alliance", name, ...(spot === name ? { spot } : {}), since: this.inGameAbsHour() ?? 0 });
+        noteIdentity((s.groupIdentity ??= {}), id, { kind: "alliance", name, ...(spot === name ? { spot } : {}), since: this.inGameAbsHour() ?? 0, week: s.week });
       }
     }
     // ORW-566 part c2: EVERY NPC alliance gets a secret name at formation: the floor (the name it formed with, already composed from the house's words or the stock table) now, the members' own authored name later through the sealed-prompt door.
-    const have = (s.groupIdentity ??= {})[id] ?? { kind: "alliance" as const, since: this.inGameAbsHour() ?? 0 };
+    const have = (s.groupIdentity ??= {})[id] ?? { kind: "alliance" as const, since: this.inGameAbsHour() ?? 0, week: s.week };
     s.groupIdentity[id] = { ...have, sealed: { name, floor: name, authored: false } };
     (s.namePending ??= []).push(id);
   }
@@ -12949,6 +12990,7 @@ export class GameSessionAdapter implements GameSession {
     const night = s.dayNumber ?? s.week;
     if (s.nameNight === night) return;
     s.nameNight = night;
+    for (const [gid, e] of Object.entries(s.groupIdentity ?? {})) if (e.kind === "alliance" && e.endedWeek === undefined && this.alliances.byId(gid) === undefined) e.endedWeek = s.week; // part d: when a group ended (stamped at the night's settle)
     s.namePending = (s.namePending ?? []).filter((id) => this.alliances.byId(id) !== undefined && s.groupIdentity?.[id]?.sealed?.authored === false);
     s.nameTickets = issueNightBatch({
       seed: this.gameSeed ?? 0, night,
@@ -13811,7 +13853,7 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live;
     if (!s || !p.habit) return;
     const culture = s.npcMindsAuthored?.culture;
-    noteIdentity((s.groupIdentity ??= {}), p.habit, { kind: "debrief", spot: nicknameOf(culture, p.place) ?? this.roomRefOf(p.place), since: this.inGameAbsHour() ?? 0 });
+    noteIdentity((s.groupIdentity ??= {}), p.habit, { kind: "debrief", spot: nicknameOf(culture, p.place) ?? this.roomRefOf(p.place), since: this.inGameAbsHour() ?? 0, week: this.live?.week });
     // ORW-566 part c (Vault Wall ruling): a pair's habit is only ever described to the model once the player has SEEN it (was in the room); hidden habits keep the floor.
     if (this.house && this.presence?.get(this.house.player.id) === p.place) s.groupIdentity[p.habit]!.seen = true;
     const seen = event.houseLife?.seenBy ?? [];

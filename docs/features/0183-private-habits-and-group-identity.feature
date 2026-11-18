@@ -37,3 +37,9 @@ Feature: Close pairs keep private habits and the house names its groups
     Given one night with no new alliance and one night with a new alliance
     Then both nights hand the writer the same number of tickets with the same shape
     And no ticket names a member, a count, a room or a day
+
+  # Part d (ORW-566): the retrospective's words-only groupLife, after the crown only.
+  Scenario: Only after the crown does the retrospective tell the season's groups, hidden ones included
+    Given a season holding a hidden alliance with a secret name and a close pair's habit
+    Then before the crown the retrospective holds nothing and no live read shows the secret name
+    And after the crown the retrospective names the hidden alliance with its members and the pair's spot, with no id or number
