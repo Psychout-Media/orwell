@@ -25,6 +25,7 @@ export const PLAYER_PROJECTION_REGISTRY: readonly ProjectionEntry[] = [
   { method: "whereabouts", coveredBy: "read", note: "who is where (eyeshot-scoped)" },
   { method: "premiereIntros", coveredBy: "read", note: "premiere entrances + champagne toast (0111)" },
   { method: "seasonRecap", coveredBy: "read", note: "season recap" },
+  { method: "hallOfFame", coveredBy: "read", note: "0208 B3: the per-user hall of fame (finished seasons as public facts)" },
   { method: "dailyRecap", coveredBy: "read", note: "daily recap + hint (0102/ORW-254)" },
   { method: "dayLedger", coveredBy: "read", note: "day ledger (ORW-271)" },
   { method: "npcVoice", coveredBy: "read", note: "one NPC's voiceable view (own knowledge layer only)" },

@@ -405,6 +405,22 @@
           mkEdit("How you came across", _you ? [_you] : []);
         }
       }
+      // 0211 / ORW-649 + ORW-648: the reunion and the story of you and each houseguest. Render-only, textContent, the engine's composed floor lines (the narrator
+      // voices them live in the chat). Names, kinds and weeks only, never an id or a number. Absent => skipped (fail-open).
+      const _reLines = ((unsealed.reunion && unsealed.reunion.threads) || []).filter((t) => t && typeof t.line === "string" && t.line.trim()).map((t) => clean(t.line));
+      if (_reLines.length) {
+        vaultWrap.appendChild(el("h3", "display:block;margin:12px 0 2px;font-size:inherit", "The reunion"));
+        const ul = el("ul", "margin:2px 0;padding-left:18px;opacity:0.9;font-size:12.5px");
+        for (const t of _reLines) ul.appendChild(el("li", "", t));
+        vaultWrap.appendChild(ul);
+      }
+      const _stLines = ((unsealed.yourStories && unsealed.yourStories.stories) || []).filter((t) => t && typeof t.line === "string" && t.line.trim()).map((t) => clean(t.line));
+      if (_stLines.length) {
+        vaultWrap.appendChild(el("h3", "display:block;margin:12px 0 2px;font-size:inherit", "You and them"));
+        const ul = el("ul", "margin:2px 0;padding-left:18px;opacity:0.9;font-size:12.5px");
+        for (const t of _stLines) ul.appendChild(el("li", "", t));
+        vaultWrap.appendChild(ul);
+      }
       // 0183 part d / ORW-566: the groups the season held (alliances and close-pair habits, hidden ones included). Render-only, textContent, the engine's composed floor lines
       // (the narrator voices them live in the chat). Names and weeks only, never an id or a number. Absent => skipped (fail-open).
       const _gl = unsealed.groupLife;

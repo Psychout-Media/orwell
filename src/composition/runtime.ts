@@ -4,6 +4,8 @@ import { LogicalClock } from "../adapters/time/LogicalClock";
 import { FileSaveStore } from "../adapters/engine/FileSaveStore";
 import { SqliteSaveStore } from "../adapters/sqlite/SqliteSaveStore";
 import { FileUserNotorietyStore } from "../adapters/engine/FileUserNotorietyStore";
+import { FileUserHallOfFameStore } from "../adapters/engine/FileUserHallOfFameStore";
+import { FileUserSeasonArchive } from "../adapters/engine/FileUserSeasonArchive";
 import { GameSessionAdapter } from "../adapters/engine/GameSessionAdapter";
 import type { Clock } from "../ports/Clock";
 import type { UserSaveStore, SaveDurability } from "../ports/UserSaveStore";
@@ -121,9 +123,13 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
   // from the per-season saves, so the season-restart rotation never touches it — account reputation
   // survives the cutover). In-memory otherwise (the registry defaults to an in-memory store).
   const notorietyStore = saveStore ? new FileUserNotorietyStore() : undefined;
+  const hallStore = saveStore ? new FileUserHallOfFameStore() : undefined; // 0208 B3: its own subtree, like notoriety
+  const seasonArchive = saveStore ? new FileUserSeasonArchive() : undefined; // 0208 (B1): the same separate-subtree durability
   const registry = new GameSessionRegistry(saveStore, {
+    ...(hallStore ? { hallStore } : {}),
     ...(maxResident !== undefined ? { maxResident } : {}),
     ...(notorietyStore ? { notorietyStore } : {}),
+    ...(seasonArchive ? { seasonArchive } : {}),
   });
   // The house lives ONLY on the player's play-clock: `turnDriven` fires one bounded off-screen tick
   // per player turn (there is no wall-clock watcher — deleted by design). `auxTicksNever` (0108/M0-9):
@@ -210,7 +216,8 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
     clock,
     beginShutdown: () => { shuttingDown = true; },
     isShuttingDown: () => shuttingDown,
-    knownUser: (user) => registry.usernames().includes(user) || (saveStore?.hasSave(user) ?? false),
+    // A user with filed hall-of-fame seasons is known even with no save (0208 B3: the hall lives outside any game, so after a season is reset the player must still be able to read it); an unknown user still mints nothing.
+    knownUser: (user) => registry.usernames().includes(user) || (saveStore?.hasSave(user) ?? false) || (hallStore?.read(user).length ?? 0) > 0,
     resumeSaved,
     warmSaved,
     warmStatus: () => ({ warmed: !warmPending || warmMs !== null, warmMs }),

@@ -42,3 +42,14 @@ target are never told. This uses the house-life campaign's own "ears", now turne
 
 All of this happens off-screen between NPCs (Ryne's question 4, assumed yes; the seam is `CLAIM_RULES.npcToNpc`). A claim
 told to the player is slice 4 (Overseer B). Nothing here reaches the narrator.
+
+## 2026-11-18: a speech step aimed at the player (ORW-611 follow-up, player parity)
+
+A plan step that is a plant, leak, confirm or fish with the player as its listener used to be skipped here (the player is not a houseguest
+agent in the hour view). Now the hour loop remembers what the step says on the approach it raised (the houseguest coming to the player,
+0172), and when they step up and the player's view of that framing is built, the step is told through the same door an NPC listener's telling
+takes: `sayInHouseLife`, `planSpeech`, `tellClaim`, on the same salt (only the listener differs). The player holds it as a told claim with the
+speaker as source; the claim carries its own engine-side truth (a lie told to the player is catchable like any other, 0150), the narrator gets
+the same Vault-free `tellsYou` fields as any told claim (0151: kind, names, a band; never the truth or the intent), and the telling is an open
+approach the player may accept, doubt or ignore. It lands only when the houseguest is with the player (the approach has surfaced). Covered by the
+existing `ORWELL_CLAIMS_TO_PLAYER` flag (`=0` => nothing stashed, nothing told, byte-identical). Test: `tests/unit/aimedSpeech.test.ts`.

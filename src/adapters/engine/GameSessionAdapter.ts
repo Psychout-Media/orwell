@@ -115,6 +115,9 @@ import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { PULL_QUOTE } from "../../engine/pullQuoteConstants";
 import { buildDecisionReveal } from "../../engine/decisionReveal";
 import { buildGroupLife, type GroupLifeRow, type GroupLifeView } from "../../engine/groupLifeRetro";
+import { buildHallRecord, hallView, mergeHall, type HallOfFameView, type HallRecord } from "../../engine/hallOfFame";
+import { buildReunion, buildYourStories, type ReunionView, type StoryGuest, type YourStoriesView } from "../../engine/reunionRetro";
+import { claimText } from "../../engine/rumorMill";
 import { buildYourEdit, sceneMoment, weekMoments, weeksOfLog, type YourEditView } from "../../engine/yourEdit";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
 import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOut";
@@ -124,7 +127,7 @@ import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
 import { DEAL_EXPOSURE, exposureHits, reopened, twistKey, type DealTwist } from "../../engine/dealExposure";
-import { DEAL_PLANS, PLAN_SEMANTICS, buildDealPlanRetro, decidePlan, fakingLean, isBetrayal, ledgerPlanKey, momentDue, planBond, planSourceOf, recordPlan, type DealPlanRetro, type PlanSource, type StoredPlan } from "../../engine/dealPlans";
+import { DEAL_PLANS, planSemantics, buildDealPlanRetro, decidePlan, fakingLean, isBetrayal, ledgerPlanKey, momentDue, planBond, planSourceOf, recordPlan, type DealPlanRetro, type PlanSource, type StoredPlan } from "../../engine/dealPlans";
 import { DEAL_CONSENT, type DealRefusalReason } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
@@ -326,6 +329,8 @@ import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
+import type { ArchivedHouseguest } from "../../engine/seasonMemory";
+import { buildSeasonArchive, carriedNudge, nextSeasonNumber, planReturner, returnerBeliefs, returnerCharacter, seasonsSince, type SeasonNpcRecord } from "../../engine/returnees";
 import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, plantedBy, type EdgeDelta } from "../../engine/beliefStore";
 import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs";
 import { BELIEF_RULES, PERCEIVED_BOND, OWN_VIEW, beliefPull, believedGrievances, blameForTargeting, believedRegard } from "../../engine/beliefDecisions";
@@ -1251,6 +1256,30 @@ export class GameSessionAdapter implements GameSession {
   /** 0208 B2 (Theme B): a returning player's reputation walks in deeper (`ORWELL_SEASON_MEMORY`, default ON; `=0` is today's 0104 alone): the house's heard record of their broken word feeds the carried treachery. */
   private seasonMemoryEnabled = flagDefaultOn("ORWELL_SEASON_MEMORY");
   setSeasonMemoryEnabled(on: boolean): void { this.seasonMemoryEnabled = on; }
+  /** 0208 B3: where this user's filed hall of fame is read from (the registry binds it per user; absent in a bare session = an empty hall). */
+  private hallSource: (() => HallRecord[]) | undefined;
+  setHallOfFameSource(read: (() => HallRecord[]) | undefined): void { this.hallSource = read; }
+  /** 0208 B3: this finished season as a hall record, from public ceremony facts and the unsealed "your edit" (null while live, not played, or the flag is off). `season` is its number in this user's hall. */
+  hallRecordDraft(season: number): HallRecord | null {
+    const out = this.openSetOutcome();
+    const s = this.live;
+    if (!this.seasonMemoryEnabled || !out || !s?.finished || s.playedGame !== true || !this.house) return null;
+    const order = s.evictionOrder ?? [];
+    const runnerUp = s.finalTwo?.find((id) => id !== s.winner);
+    const you = this.buildYourEditView()?.you;
+    return buildHallRecord({
+      season, placement: out.placement, juror: order.slice(-9).includes(PLAYER), castSize: out.castSize,
+      playerName: this.nameOf(PLAYER),
+      ...(s.winner ? { winnerName: this.nameOf(s.winner) } : {}), ...(runnerUp ? { runnerUpName: this.nameOf(runnerUp) } : {}),
+      ...(you ? { you } : {}),
+    });
+  }
+  hallOfFame(): HallOfFameView {
+    if (!this.seasonMemoryEnabled) return hallView([]);
+    const filed = this.hallSource?.() ?? [];
+    const draft = this.hallRecordDraft(filed.length + 1);
+    return hallView(draft ? mergeHall(filed, [draft]) : filed);
+  }
   private reputationOn(): boolean { return this.reputationEnabled && this.live?.playedGame === true && this.bondRecordEnabled; }
   /**
    * 0184: `observer`'s standing for `target` (1 = nothing heard against them), from the observer's OWN belief claims about the target (a wrong they heard of or witnessed done to someone else) and from the
@@ -1715,7 +1744,7 @@ export class GameSessionAdapter implements GameSession {
     const plan = this.dealPlanSource().planOf(ledgerPlanKey(entryId), holder);
     if (!plan) return undefined;
     if (!isBetrayal(plan.kind)) return false;
-    return PLAN_SEMANTICS[plan.kind].carriedOut === "final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
+    return planSemantics(plan.kind).carriedOut === "final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
   }
   /** ORW-586 slice 5: the plan verdict for the open termed promise an assurance row was written from (same promiser, promisee, kind and week); any due betrayal wins. `undefined` = no plan found. */
   private ledgerPlanVerdictFor(a: Assurance, now: "nominations" | "veto" | "vote"): boolean | undefined {
@@ -2349,6 +2378,8 @@ export class GameSessionAdapter implements GameSession {
     // 0188 / ORW-619: a houseguest who set a trap on the player says the canary the next time they are with them - an ordinary confidence to the narrator, no tell.
     const canary = this.sayPendingCanary(id);
     if (canary) { this.claimsToPlayerDecided.set(id, { epoch: this.disclosureEpoch, tells: canary }); return canary; }
+    const aimed = !jury ? this.tellAimedSpeech(id) : undefined;
+    if (aimed) { this.claimsToPlayerDecided.set(id, { epoch: this.disclosureEpoch, tells: aimed }); return aimed; }
     const day = live.dayNumber ?? 0;
     const log = live.claims?.items ?? [];
     const told = log.filter((c) => c.speaker === id && c.listener === PLAYER);
@@ -2370,6 +2401,24 @@ export class GameSessionAdapter implements GameSession {
     if (!tells && !jury) tells = this.plantOnPlayer(id, day, toldTodayBy(told, live.week, day));
     this.claimsToPlayerDecided.set(id, { epoch: this.disclosureEpoch, ...(tells ? { tells } : {}) });
     return tells;
+  }
+  private claimsToPlayerOn(): boolean { return this.claimsToPlayerEnabled && this.npcBeliefsEnabled && this.live?.playedGame === true; }
+  /**
+   * ORW-611 follow-up (0151, 0153) - A SPEECH STEP AIMED AT THE PLAYER. A houseguest whose plan step was a plant/leak/confirm/fish with the player as the listener stepped up to them (the open approach); now that they are with the player the step is TOLD,
+   * by the same `sayInHouseLife` -> `planSpeech` -> `tellClaim` door an NPC listener's telling takes (same fields, same salt; only the listener differs). The claim is held by the player with the speaker as source and carries its own engine-side truth
+   * (a lie is catchable like any other). The narrator gets the same Vault-free `tellsYou` fields as any told claim (kind, names, a band; never the truth or the intent). Consumed once. Nothing said = nothing recorded.
+   */
+  private tellAimedSpeech(id: EntityId): NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined {
+    const live = this.live;
+    const it = live?.interruption;
+    if (!live || !it || it.npc !== id || !it.say || !this.claimsToPlayerOn()) return undefined;
+    const say = it.say;
+    delete it.say;
+    const said = this.sayInHouseLife({ kind: say.kind, actor: id, truthful: say.truthful, ...(say.about ? { about: say.about } : {}) }, PLAYER, say.salt);
+    if (!said) return undefined;
+    const object = said.object ?? (said.kind === "lying-about" ? PLAYER : undefined);
+    const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:aimed-speech-band:${say.salt}:${id}`)).next();
+    return { kind: said.kind, subject: said.subject === PLAYER ? "the player" : this.nameOf(said.subject), ...(object !== undefined ? { object: this.nameOf(object) } : {}), ...(said.label !== undefined ? { label: said.label } : {}), certainty: presentedBand(undefined, roll) };
   }
   /**
    * 0159 / ORW-330 (theme 2, slice 6b) - A LIE PLANTED ON THE PLAYER. When `id` told the player nothing from a held belief, a houseguest with an ACTIVE goal against someone may plant a lie about them
@@ -3886,6 +3935,9 @@ export class GameSessionAdapter implements GameSession {
   private npcTellsEnabled = flagDefaultOn("ORWELL_NPC_TELLS");
   /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default ON; needs the memory ledger): npcVoice hands the narrator what this houseguest remembers about the PLAYER (top 3, plain words) and an engine-decided `bringUp`. */
   private npcMemorySpeechEnabled = flagDefaultOn("ORWELL_NPC_MEMORY_SPEECH");
+  /** ORW-578 (b, ORWELL_SAID_ALOUD_MEMORY, default ON, played games): a reason given aloud at a public act is kept as a witnessed event. Settable for tests. */
+  private saidAloudMemoryEnabled = flagDefaultOn("ORWELL_SAID_ALOUD_MEMORY");
+  setSaidAloudMemoryEnabled(on: boolean): void { this.saidAloudMemoryEnabled = on; }
   /**
    * ORW-343 (ORWELL_MOOD_CUE, default ON; Ryne audit card 17, 2026-11-04: "a qualitative cue on the roster card, no numbers, no hidden cause"): each ACTIVE houseguest's cast card carries the mood word as the PLAYER LAST SAW
    * it: captured whenever the player shares a room with them while they are awake, and kept (not read live) until the player is with them again. A memory of what the player saw, never a live feed through walls (ADR 0003:
@@ -5227,10 +5279,72 @@ export class GameSessionAdapter implements GameSession {
       player: PLAYER, cast: this.house.npcs.map((n) => n.id).sort(), nameOf: (id) => this.nameOf(id),
       digests: s.weekDigests ?? [], voteRecord: s.voteRecord ?? [], calledPawn: (w, e) => this.calledPawn(w, e),
       events: events.map((e) => ({ type: e.type, initiator: e.initiator, witnessSet: e.witnessSet, hidden: e.hidden, content: e.content, ...(e.houseLife?.seenBy ? { seenBy: e.houseLife.seenBy } : {}) })),
-      eventWeeks: weeksOfLog(events, PULL_QUOTE.evictionCue, maxWeek),
+      eventWeeks: this.logWeeks(events, maxWeek),
       deals: this.deals.all, winner: s.winner ?? null,
       ...(finale?.votes ? { jury: { finalists: finale.finalists, votes: Object.values(finale.votes).map((votedFor) => ({ votedFor })) } } : {}),
     });
+  }
+  /** 0211 / ORW-649: the reunion on finale night (`ORWELL_REUNION`, default ON; `=0` = none). Played, finished games only; the caller holds the crown gate. Read-only: nothing is recorded or folded, no rng. */
+  private reunionEnabled = flagDefaultOn("ORWELL_REUNION");
+  setReunionEnabled(on: boolean): void { this.reunionEnabled = on; }
+  /** The reconstructed week of every log position (one place reads the eviction cue). */
+  private logWeeks(events: Parameters<typeof weeksOfLog>[0], maxWeek: number): number[] { return weeksOfLog(events, PULL_QUOTE.evictionCue, maxWeek); }
+  private buildReunionView(): ReunionView | undefined {
+    const s = this.live;
+    if (!this.reunionEnabled || !s?.finished || s.playedGame !== true || !this.house) return undefined;
+    const grudges = Object.entries(s.grudges ?? {}).map(([k, row]) => { const [holder, at] = k.split("|") as [EntityId, EntityId]; return { holder, at, size: row.peak, kind: row.kind }; })
+      .sort((a, b) => `${a.holder}|${a.at}`.localeCompare(`${b.holder}|${b.at}`));
+    const caught = (listener: EntityId, speaker: EntityId): boolean => listener !== PLAYER && claimsOf(s.beliefs, listener).some((c) => c.kind === "lied-to-me" && c.subject === speaker && !c.refuted && !!c.value);
+    const claims = (s.claims?.items ?? []).map((c) => ({
+      id: c.id, speaker: c.speaker, listener: c.listener, isTrue: c.isTrue, caught: caught(c.listener, c.speaker), week: c.week,
+      said: claimText(c.kind, this.nameOf(c.subject), c.object ? this.nameOf(c.object) : undefined, c.label),
+    }));
+    const store = s.groupIdentity ?? {};
+    const history = this.alliances.history();
+    const groups = [...new Set(history.map((h) => h.allianceId))].filter((id) => history.some((h) => h.allianceId === id && h.kind === "formed")).map((id) => {
+      const mine = history.filter((h) => h.allianceId === id);
+      const e = store[id];
+      const members = [...new Set(mine.flatMap((h) => [...h.members, ...(h.who ? [h.who] : [])]))].sort();
+      const hidden = !members.includes(PLAYER) && !mine.some((h) => h.playerKnew);
+      const name = e?.sealed?.name ?? e?.words?.name ?? this.alliances.byId(id)?.name ?? mine[mine.length - 1]!.name;
+      const fromWeek = e?.week ?? 1;
+      const untilWeek = this.alliances.byId(id) ? undefined : (e?.endedWeek ?? s.week);
+      return { id, members, hiddenFrom: hidden ? [PLAYER] : [], weeks: Math.max(1, (untilWeek ?? s.week) - fromWeek + 1), name: this.retroScrub(name), fromWeek, ...(untilWeek !== undefined ? { untilWeek } : {}) };
+    });
+    return buildReunion({ finished: true, nameOf: (id) => this.nameOf(id), grudges, claims, groups });
+  }
+  /** 0211 / ORW-648: the story of you and them (`ORWELL_YOUR_STORY`, default ON; `=0` = no samples, no stories). Played, finished games only; the caller holds the crown gate. */
+  private yourStoryEnabled = flagDefaultOn("ORWELL_YOUR_STORY");
+  setYourStoryEnabled(on: boolean): void { this.yourStoryEnabled = on; }
+  /** ORW-648: one sample a week (the latest of the week) of each living houseguest's OWN view of the player. A pure read (`peek` creates no edge), no rng, played games only. */
+  private yourStoryTick(): void {
+    const s = this.live;
+    if (!this.yourStoryEnabled || !s || s.playedGame !== true || s.finished || !this.house) return;
+    const store = (s.viewOfPlayer ??= {});
+    const two = (x: number): number => Math.round(x * 100) / 100;
+    for (const id of s.active) {
+      if (id === PLAYER) continue;
+      const e = this.rel.peek(id, PLAYER);
+      const row = (store[id] ??= []);
+      const point = { week: s.week, trust: two(e.trust), affinity: two(e.affinity) };
+      const last = row[row.length - 1];
+      if (last && last.week === s.week) row[row.length - 1] = point; else row.push(point);
+    }
+  }
+  private buildYourStoriesView(): YourStoriesView | undefined {
+    const s = this.live;
+    if (!this.yourStoryEnabled || !s?.finished || s.playedGame !== true || !this.house) return undefined;
+    const events = this.record?.events() ?? [];
+    const maxWeek = (s.weekDigests ?? []).reduce((m, d) => Math.max(m, d.week), 1);
+    const weeks = this.logWeeks(events, maxWeek);
+    const finalists = new Set<EntityId>(s.finale?.finalists ?? s.finalTwo ?? []);
+    const guests: StoryGuest[] = this.house.npcs.map((n) => n.id).sort().map((id) => {
+      const scenes = events.flatMap((e, i) => (!e.hidden && e.type !== "house-event" && (e.witnessSet.includes(id) || e.initiator === id) && (e.witnessSet.includes(PLAYER) || e.initiator === PLAYER)) ? [{ week: weeks[i]!, kind: e.type }] : []);
+      const out = (s.weekDigests ?? []).find((d) => d.evictee === id);
+      const votedFor = s.finale?.votes?.[id];
+      return { id, points: s.viewOfPlayer?.[id] ?? [], scenes, ...(out ? { evictedWeek: out.week } : {}), ...(votedFor ? { votedFor } : {}), ...(finalists.has(id) ? { finalist: true } : {}) };
+    });
+    return buildYourStories({ finished: true, nameOf: (id) => this.nameOf(id), winner: s.winner ?? null, guests });
   }
   /** ORW-566 part d (0183): every alliance and close-pair habit the season held, hidden ones included (the retrospective is the sanctioned unsealing; the caller holds the crown gate). Names only. */
   private buildGroupLifeView(): GroupLifeView | undefined {
@@ -5298,7 +5412,9 @@ export class GameSessionAdapter implements GameSession {
     const groupLife = this.buildGroupLifeView(); // 0183 part d: the sanctioned unsealing of hidden groups' names and words; same gate; facts only
     const decisionReveal = this.live.playedGame === true ? buildDecisionReveal({ records: this.live.statedReasons, voteRecord: this.live.voteRecord, nameOf: (id) => this.nameOf(id) }) : undefined; // ORW-656: said vs real reason kinds, words only; same crown gate
     const socialMap = this.socialMapRetro(); // 0184 part 2c: after the crown only
-    return { ...(socialMap ? { socialMap } : {}), ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(decisionReveal ? { decisionReveal } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
+    const reunion = this.buildReunionView(); // 0211 / ORW-649: after the crown only (the same gate); read-only facts
+    const yourStories = this.buildYourStoriesView(); // 0211 / ORW-648: after the crown only (the same gate); read-only facts
+    return { ...(reunion ? { reunion } : {}), ...(yourStories ? { yourStories } : {}), ...(socialMap ? { socialMap } : {}), ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(decisionReveal ? { decisionReveal } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
@@ -7807,6 +7923,7 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-610: the player's own recorded talk with these houseguests (called by the recorded-interaction path). Counts when the sitting HOH was in it and it was pitch-like. Played games only; flag-gated. */
   notePlayerTalk(withIds: readonly EntityId[], kind: string | undefined, named: EntityId | undefined): void {
     const s = this.live;
+    for (const id of withIds) this.answerAimedFrom(id); // ORW-611: talking to a houseguest who stepped up to the player answers it
     if (!this.hohCourtOn() || !s?.hoh || s.hoh === PLAYER || !withIds.includes(s.hoh) || !isPitchLikeTalk(kind, named)) return;
     s.playerPitch = foldPlayerTalk(s.playerPitch, s.week, s.hoh, named);
   }
@@ -9621,6 +9738,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   createCharacter(req: CreateCharacterReq): GameStateView {
+    if (req.start !== undefined && req.start !== "new" && req.start !== "return") throw new EngineRefusal(`invalid args for createCharacter: "start" must be 'new' or 'return' when present`);
     // 0056 — "keep the existing character": on a CONFIRMED restart with `keepCharacter`, capture the
     // prior player's AUTHORED fields HERE (the only point the prior season still exists, before any
     // reset) and fold them under the explicit req. The static CHARACTER is seed-independent, so re-
@@ -9647,7 +9765,8 @@ export class GameSessionAdapter implements GameSession {
       // 0104 (R4) — signal a SAME-CHARACTER return so the registry folds this user's notoriety into the
       // new cast's day-one reads. Derived from `keepCharacter` here because the line above strips it to
       // false (the fresh session has no prior house to carry from, so the flag would otherwise be lost).
-      ...(carried ? { carriesNotoriety: true } : {}),
+      // 0208: an explicit `start` is the player's own choice and wins ("return" brings reputation + a possible returner even with a new character; "new" is a clean slate even when keeping the character).
+      ...((req.start !== undefined ? req.start === "return" : !!carried) ? { carriesNotoriety: true } : {}),
     };
     // Non-degradation at its single most destructive point (B36/audit A2): an already-started game is
     // NEVER silently wiped. Without an explicit `confirmRestart`, a second createCharacter (a stray GM
@@ -9922,7 +10041,9 @@ export class GameSessionAdapter implements GameSession {
     // Seed first impressions so NPC decisions are differentiated from move-in (without this,
     // empty relationships make every HOH nominate the same first-in-roster houseguests). These
     // are starting beliefs; the consequence fold (0023) evolves them as the player acts.
+    this.castReturner(seed); // 0208 (B1): a RETURN may seat a real past houseguest (before first impressions, so their hidden edge starts from the move-in read)
     this.seedFirstImpressions(seed);
+    this.foldReturnerCarry();
     // 0059 — born with a few HIDDEN ties: seed the sparse pre-game ties + showmances (0–2 each, often
     // none), fold their small standing affinity bias on top of the move-in edges, and SEAL them into the
     // Vault (engine-only; invisible to player AND admin — they surface only organically). Done AFTER
@@ -12566,9 +12687,11 @@ export class GameSessionAdapter implements GameSession {
       const awake = this.awakeNow();
       const ids = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
       const hit = this.desireApproach(ids);
-      if (hit) { this.noteApproach(hit.npc, hit.desire, hit.capped);
+      if (hit) { const aimedSay = this.live.goalApproaches?.[hit.npc]?.say; this.noteApproach(hit.npc, hit.desire, hit.capped);
+        if (!hit.capped) this.markAimedShown(hit.npc);
         if (hit.capped && this.live.playedGame === true) this.live.approachHeld = true; // ORW-443: narration-only - the view tells the narrator nobody new steps up this turn
         if (!hit.capped) { this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
+          if (aimedSay && this.claimsToPlayerOn()) this.live.interruption.say = aimedSay; // ORW-611 follow-up: told when the view for this framing is built (the houseguest is with the player)
           const said = this.volunteerOrientation(hit.npc); if (said) this.live.interruption.tells = said; } }
     }
   }
@@ -12658,6 +12781,67 @@ export class GameSessionAdapter implements GameSession {
    * open-set summary, never a Vault read.
    */
   setNotoriety(summary: NotorietySummary | null): void { this.notoriety = summary; }
+
+  // ─── 0208 / ORW-663 (Theme B, B1) - RETURNING HOUSEGUESTS ─────────────────────────────────────────
+  /** The returning player's own archive of past-season houseguests, set ONLY on a return (never persisted here: it lives in the per-user archive). Null => no returner is ever cast (a first season, a new start, headless: byte-identical). */
+  private returnArchive: ArchivedHouseguest[] | null = null;
+  setReturnArchive(archive: readonly ArchivedHouseguest[] | null): void { this.returnArchive = archive && archive.length > 0 ? [...archive] : null; }
+
+  /**
+   * The finished, PLAYED season's houseguests as archive entries (engine-only; the registry appends them at the season cutover). Null until the season is over,
+   * for a headless (unplayed) run, or with the flag off. The persona is the static CHARACTER minus its hidden layer; the end feelings and the claims about the
+   * player are the hidden-layer reads that stay in the engine-only archive.
+   */
+  archiveFinishedSeason(season: number): ArchivedHouseguest[] | null {
+    if (!this.seasonMemoryEnabled || !this.house || !this.live?.finished || this.live.playedGame !== true) return null;
+    const order = this.live.evictionOrder ?? [];
+    const castSize = 1 + this.house.npcs.length;
+    const jurors = new Set(order.slice(-9));
+    const records: SeasonNpcRecord[] = this.house.npcs.map((n) => {
+      const idx = order.indexOf(n.id);
+      const placement = this.live!.winner === n.id ? 1 : this.live!.finalTwo?.includes(n.id) ? 2 : idx >= 0 ? castSize - idx : castSize;
+      const e = this.rel.edge(n.id, PLAYER);
+      return {
+        id: n.id, name: n.name, character: n.character, placement, juror: jurors.has(n.id) || placement <= 2,
+        edge: { trust: e.trust, affinity: e.affinity, threat: e.threat },
+        beliefsAboutPlayer: (this.live!.beliefs?.[n.id] ?? []).filter((b) => b.subject === PLAYER),
+      };
+    });
+    return buildSeasonArchive(season, records);
+  }
+
+  /** B1: the returner this cast carries (if any): applied after the cast is whole, before first impressions. Keyed rolls only (no shared draw). */
+  private castReturner(seed: number): void {
+    const archive = this.returnArchive;
+    this.returnArchive = null; // consumed: a later restart re-reads the per-user archive
+    if (!archive || !this.seasonMemoryEnabled || !this.house || !this.live) return;
+    const plan = planReturner(seed, "return", archive, this.house.npcs.map((n) => n.name), this.house.player.name ?? "", this.house.npcs.map((n) => n.id));
+    if (!plan) return;
+    const slot = this.house.npcs.find((n) => n.id === plan.seat);
+    if (!slot) return;
+    slot.name = plan.entry.name!;
+    slot.character = returnerCharacter(plan.entry, slot.character);
+    // The hidden orientation of the slot belongs to the person who is no longer there; a public out orientation (carried) stands on its own.
+    if (slot.character.outOrientation !== undefined) delete this.privateOrientations[slot.id];
+    const current = nextSeasonNumber(archive);
+    this.pendingReturn = { id: slot.id, entry: plan.entry, current };
+    (this.live.returners ??= {})[slot.id] = { season: plan.entry.season, seasonsAgo: seasonsSince(plan.entry, current), placement: plan.entry.placement, juror: plan.entry.juror };
+  }
+
+  /** B1: the carried feeling (softened by the seasons elapsed) folded into the returner's hidden edge toward the player, and their own account into their beliefs. Hidden layer only; no number ever crosses. */
+  private foldReturnerCarry(): void {
+    const p = this.pendingReturn;
+    this.pendingReturn = null;
+    if (!p || !this.live) return;
+    const nudge = carriedNudge(p.entry, p.current);
+    const e = this.rel.edge(p.id, PLAYER);
+    e.trust = clamp01(e.trust + nudge.trust);
+    e.affinity = clamp01(e.affinity + nudge.affinity);
+    e.threat = clamp01(e.threat + nudge.threat);
+    if (this.npcBeliefsEnabled) for (const b of returnerBeliefs(p.id, PLAYER, p.entry, p.current)) recordClaim((this.live.beliefs ??= {}), b);
+  }
+  private pendingReturn: { id: EntityId; entry: ArchivedHouseguest; current: number } | null = null;
+
 
   /**
    * 0104 — the (Vault-free) notoriety the narrator may VOICE as a returning-cast callback (the
@@ -13008,6 +13192,7 @@ export class GameSessionAdapter implements GameSession {
    */
   campaignTick(): void {
     if (!this.campaignsEnabled || !this.house) return;
+    this.yourStoryTick(); // ORW-648: a read-only weekly sample (no rng, no edge created)
     this.syncTargetsMeClaims(); // ORW-581: the threat reads below see the beliefs as of this tick, written here rather than inside the reads
     this.campaignTickCount += 1;
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:campaigns:${this.campaignTickCount}`));
@@ -14246,6 +14431,49 @@ export class GameSessionAdapter implements GameSession {
    * the 0093 strength / refusal floor / squeeze backlash (a refused blunt demand costs more; a sneaky play can be noticed and backfires, or works and leaves a quiet debt). Against the PLAYER
    * it is an open approach the player answers (a deal with that houseguest) or ignores; the engine never acts or speaks for the player. Own keyed side streams, never the shared rng.
    */
+  /** 0172 / ORW-611: a goal step aimed at the player is recorded, answerable, and a hostile one ignored costs. ON unless `ORWELL_PLAYER_AIMED=0`. Played games only; OFF => nothing recorded => byte-identical. */
+  private playerAimedEnabled = flagDefaultOn("ORWELL_PLAYER_AIMED");
+  setPlayerAimedEnabled(on: boolean): void { this.playerAimedEnabled = on; }
+  private noteAimedStep(p: PlannedAction, hostile: boolean, day: number): void {
+    const s = this.live;
+    if (!this.playerAimedEnabled || !s || s.playedGame !== true || !p.goalId) return;
+    const list = (s.aimedAtPlayer ??= []);
+    if (list.some((r) => r.actor === p.actor && r.goalId === p.goalId && (r.status === "open" || r.status === "shown"))) return;
+    list.push({ id: `aim:${p.actor}:${p.goalId}:${day}:${Math.floor(this.absHour())}`, actor: p.actor, goalId: p.goalId, ...(p.goalKind ? { goalKind: p.goalKind } : {}), step: p.kind, hostile, day, hour: this.absHour(), status: "open" });
+  }
+  private markAimedShown(npc: EntityId): void {
+    const r = this.live?.aimedAtPlayer?.find((x) => x.actor === npc && x.status === "open");
+    if (r) r.status = "shown";
+  }
+  private answerAimedFrom(npc: EntityId): void {
+    if (!this.playerAimedEnabled) return;
+    for (const r of this.live?.aimedAtPlayer ?? []) if (r.actor === npc && (r.status === "open" || r.status === "shown")) r.status = "answered";
+  }
+  /**
+   * 0172 / ORW-611: once a day. A step that surfaced as an approach is written down as a scene the player was present for (a witnessed event, never hidden); a step the player never answered closes: a hostile one costs that houseguest's
+   * read of the player (the squeeze shape, bounded, on its own keyed stream), a non-hostile one just fades. Nothing is ever removed.
+   */
+  aimedAtPlayerTick(events: EventStore): void {
+    const s = this.live;
+    if (!this.playerAimedEnabled || !s || s.playedGame !== true || !s.aimedAtPlayer?.length) return;
+    const day = s.dayNumber ?? s.week;
+    for (const r of s.aimedAtPlayer) {
+      if (r.status === "shown" && r.eventId === undefined) {
+        const content = `${this.nameOf(r.actor)} steps up to ${this.nameOf(PLAYER)}${r.hostile ? " to have it out" : " with a move of their own"}`;
+        events.record({ id: `${r.id}:scene`, ts: events.count(), type: r.hostile ? "conflict" : "strategy", initiator: r.actor, witnessSet: [r.actor, PLAYER], hidden: false, content, baseContent: content });
+        r.eventId = `${r.id}:scene`;
+      }
+    }
+    if (s.aimedAtPlayerDay === day) return;
+    s.aimedAtPlayerDay = day;
+    for (const r of s.aimedAtPlayer) {
+      if ((r.status !== "open" && r.status !== "shown") || day - r.day < LEVERAGE_PLAY.answerDays) continue;
+      if (r.hostile && r.status === "shown") {
+        r.status = "ignored";
+        this.rel.applyImpactDirected(r.actor, PLAYER, scaleImpact(LEVERAGE.squeezeBacklash, LEVERAGE_PLAY.ignoredMult), new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:aimed-at-player:ignored:${r.id}`)));
+      } else r.status = "lapsed";
+    }
+  }
   private leveragePlaysEnabled = flagDefaultOn("ORWELL_LEVERAGE_PLAYS");
   setLeveragePlaysEnabled(on: boolean): void { this.leveragePlaysEnabled = on; }
   leveragePlayTick(knowledge: KnowledgeService): void {
@@ -14946,12 +15174,18 @@ export class GameSessionAdapter implements GameSession {
         if (p.goalId && s.playedGame === true) this.noteGoalServed(p.actor, p.goalId); // ORW-571: a step made for the goal is progress for tonight's mull
         if (p.goalId && (p.with.includes(house.player.id) || hostileAtPlayer(p)) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: hostileAtPlayer(p) ? "probe" : desireForAction(p.kind), goalId: p.goalId, hour: this.absHour() };
+          this.noteAimedStep(p, hostileAtPlayer(p), day); // ORW-611: the step aimed at the player is recorded, not only raised
         } else if (p.nightOwl && p.with.includes(house.player.id) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: "night-owl", hour: this.absHour() }; // ORW-620: an awake houseguest comes to the player who is still up, through the desire clock's own path and guards
         } else if (p.drawn && p.with.includes(house.player.id) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: "attraction", hour: this.absHour() }; // 0207 A1: drawn to the player, they come to them through the desire clock's own path and guards (what the player does about it is theirs)
         } else if (p.court && p.with.includes(house.player.id) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: "court", hour: this.absHour() }; // 0173: the player is the HOH: the court comes to them, through the desire clock's own path and guards
+        }
+        // ORW-611 follow-up (0151): a speech step aimed at the player is told through the same door as any telling, but only once the houseguest actually steps up to the player (see `tellAimedSpeech`); stash what it says (the same salt an NPC listener's telling rolls on).
+        if (partner === house.player.id && speechActionOf(p.kind) && this.claimsToPlayerOn()) {
+          const g = s.goalApproaches?.[p.actor];
+          if (g && g.hour === this.absHour()) g.say = { kind: p.kind, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), salt: `${seed}:speech:${day}:${hour}${repeat > 0 ? `r${repeat}` : ""}` };
         }
         if (partner && p.about) this.foldThirdPerson(p, partner, day, hour); // ORW-577
         let type = p.fold ?? HOUSE_LIFE_ACTIONS[p.kind].fold;
@@ -15476,23 +15710,49 @@ export class GameSessionAdapter implements GameSession {
     return first ?? fn[0];
   }
 
+  /**
+   * ORW-578 (b): a reason an NPC gave aloud at a public act stays in the house's shared memory. When the act is on the board (the same window the narrator may voice it in), the
+   * reason is recorded ONCE as a witnessed event: the speaker and everyone then in the house heard it, the player among them, so it is never hidden. The event holds only the SAID kind
+   * and the subject, composed in words from the closed kind and the names; the real reason (goal, terms, candor) never leaves `live.statedReasons`, and the record keeps the event's id
+   * (`saidEventId`) so a later recall can set what was said beside what drove it. No rng, no fold, no relationship change: a record only. A played game with the flag on; the player must have been in the house.
+   */
+  private recordSaidAloud(): void {
+    const s = this.live;
+    if (!this.saidAloudMemoryEnabled || !s || s.playedGame !== true || !this.house || !this.onPlayerEvent || !s.statedReasons?.length) return;
+    const out = new Set(s.evictionOrder);
+    for (const r of s.statedReasons) {
+      if (r.saidEventId !== undefined || !r.public) continue;
+      const evicted = (r.decision === "vote" || r.decision === "final-hoh-evict") && out.has(r.real.choice); // the result rolled the week in the same step: the eviction itself is the carry
+      if (!evicted && !(r.week === s.week && this.statedReasonCarried(s, r))) continue;
+      const v = voiceableReason(r.stated);
+      const heard = [...new Set([r.decider, v.about, ...this.livingIds()])];
+      if (!heard.includes(PLAYER)) continue; // a player who was no longer in the house did not hear it, so it is not their witnessed memory
+      const words = (slug: string): string => slug.replace(/-/g, " ");
+      const id = this.onPlayerEvent(`${this.nameOf(r.decider)} gave a reason aloud (${words(r.decision)}, about ${this.nameOf(v.about)}): ${words(v.kind)} (week ${weekWords(r.week)})`, heard, "said-aloud");
+      if (id !== undefined) r.saidEventId = id;
+    }
+  }
+
+  /** Whether a stated reason's public act is on the board right now (the voiceable window). Shared by the narrator's view and the said-aloud memory sweep. */
+  private statedReasonCarried(s: LiveSeasonState, r: StatedReasonRecord): boolean {
+    const c = r.real.choice;
+    switch (r.decision) {
+      case "nominate": return (s.nominees as readonly EntityId[] | undefined)?.includes(c) === true;
+      case "replacement": return s.replacement === c;
+      case "veto": return s.saved === c;
+      case "veto-hold": return !s.vetoUsed && (s.beat === "eviction" || s.beat === "final-eviction"); // ORW-578 part 2b: once the ceremony has passed with the veto unused
+      case "hc-pick": return s.vetoField?.includes(c) === true; // ORW-578 part 3: the pick is public once the draw is
+      case "final-hoh-evict": return s.evictee === c;
+      case "deal-renegotiate": return s.dealOffer?.from === r.decider && s.dealOffer.replacesDealId !== undefined;
+      case "vote": return s.evictee === c;
+      default: return false;
+    }
+  }
+
   private statedReasonsFor(id: EntityId): StatedReasonView[] {
     const s = this.live;
     if (!s || s.playedGame !== true || !s.statedReasons?.length) return [];
-    const carried = (r: StatedReasonRecord): boolean => {
-      const c = r.real.choice;
-      switch (r.decision) {
-        case "nominate": return (s.nominees as readonly EntityId[] | undefined)?.includes(c) === true;
-        case "replacement": return s.replacement === c;
-        case "veto": return s.saved === c;
-        case "veto-hold": return !s.vetoUsed && (s.beat === "eviction" || s.beat === "final-eviction"); // ORW-578 part 2b: once the ceremony has passed with the veto unused
-        case "hc-pick": return s.vetoField?.includes(c) === true; // ORW-578 part 3: the pick is public once the draw is
-        case "final-hoh-evict": return s.evictee === c;
-        case "deal-renegotiate": return s.dealOffer?.from === r.decider && s.dealOffer.replacesDealId !== undefined;
-        case "vote": return s.evictee === c;
-        default: return false;
-      }
-    };
+    const carried = (r: StatedReasonRecord): boolean => this.statedReasonCarried(s, r);
     return s.statedReasons
       .filter((r) => r.week === s.week && r.public && r.decider === id && carried(r))
       .map((r) => { const v = voiceableReason(r.stated); return { decision: r.decision, kind: v.kind, about: { id: v.about, name: this.nameOf(v.about) } }; });
@@ -16836,7 +17096,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-382 (Ryne, playtest 11-15: no day-in-review when he went to bed on Day 1): the premiere night and any quiet day have no ceremony/deal, so the review was EMPTY and the narrator rightly skipped it. The scenes the player
     // witnessed themselves (never hidden, in their own witness set) are their own knowledge - the review is built from those too. Capped, trimmed, no rng.
     const yourDay = allEvents.slice(evFrom)
-      .filter((e) => !e.hidden && !isHighlight(e) && e.type !== "surfacing" && e.type !== "gossip" && e.type !== "diary-room" && !(e.type === "diary-call" && e.initiator === PLAYER) && e.witnessSet.includes(PLAYER) && e.content.trim().length > 0 && !e.content.startsWith("surfaced to player via ")) // ORW-385: the player's own Diary Room is out-of-character and never enters "your day" (0013, 0102). review of #2664/#2672: by kind, never by matching text (a separate scene with identical words stays); bookkeeping kinds never ride // the provenance bookkeeping event is not a scene (live check: it reached the model raw)
+      .filter((e) => !e.hidden && !isHighlight(e) && e.type !== "surfacing" && e.type !== "gossip" && e.type !== "said-aloud" && e.type !== "diary-room" && !(e.type === "diary-call" && e.initiator === PLAYER) && e.witnessSet.includes(PLAYER) && e.content.trim().length > 0 && !e.content.startsWith("surfaced to player via ")) // ORW-385: the player's own Diary Room is out-of-character and never enters "your day" (0013, 0102). review of #2664/#2672: by kind, never by matching text (a separate scene with identical words stays); bookkeeping kinds never ride // the provenance bookkeeping event is not a scene (live check: it reached the model raw)
       .map((e) => e.content.trim().slice(0, 200)).slice(-5);
     const knownAll = this.playerKnowledgeReader?.() ?? [];
     const knFrom = Math.min(s.dailyRecapKnowledgeCursor ?? 0, knownAll.length);
@@ -17472,6 +17732,7 @@ export class GameSessionAdapter implements GameSession {
     // and folds the squeeze (a wary partner resents it / a persuadable one is bound tighter). The threat
     // persists while the deal is open — it is NOT spent here (only `exposeSecret` spends it). Absent ⇒
     // no extra rng, no fold — byte-identical to 0039.
+    this.answerAimedFrom(target); // ORW-611
     if (this.leveragePlaysEnabled) this.answerLeverageFrom(target); // 0202: meeting a houseguest's approach with a deal answers it
     if (req.leverage) this.applyDealLeverage(req.leverage, target, deal.id);
     // 0099 — OPTIONAL traded secret: a secret about a THIRD party handed to the partner as consideration
@@ -18694,6 +18955,7 @@ export class GameSessionAdapter implements GameSession {
     // step and a T0-2 auto-advanced beat chained off `submitDecision` (both call `commit`), so the two
     // paths announce identically — the whole point of the fix.
     this.recordAnnouncements(ev);
+    this.recordSaidAloud(); // ORW-578 (b): a reason said aloud at a public act is kept as a witnessed event before the week can roll it away
     this.syncProjection();
     this.prunePresence(); // the just-evicted occupy no room (0049)
     this.persist();
@@ -19554,7 +19816,7 @@ export class GameSessionAdapter implements GameSession {
       && (d.condition.protect === other || d.condition.promisors.length === 2) // a mutual deal protects each party from the other
       && (() => {
         const p = this.twoFacedPlan(d.id, holder);
-        if (!p || PLAN_SEMANTICS[p.kind].carriedOut !== "vote" || !p.moment || !momentDue(p.moment, s.week, "vote")) return false;
+        if (!p || planSemantics(p.kind).carriedOut !== "vote" || !p.moment || !momentDue(p.moment, s.week, "vote")) return false;
         const all = this.deals.all, at = all.indexOf(d);
         return !all.some((n, i) => i > at && pair(n)); // recommitted since (made after this deal, same week or later): the newer deal stands
       })());
@@ -19624,7 +19886,7 @@ export class GameSessionAdapter implements GameSession {
         }
         const partner = deal.parties.find((p) => p !== holder);
         if (partner !== undefined && gone.has(partner)) { plan.outcome = "overtaken"; continue; } // ORW-597: never against an evicted partner (nothing to betray in the house)
-        const how = PLAN_SEMANTICS[plan.kind].carriedOut;
+        const how = planSemantics(plan.kind).carriedOut;
         if (how === "never" || how === "vote" || gone.has(holder)) continue; // honest; or a flip, which the vote itself carries out
         const due = how === "final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
         if (!due) continue;
@@ -21938,6 +22200,10 @@ export class GameSessionAdapter implements GameSession {
       // leave the engine. Vault-free by construction — open-set string[] only.
       ...((this.phase === "premiere" || (this.phase === "social" && this.week === 1)) && this.notoriety?.legendBeats.length
         ? { notorietyLegend: [...this.notoriety.legendBeats] }
+        : {}),
+      // 0208 / ORW-663 (B1): a returner is voiced as a fact (name, seasons ago, public finish) on premiere + week-1 social. Never their feelings or claims.
+      ...((this.phase === "premiere" || (this.phase === "social" && this.week === 1)) && this.live?.returners && this.house
+        ? { returningHouseguests: Object.entries(this.live.returners).map(([id, r]) => ({ name: this.nameOf(id as EntityId), seasonsAgo: r.seasonsAgo, placement: r.placement, juror: r.juror })) }
         : {}),
       // 0013 §5 / PG-14 / PS-4: the producer's Diary-Room invitation at the current dramatic beat.
       ...(drPrompt.invite ? { diaryRoomInvite: drPrompt as { invite: true; reason?: string } } : {}),

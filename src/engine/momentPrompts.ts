@@ -1066,6 +1066,16 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "stood, how it ended and whether the player knew, in fresh wording each time, treating `line` as a bare fallback. " +
     "Say plainly what the player never knew. Add no member, word, place or week that is not in the facts, and show " +
     "no number or id. " +
+    // ORW-649 / ORW-648 (0211): the rules for `reunion` and `yourStories` ride this fragment too.
+    "When seasonRetrospective carries `reunion`, host it as a scene from those threads: each confrontation, lie or alliance " +
+    "is aired between the people named, in their own voices, in fresh wording each time, treating `line` as a bare fallback. " +
+    "Where a thread has the player in it (`youAreIn`, or `youAre`), stop and ask the player what they say, and wait: " +
+    "the player answers in their own words and you never speak or decide for them. Add nothing the facts do not hold, " +
+    "and show no number or id. " +
+    "When seasonRetrospective carries `yourStories`, tell the player the story of them and each houseguest in a few " +
+    "plain sentences from that houseguest's own facts: how it began, the turning points, how it ended, and whether their " +
+    "view of the player warmed, cooled, turned or held steady. Write it fresh each time, treating `line` as a bare " +
+    "fallback; be honest, never flatter, and show no number or id. " +
     // ORW-656: `decisionReveal` rides this fragment too.
     "When seasonRetrospective carries `decisionReveal`, those are the decisions the houseguests made and what they said " +
     "drove each against what really did: where `mismatch` is true, say plainly that they gave one reason and acted on " +
@@ -1513,6 +1523,8 @@ export function renderGameContext(view: GameStateView): string {
     ...((view.notorietyLegend ?? []).length
       ? [`- RETURNING CAST: the house has heard things — ${view.notorietyLegend!.join("; ")}.`]
       : []),
+    // 0208 / ORW-663 (B1): a returner is a fact to voice (who, how long ago, how that season ended for them), never a script and never their feelings or claims.
+    ...((view.returningHouseguests ?? []).map((r) => `- RETURNING HOUSEGUEST: ${r.name} played a past season with you, ${r.seasonsAgo} season${r.seasonsAgo === 1 ? "" : "s"} ago, and finished ${r.placement}${r.juror ? " (on the jury)" : ""}. You are meeting again; voice the shared history in kind as it comes up.`)),
     // 0059/L40 — the ONLY romantic pairs the narrator may voice as a showmance: the public (visible)
     // ones the engine has surfaced. Everything else is friendship/strategy (the SHOWMANCES ARE RARE pin).
     ...((view.showmances ?? []).length

@@ -603,6 +603,11 @@ export interface GameStateView {
    * Vault-free by construction — open-set flavor strings only, never numbers or hidden state.
    */
   notorietyLegend?: string[];
+  /**
+   * 0208 / ORW-663 (B1): a houseguest in this cast played a past season WITH this player. Present on premiere and week-1 social only, and only when a
+   * RETURN cast one. Public facts only: the name, how many seasons ago, and the public finish. No feeling, claim or hidden state ever rides here.
+   */
+  returningHouseguests?: Array<{ name: string; seasonsAgo: number; placement: number; juror: boolean }>;
   /** 0148: the one-shot "while you slept" read the narrator gets on the first prompt after a nap (Vault-free: where the player is, who is in the room, who came and went, the time of day). Absent otherwise. */
   whileYouSlept?: string;
   /** 0148: a nap is open to the player right now (played game, clock running, morning or afternoon, no event or decision in the way). Only then does the narrator get the NAP line, so the fixed prompt pays nothing for it. Absent otherwise. */
@@ -1149,6 +1154,12 @@ export interface CreateCharacterReq {
    * a no-op on a fresh (no prior game) creation. Absent/false ⇒ a normal fresh creation (re-run casting).
    */
   keepCharacter?: boolean;
+  /**
+   * 0208 / ORW-663: how the player starts a later season, THEIR choice. "new" = a clean slate (no reputation, no returning houseguest); "return" = their
+   * reputation walks in and a houseguest from a season they played may be cast back. Absent = today's behaviour (a same-character `keepCharacter` restart returns,
+   * anything else is new). Only meaningful with `confirmRestart`; any other value is refused. Returns nothing hidden.
+   */
+  start?: "new" | "return";
   /**
    * Cross-season name memory (NAME-1 / #547) — names used by PRIOR seasons in the SAME game, so a new
    * season's corpus-sampled cast AVOIDS them (replayability/sameness, mandate #4). Carries both full
@@ -2610,6 +2621,10 @@ export interface RetrospectiveView {
   socialMap?: { people: Array<{ id: EntityId; name: string; heldAs: Array<{ role: string; by: number }> }> };
   /** 0200 / ORW-632: "your edit", the season as TV would have cut it: per-week episode facts (+ a composed floor title), who was cut a hero and a villain, how you came across. Facts only; the narrator voices the titles. Present ONLY on the post-season retrospective, only for a played game, never a number. */
   yourEdit?: import("../engine/yourEdit").YourEditView;
+  /** ORW-649 (0211): the reunion on finale night, as facts: the confrontations, the lies that come out and the alliances to explain (names, plain kinds, weeks; the player in either seat). Present ONLY on the post-season retrospective, only for a played game, never an id or a number. */
+  reunion?: import("../engine/reunionRetro").ReunionView;
+  /** ORW-648 (0211): the story of you and each houseguest, as facts (how you met, the turning points, how it ended, the shape of their view of you). Present ONLY on the post-season retrospective, only for a played game, never an id or a number. */
+  yourStories?: import("../engine/reunionRetro").YourStoriesView;
   /** ORW-566 part d (0183): the season's alliances and close-pair habits as facts (names, the group's name, its words, the spot, the weeks, whether you knew). Present ONLY on the post-season retrospective, only for a played game with a group, never an id or a number. */
   groupLife?: import("../engine/groupLifeRetro").GroupLifeView;
   /** ORW-656: the season's notable NPC decisions as facts: week, kind, who decided, who it was about, and the closed kind of the reason they SAID beside the REAL one (the unsealing). Present ONLY on the post-season retrospective, only for a played game with a recorded decision, bounded, never an id or a number. */
@@ -3745,6 +3760,13 @@ export interface GameSession {
    * drive the day-one biases never leave the engine.
    */
   notorietySummary(): NotorietyLegendView | null;
+
+  /**
+   * 0208 B3 (ORW-665) - the HALL OF FAME: the player's finished seasons (placement, who was crowned, their own best move and the worst betrayal done to them, as facts with names),
+   * kept per user outside any game. Public facts the retrospective already unsealed; never the Vault, never a number. Empty (`seasonsPlayed: 0`) with no finished season or with
+   * `ORWELL_SEASON_MEMORY` off. A season that just ended is included before it is filed.
+   */
+  hallOfFame(): import("../engine/hallOfFame").HallOfFameView;
 
   /**
    * FE-driven write-back (0070): enrich the prose `content` of an already-recorded hidden

@@ -10,3 +10,8 @@ Plan: the vault note "Theme 2 Slice Plan" (slice 4). Builds on 0149 (the claims 
 
 ## Rules kept
 Vault Wall (only claims the player heard; no truth, no intent); the engine decides, the narrator voices; no model cost; calibration: its own side stream, house-mix and late-game guards in the PR; claims and beliefs kept for the season.
+
+## 2026-11-18: claims from a plan step aimed at the player
+
+A houseguest's speech step aimed at the player (plant, leak, confirm, fish) is told to the player as a claim when they step up, like any other
+telling; see 0153 (same date). It adds no new field to `tellsYou`.

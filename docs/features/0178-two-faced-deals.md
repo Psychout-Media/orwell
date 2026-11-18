@@ -9,7 +9,6 @@ When a houseguest agrees to a deal (with the player or another houseguest), the 
 deal:
 
 - **keep**: today's behaviour. The 0142 weekly weighing can still change their mind, because people do.
-- **this-week**: honour it this week, then break it at next week's nominations.
 - **break-at**: break it at a chosen moment. A safety deal is broken at the nominations it was meant to cover; a final two is broken at a later vote.
 - **flip**: at this week's vote, the deal's weight turns against the person it protected. The vote itself carries it out.
 - **cut-final-three**: a final two, cut once three are left.

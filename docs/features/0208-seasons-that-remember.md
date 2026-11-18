@@ -4,6 +4,9 @@ Card: ORW-662 (Ryne approved all three slices 2026-11-18). Executable spec: `020
 
 Ryne's rules (2026-11-18): the player chooses to start new or return; returning brings reputation. "Old players can return no matter what. One from your old season or not." Returning NPCs must be real NPCs from seasons this player actually played: "don't make a returning player as simply as part of a backstory".
 
+## Built: B1 (ORW-663)
+Returning houseguests are built: the per-user `UserSeasonArchive` (engine-only, append-only, separate subtree), `src/engine/returnees.ts` (the `resolveReturnee` validator, keyed `planReturner`, the softened carry), `createCharacter.start?: "new" | "return"` (the player's own choice; unknown values refused typed at the tool door; absent = today's `keepCharacter` behaviour), flag `ORWELL_SEASON_MEMORY` (default ON). A returner keeps who they are (identity, personality, backstory, voice, age, look: the archived public persona, never the hidden layer) and their feelings toward the player, softened by the seasons since; goals, agenda, plans and secrets in play are fresh for the new season, and no past event is invented. Scenarios: `0208-returning-houseguests.feature`. Not built: the FE choice UI and FE tool-schema entry for `start` (a follow-up); B2 and B3.
+
 ## What exists today
 - **0104 notoriety:** `UserNotorietyStore` (per user, survives `registry.resetUser`), `deriveNotoriety` at season end, `notorietyBias` on day-one reads with a per-NPC recognition. B2 builds on it.
 - **`priorSeasonNames`** (cast genesis) keeps new casts from reusing past first names. A returner is the one deliberate exception.
@@ -49,3 +52,13 @@ Ryne's rules (2026-11-18): the player chooses to start new or return; returning 
 - **Seeds.** No new rng. The day-one bias keeps its dedicated `:notoriety` stream; the broken-word record is a pure read at the cutover.
 - **Off.** Flag off (or a game nobody plays, or reputations off): the field is absent and every derived summary is today's.
 - **Tests.** `tests/unit/seasonMemoryReputation.test.ts`; executable scenarios in `0208-your-reputation-walks-in.feature` (step prefix `reputation:`).
+
+## B3 built (2026-11-18, ORW-665): the hall of fame
+- **Record (`src/engine/hallOfFame.ts`, pure):** `buildHallRecord` builds on the foundation's `hallEntry` (season, placement, result) and adds the cast size, the crowned and the runner-up by NAME (a past season's NPC ids mean nothing later), the player's own counts, `bestMove` (an unsealed "your edit" fact whose actor is the player and which reads well for its actor) and `worstBetrayal` (a betrayal or blindside with the player as its subject). Highlights are facts with names, not event ids: the foundation's optional event-id fields stay unused, because the retrospective hands facts, not ids. The narrator words them; no fixed glosses, no number shown.
+- **Store:** `UserHallOfFameStore` (`read(user)`, `append(user, record)`), a sibling of 0104's notoriety store: `<dataDir>/hall-of-fame/<hex-user>.json`, its own subtree, survives `resetUser`, per user. `mergeHall` is monotonic: a stored season is never changed or dropped (`hallKeepsAll` is the superset check). A corrupt file is quarantined, not overwritten.
+- **Filing:** `registry.resetUser` files the dead season beside the notoriety accumulate (`GameSessionAdapter.hallRecordDraft(season)`: finished, played game, flag on; else nothing). Fail-soft.
+- **Read:** one player read tool, `hallOfFame()` (`GameSession.hallOfFame`): the filed seasons plus a just-finished, not yet filed season; empty with the flag off. Vault-free; boundary-tested through `McpServer.callTool`. It is NOT named in the narrator prompt, so no five-place FE wiring yet: **follow-up** is the FE screen outside the game and, if wanted, a premiere board line handing the narrator the last seasons as facts.
+- **Flag:** the same `ORWELL_SEASON_MEMORY`. No rng, no outcome moves. Played games only.
+- **What B1 must provide:** nothing. B3 is independent of the archive; if B1 later wants "was a past winner" for a returner, `hallOfFame().seasons` already carries winners by name.
+- **Known limit:** `bestMove` and `worstBetrayal` read the top two facts behind the player's edit (`you.because`), so a season whose top two are both neutral files none; the counts still carry. A fuller pick needs the edit tally exposed (Auditor-owned `yourEdit.ts`).
+- **Tests:** `tests/unit/hallOfFame.test.ts`, `docs/features/0208-the-hall-of-fame.feature` (prefix "hall of fame:").

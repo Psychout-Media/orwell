@@ -1677,6 +1677,12 @@ async def season_recap(user: str | None = None) -> dict:
     return await _call("seasonRecap", {}, user=user)
 
 
+async def hall_of_fame(user: str | None = None) -> dict:
+    """0208 B3: the player's finished seasons, kept per user outside any game (public facts only). Never mints a sandbox:
+    a user with no game is refused by the engine's known-user gate (`no_game`), which the caller reads as an empty hall."""
+    return await _call("hallOfFame", {}, user=user)
+
+
 async def player_receipts(user: str | None = None) -> list:
     """#1800 — candidate contradictions drawn ONLY from the player's own record. Vault-free."""
     return await _call("playerReceipts", {}, user=user)

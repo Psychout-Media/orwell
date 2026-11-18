@@ -559,6 +559,9 @@ export interface CompetitionFiction {
   eliminations: Array<{ id: EntityId; fiction: string }>;
 }
 
+/** ORW-611 follow-up: what a speech step aimed at the player says (engine-only; the claim is made when the houseguest steps up). */
+export interface AimedSay { kind: string; about?: string; truthful: boolean; salt: string }
+
 export interface LiveSeasonState {
   week: number;                 // 1-based HOH reign
   beat: Beat;                   // the next beat to resolve
@@ -623,6 +626,8 @@ export interface LiveSeasonState {
   groupIdentity?: import("./groupIdentity").GroupIdentityStore;
   /** 0172 / ORW-603, ORW-611 (Theme 3 slice 6; VAULT-CLASS, engine-only, persisted, never projected): per NPC alliance id, its hidden group life (roles, inner circle, purpose, private cut orders, a spy, a shadow link). Absent unless ORWELL_GROUP_ROLES drew one. */
   groupLife?: Record<string, import("./groupLife").GroupLife>;
+  /** ORW-648 (0211; VAULT-CLASS, engine-only, persisted, never projected): each houseguest's OWN view of the player, one sample per week (the latest of that week; trust and affinity, two decimals). Played games with ORWELL_YOUR_STORY only; read only after the crown. */
+  viewOfPlayer?: Record<string, Array<{ week: number; trust: number; affinity: number }>>;
   /** 0172: the last in-game day the group-life pass ran (it runs once a day). */
   groupLifeDay?: number;
   /** ORW-566 part c2 (VAULT-CLASS, engine-only): alliances whose secret name still waits for an authored one (oldest first); the open sealed naming tickets; the last night a batch was issued. */
@@ -998,7 +1003,11 @@ export interface LiveSeasonState {
   /** ORW-341 (Vault-class, engine-only): `holder>target` -> the week the holder last PITCHED that target in house life for a pull-them-in goal. The alliance tick counts a target pitched this week a little warmer. */
   pitched?: Record<string, number>;
   /** ORW-340 (Vault-class, engine-only): an NPC whose hourly plan, made for one of their own goals, named the player: the approach desire it maps to, the goal behind it, and the in-game hour it was made. Cleared when they approach. */
-  goalApproaches?: Record<string, { desire: string; goalId: string; hour: number }>;
+  goalApproaches?: Record<string, { desire: string; goalId: string; hour: number; /** ORW-611 follow-up: a speech step aimed at the player (told when they step up). */ say?: AimedSay }>;
+  /** ORW-611 (0172 / 0173; ORWELL_PLAYER_AIMED): the record of a houseguest's goal step AIMED AT the player, so it is felt and answerable like one aimed at an NPC. Append-only (an outcome closes a record, never removes it); ENGINE-ONLY (names the goal kind, never a number or a secret); persisted. `shown` = it surfaced as the approach the player sees; `answered` = the player talked to them or struck a deal after; `ignored` = a hostile one nobody answered (it cost the houseguest's read of the player); `lapsed` = a non-hostile one that faded. */
+  aimedAtPlayer?: Array<{ id: string; actor: string; goalId: string; goalKind?: string; step: string; hostile: boolean; day: number; hour: number; status: "open" | "shown" | "answered" | "ignored" | "lapsed"; eventId?: string }>;
+  /** ORW-611: the last day the aimed-at-player tick ran (once a day). */
+  aimedAtPlayerDay?: number;
   /** ORW-581 (Fable T1-14, played games only): the absolute in-game hour of the last house-life stretch and how many stretches came before it in that same hour (0 = it was the first). Keys a repeated hour's rolls fresh. */
   lifeHour?: { at: number; n: number };
   /** ORW-668 (0210 C2, played games only): the Diary Room calls - who is in there now, the append-only record of finished calls (`diaryCallSeen`, no content field), calls per day, the player's last recorded visit. Engine-only. Absent in headless sims => byte-identical. */
@@ -1006,7 +1015,9 @@ export interface LiveSeasonState {
   /** ORW-651 / spec 0209 (VAULT-CLASS, engine-only, never projected): each houseguest's routines, composed once and kept (never replaced or thinned); and the days the player has seen each kept (3 separate days = known). A played game only. */
   routines?: Record<EntityId, import("./routines").Routine[]>;
   routineSightings?: import("./routineLife").RoutineSightings;
-  interruption?: { npc: string; desire: string; atHour: number; /** ORW-261: a VOLUNTEERED (nobody asked) private-orientation disclosure the houseguest chose to make as they step in (the engine-authored sentence; also recorded as a told-by fact). */ tells?: string };
+  /** 0208 / ORW-663 (B1, engine-only): the houseguest seats that carry a RETURNER from a season this player played, by seat id: which archived season, how many seasons ago, and the public finish (placement, juror). Fixed at casting; never thinned. The feelings and claims they carried live only in the hidden layer. */
+  returners?: Record<EntityId, { season: number; seasonsAgo: number; placement: number; juror: boolean }>;
+  interruption?: { npc: string; desire: string; atHour: number; /** ORW-261: a VOLUNTEERED (nobody asked) private-orientation disclosure the houseguest chose to make as they step in (the engine-authored sentence; also recorded as a told-by fact). */ tells?: string; /** ORW-611 follow-up: a speech step aimed at the player, told once this framing's view is built. */ say?: AimedSay };
   /** ORW-443: the #2736 cap withheld an approach THIS turn (per-turn; cleared at the next conversation tick). Vault-free flag, narration-only. */
   approachHeld?: true;
   hangOutCount?: number;

@@ -973,6 +973,8 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   sandbox.session.trapTick(sandbox.engine.knowledge);
   // 0202 / ORW-645: leverage in two registers - once a day a holder may lean on someone with a secret they hold (blunt or sneaky); played games only, own keyed side streams.
   sandbox.session.leveragePlayTick(sandbox.engine.knowledge);
+  // 0172 / ORW-611: a houseguest's goal step aimed at the player is written down once it surfaces, and a hostile one left unanswered costs (own keyed stream; played games only).
+  sandbox.session.aimedAtPlayerTick(sandbox.engine.events);
   // 0204 / ORW-647: the night it all comes out - a fact enough houseguests hold breaks in front of the house, or its subject blows it up (once a day; own keyed rolls; played games only).
   sandbox.session.secretBreakTick(sandbox.engine.knowledge);
 

@@ -29,7 +29,7 @@ import type { NamedRef, RumorMill, RumorMillBelief } from "../ports/GameSession"
 export const RUMOR_MILL_CAP = 5;
 
 /** What the false claim said, in plain words ("them" = each believer). */
-function claimText(kind: SpokenClaimKind, subject: string, object: string | undefined, label?: string): string {
+export function claimText(kind: SpokenClaimKind, subject: string, object: string | undefined, label?: string): string {
   switch (kind) {
     case "targets-you": return `that ${subject} was targeting them`;
     case "voted-to-evict-you": return `that ${subject} voted to evict them`;
