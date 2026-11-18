@@ -643,6 +643,10 @@ export interface LiveSeasonState {
   moodCauseLog?: import("./moodCauses").MoodCauseEntry[];
   /** 0197 / ORW-631: every lead a houseguest gave the player when asked where someone is (the room they named, whether they misled, how it later resolved by what the player saw). Append-only. Vault-class: the truth and the misled flag are never projected. Played games only; absent otherwise. */
   toldLeads?: import("./toldLeads").ToldLead[];
+  /** 0203 / ORW-646 (VAULT-CLASS, engine-only, persisted, append-only): every coming-clean act (a confession, a loop-in), each naming the claim it is about. Absent until one is done. */
+  cleanActs?: import("./comingClean").CleanAct[];
+  /** 0203: the last in-game day the NPC coming-clean pass ran (it runs once a day). */
+  cleanDay?: number;
   vetoField?: EntityId[];
   /** ORW-565: the absolute in-game hour ((day-1)*24 + clock hour) the veto DRAW finished (the field was published). Played games only; the competition waits a minimum gap after it. Re-armed each week. */
   vetoDrawnAtAbs?: number;

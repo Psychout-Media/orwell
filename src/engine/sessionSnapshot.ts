@@ -13,6 +13,7 @@ import { isAgendaSuperset } from "./agenda";
 import { beliefStoreSuperset } from "./beliefStore";
 import { claimLogSuperset } from "./spokenClaims";
 import { toldLeadsSuperset } from "./toldLeads";
+import { cleanActsSuperset } from "./comingClean";
 import { houseTourSuperset } from "./houseTour";
 import type { KnowledgeSnapshot } from "../domain/knowledge";
 import type { EdgeRecord, GameState, PersistedCharacter, PersistedSoul } from "../domain/saveState";
@@ -978,6 +979,9 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
 
   // toldLeads (0197 / ORW-631): the leads houseguests gave the player are append-only - none is ever lost.
   if (!toldLeadsSuperset(later.live?.toldLeads, earlier.live?.toldLeads)) return "toldLeads";
+
+  // cleanActs (0203 / ORW-646): a confession or a loop-in, once made, is never lost.
+  if (!cleanActsSuperset(later.live?.cleanActs, earlier.live?.cleanActs)) return "cleanActs";
 
   // houseTour (0206 / ORW-654): a room the player has stepped into is never forgotten (its one-time card has been given).
   if (!houseTourSuperset(later.live?.houseTour, earlier.live?.houseTour)) return "houseTour";

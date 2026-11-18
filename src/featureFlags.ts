@@ -78,6 +78,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // A52 / ORW-23 (Ryne card 19: the narrator does not improvise disclosures): in a played game `npcVoice.knows` is only what the player also holds (engine-delivered or witnessed together); a declined press carries `deflect`. ON by default; `=0` turns it off.
   // 0151 / ORW-330 (theme 2 slice 4a): a houseguest who trusts the player may pass on one belief per day, hedged by their certainty (engine-decided, own side stream, no outcome moves). Default-ON; `=0` opts out.
   { envKey: 'ORWELL_CLAIMS_TO_PLAYER', key: 'claimsToPlayer', parser: 'defaultOn' },
+  // 0203 / ORW-646 (Theme 4): coming clean, nuanced - a houseguest may own a lie before it is caught (costs less than being caught), loop an ally in on a lie told to someone else, and the player may do either in their own words. Played games only; `=0` turns it off (byte-identical).
+  { envKey: 'ORWELL_COMING_CLEAN', key: 'comingClean', parser: 'defaultOn' },
   { envKey: 'ORWELL_COMP_INTENT',            key: 'compIntent',             parser: 'defaultOn' },
   { envKey: 'ORWELL_COMP_MECHANICS_PLUS',    key: 'compMechanicsPlus',      parser: 'defaultOn' },
   { envKey: 'ORWELL_COMP_MIXED',             key: 'compMixed',              parser: 'defaultOn' },
