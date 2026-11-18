@@ -69,6 +69,12 @@ export const DECISION = {
      * target's eviction score. Bounded — it shades, a runaway threat read still dominates.
      */
     hohReferendumWeight: 0.6,
+    /**
+     * ORW-634 (Ryne 2026-11-17, option b: "the house collectively has more power after the veto. This happens in the show"): in a played game, every voter carries this
+     * pull toward KEEPING the HOH's target (sending the pawn home), so defying the HOH stays common; alignment, centred on the house's own typical bond, decides who
+     * gives a liked HOH their target anyway. Played games only (the `hohReferendumCentre` hook); headless keeps the old read.
+     */
+    housePowerAfterVeto: 0.1,
   },
   /**
    * NPC↔NPC deal minting (audit E46): as a week's block goes up, the closest unbound NPC pair may
