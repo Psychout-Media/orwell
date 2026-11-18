@@ -22,7 +22,7 @@ export const DEAL_CONSENT = {
     grudge: 2.0,       // a remembered betrayal (npcMemory grudge, max 0.15) - a drag
     favor: 2.0,        // a remembered favor (npcMemory favor, max 0.06) - a bonus
     opposed: 0.6,      // ORW-87: the NPC's OWN standing plan against the player (drive/campaign push, max ~0.2) - a drag
-    targetsMe: 2.0,    // the NPC's BELIEF that the player is targeting them (belief store, max 0.18) - a drag
+    targetsMe: 0.36,   // the NPC's BELIEF that the player is targeting them (full-strength belief pull, 0..1) - a drag. ORW-637 (Fable S-7): was 2.0 when the read maxed at 0.18; 0.36 keeps that same most-certain drag (2.0 x 0.18) now the read reaches 1.0
   },
   /** Cap on the favor bonus so a remembered kindness can tip a marginal NPC but never buy an ask on its own. */
   favorCeiling: 0.12,
