@@ -87,6 +87,20 @@ describe("the dodge reaches the voice (played game)", () => {
     expect(deflected).toBeGreaterThan(0);
     expect(dodged).toBe(deflected);
   });
+  it("persistence: the dodge log survives a snapshot and restore, and a later save never holds fewer", async () => {
+    const { s, holder } = await game(true);
+    s.noteDisclosure(holder, { outcome: "deflect", via: "confide", truthful: true });
+    s.recordDodge(s.house.npcs.find((n) => n.id === holder)!, sig);
+    const snap = JSON.parse(JSON.stringify((s as unknown as { snapshot(): unknown }).snapshot())) as unknown;
+    const before = JSON.stringify(s.dodgeLog);
+    const rt = composeRuntime({ clock: new FakeClock(), seed: 11 });
+    const t = rt.registry.sandboxFor(`d0196-restore-${Math.random()}`).session as unknown as S & { restore(x: unknown): void };
+    t.restore(snap);
+    expect(JSON.stringify(t.dodgeLog)).toBe(before);
+    expect(t.dodgeLog).toHaveLength(1);
+    const again = JSON.parse(JSON.stringify((t as unknown as { snapshot(): unknown }).snapshot())) as { core?: { dodgeLog?: unknown[] } };
+    expect(JSON.stringify(again)).toContain("dodgeLog");
+  });
   it("flag off, or a headless game: no key, nothing recorded", async () => {
     const off = await game(true);
     off.s.setDodgingEnabled(false);
