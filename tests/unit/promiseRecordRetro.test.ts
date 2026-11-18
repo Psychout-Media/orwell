@@ -60,6 +60,26 @@ describe("ORW-602 (A) - the pure record", () => {
   });
 });
 
+describe("ORW-602 (A2) - secretPlans is untouched by the promise-record edit", () => {
+  it("secretPlans is byte-identical to what the pre-edit function produced for the same fixture (a ledger: plan key never shows as a deal's plan)", () => {
+    const deals = [
+      { id: "deal:1", parties: ["h", "g"], kind: "safety" as const, terms: "t1", status: "open", madeWeek: 1, condition: { promisors: ["h", "g"] } },
+      { id: "deal:2", parties: ["h", "player"], kind: "vote" as const, terms: "t2", status: "kept", madeWeek: 2, condition: { promisors: ["player"] } },
+    ];
+    const plan = { kind: "keep" as const, madeWeek: 1 } as never;
+    const flip = { kind: "flip" as const, madeWeek: 2, outcome: "carried-out" as const } as never;
+    const store = { "deal:1": { h: plan, g: flip }, "deal:2": { h: plan } } as never;
+    const withLedgerKey = { ...(store as object), "ledger:entry-1": { h: flip } } as never;
+    const expected = [
+      { holder: { id: "h", name: "H" }, with: { id: "g", name: "G" }, dealKind: "safety", madeWeek: 1, plan: "keep", outcome: "pending" },
+      { holder: { id: "g", name: "G" }, with: { id: "h", name: "H" }, dealKind: "safety", madeWeek: 2, plan: "flip", outcome: "carried-out" },
+      { holder: { id: "h", name: "H" }, with: { id: "player", name: "PLAYER" }, dealKind: "vote", madeWeek: 1, plan: "keep", outcome: "pending" },
+    ];
+    expect(buildDealPlanRetro(store, deals, [], "player", nameOf)!.secretPlans).toEqual(expected);
+    expect(buildDealPlanRetro(withLedgerKey, deals, [], "player", nameOf)!.secretPlans).toEqual(expected);
+  });
+});
+
 describe("ORW-602 (B) - through the MCP boundary, post-crown only", () => {
   it("nothing before the crown; after it the player's promises and assurances ride dealPlans.yourPromises with no id leak or number", async () => {
     const sb = new GameSessionRegistry().sandboxFor(`prr-${Math.random()}`);
