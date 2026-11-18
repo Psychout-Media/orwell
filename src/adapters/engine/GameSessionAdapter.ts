@@ -17701,11 +17701,13 @@ export class GameSessionAdapter implements GameSession {
       if (refusal) {
         const counter = this.maybeCounterOffer(target, req.kind, refusal);
         if (counter) refusal.counteroffer = counter;
+        if (this.closeCounteredOffer(req.countersOffer, target)) this.persist(); // a refused counter still spends the offer it answered
         if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, refusal);
         return refusal;
       }
     }
     const terms = (req.terms ?? "").slice(0, 200);
+    this.closeCounteredOffer(req.countersOffer, target); // ORW-614 (P-12): the player's own terms answer a standing offer from this houseguest; the offer is spent, the consent read above already ran on the player's terms
     const evId = this.onPlayerEvent?.(
       `${this.nameOf(PLAYER)} and ${this.nameOf(target)} make a ${req.kind} deal: ${terms}`,
       [PLAYER, target], "deal",
@@ -20198,6 +20200,24 @@ export class GameSessionAdapter implements GameSession {
     });
   }
 
+  /** ORW-614 (P-12, `ORWELL_DEAL_COUNTER`, default ON; `=0` byte-identical): the player may answer a standing offer with their own terms through `makeDeal` (`countersOffer` = the offer's id). Played games only. */
+  private dealCounterEnabled = flagDefaultOn("ORWELL_DEAL_COUNTER");
+  setDealCounterEnabled(on: boolean): void { this.dealCounterEnabled = on; }
+  /**
+   * The player's counter spends the offer it answers (it is neither accepted nor declined, so no cooling and no decline event): a recorded conversation, then the offer slot clears. It only matches an offer from
+   * the SAME houseguest the counter is made with and only while that offer stands. The engine never writes the counter itself: the terms, kind and price are the player's. Returns true when an offer was closed.
+   */
+  private closeCounteredOffer(offerId: string | undefined, target: EntityId): boolean {
+    const s = this.live;
+    if (!this.dealCounterEnabled || !s || s.playedGame !== true || typeof offerId !== "string" || offerId === "") return false;
+    const slot = s.dealOffer?.id === offerId ? "deal" : s.votePitch?.id === offerId ? "pitch" : undefined;
+    const o = slot === "deal" ? s.dealOffer : slot === "pitch" ? s.votePitch : undefined;
+    if (!slot || !o || o.from !== target || this.dealOfferPartyGone(o.from) || s.finished) return false;
+    if (slot === "deal") s.dealOffer = undefined; else s.votePitch = undefined;
+    this.onPlayerEvent?.(`${this.nameOf(PLAYER)} answers ${this.nameOf(o.from)}'s ${o.kind} offer with terms of their own`, [PLAYER, o.from], "conversation");
+    return true;
+  }
+
   /**
    * 0123 (PO ruling 2026-11-01) — an offer the player never answered LAPSES when the in-game week rolls
    * past the week it was made. No deal is created. The houseguest cools on the player by an amount that
@@ -20257,14 +20277,17 @@ export class GameSessionAdapter implements GameSession {
     // standing prompt cost (the #1391 budget) and nothing at all when the layer is off / no offer stands.
     return {
       from: this.named(o.from)!, kind: o.kind, terms: o.terms, madeWeek: o.madeWeek,
-      ...(o === this.live?.votePitch ? { id: o.id } : {}),
+      ...(o === this.live?.votePitch || (this.dealCounterEnabled && this.live?.playedGame === true) ? { id: o.id } : {}),
       ...(o.replacesDealId ? { replacesDealId: o.replacesDealId } : {}),
       ...(o.counter ? { counter: { round: o.counter.round, ask: o.counter.ask.kind !== "vote" ? { kind: o.counter.ask.kind, target: this.named(o.counter.ask.target)! } : { kind: "vote" as const } } } : {}),
       ...(o.favor ? { favor: { kind: o.favor.favorId ? "called-in" as const : "asked" as const } } : {}),
       howToVoice: "Not a decision card and it never stops the week. Voice this houseguest floating the offer " +
         "in-scene at a natural moment (who, kind, terms). If the player answers in chat, record it with " +
         "submitDecision {kind:\"deal-offer\", vote:\"accept\"|\"decline\"} — never answer for them; an " +
-        "ignored offer lapses on its own at week's end.",
+        "ignored offer lapses on its own at week's end." +
+        (this.dealCounterEnabled && this.live?.playedGame === true
+          ? " If the player answers with terms of their own, record them with makeDeal to this houseguest and countersOffer set to this offer's id; the houseguest's own read decides, never the engine for the player."
+          : ""),
     };
   }
 
