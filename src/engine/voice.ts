@@ -18,6 +18,7 @@
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import type { VoiceProfile } from "../domain/voiceProfile";
 import { clamp01Raw as clamp01 } from "../domain/num";
+import { moodLevel, MOOD_DISTRESS } from "./moodBand";
 import { VOICE_CONFLICTS, VOICE_TEMPER_CONFLICTS, VOICE_LINE_TEMPLATES, tempersOf, temperRuleApplies, voiceLineConflictDetail } from "../domain/traitConsistency";
 
 export type { VoiceProfile } from "../domain/voiceProfile";
@@ -260,9 +261,7 @@ function carriageWord(v: number): string {
   return "riding high";
 }
 
-/** The ACUTE state carries the real per-moment spread, so it leads the blend; the baseline pulls it. */
-const ACUTE_WEIGHT = 0.62;
-const DISTRESS = 0.22; // an acute crisis always shows, over everything
+const DISTRESS = MOOD_DISTRESS; // an acute crisis always shows, over everything
 const LOW_BASELINE = 0.34; // a season-long set-point below this reads as chronically "worn"
 const HIGH_BASELINE = 0.7; // …above this, as lasting "at ease"
 // Volatility runs chronically high in a live season (diag: avg ~0.89), so "on edge" only means
@@ -281,7 +280,7 @@ const VOLATILE = 0.92;
 export function moodWord(emotionalState: number, volatility: number, emotionalHistory: readonly number[] = []): string {
   const acute = clamp01(emotionalState);
   const marinated = emotionalHistory.length ? clamp01(mean(emotionalHistory)) : acute;
-  const effective = clamp01(ACUTE_WEIGHT * acute + (1 - ACUTE_WEIGHT) * marinated);
+  const effective = moodLevel(emotionalState, emotionalHistory); // ORW-576: the ONE level the tells' band reads too (moodBand.ts)
 
   let word = carriageWord(effective);
   // The marinade as a lasting FLAVOR layered on the moment (the season's set-point):

@@ -61,6 +61,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // A65: the engine-side schedule gate - an ordinary advanceGame before the next milestone is due returns a typed `held` and commits nothing. ON by default (see ORWELL_ADVANCE_GATE below); `=0` turns it off.
   // Bedtime gate: `turnIn` in the morning or afternoon is refused with a typed `held` (nothing commits). ON by default.
   { envKey: 'ORWELL_BEDTIME_GATE', key: 'bedtimeGate', parser: 'defaultOn' },
+  // ORW-672 / 0201: the BED RUSH - no bed is claimed before the champagne circle closes, then everyone is released and races for the bedrooms; a claim needs reaching the room, and the player always keeps a real choice. A played game only. `=0` restores the walk-in-order claim.
+  { envKey: 'ORWELL_BED_RUSH', key: 'bedRush', parser: 'defaultOn' },
   // 0181 / ORW-568 (theme 3 slice 4, part 1): a bond's life - a real feeling for someone holds a houseguest back from cutting them (a bounded vote / nomination / alliance-break term) and shakes them after they do (the existing mood, scaled). Needs the bond record. A played game only. `=0` opts out.
   { envKey: 'ORWELL_BOND_FEELINGS', key: 'bondFeelings', parser: 'defaultOn' },
   // 0175 / ORW-552 (Theme 3 Core 1): the bond record per pair (warmth, debts, resentment, strain, history, commitment), folded from what happened; nothing decides from it yet. `=0` = the edge-only bond read.
@@ -71,6 +73,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_CAMPAIGNS',              key: 'campaigns',              parser: 'defaultOn' },
   // B7 / #2017 M4: campaign targets also read grudges and beliefs. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_CAMPAIGN_MEMORY', key: 'campaignMemory', parser: 'defaultOn' },
+  // 0197 / ORW-631: catching a misdirection - a lead a houseguest gave the player about where someone is is recorded (engine-only: where the person really was, whether it was meant to mislead) and resolved by what the player later sees; a lead that did not pan out is handed to the narrator as a plain observed fact. Played games only. `=0` turns it off (byte-identical).
+  { envKey: 'ORWELL_CATCH_MISDIRECTION', key: 'catchMisdirection', parser: 'defaultOn' },
   // A52 / ORW-23 (Ryne card 19: the narrator does not improvise disclosures): in a played game `npcVoice.knows` is only what the player also holds (engine-delivered or witnessed together); a declined press carries `deflect`. ON by default; `=0` turns it off.
   // 0151 / ORW-330 (theme 2 slice 4a): a houseguest who trusts the player may pass on one belief per day, hedged by their certainty (engine-decided, own side stream, no outcome moves). Default-ON; `=0` opts out.
   { envKey: 'ORWELL_CLAIMS_TO_PLAYER', key: 'claimsToPlayer', parser: 'defaultOn' },
@@ -93,6 +97,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // A8: the NPC desire clock (an NPC whose want crossed its threshold cuts in). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_DESIRE_CLOCK', key: 'desireClock', parser: 'defaultOn' },
   { envKey: 'ORWELL_DISCLOSURE_ENGINE', key: 'disclosureEngine', parser: 'defaultOn' },
+  // 0196 / ORW-630: a pressed houseguest the engine has decided will not answer also gets HOW they dodge (what they do with the question, how their carriage reads, whether they hand it back), decided on a keyed side stream from their character, bond and the stakes, saved, and handed to the narrator as a third-person fact. A played game only. `=0` turns it off.
+  { envKey: 'ORWELL_DODGING', key: 'dodging', parser: 'defaultOn' },
   // B32 / #2017 E5: chat betrayal/conflict feed the emotional arc and temperament drift gets a negativity bias (clash x1.5, bond x0.75) so hardening is reachable. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_DRIFT_FIX', key: 'driftFix', parser: 'defaultOn' },
   // B51 / AMEND 3b: the HOH's / veto holder's own drive (target adds, build protects) feeds its nomination and veto-save scores. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
@@ -101,6 +107,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_ENDGAME_MEMORY', key: 'endgameMemory', parser: 'defaultOn' },
   // 0184 part 2b / ORW-564: a close pair fakes distance in public - their time together is caught only on a roll, and the house reads them as no closer than it has seen. `=0` = off.
   { envKey: 'ORWELL_FAKED_DISTANCE', key: 'fakedDistance', parser: 'defaultOn' },
+  // 0195 / ORW-628: what the evicted take with them - their deals, favors and assurances leave with them (a held favor may pass to their closest ally), and the house reacts. `=0` = off.
+  { envKey: 'ORWELL_EVICTED_TAKE', key: 'evictedTake', parser: 'defaultOn' },
   { envKey: 'ORWELL_FAVORS', key: 'favors', parser: 'defaultOn' },
   { envKey: 'ORWELL_FINAL_HOH_THREE_PART',   key: 'finalHohThreePart',      parser: 'defaultOn' },
   // B27: the forgiveness trait (a seeded ~1-in-6 grudge-keeper whose real betrayals keep a floor; everyone else's favors fade fast). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
@@ -156,6 +164,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // B30 / #2017 E4a: who seeks the player out reads the NPC's visible emotional state (needs ORWELL_NPC_TELLS). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_MOOD_APPROACH', key: 'moodApproach', parser: 'defaultOn' },
   { envKey: 'ORWELL_MOOD_CAMPAIGN', key: 'moodCampaign', parser: 'defaultOn' },
+  // 0194 / ORW-626: more things give a houseguest a mood cause (a lie found out, a betrayal learned, a close friend gone, a bad night's sleep, a win, a loss); engine-only, told only when they choose
+  { envKey: 'ORWELL_MOOD_CAUSES', key: 'moodCauses', parser: 'defaultOn' },
   // 0185 / ORW-567 (theme 3 slice 15): mood contagion - a shocking eviction rattles the evictee's close allies most and the house a little; a big win lifts the winner's circle a little. Moves the existing mood only. A played game only. `=0` opts out.
   { envKey: 'ORWELL_MOOD_CONTAGION', key: 'moodContagion', parser: 'defaultOn' },
   // ORW-343 (Ryne audit card 17, 2026-11-04): the cast card shows each houseguest's mood word as the player last saw it. ON by default; `=0` turns it off.
@@ -196,6 +206,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_NPC_TELLS', key: 'npcTells', parser: 'defaultOn' },
   // ORW-407 slices 1-2: the open ledger - a commitment, group pact, plan or claim (about someone or something) said to or by the player, or overheard by them, is kept as free text, can be marked kept, broken or withdrawn, and is shown back when the people it concerns are present. ON by default ("built means on"); `=0` turns it off.
   { envKey: 'ORWELL_OPEN_LEDGER', key: 'openLedger', parser: 'defaultOn' },
+  // 0191 / ORW-574 (Fable T1-6): in a PLAYED game an NPC's decisions read the decider's own view (what they saw, were told, believe, and the public record), never another houseguest's hidden edges or stats. `=0` = the hidden reads, byte-identical.
+  { envKey: 'ORWELL_OWN_VIEW', key: 'ownView', parser: 'defaultOn' },
   // 0163 / ORW-539: the HOH's floater and duo reads see the bonds the HOH could see (scenes they were in or watched, allied-with beliefs), blended with the truth. `=0` = the hidden-truth read.
   { envKey: 'ORWELL_PERCEIVED_BONDS', key: 'perceivedBonds', parser: 'defaultOn' },
   // ORW-37 / B40: lasting game philosophies - each NPC plays one philosophy (a seeded draw conditioned on archetype) that sets the nomination style they play. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
@@ -210,9 +222,13 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // `createCharacter`, so a mid-season dial would do nothing.
   { envKey: 'ORWELL_REACTIVE_TWISTS',        key: 'reactiveTwists',         parser: 'defaultOn' },
   // 0184 / ORW-564 (theme 3 slice 8, part 1): reputations - what each houseguest has heard or seen of another's lying and turning on people (softened by promises kept to them) scales how far they believe that houseguest and how willing they are to deal with them. Hidden. A played game only; needs ORWELL_BOND_RECORD. `=0` opts out.
+  // ORW-639 (Fable stacking audit S-10): the replacement nominee is picked with the same deal, pre-show tie, lobbying and kept-assurance terms as the original nominations (they were dropped before). A played game only; `=0` opts out.
+  { envKey: 'ORWELL_REPLACEMENT_TERMS', key: 'replacementTerms', parser: 'defaultOn' },
   { envKey: 'ORWELL_REPUTATION', key: 'reputation', parser: 'defaultOn' },
   // ORW-223 slice 1 (Showrunner memory part B): the room canon ledger - the narrated texture of a room is recorded as canon and listed in the Show Brief. ON by default ("built means on"); `=0` turns it off.
   { envKey: 'ORWELL_ROOM_CANON', key: 'roomCanon', parser: 'defaultOn' },
+  // ORW-621 (spec 0198): the houseguests in the player's own room take their goal steps there, in the player's view (a bounded few; the player is never moved or spoken for). ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_ROOM_LIFE', key: 'roomLife', parser: 'defaultOn' },
   { envKey: 'ORWELL_SCHEME_TARGETS',         key: 'schemeTargets',          parser: 'defaultOn' },
   { envKey: 'ORWELL_SECRET_BARTER',          key: 'secretBarter',           parser: 'defaultOn' },
   { envKey: 'ORWELL_SECRET_PACING',          key: 'secretPacing',           parser: 'defaultOn' },
@@ -220,6 +236,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_SHOWRUNNER',             key: 'showrunner',             parser: 'defaultOn' },
   { envKey: 'ORWELL_SHOWRUNNER_REWEIGHT',    key: 'showrunnerReweight',     parser: 'defaultOn' }, // ORW-270: measured fair, default ON
   { envKey: 'ORWELL_SOCIAL_FATIGUE',         key: 'socialFatigue',          parser: 'inverted' },
+  // 0184 part 2a / ORW-564: social roles (snake, floater, villain, peacemaker, jokester, therapist, outcast) read from what each houseguest saw and was told, and voiced as gossip claims. `=0` = no roles.
+  { envKey: 'ORWELL_SOCIAL_ROLES', key: 'socialRoles', parser: 'defaultOn' },
   { envKey: 'ORWELL_SOUL_DEPTH',             key: 'soulDepth',              parser: 'defaultOn' },
   { envKey: 'ORWELL_STRATEGIC_CADENCE',      key: 'strategicCadence',       parser: 'defaultOn' },
   // A54 / #2017 M5: npcVoice hands the narrator what the NPC remembers about the player (top 3 plain facts) + an engine-decided, rate-limited bringUp. ON by default (see ORWELL_NPC_MEMORY_SPEECH below); `=0` turns it off.
@@ -253,6 +271,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // ORW-275: week chapters - the played-game turnIn that crosses a week boundary (bed on eviction night) carries a Vault-free `weekChapter` recap. ON by default; `=0` turns it off.
   { envKey: 'ORWELL_WEEK_CHAPTERS', key: 'weekChapters', parser: 'defaultOn' },
   { envKey: 'ORWELL_WIPEOUT_REEL',            key: 'wipeoutReel',            parser: 'defaultOn' },
+  // 0200 / ORW-632: your edit - after the crown, the season as TV would have cut it (episode facts, hero and villain edits, how the player came across); rides the post-season retrospective. `=0` = none.
+  { envKey: 'ORWELL_YOUR_EDIT', key: 'yourEdit', parser: 'defaultOn' },
 ];
 
 /** The parsers, keyed by kind, to avoid re-creating closures on every call. */

@@ -106,6 +106,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         if (!isEntityId(ss["to"]) || !isEntityId(ss["about"])) refuse("statement", "{ to, about: houseguest ids, kind: a claim kind } when present");
         if (typeof ss["kind"] !== "string" || ss["kind"] === "") refuse("statement", "{ kind: a non-empty string } when present");
         if (ss["object"] !== undefined && !isEntityId(ss["object"])) refuse("statement", "a houseguest id for `object` when present");
+        if (ss["label"] !== undefined && (typeof ss["label"] !== "string" || ss["label"] === "" || ss["label"].length > 32)) refuse("statement", "a short role word for `label` when present"); // 0184 part 2a
       }
       if (args["heardAboutMe"] !== undefined) {
         const h = args["heardAboutMe"];
@@ -357,6 +358,8 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (args["vocation"] !== undefined && typeof args["vocation"] !== "string") refuse("vocation", "a string when present");
       // ORW-388: the optional writer-authored identity concept — a string when present; the adapter replaces a stored one or fills a missing one (ORW-431b), capped, single line, refused if it names the player.
       if (args["identityConcept"] !== undefined && typeof args["identityConcept"] !== "string") refuse("identityConcept", "a string when present");
+      // ORW-563: the optional re-picked style family LABEL (the cast gate swaps a strong-outlier look); the adapter takes only a known label no other houseguest holds.
+      if (args["presentation"] !== undefined && typeof args["presentation"] !== "string") refuse("presentation", "a string when present");
       // The optional LLM-authored VOICE fingerprint (0084 / the expressive-e2e authoring widening) — an
       // object when present (a string/array where an object is expected is the R6 class that dies deep in
       // the fold). Its field-level shape (whole-or-nothing, bounded strings) is validated inside the

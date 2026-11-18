@@ -226,21 +226,57 @@ const SKIN_TONE = [
 // ORW-381: hair is dealt by AGE and never repeats inside a cast (MAX_PER_HAIR 1). Each entry is a neat,
 // positive cut-and-colour line tagged with the youngest and oldest age it may be dealt to. Gray, silver
 // and salt-and-pepper entries start at 40 (a 40+ houseguest may still draw a non-gray entry).
-interface HairEntry { readonly desc: string; readonly minAge: number; readonly maxAge: number }
-const H = (desc: string, minAge = 18, maxAge = 99): HairEntry => ({ desc, minAge, maxAge });
+type HairLean = "man" | "woman";
+interface HairEntry { readonly desc: string; readonly minAge: number; readonly maxAge: number; readonly lean?: HairLean }
+const H = (desc: string, minAge = 18, maxAge = 99, lean?: HairLean): HairEntry => ({ desc, minAge, maxAge, ...(lean ? { lean } : {}) });
 const HAIR_ENTRIES: readonly HairEntry[] = [
-  H("tight natural curls, jet black"), H("long glossy dark waves"), H("a sharp close-cropped fade"),
-  H("a platinum-blond bob", 18, 45), H("shoulder-length auburn hair"), H("a sleek black ponytail"),
+  H("tight natural curls, jet black"), H("long glossy dark waves", 18, 99, "woman"), H("a sharp close-cropped fade", 18, 99, "man"),
+  H("a platinum-blond bob", 18, 45, "woman"), H("shoulder-length auburn hair"), H("a sleek black ponytail"),
   H("short copper-red hair"), H("loose chestnut curls"), H("neat braided dark hair"),
-  H("honey-blond beach waves", 18, 45), H("glossy chestnut curls to the shoulder"),
-  H("a clean side-parted dark crop"), H("a smooth espresso-brown bob"), H("a polished slicked-back black style"),
-  H("thick wavy dark-brown hair"), H("a tousled sandy-blond cut", 18, 45), H("a sleek caramel-highlighted lob"),
-  H("a tapered low fade with a twist-out top"), H("long straight jet-black hair"), H("a rich auburn pixie cut"),
-  H("neat locs past the shoulder"), H("a golden-blond swept-back style", 18, 45), H("a short natural dark afro"),
-  H("a bright strawberry-blond ponytail", 18, 40), H("a classic dark-brown side part"), H("a voluminous dark blowout"),
-  H("a salt-and-pepper buzzcut", 40), H("a silver-streaked swept-back style", 40),
-  H("a distinguished silver crop", 40), H("a sleek silver-gray bob", 40),
+  H("honey-blond beach waves", 18, 45, "woman"), H("glossy chestnut curls to the shoulder"),
+  H("a clean side-parted dark crop", 18, 99, "man"), H("a smooth espresso-brown bob", 18, 99, "woman"), H("a polished slicked-back black style", 18, 99, "man"),
+  H("thick wavy dark-brown hair"), H("a tousled sandy-blond cut", 18, 45), H("a sleek caramel-highlighted lob", 18, 99, "woman"),
+  H("a tapered low fade with a twist-out top", 18, 99, "man"), H("long straight jet-black hair", 18, 99, "woman"), H("a rich auburn pixie cut", 18, 99, "woman"),
+  H("neat locs past the shoulder"), H("a golden-blond swept-back style", 18, 45, "man"), H("a short natural dark afro"),
+  H("a bright strawberry-blond ponytail", 18, 40, "woman"), H("a classic dark-brown side part", 18, 99, "man"), H("a voluminous dark blowout", 18, 99, "woman"),
+  H("a salt-and-pepper buzzcut", 40, 99, "man"), H("a silver-streaked swept-back style", 40, 99, "man"),
+  H("a distinguished silver crop", 40), H("a sleek silver-gray bob", 40, 99, "woman"),
 ];
+/** The heritages whose natural hair is dark: a light blond, copper, auburn or strawberry cut is not dealt to them. */
+const DARK_HAIR_HERITAGES = new Set([
+  "Black American", "Nigerian American", "Caribbean American", "Mexican American", "Puerto Rican", "Dominican American", "Chinese American",
+  "Filipino American", "Korean American", "South Asian American", "Vietnamese American", "Native American", "Middle Eastern American",
+]);
+const LIGHT_HAIR_RE = /\b(?:blond|copper|auburn|strawberry|platinum|golden|honey|sandy|caramel)\b/i;
+/** True when the hair entry fits the person's gender (a men's cut is not dealt to a woman or the reverse; nonbinary and unstated take any) and heritage. */
+export function hairFits(desc: string, gender?: string, heritage?: string): boolean {
+  const e = HAIR_ENTRIES.find((x) => x.desc === desc);
+  if (!e) return true;
+  if (e.lean !== undefined && (gender === "man" || gender === "woman") && e.lean !== gender) return false;
+  if (heritage !== undefined && DARK_HAIR_HERITAGES.has(heritage) && LIGHT_HAIR_RE.test(desc)) return false;
+  return true;
+}
+/**
+ * ORW-480: the cut that goes with a houseguest's FINAL gender and heritage, after identity or genesis changed either. A cut that already fits is kept
+ * (no change for a coherent cast); one that does not is replaced by an unused fitting entry of the person's age, drawn off the given rng.
+ * Returns {id: new hair} for the people changed only.
+ */
+export function recohereHair(
+  rng: RandomnessSource,
+  people: ReadonlyArray<{ id: string; hair: string | undefined; age: number; gender?: string; heritage?: string }>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  const taken = new Set(people.map((p) => p.hair).filter((h): h is string => !!h));
+  for (const p of people) {
+    if (!p.hair || hairFits(p.hair, p.gender, p.heritage)) continue;
+    const pool = HAIR_ENTRIES.filter((e) => !taken.has(e.desc) && p.age >= e.minAge && p.age <= e.maxAge && hairFits(e.desc, p.gender, p.heritage));
+    if (pool.length === 0) continue;
+    const pick = pool[Math.floor(rng.next() * pool.length) % pool.length]!.desc;
+    taken.delete(p.hair); taken.add(pick);
+    out[p.id] = pick;
+  }
+  return out;
+}
 /** The cleaned hair strings, for tests that pin the list. */
 export const HAIR_DESC: readonly string[] = HAIR_ENTRIES.map((e) => e.desc);
 const HAIR_GRAY = /\b(gray|grey|silver|salt-and-pepper)\b/i;
@@ -367,7 +403,10 @@ export function dealMarksSpread(rng: RandomnessSource, count: number, maxEach: n
  * onto the entries still unused AND allowed for that houseguest's age (gray/silver only at 40+); if none is
  * left for that age it takes from all unused; past the list size it reuses (cap relaxes, unreachable at 30).
  */
-export function dealHairSpread(rng: RandomnessSource, count: number, ages: readonly number[] | undefined, maxEach: number): string[] {
+export function dealHairSpread(
+  rng: RandomnessSource, count: number, ages: readonly number[] | undefined, maxEach: number,
+  genders?: ReadonlyArray<string | undefined>, heritages?: ReadonlyArray<string | undefined>,
+): string[] {
   const uses = new Map<string, number>();
   const out: string[] = [];
   for (let i = 0; i < count; i++) {
@@ -376,7 +415,9 @@ export function dealHairSpread(rng: RandomnessSource, count: number, ages: reado
     const unused = HAIR_ENTRIES.filter((e) => (uses.get(e.desc) ?? 0) < maxEach);
     const pool = unused.length ? unused : HAIR_ENTRIES;
     const allowed = pool.filter((e) => (age === undefined ? !isGrayHair(e.desc) : age >= e.minAge && age <= e.maxAge));
-    const from = allowed.length ? allowed : pool;
+    // ORW-480: the cut follows the person's gender and heritage when they are known (a woman is not dealt a men's fade, a dark-haired heritage no platinum bob)
+    const fitting = allowed.filter((e) => hairFits(e.desc, genders?.[i], heritages?.[i]));
+    const from = fitting.length ? fitting : allowed.length ? allowed : pool;
     const v = from[Math.floor((r / 1_000_000) * from.length) % from.length]!.desc;
     uses.set(v, (uses.get(v) ?? 0) + 1);
     out.push(v);
@@ -392,11 +433,11 @@ export function dealHairSpread(rng: RandomnessSource, count: number, ages: reado
  */
 export function dealCastPhysicalSpread(
   rng: RandomnessSource, count: number, presentations?: readonly string[], ages?: readonly number[],
-  buildBands?: readonly BuildBand[],
+  buildBands?: readonly BuildBand[], genders?: ReadonlyArray<string | undefined>, heritages?: ReadonlyArray<string | undefined>,
 ): PhysicalSpread[] {
   const heightBuild = dealBuildSpread(rng, count, buildBands, MAX_PER_HEIGHT_BUILD);
   const skinTone = spreadFacet(rng, SKIN_TONE, count, MAX_PER_SKIN_TONE);
-  const hair = dealHairSpread(rng, count, ages, MAX_PER_HAIR);
+  const hair = dealHairSpread(rng, count, ages, MAX_PER_HAIR, genders, heritages);
   const facial = spreadFacet(rng, FACIAL, count, MAX_PER_FACIAL);
   const mark = dealMarksSpread(rng, count, MAX_PER_MARK);
   // ORW-360: the style is the sample of the houseguest's own presentation family. A caller with no cast
@@ -1284,6 +1325,7 @@ export function generateCastDeepLayer(seed: number, npcs: readonly Houseguest[])
     // ORW-381: the build band leans to the hidden physical stat, picked here (engine-side, creation only) off
     // its own `${seed}:build-band` stream; only the build WORDS reach the public facet.
     dealBuildBands(new SeededRandom(hashSeed(`${seed}:build-band`)), npcs.map((n) => n.character.stats.physical)),
+    npcs.map((n) => n.character.genderPresentation), npcs.map((n) => n.character.ethnicity), // ORW-480: the cut follows gender and heritage
   );
   // ORW-381: one casting type per houseguest off its OWN side stream (no existing stream moves), by age only.
   const castingTypes = dealCastingTypes(

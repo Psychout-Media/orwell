@@ -384,6 +384,37 @@
         mk("The biggest lies the house believed", _millRows(_mill.biggest));
         mk("What they got wrong about you", _millRows(_mill.aboutYou));
       }
+      // 0200 / ORW-632: your edit - the season as TV would have cut it. Render-only, textContent, plain sentences from the engine's FACTS and composed floor lines
+      // (the narrator voices live titles in the chat; this is the window's own floor). Never a number. Absent => skipped (fail-open).
+      const _edit = unsealed.yourEdit;
+      if (_edit && typeof _edit === "object") {
+        const _eps = (_edit.episodes || []).filter((e) => e && typeof e.title === "string" && e.title.trim()).map((e) => clean(e.title));
+        const _cut = [...(_edit.heroes || []), ...(_edit.villains || [])].filter((h) => h && typeof h.line === "string" && h.line.trim()).map((h) => clean(h.line));
+        const _you = _edit.you && typeof _edit.you.line === "string" ? clean(_edit.you.line) : "";
+        if (_eps.length || _cut.length || _you) {
+          vaultWrap.appendChild(el("h3", "display:block;margin:12px 0 2px;font-size:inherit", "Your edit"));
+          const mkEdit = (title, items) => {
+            if (!items.length) return;
+            vaultWrap.appendChild(el("div", "margin:6px 0 2px;font-weight:600", title));
+            const ul = el("ul", "margin:2px 0;padding-left:18px;opacity:0.9;font-size:12.5px");
+            for (const t of items) ul.appendChild(el("li", "", t));
+            vaultWrap.appendChild(ul);
+          };
+          mkEdit("The episodes", _eps);
+          mkEdit("Who the cut made a hero or a villain", _cut);
+          mkEdit("How you came across", _you ? [_you] : []);
+        }
+      }
+      // 0183 part d / ORW-566: the groups the season held (alliances and close-pair habits, hidden ones included). Render-only, textContent, the engine's composed floor lines
+      // (the narrator voices them live in the chat). Names and weeks only, never an id or a number. Absent => skipped (fail-open).
+      const _gl = unsealed.groupLife;
+      const _glRows = ((_gl && _gl.groups) || []).filter((g) => g && typeof g.line === "string" && g.line.trim()).map((g) => clean(g.line));
+      if (_glRows.length) {
+        vaultWrap.appendChild(el("h3", "display:block;margin:12px 0 2px;font-size:inherit", "The groups of the house"));
+        const ul = el("ul", "margin:2px 0;padding-left:18px;opacity:0.9;font-size:12.5px");
+        for (const t of _glRows) ul.appendChild(el("li", "", t));
+        vaultWrap.appendChild(ul);
+      }
       // ORW-551 (spec 0168): the house culture, in plain texture words (one phrase per lean; the engine sends words only). Render-only, textContent. Absent => skipped.
       const _cult = unsealed.houseCulture;
       const _cultWords = ((_cult && _cult.leans) || []).filter((t) => typeof t === "string" && t.trim()).map((t) => clean(t));

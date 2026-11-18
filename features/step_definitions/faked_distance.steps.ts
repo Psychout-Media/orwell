@@ -12,6 +12,7 @@ type Seam = {
   setFakedDistanceEnabled(on: boolean): void; perceivedBond(h: string, a: string, b: string): number;
   playerCatchesHiddenPair(type: string, people: string[], place: string, presence: Map<string, string>, salt: string): void;
   onPlayerEvent?: (c: string, w: string[], k?: string) => string | undefined;
+  onlookers(room: string[], type: string, people: string[], salt: string): string[];
 };
 type Bag = { g?: Seam; ids: string[]; before?: { o: number; c: number }; caught: Array<{ c: string; w: string[] }> };
 const bag = (w: unknown): Bag => ((w as { fd0184?: Bag }).fd0184 ??= { ids: [], caught: [] });
@@ -33,11 +34,26 @@ Given("two close allies who are hiding it this week", function () {
   b.before = { o: g.perceivedBond(b.ids[2]!, a, x), c: g.perceivedBond(c, a, x) };
   g.live.hiding = { week: g.live.week, pairs: [pairKey(a, x)] };
 });
-Then("a houseguest who never caught them reads them as less close than before they hid it", function () {
-  const b = bag(this); assert.ok(b.g!.perceivedBond(b.ids[2]!, b.ids[0]!, b.ids[1]!) < b.before!.o);
+When("they spend time together in a room with others, again and again", function () {
+  const b = bag(this); const [a, x, o, c] = b.ids as [string, string, string, string];
+  const regs = Array.from({ length: 60 }, (_, i) => b.g!.onlookers([o, c], "bonding", [a, x], `bdd-room:${i}`));
+  (b as unknown as { regs: string[][] }).regs = regs;
+  const scenes = regs.map((seenBy, i) => ({ id: `r${i}`, ts: i, type: "bonding", initiator: a, witnessSet: [a, x], hidden: true, content: "", houseLife: { seenBy } }));
+  b.g!.record = { events: () => scenes };
 });
-Then("a houseguest who caught them together still reads them as close", function () {
-  const b = bag(this); assert.ok(Math.abs(b.g!.perceivedBond(b.ids[3]!, b.ids[0]!, b.ids[1]!) - b.before!.c) < 1e-9);
+Then("only a few of the onlookers register it each time", function () {
+  const regs = (bag(this) as unknown as { regs: string[][] }).regs;
+  const share = regs.reduce((t, r) => t + r.length, 0) / (regs.length * 2);
+  assert.ok(share > 0 && share < 0.4, `onlookers registered ${share}`);
+});
+Then("a houseguest who never caught them reads them as less close than one who did", function () {
+  const b = bag(this); const [a, x, o, c] = b.ids as [string, string, string, string];
+  const regs = (b as unknown as { regs: string[][] }).regs;
+  const caught = (id: string) => regs.filter((r) => r.includes(id)).length;
+  const [more, less] = caught(o) >= caught(c) ? [o, c] : [c, o];
+  assert.ok(b.g!.perceivedBond(more, a, x) >= b.g!.perceivedBond(less, a, x));
+  // an onlooker who caught nothing at all reads them as strangers
+  const none = b.ids[5]!; assert.ok(b.g!.perceivedBond(none, a, x) <= b.g!.perceivedBond(more, a, x));
 });
 When("the pair keeps slipping off in a room the player is in", function () {
   const b = bag(this); const [a, x] = b.ids as [string, string];
@@ -49,11 +65,4 @@ Then("the player sometimes catches them, as a scene only the player saw", functi
   const b = bag(this);
   assert.ok(b.caught.length > 0 && b.caught.length < 60);
   assert.ok(b.caught.every((e) => e.w.length === 1 && e.w[0] === PLAYER));
-});
-Then("a houseguest close to the player who hides it makes the house read the player as less tied to them", function () {
-  const b = bag(this); const g = b.g!; const ally = b.ids[4]!, onlooker = b.ids[5]!;
-  for (let i = 0; i < 8; i++) { g.rel.applyImpactDirected(ally, PLAYER, { trust: 0.4, affinity: 0.4 }, flat); g.rel.applyImpactDirected(PLAYER, ally, { trust: 0.4, affinity: 0.4 }, flat); }
-  const open = g.perceivedBond(onlooker, PLAYER, ally);
-  g.live.hiding = { week: g.live.week, pairs: [...g.live.hiding!.pairs, pairKey(PLAYER, ally)] };
-  assert.ok(g.perceivedBond(onlooker, PLAYER, ally) < open);
 });

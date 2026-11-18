@@ -17,16 +17,36 @@ Feature: A houseguest heard to be a snake is believed less by those who heard it
     Given a houseguest the observer has heard lying and turning on people
     Then the observer's credit for the houseguest's word is the bounded product of credibility and standing
 
+  # Part 2a (ORW-564): social roles, read from what each houseguest saw and was told, and voiced as gossip (Ryne's Q3 ruling: labels said in their own words, never shown).
+  Scenario: A role emerges from what the observer saw, and only for those who saw it
+    Given a played season with social roles on
+    And a houseguest the observer saw start several fights
+    Then the observer reads that houseguest as the house villain
+    And a houseguest who saw none of it reads no role in them
+
+  Scenario: A role travels as gossip, and can be wrong
+    Given a played season with social roles on
+    And a houseguest the observer saw start several fights
+    When the observer passes their read on in a scene with nothing else to tell
+    Then the listener holds it as talk about that houseguest, from the observer
+    And whether it is true is the engine's own read of the record, never the speaker's
+
+  Scenario: The player is read and talked about like anyone
+    Given a played season with social roles on
+    And the player starting several fights the observer saw
+    Then the observer reads the player as the house villain
+    And a houseguest who heard it may tell the player what the house thinks of them, as gossip in their own words
+
   # Part 2b (ORW-564): a close pair fakes distance in public.
-  Scenario: A pair faking distance is not read as a pair, except by someone who caught them
+  Scenario: A pair faking distance is mostly not seen together, and only those who caught them read them as close
     Given a played season with faked distance on
     And two close allies who are hiding it this week
-    Then a houseguest who never caught them reads them as less close than before they hid it
-    And a houseguest who caught them together still reads them as close
+    When they spend time together in a room with others, again and again
+    Then only a few of the onlookers register it each time
+    And a houseguest who never caught them reads them as less close than one who did
 
-  Scenario: The player can catch a hidden pair, and the player's own ally can hide it too
+  Scenario: The player can catch a hidden pair
     Given a played season with faked distance on
     And two close allies who are hiding it this week
     When the pair keeps slipping off in a room the player is in
     Then the player sometimes catches them, as a scene only the player saw
-    And a houseguest close to the player who hides it makes the house read the player as less tied to them

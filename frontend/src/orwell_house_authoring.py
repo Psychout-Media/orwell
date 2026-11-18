@@ -124,6 +124,7 @@ async def run_house(seed, owner: Optional[str]) -> dict:
         from src import orwell_engine
         llm_fn = await genesis._resolve_llm_fn(owner)
         if llm_fn is None:
+            _DONE.discard(key)  # nothing was spent: a retried warm may try the house again
             return {"accepted": False, "attempts": 0, "rejected": {"model": 1}}
 
         async def _write(proposal: dict) -> dict:
@@ -131,6 +132,7 @@ async def run_house(seed, owner: Optional[str]) -> dict:
 
         return await author_house(genesis.generate_season_brief(int(seed)), seed, llm_fn, _write)
     except Exception as e:
+        _DONE.discard(key)  # the call itself failed (a provider error): a retried warm may try again
         from src import log_rings  # #1599: fail-soft, never silent
         log_rings.record_soft_failure("house-authoring:skipped", e, corrected="the plain house labels stand")
         return {"accepted": False, "attempts": 0, "rejected": {"error": 1}}

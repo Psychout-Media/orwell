@@ -127,3 +127,20 @@ def test_belt_prompt_is_a_rule_naming_the_closed_kinds_with_no_examples_and_ever
     assert '**({"statement": entry["statement"]} if entry.get("statement") else {})' in src
     assert '**({"statement": statement} if statement else {})' in src
     assert "statement=statement)" in src
+
+
+def test_a_reputation_statement_needs_one_of_the_engines_role_words():
+    """0184 part 2a: the player may tell a houseguest someone is known as a type of player; the label must be exactly one of the engine's role words."""
+    v = al._validate_statement
+    IDS = ["npc:1", "npc:2", "npc:3"]
+    assert v({"to": "npc:1", "about": "npc:2", "kind": "has-reputation", "label": "snake"}, ["npc:1"], IDS) == {"to": "npc:1", "about": "npc:2", "kind": "has-reputation", "label": "snake"}
+    assert v({"to": "npc:1", "about": "npc:2", "kind": "has-reputation"}, ["npc:1"], IDS) is None
+    assert v({"to": "npc:1", "about": "npc:2", "kind": "has-reputation", "label": "the worst"}, ["npc:1"], IDS) is None
+
+
+def test_the_fe_role_words_are_exactly_the_engines():
+    import os
+    import re
+    ts = open(os.path.join(os.path.dirname(__file__), "..", "..", "src", "engine", "socialRoles.ts"), encoding="utf-8").read()
+    line = ts[ts.index("export type RoleLabel"):ts.index(";", ts.index("export type RoleLabel"))]
+    assert set(re.findall(r'"([a-z-]+)"', line)) == set(al._ROLE_LABELS)

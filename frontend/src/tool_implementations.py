@@ -4707,6 +4707,48 @@ def _cast_coherence_detail(repaired: int, floored: int, corrected: list, limit: 
     return json.dumps({"repaired": repaired, "floored": floored, "omitted": len(corrected) - len(kept), "houseguests": kept}, separators=(",", ":"))
 
 
+async def _set_opening_scene_faces(owner) -> None:
+    """Order the image queue so the houseguests in the opening scene (everyone already inside when the player walks in,
+    plus whoever is walking in) are shot first. Reads only the existing public premiere view (names), maps them to
+    ids through the roster; any trouble leaves the queue in arrival order. Never raises."""
+    try:
+        from src import orwell_engine, orwell_portraits
+        view = await orwell_engine.premiere_intros(user=owner)
+        ent = view.get("entrance") if isinstance(view, dict) else None
+        if not isinstance(ent, dict):
+            return
+        names = {str(n).strip().casefold() for n in (ent.get("arrivedNames") or []) if n}
+        just = ent.get("justArrived")
+        if isinstance(just, dict) and just.get("name"):
+            names.add(str(just["name"]).strip().casefold())
+        if not names:
+            return
+        state = await orwell_engine.get_game_state(user=owner)
+        ids = [str(c["id"]) for c in (state.get("house") or []) if isinstance(c, dict) and c.get("id")
+               and str(c.get("name") or "").strip().casefold() in names]
+        if ids:
+            orwell_portraits.set_opening_ids(owner, ids)
+    except Exception as e:  # failsoft-ok: best-effort (the queue stays in arrival order)
+        logger.info("[cast] opening-scene faces not ordered: %s", e)
+
+
+async def _refusal_with_warm(owner, base_message: str) -> str:
+    """A strict casting-finalize refusal must never leave the cast idle: start the cast warm now (it retries with
+    backoff until it lands) and tell the producer the truth, so it keeps talking instead of announcing a cast that
+    is not ready. When no warm could be started the plain refusal text stands."""
+    try:
+        from src import orwell_prewarm
+        res = await orwell_prewarm.restart_warm(owner)
+        if res.get("restarted") or res.get("reason") == "still-running":
+            return (base_message + " Production has restarted the cast preparation and it is still finishing. "
+                    "The player is NOT cast yet: do not say they are cast and do not go quiet. Keep talking with "
+                    "them in character as the producer, tell them the screen tests are still being finished, and "
+                    "call createCharacter again in about twenty seconds.")
+    except Exception as e:  # failsoft-ok: best-effort (the plain refusal text stands)
+        logger.info("[cast] could not restart the cast warm at the finalize refusal: %s", e)
+    return base_message
+
+
 async def do_create_character(
     content: str, owner: Optional[str] = None,
     progress_cb: Optional[Callable[[Dict], Awaitable[None]]] = None,
@@ -4817,6 +4859,15 @@ async def do_create_character(
                 _genesis_kick.run_genesis(_warm.get("house") or [], _cast_seed, owner),
                 timeout=_GENESIS_WALL_CLOCK_BACKSTOP_S,
             )
+        # ORW-480: the same belt for the identity step. When the interview-time warm failed (an outage), genesis is re-run just above but nothing re-ran identity, so the
+        # engine's dealt genders, heritages and ages stood beside names the writer chose later (a man named Beth, a "Greek American" Marisol Vega).
+        if isinstance(_warm, dict) and _warm.get("warmed") and _warm.get("house"):
+            from src import orwell_cast_identity as _identity_belt
+            if not _identity_belt.applied_for(owner, _cast_seed):
+                _roster = await orwell_engine.pre_seed_cast(seed=args.get("seed"), user=owner)
+                if isinstance(_roster, dict) and _roster.get("house"):
+                    await asyncio.wait_for(_identity_belt.ensure_identity(_roster["house"], owner, _cast_seed),
+                                           timeout=_GENESIS_WALL_CLOCK_BACKSTOP_S)
     except Exception as e:
         logger.warning("[cast-genesis] pre-finalize genesis kick failed open for %s: %s", owner, e)
     # 0116 — the model-authored cast-genesis LOUD PRE-FINALIZE GATE (§4 / #1313 precedent). Genesis
@@ -4832,7 +4883,7 @@ async def do_create_character(
             _enrichment_g.record_failure(
                 owner, "cast-genesis",
                 "casting finalize refused — the cast skeleton could not be model-authored (genesis failed)")
-            return {"error": _genesis_gate.refusal_message(), "exit_code": 1}
+            return {"error": await _refusal_with_warm(owner, _genesis_gate.refusal_message()), "exit_code": 1}
         # ORW-260 (Ryne, card 30 option B): the deeper backstories are required too - a failed authoring run (already finished, e.g. the interview-time pre-warm) refuses the start.
         from src import orwell_cast_authoring as _authoring_latch
         if _enrichment_g.is_strict() and _authoring_latch.strict_failed(owner) and not _authoring_latch.floor_start_allowed():
@@ -4840,7 +4891,7 @@ async def do_create_character(
                 owner, "cast-authoring",
                 "casting finalize refused — the deeper backstories could not be written (authoring failed)")
             _authoring_latch.clear_strict_failed(owner)  # refuse ONCE, loudly; the retry re-runs authoring (the house-entry gate then holds until it lands) rather than deadlocking on a stale latch
-            return {"error": _authoring_latch.refusal_message(), "exit_code": 1}
+            return {"error": await _refusal_with_warm(owner, _authoring_latch.refusal_message()), "exit_code": 1}
     except Exception as e:
         logger.warning("[enrichment] strict genesis pre-finalize gate failed open for %s: %s", owner, e)
     try:
@@ -4885,6 +4936,12 @@ async def do_create_character(
         # phantom card (e.g. last season's juror-vote, even under the old player's name) armed on
         # GET /api/orwell/status until the first advanceGame of season 2 overwrites it.
         orwell_engine.remember_pending(res, user=owner)
+        if isinstance(res, dict) and res.get("started") and not res.get("createRefused"):
+            try:  # the interview is over: the cast warm's backoff retries stop (the house-entry gate owns the rest)
+                from src import orwell_prewarm as _pw_end
+                _pw_end.interview_ended(owner)
+            except Exception:  # failsoft-ok: best-effort
+                pass
         # #1561 — createCharacter FINALIZE advances the engine beatSeq (season start + the premiere
         # fan-out), exactly like advanceGame/submitDecision/turnIn — but, unlike those, it never flowed
         # its committed result through `_refresh_beat_seq`. So the FE's last-seen token stayed at the
@@ -5017,6 +5074,7 @@ async def do_create_character(
                 # Idempotent (generate_and_store skips faces already on disk), budget-bounded (routes
                 # through the standard pipeline), fail-soft (no image provider ⇒ silent no-op),
                 # Vault-free (the same public-facet prompts).
+                await _set_opening_scene_faces(owner)  # the faces in the opening scene are shot first
                 portraits_started = False
                 try:
                     from src import orwell_prewarm

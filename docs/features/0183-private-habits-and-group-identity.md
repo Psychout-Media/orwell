@@ -60,7 +60,7 @@ calls: the floor stands and an admin alert is raised. `ORWELL_GROUP_IDENTITY=0` 
 ## Not in this part (TODO)
 
 - (c) is built (ORW-566 part c): see "Part c" below.
-- (d) the retrospective's words-only `groupLife` field behind the crown gate.
+- (d) is built (ORW-566 part d): see "Part d" below.
 - The Auditor's shared bond reader replaces `BondReader` when it merges.
 
 ## Part c2: formation-time alliance naming (the anonymized sealed-prompt door)
@@ -84,3 +84,12 @@ list. Finding out an alliance's name is later ammunition (it spreads as a claim 
 - **Channel.** `allianceNameTickets` (read) and `recordAllianceName` (write-back) are FE-driven infra levers, wired in all four places, not model levers. The FE driver
   (`frontend/src/orwell_group_identity.py`, same after-turn seam and single flight as part c) makes one utility call per ticket (one retry, fail-soft) and learns nothing about any group.
 - The prompt states rules only: no sample name, no example line, no quoted word list. Flag: `ORWELL_GROUP_IDENTITY` (no new flag). Played games only.
+
+## Part d: the retrospective's `groupLife` (built)
+
+`RetrospectiveView.groupLife` (`src/engine/groupLifeRetro.ts`, assembled in `GameSessionAdapter.buildGroupLifeView`) rides the existing `seasonRetrospective()` door: behind the `finished` gate,
+played games only, `ORWELL_GROUP_IDENTITY` (no new flag); before the crown there is nothing. This is the sanctioned unsealing: hidden alliances appear with their sealed name, and the displayed
+name too when it differed (`knownAs`). Per group, facts only: the members' names, the name, ritual / signal / inside joke if authored, the spot, the week it formed and (alliances) the week it
+ended with a plain phrase for how, and whether the player knew of it. Never an id, a number or a truth marker; weeks are plain integers. `line` is the composed offline floor (names, name, room,
+weeks); the narrator voices it live under rules-only text in the post-season moment fragment (not the base prompt). The FE shows the floor lines under "The groups of the house".
+Week stamps (`week`, `endedWeek`) live on the hidden `groupIdentity` entry; an end is stamped at the next night's settle.

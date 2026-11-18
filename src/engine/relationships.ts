@@ -419,11 +419,17 @@ export class RelationshipModel {
     temperature = TEMPERATURE_CONSTANTS.variableWeights.allianceShift,
     /** B7 M4b (ORWELL_HC_MEMORY): an optional additive memory bias per candidate (favor / owed promise raise, grudge lowers). Absent => byte-identical; draws no rng. */
     memoryBias?: (candidate: EntityId) => number,
+    /** ORW-639: called once per candidate with its named parts and the score it was ranked by (a record only; draws nothing, changes nothing). */
+    trace?: (candidate: EntityId, parts: { bond: number; wobble: number; bias: number }, score: number) => void,
   ): EntityId {
     let best = candidates[0]!;
     let bestScore = -Infinity;
     for (const c of candidates) {
-      const score = this.bondStrength(holder, c) + (rng.next() - 0.5) * temperature + (memoryBias ? memoryBias(c) : 0);
+      const bond = this.bondStrength(holder, c);
+      const wobble = (rng.next() - 0.5) * temperature;
+      const bias = memoryBias ? memoryBias(c) : 0;
+      const score = bond + wobble + bias; // same left-to-right order as before (bond + wobble + bias)
+      trace?.(c, { bond, wobble, bias }, score);
       if (score > bestScore) { bestScore = score; best = c; }
     }
     return best;
