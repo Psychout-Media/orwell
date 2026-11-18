@@ -246,3 +246,15 @@ describe("the disclosure spin on the orientation disclosure keeps the 0141 wall"
     expect(slanted.told[0]!.content).toContain("zzprivorient"); // positive control: the orientation DID reach the player's record, by the told-by path only
   });
 });
+
+describe("ORW-687: a name the player rules out is not a name they gave", () => {
+  const roster = [{ id: "a", name: "Alpha Aster" }, { id: "b", name: "Bravo Birch" }];
+  it("reads a negated name as nothing, and still reads the name they do give", async () => {
+    const { namedSources, readAnswer } = await import("../../src/engine/sourceAsk");
+    expect(namedSources("it wasn't Alpha", roster, "x")).toEqual([]);
+    expect(namedSources("not Alpha, never Alpha Aster", roster, "x")).toEqual([]);
+    expect(namedSources("it wasn't Alpha, it was Bravo", roster, "x")).toEqual(["b"]);
+    expect(namedSources("Alpha told me", roster, "x")).toEqual(["a"]);
+    expect(readAnswer("a", namedSources("it wasn't Alpha", roster, "x"), false)).toBeUndefined();
+  });
+});
