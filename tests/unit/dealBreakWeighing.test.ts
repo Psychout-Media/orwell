@@ -143,6 +143,28 @@ describe("(a) a played week: who breaks and who keeps", () => {
   });
 });
 
+describe("ORW-639 (S-11): a deal weighed and KEPT leaves its why, like a break", () => {
+  it("a high-bond NPC who keeps the deal records a deal-keep (the temptation and cost terms), Vault-side only, and it survives a save and restore", () => {
+    const x = setup({ trust: 0.9, affinity: 0.9, threat: 0.1 });
+    x.g.weighDealBreaks();
+    const rec = x.g.live.decisionWhy!.filter((w) => w.kind === "deal-keep" && w.by === x.npc);
+    expect(rec.length).toBe(1);
+    expect(x.deal.status).toBe("open"); // a record only: the deal is untouched
+    expect(x.g.live.statedReasons?.some((r2) => r2.decision === ("deal-keep" as never)) ?? false).toBe(false); // nothing to voice
+    const w = rec[0] as unknown as { options: Array<{ option: string; total: number; terms: Array<[string, number]> }> };
+    expect(w.options[0]!.option).toBe(PLAYER);
+    expect(w.options[0]!.terms.some(([n]) => n === "bond")).toBe(true);
+    expect(Math.abs(w.options[0]!.terms.reduce((a, [, v]) => a + v, 0) - w.options[0]!.total)).toBeLessThan(1e-12);
+    // persistence: JSON round trip, then a restore into a fresh session keeps the whole record (append-only: never fewer)
+    const snap = JSON.parse(JSON.stringify((x.s as unknown as { snapshot(): unknown }).snapshot()));
+    const y = new GameSessionRegistry().sandboxFor(`weigh-restore-${Math.random()}`).session as unknown as { restore(c: unknown): void; live: Internals["live"] };
+    y.restore(snap);
+    expect((y.live.decisionWhy ?? []).filter((q) => q.kind === "deal-keep")).toEqual(rec);
+    // the player never sees it
+    expect(JSON.stringify(x.s.seasonRecap())).not.toContain("deal-keep");
+  });
+});
+
 describe("signed agenda pull: a goal to keep the player, or a long con not yet at its break stage, makes the NPC LESS tempted", () => {
   // threat 1, no bond, endgame pressure: the same NPC with no goal breaks sometimes (positive margin), so a subtracting goal has something to take away.
   const hot = { trust: 0, affinity: 0, threat: 1, active: 5 } as const;

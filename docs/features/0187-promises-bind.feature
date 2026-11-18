@@ -56,3 +56,38 @@ Feature: A promise with a term is kept or broken by what happens on the board, n
     Given a house where a promiser has promised a promisee not to nominate them
     When promise terms: the promiser's promise is withdrawn and they then nominate the promisee
     Then promise terms: nothing is folded and the assurance row is lapsed
+
+  Scenario: A kept veto promise leans the promiser's own save and the veto settles it
+    Given promise terms: a house where a promiser has promised a promisee to use the veto on them
+    And promise terms: the promiser has nothing to gain from breaking it
+    Then promise terms: the promiser's own save read leans toward the promisee
+    When promise terms: the promiser uses the veto on a third houseguest
+    Then promise terms: the veto promise is closed as broken by the engine and the promisee trusts the promiser less
+
+  Scenario: A promiser who gains from breaking a veto promise does not feel its lean
+    Given promise terms: a house where a promiser has promised a promisee to use the veto on them
+    And promise terms: breaking it would pay the promiser in full
+    Then promise terms: the promiser's own save read has no lean toward the promisee
+
+  Scenario: A final-two promise is kept by the final two and broken without the promisee
+    Given promise terms: a house where a promiser has promised a promisee to take them to the final two
+    When promise terms: the final two is the promiser and a third houseguest
+    Then promise terms: the final-two promise is closed as broken by the engine and the promisee trusts the promiser less
+
+  Scenario: A promiser whose plan says to break it breaks it at the planned moment, once
+    Given ledger plan: a house where a promiser promised a promisee not to nominate them and plans to break it at the nominations
+    Then ledger plan: the promiser does not keep the promise at the nominations
+    When ledger plan: the promiser nominates the promisee twice
+    Then ledger plan: the promise is closed as broken by the engine and the promisee trusts the promiser less exactly once
+
+  Scenario: A promiser whose plan is to keep it keeps it
+    Given ledger plan: a house where a promiser promised a promisee not to nominate them and plans to keep it
+    Then ledger plan: the promiser keeps the promise at the nominations
+
+  Scenario: An improvised promise's plan never reaches a player or admin view
+    Given ledger plan: a house where a promiser promised a promisee not to nominate them and plans to break it at the nominations
+    Then ledger plan: no player or admin view shows the plan or its key
+
+  Scenario: With deal plans switched off an improvised promise gets no plan
+    Given ledger plan: a house with deal plans switched off where a promiser promised a promisee not to nominate them
+    Then ledger plan: no plan was made for the promise

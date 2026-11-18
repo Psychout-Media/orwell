@@ -87,11 +87,22 @@ export function grievanceOf(c: BeliefClaim, holder: EntityId): GrievanceKind | u
   }
 }
 
+/**
+ * ORW-637: a belief's decision weight from its conviction - in proportion below CONVICTION.asFact (unchanged), then rising on a straight line from there to
+ * full at CONVICTION.certain. Continuous: the old jump from asFact straight to full weight is gone.
+ */
+export function convictionWeight(confidence: number): number {
+  const c = Math.max(0, Math.min(1, confidence));
+  if (c < CONVICTION.asFact) return c;
+  return Math.min(1, CONVICTION.asFact + (1 - CONVICTION.asFact) * (c - CONVICTION.asFact) / (CONVICTION.certain - CONVICTION.asFact));
+}
+
 /** One belief's weight now: kind x confidence x decay. */
 function weightNow(c: BeliefClaim, kind: GrievanceKind, week: number): number {
   const age = Math.max(0, week - c.week);
-  // 0160 (conviction): a belief held at or above CONVICTION.asFact is acted on as a fact (full weight); below it, in proportion.
-  const conviction = c.confidence >= CONVICTION.asFact ? 1 : Math.max(0, Math.min(1, c.confidence));
+  // 0160 (conviction) / ORW-637 (Fable S-6): the weight rises with conviction and is full only near certainty - no cliff at CONVICTION.asFact, so a single
+  // broken casual assurance (held at ASSURANCE.brokenClaimConfidence) no longer counts as certain and founds a season-long revenge by itself.
+  const conviction = convictionWeight(c.confidence);
   return BELIEF_PULL.kindWeight[kind] * conviction * Math.pow(0.5, age / BELIEF_PULL.halfLifeWeeks);
 }
 
@@ -140,3 +151,30 @@ export function believedGrievances(store: BeliefStore | undefined, holder: Entit
 
 /** 0163 / ORW-539: how much one witnessed bonding scene between two others raises the bond the decider sees (four scenes = the full floater span). */
 export const PERCEIVED_BOND = { perScene: 0.25, /** v2: how much of the read is what they saw (the rest is the true bond: tone and glances a houseguest picks up). */ seenShare: 0.5 } as const;
+
+/**
+ * ORW-574 / ORW-596 (Fable audit T1-6; Ryne 11-03: NPCs decide "from their own view... what each NPC believes"): in a PLAYED game a decision reads
+ * how someone ELSE feels only as the decider can see it - their own reciprocal read, the public record (archetype, comp wins), the scenes they were in or
+ * watched, and the beliefs they hold - never the other houseguest's hidden edge. Engine-only, deterministic, no rng.
+ */
+export const OWN_VIEW = {
+  /** How much of the decider's OWN wariness of someone (above the edge baseline) they assume comes back at them ("a rival I fear fears me"). */
+  mirror: 0.5,
+  /** The danger the house reads into each PUBLIC comp win (the live comp-won fold is +0.45 before decay and jitter; public reads are rougher). */
+  threatPerWin: 0.2,
+  /** How far a believed grievance (targets me / voted against me / lied to me / going after me; `believedGrievance`, 0..1) moves the read. */
+  grievance: 0.3,
+  /** How far a held "they told me they are keeping me" (`assured-me`, x its confidence) raises the read of their trust. */
+  assured: 0.15,
+  /** A public read of competition strength: how much each public comp win adds (on the (physical + mental) / 2 - 0.5 scale). */
+  strengthPerWin: 0.1,
+  /** Witnessed social scenes that read as warm (+1) or cold (-1) between two others, by event type (ORW-596: the remainder of the floater/duo read was the hidden bond). A scene type not named reads neutral. */
+  sceneValence: { bonding: 1, showmance: 1, alliance: 1, strategy: 1, gossip: 1, conflict: -1, betrayal: -1 } as Readonly<Record<string, number>>,
+} as const;
+
+/** ORW-574: what the holder's own beliefs say about how `other` regards them: `against` (a believed grievance, 0..1) and `assured` (an assured-me they hold, by confidence, 0..1). */
+export function believedRegard(store: BeliefStore | undefined, holder: EntityId, other: EntityId, week: number): { against: number; assured: number } {
+  let assured = 0;
+  for (const c of claimsOf(store, holder)) if (c.kind === "assured-me" && c.subject === other && c.value && !c.refuted) assured = Math.max(assured, Math.max(0, Math.min(1, c.confidence)));
+  return { against: believedGrievance(store, holder, other, week).strength, assured };
+}

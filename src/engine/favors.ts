@@ -7,7 +7,7 @@ import { FAVOR } from "./favorConstants";
  * a NEW owed entry for the new holder and keeps the old one as `passed`, so the original debtor is remembered. Engine-held and hidden: a favor between two NPCs is Vault content (the player learns of it only
  * through a pathway), and no view, narrator projection or admin surface carries a row, a count or a figure.
  */
-export type FavorState = "owed" | "repaid" | "refused" | "passed";
+export type FavorState = "owed" | "repaid" | "refused" | "passed" | "lapsed";
 
 export interface FavorEntry {
   id: string;
@@ -70,6 +70,15 @@ export class FavorLedger {
   }
 
   /** Pass a favor on: the old entry becomes `passed`, a new owed entry for `to` carries the same debtor and original creditor. Not to the debtor, and not to the current holder. */
+  /** 0195: a favor that can no longer be collected (the holder or the debtor left the house) - kept on the ledger, never deleted. */
+  lapse(id: string, beat: number): boolean {
+    const e = this.get(id);
+    if (!e || e.state !== "owed") return false;
+    e.state = "lapsed";
+    e.resolvedBeat = beat;
+    return true;
+  }
+
   pass(id: string, to: EntityId, beat: number): FavorEntry | undefined {
     const e = this.get(id);
     if (!e || e.state !== "owed" || to === e.owedBy || to === e.holder) return undefined;

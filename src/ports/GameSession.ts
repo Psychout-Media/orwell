@@ -64,6 +64,8 @@ export interface PlayerCard {
    * pre-jury — their season is over). Public, Vault-free: it says nothing about anyone's hidden state.
    */
   status: "active" | "jury" | "evicted";
+  /** ORW-641 — 1-based place in the public eviction order (1 = first out); present only once they have left the house. A broadcast ceremony fact, Vault-free. */
+  evictedSeq?: number;
   /**
    * 0133 — how an early-evicted player follows the rest of the season: absent for an active player or before the
    * choice; `watch` = the engine-built skeleton season (one `weekDigests` line per week), `skip` = fast-forwarded to
@@ -103,6 +105,8 @@ export interface HouseguestCard {
   lastSeenMood?: string;
   /** active | jury (evicted into the last-9) | evicted (pre-jury). Public ceremony fact. */
   status: string;
+  /** ORW-641 — 1-based place in the public eviction order (1 = first out); present only once they have left the house. A broadcast ceremony fact, Vault-free. */
+  evictedSeq?: number;
   archetype?: string;
   strategyStyle?: string;
   background?: string;
@@ -734,6 +738,8 @@ export interface GameStateView {
    * when the week rolls. Vault-free: public name, deal kind, a terms paraphrase — no numbers.
    */
   openDealOffer?: OpenDealOfferView | null;
+  /** 0174: the vote pitch, shown here only while an ordinary offer also stands (it has its own slot; with no other offer it is `openDealOffer`). Answer with `submitDecision deal-offer` plus `offerId` = `id`. */
+  openVotePitch?: OpenDealOfferView | null;
   /** 0142: favors houseguests owe the player (present only while any are banked). */
   owedFavors?: OwedFavorView[];
 }
@@ -871,6 +877,11 @@ export interface SecretLeverDescriptor {
   bluff?: boolean;
   /** For a `tradedSecret`/bluff: the houseguest the secret is ABOUT (the third-party subject). */
   subject?: EntityId;
+  /**
+   * 0202 (ORW-645) - OPTIONAL register of a `leverage` press: `blunt` (an explicit demand, the default and the 0093 behaviour) or `sneaky` (quiet pressure: a hint, a favour that becomes a debt).
+   * The model proposes the manner; the engine keeps the magnitude. A sneaky press is quieter and can be noticed and backfire. Absent / `blunt` => byte-identical to 0093. Ignored for `tradedSecret`.
+   */
+  manner?: "blunt" | "sneaky";
 }
 
 /** The single-promise deal kinds a `makeDeal` may name (a `package` bundles two of these). */
@@ -1241,7 +1252,7 @@ export interface RecordOpenLedgerReq {
    * extraction proposes it). The engine re-validates it, gives it its truth from its own records, and every listener holds it as a belief.
    * Absent (or not understood) => the entry is kept exactly as before and no claim is made.
    */
-  claim?: { kind: string; subject: string; object?: string };
+  claim?: { kind: string; subject: string; object?: string; /** 0184 part 2a: a `has-reputation` claim's label */ label?: string };
 }
 
 /** ORW-407 slice 2: mark one open entry kept, broken or withdrawn, with a free-text note. */
@@ -1431,6 +1442,8 @@ export interface PublicGameStatus {
    * when the week rolls. Vault-free: public name, deal kind, a terms paraphrase — no numbers.
    */
   openDealOffer?: OpenDealOfferView | null;
+  /** 0174: the vote pitch, shown here only while an ordinary offer also stands (it has its own slot; with no other offer it is `openDealOffer`). Answer with `submitDecision deal-offer` plus `offerId` = `id`. */
+  openVotePitch?: OpenDealOfferView | null;
   /** 0142: favors houseguests owe the player (present only while any are banked). */
   owedFavors?: OwedFavorView[];
   /**
@@ -1609,6 +1622,8 @@ export interface BeatEventView {
 
 /** 0123 — a standing NPC deal offer, voiced in-scene (see `openDealOffer`). */
 export interface OpenDealOfferView {
+  /** 0174: set on a vote pitch (the `offerId` that answers it). */
+  id?: string;
   from: NamedRef;
   kind: string;
   terms: string;
@@ -2103,6 +2118,11 @@ export interface WhereaboutsView {
    */
   sinceSend?: { arrived: string[]; departed: string[] };
   /**
+   * 0197 / ORW-631: a lead a houseguest gave the player (ORW-475, asking around) that the player has since SEEN did not hold up: the room named, and where the player found the person if they did. Plain observed
+   * facts, shown for a few turns. It never says whether the lead was stale or meant to mislead; the player decides whether to call it out. Absent when none lately.
+   */
+  leadsFoundWrong?: Array<{ toldBy: NamedRef; about: NamedRef; saidRoom: string; foundRoom?: string; fact: string }>;
+  /**
    * 0106 — a LIVE whole-house EVENT is in session: an EXCLUSIVE set-piece (a competition, or a
    * nomination / veto / eviction ceremony). When present, the whole house is gathered for it — so
    * `present` lists everyone and `nearby` is empty (there are no side rooms to slip into, and the player
@@ -2184,6 +2204,8 @@ export interface StatedReasonView {
 export interface NpcVoiceView {
   /** A52 (ORWELL_DISCLOSURE_ENGINE, played games): the engine declined a live press on this houseguest this beat, so they deflect: they do not give the thing up. Absent otherwise. */
   deflect?: true;
+  /** 0196 (ORWELL_DODGING, played games): with `deflect`, HOW they turn the press aside - `approach` is what they do with the question, `openness` how their carriage reads, `pushesBack` whether they hand it back to the asker. Third-person facts only: never what they hold, never why, never a number. Absent otherwise. */
+  dodge?: { approach: string; openness: string; pushesBack: boolean };
   /** ORW-314: the reasons this houseguest gave aloud for a public act on the board this week (nominations, the replacement, the veto, the Final HOH's eviction). Voice THAT reason; never invent another. Absent when none. */
   statedReasons?: StatedReasonView[];
   /** A49 (#2017 E1a, flag ORWELL_NPC_TELLS, default ON): the houseguest's observable carriage right now - at most 2 closed-vocabulary tells (kind, band, channel), words only, never a number or a cause. Present only for a houseguest who is PRESENT in the player's room and awake. Absent flag-off => byte-identical. */
@@ -2347,7 +2369,9 @@ export interface PresentKnowledgeView {
    * 0151: a confidence the engine decided this houseguest passes to the player THIS turn: ONLY the speaker's words (the claim kind, who it is about, the second party) and how sure they sound. Never whether
    * it is true, never why they are telling, never a claim id. Names, not ids.
    */
-  tellsYou?: { kind: "targets-you" | "voted-to-evict-you" | "final-two-with" | "going-after" | "talking-about" | "lying-about" | "voted-against" | "voted-to-keep"; subject: string; object?: string; certainty: "sure" | "fairly-sure" | "not-sure" };
+  /** 0202 (ORW-645): this houseguest is leaning on the player right now with something they hold, in this manner. Third-person fact only: never what they hold, never why. Absent unless an approach is open. */
+  leansOnYou?: { manner: "blunt" | "sneaky" };
+  tellsYou?: { kind: "targets-you" | "voted-to-evict-you" | "final-two-with" | "going-after" | "talking-about" | "lying-about" | "voted-against" | "voted-to-keep" | "has-reputation"; subject: string; object?: string; /** 0184 part 2a: a `has-reputation`'s role or name (an engine word the narrator voices as gossip, never shown as a label) */ label?: string; certainty: "sure" | "fairly-sure" | "not-sure" };
 }
 
 /**
@@ -2527,6 +2551,10 @@ export interface RetrospectiveView {
   /** 0178 (Theme 3 slice 1, Ryne's Q2): every NPC's secret plan for each deal it agreed to and how it went, beside the player's own promise record (deals and promises
    *  they said aloud, each with its status). Present ONLY on the post-season retrospective, and only when the season held a deal or a promise. */
   dealPlans?: DealPlanRetro;
+  /** 0200 / ORW-632: "your edit", the season as TV would have cut it: per-week episode facts (+ a composed floor title), who was cut a hero and a villain, how you came across. Facts only; the narrator voices the titles. Present ONLY on the post-season retrospective, only for a played game, never a number. */
+  yourEdit?: import("../engine/yourEdit").YourEditView;
+  /** ORW-566 part d (0183): the season's alliances and close-pair habits as facts (names, the group's name, its words, the spot, the weeks, whether you knew). Present ONLY on the post-season retrospective, only for a played game with a group, never an id or a number. */
+  groupLife?: import("../engine/groupLifeRetro").GroupLifeView;
   /** ORW-624: America's Favorite, the public's pick after the crown (a name only, never a number). */
   americasFavorite?: { id: string; name: string };
   /** ORW-525 (spec 0157): the rumor mill. Present ONLY on the post-season retrospective, and only when the season held a false claim. */
@@ -2592,7 +2620,7 @@ export interface RetrospectiveView {
    * spoke it on the way out); it surfaces here as the retrospective's first-person exit reel. Empty when
    * no eviction was interviewed (e.g. a Final-3 atomic eviction outside the staged 0047 path).
    */
-  exitInterviews?: Array<{ week: number; evictee: NamedRef; stance: string; message?: string }>;
+  exitInterviews?: Array<{ week: number; evictee: NamedRef; stance: string; message?: string; /** ORW-624: the crowd they walked out to */ crowd?: "cheers" | "mixed" | "boos" | "silence" }>;
   /** 0133 — the early-evicted player's own finale-night interview (posture + words), when they gave one. */
   finaleInterview?: { stance: string; message?: string };
 }
@@ -2687,6 +2715,8 @@ export interface SubmitDecisionReq {
   /** eviction-vote / juror-vote: the finalist/nominee the player votes for.
    *  goodbye-message: the chosen tone ("warm" | "respectful" | "cold") rides here (E34). */
   vote?: EntityId;
+  /** deal-offer (0174): which standing offer this answers when an ordinary offer and the vote pitch both stand (the pitch's `id`). Absent = the ordinary offer, else the pitch. */
+  offerId?: string;
   /** finale-statement / juror-question: the player's free text (flavor; carries no score).
    *  goodbye-message: the optional message text accompanying the chosen tone. */
   statement?: string;
@@ -2825,6 +2855,12 @@ export interface RecordCastProfileReq {
    * the caller can verify it was stored. Absent ⇒ the stored identity concept stands.
    */
   identityConcept?: string;
+  /**
+   * ORW-563: a re-picked style family LABEL. The cast gate sends it only when the dealt family is a strong outlier for the whole person (for example
+   * cottagecore on a rural car-lot salesperson). Taken only when it is a known family label and no other houseguest holds it (one family per houseguest);
+   * ignored otherwise and once the player has met the houseguest. `publicFields` lists "presentation" when stored. Absent ⇒ the dealt family stands.
+   */
+  presentation?: string;
   /** The structured physical-characteristics facet (text↔image single source of truth). */
   physicalCharacteristics?: PhysicalCharacteristics;
   /**
@@ -2958,6 +2994,10 @@ export interface RecordCastGenesisReq {
   npcs: GenesisNpcDTO[];
   /** The proposed pre-show tie graph (0–2 pairs; excess dropped, sanity-validated, sealed). */
   ties?: GenesisTieDTO[];
+  /** ORW-532: the recent-seasons memory (names); a proposed name on it is refused. Sent by the front end for unseeded casts. */
+  avoid?: AvoidWire;
+  /** ORW-532: keep each warmed card's dealt surname; the writer picks the given name. */
+  keepDealtSurname?: boolean;
   /**
    * ORW-509: the writer-authored HOUSE for the season (name, pitch, 13 rooms with a name and a look), authored by the setup call from the season's own facts with no menu.
    * The engine reads it with `acceptHouseThemeDraft` (shape, length, unique, not-plain, fresh against the library and the last seasons); on refusal the plain room labels stand.

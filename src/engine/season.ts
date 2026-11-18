@@ -60,9 +60,9 @@ export function nominationBaseVals(hoh: EntityId, target: EntityId, rel: Relatio
 }
 
 /** ORW-305: the term names of the strategic nomination score, in the exact order the score adds them. */
-export const NOMINATION_TERM_NAMES = ["threat", "paranoia", "bloc", "floater", "duo", "campaign", "memory", "mood", "drive", "belief", "deals", "lobbying", "agenda", "feeling"] as const;
+export const NOMINATION_TERM_NAMES = ["threat", "paranoia", "bloc", "floater", "duo", "campaign", "memory", "mood", "drive", "belief", "deals", "lobbying", "agenda", "feeling", "endgame"] as const;
 /** The target-oriented read (no pawn-seat floater / duo pull): the same terms minus those two. */
-export const NOMINATION_TARGET_TERM_NAMES = ["threat", "paranoia", "bloc", "campaign", "memory", "mood", "drive", "belief", "deals", "lobbying", "agenda", "feeling"] as const;
+export const NOMINATION_TARGET_TERM_NAMES = ["threat", "paranoia", "bloc", "campaign", "memory", "mood", "drive", "belief", "deals", "lobbying", "agenda", "feeling", "endgame"] as const;
 
 /**
  * ORW-305: the named terms of a candidate's strategic nomination score, in score order. `shape` carries the (already
@@ -75,7 +75,7 @@ export function nominationTermVals(
   const [threat, paranoia] = nominationBaseVals(hoh, t, rel, mood, read.paranoiaMult);
   const out = [threat, paranoia, blocTerm(blocs, hoh, t)];
   if (shape) out.push(shape.floaterWeight * floaterRead(t, shape.active, rel, read.bondOf), shape.duoWeight * duoRead(t, hoh, shape.active, rel, read.bondOf));
-  out.push(read.campaignPush?.(t) ?? 0, read.memoryPush?.(t) ?? 0, read.moodPush?.(t) ?? 0, read.drivePush?.(t) ?? 0, read.beliefPush?.(t) ?? 0, read.dealPush?.(t) ?? 0, read.pitchPush?.(t) ?? 0, read.agendaPush?.(t) ?? 0, read.feelingPush?.(t) ?? 0);
+  out.push(read.campaignPush?.(t) ?? 0, read.memoryPush?.(t) ?? 0, read.moodPush?.(t) ?? 0, read.drivePush?.(t) ?? 0, read.beliefPush?.(t) ?? 0, read.dealPush?.(t) ?? 0, read.pitchPush?.(t) ?? 0, read.agendaPush?.(t) ?? 0, read.feelingPush?.(t) ?? 0, read.endgamePush?.(t) ?? 0);
   return out;
 }
 
@@ -85,11 +85,12 @@ export function nominationTermVals(
  * the gap between the scariest read and the median. A big gap ⇒ a runaway threat ⇒ a "hot" week
  * where every HOH plays direct; a flat distribution ⇒ a quiet week that frees the tactical games.
  */
-export function politicalTemperature(active: readonly EntityId[], rel: RelationshipModel): { spread: number; runaway: boolean } {
+export function politicalTemperature(active: readonly EntityId[], rel: RelationshipModel, threatOf?: ThreatReader): { spread: number; runaway: boolean } {
+  const read = threatOf ?? ((r: EntityId, id: EntityId) => rel.edge(r, id).threat);
   const menace = (id: EntityId): number => {
     const readers = active.filter((x) => x !== id);
     if (readers.length === 0) return 0;
-    return readers.reduce((sum, r) => sum + rel.edge(r, id).threat, 0) / readers.length;
+    return readers.reduce((sum, r) => sum + read(r, id), 0) / readers.length;
   };
   const reads = active.map(menace).sort((a, b) => a - b);
   if (reads.length === 0) return { spread: 0, runaway: false };
@@ -104,6 +105,8 @@ export function politicalTemperature(active: readonly EntityId[], rel: Relations
 
 /** 0163 / ORW-539: the bond between two OTHER houseguests as a decider can see it (absent = the hidden truth, `rel.bondStrength`). */
 export type BondReader = (from: EntityId, to: EntityId) => number;
+/** ORW-574 (Fable T1-6): how much `from` reads `to` as a threat, as the decider can see it (absent = the hidden truth, `rel.edge(from, to).threat`). */
+export type ThreatReader = (from: EntityId, to: EntityId) => number;
 
 /**
  * How much of a FLOATER a houseguest is (PO ruling 2026-11-02): 1 when nobody in the house holds a
@@ -186,6 +189,8 @@ export interface NominationRead {
   beliefPush?: (target: EntityId) => number;
   /** 0163 / ORW-539: the bond between two OTHER houseguests as THIS HOH sees it (witnessed bonding + allied-with beliefs). Absent => the hidden truth, byte-identical. */
   bondOf?: BondReader;
+  /** ORW-574 (Fable T1-6): the house's threat reads as THIS HOH sees them, for the week's political temperature. Absent => the hidden edges, byte-identical. */
+  threatOf?: ThreatReader;
   /** B7 M3 (ORWELL_DEAL_NOMS): the HOH's open PROTECTIVE deal (safety / final-two) with `target` lowers their nomination score (a bounded, negative push). Absent => +0, byte-identical. */
   dealPush?: (target: EntityId) => number;
   /** B6 slice 2 (ORWELL_LOBBYING): the bounded, credibility-weighted tilt from the pitches NPCs made to this HOH (`lobbying.ts`). Absent => +0, byte-identical. */
@@ -194,6 +199,8 @@ export interface NominationRead {
   agendaPush?: (target: EntityId) => number;
   /** ORW-568 / 0181 (ORWELL_BOND_FEELINGS): the HOH's real feeling for this candidate keeps them off the block (a bounded NEGATIVE push). Played games only; absent => +0, byte-identical. */
   feelingPush?: (target: EntityId) => number;
+  /** 0193 (ORW-623): at four left or fewer, the HOH's own "can I beat you?" read (+ = they can't beat `target`). Absent => 0 => byte-identical. */
+  endgamePush?: (target: EntityId) => number;
   /** B4 slice 3 (ORWELL_ASSURANCES): the HOH holds a KEPT casual assurance toward `target` ("you're safe with me") - kept off the block while two legal others remain. Absent => byte-identical. */
   protectedByAssurance?: (target: EntityId) => boolean;
   /** ORW-305: receives the decision's WHY breakdown (a record only; absent => nothing built, the decision is byte-identical either way). */
@@ -240,7 +247,7 @@ export function nominationPlan(
   const vals = (t: EntityId): number[] => { let v = memo.get(t); if (!v) { v = nominationTermVals(hoh, t, rel, mood, blocs, read, { floaterWeight: W.floaterWeight, duoWeight: W.duoWeight, active }); memo.set(t, v); } return v; };
   const score = (t: EntityId): number => sumVals(vals(t));
   const ranked = [...cands].sort((a, b) => score(b) - score(a));
-  const tactic: NominationTactic = politicalTemperature(active, rel).runaway
+  const tactic: NominationTactic = politicalTemperature(active, rel, read.threatOf).runaway
     ? "direct" // a runaway threat ends the tactical games — the house moves on them now
     : DECISION.nomination.tacticFor[disposition];
   const why = read.why;
@@ -296,6 +303,7 @@ export function replacementPick(
 ): EntityId {
   const { blocs = [], mood = 0.5, style = "threat-hunter", target } = read;
   if (read.agendaPush) { const free = options.filter((c) => read.agendaPush!(c) > -REASONS.shieldFloor); if (free.length > 0 && free.length < options.length) options = free; } // ORW-314: a shielded houseguest is not named the replacement while a legal alternative remains. NOTE the thresholds differ on purpose: a nomination needs TWO unshielded candidates left (it names two seats), the replacement needs only ONE (it names one seat), hence `free.length > 0` here against `>= 2` in `nominationPlan`.
+  if (read.protectedByAssurance) { const free = options.filter((c) => !read.protectedByAssurance!(c)); if (free.length > 0 && free.length < options.length) options = free; } // ORW-639: a kept assurance shields the assured as a replacement too (one seat, so ONE unshielded candidate is enough, as for the agenda shield above)
   const S = NOMINATION_STYLES[style];
   const P = NOMINATION_PRESSURE;
   // ORW-305: one pass - the named terms per candidate are computed once (memoised for this call); each score is their sum.

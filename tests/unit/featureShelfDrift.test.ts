@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 
 // TEST-3 (#628) — the spec-only shelf meta-test. `docs/features/*.feature` files read as executable
 // contracts, but only the ones listed in `cucumber.cjs` `paths` actually execute as Gherkin (that
@@ -18,8 +19,9 @@ const FEATURES_DIR = join(ROOT, "docs", "features");
 const MARKER = "# spec-only:";
 
 function wiredPaths(): string[] {
-  const cjs = readFileSync(join(ROOT, "cucumber.cjs"), "utf8");
-  return [...cjs.matchAll(/docs\/features\/[^"']+\.feature/g)].map((m) => m[0]);
+  // cucumber.cjs DISCOVERS the wired set (every feature without the spec-only marker), so ask it, not its text.
+  const r = spawnSync(process.execPath, ["-e", "process.stdout.write(JSON.stringify(require('./cucumber.cjs').default.paths))"], { cwd: ROOT, encoding: "utf8", env: { ...process.env, ORWELL_BDD_FEATURES: "" } });
+  return JSON.parse(r.stdout) as string[];
 }
 
 function allFeatureFiles(dir = FEATURES_DIR, prefix = "docs/features"): string[] {

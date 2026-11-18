@@ -171,6 +171,10 @@ export function planSourceOf(store: () => PlanStore | undefined): PlanSource {
   return { planOf: (dealId, holder) => store()?.[dealId]?.[holder] };
 }
 
+/** ORW-586 slice 5: the plan key for an open-ledger promise - its own namespace, so no deal-id reader ever matches it. */
+export const ledgerPlanKey = (entryId: string): string => `ledger:${entryId}`;
+export const isLedgerPlanKey = (key: string): boolean => key.startsWith("ledger:");
+
 /** Is a moment due now? (`at` order: nominations < veto < vote; a later week is always due.) */
 export function momentDue(m: PlanMoment, week: number, now: "nominations" | "veto" | "vote" | "other"): boolean {
   if (week > m.week) return true;
@@ -183,16 +187,34 @@ export function momentDue(m: PlanMoment, week: number, now: "nominations" | "vet
  *  the player's own recorded words only: the words a player reads about a plan are authored live by the narrator from this, never from a fixed menu. */
 export interface DealPlanRetro {
   secretPlans: Array<{ holder: { id: EntityId; name: string }; with: { id: EntityId; name: string }; dealKind: DealKind; madeWeek: number; plan: PlanKind; outcome: StoredPlan["outcome"] | "pending" }>;
-  yourPromises: Array<{ to: Array<{ id: EntityId; name: string }>; source: "deal" | "said"; kind: string; text: string; status: string; week?: number }>;
+  /**
+   * The player's ONE promise record (ORW-602): a deal the player promised in, a promise they said or typed (kept or broken, who it was made to, and when), and a casual assurance. Each promise is listed once: a ledger
+   * line that only mirrors a deal is dropped, and a line the houseguest made is never the player's. `judgedBy` says who settled `status`: the engine (a deal, a typed term, an assurance) or the narrator (a free-text
+   * line, a model's reading). `what` is the engine's typed key for a typed term; `about` is who it concerned when that was not the one it was made to. The words are the player's own or the engine's public terms; the narrator voices the rest.
+   */
+  yourPromises: Array<{
+    to: Array<{ id: EntityId; name: string }>; source: "deal" | "said" | "assured"; kind: string; text: string; status: string; week?: number; day?: number;
+    judgedBy: "engine" | "narrator"; what?: string; about?: { id: EntityId; name: string };
+  }>;
 }
 
-/** Build it, read-only (the retrospective's crown gate is the caller's). Every plan and every player promise is listed: nothing is dropped. */
+/** The ledger-line shape the player's promise record reads (a subset of `OpenLedgerEntry`). */
+export interface PromiseRecordLine {
+  speaker: string; addressedTo: readonly string[]; kind: string; text: string; status: string; day?: number; dealId?: string;
+  term?: { by: string; to: string; what: string; subject?: string; week?: number }; about?: string;
+}
+/** A player-made casual assurance (already filtered by `uncoveredPlayerAssurances`). */
+export interface PromiseRecordAssurance { to: EntityId; kind: string; week: number; status: string }
+
+/** Build it, read-only (the retrospective's crown gate is the caller's). Every plan and every player promise is listed once: nothing is dropped. `commitmentKind` says whether a free-text line kind is commitment-like (the ledger's own word list). */
 export function buildDealPlanRetro(
   plans: PlanStore | undefined,
   deals: ReadonlyArray<{ id: string; parties: readonly EntityId[]; kind: DealKind; terms: string; status: string; madeWeek?: number; condition: { promisors: readonly EntityId[] } }>,
-  ledger: ReadonlyArray<{ speaker: string; addressedTo: readonly string[]; kind: string; text: string; status: string; day?: number }>,
+  ledger: ReadonlyArray<PromiseRecordLine>,
   player: EntityId,
   nameOf: (id: EntityId) => string,
+  assurances: ReadonlyArray<PromiseRecordAssurance> = [],
+  commitmentKind: (kind: string) => boolean = (k) => /promise|deal|pact|vow|swear|pledge|oath|agreement|commitment/i.test(k),
 ): DealPlanRetro | undefined {
   const ref = (id: EntityId) => ({ id, name: nameOf(id) });
   const secretPlans: DealPlanRetro["secretPlans"] = [];
@@ -203,13 +225,23 @@ export function buildDealPlanRetro(
     }
   }
   const yourPromises: DealPlanRetro["yourPromises"] = [];
+  const dealIds = new Set(deals.map((d) => d.id));
   for (const d of deals) {
     if (!d.condition.promisors.includes(player)) continue;
-    yourPromises.push({ to: d.parties.filter((x) => x !== player).map(ref), source: "deal", kind: d.kind, text: d.terms, status: d.status, ...(d.madeWeek !== undefined ? { week: d.madeWeek } : {}) });
+    yourPromises.push({ to: d.parties.filter((x) => x !== player).map(ref), source: "deal", kind: d.kind, text: d.terms, status: d.status, judgedBy: "engine", ...(d.madeWeek !== undefined ? { week: d.madeWeek } : {}) });
   }
   for (const e of ledger) {
-    if (e.speaker !== player || !/promise|deal|pact|vow|swear/i.test(e.kind)) continue;
-    yourPromises.push({ to: e.addressedTo.filter((x) => x !== player).map(ref), source: "said", kind: e.kind, text: e.text, status: e.status });
+    if (e.speaker !== player) continue;
+    if (e.dealId !== undefined && dealIds.has(e.dealId)) continue; // the deal's own row above is the record (a deal only the houseguest promised in is not the player's)
+    const typed = e.term !== undefined && e.term.by === player;
+    if (!typed && !(commitmentKind(e.kind) && !e.about)) continue;
+    const subject = e.term?.subject && e.term.subject !== e.term.to ? e.term.subject : undefined;
+    yourPromises.push({
+      to: e.addressedTo.filter((x) => x !== player).map(ref), source: "said", kind: e.kind, text: e.text, status: e.status, judgedBy: typed && e.term!.what !== "share-info" ? "engine" : "narrator",
+      ...(e.term?.week !== undefined ? { week: e.term.week } : {}), ...(e.day !== undefined ? { day: e.day } : {}),
+      ...(typed ? { what: e.term!.what } : {}), ...(subject ? { about: ref(subject as EntityId) } : {}),
+    });
   }
+  for (const a of assurances) yourPromises.push({ to: [ref(a.to)], source: "assured", kind: a.kind, text: "", status: a.status, week: a.week, judgedBy: "engine" });
   return secretPlans.length || yourPromises.length ? { secretPlans, yourPromises } : undefined;
 }

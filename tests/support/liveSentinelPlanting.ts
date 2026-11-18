@@ -131,6 +131,10 @@ export function plantLiveSentinels(reg: GameSessionRegistry, user: string, seed:
       { option: npcs[1]!.id, role: "runner-up", total: 0.25, terms: [[`${whyTerm}-2`, 0.25]] },
     ],
   });
+  // ORW-639 (S-11): the new WHY kinds (jury vote, Houseguest's Choice, a kept deal) ride the same hidden field with the same tokens: they must reach no surface either.
+  for (const kind of ["jury-vote", "houseguests-choice", "deal-keep"] as const) {
+    live.decisionWhy.push({ kind, by: npcs[0]!.id, week: live.week, rule: whyRule, options: [{ option: whyRef, role: "chosen", total: 0.5, terms: [[whyTerm, 0.5]] }, { option: npcs[1]!.id, role: "runner-up", total: 0.25, terms: [[`${whyTerm}-2`, 0.25]] }] });
+  }
   sb.session.restore(core); // also rebuilds the soul recall index from the (now sentinel-bearing) memory
   // (1d) B44 - the B10/B11 co-presence TOLD ledger (engine-private; the fact id is the only free text). Planted AFTER the restore so a restore that rebuilds the ledger from the snapshot cannot wipe it.
   const toldTag = mk("told");

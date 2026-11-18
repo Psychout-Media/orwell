@@ -1,0 +1,177 @@
+import { describe, it, expect } from "vitest";
+import { GameSessionRegistry } from "../../src/composition/registry";
+import { PLAYER } from "../../src/domain/ids";
+import type { EntityId } from "../../src/domain/ids";
+import { MOOD_CAUSES, causeLine, isBadNight, carryFactor, causeAge, isCloseFriend, mayShareEventCause, strongestCause, strongestLiveCause, type MoodCauseEntry, type MoodCauseSource } from "../../src/engine/moodCauses";
+
+/** 0194 / ORW-626: moods with more causes. Roles only (holder, other). */
+const SOURCES: MoodCauseSource[] = ["lied-to", "betrayed", "friend-evicted", "bad-sleep", "won", "lost"];
+const entry = (holder: string, source: MoodCauseSource, week: number): MoodCauseEntry => ({ holder, source, line: causeLine(source), week });
+
+describe("the pure cause rules", () => {
+  it("every source has first-person words, and a subject placeholder only where it names someone", () => {
+    for (const s of SOURCES) expect(causeLine(s).length).toBeGreaterThan(5);
+    for (const s of ["lied-to", "betrayed", "friend-evicted"] as const) expect(causeLine(s)).toContain("{subject}");
+    for (const s of ["bad-sleep", "won", "lost"] as const) expect(causeLine(s)).not.toContain("{subject}");
+  });
+  it("the heaviest cause of the week is the one given; the latest wins a tie; other weeks and other people do not count", () => {
+    const log = [entry("a", "won", 2), entry("a", "lied-to", 2), entry("a", "bad-sleep", 2), entry("b", "lied-to", 2), entry("a", "lied-to", 1)];
+    expect(strongestCause(log, "a", 2)?.source).toBe("lied-to");
+    expect(strongestCause(log, "a", 3)).toBeUndefined();
+    expect(strongestCause([entry("a", "won", 2), entry("a", "lost", 2)], "a", 2)?.source).toBe("lost");
+    expect(strongestCause(undefined, "a", 1)).toBeUndefined();
+  });
+  it("a cause that points at a grudge needs more trust and candor than a plain one", () => {
+    expect(mayShareEventCause("won", 0.5, 0.45)).toBe(true);
+    expect(mayShareEventCause("lied-to", 0.5, 0.45)).toBe(false);
+    expect(mayShareEventCause("lied-to", 0.8, 0.5)).toBe(true);
+  });
+  it("a bad night and a close friend have a line", () => {
+    expect(isBadNight(MOOD_CAUSES.badSleepDeficit)).toBe(true);
+    expect(isBadNight(0.1)).toBe(false);
+    expect(isCloseFriend(0.7, 0.5)).toBe(true);
+    expect(isCloseFriend(0.4, 0.5)).toBe(false);
+  });
+});
+
+describe("a cause carries a few in-game days with a falling weight (follow-up 2)", () => {
+  const at = (holder: string, source: MoodCauseSource, week: number, day: number): MoodCauseEntry => ({ ...entry(holder, source, week), day });
+  it("full today, falling each day, none past the carry window or from the future", () => {
+    expect(carryFactor(0)).toBe(1);
+    expect(carryFactor(1)).toBeLessThan(carryFactor(0));
+    expect(carryFactor(MOOD_CAUSES.carryDays)).toBeGreaterThan(0);
+    expect(carryFactor(MOOD_CAUSES.carryDays + 1)).toBe(0);
+    expect(carryFactor(-1)).toBe(0);
+    expect(carryFactor(Number.POSITIVE_INFINITY)).toBe(0);
+  });
+  it("a cause crosses the week roll while it lasts and then is gone; the log is untouched", () => {
+    const log = [at("a", "lied-to", 1, 5)];
+    expect(strongestLiveCause(log, "a", 2, 6)?.entry.source).toBe("lied-to");
+    expect(strongestLiveCause(log, "a", 2, 6)!.weight).toBeLessThan(MOOD_CAUSES.weight["lied-to"]);
+    expect(strongestLiveCause(log, "a", 2, 5 + MOOD_CAUSES.carryDays + 1)).toBeUndefined();
+    expect(log).toHaveLength(1);
+  });
+  it("a fresh light cause can outrank a stale heavy one; with no day the same week is today and another week is out of reach", () => {
+    const log = [at("a", "lied-to", 1, 1), at("a", "won", 1, 4)];
+    expect(strongestLiveCause(log, "a", 1, 4)?.entry.source).toBe("won");
+    expect(causeAge(entry("a", "won", 2), 2, undefined)).toBe(0);
+    expect(strongestLiveCause([entry("a", "won", 1)], "a", 2, undefined)).toBeUndefined();
+  });
+});
+
+type S = {
+  live: { week: number; dayNumber?: number; active: EntityId[]; moodCauseLog?: MoodCauseEntry[]; evictionOrder: EntityId[] };
+  setMoodCausesEnabled(on: boolean): void;
+  payForCaughtLie(p: { holder: EntityId; liar: EntityId; confidence: number; origin: "witnessed" | "told" }): void;
+  noteFriendEvicted(evictee: EntityId): void;
+  noteMoodCause(holder: EntityId, source: MoodCauseSource, about?: EntityId): boolean;
+  catchMood(id: EntityId, event: string, scale: number): void;
+  deals: { all: unknown[] };
+  npcVoice(id: EntityId): { moodCause?: string } | null;
+  soulObj(id: EntityId): { emotionalHistory: unknown[] } | undefined;
+  rel: { edge(a: EntityId, b: EntityId): { affinity: number; trust: number } };
+  agendaCharacterOf(id: EntityId): unknown;
+};
+async function setup(seed: number, played = true) {
+  const reg = new GameSessionRegistry();
+  const user = `mood-causes-${seed}-${Math.random()}`;
+  const mcp = reg.resolver()("player", user);
+  await mcp.callTool("createCharacter", { playerName: "The Player", seed, archetype: "floater" });
+  if (played) await mcp.callTool("noteMessage", { messageId: "first" });
+  const s = reg.sandboxFor(user).session as unknown as S;
+  const [holder, other] = s.live.active.filter((x) => x !== PLAYER);
+  return { s, holder: holder!, other: other! };
+}
+
+describe("wired into a played game", () => {
+  it("a caught lie gives the holder a cause and a mood step; the liar gets nothing", async () => {
+    const { s, holder, other } = await setup(21);
+    const before = s.soulObj(holder)!.emotionalHistory.length;
+    s.payForCaughtLie({ holder, liar: other, confidence: 0.8, origin: "told" });
+    expect(s.live.moodCauseLog).toEqual([expect.objectContaining({ holder, source: "lied-to", about: other, week: s.live.week })]);
+    expect(s.soulObj(holder)!.emotionalHistory.length).toBeGreaterThanOrEqual(before);
+  });
+  it("a close friend of the evictee has the cause; a stranger does not", async () => {
+    const { s, holder, other } = await setup(22);
+    const e = s.rel.edge(holder, other); e.trust = 0.9; e.affinity = 0.9;
+    s.noteFriendEvicted(other);
+    expect(s.live.moodCauseLog?.some((c) => c.holder === holder && c.source === "friend-evicted" && c.about === other)).toBe(true);
+    const e2 = s.rel.edge(holder, other); e2.trust = 0.1; e2.affinity = 0.1;
+    const n = s.live.moodCauseLog!.length;
+    s.noteFriendEvicted(other);
+    expect(s.live.moodCauseLog!.length).toBe(n);
+  });
+  it("the same cause on the same day is written once (append-only, no duplicates)", async () => {
+    const { s, holder, other } = await setup(23);
+    s.payForCaughtLie({ holder, liar: other, confidence: 0.8, origin: "told" });
+    s.payForCaughtLie({ holder, liar: other, confidence: 0.8, origin: "told" });
+    expect(s.live.moodCauseLog).toHaveLength(1);
+  });
+  it("flag off: nothing is recorded or said (byte-identical)", async () => {
+    const { s, holder, other } = await setup(24);
+    s.setMoodCausesEnabled(false);
+    s.payForCaughtLie({ holder, liar: other, confidence: 0.8, origin: "told" });
+    expect(s.live.moodCauseLog).toBeUndefined();
+    expect(s.npcVoice(holder)?.moodCause).toBeUndefined();
+  });
+  it("a headless (unplayed) game records nothing", async () => {
+    const { s, holder, other } = await setup(25, false);
+    s.payForCaughtLie({ holder, liar: other, confidence: 0.8, origin: "told" });
+    expect(s.live.moodCauseLog).toBeUndefined();
+  });
+  it("the player is never given a recorded cause", async () => {
+    const { s, other } = await setup(26);
+    s.payForCaughtLie({ holder: PLAYER, liar: other, confidence: 0.8, origin: "told" });
+    expect(s.live.moodCauseLog).toBeUndefined();
+  });
+});
+
+describe("the wall: a cause is told only by choice, never as a number or a hidden cause", () => {
+  it("with low trust the cause stays hidden; with high trust it is said, in words, naming only a public name, and no engine key or number leaks", async () => {
+    const { s, holder, other } = await setup(27);
+    s.payForCaughtLie({ holder, liar: other, confidence: 0.8, origin: "told" });
+    const e = s.rel.edge(holder, PLAYER);
+    e.affinity = -0.5;
+    expect(s.npcVoice(holder)?.moodCause).toBeUndefined();
+    e.affinity = 1;
+    const voice = s.npcVoice(holder);
+    const said = voice?.moodCause;
+    if (said !== undefined) {
+      expect(said).not.toContain("{subject}");
+      expect(said).not.toMatch(/lied-to|moodCauseLog|\d\.\d/);
+    }
+    expect(JSON.stringify(voice ?? {})).not.toMatch(/moodCauseLog|"source"|"weight"/);
+  });
+});
+
+describe("follow-ups wired into a played game", () => {
+  it("a bad night is written once per day and moves the soul once (the mood word moves through the scheme step)", async () => {
+    const { s, holder } = await setup(31);
+    const hist = () => s.soulObj(holder)!.emotionalHistory.length;
+    const before = hist();
+    expect(s.noteMoodCause(holder, "bad-sleep")).toBe(true);
+    expect(s.noteMoodCause(holder, "bad-sleep")).toBe(false);
+    s.catchMood(holder, "scheme", MOOD_CAUSES.badSleepMoodScale);
+    expect(hist()).toBeGreaterThan(before);
+  });
+  it("a cause from last week is still said while it carries, and not once it is out of days", async () => {
+    const { s, holder, other } = await setup(32);
+    s.live.dayNumber = s.live.dayNumber ?? 3;
+    s.payForCaughtLie({ holder, liar: other, confidence: 0.8, origin: "told" });
+    s.rel.edge(holder, PLAYER).affinity = 1;
+    s.live.week += 1; s.live.dayNumber += 1;
+    expect(s.npcVoice(holder)?.moodCause).toBeDefined();
+    s.live.dayNumber += MOOD_CAUSES.carryDays + 1;
+    expect(s.npcVoice(holder)?.moodCause).toBeUndefined();
+  });
+  it("learning of a quiet break writes a betrayal cause for the wronged party once, and not before they learn", async () => {
+    const { s, holder, other } = await setup(33);
+    const sink = (s as unknown as { deals: { learnOfBreak(d: unknown, k: unknown): boolean } }).deals;
+    const deal = { status: "broken", learned: false, brokenBy: other, parties: [holder, other], kind: "safety" };
+    expect(s.live.moodCauseLog).toBeUndefined();
+    const hook = (w: EntityId, b: EntityId) => { s.noteMoodCause(w, "betrayed", b); };
+    expect(sink.learnOfBreak(deal, { learned: hook })).toBe(true);
+    expect(sink.learnOfBreak(deal, { learned: hook })).toBe(false);
+    expect(s.live.moodCauseLog).toEqual([expect.objectContaining({ holder, source: "betrayed", about: other })]);
+  });
+});

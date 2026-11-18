@@ -5,7 +5,7 @@ import { playedSession, type Played, type Edge } from "./favorsSeam";
  * 0174 test seam: a played session (favors on) with the private triad methods reachable. TEST-ONLY. Roles only.
  */
 export type TriadSeam = {
-  live: { playedGame?: boolean; week: number; dayNumber?: number; dealOffer?: { from: string; kind: string; terms: string }; lastDealOfferWeek?: number; pending?: unknown; triads?: { day?: number; drift?: Record<string, number>; courted?: Array<{ week: number; voter: string; bidders: string[]; tier: number }>; kingmakers?: Array<{ week: number; voter: string; evictee: string; courted: boolean }>; lastGaps?: unknown }; evictionOrder: string[] };
+  live: { playedGame?: boolean; week: number; dayNumber?: number; dealOffer?: { id?: string; from: string; kind: string; terms: string; madeWeek?: number }; votePitch?: { id: string; from: string; kind: string; terms: string; madeWeek: number }; lastDealOfferWeek?: number; pending?: unknown; triads?: { day?: number; drift?: Record<string, number>; courted?: Array<{ week: number; voter: string; bidders: string[]; tier: number }>; kingmakers?: Array<{ week: number; voter: string; evictee: string; courted: boolean }>; lastGaps?: unknown }; evictionOrder: string[] };
   rel: { edge(a: string, b: string): Edge };
   triadsTick(): void;
   swingAtVote(v: { nominees: readonly string[]; voters: readonly string[]; previews: ReadonlyArray<{ voter: string; pick: string; gap: number }> }): void;

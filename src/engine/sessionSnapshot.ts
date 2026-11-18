@@ -12,6 +12,7 @@ import type { Alliance } from "./alliances";
 import { isAgendaSuperset } from "./agenda";
 import { beliefStoreSuperset } from "./beliefStore";
 import { claimLogSuperset } from "./spokenClaims";
+import { toldLeadsSuperset } from "./toldLeads";
 import type { KnowledgeSnapshot } from "../domain/knowledge";
 import type { EdgeRecord, GameState, PersistedCharacter, PersistedSoul } from "../domain/saveState";
 import type { Room, Zone } from "../domain/house";
@@ -416,6 +417,8 @@ export interface SessionCore {
   confideLieCount?: number;
   /** B49 (ORWELL_NO_HARD_CAPS) - per NPC, how many confide lies it has told this season (the repetition roll). Absent flag-off / pre-B49 saves. */
   confideLiesBy?: Record<string, number>;
+  /** 0196 (ORWELL_DODGING) - the append-only log of presses a houseguest turned aside and how (approach / carriage / pushes back). Absent flag-off / pre-0196 saves. */
+  dodgeLog?: Array<{ npc: string; week: number; phase: string; approach: string; openness: string; pushesBack: boolean }>;
   /**
    * Features 0093 + 0099 — secrets as power. `secretUsedAs` maps each learned `factId` the player has
    * WIELDED to how (`leverage` | `exposed` | `traded`), so a spent secret can't be re-wielded; the
@@ -971,6 +974,9 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
 
   // claims (0149 / ORW-591): the season's claim log is append-only - no claim told is ever lost, and its id counter never goes back.
   if (!claimLogSuperset(later.live?.claims, earlier.live?.claims)) return "claims";
+
+  // toldLeads (0197 / ORW-631): the leads houseguests gave the player are append-only - none is ever lost.
+  if (!toldLeadsSuperset(later.live?.toldLeads, earlier.live?.toldLeads)) return "toldLeads";
 
   // beliefs (#2017 / ORW-591): a belief once held is never lost (nor a telling folded into it), except by the per-holder cap's compaction, which
   // takes refuted beliefs before live ones (`beliefStoreSuperset`).

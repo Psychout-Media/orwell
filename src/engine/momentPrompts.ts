@@ -763,6 +763,15 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "the game MOVES them there for real, then voice the room and whoever whereabouts shows is in it. Let " +
     "it be their call — never pick for them and never narrate them into a room the game has not moved " +
     "them to. " +
+    "THE BED RUSH — when the BEDS line in the GAME CONTEXT reports a bed rush, nobody has claimed a bed during the circle, and the " +
+    "moment the circle closes everyone is released at once and the house races for the bedrooms: a MINI-COMPETITION and a real " +
+    "choice at the start of the game. Voice it as a LIVELY SCENE you author yourself, in the third person, from the facts the game " +
+    "hands you: the release, the scramble through the house, who is racing for which room, who got where, who is left and which " +
+    "rooms still have beds open. Never recite or invent those facts: a houseguest is only in a room, and a bed is only taken, when the " +
+    "game says so (each advanceGame is another heat of the race: call it to move the race on, voicing only what it returns). The player " +
+    "may rush straight to a room (call moveTo and let them claim in their own words once the game has them in the room) or hang back " +
+    "and watch the race; offer them that choice and never choose for them. Latecomers take what is left and may ask a sleeper to " +
+    "swap. Never state a count, a score or a reason behind anyone's speed. " +
     "(4) GETTING SETTLED — a scene or two of everyone unpacking, claiming beds, drifting through the house, " +
     "feeling each other out on the first night. Light mingling; let the player wander and meet people. " +
     "GROUND EVERY PERSON IN THE ROSTER: the GAME CONTEXT below lists the EXACT houseguests — when you " +
@@ -1040,7 +1049,20 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "WHAT YOU DO HERE otherwise: host the reunion. Offer the real story — seasonRecap for the public " +
     "arc they lived, and seasonRetrospective to OPEN THE PRODUCER'S VAULT (the off-screen scheming, the " +
     "private confessionals, the twist that never fired). Voice the reveals with relish; let them ask " +
-    "about any moment, or just hang out — the \"New season\" button waits whenever they're ready.",
+    "about any moment, or just hang out — the \"New season\" button waits whenever they're ready. " +
+    // ORW-632 (0200): the rules for `yourEdit` ride this moment fragment, not the always-injected base prompt (the base budget ratchets down).
+    "When seasonRetrospective carries `yourEdit`, that is the season as TV would have cut it, as FACTS: write each " +
+    "episode's title yourself from that episode's `moments`, names and `close` flag, in a fresh voice every time; " +
+    "never reuse a title's wording and treat the supplied `title` as a bare fallback, not a script. Give each hero " +
+    "and villain an edit line from their own `because` facts, and tell the player how they came across from `you` " +
+    "alone, plainly and honestly: a broken word or a betrayal is said as such and a player who did that is never " +
+    "flattered into a hero. Add no event, name or outcome that is not in the facts, and show no number. " +
+    // ORW-566 part d (0183): the rules for `groupLife` ride this fragment too.
+    "When seasonRetrospective carries `groupLife`, those are the groups the season really held, hidden ones included: " +
+    "voice each from its own facts, who was in it, what it was called, its words if any, where it met, the weeks it " +
+    "stood, how it ended and whether the player knew, in fresh wording each time, treating `line` as a bare fallback. " +
+    "Say plainly what the player never knew. Add no member, word, place or week that is not in the facts, and show " +
+    "no number or id.",
   "self-evicted":
     "MOMENT — Self-eviction (the player WALKED OUT). The player made the deliberate, confirmed choice to " +
     "leave the game — they quit, and the game has RECORDED it: their season is over and they have " +
@@ -1436,6 +1458,10 @@ export function renderGameContext(view: GameStateView): string {
         ...((view.presentKnowledge ?? []).some((e) => e.tellsYou)
           ? ["  (a `tellsYou` is a belief this houseguest passes to the player now: voice it as THEIR OWN words, hedged by their certainty; do not say whether it is true or why they tell it)"]
           : []),
+        // 0202: a `leansOnYou` is a houseguest pressing the player now with something they hold. Present only when one is => byte-identical otherwise.
+        ...((view.presentKnowledge ?? []).some((e) => e.leansOnYou)
+          ? ["  (a `leansOnYou` is a houseguest putting pressure on the player with something they hold, in the manner given: blunt is an open demand, sneaky is quiet pressure that lets the player know they know. Play it as that houseguest's conduct toward the player. Never say what they hold, never decide for the player how to answer, and never state a number)"]
+          : []),
         ...(view.presentKnowledge ?? []).flatMap((e) => {
           // Route each knowledge string through `neutralizeForPrompt` (as the diary-room entries above
           // do): these are model-adjacent content the guest "knows", so a prompt-injection control
@@ -1455,7 +1481,8 @@ export function renderGameContext(view: GameStateView): string {
           for (const r of e.statedReasons ?? []) lines.push(`        said aloud (${STATED_ACT[r.decision] ?? "deciding on"} ${neutralizeForPrompt(r.about.name)}): "${STATED_REASON_GLOSS[r.kind] ?? "it is purely strategic"}" - voice THIS reason in their own words and no other`);
           // ORW-338: ORW-317's two NPC-mind lines, pushed here (npcVoice-gated already) so the narrator has them without calling the under-called tool. They sit in this per-turn block, i.e. the volatile tail, never the leading stable lines.
           if (e.moodCause) lines.push(`        moodCause (they chose to tell the player why they feel this way; the ONLY reason they may give): "${neutralizeForPrompt(e.moodCause)}"`);
-          if (e.tellsYou) lines.push(`        tellsYou (their own words to the player, certainty ${e.tellsYou.certainty.replace("-", " ")}): ${neutralizeForPrompt(e.tellsYou.subject)} ${TELLS_YOU_VERB[e.tellsYou.kind] ?? "is involved with"}${e.tellsYou.object ? ` ${e.tellsYou.object === e.name ? "the speaker themself" : neutralizeForPrompt(e.tellsYou.object)}` : ""}`);
+          if (e.tellsYou) lines.push(`        tellsYou (their own words to the player, certainty ${e.tellsYou.certainty.replace("-", " ")}): ${neutralizeForPrompt(e.tellsYou.subject)} ${TELLS_YOU_VERB[e.tellsYou.kind] ?? "is involved with"}${e.tellsYou.label ? ` ${e.tellsYou.label} (gossip, in their own words, never as a label)` : ""}${e.tellsYou.object ? ` ${e.tellsYou.object === e.name ? "the speaker themself" : neutralizeForPrompt(e.tellsYou.object)}` : ""}`);
+          if (e.leansOnYou) lines.push(`        leansOnYou (${e.leansOnYou.manner}): they are pressing the player with something they hold - the player answers or ignores`);
           if (e.rememberedAboutOthers?.length) lines.push(`        rememberedAboutOthers (things the whole house saw): ${e.rememberedAboutOthers.map((m) => neutralizeForPrompt(m)).join("; ")}`);
           return lines;
         }),
@@ -1618,6 +1645,7 @@ export const STATED_REASON_GLOSS: Readonly<Record<string, string>> = {
 const TELLS_YOU_VERB: Record<string, string> = {
   "targets-you": "is targeting the player,", "voted-to-evict-you": "voted to evict the player,", "final-two-with": "has a final two with",
   "going-after": "is going after", "talking-about": "has been talking behind the back of", "lying-about": "is lying to",
+  "has-reputation": "has a name around the house as",
 };
 const STATED_ACT: Readonly<Record<string, string>> = { nominate: "naming", replacement: "naming as the replacement", veto: "using the veto to save", "veto-hold": "not using the veto, leaving the nominations of", "hc-pick": "picking to play in the veto", vote: "breaking the tie against", "final-hoh-evict": "evicting" };
 
@@ -1895,6 +1923,8 @@ export interface GatedLeverFlags {
   goalMood?: boolean;
   /** A52 (ORWELL_DISCLOSURE_ENGINE, played games): add the instruction that `knows` is only what the engine has put on the table. Absent/false => byte-identical. */
   disclosureEngine?: boolean;
+  /** 0196 (ORWELL_DODGING, played games): add the rule for a `dodge` fact. Absent/false => byte-identical. */
+  dodging?: boolean;
   /** AMEND 3a #1 - the 0094 divergence (ORWELL_GOSSIP_CONSEQUENCE). False ⇒ `confront` always lands, so the prompt must not promise a misfire. */
   confrontMisfire?: boolean;
 }
@@ -1915,6 +1945,14 @@ function withDisclosureInstruction(base: string): string {
   return base.replace(anchor, anchor + "\n" +
     "    A houseguest's `knows` is only what the engine has put on the table with the player. They hold more than that; you do NOT have it, so never invent a secret, a plan or\n" +
     "    a confession for them to spill. If the voice carries `deflect`, the engine declined this press: they turn it aside, they do not give it up.");
+}
+
+/** 0196 - a `dodge` fact says how a declined press is turned aside; the narrator authors the words. Appended only while the flag is on. */
+function withDodgingInstruction(base: string): string {
+  const anchor = "    a confession for them to spill. If the voice carries `deflect`, the engine declined this press: they turn it aside, they do not give it up.";
+  return base.replace(anchor, anchor + "\n" +
+    "    If the voice also carries `dodge`, it says how: `approach` is what they do with the question, `openness` is how their carriage reads while they do it, and `pushesBack` means they hand\n" +
+    "    the question back to the player. Write their words yourself from those facts and their own voice; the dodge never says what they hold or why, so do not hint at either.");
 }
 
 /** ORW-317 - when npcVoice carries `moodCause`, it is the only reason this houseguest may give for how they feel (they chose to tell the player). Appended only while the flag is on. */
@@ -2143,6 +2181,7 @@ export function buildSystemPrompt(
   if (levers?.npcMemorySpeech === true) base = withMemorySpeechInstruction(base);
   if (levers?.goalMood === true) base = withMoodCauseInstruction(base);
   if (levers?.disclosureEngine === true) base = withDisclosureInstruction(base);
+  if (levers?.dodging === true) base = withDodgingInstruction(base);
   if (levers?.confrontMisfire === false) base = withoutConfrontMisfire(base);
   const gate = uncommittedCeremonyGate(moment, view);
   return [

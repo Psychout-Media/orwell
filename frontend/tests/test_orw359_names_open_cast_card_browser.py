@@ -261,10 +261,10 @@ def test_tile_expand_button_opens_only_the_viewer(fe):
             page.keyboard.press("Escape")
             page.wait_for_selector("#orwell-portrait-viewer", state="detached", timeout=5000)
             # a plain tile tap still opens the dossier
-            page.click("#orwell-cast .oc-hg >> nth=2 >> .oc-name")
+            page.click("#orwell-cast .oc-hg >> nth=2 >> .oc-name")  # ORW-641: in-house cards run A-Z by first name (Dana Cho, Dana Reyes, Marcus Bell, then the player), evicted last
             assert _dossier_name(page) == "Marcus Bell"
             # player's own tile
-            page.click("#orwell-cast .oc-hg >> nth=0 >> .oc-expand")
+            page.click("#orwell-cast .oc-hg >> nth=3 >> .oc-expand")  # ORW-641: the player sits in their A-Z slot like anyone
             _until(page, "document.querySelector('#opv-img') && document.querySelector('#opv-img').alt === 'Pat Quinn'", 5000)
         finally:
             browser.close()

@@ -382,7 +382,7 @@ export function dealShotCards(sheets: readonly ShotSheet[]): Map<string, ShotCar
 
 type Axis = keyof FaceCard;
 type BuildClass = "slender" | "mid" | "thick";
-interface FaceValue { v: string; pin?: RegExp; build?: BuildClass; jaws?: readonly string[] }
+interface FaceValue { v: string; pin?: RegExp; build?: BuildClass; jaws?: readonly string[]; lean?: "man" | "woman" }
 
 /** Jaw and chin values, so a shape can name the ones that go with it (a round face never gets "a long, prominent chin"). */
 const J = {
@@ -394,7 +394,7 @@ const SHAPES: readonly FaceValue[] = [
   { v: "a round, full-cheeked face", pin: /\bround\b/i, jaws: [J.soft, J.small, J.cleft] },
   { v: "an oval face", pin: /\boval\b/i, jaws: [J.soft, J.square, J.pointed, J.cleft, J.narrow, J.small] },
   { v: "a long, narrow face", pin: /\b(?:narrow|long|elongated)\b/i, jaws: [J.long, J.narrow, J.square, J.pointed] },
-  { v: "a broad, squarish face", pin: /\b(?:broad face|wide face|squarish)\b/i, jaws: [J.square, J.wide] },
+  { v: "a broad, squarish face", lean: "man", pin: /\b(?:broad face|wide face|squarish)\b/i, jaws: [J.square, J.wide] },
   { v: "a heart-shaped face", pin: /\bheart\b/i, jaws: [J.pointed, J.narrow, J.small] },
   { v: "a diamond-shaped face with high cheekbones", pin: /\bcheekbones?\b/i, jaws: [J.pointed, J.narrow, J.square] },
   { v: "a soft, rounded-square face", jaws: [J.square, J.soft, J.wide] },
@@ -402,16 +402,16 @@ const SHAPES: readonly FaceValue[] = [
 const AXES: Record<Exclude<Axis, "shape" | "jaw">, readonly FaceValue[]> & { jaw: readonly FaceValue[] } = {
   jaw: [
     { v: J.square, pin: /\b(?:square|strong|angular) jaw\b|\bangular\b/i }, { v: J.soft, pin: /\bsoft jaw\b/i },
-    { v: J.pointed, pin: /\bpointed chin\b/i }, { v: J.cleft, pin: /\bcleft\b/i }, { v: J.small, pin: /\bsmall chin\b/i },
-    { v: J.wide, pin: /\b(?:wide|broad) jaw\b/i }, { v: J.narrow, pin: /\bnarrow jaw\b/i }, { v: J.long },
+    { v: J.pointed, pin: /\bpointed chin\b/i }, { v: J.cleft, lean: "man", pin: /\bcleft\b/i }, { v: J.small, pin: /\bsmall chin\b/i },
+    { v: J.wide, lean: "man", pin: /\b(?:wide|broad) jaw\b/i }, { v: J.narrow, pin: /\bnarrow jaw\b/i }, { v: J.long },
   ],
   neck: [
     { v: "a long, slender neck", pin: /\bslender neck\b/i, build: "slender" },
     { v: "a slim neck", build: "slender" },
     { v: "an average neck and even shoulders", build: "mid" },
-    { v: "a strong neck and square shoulders", build: "mid" },
-    { v: "a thick neck and broad, heavy shoulders", pin: /\bthick neck\b/i, build: "thick" },
-    { v: "a short, thick neck and a deep chest", build: "thick" },
+    { v: "a strong neck and square shoulders", build: "mid", lean: "man" },
+    { v: "a thick neck and broad, heavy shoulders", pin: /\bthick neck\b/i, build: "thick", lean: "man" },
+    { v: "a short, thick neck and a deep chest", build: "thick", lean: "man" },
   ],
   nose: [
     { v: "a straight nose", pin: /\bstraight nose\b/i }, { v: "a small button nose", pin: /\bbutton\b/i },
@@ -427,8 +427,8 @@ const AXES: Record<Exclude<Axis, "shape" | "jaw">, readonly FaceValue[]> & { jaw
     { v: "narrow, upward-slanting eyes", pin: /\bslanting\b/i }, { v: "small bright eyes set slightly apart" },
   ],
   brows: [
-    { v: "thick, straight brows", pin: /\b(?:thick|straight|bushy) brows?\b/i }, { v: "thin, high-arched brows", pin: /\b(?:thin|arched) brows?\b/i },
-    { v: "heavy dark brows", pin: /\bheavy[^,.]*\bbrows?\b|\bbrows? that\b/i }, { v: "light, sparse brows", pin: /\bsparse\b/i },
+    { v: "thick, straight brows", pin: /\b(?:thick|straight|bushy) brows?\b/i }, { v: "thin, high-arched brows", lean: "woman", pin: /\b(?:thin|arched) brows?\b/i },
+    { v: "heavy dark brows", lean: "man", pin: /\bheavy[^,.]*\bbrows?\b|\bbrows? that\b/i }, { v: "light, sparse brows", pin: /\bsparse\b/i },
     { v: "low, flat brows", pin: /\b(?:low|flat) brows?\b/i }, { v: "brows that rise at the outer ends" },
     { v: "soft, rounded brows" }, { v: "one brow that sits a little higher than the other", pin: /\buneven brows?\b/i },
   ],
@@ -442,9 +442,9 @@ const AXES: Record<Exclude<Axis, "shape" | "jaw">, readonly FaceValue[]> & { jaw
     { v: "ears that stand out a little" }, { v: "a slightly lopsided smile" }, { v: "one eye a touch larger than the other" },
     { v: "a prominent, high forehead" }, { v: "a long upper lip" }, { v: "a slight overbite" },
     { v: "a faint crease between the brows" }, { v: "a dimple in the chin" }, { v: "a slightly crooked nose bridge" },
-    { v: "cheeks that flush easily" }, { v: "a strong, visible jaw muscle when relaxed" }, { v: "a lot of lid space below the brow" },
+    { v: "cheeks that flush easily" }, { v: "a strong, visible jaw muscle when relaxed", lean: "man" }, { v: "a lot of lid space below the brow" },
     { v: "deep smile lines around the mouth" }, { v: "a prominent philtrum" }, { v: "small, tight ears set close to the head" },
-    { v: "a slightly deviated septum that tilts the nose" }, { v: "a heavy brow ridge" }, { v: "full, round cheeks that lift when the mouth moves" },
+    { v: "a slightly deviated septum that tilts the nose" }, { v: "a heavy brow ridge", lean: "man" }, { v: "full, round cheeks that lift when the mouth moves" },
     { v: "a wide forehead with a widow's peak" }, { v: "a slight asymmetry between the two sides of the face" },
   ],
 };
@@ -510,6 +510,8 @@ export function dealFaceCards(sheets: readonly ShotSheet[]): Map<string, FaceCar
         const pinned = pins[axis];
         if (pinned !== undefined) { face[axis] = pinned; continue; }
         let vals = valuesOf(axis);
+        // ORW-480: a feature that leans one way (a thick neck, heavy brows, a wide jaw; thin arched brows) is not dealt to the other binary gender
+        if (s.genderPresentation === "man" || s.genderPresentation === "woman") { const g = s.genderPresentation; const fit = vals.filter((x) => x.lean === undefined || x.lean === g); if (fit.length > 0) vals = fit; }
         if (axis === "shape" && pins.jaw !== undefined) { const ok = SHAPES.filter((x) => x.jaws?.includes(pins.jaw!)); if (ok.length > 0) vals = ok; }
         if (axis === "jaw") {
           const shape = SHAPES.find((x) => x.v === face.shape);

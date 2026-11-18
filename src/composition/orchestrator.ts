@@ -6,6 +6,7 @@ import { counts, isSuperset, countsNonDecreasing } from "../domain/saveState";
 import { richOffscreenStretch } from "../engine/offscreen";
 import { scaleImpactByValence, natureFoldImpact } from "../engine/relationshipConstants";
 import { rollOverhears } from "../engine/presence";
+import { overheardLine } from "../engine/houseLife";
 import { spreadForScenes } from "../engine/copresenceSpread";
 import type { NetworkRoles } from "../engine/networkSpread";
 import { natureFromContent } from "../engine/gossipBeliefs";
@@ -835,7 +836,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // once this stretch from their own goals (houseLife), replacing "a pair and 1 of 7 stock scenes". Headless calibration drivers never
   // play (no announced message), so they keep the old stretch below and their seeded spine is byte-identical.
   const scenes = sandbox.session.houseLifeActiveNow()
-    ? sandbox.session.houseLifeStretch(sandbox.engine.events, awakeIds, before)
+    ? sandbox.session.houseLifeStretch(sandbox.engine.events, awakeIds, before, sandbox.engine.knowledge)
     : awakeIds.length >= 2
     ? richOffscreenStretch({
         events: sandbox.engine.events, rng, npcs: awakeIds, interactions,
@@ -912,7 +913,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
     const room = occupancy?.get(s.initiator);
     if (occupancy && room) {
       rollOverhears({
-        eventId: s.event.id, room, content: s.event.content, participants: s.event.witnessSet,
+        eventId: s.event.id, room, content: s.event.content, participants: s.event.witnessSet, heard: overheardLine(s.event), // ORW-579
         occupancy, knowledge: sandbox.engine.knowledge, rng,
       });
     }
@@ -970,6 +971,10 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   sandbox.session.secretBarterTick(sandbox.engine.events, sandbox.engine.knowledge);
   // 0188 / ORW-619: the trap - once a day, watch the canaries set and maybe set a new one (own side stream; played games only; engine-only).
   sandbox.session.trapTick(sandbox.engine.knowledge);
+  // 0202 / ORW-645: leverage in two registers - once a day a holder may lean on someone with a secret they hold (blunt or sneaky); played games only, own keyed side streams.
+  sandbox.session.leveragePlayTick(sandbox.engine.knowledge);
+  // 0204 / ORW-647: the night it all comes out - a fact enough houseguests hold breaks in front of the house, or its subject blows it up (once a day; own keyed rolls; played games only).
+  sandbox.session.secretBreakTick(sandbox.engine.knowledge);
 
   // B27b — live gossip: occasionally one of the night's scenes becomes a RUMOR that diffuses along
   // the affinity graph (who actually talks to whom), with low per-edge transmission, decaying
@@ -995,7 +1000,17 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
         threat: (a, b) => relm.edge(a, b).threat,
         style: (id) => npcsById.get(id)?.character.strategyStyle,
         volatility: (id) => npcsById.get(id)?.soul.volatility ?? 0.3,
-        audienceOf: () => 0,
+        // ORW-589 (ORWELL_GOSSIP_DRIFT, default ON; a played game only, so the headless calibration spine is untouched): the awake houseguests standing in the pair's room hear it too, and each retelling drifts
+        // like the graph path's (a forked stream per telling, the teller's public voice). Absent => audience 0 and the text unchanged (byte-identical).
+        ...(sandbox.session.gossipDriftEnabledNow() && sandbox.session.houseLifeActiveNow() && occupancy
+          ? {
+              audienceOf: (h: EntityId, l: EntityId): number => {
+                const room = occupancy.get(h);
+                return room === undefined ? 0 : awakeIds.filter((id) => id !== h && id !== l && occupancy.get(id) === room).length;
+              },
+              drift: { voiceOf: (id: EntityId): VoiceProfile | undefined => npcsById.get(id)?.character.voice },
+            }
+          : { audienceOf: () => 0 }),
         // 0179 (Theme 3 slice 9, ORWELL_NETWORK_SPREAD, default ON): the house's shape adds to the motive - brokers carry news across cliques, weak ties carry across, loners hear late. Undefined when off => byte-identical.
         ...((): { network?: NetworkRoles } => { const n = sandbox.session.networkRoles(); return n ? { network: n } : {}; })(),
         // B48 (ORWELL_CREDIBILITY, default ON): a lie's arriving confidence scales with how far the LISTENER believes the holder (their own caught-lie evidence + repeats to their ear). Absent => the B34 stand-in.

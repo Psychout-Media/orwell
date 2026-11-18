@@ -547,12 +547,71 @@
       const p = fetch("/api/orwell/" + path, { method: "POST", credentials: "same-origin" });
       if (path === "prewarm-cast") {
         p.then((r) => (r && r.ok ? r.json() : null))
-          .then((resp) => { _orwellShowSeedingIndicator(resp); })
+          .then((resp) => { _orwellShowSeedingIndicator(resp); if (resp && resp.warmed) _castCueStart(); })
           .catch(() => {});
       } else {
         p.catch(() => {});
       }
     } catch (_) {}
+  }
+
+  // Casting in the background: an honest progress line DURING the interview (front end only; it reads the
+  // counts-only /cast-progress endpoint and shows exactly what is ready and what is being made — never a
+  // made-up percentage or a timer). Polls gently, stops when everything is ready, when there is no warm, or
+  // when the page leaves the interview. Fail-soft: no kit or no endpoint means no cue, never an error.
+  const _CAST_CUE_ID = "orwell-cast-progress";
+  let _castCue = null;
+  let _castCueTimer = null;
+  let _castCuePolls = 0;
+  function _castCueText(p) {
+    if (!p || !p.total) return "";
+    const n = p.total;
+    if (p.phase === "authoring") return "Producers are writing the cast's backstories…";
+    if (p.phase === "retrying") return "A cast step hit a snag; producers are trying it again…";
+    if (p.phase === "faces") {
+      return "Backstories are done. Screen-test photos: " + (p.faces | 0) + " of " + n + " ready" +
+        (p.facesRetrying ? " (" + (p.facesRetrying | 0) + " being reshot)" : "") + ".";
+    }
+    return "";
+  }
+  function _castCueHide() {
+    try { if (_castCue) _castCue.hide(); } catch (_) {}
+    _castCue = null;
+  }
+  function _castCueStop() {
+    if (_castCueTimer) { clearTimeout(_castCueTimer); _castCueTimer = null; }
+    _castCueHide();
+  }
+  async function _castCuePoll() {
+    _castCueTimer = null;
+    _castCuePolls += 1;
+    if (_castCuePolls > 360) { _castCueStop(); return; }          // ~30 minutes at 5 s: the interview is long over
+    let stop = false;
+    try {
+      const r = await fetch("/api/orwell/cast-progress", { credentials: "same-origin" });
+      const p = r && r.ok ? await r.json() : null;
+      const text = _castCueText(p);
+      if (!p || p.phase === "ready" || p.phase === "none" || !text) {
+        stop = !p || p.phase === "ready";
+        _castCueHide();
+      } else if (window.OrwellNoticeKit && typeof window.OrwellNoticeKit.create === "function") {
+        if (!_castCue) {
+          _castCue = window.OrwellNoticeKit.create({
+            id: _CAST_CUE_ID, kind: "continue", role: "status", title: "",
+            dismissible: true, persistDismiss: false,
+          });
+          _castCue.show();
+        }
+        _castCue.setBody(text);
+      }
+    } catch (_) { /* advisory only */ }
+    if (stop) { _castCueStop(); return; }
+    _castCueTimer = setTimeout(_castCuePoll, 5000);
+  }
+  function _castCueStart() {
+    if (_castCueTimer || _castCue) return;
+    _castCuePolls = 0;
+    _castCueTimer = setTimeout(_castCuePoll, 2000);
   }
 
   let _openSent = false;
