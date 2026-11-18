@@ -20,11 +20,10 @@ JUDGE_RULE = (
     "lives this life? Judge only what is actually written and would be shown: the wardrobe, the style line, the signature and the interests. The "
     "dealt look label is context only: a person whose label seems odd but whose written wardrobe and interests are believable for their life is NOT "
     "flagged. The people are characters in a video game, so a look that is 10 to 35 percent typical for the life is an ordinary person: unusual is "
-    "fine, individual taste is fine, a quirk is fine (a goth house painter, a bohemian logger are normal people and are NOT flagged). Flag a person "
-    "ONLY when what is written is so far out of the realm of normalcy for this life that it reads like an error of the generator (for example: a "
-    "cream cardigan and floral skirt cottagecore wardrobe, with a garden and a sourdough starter as interests, on a 27-year-old flirt who sells used "
-    "cars from the family lot off a two-lane highway in rural Ohio; a pressed preppy oxford-and-chinos wardrobe on a sawmill yard hand from a small "
-    "Michigan town who grew up on a dirt road with a lumberjack father). Do not flag a person only because the look matches or does not match a "
+    "fine, individual taste is fine, a quirk is fine, and a person whose taste leans against their job is NOT flagged. Flag a person "
+    "ONLY when what is written is so far out of the realm of normalcy for this life that it reads like an error of the generator: the wardrobe, "
+    "the style line and the interests together describe a different kind of person than the job, the town, the age and the upbringing allow, with "
+    "nothing in the card that explains it. Do not flag a person only because the look matches or does not match a "
     "stereotype of the job. At most a third of the cast may be flagged; the clearest first."
 )
 
