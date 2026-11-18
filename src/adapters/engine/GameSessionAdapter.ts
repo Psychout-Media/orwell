@@ -420,6 +420,7 @@ import {
 } from "../../engine/leverage";
 import { SECRET_BARTER } from "../../engine/secretBarterConstants";
 import { LEVERAGE, SECRET_TRADE } from "../../engine/leverageConstants";
+import { LEVERAGE_PLAY, pressureDesire, willPlay, chooseManner, sneakyNoticed, type LeveragePlay, type LeverageManner, type PlaySignals } from "../../engine/leveragePlay";
 import { NO_HARD_CAPS } from "../../engine/noHardCapsConstants";
 import { repetitionImpact, lieProbScale } from "../../engine/repetitionCost";
 import {
@@ -13932,6 +13933,105 @@ export class GameSessionAdapter implements GameSession {
       recordClaim((s.beliefs ??= {}), { id: `${id}|heard-rumor|${c.speaker}|${c.subject}|overheard:${c.id}`, holder: id, kind: "heard-rumor", nature: "talking-about", subject: c.speaker, object: c.subject, value: true, origin: "overheard", source: c.speaker, confidence: OVERHEAR_PLANT.confidence, week: s.week });
     }
   }
+  /**
+   * 0202 / ORW-645: LEVERAGE IN TWO REGISTERS (`ORWELL_LEVERAGE_PLAYS`, default ON; played games only). Once a day (the off-screen tick) a houseguest who holds a secret ABOUT someone
+   * (a fact in their knowledge, never the secret's text) may lean on that person - blunt (an explicit demand) or sneaky (quiet pressure) - decided by their own wants, bond, nerve and the
+   * target's read; most holders on most days simply keep what they hold. Each play is recorded append-only (engine-only; fact ids never leave). Against an NPC it resolves at once through
+   * the 0093 strength / refusal floor / squeeze backlash (a refused blunt demand costs more; a sneaky play can be noticed and backfires, or works and leaves a quiet debt). Against the PLAYER
+   * it is an open approach the player answers (a deal with that houseguest) or ignores; the engine never acts or speaks for the player. Own keyed side streams, never the shared rng.
+   */
+  private leveragePlaysEnabled = flagDefaultOn("ORWELL_LEVERAGE_PLAYS");
+  setLeveragePlaysEnabled(on: boolean): void { this.leveragePlaysEnabled = on; }
+  leveragePlayTick(knowledge: KnowledgeService): void {
+    const s = this.live;
+    if (!this.leveragePlaysEnabled || !s || s.playedGame !== true || !this.house) return;
+    const day = s.dayNumber ?? s.week;
+    if (s.leveragePlaysDay === day) return;
+    s.leveragePlaysDay = day;
+    const plays = (s.leveragePlays ??= []);
+    // Close what the player left unanswered: a blunt demand ignored costs them the holder's goodwill; a hint ignored just fades.
+    for (const p of plays) {
+      if (p.status !== "open" || day - p.day < LEVERAGE_PLAY.answerDays) continue;
+      if (p.manner === "blunt") {
+        p.status = "refused";
+        this.rel.applyImpactDirected(p.holder, PLAYER, scaleImpact(LEVERAGE.squeezeBacklash, LEVERAGE_PLAY.ignoredMult), new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:leverage-play:ignored:${p.id}`)));
+      } else p.status = "lapsed";
+    }
+    const living = this.livingIds();
+    const awake = this.awakeNow();
+    const onBlock = new Set<EntityId>(s.nominees ?? []);
+    // Every holder decides on their own keyed rolls first; the day's cap then goes to the strongest wants (never to whoever sorts first by id).
+    const decided: Array<{ play: LeveragePlay; desire: number; rNotice: number }> = [];
+    for (const holder of living.filter((id) => id !== PLAYER && (!awake || awake.has(id))).sort()) {
+      const npc = this.house.npcs.find((n) => n.id === holder);
+      if (!npc) continue;
+      // Candidates: a fact the holder knows ABOUT a living houseguest (never themselves), not pressed lately. Strongest desire first (ties by id) - one play per holder per day.
+      let best: { fact: { factId?: string; id: string }; target: EntityId; signals: PlaySignals; desire: number } | undefined;
+      for (const f of knowledge.knownTo(holder).sort((a, b) => (a.factId ?? a.id).localeCompare(b.factId ?? b.id))) {
+        const target = f.subject;
+        if (target === undefined || target === holder || !living.includes(target)) continue;
+        const key = f.factId ?? f.id;
+        if (plays.some((p) => p.holder === holder && p.target === target && p.factKey === key && day - p.day < LEVERAGE_PLAY.cooldownDays)) continue;
+        const toward = this.rel.edge(holder, target);
+        const targetNpc = target === PLAYER ? undefined : this.house.npcs.find((n) => n.id === target);
+        const signals: PlaySignals = {
+          severity: severityOf(targetNpc ? this.headlineSecretOf(targetNpc)?.kind : undefined),
+          holderThreatOfTarget: toward.threat, holderAffinityForTarget: toward.affinity, holderTrustInTarget: toward.trust,
+          holderOnBlock: onBlock.has(holder), holderNerve: npc.soul?.emotionalState ?? 0.5,
+          targetCredulity: target === PLAYER ? undefined : this.credulityOf(target),
+        };
+        const desire = pressureDesire(signals);
+        if (!best || desire > best.desire) best = { fact: f, target, signals, desire };
+      }
+      if (!best) continue;
+      // Three rolls from one stream keyed on who, when: whether, which register, whether a sneaky play is noticed. Fixed draw order.
+      const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:leverage-play:${holder}:${s.week}:${day}`));
+      const [rPlay, rManner, rNotice] = [rng.next(), rng.next(), rng.next()];
+      if (!willPlay(best.desire, rPlay)) continue;
+      const manner = chooseManner(best.signals, rManner);
+      const play: LeveragePlay = { id: `lev:${holder}:${best.target}:${s.week}:${day}`, week: s.week, day, holder, target: best.target, factKey: best.fact.factId ?? best.fact.id, manner, status: "open" };
+      decided.push({ play, desire: best.desire, rNotice });
+    }
+    decided.sort((a, b) => b.desire - a.desire || (a.play.id < b.play.id ? -1 : 1));
+    for (const { play, rNotice } of decided.slice(0, LEVERAGE_PLAY.maxPlaysPerDay)) {
+      plays.push(play);
+      if (play.target === PLAYER) continue; // the player answers or ignores; nothing is done for them
+      this.resolveNpcLeverage(play, rNotice);
+    }
+    if (s.leveragePlays && s.leveragePlays.length === 0) delete s.leveragePlays;
+  }
+  /** 0202: an NPC target's response to a play, through the 0093 core. The target's soul and their read of the holder set the strength; the keyed stream is the play's own. */
+  private resolveNpcLeverage(play: LeveragePlay, noticeRoll: number): void {
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:leverage-play:resolve:${play.id}`));
+    const targetNpc = this.house!.npcs.find((n) => n.id === play.target);
+    if (!targetNpc) return;
+    const toHolder = this.rel.edge(play.target, play.holder);
+    const subjectNpc = targetNpc;
+    const strength = leverageStrength({
+      severity: severityOf(this.headlineSecretOf(subjectNpc)?.kind), subjectEmotionalState: targetNpc.soul?.emotionalState ?? 0.5,
+      subjectTrust: toHolder.trust, subjectAffinity: toHolder.affinity, subjectThreat: toHolder.threat,
+    }, rng);
+    const warmth = (toHolder.trust + toHolder.affinity) / 2 - toHolder.threat;
+    if (play.manner === "blunt") {
+      const { accepts } = dealAcceptance(warmth, leverageDealBoost(strength), LEVERAGE.refusalFloor);
+      if (accepts) { foldHiddenImpact(this.rel, rng, play.holder, [play.holder, play.target], "strategy", [play.target]); play.status = "complied"; }
+      else { this.rel.applyImpactDirected(play.target, play.holder, scaleImpact(LEVERAGE.squeezeBacklash, LEVERAGE_PLAY.bluntRefusalMult), rng); play.status = "refused"; }
+      return;
+    }
+    if (sneakyNoticed(this.credulityOf(play.target), noticeRoll)) { this.rel.applyImpactDirected(play.target, play.holder, scaleImpact(LEVERAGE.squeezeBacklash, LEVERAGE_PLAY.noticedMult), rng); play.status = "noticed"; return; }
+    this.rel.applyImpactDirected(play.target, play.holder, scaleImpact(LEVERAGE_PLAY.debtFold, LEVERAGE_PLAY.debtBase + strength * LEVERAGE_PLAY.sneakyStrengthMult), rng);
+    play.status = "worked";
+  }
+  /** 0202: the narrator's fact - this houseguest is leaning on the player now, and in what manner (never what they hold). */
+  private leansOnYouFor(id: EntityId): { manner: LeverageManner } | undefined {
+    if (!this.leveragePlaysEnabled) return undefined;
+    const p = this.live?.leveragePlays?.find((x) => x.status === "open" && x.holder === id && x.target === PLAYER);
+    return p ? { manner: p.manner } : undefined;
+  }
+  /** 0202: a deal made with a houseguest who was leaning on the player answers that approach (the player chose to meet it). */
+  private answerLeverageFrom(holder: EntityId): void {
+    for (const p of this.live?.leveragePlays ?? []) if (p.status === "open" && p.holder === holder && p.target === PLAYER) p.status = "answered";
+  }
   /** 0188: tell the canary to an NPC suspect (a claim only they hear) and seed it as a fact they hold, so the house's spread can carry it on. */
   private plantCanary(t: Trap, knowledge: KnowledgeService): void {
     this.tellClaim({ speaker: t.setter, listener: t.suspect, kind: "going-after", subject: t.subject, object: t.setter, isTrue: false, intent: "mislead" });
@@ -16689,6 +16789,7 @@ export class GameSessionAdapter implements GameSession {
     // and folds the squeeze (a wary partner resents it / a persuadable one is bound tighter). The threat
     // persists while the deal is open — it is NOT spent here (only `exposeSecret` spends it). Absent ⇒
     // no extra rng, no fold — byte-identical to 0039.
+    if (this.leveragePlaysEnabled) this.answerLeverageFrom(target); // 0202: meeting a houseguest's approach with a deal answers it
     if (req.leverage) this.applyDealLeverage(req.leverage, target, deal.id);
     // 0099 — OPTIONAL traded secret: a secret about a THIRD party handed to the partner as consideration
     // (valued to the PARTNER); colors formation, surfaces the secret to the partner, and warms/sours them.
@@ -16973,6 +17074,19 @@ export class GameSessionAdapter implements GameSession {
     }
     const npc = this.house!.npcs.find((n) => n.id === partner)!;
     const strength = leverageStrength(this.leverageSignalsFor(npc), rng);
+    // 0202 (ORW-645): the player's own SNEAKY register - quiet pressure the partner may notice. The model proposes the manner; the engine keeps the magnitude. Absent / blunt (or the flag off) is the 0093 path below, unchanged.
+    if (this.leveragePlaysEnabled && this.live && d.manner === "sneaky") {
+      const l = this.live;
+      const play: LeveragePlay = { id: `lev:${PLAYER}:${partner}:${l.week}:${l.dayNumber ?? l.week}:${(l.leveragePlays ?? []).length}`, week: l.week, day: l.dayNumber ?? l.week, holder: PLAYER, target: partner, factKey: resolved.factId ?? `bluff:${partner}`, manner: "sneaky", status: "worked" };
+      if (sneakyNoticed(this.credulityOf(partner), new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:leverage-play:notice:${play.id}`)).next())) {
+        this.rel.applyImpactDirected(partner, PLAYER, scaleImpact(LEVERAGE.squeezeBacklash, LEVERAGE_PLAY.noticedMult), rng);
+        play.status = "noticed";
+      } else {
+        this.rel.applyImpactDirected(partner, PLAYER, scaleImpact(LEVERAGE_PLAY.debtFold, LEVERAGE_PLAY.debtBase + strength * LEVERAGE_PLAY.sneakyStrengthMult), rng);
+      }
+      (l.leveragePlays ??= []).push(play);
+      return;
+    }
     const { accepts } = dealAcceptance(this.signedWarmthTowardPlayer(partner), leverageDealBoost(strength), LEVERAGE.refusalFloor);
     if (accepts) {
       // The pressure landed — the PARTNER is bound a little tighter: a strategy-grade fold on the
@@ -19808,13 +19922,14 @@ export class GameSessionAdapter implements GameSession {
           ...(v.moodCause ? { moodCause: v.moodCause } : {}),
           ...(v.rememberedAboutOthers?.length ? { rememberedAboutOthers: v.rememberedAboutOthers } : {}),
           ...(() => { const t = this.claimsToPlayerFor(p.id, juryMode); return t ? { tellsYou: t } : {}; })(),
+          ...(() => { const l = this.leansOnYouFor(p.id); return l ? { leansOnYou: l } : {}; })(),
         };
         return e;
       })
       .filter(
         (e): e is NonNullable<typeof e> =>
           e !== null &&
-          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined || e.moodCause !== undefined || e.rememberedAboutOthers !== undefined || e.tellsYou !== undefined),
+          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined || e.moodCause !== undefined || e.rememberedAboutOthers !== undefined || e.tellsYou !== undefined || e.leansOnYou !== undefined),
       );
   }
 

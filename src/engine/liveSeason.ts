@@ -822,6 +822,10 @@ export interface LiveSeasonState {
   hiding?: { week: number; pairs: string[] };
   /** 0188: the last day the trap tick ran (once a day). */
   trapsDay?: number;
+  /** 0202 / ORW-645: leverage plays (a held secret leaned on someone, blunt or sneaky). ENGINE-ONLY (Vault class, holds fact ids), append-only (an outcome closes a record, never removes it); persisted. */
+  leveragePlays?: import("./leveragePlay").LeveragePlay[];
+  /** 0202: the last day the leverage tick ran (once a day). */
+  leveragePlaysDay?: number;
   /** 0204 / ORW-647: the facts that have already broken in front of the house (once each). Engine-only, idempotent, only grows. */
   secretBreaks?: string[];
   /**
