@@ -64,6 +64,8 @@ export interface PlayerCard {
    * pre-jury — their season is over). Public, Vault-free: it says nothing about anyone's hidden state.
    */
   status: "active" | "jury" | "evicted";
+  /** ORW-641 — 1-based place in the public eviction order (1 = first out); present only once they have left the house. A broadcast ceremony fact, Vault-free. */
+  evictedSeq?: number;
   /**
    * 0133 — how an early-evicted player follows the rest of the season: absent for an active player or before the
    * choice; `watch` = the engine-built skeleton season (one `weekDigests` line per week), `skip` = fast-forwarded to
@@ -103,6 +105,8 @@ export interface HouseguestCard {
   lastSeenMood?: string;
   /** active | jury (evicted into the last-9) | evicted (pre-jury). Public ceremony fact. */
   status: string;
+  /** ORW-641 — 1-based place in the public eviction order (1 = first out); present only once they have left the house. A broadcast ceremony fact, Vault-free. */
+  evictedSeq?: number;
   archetype?: string;
   strategyStyle?: string;
   background?: string;
