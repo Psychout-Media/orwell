@@ -212,6 +212,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // `createCharacter`, so a mid-season dial would do nothing.
   { envKey: 'ORWELL_REACTIVE_TWISTS',        key: 'reactiveTwists',         parser: 'defaultOn' },
   // 0184 / ORW-564 (theme 3 slice 8, part 1): reputations - what each houseguest has heard or seen of another's lying and turning on people (softened by promises kept to them) scales how far they believe that houseguest and how willing they are to deal with them. Hidden. A played game only; needs ORWELL_BOND_RECORD. `=0` opts out.
+  // ORW-639 (Fable stacking audit S-10): the replacement nominee is picked with the same deal, pre-show tie, lobbying and kept-assurance terms as the original nominations (they were dropped before). A played game only; `=0` opts out.
+  { envKey: 'ORWELL_REPLACEMENT_TERMS', key: 'replacementTerms', parser: 'defaultOn' },
   { envKey: 'ORWELL_REPUTATION', key: 'reputation', parser: 'defaultOn' },
   // ORW-223 slice 1 (Showrunner memory part B): the room canon ledger - the narrated texture of a room is recorded as canon and listed in the Show Brief. ON by default ("built means on"); `=0` turns it off.
   { envKey: 'ORWELL_ROOM_CANON', key: 'roomCanon', parser: 'defaultOn' },
