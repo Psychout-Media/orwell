@@ -1259,6 +1259,17 @@ async def record_interaction(content: str, with_ids: list | None = None, initiat
     # ignores it unless ORWELL_PROMISE_TERMS is on (absent / flag off => byte-identical). Never free text, never a number.
     if isinstance(statement, dict) and all(isinstance(statement.get(k), str) and statement.get(k) for k in ("to", "about", "kind")):
         req["statement"] = {k: v for k, v in statement.items() if k in ("to", "about", "kind", "object") and isinstance(v, str) and v}
+    # 0203 / ORW-646: the player owns a lie (`retracts`) or tells an ally about a lie told to someone else (`tellsAbout`): no kind, no claim id. Forwarded ONLY when well-formed; the engine finds the lie itself and drops a mismatch.
+    elif isinstance(statement, dict) and isinstance(statement.get("to"), str) and statement.get("to") and (statement.get("retracts") is True) != isinstance(statement.get("tellsAbout"), str):
+        _clean = {"to": statement["to"]}
+        if isinstance(statement.get("about"), str) and statement.get("about"):
+            _clean["about"] = statement["about"]
+        if statement.get("retracts") is True:
+            _clean["retracts"] = True
+        elif statement.get("tellsAbout"):
+            _clean["tellsAbout"] = statement["tellsAbout"]
+        if "retracts" in _clean or "tellsAbout" in _clean:
+            req["statement"] = _clean
     return await _call("recordInteraction", req, user=user)
 
 

@@ -103,8 +103,11 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         const st = args["statement"];
         if (typeof st !== "object" || st === null || Array.isArray(st)) refuse("statement", "an object when present");
         const ss = st as Record<string, unknown>;
-        if (!isEntityId(ss["to"]) || !isEntityId(ss["about"])) refuse("statement", "{ to, about: houseguest ids, kind: a claim kind } when present");
-        if (typeof ss["kind"] !== "string" || ss["kind"] === "") refuse("statement", "{ kind: a non-empty string } when present");
+        const cleanForm = ss["retracts"] === true || ss["tellsAbout"] !== undefined; // 0203 / ORW-646: coming clean names no kind
+        if (ss["retracts"] !== undefined && ss["retracts"] !== true) refuse("statement", "`retracts` is true when present");
+        if (ss["tellsAbout"] !== undefined && (!isEntityId(ss["tellsAbout"]) || ss["retracts"] === true)) refuse("statement", "a houseguest id for `tellsAbout` when present (and not with `retracts`)");
+        if (!isEntityId(ss["to"]) || (cleanForm ? (ss["about"] !== undefined && !isEntityId(ss["about"])) : !isEntityId(ss["about"]))) refuse("statement", "{ to, about: houseguest ids, kind: a claim kind } when present");
+        if (!cleanForm && (typeof ss["kind"] !== "string" || ss["kind"] === "")) refuse("statement", "{ kind: a non-empty string } when present");
         if (ss["object"] !== undefined && !isEntityId(ss["object"])) refuse("statement", "a houseguest id for `object` when present");
         if (ss["label"] !== undefined && (typeof ss["label"] !== "string" || ss["label"] === "" || ss["label"].length > 32)) refuse("statement", "a short role word for `label` when present"); // 0184 part 2a
       }

@@ -1790,6 +1790,24 @@ export interface EvictionView {
    * while the ballots are unread or the result has not been committed. Public after the fact; never present before the last ballot.
    */
   evictee?: NamedRef;
+  /** ORW-667 (0210 C1, `ORWELL_HOST`): the host's facts for the narrator on a played eviction night. Names and words only; absent for headless games or with the flag off. */
+  host?: HostView;
+}
+
+/**
+ * ORW-667 (0210 C1) - the host of eviction night, as FACTS the narrator voices (the engine writes no host line). Vault-free by construction: the manner (composed words from the
+ * season's seed), the week's PUBLIC ceremony roles by name, the player's own public seat, and public-record questions for the exit interview. No id, no number, no ballot, no motive.
+ */
+export interface HostView {
+  /** The host's manner this season, as words. */
+  register: string;
+  hoh?: string;
+  vetoHolder?: string;
+  vetoUsed?: boolean;
+  /** The player's own public seat this week (absent when they had none). */
+  playerRoles?: string[];
+  /** Public record the host may raise with the evictee at the exit interview (the evictee's own choices first, at most 3). */
+  questions?: string[];
 }
 
 /** The Vault-free result of advancing the game or resolving a decision. */
@@ -2563,6 +2581,11 @@ export interface RetrospectiveView {
   /** 0178 (Theme 3 slice 1, Ryne's Q2): every NPC's secret plan for each deal it agreed to and how it went, beside the player's own promise record (deals and promises
    *  they said aloud, each with its status). Present ONLY on the post-season retrospective, and only when the season held a deal or a promise. */
   dealPlans?: DealPlanRetro;
+  /**
+   * 0184 part 2c (post-crown only): the house's social map - for each houseguest (the player included), the roles the house read in them and how many houseguests held each
+   * read (engine keys, voiced by the narrator in its own words, never shown as labels).
+   */
+  socialMap?: { people: Array<{ id: EntityId; name: string; heldAs: Array<{ role: string; by: number }> }> };
   /** 0200 / ORW-632: "your edit", the season as TV would have cut it: per-week episode facts (+ a composed floor title), who was cut a hero and a villain, how you came across. Facts only; the narrator voices the titles. Present ONLY on the post-season retrospective, only for a played game, never a number. */
   yourEdit?: import("../engine/yourEdit").YourEditView;
   /** ORW-566 part d (0183): the season's alliances and close-pair habits as facts (names, the group's name, its words, the spot, the weeks, whether you knew). Present ONLY on the post-season retrospective, only for a played game with a group, never an id or a number. */

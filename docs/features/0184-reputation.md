@@ -48,5 +48,10 @@ Labels the observer was TOLD count toward a role at their confidence. So a role 
 - **The player in both directions.** The player in the room can catch a hiding pair slipping off together, as a scene only the player saw (their own read to make). The player's own time with a houseguest is never registered by onlookers in the first place (own-view: only what is told spreads), so only NPC pairs decide to hide.
 - **Measured:** see the PR (the 12-season mix guard; scene types are unchanged, only who registers them).
 
-## Still to come (part 2c)
-The retrospective's social map and reputation read by NPC-to-NPC deals and alliance offers (2c).
+## Part 2c: a bad name keeps you out of pacts, and the house's social map (ORW-564)
+- **Pacts and alliances read reputations (played games, with `ORWELL_REPUTATION`).** A houseguest who holds another at a bad name (part 1 standing at or below `REPUTATION.pactBar`, 0.7: two or three heard wrongs) won't seal a quiet NPC-to-NPC pact with them, or take them into an alliance. Either side's view is enough.
+- **The player counts like anyone.** A founder who has heard the player is a snake won't pitch them their alliance. The player's broken word (part 1, Ryne's Q2) now closes doors.
+- **The social map (post-crown only).** The retrospective's `socialMap` lists, for each houseguest and the player, the roles the house read in them and how many houseguests held each read. These are engine keys with counts, voiced by the narrator, never shown as labels.
+
+## Still to come
+The pairs that faked distance (part 2b keeps only the current week's) on the social map: a weekly record, then a `hiddenPairs` list.
