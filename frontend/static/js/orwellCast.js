@@ -444,19 +444,6 @@
 
   const _cards = new Map(); // roster id → { el, holder, nameB, statusEl, name, status, portrait }
 
-  // J2-15: a stable hue (0–359) from the houseguest's NAME only — public, Vault-free, and the
-  // same on every render so a card's placeholder tint never flickers between polls. A small FNV-ish
-  // string hash keeps it deterministic without pulling in any dependency.
-  function nameHue(name) {
-    let h = 2166136261;
-    const s = name || "";
-    for (let i = 0; i < s.length; i++) {
-      h ^= s.charCodeAt(i);
-      h = (h * 16777619) >>> 0;
-    }
-    return h % 360;
-  }
-
   // ORW-641 ORDER-BEGIN — the cast wall's order, a PURE function of public facts only (the roster
   // card's status + public eviction place, and the ceremony roles from the status board). In the house:
   // HOH, then the veto holder, then the nominees, then everyone else A-Z by first name. A houseguest
@@ -484,6 +471,21 @@
     }).map((x) => x.hg);
   }
   // ORW-641 ORDER-END
+
+  // J2-15: a stable hue (0–359) from the houseguest's NAME only — public, Vault-free, and the
+  // same on every render so a card's placeholder tint never flickers between polls. A small FNV-ish
+  // string hash keeps it deterministic without pulling in any dependency.
+  function nameHue(name) {
+    let h = 2166136261;
+    const s = name || "";
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = (h * 16777619) >>> 0;
+    }
+    return h % 360;
+  }
+
+
 
   function cardKey(hg) {
     // The roster route always sets a stable `id` (player → engine id or "player";
