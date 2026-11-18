@@ -421,7 +421,7 @@ import { nameGenderOf, nameGenderStrict, pickGivenNameFor } from "../../engine/d
 import { avoidFromWire, type AvoidSets } from "../../domain/recentSeasons";
 import { dealEraGivenNames, dealSurnames, censusGroupOfHeritage } from "../../engine/data/worldNames";
 import type { Orientation, GenderPresentation } from "../../engine/diversityConstants";
-import { ATTRACTION_LIFE, attractionOf, chemistryFor, drawnTo, type AttractionIdentity } from "../../engine/attractionLife"; // 0207 A1
+import { ATTRACTION_LIFE, attractionOf, chemistryFor, drawnTo, readsAsCoupleOwnView, type AttractionIdentity } from "../../engine/attractionLife"; // 0207 A1
 import { chemistryKey, readsAsCouple, coupleNomPush } from "../../engine/attraction";
 import { ALL_ETHNICITIES, GENDER_PRESENTATIONS } from "../../engine/diversityConstants";
 import { isGenderPresentation } from "../../domain/gender"; // #1326
@@ -16102,7 +16102,10 @@ export class GameSessionAdapter implements GameSession {
     for (const other of s.active) {
       if (other === target || other === hoh) continue;
       const bond = this.perceivedBond(hoh, target, other);
-      if (!readsAsCouple(bond, this.romanceSeenBy(hoh, target, other))) continue;
+      const seen = this.romanceSeenBy(hoh, target, other);
+      const base = (RELATIONSHIP_CONSTANTS.baseline.trust + RELATIONSHIP_CONSTANTS.baseline.affinity) / 2;
+      // ORW-636: an own-view read of two others tops out below the generic bar, so it is judged on its own scale (the blended unplayed read keeps the foundation's)
+      if (!(this.ownViewOn() ? readsAsCoupleOwnView(bond, seen, base, DECISION.nomination.floaterBondSpan) : readsAsCouple(bond, seen))) continue;
       const mine = this.rel.edge(hoh, target).threat, theirs = this.rel.edge(hoh, other).threat;
       if (mine < theirs || (mine === theirs && target > other)) continue; // the push lands on the bigger threat of the two
       best = Math.max(best, coupleNomPush(true, false) * Math.min(1, bond));
