@@ -11,7 +11,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 def _engine_pending_kinds():
     src = open(os.path.join(ROOT, "src", "ports", "GameSession.ts"), encoding="utf-8").read()
     start = src.index("export interface PendingDecisionView {")
-    body = src[start:src.index("deal-offer\";", start) + len("deal-offer\";")]
+    end = re.search(r'\|\s*"[a-z]+(?:-[a-z]+)*";', src[start:])  # the last union member ends the kind list (a new kind appended after deal-offer must not break this parse)
+    body = src[start:start + end.end()]
     body = re.sub(r"//[^\n]*", "", body)  # comments quote kinds/stances too
     return set(re.findall(r'"([a-z]+(?:-[a-z]+)*)"', body))
 

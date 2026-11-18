@@ -4558,7 +4558,7 @@ async def do_record_interaction(content: str, owner: Optional[str] = None) -> Di
     _felt = args.get("feltMinutes")
     _felt = _felt if isinstance(_felt, (int, float)) and _felt > 0 else None
     # ORW-104: the model-driven path carries the same closed-set casual assurance / heard-about-me descriptors as the belt (validated against the scene's own withIds; no number crosses).
-    from src.agent_loop import _validate_assurance, _validate_heard_about_me
+    from src.agent_loop import _validate_actor, _validate_assurance, _validate_heard_about_me
     _with = [w for w in (args.get("withIds") or []) if isinstance(w, str)] if isinstance(args.get("withIds"), list) else []
     _assure_raw = args.get("assurance")
     if isinstance(_assure_raw, dict) and "by" not in _assure_raw and isinstance(_assure_raw.get("from"), str):
@@ -4568,9 +4568,11 @@ async def do_record_interaction(content: str, owner: Optional[str] = None) -> Di
         _hear_raw = {**_hear_raw, "by": _hear_raw["from"]}
     _assurance = _validate_assurance(_assure_raw, _with)
     _heard = _validate_heard_about_me(_hear_raw, _with)
+    _actor = _validate_actor(args.get("actor"), _with)  # ORW-609: who acted (a houseguest in the scene), else the player
     try:
         res = await orwell_engine.record_interaction(
             text, with_ids=args.get("withIds"), kind=args.get("kind"),
+            **({"initiator": _actor} if _actor else {}),
             consequence=_consequence, felt_minutes=_felt, user=owner,
             **({"assurance": _assurance} if _assurance else {}),
             **({"heard_about_me": _heard} if _heard else {}),
@@ -6007,12 +6009,15 @@ def is_deal_refusal(res) -> bool:
 
 def deal_refusal_for_narrator(res: dict) -> dict:
     """Shape an engine refusal as a narrator-visible tool result: the NPC declined, why (in fiction), and that no deal exists."""
-    why = str(res.get("narratable") or res.get("reason") or "they are not willing").strip()
+    # ORW-608 (Ryne 2026-11-17): the engine hands only the reason the houseguest GIVES (a stated-reason kind: honest, softened or a cover story, the engine
+    # decided); the real reason never leaves the engine, and there are no fixed refusal lines - the narrator voices the given reason in the houseguest's own words.
+    said = str(res.get("reason") or "").strip()
     out = {
         "declined": True,
         "reason": res.get("reason"),
-        "message": (f"The NPC declined: this houseguest {why}. No deal was made. Voice their refusal in character; "
-                    "do NOT narrate a handshake, an agreement, or a promise - the engine decided, not you."),
+        "message": ("The NPC declined. No deal was made. "
+                    + (f"The reason they give you (it may be honest or a cover story; voice it in their own words, never as a quote of this label): {said}. " if said else "")
+                    + "Voice their refusal in character; do NOT narrate a handshake, an agreement, or a promise - the engine decided, not you."),
     }
     # ORW-481 (review 4539129295): the engine may attach a counteroffer; hand it over so the refusal is voiced WITH its terms (still no deal until the player accepts).
     counter = res.get("counteroffer")

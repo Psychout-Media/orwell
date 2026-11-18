@@ -28,6 +28,8 @@ export interface DealBreakInputs {
   reliableShare: number;
   /** Endgame pressure: 0 none, 1 jury started, 2 final five. */
   endgame: 0 | 1 | 2;
+  /** 0186: a twist (a partner's HOH win, a double eviction) reopens the deal: the renegotiation floor is waived (the old terms no longer fit). Absent = the ordinary weighing, byte-identical. */
+  twist?: boolean;
 }
 
 export interface DealBreakTerms {
@@ -67,8 +69,9 @@ export function weighDealBreak(i: DealBreakInputs): DealBreakWeighing {
   const margin = temptation - cost;
   const clamp = (x: number): number => Math.max(0, Math.min(1, x));
   const pBreak = margin > 0 ? clamp(T.breakSlope * margin) : 0;
-  const pRenegotiate = margin <= 0 && temptation >= T.renegotiateFloor
-    ? clamp(T.renegotiateSlope * (temptation - T.renegotiateFloor + 0.05)) : 0;
+  const floor = i.twist === true ? 0 : T.renegotiateFloor;
+  const pRenegotiate = margin <= 0 && temptation >= floor
+    ? clamp(T.renegotiateSlope * (temptation - floor + 0.05)) : 0;
   return { temptation, cost, margin, pBreak, pRenegotiate, terms };
 }
 

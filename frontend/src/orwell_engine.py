@@ -849,6 +849,8 @@ DECISION_KINDS: frozenset = frozenset({
     "secret-veto",
     # 0123 — the player's in-chat answer to a houseguest's deal offer (vote: accept | decline).
     "deal-offer",
+    # ORW-596 — the player's own answer (vote: deny | admit | redirect, statement: their words) to an NPC's public accusation at a house meeting. Open state like a deal offer, never a card.
+    "meeting-answer",
     # ORW-281 4a — a WATCH step of a staged ceremony. NOT a decision: it is answered by advanceGame (Continue); the engine REFUSES submitDecision for it
     # (typed). It lives in the union only because the engine's pending-kind union carries it; card-only, never model-submittable.
     "ceremony-step",
@@ -858,12 +860,13 @@ DECISION_KINDS: frozenset = frozenset({
 # binds them, even a clearly-worded line. The model's `submitDecision` tool may therefore submit ONLY these
 # low-stakes / in-chat kinds (an allow-list, so a NEW decision kind is card-only by default — fail closed):
 #   comp-intent / comp-round — the player's competition approach (the engine owns the outcome);
-#   deal-offer               — the in-chat accept/decline of an NPC's open offer (a light social choice).
+#   deal-offer               — the in-chat accept/decline of an NPC's open offer (a light social choice);
+#   meeting-answer           — the player's own in-chat answer to an accusation at a house meeting (their words; open state, never a card).
 # Every other kind (nominations, veto-decision, secret-veto, eviction-vote, tie-break, final-eviction,
 # goodbye-message, finale-*, juror-*, exit-interview, replacement, houseguests-choice, self-evict) is bound
 # ONLY by the player's own confirm on its card (POST /api/orwell/decision or the WS relay — unchanged).
 # `tests/test_a6_model_submit_gate.py` pins this set and its parity with the card's HIGH_STAKES_KINDS.
-MODEL_SUBMITTABLE_KINDS: frozenset = frozenset({"comp-intent", "comp-round", "deal-offer"})
+MODEL_SUBMITTABLE_KINDS: frozenset = frozenset({"comp-intent", "comp-round", "deal-offer", "meeting-answer"})
 CARD_ONLY_KINDS: frozenset = DECISION_KINDS - MODEL_SUBMITTABLE_KINDS
 
 
@@ -1203,7 +1206,7 @@ async def run_competition(comp_type: str | None = None, participant_ids: list | 
     return await _call("runCompetition", args, user=user)
 
 
-async def record_interaction(content: str, with_ids: list | None = None, initiator: str = "player", kind: str | None = None, consequence: dict | None = None, expected_beat_seq: int | None = None, idempotency_key: str | None = None, felt_minutes: int | None = None, assurance: dict | None = None, heard_about_me: dict | None = None, user: str | None = None) -> dict:
+async def record_interaction(content: str, with_ids: list | None = None, initiator: str = "player", kind: str | None = None, consequence: dict | None = None, expected_beat_seq: int | None = None, idempotency_key: str | None = None, felt_minutes: int | None = None, assurance: dict | None = None, heard_about_me: dict | None = None, promise: dict | None = None, statement: dict | None = None, user: str | None = None) -> dict:
     """Record a player-present scene as an engine event (player-witnessed → the player's
     knowledge, never the Vault). An optional `kind` folds the hidden relationship impact (0023);
     an optional Vault-free `consequence` descriptor (ADR 0005) lets the caller PROPOSE which
@@ -1248,6 +1251,14 @@ async def record_interaction(content: str, with_ids: list | None = None, initiat
     # well-formed; the engine owns how far each listener believes it and ignores it unless the flag is on (absent / flag off => byte-identical). Never free text, never a number.
     if isinstance(heard_about_me, dict) and heard_about_me.get("nature") in ("targeting", "betrayal"):
         req["heardAboutMe"] = {k: v for k, v in heard_about_me.items() if k in ("nature", "from")}
+    # ORW-586 / 0187: a TYPED promise the scene carried ({what: a closed promise kind, from?: the promiser's id, subject?: who it concerns}). Forwarded ONLY when well-formed; the engine validates the ids and presence again,
+    # judges kept or broken itself, and ignores it unless ORWELL_PROMISE_TERMS is on (absent / flag off => byte-identical). Never free text, never a number.
+    if isinstance(promise, dict) and isinstance(promise.get("what"), str) and promise.get("what"):
+        req["promise"] = {k: v for k, v in promise.items() if k in ("what", "from", "subject") and isinstance(v, str) and v}
+    # ORW-612 part C: the PLAYER'S own claim about a third person ({to, about, kind: a closed claim kind, object?}). Forwarded ONLY when well-formed; the engine re-validates, gives it its truth from its own records, and
+    # ignores it unless ORWELL_PROMISE_TERMS is on (absent / flag off => byte-identical). Never free text, never a number.
+    if isinstance(statement, dict) and all(isinstance(statement.get(k), str) and statement.get(k) for k in ("to", "about", "kind")):
+        req["statement"] = {k: v for k, v in statement.items() if k in ("to", "about", "kind", "object") and isinstance(v, str) and v}
     return await _call("recordInteraction", req, user=user)
 
 

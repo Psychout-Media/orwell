@@ -10,6 +10,8 @@ import type { Campaign, Drive } from "./campaigns";
 import type { Trajectory, FoldSignal } from "./trajectory";
 import type { Alliance } from "./alliances";
 import { isAgendaSuperset } from "./agenda";
+import { beliefStoreSuperset } from "./beliefStore";
+import { claimLogSuperset } from "./spokenClaims";
 import type { KnowledgeSnapshot } from "../domain/knowledge";
 import type { EdgeRecord, GameState, PersistedCharacter, PersistedSoul } from "../domain/saveState";
 import type { Room, Zone } from "../domain/house";
@@ -177,6 +179,10 @@ export interface SessionCore {
    */
   secretBarterTickCount?: number;
   secretBarterCount?: number;
+  /** ORW-581 (Fable T1-14): the per-night conflict tally (0066 Phase-2 Extension 2) - a fight tonight sends the people in it to bed earlier. Persisted so a restart mid-night turns the same people in at the same hour. Cleared at each new morning. Absent => none (a pre-ORW-581 save, or no fight tonight). ENGINE-ONLY. */
+  nightConflicts?: Record<EntityId, number>;
+  /** ORW-581 (Fable T1-14): per houseguest, the in-game day, how many memories of the player they have raised that day (`bringUp`) and which memories they raised lately (ORW-131). Persisted so a restart neither re-raises a memory nor grants an extra mention. Absent => none. ENGINE-ONLY. */
+  bringUp?: Record<EntityId, { day: number; used: number; recent: Array<{ key: string; day: number }> }>;
   /** Every active houseguest's current DRIVE (0086) — sticky motivation+intensity, so an agenda survives a
    * restart instead of re-rolling. ENGINE-ONLY (hidden strategy). Absent on pre-0086 saves / when the
    * campaign layer is off. */
@@ -410,6 +416,8 @@ export interface SessionCore {
   confideLieCount?: number;
   /** B49 (ORWELL_NO_HARD_CAPS) - per NPC, how many confide lies it has told this season (the repetition roll). Absent flag-off / pre-B49 saves. */
   confideLiesBy?: Record<string, number>;
+  /** 0196 (ORWELL_DODGING) - the append-only log of presses a houseguest turned aside and how (approach / carriage / pushes back). Absent flag-off / pre-0196 saves. */
+  dodgeLog?: Array<{ npc: string; week: number; phase: string; approach: string; openness: string; pushesBack: boolean }>;
   /**
    * Features 0093 + 0099 — secrets as power. `secretUsedAs` maps each learned `factId` the player has
    * WIELDED to how (`leverage` | `exposed` | `traded`), so a spent secret can't be re-wielded; the
@@ -962,6 +970,13 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
     const next = laterAgendas[id];
     if (!next || !isAgendaSuperset(prev, next)) return "agendas";
   }
+
+  // claims (0149 / ORW-591): the season's claim log is append-only - no claim told is ever lost, and its id counter never goes back.
+  if (!claimLogSuperset(later.live?.claims, earlier.live?.claims)) return "claims";
+
+  // beliefs (#2017 / ORW-591): a belief once held is never lost (nor a telling folded into it), except by the per-holder cap's compaction, which
+  // takes refuted beliefs before live ones (`beliefStoreSuperset`).
+  if (!beliefStoreSuperset(later.live?.beliefs, earlier.live?.beliefs)) return "beliefs";
 
   return null;
 }

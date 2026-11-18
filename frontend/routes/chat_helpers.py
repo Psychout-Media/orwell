@@ -1372,8 +1372,13 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -
     )
 
 
+def _walk_in_names(names):
+    """ORW-473: 'A and B' for a pair, 'A, B and C' for a group (a pair reads exactly as before)."""
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
 def _walked_in_directive(walked_in) -> Optional[str]:
-    """ORW-473: the player walked in on a private talk between two houseguests this turn (the engine's `walkedIn`): each houseguest's reaction was chosen from THEIR OWN sheet, and is handed over as a manner to voice. The talk's
+    """ORW-473: the player walked in on a private talk between two or more houseguests this turn (the engine's `walkedIn`): each houseguest's reaction was chosen from THEIR OWN sheet, and is handed over as a manner to voice. The talk's
     subject is never known here and must not be invented. None when there is nothing to voice (fail-open)."""
     if not isinstance(walked_in, dict):
         return None
@@ -1382,7 +1387,7 @@ def _walked_in_directive(walked_in) -> Optional[str]:
         return None
     room = str(walked_in.get("room") or "").replace("-", " ")
     lines = [f"- {r['name']} {r['line']}." for r in reactions]
-    return ("THE PLAYER JUST WALKED IN ON A PRIVATE TALK" + (f" in the {room}" if room else "") + " between " + " and ".join(str(r["name"]) for r in reactions) + " (engine truth; each reaction was chosen from that houseguest's own character):\n"
+    return ("THE PLAYER JUST WALKED IN ON A PRIVATE TALK" + (f" in the {room}" if room else "") + " between " + _walk_in_names([str(r["name"]) for r in reactions]) + " (engine truth; each reaction was chosen from that houseguest's own character):\n"
             + "\n".join(lines)
             + "\nVoice each reaction as written, in the houseguest's own manner. You are not told what they were saying: never invent the subject, a name they were plotting against, or a plan; the player learns only that a talk was happening and how each of them reacts.")
 

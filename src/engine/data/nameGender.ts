@@ -19,6 +19,7 @@
  */
 
 import type { RandomnessSource } from "../../ports/RandomnessSource";
+import namesJson from "./world/given-names.json";
 
 export type NameGender = "man" | "woman" | "unisex";
 
@@ -100,6 +101,45 @@ export function nameGenderOf(givenName: string): NameGender {
   if (UNISEX_SET.has(g)) return "unisex";
   if (MEN_SET.has(g)) return "man";
   if (WOMEN_SET.has(g)) return "woman";
+  return "unisex";
+}
+
+// ── a stricter read for names the lexicon does not list (cast genesis) ───────────────────────────────
+// The cast writer invents given names that the ~700-name lexicon above never saw. `nameGenderOf` calls every such name "unisex",
+// so a man named Beth or a woman named Eldon passed the genesis coherence step untouched. This read keeps the lexicon first and
+// then asks the public baby-name table (births by sex): a name given at least four times more often to one sex reads as that
+// sex; a name near even reads unisex; a name in no list stays unisex (never guessed). It is a SEPARATE function so the seeded
+// deal (which uses `nameGenderOf` and is pinned) is untouched.
+const GENESIS_EXTRA_MEN: ReadonlySet<string> = new Set([
+  "Eldon", "Dirk", "Gideon", "Silas", "Hollis", "Abner", "Orville", "Lyle", "Wendell", "Clyde", "Dale", "Wade", "Boone", "Roscoe", "Amos", "Elmer", "Virgil",
+  "Merle", "Lamar", "Dwayne", "Lamont", "Zion", "Jalen", "Tobias", "Emmett", "Otis", "Ellis", "Rufus", "Homer", "Floyd", "Cecil", "Barrett", "Dexter",
+]);
+const GENESIS_EXTRA_WOMEN: ReadonlySet<string> = new Set([
+  "Doreen", "Marisol", "Mallory", "Beth", "Wilma", "Edna", "Mabel", "Ruthie", "Loretta", "Odette", "Priscilla", "Delphine", "Lourdes", "Esperanza", "Noelle",
+  "Bernadette", "Dolores", "Marguerite", "Georgette", "Henrietta", "Winifred", "Philippa", "Marlene", "Darlene", "Charlene", "Roxanne", "Savannah", "Briana",
+]);
+const SEX_LEAN_RATIO = 4;
+let sexTotals: { F: Map<string, number>; M: Map<string, number> } | null = null;
+function sexCounts(): { F: Map<string, number>; M: Map<string, number> } {
+  if (!sexTotals) {
+    const sum = (rows: ReadonlyArray<readonly [string, ...number[]]>): Map<string, number> =>
+      new Map(rows.map((r) => [r[0], (r.slice(1) as number[]).reduce((a, b) => a + b, 0)] as [string, number]));
+    sexTotals = { F: sum(namesJson.F as unknown as Array<readonly [string, ...number[]]>), M: sum(namesJson.M as unknown as Array<readonly [string, ...number[]]>) };
+  }
+  return sexTotals;
+}
+
+/** The typical gender of a given name, lexicon first, then the writer-name extras, then the public birth counts. Unknown names stay "unisex". */
+export function nameGenderStrict(givenName: string): NameGender {
+  const g = givenName.split(" ")[0] ?? givenName;
+  const lex = nameGenderOf(g);
+  if (lex !== "unisex" || UNISEX_SET.has(g)) return lex;
+  if (GENESIS_EXTRA_MEN.has(g)) return "man";
+  if (GENESIS_EXTRA_WOMEN.has(g)) return "woman";
+  const { F, M } = sexCounts();
+  const f = F.get(g) ?? 0, m = M.get(g) ?? 0;
+  if (f >= SEX_LEAN_RATIO * m && f > 0) return "woman";
+  if (m >= SEX_LEAN_RATIO * f && m > 0) return "man";
   return "unisex";
 }
 

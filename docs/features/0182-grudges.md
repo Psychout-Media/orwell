@@ -1,6 +1,6 @@
 # 0182 - The grudge book (Theme 3 slice 5, ORW-569) - PR 1 of 3
 
-Status: PR 1 built. Engine-only; nothing new is shown and nothing decides from it yet. Flag `ORWELL_GRUDGES` (default ON, `=0` opts out), played games only, needs `ORWELL_BOND_RECORD`.
+Status: PR 1 (book), PR 2 (revenge and repair) and PR 3 (bitter jurors) built. Engine-only; nothing new is shown. Flag `ORWELL_GRUDGES` (default ON, `=0` opts out), played games only, needs `ORWELL_BOND_RECORD`.
 
 ## What it does
 A houseguest who was wronged keeps a grudge against the one who did it, with a memory of what kind of wrong it was. The memory fades with the weeks but never reaches zero. Later PRs read it (revenge goals and repair in PR 2, bitter jurors in PR 3); in this one it only records.
@@ -23,8 +23,14 @@ Only records that already exist, at the severity they already carry: a friend's 
 - Repair, each deduped by a `repair:` mark and eased through the book's cap (0.6 of the peak) and mirrored into the bond record's `foldRepair` (wronged toward wrongdoer; the bond's peak resentment stays): a kept promise (`REPAIR.kept`), the wrongdoer's own bonding scene with the wronged within a few days (`REPAIR.scene`, once per pair and week), a shared enemy (`REPAIR.enemy`, once per pair, third and week). Scaled by the holder's forgiveness nature and inversely by the house's loyalty.
 - Hesitation (slice 4) only reads resentment: a repair raises it slowly, a grudge adds no bonus.
 
-## Left for later PRs
-PR 3: bitter jurors and the played-game measurement lane.
+## PR 3: bitter jurors (a decision; no new text)
+- A juror who holds a grudge against a finalist leans away from them at the finale: `juryGrudgeFor(juror, finalist)` = -(`JURY_GRUDGE.scale` x freshness x severity), clamped to `JURY_GRUDGE.max` (0.2, sized under |betrayed| x the manner weight = 0.48, the same rule as the jury-house cap). A fresh grudge hits hardest; repair shrinks it; the floor of the book keeps it above zero.
+- No double count. The jury vote already reads the manner of the juror's eviction (betrayed -0.6, blindsided -0.5, x 0.8) and the memory ledger (a nominated-by-friend memory, +-0.15). The grudge adds only what those do not cover: `bitterJurorExtra(raw, covered)` = -max(0, |raw| - covered), where `covered` is the weighted negative manner term plus the negative memory term for the same juror and finalist. So a juror whose only wrong is already a manner grievance gets nothing extra, and grudge plus covered never exceeds the larger of the two.
+- An ally's cut adds nothing at the finale, by design: manner (betrayed -0.48) and the nominated-by-friend memory already cover it and the grudge cap is 0.2. The term bites on wrongs they do not count: a broken deal, a caught lie.
+- Knowing: a broken deal folds a grudge only for a party still in the house (an evicted houseguest cannot learn of a later break; no memory-ledger entry is folded for an evicted holder either). When `DealLedger.learnOfBreak` (ORW-597) lands, `holderKnowsOfBreak` takes its place.
+- A smaller newer wrong never resets an older, larger grudge's clock (week, day, kind); only a wrong at least as severe takes over the row. `JURY_GRUDGE.scale` equals `max` so the term never saturates and every ease (a mend) shows in the vote and the agenda read.
+- Provider only for a played game with the book on (`playedGame && grudgesOn()`); headless calibration sims carry no hook and are byte-identical. No rng. The player is never a holder; NPC jurors may hold a grudge against the player.
+- Played-game lane: `scripts/probes/bitterJurorsPlayed.ts` plays chat-paced seeded games to the finale with the flag on and off (active vs passive) and reports finalist share, win rate, finale margin and votes away from a grudged finalist. The retune dial, if the lane moves win rates, is `JURY_GRUDGE.scale` only (never `gameRespect`).
 
 ## Gates
 BDD `0182-grudges.feature` and `tests/unit/grudges.test.ts` (pure book, each fold source, flag-off byte-identity, persistence, wall).

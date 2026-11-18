@@ -1,6 +1,6 @@
 import type { EntityId } from "../domain/ids";
 import { agendaRoll } from "./agenda";
-import type { BeliefClaim } from "./beliefStore";
+import { evidenceKey, type BeliefClaim } from "./beliefStore";
 
 /**
  * Feature 0160 / ORW-330 - CONVICTION (Ryne's ruling on Theme 2 question 2, 2026-11-16: "how much that I believe it depends on how much
@@ -10,15 +10,17 @@ import type { BeliefClaim } from "./beliefStore";
  * A belief's `confidence` IS its conviction. It comes from the source (trust in the teller and corroboration, as before) scaled by the
  * holder's CREDULITY - their own sheet: disposition (clash = distrusting, bond = open), temperament drift (burned houseguests grow wary) and
  * archetype (calculating types question more), with a small fixed personal offset. Then:
- *  - conviction >= `asFact`: they act on it as a fact (full weight in decisions, `beliefDecisions.ts`);
+ *  - conviction >= `asFact`: they hold it as a fact (no longer tested); its weight in decisions rises with conviction to full at `certain` (`beliefDecisions.ts`, ORW-637);
  *  - a lower conviction on something that matters is TESTED: it becomes an open question (the agenda's find-out goal) and each night the
  *    evidence they have gathered THROUGH PATHWAYS (others telling them the same, or the opposite; catching the source lying) moves the conviction;
  *    with nothing new, the doubt fades - until it is a fact to them or they let it go (refuted). ORW-585: never the engine's hidden truth.
  * Pure rules: no I/O; the only randomness is the caller's seeded roll. ENGINE-ONLY.
  */
 export const CONVICTION = {
-  /** At or above this, a belief is acted on as fact. */
+  /** At or above this, a belief is held as fact: no longer tested or doubted (its decision weight is graded, see `certain`). */
   asFact: 0.7,
+  /** ORW-637 (Fable S-6): a belief's DECISION weight rises in proportion to its conviction and reaches full at this, with no cliff at `asFact`. */
+  certain: 0.9,
   /** Below this the holder no longer believes it (the belief is refuted). */
   dropBelow: 0.15,
   /** How far one night's evidence moves a tested conviction. */
@@ -85,10 +87,11 @@ export const testRef = (b: Pick<BeliefClaim, "id">): string => `belief:${b.id}`;
 export function pathwayEvidence(b: BeliefClaim, held: readonly BeliefClaim[], holder: EntityId): number {
   const same = (c: BeliefClaim) => c.id !== b.id && c.kind === b.kind && c.subject === b.subject && (c.object ?? null) === (b.object ?? null);
   const support = new Set(held.filter((c) => same(c) && c.value && !c.refuted && c.source !== undefined && c.source !== b.source).map((c) => c.source)).size;
-  const contradicts = held.filter((c) => !c.refuted && (
+  // ORW-591: a denial repeated by one source is one piece of evidence against, just as a repeat is one piece for (`evidenceKey`).
+  const contradicts = new Set(held.filter((c) => !c.refuted && (
     (same(c) && !c.value)
     || (b.kind === "voted-against-me" && c.kind === "heard-rumor" && c.nature === "voted-to-keep" && c.subject === b.subject && c.object === holder && c.value)
-  )).length;
+  )).map(evidenceKey)).size;
   const sourceLied = b.source !== undefined && held.some((c) => c.kind === "lied-to-me" && c.subject === b.source && c.value && !c.refuted) ? 1 : 0;
   const net = support - contradicts - sourceLied;
   return net > 0 ? CONVICTION.step : net < 0 ? -CONVICTION.step : -CONVICTION.fade;

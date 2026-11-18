@@ -89,10 +89,12 @@ Then("the HOH reads them as less of a pair than they are", function () {
 Then("with perceived bonds off, the HOH reads the hidden truth", function () {
   const s = seam(this);
   s.perceivedBondsEnabled = false;
+  (bag(this).sb!.session as unknown as { setOwnViewEnabled(on: boolean): void }).setOwnViewEnabled(false); // ORW-574: the own-view flag (0191) also hands the season a perceived read; this kill-switch scenario is about the perceived-bonds flag alone
   // off: the live season is handed no perceived read, so the nomination plan's floater and duo reads are the hidden truth
   const ctx = (bag(this).sb!.session as unknown as { ctx(): { perceivedBondFor?: unknown } }).ctx();
   assert.equal(ctx.perceivedBondFor, undefined, "perceived bonds off, but the season was still handed the perceived read");
   s.perceivedBondsEnabled = true;
+  (bag(this).sb!.session as unknown as { setOwnViewEnabled(on: boolean): void }).setOwnViewEnabled(true);
   assert.equal(typeof (bag(this).sb!.session as unknown as { ctx(): { perceivedBondFor?: unknown } }).ctx().perceivedBondFor, "function", "perceived bonds on, but the season was not handed the read");
 });
 Then("the HOH reads them as more of a pair than they are", function () {

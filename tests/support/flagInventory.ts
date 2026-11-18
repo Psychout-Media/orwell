@@ -114,7 +114,8 @@ export function renderInventory(): string {
     "| Env var | /health key | Parser | Registry default | Deploy writes | Pinned opt-in (never flipped) |",
     "|---|---|---|---|---|---|",
   ];
-  for (const f of FEATURE_FLAGS) {
+  // sorted by env var so two PRs that each add a flag insert at different places and git merges them (the registry order is append-only and always collided at the table's end)
+  for (const f of [...FEATURE_FLAGS].sort((a, b) => (a.envKey < b.envKey ? -1 : a.envKey > b.envKey ? 1 : 0))) {
     rows.push(`| \`${f.envKey}\` | \`${f.key}\` | ${f.parser} | ${defaults[f.envKey] ? "ON" : "off"} | ${dep.has(f.envKey) ? `\`${dep.get(f.envKey)}\`` : "-"} | ${pinned.has(f.envKey) ? "yes" : "-"} |`);
   }
   const registry = new Set(FEATURE_FLAGS.map((f) => f.envKey));

@@ -852,7 +852,7 @@ def test_round20_a_slow_brief_step_falls_to_the_floor(tmp_path, monkeypatch):
     prompts = [{"houseguestId": c["id"], "name": c["name"], "prompt": FLOOR} for c in cs]
     out = run(B.apply_briefs(prompts, "u", llm_fn=slow, cards=cs, timeout_s=0.2))
     anchors = B.deal_anchors(cs, B.season_seed("u", cs))
-    assert [e["prompt"] for e in out] == [B.floor_with_anchors(FLOOR, anchors[c["id"]], c) for c in cs]       # the floor with this person's anchors, no brief, no hang
+    assert [e["prompt"] for e in out] == [B._insert_presentation(B.floor_with_anchors(FLOOR, anchors[c["id"]], c), B.presentation_sentence(c)) for c in cs]       # the floor with this person's anchors and the card's stated presentation, no brief, no hang
     assert B._load_cache("u") == {}
 
 

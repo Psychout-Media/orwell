@@ -968,6 +968,8 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // spine is untouched even while ON. The player learns a bartered secret only if a later pathway
   // (overhear/gossip below, 0002/0094) terminates at them — never as a Vault read.
   sandbox.session.secretBarterTick(sandbox.engine.events, sandbox.engine.knowledge);
+  // 0188 / ORW-619: the trap - once a day, watch the canaries set and maybe set a new one (own side stream; played games only; engine-only).
+  sandbox.session.trapTick(sandbox.engine.knowledge);
 
   // B27b — live gossip: occasionally one of the night's scenes becomes a RUMOR that diffuses along
   // the affinity graph (who actually talks to whom), with low per-edge transmission, decaying

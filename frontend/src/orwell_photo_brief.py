@@ -1385,11 +1385,38 @@ def compose_prompt(floor_prompt: str, brief: Optional[dict], proper: Optional[se
     return out
 
 
+PRESENTATION_LINES = {
+    "man": "Presentation, as the card states it: a man, masculine presentation. He reads plainly as a man; the clothes, grooming and pose are chosen for him and are not changed.",
+    "woman": "Presentation, as the card states it: a woman, feminine presentation. She reads plainly as a woman; the clothes, grooming and pose are chosen for her and are not changed.",
+    "nonbinary": "Presentation, as the card states it: nonbinary, a soft androgynous look. The person is shown as the card describes, not made to read as a man or as a woman.",
+}
+_PRESENTATION_MARKERS = (" An ordinary person, not a model", " Hair: ", " Wearing ", " Setting: ")
+
+
+def presentation_sentence(card: Optional[dict]) -> str:
+    """The card's own gender presentation as one plain sentence ('' when the card states none): the brief says it outright, never leaves it to the image
+    model to infer from the build, the hair or the clothes. Respects the card: it is never derived from a name or a stereotype."""
+    g = str((card or {}).get("genderPresentation") or "").strip().lower()
+    return PRESENTATION_LINES.get(g, "")
+
+
+def _insert_presentation(prompt: str, sentence: str) -> str:
+    """The presentation sentence goes right after the subject sentence (before the life line, else the hair, clothes or setting). Once only."""
+    if not sentence or "Presentation, as the card states it:" in prompt:
+        return prompt
+    for marker in _PRESENTATION_MARKERS:
+        if marker in prompt:
+            return prompt.replace(marker, f" {sentence}{marker}", 1)
+    return prompt
+
+
 def final_prompt(floor_prompt: str, brief: Optional[dict], anchors: Optional[dict], card: Optional[dict] = None) -> str:
-    """The brief when there is one, else the floor with this person's anchored light."""
+    """The brief when there is one, else the floor with this person's anchored light. Either way the card's presentation is stated outright."""
     if brief:
-        return _insert_body(compose_prompt(floor_prompt, brief, proper_words(card)), body_sentence((anchors or {}).get("body"), card))
-    return floor_with_anchors(floor_prompt, anchors, card)
+        out = _insert_body(compose_prompt(floor_prompt, brief, proper_words(card)), body_sentence((anchors or {}).get("body"), card))
+    else:
+        out = floor_with_anchors(floor_prompt, anchors, card)
+    return _insert_presentation(out, presentation_sentence(card))
 
 
 # ---------------------------------------------------------------------------------------------------- the production seam
