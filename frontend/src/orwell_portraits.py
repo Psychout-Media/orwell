@@ -1167,6 +1167,16 @@ _PROVIDER_PROVEN = {"ok": False}  # a call has succeeded since the last trip; un
 _FIRST_CONTACT_LOCK: dict = {}  # event loop -> asyncio.Lock
 
 
+INFLIGHT_RETRY_WAITS = (10.0, 25.0, 50.0)   # seconds before each re-ask of a refusal that only says other requests are in flight
+
+
+def is_inflight_credit_refusal(reason: Optional[str], detail: Optional[str] = None) -> bool:
+    """True for an HTTP 402 whose own words say the balance is fine until the requests in flight settle (a busy account, not an empty one)."""
+    if _http_status_of(reason) != 402 and _http_status_of(detail) != 402:
+        return False
+    return "in-flight" in f"{reason or ''} {detail or ''}".lower()
+
+
 def is_billing_error(reason: Optional[str], detail: Optional[str] = None) -> bool:
     """True for HTTP 401/402/403 from the image provider (credits/billing/auth) or the breaker's own
     skip reason."""
@@ -1560,14 +1570,22 @@ async def _generate_one_gated(prompt: str, user: Optional[str],
     while the provider's breaker is open; a 401/402/403 opens it; a success closes it. The in-flight-credits
     402 is back-pressure, not billing: it never opens the breaker."""
     ctx: dict = {}
-    if _PROVIDER_PROVEN["ok"]:
-        png = await _generate_one_inner(prompt, user, reference_png, keep_identity, _ctx=ctx)
-    else:
-        # No success seen since start/the last trip: go one at a time, so a refused provider sees ONE
-        # call (the breaker then blocks the callers queued behind it).
-        lock = _FIRST_CONTACT_LOCK.setdefault(asyncio.get_running_loop(), asyncio.Lock())
-        async with lock:
+    for attempt in range(len(INFLIGHT_RETRY_WAITS) + 1):
+        ctx = {}
+        if _PROVIDER_PROVEN["ok"]:
             png = await _generate_one_inner(prompt, user, reference_png, keep_identity, _ctx=ctx)
+        else:
+            # No success seen since start/the last trip: go one at a time, so a refused provider sees ONE
+            # call (the breaker then blocks the callers queued behind it).
+            lock = _FIRST_CONTACT_LOCK.setdefault(asyncio.get_running_loop(), asyncio.Lock())
+            async with lock:
+                png = await _generate_one_inner(prompt, user, reference_png, keep_identity, _ctx=ctx)
+        # ORW-480: "would exceed your available credits given your current in-flight requests" is a busy
+        # account, not an empty one (fifteen photos asked at once on a small balance): wait for the other
+        # requests to settle and ask again, never an hour-long breaker for the whole cast.
+        if png or ctx.get("skipped") or attempt >= len(INFLIGHT_RETRY_WAITS) or not is_inflight_credit_refusal(*_peek_gen_error()):
+            break
+        await asyncio.sleep(INFLIGHT_RETRY_WAITS[attempt])
     host = ctx.get("host")
     if host and not ctx.get("skipped"):
         if png:
