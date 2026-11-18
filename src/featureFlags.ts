@@ -61,6 +61,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // A65: the engine-side schedule gate - an ordinary advanceGame before the next milestone is due returns a typed `held` and commits nothing. ON by default (see ORWELL_ADVANCE_GATE below); `=0` turns it off.
   // Bedtime gate: `turnIn` in the morning or afternoon is refused with a typed `held` (nothing commits). ON by default.
   { envKey: 'ORWELL_BEDTIME_GATE', key: 'bedtimeGate', parser: 'defaultOn' },
+  // ORW-672 / 0201: the BED RUSH - no bed is claimed before the champagne circle closes, then everyone is released and races for the bedrooms; a claim needs reaching the room, and the player always keeps a real choice. A played game only. `=0` restores the walk-in-order claim.
+  { envKey: 'ORWELL_BED_RUSH', key: 'bedRush', parser: 'defaultOn' },
   // 0181 / ORW-568 (theme 3 slice 4, part 1): a bond's life - a real feeling for someone holds a houseguest back from cutting them (a bounded vote / nomination / alliance-break term) and shakes them after they do (the existing mood, scaled). Needs the bond record. A played game only. `=0` opts out.
   { envKey: 'ORWELL_BOND_FEELINGS', key: 'bondFeelings', parser: 'defaultOn' },
   // 0175 / ORW-552 (Theme 3 Core 1): the bond record per pair (warmth, debts, resentment, strain, history, commitment), folded from what happened; nothing decides from it yet. `=0` = the edge-only bond read.

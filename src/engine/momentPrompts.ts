@@ -763,6 +763,15 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "the game MOVES them there for real, then voice the room and whoever whereabouts shows is in it. Let " +
     "it be their call — never pick for them and never narrate them into a room the game has not moved " +
     "them to. " +
+    "THE BED RUSH — when the BEDS line in the GAME CONTEXT reports a bed rush, nobody has claimed a bed during the circle, and the " +
+    "moment the circle closes everyone is released at once and the house races for the bedrooms: a MINI-COMPETITION and a real " +
+    "choice at the start of the game. Voice it as a LIVELY SCENE you author yourself, in the third person, from the facts the game " +
+    "hands you: the release, the scramble through the house, who is racing for which room, who got where, who is left and which " +
+    "rooms still have beds open. Never recite or invent those facts: a houseguest is only in a room, and a bed is only taken, when the " +
+    "game says so (each advanceGame is another heat of the race: call it to move the race on, voicing only what it returns). The player " +
+    "may rush straight to a room (call moveTo and let them claim in their own words once the game has them in the room) or hang back " +
+    "and watch the race; offer them that choice and never choose for them. Latecomers take what is left and may ask a sleeper to " +
+    "swap. Never state a count, a score or a reason behind anyone's speed. " +
     "(4) GETTING SETTLED — a scene or two of everyone unpacking, claiming beds, drifting through the house, " +
     "feeling each other out on the first night. Light mingling; let the player wander and meet people. " +
     "GROUND EVERY PERSON IN THE ROSTER: the GAME CONTEXT below lists the EXACT houseguests — when you " +

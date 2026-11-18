@@ -588,6 +588,8 @@ export interface LiveSeasonState {
    */
   /** ORW-466 (Ryne 2026-11-15): assigned beds - each houseguest's bed and the append-only claim history. A played game only; absent on older saves and headless games. */
   beds?: import("./beds").BedsState;
+  /** ORW-672 / 0201: the bed rush (who races for which room, when they reach it, the claims made). Append-only log, monotonic tick; absent unless the rush ran. */
+  bedRush?: import("./bedRush").BedRushState;
   /** ORW-466 themes: the season's house theme id (`HOUSE_THEMES`); absent => plain room labels. Set by the themes wiring slice. */
   houseTheme?: string;
   /** ORW-509: the full definition when the season's house was authored by the writer (accepted by `acceptHouseThemeDraft`); re-registered on load so `houseTheme` resolves. Absent for a library theme or none. */

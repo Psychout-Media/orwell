@@ -52,6 +52,7 @@ describe("ORW-116 (b) - the night is never auto-run", () => {
     GameSessionAdapter.setTimeOfDayEnabled(true);
     const s = new GameSessionRegistry().sandboxFor(`nn-solo-${Math.random()}`).session;
     s.setPremiereEntrancesEnabled(true);
+    s.setBedRushEnabled(false); // ORW-672 / 0201: this isolation test pins the old claim-as-they-walk-in premiere (flag off); the rush has its own tests (bedRush.test.ts)
     s.createCharacter({ playerName: "P", archetype: "floater", seed: 7 });
     s.setPerConversationClockEnabled(true);
     let held = 0;
@@ -80,6 +81,7 @@ describe("ORW-116 (b) - the night is never auto-run", () => {
     GameSessionAdapter.setTimeOfDayEnabled(true);
     const s = new GameSessionRegistry().sandboxFor(`nn-stuck-${Math.random()}`).session;
     s.setPremiereEntrancesEnabled(true);
+    s.setBedRushEnabled(false); // ORW-672 / 0201: this isolation test pins the old claim-as-they-walk-in premiere (flag off); the rush has its own tests (bedRush.test.ts)
     s.createCharacter({ playerName: "P", archetype: "floater", seed: 7 });
     s.setPerConversationClockEnabled(true);
     for (let i = 0; i < 40; i++) s.advanceGame(); // entrances, toast, then held

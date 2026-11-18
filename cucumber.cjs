@@ -172,6 +172,7 @@ module.exports = {
       "docs/features/0171-favor-economy.feature",
       "docs/features/0191-own-view-decisions.feature",
       "docs/features/0189-jury-house-life.feature",
+      "docs/features/0201-the-bed-rush.feature",
     ],
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },
