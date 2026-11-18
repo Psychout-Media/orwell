@@ -1895,6 +1895,8 @@ export interface GatedLeverFlags {
   goalMood?: boolean;
   /** A52 (ORWELL_DISCLOSURE_ENGINE, played games): add the instruction that `knows` is only what the engine has put on the table. Absent/false => byte-identical. */
   disclosureEngine?: boolean;
+  /** 0196 (ORWELL_DODGING, played games): add the rule for a `dodge` fact. Absent/false => byte-identical. */
+  dodging?: boolean;
   /** AMEND 3a #1 - the 0094 divergence (ORWELL_GOSSIP_CONSEQUENCE). False ⇒ `confront` always lands, so the prompt must not promise a misfire. */
   confrontMisfire?: boolean;
 }
@@ -1915,6 +1917,14 @@ function withDisclosureInstruction(base: string): string {
   return base.replace(anchor, anchor + "\n" +
     "    A houseguest's `knows` is only what the engine has put on the table with the player. They hold more than that; you do NOT have it, so never invent a secret, a plan or\n" +
     "    a confession for them to spill. If the voice carries `deflect`, the engine declined this press: they turn it aside, they do not give it up.");
+}
+
+/** 0196 - a `dodge` fact says how a declined press is turned aside; the narrator authors the words. Appended only while the flag is on. */
+function withDodgingInstruction(base: string): string {
+  const anchor = "    a confession for them to spill. If the voice carries `deflect`, the engine declined this press: they turn it aside, they do not give it up.";
+  return base.replace(anchor, anchor + "\n" +
+    "    If the voice also carries `dodge`, it says how: `approach` is what they do with the question, `openness` is how their carriage reads while they do it, and `pushesBack` means they hand\n" +
+    "    the question back to the player. Write their words yourself from those facts and their own voice; the dodge never says what they hold or why, so do not hint at either.");
 }
 
 /** ORW-317 - when npcVoice carries `moodCause`, it is the only reason this houseguest may give for how they feel (they chose to tell the player). Appended only while the flag is on. */
@@ -2143,6 +2153,7 @@ export function buildSystemPrompt(
   if (levers?.npcMemorySpeech === true) base = withMemorySpeechInstruction(base);
   if (levers?.goalMood === true) base = withMoodCauseInstruction(base);
   if (levers?.disclosureEngine === true) base = withDisclosureInstruction(base);
+  if (levers?.dodging === true) base = withDodgingInstruction(base);
   if (levers?.confrontMisfire === false) base = withoutConfrontMisfire(base);
   const gate = uncommittedCeremonyGate(moment, view);
   return [
