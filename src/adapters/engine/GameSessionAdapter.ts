@@ -13330,7 +13330,12 @@ export class GameSessionAdapter implements GameSession {
       if (e.kind === "joined" || e.kind === "left" || GROUP_CHANGES.has(e.kind)) { this.alliances.markRecorded(e.seq, "none"); continue; }
       if (e.kind === "betrayed" || (e.kind === "formed" && e.founder === PLAYER)) { this.alliances.markRecorded(e.seq, "existing"); continue; }
       const who = e.members.map((m) => this.nameOf(m)).join(", ");
-      const witnesses = e.playerKnew && !e.members.includes(PLAYER) ? [...e.members, PLAYER] : [...e.members];
+      // Only members still IN the game witness the event: a member already out (evicted, maybe sent to the jury house) is never put in a scene with the houseguests who are still playing (jury sequestration, 0129);
+      // the full roster stays in the append-only alliance history, so nothing is lost. An alliance with nobody left in the game records no event (the history is its record).
+      const inGame = (m: EntityId): boolean => m === PLAYER || (this.live?.active ?? []).includes(m);
+      const present = e.members.filter(inGame);
+      if (present.length === 0) { this.alliances.markRecorded(e.seq, "none"); continue; }
+      const witnesses = e.playerKnew && !present.includes(PLAYER) ? [...present, PLAYER] : [...present];
       // A DISSOLUTION the player witnesses never lists the roster that ended it: the member who left (a sealed eviction ballot, E12 / A7) would be named by elimination. The Vault-side copy keeps the full roster.
       const roster = (e.kind === "dissolved" || (e.kind === "faded" && this.groupRolesOn())) && witnesses.includes(PLAYER) ? "" : `: ${who}`;
       const content = e.kind === "formed" ? `The alliance "${e.name}" formed${roster}`

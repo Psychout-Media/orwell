@@ -264,6 +264,7 @@ function startAtNominations(seed = SEED): Run {
   priv(g).live.playedGame = true;
   g.setAdvanceGateEnabled(false);
   (g as unknown as { setOwnViewEnabled(on: boolean): void }).setOwnViewEnabled(false); // ORW-574: the own view changes how many entries a season writes; this checks the ledger's bound, not the decisions
+  (g as unknown as { setRoutinesEnabled(on: boolean): void }).setRoutinesEnabled(false); // ORW-651: routines move who is where, and so what a season's deals look like; these check the ledger, not behaviour
   return { g, view, runtime };
 }
 const npcs = (g: GameSessionAdapter): string[] => g.getGameState().house.map((h) => h.id as string).filter((id) => id !== ME);
