@@ -7800,6 +7800,7 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-610: the player's own recorded talk with these houseguests (called by the recorded-interaction path). Counts when the sitting HOH was in it and it was pitch-like. Played games only; flag-gated. */
   notePlayerTalk(withIds: readonly EntityId[], kind: string | undefined, named: EntityId | undefined): void {
     const s = this.live;
+    for (const id of withIds) this.answerAimedFrom(id); // ORW-611: talking to a houseguest who stepped up to the player answers it
     if (!this.hohCourtOn() || !s?.hoh || s.hoh === PLAYER || !withIds.includes(s.hoh) || !isPitchLikeTalk(kind, named)) return;
     s.playerPitch = foldPlayerTalk(s.playerPitch, s.week, s.hoh, named);
   }
@@ -12560,6 +12561,7 @@ export class GameSessionAdapter implements GameSession {
       const ids = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
       const hit = this.desireApproach(ids);
       if (hit) { this.noteApproach(hit.npc, hit.desire, hit.capped);
+        if (!hit.capped) this.markAimedShown(hit.npc);
         if (hit.capped && this.live.playedGame === true) this.live.approachHeld = true; // ORW-443: narration-only - the view tells the narrator nobody new steps up this turn
         if (!hit.capped) { this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
           const said = this.volunteerOrientation(hit.npc); if (said) this.live.interruption.tells = said; } }
@@ -14232,6 +14234,49 @@ export class GameSessionAdapter implements GameSession {
    * the 0093 strength / refusal floor / squeeze backlash (a refused blunt demand costs more; a sneaky play can be noticed and backfires, or works and leaves a quiet debt). Against the PLAYER
    * it is an open approach the player answers (a deal with that houseguest) or ignores; the engine never acts or speaks for the player. Own keyed side streams, never the shared rng.
    */
+  /** 0172 / ORW-611: a goal step aimed at the player is recorded, answerable, and a hostile one ignored costs. ON unless `ORWELL_PLAYER_AIMED=0`. Played games only; OFF => nothing recorded => byte-identical. */
+  private playerAimedEnabled = flagDefaultOn("ORWELL_PLAYER_AIMED");
+  setPlayerAimedEnabled(on: boolean): void { this.playerAimedEnabled = on; }
+  private noteAimedStep(p: PlannedAction, hostile: boolean, day: number): void {
+    const s = this.live;
+    if (!this.playerAimedEnabled || !s || s.playedGame !== true || !p.goalId) return;
+    const list = (s.aimedAtPlayer ??= []);
+    if (list.some((r) => r.actor === p.actor && r.goalId === p.goalId && (r.status === "open" || r.status === "shown"))) return;
+    list.push({ id: `aim:${p.actor}:${p.goalId}:${day}:${Math.floor(this.absHour())}`, actor: p.actor, goalId: p.goalId, ...(p.goalKind ? { goalKind: p.goalKind } : {}), step: p.kind, hostile, day, hour: this.absHour(), status: "open" });
+  }
+  private markAimedShown(npc: EntityId): void {
+    const r = this.live?.aimedAtPlayer?.find((x) => x.actor === npc && x.status === "open");
+    if (r) r.status = "shown";
+  }
+  private answerAimedFrom(npc: EntityId): void {
+    if (!this.playerAimedEnabled) return;
+    for (const r of this.live?.aimedAtPlayer ?? []) if (r.actor === npc && (r.status === "open" || r.status === "shown")) r.status = "answered";
+  }
+  /**
+   * 0172 / ORW-611: once a day. A step that surfaced as an approach is written down as a scene the player was present for (a witnessed event, never hidden); a step the player never answered closes: a hostile one costs that houseguest's
+   * read of the player (the squeeze shape, bounded, on its own keyed stream), a non-hostile one just fades. Nothing is ever removed.
+   */
+  aimedAtPlayerTick(events: EventStore): void {
+    const s = this.live;
+    if (!this.playerAimedEnabled || !s || s.playedGame !== true || !s.aimedAtPlayer?.length) return;
+    const day = s.dayNumber ?? s.week;
+    for (const r of s.aimedAtPlayer) {
+      if (r.status === "shown" && r.eventId === undefined) {
+        const content = `${this.nameOf(r.actor)} steps up to ${this.nameOf(PLAYER)}${r.hostile ? " to have it out" : " with a move of their own"}`;
+        events.record({ id: `${r.id}:scene`, ts: events.count(), type: r.hostile ? "conflict" : "strategy", initiator: r.actor, witnessSet: [r.actor, PLAYER], hidden: false, content, baseContent: content });
+        r.eventId = `${r.id}:scene`;
+      }
+    }
+    if (s.aimedAtPlayerDay === day) return;
+    s.aimedAtPlayerDay = day;
+    for (const r of s.aimedAtPlayer) {
+      if ((r.status !== "open" && r.status !== "shown") || day - r.day < LEVERAGE_PLAY.answerDays) continue;
+      if (r.hostile && r.status === "shown") {
+        r.status = "ignored";
+        this.rel.applyImpactDirected(r.actor, PLAYER, scaleImpact(LEVERAGE.squeezeBacklash, LEVERAGE_PLAY.ignoredMult), new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:aimed-at-player:ignored:${r.id}`)));
+      } else r.status = "lapsed";
+    }
+  }
   private leveragePlaysEnabled = flagDefaultOn("ORWELL_LEVERAGE_PLAYS");
   setLeveragePlaysEnabled(on: boolean): void { this.leveragePlaysEnabled = on; }
   leveragePlayTick(knowledge: KnowledgeService): void {
@@ -14894,6 +14939,7 @@ export class GameSessionAdapter implements GameSession {
         if (p.goalId && s.playedGame === true) this.noteGoalServed(p.actor, p.goalId); // ORW-571: a step made for the goal is progress for tonight's mull
         if (p.goalId && (p.with.includes(house.player.id) || hostileAtPlayer(p)) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: hostileAtPlayer(p) ? "probe" : desireForAction(p.kind), goalId: p.goalId, hour: this.absHour() };
+          this.noteAimedStep(p, hostileAtPlayer(p), day); // ORW-611: the step aimed at the player is recorded, not only raised
         } else if (p.nightOwl && p.with.includes(house.player.id) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: "night-owl", hour: this.absHour() }; // ORW-620: an awake houseguest comes to the player who is still up, through the desire clock's own path and guards
         } else if (p.drawn && p.with.includes(house.player.id) && approachAllowed(p)) {
@@ -17420,6 +17466,7 @@ export class GameSessionAdapter implements GameSession {
     // and folds the squeeze (a wary partner resents it / a persuadable one is bound tighter). The threat
     // persists while the deal is open — it is NOT spent here (only `exposeSecret` spends it). Absent ⇒
     // no extra rng, no fold — byte-identical to 0039.
+    this.answerAimedFrom(target); // ORW-611
     if (this.leveragePlaysEnabled) this.answerLeverageFrom(target); // 0202: meeting a houseguest's approach with a deal answers it
     if (req.leverage) this.applyDealLeverage(req.leverage, target, deal.id);
     // 0099 — OPTIONAL traded secret: a secret about a THIRD party handed to the partner as consideration
