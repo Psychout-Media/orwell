@@ -249,6 +249,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // 0209 / ORW-651 (Ryne approved 2026-11-17): each houseguest's routines (a time, a place, an act, composed from the character) shape where they are and what they do in a free hour, replacing the named-habit pull; the player learns one by seeing it on three separate days. Played games only; `=0` = the old habit branch.
   { envKey: 'ORWELL_ROUTINES', key: 'routines', parser: 'defaultOn' },
   { envKey: 'ORWELL_SCHEME_TARGETS',         key: 'schemeTargets',          parser: 'defaultOn' },
+  // 0208 / ORW-662,663 (Theme B, Ryne approved 2026-11-18): seasons remember. A finished, played season's houseguests are archived per player, and a RETURN may cast one back (softened feelings, their own account); `=0` archives nothing and casts none.
+  { envKey: 'ORWELL_SEASON_MEMORY', key: 'seasonMemory', parser: 'defaultOn' },
   { envKey: 'ORWELL_SECRET_BARTER',          key: 'secretBarter',           parser: 'defaultOn' },
   // ORW-647 (spec 0204): the night it all comes out - a fact enough houseguests hold breaks in front of the awake house, or its own subject blows it up when pressured; consequences land through the bond, belief and grudge stores. ON by default; `=0` turns it off.
   { envKey: 'ORWELL_SECRET_BREAKS', key: 'secretBreaks', parser: 'defaultOn' },

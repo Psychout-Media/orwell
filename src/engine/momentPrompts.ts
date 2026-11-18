@@ -1506,6 +1506,8 @@ export function renderGameContext(view: GameStateView): string {
     ...((view.notorietyLegend ?? []).length
       ? [`- RETURNING CAST: the house has heard things — ${view.notorietyLegend!.join("; ")}.`]
       : []),
+    // 0208 / ORW-663 (B1): a returner is a fact to voice (who, how long ago, how that season ended for them), never a script and never their feelings or claims.
+    ...((view.returningHouseguests ?? []).map((r) => `- RETURNING HOUSEGUEST: ${r.name} played a past season with you, ${r.seasonsAgo} season${r.seasonsAgo === 1 ? "" : "s"} ago, and finished ${r.placement}${r.juror ? " (on the jury)" : ""}. You are meeting again; voice the shared history in kind as it comes up.`)),
     // 0059/L40 — the ONLY romantic pairs the narrator may voice as a showmance: the public (visible)
     // ones the engine has surfaced. Everything else is friendship/strategy (the SHOWMANCES ARE RARE pin).
     ...((view.showmances ?? []).length

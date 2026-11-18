@@ -121,6 +121,7 @@
 #       to the pre-feature behavior); ON, the reteller's own voice colors the distortion. Drift is
 #       re-weighted on a per-hop FORK regardless, so the seeded comp/vote/jury draw stream is
 #       byte-identical either way — see `gossip.ts:180-358`.
+#   ORWELL_SEASON_MEMORY        0208 / ORW-663 (Theme B): a finished, played season's houseguests are archived per player, and a RETURN may cast one back (softened feelings, their own account; only a real past houseguest, never invented). Played games with an archive only; headless is byte-identical; =0 archives nothing and casts none.
 #   ORWELL_SECRET_BARTER        Off-screen NPC<->NPC secret barter (0099 hidden half) — owner ruling Q2
 #       (2026-07-21, #1779). With it unset `secretBarterTick` returns before drawing anything (the
 #       dedicated barter-rng stream never advances, no secret changes hands) — the seeded comp/vote/jury
@@ -264,6 +265,7 @@ ORWELL_ROOM_CANON=1
 ORWELL_ROOM_LIFE=1
 ORWELL_ROUTINES=1
 ORWELL_SCHEME_TARGETS=1
+ORWELL_SEASON_MEMORY=1
 ORWELL_SECRET_BARTER=1
 ORWELL_SECRET_BREAKS=1
 ORWELL_SECRET_PACING=1

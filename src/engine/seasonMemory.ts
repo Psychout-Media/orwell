@@ -1,5 +1,6 @@
 import type { EntityId } from "../domain/ids";
 import { clamp01Raw as clamp01, clamp } from "../domain/num";
+import type { Character } from "./characterFactory";
 
 /**
  * THEME B (ORW-662; Ryne approved all three slices 2026-11-18) - SEASONS THAT REMEMBER. FOUNDATION ONLY: the pure rules the slices (B1 returners, B2 reputation
@@ -42,7 +43,13 @@ export interface ArchivedHouseguest {
   juror: boolean;
   endToward: EndFeelings;
   claims: CarriedClaim[];
+  /** B1 (ORW-663): the houseguest's display name and their static PUBLIC persona, archived with them. Optional so an older/incomplete entry exists but can never resolve as a returnee (`resolveReturnee` fails closed without them). */
+  name?: string;
+  persona?: ArchivedPersona;
 }
+
+/** B1: a static CHARACTER snapshot WITHOUT its `hiddenElements` (the prior season's hidden layer never rides the archive; a returner's secrets are minted fresh for the new season). */
+export type ArchivedPersona = Omit<Character, "hiddenElements">;
 
 /** B1: what a returner feels toward the player now, softened by the seasons since (toward neutral, never below `keepAtLeast` of the end read). */
 export function softenedFeelings(end: EndFeelings, seasonsSince: number): EndFeelings {
