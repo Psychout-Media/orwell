@@ -73,7 +73,16 @@ export function parseSourceDodge(text: string): boolean {
 
 /** Which houseguests (other than the asker) the player's reply names, validated against the roster given. */
 export function namedSources(text: string, roster: ReadonlyArray<{ id: EntityId; name: string }>, asker: EntityId): EntityId[] {
-  return roster.filter((r) => r.id !== asker && namedInText(text, r.name)).map((r) => r.id);
+  return roster.filter((r) => r.id !== asker && namedInText(text, r.name) && !negatedName(text, r.name)).map((r) => r.id);
+}
+
+/** A name the player rules OUT ("it wasn't Sam", "not Sam", "never Sam") is not a name they gave as the source: it must read as nothing, never as a false name. A parse of their own words; a negation right before the name (within a few words) counts. */
+export function negatedName(text: string, fullName: string): boolean {
+  const fold = (x: string): string => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[‘’]/g, "'");
+  const t = fold(String(text ?? ""));
+  const esc = (x: string): string => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const names = [fullName, fullName.split(/\s+/)[0] ?? ""].map((n) => fold(n).trim()).filter((n) => n.length >= 2);
+  return names.some((n) => new RegExp("(?:\\b(?:not|never|no|isn't|wasn't|weren't|aren't|didn't|doesn't|don't|nor|without)\\b)[^.?!,;]{0,24}(?<![a-z0-9])" + esc(n) + "(?![a-z0-9])").test(t));
 }
 
 /**
