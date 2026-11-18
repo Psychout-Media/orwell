@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { atCommit } from "../support/commitFold";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 import { BOND, type BondStore } from "../../src/engine/bondRecord";
@@ -41,8 +42,8 @@ describe("the same act moves the same stores whoever does it", () => {
   }
   it("bond record: the recipient's view of the actor moves by the full weight, the actor's view by the share, in either direction of the player", () => {
     const p = start("bp"), n = start("bn");
-    p.act(PLAYER, [PLAYER, p.A], "conflict"); p.s.bondReader();
-    n.act(n.A, [n.A, PLAYER], "conflict"); n.s.bondReader();
+    p.act(PLAYER, [PLAYER, p.A], "conflict"); atCommit(p.s).bondReader();
+    n.act(n.A, [n.A, PLAYER], "conflict"); atCommit(n.s).bondReader();
     const toPlayer = p.s.live.bonds![`${p.A}|${PLAYER}`]!, byPlayer = p.s.live.bonds![`${PLAYER}|${p.A}`]!;
     const toNpc = n.s.live.bonds![`${PLAYER}|${n.A}`]!, byNpc = n.s.live.bonds![`${n.A}|${PLAYER}`]!;
     expect(toNpc.resentment).toBeCloseTo(toPlayer.resentment, 12);
@@ -79,9 +80,9 @@ describe("a houseguest who wrongs the player is the one blamed", () => {
       const g = start(`repair-${kind}`);
       const gs = g.s as unknown as { live: { week: number; grudges?: Record<string, { eased: number }> }; grudgeOf(h: string, s: string): unknown };
       (gs.live as { npcMemory?: unknown }).npcMemory = { [g.A]: { [PLAYER]: [{ kind: "deal-broken", week: gs.live.week, severity: 0.8 }] } };
-      gs.grudgeOf(g.A, PLAYER); const before = gs.live.grudges![`${g.A}|${PLAYER}`]!.eased;
+      atCommit(gs).grudgeOf(g.A, PLAYER); const before = gs.live.grudges![`${g.A}|${PLAYER}`]!.eased;
       g.act(PLAYER, [PLAYER, g.A], kind);
-      gs.grudgeOf(g.A, PLAYER); return { before, after: gs.live.grudges![`${g.A}|${PLAYER}`]!.eased };
+      atCommit(gs).grudgeOf(g.A, PLAYER); return { before, after: gs.live.grudges![`${g.A}|${PLAYER}`]!.eased };
     };
     const warm = ease("bonding"), clash = ease("conflict");
     expect(warm.after).toBeGreaterThan(warm.before);
@@ -92,7 +93,7 @@ describe("a houseguest who wrongs the player is the one blamed", () => {
 describe("the wall", () => {
   it("a houseguest-acted scene reaches no player, admin or prompt surface as a kind or an actor field", async () => {
     const g = start("wall");
-    g.act(g.A, [g.A, g.B, PLAYER], "conflict"); g.s.bondReader();
+    g.act(g.A, [g.A, g.B, PLAYER], "conflict"); atCommit(g.s).bondReader();
     const dump = JSON.stringify([
       await g.sb.mcp.admin.callTool("inspectNonVaultState", {}),
       await g.sb.mcp.player.callTool("getGameState", {}),

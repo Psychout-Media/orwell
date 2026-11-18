@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { atCommit } from "../support/commitFold";
 import { readFileSync } from "node:fs";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { NPC_MEMORY, PLAYED_NPC_MEMORY, BOOK_FOLDED_KINDS, grudgeSalienceWithBook, memoryTiltStandalone, salience, type MemoryEntry } from "../../src/engine/npcMemory";
@@ -53,9 +54,9 @@ describe("the adapter's memoryTiltFor in a played game", () => {
   it("a folded broken deal reads the book's weight (7-week curve), not the 4-week fade; counted once", () => {
     const { s, H, S } = start(3, "a");
     s.live.npcMemory = { [H]: { [S]: [e("deal-broken", 1, 0.8)] } };
-    const g = s.grudgeOf(H, S)!; // folds it into the book
+    const g = atCommit(s).grudgeOf(H, S)!; // folds it into the book
     s.live.week = 9;
-    const w = s.grudgeOf(H, S, false)!.weight;
+    const w = atCommit(s).grudgeOf(H, S, false)!.weight;
     const on = s.memoryTiltFor(S, H);
     s.setGrudgesEnabled(false);
     const off = s.memoryTiltFor(S, H);
@@ -74,7 +75,7 @@ describe("the adapter's memoryTiltFor in a played game", () => {
   it("headless keeps the old read byte for byte, and a favor is unchanged in a played game", () => {
     const a = start(11, "c");
     a.s.live.npcMemory = { [a.H]: { [a.S]: [e("nominated-by-friend", 1, 0.7)] } };
-    a.s.grudgeOf(a.H, a.S); a.s.live.week = 8;
+    atCommit(a.s).grudgeOf(a.H, a.S); a.s.live.week = 8;
     a.s.live.playedGame = false;
     const headless = a.s.memoryTiltFor(a.S, a.H);
     a.s.setGrudgesEnabled(false);
@@ -89,7 +90,7 @@ describe("the adapter's memoryTiltFor in a played game", () => {
   it("the deal-offer block reads the same book weight", () => {
     const { s, H } = start(3, "e");
     s.live.npcMemory = { [H]: { player: [e("deal-broken", 1, 0.9)] } };
-    s.grudgeOf(H, "player"); s.live.week = 2;
+    atCommit(s).grudgeOf(H, "player"); s.live.week = 2;
     expect(typeof s.memoryBlocksPlayerDeal(H)).toBe("boolean");
   });
 });

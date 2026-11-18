@@ -6528,14 +6528,29 @@ export class GameSessionAdapter implements GameSession {
    */
   bondReader(): BondReader {
     if (!this.bondRecordEnabled) return edgeBondReader(this.rel, () => this.livingIds(), () => this.live?.dayNumber ?? 1);
-    this.foldBonds();
+    // ORW-684: a READ folds nothing (a game must not change because someone looked at it). It shows the record as the last fold left it; the folds run where the engine itself decides (`foldedBondReader`).
     const favor = this.favorDebt ?? this.ownFavorDebt();
-    const wrong = this.grudgesOn() ? (this.foldGrudges(), { wrong: (h: EntityId, o: EntityId) => this.bookWrongOf(h, o) }) : {};
+    const wrong = this.grudgesOn() ? { wrong: (h: EntityId, o: EntityId) => this.bookWrongOf(h, o) } : {};
     return recordBondReader(this.rel, () => this.live?.bonds, () => this.livingIds(), () => this.live?.dayNumber ?? 1, { ...(favor ? { favorDebt: favor } : {}), ...wrong });
+  }
+  /**
+   * ORW-684 (ENGINE-ONLY, never a tool): the bond reader for the engine's OWN decisions (the off-screen tick, the vote, the consequence folds). The bond record and the grudge book catch up with what has
+   * been recorded, at exactly the point the engine is about to decide from them (bonds first, then grudges: the order the old lazy read used), then it reads. Idempotent (event cursors and seen-marks), no rng.
+   * Never call this from a view: a view uses `bondReader()`, which folds nothing.
+   */
+  private foldedBondReader(): BondReader {
+    this.foldAtCommit();
+    return this.bondReader();
+  }
+  /** ORW-684 (ENGINE-ONLY): the bond and grudge folds, in the order the engine's decisions take them. Also what a test that edits a session's internals runs before it reads (no commit in between). */
+  foldAtCommit(): void {
+    if (!this.bondRecordEnabled) return;
+    this.foldBonds();
+    if (this.grudgesOn()) this.foldGrudges();
   }
   /** ORW-607 part 2: the grudge book's wrong `holder` carries toward `other` (weight on its curve now, and the row's peak), for the bond reader. Read-only; undefined with no row. */
   private bookWrongOf(holder: EntityId, other: EntityId): BookWrong | undefined {
-    const g = this.grudgeOf(holder, other, false);
+    const g = this.grudgeOf(holder, other);
     return g ? { weight: g.weight, peak: g.peak } : undefined;
   }
   /** ORW-607 part 2 (ENGINE-ONLY, never a tool or projection): the ONE grievance `holder` carries toward `other` - the book's wrong plus the record's friction resentment, summed once, 0..1. Headless / flag off: the record's resentment. */
@@ -7009,7 +7024,7 @@ export class GameSessionAdapter implements GameSession {
       if (!key.startsWith(`${owner}|`)) continue;
       const toward = key.slice(owner.length + 1) as EntityId;
       const row = live.grudges[key]!;
-      const g = this.grudgeOf(owner, toward, false);
+      const g = this.grudgeOf(owner, toward);
       if (!g) continue;
       const easedShare = easedShareOf(row);
       const at = grudges.findIndex((x) => x.toward === toward);
@@ -7024,9 +7039,9 @@ export class GameSessionAdapter implements GameSession {
    * 0182: what `holder` still holds against `subject`, for the later slices that decide from it. ENGINE-ONLY: not on the GameSession port, never a tool, never projected. Read-only.
    * `freshness` fades with the weeks (loyalty and a grudge-keeper's nature slow it) but is never 0.
    */
-  grudgeOf(holder: EntityId, subject: EntityId, fold = true): { kind: GrudgeKind; freshness: number; severity: number; peak: number; weight: number } | null {
+  grudgeOf(holder: EntityId, subject: EntityId): { kind: GrudgeKind; freshness: number; severity: number; peak: number; weight: number } | null {
     if (holder === PLAYER) return null;
-    if (fold) this.foldGrudges();
+    // ORW-684: a read never folds; the engine's own decisions fold first (`foldedBondReader`) and overnight.
     const row = this.live?.grudges?.[grudgeKey(holder, subject)];
     if (!row || !this.live) return null;
     const keeper = this.grudgeKeeper(holder, subject);
@@ -7049,8 +7064,8 @@ export class GameSessionAdapter implements GameSession {
   /** 0179: the roles the spread reads (from today's house graph), or undefined when off. Engine-only. */
   networkRoles(): NetworkRoles | undefined {
     if (!this.networkSpreadEnabled || !this.house) return undefined;
-    const graph = this.houseGraph().graph;
-    if (this.networkRolesCache?.graph !== graph) { const reader = this.bondReader(); this.networkRolesCache = { graph, roles: rolesFromGraph(graph, (a, b) => reader.tie(a, b)) }; }
+    const graph = this.foldedHouseGraph().graph;
+    if (this.networkRolesCache?.graph !== graph) { const reader = this.foldedBondReader(); this.networkRolesCache = { graph, roles: rolesFromGraph(graph, (a, b) => reader.tie(a, b)) }; }
     return this.networkRolesCache.roles; // one derivation per day's graph (seeking reads it once per holder per move)
   }
   private networkRolesCache?: { graph: HouseGraph; roles: NetworkRoles };
@@ -7091,7 +7106,7 @@ export class GameSessionAdapter implements GameSession {
     const t = (live.triads ??= {});
     if (t.day === day) return;
     t.day = day;
-    const reader = this.bondReader();
+    const reader = this.foldedBondReader();
     const view = this.triadView(reader);
     const drift = (t.drift ??= {});
     const order = (k: string): number => hashSeed(`${this.gameSeed ?? 0}:triads:order:${day}:${k}`);
@@ -7133,7 +7148,7 @@ export class GameSessionAdapter implements GameSession {
     if ((t.courted ?? []).some((c) => c.week === s.week)) return; // once per vote
     const read = swingRead(view.previews, view.nominees, view.voters.includes(PLAYER));
     if (read.swings.length === 0 && !read.playerSwing) return;
-    const reader = this.bondReader();
+    const reader = this.foldedBondReader();
     const camps = (): Array<{ nominee: EntityId; pitchers: EntityId[] }> => view.nominees.map((nominee) => {
       const ally = reader.ties(nominee).find((x) => x.other !== PLAYER && !view.nominees.includes(x.other) && view.voters.includes(x.other) && x.strength >= TRIADS.friendBar)?.other;
       return { nominee, pitchers: [...(nominee === PLAYER ? [] : [nominee]), ...(ally ? [ally] : [])] };
@@ -7181,8 +7196,13 @@ export class GameSessionAdapter implements GameSession {
     (t.kingmakers ??= []).push({ week: s.week, voter, evictee: r.evictee, courted: (t.courted ?? []).some((c) => c.week === s.week && c.voter === voter) });
   }
 
+  /** ORW-684: a view of the house graph writes nothing (no fold, and it does not seat the day's cache: the cache is the engine's own decision memo). */
   houseGraph(): DailyHouseGraph {
-    this.houseGraphCache = deriveDailyHouseGraph(this.bondReader(), this.houseGraphCache);
+    return deriveDailyHouseGraph(this.bondReader(), this.houseGraphCache);
+  }
+  /** ORW-684 (ENGINE-ONLY): the house graph the engine decides from: folds first, then derives at most once per in-game day and keeps it. Never from a view. */
+  private foldedHouseGraph(): DailyHouseGraph {
+    this.houseGraphCache = deriveDailyHouseGraph(this.foldedBondReader(), this.houseGraphCache);
     return this.houseGraphCache;
   }
 
@@ -7936,8 +7956,8 @@ export class GameSessionAdapter implements GameSession {
     const day = s.dayNumber ?? s.week;
     if (s.status?.day === day) return;
     const living = this.livingIds();
-    const reader = this.bondReader();
-    const hubs = new Set<EntityId>(this.houseGraph().graph.hubs);
+    const reader = this.foldedBondReader();
+    const hubs = new Set<EntityId>(this.foldedHouseGraph().graph.hubs);
     const read = deriveStatus({
       members: living, wins: (id) => s.resume?.[id] ?? 0, tie: (a, b) => reader.tie(a, b), hubs,
       respect: (id) => { const others = living.filter((o) => o !== id); return others.length ? others.reduce((acc, o) => acc + reader.strength(o, id), 0) / others.length : 0; },
@@ -7978,7 +7998,7 @@ export class GameSessionAdapter implements GameSession {
   /** 0173 (b): who is in danger from the HOH this week (on the block, or the HOH reads them as a real threat), the ones who seek the HOH out most. */
   private courtView(owner: EntityId, hoh: EntityId | undefined): { pull: number; danger: boolean } | undefined {
     if (!this.hohCourtOn() || !hoh || hoh === owner) return undefined;
-    const danger = (this.live?.nominees as readonly EntityId[] | undefined)?.includes(owner) === true || this.bondReader().bond(hoh, owner).threat >= HOH_COURT.dangerThreat;
+    const danger = (this.live?.nominees as readonly EntityId[] | undefined)?.includes(owner) === true || this.foldedBondReader().bond(hoh, owner).threat >= HOH_COURT.dangerThreat;
     return { pull: courtPull(danger), danger };
   }
   /** 0173 / ORW-577: the listener's read of a named third person moves by a bounded step (keyed stream, no shared draw). */
@@ -13591,8 +13611,8 @@ export class GameSessionAdapter implements GameSession {
     const alliances = [...this.alliances.all()].sort((x, y) => x.id.localeCompare(y.id));
     if (alliances.length === 0 && this.alliances.pitchesFor(PLAYER).length === 0) return;
     const seed = this.gameSeed ?? 0;
-    const reader = this.bondReader();
-    const graph = this.houseGraph().graph;
+    const reader = this.foldedBondReader();
+    const graph = this.foldedHouseGraph().graph;
     const hubs = new Set(graph.hubs), brokers = new Set(graph.brokers);
     const living = this.livingIds();
     const purpose = purposeAt(living.length, 1 + this.house.npcs.length);
@@ -13844,7 +13864,7 @@ export class GameSessionAdapter implements GameSession {
         const goal = goals[0];
         if (!goal || !this.alliances.byId(al.id)) continue;
         const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:alliance-clash:${al.id}:${m}:${day}`)).next();
-        const hold = this.bondFeelingsOn() ? breakDivisor(this.bondReader().bond(m, goal.target!)) + BOND_JEALOUSY.splitBreakK * this.splitOf(m, goal.target!) : 1; // ORW-568 / 0181: a real feeling for the target raises the bar (threshold only; the draw is unchanged)
+        const hold = this.bondFeelingsOn() ? breakDivisor(this.foldedBondReader().bond(m, goal.target!)) + BOND_JEALOUSY.splitBreakK * this.splitOf(m, goal.target!) : 1; // ORW-568 / 0181: a real feeling for the target raises the bar (threshold only; the draw is unchanged)
         if (roll >= ALLIANCE.goalClashBreak / this.cultureMult("loyalty") / hold) continue; // ORW-551 slice 3: a loyal house breaks over a goal clash less often (threshold only; the draw is unchanged)
         const target = goal.target!;
         this.alliances.stamp(this.beatSeqNow(), day);
@@ -16135,7 +16155,7 @@ export class GameSessionAdapter implements GameSession {
     if (!this.moodContagionOn() || !(magnitude > 0) || !this.house) return;
     const candidates = this.livingIds().filter((id) => id !== PLAYER && id !== source && id !== skip);
     const dials = { paranoia: this.cultureMult("paranoia"), bonding: this.cultureMult("bonding"), loyalty: this.cultureMult("loyalty") };
-    for (const { id, scale } of catchScales({ reader: this.bondReader(), source, magnitude, mood, candidates, dials })) this.catchMood(id, event, scale);
+    for (const { id, scale } of catchScales({ reader: this.foldedBondReader(), source, magnitude, mood, candidates, dials })) this.catchMood(id, event, scale);
   }
 
   /**
@@ -16191,7 +16211,7 @@ export class GameSessionAdapter implements GameSession {
   }
   /** ORW-622: the holder's grudge strand toward each of these houseguests (only those with one), from the bond record. */
   private rivalryStrandsOf(holder: EntityId, others: readonly EntityId[]): ReadonlyMap<EntityId, number> {
-    const reader = this.bondReader();
+    const reader = this.foldedBondReader();
     return new Map(others.map((o) => [o, reader.bond(holder, o).strands.rivalry ?? 0] as const).filter(([, v]) => v > 0));
   }
   private bondFeelingsOn(): boolean { return this.bondFeelingsEnabled && this.live?.playedGame === true && this.bondRecordEnabled; }
@@ -16240,7 +16260,7 @@ export class GameSessionAdapter implements GameSession {
   /** The signed provider value for a vote or a nomination: how much `holder`'s real feeling for `other` keeps them (0 for the player: their own choices are theirs). */
   private feelingKeepOf(other: EntityId, holder: EntityId): number {
     if (holder === PLAYER || other === holder || !this.bondFeelingsOn()) return 0;
-    const reader = this.bondReader();
+    const reader = this.foldedBondReader();
     const keep = adjustedKeep(feelingKeep(reader.bond(holder, other)), this.jealousyOf(holder, other), loyaltySplitOver(holder, other, reader)); // 0181 part 2: jealousy slips the closeness, a divided loyalty adds to it
     return this.showmancesOn() ? keepAfterHeart(keep, this.heartCaseOf(holder, other, reader)) : keep; // 0207 A3: heart against game
   }
@@ -16326,7 +16346,7 @@ export class GameSessionAdapter implements GameSession {
     const live = this.live;
     const last = live?.voteRecord?.[live.voteRecord.length - 1];
     if (!live || !last || last.evictee !== evictee || !this.showmancesOn() || !this.bondFeelingsOn() || !live.romances) return;
-    const reader = this.bondReader();
+    const reader = this.foldedBondReader();
     const block = new Set<EntityId>([evictee, ...Object.values(last.voteOf)]);
     for (const voter of Object.keys(last.voteOf).sort() as EntityId[]) {
       if (voter === PLAYER) continue;
@@ -16351,7 +16371,7 @@ export class GameSessionAdapter implements GameSession {
   /** 0181 part 2: `holder`'s divided loyalty over `other` (0 for the player and with the feature off). */
   private splitOf(holder: EntityId, other: EntityId): number {
     if (holder === PLAYER || !this.bondFeelingsOn()) return 0;
-    return loyaltySplitOver(holder, other, this.bondReader());
+    return loyaltySplitOver(holder, other, this.foldedBondReader());
   }
 
   /**
@@ -16380,7 +16400,7 @@ export class GameSessionAdapter implements GameSession {
     const overlay = live.jealousy;
     if (overlay) for (const [k, j] of Object.entries(overlay)) if (soothed.has(jealousyKey(k.split("|")[0]!, j.close))) j.value = 0; // handled: a bonding scene with the close friend came first
     const living = this.livingIds();
-    const reader = this.bondReader();
+    const reader = this.foldedBondReader();
     const dials = { paranoia: this.cultureMult("paranoia"), bonding: this.cultureMult("bonding"), loyalty: this.cultureMult("loyalty") };
     const readings = new Map<string, { value: number; close: string }>();
     for (const h of living) {
@@ -16415,7 +16435,7 @@ export class GameSessionAdapter implements GameSession {
   private feelGuilt(betrayer: EntityId, wronged: EntityId): void {
     const live = this.live;
     if (!live || betrayer === PLAYER || betrayer === wronged || !this.bondFeelingsOn() || !this.house) return;
-    const view = this.bondReader().bond(betrayer, wronged);
+    const view = this.foldedBondReader().bond(betrayer, wronged);
     if (!feelsGuilt(view)) return;
     if (!markFeeling((live.feelingsSeen ??= []), guiltKey(live.week, betrayer, wronged))) return;
     const scale = guiltScale(view, { loyalty: this.cultureMult("loyalty"), bonding: this.cultureMult("bonding"), paranoia: this.cultureMult("paranoia") });
@@ -19572,7 +19592,7 @@ export class GameSessionAdapter implements GameSession {
   /** 0182 PR 3 - a bitter juror's signed lean (<= 0) toward `finalist`: -scale x freshness x severity of the grudge the juror holds against them, clamped to JURY_GRUDGE.max. Pure read (no fold, no rng); 0 for the player as a juror. The overlap with manner and memory is netted by the caller. */
   juryGrudgeFor(juror: EntityId, finalist: EntityId): number {
     if (juror === PLAYER || !this.grudgesOn()) return 0;
-    const g = this.grudgeOf(juror, finalist, false);
+    const g = this.grudgeOf(juror, finalist);
     if (!g) return 0;
     return -Math.min(JURY_GRUDGE.max, JURY_GRUDGE.scale * g.weight);
   }
@@ -19940,7 +19960,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private bookReadFor(holder: EntityId, subject: EntityId, raw: readonly MemoryEntry[]): BookRead | undefined {
     if (!this.grudgesOn() || !this.live) return undefined;
-    const g = this.grudgeOf(holder, subject, false);
+    const g = this.grudgeOf(holder, subject);
     if (!g) return undefined;
     const arr = this.live.grudgesSeen;
     if (!this.grudgesSeenCache || this.grudgesSeenCache.arr !== arr) this.grudgesSeenCache = { arr, set: new Set(arr ?? []) }; // (no seen-marks yet: `arr` is undefined, which equals the empty cache's undefined, so test for the cache itself)

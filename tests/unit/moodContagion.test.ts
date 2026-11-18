@@ -177,7 +177,7 @@ describe("in a played game", () => {
   it("ORW-684 item 5: the hidden regard only sets how much of the mood a houseguest catches; contagion on vs off differs in the souls and nowhere else (no event, claim, edge or room moves)", () => {
     const run = (on: boolean): Record<string, unknown> => {
       const s = start(3, "h", on); const { E } = cast(s);
-      (s as unknown as { bondReader(): unknown }).bondReader(); // catch the lazy bond/grudge fold up in BOTH runs first: reading a bond folds the record (a separate, known read-time fold), and that must not be what this compares
+      (s as unknown as { foldAtCommit(): void }).foldAtCommit(); // catch the lazy bond/grudge fold up in BOTH runs first: reading a bond folds the record (a separate, known read-time fold), and that must not be what this compares
       evict(s, E);
       const snap = JSON.parse(JSON.stringify(s.snapshot())) as Record<string, unknown>;
       delete snap.house; // the souls live here: the one place the catch may land

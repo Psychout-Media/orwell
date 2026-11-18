@@ -81,7 +81,8 @@ Then("a deal the finalist broke, which no manner counts, makes the juror lean ag
   reg.restore(user, snap);
   const a = reg.sandboxFor(user).session as unknown as { juryGrudgeFor(j: string, f: string): number; deals: { make(p: [string, string], k: string, t: string, e?: string, w?: number): { status: string; brokenBy?: string } }; grudgeOf(h: string, s: string): unknown; live: { evictionOrder: string[] } };
   const d = a.deals.make([JURY9[0]!, PLAYER], "safety", "terms", undefined, 1); d.status = "broken"; d.brokenBy = PLAYER;
-  a.grudgeOf(JURY9[0]!, PLAYER); // the real fold
+  (a as unknown as { foldAtCommit(): void }).foldAtCommit(); // ORW-684: reads no longer fold; the commit's fold runs first, as the funnel would
+  a.grudgeOf(JURY9[0]!, PLAYER);
   a.live.evictionOrder = [...JURY9];
   const lean = a.juryGrudgeFor(JURY9[0]!, PLAYER);
   assert.ok(lean < -0.01, `the grudge leans the juror away by ${lean}`);
