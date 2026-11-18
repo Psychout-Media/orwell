@@ -196,6 +196,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_NPC_TELLS', key: 'npcTells', parser: 'defaultOn' },
   // ORW-407 slices 1-2: the open ledger - a commitment, group pact, plan or claim (about someone or something) said to or by the player, or overheard by them, is kept as free text, can be marked kept, broken or withdrawn, and is shown back when the people it concerns are present. ON by default ("built means on"); `=0` turns it off.
   { envKey: 'ORWELL_OPEN_LEDGER', key: 'openLedger', parser: 'defaultOn' },
+  // 0191 / ORW-574 (Fable T1-6): in a PLAYED game an NPC's decisions read the decider's own view (what they saw, were told, believe, and the public record), never another houseguest's hidden edges or stats. `=0` = the hidden reads, byte-identical.
+  { envKey: 'ORWELL_OWN_VIEW', key: 'ownView', parser: 'defaultOn' },
   // 0163 / ORW-539: the HOH's floater and duo reads see the bonds the HOH could see (scenes they were in or watched, allied-with beliefs), blended with the truth. `=0` = the hidden-truth read.
   { envKey: 'ORWELL_PERCEIVED_BONDS', key: 'perceivedBonds', parser: 'defaultOn' },
   // ORW-37 / B40: lasting game philosophies - each NPC plays one philosophy (a seeded draw conditioned on archetype) that sets the nomination style they play. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.

@@ -248,7 +248,7 @@ import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearanc
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ } from "../../engine/premiereEntrances";
 import type { Houseguest } from "../../engine/characterFactory";
-import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, VOL_OF, articleFor } from "../../engine/characterFactory";
+import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, ARCHETYPES, VOL_OF, articleFor } from "../../engine/characterFactory";
 import type { Disposition } from "../../engine/characterFactory";
 import type { GameHouse, StrategyStyle, Soul, HiddenElement, Character } from "../../engine/characterFactory";
 import { evolveEmotion, arcNote, offscreenEmotion, composedEmotion, effectiveDisposition, settleScaleOf } from "../../engine/emotionalArc";
@@ -307,7 +307,7 @@ import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
 import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, plantedBy, type EdgeDelta } from "../../engine/beliefStore";
 import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs";
-import { BELIEF_RULES, PERCEIVED_BOND, beliefPull, believedGrievances, blameForTargeting } from "../../engine/beliefDecisions";
+import { BELIEF_RULES, PERCEIVED_BOND, OWN_VIEW, beliefPull, believedGrievances, blameForTargeting, believedRegard } from "../../engine/beliefDecisions";
 import { CONVICTION, credulityOf, dealTrust, pathwayEvidence, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
 import { dissentMove, findScapegoat, heardDissenters, herdPull, herdVoices, holdsGrievance, knownBreaches, normStrength, scapegoatLean, shunMove, weekHardness } from "../../engine/houseNorms";
@@ -1336,6 +1336,9 @@ export class GameSessionAdapter implements GameSession {
   /** 0163 / ORW-539: the HOH's floater and duo reads see the bonds the HOH could see (`ORWELL_PERCEIVED_BONDS`, default ON; OFF => the hidden-truth read, byte-identical). */
   private perceivedBondsEnabled = flagDefaultOn("ORWELL_PERCEIVED_BONDS");
   setPerceivedBondsEnabled(on: boolean): void { this.perceivedBondsEnabled = on; }
+  /** 0191 / ORW-574 (Fable T1-6): in a played game NPC decisions read the decider's own view (`ORWELL_OWN_VIEW`, default ON; OFF => the hidden reads, byte-identical). */
+  private ownViewEnabled = flagDefaultOn("ORWELL_OWN_VIEW");
+  setOwnViewEnabled(on: boolean): void { this.ownViewEnabled = on; }
   /**
    * B2 / #2017 — read the 0024 NPC memory ON ITS OWN (no edge-carry subtraction) so a remembered betrayal/favor VISIBLY sways nominations and votes (PO ruling 2026-11-03). ON unless
    * `ORWELL_NPC_MEMORY_STANDALONE=0` (flipped ON with the memories, #2059; the 3-arm PO bands held). OFF ⇒ the
@@ -1385,7 +1388,8 @@ export class GameSessionAdapter implements GameSession {
     for (const npc of this.house.npcs) {
       const id = npc.id;
       if (id === holder || evicted.has(id) || (awake && !awake.has(id))) continue;
-      const threat = Math.max(0, Math.min(1, this.rel.edge(holder, id).threat));
+      // ORW-574: in a played game the pitcher's stake is how much THEY believe the HOH reads them as a threat (their perception), never the HOH's hidden edge
+      const threat = Math.max(0, Math.min(1, this.ownViewOn() ? this.perceivedThreat(id, holder, id) : this.rel.edge(holder, id).threat));
       if (threat <= 0) continue;
       const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(id), this.emotionalReadOf(id))));
       const cunning = Math.max(0, Math.min(1, npc.character.stats.mental));
@@ -11148,7 +11152,12 @@ export class GameSessionAdapter implements GameSession {
       ...(this.npcBeliefsEnabled && (this.npcBeliefNomsEnabled || this.scapegoatsOn()) ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => (this.npcBeliefNomsEnabled ? this.beliefNomTiltFor(subject, holder) : 0) + this.scapegoatLeanFor(subject, holder) } : {}), // 0180 part 3: a hard week's scapegoat rides the belief term
       // 0163 / ORW-539: the floater and duo reads see what the HOH can see (full strength only; capped keeps the hidden-truth read, byte-identical).
       // Its own flag, apart from the belief store: what the HOH SAW needs no beliefs (the told part reads allied-with beliefs only when they exist).
-      ...(this.perceivedBondsEnabled && BELIEF_RULES.strength === "full" ? { perceivedBondFor: (holder: EntityId, from: EntityId, to: EntityId) => this.perceivedBond(holder, from, to) } : {}),
+      ...((this.perceivedBondsEnabled || this.ownViewOn()) && BELIEF_RULES.strength === "full" ? { perceivedBondFor: (holder: EntityId, from: EntityId, to: EntityId) => this.perceivedBond(holder, from, to) } : {}),
+      // ORW-574 (Fable T1-6): how someone else trusts / reads a threat in someone, as the DECIDER can see it. Played games only (`ownViewOn`); absent => the old reads, byte-identical.
+      ...(this.ownViewOn() ? {
+        perceivedTrustFor: (holder: EntityId, from: EntityId, to: EntityId) => this.perceivedTrust(holder, from, to),
+        perceivedThreatFor: (holder: EntityId, from: EntityId, to: EntityId) => this.perceivedThreat(holder, from, to),
+      } : {}),
       // #1937 — the same aware-only, character-mediated campaign push, signed (evict +, protect −) and bounded, on
       // the NPC HOH's nominations / replacement and the NPC veto holder's save read. 0 for the player as decider.
       ...(this.campaignsEnabled ? {
@@ -11429,7 +11438,8 @@ export class GameSessionAdapter implements GameSession {
       nominee: this.live?.nominees?.includes(id) ?? false,
       hasOthers: others.length > 0,
       bestAllyBond: others.length ? Math.max(...others.map((o) => this.rel.bondStrength(id, o))) : 0,
-      maxThreatOnMe: others.length ? Math.max(...others.map((o) => this.rel.edge(o, id).threat)) : 0,
+      // ORW-574: in a played game, how much a rival reads ME as a threat is my perception of it (my public menace, my own wariness mirrored, my beliefs), never their hidden edge
+      maxThreatOnMe: others.length ? Math.max(...others.map((o) => (this.ownViewOn() ? this.perceivedThreat(id, o, id) : this.rel.edge(o, id).threat))) : 0,
       ...(this.hohCourtOn() && this.agendaWantsPower(id) ? { wantsPower: true } : {}), // ORW-577: an active win-power goal keeps them in the fight
     });
     if (intent === "throw") this.noteCompThrowReason(id, others);
@@ -12067,8 +12077,10 @@ export class GameSessionAdapter implements GameSession {
   private voteStillInDoubt(actor: EntityId, target: EntityId): boolean {
     const voters = this.livingIds().filter((v) => v !== actor && v !== target);
     if (voters.length === 0) return true;
+    // ORW-574 (Fable T1-6): in a played game the actor counts each voter from what THEY can see (how that voter reads the target, as the actor perceives it), never the voter's hidden edge
+    const own = this.ownViewOn();
     const trueSupport = voters.map((v) => {
-      const e = this.rel.edge(v, target);
+      const e = own ? { threat: this.perceivedThreat(actor, v, target), trust: this.perceivedTrust(actor, v, target) } : this.rel.edge(v, target);
       return Math.max(0, Math.min(1, 0.5 + 0.6 * (e.threat - 0.5 * e.trust)));
     });
     const oc = 0.2 + 0.6 * ((hashSeed(`${this.gameSeed ?? 0}:overconfidence:${actor}`) % 1000) / 1000);
@@ -14110,7 +14122,9 @@ export class GameSessionAdapter implements GameSession {
     const me = this.agendaCharacterOf(hoh);
     if (!me || rivals.length !== 2) return undefined;
     const rel = this.rel;
-    const bond = (a: EntityId, b: EntityId): number => { const e = rel.edge(a, b); return (e.trust + e.affinity) / 2; };
+    // ORW-574 (Fable T1-6): in a played game the HOH's estimate reads how close the RIVAL is to each juror as the HOH could see it (`perceivedBond`), never the rival's hidden edges
+    const own = this.ownViewOn();
+    const bond = (a: EntityId, b: EntityId): number => { if (own && a !== hoh) return this.perceivedBond(hoh, a, b); const e = rel.edge(a, b); return (e.trust + e.affinity) / 2; };
     const resume = (id: EntityId): number => this.live?.resume?.[id] ?? 0;
     const options: FinalHohOption[] = rivals.map((evict) => {
       const keep = rivals.find((r) => r !== evict)!;
@@ -17565,18 +17579,21 @@ export class GameSessionAdapter implements GameSession {
     if (!this.hcStrategyEnabled || holder === PLAYER || candidate === holder) return 0;
     const noms = this.live?.nominees;
     if (!noms) return 0;
-    const st = this.statsOf(candidate);
-    const strength = (st.physical + st.mental) / 2 - 0.5;
     const rel = this.rel;
+    // ORW-574 (Fable T1-6): in a played game the holder reads the candidate's strength from the PUBLIC record (archetype, comp wins) and how the candidate feels about anyone
+    // through their own perception (`perceivedTrust` / `perceivedBond`) - never the candidate's hidden stats or edges.
+    const own = this.ownViewOn();
+    const strength = own ? this.publicStrength(candidate) : ((st) => (st.physical + st.mental) / 2 - 0.5)(this.statsOf(candidate));
+    const bondOf = (from: EntityId, to: EntityId): number => (own ? this.perceivedBond(holder, from, to) : rel.bondStrength(from, to));
     let s: number;
     if (noms.includes(holder)) {
-      s = 0.8 * (rel.edge(candidate, holder).trust - 0.5) + 0.6 * strength;
+      s = 0.8 * ((own ? this.perceivedTrust(holder, candidate, holder) : rel.edge(candidate, holder).trust) - 0.5) + 0.6 * strength;
     } else if (this.live?.hoh === holder) {
-      const rescue = Math.max(...noms.map((n) => rel.bondStrength(candidate, n)));
+      const rescue = Math.max(...noms.map((n) => bondOf(candidate, n)));
       s = -0.8 * (rescue - 0.5) - 0.2 * strength;
     } else {
       const ally = noms.filter((n) => n !== candidate).sort((a, b) => rel.bondStrength(holder, b) - rel.bondStrength(holder, a))[0];
-      if (ally !== undefined && rel.vetoSaveScore(holder, ally) > 0.5) s = 0.6 * strength + 0.5 * (rel.bondStrength(candidate, ally) - 0.5);
+      if (ally !== undefined && rel.vetoSaveScore(holder, ally) > 0.5) s = 0.6 * strength + 0.5 * (bondOf(candidate, ally) - 0.5);
       else s = -0.6 * strength - 0.5 * rel.edge(holder, candidate).threat;
     }
     return Math.max(-1, Math.min(1, s));
@@ -17619,14 +17636,19 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** 0163 / ORW-539: per holder, the bonding scenes they witnessed between each pair (cached until the event record grows). */
-  private seenBondsCache = new Map<EntityId, { n: number; pairs: Map<string, number> }>();
+  private seenBondsCache = new Map<EntityId, { n: number; pairs: Map<string, number>; net: Map<string, number> }>();
   /**
    * 0163 / ORW-539 - the bond between two OTHER houseguests as `holder` can SEE it: the edge baseline, raised by the bonding / showmance scenes
    * the holder witnessed between them (PERCEIVED_BOND.perScene each) and by the holder's allied-with belief about them (its confidence), up to
    * the full floater span. A pair that bonds only out of sight reads as strangers; a pair the holder watched, or was told about, reads tight.
    * Engine-only, deterministic, no rng. Symmetric: what the holder sees is the pair, not who leans on whom.
+   * ORW-596 / ORW-574: in a PLAYED game (`ownViewOn`) the read is ONLY what the holder saw (every warm or cold scene between the two, plus allied-with beliefs), with no
+   * true-bond half, and someone's warmth toward the holder is the holder's perception (`perceivedTrust`). Headless games keep the v2 blend, byte for byte.
    */
   private perceivedBond(holder: EntityId, from: EntityId, to: EntityId): number {
+    const own = this.ownViewOn();
+    // ORW-574: in a played game, how warm the OTHER one is to the holder is the holder's perception of it (their own bond, shaded by what they believe), never the other's hidden edge
+    if (own && holder === to && holder !== from) return this.perceivedTrust(holder, from, holder, this.rel.bondStrength(holder, from));
     if (holder === from || holder === to) return this.rel.bondStrength(from, to); // their OWN bond: they know how they feel (and how warm the other has been to them)
     const C = RELATIONSHIP_CONSTANTS.baseline;
     const base = (C.trust + C.affinity) / 2;
@@ -17634,25 +17656,81 @@ export class GameSessionAdapter implements GameSession {
     let cache = this.seenBondsCache.get(holder);
     if (!cache || cache.n !== events.length) {
       const pairs = new Map<string, number>();
+      const net = new Map<string, number>();
       for (const e of events) {
-        if (e.type !== "bonding" && e.type !== "showmance") continue;
+        const valence = Object.hasOwn(OWN_VIEW.sceneValence, e.type) ? OWN_VIEW.sceneValence[e.type]! : 0;
+        if (valence === 0) continue;
         const inScene = e.witnessSet.includes(holder);
         if (!inScene && !(e.houseLife?.seenBy ?? []).includes(holder)) continue; // ORW-539 v2: a scene they were in OR saw from the same room
         const people = e.witnessSet.filter((x) => x !== holder);
         if (people.length !== 2) continue;
         const k = [...people].sort().join("|");
-        pairs.set(k, (pairs.get(k) ?? 0) + 1);
+        if (e.type === "bonding" || e.type === "showmance") pairs.set(k, (pairs.get(k) ?? 0) + 1);
+        net.set(k, (net.get(k) ?? 0) + valence); // ORW-596: every warm or cold scene between them the holder saw
       }
-      cache = { n: events.length, pairs };
+      cache = { n: events.length, pairs, net };
       this.seenBondsCache.set(holder, cache);
     }
-    const seen = cache.pairs.get([from, to].sort().join("|")) ?? 0;
+    const key = [from, to].sort().join("|");
+    const seen = cache.pairs.get(key) ?? 0;
     const told = claimsOf(this.live?.beliefs, holder)
       .filter((c) => c.kind === "allied-with" && c.value && !c.refuted && ((c.subject === from && c.object === to) || (c.subject === to && c.object === from)))
       .reduce((m, c) => Math.max(m, c.confidence), 0);
+    // ORW-596 (Coordinator, under Ryne's 11-03 own-view rule): in a played game the read is ONLY what the holder could see - every warm or cold scene between the two
+    // they were in or watched, plus their allied-with beliefs. A pair that bonds only out of sight reads as strangers. Unplayed (headless) games keep the v2 blend below.
+    if (own) return Math.max(0, Math.min(1, base + DECISION.nomination.floaterBondSpan * Math.max(-1, Math.min(1, (cache.net.get(key) ?? 0) * PERCEIVED_BOND.perScene + told))));
     const visible = base + DECISION.nomination.floaterBondSpan * Math.min(1, seen * PERCEIVED_BOND.perScene + told);
     // ORW-539 v2: BLEND what they can see with the true bond (a house reads more than its own scenes: tone, glances), never replace it.
     return PERCEIVED_BOND.seenShare * visible + (1 - PERCEIVED_BOND.seenShare) * this.rel.bondStrength(from, to);
+  }
+
+  /**
+   * ORW-574 (Fable T1-6): the OWN-VIEW gate. A played game (`live.playedGame`) with `ORWELL_OWN_VIEW` on (0191; widens 0163, "decisions read what the decider can see"):
+   * a decision reads how someone else feels only through the decider's perception. Headless seeded sims (calibration, jury reach, UAT) never set `playedGame`, so they keep the
+   * old reads byte for byte.
+   */
+  private ownViewOn(): boolean { return this.ownViewEnabled && this.live?.playedGame === true; }
+  /** ORW-574: the public menace of a houseguest anyone can read - the edge baseline, the public archetype's competitive menace (the move-in read) and the public comp wins. */
+  private publicMenace(id: EntityId): number {
+    const { baseline, MOVE_IN } = RELATIONSHIP_CONSTANTS;
+    const arch = id === PLAYER ? this.house?.player.character.archetype : this.house?.npcs.find((n) => n.id === id)?.character.archetype;
+    return Math.max(0, Math.min(1, baseline.threat + (arch ? MOVE_IN.threatWeight * archetypeMenace(arch) : 0) + OWN_VIEW.threatPerWin * (this.live?.resume?.[id] ?? 0)));
+  }
+  /** ORW-574: a houseguest's competition strength as anyone can read it (their public archetype's aptitudes and their public comp wins), on the hidden-stat scale ((physical + mental) / 2 - 0.5). Never their hidden stats. */
+  private publicStrength(id: EntityId): number {
+    const arch = id === PLAYER ? this.house?.player.character.archetype : this.house?.npcs.find((n) => n.id === id)?.character.archetype;
+    const bias = ARCHETYPES.find((a) => a.archetype === arch)?.bias;
+    const base = bias ? (bias.physical + bias.mental) / 2 - 0.5 : 0;
+    return Math.max(-0.5, Math.min(0.5, base + OWN_VIEW.strengthPerWin * (this.live?.resume?.[id] ?? 0)));
+  }
+  /**
+   * ORW-574: how much `from` TRUSTS `to`, as `holder` can see it. The holder's own trust when it is theirs; how `from` feels about the HOLDER is the holder's own trust in them
+   * (`ownRead` overrides it, e.g. their bond) moved by what they believe (an assurance up, a believed grievance down); between two others it is the bond the holder can see.
+   */
+  private perceivedTrust(holder: EntityId, from: EntityId, to: EntityId, ownRead?: number): number {
+    if (holder === from) return this.rel.edge(holder, to).trust;
+    if (holder === to) {
+      const r = believedRegard(this.live?.beliefs, holder, from, this.live?.week ?? 1);
+      return Math.max(0, Math.min(1, (ownRead ?? this.rel.edge(holder, from).trust) + OWN_VIEW.assured * r.assured - OWN_VIEW.grievance * r.against));
+    }
+    return this.perceivedBond(holder, from, to);
+  }
+  /**
+   * ORW-574: how much `from` reads `to` as a THREAT, as `holder` can see it. Their own read when it is theirs; on the holder themselves, the holder's public menace, part of their own
+   * wariness of `from` mirrored back and their believed grievances against `from`; between two others, half the holder's own read of `to` and half `to`'s public menace, plus a
+   * rumor the holder heard that `from` is going after `to`. Never `from`'s hidden edge.
+   */
+  private perceivedThreat(holder: EntityId, from: EntityId, to: EntityId): number {
+    const B = RELATIONSHIP_CONSTANTS.baseline;
+    if (holder === from) return this.rel.edge(holder, to).threat;
+    if (holder === to) {
+      const r = believedRegard(this.live?.beliefs, holder, from, this.live?.week ?? 1);
+      return Math.max(0, Math.min(1, this.publicMenace(holder) + OWN_VIEW.mirror * (this.rel.edge(holder, from).threat - B.threat) + OWN_VIEW.grievance * r.against));
+    }
+    const heard = claimsOf(this.live?.beliefs, holder)
+      .filter((c) => c.kind === "heard-rumor" && c.nature === "going-after" && c.value && !c.refuted && c.subject === from && c.object === to)
+      .reduce((m, c) => Math.max(m, c.confidence), 0);
+    return Math.max(0, Math.min(1, 0.5 * this.rel.edge(holder, to).threat + 0.5 * this.publicMenace(to) + OWN_VIEW.grievance * heard));
   }
 
 
