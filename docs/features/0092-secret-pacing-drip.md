@@ -336,3 +336,6 @@ what the player has caught.
    confidence surface. A more explicit "the pieces click into place" framing (the variable-ratio
    payoff made legible) is a possible enrichment — flag for product before building, and keep it
    belief-level, never a number.
+
+## 2026-11-18: a dripped secret can be slanted (ORW-687)
+The drip delivery to the player in a played game already asked `disclosureDecision` (share / slip / hold); it now keeps the spin the same one draw rolls (`routeDisclosureFull`, ORW-685). A cunning teller's slanted drip is recorded in the player's knowledge at `SPIN.spunConfidence` of the usual confidence (the constant a houseguest-to-houseguest telling uses), and the beat's disclosure event carries `slant`, so the narrator's `npcVoice` carries `slants` (one third-person fact; no content). No new roll and no reordering: hold / share is the same decision with the flag on or off. Flag `ORWELL_DISCLOSURE_SPIN` (default ON, needs the disclosure engine, played games only). Test: `tests/unit/orw687.test.ts`.
