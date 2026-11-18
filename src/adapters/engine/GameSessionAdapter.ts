@@ -1247,6 +1247,9 @@ export class GameSessionAdapter implements GameSession {
   /** 0184 (Theme 3 slice 8, part 1): reputations (`ORWELL_REPUTATION`, default ON; `=0` opts out). Played games only, and it needs the bond record. */
   private reputationEnabled = flagDefaultOn("ORWELL_REPUTATION");
   setReputationEnabled(on: boolean): void { this.reputationEnabled = on; }
+  /** 0208 B2 (Theme B): a returning player's reputation walks in deeper (`ORWELL_SEASON_MEMORY`, default ON; `=0` is today's 0104 alone): the house's heard record of their broken word feeds the carried treachery. */
+  private seasonMemoryEnabled = flagDefaultOn("ORWELL_SEASON_MEMORY");
+  setSeasonMemoryEnabled(on: boolean): void { this.seasonMemoryEnabled = on; }
   private reputationOn(): boolean { return this.reputationEnabled && this.live?.playedGame === true && this.bondRecordEnabled; }
   /**
    * 0184: `observer`'s standing for `target` (1 = nothing heard against them), from the observer's OWN belief claims about the target (a wrong they heard of or witnessed done to someone else) and from the
@@ -12717,7 +12720,14 @@ export class GameSessionAdapter implements GameSession {
       const forMe = cast.filter((v) => v === me).length;
       juryVoteShare = cast.length > 0 ? forMe / cast.length : 0;
     }
-    return { placement, castSize, playerCompWins, playerEvictionRoles, reachedJury, reachedFinalTwo, juryVoteShare };
+    // 0208 B2: what the house came to hear of the player's broken word: the mean share of standing lost (0184 part 1) across the cast. Played games with reputations on only; else absent (byte-identical).
+    let houseHeardWrong: number | undefined;
+    if (this.seasonMemoryEnabled && this.reputationOn() && this.house.npcs.length > 0) {
+      let lost = 0;
+      for (const n of this.house.npcs) lost += 1 - this.reputationOf(n.id, me);
+      houseHeardWrong = lost / this.house.npcs.length;
+    }
+    return { placement, castSize, playerCompWins, playerEvictionRoles, reachedJury, reachedFinalTwo, juryVoteShare, ...(houseHeardWrong !== undefined ? { houseHeardWrong } : {}) };
   }
 
   // ─── 0091 — TRIGGER SECRETS & HOUSE-EVENT ERUPTIONS ─────────────────────────────────────────────

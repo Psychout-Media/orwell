@@ -257,6 +257,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // 0209 / ORW-651 (Ryne approved 2026-11-17): each houseguest's routines (a time, a place, an act, composed from the character) shape where they are and what they do in a free hour, replacing the named-habit pull; the player learns one by seeing it on three separate days. Played games only; `=0` = the old habit branch.
   { envKey: 'ORWELL_ROUTINES', key: 'routines', parser: 'defaultOn' },
   { envKey: 'ORWELL_SCHEME_TARGETS',         key: 'schemeTargets',          parser: 'defaultOn' },
+  // 0208 / ORW-664 (Theme B slice B2, Ryne approved 2026-11-18): a returning player's reputation walks in deeper - the house's heard record of their broken word at season end (0184 standing, a bounded mean) feeds the treachery the next cast reads on day one, and the narrator is told the name they carry. Only when the player returns as the same character (0104); a new start gets nothing. `=0` is today's 0104 alone.
+  { envKey: 'ORWELL_SEASON_MEMORY', key: 'seasonMemory', parser: 'defaultOn' },
   { envKey: 'ORWELL_SECRET_BARTER',          key: 'secretBarter',           parser: 'defaultOn' },
   // ORW-647 (spec 0204): the night it all comes out - a fact enough houseguests hold breaks in front of the awake house, or its own subject blows it up when pressured; consequences land through the bond, belief and grudge stores. ON by default; `=0` turns it off.
   { envKey: 'ORWELL_SECRET_BREAKS', key: 'secretBreaks', parser: 'defaultOn' },
