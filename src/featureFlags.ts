@@ -80,6 +80,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // A52 / ORW-23 (Ryne card 19: the narrator does not improvise disclosures): in a played game `npcVoice.knows` is only what the player also holds (engine-delivered or witnessed together); a declined press carries `deflect`. ON by default; `=0` turns it off.
   // 0151 / ORW-330 (theme 2 slice 4a): a houseguest who trusts the player may pass on one belief per day, hedged by their certainty (engine-decided, own side stream, no outcome moves). Default-ON; `=0` opts out.
   { envKey: 'ORWELL_CLAIMS_TO_PLAYER', key: 'claimsToPlayer', parser: 'defaultOn' },
+  // 0203 / ORW-646 (Theme 4): coming clean, nuanced - a houseguest may own a lie before it is caught (costs less than being caught), loop an ally in on a lie told to someone else, and the player may do either in their own words. Played games only; `=0` turns it off (byte-identical).
+  { envKey: 'ORWELL_COMING_CLEAN', key: 'comingClean', parser: 'defaultOn' },
   { envKey: 'ORWELL_COMP_INTENT',            key: 'compIntent',             parser: 'defaultOn' },
   { envKey: 'ORWELL_COMP_MECHANICS_PLUS',    key: 'compMechanicsPlus',      parser: 'defaultOn' },
   { envKey: 'ORWELL_COMP_MIXED',             key: 'compMixed',              parser: 'defaultOn' },
@@ -149,6 +151,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // ORW-629 (spec 0199): the HOH room is opened to the whole house; a rare snub the house reads as rude; a mask that slips by how well a guest can act; photos and a letter reveal one true backstory fact. ON by default; `=0` turns it off.
   { envKey: 'ORWELL_HOH_ROOM', key: 'hohRoom', parser: 'defaultOn' },
   { envKey: 'ORWELL_HOMOPHILY', key: 'homophily', parser: 'defaultOn' },
+  // ORW-667 / 0210 C1: the host of eviction night - a seeded manner and the public facts of the night, handed to the narrator on a played eviction; changes no outcome. `=0` = no host block.
+  { envKey: 'ORWELL_HOST', key: 'host', parser: 'defaultOn' },
   // 0168 / ORW-551 (house culture slice 1): a played season draws a loose seeded blend of a few culture leans, stored engine-only; nothing reads it yet, so no dial moves. `=0` opts out.
   { envKey: 'ORWELL_HOUSE_CULTURE', key: 'houseCulture', parser: 'defaultOn' },
   { envKey: 'ORWELL_HOUSE_LIFE',              key: 'houseLife',              parser: 'defaultOn' },

@@ -1,6 +1,6 @@
 # 0203 - Coming clean, nuanced (Theme 4, ORW-646)
 
-Card: ORW-646 (Ryne approved 2026-11-17, Fable 4.3). Executable spec: `0203-coming-clean.feature` (spec-only until the build). Foundation: `src/engine/comingClean.ts` + `tests/unit/comingClean.test.ts` (built, BDD Auditor). The build: Overseer A or B, through the Coordinator.
+Card: ORW-646 (Ryne approved 2026-11-17, Fable 4.3). Executable spec: `0203-coming-clean.feature` (wired: `features/step_definitions/coming_clean.steps.ts`). Foundation: `src/engine/comingClean.ts` + `tests/unit/comingClean.test.ts` (built, BDD Auditor). Build (Overseer A, 2026-11-18): the adapter acts (`confess`, `loopIn`), the daily NPC decision (`comingCleanTick`), the player's engine entry points (`playerConfess`, `playerLoopIn`), the flag, the snapshot superset rule. The player's door (Auditor ruling): two optional fields, `retracts` and `tellsAbout`, on the EXISTING scene-belt `statement` (no new tool); the engine finds the player's own open lie and drops a mismatch. Deferred: the post-crown retrospective door. Gates: `tests/unit/comingCleanBuild.test.ts`, the feature.
 
 Ryne's words: "there's also this like mechanic or this pathway in which I tell one person one thing and that's a lie, and I tell an ally that I told them a lie. So you're almost coming clean to someone else... or maybe you're telling lies to both people and coming clean differently to others... that realm should be nuanced."
 

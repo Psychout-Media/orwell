@@ -3,13 +3,7 @@
 
 Feature: Production as a character
 
-  # C1
-  Scenario: The host interviews the evictee about what the house saw
-    Given a houseguest is evicted
-    Then the host greets the house, reads the votes, and sits the evictee down
-    And the host's questions are about public events and that houseguest's own choices
-    And no question reveals a hidden fact
-    And when the evictee is the player, the player answers in their own words
+  # C1 is wired in 0210-host-on-eviction-night.feature (ORW-667).
 
   # C2
   Scenario: A Diary Room call is visible, its content is not

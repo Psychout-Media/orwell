@@ -1790,6 +1790,24 @@ export interface EvictionView {
    * while the ballots are unread or the result has not been committed. Public after the fact; never present before the last ballot.
    */
   evictee?: NamedRef;
+  /** ORW-667 (0210 C1, `ORWELL_HOST`): the host's facts for the narrator on a played eviction night. Names and words only; absent for headless games or with the flag off. */
+  host?: HostView;
+}
+
+/**
+ * ORW-667 (0210 C1) - the host of eviction night, as FACTS the narrator voices (the engine writes no host line). Vault-free by construction: the manner (composed words from the
+ * season's seed), the week's PUBLIC ceremony roles by name, the player's own public seat, and public-record questions for the exit interview. No id, no number, no ballot, no motive.
+ */
+export interface HostView {
+  /** The host's manner this season, as words. */
+  register: string;
+  hoh?: string;
+  vetoHolder?: string;
+  vetoUsed?: boolean;
+  /** The player's own public seat this week (absent when they had none). */
+  playerRoles?: string[];
+  /** Public record the host may raise with the evictee at the exit interview (the evictee's own choices first, at most 3). */
+  questions?: string[];
 }
 
 /** The Vault-free result of advancing the game or resolving a decision. */

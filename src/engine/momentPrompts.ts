@@ -8,6 +8,7 @@ import { physicalFacetToAppearance } from "./portraitPrompts";
 import { MILESTONE_LABEL, milestoneLabel } from "./daySchedule";
 import { genderPresentationPhrase, pronounsFor, genderGuidanceClause } from "../domain/gender";
 import { provenanceWord } from "../domain/humanize";
+import { countFact, countShape } from "./productionHost";
 
 /**
  * #1326 — dedupe the "no genderPresentation facet on file" warning per houseguest (per process),
@@ -1797,6 +1798,31 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
 
 const CEREMONY_PHASE_PREFIXES = ["hoh-competition", "nominations", "veto", "eviction", "final-eviction"];
 
+/**
+ * ORW-667 (0210 C1) - the HOST block of a played eviction night: the host's manner and the PUBLIC facts it may work from, as facts to voice (the narrator authors every host
+ * word). Only what the house saw: the ceremony roles, the count's shape once the result is committed, the player's own public seat, and public-record questions for the exit
+ * interview. No ballot-caster, no motive, no private talk, no number. Rides the moment's own context, never the base prompt.
+ */
+export function renderHostBlock(view: GameStateView): string[] {
+  const ev = view.eviction, h = ev?.host;
+  if (!ev || !h) return [];
+  const ballots = ev.votesRevealed ?? [];
+  const out = [`    HOST (production's voice on eviction night, a character whose manner this season is ${h.register}; you author every word the host says, from the facts here and nothing else; the host knows only what the house saw):`];
+  const seat = [h.hoh ? `${h.hoh} is the Head of Household` : "", h.vetoHolder ? `${h.vetoHolder} holds the veto, ${h.vetoUsed ? "used" : "not used"}` : ""].filter(Boolean);
+  if (seat.length) out.push(`      Public board: ${seat.join("; ")}.`);
+  const stage = ev.evictee ? "the result is in" : ballots.length ? "the reading is under way" : "the house is gathered and the vote has not begun";
+  out.push(`      The night so far: ${stage}. Host the room in that moment: open with the house gathered, give each nominee their last words, stage the reading, and send the evictee off with a goodbye interview, as far as the game has reached.`);
+  if (ev.evictee && ballots.length) {
+    const n = new Map<string, number>();
+    for (const b of ballots) n.set(b.votedFor.id, (n.get(b.votedFor.id) ?? 0) + 1);
+    const [a = 0, b = 0] = [...n.values()].sort((x, y) => y - x);
+    out.push(`      The count, in the open: ${countFact(countShape(a, b))}. React to it as the host would, in the host's manner; state no number beyond the TALLY line.`);
+  }
+  if (h.playerRoles?.length) out.push(`      The player's own public seat this week: ${h.playerRoles.join(", ")}. The host may speak to that plainly, as a fact about what the player did in the open.`);
+  if (h.questions?.length) out.push(`      Public record the host may raise with ${ev.evictee?.name ?? "the evictee"} in the exit interview (their own choices first; ask in the host's own words, never a hidden thing): ${h.questions.join("; ")}.`);
+  return out;
+}
+
 /** The short engine-committed board recap for the ceremony phases (HOH, nominees, veto, eviction ballots), or undefined. */
 export function renderBoardRecap(view: GameStateView): string[] | undefined {
   const phase = String(view.phase ?? "").toLowerCase();
@@ -1849,6 +1875,7 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
         ? `    RESULT (engine-committed): ${ev.evictee.name} is evicted. Read every ballot above in order, building the suspense, then the result — add no ballot, no voter and no different evictee.`
         : "    The result has not been committed yet: read the ballots above in order, but announce no evictee and state no count or tally (the engine hands you none until the result is committed).");
     }
+    if (ev?.host) lines.push(...renderHostBlock(view));
   }
   return lines;
 }
