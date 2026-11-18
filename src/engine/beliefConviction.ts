@@ -67,7 +67,8 @@ const TESTABLE = new Set<BeliefClaim["kind"]>(["targets-me", "voted-against-me",
 
 /** Is this belief one the holder is still testing? (Believed, not refuted, testable, below a fact.) */
 export function underTest(b: BeliefClaim): boolean {
-  return b.value && !b.refuted && TESTABLE.has(b.kind) && b.confidence < CONVICTION.asFact && b.confidence >= CONVICTION.dropBelow;
+  // 0184 part 2a: a heard reputation (`rep:<label>`, spokenClaims.REPUTATION_NATURE_PREFIX; inlined to keep this module free of an import cycle) is talk, not a fact to go and check.
+  return b.value && !b.refuted && TESTABLE.has(b.kind) && !(b.nature?.startsWith("rep:") ?? false) && b.confidence < CONVICTION.asFact && b.confidence >= CONVICTION.dropBelow;
 }
 
 /** The open-question ref for testing a belief (the agenda's find-out goal answers it). */

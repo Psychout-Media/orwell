@@ -19,5 +19,28 @@ Each houseguest holds their own picture of every other houseguest's name, from w
 ## Wall
 Never projected, never a tool result, never a prompt line, never a number or label to the player. `tests/unit/reputation.test.ts` pins it.
 
-## Deferred to part 2
-Reputation voiced as gossip about NPCs and the player, social roles, reputation read by NPC-to-NPC deals and alliance offers, perceived bonds beyond the HOH read, faked distance, and the retrospective.
+## Part 2a: social roles, and reputations voiced as gossip (ORW-564; flag `ORWELL_SOCIAL_ROLES`, default ON)
+**The read (`src/engine/socialRoles.ts`, adapter `roleOf(observer, subject)`).** Roles emerge from what each houseguest SAW (the scenes they were in, or saw from the room), never assigned:
+- **villain:** starts fights and turns on people;
+- **peacemaker:** brings both sides of a fight they were not in back together;
+- **therapist:** takes the one who just got hit aside, one on one;
+- **jokester:** has a sense of humour (their voice) and gets the group going;
+- **outcast:** seen with almost nobody, in a house the observer has seen plenty of;
+- **snake:** the observer's own part-1 standing of them is poor;
+- **floater:** nobody the observer can see is close to them (the perceived floater read).
+
+Labels the observer was TOLD count toward a role at their confidence. So a role is a read, and it can be wrong. The player is read like anyone.
+
+**Voiced as gossip (Ryne's Q3 ruling).**
+- A new spoken claim kind, `has-reputation`, with an engine label: the listener holds it as a heard rumor whose nature carries the label (`rep:<label>`), with no new belief field. The narrator voices it in its own words, never as a label.
+- When a houseguest is asked what they know (the house-life `fish` action) and holds a role read of someone, a quarter of the time (`ROLES.voiceShare`) they answer with that instead of a belief, and they always do when they hold no belief to pass on. It is about the one asked about, else someone they hold a role for, and may be about the asker ("everyone says you're..."). The same rule sits on `leak`, but house life never chooses that action today (ORW-636).
+- Measured in one chat-paced played season: 48 reputation claims across six labels.
+- A heard reputation can be passed on to the player through the usual `tellsYou` decision, the player's own name included ("everyone thinks you're the snake").
+- A told "snake" or "villain" counts as a heard wrong in the part-1 standing, so a reputation spreads as claims do.
+- Heard reputations are talk, not a fact to check: they never start an ask-around test.
+- A label is TRUE only when the engine's own read of the whole record (every scene, as if seen) gives the same role. The retrospective's claim records show which labels were wrong.
+
+**The player in both directions.** The player's own scenes make their role in each observer's eyes (start fights and the house reads a villain). Gossip about the player reaches the player. The player can spread a reputation too: telling a houseguest someone is a snake (or any role) is an ORW-612 statement of kind `has-reputation` with the role word (the front end's scene belt proposes it, validated against the engine's role words, and the engine re-checks), and the listener holds it from the player like any claim.
+
+## Still to come (part 2b, 2c)
+Faked distance and perceived bonds beyond the HOH's read (2b); the retrospective's social map and reputation read by NPC-to-NPC deals and alliance offers (2c).

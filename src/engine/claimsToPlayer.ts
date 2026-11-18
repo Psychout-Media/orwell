@@ -2,7 +2,7 @@ import type { EntityId } from "../domain/ids";
 import { clamp01 } from "../domain/num";
 import { HEARD, heardConfidence } from "./heardAboutMe";
 import type { BeliefClaim } from "./beliefStore";
-import type { SpokenClaimKind } from "./spokenClaims";
+import { labelOfNature, type SpokenClaimKind } from "./spokenClaims";
 
 /**
  * Feature 0151 / ORW-330 (theme 2, slice 4a) - WHAT THE PLAYER HEARS. When the player is in a room with a houseguest who trusts them, that houseguest may pass on ONE thing they BELIEVE (mistakes
@@ -47,10 +47,13 @@ export function presentedBand(held: number | undefined, roll: number): Certainty
 export const PRESENTED_RANGE = { lo: HEARD.floorConfidence, hi: HEARD.ceilConfidence } as const;
 
 /** A belief mapped to what the houseguest would say. `object` is the second party; for the speaker's own grievance it is the speaker. */
-export interface SayableBelief { beliefId: string; kind: SpokenClaimKind; subject: EntityId; object?: EntityId; confidence: number; week: number }
+export interface SayableBelief { beliefId: string; kind: SpokenClaimKind; subject: EntityId; object?: EntityId; /** 0184 part 2a: a heard reputation's label */ label?: string; confidence: number; week: number }
 
 /** Which belief kinds can be said, as which claim kind. A belief about the player, or one the claim catalogue has no honest kind for, is left unsaid. */
 export function sayable(b: BeliefClaim, holder: EntityId, player: EntityId): SayableBelief | undefined {
+  // 0184 part 2a: a reputation the holder heard may be passed on, about anyone but themself - the player included ("everyone thinks you're the snake").
+  const label = b.kind === "heard-rumor" ? labelOfNature(b.nature) : undefined;
+  if (label !== undefined) return b.refuted || !b.value || b.subject === holder ? undefined : { beliefId: b.id, kind: "has-reputation", subject: b.subject, label, confidence: b.confidence, week: b.week };
   if (b.refuted || !b.value || b.subject === player || b.subject === holder) return undefined;
   const base = { beliefId: b.id, subject: b.subject, confidence: b.confidence, week: b.week };
   switch (b.kind) {

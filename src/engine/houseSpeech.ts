@@ -1,6 +1,7 @@
 import type { EntityId } from "../domain/ids";
 import { claimsOf, type BeliefClaim, type BeliefStore } from "./beliefStore";
-import type { ClaimInput, ClaimIntent, SpokenClaimKind } from "./spokenClaims";
+import { ROLES } from "./socialRoles";
+import { labelOfNature, type ClaimInput, type ClaimIntent, type SpokenClaimKind } from "./spokenClaims";
 
 /**
  * Feature 0153 / ORW-330 (theme 2, slice 3) - NPCs SPREAD AND LIE ON PURPOSE. The house-life speech actions that were only labels
@@ -26,11 +27,14 @@ export interface TruthFacts {
   liedTo(a: EntityId, b: EntityId): boolean;
   /** `a` has told anyone a claim about `b` (they have been talking about them). */
   talkedAbout(a: EntityId, b: EntityId): boolean;
+  /** 0184 part 2a: the role the engine reads in `who` from the whole record (every scene, as if seen); undefined = none. Absent = no reputation claim is true. */
+  roleOf?(who: EntityId): string | undefined;
 }
 
 /** Is this claim TRUE by the engine's records? (`listener` is who it is told to; "you" in a kind means the listener.) */
-export function truthOf(c: Pick<ClaimInput, "kind" | "listener" | "subject" | "object">, f: TruthFacts): boolean {
+export function truthOf(c: Pick<ClaimInput, "kind" | "listener" | "subject" | "object" | "label">, f: TruthFacts): boolean {
   switch (c.kind) {
+    case "has-reputation": return c.label !== undefined && f.roleOf?.(c.subject) === c.label;
     case "targets-you": return f.goalAgainst(c.subject, c.listener);
     case "voted-to-evict-you": return f.votedToEvict(c.subject, c.listener);
     case "final-two-with": return c.object !== undefined && f.finalTwo(c.subject, c.object);
@@ -53,23 +57,28 @@ export interface SpeechContext {
   facts: TruthFacts;
   /** A seeded roll in [0,1) from the caller's own side stream (picks among equally good options). */
   roll: number;
+  /** 0184 part 2a: the role `holder` reads in `subject` (`socialRoles`), or undefined. Absent = no role is ever said (byte-identical). */
+  roleOf?: (holder: EntityId, subject: EntityId) => string | undefined;
 }
 
 /** What a speaker can say from one of their beliefs (the belief re-phrased as a claim to `listener`), or undefined when the belief has no claim form. */
-export function claimFromBelief(b: BeliefClaim, speaker: EntityId, listener: EntityId): Pick<ClaimInput, "kind" | "subject" | "object"> | undefined {
+export function claimFromBelief(b: BeliefClaim, speaker: EntityId, listener: EntityId): Pick<ClaimInput, "kind" | "subject" | "object" | "label"> | undefined {
   if (!b.value || b.refuted || b.subject === listener || b.subject === speaker) return undefined;
   switch (b.kind) {
     case "targets-me": return { kind: "going-after", subject: b.subject, object: speaker };            // "X is after me"
     case "lied-to-me": return { kind: "lying-about", subject: b.subject, object: speaker };            // "X lied to me"
     case "voted-against-me": return { kind: "voted-against", subject: b.subject, object: speaker };    // "X voted to evict me"
     case "allied-with": return b.object !== undefined && b.object !== b.subject ? { kind: "final-two-with", subject: b.subject, object: b.object } : undefined;
-    case "heard-rumor":
+    case "heard-rumor": {
+      const label = labelOfNature(b.nature); // 0184 part 2a: a heard reputation is passed on as one
+      if (label !== undefined) return { kind: "has-reputation", subject: b.subject, label };
       if (b.object === undefined || b.object === b.subject) return undefined;
       if (b.nature === "going-after") return { kind: "going-after", subject: b.subject, object: b.object };
       if (b.nature === "lying") return { kind: "lying-about", subject: b.subject, object: b.object };
       if (b.nature === "talking-about") return { kind: "talking-about", subject: b.subject, object: b.object };
       if (b.nature === "voted-against") return { kind: "voted-against", subject: b.subject, object: b.object };
       return undefined;
+    }
     default: return undefined;
   }
 }
@@ -95,6 +104,20 @@ export function planSpeech(action: SpeechAction, actor: EntityId, partner: Entit
     const claim = { speaker: holder, listener, ...top.c };
     return { ...claim, isTrue: truthOf(claim, ctx.facts), intent };
   };
+  const roleLeak = (speaker: EntityId = actor, listener: EntityId = partner): ClaimInput | undefined => {
+    if (!ctx.roleOf) return undefined;
+    const pool = about !== undefined ? [about] : [...ctx.living].sort();
+    const start = pool.length ? Math.floor(ctx.roll * pool.length) % pool.length : 0;
+    for (let i = 0; i < pool.length; i++) {
+      const who = pool[(start + i) % pool.length]!;
+      if (who === speaker || !inHouse(who)) continue;
+      const label = ctx.roleOf(speaker, who);
+      if (label === undefined) continue;
+      const claim = { speaker, listener, kind: "has-reputation" as const, subject: who, label };
+      return { ...claim, isTrue: truthOf(claim, ctx.facts), intent: "inform" };
+    }
+    return undefined;
+  };
   switch (action) {
     case "plant": {
       if (!inHouse(about) || about === partner || about === actor) return undefined;
@@ -114,7 +137,13 @@ export function planSpeech(action: SpeechAction, actor: EntityId, partner: Entit
       }
       return undefined;
     }
-    case "leak": return fromBeliefs(actor, partner, "inform");
+    // 0184 part 2a: with no belief to pass on, a leak may be the speaker's read of someone's role ("they're the house villain") - about the one asked about, else
+    // the first in the house (rotated by the roll) they hold a role for; the partner may be the one talked about ("everyone says you're ..."). Never about the speaker.
+    case "leak": {
+      const role = roleLeak();
+      if (role && (ctx.roll * 7919) % 1 < ROLES.voiceShare) return role; // a second number from the same roll (the first picks whom), so the share is not tied to the rotation
+      return fromBeliefs(actor, partner, "inform") ?? role;
+    }
     case "confirm": {
       // back up what the LISTENER already believes about the target: the speaker re-tells the listener's own belief as theirs
       const theirs = about === undefined ? undefined : claimsOf(ctx.beliefs, partner).find((b) => b.subject === about && b.value && !b.refuted);
@@ -124,7 +153,11 @@ export function planSpeech(action: SpeechAction, actor: EntityId, partner: Entit
       const claim = { speaker: actor, listener: partner, ...c };
       return { ...claim, isTrue: truthOf(claim, ctx.facts), intent: "recruit" };
     }
-    case "fish": return fromBeliefs(partner, actor, "inform"); // the listener answers the asker with what THEY believe
+    case "fish": { // the listener answers the asker with what THEY believe - or, a share of the time, with their read of someone's role (0184 part 2a)
+      const role = roleLeak(partner, actor);
+      if (role && (ctx.roll * 7919) % 1 < ROLES.voiceShare) return role;
+      return fromBeliefs(partner, actor, "inform") ?? role;
+    }
   }
 }
 

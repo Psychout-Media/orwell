@@ -17,3 +17,57 @@ Then("the observer's credit for the houseguest's word is the bounded product of 
   assert.equal(composeWithCredibility(0.6, s, CREDIBILITY.floor), Math.max(CREDIBILITY.floor, 0.6 * s));
   assert.ok(composeWithCredibility(CREDIBILITY.floor, REPUTATION.floor, CREDIBILITY.floor) > 0);
 });
+
+// Part 2a (ORW-564): social roles - the REAL adapter through a registry sandbox. TEST-ONLY seams: the event record, the live season, the role read. Roles only.
+import { GameSessionRegistry } from "../../src/composition/registry";
+import { PLAYER } from "../../src/domain/ids";
+import { planSpeech } from "../../src/engine/houseSpeech";
+import { sayable } from "../../src/engine/claimsToPlayer";
+import { recordClaim, type BeliefStore } from "../../src/engine/beliefStore";
+import { reputationNature } from "../../src/engine/spokenClaims";
+type RoleSeam = {
+  live: { playedGame?: boolean; pending?: unknown; beliefs?: BeliefStore };
+  record?: { events(): unknown[] };
+  roleOf(o: string, s: string): string | undefined; setSocialRolesEnabled(on: boolean): void;
+};
+type RB = { g?: RoleSeam; npcs: string[]; subject?: string; said?: ReturnType<typeof planSpeech> };
+const rb = (x: unknown): RB => ((x as { roles0184?: RB }).roles0184 ??= { npcs: [] });
+let rn = 0;
+const fightsBy = (s: string, o: string, others: string[]) => [0, 1, 2].map((i) => ({ id: `r${s}${i}`, ts: i, type: "conflict", initiator: s, witnessSet: [s, others[i % others.length]!, o], hidden: false, content: "" }));
+Given("a played season with social roles on", function () {
+  const b = rb(this);
+  const sb = new GameSessionRegistry().sandboxFor(`roles0184-${rn++}`);
+  sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: 84 });
+  sb.session.advanceGame(); sb.session.advanceGame();
+  b.g = sb.session as unknown as RoleSeam; b.g.setSocialRolesEnabled(true);
+  b.g.live.playedGame = true; b.g.live.pending = undefined;
+  b.npcs = sb.session.livingIds().filter((i) => i !== PLAYER);
+});
+Given("a houseguest the observer saw start several fights", function () {
+  const b = rb(this); const [o, s, a, c] = b.npcs as [string, string, string, string]; b.subject = s;
+  b.g!.record = { events: () => fightsBy(s, o, [a, c]) };
+});
+Given("the player starting several fights the observer saw", function () {
+  const b = rb(this); const [o, a, c] = b.npcs as [string, string, string]; b.subject = PLAYER;
+  b.g!.record = { events: () => fightsBy(PLAYER, o, [a, c]) };
+});
+Then("the observer reads that houseguest as the house villain", function () { const b = rb(this); assert.equal(b.g!.roleOf(b.npcs[0]!, b.subject!), "villain"); });
+Then("the observer reads the player as the house villain", function () { const b = rb(this); assert.equal(b.g!.roleOf(b.npcs[0]!, PLAYER), "villain"); });
+Then("a houseguest who saw none of it reads no role in them", function () { const b = rb(this); assert.equal(b.g!.roleOf(b.npcs[4]!, b.subject!), undefined); });
+When("the observer passes their read on in a scene with nothing else to tell", function () {
+  const b = rb(this); const [o, , a] = b.npcs as [string, string, string];
+  const g = b.g as unknown as { roleOf(h: string, x: string): string | undefined; truthFactsForTest?: unknown };
+  b.said = planSpeech("leak", o, a, b.subject, true, { living: [...b.npcs, PLAYER], beliefs: {}, facts: (b.g as unknown as { truthFacts(): Parameters<typeof planSpeech>[5]["facts"] }).truthFacts(), roll: 0, roleOf: (h, x) => g.roleOf(h, x) });
+});
+Then("the listener holds it as talk about that houseguest, from the observer", function () {
+  const b = rb(this);
+  assert.ok(b.said); assert.equal(b.said!.kind, "has-reputation"); assert.equal(b.said!.subject, b.subject); assert.equal(b.said!.speaker, b.npcs[0]); assert.equal(b.said!.label, "villain");
+});
+Then("whether it is true is the engine's own read of the record, never the speaker's", function () {
+  assert.equal(rb(this).said!.isTrue, true); // three fights the record holds: the engine reads the same role
+});
+Then("a houseguest who heard it may tell the player what the house thinks of them, as gossip in their own words", function () {
+  const b = rb(this); const holder = b.npcs[1]!; const store: BeliefStore = {};
+  recordClaim(store, { holder, kind: "heard-rumor", subject: PLAYER, value: true, origin: "told", source: b.npcs[0]!, nature: reputationNature("villain"), confidence: 0.6, week: 1 });
+  assert.equal(sayable(store[holder]![0]!, holder, PLAYER)?.kind, "has-reputation");
+});
