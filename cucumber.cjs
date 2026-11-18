@@ -7,172 +7,33 @@ process.env.ORWELL_BEDTIME_GATE = "0"; // the BDD lane turns in at 8am in severa
 // TypeScript step definitions are loaded through the tsx ESM loader, wired via
 // NODE_OPTIONS="--import tsx" in the `test:bdd` npm script.
 //
-// `paths` lists exactly the features that have executable step definitions
-// (features/step_definitions/**). A Gherkin feature file NOT listed here is a spec-only design
-// contract (its header says so) that Cucumber does not execute; any verification outside Cucumber
-// (Vitest, FE pytest, deployment scripts, host smoke) is recorded in that feature's status entry in
-// the per-feature index (docs/features/README.md), not implied here. A feature is added here once
-// its steps are green. Gherkin feature files live in the docs features folder: CI treats ANY edit
-// to one as an engine change (deliberately broad, so a scenario-only edit still runs the BDD gate and
-// a later wiring into this file can't slip through), but only the paths listed here are executed.
-// Keep scenario edits to listed features paired with their step code.
+// `paths` is DISCOVERED, not hand-listed (a hand-appended array was the one line every feature PR fought over):
+// every `docs/features/**/*.feature` is executed UNLESS it carries the explicit `# spec-only:` marker in its first
+// three lines (a spec-only feature is a design contract that Cucumber does not execute; any verification outside
+// Cucumber (Vitest, FE pytest, deployment scripts, host smoke) is recorded in that feature's status entry in the
+// per-feature index, docs/features/README.md). So to wire a feature: write its steps (features/step_definitions/**)
+// and do NOT put the marker on it; to shelve one: put the marker on it. tests/unit/featureShelfDrift.test.ts pins
+// that every feature is one or the other. CI treats ANY edit to a .feature as an engine change (deliberately broad).
+// Keep scenario edits to wired features paired with their step code.
+const fs = require("node:fs");
+const path = require("node:path");
+function wiredFeatures() {
+  const walk = (dir, prefix) => {
+    const out = [];
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (e.isDirectory()) out.push(...walk(path.join(dir, e.name), `${prefix}/${e.name}`));
+      else if (e.name.endsWith(".feature")) out.push(`${prefix}/${e.name}`);
+    }
+    return out;
+  };
+  const root = path.join(__dirname, "docs", "features");
+  return walk(root, "docs/features")
+    .filter((rel) => !fs.readFileSync(path.join(__dirname, rel), "utf8").split("\n").slice(0, 3).some((l) => l.startsWith("# spec-only:")))
+    .sort();
+}
 module.exports = {
   default: {
-    paths: [
-      "docs/features/0001-vault-wall-isolation.feature",
-      "docs/features/0002-event-visibility-and-propagation.feature",
-      "docs/features/0003-behavioral-fidelity.feature",
-      "docs/features/0004-replayability-and-naming.feature",
-      "docs/features/0005-competition-eligibility.feature",
-      "docs/features/0006-outcomes-by-stats-and-temperature.feature",
-      "docs/features/0007-persistence-non-degradation.feature",
-      "docs/features/0008-daily-event-invariant.feature",
-      "docs/features/0009-mcp-tool-boundary.feature",
-      "docs/features/0011-weekly-loop-orchestration.feature",
-      "docs/features/0012-conversation-and-scene-system.feature",
-      "docs/features/0013-diary-room.feature",
-      "docs/features/0014-jury-and-endgame.feature",
-      "docs/features/0015-character-creation-oobe.feature",
-      "docs/features/0016-god-mode-admin.feature",
-      "docs/features/0017-relationship-model.feature",
-      "docs/features/0018-narrative-moment-orchestration.feature",
-      "docs/features/0019-agent-driven-play-loop.feature",
-      "docs/features/0020-player-experience.feature",
-      "docs/features/0021-game-session-and-save-lifecycle.feature",
-      "docs/features/0023-consequence-and-memory.feature",
-      "docs/features/0024-soul-storage-and-memory-recall.feature",
-      "docs/features/0025-reserve-twists.feature",
-      "docs/features/0026-relationship-math.feature",
-      "docs/features/0027-narrative-port-llm-adapter.feature",
-      "docs/features/0028-temperature-and-emotional-constants.feature",
-      "docs/features/0030-durable-game-persistence-survive-restart.feature",
-      "docs/features/0031-game-orchestrator-and-integrity-watcher.feature",
-      "docs/features/0034-live-weekly-progression-and-decision-seam.feature",
-      "docs/features/0037-live-jury-vote-choreography.feature",
-      "docs/features/0038-live-offscreen-society.feature",
-      "docs/features/0039-promise-and-deal-tracking.feature",
-      "docs/features/0040-npc-confessionals.feature",
-      "docs/features/0041-character-evolution-and-arc.feature",
-      "docs/features/0042-competition-library.feature",
-      "docs/features/0043-emergent-bloc-behavior.feature",
-      "docs/features/0044-strategic-nomination-and-vote-refinements.feature",
-      "docs/features/0045-endgame-structure.feature",
-      "docs/features/0046-player-eviction-and-jury.feature",
-      "docs/features/0047-eviction-night-live.feature",
-      "docs/features/0048-season-retrospective-and-unsealing.feature",
-      "docs/features/0049-house-presence-and-lingering.feature",
-      "docs/features/0050-casting-interview.feature",
-      "docs/features/0058-deep-character-profiles.feature",
-      "docs/features/0060-story-thread-scheduler.feature",
-      "docs/features/0061-player-self-eviction.feature",
-      "docs/features/0063-casting-diversity-floor.feature",
-      "docs/features/0062-world-snapshot-zeitgeist.feature",
-      "docs/features/0065-cast-prewarm.feature",
-      "docs/features/0066-in-game-time-and-sleep.feature",
-
-      "docs/features/0070-offscreen-texture-enrichment.feature",
-      "docs/features/0071-defensive-hardening-redaction-url-guards.feature",
-      "docs/features/0072-multi-platform-gateway.feature",
-      "docs/features/0073-structural-anti-sycophancy-wall.feature",
-      "docs/features/0075-trust-gated-confidences.feature",
-      "docs/features/0077-house-map-privacy-and-eyeshot.feature",
-      "docs/features/0078-motivated-society-and-intentional-movement.feature",
-      "docs/features/0084-character-voice-and-mood.feature",
-      "docs/features/0085-npc-campaigns-and-the-scramble.feature",
-      "docs/features/0086-houseguest-drives.feature",
-      "docs/features/0087-relationship-trajectories.feature",
-      "docs/features/0088-living-current-read.feature",
-      "docs/features/0089-reactive-confessionals.feature",
-      "docs/features/0090-per-archetype-voice.feature",
-      "docs/features/0091-trigger-secrets-house-events.feature",
-      "docs/features/0092-secret-pacing-drip.feature",
-      "docs/features/0093-secrets-as-levers.feature",
-      "docs/features/0099-secrets-as-currency.feature",
-      "docs/features/0094-distorted-gossip-consequences.feature",
-      "docs/features/0095-pre-show-ties-reveal.feature",
-      "docs/features/0096-emergent-nemesis.feature",
-      "docs/features/0100-jury-grudge-book.feature",
-      "docs/features/0101-npc-myth-making.feature",
-      "docs/features/0102-weekly-recap-cliffhanger.feature",
-      "docs/features/0104-season-notoriety.feature",
-      "docs/features/0105-suspicion-and-mood-anchoring.feature",
-      "docs/features/0109-deal-duration.feature",
-      "docs/features/0110-vote-deduction.feature",
-      "docs/features/0111-day-1-experience.feature",
-      "docs/features/0111-champagne-toast-first-impressions.feature",
-      "docs/features/0115-diary-room-strategic-confessional.feature",
-      "docs/features/0116-model-authored-cast-genesis.feature",
-      "docs/features/0117-house-lives-in-in-game-time.feature",
-      "docs/features/0118-ceremonies-as-timed-interrupts.feature",
-      "docs/features/0119-per-event-felt-durations.feature",
-      "docs/features/0120-strategic-drive-offscreen-cadence.feature",
-      "docs/features/0121-deal-depth-kinds-and-reliability-rewards.feature",
-      "docs/features/0122-deeper-daily-npc-confessionals.feature",
-      "docs/features/0123-npc-initiated-deal-offers.feature",
-      "docs/features/0124-deeper-character-evolution.feature",
-      "docs/features/0125-competition-theme-variety.feature",
-      "docs/features/0126-expanded-competition-mechanics.feature",
-      "docs/features/0127-mixed-type-competitions.feature",
-      "docs/features/0128-three-part-final-hoh.feature",
-      "docs/features/0129-the-jury-house.feature",
-      "docs/features/0130-exit-interviews.feature",
-      "docs/features/0133-early-eviction-skip-or-watch.feature",
-      "docs/features/0135-traitors-fury.feature",
-      "docs/features/0136-your-legend-precedes-you.feature",
-      "docs/features/0137-the-producer-read.feature",
-      "docs/features/0141-private-orientation-disclosure.feature",
-      "docs/features/0138-the-player-dossier.feature",
-      "docs/features/0140-publicity-priced-promises.feature",
-      "docs/features/0142-deal-depth-ii.feature",
-      "docs/features/0143-casual-assurances.feature",
-      "docs/features/0139-the-booth-has-receipts.feature",
-      "docs/features/0144-visible-mood-never-opposite.feature",
-      "docs/features/0145-npc-agendas.feature",
-      "docs/features/0147-npc-minds-house-life.feature",
-      "docs/features/0134-telephone-game-payoffs.feature",
-      "docs/features/0148-player-nap.feature",
-      "docs/features/0149-claims-core.feature",
-      "docs/features/0150-beliefs-drive-decisions.feature",
-      "docs/features/0153-npcs-spread-and-lie.feature",
-      "docs/features/0154-caught-in-a-lie.feature",
-      "docs/features/0151-what-you-hear.feature",
-      "docs/features/0152-who-told-you-that.feature",
-      "docs/features/0156-house-meetings.feature",
-      "docs/features/0157-rumor-mill-retrospective.feature",
-      "docs/features/0155-ledger-claims-net.feature",
-      "docs/features/0158-theme-2-end-to-end.feature",
-      "docs/features/0163-decisions-read-what-they-see.feature",
-      "docs/features/0179-network-shape-in-the-spread.feature",
-      "docs/features/0175-the-bond-record.feature",
-      "docs/features/0178-two-faced-deals.feature",
-      "docs/features/0190-the-audience-outside.feature",
-      "docs/features/0200-your-edit.feature",
-      "docs/features/0188-the-trap.feature",
-      "docs/features/0180-house-norms.feature",
-      "docs/features/0162-broken-deal-credibility.feature",
-      "docs/features/0161-alliance-history.feature",
-      "docs/features/0159-a-lie-planted-on-the-player.feature",
-      "docs/features/0168-house-culture.feature",
-      "docs/features/0160-belief-conviction.feature",
-      "docs/features/0169-gossip-feeds-beliefs.feature",
-      "docs/features/0177-house-graph.feature",
-      "docs/features/0183-private-habits-and-group-identity.feature",
-      "docs/features/0172-groups-roles-and-cracking.feature",
-      "docs/features/0176-homophily-and-territory.feature",
-      "docs/features/0173-status-and-the-hoh-court.feature",
-      "docs/features/0170-npc-deals-and-hoh-deal.feature",
-      "docs/features/0174-triads-swing-votes-kingmakers.feature",
-      "docs/features/0185-mood-contagion.feature",
-      "docs/features/0186-deal-exposed-and-renegotiated.feature",
-      "docs/features/0182-grudges.feature",
-      "docs/features/0184-reputation.feature",
-      "docs/features/0181-bond-feelings.feature",
-      "docs/features/0187-promises-bind.feature", "docs/features/0192-night-owls.feature", "docs/features/0194-moods-with-more-causes.feature", "docs/features/0199-hoh-room-reveal.feature", "docs/features/0196-dodging-the-question.feature",
-      "docs/features/0195-evicted-take-with-them.feature",
-      "docs/features/0171-favor-economy.feature",
-      "docs/features/0191-own-view-decisions.feature",
-      "docs/features/0189-jury-house-life.feature",
-    ],
+    paths: wiredFeatures(),
     import: ["features/support/**/*.ts", "features/step_definitions/**/*.ts"],
   },
 };

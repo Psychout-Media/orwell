@@ -27,7 +27,9 @@ export interface WhyOption {
 
 export type DecisionWhyKind =
   | "nomination-target" | "nomination-seat" | "replacement" | "vote" | "tie-break" | "veto" | "secret-veto-replacement"
-  | "final-hoh-eviction" | "deal-consent" | "deal-break" | "deal-renegotiate";
+  | "final-hoh-eviction" | "deal-consent" | "deal-break" | "deal-renegotiate"
+  // ORW-639 (Fable stacking audit S-11): the decisions that left no record. Same hidden, engine-only, append-only shape.
+  | "jury-vote" | "houseguests-choice" | "deal-keep";
 
 export interface DecisionWhy {
   kind: DecisionWhyKind;

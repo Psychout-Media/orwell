@@ -216,9 +216,13 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // `createCharacter`, so a mid-season dial would do nothing.
   { envKey: 'ORWELL_REACTIVE_TWISTS',        key: 'reactiveTwists',         parser: 'defaultOn' },
   // 0184 / ORW-564 (theme 3 slice 8, part 1): reputations - what each houseguest has heard or seen of another's lying and turning on people (softened by promises kept to them) scales how far they believe that houseguest and how willing they are to deal with them. Hidden. A played game only; needs ORWELL_BOND_RECORD. `=0` opts out.
+  // ORW-639 (Fable stacking audit S-10): the replacement nominee is picked with the same deal, pre-show tie, lobbying and kept-assurance terms as the original nominations (they were dropped before). A played game only; `=0` opts out.
+  { envKey: 'ORWELL_REPLACEMENT_TERMS', key: 'replacementTerms', parser: 'defaultOn' },
   { envKey: 'ORWELL_REPUTATION', key: 'reputation', parser: 'defaultOn' },
   // ORW-223 slice 1 (Showrunner memory part B): the room canon ledger - the narrated texture of a room is recorded as canon and listed in the Show Brief. ON by default ("built means on"); `=0` turns it off.
   { envKey: 'ORWELL_ROOM_CANON', key: 'roomCanon', parser: 'defaultOn' },
+  // ORW-621 (spec 0198): the houseguests in the player's own room take their goal steps there, in the player's view (a bounded few; the player is never moved or spoken for). ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_ROOM_LIFE', key: 'roomLife', parser: 'defaultOn' },
   { envKey: 'ORWELL_SCHEME_TARGETS',         key: 'schemeTargets',          parser: 'defaultOn' },
   { envKey: 'ORWELL_SECRET_BARTER',          key: 'secretBarter',           parser: 'defaultOn' },
   { envKey: 'ORWELL_SECRET_PACING',          key: 'secretPacing',           parser: 'defaultOn' },
@@ -226,6 +230,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_SHOWRUNNER',             key: 'showrunner',             parser: 'defaultOn' },
   { envKey: 'ORWELL_SHOWRUNNER_REWEIGHT',    key: 'showrunnerReweight',     parser: 'defaultOn' }, // ORW-270: measured fair, default ON
   { envKey: 'ORWELL_SOCIAL_FATIGUE',         key: 'socialFatigue',          parser: 'inverted' },
+  // 0184 part 2a / ORW-564: social roles (snake, floater, villain, peacemaker, jokester, therapist, outcast) read from what each houseguest saw and was told, and voiced as gossip claims. `=0` = no roles.
+  { envKey: 'ORWELL_SOCIAL_ROLES', key: 'socialRoles', parser: 'defaultOn' },
   { envKey: 'ORWELL_SOUL_DEPTH',             key: 'soulDepth',              parser: 'defaultOn' },
   { envKey: 'ORWELL_STRATEGIC_CADENCE',      key: 'strategicCadence',       parser: 'defaultOn' },
   // A54 / #2017 M5: npcVoice hands the narrator what the NPC remembers about the player (top 3 plain facts) + an engine-decided, rate-limited bringUp. ON by default (see ORWELL_NPC_MEMORY_SPEECH below); `=0` turns it off.
