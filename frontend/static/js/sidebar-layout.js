@@ -685,6 +685,8 @@ const RAIL_MIRRORS = [
   // (data-rail-source="tool-memory-btn"); reusing it hijacked that button's icon + gating and broke
   // the H4 icon-parity smoke. This entry must keep its own unique id.
   { rail: 'rail-memory-wall', source: 'sidebar-memory-btn', activate: true },
+  // 0208 B3: the Hall of Fame entry (orwellHallOfFame.js) - standing, shown outside a game too.
+  { rail: 'rail-hall-of-fame', source: 'sidebar-hall-btn', activate: true },
   {
     rail: 'rail-game-status', source: 'orwell-status', section: 'orwell-status',
     iconSel: '.os-hdr svg',
