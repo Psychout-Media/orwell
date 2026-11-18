@@ -173,7 +173,7 @@ describe("0170 the pact is planned by main's planner and the push reads that pla
     expect(g.dealNomPushFor(other, hoh)).not.toBeGreaterThan(0);
   });
   it("a kept pact keeps the protective push, and so does a pact whose plan is not a nominations break", () => {
-    for (const plan of [{ kind: "keep" }, { kind: "break-at", moment: { week: 99, at: "vote" } }, { kind: "this-week", moment: { week: 99, at: "nominations" } }]) {
+    for (const plan of [{ kind: "keep" }, { kind: "break-at", moment: { week: 99, at: "vote" } }, { kind: "a-retired-kind", moment: { week: 99, at: "nominations" } }]) {
       const { g, hoh, other, live, id } = playedPact();
       live.dealPlans![id]![hoh] = { ...plan, madeWeek: live.week };
       live.dealPlans![id]![other] = { kind: "keep", madeWeek: live.week };

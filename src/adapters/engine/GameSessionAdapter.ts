@@ -126,7 +126,7 @@ import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
 import { DEAL_EXPOSURE, exposureHits, reopened, twistKey, type DealTwist } from "../../engine/dealExposure";
-import { DEAL_PLANS, PLAN_SEMANTICS, buildDealPlanRetro, decidePlan, fakingLean, isBetrayal, ledgerPlanKey, momentDue, planBond, planSourceOf, recordPlan, type DealPlanRetro, type PlanSource, type StoredPlan } from "../../engine/dealPlans";
+import { DEAL_PLANS, planSemantics, buildDealPlanRetro, decidePlan, fakingLean, isBetrayal, ledgerPlanKey, momentDue, planBond, planSourceOf, recordPlan, type DealPlanRetro, type PlanSource, type StoredPlan } from "../../engine/dealPlans";
 import { DEAL_CONSENT, type DealRefusalReason } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
@@ -1719,7 +1719,7 @@ export class GameSessionAdapter implements GameSession {
     const plan = this.dealPlanSource().planOf(ledgerPlanKey(entryId), holder);
     if (!plan) return undefined;
     if (!isBetrayal(plan.kind)) return false;
-    return PLAN_SEMANTICS[plan.kind].carriedOut === "final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
+    return planSemantics(plan.kind).carriedOut === "final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
   }
   /** ORW-586 slice 5: the plan verdict for the open termed promise an assurance row was written from (same promiser, promisee, kind and week); any due betrayal wins. `undefined` = no plan found. */
   private ledgerPlanVerdictFor(a: Assurance, now: "nominations" | "veto" | "vote"): boolean | undefined {
@@ -19791,7 +19791,7 @@ export class GameSessionAdapter implements GameSession {
       && (d.condition.protect === other || d.condition.promisors.length === 2) // a mutual deal protects each party from the other
       && (() => {
         const p = this.twoFacedPlan(d.id, holder);
-        if (!p || PLAN_SEMANTICS[p.kind].carriedOut !== "vote" || !p.moment || !momentDue(p.moment, s.week, "vote")) return false;
+        if (!p || planSemantics(p.kind).carriedOut !== "vote" || !p.moment || !momentDue(p.moment, s.week, "vote")) return false;
         const all = this.deals.all, at = all.indexOf(d);
         return !all.some((n, i) => i > at && pair(n)); // recommitted since (made after this deal, same week or later): the newer deal stands
       })());
@@ -19861,7 +19861,7 @@ export class GameSessionAdapter implements GameSession {
         }
         const partner = deal.parties.find((p) => p !== holder);
         if (partner !== undefined && gone.has(partner)) { plan.outcome = "overtaken"; continue; } // ORW-597: never against an evicted partner (nothing to betray in the house)
-        const how = PLAN_SEMANTICS[plan.kind].carriedOut;
+        const how = planSemantics(plan.kind).carriedOut;
         if (how === "never" || how === "vote" || gone.has(holder)) continue; // honest; or a flip, which the vote itself carries out
         const due = how === "final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
         if (!due) continue;

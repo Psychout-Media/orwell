@@ -78,8 +78,8 @@ describe("planAwareDealPush", () => {
     expect(planAwareDealPush(-0.2, "npc:1", "npc:2", 2, deal(), src())).toBe(-0.2);
   });
   const st = (plan: DealPlan, outcome?: "carried-out" | "kept-anyway" | "overtaken"): PlanSource => ({ planOf: (_d, h) => (h === "npc:1" ? ({ ...plan, ...(outcome ? { outcome } : {}) } as DealPlan) : undefined) });
-  it("keep, this-week, cut-final-three, flip and break-at-vote keep the protective push", () => {
-    for (const plan of [{ kind: "keep" }, { kind: "this-week" }, { kind: "cut-final-three" }, { kind: "flip", moment: { week: 2, at: "vote" } }, { kind: "break-at", moment: { week: 2, at: "vote" } }] as DealPlan[])
+  it("keep, a retired kind, cut-final-three, flip and break-at-vote keep the protective push", () => {
+    for (const plan of [{ kind: "keep" }, { kind: "a-retired-kind" }, { kind: "cut-final-three" }, { kind: "flip", moment: { week: 2, at: "vote" } }, { kind: "break-at", moment: { week: 2, at: "vote" } }] as DealPlan[])
       expect(planAwareDealPush(-0.2, "npc:1", "npc:2", 2, deal(), src(plan))).toBe(-0.2);
   });
   it("a break at the nominations turns it positive in THAT week only, never earlier or after", () => {
