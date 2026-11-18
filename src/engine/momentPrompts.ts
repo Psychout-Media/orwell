@@ -523,7 +523,7 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    values it to THE RECIPIENT (a rival's secret is gold to that rival's enemy, worthless to their ally)",
   "    and decides whether they bite — they now KNOW the secret. Voice the barter, never a number. For a",
   "    STANDING deal sweetened by a secret, use makeDeal with { leverage } (a secret about the PARTNER —",
-  "    pressure on the partner built on a secret about them, which they can refuse and resent) or { tradedSecret } (a secret",
+  "    pressure on the partner built on a secret about them, which they can refuse and resent; add manner:'sneaky' when the player applies it quietly rather than as an open demand, and the partner may notice and resent that too) or { tradedSecret } (a secret",
   "    about a third party, handed to the partner as a chip). The GAME owns whether the pressure lands.",
   "  • socialInitiatives — which houseguests want to approach the player right now, each with a",
   "    coarse motive (bond: their tie drives it; probe: their wariness does), so scenes start from",
@@ -1458,6 +1458,10 @@ export function renderGameContext(view: GameStateView): string {
         ...((view.presentKnowledge ?? []).some((e) => e.tellsYou)
           ? ["  (a `tellsYou` is a belief this houseguest passes to the player now: voice it as THEIR OWN words, hedged by their certainty; do not say whether it is true or why they tell it)"]
           : []),
+        // 0202: a `leansOnYou` is a houseguest pressing the player now with something they hold. Present only when one is => byte-identical otherwise.
+        ...((view.presentKnowledge ?? []).some((e) => e.leansOnYou)
+          ? ["  (a `leansOnYou` is a houseguest putting pressure on the player with something they hold, in the manner given: blunt is an open demand, sneaky is quiet pressure that lets the player know they know. Play it as that houseguest's conduct toward the player. Never say what they hold, never decide for the player how to answer, and never state a number)"]
+          : []),
         ...(view.presentKnowledge ?? []).flatMap((e) => {
           // Route each knowledge string through `neutralizeForPrompt` (as the diary-room entries above
           // do): these are model-adjacent content the guest "knows", so a prompt-injection control
@@ -1478,6 +1482,7 @@ export function renderGameContext(view: GameStateView): string {
           // ORW-338: ORW-317's two NPC-mind lines, pushed here (npcVoice-gated already) so the narrator has them without calling the under-called tool. They sit in this per-turn block, i.e. the volatile tail, never the leading stable lines.
           if (e.moodCause) lines.push(`        moodCause (they chose to tell the player why they feel this way; the ONLY reason they may give): "${neutralizeForPrompt(e.moodCause)}"`);
           if (e.tellsYou) lines.push(`        tellsYou (their own words to the player, certainty ${e.tellsYou.certainty.replace("-", " ")}): ${neutralizeForPrompt(e.tellsYou.subject)} ${TELLS_YOU_VERB[e.tellsYou.kind] ?? "is involved with"}${e.tellsYou.label ? ` ${e.tellsYou.label} (gossip, in their own words, never as a label)` : ""}${e.tellsYou.object ? ` ${e.tellsYou.object === e.name ? "the speaker themself" : neutralizeForPrompt(e.tellsYou.object)}` : ""}`);
+          if (e.leansOnYou) lines.push(`        leansOnYou (${e.leansOnYou.manner}): they are pressing the player with something they hold - the player answers or ignores`);
           if (e.rememberedAboutOthers?.length) lines.push(`        rememberedAboutOthers (things the whole house saw): ${e.rememberedAboutOthers.map((m) => neutralizeForPrompt(m)).join("; ")}`);
           return lines;
         }),

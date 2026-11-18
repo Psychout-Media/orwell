@@ -153,6 +153,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_JURY_HOUSE',             key: 'juryHouse',              parser: 'defaultOn' },
   // B26-jury layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_JURY_MEMORY', key: 'juryMemory', parser: 'defaultOn' },
+  // 0202 / ORW-645: leverage in two registers - a houseguest who holds a secret about someone may lean on them blunt (an explicit demand) or sneaky (quiet pressure), or simply keep it; the player can lean either way too (a `manner` on makeDeal's leverage). Played games only. ON by default; `=0` turns it off, byte-identical.
+  { envKey: 'ORWELL_LEVERAGE_PLAYS', key: 'leveragePlays', parser: 'defaultOn' },
   // B23 / #2017 14.5(3): a lie exposed (a believed bluff caught by a real expose/trade, a landed accuseTie) writes a `lied-to-me` belief claim at the evidence's confidence; a believed bluff is stored as a belief too. Needs ORWELL_NPC_BELIEFS. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_LIES_CAUGHT', key: 'liesCaught', parser: 'defaultOn' },
   // B6 / #2017: NPC-to-NPC lobbying of the HOH (a bounded pitch tilt in the nomination score). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.

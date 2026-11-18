@@ -5915,6 +5915,8 @@ def _parse_secret_lever(raw) -> Optional[Dict]:
     subject = raw.get("subject")
     if isinstance(subject, str) and subject.strip():
         lever["subject"] = subject.strip()
+    if raw.get("manner") in ("blunt", "sneaky"):  # 0202: the register of a leverage press; the engine decides everything else
+        lever["manner"] = raw["manner"]
     return lever or None
 
 

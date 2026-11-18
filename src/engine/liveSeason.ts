@@ -818,6 +818,10 @@ export interface LiveSeasonState {
   traps?: import("./trap").Trap[];
   /** 0188: the last day the trap tick ran (once a day). */
   trapsDay?: number;
+  /** 0202 / ORW-645: leverage plays (a held secret leaned on someone, blunt or sneaky). ENGINE-ONLY (Vault class, holds fact ids), append-only (an outcome closes a record, never removes it); persisted. */
+  leveragePlays?: import("./leveragePlay").LeveragePlay[];
+  /** 0202: the last day the leverage tick ran (once a day). */
+  leveragePlaysDay?: number;
   /**
    * 0130 — each evictee's exit interview, week by week: their public posture on the way out (a `stance`
    * DERIVED from their manner for an NPC, or the PLAYER's own chosen stance + words). Recorded as the

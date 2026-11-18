@@ -1607,6 +1607,7 @@ FUNCTION_TOOL_SCHEMAS = [
                             "factId": {"type": "string", "description": "The id of a secret the player has actually LEARNED about the deal partner. Omit only for a bluff."},
                             "bluff": {"type": "boolean", "description": "Set true to press a secret the player does NOT hold (a gamble); then 'subject' is required."},
                             "subject": {"type": "string", "description": "For a bluff: the houseguest id the invented secret is about (usually the deal partner)."},
+                            "manner": {"type": "string", "enum": ["blunt", "sneaky"], "description": "Feature 0202 - how the pressure is applied. blunt (the default) is an explicit demand; sneaky is quiet pressure (letting them know you know, a favour that becomes a debt). The ENGINE decides whether it lands and whether it is noticed."},
                         },
                     },
                     "tradedSecret": {
