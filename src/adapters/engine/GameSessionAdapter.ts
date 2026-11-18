@@ -8559,6 +8559,7 @@ export class GameSessionAdapter implements GameSession {
       knowledge,
       rng,
       ...(this.napAsleep ? { playerAsleep: true } : {}),
+      ...(this.live?.playedGame === true ? { countPlayer: true } : {}), // ORW-614 (P-9): a played game's house counts the player in the room it is watching
     });
   }
 
@@ -13992,7 +13993,11 @@ export class GameSessionAdapter implements GameSession {
       this.presenceBase?.set(p.actor, p.place);
     }
     // ORW-561 (spec 0176 part 2): after they have walked, each awake houseguest's hour accrues to the hidden tenure map where they ended up (the HOH room too: slice 11 reads that time; the Diary Room is private).
-    if (this.territoryOn()) { const t = (s.tenure ??= {}); for (const id of awakeIds) { const r = presence.get(id); if (r && r !== "diary-room") bumpTenure(t, id, r); } }
+    if (this.territoryOn()) { const t = (s.tenure ??= {}); for (const id of awakeIds) { const r = presence.get(id); if (r && r !== "diary-room") bumpTenure(t, id, r); }
+      // ORW-614 (P-11): the player's own hours count toward the crowd they keep, like anyone's (never while napping; the Diary Room is private).
+      const pr = presence.get(house.player.id);
+      if (pr && pr !== "diary-room" && !awakeIds.includes(house.player.id) && (this.awakeNow()?.has(house.player.id) ?? true)) bumpTenure(t, house.player.id, pr);
+    }
     const gate = this.offscreenShowmanceGate();
     const out: OffscreenScene[] = [];
     for (const scene of assembleScenes(plans)) {
