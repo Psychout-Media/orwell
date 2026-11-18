@@ -19723,7 +19723,19 @@ export class GameSessionAdapter implements GameSession {
       if (r.kind !== "heard-rumor" || r.nature !== "betrayal" || r.refuted || r.week !== week) continue;
       // ORW-686 item 5 (played games): a betrayal rumor says its subject betrayed SOMEONE. It is "they target me" only when the holder is the one betrayed; otherwise the rumor
       // stays what it is (the heard-rumor belief, already read as a grievance where gossip beliefs are on) and is not folded a second time into a claim nobody made.
-      if (played && r.object !== holder) continue;
+      // ORW-686 follow-up (victim-aware): a rumor that names no victim, or names someone else, makes everyone but the victim distrust its SUBJECT. A gossip-origin rumor already did
+      // that at receipt (its E44 edge fold); a told one (`recordHeardAboutMe`) moved no edge, so it takes the same bounded fold here, once (the claim's `impact` is the mark and the
+      // refutation record), on a stream of its own keyed by the claim (no shared draw). No writer records a victim today, so in practice every hearer lands here.
+      if (played && r.object !== holder) {
+        const heard = GOSSIP_HEARD[r.nature];
+        if (r.origin === "told" && r.impact === undefined && heard && r.subject !== holder) {
+          const e = this.rel.edge(holder, r.subject);
+          const before = { trust: e.trust, affinity: e.affinity, threat: e.threat };
+          this.rel.applyImpactDirected(holder, r.subject, scaleImpact(heard, Math.max(0, Math.min(1, r.confidence))), new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:rumor-distrust:${r.id}`)));
+          r.impact = edgeDelta(before, this.rel.edge(holder, r.subject));
+        }
+        continue;
+      }
       recordClaim(store, { id: `${holder}|targets-me|${r.subject}|r:${r.id}|${week}`, holder, kind: "targets-me", subject: r.subject, object: holder, value: true, origin: "gossip", confidence: Math.max(0, Math.min(1, r.confidence)) * 0.5, week });
     }
   }
