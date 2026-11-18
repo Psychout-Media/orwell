@@ -14684,7 +14684,9 @@ export class GameSessionAdapter implements GameSession {
   /** One public call event: the whole room as witnesses, a fact and nothing said in there. The player is a witness only when they were there to see it (an unwitnessed event is hidden). */
   private recordDiaryCallEvent(events: EventStore, who: EntityId, content: string, id: string): void {
     const set = [...new Set([who, ...this.diaryWitnesses()])];
-    events.record({ id, ts: 0, type: "diary-call", initiator: who, witnessSet: set, hidden: !set.includes(PLAYER), content });
+    const hidden = !set.includes(PLAYER);
+    // The integrity checkpoint reads a hidden content that equals any text the player can see as a leak, and the same houseguest is called more than once: a call the player did not see says so, so it never equals one they did.
+    events.record({ id, ts: 0, type: "diary-call", initiator: who, witnessSet: set, hidden, content: hidden ? `${content}, out of the player's sight` : content });
   }
   private diaryCallStep(events: EventStore, awakeIds: readonly EntityId[]): void {
     if (!this.diaryCallsLive()) return;
