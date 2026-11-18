@@ -37,6 +37,15 @@ export interface BondRecord {
 
 export type BondStore = Record<string, BondRecord>;
 
+/** ORW-606: the non-degradation check for the bond record: no pair's record is ever lost and its shared history and peak grudge only grow. */
+export function bondStoreSuperset(later: BondStore | undefined, earlier: BondStore | undefined): boolean {
+  for (const [k, e] of Object.entries(earlier ?? {})) {
+    const l = later?.[k];
+    if (!l || l.history < e.history || l.peakResentment < e.peakResentment) return false;
+  }
+  return true;
+}
+
 export const BOND = {
   /** A warm scene together (bonding / alliance talk): warmth up, strain repaired. */
   warmthPerBond: 0.08,
