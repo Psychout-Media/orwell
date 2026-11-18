@@ -91,7 +91,7 @@ import { FavorLedger, type FavorEntry } from "../../engine/favors";
 import { FAVOR } from "../../engine/favorConstants";
 import { counterStreamKey, weighCounter, type CounterAsk, type CounterSide } from "../../engine/favorCounters";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
-import { NPC_MEMORY, PLAYED_NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, salience, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, BOOK_FOLDED_KINDS, type BookRead, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
+import { NPC_MEMORY, PLAYED_NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, salience, SCENE_MEMORY_SEVERITY, SCENE_MEMORY_SEVERITY_MORE, SCENE_MOOD_ONLY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, BOOK_FOLDED_KINDS, type BookRead, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
@@ -1891,6 +1891,15 @@ export class GameSessionAdapter implements GameSession {
     if (holder === breaker || (role === "witness" && deal.parties.includes(holder))) return;
     this.writeLieCaught(holder, breaker, brokenDealLieConfidence(deal, this.live?.week, role), role === "wronged" ? "witnessed" : "told", brokenDealClaimId(holder, breaker, deal));
     if (role === "wronged") this.noteMoodCause(holder, "betrayed", breaker); // 0194: a betrayal learned
+  }
+  /**
+   * ORW-684: the wronged party has just LEARNED of a quiet break. They hold what a caught lie leaves (the same `lied-to-me` claim, same id, same confidence as a break they saw; idempotent per deal per holder) and
+   * the betrayal mood cause it always had. Played games only (a headless season never plants it). Before this the claim was planted only for a break seen at once, so a planned or quiet break the wronged side
+   * later learned of left no claim for the credibility, revenge and recheck folds to read.
+   */
+  private learnedBreakClaim(wronged: EntityId, breaker: EntityId, deal: Deal): void {
+    if (this.live?.playedGame === true) this.writeDealBreakLie(wronged, breaker, deal, "wronged");
+    else this.noteMoodCause(wronged, "betrayed", breaker);
   }
   /**
    * B24 / #2017 14.5(5) - HEARD-ABOUT-ME. What a houseguest is TOLD about the player in a recorded chat scene is a belief they hold (engine-only, voiced only BY that holder), at the TELLER's reliability (the
@@ -6671,7 +6680,7 @@ export class GameSessionAdapter implements GameSession {
     this.deals.learnOfBreak(deal, {
       rel: this.rel, rng: new SeededRandom(hashSeed(`${seed}:learn-break:${deal.id}`)), currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
       juryDemerit: (w, b) => recordDealBetrayal(s, w, b),
-      learned: (w, b) => { this.noteMoodCause(w, "betrayed", b); }, // 0194 follow-up: a break LEARNED later is a betrayal cause the day they learn it
+      learned: (w, b, d) => this.learnedBreakClaim(w, b, d), // 0194 follow-up: a break LEARNED later is a betrayal cause the day they learn it (+ ORW-684: the lied-to-me claim)
       revealToWitness: (witness, b) => { this.onPlayerEvent?.(`${this.nameOf(b)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
     });
   }
@@ -14593,14 +14602,15 @@ export class GameSessionAdapter implements GameSession {
     void events; // the transfer records THROUGH `knowledge` (transmitGossip) — the store is the caller's contract
     const npcs = this.awakeAmong(this.livingIds().filter((id) => id !== PLAYER)); // ORW-572: only the awake trade secrets
     if (npcs.length < 2) return; // nobody to trade between
-    // A holder's TRADEABLE secrets: a learned belief ABOUT a still-active NPC houseguest (never themselves,
-    // never the player — a player-subject belief rides the ordinary PV1/gossip path, not a barter). Stable
-    // key order so the dedicated draw sequence is reproducible.
+    // A holder's TRADEABLE secrets: a learned belief ABOUT a still-active NPC houseguest (never themselves). ORW-614 (P-11, `ORWELL_SECRET_BARTER_PLAYER`, played games): a belief ABOUT THE PLAYER is tradeable
+    // the same way (the player is a subject like any houseguest; the transfer is the same hidden NPC-to-NPC told-by event the player never witnesses, so nothing reaches the player or the narrator except through a
+    // later in-game pathway with a source). Stable key order so the dedicated draw sequence is reproducible.
+    const playerSubjectOk = this.secretBarterPlayerEnabled && this.live?.playedGame === true;
     const tradeableOf = (holder: EntityId) =>
       knowledge.knownTo(holder)
         .filter((k) => {
           const subj = k.subject;
-          return subj !== undefined && subj !== holder && subj !== PLAYER && this.isActiveNpc(subj);
+          return subj !== undefined && subj !== holder && (this.isActiveNpc(subj) || (subj === PLAYER && playerSubjectOk));
         })
         .sort((a, b) => (a.factId ?? a.id).localeCompare(b.factId ?? b.id));
     // Holders with something to spend, in deterministic order, capped for work. A tick with NOTHING to
@@ -14685,6 +14695,10 @@ export class GameSessionAdapter implements GameSession {
       recipientTrustOfPlayer: this.rel.edge(recipient, giver).trust, // source-trust slot — the giver, for a barter
     };
   }
+
+  /** ORW-614 (P-11, `ORWELL_SECRET_BARTER_PLAYER`, default ON; `=0` byte-identical): houseguests may trade a secret ABOUT the player among themselves (played games only; needs the barter layer). */
+  private secretBarterPlayerEnabled = flagDefaultOn("ORWELL_SECRET_BARTER_PLAYER");
+  setSecretBarterPlayerEnabled(on: boolean): void { this.secretBarterPlayerEnabled = on; }
 
   /** Turn the off-screen SECRET BARTER on/off (0099). Off by default — the calibration harness leaves it
    *  off (with it off `secretBarterTick` returns before any draw ⇒ the seeded spine is byte-identical). */
@@ -17702,11 +17716,13 @@ export class GameSessionAdapter implements GameSession {
       if (refusal) {
         const counter = this.maybeCounterOffer(target, req.kind, refusal);
         if (counter) refusal.counteroffer = counter;
+        if (this.closeCounteredOffer(req.countersOffer, target)) this.persist(); // a refused counter still spends the offer it answered
         if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, refusal);
         return refusal;
       }
     }
     const terms = (req.terms ?? "").slice(0, 200);
+    this.closeCounteredOffer(req.countersOffer, target); // ORW-614 (P-12): the player's own terms answer a standing offer from this houseguest; the offer is spent, the consent read above already ran on the player's terms
     const evId = this.onPlayerEvent?.(
       `${this.nameOf(PLAYER)} and ${this.nameOf(target)} make a ${req.kind} deal: ${terms}`,
       [PLAYER, target], "deal",
@@ -18756,7 +18772,7 @@ export class GameSessionAdapter implements GameSession {
       // 0109 / #1993: the week the break lands in — lets an explicit negotiated term scale the betrayal-shock by
       // the life it had left. A deal with no `expiresWeek` scales by 1 either way ⇒ byte-identical to 0039.
       currentWeek: this.live.week,
-      learned: (w, b) => { this.noteMoodCause(w, "betrayed", b); }, // 0194 follow-up: a quiet break the wronged party LEARNS of through the breaker's public act
+      learned: (w, b, d) => this.learnedBreakClaim(w, b, d), // 0194 follow-up: a quiet break the wronged party LEARNS of through the breaker's public act (+ ORW-684: the lied-to-me claim)
       // 0121: the deal-depth layer — a kept deal compounds via the LOYALTY STREAK (consecutive kept deals
       // with the same partner scale the honored fold, bounded). OFF ⇒ the plain 0039/0109 honored fold,
       // byte-identical.
@@ -19279,16 +19295,28 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-616 (2): the memory half of a scene between houseguests: `holder` remembers `actor` by the scene's kind (no soul inflection here: the off-screen path already moves both souls). */
   private rememberSceneAbout(holder: EntityId, sceneKind: string, actor: EntityId): void {
     if (!this.npcMemoryWritersEnabled || holder === PLAYER || actor === PLAYER) return;
-    const m = SCENE_MEMORY_SEVERITY[sceneKind];
+    const m = SCENE_MEMORY_SEVERITY[sceneKind] ?? (this.playerSceneMovesOn() ? SCENE_MEMORY_SEVERITY_MORE[sceneKind] : undefined);
     if (m) this.remember(holder, actor, m.kind, m.severity);
   }
+  /** ORW-614 (P-11, `ORWELL_PLAYER_SCENE_MOVES`, default ON; `=0` byte-identical): flirt, strategy and gossip scenes move mood and memory like the four kinds that already did, for a scene the player is in AND one between houseguests. Played games only. */
+  private playerSceneMovesEnabled = flagDefaultOn("ORWELL_PLAYER_SCENE_MOVES");
+  setPlayerSceneMovesEnabled(on: boolean): void { this.playerSceneMovesEnabled = on; }
+  private playerSceneMovesOn(): boolean { return this.playerSceneMovesEnabled && this.live?.playedGame === true; }
 
   /** P4g - the NPCs a recorded PLAYER scene touched remember it: a betrayal / conflict (grudge) or a kindness (favor) about the PLAYER, through the existing 0024 ledger. Needs the
    *  memory layer + writers on (default ON); other kinds write nothing. Deterministic, no rng, bounded by the ledger cap. */
   rememberPlayerScene(holders: readonly EntityId[], sceneKind: string, subject: EntityId = PLAYER): void {
     if (!this.npcMemoryWritersEnabled) return;
-    const m = SCENE_MEMORY_SEVERITY[sceneKind];
-    if (!m) return;
+    const more = this.playerSceneMovesOn();
+    const m = SCENE_MEMORY_SEVERITY[sceneKind] ?? (more ? SCENE_MEMORY_SEVERITY_MORE[sceneKind] : undefined);
+    if (!m) {
+      // ORW-614 (P-11): a scene that writes no memory still moves the mood of the houseguests it touched, the way the same scene between houseguests does (the partner's side, scaled down like the other scene moods). Same gate as the mood below.
+      const moodOnly = more ? SCENE_MOOD_ONLY_SEVERITY[sceneKind] : undefined;
+      if (moodOnly !== undefined && this.driftFixEnabled && this.soulDepthEnabled) {
+        for (const h of holders) if (h !== PLAYER) this.inflect(h, offscreenEmotion(sceneKind as InteractionType, "partner"), (moodOnly / 0.6) * (0.75 + 0.5 * Math.max(0, Math.min(1, this.rel.edge(h, subject).trust))));
+      }
+      return;
+    }
     for (const h of holders) this.remember(h, subject, m.kind, m.severity); // ORW-609: `subject` is whoever ACTED in the scene (the player unless a houseguest did it)
     // B32 / #2017 15.7 E5 (ORWELL_DRIFT_FIX): the chat scene feeds the emotional arc too - a betrayal / conflict hardens the wronged NPC, kindness softens - weighted by severity and by how much the NPC TRUSTED the player (a friend's betrayal cuts deeper).
     if (this.driftFixEnabled && this.soulDepthEnabled) {
@@ -19296,7 +19324,7 @@ export class GameSessionAdapter implements GameSession {
         if (h === PLAYER) continue;
         const trust = this.rel.edge(h, subject).trust;
         const scale = (m.severity / 0.6) * (0.75 + 0.5 * Math.max(0, Math.min(1, trust)));
-        this.inflect(h, m.kind === "scene-kindness" ? "bond" : "betrayed", scale);
+        this.inflect(h, sceneKind in SCENE_MEMORY_SEVERITY_MORE && more ? offscreenEmotion(sceneKind as InteractionType, "partner") : m.kind === "scene-kindness" ? "bond" : "betrayed", scale);
       }
     }
     // B25: the touched houseguests' closest ties remember the player's treatment of their friend too - smaller, bond-weighted, once per friend (the strongest tie to any touched houseguest).
@@ -19851,6 +19879,22 @@ export class GameSessionAdapter implements GameSession {
     const b = this.live?.beat;
     return b === "nominations" ? "nominations" : b === "veto-competition" || b === "veto-ceremony" ? "veto" : b === "eviction" || b === "final-eviction" ? "vote" : "other";
   }
+  /** ORW-684: the 0142 weighing of one deal for one promisor, as the plan reads it (no rng). Used at plan time and again at the moment a plan is carried out, so the why-record names the terms of that moment. */
+  private weighPlannedDeal(deal: Deal, npc: EntityId): ReturnType<typeof weighDealBreak> {
+    const s = this.live!;
+    const other = deal.parties.find((p) => p !== npc)!;
+    const e = this.rel.edge(npc, other);
+    const living = this.livingIds().filter((id) => id !== PLAYER && id !== npc);
+    const cred = living.length ? living.reduce((a, id) => a + this.credibilityOf(id, npc), 0) / living.length : 1;
+    const reliableShare = living.length && this.reliabilityReader ? living.filter((id) => this.reliabilityReader!(id).has(npc)).length / living.length : 0;
+    const endgame: 0 | 1 | 2 = s.active.length <= 5 ? 2 : s.active.length <= 10 || s.evictionOrder.length >= 7 ? 1 : 0;
+    return weighDealBreak({
+      kind: deal.kind, threat: e.threat, trust: e.trust, affinity: e.affinity,
+      ownPush: this.ownPushAgainst(npc, other), agendaPull: this.agendaPullOf(other, npc).value, // ORW-613: the same push against an NPC partner as against the player
+      loyalty: Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(npc), this.emotionalReadOf(npc)))),
+      credibility: cred, reliableShare, endgame,
+    });
+  }
   /**
    * 0178 (Theme 3 slice 1, ORW-552) - TWO-FACED DEALS. (1) Every open deal an NPC is bound by gets that NPC's SECRET PLAN the first time it is seen (`dealPlans.ts`):
    * from the 0142 weighing at the moment of agreeing (their read of the other party, their own push and agenda, the price of being known as a liar), Ryne's Q1
@@ -19870,16 +19914,7 @@ export class GameSessionAdapter implements GameSession {
         if (npc === PLAYER || gone.has(npc) || store[deal.id]?.[npc]) continue;
         const other = deal.parties.find((p) => p !== npc)!;
         const e = this.rel.edge(npc, other);
-        const living = this.livingIds().filter((id) => id !== PLAYER && id !== npc);
-        const cred = living.length ? living.reduce((a, id) => a + this.credibilityOf(id, npc), 0) / living.length : 1;
-        const reliableShare = living.length && this.reliabilityReader ? living.filter((id) => this.reliabilityReader!(id).has(npc)).length / living.length : 0;
-        const endgame: 0 | 1 | 2 = s.active.length <= 5 ? 2 : s.active.length <= 10 || s.evictionOrder.length >= 7 ? 1 : 0;
-        const w = weighDealBreak({
-          kind: deal.kind, threat: e.threat, trust: e.trust, affinity: e.affinity,
-          ownPush: this.ownPushAgainst(npc, other), agendaPull: this.agendaPullOf(other, npc).value, // ORW-613: the same push against an NPC partner as against the player
-          loyalty: Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(npc), this.emotionalReadOf(npc)))),
-          credibility: cred, reliableShare, endgame,
-        });
+        const w = this.weighPlannedDeal(deal, npc);
         const rng = new SeededRandom(hashSeed(`${seed}:deal-plan:${deal.id}:${npc}`));
         const plan = decidePlan({
           kind: deal.kind, margin: w.margin, bond: planBond(e), dealsMade: all.filter((d) => d.parties.includes(npc)).length,
@@ -19907,13 +19942,18 @@ export class GameSessionAdapter implements GameSession {
         const due = how === "final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
         if (!due) continue;
         const rng = new SeededRandom(hashSeed(`${seed}:deal-plan-carry:${dealId}:${holder}:${s.week}`));
+        const why = partner !== undefined ? this.weighPlannedDeal(deal, holder) : undefined; // ORW-684: the terms of THIS moment, read before the break moves anything
         this.deals.breakDeliberately(deal, holder, {
           rel: this.rel, rng, currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
           juryDemerit: (wronged, breaker) => recordDealBetrayal(s, wronged, breaker),
           revealToWitness: (witness, breaker) => { this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
           reveal: (wronged, breaker, d) => this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a ${d.kind} deal with ${this.nameOf(wronged)} off-screen`, [breaker], "betrayal"),
         });
-        if ((deal.status as string) === "broken") plan.outcome = "carried-out"; // breakDeliberately changed it
+        if ((deal.status as string) === "broken") {
+          plan.outcome = "carried-out"; // breakDeliberately changed it
+          // ORW-684: a planned break folds like every other betrayal: the breaker's guilt (the 0181 fold, deduped per week), and the why of the choice on record (decisionWhy + statedReasons, Vault-class)
+          if (partner !== undefined) { this.feelGuilt(holder, partner); if (why) this.noteDealWeighing(holder, "deal-break", why, partner); }
+        }
         this.persist();
       }
     }
@@ -19989,13 +20029,15 @@ export class GameSessionAdapter implements GameSession {
         // uses the twist as cover: a REAL, quiet betrayal through `breakDeliberately` (the usual fold; the wronged party learns only through `learnOfBreak`'s pathways; the deal keeps
         // projecting open; nothing is narrated). Any other plan (keep / this-week / no plan) is the forced, innocent break: the renegotiation below, no betrayal, no fold.
         if (verdict === "break" && this.dealPlansEnabled && d.condition.promisors.includes(w.npc) && this.twoFacedPlan(d.id, w.npc)) {
-          if (d.parties.includes(PLAYER)) this.noteDealWeighing(w.npc, "deal-break", w.weighing);
+          const twistPartner = d.parties.find((p) => p !== w.npc);
+          if (twistPartner !== undefined) this.noteDealWeighing(w.npc, "deal-break", w.weighing, twistPartner); // ORW-684: a planned break leaves its why whoever the partner is
           this.deals.breakDeliberately(d, w.npc, {
             rel: this.rel, rng: new SeededRandom(hashSeed(`${seed}:deal-twist-betray:${deal.id}:${tk}`)), currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
             juryDemerit: (wronged, breaker) => { recordDealBetrayal(s, wronged, breaker); this.feelGuilt(breaker, wronged); },
             revealToWitness: (witness, breaker) => { this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
             reveal: (wronged, breaker, bd) => this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a ${bd.kind} deal with ${this.nameOf(wronged)} off-screen`, [breaker], "betrayal"),
           });
+          if ((d.status as string) === "broken" && twistPartner !== undefined) this.feelGuilt(w.npc, twistPartner); // ORW-684: the breaker's guilt at the break itself
           this.persist();
           continue;
         }
@@ -20091,19 +20133,19 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** 0142 idea 4: record WHY the NPC broke / asked to renegotiate - the named terms (`decisionWhy`) and the reason they would give aloud (`statedReasons`). A record only: no rng, no choice moves. Vault-class. */
-  private noteDealWeighing(npc: EntityId, kind: "deal-break" | "deal-renegotiate", w: ReturnType<typeof weighDealBreak>): void {
+  private noteDealWeighing(npc: EntityId, kind: "deal-break" | "deal-renegotiate", w: ReturnType<typeof weighDealBreak>, partner: EntityId = PLAYER): void {
     const s = this.live;
     if (!s) return;
     const t = w.terms;
     const names = ["threat", "low-bond", "push", "agenda", "endgame", "credibility", "reliable-reputation", "bond", "loyalty"];
     const vals = [t.threat, t.lowBond, t.push, t.agenda, t.endgame, -t.costCredibility, -t.costReliable, -t.costBond, -t.costLoyalty];
-    recordWhy(s, npc, { kind, options: [whyOption(PLAYER, "chosen", names, vals, sumVals(vals))] });
+    recordWhy(s, npc, { kind, options: [whyOption(partner, "chosen", names, vals, sumVals(vals))] });
     const agenda = s.agendas?.[npc];
     const character = this.agendaCharacterOf(npc);
     if (!agenda || !character) return;
-    const pull = this.agendaPullOf(PLAYER, npc);
+    const pull = this.agendaPullOf(partner, npc);
     const real: RealReason = {
-      decision: kind, decider: npc, choice: PLAYER,
+      decision: kind, decider: npc, choice: partner,
       ...(pull.value > 0 && pull.goalKind && pull.goalId ? { goalKind: pull.goalKind, goalId: pull.goalId } : {}),
       terms: [
         { name: "threat", value: t.threat }, { name: "goal", value: t.agenda }, { name: "bond", value: t.lowBond - t.costBond },
@@ -20214,6 +20256,24 @@ export class GameSessionAdapter implements GameSession {
     });
   }
 
+  /** ORW-614 (P-12, `ORWELL_DEAL_COUNTER`, default ON; `=0` byte-identical): the player may answer a standing offer with their own terms through `makeDeal` (`countersOffer` = the offer's id). Played games only. */
+  private dealCounterEnabled = flagDefaultOn("ORWELL_DEAL_COUNTER");
+  setDealCounterEnabled(on: boolean): void { this.dealCounterEnabled = on; }
+  /**
+   * The player's counter spends the offer it answers (it is neither accepted nor declined, so no cooling and no decline event): a recorded conversation, then the offer slot clears. It only matches an offer from
+   * the SAME houseguest the counter is made with and only while that offer stands. The engine never writes the counter itself: the terms, kind and price are the player's. Returns true when an offer was closed.
+   */
+  private closeCounteredOffer(offerId: string | undefined, target: EntityId): boolean {
+    const s = this.live;
+    if (!this.dealCounterEnabled || !s || s.playedGame !== true || typeof offerId !== "string" || offerId === "") return false;
+    const slot = s.dealOffer?.id === offerId ? "deal" : s.votePitch?.id === offerId ? "pitch" : undefined;
+    const o = slot === "deal" ? s.dealOffer : slot === "pitch" ? s.votePitch : undefined;
+    if (!slot || !o || o.from !== target || this.dealOfferPartyGone(o.from) || s.finished) return false;
+    if (slot === "deal") s.dealOffer = undefined; else s.votePitch = undefined;
+    this.onPlayerEvent?.(`${this.nameOf(PLAYER)} answers ${this.nameOf(o.from)}'s ${o.kind} offer with terms of their own`, [PLAYER, o.from], "conversation");
+    return true;
+  }
+
   /**
    * 0123 (PO ruling 2026-11-01) — an offer the player never answered LAPSES when the in-game week rolls
    * past the week it was made. No deal is created. The houseguest cools on the player by an amount that
@@ -20273,14 +20333,17 @@ export class GameSessionAdapter implements GameSession {
     // standing prompt cost (the #1391 budget) and nothing at all when the layer is off / no offer stands.
     return {
       from: this.named(o.from)!, kind: o.kind, terms: o.terms, madeWeek: o.madeWeek,
-      ...(o === this.live?.votePitch ? { id: o.id } : {}),
+      ...(o === this.live?.votePitch || (this.dealCounterEnabled && this.live?.playedGame === true) ? { id: o.id } : {}),
       ...(o.replacesDealId ? { replacesDealId: o.replacesDealId } : {}),
       ...(o.counter ? { counter: { round: o.counter.round, ask: o.counter.ask.kind !== "vote" ? { kind: o.counter.ask.kind, target: this.named(o.counter.ask.target)! } : { kind: "vote" as const } } } : {}),
       ...(o.favor ? { favor: { kind: o.favor.favorId ? "called-in" as const : "asked" as const } } : {}),
       howToVoice: "Not a decision card and it never stops the week. Voice this houseguest floating the offer " +
         "in-scene at a natural moment (who, kind, terms). If the player answers in chat, record it with " +
         "submitDecision {kind:\"deal-offer\", vote:\"accept\"|\"decline\"} — never answer for them; an " +
-        "ignored offer lapses on its own at week's end.",
+        "ignored offer lapses on its own at week's end." +
+        (this.dealCounterEnabled && this.live?.playedGame === true
+          ? " If the player answers with terms of their own, record them with makeDeal to this houseguest and countersOffer set to this offer's id; the houseguest's own read decides, never the engine for the player."
+          : ""),
     };
   }
 

@@ -94,6 +94,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_CREDIBILITY', key: 'credibility', parser: 'defaultOn' },
   // ORW-271 slice 1: the append-only per-night day ledger (a floor entry at each turnIn + the FE-driven recordDaySummary write-back) for a played game. ON by default; `=0` turns it off.
   { envKey: 'ORWELL_DAY_CONDENSE', key: 'dayCondense', parser: 'defaultOn' },
+  // ORW-614 (P-12): the player can answer a standing deal offer with terms of their own (a counter through `makeDeal`); the offer closes as countered and the houseguest's own consent read decides. Played games only. `=0` = accept or decline only.
+  { envKey: 'ORWELL_DEAL_COUNTER', key: 'dealCounter', parser: 'defaultOn' },
   { envKey: 'ORWELL_DEAL_DEPTH',             key: 'dealDepth',              parser: 'defaultOn' },
   // 0186 / ORW-552 (theme 3 slice 14): a deal exposed - a partner who learns their final two is not the only one loses trust in the double-dealer; a partner's HOH win or a double eviction reopens open deals on new terms. A played game only. `=0` opts out.
   { envKey: 'ORWELL_DEAL_EXPOSURE', key: 'dealExposure', parser: 'defaultOn' },
@@ -238,6 +240,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // 0172 / ORW-611: a houseguest's goal step aimed at the player is recorded (a player-witnessed event once it surfaces), answerable by talking to them or striking a deal, and a hostile one the player ignores sours that houseguest's read of them. Played games only. ON by default; `=0` turns it off, byte-identical.
   { envKey: 'ORWELL_PLAYER_AIMED', key: 'playerAimed', parser: 'defaultOn' },
   { envKey: 'ORWELL_PLAYER_DOSSIER', key: 'playerDossier', parser: 'defaultOn' },
+  // ORW-614 (P-11): flirt, strategy and gossip scenes move a houseguest's mood and memory like the four scene kinds that already did (the player's scenes and those between houseguests read one table). Played games only. `=0` = those kinds move nothing.
+  { envKey: 'ORWELL_PLAYER_SCENE_MOVES', key: 'playerSceneMoves', parser: 'defaultOn' },
   { envKey: 'ORWELL_PREMIERE_ENTRANCES',   key: 'premiereEntrances',      parser: 'defaultOn' },
   // ORW-669 / 0210 C3: in the player's own Diary Room the producer may raise a said-vs-did contradiction from the player's own recorded public record (a promise, then an act against the same houseguest); facts to the narrator, no outcome or relationship change, nothing reaches any houseguest. A played game only. `=0` opts out.
   { envKey: 'ORWELL_PRODUCER_PUSHBACK', key: 'producerPushback', parser: 'defaultOn' },
@@ -267,6 +271,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // 0208 / ORW-664 (Theme B slice B2, Ryne approved 2026-11-18): a returning player's reputation walks in deeper - the house's heard record of their broken word at season end (0184 standing, a bounded mean) feeds the treachery the next cast reads on day one, and the narrator is told the name they carry. Only when the player returns as the same character (0104); a new start gets nothing. `=0` is today's 0104 alone.
   { envKey: 'ORWELL_SEASON_MEMORY', key: 'seasonMemory', parser: 'defaultOn' },
   { envKey: 'ORWELL_SECRET_BARTER',          key: 'secretBarter',           parser: 'defaultOn' },
+  // ORW-614 (P-11): houseguests may trade a secret ABOUT the player among themselves, the same hidden told-by transfer as any subject; nothing reaches the player except through a later in-game pathway with a source. Played games only. `=0` = the player is never a barter subject.
+  { envKey: 'ORWELL_SECRET_BARTER_PLAYER', key: 'secretBarterPlayer', parser: 'defaultOn' },
   // ORW-647 (spec 0204): the night it all comes out - a fact enough houseguests hold breaks in front of the awake house, or its own subject blows it up when pressured; consequences land through the bond, belief and grudge stores. ON by default; `=0` turns it off.
   { envKey: 'ORWELL_SECRET_BREAKS', key: 'secretBreaks', parser: 'defaultOn' },
   { envKey: 'ORWELL_SECRET_PACING',          key: 'secretPacing',           parser: 'defaultOn' },

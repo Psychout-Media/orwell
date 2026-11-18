@@ -1592,6 +1592,7 @@ FUNCTION_TOOL_SCHEMAS = [
                     "with": {"type": "string", "description": "The houseguest id the deal is made with (from the roster)."},
                     "kind": {"type": "string", "enum": ["safety", "vote", "final-two", "target-other"], "description": "The deal's nature."},
                     "terms": {"type": "string", "description": "The terms as spoken in the scene, briefly."},
+                    "countersOffer": {"type": "string", "description": "Only when the player is answering a standing offer from this houseguest with terms of their own: that offer's id. The offer closes as countered; the houseguest's own read of the player decides."},
                     "term": {
                         "type": "object",
                         "description": "Feature 0109 — OPTIONAL negotiated term, only when the scene actually named one. {weeks} = how many weeks the promise runs counting THIS week ('this week only' = 1, 'for two weeks' = 2); {vague: true} = the term was deliberately left unspoken. The ENGINE bounds it and decides how hard a later break hurts. Omit for an ordinary deal.",

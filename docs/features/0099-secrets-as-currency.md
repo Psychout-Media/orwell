@@ -353,3 +353,7 @@ NPC↔NPC barter rides), **0017/0026** (relationship + betrayal-shock folds), **
 **#880**. Turns a learned secret from an asset spendable *on its subject* (0093) into a **liquid currency**
 tradeable *to anyone who wants it* — an information economy of alliances and double-crosses, valued and
 adjudicated by the deterministic core, never the narrator. Likely shares one build spec with 0093.
+
+## Amendment 2026-11-18 (ORW-614, P-11): houseguests trade secrets about the player
+
+The off-screen barter tick excluded the player as a subject, so no houseguest ever held, valued or passed on a secret about the player (the player had the lever; houseguests did not). With `ORWELL_SECRET_BARTER_PLAYER` (default ON, played games only, needs `ORWELL_SECRET_BARTER`) a belief a houseguest holds ABOUT THE PLAYER is tradeable like any other: same strict-argmax value core, the recipient's own read of the subject (here the player) sets the value, same hidden `told-by` transfer witnessed by giver and recipient only. The Vault Wall is unchanged: the player never witnesses the trade, the content appears on no player or admin surface, and it reaches the player only through a later in-game pathway with a source. Gate: `tests/unit/orw614SecretsAboutPlayer.test.ts` (parity, hidden/unwitnessed, planted-sentinel wall, off and unplayed = today, persistence). `=0` is byte-identical.

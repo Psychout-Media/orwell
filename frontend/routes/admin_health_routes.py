@@ -1327,7 +1327,11 @@ _WRITEBACK_TOOLS = frozenset({
 })
 # The soft-failure class namespaces record_soft_failure emits (log_rings) — the rollup buckets
 # OVERSEER-ring failures under these, distinct from ordinary 0079 overseer report entries.
-_SOFT_FAIL_PREFIXES = ("overseer:", "faith:", "enrichment:", "sync:")
+_SOFT_FAIL_PREFIXES = ("overseer:", "faith:", "enrichment:", "sync:", "cast-authoring:", "cast-gate:")
+# ORW-500: cast-authoring / cast-gate corrections are ROUTINE (several per ~15-houseguest cast), so they
+# are COUNTED in the rollup's guards totals (visible in the admin health table) but never raise an
+# alarm: no storm class reads them and the auto-corrected alarm skips them.
+_CAST_SOFT_FAIL_PREFIXES = ("cast-authoring:", "cast-gate:")
 _STORM_THRESHOLD = 3  # N failures in the window ⇒ a RED "storm/burst" alarm
 
 
@@ -1703,7 +1707,8 @@ def _compute_alarms(rollup: dict, *, embeddings=None, sync_recent=None, belt_tot
 
     # 7) Auto-corrected faults (belts fired / floors stood) — RED-with-auto-corrected.
     #    A correction is NOT a cloak (owner ruling 2026-07-14): surface it RED, annotated.
-    auto_soft = sum(int(v.get("autoCorrected", 0)) for v in guards.values())
+    auto_soft = sum(int(v.get("autoCorrected", 0)) for k, v in guards.items()
+                    if not k.startswith(_CAST_SOFT_FAIL_PREFIXES))
     belt_n = 0
     for v in (belt_totals or {}).values():
         try:

@@ -8,6 +8,8 @@
  * The wall, in four rules (each is a test):
  *  1. Nothing identifying in the prompt: no ids, names, member count, room or day tied to the group. A trait appears only when at least
  *     (members + `floorExtra`) LIVING houseguests share it (a k-anonymity floor), so a trait only a couple of people have is dropped.
+ *     The floor holds for the traits TOGETHER too (ORW-684): at least (members + `floorExtra`) living houseguests carry EVERY trait a prompt shows, so
+ *     the combination cannot be intersected down to the group (three traits that each pass alone can still pick out exactly the members).
  *  2. No timing or count side channel: one FIXED-SIZE batch (`batch` tickets) once per in-game night, real tickets padded with DECOYS built from random
  *     k-anonymous trait sets. Every pick is a keyed `agendaRoll` hash (no shared rng), so a seeded game stays byte-identical.
  *  3. One-way tickets: opaque, single-use; only the engine can map a ticket to an alliance; a write-back answers a bare receipt for real and decoy alike.
@@ -74,12 +76,33 @@ export function anonymousPool(counts: ReadonlyMap<string, number>, floor: number
   return [...counts.entries()].filter(([, n]) => n >= floor).map(([t]) => t).sort();
 }
 
+/** How many living houseguests carry EVERY one of `traits` (the joint k-anonymity count). */
+export function jointCarriers(table: TraitTable, traits: readonly string[]): number {
+  let n = 0;
+  for (const have of table.values()) if (traits.every((t) => have.includes(t))) n++;
+  return n;
+}
+
 /**
- * How many traits EVERY prompt of a night carries: the most that even the largest possible group's floor can fill (so a real group of any size and any decoy can
- * always reach it), capped at `traitsPerPrompt`. It depends on who is living, never on what formed, so the read's shape cannot show an alliance.
+ * ORW-684: the trait set every prompt of a night can fall back on, and its size. The strictest floor any group or decoy can ask for (`decoyMaxMembers + floorExtra`)
+ * is met jointly by this set, so any ticket's own (smaller or equal) floor is met too. It depends on who is living only, never on what formed, so the count
+ * every prompt carries (`size`) still says nothing about any alliance. Found by trying the pool's subsets in a keyed order (deterministic); the largest size up to `traitsPerPrompt` that works.
  */
-export function traitCount(counts: ReadonlyMap<string, number>): number {
-  return Math.min(ALLIANCE_NAMING.traitsPerPrompt, anonymousPool(counts, ALLIANCE_NAMING.decoyMaxMembers + ALLIANCE_NAMING.floorExtra).length);
+export function jointFallback(seed: number, night: number, table: TraitTable, counts: ReadonlyMap<string, number>): string[] {
+  const floor = ALLIANCE_NAMING.decoyMaxMembers + ALLIANCE_NAMING.floorExtra;
+  const pool = ranked(seed, `${night}:joint`, anonymousPool(counts, floor), Number.MAX_SAFE_INTEGER);
+  const choose = (from: number, left: number, acc: string[]): string[] | undefined => {
+    if (left === 0) return jointCarriers(table, acc) >= floor ? acc : undefined;
+    for (let i = from; i < pool.length; i++) {
+      const next = [...acc, pool[i]!];
+      if (jointCarriers(table, next) < floor) continue; // a superset can only lose carriers
+      const got = choose(i + 1, left - 1, next);
+      if (got) return got;
+    }
+    return undefined;
+  };
+  for (let size = Math.min(ALLIANCE_NAMING.traitsPerPrompt, pool.length); size > 0; size--) { const got = choose(0, size, []); if (got) return got; }
+  return [];
 }
 
 /** Rank `traits` by a keyed roll (highest first) and keep `n`. Keyed hashing only: never the shared rng. */
@@ -108,7 +131,17 @@ export function issueNightBatch(args: { seed: number; night: number; pending: re
   const { seed, night, pending, table, culture } = args;
   const N = ALLIANCE_NAMING.batch;
   const counts = traitCounts(table);
-  const T = traitCount(counts);
+  const fallback = jointFallback(seed, night, table, counts);
+  const T = fallback.length;
+  /** Take up to T traits from the preferred list then the pad list, each only if the traits chosen so far are STILL carried together by at least `floor` living houseguests; short of T, the night's fallback set (always jointly safe). */
+  const pick = (preferred: readonly string[], pad: readonly string[], floor: number): string[] => {
+    const chosen: string[] = [];
+    for (const t of [...preferred, ...pad.filter((x) => !preferred.includes(x))]) {
+      if (chosen.length >= T) break;
+      if (jointCarriers(table, [...chosen, t]) >= floor) chosen.push(t);
+    }
+    return chosen.length === T ? chosen : [...fallback];
+  };
   const reals = pending.slice(0, N);
   const slots = Array.from({ length: N }, (_, i) => i).sort((a, b) => agendaRoll(seed, "name-slot", `${night}:${b}`) - agendaRoll(seed, "name-slot", `${night}:${a}`) || a - b);
   const realSlot = new Map<number, PendingAlliance>();
@@ -121,12 +154,13 @@ export function issueNightBatch(args: { seed: number; night: number; pending: re
     let traits: string[];
     if (real) {
       const shared = sharedAnonymousTraits(real.members, table, counts);
-      const pool = anonymousPool(counts, real.members.length + ALLIANCE_NAMING.floorExtra).filter((t) => !shared.includes(t));
-      const keep = ranked(seed, key, shared, T);
-      traits = [...keep, ...ranked(seed, `${key}:pad`, pool, T - keep.length)];
+      const floor = real.members.length + ALLIANCE_NAMING.floorExtra;
+      const pool = anonymousPool(counts, floor).filter((t) => !shared.includes(t));
+      traits = pick(ranked(seed, key, shared, shared.length), ranked(seed, `${key}:pad`, pool, pool.length), floor);
     } else {
       const size = ALLIANCE_NAMING.decoyMinMembers + Math.floor(agendaRoll(seed, "name-decoy-size", key) * (ALLIANCE_NAMING.decoyMaxMembers - ALLIANCE_NAMING.decoyMinMembers + 1));
-      traits = ranked(seed, `${key}:decoy`, anonymousPool(counts, size + ALLIANCE_NAMING.floorExtra), T);
+      const floor = size + ALLIANCE_NAMING.floorExtra;
+      traits = pick(ranked(seed, `${key}:decoy`, anonymousPool(counts, floor), Number.MAX_SAFE_INTEGER), [], floor);
     }
     out[ticket] = { kind: real ? "real" : "decoy", ...(real ? { allianceId: real.id } : {}), issuedNight: night, prompt: buildNamePrompt(traits.sort(), culture) };
   }
