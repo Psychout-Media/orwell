@@ -154,3 +154,20 @@ export function ledgerPlanRetroRows(plans: PlanStore | undefined, ledger: Readon
   }
   return out;
 }
+
+/**
+ * ORW-602: the player's casual assurances (the engine-judged kept/broken ledger) that the retrospective should list on their own. A termed ledger promise of the "loyal"/"vote" shape already wrote its matching assurance row
+ * (ONE resolver), so that row is dropped here: the promise is one record, not two. Pure; read-only.
+ */
+export function uncoveredPlayerAssurances<A extends { from: string; to: string; kind: string; week: number; source: string }>(
+  assurances: ReadonlyArray<A> | undefined,
+  ledger: ReadonlyArray<{ term?: PromiseTerm }>,
+  player: string,
+): A[] {
+  const covered = new Set<string>();
+  for (const e of ledger) {
+    const k = e.term ? termAssuranceKind(e.term) : undefined;
+    if (e.term && k) covered.add(`${e.term.by}|${e.term.to}|${k}|${e.term.week ?? ""}`);
+  }
+  return (assurances ?? []).filter((a) => a.source === "player" && a.from === player && !covered.has(`${a.from}|${a.to}|${a.kind}|${a.week}`) && !covered.has(`${a.from}|${a.to}|${a.kind}|`));
+}

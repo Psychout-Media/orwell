@@ -818,8 +818,12 @@ export interface LiveSeasonState {
   audience?: { live: import("./audience").Standing; full: import("./audience").Standing; cursor: number; weeks: number[]; /** evictions folded by key (`evictionKey`), so a twist night's second eviction folds too and the exit interview can fold its own week early */ folded?: string[]; crowd: Array<{ week: number; evictee: EntityId; reaction: import("./audience").CrowdReaction }>; perks: Array<{ week: number; to: EntityId }> };
   /** 0188 / ORW-619: the traps houseguests have set (a made-up secret told to one person, watched). ENGINE-ONLY (Vault class), never projected; persisted. */
   traps?: import("./trap").Trap[];
+  /** 0184 part 2b (ORW-564): the close pairs faking distance in public this week (pair keys), decided once a week. ENGINE-ONLY, never projected; persisted. */
+  hiding?: { week: number; pairs: string[] };
   /** 0188: the last day the trap tick ran (once a day). */
   trapsDay?: number;
+  /** 0204 / ORW-647: the facts that have already broken in front of the house (once each). Engine-only, idempotent, only grows. */
+  secretBreaks?: string[];
   /**
    * 0130 — each evictee's exit interview, week by week: their public posture on the way out (a `stance`
    * DERIVED from their manner for an NPC, or the PLAYER's own chosen stance + words). Recorded as the
