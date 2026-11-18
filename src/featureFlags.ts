@@ -174,6 +174,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_LIES_CAUGHT', key: 'liesCaught', parser: 'defaultOn' },
   // B6 / #2017: NPC-to-NPC lobbying of the HOH (a bounded pitch tilt in the nomination score). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_LOBBYING', key: 'lobbying', parser: 'defaultOn' },
+  // ORW-652 (Ryne 11-17): a double eviction plays as ONE long night in a played game - the second cycle (instant HOH, hurried nominations, rushed veto, second eviction) charges a fraction of its hours, never rolls the day, and no schedule or bedtime hold interrupts it; the narrator is told the night's shape each turn. ON by default; `=0` turns it off, byte-identical.
+  { envKey: 'ORWELL_LONG_NIGHT', key: 'longNight', parser: 'defaultOn' },
   // ORW-653 / 0205: MEET THE CAST - the champagne circle's toast speakers are officially introduced one by one and each forms a first impression of the player (a small hidden fold); the narrator is handed their visible manner as facts. A played game only. `=0` = the old circle.
   { envKey: 'ORWELL_MEET_THE_CAST', key: 'meetTheCast', parser: 'defaultOn' },
   // B25-friends layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.

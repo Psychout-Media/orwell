@@ -602,6 +602,8 @@ export interface GameStateView {
   napOpen?: true;
   /** ORW-466 slice 2: the move-in bed pick, per turn (moment prompt only): which bedrooms have free beds and who sleeps in each, the player's own bed, and this turn's claim result. Public facts. Absent outside the claim window. */
   beds?: string;
+  /** ORW-652 (moment prompt only): the shape of a double-eviction night while its second cycle runs (who left, the instant crown, the hurried block), from public facts. Absent outside it. */
+  longNight?: string;
   /** 0152: this turn's engine answer to "who told you that?" (one Vault-free line: who is named, that they will not say, or that they saw it). Absent otherwise. */
   sourceNote?: string;
   /** 0156 (theme 2, slice 7b): the house meeting the player was in the house and awake to hear, as the speakers' words (moment prompt only, one turn). Names only; never whether anything said is true, why it was called, ids, or how any houseguest took it. Absent otherwise. */
