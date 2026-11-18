@@ -141,3 +141,49 @@ Then("no ticket names a member, a count, a room or a day", function () {
   const [blob, a, b] = bag(this).blob!.split("|");
   assert.ok(!blob!.includes(a!) && !blob!.includes(b!) && !/alliance|room|day \d|week \d/i.test(blob!.split("\\n").filter((_, i) => i % 2 === 1).join(" ")));
 });
+
+// Part d (ORW-566): the retrospective's groupLife.
+type PartD = { live: { playedGame?: boolean; groupIdentity?: Record<string, Record<string, unknown>> }; alliances: { add(n: string, f: string, m: string[], b: number): { id: string; name: string } }; house: { npcs: Array<{ id: string }> }; noteAllianceIdentity(id: string, name: string, founder: string): void };
+Given("a season holding a hidden alliance with a secret name and a close pair's habit", function () {
+  const sb = new GameSessionRegistry().sandboxFor(`gi0183-${n++}`);
+  sb.session.createCharacter({ playerName: "The Player", seed: 3 });
+  const p = sb.session as unknown as PartD;
+  p.live.playedGame = true;
+  const ids = p.house.npcs.map((x) => x.id);
+  const al = p.alliances.add("Stock Pact", ids[0]!, [ids[0]!, ids[1]!], 1);
+  p.noteAllianceIdentity(al.id, al.name, ids[0]!);
+  p.live.groupIdentity![al.id]!["sealed"] = { name: "Zzsentinel Lanterns", floor: al.name, authored: true };
+  p.live.groupIdentity![pairKey(ids[2]!, ids[3]!)] = { kind: "debrief", spot: "the pantry nook", since: 0, week: 1 };
+  p.live.playedGame = false;
+  Object.assign(bag(this), { sb, s: sb.session as GameSessionAdapter, p: p as unknown as Priv, key: al.id, a: pairKey(ids[2]!, ids[3]!) });
+});
+Then("before the crown the retrospective holds nothing and no live read shows the secret name", function () {
+  const s = bag(this).s!;
+  assert.equal(s.seasonRetrospective(), null);
+  const seen: unknown[] = [s.groupsAwaitingWords()];
+  for (let i = 0; i < 4000; i++) {
+    const v = s.advanceGame();
+    seen.push(v);
+    const pd = v.pending;
+    if (pd) {
+      if (pd.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [pd.options[0]!.id, pd.options[1]!.id] });
+      else if (pd.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
+      else if (pd.kind === "comp-intent") s.submitDecision({ kind: "comp-intent", intent: "compete" });
+      else if (pd.kind === "finale-statement") s.submitDecision({ kind: "finale-statement", statement: "x" });
+      else if (pd.kind === "finale-answer") s.submitDecision({ kind: "finale-answer", appeal: pd.appeals![0]! });
+      else if (pd.options[0]) s.submitDecision({ kind: pd.kind, vote: pd.options[0].id, replacement: pd.options[0].id } as never);
+    }
+    if (v.finished) break;
+  }
+  assert.ok(!JSON.stringify(seen).includes("entinel"));
+});
+Then("after the crown the retrospective names the hidden alliance with its members and the pair's spot, with no id or number", function () {
+  const s = bag(this).s!;
+  (bag(this).p as unknown as PartD).live.playedGame = true;
+  const gl = s.seasonRetrospective()!.groupLife!;
+  const al = gl.groups.find((g) => g.kind === "alliance" && g.name === "Zzsentinel Lanterns")!;
+  assert.ok(al && al.members.length === 2);
+  assert.equal(gl.groups.find((g) => g.kind === "pair")!.spot, "the pantry nook");
+  const json = JSON.stringify(gl);
+  assert.ok(!json.includes(bag(this).key!) && !json.includes(bag(this).a!) && !/npc:\d/.test(json) && !/\d\.\d/.test(json));
+});
