@@ -754,6 +754,16 @@ export interface LiveSeasonState {
   /** 0182 PR 2: how many events of the record the repair scan (the wrongdoer's bonding scene) has read. Written only once a grudge exists. */
   grudgesCursor?: number;
   /**
+   * THEME A / A3 (0207) - the showmances that have been real in the house: the unordered pair key (`heartAgainstGame.pairKey`) -> the in-game day it was first read as one. Written only in a
+   * played game with the flag on, only once a pair's record reads as a showmance (a pair with the player only by the player's own acts). Monotone, never deleted. ENGINE-ONLY (Vault class),
+   * never projected: a hidden romance is a secret. Absent => none yet (old saves read none).
+   */
+  romances?: Record<string, number>;
+  /** 0207 A3: the pairs whose showmance has ENDED in the house (a breakup was folded once for each), by pair key, ordered, never pruned. ENGINE-ONLY. */
+  breakups?: string[];
+  /** 0207 A3: how many events of the record the breakup scan (a conflict scene between a showmance's two) has read. */
+  breakupCursor?: number;
+  /**
    * 0181 (Theme 3 slice 4, ORW-568) - the guilt events already felt (`bondFeelings.ts` keys, ordered, never pruned), so a betrayal shakes the betrayer once. ENGINE-ONLY (Vault class), never projected.
    * Optional: absent on old saves and on every game that never felt one. Rides on `live`, so it is persisted and restored with the season.
    */

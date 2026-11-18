@@ -122,6 +122,7 @@
 #       dedicated barter-rng stream never advances, no secret changes hands) — the seeded comp/vote/jury
 #       spine is byte-identical — see `secretBarterConstants.ts:14-18`.
 #   ORWELL_SECRET_BREAKS        0204 / ORW-647: the night it all comes out - a fact enough houseguests hold breaks in front of the awake house, or its subject blows it up when pressured and volatile; the room re-reads them, kept-out houseguests hold a grudge (a played game only; =0 opts out).
+#   ORWELL_SHOWMANCES           0207 / Theme A (ORW-660/661): heart against game - a houseguest whose showmance partner and alliance pull apart at a nomination or vote chooses by their own nature (a bounded nudge to the feeling-keep term) and is shaken either way; a showmance that ends in the house is the worst rupture (the heaviest grudge, the deepest strain); the player is in one only by their own acts (needs ORWELL_BOND_FEELINGS and ORWELL_GRUDGES; a played game only; =0 opts out).
 #   ORWELL_SHOWRUNNER           AI Showrunner (0101/#1401) Phase-1 ONLY — owner ruling Q2 (2026-07-21,
 #       #1779: "Phase-1 observe-only; REWEIGHT stays off"). Phase-1 composes on a pure scoring pass (no
 #       rng) and only routes an emphasized surfaced thread's belief to the player, fold-free — the
@@ -257,6 +258,7 @@ ORWELL_SECRET_BARTER=1
 ORWELL_SECRET_BREAKS=1
 ORWELL_SECRET_PACING=1
 ORWELL_SEEDED_TIE_SURFACING=1
+ORWELL_SHOWMANCES=1
 ORWELL_SHOWRUNNER=1
 ORWELL_SHOWRUNNER_REWEIGHT=1
 ORWELL_SOCIAL_ROLES=1

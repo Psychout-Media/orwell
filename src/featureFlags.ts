@@ -242,6 +242,7 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_SECRET_BREAKS', key: 'secretBreaks', parser: 'defaultOn' },
   { envKey: 'ORWELL_SECRET_PACING',          key: 'secretPacing',           parser: 'defaultOn' },
   { envKey: 'ORWELL_SEEDED_TIE_SURFACING',   key: 'seededTieSurfacing',    parser: 'defaultOn' },
+  { envKey: 'ORWELL_SHOWMANCES',             key: 'showmances',             parser: 'defaultOn' }, // 0207 / Theme A
   { envKey: 'ORWELL_SHOWRUNNER',             key: 'showrunner',             parser: 'defaultOn' },
   { envKey: 'ORWELL_SHOWRUNNER_REWEIGHT',    key: 'showrunnerReweight',     parser: 'defaultOn' }, // ORW-270: measured fair, default ON
   { envKey: 'ORWELL_SOCIAL_FATIGUE',         key: 'socialFatigue',          parser: 'inverted' },
