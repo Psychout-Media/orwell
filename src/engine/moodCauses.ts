@@ -12,7 +12,7 @@ import type { EntityId } from "../domain/ids";
 
 export type MoodCauseSource = "lied-to" | "betrayed" | "friend-evicted" | "bad-sleep" | "won" | "lost";
 
-/** One recorded cause (append-only). `line` is engine words, first person, `{subject}` for `about`. Vault-class until the houseguest chooses to say it. */
+/** One recorded cause (append-only). `line` is an engine FACT in the third person (the narrator voices it in the houseguest's own words), `{subject}` for `about`. Vault-class until the houseguest chooses to say it. */
 export interface MoodCauseEntry {
   holder: EntityId;
   source: MoodCauseSource;
@@ -38,13 +38,15 @@ export const MOOD_CAUSES = {
   grudgeShareBar: 1.25,
 } as const;
 
+// Ryne 11-17/11-18 ("avoid designing shortlists"): these are FACTS for the narrator to voice in the houseguest's own words (the lever's instruction
+// says so), never a line to recite: third person, no tone, no phrasing to copy. The words the player hears are authored live from the houseguest's voice.
 const LINES: Readonly<Record<MoodCauseSource, string>> = {
-  "lied-to": "{subject} lied to me and I found out",
-  betrayed: "{subject} went back on a deal with me",
-  "friend-evicted": "{subject} is gone, and they were one of the people I counted on",
-  "bad-sleep": "I barely slept last night",
-  won: "I won, and it feels good",
-  lost: "I lost, and it stings",
+  "lied-to": "they found out {subject} had lied to them",
+  betrayed: "{subject} broke a deal with them",
+  "friend-evicted": "{subject}, someone they counted on, has just left the house",
+  "bad-sleep": "they slept badly last night",
+  won: "they won this week's competition",
+  lost: "they lost this week's competition",
 };
 
 /** The engine words for a cause source (a keyed lookup). */
