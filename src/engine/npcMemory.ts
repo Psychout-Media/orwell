@@ -71,6 +71,17 @@ export const DEAL_WITNESS = {
 } as const;
 
 const GRUDGE_KINDS: ReadonlySet<MemoryKind> = new Set(["deal-broken", "nominated-by-friend", "replaced-by-friend", "nominated-by-hoh", "veto-withheld", "scene-betrayal", "scene-conflict", "secret-exposed", "deal-resented"]);
+/** ORW-607 (wrongs, step 2): the ledger kinds the grudge book folds (`foldGrudges` reads exactly these: a broken deal and an ally's cut). Once folded, the BOOK is the authority for them. */
+export const BOOK_FOLDED_KINDS: ReadonlySet<MemoryKind> = new Set(["deal-broken", "nominated-by-friend", "replaced-by-friend"]);
+/** ORW-607 (wrongs, step 2), played games only: the pair's grudge-book weight (0..1, the holder's own dials and jury ease already applied) and which ledger entries (by index) the book already holds. */
+export interface BookRead { weight: number; folded: (index: number) => boolean }
+/** The pair's grudge salience when the book holds part of it: the ledger's OTHER grudge kinds as always, the folded wrongs read once as the book's weight (combined, never summed). Bounded 0..1. */
+export function grudgeSalienceWithBook(entries: readonly MemoryEntry[] | undefined, week: number, decayScale: number, c: NpcMemoryConstants, book: BookRead): number {
+  const rest = salience(entries?.filter((e, i) => !book.folded(i)), GRUDGE_KINDS, week, decayScale, c);
+  const w = Math.min(1, Math.max(0, Number.isFinite(book.weight) ? book.weight : 0));
+  return 1 - (1 - rest) * (1 - w);
+}
+
 /** ORW-131: does this memory kind weigh as a grievance (vs a favor / neutral)? */
 export const isGrudgeKind = (k: MemoryKind): boolean => GRUDGE_KINDS.has(k);
 const FAVOR_KINDS: ReadonlySet<MemoryKind> = new Set(["veto-saved", "deal-kept", "scene-kindness", "secret-given"]);
@@ -147,9 +158,10 @@ export interface EdgeCarry {
 /** The residual GRUDGE (0..grudgeMax): the memory's salience minus what the edge still carries, floored at 0. */
 export function memoryGrudge(
   entries: readonly MemoryEntry[] | undefined, week: number, decayScale: number, carry: EdgeCarry,
-  c: NpcMemoryConstants = NPC_MEMORY,
+  c: NpcMemoryConstants = NPC_MEMORY, book?: BookRead,
 ): number {
-  return Math.max(0, c.grudgeMax * salience(entries, GRUDGE_KINDS, week, decayScale, c) - Math.max(0, carry.threatAboveBaseline));
+  const sal = book ? grudgeSalienceWithBook(entries, week, decayScale, c, book) : salience(entries, GRUDGE_KINDS, week, decayScale, c);
+  return Math.max(0, c.grudgeMax * sal - Math.max(0, carry.threatAboveBaseline));
 }
 
 /** The residual FAVOR (0..favorMax), the warm mirror of the grudge. */
@@ -163,9 +175,9 @@ export function memoryFavor(
 /** The signed decision tilt toward acting AGAINST the subject: `+grudge − favor`. */
 export function memoryTilt(
   entries: readonly MemoryEntry[] | undefined, week: number, decayScale: number, carry: EdgeCarry,
-  c: NpcMemoryConstants = NPC_MEMORY,
+  c: NpcMemoryConstants = NPC_MEMORY, book?: BookRead,
 ): number {
-  return memoryGrudge(entries, week, decayScale, carry, c) - memoryFavor(entries, week, decayScale, carry, c);
+  return memoryGrudge(entries, week, decayScale, carry, c, book) - memoryFavor(entries, week, decayScale, carry, c);
 }
 
 /**
@@ -176,9 +188,10 @@ export function memoryTilt(
  * has its own flag and its own signed-direction calibration read before any flip. Pure.
  */
 export function memoryTiltStandalone(
-  entries: readonly MemoryEntry[] | undefined, week: number, decayScale: number, c: NpcMemoryConstants = NPC_MEMORY,
+  entries: readonly MemoryEntry[] | undefined, week: number, decayScale: number, c: NpcMemoryConstants = NPC_MEMORY, book?: BookRead,
 ): number {
-  return c.grudgeMax * salience(entries, GRUDGE_KINDS, week, decayScale, c) - c.favorMax * salience(entries, FAVOR_KINDS, week, decayScale, c);
+  const sal = book ? grudgeSalienceWithBook(entries, week, decayScale, c, book) : salience(entries, GRUDGE_KINDS, week, decayScale, c);
+  return c.grudgeMax * sal - c.favorMax * salience(entries, FAVOR_KINDS, week, decayScale, c);
 }
 
 /** P4g - how much a remembered PLAYER scene mattered, by kind (bounded, deterministic): a betrayal weighs most, a clash less, a kindness least (negativity bias). */
