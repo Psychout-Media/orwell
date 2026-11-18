@@ -19,6 +19,7 @@ const step = (s: GameSessionAdapter) => { const v = s.advanceGame(); if (v.pendi
 function inside(): GameSessionAdapter {
   const s = new GameSessionRegistry().sandboxFor(`orw522-${Math.random()}`).session as GameSessionAdapter;
   s.setPremiereEntrancesEnabled(true);
+  s.setBedRushEnabled(false); // ORW-672 / 0201: this isolation test pins the old claim-as-they-walk-in premiere (flag off); the rush has its own tests (bedRush.test.ts)
   s.createCharacter({ playerName: "P", seed: 11 });
   liveOf(s).playedGame = true;
   for (let i = 0; i < 20 && liveOf(s).premiereEntrance!.arrived <= liveOf(s).premiereEntrance!.playerPos; i++) step(s);

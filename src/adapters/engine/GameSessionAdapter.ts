@@ -296,6 +296,7 @@ import { claimBed, freeBeds, sleepRoomOf, roomOfBed, roommatesIn, bedPartner, be
 import { roomLabel, roomRef, roomLook, roomNamesFor, themedRoomAliases, drawHouseTheme, registerHouseTheme, acceptHouseThemeDraft, houseTheme as houseThemeById } from "../../engine/roomLabels";
 /** ORW-466: how many of a player's recent seasons' house themes the next draw avoids (a quarter of the library). */
 const MAX_PRIOR_HOUSE_THEMES = 6;
+import { BED_RUSH, arrivalTick, claimKeepsFloor, type BedRushState } from "../../engine/bedRush";
 import { BED_MOVES, BED_RULES, applyMove, bedmateShare, bedroomNames, decideSwap, freeBedIn, otherHalf, parsePlayerBedIntent, pickBedFor, planGoalMove, spotScore, swapBeds, type BedGoals, type BedReader } from "../../engine/bedClaims";
 import { BEDROOM_LAYOUT, spotsIn } from "../../engine/data/bedrooms";
 import { recohereCastingTypes } from "../../domain/castingTypes";
@@ -754,6 +755,8 @@ const JUROR_PROFILES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_JUROR_PROFILES");
  * `createCharacter` (season start). Off => nothing new is written.
  */
 const PREMIERE_ENTRANCES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PREMIERE_ENTRANCES");
+/** ORW-672 / 0201 - the BED RUSH: no bed is claimed before the champagne circle closes, then the house races for the bedrooms (a claim needs reaching the room). A played game only. ON by default; `=0` restores the walk-in-order claim. */
+const BED_RUSH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_BED_RUSH");
 
 /**
  * "Hang out until X" (PO 2026-11-04) - the safe fast-forward lever (`hangOut`). ON unless `ORWELL_HANGOUT=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`) - flipped ON 2026-11-04 (PO: Ryne) after the live rerun showed it stops exactly at the scheduled event and the HOH comp stages when due. Off => `hangOut()` returns `{ ok:false }` with no state change and the spine is byte-identical.
@@ -2428,6 +2431,8 @@ export class GameSessionAdapter implements GameSession {
   /** C1 (#1788) — the Wipeout Reel presentation layer; off ⇒ `comp-elimination` content is untouched. */
   private wipeoutReelEnabled = WIPEOUT_REEL_ENABLED_DEFAULT;
   private premiereEntrancesEnabled = PREMIERE_ENTRANCES_ENABLED_DEFAULT;
+  /** ORW-672 / 0201: the bed rush (see `BED_RUSH_ENABLED_DEFAULT`). */
+  private bedRushEnabled = BED_RUSH_ENABLED_DEFAULT;
   private finalHohThreePartEnabled = FINAL_HOH_THREE_PART_ENABLED_DEFAULT;
   private jurorProfilesEnabled = JUROR_PROFILES_ENABLED_DEFAULT;
   private hangOutEnabled = HANGOUT_ENABLED_DEFAULT;
@@ -7053,6 +7058,7 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house || !this.presence) return { playerMove: null, whereabouts: null };
     const me = this.house.player.id;
     const here = this.presence.get(me) ?? null;
+    this.bedRushPreMove(String(req.text ?? "")); // ORW-672 / 0201: rushing to a room is moving there, before the claim reads whether they reached it
     const bedChanged = this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
     if (bedChanged) this.persist();
     if (this.resolveWhoToldYou(String(req.text ?? ""))) this.persist(); // 0152 (theme 2 slice 4b): "who told you that?", read before the narrator writes (same seam)
@@ -7447,6 +7453,8 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live;
     if (!s || !this.house || s.playedGame !== true) return undefined;
     s.beds ??= { owner: {}, claims: [] };
+    // ORW-672 / 0201: with the bed rush on, NO NPC claims on walking in (nor on the first message): the claims run on the rush's own ticks, after the toast, each on reaching the room.
+    if (this.bedRushEnabled && ((s.premiereEntrance && !s.bedRush?.done) || (s.bedRush && !s.bedRush.done))) return s.beds;
     // ORW-466 slice 2: every NPC already INSIDE claims, in entrance order (a staged premiere still in its entrances: only those who have walked in). Idempotent - an NPC with a bed is skipped,
     // so calling this at each arrival claims for that arrival (and catches up whoever walked in before the game was played, still in their order).
     const pe = s.premiereEntrance;
@@ -7465,11 +7473,11 @@ export class GameSessionAdapter implements GameSession {
   private bedShare(r: BedReader = this.bedReader()): (who: EntityId, other: EntityId) => number { return bedmateShare(r, RELATIONSHIP_CONSTANTS.baseline.affinity); }
 
   /** ORW-466 slice 2: one NPC claims the bed they read best, with a little luck from a side stream (`${seed}:beds:...`, so no shared roll moves); the house sees who they chose to room with. */
-  private claimNpcBed(beds: BedsState, who: EntityId, living: ReadonlySet<EntityId>): void {
+  private claimNpcBed(beds: BedsState, who: EntityId, living: ReadonlySet<EntityId>, guard?: (bed: BedId) => boolean): BedId | undefined {
     const seed = this.gameSeed ?? 0;
     const r = this.bedReader();
     const bed = pickBedFor(beds, who, living, r, this.bedShare(r), (w, room) => new SeededRandom(hashSeed(`${seed}:beds:${w}:${room}`)).next());
-    if (!bed || !claimBed(beds, who, bed, this.live?.dayNumber ?? 1, "move-in", living)) return;
+    if (!bed || (guard && !guard(bed)) || !claimBed(beds, who, bed, this.live?.dayNumber ?? 1, "move-in", living)) return undefined;
     this.noteBedChoice(beds, who, roomOfBed(bed), living);
     // ORW-466 slice 3: the lost-bed grudge - the spot they wanted most went to an earlier arrival, and they wanted it far more than the one they got: a tiny hidden grudge toward the taker.
     const share = this.bedShare(r);
@@ -7481,6 +7489,136 @@ export class GameSessionAdapter implements GameSession {
       if (!lost || v > lost.v) lost = { taker, v };
     }
     if (lost && lost.v - got > BED_MOVES.lostBedGrudgeAbove) this.rel.applyImpactDirected(who, lost.taker, BED_MOVES.lostBedGrudge, new SeededRandom(hashSeed(`${seed}:bed-grudge:${who}:${lost.taker}`)));
+    return bed;
+  }
+
+  // ---- ORW-672 / 0201: the bed rush -------------------------------------------------------------------------------------------------------------------------
+
+  /** The rush is the live bed-claim mode: a played game, the staged premiere's circle closed, and the rush neither done nor out of window. */
+  private bedRushRunning(): boolean {
+    const s = this.live;
+    return this.bedRushEnabled && !!s && s.playedGame === true && s.premiereEntrance?.stage === "done" && !s.finished && !(s.bedRush?.done || s.bedRush?.windowEnded);
+  }
+
+  /** Free spots per bedroom right now (for the safety floor). */
+  private freeByRoom(beds: BedsState, living: ReadonlySet<EntityId>): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const spec of BEDROOM_LAYOUT) out[spec.room] = 0;
+    for (const b of freeBeds(beds, living)) out[roomOfBed(b)] = (out[roomOfBed(b)] ?? 0) + 1;
+    return out;
+  }
+
+  /** Release the house: decide, once, which room each unbedded NPC races for and when they get there (side streams only; no shared rng). */
+  private startBedRush(): BedRushState | undefined {
+    const s = this.live;
+    const beds = this.ensureBeds();
+    if (!s || !beds || !this.house) return undefined;
+    if (s.bedRush) return s.bedRush;
+    const seed = this.gameSeed ?? 0;
+    const living = new Set(this.livingIds());
+    const r = this.bedReader();
+    const share = this.bedShare(r);
+    const unit = (key: string): number => new SeededRandom(hashSeed(`${seed}:bed-rush:${key}`)).next();
+    const runners = [...living].filter((id) => id !== PLAYER && !beds.owner[id]).map((id) => {
+      const st = this.statsOf(id);
+      let want = 0; // how much they want a particular roommate: their warmest feeling for anyone in the house
+      for (const o of living) if (o !== id) want = Math.max(want, r.warmth(id, o));
+      return { id, at: arrivalTick({ speed: st.physical, eagerness: 0.4 * st.social + 0.2 * st.mental + 0.4 * clamp01(want * 2), distance: unit(`pos:${id}`), luck: unit(`luck:${id}`) }) };
+    }).sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1));
+    const scratch = structuredClone(beds) as BedsState;
+    const plan: BedRushState["plan"] = {};
+    for (const { id, at } of runners) {
+      const bed = pickBedFor(scratch, id, living, r, share, (w, room) => new SeededRandom(hashSeed(`${seed}:beds:${w}:${room}`)).next());
+      if (bed) claimBed(scratch, id, bed, s.dayNumber ?? 1, "move-in", living);
+      plan[id] = { room: bed ? roomOfBed(bed) : BEDROOM_LAYOUT[0]!.room, at };
+    }
+    s.bedRush = { tick: 0, plan, log: [], done: false };
+    return s.bedRush;
+  }
+
+  /** Run the claims that are due: everyone whose arrival tick has come (or everyone left, `all`), in arrival order; a claim that would break the player's safety floor waits. */
+  private runBedRushClaims(tick: number, all: boolean): void {
+    const s = this.live; const br = s?.bedRush; const beds = s?.beds;
+    if (!s || !br || !beds) return;
+    const living = new Set(this.livingIds());
+    const due = Object.entries(br.plan).filter(([id, p]) => !beds.owner[id] && living.has(id) && (all || p.at <= tick)).sort((a, b) => a[1].at - b[1].at || (a[0] < b[0] ? -1 : 1));
+    for (const [id] of due) {
+      const playerBedded = beds.owner[PLAYER] !== undefined;
+      const bed = this.claimNpcBed(beds, id, living, (b) => playerBedded || claimKeepsFloor(this.freeByRoom(beds, living), roomOfBed(b)));
+      if (bed) br.log.push({ tick, who: id, room: roomOfBed(bed) });
+    }
+    // Anyone living with no plan (a late arrival to the house) just takes what is left once the player has a bed.
+    this.settleBedRush();
+  }
+
+  private settleBedRush(): void {
+    const s = this.live; const br = s?.bedRush; const beds = s?.beds;
+    if (!s || !br || !beds || br.done) return;
+    const living = new Set(this.livingIds());
+    if ([...living].every((id) => id === PLAYER || beds.owner[id] !== undefined)) br.done = true;
+    else if (br.tick >= BED_RUSH.ticks + BED_RUSH.graceTicks) br.windowEnded = true;
+  }
+
+  /** The player has a bed (or bedtime gave them one): whoever was held for their safety may claim now. */
+  private resumeBedRush(): void {
+    const s = this.live; const br = s?.bedRush;
+    if (!s || !br || br.done || s.beds?.owner[PLAYER] === undefined) return;
+    this.runBedRushClaims(br.tick, br.windowEnded === true || br.tick > BED_RUSH.ticks);
+  }
+
+  /** Where the race stands, in the third person and with no numbers: who is still racing for which room, which rooms still have beds. Public facts only (never the pick scores or the arrival model). */
+  private bedRushFacts(): string | undefined {
+    const s = this.live; const beds = s?.beds;
+    if (!s || !beds || !this.bedRushEnabled || s.playedGame !== true || !s.premiereEntrance) return undefined;
+    const br = s.bedRush;
+    if (s.premiereEntrance.stage !== "done" && !br) return "No bed has been claimed: the house stays gathered in the common area until the champagne circle closes, then everyone is released at once and races for the bedrooms (a bed is claimed by actually reaching its room)";
+    if (br?.done) return undefined;
+    const living = new Set(this.livingIds());
+    const racing = Object.entries(br?.plan ?? {}).filter(([id]) => living.has(id) && !beds.owner[id]);
+    const byRoom = new Map<Room, string[]>();
+    for (const [id, p] of racing) byRoom.set(p.room, [...(byRoom.get(p.room) ?? []), this.nameOf(id)]);
+    const open = BEDROOM_LAYOUT.filter((spec) => freeBeds(beds, living).some((b) => roomOfBed(b) === spec.room)).map((spec) => this.roomName(spec.room));
+    const parts = [
+      s.premiereEntrance.stage === "done" && !br ? "The circle has closed and the house is released: the race for the bedrooms is about to begin; a bed is claimed by actually reaching its room, so the player can rush straight to a room or hang back" : "The bed rush is on: a bed is claimed by actually reaching its room, so the player can rush straight to a room or hang back",
+      ...(racing.length ? [`Still racing: ${[...byRoom].map(([room, names]) => `${names.join(", ")} for ${this.roomName(room)}`).join("; ")}`] : []),
+      `Rooms with beds still open: ${open.length ? open.join(", ") : "none"}`,
+    ];
+    return parts.join(". ");
+  }
+
+  /** One `advanceGame` of the rush: another heat of the race. Houseguests reach their rooms and claim; the beat hands the narrator who got where, who is still racing and who is left. */
+  private advanceBedRush(): AdvanceView {
+    const s = this.live!;
+    const br = this.startBedRush()!;
+    const from = br.log.length;
+    br.tick += 1;
+    this.runBedRushClaims(br.tick, br.tick > BED_RUSH.ticks);
+    this.persist();
+    const got = br.log.slice(from);
+    const beds = s.beds!;
+    const living = new Set(this.livingIds());
+    const gotLines = got.map((c) => {
+      const spot = beds.owner[c.who]!;
+      const mates = roommatesIn(beds, c.room, living).filter((m) => m !== c.who).map((m) => this.nameOf(m));
+      return `${this.nameOf(c.who)} reached ${this.roomName(c.room)} and claimed ${isDoubleSpot(spot) ? "half of a double" : "a single bed"}${mates.length ? `, rooming with ${mates.join(", ")}` : ", the first into that room"}`;
+    });
+    const facts = this.bedRushFacts();
+    const left = [...living].filter((id) => id !== PLAYER && !beds.owner[id]).map((id) => this.nameOf(id));
+    const content = [
+      gotLines.length ? gotLines.join("; ") : "Nobody has reached a bedroom yet",
+      ...(facts ? [facts] : []),
+      ...(left.length && (br.done || br.windowEnded) ? [`Still without a bed: ${left.join(", ")}`] : []),
+      ...(br.done ? ["Every houseguest has a bed now; the rush is over"] : []),
+    ].join(". ");
+    return {
+      ...this.advanceView(null),
+      event: {
+        beat: "bed-rush",
+        content,
+        participants: got.map((c) => ({ id: c.who, name: this.nameOf(c.who) })),
+        detail: { got: got.map((c) => ({ id: c.who, name: this.nameOf(c.who), room: this.roomName(c.room) })), over: br.done === true },
+      },
+    };
   }
 
   /** ORW-466 themes: what a room is called this season (its themed name), or the plain label without a theme. */
@@ -7612,17 +7750,41 @@ export class GameSessionAdapter implements GameSession {
    * player message before the moment prompt is built). A free bed in the named room is claimed; a full room is refused in fiction; a taken bed is a swap ask the owner answers from how they feel
    * about the player and how much they cared about their bed. Returns true when anything changed (the caller persists).
    */
-  private resolvePlayerBed(text: string): boolean {
-    this.playerBedNote = null;
-    const beds = this.ensureBeds();
-    if (!beds || !this.house || this.live?.finished || !this.playerBedWindowOpen(beds)) return false;
+  /** The bed claim / swap the player's words make, if any (shared by the claim itself and the bed rush's pre-move). */
+  private bedIntentOf(text: string): ReturnType<typeof parsePlayerBedIntent> {
+    if (!this.house) return null;
     const living = new Set(this.livingIds());
     const theme = this.live?.houseTheme;
     const aliases = themedRoomAliases(theme);
     const rooms = BEDROOM_LAYOUT.map((r) => ({ room: r.room, names: [...new Set([...bedroomNames(r.room, roomDisplayName(r.room)), ...bedroomNames(r.room, roomLabel(r.room, theme)), ...aliases.filter(([, room]) => room === r.room).map(([a]) => a)])] }));
     const people = this.house.npcs.filter((n) => living.has(n.id)).map((n) => ({ id: n.id, names: [n.name, n.name.split(/\s+/)[0]!].filter((x) => x.length >= 2) }));
-    const intent = parsePlayerBedIntent(text, rooms, people);
+    return parsePlayerBedIntent(text, rooms, people);
+  }
+
+  /** ORW-672 / 0201: in the rush, "I take a bed in room X" is the player running there: walk them to the room first (a no-op while the whole house is gathered), then the claim reads whether they reached it. */
+  private bedRushPreMove(text: string): void {
+    const s = this.live;
+    if (!this.bedRushEnabled || !s || s.playedGame !== true || s.premiereEntrance?.stage !== "done" || s.bedRush?.done || !this.house) return;
+    const intent = this.bedIntentOf(text);
+    if (!intent || intent.kind === "swap") return;
+    const target = intent.kind === "claim" ? intent.room : s.beds?.owner[intent.who] ? roomOfBed(s.beds.owner[intent.who]!) : undefined;
+    if (target !== undefined && this.presence?.get(this.house.player.id) !== target) this.movePlayer(target);
+  }
+
+  private resolvePlayerBed(text: string): boolean {
+    this.playerBedNote = null;
+    const beds = this.ensureBeds();
+    if (!beds || !this.house || this.live?.finished || !this.playerBedWindowOpen(beds)) return false;
+    const living = new Set(this.livingIds());
+    const intent = this.bedIntentOf(text);
     if (!intent) return false;
+    // ORW-672 / 0201: during the bed rush a claim needs the player to actually be in the room, and before the circle closes nobody claims anything.
+    const rushCtx = this.bedRushEnabled && this.live?.playedGame === true && this.live.premiereEntrance !== undefined && !this.live.bedRush?.done;
+    if (rushCtx && intent.kind !== "swap") {
+      if (this.live!.premiereEntrance!.stage !== "done") { this.playerBedNote = "the champagne circle has not closed, so nobody has claimed a bed and the player cannot yet: everyone is still gathered in the common area (engine truth: the bed rush starts when the circle closes)"; return false; }
+      const target = intent.kind === "claim" ? intent.room : beds.owner[intent.who] ? roomOfBed(beds.owner[intent.who]!) : undefined;
+      if (target !== undefined && this.presence?.get(this.house.player.id) !== target) { this.playerBedNote = `the player has not reached ${this.roomRefOf(target)} yet, so they have not claimed a bed there: a bed is claimed by being in its room (engine truth: they have to get there first, and others may beat them to it)`; return false; }
+    }
     const day = this.live?.dayNumber ?? 1;
     let room: Room | undefined;
     let bed: BedId | undefined;
@@ -7647,6 +7809,7 @@ export class GameSessionAdapter implements GameSession {
       if (later) this.foldBedMove(PLAYER, leftMate !== undefined && leftMate !== mate ? [leftMate] : [], mate !== undefined && mate !== leftMate ? [mate] : [], day);
       this.playerBedNote = `the player just claimed ${isDoubleSpot(bed) ? `half of a double${mate ? ` next to ${this.nameOf(mate)}` : ""}` : "a single bed"} in ${this.roomName(room)} (engine truth: voice it as theirs)`;
       this.noteBedChoice(beds, PLAYER, room, living);
+      this.resumeBedRush(); // ORW-672 / 0201: anyone held back for the player's safety may go on
       return true;
     }
     // A swap ask: the owner decides.
@@ -7708,7 +7871,8 @@ export class GameSessionAdapter implements GameSession {
     });
     const mine = beds.owner[PLAYER];
     const own = mine ? `The player's bed is in ${this.roomName(roomOfBed(mine))}.` : `The player has not picked a bed yet${BED_RULES.leftoverAtFirstBedtime ? " (if they never do, they get the one left over at their first bedtime)" : ""}.`;
-    return `${rooms.join("; ")}. ${own}${this.playerBedNote ? ` This turn: ${this.playerBedNote}.` : ""}`;
+    const rush = this.bedRushFacts();
+    return `${rooms.join("; ")}. ${own}${rush ? ` ${rush}.` : ""}${this.playerBedNote ? ` This turn: ${this.playerBedNote}.` : ""}`;
   }
 
   /**
@@ -7757,6 +7921,7 @@ export class GameSessionAdapter implements GameSession {
     if (!s || s.playedGame !== true || s.finished || !this.house || this.phase === "premiere") return;
     const beds = this.ensureBeds();
     if (!beds) return;
+    this.resumeBedRush(); // ORW-672 / 0201: a rush left waiting on the player's bed finishes once they have one
     const living = new Set(this.livingIds());
     const day = s.dayNumber ?? 1;
     for (const gone of s.evictionOrder) {
@@ -7788,7 +7953,7 @@ export class GameSessionAdapter implements GameSession {
     if (!beds.owner[PLAYER] && BED_RULES.leftoverAtFirstBedtime) { // ORW-466 slice 2 (Q4, data): the bed left over at the player's first bedtime
       const inHouse = new Set(this.livingIds());
       const left = freeBeds(beds, inHouse)[0];
-      if (left) claimBed(beds, PLAYER, left, this.live.dayNumber ?? 1, "leftover", inHouse);
+      if (left) { claimBed(beds, PLAYER, left, this.live.dayNumber ?? 1, "leftover", inHouse); this.resumeBedRush(); }
     }
     const room = sleepRoomOf(beds, PLAYER, this.live.hoh);
     if (room && this.presence.get(PLAYER) !== room) {
@@ -11333,6 +11498,8 @@ export class GameSessionAdapter implements GameSession {
   setWipeoutReelEnabled(on: boolean): void { this.wipeoutReelEnabled = on; }
   /** A9 - turn the staged premiere entrances on/off for this session (read at `createCharacter`; tests/BDD; the deploy sets `ORWELL_PREMIERE_ENTRANCES`). */
   setPremiereEntrancesEnabled(on: boolean): void { this.premiereEntrancesEnabled = on; }
+  /** ORW-672 / 0201: turn the bed rush on/off for this session (tests/BDD; the deploy sets `ORWELL_BED_RUSH`). */
+  setBedRushEnabled(on: boolean): void { this.bedRushEnabled = on; }
   premiereEntrancesEnabledNow(): boolean { return this.premiereEntrancesEnabled; }
   /** 0128 - turn the three-part Final HOH on/off for this session (tests/BDD; the deploy sets `ORWELL_FINAL_HOH_THREE_PART`). */
   setFinalHohThreePartEnabled(on: boolean): void { this.finalHohThreePartEnabled = on; }
@@ -14861,6 +15028,10 @@ export class GameSessionAdapter implements GameSession {
     if (this.live.premiereEntrance && this.live.premiereEntrance.stage !== "done") { // A9: the staged entrances/toast
       const staged = this.inOneCommit(() => this.advancePremiereEntrance());
       return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, staged) : staged;
+    }
+    if (this.bedRushRunning()) { // ORW-672 / 0201: the circle has closed - each advance is another heat of the bed rush, until every houseguest has a bed (or the window ends)
+      const rushed = this.inOneCommit(() => this.advanceBedRush());
+      return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, rushed) : rushed;
     }
     if (this.live.champagneCircle === "gathered") {
       const closed = this.inOneCommit(() => {
