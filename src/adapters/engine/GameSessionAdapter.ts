@@ -117,7 +117,7 @@ import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
 import { DEAL_EXPOSURE, exposureHits, reopened, twistKey, type DealTwist } from "../../engine/dealExposure";
-import { DEAL_PLANS, PLAN_SEMANTICS, buildDealPlanRetro, decidePlan, fakingLean, isBetrayal, momentDue, planBond, planSourceOf, recordPlan, type PlanSource, type StoredPlan } from "../../engine/dealPlans";
+import { DEAL_PLANS, PLAN_SEMANTICS, buildDealPlanRetro, decidePlan, fakingLean, isBetrayal, ledgerPlanKey, momentDue, planBond, planSourceOf, recordPlan, type DealPlanRetro, type PlanSource, type StoredPlan } from "../../engine/dealPlans";
 import { DEAL_CONSENT, type DealRefusalReason } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
@@ -275,7 +275,7 @@ import { producerReadPrompt, type ExchangeAccounting } from "../../engine/produc
 import { buildShowBrief } from "../../engine/showBrief";
 import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
 import { emptyNarrationUse, narrationAnchor, narrationSeasonLine, narrationUsageSection, recordNarration, restoreNarrationUse, type NarrationUse } from "../../engine/narrationUsage";
-import { brokenPromiseClaimId, isPromiseWhat, judgePromise, PROMISE_VETO_LEAN, promiseNote, termAssuranceKind, termIdsKnown, termSubject, type PromiseBoardFact, type PromiseTerm, type PromiseWhat, type PromiseWindow } from "../../engine/promiseTerms";
+import { brokenPromiseClaimId, isPromiseWhat, judgePromise, ledgerPlanRetroRows, PROMISE_VETO_LEAN, promiseNote, termAssuranceKind, termIdsKnown, termPlanDealKind, termSubject, type PromiseBoardFact, type PromiseTerm, type PromiseWhat, type PromiseWindow } from "../../engine/promiseTerms";
 import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerSameDayDealLine, openLedgerSection, partiesOf, closeOpenEntry, recordDealEntry, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
 import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
@@ -1539,7 +1539,8 @@ export class GameSessionAdapter implements GameSession {
     const aggression = stats ? Math.max(0, Math.min(1, 1 - stats.social)) : 0.5;
     const keepWeight = assuranceKeepWeight({ loyalty, aggression });
     const breakBenefit = Math.max(0, Math.min(1, this.rel.edge(holder, target).threat));
-    return open.every((a) => decideKeep({ keepWeight, sincerity: a.sincerity, breakBenefit }));
+    // ORW-586 slice 5: a plan for the promise this row came from (the promiser's secret plan, `ledgerPlanVerdictFor`) overrides the row's own sincerity: a betrayal due at the nominations breaks it; an honest or not-yet-due one is sincere.
+    return open.every((a) => { const plan = this.ledgerPlanVerdictFor(a, "nominations"); return plan !== true && decideKeep({ keepWeight, sincerity: plan === false ? 1 : a.sincerity, breakBenefit }); });
   }
 
   /** B4 slice 4 - the eviction-vote shield `voter` owes nominee `n` from a KEPT 'vote'/'safe' assurance (0 when none, a strategic lie, or the voter decides to break it). Half a deal's honor weight. */
@@ -1551,7 +1552,7 @@ export class GameSessionAdapter implements GameSession {
     const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(voter), this.emotionalReadOf(voter))));
     const keepWeight = assuranceKeepWeight({ loyalty, aggression: stats ? Math.max(0, Math.min(1, 1 - stats.social)) : 0.5 });
     const breakBenefit = Math.max(0, Math.min(1, this.rel.edge(voter, n).threat));
-    return open.every((a) => decideKeep({ keepWeight, sincerity: a.sincerity, breakBenefit })) ? 0.5 * DECISION.vote.dealHonorWeight : 0;
+    return open.every((a) => { const plan = this.ledgerPlanVerdictFor(a, "vote"); return plan !== true && decideKeep({ keepWeight, sincerity: plan === false ? 1 : a.sincerity, breakBenefit }); }) ? 0.5 * DECISION.vote.dealHonorWeight : 0; // ORW-586 slice 5: the plan, as in assuranceProtects
   }
 
   /**
@@ -1574,9 +1575,61 @@ export class GameSessionAdapter implements GameSession {
       const keepWeight = assuranceKeepWeight({ loyalty, aggression: stats ? Math.max(0, Math.min(1, 1 - stats.social)) : 0.5 });
       const edge = this.rel.edge(holder, subject);
       const breakBenefit = Math.max(0, Math.min(1, what === "not-use-veto-on" ? edge.trust : edge.threat));
-      out.push({ subject, keep: decideKeep({ keepWeight, sincerity: 1, breakBenefit }) });
+      // ORW-586 slice 5: the promiser's secret plan for THIS promise, when it is a betrayal and due, breaks it here (the veto's moment for a veto promise; the Final 3 for a final-two promise).
+      const due = this.ledgerPlanBreaks(e.id, holder, what === "final-two" ? "vote" : "veto") === true;
+      out.push({ subject, keep: !due && decideKeep({ keepWeight, sincerity: 1, breakBenefit }) });
     }
     return out;
+  }
+  /**
+   * ORW-586 slice 5 - the PLAN SEAM for an improvised NPC promise. Does the promiser's secret plan (`dealPlanSource().planOf(ledgerPlanKey(entryId), holder)`, the same store and semantics as a deal's plan) say they break THIS promise now?
+   * `undefined` = no plan (flag off, none made: today's sincere behaviour); `false` = a plan that keeps it (or a betrayal not yet due); `true` = a betrayal whose moment is due (`PLAN_SEMANTICS` / `momentDue`, exactly as a deal's).
+   * The break itself is the ordinary one: the promiser's decision goes against the promise and the judge folds it once (`foldBrokenPromise`). Engine-only: never projected.
+   */
+  private ledgerPlanBreaks(entryId: string, holder: EntityId, now: "nominations" | "veto" | "vote"): boolean | undefined {
+    const s = this.live;
+    if (!this.dealPlansEnabled || !this.promiseTermsLive || !s) return undefined;
+    const plan = this.dealPlanSource().planOf(ledgerPlanKey(entryId), holder);
+    if (!plan) return undefined;
+    if (!isBetrayal(plan.kind)) return false;
+    return PLAN_SEMANTICS[plan.kind].carriedOut === "final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
+  }
+  /** ORW-586 slice 5: the plan verdict for the open termed promise an assurance row was written from (same promiser, promisee, kind and week); any due betrayal wins. `undefined` = no plan found. */
+  private ledgerPlanVerdictFor(a: Assurance, now: "nominations" | "veto" | "vote"): boolean | undefined {
+    if (!this.dealPlansEnabled || !this.promiseTermsLive) return undefined;
+    let verdict: boolean | undefined;
+    for (const e of this.openLedger.entries) {
+      const t = e.term;
+      if (e.status !== "open" || !t || t.by !== a.from || t.to !== a.to || t.week !== a.week || termAssuranceKind(t) !== a.kind) continue;
+      const v = this.ledgerPlanBreaks(e.id, a.from, now);
+      if (v === true) return true;
+      if (v === false) verdict = false;
+    }
+    return verdict;
+  }
+  /**
+   * ORW-586 slice 5 - an NPC's improvised termed promise gets its SECRET PLAN the way a formal deal does: `decidePlan` (their own cunning, the number of promises and deals they have made, the bond with who they promised, the house
+   * culture, and whether breaking would pay them) with the rolls from a side stream keyed on (seed, entry, promiser) - never the shared rng. Stored write-once under `ledgerPlanKey(entry.id)` in the one plan store. `share-info`
+   * (never judged) and a promise the PLAYER made (the engine never plans for the player) get none. Flag off (either flag) => nothing.
+   */
+  private planLedgerPromise(entryId: string, term: PromiseTerm): void {
+    const s = this.live;
+    const kind = termPlanDealKind(term.what);
+    if (!this.dealPlansEnabled || !this.promiseTermsLive || !s || s.playedGame !== true || !this.house || !kind || term.by === (OPEN_LEDGER_PLAYER as string)) return;
+    const by = term.by as EntityId;
+    const to = term.to as EntityId;
+    const subject = termSubject(term) as EntityId;
+    const stats = this.house.npcs.find((n) => n.id === by)?.character.stats;
+    const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(by), this.emotionalReadOf(by))));
+    const keepWeight = assuranceKeepWeight({ loyalty, aggression: stats ? Math.max(0, Math.min(1, 1 - stats.social)) : 0.5 });
+    const gain = Math.max(0, Math.min(1, term.what === "not-use-veto-on" ? this.rel.edge(by, subject).trust : this.rel.edge(by, subject).threat));
+    const dealsMade = this.deals.all.filter((d) => d.parties.includes(by)).length + this.openLedger.entries.filter((e) => e.term?.by === by).length;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:promise-plan:${entryId}:${by}`));
+    const plan = decidePlan({
+      kind, margin: gain - keepWeight, bond: planBond(this.rel.edge(by, to)), dealsMade, temperament: this.fakingCunningOf(by),
+      loyaltyDial: this.cultureMult("loyalty"), lyingDial: this.cultureMult("lying"), week: s.week,
+    }, { twoFaced: rng.next(), which: rng.next() });
+    recordPlan((s.dealPlans ??= {}), ledgerPlanKey(entryId), by, plan, s.week);
   }
   /** ORW-586 slice 4 - the signed lean a KEPT veto promise gives `holder`'s save of `nominee` (see `termKeepsOf`). */
   promiseVetoFor(nominee: EntityId, holder: EntityId): number {
@@ -5098,13 +5151,21 @@ export class GameSessionAdapter implements GameSession {
     const to = favoriteOf(a.full, [PLAYER, ...this.house.npcs.map((n) => n.id)]);
     return to ? { id: to, name: this.nameOf(to) } : undefined;
   }
+  /** ORW-586 slice 5: add the secret plans of improvised NPC promises to the deal-plan retrospective (post-crown only, the caller's gate). Nothing to add => the deal view unchanged. */
+  private withLedgerPlans(retro: DealPlanRetro | undefined): DealPlanRetro | undefined {
+    const rows = ledgerPlanRetroRows(this.live?.dealPlans, this.openLedger.entries);
+    if (!rows.length) return retro;
+    const ref = (id: EntityId) => ({ id, name: this.nameOf(id) });
+    const secretPlans = [...(retro?.secretPlans ?? []), ...rows.map((r) => ({ holder: ref(r.holder), with: ref(r.with), dealKind: r.dealKind, madeWeek: r.madeWeek, plan: r.plan, outcome: r.outcome }))];
+    return { secretPlans, yourPromises: retro?.yourPromises ?? [] };
+  }
   seasonRetrospective(): RetrospectiveView | null {
     if (!this.live?.finished) return null; // the structural gate: no finished season, no unsealing
     // ORW-320 (spec 0146 slice 7): "the house you never saw" rides THIS post-crown door only (never the debug dump's shared render, never a live surface).
     const houseYouNeverSaw = this.houseStories();
     const rumorMill = buildRumorMill(this.live.claims, (id) => this.nameOf(id), this.live.beliefs, this.truthFacts()); // ORW-525 (spec 0157): reads the claim log + beliefs about the player, read-only; same gate
     const houseCultureWords = describeHouseLeans(this.live.houseLeans); // ORW-551 (spec 0168): texture words only, same crown gate; absent when no culture was drawn
-    const dealPlans = buildDealPlanRetro(this.live.dealPlans, this.deals.all, this.openLedger.entries, PLAYER, (id) => this.nameOf(id)); // 0178 (Ryne Q2): the secret plans beside the player's own promise record; same crown gate
+    const dealPlans = this.withLedgerPlans(buildDealPlanRetro(this.live.dealPlans, this.deals.all, this.openLedger.entries, PLAYER, (id) => this.nameOf(id))); // 0178 (Ryne Q2): the secret plans beside the player's own promise record; same crown gate (+ ORW-586 slice 5: the plans of improvised promises)
     const americasFavorite = this.americasFavorite(); // ORW-624: after the crown only
     const yourEdit = this.buildYourEditView(); // 0200 / ORW-632: after the crown only (the same gate); facts only
     const groupLife = this.buildGroupLifeView(); // 0183 part d: the sanctioned unsealing of hidden groups' names and words; same gate; facts only
@@ -20191,6 +20252,7 @@ export class GameSessionAdapter implements GameSession {
     if (out.outcome === "duplicate") return { accepted: true, duplicate: true, ...(out.id ? { entryId: out.id } : {}) };
     if (out.outcome !== "recorded") return { accepted: false, reason: out.outcome };
     this.openLedger = out.ledger;
+    if (out.id) this.planLedgerPromise(out.id, term); // ORW-586 slice 5: an NPC promiser's improvised promise gets its secret plan, as a deal does
     const kind = termAssuranceKind(term);
     if (kind) {
       const heardBy = witnesses.filter((w) => w !== OPEN_LEDGER_PLAYER && w !== term.by && w !== term.to) as EntityId[];
