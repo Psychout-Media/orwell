@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { atCommit } from "../support/commitFold";
 import { readFileSync } from "node:fs";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { HEART, heartAgainstGame, keepAfterHeart, romancePairKey, sentimentOf, shakenKey } from "../../src/engine/heartAgainstGame";
@@ -122,7 +123,7 @@ const start = (seed: number, opts: { on?: boolean; played?: boolean } = {}) => {
 const npcs = (s: Internals): string[] => s.live.active.filter((x) => x.startsWith("npc:"));
 const couple = (s: Internals, a: string, b: string): void => {
   for (const [h, o] of [[a, b], [b, a]] as const) (s.live.bonds ??= {})[bondKey(h, o)] = { ...emptyBond(), warmth: 0.8, romance: 3, history: 4 };
-  s.bondReader(); // the fold notes the showmance
+  atCommit(s).bondReader(); // the fold notes the showmance
 };
 const style = (s: Internals, id: string, st: string): void => { s.house.npcs.find((x) => x.id === id)!.character.strategyStyle = st; };
 
@@ -197,15 +198,15 @@ describe("A3 live: an in-house breakup is the worst rupture", () => {
   };
   it("a broken deal between a showmance's two writes a heartbreak above any deal grudge, once, and the bond takes the deepest strain", () => {
     const rom = broken(true), plain = broken(false);
-    const g = rom.s.grudgeOf(rom.w, rom.l)!, p = plain.s.grudgeOf(plain.w, plain.l)!;
+    const g = atCommit(rom.s).grudgeOf(rom.w, rom.l)!, p = atCommit(plain.s).grudgeOf(plain.w, plain.l)!;
     expect(p).toMatchObject({ kind: "deal-broken", severity: GRUDGES.DEAL_BREAK_SEVERITY });
     expect(g).toMatchObject({ kind: "heartbreak", severity: GRUDGES.HEARTBREAK_SEVERITY });
     expect(g.weight).toBeGreaterThan(p.weight);
     expect(rom.s.live.breakups).toEqual([romancePairKey(rom.w, rom.l)]);
-    rom.s.grudgeOf(rom.w, rom.l); rom.s.bondReader();
+    atCommit(rom.s).grudgeOf(rom.w, rom.l); atCommit(rom.s).bondReader();
     expect(rom.s.live.breakups!.length).toBe(1);
     expect(rom.s.live.bonds![bondKey(rom.w, rom.l)]!.strain).toBeGreaterThan(plain.s.live.bonds![bondKey(plain.w, plain.l)]!.strain);
-    expect(rom.s.grievanceOf(rom.w, rom.l)).toBeGreaterThan(plain.s.grievanceOf(plain.w, plain.l)); // the one grievance every reader takes (revenge, the room)
+    expect(atCommit(rom.s).grievanceOf(rom.w, rom.l)).toBeGreaterThan(atCommit(plain.s).grievanceOf(plain.w, plain.l)); // the one grievance every reader takes (revenge, the room)
   });
   it("it reaches the jury: an evicted partner keeps the heartbreak against whoever sent them out, and the bitter-juror read is heavier than for a plain wrong", () => {
     const run = (romance: boolean): number => {
@@ -214,7 +215,7 @@ describe("A3 live: an in-house breakup is the worst rupture", () => {
       if (romance) couple(s, w!, l!);
       s.live.evictionOrder = [w!];
       (s.live as unknown as { mannerByEvictee: unknown }).mannerByEvictee = { [w!]: { [l!]: { betrayed: true, intensity: 0.5 } } };
-      s.grudgeOf(w!, l!); // the fold (the jury read itself does not fold)
+      atCommit(s).grudgeOf(w!, l!); // the fold (the jury read itself does not fold)
       return s.juryGrudgeFor(w!, l!);
     };
     expect(run(false)).toBeLessThan(0);
@@ -225,19 +226,19 @@ describe("A3 live: an in-house breakup is the worst rupture", () => {
     const [w, l] = npcs(s);
     couple(s, w!, l!);
     sb.engine.events.record({ id: "x-clash", ts: 9_300_001, type: "conflict", initiator: l!, witnessSet: [w!, l!], hidden: true, content: "a clash", houseLife: true } as never);
-    expect(s.grudgeOf(w!, l!)).toMatchObject({ kind: "heartbreak", severity: GRUDGES.HEARTBREAK_SEVERITY });
-    expect(s.grudgeOf(l!, w!)).toBeNull();
+    expect(atCommit(s).grudgeOf(w!, l!)).toMatchObject({ kind: "heartbreak", severity: GRUDGES.HEARTBREAK_SEVERITY });
+    expect(atCommit(s).grudgeOf(l!, w!)).toBeNull();
   });
   it("no showmance, no heartbreak; and it survives a save and restore without ending twice", () => {
     const { s, w, l } = broken(true);
-    s.grudgeOf(w, l);
+    atCommit(s).grudgeOf(w, l);
     const snap = JSON.parse(JSON.stringify(s.snapshot()));
     const sb2 = new GameSessionRegistry().sandboxFor(`a34-rt-${n++}`);
     sb2.session.restore(snap);
     const t = sb2.session as unknown as Internals;
     expect(t.live.romances).toEqual(s.live.romances);
     expect(t.live.breakups).toEqual(s.live.breakups);
-    t.grudgeOf(w, l); t.bondReader();
+    atCommit(t).grudgeOf(w, l); atCommit(t).bondReader();
     expect(t.live.breakups!.length).toBe(1);
     expect(t.live.grudges![`${w}|${l}`]!.severity).toBe(GRUDGES.HEARTBREAK_SEVERITY);
   });
@@ -253,31 +254,31 @@ describe("A4 live: the player is in a showmance only by their own acts", () => {
   it("the player's own scenes, answered by a houseguest drawn to them, make one; nothing else does", () => {
     const own = start(3); const [A] = npcs(own.s);
     cast(own.s, A!, "man", "straight"); own.s.house.player.character.genderPresentation = "woman";
-    say(own.sb, PLAYER, A!, "showmance"); own.s.bondReader();
+    say(own.sb, PLAYER, A!, "showmance"); atCommit(own.s).bondReader();
     expect(own.s.live.romances?.[romancePairKey(A!, PLAYER)]).toBeDefined();
 
     const theirs = start(3); const [B] = npcs(theirs.s); // the houseguest started every scene: the engine never decides the player is in one
     cast(theirs.s, B!, "man", "straight"); theirs.s.house.player.character.genderPresentation = "woman";
-    say(theirs.sb, B!, B!, "showmance"); theirs.s.bondReader();
+    say(theirs.sb, B!, B!, "showmance"); atCommit(theirs.s).bondReader();
     expect(theirs.s.live.romances).toBeUndefined();
   });
   it("never assumed: a player who has set nothing is nobody's attraction, and a houseguest outside their own orientation does not answer", () => {
     const unset = start(3); const [A] = npcs(unset.s);
     cast(unset.s, A!, "man", "pansexual");
-    say(unset.sb, PLAYER, A!, "showmance"); unset.s.bondReader();
+    say(unset.sb, PLAYER, A!, "showmance"); atCommit(unset.s).bondReader();
     expect(unset.s.live.romances).toBeUndefined();
     expect(unset.s.house.player.character.genderPresentation).toBeUndefined(); // nothing was filled in for them
     const mismatch = start(3); const [B] = npcs(mismatch.s);
     cast(mismatch.s, B!, "man", "gay"); mismatch.s.house.player.character.genderPresentation = "woman";
-    say(mismatch.sb, PLAYER, B!, "showmance"); mismatch.s.bondReader();
+    say(mismatch.sb, PLAYER, B!, "showmance"); atCommit(mismatch.s).bondReader();
     expect(mismatch.s.live.romances).toBeUndefined();
   });
   it("the partner expects loyalty: a clash the player starts ends it, and the houseguest holds the heartbreak against the player", () => {
     const { sb, s } = start(3); const [A] = npcs(s);
     cast(s, A!, "woman", "bisexual"); s.house.player.character.genderPresentation = "man";
-    say(sb, PLAYER, A!, "showmance"); s.bondReader();
+    say(sb, PLAYER, A!, "showmance"); atCommit(s).bondReader();
     say(sb, PLAYER, A!, "conflict", 1);
-    expect(s.grudgeOf(A!, PLAYER)).toMatchObject({ kind: "heartbreak", severity: GRUDGES.HEARTBREAK_SEVERITY });
+    expect(atCommit(s).grudgeOf(A!, PLAYER)).toMatchObject({ kind: "heartbreak", severity: GRUDGES.HEARTBREAK_SEVERITY });
   });
 });
 
@@ -307,7 +308,7 @@ describe("flag off and headless are byte-identical; the wall holds; no new rng",
     const [w, l] = npcs(s);
     couple(s, w!, l!);
     const d = s.deals.make([w!, l!], "safety", "terms", undefined, 1); d.status = "broken"; d.brokenBy = l!;
-    s.grudgeOf(w!, l!);
+    atCommit(s).grudgeOf(w!, l!);
     expect(s.live.breakups?.length).toBe(1);
     const surfaces = [
       await sb.mcp.player.callTool("getGameState", {}), await sb.mcp.player.callTool("gameStatus", {}), await sb.mcp.player.callTool("getMomentPrompt", {}),

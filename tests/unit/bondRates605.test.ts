@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { atCommit } from "../support/commitFold";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { BOND, bondKey, emptyBond, foldScene, sceneScale, type BondStore } from "../../src/engine/bondRecord";
 import { GRUDGES, noteGrudge, type GrudgeBook } from "../../src/engine/grudges";
@@ -71,14 +72,14 @@ describe("an apology only counts after the wrong", () => {
     const evs: GameEvent[] = [scene(S, H, "before")];
     s.setRecordProviders({ events: () => evs, hidden: () => [] });
     s.live.npcMemory = { [H]: { [S]: [{ kind: "nominated-by-friend", week: 1, severity: 0.5 }] } };
-    s.grudgeOf(H, S);
+    atCommit(s).grudgeOf(H, S);
     const row = s.live.grudges![`${H}|${S}`]!;
     expect(row.eased).toBe(0); // the scene was recorded before the wrong was noted
     evs.push(scene(S, H, "after1"), scene(S, H, "after2"));
-    s.grudgeOf(H, S);
+    atCommit(s).grudgeOf(H, S);
     const once = row.eased;
     expect(once).toBeGreaterThan(0);
-    s.grudgeOf(H, S);
+    atCommit(s).grudgeOf(H, S);
     expect(row.eased).toBe(once);
   });
 });

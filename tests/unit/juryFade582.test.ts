@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { atCommit } from "../support/commitFold";
 import { readFileSync } from "node:fs";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { OVERNIGHT_DRIFT, RELATIONSHIP_CONSTANTS } from "../../src/engine/relationshipConstants";
@@ -88,11 +89,11 @@ describe("ORW-582 jury-house fade", () => {
     const row = { kind: "betrayal", week: 1, day: 1, severity: 0.8, peak: 0.8, eased: 0, refKey: "k" };
     for (const holder of [npc(1), npc(14)]) i.live.grudges = { ...(i.live.grudges ?? {}), [grudgeKey(holder, PLAYER)]: { ...row } };
     i.live.week = 12;
-    const juror = i.grudgeOf(npc(1), PLAYER, false), house = i.grudgeOf(npc(14), PLAYER, false);
+    const juror = atCommit(i).grudgeOf(npc(1), PLAYER, false), house = atCommit(i).grudgeOf(npc(14), PLAYER, false);
     expect(juror.freshness).toBeLessThan(house.freshness);
     expect(juror.freshness).toBeGreaterThanOrEqual(GRUDGES.FLOOR_SHARE * 0.8);
     i.live.week = 400;
-    expect(i.grudgeOf(npc(1), PLAYER, false).freshness).toBeGreaterThanOrEqual(GRUDGES.FLOOR_SHARE * 0.8 - 1e-9);
+    expect(atCommit(i).grudgeOf(npc(1), PLAYER, false).freshness).toBeGreaterThanOrEqual(GRUDGES.FLOOR_SHARE * 0.8 - 1e-9);
     for (let n = 0; n < 5; n++) i.repairGrudge(npc(1), PLAYER, 10);
     const left = i.live.grudges[grudgeKey(npc(1), PLAYER)];
     expect(left.eased).toBeLessThanOrEqual(GRUDGES.EASE_CAP * left.peak + 1e-9);

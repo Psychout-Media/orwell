@@ -27,6 +27,10 @@ const VIEWS: Record<string, Reader> = {
   getPortraitPrompt: (s, id) => s.getPortraitPrompt!(id),
   reputationOf: (s, id, other) => s.reputationOf!(id, other),
   credibilityOf: (s, id, other) => s.credibilityOf!(id, other),
+  // ORW-684 slice (a): the bond record and the grudge book fold at the commit, never on a read: these three used to advance bondsCursor, breakupCursor and grudgesCursor
+  bondReader: (s, id, other) => { const r = s.bondReader!() as { bond(a: string, b: string): unknown }; return [r.bond(id, other), r.bond(other, id)]; },
+  grudgeOf: (s, id, other) => [s.grudgeOf!(id, other), s.grudgeOf!(other, id)],
+  houseGraph: (s) => s.houseGraph!(),
 };
 
 describe("ORW-684: reads never write", () => {
@@ -53,6 +57,25 @@ describe("ORW-684: reads never write", () => {
     });
     expect(checked).toBeGreaterThan(10);
   }, 240000);
+
+  it("reading the bond record, the grudge book and the house graph at every step leaves the played game exactly as it was (same snapshot as never looking)", async () => {
+    const run = async (look: boolean): Promise<string> => {
+      let end = "";
+      await playMixGame(3, 150, {
+        advanceEvery: 6, stopAtWeek: 3,
+        ...(look ? { onStep: (sess: unknown) => {
+          const s = sess as Record<string, (...a: unknown[]) => unknown> & { house?: { npcs: Array<{ id: string }> } };
+          const [a, b] = (s.house?.npcs ?? []).map((n) => n.id);
+          for (const n of ["bondReader", "grudgeOf", "houseGraph"]) VIEWS[n]!(s, a!, b!);
+        } } : {}),
+        inspect: (sess) => { end = JSON.stringify((sess as { snapshot(): unknown }).snapshot()).replace(/md3-\d+-\d+-[a-z0-9]+/g, "md3-id"); }, // the held-night driver mints random message ids (not the engine): masked
+      });
+      return end;
+    };
+    const looked = await run(true), unseen = await run(false);
+    let at = 0; while (at < looked.length && looked[at] === unseen[at]) at++;
+    expect(looked, `first difference at ${at}: looked ...${looked.slice(Math.max(0, at - 80), at + 120)} / unseen ...${unseen.slice(Math.max(0, at - 80), at + 120)}`).toBe(unseen);
+  }, 480000);
 
   it("socialInitiatives is the one known read that marks the surface (who was shown): it changes only the approach record, and re-reading is stable", async () => {
     await playMixGame(3, 120, {
