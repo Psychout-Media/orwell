@@ -14,6 +14,9 @@ import { beliefStoreSuperset } from "./beliefStore";
 import { claimLogSuperset } from "./spokenClaims";
 import { toldLeadsSuperset } from "./toldLeads";
 import { cleanActsSuperset } from "./comingClean";
+import { grudgeBookSuperset } from "./grudges";
+import { bondStoreSuperset } from "./bondRecord";
+import { groupIdentitySuperset } from "./groupIdentity";
 import { houseTourSuperset } from "./houseTour";
 import type { KnowledgeSnapshot } from "../domain/knowledge";
 import type { EdgeRecord, GameState, PersistedCharacter, PersistedSoul } from "../domain/saveState";
@@ -993,6 +996,11 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
   // beliefs (#2017 / ORW-591): a belief once held is never lost (nor a telling folded into it), except by the per-holder cap's compaction, which
   // takes refuted beliefs before live ones (`beliefStoreSuperset`).
   if (!beliefStoreSuperset(later.live?.beliefs, earlier.live?.beliefs)) return "beliefs";
+
+  // bonds, grudges, group identity (ORW-606): the season-long stores of Theme 3 are never thinned. (Room tenure is deliberately outside: it resets whenever a houseguest moves.)
+  if (!bondStoreSuperset(later.live?.bonds, earlier.live?.bonds)) return "bonds";
+  if (!grudgeBookSuperset(later.live?.grudges, earlier.live?.grudges)) return "grudges";
+  if (!groupIdentitySuperset(later.live?.groupIdentity, earlier.live?.groupIdentity)) return "groupIdentity";
 
   return null;
 }
