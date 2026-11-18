@@ -408,7 +408,7 @@ import { avoidFromWire, type AvoidSets } from "../../domain/recentSeasons";
 import { dealEraGivenNames, dealSurnames, censusGroupOfHeritage } from "../../engine/data/worldNames";
 import type { Orientation, GenderPresentation } from "../../engine/diversityConstants";
 import { ATTRACTION_LIFE, attractionOf, chemistryFor, drawnTo, type AttractionIdentity } from "../../engine/attractionLife"; // 0207 A1
-import { chemistryKey } from "../../engine/attraction";
+import { chemistryKey, readsAsCouple, coupleNomPush } from "../../engine/attraction";
 import { ALL_ETHNICITIES, GENDER_PRESENTATIONS } from "../../engine/diversityConstants";
 import { isGenderPresentation } from "../../domain/gender"; // #1326
 import { foldHiddenImpact } from "../../engine/consequence";
@@ -11942,6 +11942,7 @@ export class GameSessionAdapter implements GameSession {
       // ORW-568 / 0181: the voter's (or HOH's) real feeling for the person keeps them. Played games with the bond record only, so a headless sim carries no hook (+0, byte-identical).
       ...(this.bondFeelingsOn() ? { feelingKeepFor: (n: EntityId, v: EntityId) => this.feelingKeepOf(n, v) } : {}),
       ...(this.houseNormsEnabled && this.live?.playedGame === true && this.npcBeliefsEnabled ? { herdFor: (n: EntityId, v: EntityId, fn: readonly [EntityId, EntityId]) => this.herdFor(n, v, fn) } : {}), // 0180 part 2
+      ...(this.showmancesEnabled && this.live?.playedGame === true ? { couplePushFor: (t: EntityId, h: EntityId) => this.couplePushFor(t, h) } : {}), // 0207 A2: a pair the HOH reads as a couple is a target
       ...(this.endgameTrustEnabled && this.live?.playedGame === true ? { endgameFor: (t: EntityId, d: EntityId) => this.endgameFor(t, d) } : {}), // 0193
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
@@ -15494,6 +15495,44 @@ export class GameSessionAdapter implements GameSession {
     return new Map(others.map((o) => [o, reader.bond(holder, o).strands.rivalry ?? 0] as const).filter(([, v]) => v > 0));
   }
   private bondFeelingsOn(): boolean { return this.bondFeelingsEnabled && this.live?.playedGame === true && this.bondRecordEnabled; }
+
+  /** 0207 A2: the romance scenes `holder` registered (they were in it, or watched it from the room), as unordered pair keys; cached by the record's length. A hiding pair's scenes are caught only on a roll (0184 2b), so this is only what they caught. */
+  private seenRomanceCache = new Map<EntityId, { n: number; pairs: Set<string> }>();
+  private romanceSeenBy(holder: EntityId, a: EntityId, b: EntityId): boolean {
+    const events = this.record?.events() ?? [];
+    let c = this.seenRomanceCache.get(holder);
+    if (!c || c.n !== events.length) {
+      const pairs = new Set<string>();
+      for (const e of events) {
+        if (e.type !== "showmance" || e.witnessSet.length < 2) continue;
+        if (!e.witnessSet.includes(holder) && !(e.houseLife?.seenBy ?? []).includes(holder)) continue;
+        const people = e.witnessSet.filter((x) => x !== holder);
+        if (people.length === 2) pairs.add([...people].sort().join("|"));
+      }
+      c = { n: events.length, pairs };
+      this.seenRomanceCache.set(holder, c);
+    }
+    return c.pairs.has([a, b].sort().join("|"));
+  }
+  /**
+   * 0207 A2 (ORW-659): the couple is a target. An NPC HOH outside a pair they READ as a couple (their own view of the pair's bond at the foundation's bar, plus a romance scene they were in or watched) puts
+   * `coupleNomPush` on ONE of the two: whichever of them the HOH reads as the bigger threat (ties by id), so the other is pulled in beside them by the duo read. Perceived, never the truth: a pair nobody caught
+   * is no couple to this HOH, and a couple that hides it (faked distance) is read only by those who caught them. The push scales with how coupled the pair looks. Played games only, no rng.
+   */
+  private couplePushFor(target: EntityId, hoh: EntityId): number {
+    const s = this.live;
+    if (!this.showmancesEnabled || !s || s.playedGame !== true || hoh === PLAYER || target === hoh) return 0;
+    let best = 0;
+    for (const other of s.active) {
+      if (other === target || other === hoh) continue;
+      const bond = this.perceivedBond(hoh, target, other);
+      if (!readsAsCouple(bond, this.romanceSeenBy(hoh, target, other))) continue;
+      const mine = this.rel.edge(hoh, target).threat, theirs = this.rel.edge(hoh, other).threat;
+      if (mine < theirs || (mine === theirs && target > other)) continue; // the push lands on the bigger threat of the two
+      best = Math.max(best, coupleNomPush(true, false) * Math.min(1, bond));
+    }
+    return best;
+  }
 
   /** The signed provider value for a vote or a nomination: how much `holder`'s real feeling for `other` keeps them (0 for the player: their own choices are theirs). */
   private feelingKeepOf(other: EntityId, holder: EntityId): number {
