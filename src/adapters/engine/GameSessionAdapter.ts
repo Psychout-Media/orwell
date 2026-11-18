@@ -34,7 +34,7 @@ import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "..
 import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/voice";
 import { tellsOf, narratedTellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
-import { MOOD_CAUSES, causeLine, isBadNight, isCloseFriend, mayShareEventCause, strongestCause, type MoodCauseSource } from "../../engine/moodCauses";
+import { MOOD_CAUSES, causeLine, isBadNight, isCloseFriend, mayShareEventCause, strongestLiveCause, type MoodCauseSource } from "../../engine/moodCauses";
 import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sceneSeenBy, sharedScenes, type SeenScene } from "../../engine/bondJealousy";
 import { HOH_ROOM, decideVisit, backstoryFacets, pickBackstoryFact } from "../../engine/hohRoom";
 import { GRUDGES, REPAIR, combineSalience, easeGrudge, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, repairAmount, type GrudgeKind } from "../../engine/grudges";
@@ -6223,6 +6223,7 @@ export class GameSessionAdapter implements GameSession {
     this.deals.learnOfBreak(deal, {
       rel: this.rel, rng: new SeededRandom(hashSeed(`${seed}:learn-break:${deal.id}`)), currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
       juryDemerit: (w, b) => recordDealBetrayal(s, w, b),
+      learned: (w, b) => { this.noteMoodCause(w, "betrayed", b); }, // 0194 follow-up: a break LEARNED later is a betrayal cause the day they learn it
       revealToWitness: (witness, b) => { this.onPlayerEvent?.(`${this.nameOf(b)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
     });
   }
@@ -14363,8 +14364,8 @@ export class GameSessionAdapter implements GameSession {
     const c = live.moodCauses?.[id];
     if (goalOn && c && c.week === live.week && mayShareCause(c, affinity, candor)) best = { weight: MOOD_CAUSES.goalWeight, text: say(c.line, c.about) };
     if (eventsOn) {
-      const e = strongestCause(live.moodCauseLog, id, live.week);
-      if (e && mayShareEventCause(e.source, affinity, candor) && (!best || MOOD_CAUSES.weight[e.source] > best.weight)) best = { weight: MOOD_CAUSES.weight[e.source], text: say(e.line, e.about) };
+      const aged = strongestLiveCause(live.moodCauseLog, id, live.week, live.dayNumber); // follow-up: a cause carries a few in-game days with a falling weight
+      if (aged && mayShareEventCause(aged.entry.source, affinity, candor) && (!best || aged.weight > best.weight)) best = { weight: aged.weight, text: say(aged.entry.line, aged.entry.about) };
     }
     return best ? { moodCause: best.text } : {};
   }
@@ -14373,13 +14374,14 @@ export class GameSessionAdapter implements GameSession {
   setMoodCausesEnabled(on: boolean): void { this.moodCausesEnabled = on; }
   private moodCausesOn(): boolean { return this.moodCausesEnabled && this.live?.playedGame === true; }
   /** Record a cause for an NPC (the player's mood is theirs, never recorded). The same cause on the same day is not written twice. */
-  private noteMoodCause(holder: EntityId, source: MoodCauseSource, about?: EntityId): void {
+  private noteMoodCause(holder: EntityId, source: MoodCauseSource, about?: EntityId): boolean {
     const s = this.live;
-    if (!this.moodCausesOn() || !s || holder === PLAYER || holder === about) return;
+    if (!this.moodCausesOn() || !s || holder === PLAYER || holder === about) return false;
     const day = s.dayNumber;
     const log = (s.moodCauseLog ??= []);
-    if (log.some((c) => c.holder === holder && c.source === source && c.about === about && c.week === s.week && c.day === day)) return;
+    if (log.some((c) => c.holder === holder && c.source === source && c.about === about && c.week === s.week && c.day === day)) return false;
     log.push({ holder, source, line: causeLine(source), ...(about !== undefined ? { about } : {}), week: s.week, ...(day !== undefined ? { day } : {}) });
+    return true;
   }
   /** A close friend of the evictee (a bond at or above the friend line) has lost them: that is their cause. Reads the relationship edge (engine-only); no rng. */
   private noteFriendEvicted(evictee: EntityId): void {
@@ -14395,7 +14397,10 @@ export class GameSessionAdapter implements GameSession {
     if (!this.moodCausesOn() || !this.live || !this.house || !this.timeOfDayEnabled || !this.live.timeOfDay) return;
     for (const n of this.house.npcs) {
       if (!this.live.active.includes(n.id)) continue;
-      if (isBadNight(npcRestDeficit(this.live, this.statsOf(n.id), n.id, this.effectiveBedDepth(n.id), this.lateCompanyFor(n.id)))) this.noteMoodCause(n.id, "bad-sleep");
+      if (isBadNight(npcRestDeficit(this.live, this.statsOf(n.id), n.id, this.effectiveBedDepth(n.id), this.lateCompanyFor(n.id)))) {
+        // follow-up: a bad night also moves the mood word, once per night (a repeat read the same day writes no new cause), through the existing "scheme" step at a bounded share
+        if (this.noteMoodCause(n.id, "bad-sleep")) this.catchMood(n.id, "scheme", MOOD_CAUSES.badSleepMoodScale);
+      }
     }
   }
   /** Re-check agendas (every living NPC's, or just `only`) after a real event. Played games only; fail-soft; no rng. */
@@ -17329,6 +17334,7 @@ export class GameSessionAdapter implements GameSession {
       // 0109 / #1993: the week the break lands in — lets an explicit negotiated term scale the betrayal-shock by
       // the life it had left. A deal with no `expiresWeek` scales by 1 either way ⇒ byte-identical to 0039.
       currentWeek: this.live.week,
+      learned: (w, b) => { this.noteMoodCause(w, "betrayed", b); }, // 0194 follow-up: a quiet break the wronged party LEARNS of through the breaker's public act
       // 0121: the deal-depth layer — a kept deal compounds via the LOYALTY STREAK (consecutive kept deals
       // with the same partner scale the honored fold, bounded). OFF ⇒ the plain 0039/0109 honored fold,
       // byte-identical.

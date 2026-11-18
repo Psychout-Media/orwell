@@ -34,6 +34,10 @@ export const MOOD_CAUSES = {
   /** A lie costs the liar's word, and the mood: the existing "betrayed" step at this share. */
   liedToMoodScale: 0.5,
   /** The listener closeness + candor a cause needs before the houseguest would say it. A cause that points at a grudge needs more. */
+  /** A bad night's sleep moves the mood word through the existing "scheme" step (low-grade agitation, the nearest to short-tempered) at this share. Bounded, keyed, no rng. */
+  badSleepMoodScale: 0.5,
+  /** A cause stays speakable for this many in-game days after the day it landed (the days after it fall in weight), then it is no longer given. The log itself is never trimmed. */
+  carryDays: 3,
   shareBar: 0.9,
   grudgeShareBar: 1.25,
 } as const;
@@ -78,4 +82,28 @@ export function isBadNight(deficit: number): boolean {
 /** Whether a bond (trust and affinity toward someone) makes them a close friend. */
 export function isCloseFriend(trust: number, affinity: number): boolean {
   return (trust + affinity) / 2 >= MOOD_CAUSES.friendBond;
+}
+
+/** How many in-game days old a cause is (0 = today). With no day on either side, the same week is today and any other week is out of reach. */
+export function causeAge(c: MoodCauseEntry, week: number, day: number | undefined): number {
+  if (c.day !== undefined && day !== undefined) return day - c.day;
+  return c.week === week ? 0 : Number.POSITIVE_INFINITY;
+}
+
+/** The share of its weight a cause of this age keeps: full today, falling by an equal step each day, none past `carryDays` (or from the future). Pure, keyed on in-game days. */
+export function carryFactor(age: number): number {
+  if (!(age >= 0) || age > MOOD_CAUSES.carryDays) return 0;
+  return 1 - age / (MOOD_CAUSES.carryDays + 1);
+}
+
+/** 0194 follow-up: the cause a houseguest has to give NOW, with its aged weight: the heaviest of `weight x carryFactor(age)` (the latest wins a tie). Causes carry across the week roll while they last. */
+export function strongestLiveCause(log: readonly MoodCauseEntry[] | undefined, holder: EntityId, week: number, day: number | undefined): { entry: MoodCauseEntry; weight: number } | undefined {
+  let best: { entry: MoodCauseEntry; weight: number } | undefined;
+  for (const c of log ?? []) {
+    if (c.holder !== holder) continue;
+    const w = MOOD_CAUSES.weight[c.source] * carryFactor(causeAge(c, week, day));
+    if (w <= 0) continue;
+    if (!best || w >= best.weight) best = { entry: c, weight: w };
+  }
+  return best;
 }

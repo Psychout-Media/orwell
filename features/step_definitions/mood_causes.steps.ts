@@ -1,6 +1,6 @@
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
-import { MOOD_CAUSES, causeLine, isBadNight, isCloseFriend, mayShareEventCause, strongestCause, type MoodCauseEntry, type MoodCauseSource } from "../../src/engine/moodCauses";
+import { MOOD_CAUSES, causeLine, isBadNight, isCloseFriend, mayShareEventCause, strongestCause, strongestLiveCause, type MoodCauseEntry, type MoodCauseSource } from "../../src/engine/moodCauses";
 
 /** Feature 0194 - drives the pure cause rules directly. Roles only. Every step carries the "mood causes:" prefix. */
 type Bag = { log: MoodCauseEntry[]; week: number };
@@ -21,3 +21,7 @@ Then("mood causes: a late night of two in the morning is a bad night", function 
 Then("mood causes: an early night is not", function () { assert.equal(isBadNight(0.05), false); });
 Then("mood causes: a bond of high trust and affinity is a close friend", function () { assert.equal(isCloseFriend(0.8, 0.8), true); });
 Then("mood causes: a cool bond is not", function () { assert.equal(isCloseFriend(0.2, 0.2), false); });
+Given("mood causes: a houseguest with a {string} cause on day {int} of week {int}", function (s: string, day: number, week: number) { bag(this).log.push({ holder: "holder", source: s as MoodCauseSource, line: causeLine(s as MoodCauseSource), week, day }); });
+Given("mood causes: a {string} cause on day {int} of week {int}", function (s: string, day: number, week: number) { bag(this).log.push({ holder: "holder", source: s as MoodCauseSource, line: causeLine(s as MoodCauseSource), week, day }); });
+Then("mood causes: on day {int} of week {int} the cause they would give is {string}", function (day: number, week: number, s: string) { assert.equal(strongestLiveCause(bag(this).log, "holder", week, day)?.entry.source, s); });
+Then("mood causes: on day {int} of week {int} they have no cause to give", function (day: number, week: number) { assert.equal(strongestLiveCause(bag(this).log, "holder", week, day), undefined); });
