@@ -113,3 +113,18 @@ describe("0157 the rumor mill", () => {
     });
   });
 });
+
+describe("ORW-595 the rumor mill does not list a listener who caught the lie as a believer", () => {
+  it("a refuted planted belief drops the listener; a held one stays", () => {
+    const c1 = claim({ speaker: "s", listener: "l1", subject: "a" });
+    const c2 = claim({ speaker: "s", listener: "l2", subject: "a" });
+    const planted = (c: SpokenClaim, refuted: boolean): BeliefClaim => ({
+      id: `${c.listener}|voted-against-me|a||1|${c.id}`, holder: c.listener, kind: "voted-against-me", subject: "a", value: true,
+      origin: "told", source: "s", confidence: 0.6, week: 1, ...(refuted ? { refuted: true } : {}),
+    } as BeliefClaim);
+    const store: BeliefStore = { l1: [planted(c1, true)], l2: [planted(c2, false)] };
+    const m = buildRumorMill(logOf([c1, c2]), nameOf, store)!;
+    expect(m.biggest[0]!.believers.map((x) => x.id)).toEqual(["l2"]);
+    expect(m.biggest[0]!.tellings).toBe(2);
+  });
+});

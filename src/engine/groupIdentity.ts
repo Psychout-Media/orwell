@@ -39,6 +39,11 @@ export interface SealedName { name: string; floor: string; authored: boolean }
 export interface GroupWords { name?: string; ritual?: string; signal?: string; insideJoke?: string }
 export type GroupIdentityStore = Record<string, GroupIdentityEntry>;
 
+/** ORW-606: the non-degradation check for the group identity store: no group's entry is ever lost (write-once, monotonic). */
+export function groupIdentitySuperset(later: GroupIdentityStore | undefined, earlier: GroupIdentityStore | undefined): boolean {
+  return Object.keys(earlier ?? {}).every((id) => later !== undefined && id in later);
+}
+
 /** The stable key of a pair (sorted ids), used for the habit roll, the scene stamp and the identity store. */
 export const pairKey = (a: EntityId, b: EntityId): string => (a < b ? `${a}|${b}` : `${b}|${a}`);
 

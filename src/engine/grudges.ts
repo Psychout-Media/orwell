@@ -76,6 +76,15 @@ export function repairAmount(base: number, who: { keeper?: boolean; loyalty?: nu
   return Math.max(0, base) * (who.keeper ? REPAIR.keeperMult : 1) / band(who.loyalty);
 }
 
+/** ORW-606: the non-degradation check for the book: no row is ever lost and severity, peak and eased only ever grow. */
+export function grudgeBookSuperset(later: GrudgeBook | undefined, earlier: GrudgeBook | undefined): boolean {
+  for (const [k, e] of Object.entries(earlier ?? {})) {
+    const l = later?.[k];
+    if (!l || l.severity < e.severity || l.peak < e.peak || l.eased < e.eased) return false;
+  }
+  return true;
+}
+
 export const grudgeKey = (holder: EntityId, subject: EntityId): string => `${holder}|${subject}`;
 
 const unit = (x: number): number => (Number.isFinite(x) ? Math.min(1, Math.max(0, x)) : 0);

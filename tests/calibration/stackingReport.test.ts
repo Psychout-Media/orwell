@@ -1,6 +1,8 @@
 import { describe, it } from "vitest";
 import { playMixGame } from "../support/houseMixDriver";
 import type { DecisionWhy } from "../../src/engine/decisionWhy";
+import { VOTE_TERM_NAMES } from "../../src/engine/liveSeason";
+import { NOMINATION_TERM_NAMES } from "../../src/engine/season";
 
 /**
  * REPORT, NOT A GATE (ORW-640, from Fable's stacking audit 2026-11-17). Plays N chat-paced seeded games (the house-mix guard's own driver) with an ACTIVE player and
@@ -29,7 +31,11 @@ async function onMessage(call: (name: string, args: Record<string, unknown>) => 
   const npc = others[turn % others.length]!;
   switch (turn % 4) {
     case 0: await call("makeDeal", { with: npc, kind: DEALS[(turn / 4 | 0) % DEALS.length], terms: "let's look after each other" }).catch(() => null); break;
-    case 1: await call("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "I tell them they are safe with me this week", kind: "alliance", assurance: { kind: "safe" } }).catch(() => null); break;
+    case 1:
+      // ORW-636: both directions. The player assures the houseguest (feeds the player's own ledger) and, every other time, the houseguest assures the PLAYER (an NPC-made assurance: the only kind an NPC voter or HOH ever reads).
+      if ((turn / 4 | 0) % 2 === 0) await call("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "I tell them they are safe with me this week", kind: "alliance", assurance: { kind: "safe" } }).catch(() => null);
+      else await call("recordInteraction", { initiator: npc, witnessSet: ["player", npc], content: "they tell me I am safe with them this week", kind: "alliance", assurance: { kind: (turn / 8 | 0) % 2 === 0 ? "safe" : "vote" } }).catch(() => null);
+      break;
     case 2: await call("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we talk about home and laugh for a while", kind: "bonding" }).catch(() => null); break;
     default: await call("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we argue about the last vote", kind: "conflict" }).catch(() => null); break;
   }
@@ -41,15 +47,24 @@ const median = (xs: number[]): number => { if (xs.length === 0) return 0; const 
 describe.skipIf(!RUN)("stacking report (not a gate)", () => {
   it("prints, per decision kind, the typical gap and each term's presence, size and decisiveness", async () => {
     const decisions: DecisionWhy[] = [];
+    const census = new Map<string, number>(); // ORW-636: what the sources of the never-firing terms produced (claims by kind/nature, assurances by source/kind/status)
+    const bump = (k: string, n = 1): void => { census.set(k, (census.get(k) ?? 0) + n); };
     for (let seed = 1; seed <= N; seed++) {
       await playMixGame(seed, MSGS, { advanceEvery: 6, ...(ACTIVE ? { onMessage } : {}), inspect: (s) => {
         const why = (s as { live?: { decisionWhy?: DecisionWhy[] } }).live?.decisionWhy ?? [];
         decisions.push(...why);
+        const live = (s as { live?: { beliefs?: Record<string, Array<{ kind: string; nature?: string; value: boolean; refuted?: boolean }>>; assurances?: { items: Array<{ source: string; kind: string; status: string }> }; ties?: unknown } }).live;
+        for (const claims of Object.values(live?.beliefs ?? {})) for (const c of claims) bump(`claim ${c.kind}${c.nature ? `/${c.nature}` : ""}${c.value ? "" : " (false)"}`);
+        for (const t of (s as { seededRels?: { ties?: Array<{ nature: string }> } }).seededRels?.ties ?? []) bump(`pre-show tie ${t.nature}`);
+        for (const a of live?.assurances?.items ?? []) bump(`assurance ${a.source}/${a.kind}/${a.status}`);
       } });
     }
     const byKind = new Map<string, DecisionWhy[]>();
     for (const d of decisions) if (d.options.length >= 2) (byKind.get(d.kind) ?? byKind.set(d.kind, []).get(d.kind)!).push(d);
     console.log(`STACKING player=${ACTIVE ? "active" : "silent"} seeds=${N} messages=${MSGS} decisions=${decisions.length} (with a runner-up: ${[...byKind.values()].reduce((a, v) => a + v.length, 0)})`);
+    for (const [k, n] of [...census].sort(([a], [b]) => a.localeCompare(b))) console.log(`STACKING census ${k}: ${n}`);
+    const voteNames: readonly string[] = VOTE_TERM_NAMES, nomNames: readonly string[] = NOMINATION_TERM_NAMES;
+    const named = (k: string): readonly string[] => (k === "vote" || k === "tie-break" ? voteNames : k.startsWith("nomination") || k === "replacement" ? nomNames : []);
     for (const [kind, ds] of [...byKind].sort(([a], [b]) => a.localeCompare(b))) {
       const gaps = ds.map((d) => d.options[0]!.total - d.options[1]!.total);
       const stats = new Map<string, TermStat>();
@@ -64,6 +79,7 @@ describe.skipIf(!RUN)("stacking report (not a gate)", () => {
           stats.set(name, st);
         }
       }
+      for (const nm of named(kind)) if (!stats.has(nm)) console.log(`STACKING   ${kind}.${nm}: NEVER non-zero in ${ds.length} decisions`);
       const rows = [...stats].sort((x, y) => y[1].decisive - x[1].decisive || y[1].sumAbs - x[1].sumAbs);
       const pct = (a: number, b: number) => (b ? ((100 * a) / b).toFixed(1) : "-");
       console.log(`STACKING ${kind}: n=${ds.length} median gap=${median(gaps).toFixed(2)} under 0.2: ${pct(gaps.filter((g) => g < 0.2).length, gaps.length)}%`);

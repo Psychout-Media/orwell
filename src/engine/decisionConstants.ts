@@ -73,8 +73,10 @@ export const DECISION = {
      * ORW-634 (Ryne 2026-11-17, option b: "the house collectively has more power after the veto. This happens in the show"): in a played game, every voter carries this
      * pull toward KEEPING the HOH's target (sending the pawn home), so defying the HOH stays common; alignment, centred on the house's own typical bond, decides who
      * gives a liked HOH their target anyway. Played games only (the `hohReferendumCentre` hook); headless keeps the old read.
+     * ORW-681 (Ryne 2026-11-18: the HOH's target went home 71% overall, too high): raised 0.1 -> 0.3. The loyalty term's median size is about 0.3, so the pull now
+     * costs a typical aligned voter roughly their whole loyalty read, and only a clearly warmer-than-house voter gives the HOH their target.
      */
-    housePowerAfterVeto: 0.1,
+    housePowerAfterVeto: 0.3,
     /**
      * ORW-634: the weight on the CENTRED loyalty read (played games): bond differences from the house's norm are small (about +/-0.05-0.1), so the headless 0.6 left
      * the voter's own threat gap (median 0.27-0.37) swamping it and popularity barely moved the outcome (20 seasons: liked 64% / disliked 54% target gone).
