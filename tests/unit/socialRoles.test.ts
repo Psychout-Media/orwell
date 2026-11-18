@@ -40,12 +40,13 @@ describe("0184 part 2a: roles emerge from what the observer saw", () => {
 
 describe("0184 part 2a: roles travel as gossip claims", () => {
   const facts = { goalAgainst: () => false, votedToEvict: () => false, votedToKeep: () => false, finalTwo: () => false, liedTo: () => false, talkedAbout: () => false, roleOf: (who: string) => (who === S ? "villain" : undefined) };
-  it("a leak with nothing else to pass on says the speaker's read of someone's role; it is true only when the record supports it", () => {
-    const c = planSpeech("leak", O, A, S, true, { living: [O, A, S], beliefs: {}, facts, roll: 0, roleOf: (h, x) => (h === O && x === S ? "villain" : undefined) })!;
+  it("asked what they know with nothing else to pass on, a houseguest says their read of someone's role; it is true only when the record supports it", () => {
+    const c = planSpeech("fish", A, O, S, true, { living: [O, A, S], beliefs: {}, facts, roll: 0, roleOf: (h, x) => (h === O && x === S ? "villain" : undefined) })!;
     expect(c).toMatchObject({ speaker: O, listener: A, kind: "has-reputation", subject: S, label: "villain", isTrue: true });
-    const wrong = planSpeech("leak", O, A, S, true, { living: [O, A, S], beliefs: {}, facts, roll: 0, roleOf: () => "peacemaker" })!;
+    const wrong = planSpeech("fish", A, O, S, true, { living: [O, A, S], beliefs: {}, facts, roll: 0, roleOf: () => "peacemaker" })!;
     expect(wrong.isTrue).toBe(false);
-    expect(planSpeech("leak", O, A, S, true, { living: [O, A, S], beliefs: {}, facts, roll: 0 })).toBeUndefined(); // no roleOf: byte-identical (nothing said)
+    expect(planSpeech("fish", A, O, S, true, { living: [O, A, S], beliefs: {}, facts, roll: 0 })).toBeUndefined(); // no roleOf: byte-identical (nothing said)
+    expect(planSpeech("leak", O, A, S, true, { living: [O, A, S], beliefs: {}, facts, roll: 0, roleOf: () => "villain" })).toBeUndefined(); // 0153: a leak never voices a role
   });
   it("a heard reputation can be passed to the player, about the player too ('everyone thinks you're the snake'); it is never a doubt to go and test", () => {
     const store: BeliefStore = {};

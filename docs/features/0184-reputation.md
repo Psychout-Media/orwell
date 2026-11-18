@@ -33,7 +33,7 @@ Labels the observer was TOLD count toward a role at their confidence. So a role 
 
 **Voiced as gossip (Ryne's Q3 ruling).**
 - A new spoken claim kind, `has-reputation`, with an engine label: the listener holds it as a heard rumor whose nature carries the label (`rep:<label>`), with no new belief field. The narrator voices it in its own words, never as a label.
-- When a houseguest is asked what they know (the house-life `fish` action) and holds a role read of someone, a quarter of the time (`ROLES.voiceShare`) they answer with that instead of a belief, and they always do when they hold no belief to pass on. It is about the one asked about, else someone they hold a role for, and may be about the asker ("everyone says you're..."). The same rule sits on `leak`, but house life never chooses that action today (ORW-636).
+- When a houseguest is asked what they know (the house-life `fish` action) and holds a role read of someone, a quarter of the time (`ROLES.voiceShare`) they answer with that instead of a belief, and they always do when they hold no belief to pass on. It is about the one asked about, else someone they hold a role for, and may be about the asker ("everyone says you're..."). (A `leak` still passes on only what the speaker holds, per 0153; house life never chooses that action today, noted for ORW-636.)
 - Measured in one chat-paced played season: 48 reputation claims across six labels.
 - A heard reputation can be passed on to the player through the usual `tellsYou` decision, the player's own name included ("everyone thinks you're the snake").
 - A told "snake" or "villain" counts as a heard wrong in the part-1 standing, so a reputation spreads as claims do.

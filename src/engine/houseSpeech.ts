@@ -137,13 +137,7 @@ export function planSpeech(action: SpeechAction, actor: EntityId, partner: Entit
       }
       return undefined;
     }
-    // 0184 part 2a: with no belief to pass on, a leak may be the speaker's read of someone's role ("they're the house villain") - about the one asked about, else
-    // the first in the house (rotated by the roll) they hold a role for; the partner may be the one talked about ("everyone says you're ..."). Never about the speaker.
-    case "leak": {
-      const role = roleLeak();
-      if (role && (ctx.roll * 7919) % 1 < ROLES.voiceShare) return role; // a second number from the same roll (the first picks whom), so the share is not tied to the rotation
-      return fromBeliefs(actor, partner, "inform") ?? role;
-    }
+    case "leak": return fromBeliefs(actor, partner, "inform"); // 0153: a leak passes on only what the speaker holds (never a role read)
     case "confirm": {
       // back up what the LISTENER already believes about the target: the speaker re-tells the listener's own belief as theirs
       const theirs = about === undefined ? undefined : claimsOf(ctx.beliefs, partner).find((b) => b.subject === about && b.value && !b.refuted);
