@@ -26,6 +26,8 @@ import type { InteractionType } from "./relationshipConstants";
 import type { TimeOfDay } from "./timeOfDay";
 import type { Agenda, AgendaCharacter, Goal, GoalKind } from "./agenda";
 import { agendaRoll } from "./agenda";
+import { ATTRACTION_LIFE } from "./attractionLife";
+import { seekPull } from "./attraction";
 import { CULTURE_CANDOR_SHIFT, HOUSE_LIFE, type HouseCulture, type Habit } from "./houseLifeConstants";
 
 // --- The action library --------------------------------------------------------------------------------------------------------------
@@ -172,6 +174,10 @@ export interface HourView {
   nominees: readonly EntityId[];
   /** A showmance partner, if any (the relationship model's emergent label, read by the caller). */
   showmance?: EntityId;
+  /** 0207 A1 (ORW-658; played games, `ORWELL_SHOWMANCES`): the holder's PRIVATE attraction toward each person now (only people they are drawn to; 0..1; the player included when drawn). Moves only who they seek out
+   *  and sit near, never shown. `flirtable`: those of them a flirt may start with (orientation-plausible both ways, nobody else's partner). Absent = byte-identical. */
+  attract?: ReadonlyMap<EntityId, number>;
+  flirtable?: ReadonlySet<EntityId>;
   timeOfDay: TimeOfDay;
   day: number;
   hour: number;
@@ -246,6 +252,8 @@ export interface PlannedAction {
   court?: boolean;
   /** ORW-620: this step is a late-night talk among the awake few (the caller stamps it on the event; engine-only). */
   nightOwl?: boolean;
+  /** 0207 A1: this step is a houseguest seeking out someone they are drawn to (engine-only; when that someone is the player it is an approach through the desire clock's own path). */
+  drawn?: boolean;
 }
 
 /** ORW-324: how quick this houseguest is to direct friction (0..1), by archetype. A hothead clashes, a peacemaker almost never. */
@@ -448,6 +456,18 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
     return { ...finish({ kind: v.court.danger ? "beg" : "check-in", with: [v.hoh] }), court: true };
   }
 
+  // 0207 A1 (ORW-658): attraction is real and private. The person they are most drawn to pulls them: a seeded, attraction-scaled chance each free hour to seek that person out (a flirt or a cuddle where one may start,
+  // otherwise a check-in). Keyed rolls only (no shared draw); a goal hour above has already had its say, and a seeded showmance below keeps its own rule. Absent `attract` = this block is skipped.
+  if (v.attract && !v.showmance) {
+    const drawn = [...v.attract.entries()].filter(([p, a]) => a > 0 && pool.includes(p) && !avoid.has(p)).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const top = drawn[0];
+    if (top && roll("attract-seek") < ATTRACTION_LIFE.seekChance * top[1]) {
+      const [who, level] = top;
+      const flirt = v.flirtable?.has(who) === true && level >= ATTRACTION_LIFE.flirtAtLeast && who !== PLAYER && roomOf(v, who) === v.room && roll("attract-flirt") < HOUSE_LIFE.romanceChance * cFlirt;
+      return { ...finish({ kind: flirt ? (roll("attract-kind") < 0.5 ? "flirt" : "cuddle") : "check-in", with: [who] }), drawn: true };
+    }
+  }
+
   // House life: a showmance partner nearby, a habit for this time of day, a low mood, or whoever is around.
   if (v.showmance && pool.includes(v.showmance) && roll("romance") < HOUSE_LIFE.romanceChance * cFlirt) return finish({ kind: roll("cuddle") < 0.5 ? "flirt" : "cuddle", with: [v.showmance] });
   // ORW-566 (spec 0183): a close pair keeps a private debrief at their own spot in the hours after a ceremony. Keyed roll only (no shared draw); the partner must ALREADY be at the spot (only the actor moves,
@@ -523,7 +543,7 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
       return finish({ kind: rub ? "chore-fight" : v.timeOfDay === "late-night" || roll("roomie-talk") < 0.7 ? "bed-talk" : "homesick-talk", with: [mate], place: v.bedroom });
     }
   }
-  const partner = byScore(here, (p) => (v.affinity.get(p) ?? 0.4) + roll(`who:${p}`) * 0.3 + (v.kindred?.has(p) ? TERRITORY.PARTNER_PULL : 0))[0]; // ORW-561: a mild pull toward people who share your top room (no extra draw)
+  const partner = byScore(here, (p) => (v.affinity.get(p) ?? 0.4) + roll(`who:${p}`) * 0.3 + (v.kindred?.has(p) ? TERRITORY.PARTNER_PULL : 0) + (v.attract ? seekPull(v.attract.get(p) ?? 0) : 0))[0]; // ORW-561: a mild pull toward people who share your top room (no extra draw)
   if (!partner) return finish({ kind: v.timeOfDay === "late-night" || v.timeOfDay === "night" ? "mull" : "nap", with: [], ...(v.bedroom && v.timeOfDay !== "late-night" && v.timeOfDay !== "night" ? { place: v.bedroom } : {}) });
   // ORW-324: friction is not only between enemies. Mild dislike plus a short temper or a bad mood is enough for a chore fight.
   // ORW-622: a grudge strand rubs at dinner even with someone they are warm toward (a pact can still protect them at the vote).
