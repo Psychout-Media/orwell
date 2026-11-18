@@ -73,6 +73,7 @@
 #   ORWELL_FINAL_HOH_THREE_PART Three-part Final HOH (0128, #2045) - endurance / physical+mental hybrid / quiz instead of one Final-3 comp. PO ruling 2026-11-04:
 #       on (engine default ON too; listed here so a box's .env states its posture). juryReach + calibrationGradient held their bands ON.
 #   ORWELL_WIPEOUT_REEL         Wipeout Reel (C1, #1788) - archetype-flavored failure text on staged-comp drops; presentation only, outcomes byte-identical. ON 2026-11-06 (ORW-16).
+#   ORWELL_YOUR_EDIT            0200 / ORW-632: your edit - after the crown the post-season retrospective also carries the season as TV would have cut it (episode facts, who was cut a hero and a villain, how you came across); facts only, the narrator voices the titles (a played, finished game only). ON 2026-11-17.
 #   ORWELL_JUROR_PROFILES       Per-juror vote profiles (A2/A63) - measured calibration-neutral. ON 2026-11-06 (ORW-16).
 #   ORWELL_DISCLOSURE_ENGINE    A52 / ORW-23 (Ryne card 19: the narrator does not improvise disclosures): in a PLAYED game npcVoice.knows is only what the player also holds; a declined press carries deflect. ON 2026-11-14; read-only projection, moves no outcome.
 #   ORWELL_NARRATION_USAGE      ORW-510: the live narration-use record (what the narrator already used: sentence openings, scene closers, per-houseguest gestures and lines) handed back as the Show Brief's ALREADY USED section, capped at 200 tokens, plus a counts-only repetition season line. No model call. ON by default; 0 turns it off.
@@ -266,5 +267,6 @@ ORWELL_WALKIN_GROUPS=1
 ORWELL_WANT_MOVEMENT=1
 ORWELL_WEEK_CHAPTERS=1
 ORWELL_WIPEOUT_REEL=1
+ORWELL_YOUR_EDIT=1
 EOF
 }
