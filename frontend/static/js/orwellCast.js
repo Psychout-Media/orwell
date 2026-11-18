@@ -444,6 +444,34 @@
 
   const _cards = new Map(); // roster id → { el, holder, nameB, statusEl, name, status, portrait }
 
+  // ORW-641 ORDER-BEGIN — the cast wall's order, a PURE function of public facts only (the roster
+  // card's status + public eviction place, and the ceremony roles from the status board). In the house:
+  // HOH, then the veto holder, then the nominees, then everyone else A-Z by first name. A houseguest
+  // holding two roles is placed once, at the highest. Departed (jury or evicted) go last, the most
+  // recently evicted first. The DOM order is the order (no CSS reordering).
+  function orderRoster(roster, roles) {
+    const rank = { hoh: 0, veto: 1, nominee: 2 };
+    const key = (hg) => (hg && hg.id != null && hg.id !== "" ? String(hg.id) : String((hg && hg.name) || ""));
+    const first = (hg) => String((hg && hg.name) || "").trim().split(/\s+/)[0].toLowerCase();
+    const gone = (hg) => !!(hg && hg.status && hg.status !== "active");
+    const roleOf = (hg) => { const r = roles || {}; return r[key(hg)] || r[hg && hg.name] || null; };
+    const seq = (hg) => (hg && Number.isFinite(hg.evictedSeq) ? hg.evictedSeq : -1);
+    const tier = (hg) => (gone(hg) ? 4 : (rank[roleOf(hg)] ?? 3));
+    return (Array.isArray(roster) ? roster : []).map((hg, i) => ({ hg, i })).sort((a, b) => {
+      const ta = tier(a.hg), tb = tier(b.hg);
+      if (ta !== tb) return ta - tb;
+      if (ta === 4) { const d = seq(b.hg) - seq(a.hg); if (d) return d; }
+      else if (ta === 3) {
+        const f = first(a.hg).localeCompare(first(b.hg));
+        if (f) return f;
+        const n = String(a.hg.name || "").toLowerCase().localeCompare(String(b.hg.name || "").toLowerCase());
+        if (n) return n;
+      }
+      return a.i - b.i;
+    }).map((x) => x.hg);
+  }
+  // ORW-641 ORDER-END
+
   // J2-15: a stable hue (0–359) from the houseguest's NAME only — public, Vault-free, and the
   // same on every render so a card's placeholder tint never flickers between polls. A small FNV-ish
   // string hash keeps it deterministic without pulling in any dependency.
@@ -456,6 +484,8 @@
     }
     return h % 360;
   }
+
+
 
   function cardKey(hg) {
     // The roster route always sets a stable `id` (player → engine id or "player";
@@ -750,12 +780,9 @@
       }
     }
 
-    // Active first (player flagged), then jury, then evicted — keeps the live house
-    // on top. sort() is stable, so within a tier the server's order (player first)
-    // holds across polls: the grid order is keyed and deterministic.
-    const order = { active: 0, jury: 1, evicted: 2 };
-    const sorted = roster.slice().sort((a, b) =>
-      (order[a.status] ?? 3) - (order[b.status] ?? 3));
+    // ORW-641: the week's order (HOH, veto holder, nominees, the rest A-Z, then the departed, latest
+    // out first). Public facts only; the keyed upsert below MOVES live nodes, so no portrait reloads.
+    const sorted = orderRoster(roster, _roles);
 
     // The keyed upsert: add new ids, upgrade changed cards in place, drop vanished
     // ids (defensive), and keep the tier order by MOVING live nodes when it drifts —
@@ -897,6 +924,7 @@
   // Public hooks (mirrors the other orwell panels): refresh on a game change — and
   // re-arm the poll so a cadence change (say, a fresh season that is generating its
   // portraits) takes effect NOW, not at the old timer's next tick.
+  window.OrwellCastOrder = { orderRoster };
   window.orwellRefreshCast = () => { if (_open) refreshRoster().then(scheduleNextPoll); };
   window.addEventListener("orwell:gamechanged", () => {
     refreshGate();
