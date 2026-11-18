@@ -33,7 +33,7 @@ import { CULTURE_CANDOR_SHIFT, HOUSE_LIFE, type HouseCulture, type Habit } from 
 export type ActionFamily = "information" | "alliances" | "safety" | "attack" | "house-life" | "romance" | "alone";
 export type ActionKind =
   // information
-  | "fish" | "test-a-rumor" | "plant" | "confirm" | "leak" | "keep-quiet"
+  | "fish" | "test-a-rumor" | "plant" | "confirm" | "leak"
   // alliances
   | "pitch" | "recruit" | "check-in" | "count-votes" | "split-roles" | "lobby-for"
   // safety
@@ -71,7 +71,6 @@ export const ACTIONS: Readonly<Record<ActionKind, ActionSpec>> = {
   plant: { family: "information", partners: { min: 1, max: 2 }, fold: "gossip", speech: true },
   confirm: { family: "information", partners: { min: 1, max: 1 }, fold: "strategy", speech: true },
   leak: { family: "information", partners: { min: 1, max: 1 }, fold: "gossip", speech: true },
-  "keep-quiet": { family: "information", partners: { min: 0, max: 0 }, speech: false },
   pitch: { family: "alliances", partners: { min: 1, max: 1 }, fold: "alliance", speech: true },
   recruit: { family: "alliances", partners: { min: 1, max: 2 }, fold: "alliance", speech: true },
   "check-in": { family: "alliances", partners: { min: 1, max: 1 }, fold: "strategy", speech: true },
@@ -348,14 +347,15 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
       // A campaign is many small moves: lobbying the HOH, but mostly working the house (stories, wedges, fishing), not one repeated pitch.
       if (v.nominees.includes(t)) return pick("flip-a-vote", ears, t);
       if (v.hoh && v.hoh !== v.owner && v2 < 0.3) return pick("campaign-against", [v.hoh], t);
-      const k: ActionKind = among(goal.kind === "revenge" ? (["frame", "plant", "drive-a-wedge", "fish"] as const) : (["drive-a-wedge", "plant", "fish", "test-a-rumor", "count-votes", "count-votes"] as const));
+      const k: ActionKind = among(goal.kind === "revenge" ? (["frame", "plant", "drive-a-wedge", "fish"] as const) : (["drive-a-wedge", "plant", "fish", "test-a-rumor", "count-votes", "leak"] as const));
       return pick(k, ears, t);
     }
     case "stay-safe": {
       if (v.hoh && v.hoh !== v.owner && !v.nominees.includes(v.owner)) return pick(aff(v.hoh) > 0.5 ? "check-in" : "make-a-promise", [v.hoh]);
       if (v.nominees.includes(v.owner)) {
         const swing = byScore(voters, (p) => aff(p) - thr(p));
-        return pick(aff(swing[0] ?? "") > 0.55 ? "call-in-favor" : "beg", swing);
+        const a0 = aff(swing[0] ?? ""); // ORW-580: warm enough to call in a favor; lukewarm (not yet cold) enough to trade for the vote; cold enough to beg
+        return pick(a0 > 0.55 ? "call-in-favor" : a0 >= HOUSE_LIFE.frictionAffinity ? "bargain" : "beg", swing);
       }
       return { kind: "lie-low", with: [], goalId: goal.id, goalKind: goal.kind };
     }
@@ -367,7 +367,7 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
     case "find-out": return pick(t ? "fish" : "test-a-rumor", byScore(pool.filter((p) => p !== t), aff), t);
     case "win-power": return { kind: "study-for-comps", with: [], goalId: goal.id, goalKind: goal.kind };
     case "keep-my-secret": return undefined; // a secret is kept by what they DON'T do: it shapes speech (themes 2 and 4), not an hourly action
-    case "last-alliance-standing": return v.mates.length ? pick(among(["split-roles", "check-in", "count-votes"] as const), byScore([...v.mates].filter((m) => pool.includes(m)), aff)) : undefined;
+    case "last-alliance-standing": return v.mates.length ? pick(among(["split-roles", "check-in", "count-votes", "confirm"] as const), byScore([...v.mates].filter((m) => pool.includes(m)), aff)) : undefined;
     case "run-the-house": return pick(among(["count-votes", "fish", "check-in", "pitch"] as const), byScore(pool, (p) => aff(p) + (variant > 0.5 ? -aff(p) * 0.5 : 0)));
     case "win-by-being-liked": return pick(among(["comfort", "tell-stories", "check-in", "cook"] as const), byScore(pool, (p) => -Math.abs(aff(p) - 0.5)));
     default: return undefined;
@@ -559,7 +559,7 @@ export function assembleScenes(plans: readonly PlannedAction[]): HourScene[] {
 /** ORW-315: the engine's one-line record of an action (ids, never names; hidden content until a pathway carries it). */
 const VERB: Readonly<Record<ActionKind, string>> = {
   fish: "fished for information from", "test-a-rumor": "tested a rumor on", plant: "planted a story with", confirm: "confirmed a plan with",
-  leak: "leaked something to", "keep-quiet": "kept quiet", pitch: "pitched an alliance to", recruit: "tried to recruit", "check-in": "checked in with",
+  leak: "leaked something to", pitch: "pitched an alliance to", recruit: "tried to recruit", "check-in": "checked in with",
   "count-votes": "counted votes with", "split-roles": "split up the plan with", "lobby-for": "lobbied", beg: "begged", bargain: "bargained with",
   "call-in-favor": "called in a favor with", "make-a-promise": "made a promise to", "lie-low": "laid low", "drive-a-wedge": "drove a wedge with",
   frame: "tried to frame someone to", "flip-a-vote": "worked to flip the vote of", "campaign-against": "campaigned to", confront: "confronted",
