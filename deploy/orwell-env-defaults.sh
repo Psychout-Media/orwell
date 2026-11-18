@@ -88,6 +88,7 @@
 #   ORWELL_TERRITORY            0176 / ORW-561 slice 10 part 2: a hidden tenure map (hours per room), a mild pull toward people who share your top room, a small capped bond nudge for roommates (a played game only; =0 opts out).
 #   ORWELL_MOOD_CONTAGION       0185 / ORW-567 slice 15: a shocking eviction rattles the evictee's close allies most and the house a little; a big win lifts the winner's circle a little (moves the existing mood only; a played game only). ON 2026-11-17.
 #   ORWELL_REPUTATION           0184 / ORW-564 slice 8 part 1: what a houseguest has heard or seen of another's lying and turning on people (softened by promises kept to them) scales how far they believe that houseguest and how willing they are to deal with them (hidden; a played game only; needs ORWELL_BOND_RECORD). ON 2026-11-17.
+#   ORWELL_ROOM_LIFE            0198 / ORW-621: the houseguests in the player's own room take their goal steps there, in the player's view (a bounded few per hour; the player is never moved or spoken for; a played game only; =0 opts out).
 #   ORWELL_FAVORS               0171 / Theme 3 slice 3: a counter asks for what the houseguest wants this week (rival up), a favor owed is a hidden debt that is called in at a close vote and costs trust (with witnesses) when refused, passed on, remembered; the bond's debt reads the ledger (a played game only). ON 2026-11-17; `=0` is the kill switch.
 #   ORWELL_GRUDGES              0182 / ORW-569 slice 5 PR 1: the grudge book - who holds a grudge against whom and why, fading but never zero (hidden; nothing decides from it yet; a played game only; needs ORWELL_BOND_RECORD). ON 2026-11-17.
 #   ORWELL_BOND_FEELINGS        0181 / ORW-568 slice 4 (part 1): a real feeling for someone holds a houseguest back from cutting them (bounded vote / nomination / alliance-break term) and shakes them after they do (the existing mood, scaled; needs ORWELL_BOND_RECORD; a played game only). ON 2026-11-17.
@@ -241,12 +242,14 @@ ORWELL_PROMISE_TERMS=1
 ORWELL_REACTIVE_TWISTS=1
 ORWELL_REPUTATION=1
 ORWELL_ROOM_CANON=1
+ORWELL_ROOM_LIFE=1
 ORWELL_SCHEME_TARGETS=1
 ORWELL_SECRET_BARTER=1
 ORWELL_SECRET_PACING=1
 ORWELL_SEEDED_TIE_SURFACING=1
 ORWELL_SHOWRUNNER=1
 ORWELL_SHOWRUNNER_REWEIGHT=1
+ORWELL_SOCIAL_ROLES=1
 ORWELL_SOUL_DEPTH=1
 ORWELL_STRATEGIC_CADENCE=1
 ORWELL_TELL_REACTIONS=1
