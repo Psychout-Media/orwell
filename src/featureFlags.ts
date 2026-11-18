@@ -90,6 +90,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_CONFESSIONAL_DEPTH',     key: 'confessionalDepth',      parser: 'defaultOn' },
   // ORW-650 (0133): watching from the couch, richer - an evicted player who keeps watching gets the season's real public moments (ceremonies, competition results), never anything hidden. ON by default; `=0` keeps the skeleton digests only.
   { envKey: 'ORWELL_COUCH_WATCH', key: 'couchWatch', parser: 'defaultOn' },
+  // ORW-685 / 0152 (T2-14): a liar asked "who told you that?" about a lie they planted may play it off (say they saw it, or refuse to say) or let the cover slip, a visible stumble scaled by how good an actor they are (their cunning and how rattled they are), decided on a keyed side stream and recorded once. Played games only. ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_COVER_SLIPS', key: 'coverSlips', parser: 'defaultOn' },
   // B48-credibility layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_CREDIBILITY', key: 'credibility', parser: 'defaultOn' },
   // ORW-271 slice 1: the append-only per-night day ledger (a floor entry at each turnIn + the FE-driven recordDaySummary write-back) for a played game. ON by default; `=0` turns it off.
@@ -109,6 +111,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // ORW-668 / 0210 C2: production visibly calls a houseguest to the Diary Room and the house sees them go and come back (who, how long, how they looked; never what was said); the player is invited, never sent. A played game only; changes no outcome. `=0` opts out.
   { envKey: 'ORWELL_DIARY_CALLS', key: 'diaryCalls', parser: 'defaultOn' },
   { envKey: 'ORWELL_DISCLOSURE_ENGINE', key: 'disclosureEngine', parser: 'defaultOn' },
+  // ORW-685 / A52 (T2-14): the spin the disclosure engine already rolls (a cunning teller slants what they disclose) now reaches the player: a truthful confidence told with a slant is recorded at a lower confidence (the same SPIN constants a houseguest-to-houseguest telling uses) and the narrator is handed a third-person `slants` fact. Needs ORWELL_DISCLOSURE_ENGINE. Played games only. ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_DISCLOSURE_SPIN', key: 'disclosureSpin', parser: 'defaultOn' },
   // 0196 / ORW-630: a pressed houseguest the engine has decided will not answer also gets HOW they dodge (what they do with the question, how their carriage reads, whether they hand it back), decided on a keyed side stream from their character, bond and the stakes, saved, and handed to the narrator as a third-person fact. A played game only. `=0` turns it off.
   { envKey: 'ORWELL_DODGING', key: 'dodging', parser: 'defaultOn' },
   // B32 / #2017 E5: chat betrayal/conflict feed the emotional arc and temperament drift gets a negativity bias (clash x1.5, bond x0.75) so hardening is reachable. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.

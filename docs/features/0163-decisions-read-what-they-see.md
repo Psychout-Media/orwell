@@ -47,3 +47,6 @@ perceptions, never another houseguest's hidden feelings. In a **played** game (`
 Headless seeded sims (calibration, jury reach, UAT) never set `playedGame`, so they keep the earlier reads (including the 50/50 blend) byte
 for byte. Gate: `tests/unit/ownViewDecisions.test.ts` (each decision does not move when only the other party's hidden edge moves, and does
 move when the decider's own view moves).
+
+## 2026-11-18: premise check for ORW-685 item 4 (floater and duo read on beliefs)
+Verified against main: in a played game (`ownViewOn`) `perceivedBond` already reads only the scenes the holder was in or watched plus the holder's own `allied-with` belief claims (not refuted, at their confidence); the hidden true bond enters only in headless sims (the 50/50 blend above). The HOH's floater and duo reads (`liveSeason` `bondOf` via `perceivedBondFor`) and the role read's floater term take that same reader. Nothing is left to build for played games; no change made.

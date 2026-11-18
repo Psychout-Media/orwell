@@ -997,6 +997,9 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
   // takes refuted beliefs before live ones (`beliefStoreSuperset`).
   if (!beliefStoreSuperset(later.live?.beliefs, earlier.live?.beliefs)) return "beliefs";
 
+  // votesTalked (ORW-686): an eviction whose vote talk was had is never un-had (append-only; a restore must not re-roll it).
+  if ((earlier.live?.votesTalked ?? []).some((k) => !(later.live?.votesTalked ?? []).includes(k))) return "votesTalked";
+
   // bonds, grudges, group identity (ORW-606): the season-long stores of Theme 3 are never thinned. (Room tenure is deliberately outside: it resets whenever a houseguest moves.)
   if (!bondStoreSuperset(later.live?.bonds, earlier.live?.bonds)) return "bonds";
   if (!grudgeBookSuperset(later.live?.grudges, earlier.live?.grudges)) return "grudges";

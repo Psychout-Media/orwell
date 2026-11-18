@@ -26,7 +26,38 @@ export const PROTECT_PLAYER_WEIGHT = 0.5;
 export const PROTECT_MIN = 0.05;
 export const PROTECT_MAX = 0.9;
 
-export type SourceAnswer = "name" | "protect" | "witnessed";
+export type SourceAnswer = "name" | "protect" | "witnessed" | "slip";
+
+/**
+ * ORW-685 (T2-14): a liar asked where a lie they planted came from plays it off, and the cover can slip. Plays it off = says they saw it themself, or will not say who; slips = a visible stumble.
+ * The slip chance is the actor's: the less cunning they are and the more rattled, the likelier; always inside a band, never certain either way.
+ */
+export const COVER = { slipBase: 0.3, cunningWeight: 0.5, rattledWeight: 0.3, slipMin: 0.05, slipMax: 0.7, refuseShare: 0.4, foldScale: 0.25 } as const;
+
+export interface CoverInput { seed: number | string; holder: EntityId; claimId: string; cunning: number; volatility: number }
+
+/** The chance a liar's cover slips when asked. Monotone: down in cunning, up in volatility. */
+export function slipChance(cunning: number, volatility: number): number {
+  const c = Math.max(0, Math.min(1, Number.isFinite(cunning) ? cunning : 0.5));
+  const v = Math.max(0, Math.min(1, Number.isFinite(volatility) ? volatility : 0.3));
+  return Math.max(COVER.slipMin, Math.min(COVER.slipMax, COVER.slipBase + COVER.cunningWeight * (0.5 - c) + COVER.rattledWeight * (v - 0.3)));
+}
+
+/** What a liar does when asked who told them: slip (the cover fails), protect (will not say), or witnessed (says they saw it). One keyed side stream (`${seed}:cover-slip`), so asking again gives the same answer and no other roll moves. */
+export function decideCover(i: CoverInput): "slip" | "protect" | "witnessed" {
+  const rng = new SeededRandom(hashSeed(`${i.seed}:cover-slip:${i.holder}:${i.claimId}`));
+  if (rng.next() < slipChance(i.cunning, i.volatility)) return "slip";
+  return rng.next() < COVER.refuseShare ? "protect" : "witnessed";
+}
+
+/** The claim the player is asking about: among the houseguest's askable claims (newest first), one whose subject or object the player named; otherwise the newest. Never an older claim just because it is easier to answer. */
+export function pickAskedClaim(claims: readonly SpokenClaim[], text: string, nameOf: (id: EntityId) => string): SpokenClaim | undefined {
+  const score = (c: SpokenClaim): number => (namedInText(text, nameOf(c.subject)) ? 1 : 0) + (c.object !== undefined && namedInText(text, nameOf(c.object)) ? 1 : 0);
+  let best: SpokenClaim | undefined;
+  let bestScore = 0;
+  for (const c of claims) { const sc = score(c); if (sc > bestScore) { best = c; bestScore = sc; } } // strictly greater: a tie keeps the newer (they are newest first)
+  return best ?? claims[0];
+}
 
 /** Does the player's message ask where a houseguest got what they just said? Natural variants; unrelated text is false. */
 export function parseWhoToldYou(text: string): boolean {
@@ -122,6 +153,7 @@ export function decideSourceAnswer(i: SourceDecisionInput): SourceAnswer | undef
 /** The ONE engine-truth line the narrator is handed. Vault-free: no truth, no intent, no claim id, never "mistaken". */
 export function sourceNote(answer: SourceAnswer, holderName: string, sourceName?: string): string {
   if (answer === "name" && sourceName) return `the player asked ${holderName} who told them that; ${holderName} names ${sourceName} (engine truth: voice exactly that, as ${holderName}'s own answer)`;
+  if (answer === "slip") return `the player asked ${holderName} who told them that; ${holderName}'s account does not hold together as they answer: they stumble, contradict themself or go quiet, and it shows (engine truth: voice a visible stumble in ${holderName}'s own manner; name no one as the source; never say or hint outright that anything is untrue, and never explain it: what the player makes of it is theirs)`;
   if (answer === "protect") return `the player asked ${holderName} who told them that; ${holderName} will not say who (engine truth: voice the refusal, name no one)`;
   return `the player asked ${holderName} who told them that; ${holderName} saw it themself (engine truth: voice that, name no one as the source)`;
 }

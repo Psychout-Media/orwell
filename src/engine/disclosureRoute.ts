@@ -1,7 +1,7 @@
 import type { ConfidenceDecision } from "./confidence";
 import type { DisclosureTier } from "./confidenceConstants";
 import { disclosureMotive, type ConfidenceSignals } from "./confidence";
-import { disclosureDecision, type Disclosure } from "./disclosure";
+import { disclosureDecision, type Disclosure, type Spin } from "./disclosure";
 import { CUNNING, LEAKY } from "./copresenceSpread";
 import type { StrategyStyle } from "./characterFactory";
 
@@ -21,6 +21,8 @@ export interface DisclosureEvent {
   tier?: DisclosureTier;
   /** false => the engine knows it was a lie (never shown to the player). */
   truthful: boolean;
+  /** ORW-685: the teller framed a truthful disclosure in their own favour (the engine-decided slant; never shown as a number). Absent => told straight. */
+  slant?: true;
 }
 
 /** Map a confide decision onto the closed set. disclosed => confirm (with its tier + truthfulness); not disclosed => deflect. The decision itself is untouched. */
@@ -55,7 +57,10 @@ export interface RouteCtx {
   roll: number;
 }
 
-export function routeDisclosure(c: RouteCtx): Disclosure {
+export function routeDisclosure(c: RouteCtx): Disclosure { return routeDisclosureFull(c).decision; }
+
+/** The same routing with the spin the holder's cunning allows on a share (ORW-685): `truthful` = told straight; `spun` / `lie` = told with a slant. */
+export function routeDisclosureFull(c: RouteCtx): { decision: Disclosure; spin?: Spin } {
   const vol = c.volatility ?? 0.3;
   return disclosureDecision({
     motive: disclosureMotive(c.signals),
@@ -63,7 +68,7 @@ export function routeDisclosure(c: RouteCtx): Disclosure {
     risk: c.risk, audience: Math.max(0, c.audience), pressure: c.pressure,
     leakiness: (c.style ? LEAKY[c.style] ?? 0.3 : 0.3) + 0.2 * vol,
     cunning: c.style ? CUNNING[c.style] ?? 0.3 : 0.3, rattled: Math.max(0, vol - 0.5) * 2, roll: c.roll,
-  }).decision;
+  });
 }
 
 /** Apply the routed decision to an already-eligible confide result: share => confirm (unchanged); slip => confirm, recorded as a `slip`; hold => the press is deflected. */
