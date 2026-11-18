@@ -163,3 +163,7 @@ tactic layer here; they are not a new system:
 All of these are engine-decided, deterministic per seed (no new rng draw), hidden (no number crosses to
 the player) and tunable from the constants modules. The calibration instrument's active arm now tends two
 allies every week. Before, it ran a single burst of premiere scenes that decayed by mid-season.
+
+## 10. Amendment — 2026-11-18 (ORW-639, Fable stacking audit S-10)
+
+The replacement nominee used to be picked with fewer terms than the original nominations: the deal push, the pre-show tie, lobbying and the kept-assurance shield were dropped, so a houseguest the HOH protected at nominations was not protected as a replacement (and a pitch to the HOH did nothing for the replacement). The NPC replacement pick now reads the same four terms, built by one expression the nominations also use (`nominationOnlyTerms` in `liveSeason.ts`; the deal push and the tie still sum under one name, `deals`). A kept assurance filters the options like the agenda shield does: one seat, so one unshielded candidate is enough. No rng is drawn or reordered. Played games only, flag `ORWELL_REPLACEMENT_TERMS` (default ON; `=0` restores the old read byte for byte). The human HOH's own pick is never touched (the engine does not act for the player).

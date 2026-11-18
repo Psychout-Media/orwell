@@ -1341,6 +1341,9 @@ export class GameSessionAdapter implements GameSession {
   /** 0163 / ORW-539: the HOH's floater and duo reads see the bonds the HOH could see (`ORWELL_PERCEIVED_BONDS`, default ON; OFF => the hidden-truth read, byte-identical). */
   private perceivedBondsEnabled = flagDefaultOn("ORWELL_PERCEIVED_BONDS");
   setPerceivedBondsEnabled(on: boolean): void { this.perceivedBondsEnabled = on; }
+  /** ORW-639 (Fable stacking audit S-10): the replacement nominee reads the same deal / tie / lobbying / assurance terms as the nominations. ON unless `ORWELL_REPLACEMENT_TERMS=0`; OFF => byte-identical. */
+  private replacementTermsEnabled = flagDefaultOn("ORWELL_REPLACEMENT_TERMS");
+  setReplacementTermsEnabled(on: boolean): void { this.replacementTermsEnabled = on; }
   /** 0191 / ORW-574 (Fable T1-6): in a played game NPC decisions read the decider's own view (`ORWELL_OWN_VIEW`, default ON; OFF => the hidden reads, byte-identical). */
   private ownViewEnabled = flagDefaultOn("ORWELL_OWN_VIEW");
   setOwnViewEnabled(on: boolean): void { this.ownViewEnabled = on; }
@@ -11242,6 +11245,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.favorsOn() ? { favorsAtTally: (fn: readonly EntityId[], v: readonly EntityId[]) => this.favorsAtTally(fn, v), favorShieldFor: (n: EntityId, v: EntityId) => this.favorShieldFor(n, v) } : {}),
       ...(this.liesCaughtWriting ? { evictionCountPublic: (t: PublicTally) => this.evictionCountPublic(t) } : {}),
       ...(this.audienceEnabled ? { exitCrowd: (id: EntityId) => this.exitCrowd(id) } : {}),
+      ...(this.replacementTermsEnabled ? { replacementFullTerms: true } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceKeptAtNominations: (h: EntityId, ns: readonly EntityId[]) => this.assuranceKeptAtNominations(h, ns), assuranceKeptAtVote: (v: EntityId, sp: EntityId, among?: readonly EntityId[]) => this.assuranceKeptAtVote(v, sp, among), assuranceKeptAtTally: (fn: readonly EntityId[]) => this.assuranceKeptAtTally(fn) } : {}),
       ...(this.npcBeliefsEnabled && (this.npcBeliefNomsEnabled || this.scapegoatsOn()) ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => (this.npcBeliefNomsEnabled ? this.beliefNomTiltFor(subject, holder) : 0) + this.scapegoatLeanFor(subject, holder) } : {}), // 0180 part 3: a hard week's scapegoat rides the belief term
@@ -18192,7 +18196,7 @@ export class GameSessionAdapter implements GameSession {
           return { npc, who, weighing };
         }).sort((a, b) => b.weighing.temptation - a.weighing.temptation || (a.npc < b.npc ? -1 : 1))[0]!;
         const verdict = decideDealBreak(w.weighing, new SeededRandom(hashSeed(`${seed}:deal-twist:${deal.id}:${tk}`)).next());
-        if (verdict === "keep") continue;
+        if (verdict === "keep") { if (d.parties.includes(PLAYER)) this.noteDealKept(w.npc, w.weighing); continue; } // ORW-639: a deal weighed and KEPT leaves its why too
         // 0186 amendment: when the twist makes the promise impossible to keep ("break" verdict), the promiser's own SECRET PLAN (0178) decides what it was. A faking plan (`isBetrayal`)
         // uses the twist as cover: a REAL, quiet betrayal through `breakDeliberately` (the usual fold; the wronged party learns only through `learnOfBreak`'s pathways; the deal keeps
         // projecting open; nothing is narrated). Any other plan (keep / this-week / no plan) is the forced, innocent break: the renegotiation below, no betrayal, no fold.
@@ -18264,7 +18268,7 @@ export class GameSessionAdapter implements GameSession {
       });
       const rng = new SeededRandom(hashSeed(`${seed}:deal-weigh:${deal.id}:${s.week}`));
       const verdict = decideDealBreak(w, rng.next());
-      if (verdict === "keep") continue;
+      if (verdict === "keep") { this.noteDealKept(npc, w); continue; } // ORW-639 (S-11): a deal weighed and KEPT leaves its why too
       if (verdict === "renegotiate" && (renegotiatedKind(deal.kind) === undefined || s.dealOffer)) continue;
       this.noteDealWeighing(npc, verdict === "break" ? "deal-break" : "deal-renegotiate", w);
       if (verdict === "break") {
@@ -18286,6 +18290,16 @@ export class GameSessionAdapter implements GameSession {
       }
       this.persist(); // deferred into the beat's ONE commit
     }
+  }
+
+  /** ORW-639 (Fable stacking audit S-11): record WHY an NPC weighed a deal and KEPT it - the same named temptation and cost terms a break records, so a kept deal can be measured beside a broken one. A record only (decisionWhy; Vault-class, no stated reason, nothing voiced): no rng, no choice moves. */
+  private noteDealKept(npc: EntityId, w: ReturnType<typeof weighDealBreak>): void {
+    const s = this.live;
+    if (!s) return;
+    const t = w.terms;
+    const names = ["threat", "low-bond", "push", "agenda", "endgame", "credibility", "reliable-reputation", "bond", "loyalty"];
+    const vals = [t.threat, t.lowBond, t.push, t.agenda, t.endgame, -t.costCredibility, -t.costReliable, -t.costBond, -t.costLoyalty];
+    recordWhy(s, npc, { kind: "deal-keep", options: [whyOption(PLAYER, "chosen", names, vals, sumVals(vals))] });
   }
 
   /** 0142 idea 4: record WHY the NPC broke / asked to renegotiate - the named terms (`decisionWhy`) and the reason they would give aloud (`statedReasons`). A record only: no rng, no choice moves. Vault-class. */
