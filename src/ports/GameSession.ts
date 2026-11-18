@@ -6,6 +6,10 @@ import type { Receipt } from "../engine/receipts";
 import type { PullQuoteWeek } from "../engine/pullQuoteReel";
 import type { StructuralMilestone } from "../engine/daySchedule";
 import type { TimeOfDay } from "../engine/timeOfDay";
+import type { DiaryCallView } from "../engine/diaryCalls";
+export type { DiaryCallView };
+import type { PushbackView } from "../engine/producerPushback";
+export type { PushbackView };
 import type { DealPlanRetro } from "../engine/dealPlans";
 
 /**
@@ -473,6 +477,13 @@ export interface GameStateView {
    */
   weekDigests?: WeekDigestView[];
   /**
+   * ORW-650 (0133, watching from the couch) — present only for a pre-jury evictee in WATCH mode: the latest PUBLIC
+   * moments of the season since they left (ceremony beats, competition results, house events the broadcast showed),
+   * as engine-recorded third-person facts for the narrator to voice. Never a hidden scene, a confessional or a
+   * ballot's attribution; never present for a juror (the jury house stays sequestered, 0129) or an active player.
+   */
+  watching?: { moments: string[] };
+  /**
    * 0129 — the JURY HOUSE: present ONLY while the player holds a juror's seat (0046). The other houseguests who are
    * on the jury right now, with the player's own public read of each. Vault-free by construction: the roster is the
    * public eviction order; `bearing` is a CATEGORICAL read of the recorded eviction manner toward the player (the
@@ -625,6 +636,15 @@ export interface GameStateView {
    * a forced interruption, and it carries no obligation — declining changes nothing.
    */
   diaryRoomInvite?: { invite: true; reason?: string };
+  /**
+   * ORW-668 (0210 C2, `ORWELL_DIARY_CALLS`): the Diary Room calls the narrator voices - who production has called away (and is in there now), who has just come back and how long and how they looked,
+   * and whether the player is invited this beat. Names and words only: no content of any confessional, no id, no number. Absent for headless games or with the flag off.
+   */
+  diaryCall?: DiaryCallView;
+  /**
+   * ORW-669 (0210 C3, `ORWELL_PRODUCER_PUSHBACK`): while the player is in the Diary Room, the contradictions between their own recorded word and their own recorded acts, as facts the narrator voices the producer's question from. Names and words only: no id, no number, nothing from the entry text. Absent otherwise.
+   */
+  producerPushback?: PushbackView;
   /**
    * 0115 — the player's recent Diary-Room STRATEGY, in their own words (most-recent-first, capped).
    * Vault-free by construction: it is the player's OWN out-of-character `NO_NPC_PATHWAY` knowledge —

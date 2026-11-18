@@ -88,6 +88,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // The houseguests who are not in a running staged competition cheer, taunt or sulk through it (played games only). ON by default; `=0` turns it off.
   { envKey: 'ORWELL_COMP_REACTIONS',          key: 'compReactions',          parser: 'defaultOn' },
   { envKey: 'ORWELL_CONFESSIONAL_DEPTH',     key: 'confessionalDepth',      parser: 'defaultOn' },
+  // ORW-650 (0133): watching from the couch, richer - an evicted player who keeps watching gets the season's real public moments (ceremonies, competition results), never anything hidden. ON by default; `=0` keeps the skeleton digests only.
+  { envKey: 'ORWELL_COUCH_WATCH', key: 'couchWatch', parser: 'defaultOn' },
   // B48-credibility layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_CREDIBILITY', key: 'credibility', parser: 'defaultOn' },
   // ORW-271 slice 1: the append-only per-night day ledger (a floor entry at each turnIn + the FE-driven recordDaySummary write-back) for a played game. ON by default; `=0` turns it off.
@@ -102,6 +104,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_DEAL_WITNESSES', key: 'dealsWitnesses', parser: 'defaultOn' },
   // A8: the NPC desire clock (an NPC whose want crossed its threshold cuts in). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_DESIRE_CLOCK', key: 'desireClock', parser: 'defaultOn' },
+  // ORW-668 / 0210 C2: production visibly calls a houseguest to the Diary Room and the house sees them go and come back (who, how long, how they looked; never what was said); the player is invited, never sent. A played game only; changes no outcome. `=0` opts out.
+  { envKey: 'ORWELL_DIARY_CALLS', key: 'diaryCalls', parser: 'defaultOn' },
   { envKey: 'ORWELL_DISCLOSURE_ENGINE', key: 'disclosureEngine', parser: 'defaultOn' },
   // 0196 / ORW-630: a pressed houseguest the engine has decided will not answer also gets HOW they dodge (what they do with the question, how their carriage reads, whether they hand it back), decided on a keyed side stream from their character, bond and the stakes, saved, and handed to the narrator as a third-person fact. A played game only. `=0` turns it off.
   { envKey: 'ORWELL_DODGING', key: 'dodging', parser: 'defaultOn' },
@@ -233,6 +237,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_PHILOSOPHIES', key: 'philosophies', parser: 'defaultOn' },
   { envKey: 'ORWELL_PLAYER_DOSSIER', key: 'playerDossier', parser: 'defaultOn' },
   { envKey: 'ORWELL_PREMIERE_ENTRANCES',   key: 'premiereEntrances',      parser: 'defaultOn' },
+  // ORW-669 / 0210 C3: in the player's own Diary Room the producer may raise a said-vs-did contradiction from the player's own recorded public record (a promise, then an act against the same houseguest); facts to the narrator, no outcome or relationship change, nothing reaches any houseguest. A played game only. `=0` opts out.
+  { envKey: 'ORWELL_PRODUCER_PUSHBACK', key: 'producerPushback', parser: 'defaultOn' },
   { envKey: 'ORWELL_PRODUCER_READ', key: 'producerRead', parser: 'defaultOn' },
   // 0187 / ORW-586: promises BIND: an open-ledger entry may carry a typed term the engine judges from board facts (kept/broken + trust fold); a model may only withdraw it. Needs ORWELL_ASSURANCES. `=0` turns it off.
   { envKey: 'ORWELL_PROMISE_TERMS', key: 'promiseTerms', parser: 'defaultOn' },

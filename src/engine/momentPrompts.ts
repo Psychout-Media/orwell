@@ -9,6 +9,8 @@ import { MILESTONE_LABEL, milestoneLabel } from "./daySchedule";
 import { genderPresentationPhrase, pronounsFor, genderGuidanceClause } from "../domain/gender";
 import { provenanceWord } from "../domain/humanize";
 import { countFact, countShape } from "./productionHost";
+import { renderDiaryCallLines } from "./diaryCalls";
+import { renderPushbackLines } from "./producerPushback";
 
 /**
  * #1326 — dedupe the "no genderPresentation facet on file" warning per houseguest (per process),
@@ -1010,7 +1012,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "warmth and finality — the walk-out, the host's send-off, what their game meant. The engine then offers " +
     "a CARD: skip ahead to the finale, or keep watching a condensed season — present it and WAIT; never choose " +
     "for them. If they watch, voice ONLY the game's `weekDigests` (one line per completed week: HOH, nominees, " +
-    "veto, who left) as a brief recap — never invent a result or any private scheming. Either way they are back " +
+    "veto, who left) as a brief recap, plus any `watching.moments` (the public record of what the broadcast showed since they left) — never invent a result or any private scheming. Either way they are back " +
     "on the finale night: call `advanceGame` through the finale beats, voice ONLY each supplied jury vote and the crowning, then present the post-crowning interview (another card; the `spectator-choice` and `finale-interview` beats). They hold no power and cast no vote; do not invent a " +
     "path back in. If a WATCHING player asks to skip ahead, the engine re-raises the card and they confirm ON it: until they do, the season is NOT over — voice NO finale, final two, jury, vote or winner, just point them at the card. " +
     "SKIP IS IRREVERSIBLE: once they have skipped, never offer or narrate watching the rest of the season again — say plainly that skipping is final. " +
@@ -1640,6 +1642,10 @@ export function renderGameContext(view: GameStateView): string {
               : `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for this ${view.daySchedule.phase} — the house knows it's coming; nobody is surprised when production calls them in.`,
         ]
       : []),
+    // ORW-668 (0210 C2): the Diary Room calls as facts to voice (absent unless a call is live, a return just happened, or the player is invited). Per-turn, never the base prompt.
+    ...renderDiaryCallLines(view.diaryCall),
+    // ORW-669 (0210 C3): the producer's pushback as facts to voice (absent unless the player is in the Diary Room and their own record contradicts their word). Per-turn, never the base prompt.
+    ...renderPushbackLines(view.producerPushback),
   ].join("\n");
 }
 
