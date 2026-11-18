@@ -1642,6 +1642,42 @@ export class GameSessionAdapter implements GameSession {
     return this.termKeepsOf(hoh, "final-two").find((k) => k.keep && rivals.includes(k.subject))?.subject;
   }
 
+  /**
+   * ORW-586 slice 4 - the NPC PROMISER's own read of their open TERMED promises of one kind (use-veto-on, not-use-veto-on, final-two): the same keep-or-break call as a casual assurance (`decideKeep`, the promiser's
+   * `assuranceKeepWeight` from loyalty and aggression, the promise sincerity 1 an engine-recorded term carries), the benefit of breaking being what breaking would gain THEM (a use-veto-on / final-two promise: how threatening the
+   * promised one reads; a not-use-veto-on promise: how much they trust the one they would be saving). Deterministic, no rng. Only the promiser reads it (the NPC's own decision), only open entries of this week
+   * (or a season window), only a played game with promise terms live; the player is never a promiser here (the engine never acts for the player). The judge (`judgePromise`) closes the entry on the same public fact.
+   */
+  private termKeepsOf(holder: EntityId, what: "use-veto-on" | "not-use-veto-on" | "final-two"): Array<{ subject: EntityId; keep: boolean }> {
+    if (!this.promiseTermsLive || this.live?.playedGame !== true || holder === (OPEN_LEDGER_PLAYER as string)) return [];
+    const week = this.live.week;
+    const out: Array<{ subject: EntityId; keep: boolean }> = [];
+    for (const e of this.openLedger.entries) {
+      const term = e.term;
+      if (e.status !== "open" || !term || term.by !== holder || term.what !== what) continue;
+      if ((term.window ?? "week") === "week" && term.week !== undefined && term.week !== week) continue;
+      const subject = termSubject(term) as EntityId;
+      const stats = this.house?.npcs.find((n) => n.id === holder)?.character.stats;
+      const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(holder), this.emotionalReadOf(holder))));
+      const keepWeight = assuranceKeepWeight({ loyalty, aggression: stats ? Math.max(0, Math.min(1, 1 - stats.social)) : 0.5 });
+      const edge = this.rel.edge(holder, subject);
+      const breakBenefit = Math.max(0, Math.min(1, what === "not-use-veto-on" ? edge.trust : edge.threat));
+      out.push({ subject, keep: decideKeep({ keepWeight, sincerity: 1, breakBenefit }) });
+    }
+    return out;
+  }
+  /** ORW-586 slice 4 - the signed lean a KEPT veto promise gives `holder`'s save of `nominee` (see `termKeepsOf`). */
+  promiseVetoFor(nominee: EntityId, holder: EntityId): number {
+    let lean = 0;
+    for (const k of this.termKeepsOf(holder, "use-veto-on")) if (k.keep && k.subject === nominee) lean += PROMISE_VETO_LEAN;
+    for (const k of this.termKeepsOf(holder, "not-use-veto-on")) if (k.keep && k.subject === nominee) lean -= PROMISE_VETO_LEAN;
+    return Math.max(-PROMISE_VETO_LEAN, Math.min(PROMISE_VETO_LEAN, lean));
+  }
+  /** ORW-586 slice 4 - the Final-3 rival the final HOH keeps a final-two promise to (see `termKeepsOf`). */
+  promiseFinalTwoFor(hoh: EntityId, rivals: readonly EntityId[]): EntityId | undefined {
+    return this.termKeepsOf(hoh, "final-two").find((k) => k.keep && rivals.includes(k.subject))?.subject;
+  }
+
   /** B4 slice 4 - `voter` voted `nominee` out: break the open assurance(s) they made to them (once) and the assured remembers. */
   assuranceVotedOut(voter: EntityId, nominee: EntityId, sealedAmong?: readonly EntityId[]): void {
     this.breakAssurances(voter, nominee, sealedAmong);
@@ -8656,6 +8692,7 @@ export class GameSessionAdapter implements GameSession {
       knowledge,
       rng,
       ...(this.napAsleep ? { playerAsleep: true } : {}),
+      ...(this.live?.playedGame === true ? { countPlayer: true } : {}), // ORW-614 (P-9): a played game's house counts the player in the room it is watching
     });
   }
 
@@ -14096,7 +14133,11 @@ export class GameSessionAdapter implements GameSession {
       this.presenceBase?.set(p.actor, p.place);
     }
     // ORW-561 (spec 0176 part 2): after they have walked, each awake houseguest's hour accrues to the hidden tenure map where they ended up (the HOH room too: slice 11 reads that time; the Diary Room is private).
-    if (this.territoryOn()) { const t = (s.tenure ??= {}); for (const id of awakeIds) { const r = presence.get(id); if (r && r !== "diary-room") bumpTenure(t, id, r); } }
+    if (this.territoryOn()) { const t = (s.tenure ??= {}); for (const id of awakeIds) { const r = presence.get(id); if (r && r !== "diary-room") bumpTenure(t, id, r); }
+      // ORW-614 (P-11): the player's own hours count toward the crowd they keep, like anyone's (never while napping; the Diary Room is private).
+      const pr = presence.get(house.player.id);
+      if (pr && pr !== "diary-room" && !awakeIds.includes(house.player.id) && (this.awakeNow()?.has(house.player.id) ?? true)) bumpTenure(t, house.player.id, pr);
+    }
     const gate = this.offscreenShowmanceGate();
     const out: OffscreenScene[] = [];
     for (const scene of assembleScenes(plans)) {
