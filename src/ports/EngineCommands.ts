@@ -112,7 +112,9 @@ export interface RecordInteractionReq {
    * houseguest in the scene), `about` the subject, `kind` one of the engine's closed claim set (`SPOKEN_CLAIM_KINDS`), `object` the second party where the kind has one. The ENGINE re-validates everything, gives it its truth
    * from its own records, and the listener holds it as a belief; a false one is a lie on the record. A refused or malformed statement is ignored, never an error. Absent => byte-identical.
    */
-  statement?: { to: EntityId; about: EntityId; kind: string; object?: EntityId; /** 0184 part 2a: a `has-reputation` statement's label (a social role the player says someone has) */ label?: string };
+  statement?: { to: EntityId; about?: EntityId; kind?: string; object?: EntityId; /** 0184 part 2a: a `has-reputation` statement's label (a social role the player says someone has) */ label?: string;
+    /** 0203 / ORW-646: the player says something they told `to` was false (coming clean). No kind needed: the ENGINE finds the player's own open lie to `to` (narrowed by `about` when given) and re-validates it. */ retracts?: true;
+    /** 0203 / ORW-646: `to` is an ally the player tells the truth about a lie they told THIS other houseguest. Re-validated by the engine the same way. */ tellsAbout?: EntityId };
   /**
    * B24 (heard-about-me, behind ORWELL_HEARD_ABOUT_ME, default ON): in this player-witnessed scene an NPC TOLD the other named NPCs something about the PLAYER - that the player is gunning for them
    * (`targeting`) or has betrayed someone (`betrayal`). Only the CLOSED nature crosses (never free text). `from` names the teller (an NPC; default the initiator). The ENGINE decides how far each

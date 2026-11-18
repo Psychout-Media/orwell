@@ -386,6 +386,7 @@ import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
 import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
 import { sameMoment } from "../../engine/claimMoment";
+import { COMING_CLEAN, confessable, confessionTrustDrop, loopInTrustGain, catchRisk, confessChance, cleanActDone, otherVersionNear } from "../../engine/comingClean";
 import { CAUGHT_LIE, caughtLieTrustDrop, contradicts, overclaimedKeeps, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
 import { claimProblem, liesBy, claimsHeardBy, tellClaim, labelOfNature, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedInText, namedSourceContent, noRecordNote, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
@@ -13091,9 +13092,135 @@ export class GameSessionAdapter implements GameSession {
       this.fadeAlliances();
       this.formNpcAlliances(rng);
       this.groupLifeTick();
+      this.comingCleanTick();
     } finally { this.inAlliancePass = false; }
   }
   private inAlliancePass = false;
+
+
+  // --- 0203 / ORW-646 (Theme 4) - COMING CLEAN, NUANCED ---------------------------------------------------------------------------------------------------------------------------------------
+  /**
+   * A speaker owns a lie BEFORE it is caught (`confess`), or tells an ally the truth about a lie told to someone else (`loopIn`). Both are engine acts on the claim log (the claim is the speaker's own, and a lie), recorded
+   * claim by claim on `live.cleanActs` (append-only), so who heard which version, who was told the truth and who was looped in is always known (`versionsAbout`). Played games only; `ORWELL_COMING_CLEAN=0` => nothing runs
+   * (byte-identical). No shared rng: the NPC decisions are keyed `agendaRoll`s. Engine-only; nothing here is a number the player sees, and no tool exposes it - the player's own words reach it through
+   * `playerConfess` / `playerLoopIn` (engine entry points; the lever wiring is a separate step).
+   */
+  private comingCleanEnabled = flagDefaultOn("ORWELL_COMING_CLEAN");
+  setComingCleanEnabled(on: boolean): void { this.comingCleanEnabled = on; }
+  private get comingCleanLive(): boolean { return this.comingCleanEnabled && this.live?.playedGame === true && !!this.house; }
+  private claimCaught(c: SpokenClaim): boolean {
+    return c.listener !== PLAYER && (this.live?.beliefs?.[c.listener] ?? []).some((b) => plantedBy(b, c.id) && b.refuted === true && !(this.live?.cleanActs ?? []).some((a) => a.kind === "confess" && a.claimId === c.id));
+  }
+  private openLie(c: SpokenClaim | undefined): c is SpokenClaim {
+    return !!c && confessable(c, this.claimCaught(c) ? new Set([c.id]) : new Set<string>(), this.live?.cleanActs ?? []);
+  }
+  /** The scene a coming-clean act is, when the player is a party to it (the speaker's words, composed from names; never whether anything is true beyond what they say). Houseguest-to-houseguest acts stay engine-only. */
+  private cleanScene(by: EntityId, to: EntityId, c: SpokenClaim, kind: "confess" | "loop-in"): void {
+    if (to !== PLAYER || by === PLAYER) return; // the player's own act is their own words, already the recorded scene: the engine never authors it
+    const n = (id: EntityId): string => this.nameOf(id);
+    const text = kind === "confess"
+      ? `${n(by)} says what they told ${n(to)} wasn't so`
+      : `${n(by)} tells ${n(to)} the truth about what they told ${n(c.listener)} about ${n(c.subject)}`;
+    this.onPlayerEvent?.(text, [by, to], "conversation");
+  }
+  /** `by` owns the lie `claimId` to the listener it was told to, before it is caught: the listener trusts `by` a little less (a share of a caught lie's cost), takes back the belief it planted, and holds no `lied-to-me`. */
+  confess(by: EntityId, to: EntityId, claimId: string): boolean {
+    if (!this.comingCleanLive) return false;
+    const live = this.live!;
+    const c = live.claims?.items.find((x) => x.id === claimId);
+    const living = this.livingIds();
+    if (!this.openLie(c) || c.speaker !== by || c.listener !== to || by === to || !living.includes(by) || !living.includes(to)) return false;
+    if (to !== PLAYER) {
+      refuteToldBelief(live.beliefs, to, c.id, (h, x) => this.rel.edge(h, x));
+      const e = this.rel.edge(to, by);
+      e.trust = Math.max(0, e.trust - confessionTrustDrop());
+    }
+    (live.cleanActs ??= []).push({ kind: "confess", by, to, claimId, week: live.week });
+    this.cleanScene(by, to, c, "confess");
+    return true;
+  }
+  /** `by` tells `ally` the truth about the lie `claimId` (told to someone else): the ally trusts `by` a little more (by how close they already were) and now HOLDS "`by` lied to that person" as a fact, which can travel on. */
+  loopIn(by: EntityId, ally: EntityId, claimId: string): boolean {
+    if (!this.comingCleanLive) return false;
+    const live = this.live!;
+    const c = live.claims?.items.find((x) => x.id === claimId);
+    const living = this.livingIds();
+    if (!this.openLie(c) || c.speaker !== by || ally === by || ally === c.listener || !living.includes(by) || !living.includes(ally)) return false;
+    if (cleanActDone(live.cleanActs ?? [], { kind: "loop-in", claimId, to: ally })) return false;
+    if (ally !== PLAYER) {
+      const e = this.rel.edge(ally, by);
+      const closeness = (e.trust + e.affinity) / 2;
+      e.trust = clamp01(e.trust + loopInTrustGain(closeness));
+      if (this.npcBeliefsEnabled) {
+        recordClaim((live.beliefs ??= {}), { id: `${ally}|heard-rumor|${by}|loopin:${claimId}`, holder: ally, kind: "heard-rumor", subject: by, object: c.listener, nature: "lying", value: true, origin: "told", source: by, confidence: COMING_CLEAN.loopInConfidence, week: live.week });
+      }
+    }
+    (live.cleanActs ??= []).push({ kind: "loop-in", by, to: ally, claimId, toldTo: c.listener, week: live.week });
+    this.cleanScene(by, ally, c, "loop-in");
+    return true;
+  }
+  /** The player owns their OWN lie to `to`, in their own words (the scene belt proposes the act; the engine re-validates it against the claim log: the claim is the player's own, and false). `about` picks which when there are several; else the latest. */
+  playerConfess(req: { to: string; about?: string }): { accepted: boolean; reason?: string } {
+    if (!this.comingCleanLive) return { accepted: false, reason: "off" };
+    const c = this.playerOpenLie(req.to, req.about);
+    return c && this.confess(PLAYER, c.listener, c.id) ? { accepted: true } : { accepted: false, reason: "no-lie" };
+  }
+  /** The player tells an ally the truth about their own lie to someone else (`to` = who was lied to; `ally` = who is told). */
+  playerLoopIn(req: { ally: string; to: string; about?: string }): { accepted: boolean; reason?: string } {
+    if (!this.comingCleanLive) return { accepted: false, reason: "off" };
+    const c = this.playerOpenLie(req.to, req.about);
+    return c && this.loopIn(PLAYER, req.ally as EntityId, c.id) ? { accepted: true } : { accepted: false, reason: "no-lie" };
+  }
+  private playerOpenLie(to: string, about?: string): SpokenClaim | undefined {
+    const mine = (this.live?.claims?.items ?? []).filter((c) => c.speaker === PLAYER && c.listener === to && (about === undefined || c.subject === about) && this.openLie(c));
+    return mine[mine.length - 1];
+  }
+  /**
+   * Once a day, each houseguest who holds a lie that is still open reads the risk of it being caught from what THEY can see (another version told to someone close to the listener; the listener already doubting it;
+   * the subject close to the listener) and rolls once, keyed on (seed, speaker, day, claim): confess it if the roll lands under `confessChance` (the risk and their candor), else sometimes loop their closest ally in.
+   * At most one act per speaker per day. A confession to the player needs the two in the same room, awake. The marker is set FIRST (recording a scene commits, and a commit runs the tick again).
+   */
+  private comingCleanTick(): void {
+    if (!this.comingCleanLive) return;
+    const live = this.live!;
+    const claims = live.claims?.items;
+    if (!claims || claims.length === 0) return;
+    const day = live.dayNumber ?? live.week;
+    if (live.cleanDay !== undefined && live.cleanDay >= day) return;
+    live.cleanDay = day;
+    const seed = this.gameSeed ?? 0;
+    const living = this.livingIds();
+    const bond = (x: EntityId, y: EntityId): number => { const e = this.rel.peek(x, y); return (e.trust + e.affinity) / 2; };
+    const awake = this.awakeNow();
+    const withPlayer = (id: EntityId): boolean => (!awake || (awake.has(id) && awake.has(PLAYER))) && this.presence?.get(id) !== undefined && this.presence.get(id) === this.presence.get(PLAYER);
+    const liars = [...new Set(claims.filter((c) => !c.isTrue && c.speaker !== PLAYER).map((c) => c.speaker))].filter((l) => living.includes(l)).sort();
+    for (const liar of liars) {
+      const character = this.agendaCharacterOf(liar);
+      const candor = Math.max(0, Math.min(1, (REASONS.candorByArchetype[character?.archetype ?? ""] ?? 0.5) + (REASONS.candorByStyle[character?.strategyStyle ?? ""] ?? 0)));
+      for (const claim of liesBy(live.claims, liar)) {
+        if (!this.openLie(claim) || !living.includes(claim.listener)) continue;
+        const planted = claim.listener === PLAYER ? undefined : (live.beliefs?.[claim.listener] ?? []).find((b) => plantedBy(b, claim.id) && !b.refuted);
+        const risk = catchRisk({
+          otherVersionNearListener: otherVersionNear(claims, claim, (a, b) => (a === PLAYER || b === PLAYER ? 0 : Math.min(bond(a, b), bond(b, a))), COMING_CLEAN.nearBond),
+          listenerDoubting: !!planted && planted.confidence < COMING_CLEAN.doubtBelow,
+          subjectCloseToListener: claim.listener !== PLAYER && claim.subject !== claim.listener && bond(claim.listener, claim.subject) >= COMING_CLEAN.nearBond,
+        });
+        if (risk <= 0) continue;
+        const chance = confessChance(risk, candor);
+        if (agendaRoll(seed, liar, `coming-clean:d${day}:${claim.id}`) < chance) {
+          if (claim.listener === PLAYER && !withPlayer(liar)) continue;
+          if (this.confess(liar, claim.listener, claim.id)) break;
+          continue;
+        }
+        if (agendaRoll(seed, liar, `coming-clean-loop:d${day}:${claim.id}`) < chance * COMING_CLEAN.loopInShare) {
+          const ally = living.filter((a) => a !== liar && a !== claim.listener && a !== claim.subject && (a !== PLAYER || withPlayer(liar))
+            && !cleanActDone(live.cleanActs ?? [], { kind: "loop-in", claimId: claim.id, to: a }) && Math.min(bond(liar, a), bond(a, liar)) >= COMING_CLEAN.allyBond)
+            .sort((x, y) => Math.min(bond(liar, y), bond(y, liar)) - Math.min(bond(liar, x), bond(x, liar)) || (x < y ? -1 : 1))[0];
+          if (ally !== undefined && this.loopIn(liar, ally, claim.id)) break;
+        }
+      }
+    }
+  }
 
   /**
    * 0172 / ORW-603, ORW-611 (Theme 3 slice 6) - the HIDDEN LIFE of the NPC alliances, once per in-game day, played games only (`ORWELL_GROUP_ROLES`). Per alliance: roles dealt from the members' own bonds and stats, an inner circle
@@ -20851,10 +20978,17 @@ export class GameSessionAdapter implements GameSession {
    * and a false claim is a lie on the record (the player holds no engine beliefs). A kind outside the claim set, an unknown or absent houseguest, or a refused entry makes no claim and never throws. Gated by ORWELL_PROMISE_TERMS
    * and the open ledger; off => nothing.
    */
-  recordPlayerStatement(req: { to: string; about: string; kind: string; object?: string; label?: string }): { accepted: boolean; reason?: string } {
+  recordPlayerStatement(req: { to: string; about?: string; kind?: string; object?: string; label?: string; retracts?: true; tellsAbout?: string }): { accepted: boolean; reason?: string } {
+    // 0203 / ORW-646: the player owns a lie (`retracts`) or tells an ally the truth about a lie told to someone else (`tellsAbout`). The player's words are the scene already recorded; the engine finds the player's own open lie
+    // from its claim log and DROPS the act unless it matches (own, false, told to that listener; for a loop-in, told to someone other than the ally). Never exposes a claim id.
+    if (req && (req.retracts === true || req.tellsAbout !== undefined)) {
+      if (typeof req.to !== "string" || (req.about !== undefined && typeof req.about !== "string") || (req.retracts === true && req.tellsAbout !== undefined)) return { accepted: false, reason: "bad-shape" };
+      return req.retracts === true ? this.playerConfess({ to: req.to, ...(req.about ? { about: req.about } : {}) }) : this.playerLoopIn({ ally: req.to, to: String(req.tellsAbout), ...(req.about ? { about: req.about } : {}) });
+    }
+    if (!req || typeof req.about !== "string" || typeof req.kind !== "string") return { accepted: false, reason: "bad-shape" };
     if (!this.promiseTermsLive) return { accepted: false, reason: "off" };
     if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
-    if (!req || typeof req.to !== "string" || typeof req.about !== "string" || typeof req.kind !== "string") return { accepted: false, reason: "bad-shape" };
+    if (typeof req.to !== "string") return { accepted: false, reason: "bad-shape" };
     if (!(SPOKEN_CLAIM_KINDS as readonly string[]).includes(req.kind)) return { accepted: false, reason: "bad-shape" };
     const known = new Set<string>(this.house.npcs.map((n) => n.id as string));
     const objectOk = req.object === undefined || (typeof req.object === "string" && known.has(req.object));

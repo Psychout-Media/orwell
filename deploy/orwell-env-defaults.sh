@@ -106,6 +106,7 @@
 #       being pulled, an NPC approaching, something observed, or bedtime. PO ruling 2026-11-04 (Ryne). Engine default ON too; listed so a box .env states its posture.
 #   ORWELL_PREMIERE_ENTRANCES    A9: the premiere opens with ONE-AT-A-TIME entrances (a seeded order, the player at a random slot), then the living-room champagne toast with a speech
 #       from the host and each houseguest, then the Day-1 morning. PO ruling 2026-11-04 (Ryne). Engine default ON too; listed so a box .env states its posture.
+#   ORWELL_COMING_CLEAN         Coming clean, nuanced (0203) — confess a lie before it is caught, loop an ally in.
 #   ORWELL_COMP_INTENT          NPC competition intent (0006b) — derived compete/throw/play-safe.
 #   ORWELL_MYTH_MAKING          NPC myth-making (0101) — a rare notable player act becomes house folklore
 #       and diffuses NPC-to-NPC (owner ruling 2026-07-17: on). Hidden-knowledge layer only; own isolated
@@ -163,6 +164,7 @@ ORWELL_CAMPAIGN_MEMORY=1
 ORWELL_CATCH_MISDIRECTION=1
 ORWELL_CLAIMS_TO_PLAYER=1
 ORWELL_CLAIMS_TO_PLAYER=1
+ORWELL_COMING_CLEAN=1
 ORWELL_COMP_INTENT=1
 ORWELL_COMP_MECHANICS_PLUS=1
 ORWELL_COMP_MIXED=1

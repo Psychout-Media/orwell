@@ -97,3 +97,4 @@ export function refuteToldBelief(store: BeliefStore | undefined, holder: EntityI
   belief.refuted = true;
   return true;
 }
+
