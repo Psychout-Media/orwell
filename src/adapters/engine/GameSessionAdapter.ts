@@ -113,6 +113,7 @@ import type { ConfessionalContext, ConfessionalDepth } from "../../engine/confes
 import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { PULL_QUOTE } from "../../engine/pullQuoteConstants";
+import { buildDecisionReveal } from "../../engine/decisionReveal";
 import { buildGroupLife, type GroupLifeRow, type GroupLifeView } from "../../engine/groupLifeRetro";
 import { buildYourEdit, sceneMoment, weekMoments, weeksOfLog, type YourEditView } from "../../engine/yourEdit";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
@@ -1247,6 +1248,9 @@ export class GameSessionAdapter implements GameSession {
   /** 0184 (Theme 3 slice 8, part 1): reputations (`ORWELL_REPUTATION`, default ON; `=0` opts out). Played games only, and it needs the bond record. */
   private reputationEnabled = flagDefaultOn("ORWELL_REPUTATION");
   setReputationEnabled(on: boolean): void { this.reputationEnabled = on; }
+  /** 0208 B2 (Theme B): a returning player's reputation walks in deeper (`ORWELL_SEASON_MEMORY`, default ON; `=0` is today's 0104 alone): the house's heard record of their broken word feeds the carried treachery. */
+  private seasonMemoryEnabled = flagDefaultOn("ORWELL_SEASON_MEMORY");
+  setSeasonMemoryEnabled(on: boolean): void { this.seasonMemoryEnabled = on; }
   private reputationOn(): boolean { return this.reputationEnabled && this.live?.playedGame === true && this.bondRecordEnabled; }
   /**
    * 0184: `observer`'s standing for `target` (1 = nothing heard against them), from the observer's OWN belief claims about the target (a wrong they heard of or witnessed done to someone else) and from the
@@ -5295,8 +5299,9 @@ export class GameSessionAdapter implements GameSession {
     const americasFavorite = this.americasFavorite(); // ORW-624: after the crown only
     const yourEdit = this.buildYourEditView(); // 0200 / ORW-632: after the crown only (the same gate); facts only
     const groupLife = this.buildGroupLifeView(); // 0183 part d: the sanctioned unsealing of hidden groups' names and words; same gate; facts only
+    const decisionReveal = this.live.playedGame === true ? buildDecisionReveal({ records: this.live.statedReasons, voteRecord: this.live.voteRecord, nameOf: (id) => this.nameOf(id) }) : undefined; // ORW-656: said vs real reason kinds, words only; same crown gate
     const socialMap = this.socialMapRetro(); // 0184 part 2c: after the crown only
-    return { ...(socialMap ? { socialMap } : {}), ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
+    return { ...(socialMap ? { socialMap } : {}), ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(decisionReveal ? { decisionReveal } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
@@ -12720,7 +12725,14 @@ export class GameSessionAdapter implements GameSession {
       const forMe = cast.filter((v) => v === me).length;
       juryVoteShare = cast.length > 0 ? forMe / cast.length : 0;
     }
-    return { placement, castSize, playerCompWins, playerEvictionRoles, reachedJury, reachedFinalTwo, juryVoteShare };
+    // 0208 B2: what the house came to hear of the player's broken word: the mean share of standing lost (0184 part 1) across the cast. Played games with reputations on only; else absent (byte-identical).
+    let houseHeardWrong: number | undefined;
+    if (this.seasonMemoryEnabled && this.reputationOn() && this.house.npcs.length > 0) {
+      let lost = 0;
+      for (const n of this.house.npcs) lost += 1 - this.reputationOf(n.id, me);
+      houseHeardWrong = lost / this.house.npcs.length;
+    }
+    return { placement, castSize, playerCompWins, playerEvictionRoles, reachedJury, reachedFinalTwo, juryVoteShare, ...(houseHeardWrong !== undefined ? { houseHeardWrong } : {}) };
   }
 
   // ─── 0091 — TRIGGER SECRETS & HOUSE-EVENT ERUPTIONS ─────────────────────────────────────────────
@@ -14856,6 +14868,8 @@ export class GameSessionAdapter implements GameSession {
       const spin = 1 + LIE_AUDIENCE.rotation * agendaRoll(seed, listener, `lie-audience:d${day}h${hour}r${repeat}:${target}`);
       return pivot * (LIE_AUDIENCE.credulityBase + this.credulityOf(listener)) * spin;
     } : undefined;
+    // ORW-656: the hours right after a crown (the beat is still the one that follows the comp): the HOH after the HOH comp, the veto holder after the veto comp. Same flag + played gate as the in-comp reactions.
+    const buzzerWinner = this.compReactionsOn() && !s.competition ? (s.beat === "nominations" ? s.hoh : s.beat === "veto-ceremony" ? s.vetoHolder : undefined) : undefined;
     const attractOn = this.attractionOn();
     if (attractOn) this.ensureChemistry(); // 0207 A1: the private chemistry (keyed side rolls; idempotent)
     const attractView = attractOn ? (id: EntityId, targets: readonly EntityId[]) => this.attractionViewOf(id, targets) : undefined;
@@ -14882,6 +14896,7 @@ export class GameSessionAdapter implements GameSession {
         ...this.roommateView(bedsNow, id, inHouse, whereM),
         ...(!room && kindredOf(id) ? { kindred: kindredOf(id)! } : {}),
         timeOfDay: tod, day, hour, ...(repeat > 0 ? { repeat } : {}), inCompetition: this.compReactionsOn() && !!s.competition && !s.competition.stillIn.includes(id),
+        ...(buzzerWinner ? { afterBuzzer: { winner: buzzerWinner } } : {}),
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
         ...(houseCulture ? { culture: houseCulture } : {}),
         ...(swingRead ? { swing: swingRead } : {}),

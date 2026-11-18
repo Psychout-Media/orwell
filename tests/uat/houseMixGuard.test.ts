@@ -30,7 +30,10 @@ import { playMixGame, mixShares } from "../support/houseMixDriver";
 // ORW-653 (0205, meet the cast) re-baselined the pin on top of the tour (0206, ORW-654), leverage plays (0202) and the bed rush (0201): the week-1 house is a little gossipier and a
 // little less strategic. Ryne (relayed by the Coordinator, 2026-11-18): "a gossipy house is fine". main + this change measured by this guard: 35.0 / 31.4 / 28.4 / 5.2 over 3046
 // week-1 scenes (the ORW-571 reference was 36.7 / 33.5 / 23.8 / 6.0, so the cumulative drift is bonding -1.7, strategy -2.1, gossip +4.6, conflict -0.8; without a new reference gossip sat 4.6 off, too close to the tolerance for the next slice).
-export const REFERENCE = { bonding: 35.0, strategy: 31.4, gossip: 28.4, conflict: 5.2 } as const;
+// ORW-651 (0209, the habits system) and the work merged since re-baselined the pin (Ryne, 2026-11-18: the habits mix shift is "fine for now"; no retune): routines pull people to their
+// places, so less free mingling and more time spent scheming with whoever is there. main measured by this guard (ORW-664 does not move it: a fresh-character harness): 30.2 / 34.7 / 28.5 / 6.7
+// over 2974 week-1 scenes (the previous reference, set with meet-the-cast, was 35.0 / 31.4 / 28.4 / 5.2: so bonding -4.8, strategy +3.3, gossip +0.1, conflict +1.5; the ORW-571 reference was 36.7 / 33.5 / 23.8 / 6.0).
+export const REFERENCE = { bonding: 30.2, strategy: 34.7, gossip: 28.5, conflict: 6.7 } as const;
 export const AVG_TOLERANCE = 5; // points: the 12-season average, each category, against REFERENCE
 export const MIN_SPREAD = 15; // points: at least one of bonding / strategy / gossip, most minus least extreme season
 export const MAX_DEVIATION = 25; // points: no season, in any category, further than this from REFERENCE. 20 was proposed; 25 chosen (Coordinator) because 1 of 12 healthy seasons on main is 22 off (seed 9 strategy); still catches a dead or runaway season

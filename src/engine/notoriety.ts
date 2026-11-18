@@ -84,6 +84,11 @@ export interface OpenSetSeasonOutcome {
   reachedFinalTwo: boolean;
   /** Of the jury votes cast at the finale, the share the player won (0..1) — open-set ceremony fact. */
   juryVoteShare: number;
+  /**
+   * 0208 B2 (flag ORWELL_SEASON_MEMORY, played games): the mean share of standing the player lost across the cast at the crown (0184 part 1: what the house heard of them lying to or turning on
+   * people), 0..1. Absent when the flag is off or the game was not played: then it adds nothing (byte-identical). A bounded summary of what spread through the house, never a belief or a name.
+   */
+  houseHeardWrong?: number;
 }
 
 /** Count the truthy reads of a manner field across the player's recorded eviction roles. */
@@ -110,7 +115,7 @@ function deriveReputation(o: OpenSetSeasonOutcome): ReputationFacets {
   const competitor = signed(
     place01 * derive.placementRespect + o.playerCompWins * derive.compWin + juryRespect * derive.juryRespect * 0.4,
   );
-  const treachery = signed((blindsided + betrayed) * derive.treacheryBeat);
+  const treachery = signed((blindsided + betrayed) * derive.treacheryBeat + clamp(o.houseHeardWrong ?? 0, 0, 1) * derive.brokenWord);
   const loyalty = signed(respected * derive.loyaltyBeat - (blindsided + betrayed) * derive.treacheryBeat * 0.5);
   const social = signed(juryRespect * derive.juryRespect + respected * derive.loyaltyBeat * 0.5);
   return { loyalty, treachery, competitor, social };
@@ -128,6 +133,7 @@ function deriveLegendBeats(o: OpenSetSeasonOutcome, rep: ReputationFacets): stri
   else if (o.reachedFinalTwo) beats.push("made it all the way to the Final 2 of a past season");
   else if (o.reachedJury) beats.push("made the jury in a past season");
   if (rep.treachery > 0.4) beats.push("has a reputation for blindsiding their own allies");
+  if ((o.houseHeardWrong ?? 0) >= NOTORIETY.brokenWordKnownAt) beats.push("went back on their word to people in the house last time, and word got around");
   if (rep.loyalty > 0.4) beats.push("is known as someone who keeps their word");
   if (rep.competitor > 0.4) beats.push("is supposed to be a real competition threat");
   if (rep.social > 0.4) beats.push("is said to be dangerously good with people");
