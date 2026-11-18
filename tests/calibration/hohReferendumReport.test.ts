@@ -18,7 +18,7 @@ const MSGS = Number.parseInt(process.env.ORWELL_HOH_REPORT_MESSAGES ?? "2000", 1
 const BAND = 0.03;
 
 type Rel = { bondStrength(a: string, b: string): number };
-type Live = { week: number; hoh?: string; active: string[]; eviction?: { nominees?: string[] }; finalNominees?: string[]; voteRecord?: Array<{ week: number; evictee: string; voteOf: Record<string, string> }>; weekDigests?: Array<{ week: number; hoh: string | null; nominees: string[]; evictee: string | null }>; decisionWhy?: DecisionWhy[] };
+type Live = { week: number; hoh?: string; active: string[]; eviction?: { nominees?: string[] }; finalNominees?: string[]; nominees?: string[]; voteRecord?: Array<{ week: number; evictee: string; voteOf: Record<string, string> }>; weekDigests?: Array<{ week: number; hoh: string | null; nominees: string[]; evictee: string | null }>; decisionWhy?: DecisionWhy[] };
 type Row = { popularity: number; targetWent: boolean; opposed: number; opposedEvictedTarget: number; refAbs: number[]; threatGap: number[]; threatBeatRef: number };
 const median = (xs: number[]) => { if (!xs.length) return 0; const s = [...xs].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2; };
 
@@ -34,8 +34,9 @@ describe.skipIf(!RUN)("HOH referendum report (not a gate)", () => {
         onStep: (s) => {
           const sess = s as { live?: Live; rel: Rel };
           const live = sess.live;
-          if (!live?.eviction || !live.hoh || live.hoh === "player" || popAt.has(live.week)) return;
-          const fn = live.finalNominees ?? live.eviction.nominees ?? [];
+          // the last sample before the week's vote: every step while this week's HOH reigns and no vote is recorded yet (an eviction can resolve inside one message's advance)
+          if (!live?.hoh || live.hoh === "player" || (live.voteRecord ?? []).some((r) => r.week === live.week)) return;
+          const fn = live.finalNominees ?? live.eviction?.nominees ?? live.nominees ?? [];
           const voters = live.active.filter((v) => v !== live.hoh && !fn.includes(v));
           const ids = live.active;
           let sum = 0, n = 0;
