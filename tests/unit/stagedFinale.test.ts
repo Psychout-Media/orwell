@@ -19,6 +19,7 @@ const boot = (d: string, seed: number, played: boolean): Any => {
   const s = new GameSessionRegistry(new FileSaveStore(d)).sandboxFor("u").session as unknown as Any;
   s.createCharacter({ playerName: "P", seed });
   s.setFinalHohThreePartEnabled(true);
+  s.setOwnViewEnabled(false); // ORW-574: this file pins the ceremony's STRUCTURE, not who an NPC Final HOH evicts; the own view (played games) steers that choice
   if (played) s.noteMessage({ messageId: "m1" });
   s.scheduleGateBypass = true;
   return s;
@@ -51,7 +52,7 @@ function seatedAt(hoh: "player" | "npc", played = true): { s: Any; live: LiveSea
   if (!m) throw new Error("no seed kept the player in the Final 3");
   const d = dir(); cpSync(m.d, d, { recursive: true });
   const s = reload(d);
-  s.setFinalHohThreePartEnabled(true); s.scheduleGateBypass = true;
+  s.setFinalHohThreePartEnabled(true); s.scheduleGateBypass = true; s.setOwnViewEnabled(false);
   const live = s.live as LiveSeasonState;
   const others = live.active.filter((h) => h !== PLAYER);
   if (hoh === "npc") (s as { agendaPullOf: unknown }).agendaPullOf = () => ({ value: 0 }); // ORW-314: this file pins the CEREMONY'S STRUCTURE, not who the NPC HOH evicts; goals drive that choice now, so the pull is zeroed here ...
