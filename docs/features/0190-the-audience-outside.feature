@@ -26,3 +26,25 @@ Feature: The audience outside
     When the eviction is over
     Then no favorite is named while the season is live
     And after the crown the retrospective names America's Favorite
+
+  # Follow-up (ORW-624): the walk out comes first, so the exit interview carries the crowd; the player hears their own; a fan reward is read as a jury threat.
+  Scenario: The evictee walks out before their exit interview, and the house hears it once
+    Given a played season with the audience on
+    And an eviction in progress whose evictee is a houseguest
+    When the evictee's exit interview begins
+    Then the crowd they walk out to is decided, in words and never a number
+    And the house hears it, the evictee is not told the house's news
+    And when the eviction is over the walk out is not repeated
+
+  Scenario: An evicted player hears their own crowd
+    Given a played season with the audience on
+    And an eviction in progress whose evictee is the player
+    When the evictee's exit interview begins
+    Then the player alone hears the crowd they walk out to
+
+  Scenario: The house reads the viewers' favorite as a jury threat, the player included
+    Given a played season with the audience on
+    And a fan-reward week the player won HOH and used the veto
+    When the eviction is over
+    Then the player wins the viewers' vote
+    And every houseguest reads the player as more of a threat than before

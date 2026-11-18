@@ -803,7 +803,7 @@ export interface LiveSeasonState {
   /** ORW-625: each houseguest's stored goal plans (append-only: a finished or dropped plan keeps its record and reason). ENGINE-ONLY, never projected. */
   goalPlans?: Record<EntityId, Array<{ goalId: string; steps: import("./houseLife").PlanStep[]; at: number; madeDay: number; lastDay: number; status: "active" | "done" | "dropped"; reason?: "goal-ended" | "partner-gone" | "stalled" }>>;
   /** ORW-624: the audience outside - the public's view (what the house saw) and the full view (with hidden moments, read only after the crown), what was folded, the crowd at each walk-out and the fan rewards. ENGINE-ONLY, never projected. */
-  audience?: { live: import("./audience").Standing; full: import("./audience").Standing; cursor: number; weeks: number[]; crowd: Array<{ week: number; evictee: EntityId; reaction: import("./audience").CrowdReaction }>; perks: Array<{ week: number; to: EntityId }> };
+  audience?: { live: import("./audience").Standing; full: import("./audience").Standing; cursor: number; weeks: number[]; /** evictions folded by key (`evictionKey`), so a twist night's second eviction folds too and the exit interview can fold its own week early */ folded?: string[]; crowd: Array<{ week: number; evictee: EntityId; reaction: import("./audience").CrowdReaction }>; perks: Array<{ week: number; to: EntityId }> };
   /** 0188 / ORW-619: the traps houseguests have set (a made-up secret told to one person, watched). ENGINE-ONLY (Vault class), never projected; persisted. */
   traps?: import("./trap").Trap[];
   /** 0188: the last day the trap tick ran (once a day). */
@@ -814,7 +814,7 @@ export interface LiveSeasonState {
    * exit-interview beat resolves; resurfaced in the 0048 retrospective as first-person exit accounts.
    * Expressive/retrospective ONLY — it feeds no seeded decision, so it never perturbs the game trajectory.
    */
-  exitInterviews?: Array<{ week: number; evictee: EntityId; stance: ExitStance; message?: string }>;
+  exitInterviews?: Array<{ week: number; evictee: EntityId; stance: ExitStance; message?: string; /** ORW-624: the crowd they walked out to (absent = no public) */ crowd?: import("./audience").CrowdReaction }>;
   /**
    * 0133 — early eviction. `spectator` is the pre-jury-evicted player's chosen way to follow the rest of the
    * season (set when they answer the `spectator-choice` card); `spectatorOffered` marks the one-time offer;
@@ -1222,6 +1222,11 @@ export interface SeasonCtx {
   assuranceNominated?: (holder: EntityId, nominee: EntityId) => void;
   /** 0154 (caught in a lie): the eviction count is PUBLIC (who left, how many votes read "evict", who was eligible to vote) - never a ballot. The adapter catches any "I voted to keep you" the count rules out. Absent => nothing. */
   evictionCountPublic?: (tally: { evictee: EntityId; evictVotes: number; voters: readonly EntityId[] }) => void;
+  /**
+   * ORW-624: the crowd the evictee walks out to, decided as their exit interview begins (the audience folds the week so far; the house hears it through the door, a
+   * player-evictee hears their own). Absent / undefined => the exit interview is byte-identical. Reads no rng from the season stream.
+   */
+  exitCrowd?: (evictee: EntityId) => import("./audience").CrowdReaction | undefined;
   /** B4 slice 8: the HOH's nominations are final and did NOT include the houseguests they had assured 'safe'/'loyal' - those assurances were KEPT (resolved + the assured remembers a favor, by the adapter). */
   assuranceKeptAtNominations?: (holder: EntityId, nominees: readonly EntityId[]) => void;
   /** B4 slice 8: `voter` voted the OTHER nominee out and so spared `spared` - an open 'vote'/'safe' assurance they made to `spared` was KEPT. */
@@ -3013,8 +3018,9 @@ export function npcExitStance(evictee: EntityId, s: LiveSeasonState): ExitStance
 }
 
 /** The deterministic exit-interview beat line (0130) — the narrator voices it richly from the moment. */
-function exitInterviewContent(evictee: EntityId, stance: ExitStance): string {
-  return `${evictee} sits with the producers for their exit interview, leaving ${stance}`;
+function exitInterviewContent(evictee: EntityId, stance: ExitStance, crowd?: import("./audience").CrowdReaction): string {
+  const walked = crowd === undefined ? "" : crowd === "silence" ? ", having walked out to near silence" : crowd === "mixed" ? ", having walked out to a mixed crowd" : `, having walked out to ${crowd}`;
+  return `${evictee} sits with the producers for their exit interview, leaving ${stance}${walked}`;
 }
 
 /**
@@ -3118,6 +3124,7 @@ function advanceEviction(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
       // NPC stance is a read-only derivation of the already-fixed manner; the record feeds only the 0048
       // retrospective. So the eviction order / finalists / winner are byte-identical to the pre-0130 model.
       if (!e.exitInterviewDone) {
+        const crowd = ctx.exitCrowd?.(e.evictee!); // ORW-624: the walk out comes first; a player-evictee hears their own crowd before their interview
         if (e.evictee === ctx.player) {
           // The player IS the evictee: their exit interview is their own — a real pending decision (never
           // engine-authored), exactly like the E34 goodbye message. No beat fires until they answer.
@@ -3125,9 +3132,9 @@ function advanceEviction(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
           return null;
         }
         const stance = npcExitStance(e.evictee!, s);
-        (s.exitInterviews ??= []).push({ week: s.week, evictee: e.evictee!, stance });
+        (s.exitInterviews ??= []).push({ week: s.week, evictee: e.evictee!, stance, ...(crowd ? { crowd } : {}) });
         e.exitInterviewDone = true;
-        return { beat: "exit-interview", content: exitInterviewContent(e.evictee!, stance), participants: [e.evictee!] };
+        return { beat: "exit-interview", content: exitInterviewContent(e.evictee!, stance, crowd), participants: [e.evictee!] };
       }
       e.stage = "result";
       return advanceEviction(s, ctx, rng);
@@ -4196,7 +4203,8 @@ export function applyDecision(
       const e = s.eviction!;
       s.pending = undefined;
       e.exitInterviewDone = true;
-      (s.exitInterviews ??= []).push({ week: s.week, evictee: e.evictee!, stance: input.stance, ...(input.message ? { message: input.message } : {}) });
+      const crowd = s.audience?.crowd.find((c) => c.week === s.week && c.evictee === e.evictee)?.reaction; // ORW-624: the crowd the player walked out to
+      (s.exitInterviews ??= []).push({ week: s.week, evictee: e.evictee!, stance: input.stance, ...(input.message ? { message: input.message } : {}), ...(crowd ? { crowd } : {}) });
       return {
         beat: "exit-interview",
         content: exitInterviewContent(e.evictee!, input.stance),
