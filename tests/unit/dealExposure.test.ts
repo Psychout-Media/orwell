@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 import type { BeliefClaim } from "../../src/engine/beliefStore";
+import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { exposureHits, reopened, twistKey, DEAL_EXPOSURE } from "../../src/engine/dealExposure";
 import { weighDealBreak } from "../../src/engine/dealTemptation";
 import { honorWeight } from "../../src/engine/liveSeason";
@@ -181,5 +182,75 @@ describe("a twist reopens deals in the live adapter", () => {
     g.reopenDealsOnTwist();
     expect(g.live.dealOffer).toBeUndefined();
     expect(g.live.dealReopened).toBeUndefined();
+  });
+});
+
+describe("a twist that makes a promise impossible: the plan decides betrayal or an innocent forced break (0186 amendment)", () => {
+  type PlanSeam = Seam & { live: Seam["live"] & { dealPlans?: Record<string, Record<string, { kind: string; madeWeek: number }>> }; setDealPlansEnabled(on: boolean): void };
+  const hurt = (g: Seam, a: string, b: string) => { for (const [x, y] of [[a, b], [b, a]] as const) { const e = g.rel.edge(x, y); e.trust = -0.5; e.affinity = -0.5; e.threat = 1; } };
+  /** One double-eviction twist over an NPC pair whose plans are `kind` for both promisers. */
+  const run = (seed: number, kind: string, o: { plans?: boolean } = {}) => {
+    const { g: g0, npcs } = setup(seed);
+    const g = g0 as PlanSeam;
+    const [a, b] = npcs as [string, string];
+    hurt(g, a, b);
+    g.setDealPlansEnabled(o.plans ?? true);
+    g.live.hoh ??= npcs[2]!; g.live.twist = { kind: "double-eviction", phase: "pending" };
+    const deal = g.deals.make([a, b], "final-two", "t", undefined, g.live.week) as { id: string; status: string; learned?: boolean; sealedBallot?: boolean; brokenBy?: string };
+    g.live.dealPlans = { [deal.id]: { [a]: { kind, madeWeek: g.live.week }, [b]: { kind, madeWeek: g.live.week } } };
+    const trustBefore = [g.rel.edge(a, b).trust, g.rel.edge(b, a).trust];
+    g.reopenDealsOnTwist();
+    return { g, deal, a, b, trustBefore, trustAfter: [g.rel.edge(a, b).trust, g.rel.edge(b, a).trust] };
+  };
+  const seeds = Array.from({ length: 150 }, (_, i) => 21 + i);
+
+  it("a faking plan uses the twist as cover: a real, quiet betrayal; the wronged party learns only through the existing gate", () => {
+    let found = false;
+    for (const seed of seeds) {
+      const r = run(seed, "break-at");
+      if (r.deal.status !== "broken") continue;
+      found = true;
+      expect(r.deal.brokenBy).toBeDefined();
+      expect(r.deal.learned).toBe(false); // nothing learned yet: the shock waits for a pathway
+      expect(r.deal.sealedBallot).toBe(true); // keeps projecting open
+      const wronged = r.deal.brokenBy === r.a ? r.b : r.a, breaker = r.deal.brokenBy!;
+      const t0 = JSON.stringify(r.g.rel.edge(wronged, breaker));
+      expect(r.g.rel.edge(wronged, breaker).trust).toBe(r.trustBefore[wronged === r.a ? 0 : 1]); // no fold yet
+      const ledger = r.g.deals as unknown as { learnOfBreak(d: unknown, s: object): boolean };
+      expect(ledger.learnOfBreak(r.deal, { rel: r.g.rel, rng: new SeededRandom(1) })).toBe(true);
+      expect(JSON.stringify(r.g.rel.edge(wronged, breaker))).not.toBe(t0); // the usual consequence fold, once learned
+      break;
+    }
+    expect(found).toBe(true);
+  });
+  it("the same twist with no betraying plan is the forced innocent break: no betrayal, no fold", () => {
+    for (const seed of seeds) {
+      for (const kind of ["keep", "this-week"]) {
+        const r = run(seed, kind);
+        expect(r.deal.status).not.toBe("broken");
+        expect(r.deal.brokenBy).toBeUndefined();
+        expect(r.trustAfter).toEqual(r.trustBefore);
+      }
+    }
+  });
+  it("the plan flag off: today's behaviour exactly, even with a faking plan stored", () => {
+    for (const seed of seeds) {
+      const off = run(seed, "break-at", { plans: false }), keep = run(seed, "keep");
+      expect(off.deal.status).not.toBe("broken");
+      expect(off.deal.status).toBe(keep.deal.status);
+      expect(off.trustAfter).toEqual(off.trustBefore);
+    }
+  });
+  it("Vault wall: the betrayal leaves no plan, deal id or twist key in any outward view", () => {
+    for (const seed of seeds) {
+      const r = run(seed, "break-at");
+      if (r.deal.status !== "broken") continue;
+      const outward = JSON.stringify([(r.g as unknown as { advanceView(x: null): unknown }).advanceView(null)]);
+      expect(outward).not.toContain("break-at");
+      expect(outward).not.toContain("dealPlans");
+      expect(outward).not.toContain("deal-twist-betray");
+      return;
+    }
+    throw new Error("no seed produced a betrayal");
   });
 });

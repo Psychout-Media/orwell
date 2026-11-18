@@ -5940,7 +5940,8 @@ export class GameSessionAdapter implements GameSession {
       pending: this.pendingView(),
       // 0123 (PO ruling 2026-11-01) — a standing NPC deal offer, voiced in-scene by the narrator (no card).
       // Present ONLY while one stands, so the flag-off payload is byte-identical (no `openDealOffer: null`).
-      ...(this.live?.dealOffer ? { openDealOffer: this.openDealOfferView() } : {}),
+      ...(this.live?.dealOffer || this.live?.votePitch ? { openDealOffer: this.openDealOfferView() } : {}),
+      ...(this.live?.dealOffer && this.live?.votePitch ? { openVotePitch: this.openDealOfferView(this.live.votePitch) } : {}),
       ...(this.owedFavorsView().length ? { owedFavors: this.owedFavorsView() } : {}),
       // F3: the same public over-signal + broadcast winner the AdvanceView/SeasonRecap expose, so a
       // status-only client learns the season ended (and who won) without separately hitting /state or
@@ -6463,9 +6464,9 @@ export class GameSessionAdapter implements GameSession {
       if (bids.length > 0) {
         (t.courted ??= []).push({ week: s.week, voter: PLAYER, bidders: [...new Set(bids.map((b) => b.pitcher))].sort(), tier: priceTier(new Set(bids.map((b) => b.nominee)).size - 1), gap: 0 });
         const [first, ...rest] = bids;
-        if (first && !s.dealOffer && s.lastDealOfferWeek !== s.week && !this.dealOfferPartyGone(first.pitcher) && !this.memoryBlocksPlayerDeal(first.pitcher)) {
-          s.dealOffer = { id: `offer:${first.pitcher}:${s.week}`, from: first.pitcher, kind: "vote", terms: `${this.nameOf(first.pitcher)} asks ${this.nameOf(PLAYER)} to keep ${this.nameOf(first.nominee)} at this week's eviction`, madeWeek: s.week };
-          s.lastDealOfferWeek = s.week;
+        // Its OWN slot (`votePitch`): another approach standing in `dealOffer`, or already made this week, neither blocks the pitch nor is blocked by it. One per vote (the courted-once guard above) is the cap.
+        if (first && !s.votePitch && !this.dealOfferPartyGone(first.pitcher) && !this.memoryBlocksPlayerDeal(first.pitcher)) {
+          s.votePitch = { id: `pitch:${first.pitcher}:${s.week}`, from: first.pitcher, kind: "vote", terms: `${this.nameOf(first.pitcher)} asks ${this.nameOf(PLAYER)} to keep ${this.nameOf(first.nominee)} at this week's eviction`, madeWeek: s.week };
           this.onPlayerEvent?.(`${this.nameOf(first.pitcher)} makes their case to ${this.nameOf(PLAYER)} before the vote`, [PLAYER, first.pitcher], "conversation");
         } else if (first) rest.unshift(first);
         for (const b of rest) this.onPlayerEvent?.(`${this.nameOf(b.pitcher)} makes their case to ${this.nameOf(PLAYER)} before the vote`, [PLAYER, b.pitcher], "conversation");
@@ -14978,7 +14979,10 @@ export class GameSessionAdapter implements GameSession {
     // hidden cooling is applied. Never silently decline on bad input (Greptile P1).
     if (req.kind === "deal-offer") {
       if (this.live.finished) return remember(this.advanceView(null)); // a post-season answer binds nothing
-      if (req.vote === "accept" || req.vote === "decline") return remember(this.resolveDealOffer(req.vote === "accept"));
+      // 0174: the vote pitch has its own slot. `offerId` names it when both stand; with no id the ordinary offer answers first, and the pitch when it is the only one standing.
+      const s0 = this.live;
+      const pitch = s0.votePitch && (req.offerId === s0.votePitch.id || (req.offerId === undefined && !s0.dealOffer));
+      if (req.vote === "accept" || req.vote === "decline") return remember(this.resolveDealOffer(req.vote === "accept", pitch ? "pitch" : "deal"));
       return remember(this.advanceView(null));
     }
     // ORW-596 - the player's own answer to an NPC's public accusation: open state (`live.houseMeetings`, not a pending card), answered like a deal offer. A missing/garbled stance is a safe no-op.
@@ -17886,6 +17890,20 @@ export class GameSessionAdapter implements GameSession {
         }).sort((a, b) => b.weighing.temptation - a.weighing.temptation || (a.npc < b.npc ? -1 : 1))[0]!;
         const verdict = decideDealBreak(w.weighing, new SeededRandom(hashSeed(`${seed}:deal-twist:${deal.id}:${tk}`)).next());
         if (verdict === "keep") continue;
+        // 0186 amendment: when the twist makes the promise impossible to keep ("break" verdict), the promiser's own SECRET PLAN (0178) decides what it was. A faking plan (`isBetrayal`)
+        // uses the twist as cover: a REAL, quiet betrayal through `breakDeliberately` (the usual fold; the wronged party learns only through `learnOfBreak`'s pathways; the deal keeps
+        // projecting open; nothing is narrated). Any other plan (keep / this-week / no plan) is the forced, innocent break: the renegotiation below, no betrayal, no fold.
+        if (verdict === "break" && this.dealPlansEnabled && d.condition.promisors.includes(w.npc) && this.twoFacedPlan(d.id, w.npc)) {
+          if (d.parties.includes(PLAYER)) this.noteDealWeighing(w.npc, "deal-break", w.weighing);
+          this.deals.breakDeliberately(d, w.npc, {
+            rel: this.rel, rng: new SeededRandom(hashSeed(`${seed}:deal-twist-betray:${deal.id}:${tk}`)), currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
+            juryDemerit: (wronged, breaker) => { recordDealBetrayal(s, wronged, breaker); this.feelGuilt(breaker, wronged); },
+            revealToWitness: (witness, breaker) => { this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
+            reveal: (wronged, breaker, bd) => this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a ${bd.kind} deal with ${this.nameOf(wronged)} off-screen`, [breaker], "betrayal"),
+          });
+          this.persist();
+          continue;
+        }
         const kind = renegotiatedKind(d.kind);
         if (kind === undefined) continue;
         if (d.parties.includes(PLAYER)) {
@@ -18045,12 +18063,13 @@ export class GameSessionAdapter implements GameSession {
    * move — never a betrayal-shock; the change is real, recorded, and invisible — the Vault Wall working).
    * Either way the offer is consumed. A no-op (safe) if no offer stands.
    */
-  private resolveDealOffer(accept: boolean): AdvanceView {
+  private resolveDealOffer(accept: boolean, slot: "deal" | "pitch" = "deal"): AdvanceView {
     const s = this.live;
-    if (!s?.dealOffer || !this.house) return this.advanceView(null);
+    const standing = slot === "pitch" ? s?.votePitch : s?.dealOffer;
+    if (!s || !standing || !this.house) return this.advanceView(null);
     return this.inOneCommit(() => {
-      const o = s.dealOffer!;
-      s.dealOffer = undefined; // consumed either way
+      const o = standing;
+      if (slot === "pitch") s.votePitch = undefined; else s.dealOffer = undefined; // consumed either way
       // An offer whose party has left (or a finished season) can no longer bind anyone (Greptile #1911).
       if (this.dealOfferPartyGone(o.from) || s.finished) {
         this.persist();
@@ -18098,6 +18117,7 @@ export class GameSessionAdapter implements GameSession {
    * lapse itself is recorded as a PLAYER-WITNESSED event (the player knows they never answered).
    */
   private maybeLapseDealOffer(standingOfferId: string | undefined): void {
+    this.maybeLapseVotePitch();
     const s = this.live;
     const o = s?.dealOffer;
     if (!s || !o || !this.house) return;
@@ -18125,6 +18145,15 @@ export class GameSessionAdapter implements GameSession {
     this.rel.applyDirected(o.from, PLAYER, "conflict", rng, L.scaleMin + (L.scaleMax - L.scaleMin) * vol);
   }
 
+  /** 0174: a vote pitch is moot once the week rolls past it (or its party left or the season ended). It lapses quietly: no cooling and no event, since the vote itself was the answer. */
+  private maybeLapseVotePitch(): void {
+    const s = this.live;
+    const o = s?.votePitch;
+    if (!s || !o) return;
+    const seasonOver = !!s.finished || s.beat === "finale" || s.beat === "complete";
+    if (this.dealOfferPartyGone(o.from) || seasonOver || s.week > o.madeWeek) s.votePitch = undefined;
+  }
+
   /** 0123 — true when either party to a deal offer has left the game (offerer or player evicted). */
   private dealOfferPartyGone(from: EntityId): boolean {
     const gone = new Set(this.live?.evictionOrder ?? []);
@@ -18132,13 +18161,14 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** 0123 — the standing NPC deal offer as Vault-free open state for the narrator (null when none). */
-  private openDealOfferView(): OpenDealOfferView | null {
-    const o = this.live?.dealOffer;
+  private openDealOfferView(only?: NonNullable<LiveSeasonState["dealOffer"]>): OpenDealOfferView | null {
+    const o = only ?? this.live?.dealOffer ?? this.live?.votePitch; // the vote pitch (0174) rides its own slot; it shows here when no other offer stands
     if (!o || !this.house) return null;
     // The voicing instruction rides WITH the offer (only while one stands) instead of the base prompt — no
     // standing prompt cost (the #1391 budget) and nothing at all when the layer is off / no offer stands.
     return {
       from: this.named(o.from)!, kind: o.kind, terms: o.terms, madeWeek: o.madeWeek,
+      ...(o === this.live?.votePitch ? { id: o.id } : {}),
       ...(o.replacesDealId ? { replacesDealId: o.replacesDealId } : {}),
       ...(o.counter ? { counter: { round: o.counter.round, ask: o.counter.ask.kind !== "vote" ? { kind: o.counter.ask.kind, target: this.named(o.counter.ask.target)! } : { kind: "vote" as const } } } : {}),
       ...(o.favor ? { favor: { kind: o.favor.favorId ? "called-in" as const : "asked" as const } } : {}),
@@ -19884,7 +19914,8 @@ export class GameSessionAdapter implements GameSession {
       // silently missed it).
       pending: this.pendingView(),
       eviction: this.evictionView(),
-      ...(this.live?.dealOffer ? { openDealOffer: this.openDealOfferView() } : {}), // 0123: voiced in-scene, never a card
+      ...(this.live?.dealOffer || this.live?.votePitch ? { openDealOffer: this.openDealOfferView() } : {}), // 0123: voiced in-scene, never a card
+      ...(this.live?.dealOffer && this.live?.votePitch ? { openVotePitch: this.openDealOfferView(this.live.votePitch) } : {}), // 0174: the vote pitch's own slot, shown beside a standing deal offer
       ...(this.owedFavorsView().length ? { owedFavors: this.owedFavorsView() } : {}), // 0142
       finished: !!this.live?.finished, // B6-01: the over-signal the FE season lifecycle (0057) gates on
       // C8-04: the live ceremony state in the model's persistent context (the same Vault-free public
