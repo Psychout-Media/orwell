@@ -34,6 +34,7 @@ import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "..
 import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/voice";
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
+import { MOOD_CAUSES, causeLine, isBadNight, isCloseFriend, mayShareEventCause, strongestCause, type MoodCauseSource } from "../../engine/moodCauses";
 import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sceneSeenBy, sharedScenes, type SeenScene } from "../../engine/bondJealousy";
 import { HOH_ROOM, decideVisit, backstoryFacets, pickBackstoryFact } from "../../engine/hohRoom";
 import { GRUDGES, REPAIR, combineSalience, easeGrudge, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, repairAmount, type GrudgeKind } from "../../engine/grudges";
@@ -1621,11 +1622,13 @@ export class GameSessionAdapter implements GameSession {
     this.writeLieCaught(p.holder, p.liar, p.confidence, p.origin);
     const e = this.rel.edge(p.holder, p.liar);
     e.trust = Math.max(0, e.trust - caughtLieTrustDrop(p.confidence));
+    if (this.moodCausesOn()) { this.noteMoodCause(p.holder, "lied-to", p.liar); this.catchMood(p.holder, "betrayed", MOOD_CAUSES.liedToMoodScale); } // 0194: being lied to is a mood cause
   }
   /** ORW-545 - a broken formal deal is a caught lie for the wronged party (full weight) and for each formation witness (the witness factor); one claim per deal per holder (idempotent). Never for a sealed ballot break (the callers skip it). */
   private writeDealBreakLie(holder: EntityId, breaker: EntityId, deal: Deal, role: "wronged" | "witness"): void {
     if (holder === breaker || (role === "witness" && deal.parties.includes(holder))) return;
     this.writeLieCaught(holder, breaker, brokenDealLieConfidence(deal, this.live?.week, role), role === "wronged" ? "witnessed" : "told", brokenDealClaimId(holder, breaker, deal));
+    if (role === "wronged") this.noteMoodCause(holder, "betrayed", breaker); // 0194: a betrayal learned
   }
   /**
    * B24 / #2017 14.5(5) - HEARD-ABOUT-ME. What a houseguest is TOLD about the player in a recorded chat scene is a belief they hold (engine-only, voiced only BY that holder), at the TELLER's reliability (the
@@ -13932,15 +13935,58 @@ export class GameSessionAdapter implements GameSession {
       if (a.cause) (this.live.moodCauses ??= {})[id] = { ...a.cause, week: this.live.week };
     }
   }
-  /** ORW-317: the mood cause this NPC would TELL the player now (this week's, shared only per `mayShareCause`), names filled in. */
+  /**
+   * ORW-317 + 0194: the mood cause this NPC would TELL the player now, names filled. Candidates are this week's goal cause (shared per `mayShareCause`) and, with `ORWELL_MOOD_CAUSES`, every other cause they have
+   * had (shared per `mayShareEventCause`); of the ones they would say, the heaviest wins. Hidden otherwise.
+   */
   private moodCauseFor(id: EntityId): { moodCause?: string } {
-    const c = this.live?.moodCauses?.[id];
-    if (!this.goalMoodEnabled || !c || c.week !== this.live!.week) return {};
+    const live = this.live;
+    if (!live) return {};
+    const goalOn = this.goalMoodEnabled, eventsOn = this.moodCausesOn();
+    if (!goalOn && !eventsOn) return {};
     const character = this.agendaCharacterOf(id);
     if (!character) return {};
     const candor = Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0)));
-    if (!mayShareCause(c, this.rel.edge(id, PLAYER).affinity, candor)) return {};
-    return { moodCause: c.about ? fillSubject(c.line, this.nameOf(c.about)) : c.line.split("{subject}").join("them") };
+    const affinity = this.rel.edge(id, PLAYER).affinity;
+    const say = (line: string, about?: EntityId): string => (about ? fillSubject(line, this.nameOf(about)) : line.split("{subject}").join("them"));
+    let best: { weight: number; text: string } | undefined;
+    const c = live.moodCauses?.[id];
+    if (goalOn && c && c.week === live.week && mayShareCause(c, affinity, candor)) best = { weight: MOOD_CAUSES.goalWeight, text: say(c.line, c.about) };
+    if (eventsOn) {
+      const e = strongestCause(live.moodCauseLog, id, live.week);
+      if (e && mayShareEventCause(e.source, affinity, candor) && (!best || MOOD_CAUSES.weight[e.source] > best.weight)) best = { weight: MOOD_CAUSES.weight[e.source], text: say(e.line, e.about) };
+    }
+    return best ? { moodCause: best.text } : {};
+  }
+  /** 0194 / ORW-626 (`ORWELL_MOOD_CAUSES`, default ON; `=0` byte-identical): more things give a houseguest a mood cause. Played games only; engine-only and append-only; no rng. */
+  private moodCausesEnabled = flagDefaultOn("ORWELL_MOOD_CAUSES");
+  setMoodCausesEnabled(on: boolean): void { this.moodCausesEnabled = on; }
+  private moodCausesOn(): boolean { return this.moodCausesEnabled && this.live?.playedGame === true; }
+  /** Record a cause for an NPC (the player's mood is theirs, never recorded). The same cause on the same day is not written twice. */
+  private noteMoodCause(holder: EntityId, source: MoodCauseSource, about?: EntityId): void {
+    const s = this.live;
+    if (!this.moodCausesOn() || !s || holder === PLAYER || holder === about) return;
+    const day = s.dayNumber;
+    const log = (s.moodCauseLog ??= []);
+    if (log.some((c) => c.holder === holder && c.source === source && c.about === about && c.week === s.week && c.day === day)) return;
+    log.push({ holder, source, line: causeLine(source), ...(about !== undefined ? { about } : {}), week: s.week, ...(day !== undefined ? { day } : {}) });
+  }
+  /** A close friend of the evictee (a bond at or above the friend line) has lost them: that is their cause. Reads the relationship edge (engine-only); no rng. */
+  private noteFriendEvicted(evictee: EntityId): void {
+    if (!this.moodCausesOn() || !this.live) return;
+    for (const h of this.live.active) {
+      if (h === PLAYER || h === evictee) continue;
+      const e = this.rel.edge(h, evictee);
+      if (isCloseFriend(e.trust, e.affinity)) this.noteMoodCause(h, "friend-evicted", evictee);
+    }
+  }
+  /** Read the night that just ended: each NPC whose hidden rest deficit is a bad night gets the cause. Called at a genuine night-end, before the conflicts clear. No rng. */
+  private noteBadSleepCauses(): void {
+    if (!this.moodCausesOn() || !this.live || !this.house || !this.timeOfDayEnabled || !this.live.timeOfDay) return;
+    for (const n of this.house.npcs) {
+      if (!this.live.active.includes(n.id)) continue;
+      if (isBadNight(npcRestDeficit(this.live, this.statsOf(n.id), n.id, this.effectiveBedDepth(n.id), this.lateCompanyFor(n.id)))) this.noteMoodCause(n.id, "bad-sleep");
+    }
   }
   /** Re-check agendas (every living NPC's, or just `only`) after a real event. Played games only; fail-soft; no rng. */
   private agendaRecheck(trigger: AgendaTrigger, only?: readonly EntityId[], ev?: BeatEvent): void {
@@ -14224,12 +14270,13 @@ export class GameSessionAdapter implements GameSession {
       case "hoh-competition": {
         const winner = ev.participants[0];
         if (winner) { this.inflect(winner, "comp-win"); this.spreadMood(winner, MOOD_CONTAGION.WIN_MAGNITUDE, "good", "comp-win"); }
+        if (winner) this.noteMoodCause(winner, "won");
         // E51 (`comp-loss`): a loss stings where it was genuinely CONTESTED — the final-3 HOH
         // crown, where each loser just watched their endgame narrow. Losing a 13-player
         // mid-season HOH comp is background noise (folding it for the whole house weekly would
         // also drown every soul's recall in identical filler — the C12/E55 lesson).
         if (winner && s && s.active.length === 3) {
-          for (const h of s.active) if (h !== winner) this.inflect(h, "comp-loss");
+          for (const h of s.active) if (h !== winner) { this.inflect(h, "comp-loss"); this.noteMoodCause(h, "lost"); }
         }
         break;
       }
@@ -14242,8 +14289,9 @@ export class GameSessionAdapter implements GameSession {
       case "veto-competition": {
         const holder = s?.vetoHolder;
         if (holder) { this.inflect(holder, "comp-win"); this.spreadMood(holder, MOOD_CONTAGION.WIN_MAGNITUDE, "good", "comp-win"); }
+        if (holder) this.noteMoodCause(holder, "won");
         // E51: the rest of the six-player field contested and lost (the participants ARE the field).
-        for (const h of ev.participants) if (h !== holder) this.inflect(h, "comp-loss");
+        for (const h of ev.participants) if (h !== holder) { this.inflect(h, "comp-loss"); this.noteMoodCause(h, "lost"); }
         break;
       }
       case "veto-ceremony": {
@@ -14258,6 +14306,7 @@ export class GameSessionAdapter implements GameSession {
         const hit = this.blindsideClosestAlly(evictee);
         // ORW-567 (mood contagion): a shocking exit rattles the evictee's circle most and the house a little (the closest ally already took the full blindside).
         this.spreadMood(evictee, shockOf(s?.mannerByEvictee?.[evictee]), "bad", "blindside", hit);
+        this.noteFriendEvicted(evictee); // 0194: a close friend gone is a mood cause
         this.feelEvictionGuilt(evictee); // ORW-568 / 0181: a voter who truly liked the evictee is shaken (private; the ballot is secret)
         // E51: the nominee who sat on the block and SURVIVED is emboldened — the 0041 arc beat.
         const survivor = s?.eviction?.nominees.find((n) => n !== evictee);
@@ -14881,7 +14930,7 @@ export class GameSessionAdapter implements GameSession {
       // did NOT reach via retirement.
       // Only when THIS advance crossed into the morning: an event's later 0-hour steps sit at the same 8am
       // and must not re-count the same night (greptile #1912 — one night accrued once per reveal).
-      if (!wasRetired && depthBefore !== WAKE_HOUR && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === (this.live!.wakeHour ?? WAKE_HOUR)) this.accrueNightFatigue();
+      if (!wasRetired && depthBefore !== WAKE_HOUR && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === (this.live!.wakeHour ?? WAKE_HOUR)) { this.accrueNightFatigue(); this.noteBadSleepCauses(); }
       this.rollNightConflicts();
     }
   }
@@ -15411,6 +15460,7 @@ export class GameSessionAdapter implements GameSession {
       playerTurnIn(this.live!, PLAYER);
       this.bedThePlayer(); // ORW-466: the player sleeps (and wakes) in their own bed - the HOH room for the HOH
       { const up = this.awakeNow(); if (up) this.seatInOwnBeds(this.presenceActive().filter((id) => !up.has(id))); } // ORW-466: whoever is still asleep when the player wakes is in their own bed
+      this.noteBadSleepCauses(); // 0194: read the night just ended before the fatigue meter rolls it in
       this.accrueNightFatigue(); // the player chose bed — a genuine night-end; accrue before clearing conflicts
       this.rollNightConflicts();
       this.persist();
@@ -18854,7 +18904,7 @@ export class GameSessionAdapter implements GameSession {
         moment, narrView, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
         // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
-        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() && !this.juryHouseView() },
+        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled || this.moodCausesEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() && !this.juryHouseView() },
       ),
       ...(hardConstraints ? { hardConstraints } : {}),
       // The producer's public name — the byline the FE renders as the chat sender (producer-persona
