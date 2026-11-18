@@ -1,5 +1,5 @@
 import type { Agenda } from "./agenda";
-import { termsFromWhy, reasonGoalOf, type StatedReasonRecord, type GoalPull, type RealReason, type StatedReason, type DecisionKind } from "./agendaDecisions";
+import { termsFromWhy, reasonGoalOf, softStackSigned, type StatedReasonRecord, type GoalPull, type RealReason, type StatedReason, type DecisionKind } from "./agendaDecisions";
 import type { EntityId } from "../domain/ids";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { SeededRandom } from "../adapters/random/SeededRandom";
@@ -3852,7 +3852,7 @@ function npcVetoSave(s: LiveSeasonState, ctx: SeasonCtx): EntityId | undefined {
       // ORW-305: the four named bias terms, in the order they were always added; the bias is their sum.
       const parts = [ctx.campaignPushFor ? -ctx.campaignPushFor(n, holder) : 0, ctx.vetoMemoryFor?.(n, holder) ?? 0, ctx.moodVetoFor?.(n, holder) ?? 0, -(ctx.drivePushFor?.(n, holder) ?? 0), -(ctx.agendaPullFor?.(n, holder, "veto").value ?? 0)]; // ORW-314: the holder's goals - a get-them-out / revenge pull cuts the save, a protect / pull-them-in / mark-before-its-stage pull raises it, FULL strength
       biasParts.set(n, parts);
-      return sumVals(parts);
+      return softStackSigned(sumVals(parts)); // ORW-638 (S-8): the summed bias is bounded (identity inside +-0.8, never beyond +-1.2) so stacked parts cannot run far past the 0.6 bar; monotone
     }
     : undefined;
   const rows: Array<{ c: EntityId; trust: number; reliability: number; bias: number }> = [];
