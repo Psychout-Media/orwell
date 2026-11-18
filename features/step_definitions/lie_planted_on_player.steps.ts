@@ -183,10 +183,11 @@ Given("an NPC planted a lie on the player", function () {
   presence(s).set(bag(this).holder!, presence(s).get(PLAYER)!); // the speaker is in the room, awake
   assert.ok(s.awakeAmong([bag(this).holder!]).includes(bag(this).holder!));
 });
-Then("the NPC says they saw it themself, and names no one", function () {
+Then("the NPC names no source", function () {
+  // ORW-685: the liar's cover may play it off (saw it themself, or will not say) or slip; whichever it is, no source is named (the old "always saw it themself" answer is the ORWELL_COVER_SLIPS-off path).
   const note = ((this as { who0152?: { before?: string } }).who0152!.before) ?? "";
-  assert.ok(note.includes("saw it themself"), `not a witnessed answer: ${note}`);
-  assert.ok(!note.includes("names ") && !note.includes("will not say"), `the answer names or protects a source: ${note}`);
+  assert.ok(note.length > 0, "no answer was handed over");
+  assert.ok(!note.includes("names "), `the answer names a source: ${note}`);
   for (const other of bag(this).npcs!.filter((id) => id !== bag(this).holder)) assert.ok(!note.includes((bag(this).s as unknown as { nameOf(id: string): string }).nameOf(other)), "the answer names a houseguest");
 });
 Then("the narrator is not told the answer is untrue", function () {

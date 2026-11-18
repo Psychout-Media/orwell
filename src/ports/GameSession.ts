@@ -2269,6 +2269,8 @@ export interface StatedReasonView {
 export interface NpcVoiceView {
   /** A52 (ORWELL_DISCLOSURE_ENGINE, played games): the engine declined a live press on this houseguest this beat, so they deflect: they do not give the thing up. Absent otherwise. */
   deflect?: true;
+  /** ORW-685 (ORWELL_DISCLOSURE_SPIN, played games): the houseguest has just given the player a confidence and framed it in their own favour (the engine's decision, never a number). The facts stay what the engine put on the table; only the manner is slanted. Absent otherwise. */
+  slants?: true;
   /** 0196 (ORWELL_DODGING, played games): with `deflect`, HOW they turn the press aside - `approach` is what they do with the question, `openness` how their carriage reads, `pushesBack` whether they hand it back to the asker. Third-person facts only: never what they hold, never why, never a number. Absent otherwise. */
   dodge?: { approach: string; openness: string; pushesBack: boolean };
   /** ORW-314: the reasons this houseguest gave aloud for a public act on the board this week (nominations, the replacement, the veto, the Final HOH's eviction). Voice THAT reason; never invent another. Absent when none. */
