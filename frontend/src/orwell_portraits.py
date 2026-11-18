@@ -2665,7 +2665,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
     sem = asyncio.Semaphore(limit)
     serial = asyncio.Lock()
     manifest_lock = asyncio.Lock()  # one manifest read-modify-write at a time
-    run = {"rate_limited": False}
+    run = {"rate_limited": False, "live": 0}
 
     async def _one(entry):
         nonlocal generated, skipped
@@ -2677,8 +2677,20 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
         async with sem:
             if run["rate_limited"]:
                 async with serial:
-                    return await _generate_one(prompt_text, user, **kw)
-            return await _generate_one(prompt_text, user, **kw)
+                    while run["live"]:  # a provider 429: the rest go strictly ONE at a time, after any shot already in flight
+                        await asyncio.sleep(0.005)
+                    return await _timed_generate(prompt_text, **kw)
+            return await _timed_generate(prompt_text, **kw)
+
+    async def _timed_generate(prompt_text, **kw):
+        run["live"] += 1
+        try:
+            png = await _generate_one(prompt_text, user, **kw)
+        finally:
+            run["live"] -= 1
+        if not png and is_rate_limited(_peek_gen_error()[0]):
+            run["rate_limited"] = True  # set before the slot is handed on, so the next waiter already sees it
+        return png
 
     async def _one_body(entry, run):
         nonlocal generated, skipped
