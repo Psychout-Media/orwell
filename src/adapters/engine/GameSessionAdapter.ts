@@ -110,6 +110,7 @@ import type { ConfessionalContext, ConfessionalDepth } from "../../engine/confes
 import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { PULL_QUOTE } from "../../engine/pullQuoteConstants";
+import { buildDecisionReveal } from "../../engine/decisionReveal";
 import { buildGroupLife, type GroupLifeRow, type GroupLifeView } from "../../engine/groupLifeRetro";
 import { buildYourEdit, sceneMoment, weekMoments, weeksOfLog, type YourEditView } from "../../engine/yourEdit";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
@@ -5261,7 +5262,8 @@ export class GameSessionAdapter implements GameSession {
     const americasFavorite = this.americasFavorite(); // ORW-624: after the crown only
     const yourEdit = this.buildYourEditView(); // 0200 / ORW-632: after the crown only (the same gate); facts only
     const groupLife = this.buildGroupLifeView(); // 0183 part d: the sanctioned unsealing of hidden groups' names and words; same gate; facts only
-    return { ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
+    const decisionReveal = this.live.playedGame === true ? buildDecisionReveal({ records: this.live.statedReasons, voteRecord: this.live.voteRecord, nameOf: (id) => this.nameOf(id) }) : undefined; // ORW-656: said vs real reason kinds, words only; same crown gate
+    return { ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(decisionReveal ? { decisionReveal } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
@@ -14480,6 +14482,8 @@ export class GameSessionAdapter implements GameSession {
       const spin = 1 + LIE_AUDIENCE.rotation * agendaRoll(seed, listener, `lie-audience:d${day}h${hour}r${repeat}:${target}`);
       return pivot * (LIE_AUDIENCE.credulityBase + this.credulityOf(listener)) * spin;
     } : undefined;
+    // ORW-656: the hours right after a crown (the beat is still the one that follows the comp): the HOH after the HOH comp, the veto holder after the veto comp. Same flag + played gate as the in-comp reactions.
+    const buzzerWinner = this.compReactionsOn() && !s.competition ? (s.beat === "nominations" ? s.hoh : s.beat === "veto-ceremony" ? s.vetoHolder : undefined) : undefined;
     const playerUp = playerRoom !== undefined && (this.awakeNow()?.has(house.player.id) ?? false); // ORW-620: a player who stays up is a night owl too
     // ORW-621: one houseguest's hour, built once for the people in other rooms (the usual stretch) and once, in `room` mode, for the people in the player's own room: a view of that room's houseguests only (the player is never a partner, never moved).
     const planFor = (id: EntityId, whereM: ReadonlyMap<EntityId, Room>, viewM: ReadonlyMap<EntityId, Room>, others: readonly EntityId[], room: boolean): PlannedAction | undefined => {
@@ -14501,6 +14505,7 @@ export class GameSessionAdapter implements GameSession {
         ...this.roommateView(bedsNow, id, inHouse, whereM),
         ...(!room && kindredOf(id) ? { kindred: kindredOf(id)! } : {}),
         timeOfDay: tod, day, hour, ...(repeat > 0 ? { repeat } : {}), inCompetition: this.compReactionsOn() && !!s.competition && !s.competition.stillIn.includes(id),
+        ...(buzzerWinner ? { afterBuzzer: { winner: buzzerWinner } } : {}),
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
         ...(houseCulture ? { culture: houseCulture } : {}),
         ...(swingRead ? { swing: swingRead } : {}),

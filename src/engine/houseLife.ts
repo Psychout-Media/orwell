@@ -180,6 +180,8 @@ export interface HourView {
   repeat?: number;
   /** True while a competition is running: public reactions only. */
   inCompetition: boolean;
+  /** ORW-656 (after the buzzer): the crown has just landed (the beat is still the one right after the comp) and `winner` holds it. Everyone reacts to the RESULT in public while they share the winner's room: congratulate (sincere or not, by candor), cold shoulder, sulk; the winner celebrates with whoever they are fondest of. Absent = byte-identical. */
+  afterBuzzer?: { winner: EntityId };
   /** ORW-466 slice 4 (assigned beds): the room they sleep in (the HOH room for the HOH), their roommates and the one who shares their double. All absent in a game without beds (headless,
    *  calibration), which keeps that game's house life exactly as before. */
   bedroom?: Room;
@@ -403,6 +405,19 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
     if (!target) return finish({ kind: "sulk", with: [] });
     const fond = (v.affinity.get(target) ?? 0.4) >= 0.5;
     return finish({ kind: v.emotional < 0.35 ? "sulk" : fond ? "cheer" : "taunt", with: v.emotional < 0.35 ? [] : [target], place: v.room });
+  }
+
+  // ORW-656: right after the buzzer, the people in the winner's room react to the result (a keyed roll, no shared draw). Out of the winner's room: ordinary hours.
+  if (v.afterBuzzer && roll("buzzer") < HOUSE_LIFE.afterBuzzerChance) {
+    const w = v.afterBuzzer.winner;
+    if (v.owner === w) {
+      const mine = byScore(here, (p) => v.affinity.get(p) ?? 0.4)[0];
+      if (mine) return finish({ kind: "cheer", with: [mine], place: v.room }); // the winner celebrates with the one they are fondest of
+    } else if (here.includes(w)) {
+      const fond = (v.affinity.get(w) ?? 0.4) >= 0.5;
+      if (v.emotional < 0.35) return finish({ kind: "sulk", with: [] });
+      return finish({ kind: fond ? "cheer" : (v.threat.get(w) ?? 0.3) >= 0.5 ? "taunt" : "sulk", with: fond || (v.threat.get(w) ?? 0.3) >= 0.5 ? [w] : [], place: v.room }); // a cold shoulder is a sulk or a barb
+    }
   }
 
   // A goal that never acts in an hour (keep-my-secret: a secret is kept by what they DON'T do) does not compete for the hour, so it must not count toward the goal-hour ceiling either

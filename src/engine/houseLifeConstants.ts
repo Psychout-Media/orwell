@@ -24,6 +24,8 @@ export const HOUSE_LIFE = {
   lifePull: { morning: 0.9, afternoon: 0.6, evening: 0.5, night: 0.7, "late-night": 0.9 } as Readonly<Record<TimeOfDay, number>>,
   /** A content houseguest (emotional > 0.6) is pulled a little more toward plain living. */
   contentLifeBonus: 0.15,
+  /** ORW-656: the chance, per houseguest per stretch, that someone in the winner's room reacts to the result while the beat is still the one right after the crown. */
+  afterBuzzerChance: 0.6,
   /** Chance a habit that fits the time of day is followed when no goal is pursued. */
   habitChance: 0.6,
   /** ORW-337 (spec 0146 lane 2): a house ritual's chance to pull anyone free into its action at its time of day. `npcMindsAuthored.AUTHORED.ritualPull` is this value. */
