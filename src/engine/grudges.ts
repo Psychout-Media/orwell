@@ -8,8 +8,8 @@ import type { EntityId } from "../domain/ids";
  * never projected, never text. Pure: no I/O, no rng, deterministic.
  */
 
-/** What kind of wrong the grudge remembers. A closed engine enum: never shown, never fed to a pick. */
-export type GrudgeKind = "cut-by-ally" | "deal-broken" | "vote-against" | "lied-to" | "blindsided";
+/** What kind of wrong the grudge remembers. "heartbreak" (0207 A3): the end of a showmance in the house; nothing switches on the kind, every reader reads the one weight. A closed engine enum: never shown, never fed to a pick. */
+export type GrudgeKind = "cut-by-ally" | "deal-broken" | "vote-against" | "lied-to" | "blindsided" | "heartbreak";
 
 export interface GrudgeRow {
   kind: GrudgeKind;
@@ -24,6 +24,8 @@ export interface GrudgeRow {
   eased: number;
   /** Which record the row was last noted from (an engine key, never text). */
   refKey: string;
+  /** ORW-605: how many recorded events existed when the row's current wrong was noted; only a repair scene recorded at or after this counts as coming after the wrong. Absent (older saves) => no such check. */
+  seenAt?: number;
 }
 
 export type GrudgeBook = Record<string, GrudgeRow>;
@@ -41,6 +43,8 @@ export const GRUDGES = {
   PARANOIA_EXPONENT: 0.25,
   /** Severity of a deal broken, from the deal ledger alone (the same as a break's bond strain). */
   DEAL_BREAK_SEVERITY: 0.35,
+  /** THEME A / A3 (0207): a showmance that ends in the house is the heaviest wrong the book holds from a single act: well above a broken deal's severity. */
+  HEARTBREAK_SEVERITY: 0.7,
   /** Culture dials are held to this band even if a caller hands in more (mirrors the culture bound). */
   MAX_FACTOR: 1.35,
   /** PR 2: how much of a fresh grudge's weight (freshness x severity) the revenge read takes, combined with the memory ledger's salience (never added on top). */

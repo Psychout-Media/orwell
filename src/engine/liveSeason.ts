@@ -596,7 +596,7 @@ export interface LiveSeasonState {
   houseThemeDef?: import("./data/houseThemes").HouseTheme;
   /** ORW-466: the player's recent seasons' house themes (most recent first, bounded), so this season draws a different one. Carried across a confirmed restart. */
   priorHouseThemes?: string[];
-  premiereEntrance?: { order: string[]; playerPos: number; arrived: number; stage: "entrances" | "toast" | "done"; spoke: string[] };
+  premiereEntrance?: { order: string[]; playerPos: number; arrived: number; stage: "entrances" | "toast" | "done"; spoke: string[]; /** ORW-653 / 0205: the houseguests officially introduced at the circle (the player's own id once their slot has come up); append-only. Present only when the meet-the-cast circle is armed. */ introduced?: string[] };
   /** ORW-654 / 0206 (`ORWELL_HOUSE_TOUR`): the self-guided tour, armed when a person starts playing during the premiere. `seen` = the rooms the player has stepped into (append-only; the first entry into each is the one-time room card). Absent when the flag is off or the game is headless (byte-identical). */
   houseTour?: import("./houseTour").HouseTourState;
   /** The player's declared intent for the upcoming competition (B46); consumed when it resolves. */
@@ -753,6 +753,16 @@ export interface LiveSeasonState {
   grudgesSeen?: string[];
   /** 0182 PR 2: how many events of the record the repair scan (the wrongdoer's bonding scene) has read. Written only once a grudge exists. */
   grudgesCursor?: number;
+  /**
+   * THEME A / A3 (0207) - the showmances that have been real in the house: the unordered pair key (`heartAgainstGame.pairKey`) -> the in-game day it was first read as one. Written only in a
+   * played game with the flag on, only once a pair's record reads as a showmance (a pair with the player only by the player's own acts). Monotone, never deleted. ENGINE-ONLY (Vault class),
+   * never projected: a hidden romance is a secret. Absent => none yet (old saves read none).
+   */
+  romances?: Record<string, number>;
+  /** 0207 A3: the pairs whose showmance has ENDED in the house (a breakup was folded once for each), by pair key, ordered, never pruned. ENGINE-ONLY. */
+  breakups?: string[];
+  /** 0207 A3: how many events of the record the breakup scan (a conflict scene between a showmance's two) has read. */
+  breakupCursor?: number;
   /**
    * 0181 (Theme 3 slice 4, ORW-568) - the guilt events already felt (`bondFeelings.ts` keys, ordered, never pruned), so a betrayal shakes the betrayer once. ENGINE-ONLY (Vault class), never projected.
    * Optional: absent on old saves and on every game that never felt one. Rides on `live`, so it is persisted and restored with the season.
@@ -1212,6 +1222,12 @@ export interface SeasonCtx {
   perceivedThreatFor?: (holder: EntityId, from: EntityId, to: EntityId) => number;
   /** ORW-573: which of the final two `voter` reads as the HOH's target, from what the voter knows (beliefs, the HOH's public reasons, how the block was set). Absent => the hidden read (byte-identical). */
   hohTargetReadFor?: (voter: EntityId, hoh: EntityId, fn: readonly [EntityId, EntityId]) => EntityId;
+  /**
+   * ORW-634 (Fable stacking S-1; Ryne's option b): the house's TYPICAL bond (bond strength, averaged over every pair in the house), the centre a voter's
+   * alignment with the HOH is read against - so a liked HOH has most of the house aligned and a disliked or isolated one most of it opposed, instead of nearly everyone
+   * reading as opposed (the old baseline centre was a standing shield). Played games only; absent => the old baseline centre and no house-power term (byte-identical).
+   */
+  hohReferendumCentre?: () => number;
   /** 0178: the nominee `voter` votes out because their secret plan was to flip on them at this vote (unless something bigger happened since). Absent => no flip. */
   flipVoteFor?: (voter: EntityId, fn: readonly [EntityId, EntityId]) => EntityId | undefined;
   /** 0160 / ORW-330 (Ryne's Q3 ruling: "Low trust in the person would create a low trust deal"): how much a deal with `other` weighs for `holder`, 0..1. Absent => 1, byte-identical. */
@@ -2366,9 +2382,16 @@ export function voteChoice(
   const hohTarget = hoh && hoh !== voter && !fn.includes(hoh)
     ? (ctx.hohTargetReadFor ? ctx.hohTargetReadFor(voter, hoh, fn) : (hohThreat(fn[0]) >= hohThreat(fn[1]) ? fn[0] : fn[1]))
     : undefined;
+  const centre = hohTarget ? ctx.hohReferendumCentre?.() : undefined;
+  // ORW-634: the BOND only - an HOH is almost always read as more of a threat than the average houseguest (they just won), so folding threat in made every HOH
+  // read as disliked (measured: 34 of 34) and kept the standing shield. The voter's own threat reads already sit on the nominees.
+  const hohBond = hohTarget ? ctx.rel.bondStrength(voter, hoh!) : 0;
   const hohAlignment = hohTarget
-    ? (ctx.rel.bondStrength(voter, hoh!) - (B.trust + B.affinity) / 2) - (ctx.rel.edge(voter, hoh!).threat - B.threat)
+    ? (centre !== undefined
+      ? hohBond - centre // ORW-634: against the house's own typical bond
+      : (ctx.rel.bondStrength(voter, hoh!) - (B.trust + B.affinity) / 2) - (ctx.rel.edge(voter, hoh!).threat - B.threat))
     : 0;
+  const housePower = centre !== undefined ? V.housePowerAfterVeto : 0; // ORW-634: the house keeps the HOH's target unless aligned enough to give it to them
   const paranoia = Math.max(0, (0.5 - (ctx.emotionalOf?.(voter) ?? 0.5)) * 2); // 0 calm … 1 fully rattled
   const deals = ctx.dealsOf?.(voter) ?? [];
   const dealBound = (n: EntityId): boolean =>
@@ -2395,7 +2418,7 @@ export function voteChoice(
     // ORW-574 (Fable T1-6): jury management reads how much `n` trusts the voter AS THE VOTER SEES IT (absent hook => `n`'s hidden edge, byte-identical)
     -(V.juryManagementWeight * (ctx.perceivedTrustFor ? ctx.perceivedTrustFor(voter, n, voter) : ctx.rel.edge(n, voter).trust)),
     -(V.bondKeepWeight * ctx.rel.bondStrength(voter, n)),
-    n === hohTarget ? V.hohReferendumWeight * hohAlignment : 0,
+    n === hohTarget ? (centre !== undefined ? V.hohAlignmentWeight : V.hohReferendumWeight) * hohAlignment - housePower : 0,
     // ORW-314: this voter's AGENDA pull on `n` (revenge / get-them-out push, protect / alliance shield), full strength. Absent provider => 0 => byte-identical.
     ctx.agendaPullFor?.(n, voter).value ?? 0,
     // ORW-568 / 0181: the voter's real feeling for `n` keeps them (a friend is hard to cut, a stranger or a grudge is not). Absent provider => 0 => byte-identical.
@@ -2414,7 +2437,7 @@ export function voteChoice(
   const pick = s0 >= s1 ? fn[0] : fn[1];
   if (why) {
     const names = VOTE_TERM_NAMES;
-    const inputs = { paranoia };
+    const inputs = { paranoia, ...(centre !== undefined ? { hohBond, houseBond: centre } : {}) }; // ORW-634: the report splits the HOH's outcome by popularity from these
     const [cv, ov, other] = pick === fn[0] ? [v0, v1, fn[1]] : [v1, v0, fn[0]];
     const [cs, os] = pick === fn[0] ? [s0, s1] : [s1, s0];
     why({ kind: "vote", options: [whyOption(pick, "chosen", names, cv, cs, inputs), whyOption(other, "runner-up", names, ov, os, inputs)] });
