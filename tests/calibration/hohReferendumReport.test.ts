@@ -26,9 +26,10 @@ describe.skipIf(!RUN)("HOH referendum report (not a gate)", () => {
   it("prints how often the HOH's target goes home, overall and by how liked the HOH is at the vote", async () => {
     const rows: Row[] = [];
     let savedByVeto = 0, playerHoh = 0, noTarget = 0, noPop = 0;
+    const failed: string[] = [];
     for (let seed = 1; seed <= N; seed++) {
       const popAt = new Map<number, { hoh: string; pop: number }>();
-      await playMixGame(seed, MSGS, {
+      try { await playMixGame(seed, MSGS, {
         advanceEvery: 6,
         onStep: (s) => {
           const sess = s as { live?: Live; rel: Rel };
@@ -72,8 +73,9 @@ describe.skipIf(!RUN)("HOH referendum report (not a gate)", () => {
             rows.push(row);
           }
         },
-      });
+      }); } catch (e) { failed.push(`seed ${seed}: ${String((e as Error).message).slice(0, 160)}`); } // a season the engine refused is reported, not hidden; the rest still count
     }
+    if (failed.length) console.log(`HOHREPORT seasons that stopped early (engine refused a turn): ${failed.join(" | ")}`);
     const pct = (xs: Row[]) => (xs.length ? `${Math.round((100 * xs.filter((x) => x.targetWent).length) / xs.length)}% of ${xs.length}` : "none");
     const liked = rows.filter((x) => x.popularity > BAND), disliked = rows.filter((x) => x.popularity < -BAND), middling = rows.filter((x) => Math.abs(x.popularity) <= BAND);
     const sumOf = (xs: Row[], f: (r: Row) => number) => xs.reduce((t, r) => t + f(r), 0);
