@@ -342,7 +342,7 @@ import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
   firstCeremonyBeatResolved,
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
-  advanceClock, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, playerNightDeficit, napFactor, npcRestDeficit, isInertBeat, eventBeatHours, spreadClockHours, ceremonyRef, CEREMONY_STEP_TEXT,
+  advanceClock, longNightRunning, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, playerNightDeficit, napFactor, npcRestDeficit, isInertBeat, eventBeatHours, spreadClockHours, ceremonyRef, CEREMONY_STEP_TEXT,
   honorWeight, recordWhy, preJuryEvictionCount, nightBreakPending, markNightGateCrossed, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type WeekDigest, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
@@ -1321,6 +1321,7 @@ export class GameSessionAdapter implements GameSession {
     this.messageMode = true;
     this.ensurePremiereClock(); // ORW-116: a player talking during the premiere starts the clock (afternoon) - never a later jump
     if (this.live) this.live.playedGame = true; // ORW-258: a person is playing (the event-per-day cadence keys on this, not on clockInteractive)
+    if (this.live) { if (this.longNightEnabled) this.live.longNight = true; else delete this.live.longNight; } // ORW-652: a played game keeps a double eviction as one night (cleared with the flag, so off is byte-identical)
     this.armHouseTour(); // ORW-654 / 0206: a person is playing a staged premiere - the tour opens once they have walked in
     // ORW-466 (Ryne 2026-11-15: "Themes should be random"): the season's house theme, drawn once when a person starts playing - seeded (the same season, the same theme) and never one of this
     // player's recent seasons'. A headless or calibration game never draws one, so its text stays as it was.
@@ -1422,6 +1423,9 @@ export class GameSessionAdapter implements GameSession {
   private npcBeliefNomsEnabled = flagDefaultOn("ORWELL_NPC_BELIEF_NOMS");
   /** B6 / #2017 - NPC-to-NPC lobbying of the HOH: a bounded pitch tilt in the nomination score. ON unless `ORWELL_LOBBYING=0`. OFF => no ctx provider => byte-identical. */
   private lobbyingEnabled = flagDefaultOn("ORWELL_LOBBYING");
+  /** ORW-652 (ORWELL_LONG_NIGHT, played games only; ON unless `=0`): a double eviction plays as ONE continuous night (a fraction of the hours per beat, no day roll, no schedule or bedtime hold) and the narrator is told its shape. OFF => byte-identical. */
+  private longNightEnabled = flagDefaultOn("ORWELL_LONG_NIGHT");
+  setLongNightEnabled(on: boolean): void { this.longNightEnabled = on; }
   setLobbyingEnabled(on: boolean): void { this.lobbyingEnabled = on; }
   /**
    * B6 slice 2 - the pitch tilt for `subject` in `holder`'s (the HOH's) nomination score. Pitches are derived ON DEMAND, deterministically, from the live edges (no rng, no stored state): every
@@ -16908,6 +16912,8 @@ export class GameSessionAdapter implements GameSession {
     if (this.bedtimeGateEnabled && this.live.playedGame === true && this.live.ceremony) {
       return remember({ ...this.advanceView(null), held: { next: "ceremony", minutesUntil: 0, reason: "ceremony" } });
     }
+    // ORW-652: a double-eviction night is one night - nobody turns in until the second eviction is done (the house is awake all night; it is still the player's own bedtime the moment the night ends).
+    if (longNightRunning(this.live)) return remember({ ...this.advanceView(null), held: { next: "long-night", minutesUntil: 0, reason: "ceremony" } });
     return remember(this.inOneCommit(() => {
       const closingDay = this.live!.dayNumber ?? 1; // capture BEFORE materialize bumps it (0122 sweep key)
       // ORW-400 part 3: this bedtime IS the night the pending gate would have rolled. Mark it BEFORE the recap bumps dayNumber: `nightBreakPending` (week 1) reads `dayNumber < 2`, so after the bump playerTurnIn's own mark never fired.
@@ -20522,7 +20528,9 @@ export class GameSessionAdapter implements GameSession {
     const view2 = this.napOpenNow() ? { ...view1, napOpen: true as const } : view1; // 0148: the NAP line only when a nap is possible
     const bedsNow = this.bedsLine(); // ORW-466 slice 2: the move-in bed pick, per turn (absent outside the claim window / headless)
     const view3 = bedsNow ? { ...view2, beds: bedsNow } : view2;
-    const view4 = this.claimSourceNote ? { ...view3, sourceNote: this.claimSourceNote } : view3; // 0152: the answer to "who told you that?", this turn only
+    const longNightNow = this.longNightLine(); // ORW-652: the shape of a double-eviction night, per turn (absent outside it / headless)
+    const view3b = longNightNow ? { ...view3, longNight: longNightNow } : view3;
+    const view4 = this.claimSourceNote ? { ...view3b, sourceNote: this.claimSourceNote } : view3b; // 0152: the answer to "who told you that?", this turn only
     const meetingNow = this.houseMeetingForNarrator(); // 0156 slice 7b: a meeting the player was in the house and awake to hear (one turn; absent otherwise)
     const view5 = meetingNow ? { ...view4, houseMeeting: meetingNow } : view4;
     const view = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
@@ -20567,6 +20575,24 @@ export class GameSessionAdapter implements GameSession {
       producerName: this.producer().name,
       ...(showBrief ? { showBrief } : {}),
     };
+  }
+
+  /**
+   * ORW-652: the shape of a double-eviction night, in third person, from PUBLIC facts only (who just left, who holds the new crown, who is on the block once named). Voiced by the narrator in its own
+   * words; never a script. Undefined unless the second cycle of a long night is running.
+   */
+  private longNightLine(): string | undefined {
+    const s = this.live;
+    if (!s || !longNightRunning(s)) return undefined;
+    const gone = s.evictionOrder[s.evictionOrder.length - 1];
+    const parts: string[] = [`one continuous double-eviction night: ${gone ? `${this.nameOf(gone)} has just been evicted and` : "the first eviction is done and"} a second eviction closes the night; the whole house is awake, nobody goes to bed, no morning comes and no day passes until the second eviction is done`];
+    if (s.hoh) parts.push(`${this.nameOf(s.hoh)} was crowned Head of Household on the spot, with no wait`);
+    else parts.push("the new Head of Household is being decided right now, with no wait");
+    const block = s.beat === "veto-competition" || s.beat === "veto-ceremony" || s.beat === "eviction" ? (s.finalNominees ?? s.nominees) : undefined;
+    if (block && block.length > 0) parts.push(`the nominees are ${block.map((n) => this.nameOf(n)).join(" and ")}, named in a hurry`);
+    if (s.vetoHolder && (s.beat === "veto-ceremony" || s.beat === "eviction")) parts.push(`${this.nameOf(s.vetoHolder)} holds the Power of Veto, decided in a rush`);
+    parts.push("every step is quick and tense");
+    return parts.join("; ");
   }
 
   /**

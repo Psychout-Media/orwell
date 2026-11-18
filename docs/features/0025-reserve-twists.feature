@@ -98,3 +98,22 @@ Feature: Reserve twists — a standing pool of surprises the live house earns, s
       Given a live season with the reactive pool armed
       When the engine restarts mid-season
       Then the restored game still carries the sealed twist plan
+
+  Rule: A double eviction plays as one long night (ORW-652, 2026-11-18)
+
+    Scenario: The second cycle of a double eviction is one continuous night
+      Given long night: a played game with a double eviction armed
+      When long night: the double eviction plays out
+      Then long night: both evictions land inside one in-game day
+      And long night: no schedule or bedtime hold interrupts the second cycle
+      And long night: the clock only moves forward and the day does not roll
+
+    Scenario: The compression never changes who wins or who leaves
+      Given long night: the same seed played with the compression on and off
+      Then long night: the same houseguests are evicted and crowned either way
+
+    Scenario: Nobody can turn in mid-night and the narrator is told the night's shape
+      Given long night: a played game partway through the second cycle
+      When long night: the player says goodnight
+      Then long night: the bed is refused until the second eviction is done
+      And long night: the narrator is handed one line naming the first evictee, the instant crown and the second eviction

@@ -65,6 +65,12 @@ export interface ClockConstants {
 export const EARLY_WAKE_FLOOR_HOUR = 0;
 export const EARLY_WAKE_MIN_BED_HOUR = 16;
 
+/**
+ * ORW-652 (Ryne 11-17: the double eviction is one fast, chaotic night): while the second cycle of a double-eviction night runs, every beat charges this fraction of its usual hours (the instant HOH,
+ * the hurried nominations, the rushed veto and the second eviction ride one evening instead of stretching across a day). Clock path only: it never touches a roll, a draw or an outcome.
+ */
+export const LONG_NIGHT_BEAT_SCALE = 0.25;
+
 export const CLOCK: ClockConstants = {
   wakeHour: 8,
   dayLengthHours: 24,
