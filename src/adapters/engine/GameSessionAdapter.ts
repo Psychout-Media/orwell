@@ -86,7 +86,7 @@ import { FavorLedger, type FavorEntry } from "../../engine/favors";
 import { FAVOR } from "../../engine/favorConstants";
 import { counterStreamKey, weighCounter, type CounterAsk, type CounterSide } from "../../engine/favorCounters";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
-import { NPC_MEMORY, PLAYED_NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, salience, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
+import { NPC_MEMORY, PLAYED_NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, salience, SCENE_MEMORY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, BOOK_FOLDED_KINDS, type BookRead, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
 import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
@@ -18619,8 +18619,25 @@ export class GameSessionAdapter implements GameSession {
     if (!raw || raw.length === 0) return 0;
     const entries = this.memoryEntriesSeenBy(holder, raw, subject);
     const mc = this.memoryConstants();
-    if (this.npcMemoryStandaloneEnabled) return memoryTiltStandalone(entries, this.live.week, this.memoryDecayScale(holder), mc);
-    return memoryTilt(entries, this.live.week, this.memoryDecayScale(holder), this.memoryCarry(holder, subject), mc);
+    const book = this.bookReadFor(holder, subject, raw);
+    if (this.npcMemoryStandaloneEnabled) return memoryTiltStandalone(entries, this.live.week, this.memoryDecayScale(holder), mc, book);
+    return memoryTilt(entries, this.live.week, this.memoryDecayScale(holder), this.memoryCarry(holder, subject), mc, book);
+  }
+
+  private grudgesSeenCache: { arr: readonly string[] | undefined; set: Set<string> } | undefined;
+  /**
+   * ORW-607 (wrongs, step 2), played games only: the grudge book's read of the pair for the ledger's grudge salience. The wrongs the book already folded (a broken deal, an ally's cut; the fold's own
+   * seen-marks say which) are read ONCE as the book's `wrongWeight` (the holder's dials and jury ease in it), not as the ledger's 4-week fade as well; every other grudge kind and every favor keep the
+   * ledger read. Absent (headless, flag off, no book row) => undefined => the old read, byte-identical. Pure read: it never folds. No rng.
+   */
+  private bookReadFor(holder: EntityId, subject: EntityId, raw: readonly MemoryEntry[]): BookRead | undefined {
+    if (!this.grudgesOn() || !this.live) return undefined;
+    const g = this.grudgeOf(holder, subject, false);
+    if (!g) return undefined;
+    const arr = this.live.grudgesSeen;
+    if (!this.grudgesSeenCache || this.grudgesSeenCache.arr !== arr) this.grudgesSeenCache = { arr, set: new Set(arr ?? []) }; // (no seen-marks yet: `arr` is undefined, which equals the empty cache's undefined, so test for the cache itself)
+    const seen = this.grudgesSeenCache.set;
+    return { weight: g.weight, folded: (i) => { const e = raw[i]!; return BOOK_FOLDED_KINDS.has(e.kind) && seen.has(`m:${holder}|${subject}|${e.kind}|${e.week}|${e.severity.toFixed(3)}`); } };
   }
 
   /** An NPC the player has wronged (a strong residual grudge) does not float a safety/alliance deal to them. */
@@ -18629,7 +18646,7 @@ export class GameSessionAdapter implements GameSession {
     const raw = this.live.npcMemory?.[npcId]?.[PLAYER];
     if (!raw || raw.length === 0) return false;
     const entries = this.memoryEntriesSeenBy(npcId, raw, PLAYER);
-    return memoryGrudge(entries, this.live.week, this.memoryDecayScale(npcId), this.memoryCarry(npcId, PLAYER)) >= NPC_MEMORY.dealOfferGrudge;
+    return memoryGrudge(entries, this.live.week, this.memoryDecayScale(npcId), this.memoryCarry(npcId, PLAYER), undefined, this.bookReadFor(npcId, PLAYER, raw)) >= NPC_MEMORY.dealOfferGrudge;
   }
 
   /** 0178 (Theme 3 slice 1): two-faced deals (`ORWELL_DEAL_PLANS`, default ON; `=0` = no plans, byte-identical). Played games only, like the 0142 weighing. */
