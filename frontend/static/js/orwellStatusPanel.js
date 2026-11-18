@@ -415,7 +415,7 @@ import { onNarrowChange } from './platform.js';
         </div>
         <div class="os-roster-h" id="os-roster-h" role="heading" aria-level="3">The House</div>
         <section class="os-couch" id="os-couch" hidden aria-labelledby="os-couch-h">
-          <div class="os-couch-h" id="os-couch-h" role="heading" aria-level="3"></div>
+          <div class="os-roster-h os-couch-h" id="os-couch-h" role="heading" aria-level="3"></div>
           <ol class="os-couch-list" id="os-couch-list"></ol>
         </section>
         <div id="os-announce" aria-live="polite" style="position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);"></div>`;

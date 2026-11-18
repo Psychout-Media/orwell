@@ -22185,10 +22185,6 @@ body.theme-frosted .icon-rail button {
   body.theme-frosted #orwell-status .os-prem-count {
     color: #16191f !important;
   }
-  /* ORW-650: the watching evictee's moments list (static, no motion). */
-  #orwell-status .os-couch-h { opacity: .55; font-size: max(.8em, 11px); margin: .4rem 0 .15rem; }
-  #orwell-status .os-couch-list { margin: 0; padding-left: 1.2em; font-size: max(.85em, 11px); line-height: 1.35; }
-  #orwell-status .os-couch-list li { margin: .15rem 0; }
   /* os-roster-h — "The House · N/16": opacity .55 thins the dark ink into the light fill (~1.1:1).
      Full opacity restores dark-on-light AA; the light halo backstops the brightest backdrop frames.
      (Font size is left to the injected rule — the wcag-polish gate pins its >=11px floor.) */
