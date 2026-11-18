@@ -107,16 +107,30 @@ export function halfLifeFor(dials: { loyalty?: number; paranoia?: number; keeper
   return GRUDGES.HALF_LIFE_WEEKS * band(dials.loyalty) * Math.pow(band(dials.paranoia), GRUDGES.PARANOIA_EXPONENT) * (dials.keeper ? GRUDGES.KEEPER_HALF_LIFE_MULT : 1);
 }
 
+/** The share of a grudge's peak that repair has eased, 0..EASE_CAP. The ONE place the eased share is read (the freshness curve and the revenge fold both use it). */
+export function easedShareOf(row: GrudgeRow): number {
+  return row.peak > 0 ? Math.min(GRUDGES.EASE_CAP, row.eased / row.peak) : 0;
+}
+
 /**
  * How sharply the holder still remembers, in (0, 1]: floor + (1 - floor) x 0.5^(age / halfLife), the floor being a share of the PEAK severity so it is never 0.
- * Repair lowers it by the eased share of the peak but never below that floor.
+ * Repair lowers it by the eased share of the peak but never below that floor. THE shared freshness curve for a wrong: every consumer reads it (via `wrongWeight`).
  */
 export function freshness(row: GrudgeRow, week: number, halfLife: number = GRUDGES.HALF_LIFE_WEEKS): number {
   const floor = GRUDGES.FLOOR_SHARE * unit(row.peak);
   const age = Math.max(0, week - row.week);
   const raw = floor + (1 - floor) * Math.pow(0.5, age / Math.max(0.01, halfLife));
-  const easedShare = row.peak > 0 ? Math.min(GRUDGES.EASE_CAP, row.eased / row.peak) : 0;
-  return Math.max(floor, raw * (1 - easedShare));
+  return Math.max(floor, raw * (1 - easedShareOf(row)));
+}
+
+/**
+ * ORW-607 (wrongs, step 1): the ONE weight a wrong carries now, freshness x severity, in (0, 1]. `dials` are the holder's own (loyalty, paranoia, keeper) and an optional `ease`
+ * divisor on the half-life (a jury-eased pair); none given means the neutral half-life. Every reader of a grudge (the revenge fold, the bitter juror, the HOH-room visit) calls this, so
+ * none keeps a half-life of its own. Pure, never 0 for a held wrong.
+ */
+export function wrongWeight(row: GrudgeRow, week: number, dials: { loyalty?: number; paranoia?: number; keeper?: boolean; ease?: number } = {}): number {
+  const life = halfLifeFor(dials) / (dials.ease ?? 1);
+  return freshness(row, week, life) * row.severity;
 }
 
 /** Ease a grudge (a repair). Bounded: the total eased never passes EASE_CAP x peak. Returns the amount actually eased. */

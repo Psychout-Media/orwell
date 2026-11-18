@@ -148,3 +148,58 @@ Then("promise terms: nothing is folded and the assurance row is lapsed", functio
   const rows = (b.g!.live as { assurances?: { items: Array<{ status: string }> } }).assurances!.items;
   assert.deepEqual(rows.map((r) => r.status), ["lapsed"]);
 });
+
+// Slice 4: NPC binding reads for the veto and final-two kinds.
+type Hooks = { promiseVetoFor?: (n: string, h: string) => number; promiseVetoSettled?: (h: string, on: string | undefined) => void; promiseFinalTwoSettled?: (f: readonly string[]) => void };
+type Slice4 = Omit<Priv, "rel"> & { ctx(): Hooks; rel: { edge(a: string, b: string): { trust: number; threat: number } } };
+const hooks = (b: Bag): Hooks => (b.g as unknown as Slice4).ctx();
+Given("promise terms: a house where a promiser has promised a promisee to use the veto on them", function () { promise(this, "use-veto-on"); });
+Given("promise terms: a house where a promiser has promised a promisee to take them to the final two", function () { promise(this, "final-two"); });
+Given("promise terms: the promiser has nothing to gain from breaking it", function () { const b = bag(this); (b.g as unknown as Slice4).rel.edge(b.promiser!, b.promisee!).threat = 0; });
+Given("promise terms: breaking it would pay the promiser in full", function () { const b = bag(this); (b.g as unknown as Slice4).rel.edge(b.promiser!, b.promisee!).threat = 1; });
+Then("promise terms: the promiser's own save read leans toward the promisee", function () { const b = bag(this); assert.ok(hooks(b).promiseVetoFor!(b.promisee!, b.promiser!) > 0); });
+Then("promise terms: the promiser's own save read has no lean toward the promisee", function () { const b = bag(this); assert.equal(hooks(b).promiseVetoFor!(b.promisee!, b.promiser!), 0); });
+When("promise terms: the promiser uses the veto on a third houseguest", function () { const b = bag(this); hooks(b).promiseVetoSettled!(b.promiser!, b.third!); });
+When("promise terms: the final two is the promiser and a third houseguest", function () { const b = bag(this); hooks(b).promiseFinalTwoSettled!([b.promiser!, b.third!]); });
+const brokenAndLessTrust = (w: unknown): void => {
+  const b = bag(w);
+  assert.equal(entry(b).status, "broken");
+  assert.ok(b.g!.rel.edge(b.promisee!, b.promiser!).trust < b.trust0!);
+};
+Then("promise terms: the veto promise is closed as broken by the engine and the promisee trusts the promiser less", function () { brokenAndLessTrust(this); });
+Then("promise terms: the final-two promise is closed as broken by the engine and the promisee trusts the promiser less", function () { brokenAndLessTrust(this); });
+
+/** ORW-586 slice 5 - the plan seam for an improvised NPC promise. */
+type PlanPriv = Priv & { setDealPlansEnabled(on: boolean): void; assuranceProtects(t: string, h: string): boolean; live: Live & { week: number; dealPlans?: Record<string, Record<string, unknown>> } };
+function plannedPromise(w: unknown, plan: ((week: number) => { kind: string; moment?: { week: number; at: string } }) | "natural", plansOn = true): Bag {
+  const b = stage(w, true);
+  const g = b.g as unknown as PlanPriv;
+  g.setDealPlansEnabled(plansOn);
+  const r = g.recordPromiseTerm({ by: b.promiser, to: b.promisee, what: "no-nominate" });
+  assert.equal(r.accepted, true);
+  b.entryId = r.entryId; b.trust0 = g.rel.edge(b.promisee!, b.promiser!).trust;
+  if (plan !== "natural") { const s = (g.live.dealPlans ??= {}); s[`ledger:${r.entryId}`] = { [b.promiser!]: { ...plan(g.live.week), madeWeek: g.live.week } }; }
+  (g.rel.edge(b.promiser!, b.promisee!) as unknown as { threat: number }).threat = 0;
+  return b;
+}
+Given("ledger plan: a house where a promiser promised a promisee not to nominate them and plans to break it at the nominations", function () { plannedPromise(this, (week) => ({ kind: "break-at", moment: { week, at: "nominations" } })); });
+Given("ledger plan: a house where a promiser promised a promisee not to nominate them and plans to keep it", function () { plannedPromise(this, () => ({ kind: "keep" })); });
+Given("ledger plan: a house with deal plans switched off where a promiser promised a promisee not to nominate them", function () { plannedPromise(this, "natural", false); });
+Then("ledger plan: the promiser does not keep the promise at the nominations", function () { const b = bag(this); assert.equal((b.g as unknown as PlanPriv).assuranceProtects(b.promisee!, b.promiser!), false); });
+Then("ledger plan: the promiser keeps the promise at the nominations", function () { const b = bag(this); assert.equal((b.g as unknown as PlanPriv).assuranceProtects(b.promisee!, b.promiser!), true); });
+When("ledger plan: the promiser nominates the promisee twice", function () { const b = bag(this); b.g!.assuranceNominated(b.promiser!, b.promisee!); b.g!.assuranceNominated(b.promiser!, b.promisee!); });
+Then("ledger plan: the promise is closed as broken by the engine and the promisee trusts the promiser less exactly once", function () {
+  const b = bag(this);
+  assert.equal(entry(b).status, "broken");
+  assert.ok(Math.abs(b.g!.rel.edge(b.promisee!, b.promiser!).trust - Math.max(0, b.trust0! - 0.12)) < 1e-9, "one 0.12 trust drop");
+  assert.equal(lied(b.g!, b.promisee!).filter((c) => c.subject === b.promiser).length, 1);
+});
+Then("ledger plan: no player or admin view shows the plan or its key", async function () {
+  const b = bag(this);
+  const out = JSON.stringify([
+    await b.sb!.mcp.player.callTool("getGameState", {}), await b.sb!.mcp.player.callTool("gameStatus", {}), await b.sb!.mcp.player.callTool("getMomentPrompt", {}),
+    await b.sb!.mcp.admin.callTool("inspectNonVaultState", {}), b.g!.openLedgerHere(),
+  ]);
+  assert.doesNotMatch(out, /ledger:|break-at|dealPlans|madeWeek/);
+});
+Then("ledger plan: no plan was made for the promise", function () { const b = bag(this); const store = (b.g as unknown as PlanPriv).live.dealPlans ?? {}; assert.deepEqual(Object.keys(store).filter((k) => k.startsWith("ledger:")), []); });

@@ -5,6 +5,10 @@
  * only withdraw). A promise with no term, or the open-text `share-info` term, is never judged: it stays free text (ADR 0005).
  * Pure and deterministic: no I/O, no randomness, no Vault handle, no relationship number.
  */
+import type { DealKind } from "../domain/deal";
+import type { EntityId } from "../domain/ids";
+import { isBetrayal, ledgerPlanKey, type PlanStore, type StoredPlan } from "./dealPlans";
+
 /** What was promised, as a closed engine set (engine keys, never shown to a player as text). `share-info` is open text and is never judged. */
 export const PROMISE_WHATS = ["no-nominate", "no-evict-vote", "use-veto-on", "not-use-veto-on", "final-two", "share-info"] as const;
 export type PromiseWhat = (typeof PROMISE_WHATS)[number];
@@ -107,4 +111,46 @@ export function judgePromise(term: PromiseTerm, fact: PromiseBoardFact): Promise
 /** The ids a term names are the player or a known houseguest. */
 export function termIdsKnown(t: PromiseTerm, known: (id: string) => boolean): boolean {
   return known(t.by) && known(t.to) && (t.subject === undefined || known(t.subject));
+}
+
+/**
+ * Slice 4 (NPC binding reads). How hard a KEPT veto promise leans the promiser's own save read: toward saving the one they promised to use the veto on (+), away from saving the one they promised
+ * NOT to use it on (-). Sized to the identity range of the summed save bias (the same scale as the other named bias terms), so a kept promise tips a save that would otherwise fall under the bar
+ * without overriding the holder's own seat on the block. The keep-or-break call is the casual-assurance one (`decideKeep`); this is only the lean when it keeps.
+ */
+export const PROMISE_VETO_LEAN = 0.8;
+
+/**
+ * Slice 5 (the plan seam for improvised NPC promises). Which deal kind's plan shapes an NPC's termed promise is decided as (`decidePlan`): the promise is planned the way the deal of that shape is. A "will not nominate" or a
+ * veto promise is a "keep your hands off them at the moment it matters" (the target-other shapes: break at the nominations or hold it a week); "will not vote out" is the vote deal (a flip at the vote); "final two" is the final-two
+ * deal. `share-info` is open text and never judged, so it gets no plan. Engine keys only.
+ */
+export function termPlanDealKind(what: PromiseWhat): DealKind | undefined {
+  switch (what) {
+    case "no-nominate": case "use-veto-on": case "not-use-veto-on": return "target-other";
+    case "no-evict-vote": return "vote";
+    case "final-two": return "final-two";
+    case "share-info": return undefined;
+  }
+}
+
+/** One secret plan for an improvised promise, as the post-crown retrospective lists it (the `DealPlanRetro.secretPlans` row shape). */
+export interface LedgerPlanRetroRow { holder: EntityId; with: EntityId; dealKind: DealKind; madeWeek: number; plan: StoredPlan["kind"]; outcome: NonNullable<StoredPlan["outcome"]> | "pending" }
+
+/**
+ * The retrospective rows for every termed ledger promise that holds a plan (read-only; the crown gate is the caller's). The outcome is read from how the engine settled the entry, as a deal's plan is: an honest plan is
+ * "kept-anyway" when kept and "overtaken" when broken; a betrayal is "carried-out" when broken and "kept-anyway" when kept; a withdrawn or lapsed one is "overtaken"; still open is "pending".
+ */
+export function ledgerPlanRetroRows(plans: PlanStore | undefined, ledger: ReadonlyArray<{ id: string; status: string; term?: PromiseTerm }>): LedgerPlanRetroRow[] {
+  const out: LedgerPlanRetroRow[] = [];
+  if (!plans) return out;
+  for (const e of ledger) {
+    const t = e.term;
+    const kind = t ? termPlanDealKind(t.what) : undefined;
+    const p = t ? plans[ledgerPlanKey(e.id)]?.[t.by] : undefined;
+    if (!t || !kind || !p) continue;
+    const outcome: LedgerPlanRetroRow["outcome"] = p.outcome ?? (e.status === "kept" ? "kept-anyway" : e.status === "broken" ? (isBetrayal(p.kind) ? "carried-out" : "overtaken") : e.status === "open" ? "pending" : "overtaken");
+    out.push({ holder: t.by as EntityId, with: t.to as EntityId, dealKind: kind, madeWeek: p.madeWeek, plan: p.kind, outcome });
+  }
+  return out;
 }
