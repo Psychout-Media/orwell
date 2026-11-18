@@ -9,6 +9,7 @@
  * rooms, waits (`claimKeepsFloor`). It resumes the moment the player claims, or at their first bedtime.
  */
 import type { Room } from "../domain/house";
+import { clamp01Raw as clamp01 } from "../domain/num";
 
 export const BED_RUSH = {
   /** The race lasts this many ticks (arrivals land on ticks 1..ticks). */
@@ -26,7 +27,6 @@ export const BED_RUSH = {
 /** What the engine knows about one runner, each 0..1 (higher speed / eagerness = earlier; higher distance = later). */
 export interface RushRunner { speed: number; eagerness: number; distance: number; luck: number }
 
-const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
 
 /** The tick (1..BED_RUSH.ticks) on which this runner reaches their room. Deterministic from the inputs. */
 export function arrivalTick(r: RushRunner, w: typeof BED_RUSH.weights = BED_RUSH.weights): number {

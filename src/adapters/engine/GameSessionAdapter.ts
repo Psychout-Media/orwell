@@ -7510,7 +7510,6 @@ export class GameSessionAdapter implements GameSession {
     const r = this.bedReader();
     const share = this.bedShare(r);
     const unit = (key: string): number => new SeededRandom(hashSeed(`${seed}:bed-rush:${key}`)).next();
-    const clamp01 = (x: number): number => Math.max(0, Math.min(1, x));
     const runners = [...living].filter((id) => id !== PLAYER && !beds.owner[id]).map((id) => {
       const st = this.statsOf(id);
       let want = 0; // how much they want a particular roommate: their warmest feeling for anyone in the house
