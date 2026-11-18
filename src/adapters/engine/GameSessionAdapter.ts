@@ -66,6 +66,7 @@ import { chooseHourAction, assembleScenes, habitsFor, actionLine, roomActLine, f
 import { HOUSE_LIFE, ROOM_LIFE } from "../../engine/houseLifeConstants";
 import { REASONS } from "../../engine/agendaConstants";
 import { askDisposition, askRoll } from "../../engine/askAround";
+import { noteToldLead, resolveToldLeads, recentWrongLeads } from "../../engine/toldLeads";
 import { heldApproachReaction, heldSheetOf } from "../../engine/heldApproach";
 import { isPrivateTalk, walkInReaction, walkInLine, WALK_IN_MAX_HOURS, WALK_IN_DONE_CAP, type WalkInReaction } from "../../engine/walkIn";
 import type { OffscreenScene } from "../../engine/offscreen";
@@ -655,6 +656,8 @@ const DEAL_DEPTH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_DEAL_DEPTH");
  * relationship edge already carries a fresh betrayal, so the tilt reads 0 within a season; see the #2017 design.)
  */
 const NPC_MEMORY_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY");
+/** 0197 / ORW-631: catching a misdirection (read once). */
+const CATCH_MISDIRECTION_DEFAULT = flagDefaultOn("ORWELL_CATCH_MISDIRECTION");
 const NPC_MEMORY_STANDALONE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_STANDALONE");
 const NPC_MEMORY_WRITERS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_NPC_MEMORY_WRITERS");
 /** ORW-223: the room canon ledger (the `recordRoomCanon` write-back + the Show Brief Canon section). ON by default; `ORWELL_ROOM_CANON=0` turns it off. */
@@ -2436,6 +2439,7 @@ export class GameSessionAdapter implements GameSession {
   /** 0121 — deal-depth layer (active-obligation kinds + reliability rewards); off ⇒ 0039/0109 exactly. */
   private dealDepthEnabled = DEAL_DEPTH_ENABLED_DEFAULT;
   private npcMemoryEnabled = NPC_MEMORY_ENABLED_DEFAULT;
+  private catchMisdirectionEnabled = CATCH_MISDIRECTION_DEFAULT;
   /** 0121 R1 — seed a diffusing "keeps their word" reputation when a deal is kept (registry-wired; it holds
    *  the KnowledgeService `reconcileDeals` does not). Unset (standalone) ⇒ no reputation ⇒ byte-identical. */
   private dealReputationSink?: (honorer: EntityId, other: EntityId) => void;
@@ -3751,6 +3755,14 @@ export class GameSessionAdapter implements GameSession {
     const day = this.live.dayNumber ?? 1;
     const part = this.live.timeOfDay ?? "";
     this.captureNpcSightings(); // ORW-475: what each houseguest could see now becomes their own last-known sighting
+    if (this.catchMisdirectionEnabled && this.live.toldLeads && this.live.toldLeads.length > 0) {
+      // 0197 / ORW-631: a lead the player was given is settled by what the player can SEE now (never the hidden truth): the subject in the named room, elsewhere, or the named room in view without them.
+      resolveToldLeads(this.live.toldLeads, {
+        tick: this.presenceTickCount, day,
+        seenRoomOf: (s) => { const r = this.presence!.get(s); return r !== undefined && this.seatOf(s) === "active" && !notHere?.has(s) && !(awake && !awake.has(s)) && (r === here || areVisible(here, r)) ? r : undefined; },
+        roomInView: (r) => r === here || areVisible(here, r as Room),
+      });
+    }
     for (const id of this.presenceActive()) {
       if (id === me || notHere?.has(id) || (awake && !awake.has(id))) continue;
       const room = this.presence.get(id);
@@ -8202,6 +8214,13 @@ export class GameSessionAdapter implements GameSession {
         const pool = WALKABLE_ROOMS.filter((r) => r !== rec.room && r !== truth && r !== myRoom);
         room = pool[askRoll(hashSeed(`${key}:room`)) * pool.length | 0] ?? rec.room;
       }
+      // 0197 / ORW-631: keep the lead (played games, flag on): the room named, and - engine-only - where the person really was and whether it was meant to mislead. Idempotent per speaker, subject and part of day.
+      if (this.catchMisdirectionEnabled && this.live?.playedGame === true) {
+        const day = this.live.dayNumber ?? 1;
+        const part = this.live.timeOfDay ?? "";
+        const truthRoom = this.presence?.get(id);
+        noteToldLead((this.live.toldLeads ??= []), { key: `${v}|${id}|${day}|${part}`, speaker: v, subject: id, toldRoom: room, ...(truthRoom !== undefined ? { truthRoom } : {}), misled: outcome === "misleads", tick: this.presenceTickCount, day, part });
+      }
       return { id, name, status: "told", room, toldBy: speaker, fact: `${speaker.name} says ${name} ${rec.heading ? "was heading into" : "was in"} ${this.roomRefOf(room)} ${ageWords(rec)}: in ${speaker.name}'s own voice, as something said that may be out of date - the player can go and look` };
     };
     const record = (id: EntityId, name: string): HouseSearchEntry => {
@@ -8356,8 +8375,28 @@ export class GameSessionAdapter implements GameSession {
       counts: this.headCounts(presentPlain.length),
       tracked,
       ...(conspicuous.length ? { conspicuous } : {}),
+      ...this.leadsFoundWrongView(),
       ...this.sinceSendBeat(me, room, presentPlain, isUp, notHere2),
       ...this.themedRoomsView(room),
+    };
+  }
+
+  /**
+   * 0197 / ORW-631: the leads houseguests gave the player that the player has since seen did not pan out (the person was in view somewhere else, or the named room was in view without them), for a few ticks. Plain observed
+   * facts in the third person: who said which room, and where the player found the person if they did. It never says whether the lead was out of date or meant to mislead (the engine keeps that to itself, and the
+   * player infers it), never the hidden truth. Absent when flag off, headless, or nothing found wrong lately.
+   */
+  private leadsFoundWrongView(): { leadsFoundWrong?: Array<{ toldBy: NamedRef; about: NamedRef; saidRoom: string; foundRoom?: string; fact: string }> } {
+    if (!this.catchMisdirectionEnabled || this.live?.playedGame !== true || !this.live.toldLeads) return {};
+    const wrong = recentWrongLeads(this.live.toldLeads, this.presenceTickCount).filter((l) => this.seatOf(l.speaker) === "active" && this.seatOf(l.subject) === "active");
+    if (wrong.length === 0) return {};
+    return {
+      leadsFoundWrong: wrong.map((l) => {
+        const toldBy = { id: l.speaker, name: this.nameOf(l.speaker) };
+        const about = { id: l.subject, name: this.nameOf(l.subject) };
+        const found = l.foundRoom !== undefined ? ` The player has since seen ${about.name} in ${this.roomRefOf(l.foundRoom as Room)}.` : ` The player has since looked in ${this.roomRefOf(l.toldRoom as Room)} and ${about.name} was not there.`;
+        return { toldBy, about, saidRoom: l.toldRoom, ...(l.foundRoom !== undefined ? { foundRoom: l.foundRoom } : {}), fact: `${toldBy.name} told the player ${about.name} was in ${this.roomRefOf(l.toldRoom as Room)}.${found} That lead did not hold up; the player decides what to make of it and whether to say anything to ${toldBy.name}.` };
+      }),
     };
   }
 
@@ -11815,6 +11854,7 @@ export class GameSessionAdapter implements GameSession {
   setDealDepthEnabled(on: boolean): void { this.dealDepthEnabled = on; }
   /** 0024 — turn the NPC memory layer on/off for this session (off ⇒ nothing is written or read). */
   setNpcMemoryEnabled(on: boolean): void { this.npcMemoryEnabled = on; }
+  setCatchMisdirectionEnabled(on: boolean): void { this.catchMisdirectionEnabled = on; }
   setNpcMemoryStandaloneEnabled(on: boolean): void { this.npcMemoryStandaloneEnabled = on; }
   setNpcMemoryWritersEnabled(on: boolean): void { this.npcMemoryWritersEnabled = on; }
   setRoomCanonEnabled(on: boolean): void { this.roomCanonEnabled = on; }
