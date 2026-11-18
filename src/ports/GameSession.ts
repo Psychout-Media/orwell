@@ -8,6 +8,8 @@ import type { StructuralMilestone } from "../engine/daySchedule";
 import type { TimeOfDay } from "../engine/timeOfDay";
 import type { DiaryCallView } from "../engine/diaryCalls";
 export type { DiaryCallView };
+import type { PushbackView } from "../engine/producerPushback";
+export type { PushbackView };
 import type { DealPlanRetro } from "../engine/dealPlans";
 
 /**
@@ -639,6 +641,10 @@ export interface GameStateView {
    * and whether the player is invited this beat. Names and words only: no content of any confessional, no id, no number. Absent for headless games or with the flag off.
    */
   diaryCall?: DiaryCallView;
+  /**
+   * ORW-669 (0210 C3, `ORWELL_PRODUCER_PUSHBACK`): while the player is in the Diary Room, the contradictions between their own recorded word and their own recorded acts, as facts the narrator voices the producer's question from. Names and words only: no id, no number, nothing from the entry text. Absent otherwise.
+   */
+  producerPushback?: PushbackView;
   /**
    * 0115 — the player's recent Diary-Room STRATEGY, in their own words (most-recent-first, capped).
    * Vault-free by construction: it is the player's OWN out-of-character `NO_NPC_PATHWAY` knowledge —

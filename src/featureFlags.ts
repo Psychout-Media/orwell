@@ -237,6 +237,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_PHILOSOPHIES', key: 'philosophies', parser: 'defaultOn' },
   { envKey: 'ORWELL_PLAYER_DOSSIER', key: 'playerDossier', parser: 'defaultOn' },
   { envKey: 'ORWELL_PREMIERE_ENTRANCES',   key: 'premiereEntrances',      parser: 'defaultOn' },
+  // ORW-669 / 0210 C3: in the player's own Diary Room the producer may raise a said-vs-did contradiction from the player's own recorded public record (a promise, then an act against the same houseguest); facts to the narrator, no outcome or relationship change, nothing reaches any houseguest. A played game only. `=0` opts out.
+  { envKey: 'ORWELL_PRODUCER_PUSHBACK', key: 'producerPushback', parser: 'defaultOn' },
   { envKey: 'ORWELL_PRODUCER_READ', key: 'producerRead', parser: 'defaultOn' },
   // 0187 / ORW-586: promises BIND: an open-ledger entry may carry a typed term the engine judges from board facts (kept/broken + trust fold); a model may only withdraw it. Needs ORWELL_ASSURANCES. `=0` turns it off.
   { envKey: 'ORWELL_PROMISE_TERMS', key: 'promiseTerms', parser: 'defaultOn' },

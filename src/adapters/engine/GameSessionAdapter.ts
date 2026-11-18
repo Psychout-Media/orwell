@@ -136,6 +136,8 @@ import type { EditMoment, EditMomentKind } from "../../engine/editWorthiness";
 import { questionLive, questionAnswered } from "../../engine/voteQuestions";
 import { agendaDumpRows } from "../../engine/agendaDump";
 import { hostRegister, registerWords, hostQuestionTexts, playerRoles, type HostLine } from "../../engine/productionHost";
+import { pushbackFacts, type PushbackView } from "../../engine/producerPushback";
+import type { PlayerSaid, PlayerDid } from "../../engine/production";
 import { decideDiaryCall, awayHours, seenOf, callEventText, backEventText, playerVisitText, producerRegisterWords, type DiaryCallsState, type DiaryCallView } from "../../engine/diaryCalls";
 import { buildHouseStories } from "../../engine/houseStory";
 import type { StatedReasonView } from "../../ports/GameSession";
@@ -14751,6 +14753,41 @@ export class GameSessionAdapter implements GameSession {
     st.seen.push({ who: PLAYER, day: s.dayNumber ?? s.week, long: false, comesBack: "same", at: abs }); // the engine never says how it left the player feeling
     this.recordDiaryCallEvent(events, PLAYER, playerVisitText(this.nameOf(PLAYER)), `diary-call:player:${seed}:${abs}`);
   }
+  /** ORW-669 (0210 C3, `ORWELL_PRODUCER_PUSHBACK`): on by default; off => no pushback block. */
+  private producerPushbackEnabled = flagDefaultOn("ORWELL_PRODUCER_PUSHBACK");
+  setProducerPushbackEnabled(on: boolean): void { this.producerPushbackEnabled = on; }
+  /**
+   * ORW-669 (0210 C3): while the player is in the Diary Room (their visit this in-game hour or the last, `noteDiaryVisit`), the contradictions between the player's own recorded word and
+   * the player's own recorded acts, as facts. SAID = the player's own assurances (ledger rows the player made, from recorded scenes) and the deals the player is bound by; DID = the player's own
+   * nominations (HOH), their own ballot, and a deal they broke. Never read from the Diary Room entry text (it never reaches this state), never an NPC's hidden state or ballot. No rng, no write.
+   */
+  private producerPushbackView(): PushbackView | undefined {
+    const s = this.live;
+    if (!this.producerPushbackEnabled || !this.diaryCallsLive() || !s) return undefined;
+    const last = s.diaryCalls?.playerLast, abs = this.inGameAbsHour()!;
+    if (last === undefined || abs - last > 1) return undefined;
+    const said: PlayerSaid[] = [];
+    const did: PlayerDid[] = [];
+    for (const d of this.deals.forParty(PLAYER)) {
+      const other = d.parties[0] === PLAYER ? d.parties[1] : d.parties[0];
+      if (d.condition.protect === other && d.condition.promisors.includes(PLAYER) && d.status !== "lapsed") {
+        said.push({ claimId: d.id, to: other, promise: "deal", week: d.madeWeek ?? 1 });
+        if (d.status === "broken" && d.brokenBy === PLAYER) did.push({ eventId: `deal:${d.id}`, act: "broke-deal", target: other, week: s.week });
+      }
+    }
+    if (s.assurances) {
+      for (const a of AssuranceLedger.fromJSON(s.assurances).all) {
+        if (a.from !== PLAYER || a.source !== "player") continue;
+        said.push({ claimId: a.id, to: a.to, promise: a.kind === "safe" ? "safe" : a.kind === "vote" ? "vote-with" : "not-target", week: a.week });
+      }
+    }
+    for (const d of s.weekDigests ?? []) if (d.hoh === PLAYER) for (const n of d.nominees) did.push({ eventId: `nom:${d.week}:${n}`, act: "nominated", target: n, week: d.week });
+    if (s.hoh === PLAYER && s.nominees && !(s.weekDigests ?? []).some((d) => d.week === s.week)) for (const n of s.nominees) did.push({ eventId: `nom:${s.week}:${n}`, act: "nominated", target: n, week: s.week });
+    for (const r of s.voteRecord ?? []) { const t = r.voteOf[PLAYER]; if (t) did.push({ eventId: `vote:${r.week}:${t}`, act: "voted-against", target: t, week: r.week }); }
+    if (!said.length || !did.length) return undefined;
+    const facts = pushbackFacts(said, did, (id) => this.nameOf(id), s.week);
+    return facts.length ? { register: producerRegisterWords(this.gameSeed ?? 0), facts } : undefined;
+  }
   /** The Diary Room calls as facts for the narrator, or undefined. */
   private diaryCallView(invited: boolean): DiaryCallView | undefined {
     if (!this.diaryCallsLive()) return undefined;
@@ -21890,6 +21927,7 @@ export class GameSessionAdapter implements GameSession {
       // 0013 §5 / PG-14 / PS-4: the producer's Diary-Room invitation at the current dramatic beat.
       ...(drPrompt.invite ? { diaryRoomInvite: drPrompt as { invite: true; reason?: string } } : {}),
       ...(this.diaryCallView(drPrompt.invite) ? { diaryCall: this.diaryCallView(drPrompt.invite)! } : {}), // ORW-668 (0210 C2): the Diary Room calls as facts to voice
+      ...(this.producerPushbackView() ? { producerPushback: this.producerPushbackView()! } : {}), // ORW-669 (0210 C3): the producer's pushback as facts to voice
       // 0115: the player's DR strategy as a PRIVATE narrator steer (present only when they've recorded one).
       ...(drStrategy.length ? { playerDiaryRoom: drStrategy } : {}),
       // #1793: the player's dossier (present only when the flag is ON and there are tagged entries).
