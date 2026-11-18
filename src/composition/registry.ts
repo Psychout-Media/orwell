@@ -28,6 +28,8 @@ import type { UserSaveStore } from "../ports/UserSaveStore";
 import type { UserNotorietyStore } from "../ports/UserNotorietyStore";
 import { InMemoryUserNotorietyStore } from "../adapters/engine/FileUserNotorietyStore";
 import { deriveNotoriety } from "../engine/notoriety";
+import type { UserHallOfFameStore } from "../ports/UserHallOfFameStore";
+import { InMemoryUserHallOfFameStore } from "../adapters/engine/FileUserHallOfFameStore";
 import { nextSeasonNumber } from "../engine/returnees";
 import type { UserSeasonArchive } from "../ports/UserSeasonArchive";
 import { InMemoryUserSeasonArchive } from "../adapters/engine/FileUserSeasonArchive";
@@ -614,16 +616,19 @@ export class GameSessionRegistry {
    * cutover by construction, R4).
    */
   private readonly notorietyStore: UserNotorietyStore;
+  /** 0208 B3: the per-user hall of fame (a separate subtree like notoriety; survives `resetUser`). */
+  private readonly hallStore: UserHallOfFameStore;
   /** 0208 / ORW-663 (B1) - the per-user archive of finished seasons' houseguests (engine-only; survives `resetUser` like the notoriety store). */
   private readonly seasonArchive: UserSeasonArchive;
 
   constructor(
     private readonly saveStore?: UserSaveStore,
-    opts: { maxResident?: number; notorietyStore?: UserNotorietyStore; seasonArchive?: UserSeasonArchive } = {},
+    opts: { maxResident?: number; notorietyStore?: UserNotorietyStore; hallStore?: UserHallOfFameStore; seasonArchive?: UserSeasonArchive } = {},
   ) {
     this.seasonArchive = opts.seasonArchive ?? new InMemoryUserSeasonArchive();
     this.maxResident = Math.max(1, opts.maxResident ?? GameSessionRegistry.DEFAULT_MAX_RESIDENT);
     this.notorietyStore = opts.notorietyStore ?? new InMemoryUserNotorietyStore();
+    this.hallStore = opts.hallStore ?? new InMemoryUserHallOfFameStore();
   }
 
   /** R3 — invalidate the user's cached snapshot: advance the rev so the next export recomputes. */
@@ -705,6 +710,7 @@ export class GameSessionRegistry {
       sb.syncAdmin(); // the admin's inspectable state tracks the live game (B58/E5)
       this.commit(user);
     };
+    sb.session.setHallOfFameSource(() => this.hallStore.read(user)); // 0208 B3: this user's hall only (per-user closure; never a cross-user read)
     sb.session.setOnPersist(persist); // save-on-mutation (0030) / checkpoint-then-save (B41)
     sb.commands.setOnPersist(persist);
     // R-BND (#628): fail-soft FE-driven enrichments (0062 zeitgeist, 0070 off-screen texture) persist
@@ -966,6 +972,13 @@ export class GameSessionRegistry {
       const outcome = this.sandboxes.get(user)?.session.openSetOutcome();
       if (outcome) this.notorietyStore.accumulate(user, deriveNotoriety(outcome));
     } catch { /* notoriety is a retention nicety — never let it wedge a reset */ }
+    // 0208 B3 — FILE the dead season in the player's hall of fame at the same cutover (the only point the finished season still exists): public ceremony facts + the
+    // unsealed "your edit" only, per user, append-only, fail-soft (a failed filing never blocks the next season). Flag off or a season that did not finish files nothing.
+    try {
+      const draft = this.sandboxes.get(user)?.session.hallRecordDraft(this.hallStore.read(user).length + 1);
+      if (draft) this.hallStore.append(user, draft);
+    } catch { /* the hall is a keepsake: never let it wedge a reset */ }
+
     // 0208 (B1) - archive the finished, PLAYED season's houseguests beside the notoriety (best-effort; never wedges the cutover). The season number is one past the latest on file.
     try {
       const sess = this.sandboxes.get(user)?.session;
@@ -973,6 +986,7 @@ export class GameSessionRegistry {
       const entries = sess?.archiveFinishedSeason(nextSeasonNumber(known));
       if (entries && entries.length > 0) this.seasonArchive.append(user, entries);
     } catch { /* the archive is a retention nicety - never let it wedge a reset */ }
+
     // G12: the dead season's queued (derived) soul-index work must not crowd the shared
     // breathing lane the new season seeds through — discard it with the sandbox it served.
     this.sandboxes.get(user)?.engine.soul.discardPending();

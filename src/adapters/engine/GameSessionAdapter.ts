@@ -115,6 +115,7 @@ import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { PULL_QUOTE } from "../../engine/pullQuoteConstants";
 import { buildDecisionReveal } from "../../engine/decisionReveal";
 import { buildGroupLife, type GroupLifeRow, type GroupLifeView } from "../../engine/groupLifeRetro";
+import { buildHallRecord, hallView, mergeHall, type HallOfFameView, type HallRecord } from "../../engine/hallOfFame";
 import { buildReunion, buildYourStories, type ReunionView, type StoryGuest, type YourStoriesView } from "../../engine/reunionRetro";
 import { claimText } from "../../engine/rumorMill";
 import { buildYourEdit, sceneMoment, weekMoments, weeksOfLog, type YourEditView } from "../../engine/yourEdit";
@@ -126,7 +127,7 @@ import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
 import { weighDealBreak, decideDealBreak, isWeighableKind, renegotiatedKind } from "../../engine/dealTemptation";
 import { DEAL_EXPOSURE, exposureHits, reopened, twistKey, type DealTwist } from "../../engine/dealExposure";
-import { DEAL_PLANS, PLAN_SEMANTICS, buildDealPlanRetro, decidePlan, fakingLean, isBetrayal, ledgerPlanKey, momentDue, planBond, planSourceOf, recordPlan, type DealPlanRetro, type PlanSource, type StoredPlan } from "../../engine/dealPlans";
+import { DEAL_PLANS, planSemantics, buildDealPlanRetro, decidePlan, fakingLean, isBetrayal, ledgerPlanKey, momentDue, planBond, planSourceOf, recordPlan, type DealPlanRetro, type PlanSource, type StoredPlan } from "../../engine/dealPlans";
 import { DEAL_CONSENT, type DealRefusalReason } from "../../engine/dealConsentConstants";
 import { DECISION, NOMINATION_STYLE_BY_ARCHETYPE } from "../../engine/decisionConstants";
 import { drawPhilosophy, styleOfPhilosophy } from "../../engine/philosophy";
@@ -1255,6 +1256,30 @@ export class GameSessionAdapter implements GameSession {
   /** 0208 B2 (Theme B): a returning player's reputation walks in deeper (`ORWELL_SEASON_MEMORY`, default ON; `=0` is today's 0104 alone): the house's heard record of their broken word feeds the carried treachery. */
   private seasonMemoryEnabled = flagDefaultOn("ORWELL_SEASON_MEMORY");
   setSeasonMemoryEnabled(on: boolean): void { this.seasonMemoryEnabled = on; }
+  /** 0208 B3: where this user's filed hall of fame is read from (the registry binds it per user; absent in a bare session = an empty hall). */
+  private hallSource: (() => HallRecord[]) | undefined;
+  setHallOfFameSource(read: (() => HallRecord[]) | undefined): void { this.hallSource = read; }
+  /** 0208 B3: this finished season as a hall record, from public ceremony facts and the unsealed "your edit" (null while live, not played, or the flag is off). `season` is its number in this user's hall. */
+  hallRecordDraft(season: number): HallRecord | null {
+    const out = this.openSetOutcome();
+    const s = this.live;
+    if (!this.seasonMemoryEnabled || !out || !s?.finished || s.playedGame !== true || !this.house) return null;
+    const order = s.evictionOrder ?? [];
+    const runnerUp = s.finalTwo?.find((id) => id !== s.winner);
+    const you = this.buildYourEditView()?.you;
+    return buildHallRecord({
+      season, placement: out.placement, juror: order.slice(-9).includes(PLAYER), castSize: out.castSize,
+      playerName: this.nameOf(PLAYER),
+      ...(s.winner ? { winnerName: this.nameOf(s.winner) } : {}), ...(runnerUp ? { runnerUpName: this.nameOf(runnerUp) } : {}),
+      ...(you ? { you } : {}),
+    });
+  }
+  hallOfFame(): HallOfFameView {
+    if (!this.seasonMemoryEnabled) return hallView([]);
+    const filed = this.hallSource?.() ?? [];
+    const draft = this.hallRecordDraft(filed.length + 1);
+    return hallView(draft ? mergeHall(filed, [draft]) : filed);
+  }
   private reputationOn(): boolean { return this.reputationEnabled && this.live?.playedGame === true && this.bondRecordEnabled; }
   /**
    * 0184: `observer`'s standing for `target` (1 = nothing heard against them), from the observer's OWN belief claims about the target (a wrong they heard of or witnessed done to someone else) and from the
@@ -1719,7 +1744,7 @@ export class GameSessionAdapter implements GameSession {
     const plan = this.dealPlanSource().planOf(ledgerPlanKey(entryId), holder);
     if (!plan) return undefined;
     if (!isBetrayal(plan.kind)) return false;
-    return PLAN_SEMANTICS[plan.kind].carriedOut === "final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
+    return planSemantics(plan.kind).carriedOut === "final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
   }
   /** ORW-586 slice 5: the plan verdict for the open termed promise an assurance row was written from (same promiser, promisee, kind and week); any due betrayal wins. `undefined` = no plan found. */
   private ledgerPlanVerdictFor(a: Assurance, now: "nominations" | "veto" | "vote"): boolean | undefined {
@@ -19791,7 +19816,7 @@ export class GameSessionAdapter implements GameSession {
       && (d.condition.protect === other || d.condition.promisors.length === 2) // a mutual deal protects each party from the other
       && (() => {
         const p = this.twoFacedPlan(d.id, holder);
-        if (!p || PLAN_SEMANTICS[p.kind].carriedOut !== "vote" || !p.moment || !momentDue(p.moment, s.week, "vote")) return false;
+        if (!p || planSemantics(p.kind).carriedOut !== "vote" || !p.moment || !momentDue(p.moment, s.week, "vote")) return false;
         const all = this.deals.all, at = all.indexOf(d);
         return !all.some((n, i) => i > at && pair(n)); // recommitted since (made after this deal, same week or later): the newer deal stands
       })());
@@ -19861,7 +19886,7 @@ export class GameSessionAdapter implements GameSession {
         }
         const partner = deal.parties.find((p) => p !== holder);
         if (partner !== undefined && gone.has(partner)) { plan.outcome = "overtaken"; continue; } // ORW-597: never against an evicted partner (nothing to betray in the house)
-        const how = PLAN_SEMANTICS[plan.kind].carriedOut;
+        const how = planSemantics(plan.kind).carriedOut;
         if (how === "never" || how === "vote" || gone.has(holder)) continue; // honest; or a flip, which the vote itself carries out
         const due = how === "final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
         if (!due) continue;

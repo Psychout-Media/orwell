@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { DEAL_PLANS, FAKING, PLAN_SEMANTICS, fakingLean, isBetrayal, planBond, buildDealPlanRetro, decidePlan, momentDue, planLean, planSourceOf, recordPlan, twoFacedChance, type PlanInputs, type PlanStore } from "../../src/engine/dealPlans";
+import { npcAssuranceSincerity } from "../../src/engine/assurances";
+import { DEAL_PLANS, FAKING, PLAN_SEMANTICS, planSemantics, fakingLean, isBetrayal, planBond, buildDealPlanRetro, decidePlan, momentDue, planLean, planSourceOf, recordPlan, twoFacedChance, type PlanInputs, type PlanStore } from "../../src/engine/dealPlans";
 
 /** Feature 0178 - two-faced deals: the pure rules. Roles only: a holder, the player. */
 const base: PlanInputs = { kind: "safety", margin: 0, dealsMade: 1, temperament: 0, loyaltyDial: 1, lyingDial: 1, week: 2 };
@@ -33,7 +34,7 @@ describe("two-faced deals (dealPlans.ts)", () => {
     expect(decidePlan({ ...sure, kind: "safety" }, { twoFaced: 0, which: 0 })).toEqual({ kind: "break-at", moment: { week: 2, at: "nominations" } });
     // ORW-601: a safety deal ends at the week roll anyway, so its other two-faced shape is a flip at this week's vote, never "this week only" (= keeping it)
     expect(decidePlan({ ...sure, kind: "safety" }, { twoFaced: 0, which: 0.99 })).toEqual({ kind: "flip", moment: { week: 2, at: "vote" } });
-    // a betrayal that waits a week is a break at next week's nominations ("this-week" is honest: PLAN_SEMANTICS)
+    // a betrayal that waits a week is a break at next week's nominations
     expect(decidePlan({ ...sure, kind: "target-other" }, { twoFaced: 0, which: 0.99 })).toEqual({ kind: "break-at", moment: { week: 3, at: "nominations" } });
     expect(decidePlan({ ...sure, kind: "final-two" }, { twoFaced: 0, which: 0.99 })).toEqual({ kind: "break-at", moment: { week: 3, at: "nominations" } });
     expect(decidePlan({ ...sure, kind: "comp-throw" }, { twoFaced: 0, which: 0 })).toEqual({ kind: "keep" }); // a kind with no two-faced plan
@@ -48,10 +49,11 @@ describe("two-faced deals (dealPlans.ts)", () => {
     expect(at(DEAL_PLANS.bondNeutral)).toBeCloseTo(twoFacedChance({ ...base, temperament: 0.5, margin: -5 }), 12); // a neutral bond moves nothing
   });
   it("the plan-semantics table: one answer to 'is it a betrayal, how is it carried out, when does it expire', and every shape the planner deals is a betrayal", () => {
-    expect(Object.keys(PLAN_SEMANTICS).sort()).toEqual(["break-at", "cut-final-three", "flip", "keep", "this-week"]);
+    expect(Object.keys(PLAN_SEMANTICS).sort()).toEqual(["break-at", "cut-final-three", "flip", "keep"]);
     expect(isBetrayal("keep")).toBe(false);
-    expect(isBetrayal("this-week")).toBe(false); // honest: kept for this week, then lapses
-    expect(PLAN_SEMANTICS["this-week"].carriedOut).toBe("never");
+    // ORW-601: there is no "this-week" plan (it was the same as keeping); a plan from an older save under a retired kind reads as keep
+    expect(isBetrayal("this-week" as never)).toBe(false);
+    expect(planSemantics("this-week" as never)).toEqual(PLAN_SEMANTICS.keep);
     expect(PLAN_SEMANTICS.flip.carriedOut).toBe("vote");
     for (const kind of ["safety", "vote", "final-two", "target-other", "protect-third"] as const)
       for (let r = 0; r < 1; r += 0.05) {
@@ -59,6 +61,32 @@ describe("two-faced deals (dealPlans.ts)", () => {
         expect(isBetrayal(p.kind)).toBe(true);
         expect(PLAN_SEMANTICS[p.kind].carriedOut === "final-three" || p.moment !== undefined).toBe(true);
       }
+  });
+  it("ORW-601: the retune lifts FIRST deals - an even spread of people, an ordinary margin and bond, about 1 in 5 on a first deal (was under 3%), rising with each deal", () => {
+    const people = Array.from({ length: 10 }, (_, k) => 0.05 + k * 0.1);
+    const mean = (dealsMade: number) => people.reduce((a, c) => a + twoFacedChance({ ...base, margin: -0.5, bond: DEAL_PLANS.bondNeutral, dealsMade, temperament: c }), 0) / people.length;
+    expect(mean(1)).toBeGreaterThan(0.15);
+    expect(mean(1)).toBeLessThan(0.25);
+    expect(mean(4)).toBeGreaterThan(0.5);
+    for (const c of people) expect(twoFacedChance({ ...base, margin: -0.5, bond: DEAL_PLANS.bondNeutral, dealsMade: 1, temperament: c })).toBeGreaterThan(0.04); // no one is at zero on a first deal
+  });
+  it("ORW-601: a casual assurance is faked on the same model as a deal (the shared chance), and the older loyalty rule only stands when none is passed", () => {
+    const pFake = twoFacedChance({ ...base, margin: -0.5, dealsMade: 1, temperament: 0.5 });
+    let lies = 0;
+    const N = 1000;
+    for (let k = 0; k < N; k++) if (npcAssuranceSincerity(1, (k + 0.5) / N, pFake) < 1) lies++;
+    expect(lies / N).toBeCloseTo(pFake, 2);
+    expect(npcAssuranceSincerity(1, 0.99)).toBe(1); // no shared chance: a fully loyal houseguest is always sincere
+  });
+  it("ORW-601: no plan is 'this week only' - a safety deal's two-faced shapes are a break at the nominations or a flip at the vote, and every shape is a betrayal", () => {
+    const kinds = new Set<string>();
+    for (const kind of ["safety", "target-other", "protect-third", "vote", "final-two"] as const)
+      for (let r = 0; r < 1; r += 0.01) kinds.add(decidePlan({ ...base, kind, margin: 5 }, { twoFaced: 0, which: r }).kind);
+    expect(kinds.has("this-week")).toBe(false);
+    expect([...kinds].sort()).toEqual(["break-at", "cut-final-three", "flip"]);
+    const safety = new Set<string>();
+    for (let r = 0; r < 1; r += 0.01) safety.add(decidePlan({ ...base, kind: "safety", margin: 5 }, { twoFaced: 0, which: r }).kind);
+    expect([...safety].sort()).toEqual(["break-at", "flip"]);
   });
   it("a plan is recorded once and never replaced; no plan reads as none", () => {
     const store: PlanStore = {};

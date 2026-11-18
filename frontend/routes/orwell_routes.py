@@ -742,6 +742,46 @@ def _sanitize_knowledge(visible: dict, state: dict) -> list:
         items.append({"content": content, "source": source, "subject": subject})
     return items
 
+# 0208 B3 (ORW-665): the hall of fame - the player's finished seasons, outside any game. Public facts only, shaped server-side
+# to a fixed whitelist (no ids, no event ids): season, placement, result, cast size, winner / runner-up NAMES, the player's own
+# competition-win count, and the best-move / worst-betrayal facts (kind, actor, subject names).
+def _hall_fact(f) -> dict | None:
+    if not isinstance(f, dict) or not f.get("kind"):
+        return None
+    out = {"kind": str(f["kind"])}
+    for k in ("actor", "subject"):
+        if isinstance(f.get(k), str) and f[k].strip():
+            out[k] = f[k].strip()
+    return out
+
+
+def _sanitize_hall(view) -> dict:
+    seasons: list = []
+    for r in (view.get("seasons") if isinstance(view, dict) else None) or []:
+        if not isinstance(r, dict) or not isinstance(r.get("season"), int) or isinstance(r.get("season"), bool):
+            continue
+        row: dict = {"season": r["season"]}
+        if isinstance(r.get("placement"), int):
+            row["placement"] = r["placement"]
+        if isinstance(r.get("result"), str):
+            row["result"] = r["result"]
+        if isinstance(r.get("castSize"), int):
+            row["castSize"] = r["castSize"]
+        for k in ("winnerName", "runnerUpName"):
+            if isinstance(r.get(k), str) and r[k].strip():
+                row[k] = r[k].strip()
+        counts = r.get("counts")
+        if isinstance(counts, dict) and isinstance(counts.get("compWins"), int):
+            row["compWins"] = counts["compWins"]
+        for src, dst in (("bestMove", "bestMove"), ("worstBetrayal", "worstBetrayal")):
+            fact = _hall_fact(r.get(src))
+            if fact:
+                row[dst] = fact
+        seasons.append(row)
+    seasons.sort(key=lambda x: x["season"], reverse=True)  # newest first
+    return {"seasons": seasons}
+
+
 # ── M4-1: the houseguest dossier (audit C4 + idea 12) ──────────────────────────────────────────
 # Content contract (DoR, fixed by the road-to-market backlog): public persona + met/last-seen +
 # WITNESSED history beats + public alliances/deals with the player — facts and sources ONLY,
@@ -1239,6 +1279,21 @@ def setup_orwell_routes() -> APIRouter:
         items = _sanitize_knowledge(visible, state)
         _clear_warn("knowledge")
         return {"started": True, "items": items}
+
+    @router.get("/hall-of-fame")
+    async def orwell_hall_of_fame(request: Request):
+        """0208 B3 - the hall of fame: finished seasons filed per user, readable between games. Fails SOFT to an empty
+        hall: no game / no save for this user (the engine refuses an unknown user rather than minting a sandbox), the
+        tool absent, or any hiccup. Public facts only (`_sanitize_hall`)."""
+        user = _current_user(request)
+        try:
+            view = await orwell_engine.hall_of_fame(user=user)
+        except Exception as e:
+            if not getattr(e, "no_game", False):
+                _warn_throttled("hall-of-fame", f"[orwell] hall of fame failed: {_err_detail(e)}")
+            return {"seasons": []}
+        _clear_warn("hall-of-fame")
+        return _sanitize_hall(view)
 
     @router.get("/dossier/{houseguest_id}")
     async def orwell_dossier(houseguest_id: str, request: Request):
