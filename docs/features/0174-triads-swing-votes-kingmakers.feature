@@ -29,6 +29,10 @@ Feature: Balanced triads pull friends together, and a deciding vote is courted
     Given a triads season where the player's own vote could decide an eviction
     Then triads: the camps pitch the player and one stands as an offer they may decline, and no ballot is set for them
 
+  Scenario: The vote pitch has its own offer slot beside any other approach
+    Given a triads season where the player's vote could decide an eviction while another offer already stands
+    Then triads: the vote pitch lands in its own slot, the other offer stays, each is answered on its own, and the flag off keeps today's single slot
+
   Scenario: The player's own conduct and standing move the triads
     Given a triads season where two houseguests both hold the player as an enemy, and two others hold the player as a friend
     Then triads: the first two grow warmer toward each other and so do the others
