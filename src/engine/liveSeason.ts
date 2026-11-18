@@ -100,7 +100,7 @@ import {
 import {
   phaseForHour, bedtimeDepthFor, restDeficitForDepth, emergentBedtimeHour, wakeHourAfterBed, DAY_START, WAKE_HOUR, DAY_END_HOUR, type TimeOfDay,
 } from "./timeOfDay";
-import { CLOCK, NAP } from "./sleepConstants";
+import { CLOCK, NAP, LONG_NIGHT_BEAT_SCALE } from "./sleepConstants";
 
 /**
  * The LIVE weekly loop (feature 0011, wired into the running game). Unlike
@@ -999,6 +999,8 @@ export interface LiveSeasonState {
   goalApproaches?: Record<string, { desire: string; goalId: string; hour: number }>;
   /** ORW-581 (Fable T1-14, played games only): the absolute in-game hour of the last house-life stretch and how many stretches came before it in that same hour (0 = it was the first). Keys a repeated hour's rolls fresh. */
   lifeHour?: { at: number; n: number };
+  /** ORW-668 (0210 C2, played games only): the Diary Room calls - who is in there now, the append-only record of finished calls (`diaryCallSeen`, no content field), calls per day, the player's last recorded visit. Engine-only. Absent in headless sims => byte-identical. */
+  diaryCalls?: import("./diaryCalls").DiaryCallsState;
   /** ORW-651 / spec 0209 (VAULT-CLASS, engine-only, never projected): each houseguest's routines, composed once and kept (never replaced or thinned); and the days the player has seen each kept (3 separate days = known). A played game only. */
   routines?: Record<EntityId, import("./routines").Routine[]>;
   routineSightings?: import("./routineLife").RoutineSightings;
@@ -1020,6 +1022,8 @@ export interface LiveSeasonState {
   preNomsNightPassed?: boolean;
   /** ORW-258 (Ryne's one-event-per-day cadence): the night between an eviction and the NEXT week's HOH competition has passed (re-armed each reign; week 1 uses `firstNightPassed`). */
   preHohNightPassed?: boolean;
+  /** ORW-652 (ORWELL_LONG_NIGHT, played games only): this game keeps a double eviction as ONE continuous night. Stamped by the adapter on a played message (cleared when the flag is off); while a twist runs, the clock charges a fraction of each beat, never rolls the day, and no schedule or bedtime hold applies. Absent => byte-identical. */
+  longNight?: true;
   /** P4b — set once the one-shot day-1 `day-break` (the premiere exit that starts the first morning WITHOUT staging the HOH comp) has fired. Clock-live only; absent ⇒ byte-identical. */
   firstMorningPassed?: boolean;
   /** ORW-116 (a): set once the first NIGHT (premiere evening -> first morning) has been crossed, so the first HOH can be due that afternoon. Clock-live only; absent => byte-identical. */
@@ -2702,7 +2706,17 @@ export function competitionCrownHours(s: LiveSeasonState, beat: Beat, feltHours:
  * replay (per-conversation clock off, master on) keeps the flat default and the fixture is unchanged.
  */
 export function advanceClock(s: LiveSeasonState, hours: number = CLOCK.perBeatHours): void {
+  if (longNightRunning(s) && s.nightDepth !== undefined && !s.finished) { // ORW-652: one continuous night - a fraction of the usual hours, and the day never rolls until the second eviction is done
+    s.nightDepth = Math.min(s.nightDepth + hours * LONG_NIGHT_BEAT_SCALE, DAY_END_HOUR - 0.0001);
+    s.timeOfDay = phaseForHour(s.nightDepth);
+    return;
+  }
   advanceClockBy(s, hours, true);
+}
+
+/** ORW-652: is the second cycle of a double-eviction night running in a game that keeps it as one long night? Pure read of persisted state (a restore resumes it identically). */
+export function longNightRunning(s: Pick<LiveSeasonState, "longNight" | "playedGame" | "twist">): boolean {
+  return s.longNight === true && s.playedGame === true && s.twist?.kind === "double-eviction" && s.twist.phase === "running";
 }
 
 /**

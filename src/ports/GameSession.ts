@@ -6,6 +6,8 @@ import type { Receipt } from "../engine/receipts";
 import type { PullQuoteWeek } from "../engine/pullQuoteReel";
 import type { StructuralMilestone } from "../engine/daySchedule";
 import type { TimeOfDay } from "../engine/timeOfDay";
+import type { DiaryCallView } from "../engine/diaryCalls";
+export type { DiaryCallView };
 import type { DealPlanRetro } from "../engine/dealPlans";
 
 /**
@@ -603,6 +605,8 @@ export interface GameStateView {
   napOpen?: true;
   /** ORW-466 slice 2: the move-in bed pick, per turn (moment prompt only): which bedrooms have free beds and who sleeps in each, the player's own bed, and this turn's claim result. Public facts. Absent outside the claim window. */
   beds?: string;
+  /** ORW-652 (moment prompt only): the shape of a double-eviction night while its second cycle runs (who left, the instant crown, the hurried block), from public facts. Absent outside it. */
+  longNight?: string;
   /** 0152: this turn's engine answer to "who told you that?" (one Vault-free line: who is named, that they will not say, or that they saw it). Absent otherwise. */
   sourceNote?: string;
   /** 0156 (theme 2, slice 7b): the house meeting the player was in the house and awake to hear, as the speakers' words (moment prompt only, one turn). Names only; never whether anything said is true, why it was called, ids, or how any houseguest took it. Absent otherwise. */
@@ -628,6 +632,11 @@ export interface GameStateView {
    * a forced interruption, and it carries no obligation — declining changes nothing.
    */
   diaryRoomInvite?: { invite: true; reason?: string };
+  /**
+   * ORW-668 (0210 C2, `ORWELL_DIARY_CALLS`): the Diary Room calls the narrator voices - who production has called away (and is in there now), who has just come back and how long and how they looked,
+   * and whether the player is invited this beat. Names and words only: no content of any confessional, no id, no number. Absent for headless games or with the flag off.
+   */
+  diaryCall?: DiaryCallView;
   /**
    * 0115 — the player's recent Diary-Room STRATEGY, in their own words (most-recent-first, capped).
    * Vault-free by construction: it is the player's OWN out-of-character `NO_NPC_PATHWAY` knowledge —

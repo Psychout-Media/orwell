@@ -102,6 +102,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_DEAL_WITNESSES', key: 'dealsWitnesses', parser: 'defaultOn' },
   // A8: the NPC desire clock (an NPC whose want crossed its threshold cuts in). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_DESIRE_CLOCK', key: 'desireClock', parser: 'defaultOn' },
+  // ORW-668 / 0210 C2: production visibly calls a houseguest to the Diary Room and the house sees them go and come back (who, how long, how they looked; never what was said); the player is invited, never sent. A played game only; changes no outcome. `=0` opts out.
+  { envKey: 'ORWELL_DIARY_CALLS', key: 'diaryCalls', parser: 'defaultOn' },
   { envKey: 'ORWELL_DISCLOSURE_ENGINE', key: 'disclosureEngine', parser: 'defaultOn' },
   // 0196 / ORW-630: a pressed houseguest the engine has decided will not answer also gets HOW they dodge (what they do with the question, how their carriage reads, whether they hand it back), decided on a keyed side stream from their character, bond and the stakes, saved, and handed to the narrator as a third-person fact. A played game only. `=0` turns it off.
   { envKey: 'ORWELL_DODGING', key: 'dodging', parser: 'defaultOn' },
@@ -172,6 +174,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_LIES_CAUGHT', key: 'liesCaught', parser: 'defaultOn' },
   // B6 / #2017: NPC-to-NPC lobbying of the HOH (a bounded pitch tilt in the nomination score). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_LOBBYING', key: 'lobbying', parser: 'defaultOn' },
+  // ORW-652 (Ryne 11-17): a double eviction plays as ONE long night in a played game - the second cycle (instant HOH, hurried nominations, rushed veto, second eviction) charges a fraction of its hours, never rolls the day, and no schedule or bedtime hold interrupts it; the narrator is told the night's shape each turn. ON by default; `=0` turns it off, byte-identical.
+  { envKey: 'ORWELL_LONG_NIGHT', key: 'longNight', parser: 'defaultOn' },
   // ORW-653 / 0205: MEET THE CAST - the champagne circle's toast speakers are officially introduced one by one and each forms a first impression of the player (a small hidden fold); the narrator is handed their visible manner as facts. A played game only. `=0` = the old circle.
   { envKey: 'ORWELL_MEET_THE_CAST', key: 'meetTheCast', parser: 'defaultOn' },
   // B25-friends layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
