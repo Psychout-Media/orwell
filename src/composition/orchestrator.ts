@@ -6,6 +6,7 @@ import { counts, isSuperset, countsNonDecreasing } from "../domain/saveState";
 import { richOffscreenStretch } from "../engine/offscreen";
 import { scaleImpactByValence, natureFoldImpact } from "../engine/relationshipConstants";
 import { rollOverhears } from "../engine/presence";
+import { overheardLine } from "../engine/houseLife";
 import { spreadForScenes } from "../engine/copresenceSpread";
 import type { NetworkRoles } from "../engine/networkSpread";
 import { natureFromContent } from "../engine/gossipBeliefs";
@@ -912,7 +913,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
     const room = occupancy?.get(s.initiator);
     if (occupancy && room) {
       rollOverhears({
-        eventId: s.event.id, room, content: s.event.content, participants: s.event.witnessSet,
+        eventId: s.event.id, room, content: s.event.content, participants: s.event.witnessSet, heard: overheardLine(s.event), // ORW-579
         occupancy, knowledge: sandbox.engine.knowledge, rng,
       });
     }

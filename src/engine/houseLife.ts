@@ -576,6 +576,18 @@ export function actionLine(p: PlannedAction): string {
 }
 
 /**
+ * ORW-579 (Fable T1-12c): what a LISTENER through a wall could take from a hidden scene - a voice, and (for a clash or a plain house-life or romance act, which are heard as themselves)
+ * the act - never the engine's own label for why (a pitch, a frame, a betrayal, an alliance). It is the leading words of the engine line cut BEFORE the label, never a fixed share of the
+ * line (a share of that line carries the label), so it stays a real fragment of the source (the knowledge service anchors an overhear on content lineage). Ids in, ids out.
+ */
+export function overheardLine(e: { initiator: EntityId; type: string; content: string; houseLife?: { action: string } }): string {
+  const spec = e.houseLife ? ACTIONS[e.houseLife.action as ActionKind] : undefined;
+  const act = spec ? (spec.fold === "conflict" || spec.family === "house-life" || spec.family === "romance" ? VERB[e.houseLife!.action as ActionKind] : undefined) : e.type === "conflict" ? "clashed with" : undefined;
+  const lead = act ? `${e.initiator} ${act}` : e.initiator;
+  return e.content.startsWith(lead) ? lead : e.initiator;
+}
+
+/**
  * ORW-621 (0198): what the player SEES of a step taken in their own room - the act and the manner, never why. A goal step (a pitch, a plant, a flip, a plea) shows as
  * the plain act of having a word with someone; a house-life or romance act, and a clash, show as themselves. The subject of a rumor, the goal and the truth of what was
  * said never appear. The words are the existing action vocabulary (`VERB`); `name` turns an id into the name the player knows.
