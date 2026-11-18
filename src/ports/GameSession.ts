@@ -2974,6 +2974,10 @@ export interface RecordCastGenesisReq {
   npcs: GenesisNpcDTO[];
   /** The proposed pre-show tie graph (0–2 pairs; excess dropped, sanity-validated, sealed). */
   ties?: GenesisTieDTO[];
+  /** ORW-532: the recent-seasons memory (names); a proposed name on it is refused. Sent by the front end for unseeded casts. */
+  avoid?: AvoidWire;
+  /** ORW-532: keep each warmed card's dealt surname; the writer picks the given name. */
+  keepDealtSurname?: boolean;
   /**
    * ORW-509: the writer-authored HOUSE for the season (name, pitch, 13 rooms with a name and a look), authored by the setup call from the season's own facts with no menu.
    * The engine reads it with `acceptHouseThemeDraft` (shape, length, unique, not-plain, fresh against the library and the last seasons); on refusal the plain room labels stand.
