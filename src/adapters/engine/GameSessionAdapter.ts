@@ -19885,6 +19885,12 @@ export class GameSessionAdapter implements GameSession {
     return armed.filter(([kind, on]) => on && !fired.has(kind)).map(([kind]) => ({ kind, firedWeek: null }));
   }
 
+  /** ORW-641: the 1-based place in the public eviction order, only for someone who has left. */
+  private evictedSeqOf(id: EntityId): { evictedSeq?: number } {
+    const idx = (this.live?.evictionOrder ?? []).indexOf(id);
+    return idx < 0 ? {} : { evictedSeq: idx + 1 };
+  }
+
   /** Any houseguest's public seat (B61): still playing, on the last-9 jury, or out pre-jury. */
   private seatOf(id: EntityId): "active" | "jury" | "evicted" {
     const order = this.live?.evictionOrder ?? [];
@@ -19998,6 +20004,7 @@ export class GameSessionAdapter implements GameSession {
         archetype: p.persona?.archetype ?? p.character.archetype,
         strategyStyle: p.persona?.strategyStyle ?? p.character.strategyStyle,
         status,
+        ...this.evictedSeqOf(p.id), // ORW-641
         ...(this.live?.spectator ? { spectator: this.live.spectator.mode } : {}),
         // ADR 0006 §Principle 5: the player's OWN qualitative tiredness (their body is their knowledge) —
         // a cue, never a number, and never any NPC's sleep state. Present only once the clock is running.
@@ -20024,6 +20031,7 @@ export class GameSessionAdapter implements GameSession {
       house: this.house.npcs.map((n) => ({
         id: n.id, name: n.name,
         status: this.seatOf(n.id),
+        ...this.evictedSeqOf(n.id), // ORW-641: the public eviction place (the cast wall orders the departed by it)
         // B61: the curated PUBLIC persona facets — the narrator's per-person voice anchor
         // (seed-stable, so a houseguest sounds the same in week 8 as week 1). Stats, the
         // soul, and hiddenElements are deliberately NOT selected here.

@@ -467,6 +467,12 @@ def _roster_story_flags(hg: dict) -> dict:
     return out
 
 
+def _roster_evicted_seq(hg: dict) -> dict:
+    """ORW-641: the engine's public 1-based eviction place, carried only when it is a positive int (never a bool)."""
+    seq = hg.get("evictedSeq")
+    return {"evictedSeq": seq} if isinstance(seq, int) and not isinstance(seq, bool) and seq > 0 else {}
+
+
 def _roster_cards(state: dict, user: Optional[str]) -> list:
     """The Vault-free roster cards (0051) from the engine's public projection: id, name,
     status, isPlayer, the persisted portrait ref (or null), and the engine's deep-profile
@@ -488,6 +494,7 @@ def _roster_cards(state: dict, user: Optional[str]) -> list:
             "isPlayer": True,
             "portrait": orwell_portraits.portrait_ref(user, pid),
             "authored": bool(player.get("authored")),
+            **_roster_evicted_seq(player),
         })
     house = state.get("house") if isinstance(state.get("house"), list) else []
     for hg in house:
@@ -501,6 +508,7 @@ def _roster_cards(state: dict, user: Optional[str]) -> list:
             "isPlayer": False,
             "portrait": orwell_portraits.portrait_ref(user, hid),
             "authored": bool(hg.get("authored")),
+            **_roster_evicted_seq(hg),  # ORW-641: the public eviction place, so the cast wall orders the departed
             # ORW-438: the roster card is thin (no biography text), so the story check runs here on the FULL state card and rides as booleans the backfill reads
             # (the ONE story mechanism). A house entry with no look block still counts as a full card, so the key is normalised to None before the check.
             **_roster_story_flags(hg),
