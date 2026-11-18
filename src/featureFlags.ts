@@ -66,6 +66,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // 0181 / ORW-568 (theme 3 slice 4, part 1): a bond's life - a real feeling for someone holds a houseguest back from cutting them (a bounded vote / nomination / alliance-break term) and shakes them after they do (the existing mood, scaled). Needs the bond record. A played game only. `=0` opts out.
   { envKey: 'ORWELL_BOND_FEELINGS', key: 'bondFeelings', parser: 'defaultOn' },
   // 0175 / ORW-552 (Theme 3 Core 1): the bond record per pair (warmth, debts, resentment, strain, history, commitment), folded from what happened; nothing decides from it yet. `=0` = the edge-only bond read.
+  // ORW-605: one scene weighs differently per holder (their warmth-proneness), per pair (history) and per house (the bonding lean) in the bond record. A played game only. `=0` restores the flat base fold.
+  { envKey: 'ORWELL_BOND_RATES', key: 'bondRates', parser: 'defaultOn' },
   { envKey: 'ORWELL_BOND_RECORD', key: 'bondRecord', parser: 'defaultOn' },
   { envKey: 'ORWELL_BOOTH_RECEIPTS', key: 'boothReceipts', parser: 'defaultOn' },
   // ORW-212 / ORW-210: calm, non-magnetic NPC movement on the player-facing view (fewer simultaneous moves, a lower ordinary move chance, the player no longer pulls destinations, the scene-hold keeps only the houseguests the player is talking to). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
@@ -164,6 +166,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_LIES_CAUGHT', key: 'liesCaught', parser: 'defaultOn' },
   // B6 / #2017: NPC-to-NPC lobbying of the HOH (a bounded pitch tilt in the nomination score). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_LOBBYING', key: 'lobbying', parser: 'defaultOn' },
+  // ORW-653 / 0205: MEET THE CAST - the champagne circle's toast speakers are officially introduced one by one and each forms a first impression of the player (a small hidden fold); the narrator is handed their visible manner as facts. A played game only. `=0` = the old circle.
+  { envKey: 'ORWELL_MEET_THE_CAST', key: 'meetTheCast', parser: 'defaultOn' },
   // B25-friends layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_MEMORY_FRIENDS', key: 'memoryFriends', parser: 'defaultOn' },
   // B22: houseguests who HEARD a promise (a casual assurance) remember its keeping / breaking too, at a lower weight. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.

@@ -24,6 +24,8 @@ export interface GrudgeRow {
   eased: number;
   /** Which record the row was last noted from (an engine key, never text). */
   refKey: string;
+  /** ORW-605: how many recorded events existed when the row's current wrong was noted; only a repair scene recorded at or after this counts as coming after the wrong. Absent (older saves) => no such check. */
+  seenAt?: number;
 }
 
 export type GrudgeBook = Record<string, GrudgeRow>;
