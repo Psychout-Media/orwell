@@ -84,3 +84,18 @@ export interface HouseCulture {
 }
 /** How far a culture's lying multiplier (1 = none) shifts a speaker's candor, additively: (lying - 1) x this, so at the 1.35 clamp about 0.09 less candid. */
 export const CULTURE_CANDOR_SHIFT = 0.25;
+
+/**
+ * ORW-621 (0198, the people in your room live too): the pacing of the steps the houseguests in the PLAYER's room take in front of them. Bounded on purpose, so the
+ * room never turns into a stage play that drowns the player's own talk: the player's turn stays primary.
+ */
+export const ROOM_LIFE = {
+  /** The chance a stretch with two or more houseguests in the player's room has ANY of them take a step there (a keyed roll, never a shared draw). */
+  chance: 0.4,
+  /** Most steps taken in the player's room in ONE stretch. */
+  perStretch: 1,
+  /** Most steps taken in the player's room in ONE in-game hour (the extra stretches of a beat that covered hours, a nap or a hang-out count together), and a houseguest takes at most one of them. */
+  perHour: 2,
+  /** How many recent events are read back to count the hour's steps (the cap lives in the record, so a restart cannot reset it). */
+  lookback: 400,
+} as const;

@@ -217,6 +217,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_REPUTATION', key: 'reputation', parser: 'defaultOn' },
   // ORW-223 slice 1 (Showrunner memory part B): the room canon ledger - the narrated texture of a room is recorded as canon and listed in the Show Brief. ON by default ("built means on"); `=0` turns it off.
   { envKey: 'ORWELL_ROOM_CANON', key: 'roomCanon', parser: 'defaultOn' },
+  // ORW-621 (spec 0198): the houseguests in the player's own room take their goal steps there, in the player's view (a bounded few; the player is never moved or spoken for). ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_ROOM_LIFE', key: 'roomLife', parser: 'defaultOn' },
   { envKey: 'ORWELL_SCHEME_TARGETS',         key: 'schemeTargets',          parser: 'defaultOn' },
   { envKey: 'ORWELL_SECRET_BARTER',          key: 'secretBarter',           parser: 'defaultOn' },
   { envKey: 'ORWELL_SECRET_PACING',          key: 'secretPacing',           parser: 'defaultOn' },
