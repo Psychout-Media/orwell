@@ -3,7 +3,7 @@ import { clamp01 } from "../domain/num";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
 import { DECISION } from "./decisionConstants";
 import type { RelationshipModel } from "./relationships";
-import { BOND, bondOf, bondStrengthOf, kindOf, strandsOf, type BondStore, type Strand } from "./bondRecord";
+import { BOND, bondOf, bondStrengthOf, kindOf, strandsOf, withGrievance, type BondStore, type BookWrong, type Strand } from "./bondRecord";
 
 /**
  * Theme 3 Core 1 (ORW-552, Ryne approved 2026-11-17) - THE BOND PER PAIR: the read API.
@@ -104,14 +104,19 @@ export function edgeBondReader(rel: RelationshipModel, living: () => readonly En
 /** Extra debt a holder is owed (+) or owes (-) from another source of truth (slice 3's favor ledger), added to the record's own debt (saves) and clamped -1..1. */
 export type DebtSource = (holder: EntityId, other: EntityId) => number;
 
-export function recordBondReader(rel: RelationshipModel, store: () => BondStore | undefined, living: () => readonly EntityId[], day: () => number, opts: { favorDebt?: DebtSource } = {}): BondReader {
-  const strengthOf = (holder: EntityId, other: EntityId): number => bondStrengthOf(edgeStrength(rel, holder, other), bondOf(store(), holder, other));
+/** ORW-607 part 2: the grudge book's wrong a holder carries toward another (its `wrongWeight` now and its peak), or undefined for none. Played games only; engine-only. */
+export type WrongSource = (holder: EntityId, other: EntityId) => BookWrong | undefined;
+
+export function recordBondReader(rel: RelationshipModel, store: () => BondStore | undefined, living: () => readonly EntityId[], day: () => number, opts: { favorDebt?: DebtSource; wrong?: WrongSource } = {}): BondReader {
+  /** The record as readers see it: with a wrong source, its resentment / peak ARE the grievance (the book's wrong plus the record's friction, once). */
+  const seen = (holder: EntityId, other: EntityId) => withGrievance(bondOf(store(), holder, other), opts.wrong?.(holder, other));
+  const strengthOf = (holder: EntityId, other: EntityId): number => bondStrengthOf(edgeStrength(rel, holder, other), seen(holder, other));
   const ties = (holder: EntityId) => orderTies(living().filter((o) => o !== holder).map((other) => ({ other, strength: strengthOf(holder, other) })));
   return {
     living,
     bond: (holder, other) => {
       const e = rel.peek(holder, other);
-      const r = bondOf(store(), holder, other);
+      const r = seen(holder, other);
       const ranked = ties(holder).filter((t) => t.strength > 0).slice(0, BOND.rankTop);
       const at = ranked.findIndex((t) => t.other === other);
       return {
