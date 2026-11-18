@@ -126,6 +126,15 @@ describe("a played game's tenure", () => {
     sb3.session.noteMessage({ messageId: "zz" });
     expect(live(sb3.session).playedGame).toBe(true);
   });
+  it("ORW-614: the player's own hours accrue like a houseguest's (played game)", () => {
+    const s = play(7, { flag: true, played: true, turns: 40 });
+    const t = live(s).tenure!;
+    const players = Object.keys(t).filter((id) => id === "player");
+    expect(players.length, "the player has a tenure row").toBe(1);
+    const hours = Object.values(t["player" as keyof typeof t] ?? {}).reduce((a, h) => a + (h ?? 0), 0);
+    expect(hours).toBeGreaterThan(0);
+    expect(t["player" as keyof typeof t]?.["diary-room"]).toBeUndefined();
+  });
   it("is monotonic as the game runs", () => {
     const s = play(7, { flag: true, played: true, turns: 20 });
     const before = JSON.parse(JSON.stringify(live(s).tenure ?? {})) as Tenure;

@@ -38,6 +38,8 @@ export interface HouseSuspicionDeps {
   rng: RandomnessSource;
   /** 0148: the player is napping - they are not a node of the rumor graph this tick (nothing reaches a sleeper). Absent => unchanged. */
   playerAsleep?: boolean;
+  /** ORW-614 (P-9): the player is a houseguest like any other for the house's eye: shut in a private room with one houseguest, they ARE the pair; and with two houseguests the room holds three. Played games only (absent: the player is not counted, byte-identical). The player never hears their own pairing back. */
+  countPlayer?: boolean;
 }
 
 /** What the house whispered this tick (for tests/telemetry) — never surfaced raw to anyone. */
@@ -59,7 +61,8 @@ export function whisperConspicuousPairings(deps: HouseSuspicionDeps): WhisperedP
   // 1. Conspicuous NPC pairings: a PRIVATE room holding EXACTLY two awake NPCs, both lingering a while.
   const byRoom = new Map<Room, EntityId[]>();
   for (const [id, room] of occupancy) {
-    if (id === player || !npcSet.has(id) || !isPrivateRoom(room)) continue;
+    if (!isPrivateRoom(room)) continue;
+    if (id === player ? !(deps.countPlayer && !deps.playerAsleep) : !npcSet.has(id)) continue;
     const list = byRoom.get(room) ?? [];
     list.push(id);
     byRoom.set(room, list);
@@ -88,7 +91,8 @@ export function whisperConspicuousPairings(deps: HouseSuspicionDeps): WhisperedP
   // 3. Diffuse the Vault-free POSITION suspicion (names + room + "keep slipping off" - never the scene's
   //    content) NPC-to-NPC along the affinity graph. NO `rel`/`subjects` => NO fold (texture only); the
   //    dedicated rng => zero shared-stream draws. A chain reaching the player lands a player belief.
-  if (!spreadSuspicion(deps, origin, `word in the house: ${nameOf(chosen.pair[0])} and ${nameOf(chosen.pair[1])} keep slipping off to ${deps.roomRef ? deps.roomRef(chosen.room) : `the ${roomDisplayName(chosen.room)}`} together`)) return [];
+  const playerInPair = chosen.pair.includes(player);
+  if (!spreadSuspicion(playerInPair ? { ...deps, playerAsleep: true } : deps, origin, `word in the house: ${nameOf(chosen.pair[0])} and ${nameOf(chosen.pair[1])} keep slipping off to ${deps.roomRef ? deps.roomRef(chosen.room) : `the ${roomDisplayName(chosen.room)}`} together`)) return [];
   return [{ pair: chosen.pair, room: chosen.room, origin }];
 }
 
