@@ -263,6 +263,7 @@ function startAtNominations(seed = SEED): Run {
   for (let i = 0; i < 400 && !(priv(g).live.beat === "nominations" && !priv(g).live.pending); i++) view = step(g, view);
   priv(g).live.playedGame = true;
   g.setAdvanceGateEnabled(false);
+  (g as unknown as { setOwnViewEnabled(on: boolean): void }).setOwnViewEnabled(false); // ORW-574: the own view changes how many entries a season writes; this checks the ledger's bound, not the decisions
   return { g, view, runtime };
 }
 const npcs = (g: GameSessionAdapter): string[] => g.getGameState().house.map((h) => h.id as string).filter((id) => id !== ME);

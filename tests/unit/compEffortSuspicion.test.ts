@@ -136,6 +136,7 @@ describe("the staged comp tally (liveSeason) is played-only and leaves the resul
     const s = new GameSessionRegistry().sandboxFor(`cet-${played}-${seed}`).session as unknown as G;
     s.createCharacter({ playerName: "The Player", seed });
     s.setAdvanceGateEnabled(false); // ORW-97: this test drives raw advances; the schedule hold is not under test here
+    (s as unknown as { setOwnViewEnabled(on: boolean): void }).setOwnViewEnabled(false); // ORW-574: the own view (played games only) reads each decider's perceived state, so a played run and a headless one would differ by design; this test isolates the comp-effort tally
     s.setGoalMoodEnabled(false); // ORW-317: a played game's settled goals move mood (and so comp odds); this test isolates the comp-effort tally
     s.setHohRoomEnabled(false); // ORW-629: the HOH room's snubs and slips move a played game's bonds (and so later comps); this test isolates the comp-effort tally
     const hohs: string[] = [];

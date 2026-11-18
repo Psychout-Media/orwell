@@ -92,6 +92,11 @@ export function softStack(x: number): number {
   return k + room * Math.tanh((x - k) / room);
 }
 
+/** ORW-638 (stacking audit S-8): `softStack` made symmetric about zero (odd, strictly increasing) - bounds a SIGNED summed bias to `stackCeiling` either way, identity inside +-`stackKnee`. */
+export function softStackSigned(x: number): number {
+  return x < 0 ? -softStack(-x) : softStack(x);
+}
+
 // --- Reasons -------------------------------------------------------------------------------------------------------------------------
 
 /** One named input to a decision and how much it counted (the decision functions already compute these; ORW-305 records them). */
