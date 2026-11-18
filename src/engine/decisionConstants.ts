@@ -75,6 +75,11 @@ export const DECISION = {
      * gives a liked HOH their target anyway. Played games only (the `hohReferendumCentre` hook); headless keeps the old read.
      */
     housePowerAfterVeto: 0.1,
+    /**
+     * ORW-634: the weight on the CENTRED loyalty read (played games): bond differences from the house's norm are small (about +/-0.05-0.1), so the headless 0.6 left
+     * the voter's own threat gap (median 0.27-0.37) swamping it and popularity barely moved the outcome (20 seasons: liked 64% / disliked 54% target gone).
+     */
+    hohAlignmentWeight: 2.0,
   },
   /**
    * NPC↔NPC deal minting (audit E46): as a week's block goes up, the closest unbound NPC pair may

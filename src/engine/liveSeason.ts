@@ -2348,7 +2348,7 @@ export function voteChoice(
     -(dealBound(n) ? honorWeight(ctx.dealTrustFor?.(voter, n) ?? 1) : 0), // 0160 (Ryne Q3): a deal weighs as much as the voter trusts the other party
     -(V.juryManagementWeight * ctx.rel.edge(n, voter).trust),
     -(V.bondKeepWeight * ctx.rel.bondStrength(voter, n)),
-    n === hohTarget ? V.hohReferendumWeight * hohAlignment - housePower : 0,
+    n === hohTarget ? (centre !== undefined ? V.hohAlignmentWeight : V.hohReferendumWeight) * hohAlignment - housePower : 0,
     // ORW-314: this voter's AGENDA pull on `n` (revenge / get-them-out push, protect / alliance shield), full strength. Absent provider => 0 => byte-identical.
     ctx.agendaPullFor?.(n, voter).value ?? 0,
     // ORW-568 / 0181: the voter's real feeling for `n` keeps them (a friend is hard to cut, a stranger or a grudge is not). Absent provider => 0 => byte-identical.
