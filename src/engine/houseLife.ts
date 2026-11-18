@@ -26,6 +26,8 @@ import type { InteractionType } from "./relationshipConstants";
 import type { TimeOfDay } from "./timeOfDay";
 import type { Agenda, AgendaCharacter, Goal, GoalKind } from "./agenda";
 import { agendaRoll } from "./agenda";
+import { ATTRACTION_LIFE } from "./attractionLife";
+import { seekPull } from "./attraction";
 import { CULTURE_CANDOR_SHIFT, HOUSE_LIFE, type HouseCulture, type Habit } from "./houseLifeConstants";
 
 // --- The action library --------------------------------------------------------------------------------------------------------------
@@ -33,7 +35,7 @@ import { CULTURE_CANDOR_SHIFT, HOUSE_LIFE, type HouseCulture, type Habit } from 
 export type ActionFamily = "information" | "alliances" | "safety" | "attack" | "house-life" | "romance" | "alone";
 export type ActionKind =
   // information
-  | "fish" | "test-a-rumor" | "plant" | "confirm" | "leak" | "keep-quiet"
+  | "fish" | "test-a-rumor" | "plant" | "confirm" | "leak"
   // alliances
   | "pitch" | "recruit" | "check-in" | "count-votes" | "split-roles" | "lobby-for"
   // safety
@@ -71,7 +73,6 @@ export const ACTIONS: Readonly<Record<ActionKind, ActionSpec>> = {
   plant: { family: "information", partners: { min: 1, max: 2 }, fold: "gossip", speech: true },
   confirm: { family: "information", partners: { min: 1, max: 1 }, fold: "strategy", speech: true },
   leak: { family: "information", partners: { min: 1, max: 1 }, fold: "gossip", speech: true },
-  "keep-quiet": { family: "information", partners: { min: 0, max: 0 }, speech: false },
   pitch: { family: "alliances", partners: { min: 1, max: 1 }, fold: "alliance", speech: true },
   recruit: { family: "alliances", partners: { min: 1, max: 2 }, fold: "alliance", speech: true },
   "check-in": { family: "alliances", partners: { min: 1, max: 1 }, fold: "strategy", speech: true },
@@ -173,6 +174,10 @@ export interface HourView {
   nominees: readonly EntityId[];
   /** A showmance partner, if any (the relationship model's emergent label, read by the caller). */
   showmance?: EntityId;
+  /** 0207 A1 (ORW-658; played games, `ORWELL_SHOWMANCES`): the holder's PRIVATE attraction toward each person now (only people they are drawn to; 0..1; the player included when drawn). Moves only who they seek out
+   *  and sit near, never shown. `flirtable`: those of them a flirt may start with (orientation-plausible both ways, nobody else's partner). Absent = byte-identical. */
+  attract?: ReadonlyMap<EntityId, number>;
+  flirtable?: ReadonlySet<EntityId>;
   timeOfDay: TimeOfDay;
   day: number;
   hour: number;
@@ -245,6 +250,8 @@ export interface PlannedAction {
   court?: boolean;
   /** ORW-620: this step is a late-night talk among the awake few (the caller stamps it on the event; engine-only). */
   nightOwl?: boolean;
+  /** 0207 A1: this step is a houseguest seeking out someone they are drawn to (engine-only; when that someone is the player it is an approach through the desire clock's own path). */
+  drawn?: boolean;
 }
 
 /** ORW-324: how quick this houseguest is to direct friction (0..1), by archetype. A hothead clashes, a peacemaker almost never. */
@@ -348,14 +355,15 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
       // A campaign is many small moves: lobbying the HOH, but mostly working the house (stories, wedges, fishing), not one repeated pitch.
       if (v.nominees.includes(t)) return pick("flip-a-vote", ears, t);
       if (v.hoh && v.hoh !== v.owner && v2 < 0.3) return pick("campaign-against", [v.hoh], t);
-      const k: ActionKind = among(goal.kind === "revenge" ? (["frame", "plant", "drive-a-wedge", "fish"] as const) : (["drive-a-wedge", "plant", "fish", "test-a-rumor", "count-votes", "count-votes"] as const));
+      const k: ActionKind = among(goal.kind === "revenge" ? (["frame", "plant", "drive-a-wedge", "fish"] as const) : (["drive-a-wedge", "plant", "fish", "test-a-rumor", "count-votes", "leak"] as const));
       return pick(k, ears, t);
     }
     case "stay-safe": {
       if (v.hoh && v.hoh !== v.owner && !v.nominees.includes(v.owner)) return pick(aff(v.hoh) > 0.5 ? "check-in" : "make-a-promise", [v.hoh]);
       if (v.nominees.includes(v.owner)) {
         const swing = byScore(voters, (p) => aff(p) - thr(p));
-        return pick(aff(swing[0] ?? "") > 0.55 ? "call-in-favor" : "beg", swing);
+        const a0 = aff(swing[0] ?? ""); // ORW-580: warm enough to call in a favor; lukewarm (not yet cold) enough to trade for the vote; cold enough to beg
+        return pick(a0 > 0.55 ? "call-in-favor" : a0 >= HOUSE_LIFE.frictionAffinity ? "bargain" : "beg", swing);
       }
       return { kind: "lie-low", with: [], goalId: goal.id, goalKind: goal.kind };
     }
@@ -367,7 +375,7 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
     case "find-out": return pick(t ? "fish" : "test-a-rumor", byScore(pool.filter((p) => p !== t), aff), t);
     case "win-power": return { kind: "study-for-comps", with: [], goalId: goal.id, goalKind: goal.kind };
     case "keep-my-secret": return undefined; // a secret is kept by what they DON'T do: it shapes speech (themes 2 and 4), not an hourly action
-    case "last-alliance-standing": return v.mates.length ? pick(among(["split-roles", "check-in", "count-votes"] as const), byScore([...v.mates].filter((m) => pool.includes(m)), aff)) : undefined;
+    case "last-alliance-standing": return v.mates.length ? pick(among(["split-roles", "check-in", "count-votes", "confirm"] as const), byScore([...v.mates].filter((m) => pool.includes(m)), aff)) : undefined;
     case "run-the-house": return pick(among(["count-votes", "fish", "check-in", "pitch"] as const), byScore(pool, (p) => aff(p) + (variant > 0.5 ? -aff(p) * 0.5 : 0)));
     case "win-by-being-liked": return pick(among(["comfort", "tell-stories", "check-in", "cook"] as const), byScore(pool, (p) => -Math.abs(aff(p) - 0.5)));
     default: return undefined;
@@ -431,6 +439,18 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   // 0173: the court. After their own goals, a houseguest seeks out the sitting HOH (the ones in danger far more often); the HOH room is where they go. A keyed roll only (no shared draw).
   if (v.court && v.hoh && v.hoh !== v.owner && pool.includes(v.hoh) && !avoid.has(v.hoh) && roll("court") < v.court.pull) {
     return { ...finish({ kind: v.court.danger ? "beg" : "check-in", with: [v.hoh] }), court: true };
+  }
+
+  // 0207 A1 (ORW-658): attraction is real and private. The person they are most drawn to pulls them: a seeded, attraction-scaled chance each free hour to seek that person out (a flirt or a cuddle where one may start,
+  // otherwise a check-in). Keyed rolls only (no shared draw); a goal hour above has already had its say, and a seeded showmance below keeps its own rule. Absent `attract` = this block is skipped.
+  if (v.attract && !v.showmance) {
+    const drawn = [...v.attract.entries()].filter(([p, a]) => a > 0 && pool.includes(p) && !avoid.has(p)).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    const top = drawn[0];
+    if (top && roll("attract-seek") < ATTRACTION_LIFE.seekChance * top[1]) {
+      const [who, level] = top;
+      const flirt = v.flirtable?.has(who) === true && level >= ATTRACTION_LIFE.flirtAtLeast && who !== PLAYER && roomOf(v, who) === v.room && roll("attract-flirt") < HOUSE_LIFE.romanceChance * cFlirt;
+      return { ...finish({ kind: flirt ? (roll("attract-kind") < 0.5 ? "flirt" : "cuddle") : "check-in", with: [who] }), drawn: true };
+    }
   }
 
   // House life: a showmance partner nearby, a habit for this time of day, a low mood, or whoever is around.
@@ -508,7 +528,7 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
       return finish({ kind: rub ? "chore-fight" : v.timeOfDay === "late-night" || roll("roomie-talk") < 0.7 ? "bed-talk" : "homesick-talk", with: [mate], place: v.bedroom });
     }
   }
-  const partner = byScore(here, (p) => (v.affinity.get(p) ?? 0.4) + roll(`who:${p}`) * 0.3 + (v.kindred?.has(p) ? TERRITORY.PARTNER_PULL : 0))[0]; // ORW-561: a mild pull toward people who share your top room (no extra draw)
+  const partner = byScore(here, (p) => (v.affinity.get(p) ?? 0.4) + roll(`who:${p}`) * 0.3 + (v.kindred?.has(p) ? TERRITORY.PARTNER_PULL : 0) + (v.attract ? seekPull(v.attract.get(p) ?? 0) : 0))[0]; // ORW-561: a mild pull toward people who share your top room (no extra draw)
   if (!partner) return finish({ kind: v.timeOfDay === "late-night" || v.timeOfDay === "night" ? "mull" : "nap", with: [], ...(v.bedroom && v.timeOfDay !== "late-night" && v.timeOfDay !== "night" ? { place: v.bedroom } : {}) });
   // ORW-324: friction is not only between enemies. Mild dislike plus a short temper or a bad mood is enough for a chore fight.
   // ORW-622: a grudge strand rubs at dinner even with someone they are warm toward (a pact can still protect them at the vote).
@@ -559,7 +579,7 @@ export function assembleScenes(plans: readonly PlannedAction[]): HourScene[] {
 /** ORW-315: the engine's one-line record of an action (ids, never names; hidden content until a pathway carries it). */
 const VERB: Readonly<Record<ActionKind, string>> = {
   fish: "fished for information from", "test-a-rumor": "tested a rumor on", plant: "planted a story with", confirm: "confirmed a plan with",
-  leak: "leaked something to", "keep-quiet": "kept quiet", pitch: "pitched an alliance to", recruit: "tried to recruit", "check-in": "checked in with",
+  leak: "leaked something to", pitch: "pitched an alliance to", recruit: "tried to recruit", "check-in": "checked in with",
   "count-votes": "counted votes with", "split-roles": "split up the plan with", "lobby-for": "lobbied", beg: "begged", bargain: "bargained with",
   "call-in-favor": "called in a favor with", "make-a-promise": "made a promise to", "lie-low": "laid low", "drive-a-wedge": "drove a wedge with",
   frame: "tried to frame someone to", "flip-a-vote": "worked to flip the vote of", "campaign-against": "campaigned to", confront: "confronted",

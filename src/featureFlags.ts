@@ -83,6 +83,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_COMP_INTENT',            key: 'compIntent',             parser: 'defaultOn' },
   { envKey: 'ORWELL_COMP_MECHANICS_PLUS',    key: 'compMechanicsPlus',      parser: 'defaultOn' },
   { envKey: 'ORWELL_COMP_MIXED',             key: 'compMixed',              parser: 'defaultOn' },
+  // The houseguests who are not in a running staged competition cheer, taunt or sulk through it (played games only). ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_COMP_REACTIONS',          key: 'compReactions',          parser: 'defaultOn' },
   { envKey: 'ORWELL_CONFESSIONAL_DEPTH',     key: 'confessionalDepth',      parser: 'defaultOn' },
   // B48-credibility layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_CREDIBILITY', key: 'credibility', parser: 'defaultOn' },
@@ -246,6 +248,7 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_SECRET_BREAKS', key: 'secretBreaks', parser: 'defaultOn' },
   { envKey: 'ORWELL_SECRET_PACING',          key: 'secretPacing',           parser: 'defaultOn' },
   { envKey: 'ORWELL_SEEDED_TIE_SURFACING',   key: 'seededTieSurfacing',    parser: 'defaultOn' },
+  { envKey: 'ORWELL_SHOWMANCES',             key: 'showmances',             parser: 'defaultOn' }, // 0207 / Theme A
   { envKey: 'ORWELL_SHOWRUNNER',             key: 'showrunner',             parser: 'defaultOn' },
   { envKey: 'ORWELL_SHOWRUNNER_REWEIGHT',    key: 'showrunnerReweight',     parser: 'defaultOn' }, // ORW-270: measured fair, default ON
   { envKey: 'ORWELL_SOCIAL_FATIGUE',         key: 'socialFatigue',          parser: 'inverted' },
