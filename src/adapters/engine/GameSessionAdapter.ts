@@ -2063,19 +2063,19 @@ export class GameSessionAdapter implements GameSession {
   /**
    * 0154 / ORW-330 slice 5b - LYING ABOUT YOUR VOTE. Once an eviction is over (the count is public, the ballots are not) each NPC voter may tell ONE other NPC how they voted: true or not, decided by the engine
    * from the speaker's real ballot (read here, never handed out), cunning/candor and need, on its own `${seed}:vote-talk` side stream. Told as a claim (`tellClaim`, the listener's belief is the speaker's word).
-   * At most one per speaker per eviction (`votesTalked`). `ORWELL_VOTE_TALK`; OFF => byte-identical (no draws, no claims).
+   * At most one per speaker per eviction (`live.votesTalked`, persisted). `ORWELL_VOTE_TALK`; OFF => byte-identical (no draws, no claims).
    */
   private voteTalkEnabled = flagDefaultOn("ORWELL_VOTE_TALK");
   setVoteTalkEnabled(on: boolean): void { this.voteTalkEnabled = on; }
-  private votesTalked = new Set<string>();
   /** Tell the vote claims for the latest recorded eviction. Returns the claims told (engine-side; tests read them). */
   private talkAboutTheVote(): SpokenClaim[] {
     const live = this.live;
     const rec = live?.voteRecord?.[live.voteRecord.length - 1];
     if (!this.voteTalkEnabled || !live || !rec || !this.npcBeliefsEnabled) return [];
     const key = `${rec.week}:${rec.evictee}`;
-    if (this.votesTalked.has(key)) return [];
-    this.votesTalked.add(key);
+    // ORW-686: kept on the live season (persisted, append-only), so a save/restore mid-week does not let the same speakers lobby again.
+    if (live.votesTalked?.includes(key)) return [];
+    (live.votesTalked ??= []).push(key);
     const digest = (live.weekDigests ?? []).filter((d) => d.week === rec.week && d.evictee === rec.evictee).pop();
     const nominees = digest && digest.nominees.length >= 2 ? [...digest.nominees] : [...new Set([rec.evictee, ...Object.values(rec.voteOf)])];
     const living = this.livingIds().filter((id) => id !== PLAYER);
@@ -19780,6 +19780,9 @@ export class GameSessionAdapter implements GameSession {
     }
     for (const r of claimsOf(store, holder)) {
       if (r.kind !== "heard-rumor" || r.nature !== "betrayal" || r.refuted || r.week !== week) continue;
+      // ORW-686 item 5 (played games): a betrayal rumor says its subject betrayed SOMEONE. It is "they target me" only when the holder is the one betrayed; otherwise the rumor
+      // stays what it is (the heard-rumor belief, already read as a grievance where gossip beliefs are on) and is not folded a second time into a claim nobody made.
+      if (played && r.object !== holder) continue;
       recordClaim(store, { id: `${holder}|targets-me|${r.subject}|r:${r.id}|${week}`, holder, kind: "targets-me", subject: r.subject, object: holder, value: true, origin: "gossip", confidence: Math.max(0, Math.min(1, r.confidence)) * 0.5, week });
     }
   }
