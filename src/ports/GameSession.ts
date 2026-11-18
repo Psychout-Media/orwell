@@ -3747,6 +3747,13 @@ export interface GameSession {
   notorietySummary(): NotorietyLegendView | null;
 
   /**
+   * 0208 B3 (ORW-665) - the HALL OF FAME: the player's finished seasons (placement, who was crowned, their own best move and the worst betrayal done to them, as facts with names),
+   * kept per user outside any game. Public facts the retrospective already unsealed; never the Vault, never a number. Empty (`seasonsPlayed: 0`) with no finished season or with
+   * `ORWELL_SEASON_MEMORY` off. A season that just ended is included before it is filed.
+   */
+  hallOfFame(): import("../engine/hallOfFame").HallOfFameView;
+
+  /**
    * FE-driven write-back (0070): enrich the prose `content` of an already-recorded hidden
    * off-screen event with model-voiced texture. CONTENT ONLY — it cannot create an event,
    * alter a witness set, flip the hidden flag, or carry a relationship number. Idempotent;

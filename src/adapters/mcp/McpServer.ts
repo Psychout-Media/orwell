@@ -831,6 +831,8 @@ export class McpServer {
         return this.deps.session.dayLedger();
       case "dailyRecap":
         return this.deps.session.dailyRecap();
+      case "hallOfFame":
+        return this.deps.session.hallOfFame();
       case "seasonRetrospective":
         return this.deps.session.seasonRetrospective();
       case "npcVoice":

@@ -115,6 +115,7 @@ import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { PULL_QUOTE } from "../../engine/pullQuoteConstants";
 import { buildDecisionReveal } from "../../engine/decisionReveal";
 import { buildGroupLife, type GroupLifeRow, type GroupLifeView } from "../../engine/groupLifeRetro";
+import { buildHallRecord, hallView, mergeHall, type HallOfFameView, type HallRecord } from "../../engine/hallOfFame";
 import { buildYourEdit, sceneMoment, weekMoments, weeksOfLog, type YourEditView } from "../../engine/yourEdit";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
 import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOut";
@@ -1251,6 +1252,30 @@ export class GameSessionAdapter implements GameSession {
   /** 0208 B2 (Theme B): a returning player's reputation walks in deeper (`ORWELL_SEASON_MEMORY`, default ON; `=0` is today's 0104 alone): the house's heard record of their broken word feeds the carried treachery. */
   private seasonMemoryEnabled = flagDefaultOn("ORWELL_SEASON_MEMORY");
   setSeasonMemoryEnabled(on: boolean): void { this.seasonMemoryEnabled = on; }
+  /** 0208 B3: where this user's filed hall of fame is read from (the registry binds it per user; absent in a bare session = an empty hall). */
+  private hallSource: (() => HallRecord[]) | undefined;
+  setHallOfFameSource(read: (() => HallRecord[]) | undefined): void { this.hallSource = read; }
+  /** 0208 B3: this finished season as a hall record, from public ceremony facts and the unsealed "your edit" (null while live, not played, or the flag is off). `season` is its number in this user's hall. */
+  hallRecordDraft(season: number): HallRecord | null {
+    const out = this.openSetOutcome();
+    const s = this.live;
+    if (!this.seasonMemoryEnabled || !out || !s?.finished || s.playedGame !== true || !this.house) return null;
+    const order = s.evictionOrder ?? [];
+    const runnerUp = s.finalTwo?.find((id) => id !== s.winner);
+    const you = this.buildYourEditView()?.you;
+    return buildHallRecord({
+      season, placement: out.placement, juror: order.slice(-9).includes(PLAYER), castSize: out.castSize,
+      playerName: this.nameOf(PLAYER),
+      ...(s.winner ? { winnerName: this.nameOf(s.winner) } : {}), ...(runnerUp ? { runnerUpName: this.nameOf(runnerUp) } : {}),
+      ...(you ? { you } : {}),
+    });
+  }
+  hallOfFame(): HallOfFameView {
+    if (!this.seasonMemoryEnabled) return hallView([]);
+    const filed = this.hallSource?.() ?? [];
+    const draft = this.hallRecordDraft(filed.length + 1);
+    return hallView(draft ? mergeHall(filed, [draft]) : filed);
+  }
   private reputationOn(): boolean { return this.reputationEnabled && this.live?.playedGame === true && this.bondRecordEnabled; }
   /**
    * 0184: `observer`'s standing for `target` (1 = nothing heard against them), from the observer's OWN belief claims about the target (a wrong they heard of or witnessed done to someone else) and from the
