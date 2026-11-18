@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
-import { MOOD_CAUSES, causeLine, isBadNight, isCloseFriend, mayShareEventCause, strongestCause, type MoodCauseEntry, type MoodCauseSource } from "../../src/engine/moodCauses";
+import { MOOD_CAUSES, causeLine, isBadNight, carryFactor, causeAge, isCloseFriend, mayShareEventCause, strongestCause, strongestLiveCause, type MoodCauseEntry, type MoodCauseSource } from "../../src/engine/moodCauses";
 
 /** 0194 / ORW-626: moods with more causes. Roles only (holder, other). */
 const SOURCES: MoodCauseSource[] = ["lied-to", "betrayed", "friend-evicted", "bad-sleep", "won", "lost"];
@@ -34,11 +34,39 @@ describe("the pure cause rules", () => {
   });
 });
 
+describe("a cause carries a few in-game days with a falling weight (follow-up 2)", () => {
+  const at = (holder: string, source: MoodCauseSource, week: number, day: number): MoodCauseEntry => ({ ...entry(holder, source, week), day });
+  it("full today, falling each day, none past the carry window or from the future", () => {
+    expect(carryFactor(0)).toBe(1);
+    expect(carryFactor(1)).toBeLessThan(carryFactor(0));
+    expect(carryFactor(MOOD_CAUSES.carryDays)).toBeGreaterThan(0);
+    expect(carryFactor(MOOD_CAUSES.carryDays + 1)).toBe(0);
+    expect(carryFactor(-1)).toBe(0);
+    expect(carryFactor(Number.POSITIVE_INFINITY)).toBe(0);
+  });
+  it("a cause crosses the week roll while it lasts and then is gone; the log is untouched", () => {
+    const log = [at("a", "lied-to", 1, 5)];
+    expect(strongestLiveCause(log, "a", 2, 6)?.entry.source).toBe("lied-to");
+    expect(strongestLiveCause(log, "a", 2, 6)!.weight).toBeLessThan(MOOD_CAUSES.weight["lied-to"]);
+    expect(strongestLiveCause(log, "a", 2, 5 + MOOD_CAUSES.carryDays + 1)).toBeUndefined();
+    expect(log).toHaveLength(1);
+  });
+  it("a fresh light cause can outrank a stale heavy one; with no day the same week is today and another week is out of reach", () => {
+    const log = [at("a", "lied-to", 1, 1), at("a", "won", 1, 4)];
+    expect(strongestLiveCause(log, "a", 1, 4)?.entry.source).toBe("won");
+    expect(causeAge(entry("a", "won", 2), 2, undefined)).toBe(0);
+    expect(strongestLiveCause([entry("a", "won", 1)], "a", 2, undefined)).toBeUndefined();
+  });
+});
+
 type S = {
-  live: { week: number; active: EntityId[]; moodCauseLog?: MoodCauseEntry[]; evictionOrder: EntityId[] };
+  live: { week: number; dayNumber?: number; active: EntityId[]; moodCauseLog?: MoodCauseEntry[]; evictionOrder: EntityId[] };
   setMoodCausesEnabled(on: boolean): void;
   payForCaughtLie(p: { holder: EntityId; liar: EntityId; confidence: number; origin: "witnessed" | "told" }): void;
   noteFriendEvicted(evictee: EntityId): void;
+  noteMoodCause(holder: EntityId, source: MoodCauseSource, about?: EntityId): boolean;
+  catchMood(id: EntityId, event: string, scale: number): void;
+  deals: { all: unknown[] };
   npcVoice(id: EntityId): { moodCause?: string } | null;
   soulObj(id: EntityId): { emotionalHistory: unknown[] } | undefined;
   rel: { edge(a: EntityId, b: EntityId): { affinity: number; trust: number } };
@@ -113,5 +141,37 @@ describe("the wall: a cause is told only by choice, never as a number or a hidde
       expect(said).not.toMatch(/lied-to|moodCauseLog|\d\.\d/);
     }
     expect(JSON.stringify(voice ?? {})).not.toMatch(/moodCauseLog|"source"|"weight"/);
+  });
+});
+
+describe("follow-ups wired into a played game", () => {
+  it("a bad night is written once per day and moves the soul once (the mood word moves through the scheme step)", async () => {
+    const { s, holder } = await setup(31);
+    const hist = () => s.soulObj(holder)!.emotionalHistory.length;
+    const before = hist();
+    expect(s.noteMoodCause(holder, "bad-sleep")).toBe(true);
+    expect(s.noteMoodCause(holder, "bad-sleep")).toBe(false);
+    s.catchMood(holder, "scheme", MOOD_CAUSES.badSleepMoodScale);
+    expect(hist()).toBeGreaterThan(before);
+  });
+  it("a cause from last week is still said while it carries, and not once it is out of days", async () => {
+    const { s, holder, other } = await setup(32);
+    s.live.dayNumber = s.live.dayNumber ?? 3;
+    s.payForCaughtLie({ holder, liar: other, confidence: 0.8, origin: "told" });
+    s.rel.edge(holder, PLAYER).affinity = 1;
+    s.live.week += 1; s.live.dayNumber += 1;
+    expect(s.npcVoice(holder)?.moodCause).toBeDefined();
+    s.live.dayNumber += MOOD_CAUSES.carryDays + 1;
+    expect(s.npcVoice(holder)?.moodCause).toBeUndefined();
+  });
+  it("learning of a quiet break writes a betrayal cause for the wronged party once, and not before they learn", async () => {
+    const { s, holder, other } = await setup(33);
+    const sink = (s as unknown as { deals: { learnOfBreak(d: unknown, k: unknown): boolean } }).deals;
+    const deal = { status: "broken", learned: false, brokenBy: other, parties: [holder, other], kind: "safety" };
+    expect(s.live.moodCauseLog).toBeUndefined();
+    const hook = (w: EntityId, b: EntityId) => { s.noteMoodCause(w, "betrayed", b); };
+    expect(sink.learnOfBreak(deal, { learned: hook })).toBe(true);
+    expect(sink.learnOfBreak(deal, { learned: hook })).toBe(false);
+    expect(s.live.moodCauseLog).toEqual([expect.objectContaining({ holder, source: "betrayed", about: other })]);
   });
 });

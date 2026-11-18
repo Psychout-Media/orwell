@@ -21,3 +21,13 @@ Feature: A houseguest's mood can have a cause beyond a settled goal, and they sa
     And mood causes: an early night is not
     And mood causes: a bond of high trust and affinity is a close friend
     And mood causes: a cool bond is not
+
+  Scenario: A cause carries across the week roll while it lasts, then is no longer given
+    Given mood causes: a houseguest with a "lied-to" cause on day 5 of week 1
+    Then mood causes: on day 6 of week 2 the cause they would give is "lied-to"
+    And mood causes: on day 9 of week 2 they have no cause to give
+
+  Scenario: A fresh light cause can outrank a stale heavy one
+    Given mood causes: a houseguest with a "lied-to" cause on day 1 of week 1
+    And mood causes: a "won" cause on day 4 of week 1
+    Then mood causes: on day 4 of week 1 the cause they would give is "won"
