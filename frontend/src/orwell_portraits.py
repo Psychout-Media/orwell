@@ -1482,11 +1482,83 @@ async def _gpt_image_fallback(client, user: Optional[str], prompt: str,
     return None
 
 
+# ── One process-wide image queue ─────────────────────────────────────────────────────────────
+# At most `portrait_parallel` (default 3) image generations are in flight PER PROCESS, whoever asks: every per-face
+# backfill, reshoot and cast run goes through `_generate_one`, so thirteen faces asked for at once wait their turn
+# instead of all hitting the provider together. OpenRouter counts in-flight cost against the credit balance and
+# answers 402 "would exceed your available credits given your current in-flight requests": that is BACK-PRESSURE,
+# not billing, so it requeues the face after a short wait and never opens the billing breaker.
+INFLIGHT_RETRY_WAITS_S = (10.0, 15.0, 20.0, 20.0, 20.0, 20.0)
+_INFLIGHT_402_RE = re.compile(r"in[\s-]?flight", re.IGNORECASE)
+
+
+def is_inflight_credit_error(reason: Optional[str], detail: Optional[str] = None) -> bool:
+    """True for the provider's HTTP 402 that says the account would exceed its credits GIVEN requests already in flight
+    (back-pressure that clears as those finish), as opposed to a real out-of-credits or auth refusal."""
+    return _http_status_of(reason) == 402 and bool(_INFLIGHT_402_RE.search(str(detail or "")) or _INFLIGHT_402_RE.search(str(reason or "")))
+
+
+class _ImageGate:
+    """A counting gate whose limit is read at each acquire, so the `portrait_parallel` setting stays live."""
+
+    def __init__(self) -> None:
+        self.live = 0
+        self.max_live = 0
+        self._cond = asyncio.Condition()
+
+    async def __aenter__(self):
+        limit = portrait_parallel()
+        async with self._cond:
+            while self.live >= limit:
+                await self._cond.wait()
+                limit = portrait_parallel()
+            self.live += 1
+            self.max_live = max(self.max_live, self.live)
+        return self
+
+    async def __aexit__(self, *exc):
+        async with self._cond:
+            self.live -= 1
+            self._cond.notify()
+        return False
+
+
+_IMAGE_GATES: dict = {}  # event loop -> gate (a gate is bound to the loop that created it)
+
+
+def image_gate() -> _ImageGate:
+    loop = asyncio.get_running_loop()
+    g = _IMAGE_GATES.get(loop)
+    if g is None:
+        for dead in [k for k in _IMAGE_GATES if k.is_closed()]:
+            _IMAGE_GATES.pop(dead, None)
+        g = _IMAGE_GATES[loop] = _ImageGate()
+    return g
+
+
 async def _generate_one(prompt: str, user: Optional[str],
                         reference_png: Optional[bytes] = None,
                         keep_identity: bool = True) -> Optional[bytes]:
+    """The process-wide image queue (see above) around `_generate_one_gated`: waits for a free slot, and requeues the
+    face after a delay when the provider answers the in-flight-credits 402. The slot is released while it waits."""
+    attempt = 0
+    while True:
+        async with image_gate():
+            png = await _generate_one_gated(prompt, user, reference_png, keep_identity)
+        if png or not is_inflight_credit_error(*_peek_gen_error()) or attempt >= len(INFLIGHT_RETRY_WAITS_S):
+            return png
+        logger.info("[portraits] provider credits are held by in-flight requests for %s: requeue %d after %.0fs",
+                    _hid_tag(), attempt + 1, INFLIGHT_RETRY_WAITS_S[attempt])
+        await asyncio.sleep(INFLIGHT_RETRY_WAITS_S[attempt])
+        attempt += 1
+
+
+async def _generate_one_gated(prompt: str, user: Optional[str],
+                              reference_png: Optional[bytes] = None,
+                              keep_identity: bool = True) -> Optional[bytes]:
     """ORW-397 billing breaker around `_generate_one_inner` (see the breaker block above): no call
-    while the provider's breaker is open; a 401/402/403 opens it; a success closes it."""
+    while the provider's breaker is open; a 401/402/403 opens it; a success closes it. The in-flight-credits
+    402 is back-pressure, not billing: it never opens the breaker."""
     ctx: dict = {}
     if _PROVIDER_PROVEN["ok"]:
         png = await _generate_one_inner(prompt, user, reference_png, keep_identity, _ctx=ctx)
@@ -1501,7 +1573,7 @@ async def _generate_one(prompt: str, user: Optional[str],
         if png:
             _PROVIDER_PROVEN["ok"] = True
             _close_billing_breaker(host)
-        elif is_billing_error(*_peek_gen_error()):
+        elif is_billing_error(*_peek_gen_error()) and not is_inflight_credit_error(*_peek_gen_error()):
             _trip_billing_breaker(host)
     return png
 
