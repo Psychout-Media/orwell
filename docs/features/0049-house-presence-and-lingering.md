@@ -147,3 +147,11 @@ loop:    mill/move/talk turns ⇒ no change to week | phase | pending ceremony; 
 `tests/unit/presence.test.ts` + `docs/features/0049-*.feature` → `cucumber.cjs` when green.
 **Open decisions:** none — room list is the canonical BB set (data, trivially tunable); overhear probability
 is a constant in the temperature/relationship constants pattern (tunable module, like 0028).
+
+## Amendment 2026-11-18 (ORW-579, Fable T1-12c): an overheard fragment is what could be heard
+
+A hidden off-screen scene's overheard fragment used to be the first 60% of the engine's own line, which carries the engine's label for the scene (a pitch, a frame, a betrayal, an
+alliance). Per the owner's "no hints to motive; actions are the evidence", the orchestrator now passes `rollOverhears` a `heard` line built by `overheardLine` (houseLife.ts): a clash and a
+plain house-life or romance act are heard as themselves; every other scene is heard only as who was speaking (a leading fragment of the line, cut before the label, so the knowledge service still anchors it on content lineage). No slice of the engine line ever reaches the listener. The player's own
+scenes overheard by NPCs (EngineCommandsAdapter) are the player's actual words and keep the partial slice. A pure projection (no rng draw, no outcome moves), so no flag. Gate:
+`tests/unit/overheardNoMotive.test.ts` (sentinel plus positive control).
