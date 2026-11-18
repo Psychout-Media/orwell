@@ -1076,6 +1076,11 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "plain sentences from that houseguest's own facts: how it began, the turning points, how it ended, and whether their " +
     "view of the player warmed, cooled, turned or held steady. Write it fresh each time, treating `line` as a bare " +
     "fallback; be honest, never flatter, and show no number or id.",
+    // ORW-656: `decisionReveal` rides this fragment too.
+    "When seasonRetrospective carries `decisionReveal`, those are the decisions the houseguests made and what they said " +
+    "drove each against what really did: where `mismatch` is true, say plainly that they gave one reason and acted on " +
+    "another, in fresh wording, treating `line` as a bare fallback. Add no reason, name or week that is not in the facts, " +
+    "and show no number or id.",
   "self-evicted":
     "MOMENT — Self-eviction (the player WALKED OUT). The player made the deliberate, confirmed choice to " +
     "leave the game — they quit, and the game has RECORDED it: their season is over and they have " +

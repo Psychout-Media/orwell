@@ -431,6 +431,15 @@
         for (const t of _glRows) ul.appendChild(el("li", "", t));
         vaultWrap.appendChild(ul);
       }
+      // ORW-656: what the houseguests said drove a decision against what really did. Render-only, textContent, the engine's composed floor lines. Absent => skipped (fail-open).
+      const _dr = unsealed.decisionReveal;
+      const _drRows = ((_dr && _dr.decisions) || []).filter((d) => d && typeof d.line === "string" && d.line.trim()).map((d) => clean(d.line));
+      if (_drRows.length) {
+        vaultWrap.appendChild(el("h3", "display:block;margin:12px 0 2px;font-size:inherit", "What they said, and what drove it"));
+        const ul = el("ul", "margin:2px 0;padding-left:18px;opacity:0.9;font-size:12.5px");
+        for (const t of _drRows) ul.appendChild(el("li", "", t));
+        vaultWrap.appendChild(ul);
+      }
       // ORW-551 (spec 0168): the house culture, in plain texture words (one phrase per lean; the engine sends words only). Render-only, textContent. Absent => skipped.
       const _cult = unsealed.houseCulture;
       const _cultWords = ((_cult && _cult.leans) || []).filter((t) => typeof t === "string" && t.trim()).map((t) => clean(t));

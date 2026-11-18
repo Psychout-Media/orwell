@@ -2616,6 +2616,8 @@ export interface RetrospectiveView {
   yourStories?: import("../engine/reunionRetro").YourStoriesView;
   /** ORW-566 part d (0183): the season's alliances and close-pair habits as facts (names, the group's name, its words, the spot, the weeks, whether you knew). Present ONLY on the post-season retrospective, only for a played game with a group, never an id or a number. */
   groupLife?: import("../engine/groupLifeRetro").GroupLifeView;
+  /** ORW-656: the season's notable NPC decisions as facts: week, kind, who decided, who it was about, and the closed kind of the reason they SAID beside the REAL one (the unsealing). Present ONLY on the post-season retrospective, only for a played game with a recorded decision, bounded, never an id or a number. */
+  decisionReveal?: import("../engine/decisionReveal").DecisionRevealView;
   /** ORW-624: America's Favorite, the public's pick after the crown (a name only, never a number). */
   americasFavorite?: { id: string; name: string };
   /** ORW-525 (spec 0157): the rumor mill. Present ONLY on the post-season retrospective, and only when the season held a false claim. */
