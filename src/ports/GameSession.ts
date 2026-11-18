@@ -877,6 +877,11 @@ export interface SecretLeverDescriptor {
   bluff?: boolean;
   /** For a `tradedSecret`/bluff: the houseguest the secret is ABOUT (the third-party subject). */
   subject?: EntityId;
+  /**
+   * 0202 (ORW-645) - OPTIONAL register of a `leverage` press: `blunt` (an explicit demand, the default and the 0093 behaviour) or `sneaky` (quiet pressure: a hint, a favour that becomes a debt).
+   * The model proposes the manner; the engine keeps the magnitude. A sneaky press is quieter and can be noticed and backfire. Absent / `blunt` => byte-identical to 0093. Ignored for `tradedSecret`.
+   */
+  manner?: "blunt" | "sneaky";
 }
 
 /** The single-promise deal kinds a `makeDeal` may name (a `package` bundles two of these). */
@@ -2364,6 +2369,8 @@ export interface PresentKnowledgeView {
    * 0151: a confidence the engine decided this houseguest passes to the player THIS turn: ONLY the speaker's words (the claim kind, who it is about, the second party) and how sure they sound. Never whether
    * it is true, never why they are telling, never a claim id. Names, not ids.
    */
+  /** 0202 (ORW-645): this houseguest is leaning on the player right now with something they hold, in this manner. Third-person fact only: never what they hold, never why. Absent unless an approach is open. */
+  leansOnYou?: { manner: "blunt" | "sneaky" };
   tellsYou?: { kind: "targets-you" | "voted-to-evict-you" | "final-two-with" | "going-after" | "talking-about" | "lying-about" | "voted-against" | "voted-to-keep" | "has-reputation"; subject: string; object?: string; /** 0184 part 2a: a `has-reputation`'s role or name (an engine word the narrator voices as gossip, never shown as a label) */ label?: string; certainty: "sure" | "fairly-sure" | "not-sure" };
 }
 
