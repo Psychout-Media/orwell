@@ -1,3 +1,4 @@
+import { atCommit } from "../../tests/support/commitFold";
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -124,7 +125,7 @@ Given("a favors season where a houseguest is owed a favor by another", function 
   p.session.recordFavor({ owedBy: b.debtor!, owedTo: b.holder!, origin: "deal:origin" });
 });
 Then("favors: the bond record shows the debt on the holder's side, and the reverse view the opposite", function () {
-  const b = bag(this); const r = b.p!.session.bondReader();
+  const b = bag(this); const r = atCommit(b.p!.session).bondReader();
   assert.ok(r.bond(b.holder!, b.debtor!).debt > 0, "the holder reads no debt owed");
   assert.ok(r.bond(b.debtor!, b.holder!).debt < 0, "the debtor reads no debt owed");
 });
@@ -220,7 +221,7 @@ Then("favors: no favor is recorded and a swap offer carries no counter", functio
   assert.equal(ledger(b.p!).length, 0);
   const core = b.p!.session.snapshot() as unknown as { favors?: unknown };
   assert.equal(core.favors, undefined, "the snapshot carries a favors key with the flag off");
-  assert.equal(b.p!.session.bondReader().bond(b.holder!, b.debtor!).debt, 0);
+  assert.equal(atCommit(b.p!.session).bondReader().bond(b.holder!, b.debtor!).debt, 0);
 });
 
 Given("a favors season where the player is owed a favor and a vote is close", function () {

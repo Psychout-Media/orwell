@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { GameSessionRegistry, type UserSandbox } from "../../src/composition/registry";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { PLAYER } from "../../src/domain/ids";
+import { atCommit } from "../../tests/support/commitFold";
 import type { Deal } from "../../src/domain/deal";
 import { BOND, type BondStore } from "../../src/engine/bondRecord";
 
@@ -39,14 +40,14 @@ function scene(w: unknown, type: string, people: string[]): void {
 
 When("two houseguests share several warm scenes and make a final two", function () {
   const b = bag(this);
-  b.before = session(this).bondReader().strength(b.a!, b.b!);
+  b.before = atCommit(session(this)).bondReader().strength(b.a!, b.b!);
   // ORW-598: whoever starts a scene weighs it less on their own side (initiatorShare), so friends take turns starting their warm scenes
   for (let i = 0; i < 6; i++) scene(this, "bonding", i % 2 === 0 ? [b.a!, b.b!] : [b.b!, b.a!]);
   seam(this).deals.make([b.a!, b.b!], "final-two", "the two of us to the end", undefined, seam(this).live.week);
 });
 
 Then("each holds the other as a friend, with a final-two commitment", function () {
-  const b = bag(this); const r = session(this).bondReader();
+  const b = bag(this); const r = atCommit(session(this)).bondReader();
   for (const [x, y] of [[b.a!, b.b!], [b.b!, b.a!]]) {
     const v = r.bond(x, y);
     assert.equal(v.kind, "friendship");
@@ -57,7 +58,7 @@ Then("each holds the other as a friend, with a final-two commitment", function (
 
 Then("the bond between them is stronger than before", function () {
   const b = bag(this);
-  assert.ok(session(this).bondReader().strength(b.a!, b.b!) > b.before!, "warm scenes did not strengthen the bond");
+  assert.ok(atCommit(session(this)).bondReader().strength(b.a!, b.b!) > b.before!, "warm scenes did not strengthen the bond");
 });
 
 When("two houseguests clash twice", function () {
@@ -66,7 +67,7 @@ When("two houseguests clash twice", function () {
 });
 
 Then("each holds a grudge and strain toward the other", function () {
-  const b = bag(this); const r = session(this).bondReader();
+  const b = bag(this); const r = atCommit(session(this)).bondReader();
   for (const [x, y] of [[b.a!, b.b!], [b.b!, b.a!]]) {
     const v = r.bond(x, y);
     assert.ok(v.resentment > 0 && v.strain > 0, `resentment ${v.resentment} strain ${v.strain}`);
@@ -82,7 +83,7 @@ When("several nights pass with no new clash", function () {
 
 Then("the strain has eased more than the grudge, and the worst of the grudge is still remembered", function () {
   const b = bag(this);
-  const v = session(this).bondReader().bond(b.a!, b.b!);
+  const v = atCommit(session(this)).bondReader().bond(b.a!, b.b!);
   const eased = b.strain! - v.strain, faded = b.grudge! - v.resentment;
   assert.ok(eased > 0 && eased > faded, `strain eased ${eased}, grudge faded ${faded}`);
   assert.ok((seam(this).live.bonds?.[`${b.a}|${b.b}`]?.peakResentment ?? 0) >= b.grudge!, "the worst of the grudge was forgotten");
@@ -96,7 +97,7 @@ When("one houseguest quietly breaks a deal with another", function () {
 
 Then("the one wronged holds no grudge yet, because they do not know", function () {
   const b = bag(this);
-  assert.equal(session(this).bondReader().bond(b.b!, b.a!).resentment, 0, "the wronged side reacted to a break they never learned of (ORW-597)");
+  assert.equal(atCommit(session(this)).bondReader().bond(b.b!, b.a!).resentment, 0, "the wronged side reacted to a break they never learned of (ORW-597)");
 });
 
 When("the breaker then nominates them", function () {
@@ -107,12 +108,12 @@ When("the breaker then nominates them", function () {
 
 Then("the one wronged holds a grudge toward the breaker", function () {
   const b = bag(this);
-  assert.ok(session(this).bondReader().bond(b.b!, b.a!).resentment > 0, "the wronged party holds no grudge");
+  assert.ok(atCommit(session(this)).bondReader().bond(b.b!, b.a!).resentment > 0, "the wronged party holds no grudge");
 });
 
 Then("the breaker holds no grudge, only strain", function () {
   const b = bag(this);
-  const v = session(this).bondReader().bond(b.a!, b.b!);
+  const v = atCommit(session(this)).bondReader().bond(b.a!, b.b!);
   assert.equal(v.resentment, 0);
   assert.ok(v.strain > 0, "the breaker feels nothing");
 });
@@ -123,14 +124,14 @@ When("the veto holder saves a nominee", function () {
 });
 
 Then("the saved houseguest owes the veto holder", function () {
-  const b = bag(this); const r = session(this).bondReader();
+  const b = bag(this); const r = atCommit(session(this)).bondReader();
   assert.ok(r.bond(b.b!, b.a!).debt < 0, "the saved houseguest owes nothing");
   assert.ok(r.bond(b.a!, b.b!).debt > 0, "the saver is owed nothing");
 });
 
 Then("the bond record survives a save and a restore unchanged", function () {
   const b = bag(this);
-  session(this).bondReader(); // fold
+  atCommit(session(this)).bondReader(); // fold
   const core = session(this).snapshot();
   const sb2 = new GameSessionRegistry().sandboxFor(`bond0175-r-${n++}`);
   sb2.session.restore(JSON.parse(JSON.stringify(core)));
@@ -149,7 +150,7 @@ Then("no player or admin view carries the bond record", async function () {
 });
 
 Then("each houseguest's private pecking order follows how close they are, the closest first, and ranks only their top few", function () {
-  const b = bag(this); const r = session(this).bondReader();
+  const b = bag(this); const r = atCommit(session(this)).bondReader();
   const ties = r.ties(b.a!);
   const ranked = ties.filter((t) => t.strength > 0).slice(0, BOND.rankTop);
   ranked.forEach((t, i) => assert.equal(r.bond(b.a!, t.other).rank, i + 1, `rank of the ${i + 1}th closest`));
