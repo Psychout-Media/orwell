@@ -39,7 +39,10 @@ Given("a played season at the final four with the endgame on", function () { sea
 Given("a played season at the final five with the endgame on", function () { seat(this, 5); });
 Given("the jury is close to one houseguest", function () {
   const b = bag(this); const fav = b.npcs[1]!;
-  for (const j of b.jurors) for (let i = 0; i < 3; i++) b.g!.rel.applyImpactDirected(j, fav, { trust: 0.3, affinity: 0.3 }, flat);
+  // ORW-574 own-view: deciders read only what they see - bonding scenes between each juror and the favourite that the others watched, and the favourite's own warm bond to each juror
+  const scenes = b.jurors.flatMap((j, i) => [0, 1, 2].map((k) => ({ id: `jl${i}${k}`, ts: i * 3 + k, type: "bonding", initiator: j, witnessSet: [j, fav], hidden: true, content: "", houseLife: { seenBy: b.npcs.filter((x) => x !== fav) } })));
+  (b.g as unknown as { record?: { events(): unknown[] } }).record = { events: () => scenes };
+  for (const j of b.jurors) for (let i = 0; i < 3; i++) b.g!.rel.applyImpactDirected(fav, j, { trust: 0.3, affinity: 0.3 }, flat);
 });
 Then("another houseguest reads that one as someone they can't beat, by their own read of the jury", function () {
   const b = bag(this); assert.ok(b.g!.endgameFor(b.npcs[1]!, b.npcs[0]!) > 0);

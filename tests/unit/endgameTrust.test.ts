@@ -32,6 +32,15 @@ function finalFour(seed: number, on = true) {
   return { g, a, b, c, jurors };
 }
 const warm = (g: Seam, from: string, to: string, n = 3) => { for (let i = 0; i < n; i++) g.rel.applyImpactDirected(from, to, { trust: 0.3, affinity: 0.3 }, flat); };
+/**
+ * The jury reads close to `fav` in a way each decider can SEE (ORW-574 own-view: a decider reads only what they saw, and a juror's warmth to them is their own bond):
+ * bonding scenes between each juror and `fav` the deciders watched, and `fav`'s own warm bond to each juror.
+ */
+const juryLoves = (g: Seam, fav: string, jurors: string[], watchers: string[]) => {
+  const scenes = jurors.flatMap((j, i) => [0, 1, 2].map((k) => ({ id: `jl${i}${k}`, ts: i * 3 + k, type: "bonding", initiator: j, witnessSet: [j, fav], hidden: true, content: "", houseLife: { seenBy: watchers } })));
+  (g as unknown as { record?: { events(): unknown[] } }).record = { events: () => scenes };
+  for (const j of jurors) warm(g, fav, j);
+};
 
 describe("0193 pure: can I beat you?", () => {
   it("jurors closer to me make my odds better; the comp record counts; no jurors = the record alone", () => {
@@ -54,7 +63,7 @@ describe("0193 pure: can I beat you?", () => {
 describe("0193 in the live adapter", () => {
   it("an NPC who can't beat a rival with the jury pushes them out; one who can keeps them (their own read)", () => {
     const { g, a, b, jurors } = finalFour(21);
-    for (const j of jurors) warm(g, j, b); // the jury loves b
+    juryLoves(g, b, jurors, [a]); // the jury loves b, as a can see
     expect(g.endgameFor(b, a)).toBeGreaterThan(0);
     expect(g.endgameFor(a, b)).toBeLessThan(0);
   });
@@ -77,7 +86,7 @@ describe("0193 in the live adapter", () => {
 
   it("a voter at the final four votes out the one they can't beat, through voteChoice's endgame term", () => {
     const { g, a, b, c, jurors } = finalFour(25);
-    for (const j of jurors) warm(g, j, b);
+    juryLoves(g, b, jurors, [a]);
     const rel = (g as unknown as { rel: SeasonCtx["rel"] }).rel;
     const why: Array<{ options: Array<{ option: string; terms: Array<[string, number]> }> }> = [];
     const pick = voteChoice(a, [b, c], { player: PLAYER, statsOf: () => ({ physical: 0.5, mental: 0.5, social: 0.5 }), rel, endgameFor: (t: string, d: string) => g.endgameFor(t, d) } as unknown as SeasonCtx, [], undefined, (w) => why.push(w as never));
@@ -110,11 +119,11 @@ describe("0193 in the live adapter", () => {
     const run = (on: boolean, seed: number) => {
       const { g, a, b, jurors } = finalFour(seed, on);
       g.setDealPlansEnabled?.(true);
-      for (const j of jurors) warm(g, j, b);
+      juryLoves(g, b, jurors, [a]);
       g.recordAssurance({ from: a, to: b, kind: "vote", sincerity: 0, source: "npc" });
       return g.live.assurances!.items.at(-1)!.sincerity;
     };
-    const pairs = Array.from({ length: 12 }, (_, i) => [run(true, 40 + i), run(false, 40 + i)] as const);
+    const pairs = Array.from({ length: 30 }, (_, i) => [run(true, 40 + i), run(false, 40 + i)] as const); // the tilt is ~0.15 here (own-view reads), so 30 seasons keep a miss under 1%
     for (const [on, off] of pairs) expect(on).toBeLessThanOrEqual(off);
     expect(pairs.some(([on, off]) => on < off), "the endgame never tilted a reassurance").toBe(true);
   });
