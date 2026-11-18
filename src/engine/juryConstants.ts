@@ -75,6 +75,10 @@ export const MANNER_GRADING = {
   goodbyeWarmLift: 0.12,
   /** A cold goodbye's independent STING — its own minor grievance, never itself laundered away. */
   goodbyeColdSting: 0.18,
+  /** ORW-638 (S-9): when a juror carries more than one grievance flag, each flag after the strongest counts at this share. 1 with a large `stackCapMult` restores the old flat sum (the kill switch). Dial: raise to shrink the change. */
+  stackShare: 0.5,
+  /** ORW-638 (S-9): the stacked grievance never exceeds this multiple of the single strongest flag (so betrayed + blindsided tops out at 0.75, not 1.1). */
+  stackCapMult: 1.25,
 } as const;
 
 /** Engine-scored finale APPEAL magnitudes (`appealEffect`), all bounded to [0,1]. */

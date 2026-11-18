@@ -8281,7 +8281,7 @@ export class GameSessionAdapter implements GameSession {
     // own words, never a canned pretext line), so no trust/threat read leaks across the wall.
     const stretchKey = `${this.week}:${this.phase}`;
     const rng = new SeededRandom(hashSeed(`approaches:${this.gameSeed ?? ""}:${stretchKey}`));
-    const ranked = rankApproaches(player, npcIds, this.rel, rng, undefined, this.approachBiasHook(player));
+    const ranked = rankApproaches(player, npcIds, this.rel, rng, undefined, this.approachBiasHook(player), this.grudgeStanceHook(player));
     // #1322: a player-facing-projection-only anti-recency filter — an NPC who led a recent stretch
     // sinks below everyone still eligible, so the same seeded-affinity NPC can't monopolize every
     // stretch. `rankApproaches` itself is untouched/pure; see `applyApproachCooldown`'s own doc.
@@ -11308,7 +11308,7 @@ export class GameSessionAdapter implements GameSession {
     const m = nextMilestone(live);
     const noms = new Set<EntityId>(this.ceremony.nominees ?? []);
     const rng = new SeededRandom(hashSeed(`desire:${this.gameSeed ?? ""}:${Math.floor(this.absHour() * 10)}`));
-    const drive = new Map(rankApproaches(PLAYER, ids, this.rel, rng, undefined, this.approachBiasHook(PLAYER)).map((a) => [a.npc, a.drive] as const));
+    const drive = new Map(rankApproaches(PLAYER, ids, this.rel, rng, undefined, this.approachBiasHook(PLAYER), this.grudgeStanceHook(PLAYER)).map((a) => [a.npc, a.drive] as const));
     const since = live.desireApproachedAt ?? {};
     const cands: Candidate[] = [];
     for (const id of ids) {
@@ -15598,7 +15598,7 @@ export class GameSessionAdapter implements GameSession {
           if (!approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;
           const ids = awakeNpcs();
           if (ids.length === 0) return null;
-          const top = rankApproaches(PLAYER, ids, this.rel, r, undefined, this.approachBiasHook(PLAYER))[0];
+          const top = rankApproaches(PLAYER, ids, this.rel, r, undefined, this.approachBiasHook(PLAYER), this.grudgeStanceHook(PLAYER))[0];
           return top ? { npc: this.nameOf(top.npc) } : null;
         },
         observed: (r) => {
@@ -17662,6 +17662,21 @@ export class GameSessionAdapter implements GameSession {
   /** Review lead 1: ONE bias provider for every place the NPCs' drive to seek the player is ranked (social initiatives, the hang-out approach, the desire clock's drive). Undefined when neither layer is on => byte-identical. */
   private approachBiasHook(player: EntityId): ((n: EntityId) => number) | undefined {
     return this.approachMemoryEnabled || this.moodApproachEnabled ? (n) => (this.approachMemoryEnabled ? this.approachMemoryFor(n, player) : 0) + this.moodApproachFor(n) : undefined;
+  }
+  /** ORW-638 (S-12): the stance hook for `rankApproaches` (rides the approach-memory flag; undefined when off => byte-identical). */
+  private grudgeStanceHook(player: EntityId): ((n: EntityId) => number) | undefined {
+    return this.approachMemoryEnabled && this.npcMemoryEnabled ? (n) => this.grudgeStanceFor(n, player) : undefined;
+  }
+  /**
+   * ORW-638 (S-12): a wronged houseguest does not simply approach more. Holding a grudge toward the player, a volatile temperament goes at them (+) and a calm one keeps away (-), with a personal keyed
+   * offset (agendaRoll, no shared rng) so no two of the same temper agree. Scaled by the grudge's size; 0 with no grudge. Deterministic, [-1, 1].
+   */
+  grudgeStanceFor(npc: EntityId, player: EntityId): number {
+    if (npc === PLAYER) return 0;
+    const grudge = Math.max(0, Math.min(1, this.memoryTiltFor(player, npc)));
+    if (grudge <= 0) return 0;
+    const temper = 0.7 * (this.soulObj(npc)?.volatility ?? 0.5) + 0.3 * agendaRoll(this.gameSeed ?? 0, npc, `grudge-stance:${player}`);
+    return grudge * Math.max(-1, Math.min(1, (temper - 0.5) * 3));
   }
   approachMemoryFor(npc: EntityId, player: EntityId): number {
     if (!this.approachMemoryEnabled || npc === PLAYER) return 0;
