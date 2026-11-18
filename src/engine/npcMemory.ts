@@ -202,6 +202,18 @@ export const SCENE_MEMORY_SEVERITY: Readonly<Record<string, { kind: MemoryKind; 
   alliance: { kind: "scene-kindness", severity: 0.3 },
 };
 
+/**
+ * ORW-614 (P-11, `ORWELL_PLAYER_SCENE_MOVES`): the scene kinds that moved no one's memory. A flirt or a strategy session is remembered as a small warmth (a kindness), smaller than a bonding scene; gossip writes no
+ * memory (it moves a mood only). ONE table for both doors: a scene the player is in and a scene between houseguests read it the same way.
+ */
+export const SCENE_MEMORY_SEVERITY_MORE: Readonly<Record<string, { kind: MemoryKind; severity: number }>> = {
+  showmance: { kind: "scene-kindness", severity: 0.25 },
+  strategy: { kind: "scene-kindness", severity: 0.15 },
+};
+
+/** The scene kinds whose only effect is a mood (no memory): gossip. Their mood scale mirrors a strategy scene's. */
+export const SCENE_MOOD_ONLY_SEVERITY: Readonly<Record<string, number>> = { gossip: 0.15 };
+
 /** B2 — how much a remembered nomination mattered, graded by the holder's PRE-fold trust in the HOH (a betrayal by a friend weighs more): 0.3 floor .. 0.7. Pure, bounded. */
 export function nominationMemorySeverity(priorTrust: number): number {
   const t = Number.isNaN(priorTrust) ? 0 : Math.max(0, Math.min(1, priorTrust));

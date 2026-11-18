@@ -162,3 +162,7 @@ active kinds + reliability rewards, 0109 duration, 0014/0037 jury reliability). 
 reads (0017/0026), surfaced through the decision seam (0034) as a player-witnessed event (0002), sealed by
 0001 (no hidden state in the offer; the decline-cooling is a hidden fold). Calibration-neutral by
 construction (default-off flag + dedicated rng + lull-only) ⇒ byte-identical until the deploy opts in.
+
+## Amendment 2026-11-18 (ORW-614, P-12): the player can counter an offer
+
+A houseguest could always counter the player's deal; the player could only accept or decline theirs. Now the player may answer a standing offer (the ordinary slot or the vote pitch) with terms of their own: `makeDeal` takes an optional `countersOffer` (the offer's id, which the open-offer view now carries for a played game). The deal is the player's own act (kind, terms and any term of their choosing); the houseguest's own consent read (`dealConsent`) decides, exactly as for any player-made deal. The offer closes as countered whether the houseguest agrees or not (a recorded, player-witnessed scene; no decline cooling, since the player engaged). A counter only matches an offer from the same houseguest while it stands; anything else is ignored and the offer stands. The engine never counters for the player. Flag `ORWELL_DEAL_COUNTER` (default ON; `=0` byte-identical: no id on the view, no counter text, `countersOffer` ignored). Played games only. Gate: `tests/unit/orw614DealCounter.test.ts`.
