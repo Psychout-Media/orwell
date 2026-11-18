@@ -5222,7 +5222,7 @@ export class GameSessionAdapter implements GameSession {
       player: PLAYER, cast: this.house.npcs.map((n) => n.id).sort(), nameOf: (id) => this.nameOf(id),
       digests: s.weekDigests ?? [], voteRecord: s.voteRecord ?? [], calledPawn: (w, e) => this.calledPawn(w, e),
       events: events.map((e) => ({ type: e.type, initiator: e.initiator, witnessSet: e.witnessSet, hidden: e.hidden, content: e.content, ...(e.houseLife?.seenBy ? { seenBy: e.houseLife.seenBy } : {}) })),
-      eventWeeks: weeksOfLog(events, PULL_QUOTE.evictionCue, maxWeek),
+      eventWeeks: this.logWeeks(events, maxWeek),
       deals: this.deals.all, winner: s.winner ?? null,
       ...(finale?.votes ? { jury: { finalists: finale.finalists, votes: Object.values(finale.votes).map((votedFor) => ({ votedFor })) } } : {}),
     });
@@ -5230,6 +5230,8 @@ export class GameSessionAdapter implements GameSession {
   /** 0211 / ORW-649: the reunion on finale night (`ORWELL_REUNION`, default ON; `=0` = none). Played, finished games only; the caller holds the crown gate. Read-only: nothing is recorded or folded, no rng. */
   private reunionEnabled = flagDefaultOn("ORWELL_REUNION");
   setReunionEnabled(on: boolean): void { this.reunionEnabled = on; }
+  /** The reconstructed week of every log position (one place reads the eviction cue). */
+  private logWeeks(events: Parameters<typeof weeksOfLog>[0], maxWeek: number): number[] { return weeksOfLog(events, PULL_QUOTE.evictionCue, maxWeek); }
   private buildReunionView(): ReunionView | undefined {
     const s = this.live;
     if (!this.reunionEnabled || !s?.finished || s.playedGame !== true || !this.house) return undefined;
@@ -5277,7 +5279,7 @@ export class GameSessionAdapter implements GameSession {
     if (!this.yourStoryEnabled || !s?.finished || s.playedGame !== true || !this.house) return undefined;
     const events = this.record?.events() ?? [];
     const maxWeek = (s.weekDigests ?? []).reduce((m, d) => Math.max(m, d.week), 1);
-    const weeks = weeksOfLog(events, PULL_QUOTE.evictionCue, maxWeek);
+    const weeks = this.logWeeks(events, maxWeek);
     const finalists = new Set<EntityId>(s.finale?.finalists ?? s.finalTwo ?? []);
     const guests: StoryGuest[] = this.house.npcs.map((n) => n.id).sort().map((id) => {
       const scenes = events.flatMap((e, i) => (!e.hidden && e.type !== "house-event" && (e.witnessSet.includes(id) || e.initiator === id) && (e.witnessSet.includes(PLAYER) || e.initiator === PLAYER)) ? [{ week: weeks[i]!, kind: e.type }] : []);
