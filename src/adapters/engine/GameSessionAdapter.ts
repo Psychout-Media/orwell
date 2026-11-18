@@ -8469,7 +8469,7 @@ export class GameSessionAdapter implements GameSession {
     const base0 = this.presenceBase ?? this.presence;
     if (!base0) return base0;
     // A9: during the staged entrances the un-arrived are not in the house - the society never pairs them.
-    const notHere = this.notInHouseNow();
+    const notHere = this.notYetArrived();
     let base = base0;
     if (notHere) { base = new Map(); for (const [id, room] of base0) if (!notHere.has(id)) base.set(id, room); }
     const awake = this.awakeNow();
@@ -14724,7 +14724,8 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live!, seed = this.gameSeed ?? 0, abs = this.inGameAbsHour()!;
     const st: DiaryCallsState = (s.diaryCalls ??= { seen: [], byDay: {} });
     const a = st.away;
-    if (a && (abs >= a.until || this.diaryHouseBusy())) {
+    if (a && !this.livingIds().includes(a.who)) delete st.away; // voted out while in there (the 0129 jury house): no return beat for someone who has left the game
+    else if (a && (abs >= a.until || this.diaryHouseBusy())) {
       const seen = seenOf(a, this.soulObj(a.who)?.emotionalState ?? a.moodBefore);
       st.seen.push({ ...seen, at: abs });
       delete st.away;
@@ -14804,8 +14805,6 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live!, house = this.house!, presence = this.presence!;
     this.statusTick(); // 0173: once a day, flag-gated (a no-op otherwise)
     this.diaryCallStep(events, awakeIds); // ORW-668 (0210 C2): a call may go out or come back; flag-gated, played games only (a no-op otherwise)
-    const callAway = this.diaryAwayIds(); // the houseguest in the Diary Room takes no part in this stretch's house life
-    if (callAway) awakeIds = awakeIds.filter((id) => !callAway.has(id));
     const playerRoom = presence.get(house.player.id);
     const actors = awakeIds.filter((id) => presence.has(id) && presence.get(id) !== playerRoom);
     // ORW-621 (0198): the people in the player's room live too. Played games with the flag on only; off => empty => every line below is byte-identical.

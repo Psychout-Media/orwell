@@ -14,7 +14,7 @@ import { hostRegister, registerWords } from "./productionHost";
  */
 export const DIARY_CALLS = {
   /** The chance one awake houseguest is the one called in a given in-game hour (keyed roll; the lowest passing roll wins). */
-  hourlyChance: 0.02,
+  hourlyChance: 0.01,
   /** At most this many NPC calls per in-game day, and only one away at a time. */
   perDay: 1,
   /** A stay is between these many minutes (a keyed roll); the houseguest is away for the in-game hours it spans. */
