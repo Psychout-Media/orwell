@@ -14595,14 +14595,15 @@ export class GameSessionAdapter implements GameSession {
     void events; // the transfer records THROUGH `knowledge` (transmitGossip) — the store is the caller's contract
     const npcs = this.awakeAmong(this.livingIds().filter((id) => id !== PLAYER)); // ORW-572: only the awake trade secrets
     if (npcs.length < 2) return; // nobody to trade between
-    // A holder's TRADEABLE secrets: a learned belief ABOUT a still-active NPC houseguest (never themselves,
-    // never the player — a player-subject belief rides the ordinary PV1/gossip path, not a barter). Stable
-    // key order so the dedicated draw sequence is reproducible.
+    // A holder's TRADEABLE secrets: a learned belief ABOUT a still-active NPC houseguest (never themselves). ORW-614 (P-11, `ORWELL_SECRET_BARTER_PLAYER`, played games): a belief ABOUT THE PLAYER is tradeable
+    // the same way (the player is a subject like any houseguest; the transfer is the same hidden NPC-to-NPC told-by event the player never witnesses, so nothing reaches the player or the narrator except through a
+    // later in-game pathway with a source). Stable key order so the dedicated draw sequence is reproducible.
+    const playerSubjectOk = this.secretBarterPlayerEnabled && this.live?.playedGame === true;
     const tradeableOf = (holder: EntityId) =>
       knowledge.knownTo(holder)
         .filter((k) => {
           const subj = k.subject;
-          return subj !== undefined && subj !== holder && subj !== PLAYER && this.isActiveNpc(subj);
+          return subj !== undefined && subj !== holder && (this.isActiveNpc(subj) || (subj === PLAYER && playerSubjectOk));
         })
         .sort((a, b) => (a.factId ?? a.id).localeCompare(b.factId ?? b.id));
     // Holders with something to spend, in deterministic order, capped for work. A tick with NOTHING to
@@ -14687,6 +14688,10 @@ export class GameSessionAdapter implements GameSession {
       recipientTrustOfPlayer: this.rel.edge(recipient, giver).trust, // source-trust slot — the giver, for a barter
     };
   }
+
+  /** ORW-614 (P-11, `ORWELL_SECRET_BARTER_PLAYER`, default ON; `=0` byte-identical): houseguests may trade a secret ABOUT the player among themselves (played games only; needs the barter layer). */
+  private secretBarterPlayerEnabled = flagDefaultOn("ORWELL_SECRET_BARTER_PLAYER");
+  setSecretBarterPlayerEnabled(on: boolean): void { this.secretBarterPlayerEnabled = on; }
 
   /** Turn the off-screen SECRET BARTER on/off (0099). Off by default — the calibration harness leaves it
    *  off (with it off `secretBarterTick` returns before any draw ⇒ the seeded spine is byte-identical). */
