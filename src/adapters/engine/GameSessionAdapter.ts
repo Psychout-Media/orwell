@@ -2353,6 +2353,8 @@ export class GameSessionAdapter implements GameSession {
     // 0188 / ORW-619: a houseguest who set a trap on the player says the canary the next time they are with them - an ordinary confidence to the narrator, no tell.
     const canary = this.sayPendingCanary(id);
     if (canary) { this.claimsToPlayerDecided.set(id, { epoch: this.disclosureEpoch, tells: canary }); return canary; }
+    const aimed = !jury ? this.tellAimedSpeech(id) : undefined;
+    if (aimed) { this.claimsToPlayerDecided.set(id, { epoch: this.disclosureEpoch, tells: aimed }); return aimed; }
     const day = live.dayNumber ?? 0;
     const log = live.claims?.items ?? [];
     const told = log.filter((c) => c.speaker === id && c.listener === PLAYER);
@@ -2374,6 +2376,24 @@ export class GameSessionAdapter implements GameSession {
     if (!tells && !jury) tells = this.plantOnPlayer(id, day, toldTodayBy(told, live.week, day));
     this.claimsToPlayerDecided.set(id, { epoch: this.disclosureEpoch, ...(tells ? { tells } : {}) });
     return tells;
+  }
+  private claimsToPlayerOn(): boolean { return this.claimsToPlayerEnabled && this.npcBeliefsEnabled && this.live?.playedGame === true; }
+  /**
+   * ORW-611 follow-up (0151, 0153) - A SPEECH STEP AIMED AT THE PLAYER. A houseguest whose plan step was a plant/leak/confirm/fish with the player as the listener stepped up to them (the open approach); now that they are with the player the step is TOLD,
+   * by the same `sayInHouseLife` -> `planSpeech` -> `tellClaim` door an NPC listener's telling takes (same fields, same salt; only the listener differs). The claim is held by the player with the speaker as source and carries its own engine-side truth
+   * (a lie is catchable like any other). The narrator gets the same Vault-free `tellsYou` fields as any told claim (kind, names, a band; never the truth or the intent). Consumed once. Nothing said = nothing recorded.
+   */
+  private tellAimedSpeech(id: EntityId): NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined {
+    const live = this.live;
+    const it = live?.interruption;
+    if (!live || !it || it.npc !== id || !it.say || !this.claimsToPlayerOn()) return undefined;
+    const say = it.say;
+    delete it.say;
+    const said = this.sayInHouseLife({ kind: say.kind, actor: id, truthful: say.truthful, ...(say.about ? { about: say.about } : {}) }, PLAYER, say.salt);
+    if (!said) return undefined;
+    const object = said.object ?? (said.kind === "lying-about" ? PLAYER : undefined);
+    const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:aimed-speech-band:${say.salt}:${id}`)).next();
+    return { kind: said.kind, subject: said.subject === PLAYER ? "the player" : this.nameOf(said.subject), ...(object !== undefined ? { object: this.nameOf(object) } : {}), ...(said.label !== undefined ? { label: said.label } : {}), certainty: presentedBand(undefined, roll) };
   }
   /**
    * 0159 / ORW-330 (theme 2, slice 6b) - A LIE PLANTED ON THE PLAYER. When `id` told the player nothing from a held belief, a houseguest with an ACTIVE goal against someone may plant a lie about them
@@ -12642,10 +12662,11 @@ export class GameSessionAdapter implements GameSession {
       const awake = this.awakeNow();
       const ids = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
       const hit = this.desireApproach(ids);
-      if (hit) { this.noteApproach(hit.npc, hit.desire, hit.capped);
+      if (hit) { const aimedSay = this.live.goalApproaches?.[hit.npc]?.say; this.noteApproach(hit.npc, hit.desire, hit.capped);
         if (!hit.capped) this.markAimedShown(hit.npc);
         if (hit.capped && this.live.playedGame === true) this.live.approachHeld = true; // ORW-443: narration-only - the view tells the narrator nobody new steps up this turn
         if (!hit.capped) { this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
+          if (aimedSay && this.claimsToPlayerOn()) this.live.interruption.say = aimedSay; // ORW-611 follow-up: told when the view for this framing is built (the houseguest is with the player)
           const said = this.volunteerOrientation(hit.npc); if (said) this.live.interruption.tells = said; } }
     }
   }
@@ -15135,6 +15156,11 @@ export class GameSessionAdapter implements GameSession {
           (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: "attraction", hour: this.absHour() }; // 0207 A1: drawn to the player, they come to them through the desire clock's own path and guards (what the player does about it is theirs)
         } else if (p.court && p.with.includes(house.player.id) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: "court", hour: this.absHour() }; // 0173: the player is the HOH: the court comes to them, through the desire clock's own path and guards
+        }
+        // ORW-611 follow-up (0151): a speech step aimed at the player is told through the same door as any telling, but only once the houseguest actually steps up to the player (see `tellAimedSpeech`); stash what it says (the same salt an NPC listener's telling rolls on).
+        if (partner === house.player.id && speechActionOf(p.kind) && this.claimsToPlayerOn()) {
+          const g = s.goalApproaches?.[p.actor];
+          if (g && g.hour === this.absHour()) g.say = { kind: p.kind, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), salt: `${seed}:speech:${day}:${hour}${repeat > 0 ? `r${repeat}` : ""}` };
         }
         if (partner && p.about) this.foldThirdPerson(p, partner, day, hour); // ORW-577
         let type = p.fold ?? HOUSE_LIFE_ACTIONS[p.kind].fold;
