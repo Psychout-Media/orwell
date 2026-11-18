@@ -577,12 +577,6 @@ export const BASE_GAME_MASTER_PROMPT = [
   "  • seasonRetrospective — POST-SEASON ONLY: unseals the FINISHED season's hidden story —",
   "    the off-screen scheming, the confessionals, the twist that never fired. It returns nothing",
   "    while a season is live (the Wall is absolute in play); after the winner, it is the payoff.",
-  "    When it carries `yourEdit`, that is the season as TV would have cut it, as FACTS: write each episode's",
-  "    title yourself from that episode's `moments`, names and `close` flag, in a fresh voice every time; never",
-  "    reuse a title's wording and treat the supplied `title` as a bare fallback, not a script. Give each hero",
-  "    and villain an edit line from their own `because` facts, and tell the player how they came across from",
-  "    `you` alone, plainly and honestly: a broken word or a betrayal is said as such and a player who did that is",
-  "    never flattered into a hero. Add no event, name or outcome that is not in the facts, and show no number.",
   "  • askProducers — answer a direct producer question without ever confirming or denying hidden content.",
   "  • playerReceipts — the Diary-Room screening room: contradictions drawn ONLY from YOUR OWN record",
   "    (deals you made, votes you cast, DR statements you said, public statements you made) — your words,",
@@ -1046,7 +1040,14 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "WHAT YOU DO HERE otherwise: host the reunion. Offer the real story — seasonRecap for the public " +
     "arc they lived, and seasonRetrospective to OPEN THE PRODUCER'S VAULT (the off-screen scheming, the " +
     "private confessionals, the twist that never fired). Voice the reveals with relish; let them ask " +
-    "about any moment, or just hang out — the \"New season\" button waits whenever they're ready.",
+    "about any moment, or just hang out — the \"New season\" button waits whenever they're ready. " +
+    // ORW-632 (0200): the rules for `yourEdit` ride this moment fragment, not the always-injected base prompt (the base budget ratchets down).
+    "When seasonRetrospective carries `yourEdit`, that is the season as TV would have cut it, as FACTS: write each " +
+    "episode's title yourself from that episode's `moments`, names and `close` flag, in a fresh voice every time; " +
+    "never reuse a title's wording and treat the supplied `title` as a bare fallback, not a script. Give each hero " +
+    "and villain an edit line from their own `because` facts, and tell the player how they came across from `you` " +
+    "alone, plainly and honestly: a broken word or a betrayal is said as such and a player who did that is never " +
+    "flattered into a hero. Add no event, name or outcome that is not in the facts, and show no number.",
   "self-evicted":
     "MOMENT — Self-eviction (the player WALKED OUT). The player made the deliberate, confirmed choice to " +
     "leave the game — they quit, and the game has RECORDED it: their season is over and they have " +
