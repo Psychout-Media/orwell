@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CONVICTION, convictionFor, credulityOf, dealTrust, evidenceStep, underTest } from "../../src/engine/beliefConviction";
+import { CONVICTION, convictionFor, credulityOf, dealTrust, pathwayEvidence, underTest } from "../../src/engine/beliefConviction";
 import type { BeliefClaim } from "../../src/engine/beliefStore";
 
 /** 0160 / ORW-330 - conviction (Ryne's Q2 ruling): pure rules. Roles only. */
@@ -28,10 +28,22 @@ describe("0160 conviction", () => {
     expect(underTest(b({ kind: "holds-power", confidence: 0.45 }))).toBe(false);
   });
 
-  it("evidence moves toward the truth, except when it misleads", () => {
-    expect(evidenceStep(true, 0.9)).toBe(CONVICTION.step);
-    expect(evidenceStep(false, 0.9)).toBe(-CONVICTION.step);
-    expect(evidenceStep(true, 0.05)).toBe(-CONVICTION.step);
+  it("ORW-585: the night's evidence is what the holder holds through pathways, never the hidden truth", () => {
+    const doubt = b({ id: "d", kind: "voted-against-me", subject: "x", source: "s1", confidence: 0.45 });
+    // nothing else held: an unconfirmed doubt fades
+    expect(pathwayEvidence(doubt, [doubt], "h")).toBe(-CONVICTION.fade);
+    // a second source told them the same: it grows
+    const second = b({ id: "d2", kind: "voted-against-me", subject: "x", source: "s2", confidence: 0.4 });
+    expect(pathwayEvidence(doubt, [doubt, second], "h")).toBe(CONVICTION.step);
+    // the same source repeating it is not a second source
+    const repeat = b({ id: "d3", kind: "voted-against-me", subject: "x", source: "s1", confidence: 0.4 });
+    expect(pathwayEvidence(doubt, [doubt, repeat], "h")).toBe(-CONVICTION.fade);
+    // told the opposite (that x voted to keep them): it falls
+    const keep = b({ id: "k", kind: "heard-rumor", nature: "voted-to-keep", subject: "x", object: "h", source: "s3", confidence: 0.5 });
+    expect(pathwayEvidence(doubt, [doubt, keep], "h")).toBe(-CONVICTION.step);
+    // caught the original source lying to them: it falls
+    const liar = b({ id: "l", kind: "lied-to-me", subject: "s1", source: "s1", confidence: 0.8 });
+    expect(pathwayEvidence(doubt, [doubt, liar], "h")).toBe(-CONVICTION.step);
   });
 
   it("a deal weighs as far as its holder trusts the other party (Ryne Q3)", () => {

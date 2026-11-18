@@ -52,6 +52,8 @@ export const APPROACH_MEMORY_MAX = 0.15;
 /** Review lead 7: the memory bias is added AFTER the temperature multiplier, so on its own it could lift an NPC with ~no bond/threat above bonded ones. It is therefore scaled by how much agenda the NPC already has: full strength from this agenda up, proportionally less below, nothing at zero. */
 export const APPROACH_BIAS_FULL_AGENDA = 0.3;
 /** Review lead 2: the cheap pull from a promise/deal the NPC owes the player (+bonus) only counts while the NPC holds no real grudge (the memory tilt above this floor) - a real grudge dominates. */
+/** ORW-638 (stacking audit S-12): the largest drive shift a fresh grudge's temperament read may apply (a grudge raises the same NPC's threat read by about 0.3, so the avoidance side has to be able to offset that). Positive = a volatile holder goes at the wrongdoer, negative = a calm one keeps away. */
+export const APPROACH_GRUDGE_MAX = 0.3;
 export const APPROACH_OWED = { bonus: 0.1, grudgeFloor: 0.02 } as const;
 
 export function rankApproaches(
@@ -66,6 +68,8 @@ export function rankApproaches(
    * seeks them out; grudge => avoids them). Bounded to +-`APPROACH_MEMORY_MAX` here regardless of the provider. Absent => byte-identical (it adds no rng draw either way).
    */
   memoryBias?: (npc: EntityId) => number,
+  /** ORW-638 (S-12): an optional signed -1..1 read of how this NPC's grudge toward the player moves them (+ confront, - avoid, from their temperament). Scaled by `APPROACH_GRUDGE_MAX`, gated by agenda like the memory bias. Absent => byte-identical; no rng. */
+  grudgeStance?: (npc: EntityId) => number,
 ): Approach[] {
   return npcs
     .filter((n) => n !== player)
@@ -76,7 +80,8 @@ export function rankApproaches(
       // Bounded: 1 ± initiative/2 — modulates intensity, never flips a clear gap at the default.
       const temper = 1 + (rng.next() - 0.5) * initiativeWeight;
       const bias = memoryBias ? Math.max(-APPROACH_MEMORY_MAX, Math.min(APPROACH_MEMORY_MAX, memoryBias(n))) * Math.min(1, agenda / APPROACH_BIAS_FULL_AGENDA) : 0;
-      return { npc: n, drive: agenda * temper + bias, motive: (bond >= e.threat ? "bond" : "probe") as ApproachMotive };
+      const stance = grudgeStance ? Math.max(-1, Math.min(1, grudgeStance(n))) * APPROACH_GRUDGE_MAX * Math.min(1, agenda / APPROACH_BIAS_FULL_AGENDA) : 0;
+      return { npc: n, drive: agenda * temper + bias + stance, motive: (bond >= e.threat ? "bond" : "probe") as ApproachMotive };
     })
     .sort((a, b) => b.drive - a.drive);
 }

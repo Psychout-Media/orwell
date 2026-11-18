@@ -22,7 +22,7 @@ export const DEAL_CONSENT = {
     grudge: 2.0,       // a remembered betrayal (npcMemory grudge, max 0.15) - a drag
     favor: 2.0,        // a remembered favor (npcMemory favor, max 0.06) - a bonus
     opposed: 0.6,      // ORW-87: the NPC's OWN standing plan against the player (drive/campaign push, max ~0.2) - a drag
-    targetsMe: 2.0,    // the NPC's BELIEF that the player is targeting them (belief store, max 0.18) - a drag
+    targetsMe: 0.36,   // the NPC's BELIEF that the player is targeting them (full-strength belief pull, 0..1) - a drag. ORW-637 (Fable S-7): was 2.0 when the read maxed at 0.18; 0.36 keeps that same most-certain drag (2.0 x 0.18) now the read reaches 1.0
   },
   /** Cap on the favor bonus so a remembered kindness can tip a marginal NPC but never buy an ask on its own. */
   favorCeiling: 0.12,
@@ -54,11 +54,4 @@ export const DEAL_CONSENT = {
 export type DealRefusalReason = "distrust" | "threat" | "targeted" | "grudge" | "opposed" | "cost";
 
 /** The narratable line per reason (no numbers, no Vault: how the houseguest would carry themselves, never why in terms of a hidden score). */
-export const DEAL_REFUSAL_LINE: Record<DealRefusalReason, string> = {
-  distrust: "doesn't trust you enough yet to shake on this",
-  threat: "sees you as too big a threat to tie themselves to",
-  targeted: "believes you are already coming after them",
-  opposed: "is already working against you in this game and will not tie themselves to you",
-  grudge: "is still holding a grudge over how you have treated them",
-  cost: "this ask costs them too much for where the two of you stand",
-};
+/** ORW-608 (Ryne 2026-11-17): the six fixed refusal lines are gone; a refusal carries the stated reason the houseguest gives (`agendaDecisions.explainDecision`), voiced in their own words. */

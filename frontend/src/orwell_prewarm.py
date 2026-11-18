@@ -229,6 +229,14 @@ async def prewarm_cast(user: Optional[str] = None, *, engine=None, authoring=Non
     except Exception as e:  # genesis must never block onboarding
         logger.info("[prewarm] cast-genesis skipped: %s", e)
 
+    # ORW-509 - the season's HOUSE is authored at this same setup moment: one bounded call (plus one retry on an engine refusal) from the season brief and random anchors,
+    # read by the engine's acceptance rules; a refusal leaves the plain room labels. Fail-soft, never blocks onboarding.
+    try:
+        from src import orwell_house_authoring
+        await orwell_house_authoring.run_house(seed, user)
+    except Exception as e:
+        logger.info("[prewarm] house authoring skipped: %s", e)
+
     # #544 — the AI-driven IDENTITY seed runs FIRST (before deep authoring), so the engine has validated /
     # repaired / folded the cast's descriptive identity (re-grounding skin tone from the final heritage)
     # BEFORE the authoring prompt reads each houseguest's heritage. Best-effort + fail-soft: a missing model

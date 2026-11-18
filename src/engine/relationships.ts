@@ -148,6 +148,17 @@ export class RelationshipModel {
   }
 
   /** The stored (mutable) directed edge A→B, lazily created at baseline. */
+  /** Theme 3 (bonds.ts): the edge WITHOUT creating it - an unknown pair reads as a fresh baseline copy, and nothing is stored. Read-only consumers use this. */
+  peek(a: EntityId, b: EntityId): Readonly<EdgeSignals> {
+    return this.edges.get(this.key(a, b)) ?? baseline(this.constants);
+  }
+
+  /** `bondStrength` without creating either edge (see `peek`). */
+  peekBondStrength(a: EntityId, b: EntityId): number {
+    const e = this.peek(a, b);
+    return (e.trust + e.affinity) / 2 + this.constants.RELIABILITY_WEIGHT * (e.reliability - this.constants.baseline.reliability);
+  }
+
   edge(a: EntityId, b: EntityId): EdgeSignals {
     const k = this.key(a, b);
     let e = this.edges.get(k);
@@ -338,11 +349,17 @@ export class RelationshipModel {
    * evidence signals (alignment, confidence, reliability) are untouched. Opt-in: nothing calls it in a headless run.
    */
   driftTowardBaseline(rate: number, eligible: (from: EntityId, to: EntityId) => boolean): void {
+    this.driftTowardBaselineBy((from, to) => (eligible(from, to) ? rate : undefined));
+  }
+
+  /** ORW-582: as `driftTowardBaseline`, but each edge carries its own rate (`undefined` = leave it alone). */
+  driftTowardBaselineBy(rateOf: (from: EntityId, to: EntityId) => number | undefined): void {
     const base = this.constants.baseline;
-    const r = clamp(rate);
     for (const [k, e] of this.edges) {
       const [from, to] = k.split("->") as [EntityId, EntityId];
-      if (!eligible(from, to)) continue;
+      const raw = rateOf(from, to);
+      if (raw === undefined) continue;
+      const r = clamp(raw);
       e.trust += (base.trust - e.trust) * r;
       e.affinity += (base.affinity - e.affinity) * r;
       e.threat += (base.threat - e.threat) * r;

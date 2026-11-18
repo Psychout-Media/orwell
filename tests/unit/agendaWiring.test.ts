@@ -21,9 +21,11 @@ function withoutAgendas<T>(fn: () => T): T {
 /** ORW-314: agendas present but their pull on decisions zeroed (the season as it was before decisions read goals). */
 function withPullZeroed<T>(fn: () => T): T {
   // ORW-317: a settled goal also moves mood now (goal mood), so "agendas present but with no effect" zeroes that too.
-  const keep = { pull: proto.agendaPullOf, mood: proto.appraiseSettled };
+  const keep = { pull: proto.agendaPullOf, mood: proto.appraiseSettled, hohRead: proto.hohTargetReadOf };
   proto.agendaPullOf = () => ({ value: 0 }); proto.appraiseSettled = () => {};
-  try { return fn(); } finally { proto.agendaPullOf = keep.pull; proto.appraiseSettled = keep.mood; }
+  // ORW-573 (ORW-633): the voter's knowledge-based read of the HOH's target is part of "decisions read what the houseguest knows", not of the pre-wiring season: pin it to the hidden threat read (same seam as stagedEvictionBallots).
+  proto.hohTargetReadOf = function (this: { rel: { edge(a: string, b: string): { threat: number } } }, _v: string, h: string, fn: readonly [string, string]) { return this.rel.edge(h, fn[0]).threat >= this.rel.edge(h, fn[1]).threat ? fn[0] : fn[1]; };
+  try { return fn(); } finally { proto.agendaPullOf = keep.pull; proto.appraiseSettled = keep.mood; proto.hohTargetReadOf = keep.hohRead; }
 }
 const outcome = (l: Live) => JSON.stringify({ winner: l.winner, evictionOrder: l.evictionOrder, jury: l.jury, finalTwo: l.finalTwo, voteRecord: l.voteRecord });
 const strip = (l: Live): string => JSON.stringify({ ...l, agendas: undefined });
@@ -43,16 +45,18 @@ describe("ORW-312: NPC agendas on the live season", () => {
 
   it("(a) ORW-314: with the agenda's pull zeroed a played season is exactly the pre-wiring one; with the pull on it is a different season, REPORTED not gated (balance is a report)", () => {
     for (const seed of [3]) {
-      const off = withoutAgendas(() => playSeason(seed));
-      const zero = withPullZeroed(() => playSeason(seed));
-      const on = playSeason(seed);
+      // ORW-574: the own view (ORWELL_OWN_VIEW) makes decisions read the decider's beliefs, and an agenda's find-out goals move beliefs overnight, so with it on
+      // "no pull" is no longer "no effect". This test isolates the agenda's PULL, so all three seasons play without the own view.
+      const off = withoutAgendas(() => playSeason(seed, { ownViewOff: true }));
+      const zero = withPullZeroed(() => playSeason(seed, { ownViewOff: true }));
+      const on = playSeason(seed, { ownViewOff: true });
       expect(on.finished).toBe(true);
       expect(off.finished).toBe(true);
       expect(zero.finished).toBe(true);
       // the mutation: agendas present, but pulling nothing, is the season as it was before the decisions read goals (and the hidden reason record is the only difference)
       expect(outcome(liveOf(zero.s))).toBe(outcome(liveOf(off.s)));
       // 0160 (conviction): what a houseguest looks into (an agenda find-out goal) moves their beliefs overnight - an agenda effect, so beliefs are compared with the agenda fields
-      const noReasons = (l: Live): string => JSON.stringify({ ...l, agendas: undefined, statedReasons: undefined, moodCauses: undefined, beliefs: undefined });
+      const noReasons = (l: Live): string => JSON.stringify({ ...l, agendas: undefined, statedReasons: undefined, moodCauses: undefined, beliefs: undefined, audience: undefined }); // 0190: the audience reads the public stated reasons (a blindside), an agenda effect
       expect(noReasons(liveOf(zero.s))).toBe(noReasons(liveOf(off.s)));
       expect(liveOf(off.s).agendas).toBeUndefined();
       expect(Object.keys(liveOf(on.s).agendas ?? {})).toHaveLength(15);

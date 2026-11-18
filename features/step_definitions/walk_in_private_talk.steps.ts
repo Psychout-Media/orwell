@@ -11,28 +11,47 @@ import { resolvePending } from "../support/answerPending";
 // Feature 0049 (ORW-473) - walking in on a private talk: each houseguest's reaction comes from their own sheet. Roles only.
 type Ev = { id: string; ts: number; type: string; initiator: string; witnessSet: string[]; hidden: boolean; content: string; houseLife?: Record<string, unknown> };
 type Hack = { presence: Map<EntityId, string>; awakeNow: () => Set<EntityId> | null; live: { playedGame?: boolean }; agendaCharacterOf: (id: EntityId) => unknown; rel: { edge: (a: EntityId, b: EntityId) => { affinity: number } } };
-interface Bag { s: GameSessionAdapter; A: EntityId; B: EntityId; walked?: { reactions: Array<{ id: string; line: string }>; with: Array<{ id: string }> } }
+interface Bag { s: GameSessionAdapter; A: EntityId; B: EntityId; crew: EntityId[]; walked?: { reactions: Array<{ id: string; line: string }>; with: Array<{ id: string }> } }
 const bags = new WeakMap<object, Bag>();
 let n = 0;
 const bag = (w: object): Bag => bags.get(w)!;
 
-Given("a played game where two houseguests are in the kitchen in a private strategy talk and the player is in the backyard", function (this: BbWorld) {
+function stageTalk(w: BbWorld, group: number, hiddenContent: string): void {
   const s = new GameSessionRegistry().sandboxFor(`walkin-bdd-${n++}`).session;
   s.createCharacter({ playerName: "The Player", seed: 5 });
   for (let i = 0; i < 400 && (s.whereabouts()?.houseEvent || s.getGameState().phase === "premiere"); i++) { const v = s.advanceGame(); if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req)); }
   const npcs = s.livingIds().filter((id) => id !== PLAYER);
   const [A, B] = [npcs[0]!, npcs[1]!];
+  const crew = npcs.slice(0, group);
   const h = s as unknown as Hack;
-  const seats: Array<[EntityId, string]> = [[PLAYER, "backyard"], [A, "kitchen"], [B, "kitchen"]];
+  const seats: Array<[EntityId, string]> = [[PLAYER, "backyard"], ...crew.map((id): [EntityId, string] => [id, "kitchen"])];
   for (const id of npcs) if (!seats.some(([x]) => x === id)) seats.push([id, "bedroom-c"]);
   h.presence = new Map(seats);
-  h.awakeNow = () => new Set<EntityId>([PLAYER, A, B]);
+  h.awakeNow = () => new Set<EntityId>([PLAYER, ...crew]);
   h.live.playedGame = true;
   const orig = (s as unknown as { record: { events: () => Ev[]; hidden: unknown } }).record;
-  const talk: Ev = { id: "offscreen:strategy:bdd", ts: 1, type: "strategy", initiator: A, witnessSet: [A, B], hidden: true, content: "secret", houseLife: { action: "pitch", place: "kitchen", manner: "low", truthful: true, stretch: 1, at: s.inGameAbsHour() } };
+  const talk: Ev = { id: "offscreen:strategy:bdd", ts: 1, type: "strategy", initiator: A, witnessSet: crew, hidden: true, content: hiddenContent, houseLife: { action: "pitch", place: "kitchen", manner: "low", truthful: true, stretch: 1, at: s.inGameAbsHour() } };
   s.setRecordProviders({ events: () => [...orig.events(), talk] as never, hidden: orig.hidden as never });
-  bags.set(this, { s, A, B });
+  bags.set(w, { s, A, B, crew });
+}
+Given("a played game where two houseguests are in the kitchen in a private strategy talk and the player is in the backyard", function (this: BbWorld) { stageTalk(this, 2, "secret"); });
+Given("a played game where three houseguests are in the kitchen in a private talk and the player is in the backyard", function (this: BbWorld) {
+  stageTalk(this, 3, "GROUP-SENTINEL");
+  const b = bag(this); (b.s as unknown as Hack).agendaCharacterOf = () => ({ archetype: "floater", strategyStyle: "social" });
 });
+Given("one of the three has left for another room", function (this: BbWorld) { const b = bag(this); (b.s as unknown as Hack).presence.set(b.crew[2]!, "living-room"); });
+Then("all three of them react with a manner of their own", function (this: BbWorld) {
+  const w = bag(this).walked!;
+  assert.ok(w, "the player's walking in was noticed");
+  assert.equal(w.reactions.length, 3);
+  for (const r of w.reactions) assert.ok(r.line.length > 10, r.id);
+});
+Then("the group view names the three and carries nothing of what the talk was", function (this: BbWorld) {
+  const b = bag(this); const w = b.walked!;
+  assert.deepEqual(w.with.map((x) => x.id).sort(), [...b.crew].sort());
+  assert.doesNotMatch(JSON.stringify(w), /GROUP-SENTINEL|pitch|strategy|\d\.\d/i);
+});
+Then("the player has walked in on nothing", function (this: BbWorld) { assert.equal(bag(this).walked, undefined); });
 
 const SHEET: Record<string, { arch: { archetype: string; strategyStyle: string }; ap: number }> = {
   "pulls the player in": { arch: { archetype: "hothead", strategyStyle: "emotional" }, ap: 0.9 },       // very candid, warm to the player

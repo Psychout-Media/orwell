@@ -206,3 +206,17 @@ Feature: House presence and lingering play
       | carries on guarded   |
       | moves the talk       |
       | goes quiet           |
+
+  # ORW-473 amendment (0192): the walk-in rule also catches a talk among three or more (a night-owl trio, an ordinary gathering), under the same guards. Flag ORWELL_WALKIN_GROUPS (default ON).
+  Scenario: Walking in on a group talk of three: all three play it off and none of the hidden talk reaches the player
+    Given a played game where three houseguests are in the kitchen in a private talk and the player is in the backyard
+    When the player walks into the kitchen
+    Then all three of them react with a manner of their own
+    And the group view names the three and carries nothing of what the talk was
+
+  Scenario: A group talk with one member gone is not walked in on
+    Given a played game where three houseguests are in the kitchen in a private talk and the player is in the backyard
+    And one of the three has left for another room
+    When the player walks into the kitchen
+    Then the player has walked in on nothing
+

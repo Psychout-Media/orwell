@@ -42,6 +42,8 @@ export const ASSURANCE = {
   rumoredBreakP: 0.2,
   /** B39: how sure the assured is of the rumored break (a rumor, not a witnessed betrayal). */
   rumoredBreakConfidence: 0.4,
+  /** How sure the assured is that the assurer lied, after a witnessed break (the lied-to-me claim's confidence). */
+  brokenClaimConfidence: 0.8,
   /** The sincerity of an NPC's strategic-lie assurance (B4 slice 7). */
   liarSincerity: 0.1,
 } as const;
@@ -65,6 +67,12 @@ export class AssuranceLedger {
     if (!a || a.status !== "open") return false;
     a.status = status;
     return true;
+  }
+  /** ORW-586: the speaker WITHDREW the promise - lapse (never fold) the open rows matching from/to/kind (and the week when given), so a later board event cannot break it. Returns how many lapsed; none => a no-op. */
+  lapseMatching(m: { from: EntityId; to: EntityId; kind: AssuranceKind; week?: number }): number {
+    let n = 0;
+    for (const a of this.items) if (a.status === "open" && a.from === m.from && a.to === m.to && a.kind === m.kind && (m.week === undefined || a.week === m.week)) { a.status = "lapsed"; n++; }
+    return n;
   }
   /** Mark every open assurance older than the horizon as lapsed (never deleted). */
   lapse(currentWeek: number): void {
@@ -107,8 +115,10 @@ export function lapseAssurancesAtRoll(s: { week: number; assurances?: { seq: num
  * B4 slice 7 - the ENGINE decides whether an NPC's assurance is sincere (the model never does): a loyal houseguest usually means it, a disloyal one often does not. `roll` is a draw in [0,1) from a
  * dedicated seeded stream (never the shared one). Sincere => 1; a strategic lie => `ASSURANCE.liarSincerity` (low, so `decideKeep` breaks it whenever breaking pays). Monotone in loyalty.
  */
-export function npcAssuranceSincerity(loyalty: number, roll: number): number {
-  const pSincere = clamp(0.2 + 0.8 * clamp(loyalty, 0, 1), 0.2, 1);
+export function npcAssuranceSincerity(loyalty: number, roll: number, pFake?: number): number {
+  // ORW-601 (Fable T3-5): when the caller passes the shared faking chance (`dealPlans.ts` FAKING / fakingLean: the person, their past promises, the culture), a casual
+  // assurance is faked on the SAME model as a deal. Without it, the older loyalty-only rule stands (byte-identical).
+  const pSincere = pFake !== undefined ? clamp(1 - pFake, 0, 1) : clamp(0.2 + 0.8 * clamp(loyalty, 0, 1), 0.2, 1);
   return clamp(roll, 0, 1) < pSincere ? 1 : ASSURANCE.liarSincerity;
 }
 

@@ -1,6 +1,6 @@
 import type { EntityId } from "../domain/ids";
 import { PLAYER } from "../domain/ids";
-import { recordClaim, type BeliefStore, type ClaimKind } from "./beliefStore";
+import { evidenceKey, recordClaim, type BeliefStore, type ClaimKind } from "./beliefStore";
 import { heardConfidence, tellerReliability } from "./heardAboutMe";
 import { convictionFor } from "./beliefConviction";
 
@@ -67,7 +67,7 @@ export interface SpokenClaim {
   /** What the speaker really meant by it. Engine-only. */
   intent: ClaimIntent;
   /** Q6 seam: who decided the claim. "engine": the engine chose it. "narrated" (0155, slice 6): the narrator wrote it on its own and the open ledger handed it to the engine, which gave it its truth. */
-  origin: "engine" | "narrated";
+  origin: "engine" | "narrated" | "player";
 }
 
 /** The season's claims, oldest first. Append-only. Engine-only (rides on `LiveSeasonState.claims`). */
@@ -77,7 +77,7 @@ export interface ClaimInput {
   speaker: EntityId; listener: EntityId; kind: SpokenClaimKind; subject: EntityId; object?: EntityId;
   isTrue: boolean; intent: ClaimIntent;
   /** 0155: set to "narrated" for a claim the open ledger caught; absent = an engine claim. */
-  origin?: "narrated";
+  origin?: "narrated" | "player";
 }
 
 export interface ClaimContext {
@@ -91,14 +91,22 @@ export interface ClaimContext {
   credited?: (listener: EntityId, speaker: EntityId) => boolean;
   /** 0160 (conviction): how readily the listener believes what they are told, 0..1 (0.5 = at the source's word). Absent = 0.5 (unchanged). */
   credulity?: (listener: EntityId) => number;
+  /** ORW-587 (T2-4): how far the listener believes THIS speaker's word, 0..1 (1 = never caught lying; from the listener's own caught-lie record, B48). Scales the belief's confidence. Absent = 1 (unchanged). */
+  credibility?: (listener: EntityId, speaker: EntityId) => number;
+  /** ORW-618 (0189 part 2): the jurors (and the player only as a juror) when the claim is told in the jury house; see `claimProblem`. Absent = the house. */
+  jury?: readonly EntityId[];
 }
 
 /** Why a claim is refused (a programming error in the caller, never a game event). Undefined = valid. */
-export function claimProblem(c: ClaimInput, living: readonly EntityId[]): string | undefined {
+export function claimProblem(c: ClaimInput, living: readonly EntityId[], jury?: readonly EntityId[]): string | undefined {
   if (!(SPOKEN_CLAIM_KINDS as readonly string[]).includes(c.kind)) return "unknown kind";
   if (!CLAIM_INTENTS.includes(c.intent)) return "unknown intent";
-  const inHouse = (id: EntityId | undefined) => id !== undefined && living.includes(id);
-  if (!inHouse(c.speaker) || !inHouse(c.listener) || !inHouse(c.subject)) return "not in the house";
+  // ORW-618 (0189 part 2): the SEQUESTER. In the jury house (`jury` given, the jurors, and the player only when the player IS a juror) a claim may pass ONLY between two jurors; a juror never speaks to
+  // or hears from anyone still in the house. What a claim is ABOUT may still be a houseguest in the house (jurors talk about the finalists). Absent `jury` = exactly the house rule.
+  const pair = jury !== undefined && jury.includes(c.speaker) && jury.includes(c.listener);
+  const inHouse = (id: EntityId | undefined) => id !== undefined && (living.includes(id) || (pair && jury!.includes(id)));
+  const inRoom = (id: EntityId): boolean => (pair ? jury!.includes(id) : living.includes(id));
+  if (!inRoom(c.speaker) || !inRoom(c.listener) || !inHouse(c.subject)) return "not in the house";
   if (c.speaker === c.listener) return "speaker is the listener";
   if (c.subject === c.speaker && !ABOUT_OWN_VOTE.has(c.kind)) return "a claim is about someone else"; // a houseguest may claim their OWN vote ("I voted to keep you")
   if (ABOUT_LISTENER.has(c.kind) && c.subject === c.listener) return "a claim is about someone else";
@@ -143,7 +151,7 @@ export function claimConfidence(trustInSpeaker: number, credited: boolean): numb
  * false: the listener cannot tell (Q3 - no built-in tells).
  */
 export function tellClaim(log: ClaimLog, beliefs: BeliefStore | undefined, input: ClaimInput, ctx: ClaimContext): SpokenClaim | undefined {
-  if (claimProblem(input, ctx.living) !== undefined) return undefined;
+  if (claimProblem(input, ctx.living, ctx.jury) !== undefined) return undefined;
   log.seq += 1;
   const claim: SpokenClaim = {
     id: `claim:${log.seq}`, speaker: input.speaker, listener: input.listener, kind: input.kind, subject: input.subject,
@@ -155,14 +163,33 @@ export function tellClaim(log: ClaimLog, beliefs: BeliefStore | undefined, input
   if (beliefs && claim.listener !== PLAYER) {
     const b = beliefFor(claim);
     const fromSource = claimConfidence(ctx.trustOf(claim.listener, claim.speaker), ctx.credited?.(claim.listener, claim.speaker) ?? false);
-    const confidence = ctx.credulity ? convictionFor(fromSource, ctx.credulity(claim.listener)) : fromSource; // 0160: the listener's own credulity
-    recordClaim(beliefs, {
+    const convinced = ctx.credulity ? convictionFor(fromSource, ctx.credulity(claim.listener)) : fromSource; // 0160: the listener's own credulity
+    const confidence = ctx.credibility ? convinced * Math.max(0, Math.min(1, ctx.credibility(claim.listener, claim.speaker))) : convinced; // ORW-587: a speaker the listener caught lying lands weaker
+    const planted = {
       id: `${claim.listener}|${b.kind}|${b.subject}|${claim.id}`, holder: claim.listener, kind: b.kind, subject: b.subject,
       ...(b.object !== undefined ? { object: b.object } : {}), ...(b.nature !== undefined ? { nature: b.nature } : {}),
-      value: true, origin: "told", source: claim.speaker, confidence, week: claim.week,
-    });
+      value: true, origin: "told" as const, source: claim.speaker, confidence, week: claim.week,
+    };
+    // ORW-591 (Fable T2-8): the same speaker saying the same thing again is NOT fresh proof. It folds into the belief they already planted (still
+    // believed, not let go): the newer week and the higher confidence are kept (never lowered), and the telling's id is remembered so a lie caught on
+    // it still finds this belief. A DIFFERENT speaker saying it is real corroboration and plants its own belief (`pathwayEvidence`, `believedGrievance`).
+    const key = evidenceKey(planted);
+    const same = (beliefs[claim.listener] ?? []).find((x) => x.value && !x.refuted && evidenceKey(x) === key);
+    if (same) {
+      same.confidence = Math.max(same.confidence, confidence);
+      same.week = Math.max(same.week, claim.week);
+      (same.alsoClaims ??= []).push(claim.id);
+    } else recordClaim(beliefs, planted);
   }
   return claim;
+}
+
+/** ORW-591 (Fable T2-8) - the save check's rule for the claim log (append-only, never thinned): no claim told is ever lost, and the id counter never goes back. */
+export function claimLogSuperset(later: ClaimLog | undefined, earlier: ClaimLog | undefined): boolean {
+  if (!earlier || (earlier.items.length === 0 && earlier.seq === 0)) return true;
+  if (!later || later.seq < earlier.seq) return false;
+  const ids = new Set(later.items.map((c) => c.id));
+  return earlier.items.every((c) => ids.has(c.id));
 }
 
 /** A claim as its listener heard it: the speaker's words and nothing the engine knows behind them. */

@@ -75,6 +75,7 @@ describe("the cause is theirs to share (Ryne: no motive hints)", () => {
     expect(s.npcVoice(holder)!.moodCause).toBeUndefined();
     expect(s.getMomentPrompt({}).systemPrompt).toContain("moodCause");
     s.setGoalMoodEnabled(false);
+    (s as unknown as { setMoodCausesEnabled(on: boolean): void }).setMoodCausesEnabled(false); // 0194: the instruction also rides the other mood causes
     expect(s.getMomentPrompt({}).systemPrompt).not.toContain("moodCause");
   });
 });

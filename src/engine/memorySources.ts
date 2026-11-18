@@ -9,17 +9,17 @@
  */
 export type MemoryProvider =
   | "memoryTiltFor" | "beliefTiltFor" | "campaignTiltFor" | "campaignPushFor" | "dealsOf"
-  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor" | "vetoMemoryFor" | "dealNomPushFor" | "juryMemoryFor" | "tieNomPushFor" | "tieVotePushFor" | "hcMemoryFor" | "hcStrategyFor" | "endgameMemoryFor" | "approachMemoryFor" | "moodTiltFor" | "drivePushFor" | "moodVetoFor" | "moodApproachFor";
+  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor" | "vetoMemoryFor" | "dealNomPushFor" | "juryMemoryFor" | "tieNomPushFor" | "tieVotePushFor" | "hcMemoryFor" | "hcStrategyFor" | "endgameMemoryFor" | "approachMemoryFor" | "moodTiltFor" | "drivePushFor" | "moodVetoFor" | "moodApproachFor" | "feelingKeepFor";
 
 export type StrategicDecision = "evictionVote" | "hohNominations" | "replacementNominee" | "vetoSave" | "houseguestsChoice" | "juryVote" | "approaches" | "final3Eviction" | "secretVetoReplacement";
 
 export const DECISION_SOURCES: Readonly<Record<StrategicDecision, readonly MemoryProvider[]>> = {
   // `voteChoice` (liveSeason.ts): the NPC eviction vote - reads the most.
-  evictionVote: ["dealsOf", "tieVotePushFor", "campaignTiltFor", "memoryTiltFor", "beliefTiltFor", "assuranceVoteFor", "moodTiltFor"],
+  evictionVote: ["dealsOf", "tieVotePushFor", "campaignTiltFor", "memoryTiltFor", "beliefTiltFor", "assuranceVoteFor", "moodTiltFor", "feelingKeepFor"],
   // The NPC HOH's `nominationPlan(...)` call in `advanceBeat` case "nominations".
-  hohNominations: ["campaignPushFor", "tieNomPushFor", "memoryTiltFor", "beliefTiltFor", "assuranceProtects", "pitchTiltFor", "dealNomPushFor", "moodTiltFor", "drivePushFor"],
+  hohNominations: ["campaignPushFor", "tieNomPushFor", "memoryTiltFor", "beliefTiltFor", "assuranceProtects", "pitchTiltFor", "dealNomPushFor", "moodTiltFor", "drivePushFor", "feelingKeepFor"],
   // The NPC HOH's replacement pick (`replacementPick(...)`).
-  replacementNominee: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor"],
+  replacementNominee: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor", "feelingKeepFor"],
   // The NPC veto holder's save (`chooseVetoSave(...)`): campaign bias + (B7 M1, ORWELL_VETO_MEMORY) one combined memory/belief/deal bias.
   vetoSave: ["campaignPushFor", "vetoMemoryFor", "moodVetoFor", "drivePushFor"],
   // The NPC Houseguest's-Choice holder's sixth-player pick (`resolveVetoDraw` -> `chooseStrongestBond`): strongest bond + (B7 M4b, ORWELL_HC_MEMORY) the same combined memory/belief/deal read.
@@ -30,7 +30,9 @@ export const DECISION_SOURCES: Readonly<Record<StrategicDecision, readonly Memor
   // NOT a SeasonCtx provider - held by tests/unit/approachMemory.test.ts instead of the liveSeason scan.
   // ORW-87: the NPC final HOH's Final-3 eviction (threat + memory) and the secret-veto replacement (nomination score + memory) read the ledger via `endgameMemoryFor` (ORWELL_ENDGAME_MEMORY, played games only).
   final3Eviction: ["endgameMemoryFor"],
-  secretVetoReplacement: ["endgameMemoryFor"],
+  // ORW-581 (Fable T1-14): in a played game the secret-veto replacement is the shared replacement read (`npcReplacementPick`), so it reads what the replacement reads; the legacy
+  // threat + paranoia + memory read (headless sims, byte-identical) keeps `endgameMemoryFor` (absent outside a played game, so 0 there).
+  secretVetoReplacement: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor", "feelingKeepFor", "endgameMemoryFor"],
   approaches: ["approachMemoryFor", "moodApproachFor"],
 };
 

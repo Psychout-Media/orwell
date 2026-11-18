@@ -14,15 +14,17 @@ Feature: Conviction - a houseguest acts on a belief as far as they believe it
     When the same teller tells each of them the same thing
     Then the trusting houseguest holds it with more conviction than the suspicious one
 
+  # ORW-637 (Fable stacking S-6): the weight rises with conviction, with no jump at the bar of fact; near certainty it is full.
   Scenario: A belief held with high conviction is acted on as fact
     Given a houseguest who holds a grievance with high conviction
     Then it counts in their decisions at full weight, as a fact would
+    And a grievance held just over the bar of fact counts a little less, and never less than in proportion
 
-  Scenario: A doubtful belief is tested, and the evidence moves the conviction toward the truth
+  Scenario: A doubtful belief is tested, and what they hear moves the conviction
     Given a houseguest who doubts something they were told that is false
     Then they take up a goal to find out, asking around
     And as the nights pass their conviction falls, until they stop believing it
-    And a doubted belief that is true grows into a conviction instead
+    And a doubted belief that a second source confirms grows into a conviction instead
 
   Scenario: A deal with someone you do not trust weighs less (Ryne on question 3: "Low trust in the person would create a low trust deal")
     Given an HOH who promised two houseguests safety, one they trust and one they do not

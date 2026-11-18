@@ -1,5 +1,5 @@
 import type { EntityId } from "../domain/ids";
-import { claimsOf, targetsMeTilt, type BeliefClaim, type BeliefStore } from "./beliefStore";
+import { claimsOf, evidenceKey, targetsMeTilt, type BeliefClaim, type BeliefStore } from "./beliefStore";
 import { REASONS } from "./agendaConstants";
 import { CONVICTION } from "./beliefConviction";
 import { THREAT_NATURES } from "./gossipBeliefs";
@@ -33,6 +33,42 @@ export const BELIEF_PULL = {
   revengeBar: 0.75,
 };
 
+/**
+ * ORW-581 (Fable T1-14): who a houseguest BLAMES when they are told a campaign is after them. The name they settle on comes from their own read, not a flat
+ * coin: the more they trust the real owner (against how much they already fear them), the likelier they look past them - to whoever they already read as the
+ * biggest threat. At a baseline read the chance of a wrong name is the old flat 0.2.
+ */
+export const TARGETS_ME_READ = {
+  /** The chance of a wrong name at a baseline read of the owner (the old flat value). */
+  baseWrong: 0.2,
+  /** How far the holder's lean toward the owner (trust minus threat, above the baseline's) moves that chance. */
+  trustSpan: 0.5,
+  minWrong: 0.05,
+  maxWrong: 0.45,
+  /** Seeded noise on the threat read when picking who they blame instead (near-equal threats are not a fixed order). */
+  blameJitter: 0.15,
+} as const;
+
+/**
+ * Pure: the houseguest the holder believes is targeting them. `others` are the living houseguests other than the holder and the real owner (the player
+ * included: the same rule names them). `roll` supplies the caller's seeded draws (one for the misread, then one per candidate in sorted order).
+ */
+export function blameForTargeting(
+  owner: EntityId, others: readonly EntityId[], read: { trust(id: EntityId): number; threat(id: EntityId): number },
+  baseline: { trust: number; threat: number }, roll: () => number,
+): EntityId {
+  if (others.length === 0) return owner;
+  const lean = read.trust(owner) - read.threat(owner) - (baseline.trust - baseline.threat);
+  const pWrong = Math.max(TARGETS_ME_READ.minWrong, Math.min(TARGETS_ME_READ.maxWrong, TARGETS_ME_READ.baseWrong + TARGETS_ME_READ.trustSpan * lean));
+  if (roll() >= pWrong) return owner;
+  let best: EntityId = owner, bestScore = -Infinity;
+  for (const id of [...others].sort()) {
+    const score = read.threat(id) + TARGETS_ME_READ.blameJitter * roll();
+    if (score > bestScore) { best = id; bestScore = score; }
+  }
+  return best;
+}
+
 type GrievanceKind = keyof typeof BELIEF_PULL.kindWeight;
 
 /** The grievance a belief carries against its subject, if any (believed true, not refuted). */
@@ -51,26 +87,44 @@ export function grievanceOf(c: BeliefClaim, holder: EntityId): GrievanceKind | u
   }
 }
 
+/**
+ * ORW-637: a belief's decision weight from its conviction - in proportion below CONVICTION.asFact (unchanged), then rising on a straight line from there to
+ * full at CONVICTION.certain. Continuous: the old jump from asFact straight to full weight is gone.
+ */
+export function convictionWeight(confidence: number): number {
+  const c = Math.max(0, Math.min(1, confidence));
+  if (c < CONVICTION.asFact) return c;
+  return Math.min(1, CONVICTION.asFact + (1 - CONVICTION.asFact) * (c - CONVICTION.asFact) / (CONVICTION.certain - CONVICTION.asFact));
+}
+
 /** One belief's weight now: kind x confidence x decay. */
 function weightNow(c: BeliefClaim, kind: GrievanceKind, week: number): number {
   const age = Math.max(0, week - c.week);
-  // 0160 (conviction): a belief held at or above CONVICTION.asFact is acted on as a fact (full weight); below it, in proportion.
-  const conviction = c.confidence >= CONVICTION.asFact ? 1 : Math.max(0, Math.min(1, c.confidence));
+  // 0160 (conviction) / ORW-637 (Fable S-6): the weight rises with conviction and is full only near certainty - no cliff at CONVICTION.asFact, so a single
+  // broken casual assurance (held at ASSURANCE.brokenClaimConfidence) no longer counts as certain and founds a season-long revenge by itself.
+  const conviction = convictionWeight(c.confidence);
   return BELIEF_PULL.kindWeight[kind] * conviction * Math.pow(0.5, age / BELIEF_PULL.halfLifeWeeks);
 }
 
-/** How strongly `holder` believes they have a grievance against `subject`, 0..1 (several beliefs stack with diminishing returns). */
+/**
+ * How strongly `holder` believes they have a grievance against `subject`, 0..1 (several beliefs stack with diminishing returns). ORW-591 (Fable
+ * T2-8): only DISTINCT evidence stacks - one source repeating the same thing is one piece of evidence (`evidenceKey`), counted at its strongest;
+ * two different sources, or two separate things the holder saw or deduced, each count.
+ */
 export function believedGrievance(store: BeliefStore | undefined, holder: EntityId, subject: EntityId, week: number): { strength: number; top?: GrievanceKind } {
-  let keep = 1;
+  const strongest = new Map<string, number>();
   let top: { kind: GrievanceKind; w: number } | undefined;
   for (const c of claimsOf(store, holder)) {
     if (c.subject !== subject) continue;
     const kind = grievanceOf(c, holder);
     if (!kind) continue;
     const w = weightNow(c, kind, week);
-    keep *= 1 - Math.min(1, w);
+    const key = evidenceKey(c);
+    strongest.set(key, Math.max(strongest.get(key) ?? 0, w));
     if (!top || w > top.w) top = { kind, w };
   }
+  let keep = 1;
+  for (const w of strongest.values()) keep *= 1 - Math.min(1, w);
   return top ? { strength: 1 - keep, top: top.kind } : { strength: 0 };
 }
 
@@ -97,3 +151,30 @@ export function believedGrievances(store: BeliefStore | undefined, holder: Entit
 
 /** 0163 / ORW-539: how much one witnessed bonding scene between two others raises the bond the decider sees (four scenes = the full floater span). */
 export const PERCEIVED_BOND = { perScene: 0.25, /** v2: how much of the read is what they saw (the rest is the true bond: tone and glances a houseguest picks up). */ seenShare: 0.5 } as const;
+
+/**
+ * ORW-574 / ORW-596 (Fable audit T1-6; Ryne 11-03: NPCs decide "from their own view... what each NPC believes"): in a PLAYED game a decision reads
+ * how someone ELSE feels only as the decider can see it - their own reciprocal read, the public record (archetype, comp wins), the scenes they were in or
+ * watched, and the beliefs they hold - never the other houseguest's hidden edge. Engine-only, deterministic, no rng.
+ */
+export const OWN_VIEW = {
+  /** How much of the decider's OWN wariness of someone (above the edge baseline) they assume comes back at them ("a rival I fear fears me"). */
+  mirror: 0.5,
+  /** The danger the house reads into each PUBLIC comp win (the live comp-won fold is +0.45 before decay and jitter; public reads are rougher). */
+  threatPerWin: 0.2,
+  /** How far a believed grievance (targets me / voted against me / lied to me / going after me; `believedGrievance`, 0..1) moves the read. */
+  grievance: 0.3,
+  /** How far a held "they told me they are keeping me" (`assured-me`, x its confidence) raises the read of their trust. */
+  assured: 0.15,
+  /** A public read of competition strength: how much each public comp win adds (on the (physical + mental) / 2 - 0.5 scale). */
+  strengthPerWin: 0.1,
+  /** Witnessed social scenes that read as warm (+1) or cold (-1) between two others, by event type (ORW-596: the remainder of the floater/duo read was the hidden bond). A scene type not named reads neutral. */
+  sceneValence: { bonding: 1, showmance: 1, alliance: 1, strategy: 1, gossip: 1, conflict: -1, betrayal: -1 } as Readonly<Record<string, number>>,
+} as const;
+
+/** ORW-574: what the holder's own beliefs say about how `other` regards them: `against` (a believed grievance, 0..1) and `assured` (an assured-me they hold, by confidence, 0..1). */
+export function believedRegard(store: BeliefStore | undefined, holder: EntityId, other: EntityId, week: number): { against: number; assured: number } {
+  let assured = 0;
+  for (const c of claimsOf(store, holder)) if (c.kind === "assured-me" && c.subject === other && c.value && !c.refuted) assured = Math.max(assured, Math.max(0, Math.min(1, c.confidence)));
+  return { against: believedGrievance(store, holder, other, week).strength, assured };
+}

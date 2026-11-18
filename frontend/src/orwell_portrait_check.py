@@ -39,6 +39,8 @@ PROBLEM_WORDS = {
     "wrong-age": "the stated age",
     "wrong-clothes": "the stated clothing",
     "wrong-presentation": "clothes that match the stated gender presentation",
+    # the person themselves reads as the stated presentation (a man or a woman as the card says; never judged for a nonbinary card)
+    "wrong-gender": "a person who reads as the gender presentation the card states (man or woman), exactly as the card describes them",
     "eyes-off": "eyes looking straight at the camera",
     "not-a-portrait": "a head-and-shoulders portrait photo",
     "missing-feature": "every stated visible feature (glasses, piercings, facial hair, hair colour, length and style)",
@@ -49,6 +51,8 @@ PROBLEM_WORDS = {
     # ORW-480: a frame or border (a black edge, a film-scan rim) and a provider watermark
     "frame-or-border": "a photograph that runs to all four edges: no frame, border, black edge or film-scan rim",
     "watermark": "no watermark, sparkle, star or logo mark in any corner",
+    # ORW-480: anatomy proportions
+    "bad-proportions": "natural adult body proportions: hands the right size for the face, head in proportion to the body, arms and legs of natural length, every limb joined to the right shoulder or hip",
 }
 KNOWN_CODES = frozenset(PROBLEM_WORDS)
 
@@ -251,7 +255,10 @@ def facts_block(facts: dict) -> str:
     if facts.get("age"):
         lines.append(f"Stated age: {int(facts['age'])}")
     if facts.get("gender"):
-        note = " (any clothing fits; never report wrong-presentation)" if facts["gender"] == "nonbinary" else ""
+        if facts["gender"] == "nonbinary":
+            note = " (any clothing and any look fit; never report wrong-presentation or wrong-gender)"
+        else:
+            note = " (the card's own statement: judge the whole person; hair length, build and clothes alone never make this wrong)"
         lines.append(f"Stated gender presentation: {facts['gender']}{note}")
     if facts.get("clothing"):
         lines.append(f"Main clothing piece: {facts['clothing']}")
@@ -273,11 +280,13 @@ _CHECKLIST = (
     "wrong-age (the person reads more than about 8 years off the stated age), "
     "wrong-clothes (the main clothing piece is missing or clearly different), "
     "wrong-presentation (the clothes contradict the stated gender presentation), "
+    "wrong-gender (the person plainly reads as the other gender than the one stated, judged on the whole person: short or long hair, build, height, clothes and make-up are never evidence on their own; a person who plausibly fits the stated presentation is fine; use it only when the stated man clearly reads as a woman or the stated woman clearly reads as a man), "
     "eyes-off (eyes not on the camera; only judge this when the facts say eyes on camera was asked), "
     "not-a-portrait (not a head-and-shoulders or waist-up portrait photo), "
     "missing-feature (a stated visible feature, such as glasses, a piercing, facial hair, the hair colour, length or style, is not in the photo), "
     "frame-or-border (a black or white frame, border or film-scan edge around the picture), "
-    "watermark (a visible watermark, sparkle, four-point star or logo mark in a corner)"
+    "watermark (a visible watermark, sparkle, four-point star or logo mark in a corner), "
+    "bad-proportions (a clear body-proportion error: a hand that looks tiny or huge next to the face (an adult hand is about as tall as the face, chin to hairline), a head too big or too small for the body, an arm or leg far longer or shorter than the other or than natural adult length, an extra, missing or merged limb, a limb joined to the wrong place; a foreshortened limb that is plausible for the pose is not a problem)"
 )
 
 
@@ -287,7 +296,8 @@ _REALISM_CHECKLIST = (
     "bad-held-object (hands or a held object look unnatural: wrong finger count, fused or bent fingers, a held thing with a wrong shape), "
     "fake-clothes (the clothes are not real garments: impossible construction, melted seams, a collar or lapel that makes no sense, a lanyard or badge as costume), "
     "frame-or-border (a black or white frame, border or film-scan edge around the picture), "
-    "watermark (a visible watermark, sparkle, four-point star or logo mark in a corner)"
+    "watermark (a visible watermark, sparkle, four-point star or logo mark in a corner), "
+    "bad-proportions (a clear body-proportion error: a hand that looks tiny or huge next to the face (an adult hand is about as tall as the face, chin to hairline), a head too big or too small for the body, an arm or leg far longer or shorter than the other or than natural adult length, an extra, missing or merged limb, a limb joined to the wrong place; a foreshortened limb that is plausible for the pose is not a problem)"
 )
 # codes that do not apply to a candid brief: the moment may be a laugh or a glance, and loose hairs are asked for
 _CANDID_SKIPPED = ("messy-hair", "mouth-mid-word", "not-a-portrait")
@@ -316,8 +326,10 @@ def build_request(model_id: str, image_url: str, facts: dict) -> dict:
             {"type": "image_url", "image_url": {"url": image_url}},
         ]}],
         "temperature": 0,
-        # deepseek-flash reasons before it answers; a small cap leaves the content empty.
-        "max_tokens": 2000,
+        # deepseek-flash reasons before it answers; on 5 of 12 real cast photos the 2000 budget ran out in the
+        # reasoning and the content came back empty with finish_reason length, so the photo was kept UNCHECKED
+        # silently. This gives the check room to answer.
+        "max_tokens": 8000,
     }
 
 
@@ -334,6 +346,27 @@ def _image_data_url(png: bytes) -> str:
         return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
     except Exception:  # failsoft-ok: best-effort-enrichment (send the PNG as is)
         return "data:image/png;base64," + base64.b64encode(png).decode()
+
+
+def _message_content_text(data: dict) -> str:
+    """The first choice's message content as text (a list of parts joins its `text` parts), '' when absent."""
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except Exception:
+        return ""
+    if isinstance(content, list):
+        return "".join(p.get("text", "") for p in content if isinstance(p, dict))
+    return content if isinstance(content, str) else ""
+
+
+def _empty_cut_off(data: dict) -> bool:
+    """True when the first choice ran out of tokens (`finish_reason` "length") and its content is blank:
+    the reasoning used the whole budget and no verdict came back."""
+    try:
+        finish_reason = data["choices"][0].get("finish_reason")
+    except Exception:
+        return False
+    return finish_reason == "length" and not _message_content_text(data).strip()
 
 
 def _parse_problems(data: dict) -> Optional[list]:
@@ -432,19 +465,31 @@ async def _call(png: bytes, facts: dict, user) -> Optional[dict]:
     model_id = _check_model_id(user)
     url, headers = await asyncio.to_thread(_resolve_deepseek, model_id, user or None)
     body = build_request(model_id, _image_data_url(png), facts)
-    async with httpx.AsyncClient(timeout=CHECK_TIMEOUT_S) as client:
-        resp = await client.post(url, json=body, headers=headers)
+
+    async def post_once():
+        async with httpx.AsyncClient(timeout=CHECK_TIMEOUT_S) as client:
+            return await client.post(url, json=body, headers=headers)
+
+    resp = await post_once()
     if resp.status_code != 200:
         logger.info("[portrait-check] http %s", resp.status_code)
         return None
     data = resp.json()
     if not isinstance(data, dict):
         return None
+    if _empty_cut_off(data):
+        # ORW-480: reasoning ate the token budget: one retry, same url, headers and body. The cut-off call was billed, so it is ledgered too.
+        _record_spend(user, data)
+        resp = await post_once()
+        data = resp.json() if resp.status_code == 200 else None
+        if not isinstance(data, dict) or _empty_cut_off(data):
+            logger.warning('[portrait-check] no verdict: the model ran out of tokens')
+            return None
     cost = _record_spend(user, data)
     problems = _parse_problems(data)
-    if problems and facts.get("gender") == "nonbinary":
-        # no clothing contradicts a nonbinary presentation: the rule has no meaning there (review of #2748)
-        problems = [p for p in problems if p != "wrong-presentation"]
+    if problems and facts.get("gender") not in ("man", "woman", "boy", "girl"):
+        # no clothing contradicts a nonbinary presentation, and nobody is judged against a binary gender the card does not state (review of #2748)
+        problems = [p for p in problems if p not in ("wrong-presentation", "wrong-gender")]
     if problems is None:
         return None
     if cost is not None:

@@ -76,6 +76,8 @@ export interface Agenda {
   history: Goal[];
   /** The week the week-goals were last formed for. */
   formedForWeek: number;
+  /** ORW-571 (played games only): ids of goals the holder acted for since the last nightly mull (an hourly step made for the goal). The mull reads and clears it; absent = none. */
+  served?: string[];
 }
 
 /** What the agenda needs to know about the holder's own character (static; from `Character`). */
@@ -456,6 +458,9 @@ export function recheckAgenda(agenda: Agenda, view: AgendaView, board: AgendaBoa
       if (c.kind === "get-them-out" && picked.filter((p) => p.kind === "get-them-out").length >= AGENDA.weekGetThemOutMax) continue; // ORW-350: room for the rest of a week
       picked.push(c);
     }
+    // ORW-581 (Fable T1-14): week goals still held from an earlier week (the week rolled without a close re-check) end the way the close re-check ends them,
+    // "failed: week closed", and are KEPT in history (non-degradation: history only grows); they used to be dropped with no entry.
+    for (const g of heldWeek) history.push(resolve(g, "failed", board.day, "week closed"));
     week = picked.map((c) => toGoal(c, view.owner, formingBoard));
   } else {
     // A held week goal is replaced only by a candidate that beats the weakest held one by the stubbornness margin.
@@ -475,7 +480,7 @@ export function recheckAgenda(agenda: Agenda, view: AgendaView, board: AgendaBoa
     }
   }
   void trigger; // the trigger is recorded by the caller on its event; the agenda's own record is the causes + statuses.
-  return { owner: agenda.owner, goals: [...others, ...week], history, formedForWeek: weekNow };
+  return { owner: agenda.owner, goals: [...others, ...week], history, formedForWeek: weekNow, ...(agenda.served?.length ? { served: agenda.served } : {}) };
 }
 
 /**
@@ -485,6 +490,8 @@ export function recheckAgenda(agenda: Agenda, view: AgendaView, board: AgendaBoa
  */
 export function mullAgenda(agenda: Agenda, view: AgendaView, board: AgendaBoard, seed: number, progressed: ReadonlySet<string> = new Set()): Agenda {
   if (board.evicted.includes(agenda.owner)) return recheckAgenda(agenda, view, board, "night", seed);
+  const { served, ...bare } = agenda; // ORW-571: what was acted for today counts as progress; the record is spent with the night
+  if (served?.length) { progressed = new Set([...progressed, ...served]); agenda = bare; }
   const stub = stubbornnessOf(view.character, view.owner, seed);
   const history = [...agenda.history];
   const goals: Goal[] = [];

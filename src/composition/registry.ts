@@ -74,6 +74,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   session.setHeldFactSeeker((holder, listeners) => seekTargets(holder, listeners, {
     knowledge: engine.knowledge, told: session.copresenceToldLedger(),
     affinity: (a, b) => engine.relationships.edge(a, b).affinity, threat: (a, b) => engine.relationships.edge(a, b).threat,
+    ...((): { network?: ReturnType<typeof session.networkRoles> } => { const n = session.networkRoles(); return n ? { network: n } : {}; })(), // 0179: the shape draws movement too
   }));
   // Name resolution for outward prose (non-Vault: names are public): the player surface uses this
   // so socialRead names the houseguest instead of echoing a raw `npc:N` id into the read.
@@ -97,9 +98,17 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // ADR 0006: someone who has turned in for the night neither witnesses nor overhears a player scene.
   commands.setAwakeProvider(() => session.awakeIds());
   // P4g: a recorded betrayal / conflict / kindness scene is remembered (0024 ledger) by the NPCs it touched.
-  commands.setSceneMemorySink((holders, kind) => session.rememberPlayerScene(holders, kind));
+  commands.setSceneMemorySink((holders, kind, subject) => session.rememberPlayerScene(holders, kind, subject));
   // B4: a recorded casual assurance ("you're safe with me") is kept on the live state (flag-gated, default ON; `ORWELL_ASSURANCES=0` turns it off).
   commands.setAssuranceSink((a) => session.recordAssurance(a));
+  // ORW-586: a typed promise on a recorded scene becomes a termed open-ledger entry (+ its assurance row), the engine validating everything (flag-gated, `ORWELL_PROMISE_TERMS`, default ON).
+  commands.setPromiseSink((p) => {
+    const before = session.assuranceCount();
+    const r = session.recordPromiseTerm(p);
+    return { accepted: r.accepted && r.duplicate !== true, assuranceWritten: session.assuranceCount() > before };
+  });
+  // ORW-612 part C: the player's own claim about a third person (flag-gated: ORWELL_PROMISE_TERMS + the open ledger).
+  commands.setStatementSink((s) => session.recordPlayerStatement(s));
   // B24: an NPC's tell about the player (a recorded chat scene) is held as a belief by each named listener (flag-gated, default ON; `ORWELL_HEARD_ABOUT_ME=0` turns it off).
   commands.setHeardAboutMeSink((h) => session.recordHeardAboutMe(h));
   // Phase 2 (duration-based clock): a recorded social scene that proposed how long it FELT hands its
@@ -112,13 +121,14 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // Phase 2 of "the player can play offense" (0085 follow-on): a LANDED evict-shaped pitch the player
   // makes (recordInteraction's aboutEdges, Phase 1) folds into the player's OWN persistent campaign,
   // mirroring formCampaigns/advanceCampaign/campaignTilt — self-gated by the session's own campaign flag.
+  commands.setPlayerTalkNote((withIds, kind, named) => session.notePlayerTalk(withIds, kind, named));
   commands.setPlayerCampaignFold((target, holder) => session.foldPlayerCampaignMove(target, holder));
   // #1419 — the player-side social-fatigue fold: a recorded scene's INITIATOR moves the needle
   // ASYMMETRICALLY when sleep-deprived (WARMING folds dampened, SOURING amplified — "harder to scheme
   // if you aren't sleeping"). Reads the session's Vault-free rest-deficit valence; returns {1,1} (a
   // no-op) unless the master clock is running, social fatigue is on, AND the initiator is tired — so a
   // clock-off / rested game is byte-identical, and no number ever crosses to the player.
-  commands.setFatigueValence((id) => session.socialFoldValence(id));
+  commands.setFatigueValence((id, holder, about) => session.socialFoldValence(id, holder, about));
   // ORW-401: played games meter relationship folds per in-game day + part of day (shrinking, no hard cap).
   commands.setFoldWindowProvider(() => session.foldWindowKey());
   // #1318 — a recorded player↔NPC scene registers a GENUINE premiere hot read, so the asymmetric first-

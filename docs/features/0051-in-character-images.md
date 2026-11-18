@@ -148,3 +148,7 @@ structurally; portraits generated once at move-in, persisted, and served from st
 subsequent loads; cast roster accessible from a sidebar with portrait + name + status; play
 unaffected when generation is unavailable; factory reset scrubs portraits; the README index
 row flipped to Done.
+
+## 8. Amendment (ORW-641): the cast wall orders by the week
+
+The cast wall (roster panel) orders its cards: HOH first, then the veto holder, then the nominees, then everyone else still in the house A-Z by first name, then the departed (jury or evicted) with the most recently evicted first. A houseguest with two roles is placed once, at the highest; the player has no special slot. The order is the DOM order, and a departed card also carries its status caption ("Jury" / "Evicted"). It uses only public facts: the ceremony roles the status board already serves and a new additive, Vault-free `evictedSeq` (the 1-based place in the public eviction order) on the state read's house and player cards, carried by the roster route.

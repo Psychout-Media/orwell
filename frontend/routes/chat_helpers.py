@@ -5,6 +5,7 @@ import collections
 import json
 import logging
 import os
+import zlib
 import re
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
@@ -1371,8 +1372,13 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -
     )
 
 
+def _walk_in_names(names):
+    """ORW-473: 'A and B' for a pair, 'A, B and C' for a group (a pair reads exactly as before)."""
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
 def _walked_in_directive(walked_in) -> Optional[str]:
-    """ORW-473: the player walked in on a private talk between two houseguests this turn (the engine's `walkedIn`): each houseguest's reaction was chosen from THEIR OWN sheet, and is handed over as a manner to voice. The talk's
+    """ORW-473: the player walked in on a private talk between two or more houseguests this turn (the engine's `walkedIn`): each houseguest's reaction was chosen from THEIR OWN sheet, and is handed over as a manner to voice. The talk's
     subject is never known here and must not be invented. None when there is nothing to voice (fail-open)."""
     if not isinstance(walked_in, dict):
         return None
@@ -1381,7 +1387,7 @@ def _walked_in_directive(walked_in) -> Optional[str]:
         return None
     room = str(walked_in.get("room") or "").replace("-", " ")
     lines = [f"- {r['name']} {r['line']}." for r in reactions]
-    return ("THE PLAYER JUST WALKED IN ON A PRIVATE TALK" + (f" in the {room}" if room else "") + " between " + " and ".join(str(r["name"]) for r in reactions) + " (engine truth; each reaction was chosen from that houseguest's own character):\n"
+    return ("THE PLAYER JUST WALKED IN ON A PRIVATE TALK" + (f" in the {room}" if room else "") + " between " + _walk_in_names([str(r["name"]) for r in reactions]) + " (engine truth; each reaction was chosen from that houseguest's own character):\n"
             + "\n".join(lines)
             + "\nVoice each reaction as written, in the houseguest's own manner. You are not told what they were saying: never invent the subject, a name they were plotting against, or a plan; the player learns only that a talk was happening and how each of them reacts.")
 
@@ -5021,10 +5027,26 @@ _CONF_PERSONAL_FACT_RE = re.compile(
     r"\b(?:prison|jail|arrest(?:ed)?|record|debt|bankrupt\w*|divorce\w*|affair|cheat\w*|abus\w+|addict\w*|rehab|overdos\w+|pregnan\w+|diagnos\w+|cancer|fired|stole|stolen|fraud|"
     r"felon\w*|convict\w*|adopted|closeted|hospital|prescription|bankruptcy|evict\w+|ex-?wife|ex-?husband|my\s+(?:past|real\s+name|kid|son|daughter|baby))\b", _CONF_I)
 
-_CONFESSION_DEFLECTIONS = (
+# ORW-509: the three authored deflections stay first; the rest are composed (opening x turn x close) so a season's replaced lines are rarely the same one.
+_CONFESSION_DEFLECTION_CLASSICS = (
     "The moment hangs — whatever was about to be said gets swallowed, and they smile it off.",
     "They start to say something, think better of it, and wave it away with a half-laugh.",
     "A beat of silence; then they shrug it off and let the subject drop.",
+)
+_CONFESSION_DEFLECTION_OPENINGS = (
+    "They start to say it,", "Their mouth opens,", "The words are right there,", "For a second it looks like they might say it,", "They lean in to say it,",
+    "The room waits,", "They draw a breath,", "Something almost gets said,",
+)
+_CONFESSION_DEFLECTION_TURNS = (
+    "then think better of it", "then catch themselves", "and the thought slides away", "and a wry look takes its place", "and they change course mid-sentence",
+    "but a laugh gets there first", "and they let it die in their throat",
+)
+_CONFESSION_DEFLECTION_CLOSES = (
+    "and wave the subject off.", "and move on as if nothing was said.", "and the moment passes.", "and they shrug it off.", "and the talk drifts elsewhere.",
+    "and a small smile covers the gap.", "and nobody pushes.",
+)
+_CONFESSION_DEFLECTIONS = _CONFESSION_DEFLECTION_CLASSICS + tuple(
+    f"{o} {t} {c}" for o in _CONFESSION_DEFLECTION_OPENINGS for t in _CONFESSION_DEFLECTION_TURNS for c in _CONFESSION_DEFLECTION_CLOSES
 )
 
 
@@ -5056,7 +5078,7 @@ def screen_invented_confession(user, text: str) -> "tuple[str, list]":
         n = 0
         for ln in lines:
             if _line_is_invented_confession(ln):
-                new = _CONFESSION_DEFLECTIONS[n % len(_CONFESSION_DEFLECTIONS)]
+                new = _CONFESSION_DEFLECTIONS[(zlib.crc32(ln.encode('utf-8')) + n) % len(_CONFESSION_DEFLECTIONS)]  # ORW-509: keyed on the replaced line, so the pick spreads over the whole composed set
                 n += 1
                 ops.append((ln, new))
                 out.append(new)

@@ -48,23 +48,30 @@ describe("the belief store (pure)", () => {
     expect(claimsOf(st, npc(1))).toHaveLength(1);
     expect(claimsOf(st, npc(1))[0]!.confidence).toBe(0.8);
   });
-  it("is bounded per holder and compaction is deterministic: lowest confidence first, then oldest; never the claim just written", () => {
+  it("is bounded per holder and compaction is deterministic (ORW-591): a refuted belief first, then the oldest; never a live doubt ahead of a refuted one, never the claim just written", () => {
     const st: BeliefStore = {};
-    // fill exactly to the cap with distinct confidences; week i is the age (0 = oldest)
+    // fill exactly to the cap; week i is the age (0 = oldest); confidences vary so "lowest confidence first" would pick differently
     const conf = (i: number): number => 0.5 + (i % 5) / 20;           // 0.50 .. 0.70
     for (let i = 0; i < BELIEF_CAP_PER_HOLDER; i++) recordClaim(st, { ...base, subject: npc(100 + i), week: i, confidence: conf(i) });
-    // the lowest confidence is 0.50 (weeks 0,5,10,...): the OLDEST of those is week 0, so it goes first
+    // two beliefs the holder has let go (a refuted belief is dropped before any live doubt, whatever either one's confidence)
+    for (const w of [20, 12]) claimsOf(st, npc(1)).find((c) => c.week === w)!.refuted = true;
+    const weeks = (): number[] => claimsOf(st, npc(1)).map((c) => c.week);
     recordClaim(st, { ...base, subject: npc(900), week: 900, confidence: 0.9 });
-    expect(claimsOf(st, npc(1)).map((c) => c.week)).not.toContain(0);
-    expect(claimsOf(st, npc(1)).map((c) => c.week)).toContain(5);
-    // a second overflow takes the NEXT-oldest of the lowest tier (week 5)
+    expect(weeks()).not.toContain(12);                                   // the OLDEST refuted goes first ...
+    expect(weeks()).toContain(0);                                        // ... ahead of the oldest live belief ...
+    expect(weeks()).toContain(20);
     recordClaim(st, { ...base, subject: npc(901), week: 901, confidence: 0.9 });
-    expect(claimsOf(st, npc(1)).map((c) => c.week)).not.toContain(5);
-    expect(claimsOf(st, npc(1)).map((c) => c.week)).toContain(10);
+    expect(weeks()).not.toContain(20);                                   // ... then the next refuted
+    expect(weeks()).toContain(0);
+    // none refuted left: the OLDEST live belief goes (week 0), not the lowest-confidence one (week 5 is also 0.50)
+    recordClaim(st, { ...base, subject: npc(902), week: 902, confidence: 0.9 });
+    expect(weeks()).not.toContain(0);
+    expect(weeks()).toContain(5);
     expect(claimsOf(st, npc(1))).toHaveLength(BELIEF_CAP_PER_HOLDER);
-    // the claim just written always survives, even at the lowest confidence
-    recordClaim(st, { ...base, subject: npc(902), week: 902, confidence: 0.01 });
-    expect(claimsOf(st, npc(1)).map((c) => c.week)).toContain(902);
+    // the claim just written always survives, even when it is the oldest of all
+    recordClaim(st, { ...base, subject: npc(903), week: -1, confidence: 0.01 });
+    expect(weeks()).toContain(-1);
+    expect(weeks()).not.toContain(1);
   });
 });
 

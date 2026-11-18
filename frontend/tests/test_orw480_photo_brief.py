@@ -839,7 +839,7 @@ def test_round20_a_slow_brief_step_falls_to_the_floor(tmp_path, monkeypatch):
     prompts = [{"houseguestId": c["id"], "name": c["name"], "prompt": FLOOR} for c in cs]
     out = run(B.apply_briefs(prompts, "u", llm_fn=slow, cards=cs, timeout_s=0.2))
     anchors = B.deal_anchors(cs, B.season_seed("u", cs))
-    assert [e["prompt"] for e in out] == [B.floor_with_anchors(FLOOR, anchors[c["id"]], c) for c in cs]       # the floor with this person's anchors, no brief, no hang
+    assert [e["prompt"] for e in out] == [B._insert_presentation(B.floor_with_anchors(FLOOR, anchors[c["id"]], c), B.presentation_sentence(c)) for c in cs]       # the floor with this person's anchors and the card's stated presentation, no brief, no hang
     assert B._load_cache("u") == {}
 
 
@@ -931,3 +931,112 @@ def test_round22_a_footwear_signature_is_not_kept_in_a_half_length_frame():
     assert "signature-not-visible" in B.check_brief(c, an, {**base, "signature": "scuffed work boots she never replaces"})
     assert B.repair_brief(c, {**base, "signature": "scuffed work boots she never replaces"}, an).get("signature") is None
     assert "signature-not-visible" not in B.check_brief(c, an, base)
+
+
+# ---------------------------------------------------------------------------------------------------- round 19 (ORW-480: the place, the clothes and the grime stop telling the job)
+def _r19(job, where, facet, **kw):
+    cs = cards()
+    c = {**cs[0], "vocation": job}
+    an = {**B.deal_anchors(cs, 1)["npc:1"], "facet": facet, "season": "autumn", "weather": "a windy day", **kw}
+    b = {**good_brief(c, 0), "where": where, "tie": '"' + where.split(",")[0] + '"', "wear": "a cream knit, dark jeans, a grey wool cardigan"}
+    return c, an, b
+
+
+def test_round19_a_workplace_is_never_the_place_even_when_the_facet_is_near_work():
+    near = B.NEAR_WORK
+    for job, where, objs in (
+        ("used-car salesperson", "the car lot on Route 9 in Akron, Ohio, a row of sedans behind her", ["a ring of keys on a hook", "a folding chair"]),
+        ("groundskeeper", "the ball field behind the school in Akron, Ohio, the infield raked smooth", ["a wheelbarrow", "a thermos"]),
+        ("dance instructor", "the dance studio on Main Street in Akron, Ohio, mirrors along one wall", ["a water bottle", "a gym bag"]),
+        ("line cook", "the back landing of the restaurant in Akron, Ohio, a milk crate and a stack of boxes", ["a milk crate", "a bucket"]),
+        ("deckhand", "the dock in Cedar Key, Florida, with crab pots stacked at the end", ["crab pots stacked behind", "a coil of rope"]),
+    ):
+        c, an, b = _r19(job, where, near)
+        b = {**b, "inFrame": objs}
+        assert B.workplace_hit(job, where), job
+        assert "place-is-workplace" in B.check_brief(c, an, b), job
+        # the same job away from work, with ordinary objects, passes this check
+        ok = {**b, "where": "the back porch of her house in Akron, Ohio, the garden hose coiled by the steps", "tie": '"Akron"', "inFrame": ["a battered kettle", "a folding chair"]}
+        assert "place-is-workplace" not in B.check_brief(c, an, ok), job
+        # not near work: the same place is the job caption
+        c2, an2, b2 = _r19(job, where, B.FACETS[0])
+        assert "job-caption" in B.check_brief(c2, an2, b2), job
+    # near work means beside it: a bench across the road from the ball field, with no tool of the trade, is allowed
+    c, an, b = _r19("groundskeeper", "a bench across the road from the ball field in Akron, Ohio, the backstop a blur beyond", near)
+    b = {**b, "inFrame": ["a paper cup", "a folding chair"], "doing": "paused on the bench, one hand on the armrest"}
+    assert "place-is-workplace" not in B.check_brief(c, an, b)
+    # a work object shown near work is still a tell
+    assert "place-is-workplace" in B.check_brief(c, an, {**b, "inFrame": ["a mower parked on the grass", "a folding chair"]})
+
+
+def test_round19_a_failing_place_goes_to_the_rewrite_not_the_floor():
+    cs = cards()
+    jobs = {"npc:1": "deckhand"}
+    cs = [{**c, "vocation": jobs.get(c["id"], c["vocation"])} for c in cs]
+    an = B.deal_anchors(cs, 1)
+    an["npc:1"] = {**an["npc:1"], "facet": B.NEAR_WORK}
+    bad = lambda b: {**b, "where": "the dock in Cedar Key, Florida, with crab pots stacked at the end", "tie": '"the clam docks"', "inFrame": ["crab pots stacked behind", "a coil of rope"]}  # noqa: E731
+    calls = []
+    home = lambda c, n: {**good_brief(c, n), "where": "the back steps of her mother's house in Cedar Key, Florida, a quilt over the rail", "tie": '"Cedar Key, Florida"', "why": '"Person1 grew up near the clam docks"'}  # noqa: E731
+    res = run(B.author_briefs(cs, writer(bad={"npc:1": bad}, editor=lambda c, n: home(c, n) if n == 0 else good_brief(c, n), calls=calls), seed=1, anchors=an))
+    assert "place-is-workplace" in res["rejected"] and "npc:1" in res["briefs"] and "npc:1" not in res["floor"]
+    assert not B.workplace_hit("deckhand", res["briefs"]["npc:1"]["where"]) and res["rewritten"] >= 1
+    assert any("rewrite" in json.loads(m[-1]["content"]) for m in calls)
+    assert "would a stranger guess" in B.SYSTEM and "would a stranger guess" in B.EDITOR_SYSTEM
+
+
+def test_round19_the_season_and_weather_reach_the_clothes():
+    cs = cards(); c = cs[0]; base = good_brief(c, 0)
+    winter = {**B.deal_anchors(cs, 1)["npc:1"], "season": "winter", "weather": "crisp and cold", "facet": B.FACETS[0]}
+    summer = {**winter, "season": "summer", "weather": "clear and hot"}
+    for garment in ("a faded tank top", "denim shorts", "a floral sundress", "flip-flops"):
+        assert "weather-clothes" in B.check_brief(c, winter, {**base, "wear": f"{garment}, a canvas jacket"}), garment
+    for garment in ("a down jacket", "a wool coat", "a knit beanie", "a heavy parka"):
+        assert "weather-clothes" in B.check_brief(c, summer, {**base, "wear": f"a cotton tee, {garment}"}), garment
+    assert "weather-clothes" not in B.check_brief(c, winter, {**base, "wear": "a green fleece, dark jeans, a wool scarf"})
+    assert "weather-clothes" not in B.check_brief(c, summer, {**base, "wear": "a linen shirt, olive trousers"})
+    assert "weather-clothes" not in B.check_brief(c, summer, {**base, "wear": "a tank top, denim shorts"})
+    assert "dress" in B.SYSTEM and "tank top" in B.SYSTEM
+    # the deckhand of round 19: a tank top on a winter dock goes to the rewrite
+    cs2 = [{**x, "vocation": "deckhand"} if x["id"] == "npc:2" else x for x in cs]
+    an = B.deal_anchors(cs2, 1); an["npc:2"] = {**winter, "facet": B.FACETS[2]}
+    res = run(B.author_briefs(cs2, writer(bad={"npc:2": lambda b: {**b, "wear": "a tank top, dark jeans, a canvas jacket"}}), seed=1, anchors=an))
+    assert "weather-clothes" in res["rejected"] and "npc:2" in res["briefs"] and not B.weather_clothes_clash(an["npc:2"], res["briefs"]["npc:2"]["wear"])
+
+
+def test_round19_no_work_grime_unless_the_life_area_is_that():
+    cs = cards(); c = {**cs[0], "vocation": "roofer"}
+    an = {**B.deal_anchors(cs, 1)["npc:1"], "facet": B.FACETS[3]}
+    base = good_brief(c, 0)
+    for field, text in (("expressionBody", "grimy arms and a tired half-smile"), ("wear", "a dirty work shirt, dark jeans, a grey wool cardigan"),
+                        ("doing", "paused at the rail, sawdust on her sleeves"), ("signature", "paint-stained fingers")):
+        assert "work-grime" in B.check_brief(c, an, {**base, field: text}), text
+    assert "work-grime" in B.check_brief(c, an, {**base, "inFrame": ["a grease-stained rag", "a kettle"]})
+    # a dirt road or a painted nail is not grime; a hobby facet may carry its own soil
+    assert "work-grime" not in B.check_brief(c, an, {**base, "where": "the dirt road to the hill lookout above the town, the valley open behind", "signature": "painted nails"})
+    garden = {**an, "facet": B.FACETS[1]}
+    assert "work-grime" not in B.check_brief(c, garden, {**base, "doing": "paused by the bed, soil on her hands, muddy knees"})
+    # the repair cuts the clause rather than losing the brief
+    fixed = B.repair_brief(c, {**base, "wear": "a dirty work shirt, dark jeans", "doing": "paused at the rail, grimy arms at rest"}, an)
+    assert "work-grime" not in B.check_brief(c, an, fixed) and "dirty" not in fixed["wear"] and "grimy" not in fixed["doing"]
+    assert "grime" in B.SYSTEM and "work-grime" in B.CODE_WORDS
+
+
+def test_round20_clothes_carry_no_team_school_or_brand_name():
+    # round 20: a brief dressed a prison chaplain in "Worn-in LSU Tigers striped polo shirt"
+    for t in ("Worn-in LSU Tigers striped polo shirt, Lightweight khaki trousers", "a faded varsity jacket over a white tee",
+              "a grey hoodie with the university crest", "a navy cap with a team logo", "a black graphic tee, ripped jeans"):
+        assert B.clothes_has_text(t), t
+    # ordinary outfits, including the capitalized item lists the writer often gives, are not names
+    for t in ("a faded navy polo shirt, khaki trousers", "a cream cable-knit sweater", "Navy hoodie, Black denim jacket, grey joggers",
+              "Lightweight khaki trousers; Canvas sneakers", "a soft cream knit cardigan over a smocked cotton blouse"):
+        assert not B.clothes_has_text(t), t
+    cs = cards(); c = cs[0]
+    an = B.deal_anchors(cs, 1)["npc:1"]
+    base = good_brief(c, 0)
+    bad = {**base, "wear": "Worn-in LSU Tigers striped polo shirt, Lightweight khaki trousers"}
+    assert "clothes-text" in B.check_brief(c, an, bad)
+    assert "clothes-text" not in B.check_brief(c, an, {**base, "wear": "Navy hoodie, Black denim jacket, grey joggers"})
+    # the repair drops the printed garment's clause and keeps the rest
+    fixed = B.repair_brief(c, bad, an)
+    assert "LSU" not in fixed["wear"] and "khaki trousers" in fixed["wear"].lower()

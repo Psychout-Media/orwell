@@ -86,11 +86,26 @@ export function juryLean(rel: JuryRel, manner: EvictionManner = {}, w: JuryWeigh
  *    a grievance by at most `goodbyeSoftenMax` (never crossing zero) or gives a small lift on a clean
  *    departure; a cold one stings. So a costless warm goodbye can no longer launder a betrayal.
  */
+/**
+ * ORW-638 (stacking audit S-9): several grievance flags on one (evictee, finalist) pair combine as the strongest in FULL plus a
+ * decayed share of the rest, capped at `stackCapMult` x the strongest - not a flat sum. One flag (the common case) returns that
+ * flag exactly (byte-identical); two or more are still harsher than one (ordering kept) but bounded. Input values are signed (<= 0).
+ */
+export function stackedGrievance(flags: readonly number[]): number {
+  const mags = flags.filter((f) => f < 0).map((f) => -f).sort((a, b) => b - a);
+  if (mags.length === 0) return 0;
+  if (mags.length === 1) return -mags[0]!;
+  let rest = 0;
+  for (let i = 1; i < mags.length; i++) rest += mags[i]!;
+  return -Math.min(mags[0]! + MANNER_GRADING.stackShare * rest, MANNER_GRADING.stackCapMult * mags[0]!);
+}
+
 export function mannerLeanOf(manner: EvictionManner): number {
-  const grievance =
-    (manner.betrayed ? MANNER_LEAN.betrayed : 0) +
-    (manner.blindsided ? MANNER_LEAN.blindsided : 0) +
-    (manner.disrespected ? MANNER_LEAN.disrespected : 0);
+  const grievance = stackedGrievance([
+    manner.betrayed ? MANNER_LEAN.betrayed : 0,
+    manner.blindsided ? MANNER_LEAN.blindsided : 0,
+    manner.disrespected ? MANNER_LEAN.disrespected : 0,
+  ]);
   const respect = grievance < 0 ? 0 : (manner.respected ? MANNER_LEAN.respected : 0); // precedence
   let lean = (grievance + respect) * (manner.intensity ?? 1);
   if (manner.goodbye === "cold") {
@@ -100,6 +115,17 @@ export function mannerLeanOf(manner: EvictionManner): number {
     else lean += MANNER_GRADING.goodbyeWarmLift;               // a small lift on a clean departure
   }
   return lean;
+}
+
+/**
+ * 0182 PR 3 - the bitter-juror term, net of what the lean already counts. `raw` is the grudge's signed lean (<= 0). `covered` is the weighted size of the grievance the lean already carries for the
+ * same juror and finalist (the negative manner term plus the negative memory term). The grudge adds ONLY the part those do not cover: max(0, |raw| - covered), negated. So a juror whose only wrong is
+ * already counted as a manner grievance (or a remembered nomination) gets nothing extra, and the sum of grudge + covered never exceeds the larger of the two. Pure.
+ */
+export function bitterJurorExtra(raw: number, covered: number): number {
+  const r = Number.isFinite(raw) ? Math.min(0, raw) : 0;
+  const c = Number.isFinite(covered) ? Math.max(0, covered) : 0;
+  return -Math.max(0, -r - c);
 }
 
 /**

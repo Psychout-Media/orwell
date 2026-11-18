@@ -43,7 +43,9 @@ describe("0150 beliefs drive decisions", () => {
 
   it("only a grievance over the bar can form a goal, and only at full strength", () => {
     const s = store(); claim(s, { kind: "voted-against-me", confidence: 0.8 }); claim(s, { kind: "lied-to-me", subject: OTHER, confidence: 0.6 });
-    expect(believedGrievances(s, HOLDER, [SUBJECT, OTHER], 1, { strength: "full" })).toEqual([{ toward: SUBJECT, strength: 1, ref: "voted-against-me" }]); // 0160: 0.8 is held as a fact (full weight); the doubted lie (0.6 x 0.8 = 0.48) is under the bar
+    const formed = believedGrievances(s, HOLDER, [SUBJECT, OTHER], 1, { strength: "full" }); // ORW-637: 0.8 is held as a fact, at a graded 0.85 (full only at 0.9); the doubted lie (0.6 x 0.8 = 0.48) is under the bar
+    expect(formed.map((g) => [g.toward, g.ref])).toEqual([[SUBJECT, "voted-against-me"]]);
+    expect(formed[0]!.strength).toBeCloseTo(0.85);
     expect(believedGrievances(s, HOLDER, [SUBJECT, OTHER], 1, { strength: "capped" })).toEqual([]);
   });
 });
@@ -62,5 +64,32 @@ describe("0150: the live nomination and vote read is the full-strength belief pu
     const tilt = () => (s as unknown as { beliefNomTiltFor(subject: string, holder: string): number }).beliefNomTiltFor(subject!, hoh!); // TEST-ONLY: the live read
     expect(tilt()).toBeCloseTo(REASONS.goalWeight * 0.6);
     try { BELIEF_RULES.strength = "capped"; expect(tilt()).toBe(0); } finally { BELIEF_RULES.strength = "full"; }
+  });
+});
+
+import { convictionWeight } from "../../src/engine/beliefDecisions";
+import { CONVICTION } from "../../src/engine/beliefConviction";
+import { ASSURANCE } from "../../src/engine/assurances";
+
+describe("ORW-637 (Fable S-6): a belief's weight is graded, with no cliff at asFact", () => {
+  it("in proportion below asFact, continuous through it, full only at certain", () => {
+    expect(convictionWeight(0.5)).toBeCloseTo(0.5);
+    expect(convictionWeight(CONVICTION.asFact - 1e-9)).toBeCloseTo(convictionWeight(CONVICTION.asFact), 6); // no jump
+    expect(convictionWeight(CONVICTION.asFact)).toBeCloseTo(CONVICTION.asFact);
+    expect(convictionWeight(CONVICTION.certain)).toBe(1);
+    expect(convictionWeight(1)).toBe(1);
+    for (let c = 0; c < 1; c += 0.05) expect(convictionWeight(c + 0.05)).toBeGreaterThanOrEqual(convictionWeight(c));
+  });
+
+  it("one broken casual assurance no longer founds a revenge by itself; two separate ones do; one trusted tell of a threat still does", () => {
+    const one = store(); claim(one, { kind: "lied-to-me", origin: "witnessed", confidence: ASSURANCE.brokenClaimConfidence });
+    expect(believedGrievances(one, HOLDER, [SUBJECT], 1, { strength: "full" })).toEqual([]);
+    const two = store();
+    claim(two, { kind: "lied-to-me", origin: "witnessed", confidence: ASSURANCE.brokenClaimConfidence, week: 1 });
+    claim(two, { kind: "lied-to-me", origin: "witnessed", confidence: ASSURANCE.brokenClaimConfidence, week: 2 }); // a second broken promise, a week later
+    const both = believedGrievance(two, HOLDER, SUBJECT, 2).strength;
+    expect(both).toBeGreaterThanOrEqual(BELIEF_PULL.revengeBar);
+    const tell = store(); claim(tell, { kind: "targets-me", origin: "told", source: OTHER, confidence: 0.77 });
+    expect(believedGrievances(tell, HOLDER, [SUBJECT], 1, { strength: "full" }).map((g) => g.toward)).toEqual([SUBJECT]);
   });
 });

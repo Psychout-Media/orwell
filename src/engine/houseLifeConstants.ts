@@ -28,8 +28,21 @@ export const HOUSE_LIFE = {
   habitChance: 0.6,
   /** ORW-337 (spec 0146 lane 2): a house ritual's chance to pull anyone free into its action at its time of day. `npcMindsAuthored.AUTHORED.ritualPull` is this value. */
   ritualPull: 0.3,
+  /** ORW-566 (spec 0183): the chance a CLOSE pair (allies, or a mutual tie at the habit floor) whose partner is already at their spot meets there for a debrief in the hours after a ceremony. Scaled by the culture's meetings dial. */
+  pairHabitPull: 0.4,
   /** Chance a showmance pair spends a free hour together when both are around. */
   romanceChance: 0.5,
+  /** ORW-620 (night owls): in the night hours, with only a few houseguests still up, the chance an awake houseguest with nothing pressing seeks out another awake one for a late-night talk. Conservative on purpose
+   *  (an A10 weight past about 1.5 once failed juryReach at seed 18); it only ever REPLACES an ordinary free hour. */
+  nightOwlPull: 0.28,
+  /** ORW-620: the pull is a little stronger in the small hours (the awake few are the ones who stay). */
+  nightOwlLateScale: 1.3,
+  /** ORW-620: "few awake" = at most this many other houseguests up. */
+  nightOwlMaxOthers: 5,
+  /** ORW-620: a mild lean toward whoever already has company up (the awake gather), per awake houseguest in that room. */
+  nightOwlGatherLean: 0.05,
+  /** ORW-620: below this mood a late-night talk turns to a confession (the small hours loosen the tongue). */
+  nightOwlConfessMood: 0.42,
   /** ORW-466 slice 4: at night, the chance a free houseguest with an awake roommate ends the day with them in their own bedroom (bed talk, or a squabble if they rub each other wrong). */
   roommateNightPull: 0.5,
   /** ORW-466 slice 4: when they do, the chance it is their double-bed partner (the closest roommate tie) rather than whichever roommate they warm to most. */
@@ -64,6 +77,10 @@ export const HOUSE_LIFE = {
  * Absent (a headless game, the flag off, a load with no culture) = every multiplier exactly 1 = byte-identical house life. `conflict` is a THRESHOLD multiplier
  * (below 1 = a lower threshold = MORE conflict), so the chance is divided by it. The culture scales the baseline BEFORE the per-person terms (temper, mood, candor), so an individual still pushes against it.
  */
-export interface HouseCulture { gossip: number; conflict: number; flirting: number; lying: number }
+export interface HouseCulture {
+  gossip: number; conflict: number; flirting: number; lying: number;
+  /** ORW-566 (spec 0183): the meetings dial scales how often a close pair keeps its debrief; absent = 1. */
+  meetings?: number;
+}
 /** How far a culture's lying multiplier (1 = none) shifts a speaker's candor, additively: (lying - 1) x this, so at the 1.35 clamp about 0.09 less candid. */
 export const CULTURE_CANDOR_SHIFT = 0.25;

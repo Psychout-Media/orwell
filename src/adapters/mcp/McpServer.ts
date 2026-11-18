@@ -7,7 +7,7 @@ import type { AdminPort } from "../../surfaces/admin/AdminPort";
 import type { SummaryService } from "../../services/SummaryService";
 import type { EngineCommands, RecordInteractionReq, SurfaceReq, DiaryRoomReq, RecordImageBeatReq } from "../../ports/EngineCommands";
 import type { EntityId } from "../../domain/ids";
-import type { GameSession, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordRoomCanonReq, RecordNarrationUseReq, RecordOpenLedgerReq, ResolveOpenLedgerReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
+import type { GameSession, ConfideResult, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordGroupIdentityReq, RecordAllianceNameReq, RecordRoomCanonReq, RecordNarrationUseReq, RecordOpenLedgerReq, ResolveOpenLedgerReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
 
 
 /** Tools that are deliberately NOT in the advertised player channel allowlist (out-of-band
@@ -90,6 +90,22 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         const as = a as Record<string, unknown>;
         if (as["kind"] !== "safe" && as["kind"] !== "vote" && as["kind"] !== "loyal") refuse("assurance", "{ kind: 'safe' | 'vote' | 'loyal' } when present");
         if (as["sincerity"] !== undefined && typeof as["sincerity"] !== "number") refuse("assurance", "a numeric sincerity when present");
+      }
+      if (args["promise"] !== undefined) {
+        const pr = args["promise"];
+        if (typeof pr !== "object" || pr === null || Array.isArray(pr)) refuse("promise", "an object when present");
+        const ps = pr as Record<string, unknown>;
+        if (typeof ps["what"] !== "string" || ps["what"] === "") refuse("promise", "{ what: a non-empty string } when present");
+        if (ps["subject"] !== undefined && !isEntityId(ps["subject"])) refuse("promise", "a houseguest id for `subject` when present");
+        if (ps["from"] !== undefined && !isEntityId(ps["from"])) refuse("promise", "a houseguest id for `from` when present");
+      }
+      if (args["statement"] !== undefined) {
+        const st = args["statement"];
+        if (typeof st !== "object" || st === null || Array.isArray(st)) refuse("statement", "an object when present");
+        const ss = st as Record<string, unknown>;
+        if (!isEntityId(ss["to"]) || !isEntityId(ss["about"])) refuse("statement", "{ to, about: houseguest ids, kind: a claim kind } when present");
+        if (typeof ss["kind"] !== "string" || ss["kind"] === "") refuse("statement", "{ kind: a non-empty string } when present");
+        if (ss["object"] !== undefined && !isEntityId(ss["object"])) refuse("statement", "a houseguest id for `object` when present");
       }
       if (args["heardAboutMe"] !== undefined) {
         const h = args["heardAboutMe"];
@@ -247,6 +263,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
     case "joinAlliance": // 0107 Phase B
       guardSyncFields(false);
       if (!isStr(args["allianceId"])) refuse("allianceId", "an alliance id (string)");
+      if (args["name"] !== undefined && !isStr(args["name"])) refuse("name", "a name (string) or omitted"); // ORW-509
       return;
     case "confide":
       guardSyncFields(true); // 0065 Part A CAS + Part B at-most-once idempotencyKey (A10/#591 — confide folds the bond bump / lie ledger; the key makes a stale-409 re-drive at-most-once)
@@ -445,6 +462,16 @@ function requireShape(name: string, args: Record<string, unknown>): void {
         if (typeof o !== "object" || o === null || typeof o["id"] !== "string" || typeof o["night"] !== "number" || typeof o["reflection"] !== "string") refuse("reflections[]", "objects with a string id, a numeric night and a string reflection");
       }
       return;
+    case "recordGroupIdentity":
+      // ORW-566 part c: a string group id is required; every word is optional and refused only when present and not a string (validated deeper in the adapter).
+      if (!isStr(args["groupId"])) refuse("groupId", "a string");
+      for (const k of ["name", "ritual", "signal", "insideJoke"]) if (args[k] !== undefined && typeof args[k] !== "string") refuse(k, "a string when present");
+      return;
+    case "recordAllianceName":
+      // ORW-566 part c2: both fields are plain strings; a malformed call is refused at the boundary (never a reason about a ticket).
+      if (!isStr(args["ticket"])) refuse("ticket", "a string");
+      if (typeof args["name"] !== "string") refuse("name", "a string");
+      return;
     case "recordHouseCulture":
       // ORW-319: every part OPTIONAL; refuse only a present part of the wrong shape (validated deeper in the adapter).
       if (args["spots"] !== undefined && !Array.isArray(args["spots"])) refuse("spots", "an array when present");
@@ -513,6 +540,12 @@ function requireShape(name: string, args: Record<string, unknown>): void {
     default:
       return; // read tools and free-text tools take no required structure
   }
+}
+
+/** ORW-584: what the player channel may carry of a confide: whether they opened up, how much, and what was said. Never whether it was true. */
+function playerConfideResult(r: ConfideResult | null): { disclosed: boolean; tier: ConfideResult["tier"]; content?: string } | null {
+  if (!r) return null;
+  return { disclosed: r.disclosed, tier: r.tier, ...(r.content !== undefined ? { content: r.content } : {}) };
 }
 
 export class McpServer {
@@ -606,6 +639,18 @@ export class McpServer {
       case "recordNpcReflections":
         // ORW-320: post-crown nightly reflections (refused until finished; validated; write-once per houseguest-night).
         return this.deps.session.recordNpcReflections(args as unknown as RecordNpcReflectionsReq);
+      case "recordGroupIdentity":
+        // ORW-566 part c: freeze the model's words for one group (validated, write-once per group id).
+        return this.deps.session.recordGroupIdentity(args as unknown as RecordGroupIdentityReq);
+      case "groupsAwaitingWords":
+        // ORW-566 part c: the groups still waiting for words (ids and a room only).
+        return this.deps.session.groupsAwaitingWords();
+      case "recordAllianceName":
+        // ORW-566 part c2: answer one sealed-prompt ticket (bare receipt for real and decoy alike).
+        return this.deps.session.recordAllianceName(args as unknown as RecordAllianceNameReq);
+      case "allianceNameTickets":
+        // ORW-566 part c2: tonight's fixed-size batch of anonymous naming prompts.
+        return this.deps.session.allianceNameTickets();
       case "recordHouseCulture":
         // ORW-319: freeze the season's house culture (validated, write-once).
         return this.deps.session.recordHouseCulture(args as unknown as RecordHouseCultureReq);
@@ -698,11 +743,13 @@ export class McpServer {
         // 0075 — the trust-gated confidence: the engine decides + records; the model voices the result.
         // A10/#591 — the optional at-most-once idempotencyKey rides positionally (makeDeal/expose/trade
         // pick it up via their req cast; confide takes positional args, so thread it here).
-        return this.deps.session.confide(
+        // ORW-584 (Vault Wall): the engine's own truth-record (`truthful`) never crosses to the narrator, or it could write a tell around a lie.
+        // The port result keeps it (the engine reads it, and the replay cache stores it whole); only this player-channel boundary drops it.
+        return playerConfideResult(this.deps.session.confide(
           args["npcId"] as EntityId,
           args["expectedBeatSeq"] as number | undefined,
           args["idempotencyKey"] as string | undefined,
-        );
+        ));
       case "askJuror": // 0129 slice 3 — the engine gates + picks + records; the model voices the result
         return this.deps.session.askJuror(
           args["jurorId"] as EntityId,
