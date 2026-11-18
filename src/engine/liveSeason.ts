@@ -633,6 +633,10 @@ export interface LiveSeasonState {
   lastCeremonyAbsHour?: number;
   /** ORW-561 / spec 0176 part 2: hidden TENURE - hours each houseguest has spent in each room (monotonic, engine-only, never in a projection). A played game only; absent on older saves and headless games. */
   tenure?: import("./territory").Tenure;
+  /** 0207 A1 (ORW-658; VAULT-CLASS, engine-only, never projected): the private chemistry ceiling per ORDERED pair (`chem:from>to`), drawn on a keyed side roll; only pairs with any chemistry are stored, and an entry is never removed
+   *  (non-degradation). `together`: the house-life stretches each such pair has spent in the same room (monotonic). Played games only; absent otherwise and on older saves. */
+  chemistry?: Record<string, number>;
+  together?: Record<string, number>;
   /** 0173 (Theme 3 slice 11): the hidden pecking order (coarse tiers), the informal leader and lieutenants, any open vacuum, and the history. VAULT-CLASS, engine-only, monotonic count, never projected. A played game only. */
   status?: import("./hohCourt").StatusRecord;
   /** ORW-610: the player's own recorded talk to the sitting HOH this week (counts as a pitch on the NPC terms). Engine-only; played games only. */
