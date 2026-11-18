@@ -19,7 +19,17 @@ export const ATTRACTION_LIFE = {
   /** A seeded showmance pair starts with chemistry at least this high, and with this many shared days already behind them. */
   seededChemistry: 0.7,
   seededDays: 5,
+  /**
+   * A2 (ORW-636 funnel): how far up an own-view read of a pair's bond a reader must be to read them as a couple, as a share of the way from the baseline to the highest an own-view read can go.
+   * The foundation's `coupleBondAtLeast` (0.65) is on the whole 0..1 bond scale, but a houseguest's read of two OTHERS is the baseline plus `floaterBondSpan` times what they saw, so it tops
+   * out at 0.60 and the bar was never reachable (no played season ever fired the couple term). 0.7 of the way is three net warm scenes watched: a flirtation or two is not a couple.
+   */
+  coupleReadShare: 0.7,
 } as const;
+
+/** A2: does this reader read the pair as a couple? Their own-view perceived bond, scaled to what that read can reach (`base` + `span`), and a romance they saw or were told of. */
+export const readsAsCoupleOwnView = (perceivedBond: number, romanceSeenOrTold: boolean, base: number, span: number): boolean =>
+  romanceSeenOrTold && span > 0 && (perceivedBond - base) / span >= ATTRACTION_LIFE.coupleReadShare;
 
 /** What a character's attraction needs to be known: their own presentation and orientation. A character missing either is drawn to no one (never inferred). */
 export interface AttractionIdentity { orientation: Orientation | undefined; gender: GenderPresentation | undefined }

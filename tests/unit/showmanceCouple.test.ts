@@ -57,6 +57,20 @@ function played(flag = true): { s: GameSessionAdapter; p: Priv; ids: string[]; e
 const romance = (id: string, a: string, b: string, extra: Partial<GameEvent> = {}): GameEvent =>
   ({ id, ts: 1, type: "showmance", initiator: a, witnessSet: [a, b], hidden: true, content: "x", baseContent: "x", ...extra } as GameEvent);
 
+describe("the reader's real own-view read can reach the couple bar (ORW-636 funnel: the bar sat above the read's ceiling)", () => {
+  it("an HOH who watched a pair's romance scenes, with NO stubbed bond, reads them as a couple and pushes the bigger threat; one scene is not enough", () => {
+    const { p, ids: pp, events } = played();
+    const [h, a, b] = pp as [string, string, string];
+    p.rel.edge(h, a).threat = 0.6; p.rel.edge(h, b).threat = 0.3;
+    events.push(romance("q1", a, b, { houseLife: { action: "flirt", seenBy: [h] } as never }));
+    expect(p.couplePushFor(a, h), "one watched scene: a flirtation, not yet a couple").toBe(0);
+    events.push(romance("q2", a, b, { houseLife: { action: "cuddle", seenBy: [h] } as never }), romance("q3", a, b, { houseLife: { action: "flirt", seenBy: [h] } as never }));
+    expect(p.perceivedBond(h, a, b)).toBeLessThan(ATTRACTION.coupleBondAtLeast); // the generic bar is above what an own-view read can ever reach
+    expect(p.couplePushFor(a, h)).toBeGreaterThan(0);
+    expect(p.couplePushFor(b, h)).toBe(0);
+  });
+});
+
 describe("a couple is read only from what the reader saw or was told", () => {
   it("an HOH who caught the romance and sees the pair's bond pushes the bigger threat of the two, and not the other", () => {
     const { p, ids: pp, events } = played();
@@ -81,7 +95,7 @@ describe("a couple is read only from what the reader saw or was told", () => {
     events.push(romance("r3", a, b, { houseLife: { action: "flirt", seenBy: [h] } as never }));
     expect(p.romanceSeenBy(h, a, b), "watched from the room counts").toBe(true);
     expect(p.romanceSeenBy(c, a, b), "someone else did not").toBe(false);
-    p.perceivedBond = () => ATTRACTION.coupleBondAtLeast - 0.05;
+    p.perceivedBond = () => 0.4; // two warm scenes watched: under the own-view bar
     p.rel.edge(h, a).threat = 0.9;
     expect(p.couplePushFor(a, h)).toBe(0);
   });
