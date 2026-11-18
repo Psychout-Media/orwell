@@ -80,3 +80,7 @@ advanceGame (spectator active) → runs one WHOLE player-less week, returns its 
 - [x] A self-evicted player gets none of it (0061 forfeit unchanged).
 - [x] Vault canary green for the new projections; no hidden story before the crowning.
 - [x] FE: the two new kinds have decision cards; `DECISION_KINDS` and the card-only gate (A-6) cover them.
+
+## Amendment 2026-11-18 (ORW-650) - watching from the couch, richer
+
+PO (2026-11-17): the watch path becomes a richer view of the season's public moments, never Vault content; this supersedes the skeleton-only part of the 2026-11-03 ruling for the watch path. A pre-jury evictee in WATCH mode now also gets `GameStateView.watching: { moments: string[] }`: the last 12 public broadcast beats (ceremonies, competition results, house events: `season:` house-events that are not hidden, the same predicate `seasonRecap` uses) recorded since they left, as engine-recorded third-person facts the narrator voices. Eviction ballots are already anonymized at the source beat. Absent while in the game, in skip mode, and for a juror (the 0129 jury house stays sequestered; no new juror content). `live.couchFromEvent` stamps the event-record length once, at the first commit after the choice. Projection only: no rng, no fold, outcomes untouched. Flag `ORWELL_COUCH_WATCH`, default ON; `=0` leaves the skeleton `weekDigests` only. Test: `tests/unit/couchWatch.test.ts`.

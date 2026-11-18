@@ -32,7 +32,7 @@ from _a64_decisions import answer_for
 # the engine keeps earlier seasons' houseguest names out of the new cast (NAME-1, which shifts the seeded draws) and the FE's per-user loop state (e.g. the silent-advance streak) outlives a
 # /new-game. So a rerun, a -k selection or an engine change can still move a seed onto another path. Each test walks its list in order and takes the first seed whose season keeps to its path,
 # dropping a seed as soon as the engine reports that path ruled out (a dropped walk is still held to the clock). Only when NO seed takes the path does the test fail - re-pick the list then.
-NOMINEE_SEEDS = (1, 6, 17, 19)   # an NPC HOH nominates the player (seed 1 also evicts them): no eviction-vote card is theirs
+NOMINEE_SEEDS = (5, 17)   # an NPC HOH nominates the player (seed 17 also evicts them): no eviction-vote card is theirs. Re-picked for ORW-656 (the after-the-buzzer reactions shift the seeded week-1 path; seeds 1, 6, 19 no longer reach the block)
 VOTER_SEEDS = (30012, 2, 4)      # an NPC HOH, the player is not on the block: week 1 ends on the player's own eviction-vote card
 
 

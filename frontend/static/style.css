@@ -2,32 +2,13 @@
 /* Orwell UI — Consolidated Stylesheet        */
 /* ============================================ */
 
-/* ── Variables ──
- *
- * Theme-public variables (override via theme.js or custom themes):
- *   Core:     --bg, --fg, --panel, --border, --red
- *   Syntax:   --hl-keyword, --hl-string, --hl-comment, --hl-function,
- *             --hl-number, --hl-builtin, --hl-variable, --hl-params,
- *             --hl-bg, --hl-fg
- *   Accents:  --accent-primary, --accent-error (set by theme.js)
- *   Semantic: --color-error, --color-success, --color-warning, --color-danger,
- *             --color-accent, --color-muted, --color-muted-alt
- */
+/* ── Variables ── */
 
 :root {
-  /* Typography (audit #696): the default UI font is the Apple SF SYSTEM-FONT STACK —
-     real SF on Apple devices, Inter (bundled, OFL) as the cross-platform substitute,
-     platform defaults elsewhere. We do NOT bundle SF Pro (Apple license). Monospace
-     is reserved for genuine code/technical/tabular contexts only. theme.js sets
-     --font-family per the user's font choice (default 'system' → this stack); these
-     tokens are the first-paint / fallback value before theme.js boots. */
+  /* Typography (audit #696) */
   --ow-ui-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro', Inter, 'Segoe UI', Roboto, sans-serif;
   --ow-mono-font: ui-monospace, 'SF Mono', 'Fira Code', monospace;
-  /* Canonical aliases (#709): legacy sites reference --mono / --code-font / --font-family
-     WITHOUT ever defining them (they resolved to ad-hoc per-site fallbacks). Anchor them to
-     the two canonical tokens so ONE sans token + ONE mono token actually drive the whole UI.
-     (--font-family is ALSO set per-user by theme.js applyFontDensity; this is its base value
-     before theme.js boots, so it points at the same SF system stack — no first-paint shift.) */
+  /* Canonical aliases (#709) */
   --mono: var(--ow-mono-font);
   --code-font: var(--ow-mono-font);
   --font-family: var(--ow-ui-font);
@@ -78,13 +59,7 @@
   --ow-fw-medium: 500;
   --ow-fw-semibold: 600;
   --ow-fw-bold: 700;
-  /* ── Type SCALE — the ONE coherent preset ramp every kit composes (#709) ──
-     Five role-named sizes so a "title", "heading", "body", "label" or "caption"
-     reads identically in EVERY kit (window/notice/decision/gadget/chat-hint/
-     settings/toast/menu). Anchored on the existing rem scale in
-     css/responsive-tokens.css (--fs-*) so it rides the same fluid root + density
-     and stays above the --fs-2xs floor. rem (not px) → respects user zoom.
-     Family is ALWAYS --ow-ui-font for these presets; mono is reserved for code. */
+  /* ── Type SCALE — the ONE coherent preset ramp every kit composes (#709) ── */
   --ow-fs-title: var(--fs-md, 0.875rem);     /* ~14px — window/modal/dialog + card titles    */
   --ow-fs-heading: var(--fs-sm, 0.8125rem);  /* ~13px — section / settings-group headings     */
   --ow-fs-body: var(--fs-md, 0.875rem);      /* ~14px — default body / content / option text  */
@@ -101,12 +76,7 @@
   --panel: #111;
   --border: #355a66;
   --red: #e06c75;
-  /* S6-4: luminance-aware text color for accent-backed CTAs (those whose
-     background is var(--accent)/var(--red)/#e06c75). White-on-accent fails AA
-     on the brand red (~3.2:1); for #e06c75 the higher-contrast pick is the dark
-     ink below (5.74:1). This is the first-paint/SSR default — theme.js + the
-     early-paint head script recompute it per theme/custom accent via
-     onAccentColor() in static/js/color/hex.js. */
+  /* S6-4 */
   --on-accent: #10151b;
   /* Were `var(--green)` / `var(--warn)` — self-referential, so they
      resolved to invalid and every site fell back to its own literal
@@ -264,11 +234,7 @@ body {
 @font-face { font-family: 'Fira Code'; font-weight: 400; font-style: normal; font-display: swap; src: url('/static/fonts/FiraCode-Regular.woff2') format('woff2'); }
 @font-face { font-family: 'Fira Code'; font-weight: 600; font-style: normal; font-display: swap; src: url('/static/fonts/FiraCode-SemiBold.woff2') format('woff2'); }
 
-/* Self-hosted Inter (#709): the bundled, OFL cross-platform substitute named in
-   --ow-ui-font. The woff2 files shipped (static/fonts/Inter-*.woff2) but the @font-face
-   was missing, so Inter never actually LOADED — on non-Apple platforms the UI fell through
-   to Segoe/Roboto, breaking type coherence. Wiring it here makes the canonical UI token's
-   cross-platform face real. (Apple devices still get real SF first via -apple-system.) */
+/* Self-hosted Inter (#709) */
 @font-face { font-family: 'Inter'; font-weight: 400; font-style: normal; font-display: swap; src: url('/static/fonts/Inter-Regular.woff2') format('woff2'); }
 @font-face { font-family: 'Inter'; font-weight: 500; font-style: normal; font-display: swap; src: url('/static/fonts/Inter-Medium.woff2') format('woff2'); }
 @font-face { font-family: 'Inter'; font-weight: 600; font-style: normal; font-display: swap; src: url('/static/fonts/Inter-SemiBold.woff2') format('woff2'); }
@@ -365,10 +331,7 @@ body.bg-pattern-petals,
 body.bg-pattern-sparkles {
   /* canvas-only backgrounds */
 }
-/* R3 (audit anim-F1): a FAINT static phosphor base under the perlin-flow canvas. Present the instant
-   the bg-pattern class is set (the head-script arms it at first paint), so there is no bare-bg window
-   before the animated canvas spawns at the end of theme init — and it doubles as the reduced-motion
-   "static or off" fallback (where the canvas never spawns). The canvas overlays this seamlessly. */
+/* R3 (audit anim-F1) */
 body.bg-pattern-perlin-flow {
   /* UNIFORM, even, very-faint lift — no positional falloff. The old top-anchored
      radial-gradient (… at 50% 0%, … transparent 60%) faded the lower half to black;
@@ -383,15 +346,7 @@ body.bg-pattern-perlin-flow {
 
 /* ── Layout ── */
 
-    /* Top bar — session meta + incognito, single row.
-       #950 — Apple pattern: the title cluster (.chat-meta-overlay) is the ONLY
-       centered element and is absolutely pinned to the bar's full border box
-       (inset:0 below), so it stays perfectly H+V centered regardless of the edge
-       controls (hamburger / new-chat / incognito), which float over the sides with
-       their own absolute offsets and NEVER displace the title. Padding is symmetric
-       (top == bottom) so the bar's geometric centre is its true middle — no
-       compensating translate fudge. The old hamburger-side padding shims are gone:
-       the centred cluster spans the border box and ignores them by construction. */
+    /* Top bar — session meta + incognito, single row */
     .chat-top-bar {
       display: flex;
       align-items: center;
@@ -468,13 +423,7 @@ body.bg-pattern-perlin-flow {
       right: 42px;
     }
 
-    /* Session meta — the centered title cluster.
-       #950 — pinned to the bar's FULL box (inset:0) and flex-centered, so the
-       cluster (title + count + cost + rename) is perfectly H+V centered in the bar
-       at all times. The side controls float over it (their own absolute offsets) and
-       never push it. No translate fudge: symmetric bar padding makes 50% the true
-       middle. A long title truncates with ellipsis (#current-meta below) while the
-       cluster stays centered. */
+    /* Session meta — the centered title cluster */
     .chat-meta-overlay {
       position: absolute;
       inset: 0;
@@ -798,13 +747,7 @@ body.bg-pattern-perlin-flow {
     #sidebar-new-chat-btn {
       margin: 0;
     }
-    /* ── G3 (ruling 2026-06-11): ONE sidebar padding standard. Every sidebar
-       button row measures the same padding per side as the New Chat / Search
-       rows (the .list-item standard — 8px each side). One token + one shared
-       rule, never per-button overrides; the icon-only user-bar buttons keep
-       their square aspect but measure the same padding. The mobile
-       touch-target overrides (12px 10px !important) stay uniform across the
-       same set, so the standard holds at every viewport. ── */
+    /* ── G3 (ruling 2026-06-11) */
     #sidebar {
       --sidebar-btn-pad: 8px;
     }
@@ -838,12 +781,7 @@ body.bg-pattern-perlin-flow {
     /* Fixed hamburger — always visible, toggles sidebar */
     .hamburger-btn {
       position: fixed;
-      /* Yield to a top banner when one is shown (base branch + #758). The engine-status banner is
-         a full-width position:fixed card whose painted area spans the top strip and intercepts
-         pointer events; the hamburger is position:fixed too, so without this it sits UNDER the
-         banner and clicks are swallowed. The notice kit publishes the banner height as
-         --on-banner-inset on <body>; drop the hamburger below it (no banner ⇒ var is 0 ⇒ the 12px
-         baseline wins). Mirrors the floating-sidebar inset pattern. */
+      /* Yield to a top banner when one is shown (base branch + #758) */
       top: max(12px, calc(var(--on-banner-inset, 0px) + 6px));
       left: 9px;
       right: auto;
@@ -1099,16 +1037,7 @@ body.bg-pattern-perlin-flow {
       color: var(--fg); font-family: inherit; font-size: var(--fs-sm);
       cursor: pointer; user-select: none; text-align: left;
     }
-    /* #752 [PERSISTENT-SURFACE STABILITY] — the Windows dock is a PERSISTENT surface, so its
-       entrance animation is OPT-IN per chip, NEVER replayed on every re-render. _renderDock
-       rebuilds ALL its chip rows (rows.innerHTML='') whenever the minimized SET changes; gating
-       the entrance behind .chip-entering — which _renderDock adds ONLY to a chip whose id was
-       NOT docked on the previous pass — means an already-docked chip stays exactly where it was
-       while one brand-new chip flies in. A NEW chip is a TRANSIENT arrival (it animates); the
-       chips already docked are persistent (they hold position; the FLIP transform in _renderDock
-       smoothly reflows them when the newcomer changes the layout). Without this gate, minimizing
-       window B replayed dock-chip-in on the already-present window A — the "nothing stays where
-       you left it" defect. */
+    /* #752 [PERSISTENT-SURFACE STABILITY] — the Windows dock is a PERSISTENT surface, so its */
     .minimized-dock-chip.chip-entering {
       animation: dock-chip-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
     }
@@ -1133,11 +1062,7 @@ body.bg-pattern-perlin-flow {
                   inset 0 0 0 1px color-mix(in srgb, var(--accent, var(--red)) 25%, transparent);
     }
     .minimized-dock-chip svg { opacity: 0.7; flex-shrink: 0; }
-    /* The label takes the row's remaining width and truncates with an ellipsis so a
-       long window title (e.g. "📼 The Season, Watched Back") never overflows the
-       sidebar slot or shoves the close × off the chip. min-width:0 lets a flex item
-       shrink below its content size; the icon (flex-shrink:0) and × (flex-shrink:0
-       below) keep their full size while the label gives way. */
+    /* The label takes the row's remaining width and truncates with an ellipsis so a */
     .minimized-dock-label {
       flex: 1 1 auto; min-width: 0;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -1404,13 +1329,7 @@ body.bg-pattern-perlin-flow {
     .section-header-flex:has(.section-header-btn) .section-collapse-btn { display: none; }
     .section.collapsed .section-collapse-btn { display: inline-flex !important; }
 
-    /* ── G3 (ruling 2026-06-11): no dead affordances. A section with ≤1
-       visible row has nothing to collapse — its chevron was a button that
-       visibly did nothing (under the game build every Tools child is
-       trimmed away). Such sections render as plain rows: no chevron, no
-       button styling, no collapse toggle; a section with NO visible content
-       at all hides outright. The classes are computed live in
-       js/section-management.js (initSectionCollapse). ── */
+    /* ── G3 (ruling 2026-06-11) */
     .section.section-no-collapse .section-collapse-btn { display: none !important; }
     .section.section-no-collapse .section-header-flex { cursor: default; }
     .section.section-no-collapse .section-header-flex:hover { background: transparent; }
@@ -1450,13 +1369,7 @@ body.bg-pattern-perlin-flow {
       100% { opacity: 1; transform: translateY(0)   translateX(0)    scale(1); }
     }
 
-    /* Domino collapse: when toggleCollapse goes open → closed, JS adds
-       .section-just-collapsing for ~530ms before flipping in .collapsed.
-       During that window the items fade/slide DOWN one after another so
-       you see them peel off instead of vanishing as a block. Uses
-       nth-last-child so the BOTTOM item leaves first and the cascade
-       rolls upward — mirrors the "stacked deck" feeling of the open
-       animation reversed. */
+    /* Domino collapse */
     .section.section-just-collapsing :is(.list-item, .models-row) {
       animation: section-domino-out 0.22s ease-in forwards;
     }
@@ -1915,13 +1828,7 @@ body.bg-pattern-perlin-flow {
       transition: width 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
     }
     .gadget-rail[hidden] { display: none; }
-    /* width drag-resize: a thin grab-handle on the rail's INNER edge (the edge facing the chat).
-       The grip LOOK (hit strip, 2px NEUTRAL glass-rim bar on hover/drag, system-blue focus — the
-       #8/#9 "no accent/red on the resize affordance" contract) is now the `.ow-resize-handle` KIT
-       primitive (ELEMENT KIT region). The consumer keeps ONLY what it owns: the horizontal EDGE
-       anchor and the hide-when-collapsed. Default the rail sits on the right, so the handle is on
-       its LEFT edge; under side-swap the rail is on the left, so the handle moves to its RIGHT
-       edge. Hidden when collapsed and on the mobile drawer (below). */
+    /* width drag-resize */
     .gadget-rail-resize-handle { left: -3px; right: auto; }
     .gadget-rail-resize-handle::before { left: 3px; right: auto; }
     body[data-gadget-side="left"] .gadget-rail-resize-handle { left: auto; right: -3px; }
@@ -1957,12 +1864,7 @@ body.bg-pattern-perlin-flow {
     .grail-chevron { display: inline-block; transition: transform .22s ease; }
     .gadget-rail-body { flex: 1; overflow-y: auto; overflow-x: hidden; padding: .35rem; min-height: 0;
       min-width: 0; display: flex; flex-direction: column; }
-    /* Responsive gadget sizing — the rail width is user-resizeable, so every gadget
-       (the HUD cards + the docked .ow-window panels) reflows to the rail's CURRENT
-       width instead of assuming ~300px. No fixed px widths survive here; long content
-       wraps/ellipsizes and rows never force horizontal overflow. The own margins each
-       gadget sets (margin: var(--space-2) var(--space-2) 0) collapse to the body
-       padding so a card can't out-set the rail at a narrow width. */
+    /* Responsive gadget sizing — the rail width is user-resizeable, so every gadget */
     .gadget-rail-body > * {
       box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0;
       margin-left: 0 !important; margin-right: 0 !important; flex-shrink: 0;
@@ -1984,11 +1886,7 @@ body.bg-pattern-perlin-flow {
     .gadget-rail-body > #orwell-cast-pin { order: 6; }  /* L12: compact docked cast roster (opt-in / mobile) */
     .gadget-rail-body > #orwell-finale { order: 7; }    /* 0054 P2: docked finale */
     .gadget-rail-body > #orwell-retro { order: 8; }     /* 0054 P2: docked retrospective */
-    /* The collapsed icon strip: a column of up to 8 gadget icons in a 50px-wide rail.
-       It SCROLLS (min-height:0 inside the flex column gives it a real overflow context)
-       so on a short viewport the icons never stack on top of each other — the strip
-       scrolls instead of overlapping. flex-shrink:0 on each icon keeps every tap target
-       at its full height (the flexbox can't squeeze them into a collision). */
+    /* The collapsed icon strip */
     .gadget-rail-strip { display: none; flex-direction: column; align-items: center;
       gap: .35rem; padding: .5rem 0; flex: 1; min-height: 0;
       overflow-y: auto; overflow-x: hidden;
@@ -2031,20 +1929,8 @@ body.bg-pattern-perlin-flow {
     body[data-gadget-side="left"] #gadget-rail { order: -1; border-left: none;
       border-right: 1px solid var(--border); box-shadow: 4px 0 12px rgba(0,0,0,0.08); }
     body[data-gadget-side="left"] #sidebar { order: 1; }
-    /* ── THE OrwellGadget KIT FAMILY (.og-*) — #640 ─────────────────────────────
-       The canonical per-gadget card chrome, the rail counterpart of the .ow-* window
-       family. Every rail gadget composes orwellGadget.js, which ALSO injects this family
-       at runtime (ensureCss) so it works before style.css loads; this copy is the
-       source-of-truth declaration the house themes (0052) + the frost layer paint and the
-       convention gate pins (mirroring how .ow-* / .gadget-rail-* live here). It deliberately
-       MATCHES the visual language every hand-rolled gadget used (margin/padding/the
-       70%-panel mix/border/10px radius/Fira mono/fs-xs/line-height) so a migrated gadget
-       renders identically. Keep this and the runtime ensureCss() in orwellGadget.js in sync. */
-    /* #797: gadget INSETS are tuned to the --ow-space-* scale for clean, even, Apple-grade
-       alignment across EVERY gadget kind — no ad-hoc rem values. The card breathes on a single
-       rhythm: --ow-space-3 (12px) horizontal padding, --ow-space-2 (8px) vertical padding +
-       margin + the inner header/row gaps, --ow-space-1 (4px) for the tightest gaps. Keep this
-       and the runtime ensureCss() in orwellGadget.js in lock-step. */
+    /* ── THE OrwellGadget KIT FAMILY (.og-*) — #640 ───────────────────────────── */
+    /* #797 */
     .og-card {
       display: none;
       margin: var(--ow-space-2, 8px) var(--ow-space-2, 8px) 0;
@@ -2080,14 +1966,7 @@ body.bg-pattern-perlin-flow {
     .og-card .og-body { overflow-wrap: anywhere; }
     .og-card .og-empty { opacity: .6; font-style: italic; }
     @media (prefers-reduced-motion: reduce) { .og-card .og-chev { transition: none; } }
-    /* ── THE OrwellNotice KIT FAMILY (.on-*) — #642 ─────────────────────────────
-       The canonical ABOVE-COMPOSER affordance chrome — the third DWE kit, sibling to the
-       .ow-* (windows) and .og-* (rail gadgets) families. Every above-composer affordance
-       composes orwellNotice.js, which ALSO injects this family at runtime (ensureCss) so it
-       works before style.css loads; this copy is the source-of-truth declaration the house
-       themes (0052) + the frost layer paint and the convention gate (test_on_notice_kit.py)
-       pins (mirroring how .ow-* / .og-* live here). Keep this and the runtime ensureCss() in
-       orwellNotice.js in sync. */
+    /* ── THE OrwellNotice KIT FAMILY (.on-*) — #642 ───────────────────────────── */
     #orwell-notice-zone {
       display: flex; flex-direction: column; gap: var(--space-2, .45rem);
       margin: 0 auto var(--space-2, .45rem); width: 100%; max-width: 760px;
@@ -2149,16 +2028,7 @@ body.bg-pattern-perlin-flow {
         height: calc(100% - var(--on-banner-inset, 0px)); height: calc(100dvh - var(--on-banner-inset, 0px));
         width: min(300px, 86vw); z-index: 60; flex-shrink: 0;
         transform: translateX(102%); box-shadow: -6px 0 20px rgba(0,0,0,.35);
-        /* #590 (RESP-NEW-1): the CLOSED drawer is GENUINELY STOWED, not merely slid off-canvas.
-           `transform: translateX(102%)` alone leaves the panel "rendered visible at off-screen
-           coords" — it still takes layout, so a getBoundingClientRect scan reports its content
-           (and the only close ×) ~290px past the right edge (the audit finding — WCAG 1.4.10
-           reflow / 2.5.5 reachability), and a keyboard/SR user could TAB into the off-screen
-           panel. `visibility: hidden` while closed removes it from the a11y tree + tab order and
-           stops it painting at off-screen coords; it flips to `visible` only when `.grail-open`
-           (the opener FAB / drawer reveal — content + × then sit fully on-screen). The visibility
-           flip is DELAYED on close (0.25s, the slide duration) so the slide-OUT still animates
-           fully before the panel is hidden; opening reveals it immediately. */
+        /* #590 (RESP-NEW-1) */
         visibility: hidden;
         transition: transform .25s cubic-bezier(0.22, 0.61, 0.36, 1), visibility 0s linear .25s;
       }
@@ -2186,15 +2056,7 @@ body.bg-pattern-perlin-flow {
       .gadget-rail[data-collapsed="true"] .gadget-rail-strip { display: none; }
       .gadget-rail-toggle, .gadget-rail-swap { display: none !important; }
       body[data-game-build] .gadget-rail-open { display: block; }
-      /* #551 — on mobile the gadget opener moves to the TOP-RIGHT (it pairs with
-         the sidebar hamburger, which stays TOP-LEFT). Desktop is untouched. It
-         must clear the chat header, so its z-index sits just under the hamburger
-         (210) and above header chrome.
-         #653 — it is a small, ICON-ONLY control that matches the hamburger's
-         treatment (same 30x30 box, transparent bg, currentColor stroke, 0.5
-         opacity) so the two top corners read as a matched pair — NOT a loud red
-         FAB. Every loud-FAB property from the desktop base (round shape, accent
-         fill, border, shadow, large size) is reset here. */
+      /* #551 — on mobile the gadget opener moves to the TOP-RIGHT (it pairs with */
       .gadget-rail-open {
         /* #758: clear a top system-banner (fixed control; body padding-top doesn't move it). */
         top: calc(env(safe-area-inset-top, 0px) + 12px + var(--on-banner-inset, 0px));
@@ -2300,12 +2162,7 @@ body.bg-pattern-perlin-flow {
       max-height: 60px;
       overflow: hidden;
     }
-    /* The tip is a full sentence that wraps to 4-5 lines on narrow phones,
-       where the welcome block shrink-wraps small; the shared 60px ceiling
-       (sized for the one-line sub/version) clipped its last line. Give the tip
-       a taller ceiling so it isn't truncated. Kept above the max-height:650px
-       block below so that rule's max-height:0 still collapses it on short
-       viewports. */
+    /* The tip is a full sentence that wraps to 4-5 lines on narrow phones */
     #welcome-screen .welcome-tip {
       max-height: 120px;
     }
@@ -2429,13 +2286,7 @@ body.bg-pattern-perlin-flow {
       transition: margin 0.3s ease, max-width 0.3s ease;
     }
     .chat-container.welcome-active .chat-input-bar {
-      /* #802: ALWAYS keep comfortable breathing room between the hero and the
-         composer. The hero floats centered (#welcome-screen, top:40%); this
-         margin pushes the composer up toward it. A flat 30vh crowds the hero on
-         short laptop screens, so make it FLUID — it shrinks on short viewports
-         (dropping the composer toward the bottom to free space for the hero) and
-         is capped so the gap stays comfy. Paired with the short-height overrides
-         below + the welcome-active min gap on #welcome-screen. */
+      /* #802 */
       margin-bottom: clamp(48px, 30vh, 30vh);
       margin-left:auto;
       margin-right:auto;
@@ -2559,11 +2410,7 @@ body.bg-pattern-perlin-flow {
       word-break: break-word;
       overflow-wrap: anywhere;
       line-height: 1.5;
-      /* Chat font (#709): the conversation IS the game, so its prose rides the SAME sans system
-         as the glass chrome — explicitly the UI font, never the legacy "terminal" mono. (It
-         already inherited --ow-ui-font from body; pinned here so the bubble can never drift to
-         mono via an inherited context.) The user's own font/theme choice still applies through
-         --font-family; code/pre INSIDE a bubble stay --ow-mono-font (see .msg code / pre below). */
+      /* Chat font (#709) */
       font-family: var(--font-family, var(--ow-ui-font));
       font-size: 0.95em;
       margin: 0;
@@ -2724,12 +2571,7 @@ body.bg-pattern-perlin-flow {
       border: 1px solid color-mix(in srgb, var(--fg) 22%, transparent);
     }
 
-    /* NARR-9 — the LIVE-stream producer aside. The reload path styles the whole
-       bubble (.msg-ooc-producer); the live stream renders the reply incrementally
-       into an existing holder, so the wrapper class can't be toggled mid-stream.
-       processWithThinking wraps a fully-`((...))`-wrapped reply in this inner div
-       instead, giving the same quiet, dashed, badged "to production" treatment.
-       Theme-token driven (works across every house theme). */
+    /* NARR-9 — the LIVE-stream producer aside */
     .ooc-producer-aside {
       border: 1px dashed color-mix(in srgb, var(--fg) 28%, transparent);
       border-radius: 10px;
@@ -2790,11 +2632,7 @@ body.bg-pattern-perlin-flow {
       border: 1px solid color-mix(in srgb, var(--fg) 22%, transparent);
     }
 
-    /* The ONE reusable chat-bar hint surface (orwellChatHint.js). It spans the same
-       width as the chat input bar (the 0 8px horizontal margin mirrors the bar's own
-       inset) and shares its visual language — fully theme-token driven (derives from
-       --fg) so the frosted house themes stay readable. SHIPS WITH NO ACTIVE TIPS; the
-       class is ready for any future composer hint via OrwellChatHint.register/show. */
+    /* The ONE reusable chat-bar hint surface (orwellChatHint.js) */
     /* (issue 642) the chat hint composes the OrwellNotice kit (kind "guide") for its SHELL now
        (.on-card.on-guide owns the bg/border/radius/padding/animation). Only the hint-SPECIFIC
        inner rules remain — the body lays its text + dismiss button out in a row. */
@@ -2997,16 +2835,7 @@ body.bg-pattern-perlin-flow {
          player where to type. Lift to ~4.7:1 while staying visibly secondary. */
       color: color-mix(in srgb, var(--fg) 60%, transparent);
     }
-    /* RESP-4 (a11y responsive): the model-pill is absolutely positioned top-right OVER the
-       textarea and stays visible until ~10 chars are typed (app.js _syncModelPickerAutohide) —
-       so on a narrow composer it overlaps and clips the placeholder / short-input text. Reserve
-       a right gutter for the pill's slot, but ONLY while the pill is actually shown AND the bar
-       is narrow — so a wide composer keeps full width and a long message (pill already
-       autohidden) reflows edge-to-edge. The pill is hidden (a) ≤260px by the container query
-       below and (b) inline `display:none` when group chat is active / uninitialized — exclude
-       both so the gutter never over-reserves when there is no pill. Applies to the textarea + its
-       ghost autocomplete overlay so both stay clear of the pill. Below the 260 micro-tier the
-       pill is display:none (container query above), so the gutter is moot there. */
+    /* RESP-4 (a11y responsive) */
     @container chatbar (max-width: 480px) {
       .chat-input-top:has(> .model-picker-wrap:not(.model-picker-autohide):not([style*="display: none"])) textarea#message,
       .chat-input-top:has(> .model-picker-wrap:not(.model-picker-autohide):not([style*="display: none"])) #message-ghost {
@@ -3512,11 +3341,7 @@ body.bg-pattern-perlin-flow {
       flex-shrink: 0;
       opacity: 0.5;
     }
-    /* F-S1-E: on a coarse pointer (touch) lift the model switcher to the 44px tap floor,
-       mirroring the .copy-btn / kit touch-target idiom — min-height grows the hit box past the
-       glyph (the label already exceeds 44px wide) while the text stays its small size, and at
-       rest the chrome is transparent so the taller box adds no visible bulk. Desktop keeps the
-       compact 24px pill. */
+    /* F-S1-E */
     @media (hover: none) and (pointer: coarse) {
       .model-picker-btn { min-height: 44px; height: auto; }
     }
@@ -3530,12 +3355,7 @@ body.bg-pattern-perlin-flow {
       height: 12px;
       opacity: 0.7;
     }
-    /* #1638: the bespoke `.model-picker-menu` dropdown tray is retired — the picker now mounts
-       through OrwellPopoverKit as a `.ow-popover` surface (modelPicker.js), which owns the
-       positioning (flip/shift), chrome, animation, and glass material (its own `.ow-popover`
-       rules + the shared "CHROME surfaces" glass lists). Only the picker's `#model-picker-list`
-       CONTENT rows survive below (they are re-parented into the popover), plus the dark-ink fold
-       that keeps them legible on the light glass. */
+    /* #1638 */
     .model-picker-list {
       padding: 6px;                    /* the tray's inner padding folds onto the content root */
       max-height: min(280px, 50dvh);
@@ -3786,12 +3606,7 @@ body.bg-pattern-perlin-flow {
     .overflow-plus-btn.has-active .plus-active-dot {
       display: block;
     }
-    /* #1638: the composer overflow "+" menu (and the plan menu, its only other consumer) now mount
-       through OrwellMenuKit — the .ow-menu / .ow-popover family (see the linked-stylesheet copy of
-       that region) owns the surface, items, hover, active/checked state, and open/close motion. The
-       bespoke `.overflow-menu` / `.overflow-menu-item` container, the domino stagger keyframes
-       (overflow-menu-pop / overflow-item-in / -out), and the `.overflow-active-dot` are RETIRED. The
-       trigger + its `.plus-active-dot` (above) and `.overflow-wrapper` (composer layout) are KEPT. */
+    /* #1638 */
     .attach-strip {
       display: flex;
       gap: 6px;
@@ -3993,11 +3808,7 @@ body.bg-pattern-perlin-flow {
     .msg-actions {
       display:inline-flex; align-items:center; gap:4px;
     }
-    /* OWNER RULING (liquid-glass follow-up): NO per-message action icons on SENT (player)
-       bubbles in the game build — they rendered gray/illegible on the blue fill, and the
-       played-record model already strips the record-altering ones. The JS gate
-       (createUserMsgFooter) renders an empty action set; this is the CSS belt covering any
-       other render path. RECEIVED / GM message actions are untouched. */
+    /* OWNER RULING (liquid-glass follow-up) */
     body[data-game-build] .msg-user .msg-actions { display: none !important; }
     .footer-copy-btn {
       background:none; border:none;
@@ -4184,12 +3995,7 @@ body.bg-pattern-perlin-flow {
       opacity:0.8;
     }
 
-    /* Round-cap "Continue" affordance — a cohesive centered pill at the chat
-       bottom (not the bare red in-message stopped style).
-       ADR 0010 #4 (.response-truncated): the chat-mode "reply cut off by the
-       output token cap → Continue ▸" note shares the same pill so a token-cap
-       cutoff reads identically to a round-cap one — NOT the bare red stopped row
-       with the giant glyph-sized base `.continue-btn` (font-size 2.6em). */
+    /* Round-cap "Continue" affordance — a cohesive centered pill at the chat */
     .rounds-exhausted,
     .response-truncated {
       justify-content:center;
@@ -4746,13 +4552,7 @@ body.bg-pattern-perlin-flow {
       .section-header-flex h4::before {
         height: 18px;
       }
-      /* #800: on mobile the conversation title bar is a real title bar — the two
-         sidebar EXPAND ICONS fold INTO it (the hamburger at the left edge, the gadget /
-         control-room opener at the right edge), both as consistent kit line icons
-         vertically centered on the title row. The bar gives itself a defined height so
-         those corner controls read as part of it rather than free-floating FABs. The
-         buttons stay position:fixed (so they sit above the scroll + clear the banner),
-         but they are anchored to the SAME row center as the title via --ow-titlebar-top. */
+      /* #800 */
       :root { --ow-titlebar-h: 44px; }
       .chat-top-bar {
         padding: 1px 44px;          /* reserve the corner-control gutters */
@@ -4834,11 +4634,7 @@ body.bg-pattern-perlin-flow {
       /* Chat bubbles — AI stretches full width, user stays compact */
       .msg { font-size: 0.85em; }
       .msg .body { font-size: 0.9em; }
-      /* #657 — mobile narration breathing room. On a phone the GM narration ran dense and
-         edge-to-edge: tighten nothing on desktop, but on narrow give the AI bubble a
-         comfortable reading rhythm — roomier line-height, real horizontal padding inside the
-         bubble, and clearer paragraph spacing. Scoped to mobile + the AI bubble so user
-         turns and desktop density are untouched. */
+      /* #657 — mobile narration breathing room */
       .msg-ai { padding: 12px 16px; line-height: 1.6; }
       .msg-ai .body { line-height: 1.6; }
       .msg-ai .body > * { margin-top: 12px; margin-bottom: 12px; }
@@ -5059,19 +4855,7 @@ body.bg-pattern-perlin-flow {
         padding: 4px 6px !important;
         height: 100% !important;
       }
-      /* Skills preview kept stopping at partial height because the flex
-         chain (modal → tabs → panel → admin-card → grid → card) wouldn't
-         reliably hand the card a full-height parent. But the skills LIST
-         already scrolls correctly inside #skills-list, so that grid box
-         already has the right bounded height (the area below the tabs).
-         Anchor the expanded card to THAT box with position:absolute so it
-         fills the list area exactly — header + tabs stay visible.
-
-         NOTE: position:relative here is UNCONDITIONAL (not gated behind
-         :has(.doclib-card-expanded)). Firefox mobile builds without :has()
-         support never applied the gated rule, so the absolute card lost its
-         anchor and only filled ~50% — while Chromium/desktop-narrow worked.
-         Relative-when-collapsed is harmless (no abs children then). */
+      /* Skills preview kept stopping at partial height because the flex */
       #memory-modal #skills-list.doclib-grid {
         position: relative !important;
       }
@@ -5099,13 +4883,7 @@ body.bg-pattern-perlin-flow {
       /* Preview is the 1fr grid track — give it a definite-height flex column
          so the <pre> (flex:1) fills and the footer pins at the bottom. */
       
-      /* The card now fills the screen, but a base rule (.skill-card...
-         .doclib-card-preview { flex: 0 1 auto }) sizes the preview to its
-         CONTENT — so a medium SKILL.md left the preview at ~half the card
-         (the "only 50%" the debug confirmed: card was full, content wasn't).
-         Force the preview AND the <pre> to FILL the card. Extra .skill-card
-         in the selector out-specifies both the base and the generic mobile
-         rule so this wins without ambiguity. */
+      /* The card now fills the screen, but a base rule (.skill-card */
       
       #memory-modal .doclib-card.skill-card.doclib-card-expanded .skill-md-pre {
         flex: 1 1 auto !important;
@@ -5383,14 +5161,7 @@ body.bg-pattern-perlin-flow {
     #cookbook-modal { z-index: 260; }
     .modal.hidden { display:none; }
 
-    /* Tool windows open centered in the CHAT AREA (the space right of the
-       sidebar + icon rail), rather than the full viewport.
-       We narrow the overlay to the chat area so its flex-centering lands the
-       window there; fullscreen / docked states use position:fixed so they
-       escape this narrowed overlay and still fill the screen. The
-       --sidebar-w / --icon-rail-w vars track collapse state live, so when a
-       window (e.g. Cookbook) hides the sidebar this naturally re-centers.
-       Desktop only — on mobile these are full-screen sheets. */
+    /* Tool windows open centered in the CHAT AREA (the space right of the */
     @media (min-width: 769px) {
       #calendar-modal,
       #gallery-modal,
@@ -5449,12 +5220,7 @@ body.bg-pattern-perlin-flow {
       position: sticky;
       top: 0;
       z-index: 5;
-      /* Inherit the modal-content's background so the header matches the
-         panel body. Many tool modals set their content to var(--bg) inline
-         while this header was hard-coded to var(--panel) — making the title
-         strip a different shade in every theme. `inherit` tracks whatever
-         the content uses (var(--bg) or the default var(--panel)) and stays
-         opaque, so the sticky header still masks scrolled content. */
+      /* Inherit the modal-content's background so the header matches the */
       background-color: inherit;
     }
     .modal-header:active { cursor:grabbing; }
@@ -5464,12 +5230,7 @@ body.bg-pattern-perlin-flow {
        over child elements mid-drag. */
     body.window-resizing-active { user-select:none !important; }
     body.window-resizing-active * { cursor:inherit !important; }
-    /* Suppress only TRANSITIONS while resizing so the edge tracks the cursor
-       crisply. We deliberately do NOT toggle `animation` here: toggling
-       animation off→on re-triggers the modal open-animation (a scale-in) on
-       mouseup, which both mis-measures the final size and visibly "pops" the
-       window. windowResize.js instead kills the one-shot open animation inline
-       once, in begin(). */
+    /* Suppress only TRANSITIONS while resizing so the edge tracks the cursor */
     .window-resizing {
       transition:none !important;
     }
@@ -5499,16 +5260,7 @@ body.bg-pattern-perlin-flow {
       letter-spacing:var(--win-titlebar-ls);
       color:var(--red);
     }
-    /* #1638 R4: modal/panel close × now composes the `.ow-btn .ow-btn-icon` kit
-       primitive (#1653) — flat transparent square, subtle radius, adaptive
-       `var(--fg)` ink, hover tint, focus ring and the coarse-pointer 44px floor
-       all come from the kit. `.close-btn` stays FIRST in the class list as the JS
-       hook (modalManager / keyboard-shortcuts / colorPicker / ui.js all
-       `querySelector('.close-btn')`). Only the modal-header-specific 24px size
-       residue stays here (the kit default is 30px; a close × docks beside the 24px
-       `.minimize-btn`, so it holds that scale via the kit's `--ow-btn-icon-size`
-       token). The bespoke bordered-box appearance + `.modal-close` (which no
-       element ever carried) are retired. */
+    /* #1638 R4 */
     .close-btn {
       --ow-btn-icon-size: 24px;
       flex-shrink:0;
@@ -5686,16 +5438,7 @@ body.bg-pattern-perlin-flow {
       outline: 2px solid var(--red);
       outline-offset: 2px;
     }
-    /* #837 — kill the ring on SPAWN / programmatic focus. Focus-trap roots and
-       dialog/window/sheet/card containers take a programmatic .focus() on MOUNT (focus
-       management / focus-trap) so AT/keyboard users land INSIDE the new surface. Those
-       roots are trap TARGETS, never keyboard Tab destinations, so they must never draw a
-       ring — even when the browser's :focus-visible heuristic carries "visible" over from
-       the click/keypress that opened them. This covers BOTH :focus and :focus-visible on
-       the ROOTS only; interactive controls inside keep their keyboard :focus-visible ring
-       (the rule above + each kit's own control rules). Do NOT extend this to a, button,
-       input, select, textarea, [role="button"], or [tabindex="0"] — that would regress
-       WCAG 2.4.7 for Tab users. */
+    /* #837 — kill the ring on SPAWN / programmatic focus */
     [tabindex="-1"]:focus,
     [tabindex="-1"]:focus-visible,
     [role="dialog"]:focus,
@@ -5822,12 +5565,7 @@ body.bg-pattern-perlin-flow {
       box-shadow: 0 0 0 1px var(--red), 0 0 8px color-mix(in srgb, var(--red) 30%, transparent);
     }
     
-    /* Custom preset modal: the base .preset-modal-content sets overflow:hidden
-       (for desktop rounded-corner clipping), which on the mobile sheet clipped
-       the footer (Start/Cancel) off the bottom with no way to reach it. Let the
-       whole sheet scroll — same as every other mobile modal (.modal-content is
-       overflow-y:auto on mobile) — so the footer is always reachable. No flex
-       changes, so the body can't collapse. */
+    /* Custom preset modal */
     #custom-preset-modal .preset-modal-content {
       overflow-y: auto !important;
     }
@@ -5946,11 +5684,7 @@ body.bg-pattern-perlin-flow {
       color: var(--fg);
       user-select: none;
     }
-    /* SET-11 (#1606): the hand-rolled .vis-switch toggle (which carried the SET-08
-       var(--red) ON-track accent leak) was replaced by the kit .ow-switch primitive
-       in every .vis-row. The row wrapper + icon/label stay; the switch is now
-       <span class="ow-switch"><input …><span class="ow-switch-track"></span></span>,
-       so the ON track is the sanctioned system blue by construction. */
+    /* SET-11 (#1606) */
     .vis-row:has(input:checked) .vis-icon {
       color: var(--fg);
     }
@@ -5975,12 +5709,7 @@ body.bg-pattern-perlin-flow {
       min-height: 0;
     }
     .vis-hint {
-      /* UX audit J1-28: was 30% alpha (~2.68:1, WCAG 1.4.3 fail) — lift to ~5:1 so toggle
-         descriptions are legible. J1-14 makes the Appearance panel a player's default
-         Settings landing, so its text must clear the --fs-2xs legibility floor (the old
-         10px sat below it). The hint lives inside a flex .vis-label that wraps, so the bump
-         reflows nothing horizontally; the danger-zone "Reset" the prior note blamed is in the
-         Account panel (its own white-space:nowrap;flex-shrink:0;), not measured here. */
+      /* UX audit J1-28 */
       font-size: var(--fs-2xs);
       color: color-mix(in srgb, var(--fg) 62%, transparent);
       font-weight: 400;
@@ -6467,13 +6196,7 @@ pre { background: var(--code-bg, var(--hl-bg, #282c34)) !important; }
       font-size: 13px;
     }
 
-    /* ---------- Theme window CONTENT ----------
-       The window FRAME is now the OrwellWindow kit (.ow-window, modal:true) —
-       it owns geometry/z/scrim/titlebar (theme.js initThemeKitWindow), so the
-       old bespoke modal-frame rules here (#theme-modal z-index, #theme-popup
-       overflow/max-height, the legacy #theme-popup .modal-header chrome) are
-       retired. #theme-popup is now the kit's .ow-body CONTENT; only its inner
-       layout (tabs / grid / swatches / color rows / etc.) is styled below. */
+    /* ---------- Theme window CONTENT ---------- */
     #theme-popup .theme-popup-sub { color: color-mix(in srgb, var(--fg) 50%, transparent); font-size: 11px; margin-bottom: 10px; }
     /* #theme-popup is the content node inside .ow-body now (no own frame). Let it
        fill the kit body; the kit window itself scrolls/sizes. */
@@ -6506,11 +6229,7 @@ pre { background: var(--code-bg, var(--hl-bg, #282c34)) !important; }
       text-transform: uppercase; letter-spacing: 0.04em; margin: 6px 0 2px;
       border-top: 1px solid var(--border); padding-top: 6px;
     }
-    /* Each custom entry is a presentational wrapper cell (grid item) owning the role=option
-       swatch AND the delete X as SIBLINGS — the button lives OUTSIDE the option (an option's
-       descendants are presentational), so it keeps its button role + is a separate tab stop.
-       The cell is the position anchor for the ✕; it sizes exactly like the swatch it wraps, so
-       the ✕ still sits in the tile's top-right corner (visual placement unchanged). */
+    /* Each custom entry is a presentational wrapper cell (grid item) owning the role=option */
     .ow-swatch-cell { position: relative; }
     /* Accent-coloured circular X — always visible (mobile-friendly), anchored to the wrapper
        cell's top-right corner so it never crops into a neighbouring swatch. */
@@ -6588,20 +6307,8 @@ pre { background: var(--code-bg, var(--hl-bg, #282c34)) !important; }
        every width, load-bearing once the row wraps below. */
     .theme-fd-group { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
     .theme-fd-label { font-size: 12px; font-weight: 500; color: var(--fg); opacity: 0.6; }
-    /* THM-05 (#1606): `.theme-fd-range` migrated to the `.ow-slider` kit primitive, and the
-       two Customize `.theme-fd-select` text inputs (the Google-font combobox + the bg-image
-       URL field) to the `.ow-field` kit primitive (both in index.html) — the bespoke range
-       + text-field styling (and its `var(--red)` accent leak) is removed here. The
-       `select.theme-fd-select` rules (below, ~23066) are a DIFFERENT, `<select>`-scoped legacy
-       fix retained on purpose (test_0765_admin_glass / test_1644_text_ink_polarity pin them). */
-    /* THM-02: Customize never reflowed narrow — the Colors 2-col grid (.theme-custom)
-       and the 4-across Font & Layout row (.theme-fd-row, no flex-wrap) both overflowed
-       to a horizontal scrollbar at the kit window's 320px floor. #theme-popup already
-       establishes an inline-size CONTAINER (~5833), so this collapses against the
-       window's OWN measured width (not the viewport) — matching the settings-modal
-       container-query pattern, and correct even when a floating theme window is
-       resized narrow on a wide viewport. 620 is the shared container-tier token
-       (responsive-tokens.css / S5), same tier `@container settings-modal` uses. */
+    /* THM-05 (#1606) */
+    /* THM-02 */
     @container (max-width: 620px) {
       .theme-custom { grid-template-columns: 1fr; }
       .theme-fd-row { flex-wrap: wrap; }
@@ -6705,13 +6412,7 @@ pre { background: var(--code-bg, var(--hl-bg, #282c34)) !important; }
         overflow: hidden;
         animation: sheet-enter 0.2s ease-out forwards;
       }
-      /* Tool modals fill the full mobile viewport — top edge to bottom —
-         instead of stopping at the 85dvh sheet height and leaving a gap.
-         Email's content carries both `modal-content` + `doclib-modal-content`,
-         so the generic 85dvh rule above (later in source, equal specificity)
-         was capping it; the ID-scoped selectors here win on specificity and
-         bring every tool (cookbook / tasks / memory / settings / email /
-         library) to the same top edge. */
+      /* Tool modals fill the full mobile viewport — top edge to bottom — */
       #cookbook-modal .modal-content,
       #tasks-modal .modal-content,
       #calendar-modal .modal-content,
@@ -6728,11 +6429,7 @@ pre { background: var(--code-bg, var(--hl-bg, #282c34)) !important; }
            dvh already excludes the URL bar; this handles the safe area. */
         padding-bottom: env(safe-area-inset-bottom, 0px) !important;
       }
-      /* MOBILE FULL-SCREEN SHEET — the template for OrwellWindow-kit windows on
-         mobile (#644 / #553). Settings filled 100dvh but (a) a residual top margin
-         left a gap above the sheet and (b) the inner .settings-layout was capped at
-         ~85dvh-60px, so content cut off before the bottom. Reset the margin to 0 and
-         let the inner layout fill the full sheet, top edge to safe-area bottom. */
+      /* MOBILE FULL-SCREEN SHEET — the template for OrwellWindow-kit windows on */
       #settings-modal .settings-modal-content {
         margin: 0 !important;
         border-radius: 0 !important;
@@ -6846,12 +6543,7 @@ pre { background: var(--code-bg, var(--hl-bg, #282c34)) !important; }
         flex: 1 1 0 !important;
         min-height: 0 !important;
       }
-      /* The skills modal carries an extra toolbar row (search/sort/select +
-         bulk bar) the doc/email libraries don't, so the shared 82dvh preview
-         min-height overflowed here and pushed the expanded footer (Delete /
-         Edit / Run) off the bottom of the screen. Let flexbox size it from
-         the resolved card height instead, so the footer always pins inside
-         the visible area. */
+      /* The skills modal carries an extra toolbar row (search/sort/select + */
       
       /* Once enter animation finishes, clear it so inline transform works for dragging */
       .modal-content.sheet-ready {
@@ -8169,11 +7861,7 @@ body.hide-thinking .thinking-section { display: none !important; }
 .agent-thread-node + .agent-thread-node {
   margin-top: 2px;
 }
-/* The timeline dot is the SINGLE per-node state marker (the separate ▶/✓ header glyph
-   was removed — it doubled the dot). DONE/default = a solid FILLED dot; RUNNING = a
-   HOLLOW pulsing ring that FILLS on completion (the classic "in-progress → done" read on
-   a connecting timeline). The fill/ring encodes state, so the distinction survives even
-   when the pulse is stripped for reduced motion. */
+/* The timeline dot is the SINGLE per-node state marker (the separate ▶/✓ header glyph */
 .agent-thread-dot {
   position: absolute;
   /* -20.5px (not -20) centres the 9px marker DEAD-CENTRE on the single ::before rail:
@@ -8206,13 +7894,7 @@ body.hide-thinking .thinking-section { display: none !important; }
   50% { box-shadow: 0 0 0 2px var(--red), 0 0 0 6px color-mix(in srgb, var(--red) 8%, transparent); }
 }
 
-/* TRANS-2 (#627): DECORATIVE infinite loops (the agent-thread running pulse — the
-   most-seen game animation — and the gadget-rail / rail-notification pulse family)
-   had no prefers-reduced-motion guard, and a >5s infinite loop also trips WCAG
-   2.2.2. Honor a shared `.decorative-loop` class so future loops opt in and coverage
-   can't silently drift; the current decorative pulses are listed explicitly too.
-   Loading/streaming spinners (TRANS-4, a product decision) are deliberately EXCLUDED
-   — they convey essential "still working" status. */
+/* TRANS-2 (#627) */
 @media (prefers-reduced-motion: reduce) {
   .decorative-loop,
   .agent-thread-node.running .agent-thread-dot,
@@ -8276,15 +7958,7 @@ body.hide-thinking .thinking-section { display: none !important; }
   letter-spacing: 0.3px;
   font-size: 0.9em;
 }
-/* Under the frosted material the beat chip sits in the chat COLUMN over the (variable) mesh
-   backdrop, where the accent --red is desaturated to a near-neutral gray (colorless-glass rule)
-   and reads DIM/dark against the light/teal backdrop — the flagged "dark label" (owner: the beat
-   chip renders dark on the light/teal chat background; it should follow the active theme polarity).
-   Drive the plain beat label off the theme's own polarity ink (var(--fg): light on the glass/dark
-   backdrop themes, dark on the light palettes) with a var(--bg)-derived legibility halo (the same
-   theme-aware halo pattern the sidebar labels use) so it reads with the SAME polarity as the chat
-   content around it. The OUTCOME slate (.ow-slate-outcome — "the show speaking") keeps its accent
-   treatment untouched. */
+/* Under the frosted material the beat chip sits in the chat COLUMN over the (variable) mesh */
 body.theme-frosted .agent-thread-node:not(.ow-slate-outcome) .agent-thread-tool {
   color: var(--fg);
   text-shadow: 0 1px 2px color-mix(in srgb, var(--bg, #15171c) 55%, transparent);
@@ -8756,13 +8430,7 @@ details a:hover {
 .hljs-emphasis { font-style: italic; }
 .hljs-strong { font-weight: bold; }
 
-/* ===== Markdown highlighting — document editor =====
-   IMPORTANT: this is an overlay layered behind a transparent textarea, so
-   every styled token must occupy the EXACT same width as the corresponding
-   characters in the textarea. Anything that changes glyph metrics
-   (font-weight/style, padding, border, letter-spacing) makes the caret drift
-   away from the rendered glyph underneath. Color / background / text-
-   decoration are safe — they don't change layout width. */
+/* ===== Markdown highlighting — document editor ===== */
 
 /* Standalone [bracketed text] — scene directions, annotations */
 
@@ -10247,13 +9915,7 @@ textarea.memory-add-input {
   line-height: 1.45 !important;
   padding: 10px 12px 10px 48px;
   overflow-y: scroll;
-  /* Pair with .doc-editor-highlight's scrollbar-gutter: stable so the
-     textarea's content width DOESN'T shrink the moment its scrollbar
-     appears (overflow-y: scroll keeps scrollbar permanent, gutter
-     reserves the space layout-wise). Without this, line wrap diverges
-     between textarea and overlay whenever content exceeds the visible
-     area — caret stays right, but typed text appears on a different row
-     than the caret. */
+  /* Pair with .doc-editor-highlight's scrollbar-gutter */
   scrollbar-gutter: stable;
   /* Show a real scrollbar for long documents. scrollbar-gutter above keeps
      the text column stable so the gutter, textarea, and find overlay stay
@@ -10482,12 +10144,7 @@ textarea.memory-add-input {
   body.doc-view .chat-container {
     display: none;
   }
-  /* Doc + email windows alternate: whichever was opened last is in front.
-     Default (a doc was opened last) → email windows sit BELOW the full-screen
-     doc pane (170) so the draft is on top. When the user re-opens an email
-     window (body.email-front, set by openEmailLibrary / reader open+restore) →
-     the email windows jump ABOVE the doc. Covers the email library AND any open
-     reader window (email-reader-<uid>); both are .modal at z-250 by default. */
+  /* Doc + email windows alternate */
   body.doc-view #email-lib-modal,
   body.doc-view .modal[id^="email-reader-"] { z-index: 150 !important; }
   body.doc-view.email-front #email-lib-modal,
@@ -10734,13 +10391,7 @@ body:has(.doc-version-panel:not(.hidden)) .hamburger-btn {
      gap before the section's content is unchanged. */
   margin-bottom: 14px;
 }
-/* SET-02 (2026-07-14 audit): a section header must never wrap to two lines when the
-   window is resized to its narrow floor — truncate with an ellipsis instead, the same
-   treatment .settings-nav-item already carries (owner report: "header lines for titles
-   ... become two lines when the window gets resized small enough"). Scoped AWAY from the
-   inline display:flex headers: on those, nowrap makes the text min-content unshrinkable so
-   overflow:hidden would CLIP the trailing control (e.g. the Vision / In-Game Time header
-   toggles) — and text-overflow is a no-op on flex containers anyway (review finding). */
+/* SET-02 (2026-07-14 audit) */
 .admin-card h2:not([style*="display:flex"]),
 .admin-card h5:not([style*="display:flex"]) {
   white-space: nowrap;
@@ -11193,13 +10844,7 @@ body:has(.doc-version-panel:not(.hidden)) .hamburger-btn {
   border-radius: 50%;
 }
 .adm-provider-caret { flex-shrink: 0; opacity: 0.5; transition: transform 0.15s; }
-/* #1638: BOTH provider pickers (the search-provider twin in settings.js and the
-   admin-endpoint twin in admin.js) are now OrwellMenuKit consumers — the anchored
-   role=menu surface, its rows, and its dismissal all live in the kit's `.ow-menu`
-   family. Neither has a sibling bespoke dropdown container anymore, so the caret
-   rotates off the trigger's aria-expanded, which OrwellMenuKit toggles. The old
-   bespoke floating-menu / menu-item rules (and their :has() caret variant) were
-   retired with the admin migration (consumer #9b). */
+/* #1638 */
 .adm-provider-btn[aria-expanded="true"] .adm-provider-caret {
   transform: rotate(180deg);
 }
@@ -11799,20 +11444,8 @@ body:has(.doc-version-panel:not(.hidden)) .hamburger-btn {
 #email-lib-modal .modal-content[style*="height"] .doclib-grid {
   min-height: 0;
 }
-/* Document library: same fix as the email library (#74). When fullscreened
-   the modal-content gets an inline `height: 100vh`, but the inner
-   .doclib-grid stays capped at the 400px default so the list looks like a
-   tiny strip floating in a giant empty modal. Mirror the email recipe:
-   make the modal a flex column, give the body/admin-card claim of the
-   remaining height, and let the grid take the rest. Scoped to the
-   fullscreen class so windowed-mode layout is unchanged. */
-/* Inner flex chain that lets the chats/documents grid claim the full
-   remaining height of the modal. Applies in BOTH fullscreen AND
-   right-docked states — without the docked state included, dragging a
-   fullscreen doclib to the right snap zone breaks the flex layout
-   because exitFullscreen removes .doclib-fullscreen, and the grid
-   falls back to its base max-height: 400px showing only ~8 items.
-   The CSS variable :is() selector lets both states share one rule. */
+/* Document library */
+/* Inner flex chain that lets the chats/documents grid claim the full */
 #doclib-modal.doclib-fullscreen .doclib-modal-content,
 #doclib-modal.modal-right-docked .doclib-modal-content,
 #doclib-modal.modal-left-docked .doclib-modal-content {
@@ -11972,12 +11605,7 @@ body.right-dock-active:not(.email-doc-split-active) .doc-editor-pane {
   border-right: 1px solid var(--border);
   box-shadow: 4px 0 14px rgba(0, 0, 0, 0.18);
   border-radius: 0;
-  /* Pin transitions OFF on the dock's positioning properties. The wide
-     sidebar collapse/expand changes --sidebar-w instantly, which means
-     the docked modal's `left: calc(...)` jumps by ~240px. Any CSS
-     transition on `left` (inherited or otherwise) would animate that
-     jump as a fly-across. Same defense for right-docked / fullscreen
-     panels in case future themes add a generic transition. */
+  /* Pin transitions OFF on the dock's positioning properties */
   transition: none !important;
 }
 .modal.modal-right-docked .modal-content,
@@ -12100,12 +11728,7 @@ body.right-dock-active:not(.email-doc-split-active) .doc-editor-pane {
   display: none !important;
 }
 #email-lib-modal.email-reading .admin-card { gap: 0 !important; }
-/* Override for chat-rows + research-rows: those expand inline with a
-   bounded preview (max-height: 60vh), so the grid must stay clipped
-   and scrollable. Without this scoping the overflow:visible above lets
-   the expanded chat preview escape the grid and overlap whatever's
-   underneath/beside the modal (e.g., a docked sibling panel) — what
-   the user calls "merging with other windows". */
+/* Override for chat-rows + research-rows */
 .admin-card:has(.doclib-chat-row.doclib-card-expanded) > .doclib-grid {
   overflow: hidden auto !important;
 }
@@ -12184,12 +11807,7 @@ body.right-dock-active:not(.email-doc-split-active) .doc-editor-pane {
   flex: 1 1 auto !important;
   height: 100% !important;
 }
-/* When the from-sender sidebar is open inside the email card, the email
-   body would otherwise lose 280px to padding-right and read as a narrow
-   strip. Widen the whole modal so the body keeps its normal text width
-   and the sidebar appears alongside, not on top of it. Also force the
-   modal to its full max-height — short emails would otherwise leave the
-   sidebar squeezed into a tiny vertical strip. */
+/* When the from-sender sidebar is open inside the email card, the email */
 #email-lib-modal .modal-content:has(.from-sender-panel) {
   width: min(1020px, 95vw) !important;
   height: 85vh !important;
@@ -12234,13 +11852,7 @@ body.right-dock-active:not(.email-doc-split-active) .doc-editor-pane {
   overflow: hidden;
   min-width: 320px;
   min-height: 240px;
-  /* When user resizes/drags so the window covers a side, force the inner
-     body to fill all the way to the bottom. The default max-height: 85vh
-     (set inline by _makeDraggable's exitFullscreen) and 80vh from the
-     opener both cap at the *viewport* — if the browser window then changes
-     size (e.g. OS aero-snap), the modal stays at the old height and
-     truncates rows. Drop the cap whenever an explicit width OR height has
-     been written inline by the resize handle / drag handler. */
+  /* When user resizes/drags so the window covers a side, force the inner */
 }
 .email-window-modal .modal-content[style*="width"],
 .email-window-modal .modal-content[style*="height"] {
@@ -12533,13 +12145,7 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   
   
   
-}/* Desktop expanded state — match the documents-tab behavior: hide
-   sibling chats, hide the admin-card toolbar/header, and let the
-   expanded row + its messages preview claim the full modal height.
-   Chat rows use `memory-item doclib-chat-row` (no `doclib-card` class)
-   so the document-tab's global rules at line 12284-12304 skip them —
-   these mirror those rules scoped to chat rows. The mobile media query
-   above (820px) keeps the same takeover behavior for phones. */
+}/* Desktop expanded state — match the documents-tab behavior */
 @media (min-width: 769px) {
   .doclib-grid:has(.doclib-chat-row.doclib-card-expanded) > .doclib-chat-row:not(.doclib-card-expanded) {
     display: none;
@@ -12845,16 +12451,7 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
 .archive-menu-btn:hover {
   background: color-mix(in srgb, var(--fg) 10%, transparent);
   opacity: 1;
-}/* While the Edit tab is active the editor needs a *definite* height so
-   the right-side tool panel (`.ge-right-panel { overflow-y:auto }`)
-   scrolls INTERNALLY. Without this the modal only has `max-height`, so
-   `.gallery-editor { height:100% }` can't resolve — the editor grows to
-   its full content height, overflows the modal body, and the modal-body
-   scrollbar that appears can't be wheel-scrolled because the editor's
-   `overscroll-behavior:contain` blocks the chain. Pinning a real height
-   here makes the panel bounded and scrollable as designed. Scoped to
-   the editor view (matched via the container's inline `display:flex`)
-   so the Photos/Albums views keep sizing to their content. */
+}/* While the Edit tab is active the editor needs a *definite* height so */
 .gallery-card-play {
   position: absolute;
   left: 50%; top: 50%;
@@ -13574,21 +13171,7 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   container-name: settings-modal;
 }
 
-/* #553 — Settings is hosted INSIDE the OrwellWindow kit: #settings-modal is the
-   .ow-window, and the kit's titlebar + .ow-body provide the frame and scrolling.
-   The .settings-modal-content must therefore FILL the kit body, not float inside
-   it as a fixed-width, top-margined card — otherwise it renders as a "box-in-a-box"
-   with a dead top band (the old Issue-#208 7vh centering hack, meaningless inside
-   the kit body) and a dead right margin (the clamp() floor resolving narrower than
-   the body). Filling the body also SATISFIES the original Issue-#208 intent — a
-   top-anchored, non-jumping nav rail — by construction: the kit window is already
-   top-stable (it never recenters on tab switch), so the nav rail is pinned to the
-   top of a stable body and no longer jumps between tabs of differing height. The
-   .ow-body owns the frame (border/radius/shadow) and the scrolling (overflow:auto),
-   so the content drops its own card frame here to avoid double-framing. This makes
-   the drag/dock inline `margin:0` clear a no-op (margin is already 0), so nothing
-   regresses there. Desktop only — mobile (≤768px) keeps its full-height bottom-sheet
-   rules (earlier in this file) byte-unchanged. */
+/* #553 — Settings is hosted INSIDE the OrwellWindow kit */
 @media (min-width: 769px) {
   #settings-modal.ow-window > .ow-body > .settings-modal-content {
     margin: 0;
@@ -13623,19 +13206,7 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   max-height: calc(min(85dvh, 720px) - 60px);
 }
 
-/* #553/#890 — kit-hosted on desktop. The OLD model let the inner layout grow to its
-   CONTENT height and made the kit .ow-body scroll the WHOLE thing (sidebar + panel) as
-   one tall block. That caused two reported defects: (4) on a long admin page the sidebar
-   scrolled away and a whole-window scrollbar appeared, and (5) the sidebar's square-
-   cornered background overflowed the body's scroll rectangle to the very bottom-left,
-   defeating the kit's rounded corner (the "hard corner / lost border-radius" report).
-   The fix: the .ow-body for Settings does NOT scroll — it is a flex column that the
-   .settings-modal-content + .settings-layout FILL, and the SCROLL lives inside
-   .settings-panels only. So the sidebar stays pinned within the rounded body (its bg
-   never reaches the window's bottom edge) and only the panel content scrolls — no
-   whole-window scrollbar, no hard corner. Capped to the body's own max-height so it
-   can't push past the window. (When the kit sets an inline height via resize/dock, the
-   [style*="height"] / docked rules below already flex-fill — same behaviour.) */
+/* #553/#890 — kit-hosted on desktop */
 @media (min-width: 769px) {
   #settings-modal.ow-window > .ow-body {
     overflow: hidden;            /* the panel owns the scroll, not the body */
@@ -13710,15 +13281,7 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   padding: 8px 10px;
   border: none;
   background: none;
-  /* BL-043 (WCAG 1.4.3 AA, inactive tab ink): the previous `var(--color-muted)` is
-     stuck at the DARK :root value (#9aa0a8) on LIGHT themes — nothing toggles a
-     `:root.light` class and `applyColors()`/the head-boot script never set
-     `--color-muted`, so the light-theme `--color-muted: #667080` override never
-     applies. On the near-white settings sidebar (`--fg` 2% wash) #9aa0a8 measured
-     ~2.50:1 — below the 4.5:1 floor. Derive the muted ink from the theme's OWN `--fg`
-     blended toward `--bg` so it stays de-emphasised yet clears AA in BOTH polarities
-     (dark ≈5.4:1, light ≈5.2:1) regardless of theme — no per-theme override needed.
-     The frosted glass tier keeps its own higher-specificity scoped ink (~L21338). */
+  /* BL-043 (WCAG 1.4.3 AA, inactive tab ink) */
   color: color-mix(in srgb, var(--fg) 72%, var(--bg));
   font-family: inherit;
   font-size: var(--fs-sm);
@@ -13827,15 +13390,7 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   min-width: 0;
 }
 
-/* ── #890: the delightful in-place panel transition ───────────────────────────
-   Switching settings categories / opening an admin sub-view / "Add Models" is now a
-   tasteful crossfade + a small upward glide of the panel CONTENT inside the SAME kit
-   window — one window, one entrance; sub-navigation glides. Identical duration/easing
-   for EVERY page (the activateTab/open swap applies .settings-panel-enter to whichever
-   panel becomes visible). The motion is contained inside .settings-panels (which owns
-   the scroll), so there is no layout shift, no scrollbar flash, and no hard-corner.
-   Coherent with the OrwellWindow kit entrance (ow-open: fade + scale, ease-out) — same
-   gentle ease-out family, scaled down to a content-level micro-motion. */
+/* ── #890 */
 @keyframes settings-panel-enter {
   from { opacity: 0; transform: translate3d(0, 6px, 0); }
   to   { opacity: 1; transform: translate3d(0, 0, 0); }
@@ -13877,17 +13432,7 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
    below are the ONE narrow-settings mechanism; S3/G6): compress the left rail
    at the 620 token, stack tabs on top only below the 480 token. */
 
-/* G6 — the LEFT rail is the settings window's identity (explicit user
-   preference: "I liked the settings window with the left hand panel on it").
-   Narrowing now degrades in TWO container tiers instead of jumping straight
-   to a top bar:
-
-   tier 1 (≤620 token): COMPRESS the rail in place — a tighter width clamp,
-   denser items, labels ellipsizing — so moderately narrow contexts (~1024
-   desktops behind the sidebar, right-half snaps) keep the left rail.
-   tier 2 (≤480 token): only a genuinely narrow modal stacks the rail on top
-   (the last resort). Container queries, not viewport media, because desktop
-   snapping makes the modal narrow while the browser window is not. */
+/* G6 — the LEFT rail is the settings window's identity (explicit user */
 @container settings-modal (max-width: 620px) {
   .settings-sidebar {
     width: clamp(96px, 24cqw, 140px);
@@ -13932,13 +13477,7 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   .settings-sidebar::-webkit-scrollbar {
     display: none;
   }
-  /* S3: 476px of tabs were hidden with zero affordance — fade the clipped edge.
-     SET-OV-3 (2026-07-14 audit): the mask was RIGHT-edge-only and static — a scroll
-     position that lands MID-tab-strip (the active tab is not always the first one)
-     fades only the trailing edge, so a tab clipped on the LEADING edge read as fully
-     gone, not merely scrollable. Made the fade bidirectional (both edges) so the
-     "there's more here" affordance holds regardless of which way the strip is
-     scrolled. */
+  /* S3 */
   .settings-sidebar {
     mask-image: linear-gradient(to right, transparent, black 20px, black calc(100% - 28px), transparent);
     -webkit-mask-image: linear-gradient(to right, transparent, black 20px, black calc(100% - 28px), transparent);
@@ -13994,12 +13533,7 @@ body:not(.email-doc-split-active) #email-lib-modal.email-lib-fullscreen:not(.mod
   transform-origin: left center;
   animation: welcome-name-reveal 0.55s cubic-bezier(0.34, 1.32, 0.55, 1) both;
 }
-/* Hold the welcome-screen entrance animations until the app has finished its
-   initial load (fonts loaded + layout settled). Running them mid-load made the
-   splash jump/flicker as the page reflowed ("haywire"). Until body.welcome-ready
-   is set by JS, the splash sits in its final, static state (no flash, since the
-   non-animated state IS the resting state); adding the class then plays the
-   entrance once, cleanly. */
+/* Hold the welcome-screen entrance animations until the app has finished its */
 body:not(.welcome-ready) #welcome-screen,
 body:not(.welcome-ready) .welcome-name {
   animation: none !important;
@@ -14466,11 +14000,7 @@ input.settings-select::placeholder { color: color-mix(in srgb, var(--fg) 35%, tr
 .contact-row-edit { margin-top: 4px; }
 
 /* ── Sort Dropdown ── */
-/* #1638: the bespoke `.dropdown.sort-dropdown` trays (session-sort + model-sort) are retired.
-   Both sort menus now mount through OrwellMenuKit as `.ow-popover[role=menu]` surfaces, which
-   carry their own `.ow-menu` chrome (anchoring, tap targets, glass/a11y tiers). The dedicated
-   `.sort-dropdown` / `.sort-dropdown-item` / `.sort-dropdown-sep` rules are gone; a couple of
-   dead selector-list members survive in the shared `:is()` hover blocks below (harmless). */
+/* #1638 */
 
 /* Mobile: bigger taps for the chats sort/funnel menu and the select-mode
    bulk-action bar. Also drop the "Rearrange" item — it's a touch-finicky
@@ -16207,13 +15737,7 @@ body.notes-drag-mode .note-card-pin svg {
    any leftover cell in the pinned row empty. Reads as a visual divider
    between pinned and unpinned without needing a separator element. */
 
-/* Mobile: 2-lane masonry via the CSS-Grid row-span trick. Each card spans
-   N tiny rows (4px each) based on its measured height; the grid auto-places
-   cards into the two columns so left/right lanes flow independently — no
-   row alignment between them. JS in notes.js sets `grid-row-end: span N`
-   on every card after render. Pure CSS multi-column was tried but its
-   `column-span: all` interaction with sticky positioning broke clicks on
-   the quick-add bar (Firefox mobile). */
+/* Mobile */
 
 .note-form-goal-ai:disabled,
 .note-form-goal-ai.busy {
@@ -16891,12 +16415,7 @@ input.cp-swatch-input::selection { background: transparent; }
 /* PDF form export modal + signature modals — match the app theme via the
    existing modal/confirm-btn classes. Only a few atom-level styles below. */
 .pdf-export-overlay .modal-content { padding: 12px 14px; }.sig-modal-overlay .modal-content { padding: 12px 14px; }
-/* ─────────────────────────────────────────────────────────────────────────
-   Frosted glass theme — applied when the user enables the "Glass" toggle
-   in theme settings (writes `body.theme-frosted`). Layers a semi-translucent
-   tint over every panel/modal/sidebar/dropdown and blurs whatever is
-   behind it, so the UI reads like layered glass.
-   ───────────────────────────────────────────────────────────────────────── */
+/* ───────────────────────────────────────────────────────────────────────── */
 body.theme-frosted #sidebar,
 body.theme-frosted .modal-content,
 body.theme-frosted .doclib-modal-content,
@@ -16938,28 +16457,13 @@ body.theme-frosted .ow-window {
               inset 0 1px 0 color-mix(in srgb, var(--fg) 20%, transparent),
               inset 0 0 24px color-mix(in srgb, var(--fg) 6%, transparent) !important;
 }
-/* Liquid glass on the gadget kit (#642): each .og-card becomes its own frosted
-   pane over the CONTENT behind the rail — NOT over another glass panel.
-
-   Apple layering rule (HIG Materials): Liquid Glass is the functional layer that
-   floats over content; "glass cannot properly sample other glass" → one glass
-   sheet per view. So the gadget rail must NOT be its own glass panel under the
-   glass cards (that was glass-on-glass). The rail is a TRANSPARENT structural
-   container; the CARDS are the single glass tiles, refracting the chat behind.
-   The chat is dark, so no dimming layer is needed (the 35%-dim rule is for clear
-   glass over BRIGHT content). This is the iOS Control Center model: glass tiles
-   over the (dark) backdrop, not tiles on a glass slab. */
+/* Liquid glass on the gadget kit (#642) */
 body.theme-frosted .gadget-rail {
   background-color: transparent !important;
   background-image: none !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
-  /* The rail is intentionally transparent under glass — the .og-card panes carry the glass
-     material (floating glass cards, the Apple pattern). The base rail's hard 1px border-left
-     + its drop-shadow are then orphans: a hard hairline and a shadow with NO surface behind
-     them (owner: "fully transparent with a 1px line" — not Apple). Drop both so the rail
-     reads as a clean column of floating glass cards. Mirrors the already-softened rail-head
-     divider just below. (border-right covered too for the side-swapped rail.) */
+  /* The rail is intentionally transparent under glass — the .og-card panes carry the glass */
   border-left-color: transparent !important;
   border-right-color: transparent !important;
   box-shadow: none !important;
@@ -17041,20 +16545,7 @@ body.theme-frosted .chat-input-bar {
 body.theme-frosted .chat-input-bar textarea#message {
   background: transparent !important;
 }
-/* F-S2-A (audit 2026-06-21) + OWN-3 (2026-07-14 theme audit, #1638): the pre-game cast-photo
-   dialog (#orwell-headshot) is a GATING window that floats over the LIVE producer interview (the
-   2026-06-20 re-sequence made the photo optional + non-blocking, so card and narration coexist on
-   screen). Under the frosted theme its 32%-opacity glass let the producer narration BEHIND it bleed
-   through → a text-over-card collision, unreadable on the very first casting beat (worse on mobile).
-   A gating dialog over live content must be OPAQUE — unlike the draggable HUD windows, which frost
-   over content the player WANTS to see. So the OPACITY mandate holds (solid fill, no backdrop blur).
-   OWN-3 flips only the POLARITY: the old fill was the DARK --win-bg/--panel slab — a dark panel on
-   the light frosted chrome (the audit §0 mixed-polarity class). Paint the sanctioned opaque near-
-   white plate instead (the exact treatment #orwell-retro uses below), so the dialog joins the ONE
-   light family; back the titlebar + body children directly (an opaque element bg paints OVER any
-   backdrop-filter that survives a re-mount sweep). The kit's blanket dark-ink rules then carry the
-   ink — no id-scoped light-ink exception is needed (the ones that lived near ~24168 are deleted).
-   id-specificity beats the frosted .ow-window rule above; every other .ow-window stays frosted. */
+/* F-S2-A (audit 2026-06-21) + OWN-3 (2026-07-14 theme audit, #1638) */
 body.theme-frosted #orwell-headshot.ow-window,
 body.theme-frosted #orwell-headshot.ow-window > .ow-titlebar,
 body.theme-frosted #orwell-headshot.ow-window > .ow-body {
@@ -17071,13 +16562,7 @@ body.theme-frosted .sidebar-header,
 body.theme-frosted .sidebar-user-bar {
   background: transparent !important;
 }
-/* Same problem on tool modals: the sticky .modal-header paints a solid
-   var(--panel) bar (so scrolled content doesn't bleed through). Over a
-   frosted-glass modal body that solid bar reads as a dark band across the
-   title area (Calendar, Tasks, Cookbook, Memory, Email…). The .modal-header
-   is `position: sticky` and the modal body scrolls UNDER it, so it keeps its
-   own blur (translucent, no tint) to keep scrolled content legible while
-   blending into the panel instead of a black band. */
+/* Same problem on tool modals */
 body.theme-frosted .modal-header {
   /* Transparent — NOT another panel tint. The header sits on top of the
      already-frosted modal body, so any added tint stacks and the band
@@ -17104,17 +16589,7 @@ body[data-game-build].theme-frosted .modal-header {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
 }
-/* A6 [frosted-top fix]: the kit titlebar (.ow-titlebar) is NOT sticky and the
-   kit body does not scroll under it — the bar sits flush at the very top of the
-   panel. Giving it its OWN backdrop-filter (as the modal header above needs) made
-   the titlebar re-sample and re-blur the .ow-window root's ALREADY-frosted glass,
-   so the top strip composited to a sharper, mismatched shade — the visible "frost
-   breaks at the top edge" band. The fix (per the A6 fix spec — the element with
-   backdrop-filter is the panel ROOT, the header is transparent over it): keep the
-   titlebar fully transparent with NO filter of its own, so the single .ow-window
-   root backdrop-filter renders the whole window — header included — as one
-   cohesive glass surface. Fixed at the kit level so every Lane-F window inherits
-   it (cast, finale, retrospective, gadget rail, theme). */
+/* A6 [frosted-top fix] */
 body.theme-frosted .ow-titlebar {
   background-color: transparent !important;
   background-image: none !important;
@@ -17603,18 +17078,7 @@ body.theme-frosted .modal {
   .note-card-flash { animation: none; }
   .hwfit-sched-day-chip { transition: none; }
 }
-/* F-MOTION-1 (HIG Motion — "replace or remove animations app-wide" / WCAG 2.3.3): the DURABLE
-   net. The two rules above are per-surface opt-ins, exactly the fragile pattern the audit flags —
-   a NEW decorative `*-flash` / `*-pulse` / `*-glow` / `*-shimmer` / `*-blink` class ships and
-   silently slips the Reduce-Motion setting. This substring net catches the whole decorative-motion
-   family by class-name convention, so a new decorative surface is covered by construction. It kills
-   only the MOTION (animation/transition) — the element and its final state stay painted, so nothing
-   functional disappears (a completion flash still ends "done", a recording pulse stays visible, just
-   static). The `test_hig_fmotion1_reduced_motion_lint.py` gate pins that this net exists AND that its
-   family list stays a superset of the decorative suffixes actually used, so a future `*-sparkle`
-   forces an explicit decision instead of slipping through. `!important` so it wins over the existing
-   higher-specificity decorative rules regardless of source order; a surface that legitimately needs a
-   reduced-motion *replacement* animation opts back in with its own targeted `!important` rule. */
+/* F-MOTION-1 (HIG Motion — "replace or remove animations app-wide" / WCAG 2.3.3) */
 @media (prefers-reduced-motion: reduce) {
   [class*="-flash"],
   [class*="-pulse"],
@@ -17630,11 +17094,7 @@ body.theme-frosted .modal {
     transition: none !important;
   }
 }
-/* ── ask_user: multiple-choice question card ─────────────────────────────
-   The agent posed a question and ended its turn. The user clicks an option,
-   types a free-text "Other" answer, or dismisses (×) to just type in the
-   composer. Reuses theme vars (and .modal-close for the ×) so it reads as
-   part of the conversation, not a modal. */
+/* ── ask_user */
 .ask-user-card {
   /* Left-align like an assistant message (.msg-ai), not centered. */
   align-self: flex-start;
@@ -17780,15 +17240,7 @@ body.theme-frosted .sidebar-brand-title {
      refraction layer (Full = the SVG vector-field displacement via liquidGlass.js; Frosted =
      the CSS blur below). Cite: docs/design/liquid-glass/LIQUID_GLASS_REFERENCE.md §"Regular"
      (light, luminous, content-legible) + ADAPTIVE_LEGIBILITY_REFERENCE.md §4 (kube refraction). */
-  /* #739 — Clear vs Tinted (the iOS 26.1 "Liquid Glass → {Clear, Tinted}" opacity control).
-     --ow-glass-opacity is the base surface opacity of the ONE light glass, defaulting to the kube
-     0.60. Clear (the DEFAULT) keeps 0.60 — colorless, the #738 colorless-material default. Opting
-     into Tinted (body.theme-tinted, below) raises THIS ONE token, which re-flows through the two
-     fill tokens to every glass chrome surface from a single edit — a gentle opacity/contrast bump
-     that DAMPS BUT KEEPS the refraction. It is a NEUTRAL (white) opacity control, NOT an accent
-     hue: no colour is introduced, the fill just becomes more opaque (backdrop shows through less,
-     dark ink reads with more contrast). Orthogonal to the perf tier ladder (Full/Frosted/Off) and
-     to the a11y reduce-transparency kill-switch (which forces SOLID and outranks this). */
+  /* #739 — Clear vs Tinted (the iOS 26.1 "Liquid Glass → {Clear, Tinted}" opacity control) */
   --ow-glass-opacity: 0.60;
   /* Both fill tokens DERIVE from --ow-glass-opacity so Tinted is a one-edit flip. At the 0.60
      default these resolve byte-equivalent to the prior literals (top 0.62 / bottom 0.52 / flat
@@ -17799,12 +17251,7 @@ body.theme-frosted .sidebar-brand-title {
   --ow-glass-light-color: rgba(255,255,255,var(--ow-glass-opacity));   /* the kube 0.60 white-ish translucent fill (Clear default) */
   --ow-glass-text-shadow: 0 1px 3px rgba(0,0,0,.7), 0 0 2px rgba(0,0,0,.55);
 }
-/* #739 — TINTED opt-in. Raises the single --ow-glass-opacity token; because both fill tokens above
-   derive from it, every glass chrome surface (windows, chrome, popovers, sheets, the transient
-   pills — each already consuming --ow-glass-light-color/-fill) gets a gentle neutral opacity +
-   contrast bump from THIS ONE rule. Refraction is kept (liquidGlass.js still runs) but reads as
-   damped over the more-opaque fill. DEFAULT is Clear (this class absent). No accent hue, no ink
-   recolouring — opacity/neutral-tint only; a body-STATE class (not a per-element sweep). */
+/* #739 — TINTED opt-in */
 body.theme-tinted {
   --ow-glass-opacity: 0.80;
 }
@@ -17819,13 +17266,7 @@ body.theme-frosted #sidebar,
 body.theme-frosted .icon-rail,
 body.theme-frosted .modal-content,
 body.theme-frosted .on-card,
-/* CHROME surfaces folded onto the ONE light glass material (Apple HIG Materials —
-   "controls sit on top of a system material, not directly on content"; tab/tool bars,
-   menus, popovers, sheets all adopt Regular glass). Highest-traffic first: settings/
-   theme/memory/integrations panels (.admin-card), the chat top bar, the model picker
-   (button + menu/popover), the toast (a transient banner), the tool indicator, and the
-   attachment cards/skeletons. They share the windows' LIGHT glass — no per-surface
-   glass, no dark veil; color comes through from the backdrop, lensed/blurred by tier. */
+/* CHROME surfaces folded onto the ONE light glass material (Apple HIG Materials — */
 body.theme-frosted .admin-card,
 body.theme-frosted .chat-top-bar,
 body.theme-frosted .model-picker-btn,
@@ -17883,12 +17324,7 @@ body.theme-frosted #sidebar {
     border-right-width: 1px !important;   /* float = full border, not just a docked right edge */
     z-index: 120;
     overflow: hidden;
-    /* #758: `top` consumes the LIVE --on-banner-inset and MUST track it SYNCHRONOUSLY — a
-       transition on `top` makes the floating panel ANIMATE down over 200ms when a banner
-       appears (or re-measures taller as it wraps), leaving a window where the panel's
-       computed top still sits UNDER the banner. That race is exactly what the responsive
-       matrix's banner-inset probe caught (flaky, height-/sub-pixel-sensitive). The inset is
-       pure CSS calc, so snapping is correct: never animate `top`. */
+    /* #758 */
   }
   /* Right-side sidebar floats on the right edge instead. */
   body.theme-frosted.hamburger-right #sidebar,
@@ -17966,11 +17402,7 @@ body.theme-frosted #minimized-dock.ow-has-rows {
   padding: var(--space-3, 12px);
   margin: var(--space-2, 8px);
   border-top: none;
-  /* #8/#9 COHERENCE: NO bespoke dark material or --fg-tinted (cyan) border here — the dock
-     shares the ONE light-glass material/backdrop/rim with the windows + cards (set in the
-     "THE LIGHT GLASS surface" block below, which this rule is now a member of). This rule
-     keeps ONLY the Control-Center LAYOUT identity: the generous radius + padding. A 1px
-     neutral border carries the shared rim color; the float shadow rides the shared rule. */
+  /* #8/#9 COHERENCE */
   border: 1px solid var(--ow-glass-rim-border);
   border-radius: 22px;                 /* generous, Control-Center radius */
 }
@@ -18209,17 +17641,7 @@ body.theme-frosted .og-card button {
   border-radius: var(--ow-glass-radius-inner) !important;
 }
 
-/* COMPUTED concentric SURFACE nesting (--ow-radius-concentric / SwiftUI
-   .containerConcentric). The fixed --ow-glass-radius-inner above is a hand-tuned
-   approximation; a genuinely-nested surface should instead DERIVE its corner from
-   its parent so the two corners stay parallel. A nested card/panel sets the parent
-   radius + the inset between it and its parent ON ITSELF, then reads the computed
-   --ow-radius-concentric. With 26px parent − ~10px inset this lands on ~16px (the
-   old fixed inner value), but now it TRACKS the window if the window radius changes
-   — no second hand-tuned constant. Non-nested instances of these cards keep the
-   --ow-glass-radius surface treatment from the rule above (they aren't matched here).
-   (The vars + calc are re-stated here, not inherited from :root — nested var()s must
-   resolve in the CHILD's own scope; same pattern as .ow-btn-concentric.) */
+/* COMPUTED concentric SURFACE nesting (--ow-radius-concentric / SwiftUI */
 body.theme-frosted .ow-window > .ow-body .admin-card,
 body.theme-frosted .ow-window > .ow-body .og-card,
 body.theme-frosted .ow-window > .ow-body .on-card {
@@ -18231,14 +17653,7 @@ body.theme-frosted .ow-window > .ow-body .on-card {
   border-radius: var(--ow-radius-concentric) !important;
 }
 
-/* The decision card in CHAT is a glass surface nested inside the chat scroll column
-   (the conversation is its container). It derives its corner concentrically from the
-   chat surface radius rather than carrying a bespoke fixed radius. ONE rule for both the
-   kit's root CLASS (`.odec` — orwellDecision.js scopes its injected structural CSS there;
-   the element-kit demo's reference cards compose the class alone) and the live card's id.
-   The ID selector stays LAST in the list so test_ow_design_system.py's pinned regex — the
-   frosted decision-card selector immediately followed by the rule's opening brace — keeps
-   matching; one source of truth for the concentric math instead of a hand-synced twin. */
+/* The decision card in CHAT is a glass surface nested inside the chat scroll column */
 body.theme-frosted .odec,
 body.theme-frosted #orwell-decision-card {
   --ow-parent-radius: var(--ow-glass-radius);
@@ -18281,12 +17696,7 @@ body.theme-frosted #chat-history {
 body.theme-frosted #chat-history.edge-top    { --chat-edge-top: var(--chat-edge-fade); }
 body.theme-frosted #chat-history.edge-bottom { --chat-edge-bottom: var(--chat-edge-fade); }
 
-/* The top bar holds parity with the sidebar + gadgets — same ONE light-glass material, same
-   opacity (owner: "the top bar must not read at a different translucency than the sidebar +
-   gadgets"). It previously RECEDED (faded to .55) once the reader scrolled into the transcript,
-   which during live play left it visibly more see-through than the sidebar — the flagged
-   translucency mismatch. Keep the material identical at every scroll position; the transition is
-   retained only so any future state change eases rather than snaps. */
+/* The top bar holds parity with the sidebar + gadgets — same ONE light-glass material, same */
 body.theme-frosted .chat-top-bar {
   transition: opacity .2s ease, transform .2s ease;
 }
@@ -18306,11 +17716,7 @@ body.theme-frosted #chat-container.chat-scrolled .chat-top-bar {
   }
 }
 
-/* The notice/banner DISMISS (.on-dismiss) is NOT a glass button — it's a quiet,
-   integrated inline ✕ that belongs to the banner (Apple notification/alert dismiss),
-   not a floating glass puck. Undo the glass-chip morph the generic .on-card button
-   rule applies, restoring the kit's quiet inline affordance (transparent, no blur,
-   no disc, no lift) while keeping the 44px hit target + the subtle hover wash. */
+/* The notice/banner DISMISS (.on-dismiss) is NOT a glass button — it's a quiet */
 body.theme-frosted .on-card .on-dismiss {
   background: none !important;
   background-color: transparent !important;
@@ -18373,13 +17779,7 @@ body.theme-frosted .og-card [style*="font-weight:300"] {
 }
 
 /* ── Fluid morph on interaction (Apple: "controls come to life") ──────────────*/
-/* Controls inside a glass surface are VIBRANT FILLS on the parent's glass — NOT
-   their own glass. Apple HIG: Liquid Glass is one functional layer over content and
-   "glass cannot properly sample other glass," so a button must NOT carry its own
-   backdrop-filter on top of the window/card glass (that was glass-on-glass). They
-   keep a translucent fill + 1px rim + the lighten/lift/press morph; the blur is
-   removed. (Transient interactive controls — the composer SEND, decision CONFIRM —
-   are handled separately as prominent actions.) */
+/* Controls inside a glass surface are VIBRANT FILLS on the parent's glass — NOT */
 /* KIT-F-01 (2026-07-14 audit): a kit-classed button (.ow-btn + variant) must KEEP its variant
    chrome inside these containers — this generic vibrant-fill rule's higher specificity
    ((0,3,2)/(0,2,2) vs the variants' (0,2,1)) was silently flattening every nested
@@ -18405,11 +17805,7 @@ body.theme-frosted .og-card [style*="font-weight:300"] {
 body.theme-frosted .ow-window .ow-body button:not(.ow-btn):not(.theme-seg-btn),
 body.theme-frosted .on-card button:not(.ow-btn),
 body.theme-frosted .og-card button:not(.ow-btn),
-/* #1638 KM-W2 completion: .og-act now composes .ow-btn ow-btn-plain (orwellGadget.js), so it is a
-   kit button and — per KIT-F-01, "kit buttons ride their own kit rules" — must be excluded from
-   this vibrant-fill override just like the sibling button:not(.ow-btn) selectors, else this rule's
-   higher specificity ((0,3,2) vs .ow-btn-plain's (0,2,1)) keeps the old fill/border/box-shadow and
-   the plain kit variant never wins in frosted. */
+/* #1638 KM-W2 completion */
 body.theme-frosted .og-card .og-act:not(.ow-btn),
 body.theme-frosted #minimized-dock .minimized-dock-chip {
   background-color: color-mix(in srgb, var(--fg, #fff) 12%, transparent);
@@ -18419,14 +17815,7 @@ body.theme-frosted #minimized-dock .minimized-dock-chip {
               transform .14s cubic-bezier(.34,1.56,.64,1), filter .18s ease;
   will-change: transform;
 }
-/* SOFT luminous hairline on the gadget-card controls + dock chips (owner: "the hard
-   black lines in the gadget dock don't embody Apple design"). On the LIGHT-glass cards
-   --fg is dark ink (#725), so the `color-mix(--fg 18%)` rim above resolves to a HARD
-   dark hairline. Apple's glass controls carry a low-opacity WHITE rim (matching the
-   windows/notices), not a dark line. Override to the soft white rim; the fill/morph above
-   is untouched, and the Normal (non-frosted) tier keeps its own borders. The gadget-card
-   controls also get the light inset top highlight; the DOCK chip keeps only the border
-   change (its own Control-Center box-shadow / tile depth below stays intact). */
+/* SOFT luminous hairline on the gadget-card controls + dock chips (owner */
 body.theme-frosted .og-card button:not(.ow-btn),
 body.theme-frosted .og-card .og-act:not(.ow-btn),
 body.theme-frosted #minimized-dock .minimized-dock-chip {
@@ -18534,21 +17923,10 @@ body.theme-frosted #minimized-dock .minimized-dock-chip:active {
    sits — angle ≈ -60°, kube.io). The fill is TRANSLUCENT so the backdrop samples
    through (tint-not-fill); the rim + shadow, not opacity, give it form. */
 :root {
-  /* floating drop shadow: contact + ambient, soft but PRESENT — a real cast shadow that
-     lifts the pill off ANY backdrop (the prior 0.10 alphas vanished over a busy/colorful
-     wallpaper; the segmented-control + toolbar refs show a clearly readable soft drop). A
-     TIGHT near-black contact line grounds the pill, then two broad low-alpha ambient layers
-     give the float. #709 refraction parity: over a vivid wallpaper the soft refraction halo
-     can swallow a faint shadow, so the contact layer carries the form. */
+  /* floating drop shadow */
   --ow-btn-shadow: 0 0.5px 1px rgba(0,0,0,0.16), 0 3px 8px rgba(0,0,0,0.14), 0 8px 22px rgba(0,0,0,0.12);
   --ow-btn-shadow-hover: 0 1px 2px rgba(0,0,0,0.18), 0 7px 16px rgba(0,0,0,0.16), 0 16px 34px rgba(0,0,0,0.15);
-  /* full-perimeter specular rim: a CRISP bright hairline all around + a stronger lit TOP
-     edge + a faint shaded bottom (light source top-left, angle ≈ -60°, kube.io) — the
-     pure-CSS equivalent of the feBlend rim-light. #709: the SVG refraction band is a SOFT
-     wide halo at the pill edge; a CRISP 0.5px lit hairline re-asserts the glass outline the
-     refraction blurs (otherwise the rim is lost in the lensing). The top edge does the lit
-     work; the perimeter hairline keeps a clean light-on-light contour. Brightest white kept
-     ≤ 0.6 (#770 glass-hairline ceiling). */
+  /* full-perimeter specular rim */
   --ow-btn-rim: inset 0 0 0 0.5px rgba(255,255,255,0.5),
                 inset 0 1px 0 rgba(255,255,255,0.6),
                 inset 0 -1px 1px rgba(0,0,0,0.08);
@@ -18557,11 +17935,7 @@ body.theme-frosted #minimized-dock .minimized-dock-chip:active {
      wallpaper reads THROUGH the glass (tint-not-fill) instead of fogging into a milky plate
      over a colorful backdrop. The rim + shadow — not the fill — give it form. */
   --ow-btn-veil: color-mix(in srgb, #ffffff 8%, transparent);
-  /* The kit-button material filter. The shared --ow-btn-glass adds brightness(1.12),
-     which over-lights the glass into a "painted bright plate"; a true Liquid Glass
-     button leans on BLUR + SATURATE (sampling the backdrop) with only a hair of
-     brightness, so the backdrop reads THROUGH it (tint-not-fill). Scoped to .ow-btn —
-     the shared token (and its other consumers) is untouched. */
+  /* The kit-button material filter */
   --ow-btn-glass-kit: blur(14px) saturate(150%) brightness(1.04);
 }
 body.theme-frosted .ow-btn {
@@ -18575,16 +17949,7 @@ body.theme-frosted .ow-btn {
   color: #16191f;   /* dark monochrome ink on the light glass material (no accent hue) */
   font-family: var(--ow-ui-font); font-weight: var(--ow-fw-semibold, 600); letter-spacing: -0.01em;
   cursor: pointer;
-  /* NOTE (#709 glass-button refraction): this backdrop-filter is intentionally NOT
-     !important. At Full Glass, liquidGlass.js sets an inline backdrop-filter (an SVG
-     filter reference) with `important` priority to layer the vector-displacement
-     REFRACTION (the kube.io technique, same as the chrome surfaces) onto the glass
-     buttons. An inline !important wins over a stylesheet rule WITHOUT !important, so
-     keeping this declaration plain lets the Full-Glass refraction apply on .ow-btn-
-     prominent/.ow-btn-secondary/.ow-btn-icon/.ow-btn-group. The CSS blur material here
-     is the Frosted-tier (and non-Chromium) fallback. DO NOT add !important here or the
-     refraction is silently clobbered. (.ow-btn-plain / .ow-btn-destructive-solid /
-     grouped members are excluded in liquidGlass.js — they never refract.) */
+  /* NOTE (#709 glass-button refraction) */
   -webkit-backdrop-filter: var(--ow-btn-glass-kit, var(--ow-btn-glass));
   backdrop-filter: var(--ow-btn-glass-kit, var(--ow-btn-glass));
   /* FLOAT: soft cast shadow + the full-perimeter specular rim (the depth/parity fix). */
@@ -18629,14 +17994,7 @@ body.theme-frosted .ow-btn-prominent {
   /* KIT-F-02: was 6% — WEAKER than Secondary's 12% border (backwards hierarchy for the
      primary action). 14% now reads stronger than Secondary. */
   border-color: color-mix(in srgb, #16191f 14%, transparent);
-  /* the shared float shadow + a brighter (but still crisp) specular rim — the primary
-     action reads as the MOST lit glass (luminosity, not hue; owner ruling). #709: the lift
-     comes from a sharper top-edge highlight + the inner perimeter line, NOT a fatter wash
-     (a fat bright rim fought the refraction halo and pooled into a streak). Brightest white
-     0.6 (#770 ceiling).
-     KIT-F-02: the perimeter inset was 0.34 alpha — WEAKER than Secondary's shared
-     --ow-btn-rim perimeter (0.5 alpha), so the primary action's rim read subordinate to
-     the secondary one. Raised to 0.62 so Prominent carries the STRONGEST rim in the set. */
+  /* the shared float shadow + a brighter (but still crisp) specular rim — the primary */
   box-shadow:
     inset 0 0 0 0.75px rgba(255,255,255,0.62),
     inset 0 1px 0.5px rgba(255,255,255,0.6),
@@ -18667,11 +18025,7 @@ body.theme-frosted .ow-btn-icon {
 /* xs — the ~24px chrome icon (model-picker / sidebar); still snaps to 44 on a coarse pointer. */
 body.theme-frosted .ow-btn-icon.ow-btn-xs { --ow-btn-icon-size: 24px; font-size: 0.8125rem; }
 
-/* COMPACT — a FLAT, reduced-height TEXT button (#1638): the text sibling of `.ow-btn-icon` for
-   dense chrome (section headers, small actions). Shorter than the 44px pill on a fine pointer,
-   the SAME adaptive `--fg` ink, the SAME transparent-rest + subtle-hover flat chrome, the SAME
-   coarse 44px snap. Distinct from the sm/md size ladder (those keep a variant's glass fill);
-   compact is intentionally flat chrome so it can sit as bare over-wallpaper section chrome. */
+/* COMPACT — a FLAT, reduced-height TEXT button (#1638) */
 body.theme-frosted .ow-btn-compact {
   min-height: 32px;
   padding: var(--ow-space-1, 4px) var(--ow-space-3, 12px);
@@ -18737,12 +18091,7 @@ body.theme-frosted .ow-title {
   pointer-events: none;          /* the title never eats a drag/click */
 }
 /* ── macOS TRAFFIC LIGHTS (the colored exception — NOT glass-refracted) ────────*/
-/* The control cluster moves to the TOP-LEFT and the existing close/min buttons become
-   the two standard lights: close=red, minimize=yellow. ~12px discs, ~8px gaps, inset
-   from the corner (concentric). Glyphs appear on hover/focus of the cluster. Unfocused
-   → neutral grey (authentic macOS). The third (green/zoom/maximize) light is
-   DELIBERATELY GONE (owner ruling): it was inert everywhere and only crowded the
-   centered title at thin widths — close/minimize are the cluster now. */
+/* The control cluster moves to the TOP-LEFT and the existing close/min buttons become */
 body.theme-frosted .ow-controls {
   order: -1;                     /* cluster to the LEFT of the (centered) title */
   gap: 8px;
@@ -18777,12 +18126,7 @@ body.theme-frosted .ow-controls .ow-dock {
   border-radius: 50%; padding: 0; opacity: 1;
   border: 0.5px solid rgba(0,0,0,0.22);
   box-shadow: none;
-  /* The button's OWN text node is collapsed to 0 (the glyph renders via ::before, a
-     non-text decorative mark). font-size:0 means the responsive-matrix crowding sweep
-     — which samples textContent with fontSize < the readable floor — SKIPS it (fs 0 is
-     falsy), and the accessible name lives on aria-label, not visible 9px text. The kit's
-     own `.ow-controls .ow-dock { font-size: .9rem }` rule (the legacy non-frosted glyph)
-     is overridden here for the frosted traffic-light treatment. */
+  /* The button's OWN text node is collapsed to 0 (the glyph renders via ::before, a */
   font-size: 0; line-height: 12px; text-indent: 0;
   position: relative;
 }
@@ -18833,11 +18177,7 @@ body.theme-frosted .ow-controls .ow-dock:focus-visible {
 }
 /* the 44px hit region stays (inherited ::after); hover lift is gone (lights don't grow) */
 body.theme-frosted .ow-controls button:hover { transform: none; box-shadow: none; }
-/* A non-minimizable window's YELLOW light, and a non-dockable window's GREEN/zoom light,
-   are both greyed (dimmed, no glyph, not clickable — the macOS greyed/inactive look):
-   each is always rendered so the cluster keeps its constant 3-light shape (2026-07-16,
-   Apple Genius rendered-parity — real macOS greys inert lights, never omits them), so the
-   disabled state shares this ONE rule for both slots. */
+/* A non-minimizable window's YELLOW light, and a non-dockable window's GREEN/zoom light */
 body.theme-frosted .ow-controls .ow-min[disabled],
 body.theme-frosted .ow-controls .ow-dock[disabled] {
   background: color-mix(in srgb, var(--fg, #fff) 18%, transparent) !important;
@@ -18887,11 +18227,7 @@ body.theme-frosted .ow-controls .ow-close:hover {
 /* button and the decision CONFIRM are the prominent actions.                      */
 body.theme-frosted .send-btn {
   border-radius: 50% !important;
-  /* PROMINENT primary action (Apple HIG Color): the ONE tinted CTA per view — color on
-     the BACKGROUND, white glyph. Apple's prominent button is a CLEAN flat tint (samples
-     #0087fe), NOT a glossy disc — so no radial white bloom (which washed our blue to
-     #208fff). A near-flat system blue with only a thin 1px top specular edge + a soft
-     shadow. Every OTHER control stays colorless (never tint multiple). */
+  /* PROMINENT primary action (Apple HIG Color) */
   background: var(--ow-ios-blue, #0a84ff) !important;
   color: #fff !important;
   /* No border: Apple's prominent filled button is a clean flat tint with NO stroke.
@@ -18940,11 +18276,7 @@ body.theme-frosted .odec-confirm:active:not(:disabled) { transform: translateY(0
 body.theme-frosted .odec-opt {
   border-radius: var(--ow-btn-radius) !important;
 }
-/* #775 element-kit migration (owner request): the decision OPTION chips compose the kit's
-   .ow-btn .ow-btn-prominent (a liquid-glass PROMINENT CTA — the kit owns the unselected glass
-   chrome now). The old hand-rolled secondary-glass fill/border/shadow that lived here is retired
-   so the kit prominent can show through; only the option-specific bits remain: the capsule radius
-   above and the SELECTED-pill override below (a distinct bright fill the kit has no variant for). */
+/* #775 element-kit migration (owner request) */
 body.theme-frosted .odec-opt:hover {
   transform: translateY(-1px);
 }
@@ -19001,11 +18333,7 @@ body.theme-frosted .ow-window .ow-body button[aria-disabled="true"] {
   transform: none !important;
   cursor: not-allowed !important;
 }
-/* F-STATE-1 (HIG Components / WCAG 4.1.2): opacity alone is an ambiguous "disabled" cue over
-   glass — a faint control can read as merely dim, not inert. Any control marked non-interactive
-   via `aria-disabled="true"` (the ARIA equivalent of the native `:disabled` attribute, which AT
-   announces) gets the unambiguous `not-allowed` pointer app-wide, so the affordance matches the
-   announced state. Purely additive — cursor only; no color/layout change. */
+/* F-STATE-1 (HIG Components / WCAG 4.1.2) */
 [aria-disabled="true"] {
   cursor: not-allowed;
 }
@@ -19127,17 +18455,7 @@ body.glass-full .cookbook-checkbox::after {
 body.theme-frosted .settings-nav-item {
   border-radius: var(--ow-radius-inner, 12px);
 }
-/* G-7 (Apple Genius rendered-parity, 2026-07-16): the INACTIVE nav-item ink was never
-   scoped for frosted — it fell back to the base (non-theme-scoped) `.settings-nav-item
-   {color: var(--color-muted)}` (~L15236), which resolves to the DARK theme's `--color-muted`
-   (#9aa0a8, tuned for a dark backdrop) regardless of the frosted material. The settings
-   sidebar (`.settings-sidebar`, a `color-mix(var(--fg) 2%, transparent)` wash over the light
-   glass) is a near-white surface here, so #9aa0a8 measured 2.50:1 — below the 4.5:1 floor.
-   `--color-muted` itself is a widely-shared token (chat timestamps, gadget captions, etc.)
-   that is NOT broken elsewhere, so this is scoped to the nav item only, not a global token
-   change. #5b6572 is a muted (still de-emphasized, not full dark-ink) grey that clears AA on
-   the light nav surface (~5.6:1) while staying visibly secondary next to the active pill's
-   white-on-blue. The `.active` rule below already sets its own AA-safe white — untouched. */
+/* G-7 (Apple Genius rendered-parity, 2026-07-16) */
 body.theme-frosted .settings-nav-item:not(.active) {
   color: #5b6572;
 }
@@ -19151,15 +18469,7 @@ body.theme-frosted .settings-nav-item.active {
 }
 body.theme-frosted .settings-nav-item.active svg { opacity: 1; color: #fff; }
 
-/* ── Settings title follows macOS System Settings: LEFT over the content column ──
-   System Settings is a sidebar app — the traffic lights sit over the sidebar and
-   the pane title is LEFT-aligned at the top of the CONTENT pane, not centered in
-   the window band. So the Settings window (a sidebar layout) overrides the kit's
-   centered title to sit left, offset ≈ the sidebar width so it lands above the
-   content (clear of the traffic lights). Every OTHER window keeps the kit's
-   centered title (they're normal macOS windows). Desktop tier only — the mobile
-   settings layout (<769px) collapses the sidebar, so it keeps the centered title.
-   No back/forward chevrons: we have no pane-nav history to mirror. */
+/* ── Settings title follows macOS System Settings */
 @media (min-width: 769px) {
   body.theme-frosted #settings-modal .ow-title {
     left: 154px;
@@ -19207,16 +18517,7 @@ body.theme-frosted .ow-window .ow-body button.settings-nav-item.active {
   box-shadow: none;
 }
 
-/* ── THM-OV-1: .admin-tab pill strip inside a frosted kit window ────────────────
-   .admin-tab/.admin-tabs (the Theme window's Themes/Customize strip, plus the
-   Agent Tools sub-tabs) is a pre-kit component tuned for the base dark theme: idle
-   color rides `--fg-muted` (unset here ⇒ inherits) and — because it's a plain
-   `<button>` inside `.ow-body` that isn't `.ow-btn` — it's also caught by the
-   generic vibrant-fill rule above (`color-mix(var(--fg) 12%, transparent)`), which
-   resolves to a dark tint under the frosted `--fg` redefinition. Ink inherits dark
-   too, so it rendered dark-on-dark. Same escape + mirror the .settings-nav-item
-   frosted treatment: transparent/light idle, a filled system-blue pill (white ink)
-   when active. */
+/* ── THM-OV-1 */
 body.theme-frosted .ow-window .ow-body button.admin-tab {
   background-color: transparent;
   border: none;
@@ -19248,45 +18549,7 @@ body.theme-frosted .ow-window .ow-body button.admin-tab.active svg { color: #fff
 /* ║  The OrwellElement kit: Apple-HIG atomic PRIMITIVES, ONE source of truth, ║ */
 /* ║  composable by EVERY surface (chat, settings, gadgets, login, admin).     ║ */
 /* ╚══════════════════════════════════════════════════════════════════════════╝ */
-/*
- * ┌─ CLASS API ───────────────────────────────────────────────────────────────┐
- * Every primitive is theme-agnostic, GLASS-DEFAULT (rides the one glass plane —
- * HIG Materials: "controls sit on a system material, not on content"), uses
- * DARK INK on glass for legibility, carries NO accent HUE on its text/label
- * (HIG Color: "no inherent color … apply color sparingly … to the background
- * rather than to symbols or text"), is a11y-trio safe (reduced-transparency →
- * solid; prefers-contrast → contrasting border; reduced-motion → no transform),
- * and has a real keyboard focus ring (HIG Buttons: "always include a press
- * state"; Accessibility). Compose these — do NOT re-invent control chrome.
- *
- *   BUTTON  .ow-btn  + ONE variant:
- *     .ow-btn-prominent   primary / default action (luminous neutral glass —
- *                         #726 owns its color; emphasis = luminosity + weight)
- *     .ow-btn-secondary   tinted-neutral glass (the standard action)
- *     .ow-btn-plain       borderless / plain (low-emphasis, text-only)
- *     .ow-btn-destructive system-RED fill + legible on-red label (HIG role:
- *                         Destructive — the red is a SYSTEM semantic, not the
- *                         theme accent, so it never violates no-accent-on-text)
- *     .ow-btn-icon        circular icon-only disc
- *   States (ALL variants): :hover (lift) · :active (iOS dim + slight scale) ·
- *     :focus-visible (system-blue ring) · [disabled]/.is-disabled (inert).
- *
- *   FIELD   .ow-field      text input / textarea / the glass-appropriate field.
- *                          :focus ring · [aria-invalid]/.is-invalid red ring ·
- *                          legible placeholder.
- *   CHECK   .ow-check      Apple checkbox (neutral box; accent check only when
- *                          :checked).  Use on an <input type=checkbox>.
- *   RADIO   .ow-radio      Apple radio (neutral ring; accent dot when :checked).
- *   SWITCH  .ow-switch     the iOS toggle — wrap an <input type=checkbox>:
- *                          <label class="ow-switch"><input type=checkbox>
- *                            <span class="ow-switch-track"></span></label>
- *                          ON track = system blue; knob = glass.
- *   SELECT  .ow-select     kit-styled <select> (fixes dark-on-dark; chevron,
- *                          legible options).
- *   SLIDER  .ow-slider     kit-styled <input type=range> (system-green track,
- *                          glass thumb).
- * └─────────────────────────────────────────────────────────────────────────────┘
- */
+/* * ┌─ CLASS API ───────────────────────────────────────────────────────────────┐ */
 :root {
   /* The keyboard focus ring is Apple's SYSTEM BLUE — a fixed accessibility color,
      deliberately NOT the theme accent (so it never reads as a hued text/label and
@@ -19297,27 +18560,7 @@ body.theme-frosted .ow-window .ow-body button.admin-tab.active svg { color: #fff
      hover/active-drag (a brighter sibling of the soft --ow-glass-rim bloom). Neutral white,
      NO accent hue, so an edge-resize grip reads as glass chrome, never a colored control. */
   --ow-glass-rim-strong: rgba(255,255,255,0.55);
-  /* THE GLASS TECHNIQUE for kit controls (owner directive). The in-browser Liquid
-     Glass method is kube.io "Liquid Glass with CSS + SVG"
-     (https://kube.io/blog/liquid-glass-css-svg/) + Frontend-Masters "Liquid Glass on
-     the Web" — the SAME technique the app already implements in liquidGlass.js
-     (feImage displacement map → feDisplacementMap in="SourceGraphic" xChannelSelector
-     ="R" yChannelSelector="G" via a backdrop-filter SVG-filter ref; the feImage+feBlend
-     specular rim "that responds to geometry"; the squircle height curve
-     y=⁴√(1−(1−x)⁴); the encoding r=128+x·127,g=128+y·127) and adaptiveGlass.js (the
-     APCA/contrast veil). Refs: ADAPTIVE_LEGIBILITY_REFERENCE.md §Refraction L337-351 +
-     §Accessibility L355-379; README.md L48.
-     A kit control RIDES the parent glass plane (the window/card/bar that liquidGlass.js
-     refracts & adaptiveGlass.js veils) — it is NOT a second glass slab (HIG no-glass-
-     on-glass: "use fills, transparency, and vibrancy for the top elements … part of
-     the material"; and refraction is perf-CAPPED to the chrome layer — never every
-     tiny control). So each control composes: a NEUTRAL translucent veil + the same
-     --ow-btn-glass backdrop blur the kit chrome uses + a SOFT LUMINOUS RIM (the pure-
-     CSS inset-highlight equivalent of the SVG specular rim, ADAPTIVE_LEGIBILITY L345-
-     347) + DARK monochrome ink. The TRANSIENT KNOBS (switch thumb / slider thumb) take
-     the REAL SVG refraction via #owlg-thumb at Full Glass — the sanctioned content-
-     layer transient glass ("the knob transforms into Liquid Glass during
-     interaction"; kube.io lip-bezel concave thumb). See the switch/slider blocks. */
+  /* THE GLASS TECHNIQUE for kit controls (owner directive) */
   --ow-control-fill: color-mix(in srgb, #16191f 10%, transparent);
   --ow-control-fill-hover: color-mix(in srgb, #16191f 16%, transparent);
   --ow-control-rim: color-mix(in srgb, #16191f 22%, transparent);
@@ -19367,7 +18610,7 @@ body.theme-frosted .ow-window .ow-body button.admin-tab.active svg { color: #fff
      The default tint stays NEUTRAL-luminous (owner ruling: glass is colorless — emphasis
      by luminosity + weight). Override `--ow-btn-tint-primary` to an accent wash to take
      310's accent-tinted primary look without touching any label. */
-  --ow-btn-tint-primary: rgba(255,255,255,0.48);   /* primary prominence — the MOST luminous neutral glass (brighter than secondary so the prime action reads first; #709. KIT-F-02: raised .34→.48 — the old value rendered within ~1% luminance of secondary, failing the "primary reads first" hierarchy). Still translucent (tint-not-fill); a top-down luminosity gradient on .ow-btn-prominent lets the refracted wallpaper read through while keeping the dark label legible over a dark backdrop (override → accent wash) */
+  --ow-btn-tint-primary: rgba(255,255,255,0.48);   /* primary prominence — the MOST luminous neutral glass (brighter than secondary so the prime action reads first */
   --ow-btn-tint-secondary: rgba(255,255,255,0.30);  /* secondary — subdued LIGHT luminous veil; #709 flipped from a dark wash so the dark ink stays legible over any backdrop (Apple secondary lowers WEIGHT, not the material's lightness) */
   --ow-btn-tint-danger: color-mix(in srgb, var(--ow-danger-strong, color-mix(in srgb, var(--ow-danger, #ff453a) 76%, #000)) 94%, transparent); /* secondary-prominence RED tint over glass (translucent, NOT a solid plate). a11y-matrix: the old 62% wash of the RAW red over the LIGHT settings glass rendered rgb(255,140,133) — white label 2.25:1. Tinting with the AA-safe --ow-danger-strong at 94% keeps the white on-danger label ≥4.5:1 even over a pure-white backdrop (darker backdrops only deepen it). */
 }
@@ -19764,12 +19007,7 @@ body.theme-frosted select.ow-select option {
 body.theme-frosted select.ow-select:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── SLIDER: .ow-slider — kit-styled range (system-green track, glass thumb) ──── */
-/* KIT-N-07 (2026-07-14 audit) minimal fix: every `.ow-slider` rule below is
-   `body.theme-frosted`-scoped, so on the Normal (flat) tier `.ow-slider` falls back
-   to `accent-color: auto` and renders Chromium's default BLUE — the one sanctioned
-   accent color this control ever shows is the system GREEN (owner ruling). This one
-   declaration is deliberately UNSCOPED so it applies on every tier; the full flat
-   track/thumb authoring is the bigger KIT-N lane (§3), not needed to fix the color. */
+/* KIT-N-07 (2026-07-14 audit) minimal fix */
 .ow-slider { accent-color: var(--ow-ios-green, #30d158); }
 body.theme-frosted input[type="range"].ow-slider {
   -webkit-appearance: none; appearance: none;
@@ -19830,17 +19068,7 @@ body.theme-frosted input[type="range"].ow-slider:disabled { opacity: 0.5; cursor
   }
 }
 
-/* ── TRANSIENT KNOB = real Liquid Glass at Full Glass (compose #owlg-thumb) ─────
-   The switch thumb + slider thumbs are the sanctioned CONTENT-LAYER transient-glass
-   elements (HIG: "for controls like sliders and toggles, the knob transforms into
-   Liquid Glass during interaction"). Rather than reinvent the optic, the kit knobs
-   take the SAME concave "lip-bezel" SVG refraction filter the app's bespoke toggles
-   use — #owlg-thumb, generated ONCE in liquidGlass.js (the kube.io #switch port:
-   convex outer rim + concave middle → "center zoomed out, edges refract the inside").
-   GATED on body.glass-full (the Chromium SVG-refraction tier) exactly like the
-   existing .toggle/.admin-slider knobs above; the plain Frosted tier + every non-
-   Chromium / reduced-transparency fallback keep the clean white knob. Refs: kube.io
-   "Liquid Glass with CSS + SVG" #switch; ADAPTIVE_LEGIBILITY_REFERENCE.md L348-351. */
+/* ── TRANSIENT KNOB = real Liquid Glass at Full Glass (compose #owlg-thumb) ───── */
 body.glass-full .ow-switch .ow-switch-track::before,
 body.glass-full input[type="range"].ow-slider::-webkit-slider-thumb {
   -webkit-backdrop-filter: url("#owlg-thumb");
@@ -19902,15 +19130,7 @@ body.glass-full .ow-kbd {
   body:not(.theme-frosted) .ow-kbd { border-color: color-mix(in srgb, var(--fg) 60%, var(--border)); }
 }
 
-/* ── SWATCH GRID: .ow-swatch-grid / .ow-swatch — a selectable option-in-a-set (#1638) ──
-   The Theme window's preset + custom swatch grids: a role=listbox grid of role=option tiles.
-   Not a button (a swatch is a selectable option, the kit analog of a radio/listbox-option, not a
-   CTA). SELECTION is single-sourced on [aria-selected="true"] (the value the roving-tabindex code
-   already sets) — a NEUTRAL luminous ring, NEVER the accent hue (#726/#773), so the visual can
-   never diverge from the AT state. A tile DISPLAYS colors (its own bg/fg preview + the dot row),
-   so it is never a glass material and takes no blur on any tier (authored tier-agnostic, like the
-   old .theme-swatch). Text inks the adaptive var(--fg) so a custom tile (no inline preview colors)
-   stays legible on any theme. */
+/* ── SWATCH GRID */
 .ow-swatch-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(66px, 1fr));
   gap: var(--ow-space-2, 8px);
@@ -20127,19 +19347,7 @@ body.theme-frosted .ow-portrait {
    The kit reinforces it — a resize grip is a pointer-fine affordance. */
 @media (pointer: coarse) { .ow-resize-handle { display: none; } }
 
-/* ── PW REVEAL: .ow-pw-field / .ow-pw-reveal — the in-field password show/hide toggle (#1638, G3) ──
-   A TREATMENT on an .ow-field/.ow-input, not a standalone control: a relative wrapper that reserves
-   trailing room and hosts an in-field trailing eye button flipping the input password↔text. The
-   geometry (wrapper, inset, trailing anchor, glyph size, focus ring, native-glyph suppression, the
-   coarse-pointer tap floor) is tier-agnostic and authored unscoped; only the muted glyph INK differs
-   per tier (frosted below; the flat sibling in the NORMAL tier region). The a11y contract (fixes the
-   pre-kit login gaps): the toggle is a real <button>, keyboard-reachable by default (NO tabindex=-1),
-   carries aria-pressed (false = masked, true = revealed) with the aria-label swapped in lockstep, and
-   the eye-open / eye-closed glyph pair is swapped by the [aria-pressed] CSS state (so the static demo
-   renders both states without JS). #6/#8: the ink is a NEUTRAL control token, never an accent hue.
-   OWNER RULING 2026-07-15: this lane standardizes the EXISTING login toggle ONLY — in-app secret
-   fields keep their bare type=password (no reveal); the kit primitive + OrwellPwReveal.attach helper
-   exist so a field CAN adopt it later without re-implementing the toggle. */
+/* ── PW REVEAL */
 .ow-pw-field { position: relative; display: block; }
 .ow-pw-field > .ow-input,
 .ow-pw-field > .ow-field {
@@ -20247,11 +19455,7 @@ body.glass-full .ow-color-well input[type="color"],
 body.glass-full .ow-color-well input.cp-swatch-input {
   box-shadow: inset 0 1px 0 var(--ow-glass-rim, rgba(255,255,255,0.12));
 }
-/* WCAG 2.5.5 — coarse-pointer 44px hit floor. The .ow-color-well WRAPPER owns the tap area as
-   a SINGLE box model (min-height on the row); the swatch's own hit box grows via PADDING (NOT a
-   ::before/::after overlay — pseudo-elements are suppressed/unreliable on the replaced color
-   input), while its visual chip stays a 24px content box. The trailing reset carries the same
-   floor. `!important` beats the 24px fine-pointer sizing. */
+/* WCAG 2.5.5 — coarse-pointer 44px hit floor */
 @media (any-pointer: coarse) {
   .ow-color-well { min-height: var(--ow-tap-min, 44px); }
   .ow-color-well input[type="color"],
@@ -20300,13 +19504,7 @@ body.glass-full .ow-color-well input.cp-swatch-input {
   .ow-progress { background: color-mix(in srgb, var(--fg) 20%, var(--panel, var(--bg))); }
 }
 
-/* ── CHIP: .on-chip — a display-only notice-family status pill (#1638, G8) ──
-   A static labelled pill (the "Season N" chip). A NON-INTERACTIVE member of the notice family
-   (.on-*) — passive, never dismissible. Drift-fixes folded in vs the old bespoke chip: the
-   canonical --ow-ui-font face (the "no stray monospace chrome" rule the cast-pin fix #771
-   established — drops the old `--mono, monospace`); legible --fg ink (NO accent hue on chrome
-   text, #726/#773 — drops the old accent-tinted color); and the --ow-glass-rim-border hairline
-   (drops the old accent-tinted border). Tier-agnostic (the .og-card idiom). */
+/* ── CHIP */
 .on-chip {
   display: inline-flex; align-items: center;
   padding: 2px 9px;
@@ -20753,12 +19951,7 @@ body:not(.theme-frosted) .ow-btn-group > .ow-btn:last-child {
 }
 
 /* ── WINDOW CONTROLS: .ow-controls traffic lights (KIT-N-08) ─────────────────── */
-/* Flat fell back to the kit's own pre-frosted 24x32px rectangles with literal
-   "-"/"x" glyphs — no window-control identity. Same 12px colored-disc stoplight
-   semantics as frosted (red=close, yellow=minimize, green=dock), just theme-token
-   colored glyphs/rims instead of the fixed dark-on-light chrome ink (Flat's
-   titlebar is the theme's own --panel, typically dark, so the glyph needs to be
-   LIGHT — the opposite polarity from frosted's light glass). */
+/* Flat fell back to the kit's own pre-frosted 24x32px rectangles with literal */
 body:not(.theme-frosted) .ow-controls .ow-close,
 body:not(.theme-frosted) .ow-controls .ow-min,
 body:not(.theme-frosted) .ow-controls .ow-dock {
@@ -20808,15 +20001,7 @@ body:not(.theme-frosted) .ow-controls .ow-dock:focus-visible {
   outline: 2px solid var(--ow-ios-blue, #0a84ff);
   outline-offset: 2px;
 }
-/* The enlarged hit region (invisible) — WCAG 2.5.8 on the 12px discs, mirroring the frosted
-   cluster's ::after pattern; the glyph rides ::before, so ::after is free to carry the tap
-   target. Without this the flat discs are a 12px tap target (browser_smoke's >=24px gate).
-   GEOMETRY IS LOAD-BEARING: a LATER sibling's ::after paints on top, so a region that
-   reaches past half the center-to-center distance swallows its neighbor's clicks (the
-   frosted 44px value on the old 2px gap put .ow-close's region over .ow-min's CENTER and
-   every min-click was "intercepted" — the af3fa4f CI red). 12px discs + the macOS-authentic
-   8px gap below = 20px centers; 32px regions reach 16px — sibling centers stay clear by 4px
-   while the target still beats the 24px floor. Change gap/disc/region together or not at all. */
+/* The enlarged hit region (invisible) — WCAG 2.5.8 on the 12px discs, mirroring the frosted */
 body:not(.theme-frosted) .ow-controls { gap: 8px; }
 body:not(.theme-frosted) .ow-controls .ow-close::after,
 body:not(.theme-frosted) .ow-controls .ow-min::after,
@@ -20854,12 +20039,7 @@ body:not(.theme-frosted) .settings-nav-item.active {
 body:not(.theme-frosted) .settings-nav-item.active svg { opacity: 1; color: #fff; }
 
 /* ── SET-08: every legacy toggle family's ON track is system blue on Flat too ── */
-/* The frosted fix (~L21571) patched .toggle/.admin-switch/.toggle-switch/
-   .cookbook-checkbox onto the sanctioned system blue and never extended to Flat
-   — same selector list, same !important (some of these tracks carry their own
-   more-specific hover/checked overrides elsewhere). The .vis-switch family that
-   was the structural cause of SET-08 is gone (SET-11, #1606: migrated to the kit
-   .ow-switch, which is system-blue-on across both tiers by construction). */
+/* The frosted fix (~L21571) patched .toggle/.admin-switch/.toggle-switch/ */
 body:not(.theme-frosted) .toggle input:checked + .slider,
 body:not(.theme-frosted) .admin-switch input:checked + .admin-slider,
 body:not(.theme-frosted) .toggle-switch input:checked + .toggle-slider,
@@ -21160,12 +20340,7 @@ body.theme-frosted .admin-card [style*="border-top: 1px solid var(--border)"] {
 /* directional luminous rim "tell"). Scoped to body.theme-frosted so the Normal   */
 /* tier is untouched. */
 
-/* ── SMALL chrome bars/pills — lighter blur + tighter (capsule-ish) radius ─────
-   The material veil + reduced-transparency/contrast fallbacks come from the
-   grouped rules above (these selectors are in those lists). Here we give the
-   SMALL elements (a tool/tab-bar-scale footprint) their own lighter blur + a
-   rounded (not 26px) radius + a thin rim, per Apple's smaller-element treatment.
-   They ride the ONE glass plane — no glass-on-glass nesting. */
+/* ── SMALL chrome bars/pills — lighter blur + tighter (capsule-ish) radius ───── */
 body.theme-frosted .model-picker-btn,
 body.theme-frosted .tool-indicator,
 body.theme-frosted .attach-card {
@@ -21190,16 +20365,7 @@ body.theme-frosted .chat-top-bar {
   box-shadow: none !important;
   border-radius: 0 0 var(--ow-glass-radius, 26px) var(--ow-glass-radius, 26px) !important;
 }
-/* APP-OV-3 (2026-07-15 theme audit): on DESKTOP the frosted chat top bar read as an OVERSIZED
-   rounded capsule whose SQUARE top edge sat flush against the viewport top — the big 26px
-   BOTTOM-only glass radius on the ~30px-tall full-width strip made it look like a pill sliced
-   off at the top (owner report: oversized capsule clipped at the very top edge, bleeding above
-   the fold). In the floating-glass theme every other chrome surface floats inset with ALL corners
-   rounded, so match that here: lift the bar a few px off the container top so its rounded TOP
-   corners clear the overflow-hidden chat container (it no longer bleeds to the very top edge) and
-   round all four corners at the concentric inner-control radius (correctly sized, not a chopped
-   capsule). Desktop only (min-width 769px) — the narrow bar keeps its own corner-control geometry
-   and flush app-bar rounding below, untouched. */
+/* APP-OV-3 (2026-07-15 theme audit) */
 @media (min-width: 769px) {
   body.theme-frosted .chat-top-bar {
     margin-top: 6px;
@@ -21227,62 +20393,21 @@ body.theme-frosted .toast {
   border-left: 3px solid rgba(255,255,255,0.28) !important;
 }
 
-/* ── CHAT BUBBLES — Apple iOS 26 Messages glass (owner ref: the iMessage screens) ─
-   Apple's own Messages app makes the bubbles Liquid Glass: RECEIVED bubbles are a
-   neutral translucent frosted glass (the wallpaper blurs through), SENT bubbles carry
-   the system-blue tint — text stays crisp white via vibrancy. We match that:
-     • received (.msg-ai)  → neutral frosted glass, leans slightly dark so white text
-       stays legible over ANY wallpaper (light or dark);
-     • sent (.msg-user)    → translucent system-blue glass (the sanctioned accent as a
-       BACKGROUND, not text — same blue as the Send CTA);
-   both translucent (backdrop blur) in BOTH tiers. NOT in the JS SVG refraction set
-   (perf — many bubbles on screen); the CSS glass blur is the bubble material. */
-/* FLAT tinted fills, no stroke (research: Apple's iOS 26 Messages bubbles + HIG —
-   Liquid Glass defines itself by LENSING + material, NOT a border/stroke; the old
-   `.ultraThinMaterial + .stroke()` pattern was dropped, and HIG warns against border
-   "visual noise". So bubbles are a flat tinted translucent fill: NO 1px rim, NO inset
-   bevel, NO drop shadow — just the blurred material + the tint. */
+/* ── CHAT BUBBLES — Apple iOS 26 Messages glass (owner ref */
+/* FLAT tinted fills, no stroke (research */
 body.theme-frosted .msg-ai {
   /* hug the text like Apple's received bubble (the base sets a fixed 85% width). */
   width: fit-content !important;
-  /* #744 — THE TRANSCRIPT IS THE GAME (read for hours), so a received bubble must NEVER
-     drop below a real contrast floor over ANY wallpaper — and it must do that with FROST
-     ONLY (this bubble is deliberately NOT in the JS SVG-refraction set; refraction over a
-     busy mid-tone wallpaper is exactly what kills legibility). So we floor the frost: an
-     OPAQUE-ENOUGH translucent scrim under the bubble (Apple's own move — the legibility
-     reference `lg_hig_legibility_primary_label.png` shows a LIGHT frosted glass tile staying
-     legible over a busy yellow/blue diagonal precisely because the material is opaque enough
-     to be a backstop, not a flat plate). The scrim alpha is a CSS var so adaptiveGlass.js can
-     ESCALATE it per-bubble (raise it toward opaque) when the measured APCA(Lc) on the resolved
-     ink↔backdrop pair fails the floor for THIS bubble's backdrop — a LOCAL per-bubble escalation,
-     never a global body tint (that's #739, out of scope here). The 0.46 default is the worst-case
-     floor: dark frost + white ink clears APCA Lc 60 over a mid-tone wall, while a clear/dark wall
-     still reads as glass (the wallpaper COLOR still blooms through the saturate). */
+  /* #744 — THE TRANSCRIPT IS THE GAME (read for hours), so a received bubble must NEVER */
   --ai-scrim-alpha: 0.46;
   /* #1316 frosted tightening: 22px -> 18px. --ai-scrim-alpha (the legibility FLOOR) is left at
      its pinned 0.46 default on purpose — adaptiveGlass.js's SCRIM_BASE mirrors that exact
      number for its APCA escalation math (`frontend/static/js/adaptiveGlass.js`, out of this
      change's scope), so only the blur radius moves, not the opacity floor. */
-  /* #780-6 (busy-wallpaper backing uniformity): the saturate was 180% — a strong
-     amplifier that made a HOSTILE MULTICOLOR wallpaper bloom through each bubble at a
-     DIFFERENT hue, so the transcript backing read patchy/uneven bubble-to-bubble
-     (readable, but not a consistent plate). Dropped to 120% so the plate stays a NEUTRAL
-     translucent frost that picks up only a gentle hint of the wall — a consistent minimum
-     backing regardless of what's behind any one bubble. This is the polarity-neutral,
-     scrim-floor-preserving lever: adaptiveGlass.js drives the per-bubble ALPHA + INK
-     polarity (unchanged, out of scope) and never sets backdrop-filter, so this saturate
-     applies uniformly to every bubble and can't fight the adaptive scrim/ink. Chroma-only
-     (luminance ~unchanged) so it never perturbs the APCA legibility floor. */
+  /* #780-6 (busy-wallpaper backing uniformity) */
   -webkit-backdrop-filter: blur(18px) saturate(120%) !important;
   backdrop-filter: blur(18px) saturate(120%) !important;
-  /* #1601 / OWN-2 — ONE LIGHT-GLASS FAMILY for the chat column. The received bubble now
-     shares the composer's FIXED light-glass material (a near-white translucent frost read
-     with DARK ink) instead of the old dark scrim, so the AI bubble and the composer read as
-     ONE coherent material rather than dark-bubble-vs-light-composer. A gentle saturate lets a
-     HINT of the wallpaper COLOR bloom through (Apple's received bubble picks up the wall);
-     the floored LIGHT scrim keeps DARK ink legible across any backdrop — adaptiveGlass.js
-     escalates --ai-scrim-alpha toward opaque near-white over a dark/busy wall, exactly the
-     way the fixed-light-glass chrome stays legible over any wallpaper. */
+  /* #1601 / OWN-2 — ONE LIGHT-GLASS FAMILY for the chat column */
   background-color: rgba(245,246,248,var(--ai-scrim-alpha,0.46)) !important;
   background-image: none !important;
   border: none !important;
@@ -21296,12 +20421,7 @@ body.theme-frosted .msg-user {
      prefix is pinned — `test_0744_transcript_legibility.py` / `test_liquid_glass.py`). */
   -webkit-backdrop-filter: blur(18px) saturate(170%) !important;
   backdrop-filter: blur(18px) saturate(170%) !important;
-  /* the system blue, translucent so the wallpaper still tints through — a flat fill, no rim.
-     a11y-matrix (WCAG 1.4.3): the raw iMessage blue #0a84ff can NEVER carry white body text
-     at AA (#fff on #0a84ff ≈ 3.65:1 even fully opaque; the 0.85 fill read 3.83:1 over the
-     light wallpaper). Use the deeper system blue the #1375-c settings-nav pill established
-     (#0a5cc4, ≈6:1 under white) at 0.90 — white clears AA (≥5:1) even over a pure-white
-     backdrop, and over a dark wallpaper it only gets deeper. */
+  /* the system blue, translucent so the wallpaper still tints through — a flat fill, no rim */
   background-color: rgba(10,92,196,0.9) !important;
   background-image: none !important;
   border: none !important;
@@ -21337,21 +20457,11 @@ body.theme-frosted .msg-user .msg-footer .timestamp {
   text-shadow: 0 1px 2px rgba(0,40,90,0.55) !important;
   opacity: 1 !important;
 }
-/* #738 item 23 — the sent-bubble role line (the "You · time" cluster) carries a leading
-   `.role::before` status dot. The base rule paints it color-mix(var(--fg) 40%, transparent);
-   on the glass theme --fg is the LIGHT-CYAN ink, so the dot rendered as a faint COLORED
-   (cyan) speck sitting right on the blue sent bubble beside the timestamp — an accent/hue
-   cast on chrome the "no accent on text" mandate forbids. Match it to the sanctioned
-   white-on-blue timestamp treatment: a translucent NEUTRAL WHITE dot, no hue. */
+/* #738 item 23 — the sent-bubble role line (the "You · time" cluster) carries a leading */
 body.theme-frosted .msg-user .role::before {
   background: rgba(255,255,255,0.55) !important;
 }
-/* #1601 / OWN-2 — RECEIVED bubbles are now FIXED LIGHT GLASS ⇒ DARK ink by default (the
-   composer/chrome polarity), no longer white-over-dark-frost. adaptiveGlass.js still sets the
-   inline ink per-bubble (and escalates the light scrim's opacity so dark ink clears APCA over
-   any wallpaper); this is the first-paint / non-JS default + a LIGHT legibility halo (a dark
-   halo would smudge under dark ink). The .body uses `inherit` so it follows the adaptive ink.
-   Non-important defaults so the inline adaptive colour wins. */
+/* #1601 / OWN-2 — RECEIVED bubbles are now FIXED LIGHT GLASS ⇒ DARK ink by default (the */
 body.theme-frosted .msg-ai {
   color: #16191f;
   text-shadow: 0 1px 1px rgba(255,255,255,0.5);
@@ -21477,11 +20587,7 @@ body.theme-frosted .msg-ai .fork-btn:hover {
      brighten. Bind to the bubble's full adaptive ink token so hover reads at full strength. */
   color: var(--fg) !important;
 }
-/* #1601 / OWN-3 (FOLLOW-UP, out of scope here): the pre-game cast-photo headshot dialog
-   is the OTHER dark-veil-vs-light-glass surface the owner ruling names — it "follows the
-   same ONE-light-glass ruling" as the chat column above. It is deliberately left as-is in
-   this change (it is currently a solid gating dialog, F-S2-A) and tracked as its own
-   follow-up item; do not fold it in here. */
+/* #1601 / OWN-3 (FOLLOW-UP, out of scope here) */
 /* the OOC asides keep their quieter dashed backstage identity — a fainter neutral
    frost (not the blue sent fill, not a full received bubble). */
 body.theme-frosted .msg-user.msg-ooc,
@@ -21494,19 +20600,7 @@ body.theme-frosted .msg-ooc.msg-ooc-producer {
   border-color: rgba(255,255,255,0.26) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.12) !important;
 }
-/* ── #709 casting "on file" producer aside: follow the bubble's ADAPTIVE ink ─────────
-   The LIVE-stream producer/casting aside (.ooc-producer-aside — the inner div emitted by
-   markdown.js for a fully `((…))`-wrapped reply, e.g. the casting "your cast photo is on
-   file" note) PINS its own text colour `color-mix(var(--fg) 78%)` — which on the glass theme
-   is the LIGHT cyan --fg. That hard colour OVERRIDES the #744 adaptive ink the parent .msg-ai
-   bubble flips to over a BRIGHT wallpaper (the bubble goes dark-ink, the aside stays light-cyan
-   → light-on-light, measured ~1:1, invisible — the owner's "cast photo is on file" report).
-   The aside is INNER content of an adaptive bubble, so it must FOLLOW that polarity, not pin a
-   fixed hue. Inherit the bubble's ink (the .msg-ai/.body chain already carries the adaptive
-   colour) + a LIGHT legibility halo (matching the dark-ink-on-glass contract; the dark
-   --ow-glass-text-shadow would smudge under dark ink). The dashed frame + "production" badge
-   keep their quiet identity — the badge derives from currentColor so it tracks the ink too.
-   Scoped to body.theme-frosted; the Normal tier keeps its light-cyan backstage look. */
+/* ── #709 casting "on file" producer aside */
 body.theme-frosted .ooc-producer-aside {
   color: inherit !important;
   text-shadow: 0 1px 1px rgba(255,255,255,0.45) !important;
@@ -21535,15 +20629,7 @@ body.theme-frosted .msg-user :not(pre) > code {
   background-image: none !important;
   text-shadow: none !important;
 }
-/* #734 / owner: code blocks inside chat bubbles rendered ALL-BLACK / unreadable —
-   the fill above is a near-black terminal ground, but the bubble's ADAPTIVE polarity
-   (adaptiveGlass sets `color: dark-ink` on the .msg-ai element over a BRIGHT wallpaper)
-   inherited DOWN into the code text → dark-on-dark. A code block is a SELF-CONTAINED
-   surface: it must NOT inherit the bubble's adaptive ink. Pin a stable DARK-TERMINAL
-   contract — LIGHT mono text + the readable --hl-* syntax tokens (all light, designed for
-   a dark ground) — and re-assert it for EVERY syntax token + the plain code text, so it's
-   consistent in Full + Frosted + Normal and never dark-on-dark. (Inline code gets a light
-   chip + dark text below, also stable.) */
+/* #734 / owner */
 body.theme-frosted .msg-ai pre,
 body.theme-frosted .msg-user pre,
 body.theme-frosted .msg-ai pre code,
@@ -21600,14 +20686,7 @@ body.theme-frosted .tool-indicator {
   border-radius: var(--ow-radius-pill, 999px) !important;
 }
 
-/* ── GLOBAL: NO accent HUE on TEXT under the glass theme (contract) ───────────
-   Whenever body.theme-frosted is active, text carries NO accent color regardless of
-   the house theme — the material is colorless and text rides it as neutral --fg
-   "vibrancy". This neutralizes links, the hero name/eye, section titles, the /setup
-   link, the thinking label, and anything painting --accent/--red onto TEXT. It does
-   NOT touch the sanctioned NON-text accents (toggle blue, slider green, the single
-   primary-action CTA background .send-btn/.odec-confirm) — those set background, not
-   text color, and are governed by their own rules above. */
+/* ── GLOBAL */
 body.theme-frosted a,
 body.theme-frosted .red-text,
 body.theme-frosted #research-toggle-btn.active,
@@ -21618,11 +20697,7 @@ body.theme-frosted .setup-clickable-provider:hover,
 body.theme-frosted .setup-clickable-code:hover {
   color: var(--fg) !important;
 }
-/* #763: the eye glyph is part of the wordmark LINE (an inline SVG inside .welcome-name)
-   and sits over the bare wallpaper like the wordmark — so it must NOT be routed to the
-   light var(--fg) (the old rule, light-on-light over a light wall). Kill its accent
-   (--brand-color) and let it INHERIT the adaptive ink of its parent .welcome-name
-   (currentColor): dark by default, flipped light over a dark wallpaper by adaptiveGlass. */
+/* #763 */
 body.theme-frosted .welcome-eye {
   color: currentColor !important;
 }
@@ -21636,11 +20711,7 @@ body.theme-frosted .welcome-eye {
 body.theme-frosted .og-card .og-head:focus-visible,
 body.theme-frosted .on-card:focus-visible,
 body.theme-frosted .on-card *:focus-visible,
-/* #8/#9: the global focus-visible outline (2px solid var --red) painted a RED ring on EVERY
-   focused control inside a glass window / gadget card / dock (the owner-flagged "red border" —
-   a modal auto-focuses its first button, so it showed at once). Route every window/dock/gadget
-   control's keyboard-focus ring to the ONE sanctioned system-blue (the same --ow-ios-blue the
-   kit titlebar + gadget header already use). Colorless glass chrome. */
+/* #8/#9 */
 body.theme-frosted .ow-window:focus-visible,
 body.theme-frosted .ow-window *:focus-visible,
 body.theme-frosted .modal-content *:focus-visible,
@@ -21756,28 +20827,7 @@ body.theme-frosted [style*="color: var(--red)"],
 body.theme-frosted [style*="color:var(--red)"] {
   color: var(--fg) !important;
 }
-/* ── #763: the welcome HERO is ADAPTIVE, not a fixed light ink ─────────────────
-   The hero — the big "Orwell" wordmark (.welcome-name), the subtitle (.welcome-sub)
-   and the inline "type /setup" link — sits DIRECTLY over the wallpaper (#__wp), NOT
-   over the light glass chrome. The old rule repainted .welcome-name to the LIGHT
-   var(--fg) (mandate: no accent hue on text — correct), but over a LIGHT wallpaper
-   that is light-on-light (~1.13:1 — invisible). Unlike the chrome (a fixed light
-   glass that legitimately wants dark ink), the hero has NO glass plate, so a single
-   fixed ink cannot be legible over every wallpaper (light, dark, busy).
-
-   So the hero FLIPS polarity with the wallpaper, exactly like Apple's monochrome
-   labels over content ("becoming darker when the underlying content is light, and
-   lighter when it's dark" — HIG Color) and like the .msg-ai bubbles the #744
-   adaptiveGlass layer already flips. adaptiveGlass.js (the SAME #__wp sampler + APCA
-   floor machinery, #744) samples the wallpaper behind the hero and sets the ink +
-   halo inline ([data-adaptive-ink]) so it clears the APCA Lc≥60 floor over ANY
-   wallpaper. The accent gradient is still killed (neutral ink only — mandate).
-
-   This rule is the DEFAULT-BEFORE-JS floor: NEUTRAL DARK ink + a light halo, which
-   is legible over the common light/varied wallpaper (the reported failure) and over
-   most mid-tones; adaptiveGlass then flips it to light-ink+dark-halo over a dark
-   wallpaper within one debounced pass. Both polarities clear the floor; this default
-   only has to hold for the first frame and the (rare) no-JS path. */
+/* ── #763 */
 body.theme-frosted #welcome-screen .welcome-name {
   background: none !important;
   -webkit-text-fill-color: #16191f;
@@ -21798,11 +20848,7 @@ body.theme-frosted #welcome-screen .welcome-sub {
   opacity: 1 !important;
   text-shadow: 0 1px 2px rgba(255,255,255,0.55), 0 0 3px rgba(255,255,255,0.45);
 }
-/* the inline /setup span sets its OWN accent color (style="color:var(--accent)…") — kill
-   it and let it INHERIT the subtitle's ink, which adaptiveGlass flips per wallpaper. So
-   the link tracks the subtitle: dark over a light wall, light over a dark wall (it shared
-   the subtitle's adaptive ink, never a fixed dark that fails over a dark/busy wallpaper —
-   the audit flagged it at 2.55:1). The halo + underline come from the subtitle/base rule. */
+/* the inline /setup span sets its OWN accent color (style="color:var(--accent)…") — kill */
 body.theme-frosted #welcome-screen .welcome-sub .setup-trigger-link {
   color: inherit !important;
   -webkit-text-fill-color: inherit !important;
@@ -22007,12 +21053,7 @@ body.theme-frosted .dropdown,
    popover — no dark opaque menu survives in the light theme. */
 body.theme-frosted .export-dropdown-menu,
 body.theme-frosted .msg-overflow-menu,
-/* COHERENCE (#8/#9): the Control-Center dock is ONE glass family with the windows +
-   cards — it consumes the SAME light-glass material/backdrop/rim here (it used to carry a
-   bespoke dark blur(36px) over rgba(0,0,0,.4) + an --fg-tinted cyan border, reading as a
-   foggier/darker odd-one-out vs every other surface). The dock-specific layout — the
-   generous Control-Center radius + padding — stays in its own rule above; only the
-   MATERIAL is unified here. */
+/* COHERENCE (#8/#9) */
 body.theme-frosted #minimized-dock.ow-has-rows {
   /* GLASS BACKGROUND OPACITY ≈ 0.60 (the kube preset) — a LIGHT, white-ish translucent
      fill. Set BOTH the background-color AND a top-down background-image lift so no dark
@@ -22037,14 +21078,7 @@ body.theme-frosted #minimized-dock.ow-has-rows {
     inset 0 1px 0 var(--ow-glass-rim),
     0 12px 36px rgba(0,0,0,0.10) !important;
 }
-/* EDGE-BLEED CLAMP (the refraction "ring" fix) — clip the SVG-refraction backdrop to the
-   surface's OWN rounded-rect for the transient menus/popovers. liquidGlass.js neutralizes the
-   displacement map's outer edge so it no longer samples beyond the surface, but a rounded
-   corner still renders the rectangular filter region in the corner gap; clipping the backdrop
-   to the element's border-radius removes any residual halo past the corners. Scoped to the
-   transient leaf popovers (`.dropdown` + the kit `.ow-popover` — no submenu/shadow to clip;
-   #1638 retired the dead `.overflow-menu` member here); the chrome panels + gadget cards
-   (owned elsewhere) are untouched. */
+/* EDGE-BLEED CLAMP (the refraction "ring" fix) — clip the SVG-refraction backdrop to the */
 body.theme-frosted .dropdown,
 body.theme-frosted .ow-popover {
   overflow: hidden;
@@ -22491,10 +21525,7 @@ body.theme-frosted .plan-window-content #plan-window-title {
    in each window's OWN injected <style> — co-located with the hard var(--border) rules it
    corrects — so the source stays self-consistent. See orwellCast/Finale/NewSeason/Deals.js.) */
 
-/* ── CHAT BUBBLES — Apple iMessage glass ──────────────────────────────────────
-   The bubble glass material (received = neutral frost, sent = blue, white vibrant
-   text) is scoped to body.theme-frosted ABOVE so it covers BOTH tiers. Nothing
-   tier-specific remains here (bubbles are CSS glass, never SVG-refracted — perf). */
+/* ── CHAT BUBBLES — Apple iMessage glass ────────────────────────────────────── */
 
 /* a11y: prefers-reduced-transparency already forces the theme-frosted set SOLID (the
    block earlier in this file). glass-full layers on top of theme-frosted, so those
@@ -22600,11 +21631,7 @@ body.theme-frosted .chat-input-bar .input-icon-btn.tool-indicator {
    ─────────────────────────────────────────────────────────────────────────────────── */
 
 :root {
-  /* The macOS overlay thumb is a NEUTRAL MID-GREY with alpha — colorless (no accent) and,
-     crucially, mid-luminance so the SAME translucent pill reads on BOTH light and dark
-     glass (a light --fg-derived thumb would vanish on the light frosted body). This is the
-     authentic macOS behaviour: the overlay bar is a fixed neutral, not theme-ink. The grey
-     base lives in one token so it's the single source, no scattered hexes. */
+  /* The macOS overlay thumb is a NEUTRAL MID-GREY with alpha — colorless (no accent) and */
   --ow-sb-grey: 110, 110, 110;                                   /* neutral mid-grey channels */
   --ow-sb-size: 9px;                                             /* overlay box width        */
   --ow-sb-radius: 4.5px;                                         /* pill = half the box       */
@@ -22625,12 +21652,7 @@ body.theme-frosted .chat-input-bar .input-icon-btn.tool-indicator {
   .ow-window .ow-body { overflow: overlay; }
 }
 
-/* Firefox (and any engine WITHOUT ::-webkit-scrollbar): thin + neutral translucent thumb
-   on a transparent track. CRITICAL: this MUST be gated to non-webkit engines — Chromium
-   PREFERS the standard `scrollbar-width` and IGNORES the ::-webkit-scrollbar pseudo-elements
-   the moment `scrollbar-width` is set on the same element, which would discard the whole
-   macOS treatment below. Hidden-at-rest isn't expressible in FF, so FF shows a permanently
-   thin neutral bar (already macOS-like). */
+/* Firefox (and any engine WITHOUT ::-webkit-scrollbar) */
 @supports not selector(::-webkit-scrollbar) {
   .ow-window .ow-body {
     scrollbar-width: thin;
@@ -22733,11 +21755,7 @@ body.theme-frosted .chat-input-bar .input-icon-btn.tool-indicator {
   --ow-fringe-mid:  oklch(0.92 0.05 250 / 0.16);   /* near-neutral midpoint (keeps it from rainbowing) */
 }
 
-/* ── #21 pointer-reactive specular — the single focused surface only ───────────
-   The sheen is a non-interactive ::after radial gradient whose CENTER tracks the
-   pointer via the JS-set custom properties. Default center (0.5, 0) until the first
-   pointermove. The composer needs a positioning context for the absolute pseudo
-   (windows are position:fixed already); scope it here so the base rule is untouched. */
+/* ── #21 pointer-reactive specular — the single focused surface only ─────────── */
 body.glass-full .chat-input-bar { position: relative; }
 body.glass-full [data-ow-spec]::after {
   content: "";
@@ -23047,11 +22065,7 @@ body.signin-entrance .chat-history {
   }
 }
 
-/* ── F-SAFE-1 (HIG Layout) — sidebar left/right landscape safe-area floor ──────────
-   The sidebar is the leftmost fixed chrome; in landscape on a notched phone its edge can
-   slide under the sensor housing. Floor its inner horizontal padding at the safe inset.
-   Longhand + last-word source order so it augments (never resets) the base padding, and
-   max(0px, inset) ⇒ zero visible change in portrait / on non-notched screens. */
+/* ── F-SAFE-1 (HIG Layout) — sidebar left/right landscape safe-area floor ────────── */
 #sidebar {
   padding-left: max(0px, var(--safe-left));
   padding-right: max(0px, var(--safe-right));
@@ -23092,13 +22106,7 @@ body.theme-frosted #welcome-screen .welcome-tip {
   opacity: 0.85;
 }
 
-/* ── Session-switch loading affordance (#11 snappy UX) ─────────────────────
-   A thin indeterminate progress bar pinned to the top of the chat pane while
-   selectSession() awaits GET /api/history — so a slow history load no longer
-   leaves the pane looking frozen on the PREVIOUS chat's stale content. It is
-   purely additive: it never touches #chat-history's DOM (the "never eat a
-   message" rescue in selectSession stays intact) and is cleared in that
-   function's finally on every exit path. */
+/* ── Session-switch loading affordance (#11 snappy UX) ───────────────────── */
 .chat-container.chat-switching::after {
   content: "";
   position: absolute;

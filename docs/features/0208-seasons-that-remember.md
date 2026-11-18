@@ -44,3 +44,11 @@ Returning houseguests are built: the per-user `UserSeasonArchive` (engine-only, 
 - No short lists: no player-facing words from a list.
 - The wall: the archive is engine-only; the hall of fame holds only what was already unsealed; a returner's account reaches the player only in a scene.
 - Never shown as numbers.
+
+## B2 built (ORW-664, 2026-11-18; flag `ORWELL_SEASON_MEMORY`, default ON, the one flag for all three slices)
+- **What changed.** At the season-end terminal, `openSetOutcome()` (played games with reputations on) adds `houseHeardWrong`: the mean share of standing the player lost across the cast (0184 part 1: what each houseguest heard or saw of them lying to or turning on people, softened by kept promises). It is a bounded summary of what spread through the house, never a belief, name or number shown.
+- **How it carries.** `deriveReputation` adds it to the treachery facet (`NOTORIETY.derive.brokenWord`, clamped), so the existing 0104 day-one lean (trust down, threat up, shaded by archetype, scaled by each NPC's own recognition, some distorted) reads warier. When the house clearly heard it (`NOTORIETY.brokenWordKnownAt`), the legend gains one clause the narrator voices at the premiere through the existing "RETURNING CAST" board line. No new prompt text.
+- **Only on a return.** Nothing new reads on a new start: no notoriety is set, so day one is byte-identical. The carry is still 0104's `carriesNotoriety` door (`keepCharacter`); B1's `SeasonStart` must map `start === "return"` to it (`reputationApplies`), and the player's choice to return as a past character stays the only way in. Unchanged by B2: cross-user isolation, the wall, the per-user monotonic store.
+- **Seeds.** No new rng. The day-one bias keeps its dedicated `:notoriety` stream; the broken-word record is a pure read at the cutover.
+- **Off.** Flag off (or a game nobody plays, or reputations off): the field is absent and every derived summary is today's.
+- **Tests.** `tests/unit/seasonMemoryReputation.test.ts`; executable scenarios in `0208-your-reputation-walks-in.feature` (step prefix `reputation:`).

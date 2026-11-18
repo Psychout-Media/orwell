@@ -12,7 +12,7 @@ Feature: Seasons that remember
 
   # B1: wired in 0208-returning-houseguests.feature (ORW-663)
 
-  # B2
+  # B2 (executable now: 0208-your-reputation-walks-in.feature, 2026-11-18; this scenario stays as the design statement)
   Scenario: Last season's play shapes day-one reads, for those who know of it
     Given the player returns after breaking many deals last season
     Then houseguests who know of it start warier of the player than they would of a newcomer

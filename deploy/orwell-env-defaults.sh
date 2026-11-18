@@ -48,6 +48,7 @@
 #   ORWELL_SECRET_PACING        Dormant-secret paced drip (0092).
 #   ORWELL_JURY_HOUSE           Jury grudges accumulating (0100).
 #   ORWELL_TRAITORS_FURY        Jury bearing thresholds (#1790).
+#   ORWELL_PRODUCER_PUSHBACK    0210 / ORW-669 (Theme C slice 3): in the player's own Diary Room the producer may raise a said-vs-did contradiction from the player's own recorded public record (a promise, then an act against the same houseguest); facts to the narrator, no outcome change, nothing reaches any houseguest (a played game only). ON; `=0` is the kill switch.
 #   ORWELL_PRODUCER_READ        Post-scene exchange accounting (#1792).
 #   ORWELL_DEAL_WITNESSES      Formation-witness collateral on deals (#1802).
 #   ORWELL_SEEDED_TIE_SURFACING Seeded pre-show ties surfacing (0059 §5).
@@ -173,6 +174,7 @@ ORWELL_COMP_MECHANICS_PLUS=1
 ORWELL_COMP_MIXED=1
 ORWELL_COMP_REACTIONS=1
 ORWELL_CONFESSIONAL_DEPTH=1
+ORWELL_COUCH_WATCH=1
 ORWELL_CREDIBILITY=1
 ORWELL_DAY_CONDENSE=1
 ORWELL_DEAL_DEPTH=1
@@ -259,6 +261,7 @@ ORWELL_PERCEIVED_BONDS=1
 ORWELL_PHILOSOPHIES=1
 ORWELL_PLAYER_DOSSIER=1
 ORWELL_PREMIERE_ENTRANCES=1
+ORWELL_PRODUCER_PUSHBACK=1
 ORWELL_PRODUCER_READ=1
 ORWELL_PROMISE_TERMS=1
 ORWELL_REACTIVE_TWISTS=1

@@ -113,6 +113,7 @@ import type { ConfessionalContext, ConfessionalDepth } from "../../engine/confes
 import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { PULL_QUOTE } from "../../engine/pullQuoteConstants";
+import { buildDecisionReveal } from "../../engine/decisionReveal";
 import { buildGroupLife, type GroupLifeRow, type GroupLifeView } from "../../engine/groupLifeRetro";
 import { buildYourEdit, sceneMoment, weekMoments, weeksOfLog, type YourEditView } from "../../engine/yourEdit";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
@@ -136,6 +137,8 @@ import type { EditMoment, EditMomentKind } from "../../engine/editWorthiness";
 import { questionLive, questionAnswered } from "../../engine/voteQuestions";
 import { agendaDumpRows } from "../../engine/agendaDump";
 import { hostRegister, registerWords, hostQuestionTexts, playerRoles, type HostLine } from "../../engine/productionHost";
+import { pushbackFacts, type PushbackView } from "../../engine/producerPushback";
+import type { PlayerSaid, PlayerDid } from "../../engine/production";
 import { decideDiaryCall, awayHours, seenOf, callEventText, backEventText, playerVisitText, producerRegisterWords, type DiaryCallsState, type DiaryCallView } from "../../engine/diaryCalls";
 import { buildHouseStories } from "../../engine/houseStory";
 import type { StatedReasonView } from "../../ports/GameSession";
@@ -1247,6 +1250,9 @@ export class GameSessionAdapter implements GameSession {
   /** 0184 (Theme 3 slice 8, part 1): reputations (`ORWELL_REPUTATION`, default ON; `=0` opts out). Played games only, and it needs the bond record. */
   private reputationEnabled = flagDefaultOn("ORWELL_REPUTATION");
   setReputationEnabled(on: boolean): void { this.reputationEnabled = on; }
+  /** 0208 B2 (Theme B): a returning player's reputation walks in deeper (`ORWELL_SEASON_MEMORY`, default ON; `=0` is today's 0104 alone): the house's heard record of their broken word feeds the carried treachery. */
+  private seasonMemoryEnabled = flagDefaultOn("ORWELL_SEASON_MEMORY");
+  setSeasonMemoryEnabled(on: boolean): void { this.seasonMemoryEnabled = on; }
   private reputationOn(): boolean { return this.reputationEnabled && this.live?.playedGame === true && this.bondRecordEnabled; }
   /**
    * 0184: `observer`'s standing for `target` (1 = nothing heard against them), from the observer's OWN belief claims about the target (a wrong they heard of or witnessed done to someone else) and from the
@@ -5292,8 +5298,9 @@ export class GameSessionAdapter implements GameSession {
     const americasFavorite = this.americasFavorite(); // ORW-624: after the crown only
     const yourEdit = this.buildYourEditView(); // 0200 / ORW-632: after the crown only (the same gate); facts only
     const groupLife = this.buildGroupLifeView(); // 0183 part d: the sanctioned unsealing of hidden groups' names and words; same gate; facts only
+    const decisionReveal = this.live.playedGame === true ? buildDecisionReveal({ records: this.live.statedReasons, voteRecord: this.live.voteRecord, nameOf: (id) => this.nameOf(id) }) : undefined; // ORW-656: said vs real reason kinds, words only; same crown gate
     const socialMap = this.socialMapRetro(); // 0184 part 2c: after the crown only
-    return { ...(socialMap ? { socialMap } : {}), ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
+    return { ...(socialMap ? { socialMap } : {}), ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(decisionReveal ? { decisionReveal } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
@@ -12659,9 +12666,6 @@ export class GameSessionAdapter implements GameSession {
   setNotoriety(summary: NotorietySummary | null): void { this.notoriety = summary; }
 
   // ─── 0208 / ORW-663 (Theme B, B1) - RETURNING HOUSEGUESTS ─────────────────────────────────────────
-  /** ORWELL_SEASON_MEMORY (default ON; `=0` opts out): a finished, played season's houseguests are archived, and a RETURN may cast one of them back. */
-  private seasonMemoryEnabled = flagDefaultOn("ORWELL_SEASON_MEMORY");
-  setSeasonMemoryEnabled(on: boolean): void { this.seasonMemoryEnabled = on; }
   /** The returning player's own archive of past-season houseguests, set ONLY on a return (never persisted here: it lives in the per-user archive). Null => no returner is ever cast (a first season, a new start, headless: byte-identical). */
   private returnArchive: ArchivedHouseguest[] | null = null;
   setReturnArchive(archive: readonly ArchivedHouseguest[] | null): void { this.returnArchive = archive && archive.length > 0 ? [...archive] : null; }
@@ -12785,7 +12789,14 @@ export class GameSessionAdapter implements GameSession {
       const forMe = cast.filter((v) => v === me).length;
       juryVoteShare = cast.length > 0 ? forMe / cast.length : 0;
     }
-    return { placement, castSize, playerCompWins, playerEvictionRoles, reachedJury, reachedFinalTwo, juryVoteShare };
+    // 0208 B2: what the house came to hear of the player's broken word: the mean share of standing lost (0184 part 1) across the cast. Played games with reputations on only; else absent (byte-identical).
+    let houseHeardWrong: number | undefined;
+    if (this.seasonMemoryEnabled && this.reputationOn() && this.house.npcs.length > 0) {
+      let lost = 0;
+      for (const n of this.house.npcs) lost += 1 - this.reputationOf(n.id, me);
+      houseHeardWrong = lost / this.house.npcs.length;
+    }
+    return { placement, castSize, playerCompWins, playerEvictionRoles, reachedJury, reachedFinalTwo, juryVoteShare, ...(houseHeardWrong !== undefined ? { houseHeardWrong } : {}) };
   }
 
   // ─── 0091 — TRIGGER SECRETS & HOUSE-EVENT ERUPTIONS ─────────────────────────────────────────────
@@ -14821,6 +14832,41 @@ export class GameSessionAdapter implements GameSession {
     st.seen.push({ who: PLAYER, day: s.dayNumber ?? s.week, long: false, comesBack: "same", at: abs }); // the engine never says how it left the player feeling
     this.recordDiaryCallEvent(events, PLAYER, playerVisitText(this.nameOf(PLAYER)), `diary-call:player:${seed}:${abs}`);
   }
+  /** ORW-669 (0210 C3, `ORWELL_PRODUCER_PUSHBACK`): on by default; off => no pushback block. */
+  private producerPushbackEnabled = flagDefaultOn("ORWELL_PRODUCER_PUSHBACK");
+  setProducerPushbackEnabled(on: boolean): void { this.producerPushbackEnabled = on; }
+  /**
+   * ORW-669 (0210 C3): while the player is in the Diary Room (their visit this in-game hour or the last, `noteDiaryVisit`), the contradictions between the player's own recorded word and
+   * the player's own recorded acts, as facts. SAID = the player's own assurances (ledger rows the player made, from recorded scenes) and the deals the player is bound by; DID = the player's own
+   * nominations (HOH), their own ballot, and a deal they broke. Never read from the Diary Room entry text (it never reaches this state), never an NPC's hidden state or ballot. No rng, no write.
+   */
+  private producerPushbackView(): PushbackView | undefined {
+    const s = this.live;
+    if (!this.producerPushbackEnabled || !this.diaryCallsLive() || !s) return undefined;
+    const last = s.diaryCalls?.playerLast, abs = this.inGameAbsHour()!;
+    if (last === undefined || abs - last > 1) return undefined;
+    const said: PlayerSaid[] = [];
+    const did: PlayerDid[] = [];
+    for (const d of this.deals.forParty(PLAYER)) {
+      const other = d.parties[0] === PLAYER ? d.parties[1] : d.parties[0];
+      if (d.condition.protect === other && d.condition.promisors.includes(PLAYER) && d.status !== "lapsed") {
+        said.push({ claimId: d.id, to: other, promise: "deal", week: d.madeWeek ?? 1 });
+        if (d.status === "broken" && d.brokenBy === PLAYER) did.push({ eventId: `deal:${d.id}`, act: "broke-deal", target: other, week: s.week });
+      }
+    }
+    if (s.assurances) {
+      for (const a of AssuranceLedger.fromJSON(s.assurances).all) {
+        if (a.from !== PLAYER || a.source !== "player") continue;
+        said.push({ claimId: a.id, to: a.to, promise: a.kind === "safe" ? "safe" : a.kind === "vote" ? "vote-with" : "not-target", week: a.week });
+      }
+    }
+    for (const d of s.weekDigests ?? []) if (d.hoh === PLAYER) for (const n of d.nominees) did.push({ eventId: `nom:${d.week}:${n}`, act: "nominated", target: n, week: d.week });
+    if (s.hoh === PLAYER && s.nominees && !(s.weekDigests ?? []).some((d) => d.week === s.week)) for (const n of s.nominees) did.push({ eventId: `nom:${s.week}:${n}`, act: "nominated", target: n, week: s.week });
+    for (const r of s.voteRecord ?? []) { const t = r.voteOf[PLAYER]; if (t) did.push({ eventId: `vote:${r.week}:${t}`, act: "voted-against", target: t, week: r.week }); }
+    if (!said.length || !did.length) return undefined;
+    const facts = pushbackFacts(said, did, (id) => this.nameOf(id), s.week);
+    return facts.length ? { register: producerRegisterWords(this.gameSeed ?? 0), facts } : undefined;
+  }
   /** The Diary Room calls as facts for the narrator, or undefined. */
   private diaryCallView(invited: boolean): DiaryCallView | undefined {
     if (!this.diaryCallsLive()) return undefined;
@@ -14886,6 +14932,8 @@ export class GameSessionAdapter implements GameSession {
       const spin = 1 + LIE_AUDIENCE.rotation * agendaRoll(seed, listener, `lie-audience:d${day}h${hour}r${repeat}:${target}`);
       return pivot * (LIE_AUDIENCE.credulityBase + this.credulityOf(listener)) * spin;
     } : undefined;
+    // ORW-656: the hours right after a crown (the beat is still the one that follows the comp): the HOH after the HOH comp, the veto holder after the veto comp. Same flag + played gate as the in-comp reactions.
+    const buzzerWinner = this.compReactionsOn() && !s.competition ? (s.beat === "nominations" ? s.hoh : s.beat === "veto-ceremony" ? s.vetoHolder : undefined) : undefined;
     const attractOn = this.attractionOn();
     if (attractOn) this.ensureChemistry(); // 0207 A1: the private chemistry (keyed side rolls; idempotent)
     const attractView = attractOn ? (id: EntityId, targets: readonly EntityId[]) => this.attractionViewOf(id, targets) : undefined;
@@ -14912,6 +14960,7 @@ export class GameSessionAdapter implements GameSession {
         ...this.roommateView(bedsNow, id, inHouse, whereM),
         ...(!room && kindredOf(id) ? { kindred: kindredOf(id)! } : {}),
         timeOfDay: tod, day, hour, ...(repeat > 0 ? { repeat } : {}), inCompetition: this.compReactionsOn() && !!s.competition && !s.competition.stillIn.includes(id),
+        ...(buzzerWinner ? { afterBuzzer: { winner: buzzerWinner } } : {}),
         ...(s.npcMindsAuthored?.culture?.rituals?.length ? { rituals: s.npcMindsAuthored.culture.rituals } : {}),
         ...(houseCulture ? { culture: houseCulture } : {}),
         ...(swingRead ? { swing: swingRead } : {}),
@@ -16457,6 +16506,23 @@ export class GameSessionAdapter implements GameSession {
     });
     return { jurors };
   }
+
+  /** ORW-650: watching from the couch (`ORWELL_COUCH_WATCH`, default ON; `=0` = the 0133 skeleton digests only). */
+  private couchWatchEnabled = flagDefaultOn("ORWELL_COUCH_WATCH");
+  /**
+   * ORW-650 — the PUBLIC moments a WATCHING evictee may see: the broadcast record only (`season:` ceremony/competition/house
+   * beats that are not hidden — the same predicate `seasonRecap` uses), recorded AFTER they left. Ballots are already
+   * anonymized at the source beat. Never for a juror (no `spectator`), never while in the game. Pure read, no rng.
+   */
+  private couchMoments(): string[] | undefined {
+    const live = this.live;
+    if (!this.couchWatchEnabled || !live?.spectator || live.spectator.mode !== "watch" || live.couchFromEvent === undefined) return undefined;
+    const out = (this.record?.events() ?? []).slice(live.couchFromEvent)
+      .filter((e) => !e.hidden && e.id.startsWith("season:") && e.type === "house-event" && e.content.trim().length > 0)
+      .map((e) => e.content.trim().slice(0, 240));
+    return out.length > 0 ? out.slice(-GameSessionAdapter.COUCH_MOMENT_CAP) : undefined;
+  }
+  private static readonly COUCH_MOMENT_CAP = 12;
 
   /** 0133 — the PUBLIC week digests an early-evicted, spectating player may read (named, Vault-free). */
   private weekDigestViews(): WeekDigestView[] | undefined {
@@ -18652,6 +18718,8 @@ export class GameSessionAdapter implements GameSession {
 
   /** Fold a resolved beat into the public projection: record the event, reconcile deals, sync, persist. */
   private commit(ev: BeatEvent | null): void {
+    // ORW-650: the watching player's feed starts after everything recorded up to (and including) this beat. Stamped once.
+    if (this.couchWatchEnabled && this.live?.spectator && this.live.couchFromEvent === undefined) this.live.couchFromEvent = (this.record?.events().length ?? 0) + (ev && this.onEvent ? 1 : 0);
     if (ev) this.onEvent?.({ ...ev, content: this.humanize(ev.content) });
     // 0039/E42: a binding ceremony beat may honor or break open deals — the engine adjudicates
     // EVERY binding actor's action (NPC votes and tie-breaks included), never only the player's.
@@ -21829,6 +21897,7 @@ export class GameSessionAdapter implements GameSession {
       moment,
       // 0133: an early-evicted spectator's public week digests (absent for everyone else).
       ...(this.weekDigestViews() ? { weekDigests: this.weekDigestViews() } : {}),
+      ...(this.couchMoments() ? { watching: { moments: this.couchMoments()! } } : {}), // ORW-650
       // 0129: the jury house — present only while the player holds a juror's seat.
       ...(this.juryHouseView() ? { juryHouse: this.juryHouseView() } : {}),
       // #1411: the closed-set required lever (present ONLY at a comp/ceremony/eviction beat) — the FE's
@@ -21944,6 +22013,7 @@ export class GameSessionAdapter implements GameSession {
       // 0013 §5 / PG-14 / PS-4: the producer's Diary-Room invitation at the current dramatic beat.
       ...(drPrompt.invite ? { diaryRoomInvite: drPrompt as { invite: true; reason?: string } } : {}),
       ...(this.diaryCallView(drPrompt.invite) ? { diaryCall: this.diaryCallView(drPrompt.invite)! } : {}), // ORW-668 (0210 C2): the Diary Room calls as facts to voice
+      ...(this.producerPushbackView() ? { producerPushback: this.producerPushbackView()! } : {}), // ORW-669 (0210 C3): the producer's pushback as facts to voice
       // 0115: the player's DR strategy as a PRIVATE narrator steer (present only when they've recorded one).
       ...(drStrategy.length ? { playerDiaryRoom: drStrategy } : {}),
       // #1793: the player's dossier (present only when the flag is ON and there are tagged entries).
