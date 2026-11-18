@@ -18518,8 +18518,8 @@ export class GameSessionAdapter implements GameSession {
     const g = this.grudgeOf(holder, subject, false);
     if (!g) return undefined;
     const arr = this.live.grudgesSeen;
-    if (this.grudgesSeenCache?.arr !== arr) this.grudgesSeenCache = { arr, set: new Set(arr ?? []) };
-    const seen = this.grudgesSeenCache!.set;
+    if (!this.grudgesSeenCache || this.grudgesSeenCache.arr !== arr) this.grudgesSeenCache = { arr, set: new Set(arr ?? []) }; // (no seen-marks yet: `arr` is undefined, which equals the empty cache's undefined, so test for the cache itself)
+    const seen = this.grudgesSeenCache.set;
     return { weight: g.weight, folded: (i) => { const e = raw[i]!; return BOOK_FOLDED_KINDS.has(e.kind) && seen.has(`m:${holder}|${subject}|${e.kind}|${e.week}|${e.severity.toFixed(3)}`); } };
   }
 
