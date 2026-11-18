@@ -42,7 +42,8 @@ describe("/health flag parsing matches what the engine actually runs", () => {
 
   it("the default flip: every default-on flag (derived from the registry) reports ON unset, OFF for each of 0/false/off, and ORWELL_FLAGS_OFF=1 forces all OFF", () => {
     const FLIPPED = FEATURE_FLAGS.filter((d) => d.parser === "defaultOn");
-    expect(FLIPPED.length, "the registry carries the 96 flipped flags").toBe(96); // +1 ORW-539 ORWELL_PERCEIVED_BONDS; +1 ORW-330 ORWELL_VOTE_TALK; +1 ORW-330 ORWELL_HOUSE_MEETINGS; +1 ORW-510 ORWELL_NARRATION_USAGE; +1 ORW-330 ORWELL_CLAIMS_TO_PLAYER; +1 ORW-417 ORWELL_NAP; +1 ORW-407 ORWELL_OPEN_LEDGER; +1 ORW-270 ORWELL_SHOWRUNNER_REWEIGHT; +1 ORW-343 ORWELL_MOOD_CUE; +1 ORW-23 ORWELL_DISCLOSURE_ENGINE; +1 ORW-318 ORWELL_NPC_MINDS_ENDGAME; +1 ORW-315 ORWELL_HOUSE_LIFE; +1 ORW-317 ORWELL_GOAL_MOOD; +1 ORW-551 ORWELL_HOUSE_CULTURE; +1 ORW-546 ORWELL_GOSSIP_BELIEFS
+    // a floor, not an exact count: the exact literal on this one line was edited by every flag-adding PR and conflicted at every merge. The per-flag checks below already walk the whole registry, and flagDefaultParity + flagInventory pin each flag against the deploy defaults, so a dropped or unregistered flag still fails; this only catches a mass loss.
+    expect(FLIPPED.length, "the registry still carries its flipped flags").toBeGreaterThanOrEqual(100);
     const NOT_FLIPPED: string[] = []; // ORW-97 flipped advanceGate ON
     for (const k of Object.keys(process.env)) if (k.startsWith("ORWELL_")) delete process.env[k];
     let f = bootFlagsFromEnv();

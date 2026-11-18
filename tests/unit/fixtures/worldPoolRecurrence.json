@@ -1,0 +1,30 @@
+{
+ "_about": "ORW-509 ratchet for the non-character world lists. Measured over 60 seeded seasons by scripts/probes/worldPoolMeasure.ts (the full 200-season table is in the PR). `maxWithin`: share of a season's draws that repeat an earlier draw of the same season. `minAcross`: distinct values over all seasons. `maxNext`: share of a season's values that the next season also has. A list that gets worse than its ceiling fails; a fix lowers the ceiling in the same PR. `before200` is the base commit's value over 200 seasons, kept for the record. Lists left out are closed mechanic ids (tie natures, finale appeals, goodbye tones, exit stances) or next-PR lists (see `open`).",
+ "seasons": 60,
+ "lists": {
+  "competition names (themed)": { "maxWithin": 0.01, "minAcross": 1000, "maxNext": 0.03, "before200": { "within": 0.059, "across": 144, "next": 0.236 } },
+  "competition themes (worlds)": { "maxWithin": 0.01, "minAcross": 80, "maxNext": 0.40, "before200": { "within": 0.268, "across": 24, "next": 0.828 } },
+  "competition scene-setter + premise": { "maxWithin": 0.01, "minAcross": 1000, "maxNext": 0.03, "before200": { "within": 0, "across": 720, "next": 0.039 } },
+  "competition beat triples": { "maxWithin": 0.01, "minAcross": 1000, "maxNext": 0.03, "before200": { "within": 0, "across": 30, "next": 0.901 } },
+  "house-event lines": { "maxWithin": 0.01, "minAcross": 2500, "maxNext": 0.01, "before200": { "within": 0.468, "across": 32, "next": 0.915 } },
+  "alliance names": { "maxWithin": 0.0, "minAcross": 250, "maxNext": 0.02, "before200": { "within": 0, "across": 18, "next": 0.338 } },
+  "off-screen scene verbs": { "maxWithin": 0.12, "minAcross": 100, "maxNext": 0.25, "before200": { "within": 0.801, "across": 4, "next": 0.995 } },
+  "confessional fallback lines": { "maxWithin": 0.01, "minAcross": 1000, "maxNext": 0.02, "before200": { "within": 0.539, "across": 16, "next": 0.86 } },
+  "curiosity needle": { "maxWithin": 0.0, "minAcross": 40, "maxNext": 0.1, "before200": { "within": 0, "across": 5, "next": 0.261 } },
+  "gossip hedge (base)": { "maxWithin": 0.2, "minAcross": 80, "maxNext": 0.35, "before200": { "within": 0.833, "across": 5, "next": 1.0 } },
+  "gossip hedge (embellished)": { "maxWithin": 0.22, "minAcross": 65, "maxNext": 0.4, "before200": { "within": 0.833, "across": 5, "next": 1.0 } },
+  "gossip hedge (curt)": { "maxWithin": 0.22, "minAcross": 65, "maxNext": 0.4, "before200": { "within": 0.833, "across": 5, "next": 1.0 } },
+  "gossip hedge (evasive)": { "maxWithin": 0.22, "minAcross": 65, "maxNext": 0.4, "before200": { "within": 0.833, "across": 5, "next": 1.0 } },
+  "wipeout reel styles": { "maxWithin": 0.03, "minAcross": 500, "maxNext": 0.05, "before200": { "within": 0.612, "across": 8, "next": 0.971 } },
+  "competition themes (worlds) WITH memory": { "maxWithin": 0.01, "minAcross": 80, "maxNext": 0.0, "before200": { "within": 0.278, "across": 24, "next": 0.842 } },
+  "alliance names WITH memory": { "maxWithin": 0.0, "minAcross": 250, "maxNext": 0.0, "before200": { "within": 0, "across": 18, "next": 0.338 } },
+  "house theme WITH memory": { "maxWithin": 0.0, "minAcross": 20, "maxNext": 0.0, "before200": { "within": 0, "across": 24, "next": 0 } }
+ },
+ "open": {
+  "competition mechanics": "30 mechanics (12 + 18); a season uses nearly all, so consecutive seasons share about 90 percent. Next PR: grow the library and let the writer author a mechanic variant per season.",
+  "house theme (id)": "24 library themes; no season memory input is wired to a front-end ledger yet. With memory the next-season share is 0.",
+  "house room names": "13 names per library theme (24 themes). The writer-authored house (acceptHouseThemeDraft, this PR) replaces this once the front end authors one per season (next PR).",
+  "tie natures": "11 mechanic keys; next PR adds an authored tie story beside the key.",
+  "gossip hedge / off-screen verbs": "cosmetic, stripped or rewritten before display; widened by composition only."
+ }
+}

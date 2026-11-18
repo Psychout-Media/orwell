@@ -98,8 +98,8 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    next beat\", \"I'll note that and continue\", \"let me see what comes back\". Do all bookkeeping",
   "    SILENTLY between sentences; the player only ever sees the scene, never you working it.",
   "  · Always address the player as \"you\" — never \"the player\" or any third-person reference to them.",
-  "  · Invent ambient FLAVOR freely (a side conversation, a glance, the mood of a BACKGROUND houseguest)",
-  "    but when you VOICE a houseguest, take their `mood` from npcVoice (0084) rather than inventing it —",
+  "  · Small color is yours to invent (glances, small talk, body language, the room's vibe), but when you",
+  "    VOICE a houseguest, take their `mood` from npcVoice (0084) rather than inventing it —",
   "    and never invent a MECHANIC or beat that wasn't handed to you — no made-up \"safety comp\", twist, or result.",
   "",
   "AUTHORITY. The GAME itself decides every outcome — competition winners, nominations, votes, who",
@@ -151,8 +151,9 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    and after are distinct beats, never one conversation stitched over the top of an event.",
   "",
   "FLAVOR vs OUTCOMES — the bright line that keeps the show honest, and the one rule you cannot bend.",
-  "You DM the WORLD freely: invent moods, side conversations, glances, the texture of a room, what a",
-  "houseguest is feeling. That improvised nuance is the soul of the show — be generous with it. But an",
+  "You DM the WORLD freely: small color is yours to invent (side talk, glances, body language, the room's",
+  "vibe). But a REAL feeling, suspicion, stance or plan a houseguest voices must come from a fact the game",
+  "handed you (`knows`, stated reasons, mood cause); never invent one. An",
   "OUTCOME is NOT yours to invent. A competition result, who wins HOH or the veto, a nomination, a",
   "replacement, an eviction, a vote — decided ONLY by the game. You may not state, imply, or foreshadow-as-settled any such result until you have CALLED for",
   "it and received it: runCompetition to learn a comp's already-decided winner, advanceGame to resolve",
@@ -878,7 +879,9 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "If the veto is used, the HOH then names the replacement nominee ONLY from the game's recorded pick — " +
     "never invent or guess who — and voice that naming with its own beat of dread. Close the ritual with " +
     "the ceremony's own sign-off, some version of 'this veto meeting is adjourned,' then let the room's " +
-    "reactions land before moving on.",
+    "reactions land before moving on. WHY: the veto holder's reason, and the HOH's reason for the replacement, " +
+    "come only from the line in their block of the room list that begins 'said aloud', in their own words; give " +
+    "no other reason of your own, and with none listed, the decision stands with no reason given.",
   eviction:
     "MOMENT — Eviction. The house votes by SECRET BALLOT and someone walks; the GAME decides the vote " +
     "(the HOH votes ONLY to break a tie — never say the HOH already voted). The reveal is STAGED: each advanceGame hands you ONE anonymized ballot (\"a " +
@@ -940,7 +943,9 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "the final HOH sits the two down and names who they are taking to the Final 2 and who they are " +
     "sending to the jury, in their own words. Play the weight of it (a season decided on one person's " +
     "choice), then the goodbye and the walk. Voice ONLY the evictee the game hands you — never announce " +
-    "who is cut before the game's `final-eviction` beat names them.",
+    "who is cut before the game's `final-eviction` beat names them. WHY: an NPC final HOH's reason comes only " +
+    "from the line in their block of the room list that begins 'said aloud', in their own words; give no other " +
+    "reason of your own, and with none listed, they cut without explaining.",
   "twist-reveal":
     "MOMENT — A production twist fires. Big Brother interrupts the house with a reveal the game " +
     "just handed you (e.g. a DOUBLE EVICTION: the night is not over — a new HOH, a fast ceremony, a " +
@@ -1035,7 +1040,14 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "WHAT YOU DO HERE otherwise: host the reunion. Offer the real story — seasonRecap for the public " +
     "arc they lived, and seasonRetrospective to OPEN THE PRODUCER'S VAULT (the off-screen scheming, the " +
     "private confessionals, the twist that never fired). Voice the reveals with relish; let them ask " +
-    "about any moment, or just hang out — the \"New season\" button waits whenever they're ready.",
+    "about any moment, or just hang out — the \"New season\" button waits whenever they're ready. " +
+    // ORW-632 (0200): the rules for `yourEdit` ride this moment fragment, not the always-injected base prompt (the base budget ratchets down).
+    "When seasonRetrospective carries `yourEdit`, that is the season as TV would have cut it, as FACTS: write each " +
+    "episode's title yourself from that episode's `moments`, names and `close` flag, in a fresh voice every time; " +
+    "never reuse a title's wording and treat the supplied `title` as a bare fallback, not a script. Give each hero " +
+    "and villain an edit line from their own `because` facts, and tell the player how they came across from `you` " +
+    "alone, plainly and honestly: a broken word or a betrayal is said as such and a player who did that is never " +
+    "flattered into a hero. Add no event, name or outcome that is not in the facts, and show no number.",
   "self-evicted":
     "MOMENT — Self-eviction (the player WALKED OUT). The player made the deliberate, confirmed choice to " +
     "leave the game — they quit, and the game has RECORDED it: their season is over and they have " +
@@ -1425,7 +1437,7 @@ export function renderGameContext(view: GameStateView): string {
           : []),
         // A94 (PO ruling, card 26 / 0105): a `suspects` hunch is information, voiced as a POSSIBILITY. Present only when someone in the room carries a hunch => byte-identical otherwise.
         ...((view.presentKnowledge ?? []).some((e) => e.suspects.length)
-          ? ["  (a `suspects` hunch is a possibility they hold, not a decision: voice it like \"not my target yet, but could be\" - never as a confirmation, a plan, a number, or a campaign)"]
+          ? ["  (a `suspects` hunch is a possibility they hold, not a decision: voice it as a possibility in their own words - never as a confirmation, a plan, a number, or a campaign)"]
           : []),
         // 0151: a `tellsYou` is something the engine decided this houseguest tells the player now. Present only when one does => byte-identical otherwise.
         ...((view.presentKnowledge ?? []).some((e) => e.tellsYou)
@@ -1543,7 +1555,8 @@ export function renderGameContext(view: GameStateView): string {
     // a hidden number or asserts a trust/threat delta (ADR 0003: facts to voice).
     // Absent when no exchange is pending (flag OFF ⇒ byte-identical).
     ...(view.napOpen ? ["- NAP (open now): if the player naps or lies down, call nap {hours} (0.5-3 from their words, else 1). An event wakes them; if refused, voice the `why`. On waking, voice only the WHILE YOU SLEPT line."] : []),
-    ...(view.houseMeeting ? [`- HOUSE MEETING (engine truth; the player is in the room and heard it): ${houseMeetingLine(view.houseMeeting)}. Voice the accusation and the answer as the speakers' own words; do not say whether either is true, why the caller called it, or how anyone took it.`] : []),
+    ...(view.houseMeeting ? [`- HOUSE MEETING (engine truth; the player is in the room and heard it): ${houseMeetingLine(view.houseMeeting)}.${view.houseMeeting.answer === undefined ? "" : " Voice the accusation and the answer as the speakers' own words; do not say whether either is true, why the caller called it, or how anyone took it."}`] : []),
+    ...(view.houseMeetingRefused ? [`- HOUSE MEETING REFUSED (engine truth): ${houseMeetingRefusedLine(view.houseMeetingRefused)}.`] : []),
     ...(view.beds ? [`- BEDS (engine truth; the player claims or swaps a bed in their own words and the engine records it before you write, so never claim, swap or assign one for them): ${view.beds}`] : []),
     ...(view.sourceNote ? [`- WHO TOLD THEM (engine truth; the engine decided this answer before you write, so voice it as the houseguest's own words; tone, hedging and colour are yours, but never change who they name, or that they name no one): ${view.sourceNote}`] : []),
     ...(view.whileYouSlept ? [`- WHILE YOU SLEPT (voice only this; you saw nothing else, never invent what happened elsewhere): ${view.whileYouSlept}`] : []),
@@ -1606,13 +1619,14 @@ export const STATED_REASON_GLOSS: Readonly<Record<string, string>> = {
   "had-it-planned": "this was always the plan",
   "nothing-personal": "it is purely strategic, nothing personal",
   "house-wants-it": "it is what the house wanted",
+  "keeping-the-noms": "I am keeping the nominations the same",
 };
 /** 0151: what a `tellsYou` kind says, as a verb phrase between the subject and the second party. */
 const TELLS_YOU_VERB: Record<string, string> = {
   "targets-you": "is targeting the player,", "voted-to-evict-you": "voted to evict the player,", "final-two-with": "has a final two with",
   "going-after": "is going after", "talking-about": "has been talking behind the back of", "lying-about": "is lying to",
 };
-const STATED_ACT: Readonly<Record<string, string>> = { nominate: "naming", replacement: "naming as the replacement", veto: "using the veto to save", vote: "breaking the tie against", "final-hoh-evict": "evicting" };
+const STATED_ACT: Readonly<Record<string, string>> = { nominate: "naming", replacement: "naming as the replacement", veto: "using the veto to save", "veto-hold": "not using the veto, leaving the nominations of", "hc-pick": "picking to play in the veto", vote: "breaking the tie against", "final-hoh-evict": "evicting" };
 
 function presentCues(e: NonNullable<GameStateView["presentKnowledge"]>[number]): string {
   const bits: string[] = [];
@@ -1888,6 +1902,8 @@ export interface GatedLeverFlags {
   goalMood?: boolean;
   /** A52 (ORWELL_DISCLOSURE_ENGINE, played games): add the instruction that `knows` is only what the engine has put on the table. Absent/false => byte-identical. */
   disclosureEngine?: boolean;
+  /** 0196 (ORWELL_DODGING, played games): add the rule for a `dodge` fact. Absent/false => byte-identical. */
+  dodging?: boolean;
   /** AMEND 3a #1 - the 0094 divergence (ORWELL_GOSSIP_CONSEQUENCE). False ⇒ `confront` always lands, so the prompt must not promise a misfire. */
   confrontMisfire?: boolean;
 }
@@ -1908,6 +1924,14 @@ function withDisclosureInstruction(base: string): string {
   return base.replace(anchor, anchor + "\n" +
     "    A houseguest's `knows` is only what the engine has put on the table with the player. They hold more than that; you do NOT have it, so never invent a secret, a plan or\n" +
     "    a confession for them to spill. If the voice carries `deflect`, the engine declined this press: they turn it aside, they do not give it up.");
+}
+
+/** 0196 - a `dodge` fact says how a declined press is turned aside; the narrator authors the words. Appended only while the flag is on. */
+function withDodgingInstruction(base: string): string {
+  const anchor = "    a confession for them to spill. If the voice carries `deflect`, the engine declined this press: they turn it aside, they do not give it up.";
+  return base.replace(anchor, anchor + "\n" +
+    "    If the voice also carries `dodge`, it says how: `approach` is what they do with the question, `openness` is how their carriage reads while they do it, and `pushesBack` means they hand\n" +
+    "    the question back to the player. Write their words yourself from those facts and their own voice; the dodge never says what they hold or why, so do not hint at either.");
 }
 
 /** ORW-317 - when npcVoice carries `moodCause`, it is the only reason this houseguest may give for how they feel (they chose to tell the player). Appended only while the flag is on. */
@@ -2136,6 +2160,7 @@ export function buildSystemPrompt(
   if (levers?.npcMemorySpeech === true) base = withMemorySpeechInstruction(base);
   if (levers?.goalMood === true) base = withMoodCauseInstruction(base);
   if (levers?.disclosureEngine === true) base = withDisclosureInstruction(base);
+  if (levers?.dodging === true) base = withDodgingInstruction(base);
   if (levers?.confrontMisfire === false) base = withoutConfrontMisfire(base);
   const gate = uncommittedCeremonyGate(moment, view);
   return [
@@ -2163,17 +2188,35 @@ export function buildSystemPrompt(
 const MEETING_CLAIM: Readonly<Record<string, (c: { subject: string; object?: string }, caller: string) => string>> = {
   "targets-you": (c) => `${c.subject} is targeting the houseguests`,
   "voted-to-evict-you": (c, caller) => `${c.subject} voted to evict ${c.object ?? caller}`,
+  "voted-against": (c, caller) => `${c.subject} voted to evict ${c.object ?? caller}`,
   "final-two-with": (c) => `${c.subject} has a final two with ${c.object ?? "someone"}`,
   "going-after": (c) => `${c.subject} is going after ${c.object ?? "someone"}`,
   "talking-about": (c) => `${c.subject} has been talking about ${c.object ?? "someone"} behind their back`,
   "lying-about": (c) => `${c.subject} is lying${c.object ? ` to ${c.object}` : ""}`,
 };
 
-/** 0156: one line for the narrator, from the Vault-free meeting view (names and the claim kind only). */
-export function houseMeetingLine(m: { caller: string; accused: string; claim: { kind: string; subject: string; object?: string }; answer: string; redirectTo?: string }): string {
+/** 0156: one line for the narrator, from the Vault-free meeting view (names and the claim kind only). ORW-596: with no answer yet, the accused is the player and the reply is theirs alone. */
+export function houseMeetingLine(m: { caller: string; accused: string; claim: { kind: string; subject: string; object?: string }; answer?: string; awaitingAnswer?: boolean; redirectTo?: string }): string {
   const said = (MEETING_CLAIM[m.claim.kind] ?? ((c) => `${c.subject} did something`))(m.claim, m.caller);
+  if (m.answer === undefined) {
+    return `${m.caller} called the house together and said: ${said}. This accuses the PLAYER and the player has NOT answered. Voice the accusation as ${m.caller}'s own words and STOP there: the reply is the player's alone, so never deny, admit, deflect or answer for them, and do not say whether it is true or how anyone took it. When the player answers in their own words, record it once with submitDecision (kind meeting-answer, vote deny, admit or redirect as their words plainly mean, statement their words as they wrote them); an unanswered accusation stands`;
+  }
   const reply = m.answer === "admit" ? `${m.accused} admits it`
     : m.answer === "redirect" ? `${m.accused} turns it back, telling the house ${m.redirectTo ?? m.caller} is the one lying`
     : `${m.accused} denies it`;
-  return `${m.caller} called the house together and said: ${said}. ${reply}`;
+  const fixed = m.answer === "admit" ? `the accused ADMITS it: they must not deny it, now or in later turns`
+    : m.answer === "redirect" ? `the accused DEFLECTS: they neither confirm nor deny, and must not admit or flatly deny it, now or in later turns`
+    : `the accused DENIES it: they must not admit, confess or concede it, now or in later turns`;
+  return `${m.caller} called the house together and said: ${said}. ${reply}. The answer is FIXED, ${fixed}`;
+}
+
+/** ORW-593: a call for a house meeting the engine refused, said in the world's terms for the narrator to voice. No meeting is held, so none may be improvised. */
+const MEETING_REFUSED: Readonly<Record<string, string>> = {
+  ceremony: "the house is in the middle of a ceremony, so nobody can be pulled aside to accuse anyone",
+  asleep: "someone who would have to be in the room is asleep or not there",
+  nobody: "there is nobody else awake to hear it",
+  spent: "the house has already been called together this week and nobody will gather again so soon",
+};
+export function houseMeetingRefusedLine(reason: string): string {
+  return `The player tried to call the house together and it did not happen: ${MEETING_REFUSED[reason] ?? "the house does not gather"}. No meeting was held, so do not narrate one, no accusation was made and nothing changed`;
 }

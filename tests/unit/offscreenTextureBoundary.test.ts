@@ -108,12 +108,12 @@ describe("0070 — off-screen texture enrichment reaches the engine over the MCP
     const server = new McpServer("player", { player: sb.player, admin: sb.admin, summary: sb.summary, commands, session: sb.session });
     const skeletons = await server.callTool("getOffscreenSceneSkeletons", {}) as { eventId: string }[];
     if (skeletons.length === 0) {
-      // No scenes this tick — write to a non-existent id should return { ok: false }.
+      // No scenes this tick — a write to a non-existent id gets the same { ok: true } receipt as a hidden scene (ORW-570), and stores nothing.
       const res = await server.callTool("recordOffscreenSceneTexture", {
         eventId: "offscreen:gossip:0:0",
         content: "Some voiced prose that will not match.",
       }) as { ok: boolean };
-      expect(res.ok).toBe(false);
+      expect(res.ok).toBe(true); // ORW-570: the same bare receipt as for a real hidden scene (no probing); nothing is stored
       return;
     }
     const res = await server.callTool("recordOffscreenSceneTexture", {

@@ -47,6 +47,7 @@ export function answerPending(p: PendingView, policy: AnswerPolicy = {}): Submit
     // `ceremony-step` (ORW-281 4a) is a WATCH step answered by advanceGame, never by a decision.
     case "ceremony-step":
     case "deal-offer":
+    case "meeting-answer": // ORW-596: open state answered in the player's own words, like a deal offer: never auto-answered
     case "self-evict": return null;
     default: {
       const unknown: never = p.kind;

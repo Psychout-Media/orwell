@@ -1,5 +1,5 @@
 import type { Beat, LiveSeasonState } from "./liveSeason";
-import { nightBreakPending, vetoDrawStage } from "./liveSeason";
+import { nightBreakPending, vetoDrawStage, drawMissedMorning } from "./liveSeason";
 import type { TimeOfDay } from "./timeOfDay";
 import { WAKE_HOUR, eventSpanHours, DAY_END_HOUR } from "./timeOfDay";
 import { CLOCK } from "./sleepConstants";
@@ -86,6 +86,13 @@ function phaseStartHour(phase: TimeOfDay): number {
   }
 }
 
+/**
+ * ORW-565 (Ryne: "there should always be a gap in between"): the least in-game time between the veto DRAW finishing and the competition starting. Taken from the existing event-length table (a
+ * ceremony's span, `eventSpanHours("ceremony")`), never a new number: the house gets at least one ceremony's worth of time to scramble. The competition is also never before its own afternoon start,
+ * so the effective rule is: comp start = the later of the afternoon start and (draw finished + this gap).
+ */
+export const VETO_DRAW_TO_COMP_GAP_HOURS = eventSpanHours("ceremony");
+
 export interface NextMilestone {
   /** The next ceremony the player is heading toward (the live loop's `beat`). */
   beat: StructuralMilestone;
@@ -107,7 +114,12 @@ export function nextMilestone(live: LiveSeasonState | null | undefined): NextMil
   // (the morning of the veto day) until the field exists, and as the competition (afternoon) after.
   const m: StructuralMilestone = vetoDrawStage(live!) ? "veto-draw" : (beat as StructuralMilestone);
   const phase = DAY_SCHEDULE[m];
-  return { beat: m, phase, targetHour: phaseStartHour(phase) };
+  let targetHour = phaseStartHour(phase);
+  // ORW-565: the competition starts no sooner than the gap after the draw finished (a played game; the stamp is the draw's end on the absolute in-game clock).
+  if (m === "veto-competition" && live!.playedGame === true && live!.vetoDrawnAtAbs !== undefined) {
+    targetHour = Math.max(targetHour, live!.vetoDrawnAtAbs + VETO_DRAW_TO_COMP_GAP_HOURS - ((live!.dayNumber ?? 1) - 1) * 24);
+  }
+  return { beat: m, phase, targetHour };
 }
 
 /**
@@ -218,6 +230,7 @@ const EVENT_BEFORE: Partial<Record<StructuralMilestone, StructuralMilestone>> = 
 export function todaysEvent(live: LiveSeasonState | null | undefined): StructuralMilestone | null {
   const m = nextMilestone(live);
   if (!m || live?.timeOfDay === undefined || !nightBreakPending(live!)) return null;
+  if (drawMissedMorning(live!)) return null; // ORW-565: the draw missed its morning: today holds no event of its own, the draw is simply tomorrow morning
   const hour = live!.nightDepth ?? WAKE_HOUR;
   if (hour >= DAY_END_HOUR - 0.01) return null;
   if (m.beat === "hoh-competition" && live!.week === 1) return null; // the premiere evening: no event of its own

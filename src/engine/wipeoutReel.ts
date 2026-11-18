@@ -102,6 +102,29 @@ const GENERIC_FAILURE_STYLES: readonly string[] = [
   "goes out exactly the way the house would have bet",
 ];
 
+/** ORW-509: tails that sit after any failure style; the pool a drop draws from is each authored style alone, then each style (+ an optional adverb) x tail (2 styles became ~30 per archetype). */
+const FAILURE_TAILS: readonly string[] = [
+  "and the house winces", "and takes it with a shrug", "while the others pretend not to look", "and the room goes quiet", "to a long, loud groan from the sidelines",
+  "and tries to laugh it off", "and nobody quite knows what to say", "with the whole set watching", "and then stares at the floor", "while somebody claps out of pity",
+  "and the host lets the silence sit", "as the next player steps up",
+];
+/** A few extra generic styles for the fallback bank (an unset or legacy archetype), so the fallback is not two lines. */
+const GENERIC_EXTRA_STYLES: readonly string[] = [
+  "loses the thread at the one moment it mattered", "runs out of steam a step before it would have counted", "goes down swinging, and it still looks like a miss",
+  "does everything right except the last thing", "makes it look easy right up until it isn't", "freezes, thaws, and is a beat too late",
+];
+const FAILURE_ADVERBS: readonly string[] = ["", "again", "as usual", "as ever", "in public", "on camera", "for the cameras", "quietly"];
+const widenedCache = new Map<string, readonly string[]>();
+function widenedStyles(key: string, base: readonly string[]): readonly string[] {
+  let hit = widenedCache.get(key);
+  if (!hit) {
+    const seeds = key === "generic" ? [...base, ...GENERIC_EXTRA_STYLES] : base;
+    hit = [...seeds, ...seeds.flatMap((b) => FAILURE_ADVERBS.flatMap((l) => FAILURE_TAILS.map((t) => `${b}${l ? ` ${l}` : ""}, ${t}`)))];
+    widenedCache.set(key, hit);
+  }
+  return hit;
+}
+
 /** Format-appropriate flavor clause (mirrors `ELIMINATION_VERB`'s per-format grammar, COMP-3/BB-9). */
 const FORMAT_FAILURE_TAGS: Readonly<Record<CompetitionFormat, string>> = {
   endurance: "before the wall gets the better of them",
@@ -159,7 +182,7 @@ export function deriveFailureFact(
 ): WipeoutFailureFact {
   const bank = archetype ? ARCHETYPE_FAILURE_STYLES[archetype] : undefined;
   const key = bank ? archetype! : "generic";
-  const phrase = rng.pick(bank ?? GENERIC_FAILURE_STYLES);
+  const phrase = rng.pick(widenedStyles(key, bank ?? GENERIC_FAILURE_STYLES)); // ORW-509: still ONE pick; the bank is the authored styles + styles x tails
   const mood = emotionalState === undefined ? "" : moodQualifier(moodWord(emotionalState, 0.5));
   const formatTag = format ? FORMAT_FAILURE_TAGS[format] : undefined;
   const clauses = [phrase, mood, formatTag].filter((c): c is string => !!c);

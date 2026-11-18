@@ -136,7 +136,8 @@ def test_img_src_is_assigned_only_on_a_real_transition():
 def test_reorder_moves_live_nodes_instead_of_rebuilding():
     body = _render_body()
     # The status tiers + stable ordering survive…
-    assert "order = { active: 0, jury: 1, evicted: 2 }" in body
+    # ORW-641: the order is the week's (HOH, veto holder, nominees, the rest A-Z, the departed latest-out first), a pure function
+    assert "orderRoster(roster, _roles)" in body
     # …and re-ordering appends EXISTING elements (appendChild MOVES a live node —
     # no re-mount, so loaded images do not reload).
     assert "grid.appendChild(node)" in body

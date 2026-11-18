@@ -18,6 +18,8 @@
  * (witness set = the participants; the player only when present, which makes it a witnessed, non-secret scene), and folds it through the
  * existing interaction types.
  */
+import { TERRITORY } from "./territory";
+import { PLAYER } from "../domain/ids";
 import type { EntityId } from "../domain/ids";
 import type { Room } from "../domain/house";
 import type { InteractionType } from "./relationshipConstants";
@@ -39,7 +41,7 @@ export type ActionKind =
   // attack
   | "drive-a-wedge" | "frame" | "flip-a-vote" | "campaign-against" | "confront"
   // house life
-  | "gossip" | "cook" | "work-out" | "do-chores" | "nap" | "prank" | "comfort" | "chore-fight" | "homesick-talk" | "bed-talk" | "game-of-cards" | "sunbathe" | "tell-stories"
+  | "gossip" | "debrief" | "cook" | "work-out" | "do-chores" | "nap" | "prank" | "comfort" | "chore-fight" | "homesick-talk" | "bed-talk" | "game-of-cards" | "sunbathe" | "tell-stories"
   // romance
   | "flirt" | "cuddle"
   // alone
@@ -87,6 +89,8 @@ export const ACTIONS: Readonly<Record<ActionKind, ActionSpec>> = {
   "campaign-against": { family: "attack", partners: { min: 1, max: 2 }, fold: "strategy", speech: true },
   confront: { family: "attack", partners: { min: 1, max: 1 }, fold: "conflict", speech: true },
   gossip: { family: "house-life", partners: { min: 1, max: 2 }, fold: "gossip", speech: true },
+  // ORW-566 (spec 0183): a close pair's private debrief at their own spot after a ceremony. Folds like any bonding scene (same magnitude class), so it never distorts an edge.
+  debrief: { family: "house-life", partners: { min: 1, max: 1 }, fold: "bonding", speech: true },
   cook: { family: "house-life", partners: { min: 0, max: 3 }, fold: "bonding", speech: false, place: "kitchen" },
   "work-out": { family: "house-life", partners: { min: 0, max: 2 }, fold: "bonding", speech: false, place: "backyard" },
   "do-chores": { family: "house-life", partners: { min: 0, max: 2 }, fold: "bonding", speech: false, place: "kitchen" },
@@ -148,6 +152,8 @@ export interface HourView {
   owner: EntityId;
   character: AgendaCharacter;
   agenda: Agenda | undefined;
+  /** ORW-625: the step each goal's stored plan says is next (goal id -> step). A goal with a plan takes ITS step, waiting for the partner, instead of re-rolling the hour. Absent = byte-identical. */
+  plans?: ReadonlyMap<string, PlanStep>;
   habits: readonly Habit[];
   /** Soul emotional state 0..1 (0.5 calm). */
   emotional: number;
@@ -157,6 +163,8 @@ export interface HourView {
   whereabouts: ReadonlyMap<EntityId, Room>;
   /** The holder's affinity and threat reads (0..1). */
   affinity: ReadonlyMap<EntityId, number>;
+  /** ORW-622 (mixed relationships): the holder's grudge strand toward each houseguest (0..1), from the bond record. Rubs at dinner even when they are warm. Absent = byte-identical. */
+  rivalry?: ReadonlyMap<EntityId, number>;
   threat: ReadonlyMap<EntityId, number>;
   /** Alliance mates now. */
   mates: readonly EntityId[];
@@ -168,6 +176,9 @@ export interface HourView {
   timeOfDay: TimeOfDay;
   day: number;
   hour: number;
+  /** ORW-581 (Fable T1-14): which stretch of this same game hour this is (0 or absent = the first). More than one off-screen tick can land in one hour (a beat that covered
+   *  hours, a nap, a hang-out); the hour's rolls key on it so a second stretch rolls fresh dice instead of replaying the first one's choices. */
+  repeat?: number;
   /** True while a competition is running: public reactions only. */
   inCompetition: boolean;
   /** ORW-466 slice 4 (assigned beds): the room they sleep in (the HOH room for the HOH), their roommates and the one who shares their double. All absent in a game without beds (headless,
@@ -175,6 +186,8 @@ export interface HourView {
   bedroom?: Room;
   roommates?: readonly EntityId[];
   bedPartner?: EntityId;
+  /** ORW-561 (spec 0176 part 2): awake houseguests who share the holder's top room (territory). Absent = no pull = byte-identical. */
+  kindred?: ReadonlySet<EntityId>;
   /** ORW-329: people they avoid in free time (an ex from before the show). A goal step may still seek them out. */
   avoid?: readonly EntityId[];
   /** The candor of the holder's speech (from REASONS candor tables, passed by the caller), 0..1. */
@@ -183,7 +196,31 @@ export interface HourView {
   rituals?: ReadonlyArray<{ timeOfDay: TimeOfDay; action: ActionKind; name: string }>;
   /** ORW-551 (spec 0168 slice 2): the season's house culture as multipliers on the baseline of gossip / conflict / flirting / lying. Absent = all exactly 1 = byte-identical. */
   culture?: HouseCulture;
+  /** ORW-566 (spec 0183): the close pairs this houseguest keeps a debrief spot with, ONLY in the hours after a ceremony (the caller builds it; absent = byte-identical). `key` is the pair's stable key. */
+  pairHabits?: ReadonlyArray<{ with: EntityId; room: Room; key: string }>;
+  /** 0173 (Theme 3 slice 11): the court. The new HOH is sought out: `pull` is this houseguest's per-hour chance of going to them, `danger` when they are on the block or the HOH reads them as a threat. Absent = byte-identical. */
+  court?: { pull: number; danger: boolean };
+  /** ORW-590 (Fable T2-7): how much a listener is worth lying to FOR a goal aimed at `target` (0 = not a swing voter; the caller builds it from the listener's own read of the target, their credulity and a keyed rotation). Absent = the old best-friend-first order, byte-identical. */
+  swing?: (listener: EntityId, target: EntityId) => number;
+  /** ORW-620 (night owls): present only when the late-night mode is on in a played game. `playerUp`: the player is still awake, so an awake houseguest may seek THEM out (through the desire clock's own approach path); absent = byte-identical. */
+  nightOwl?: { playerUp: boolean };
 }
+
+/** ORW-590: how a goal's audience is ranked once a swing read is supplied. A swing voter always outranks a non-swing one; the bond is only a small tiebreak. */
+export const LIE_AUDIENCE = {
+  /** A listener whose own read of the target leans less than this (0..1) is "on the fence". */
+  minPivot: 0.4,
+  /** Someone already in the planter's alliance is already on side: worth less to work on. */
+  allyDiscount: 0.5,
+  /** The planter is in the room with them. */
+  sameRoom: 1.2,
+  /** The bond's weight in the order (a tiebreak: it can never lift a non-swing voter above a swing one). */
+  bondTiebreak: 0.02,
+  /** Weight on credulity (0.5 + credulity). */
+  credulityBase: 0.5,
+  /** Hourly rotation spread so the same person is not worked every hour. */
+  rotation: 0.25,
+} as const;
 
 export interface PlannedAction {
   actor: EntityId;
@@ -200,8 +237,14 @@ export interface PlannedAction {
   about?: EntityId;
   /** ORW-337: the name of the house ritual this action is (a PUBLIC name: the scene records it so the narrator may use it once the player has seen one). */
   ritual?: string;
+  /** ORW-566: the pair key of the private habit this scene is (engine-only; the caller stamps it on the event). */
+  habit?: string;
   /** ORW-324: the interaction type this action folds through (defaults to the action's own; pitching someone not yet an ally is strategy talk, not an alliance). */
   fold?: InteractionType;
+  /** 0173: this step is the houseguest seeking out the HOH (the court). Engine-only. */
+  court?: boolean;
+  /** ORW-620: this step is a late-night talk among the awake few (the caller stamps it on the event; engine-only). */
+  nightOwl?: boolean;
 }
 
 /** ORW-324: how quick this houseguest is to direct friction (0..1), by archetype. A hothead clashes, a peacemaker almost never. */
@@ -233,6 +276,39 @@ function others(v: HourView): EntityId[] {
 const roomOf = (v: HourView, p: EntityId): Room => v.whereabouts.get(p) ?? v.room;
 const byScore = (xs: EntityId[], f: (p: EntityId) => number): EntityId[] => [...xs].sort((a, b) => f(b) - f(a) || a.localeCompare(b));
 
+/**
+ * ORW-625 (Ryne approved 2026-11-17, Fable idea #2) - PLANS THAT LAST LONGER THAN AN HOUR. A goal's next step used to be re-rolled every game hour, so nobody worked a
+ * plan across a day. Now the first hour a goal acts, a short plan is formed from it (`formPlan`: the steps it would take, fixed once), stored, and carried across hours and
+ * days: each hour the goal takes its plan's next step, waiting for that step's partner if they are not here; it is dropped only for a reason (the goal ends, a partner
+ * leaves the game, or it stalls). So a player can notice someone working on a person over days. Pure here; the adapter stores and advances the plan.
+ */
+export interface PlanStep { kind: ActionKind; with: EntityId[]; about?: EntityId }
+export const GOAL_PLAN = {
+  /** How many steps a plan holds (formed once, from the goal's own fitting actions). */
+  steps: 3,
+  /** A plan with no step taken for this many days is dropped as stalled (a fresh one forms the next time the goal acts). */
+  stallDays: 2,
+} as const;
+/** Form a plan for a goal: the step it takes now, then the next ones it would take, each from its own fixed variant (no re-roll later). Steps with no partner reachable now are kept as they are (they wait). */
+export function formPlan(goal: Goal, v: HourView, first: PlanStep, variantOf: (k: number) => number): PlanStep[] {
+  const steps: PlanStep[] = [first];
+  for (let k = 1; steps.length < GOAL_PLAN.steps && k < GOAL_PLAN.steps * 4; k++) {
+    const s = nextStepFor(goal, v, variantOf(k));
+    if (!s) continue;
+    const step: PlanStep = { kind: s.kind, with: [...s.with], ...(s.about ? { about: s.about } : {}) };
+    const last = steps[steps.length - 1]!;
+    if (last.kind === step.kind && last.with.join() === step.with.join()) continue; // a plan is a sequence, not the same move three times
+    steps.push(step);
+  }
+  return steps;
+}
+/** The plan's step as an action for this hour, if its partner(s) are reachable now; undefined = wait (the plan keeps its place). */
+export function planStepNow(step: PlanStep, goal: Goal, v: HourView): (Omit<PlannedAction, "actor" | "manner" | "truthful" | "place"> & { place?: Room }) | undefined {
+  const pool = others(v);
+  if (!step.with.every((p) => pool.includes(p))) return undefined;
+  return { kind: step.kind, with: [...step.with], goalId: goal.id, goalKind: goal.kind, ...(step.about ? { about: step.about } : {}) };
+}
+
 /** The next step for one goal: an action, with whom, about whom. Returns undefined when nothing useful can be done this hour. */
 export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedAction, "actor" | "manner" | "truthful" | "place"> & { place?: Room } | undefined {
   // A season-long aim is lived in many small ways, not one repeated move: `variant` (a 0..1 roll) picks among its fitting actions.
@@ -243,8 +319,22 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
   const aff = (p: EntityId): number => v.affinity.get(p) ?? 0.4;
   const thr = (p: EntityId): number => v.threat.get(p) ?? 0.3;
   const voters = pool.filter((p) => p !== v.hoh && !v.nominees.includes(p) && p !== t);
-  const pick = (k: ActionKind, partners: EntityId[], about?: EntityId) =>
-    partners.length >= ACTIONS[k].partners.min ? { kind: k, with: partners.slice(0, Math.max(ACTIONS[k].partners.min, 1) || 0), goalId: goal.id, goalKind: goal.kind, ...(about ? { about } : {}) } : undefined;
+  // ORW-572 (Fable T1-3, Ryne: "sleep means no scheming"): a step only ever names a partner who is in the hour view (awake and reachable); a named HOH or target who is asleep or away is dropped, and a step that then lacks its partner is not taken.
+  const pick = (k: ActionKind, partners: EntityId[], about?: EntityId) => {
+    const here = partners.filter((p) => pool.includes(p));
+    return here.length >= ACTIONS[k].partners.min ? { kind: k, with: here.slice(0, Math.max(ACTIONS[k].partners.min, 1) || 0), goalId: goal.id, goalKind: goal.kind, ...(about ? { about } : {}) } : undefined;
+  };
+  // ORW-590: the people worth working on for this goal: swing voters first (by how undecided and how credulous they are, whether the planter can reach them), the bond only a small tiebreak.
+  // No swing read supplied, or nobody on the fence: the old best-friend-first order.
+  const earsFor = (target: EntityId | undefined): EntityId[] => {
+    const sw = v.swing;
+    if (!sw || !target || !voters.some((p) => sw(p, target) > 0)) return byScore(voters, aff);
+    const mine = new Set(v.mates);
+    return byScore(voters, (p) => {
+      const s = sw(p, target);
+      return s > 0 ? s * (mine.has(p) ? LIE_AUDIENCE.allyDiscount : 1) * (roomOf(v, p) === v.room ? LIE_AUDIENCE.sameRoom : 1) + LIE_AUDIENCE.bondTiebreak * aff(p) : LIE_AUDIENCE.bondTiebreak * aff(p) - 1;
+    });
+  };
   switch (goal.kind) {
     case "get-them-out": case "revenge": {
       if (!t) return undefined;
@@ -254,7 +344,7 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
         const heat = Math.min(1, temperOf(v.character) * (1 + Math.max(0, 0.5 - v.emotional)) * (goal.kind === "revenge" ? 1.3 : 1) + hot);
         if (variant < heat) return pick("confront", [t]);
       }
-      const ears = byScore(voters, aff);
+      const ears = earsFor(t);
       // A campaign is many small moves: lobbying the HOH, but mostly working the house (stories, wedges, fishing), not one repeated pitch.
       if (v.nominees.includes(t)) return pick("flip-a-vote", ears, t);
       if (v.hoh && v.hoh !== v.owner && v2 < 0.3) return pick("campaign-against", [v.hoh], t);
@@ -273,7 +363,7 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
     case "pull-them-in": return t ? pick(among(["pitch", "check-in", "comfort", "tell-stories", "cook", "game-of-cards"] as const) === "pitch" ? (aff(t) > 0.7 ? "recruit" : "pitch") : among(["pitch", "check-in", "comfort", "tell-stories", "cook", "game-of-cards"] as const), [t]) : undefined;
     case "keep-them-safe": return t ? pick(v.hoh && v.hoh !== v.owner ? "lobby-for" : "count-votes", v.hoh && v.hoh !== v.owner ? [v.hoh] : byScore(voters, aff), t) : undefined;
     case "protect-my-person": return t ? pick(among(["check-in", "comfort", "tell-stories", "cook"] as const), [t]) : undefined;
-    case "long-con": return t ? (v.nominees.includes(t) ? pick("flip-a-vote", byScore(voters, aff), t) : pick(among(["check-in", "comfort", "tell-stories", "game-of-cards"] as const), [t], t)) : undefined;
+    case "long-con": return t ? (v.nominees.includes(t) ? pick("flip-a-vote", earsFor(t), t) : pick(among(["check-in", "comfort", "tell-stories", "game-of-cards"] as const), [t], t)) : undefined;
     case "find-out": return pick(t ? "fish" : "test-a-rumor", byScore(pool.filter((p) => p !== t), aff), t);
     case "win-power": return { kind: "study-for-comps", with: [], goalId: goal.id, goalKind: goal.kind };
     case "keep-my-secret": return undefined; // a secret is kept by what they DON'T do: it shapes speech (themes 2 and 4), not an hourly action
@@ -290,7 +380,8 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
  * Purposeful actions go where the partner is (they walk there on purpose); house life happens in its usual room or where they are.
  */
 export function chooseHourAction(v: HourView, seed: number): PlannedAction {
-  const roll = (salt: string): number => agendaRoll(seed, v.owner, `hour:d${v.day}h${v.hour}:${salt}`);
+  const hourKey = `d${v.day}h${v.hour}${v.repeat ? `r${v.repeat}` : ""}`; // ORW-581: the first stretch of an hour keys exactly as before; a repeat gets its own dice
+  const roll = (salt: string): number => agendaRoll(seed, v.owner, `hour:${hourKey}:${salt}`);
   const pool = others(v);
   const cul = v.culture;
   const cGossip = cul?.gossip ?? 1, cFlirt = cul?.flirting ?? 1, cLie = cul?.lying ?? 1;
@@ -331,12 +422,26 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
     // A season-long MAIN aim is a background pull; week goals and emergent season goals (revenge, a long con, a secret) are the pressing ones.
     const drive = g.commitment * HOUSE_LIFE.goalDrive * (MAIN_AIMS.has(g.kind) ? HOUSE_LIFE.mainAimDrive : 1);
     if (drive < lifePull * roll(`life:${g.id}`)) continue; // ordinary life wins over THIS goal this hour; a more pressing one may still win
-    const step = nextStepFor(g, v, roll(`variant:${g.id}`));
+    // ORW-625: a goal with a stored plan takes the plan's next step (and waits for its partner if they are not reachable this hour: no re-roll).
+    const planned = v.plans?.get(g.id);
+    const step = planned ? planStepNow(planned, g, v) : nextStepFor(g, v, roll(`variant:${g.id}`));
     if (step) return finish(step);
+  }
+
+  // 0173: the court. After their own goals, a houseguest seeks out the sitting HOH (the ones in danger far more often); the HOH room is where they go. A keyed roll only (no shared draw).
+  if (v.court && v.hoh && v.hoh !== v.owner && pool.includes(v.hoh) && !avoid.has(v.hoh) && roll("court") < v.court.pull) {
+    return { ...finish({ kind: v.court.danger ? "beg" : "check-in", with: [v.hoh] }), court: true };
   }
 
   // House life: a showmance partner nearby, a habit for this time of day, a low mood, or whoever is around.
   if (v.showmance && pool.includes(v.showmance) && roll("romance") < HOUSE_LIFE.romanceChance * cFlirt) return finish({ kind: roll("cuddle") < 0.5 ? "flirt" : "cuddle", with: [v.showmance] });
+  // ORW-566 (spec 0183): a close pair keeps a private debrief at their own spot in the hours after a ceremony. Keyed roll only (no shared draw); the partner must ALREADY be at the spot (only the actor moves,
+  // review of #2850) or it falls through to ordinary life; the meetings dial scales how often.
+  if (v.pairHabits?.length) {
+    const mine = v.pairHabits.filter((h) => pool.includes(h.with) && roomOf(v, h.with) === h.room && !avoid.has(h.with)).sort((a, b) => a.key.localeCompare(b.key));
+    const h = mine.find((x) => agendaRoll(seed, v.owner, `habit-pair:${x.key}:${hourKey}`) < HOUSE_LIFE.pairHabitPull * (cul?.meetings ?? 1));
+    if (h) return finish({ kind: "debrief", with: [h.with], place: h.room, habit: h.key });
+  }
   // ORW-337 (spec 0146 lane 2): a house ritual pulls anyone free into its action at its time of day, gathering them where it happens (the same shape as a habit), and the scene carries its name.
   // ORW-507 (#2611): ONE ritual per time of day is chosen first (the seeded-first match, so two rituals sharing a time never double the 0.3 pull), then rolled; a ritual with nobody to share it
   // (its action needs a partner, or it has none to record: a solo ritual leaves no event) falls through to ordinary life instead of silently eating the hour.
@@ -359,6 +464,32 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
     const max = ACTIONS[k].partners.max;
     return finish({ kind: k, with: company.slice(0, max), ...(spot ? { place: spot } : {}) });
   }
+  // ORW-620 (night owls, Ryne approved 2026-11-17): in the night hours the few who are still UP gather and talk. Only the awake are in `pool` (a sleeper never schemes, ORW-572), the partner is whoever
+  // is up (the player too when they are), and the talk is built from the holder's own state: a pressing goal's step, a clash with someone they rub wrong, a confession when low, otherwise bonding. A keyed roll
+  // only (no shared draw); a seeded, bounded pull replaces an ordinary free hour, never a goal hour.
+  if (v.nightOwl && (v.timeOfDay === "night" || v.timeOfDay === "late-night") && pool.length > 0 && pool.length <= HOUSE_LIFE.nightOwlMaxOthers
+      && roll("owl") < HOUSE_LIFE.nightOwlPull * (v.timeOfDay === "late-night" ? HOUSE_LIFE.nightOwlLateScale : 1)) {
+    const company = (p: EntityId): number => pool.filter((q) => q !== p && roomOf(v, q) === roomOf(v, p)).length;
+    const candidates = pool.filter((p) => !avoid.has(p) && (p !== PLAYER || v.nightOwl!.playerUp));
+    const buddy = byScore(candidates.length ? candidates : [], (p) => (v.affinity.get(p) ?? 0.4) + roll(`owl-who:${p}`) * 0.3 + company(p) * HOUSE_LIFE.nightOwlGatherLean + (roomOf(v, p) === v.room ? 0.1 : 0))[0];
+    const withPlayer = (kind: ActionKind, partner: EntityId): PlannedAction => ({ ...finish({ kind, with: [partner] }), nightOwl: true });
+    if (buddy) {
+      // scheming: a goal they are driven by whose step lands on someone awake (the step only names the awake)
+      for (const g of ordered) {
+        if (g.commitment * 0.8 <= roll(`owl-goal:${g.id}`)) continue;
+        const step = nextStepFor(g, v, roll(`variant:${g.id}`));
+        if (step && step.with.length > 0 && (v.nightOwl.playerUp || !step.with.includes(PLAYER))) return { ...finish(step), nightOwl: true };
+      }
+      const aff = v.affinity.get(buddy) ?? 0.4;
+      const sore = Math.max(Math.max(0, HOUSE_LIFE.frictionAffinity - aff) / HOUSE_LIFE.frictionAffinity, v.rivalry?.get(buddy) ?? 0);
+      // a fight: dislike, a short temper and a low mood (the same friction shape as ordinary life, but the small hours rub raw)
+      if (sore > 0 && roll("owl-fight") < HOUSE_LIFE.frictionChance * cConflict * (0.5 + sore) * (0.5 + temperOf(v.character)) * (1 + Math.max(0, 0.5 - v.emotional) * 2)) return withPlayer("confront", buddy);
+      if (v.emotional < HOUSE_LIFE.nightOwlConfessMood) return withPlayer("homesick-talk", buddy);
+      // bonding, and the room fills: another awake houseguest already in their room joins (a trio)
+      const joiners = pool.filter((q) => q !== buddy && !avoid.has(q) && q !== PLAYER && roomOf(v, q) === roomOf(v, buddy)).slice(0, 1);
+      return { ...finish({ kind: roll("owl-bond") < 0.5 ? "bed-talk" : "tell-stories", with: [buddy, ...joiners] }), nightOwl: true };
+    }
+  }
   if (v.emotional < 0.3) {
     const friend = byScore(here, (p) => v.affinity.get(p) ?? 0)[0];
     return finish(friend && (v.affinity.get(friend) ?? 0) > 0.55 ? { kind: "homesick-talk", with: [friend] } : { kind: roll("vent") < 0.5 ? "vent-in-diary-room" : "mull", with: [] });
@@ -372,15 +503,16 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
       const mate = v.bedPartner && roomies.includes(v.bedPartner) && roll("bedmate") < HOUSE_LIFE.bedPartnerPull
         ? v.bedPartner
         : byScore(roomies, (p) => (v.affinity.get(p) ?? 0.4) + roll(`roomie:${p}`) * 0.3)[0]!;
-      const sore = Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(mate) ?? 0.4)) / HOUSE_LIFE.frictionAffinity;
+      const sore = Math.max(Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(mate) ?? 0.4)) / HOUSE_LIFE.frictionAffinity, v.rivalry?.get(mate) ?? 0); // ORW-622: a grudge strand rubs too
       const rub = sore > 0 && roll("roomie-friction") < HOUSE_LIFE.frictionChance * cConflict * (0.5 + sore) * (0.5 + temperOf(v.character)) * (1 + Math.max(0, 0.5 - v.emotional) * 2);
       return finish({ kind: rub ? "chore-fight" : v.timeOfDay === "late-night" || roll("roomie-talk") < 0.7 ? "bed-talk" : "homesick-talk", with: [mate], place: v.bedroom });
     }
   }
-  const partner = byScore(here, (p) => (v.affinity.get(p) ?? 0.4) + roll(`who:${p}`) * 0.3)[0];
+  const partner = byScore(here, (p) => (v.affinity.get(p) ?? 0.4) + roll(`who:${p}`) * 0.3 + (v.kindred?.has(p) ? TERRITORY.PARTNER_PULL : 0))[0]; // ORW-561: a mild pull toward people who share your top room (no extra draw)
   if (!partner) return finish({ kind: v.timeOfDay === "late-night" || v.timeOfDay === "night" ? "mull" : "nap", with: [], ...(v.bedroom && v.timeOfDay !== "late-night" && v.timeOfDay !== "night" ? { place: v.bedroom } : {}) });
   // ORW-324: friction is not only between enemies. Mild dislike plus a short temper or a bad mood is enough for a chore fight.
-  const dislike = Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(partner) ?? 0.4)) / HOUSE_LIFE.frictionAffinity;
+  // ORW-622: a grudge strand rubs at dinner even with someone they are warm toward (a pact can still protect them at the vote).
+  const dislike = Math.max(Math.max(0, HOUSE_LIFE.frictionAffinity - (v.affinity.get(partner) ?? 0.4)) / HOUSE_LIFE.frictionAffinity, v.rivalry?.get(partner) ?? 0);
   const friction = dislike > 0 && roll("friction") < HOUSE_LIFE.frictionChance * cConflict * (0.5 + dislike) * (0.5 + temperOf(v.character)) * (1 + Math.max(0, 0.5 - v.emotional) * 2);
   // ORW-324: talking about whoever isn't in the room is half of Big Brother downtime (the house's ordinary gossip, not a scheme).
   const absent = [...v.threat.keys()].filter((p) => p !== partner && roomOf(v, p) !== v.room).sort((a, b) => (v.threat.get(b) ?? 0) - (v.threat.get(a) ?? 0) || a.localeCompare(b));
@@ -431,7 +563,7 @@ const VERB: Readonly<Record<ActionKind, string>> = {
   "count-votes": "counted votes with", "split-roles": "split up the plan with", "lobby-for": "lobbied", beg: "begged", bargain: "bargained with",
   "call-in-favor": "called in a favor with", "make-a-promise": "made a promise to", "lie-low": "laid low", "drive-a-wedge": "drove a wedge with",
   frame: "tried to frame someone to", "flip-a-vote": "worked to flip the vote of", "campaign-against": "campaigned to", confront: "confronted",
-  gossip: "gossiped with", cook: "cooked with", "work-out": "worked out with", "do-chores": "did chores with", nap: "napped", prank: "pranked", comfort: "comforted",
+  gossip: "gossiped with", debrief: "debriefed with", cook: "cooked with", "work-out": "worked out with", "do-chores": "did chores with", nap: "napped", prank: "pranked", comfort: "comforted",
   "chore-fight": "fought over chores with", "homesick-talk": "talked about home with", "bed-talk": "talked late in bed with",
   "game-of-cards": "played cards with", sunbathe: "sunbathed with", "tell-stories": "told stories with", flirt: "flirted with", cuddle: "cuddled with",
   mull: "mulled things over", "vent-in-diary-room": "vented in the Diary Room", "study-for-comps": "studied for comps", pray: "prayed",

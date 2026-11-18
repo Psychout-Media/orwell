@@ -112,6 +112,12 @@ export const AGENDA = {
 export const REASONS = {
   /** Ryne 2026-11-12, answer 1: goals count as much as the threat read. A fully committed goal adds 1.0 x commitment, same scale as threat. */
   goalWeight: 1.0,
+  /** ORW-635 (stacking audit S-2): the share of a push goal's pull that is netted against the threat / grudge / belief terms it was formed from (1 = the goal adds only its excess; 0 = off, the old double count). Dial to shrink if the calibration gates move. */
+  netShare: 1.0,
+  /** ORW-635: the stacked goal + belief + memory read for one option is left alone up to this, then bends smoothly toward `stackCeiling` (so only the stacked outliers, above about 1.4, are touched). */
+  stackKnee: 0.8,
+  /** ORW-635: the ceiling that stacked read approaches (never reaches) - near 1, against a median vote gap of about 1.1. Dial: raise it (or the knee) to shrink the change; a large value turns the ceiling off. */
+  stackCeiling: 1.2,
   /** "Pull them in" shields its target at this share of the goal weight (wanting someone is weaker than vowing to protect them). */
   recruitShield: 0.5,
   /** ORW-314: a goal is credited as the REASON for a decision only when its pull is at least this share of the largest other pushing term. */

@@ -177,9 +177,12 @@ export function evolveEmotion(
   event: EmotionalEvent,
   c: TemperatureConstants = TEMPERATURE_CONSTANTS,
   rng?: RandomnessSource,
-  opts: { soulDepth?: boolean; negativityBias?: boolean; driftScale?: number } = {},
+  opts: { soulDepth?: boolean; negativityBias?: boolean; driftScale?: number; scale?: number } = {},
 ): void {
-  const { valence, arousal } = IMPACT[event];
+  // ORW-567 (mood contagion): a CAUGHT mood is a fraction of the full impulse - `scale` multiplies the valence, the arousal (so the distress/confidence gains follow) and the drift. Absent = 1 = byte-identical.
+  const sc = opts.scale ?? 1;
+  const { valence: v0, arousal: a0 } = IMPACT[event];
+  const valence = v0 * sc, arousal = a0 * sc;
   const k = c.emotional.volatilityScale;
 
   // emotionalState: nudge by valence (scaled by current volatility) + the bounded temperature
@@ -215,7 +218,7 @@ export function evolveEmotion(
       // distress rises on negative-valence events; confidence on positive — INDEPENDENTLY (both can climb).
       soul.distress = clamp01(soul.distress + Math.max(0, -valence) * SOUL_DEPTH.distressGain);
       soul.confidence = clamp01(soul.confidence + Math.max(0, valence) * SOUL_DEPTH.confidenceGain);
-      let d = driftOf(event) * (opts.driftScale ?? 1);
+      let d = driftOf(event) * (opts.driftScale ?? 1) * sc;
       if (opts.negativityBias) d *= d > 0 ? SOUL_DEPTH.negativityClashMul : SOUL_DEPTH.negativityBondMul;
       soul.temperamentDrift = opts.negativityBias ? Math.max(SOUL_DEPTH.driftBondFloor, Math.min(1, soul.temperamentDrift + d)) : clampSigned(soul.temperamentDrift + d, 1);
     }

@@ -13,6 +13,8 @@ import { PLAYER, npc } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import type { DealRefusal, DealView } from "../../src/ports/GameSession";
 import { resolvePending } from "../support/answerPending";
+/** ORW-608: the REAL refusal reason is engine-only (never on the outward object); steps read it through the adapter's private map (TEST-ONLY seam). */
+const realReason = (g: unknown, r: unknown): string | undefined => (r ? (g as { refusalReal: WeakMap<object, string> }).refusalReal.get(r as object) : undefined);
 
 // Feature 0142 - Deal depth II (ORW-88): counteroffers, owed favors, conditional / information / package deals, NPCs weighing a break.
 // Roles only. Every scenario drives the REAL live adapter of a fresh registry sandbox, flagged as a PLAYED game (a person is playing),
@@ -84,7 +86,7 @@ const askThrow = (l: Live) => l.s.makeDeal({ with: l.npc, kind: "comp-throw", di
 function lukewarm(): Live {
   const l = game(true, "counter");
   setEdge(l.g, l.npc, PLAYER, LUKEWARM);
-  assert.equal(l.g.dealConsentRefusal(l.npc, "comp-throw", "ask")?.reason, "cost", "the ask is refused for cost alone");
+  assert.equal(realReason(l.g, l.g.dealConsentRefusal(l.npc, "comp-throw", "ask")), "cost", "the ask is refused for cost alone");
   assert.equal(l.g.dealConsentRefusal(l.npc, "safety"), null, "the NPC would take a safety pact");
   return l;
 }
@@ -103,7 +105,7 @@ When("the player asks that NPC to throw a competition", function (this: BbWorld)
 Then("the ask is refused and the NPC counters with the safety pact the engine says it would take", function (this: BbWorld) {
   const c = st(this);
   assert.equal(c.refusal?.refused, true);
-  assert.equal(c.refusal?.reason, "cost");
+  assert.equal(realReason(c.live!.g, c.refusal), "cost"); // ORW-608: the real reason is engine-only; the outward one is what the NPC says
   assert.equal(c.refusal?.counteroffer?.kind, "safety");
 });
 
@@ -168,6 +170,13 @@ Then("no deal with that NPC is recorded and the offer no longer stands", functio
   assert.equal(l.s.getGameState().openDealOffer ?? undefined, undefined);
 });
 
+/** ONE bank (0171): the player's open favor claims from the favor ledger, grouped like the old `owedFavors` rows; undefined when nothing is owed. */
+const bankOf = (s: unknown): Array<{ debtor: string; n: number }> | undefined => {
+  const by = new Map<string, number>();
+  for (const f of (s as { favorLedger(): ReadonlyArray<{ owedBy: string; holder: string; state: string }> }).favorLedger()) if (f.state === "owed" && f.holder === PLAYER) by.set(f.owedBy, (by.get(f.owedBy) ?? 0) + 1);
+  return by.size ? [...by].map(([debtor, n]) => ({ debtor, n })) : undefined;
+};
+
 // --- 2. Owed favors --------------------------------------------------------------------------------------------------------
 
 Given("a played game where an NPC promised the player to throw a competition", function (this: BbWorld) {
@@ -175,7 +184,7 @@ Given("a played game where an NPC promised the player to throw a competition", f
   const c = st(this);
   c.live = l;
   c.deal = l.g.deals.make([l.npc, PLAYER], "comp-throw", "throw it", undefined, l.g.live.week);
-  assert.equal(l.g.live.owedFavors, undefined, "nothing is owed yet");
+  assert.equal(bankOf(l.s), undefined, "nothing is owed yet");
 });
 
 When("the NPC throws that competition", function (this: BbWorld) {
@@ -186,14 +195,14 @@ When("the NPC throws that competition", function (this: BbWorld) {
 Then("the deal is kept and the player holds a banked favor from that NPC", function (this: BbWorld) {
   const c = st(this); const l = c.live!;
   assert.equal(c.deal!.status, "kept");
-  assert.deepEqual(l.g.live.owedFavors?.map((f) => ({ debtor: f.debtor, n: f.n })), [{ debtor: l.npc, n: 1 }]);
+  assert.deepEqual(bankOf(l.s), [{ debtor: l.npc, n: 1 }]);
   assert.equal(l.s.getGameState().owedFavors?.[0]?.from.id, l.npc, "the player can see who owes them (no number of trust)");
 });
 
 Given("a played game where an NPC owes the player a favor and would refuse a comp-throw ask for cost alone", function (this: BbWorld) {
   const l = game(true, "favor");
   setEdge(l.g, l.npc, PLAYER, LUKEWARM);
-  assert.equal(l.g.dealConsentRefusal(l.npc, "comp-throw", "ask")?.reason, "cost", "without the favor the ask is refused for cost");
+  assert.equal(realReason(l.g, l.g.dealConsentRefusal(l.npc, "comp-throw", "ask")), "cost", "without the favor the ask is refused for cost");
   l.g.bankOwedFavor(l.npc, PLAYER);
   st(this).live = l;
 });
@@ -222,7 +231,7 @@ Then("the engine has the NPC honor it with an ordinary deal and the favor is spe
   const deals = dealsWith(l, l.npc);
   assert.equal(deals.length, 1);
   assert.equal(deals[0]!.kind, "comp-throw");
-  assert.equal(l.g.live.owedFavors, undefined, "the favor is spent");
+  assert.equal(bankOf(l.s), undefined, "the favor is spent");
   assert.equal(l.s.callInFavor(l.npc, "comp-throw"), null, "nothing left to call in");
 });
 
@@ -230,7 +239,7 @@ Then("the engine has the NPC ignore it, no deal binds and the favor is spent", f
   const c = st(this); const l = c.live!;
   assert.equal(c.favor?.honored, false);
   assert.equal(dealsWith(l, l.npc).length, 0);
-  assert.equal(l.g.live.owedFavors, undefined);
+  assert.equal(bankOf(l.s), undefined);
 });
 
 Then("the player's hidden trust in that NPC falls", function (this: BbWorld) {

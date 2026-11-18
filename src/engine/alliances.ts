@@ -35,6 +35,8 @@ export interface Alliance {
   lowDays?: number;
   /** ORW-353: the last in-game day the neglect check ran for this alliance (so a day is counted once). Absent = never checked. */
   checkedDay?: number;
+  /** 0172 / ORW-603: the roster the player was TOLD when the alliance was pitched to them (ids, frozen at the pitch). The player's pitch view shows this, never the live membership. Absent = never pitched with the flag on. */
+  toldRoster?: EntityId[];
 }
 
 export interface AllianceConstants {
@@ -90,11 +92,64 @@ export const ALLIANCE_NAMES: readonly string[] = [
   "The Regulators", "The Hitmen", "The Bloc Party", "The Round Table", "The Cartel",
 ];
 
-/** Pick an unused alliance name (seeded); falls back to a numbered one if the pool is exhausted. */
-export function pickAllianceName(rng: { int(n: number): number }, taken: ReadonlySet<string>): string {
-  const free = ALLIANCE_NAMES.filter((n) => !taken.has(n));
-  if (free.length > 0) return free[rng.int(free.length)]!;
-  return `${ALLIANCE_NAMES[rng.int(ALLIANCE_NAMES.length)]!} ${taken.size + 1}`;
+/**
+ * ORW-509: the composed alliance-name floor. A house of 18 names ran dry and fell back to "The Core 2"; names are now composed from parts (the 18 classics
+ * stay as one region), so a season never repeats a name and two seasons rarely share one. The writer still names live alliances from the cast's own
+ * story; this is what the engine says offline. Generic, BB-plausible, never a houseguest name.
+ */
+const ALLIANCE_COLLECTIVES: readonly string[] = [
+  "Brigade", "Committee", "Core", "Nucleus", "Quad", "Pact", "Syndicate", "Crew", "Founders", "Outsiders", "Regulators", "Hitmen", "Cartel", "Council", "Coalition",
+  "Posse", "Union", "Guild", "Order", "Network", "Collective", "Faction", "Cabal", "Alliance", "Squad", "Circle", "Cooperative", "Society", "Wolf Pack", "Task Force",
+  "Roundtable", "Board", "Firm", "Mob", "Lodge", "Tribe", "Gang", "Band", "Ring", "Clique", "Camp", "Table", "Troop", "League", "Party", "Fellowship", "Majority",
+  "Minority", "Underground", "Resistance", "Dynasty", "Empire", "Legion", "Orchard", "Vault Club", "Group Chat", "Study Group", "Book Club", "Welcome Committee",
+];
+const ALLIANCE_QUALITIES: readonly string[] = [
+  "Quiet", "Silent", "Loyal", "Last", "First", "Midnight", "Backyard", "Kitchen", "Wildcard", "Underdog", "Sleeper", "Golden", "Iron", "Velvet", "Tidal", "Hidden",
+  "Rogue", "Bold", "Steady", "Careful", "Reckless", "Honest", "Sunday", "Late-Night", "Fearless", "Patient", "Narrow", "Broken", "Rising", "Unlikely", "Cold",
+  "Clever", "Scrappy", "Secret", "Ride-or-Die", "Odd", "Lucky", "Moonlit", "Hot", "Dusty",
+];
+const ALLIANCE_PLACES: readonly string[] = [
+  "Pantry", "Patio", "Hammock", "Hot Tub", "Kitchen", "Couch", "Laundry", "Back Porch", "Hallway", "Bunk", "Rooftop", "Garden", "Gym", "Pool", "Fire Pit", "Porch",
+  "Basement", "Attic", "Driveway", "Dock",
+];
+const ALLIANCE_NUMBERS: readonly string[] = ["Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve"];
+const ALLIANCE_NUMBER_NOUNS: readonly string[] = ["Pack", "Squad", "Strong", "Deep", "Club", "Alliance", "Plan", "Rule", "Pact", "Count"];
+
+/** Every composed name, once: the 18 classics first, then the four composed shapes with any repeat of an earlier name dropped (a name never sits in two regions). */
+const ALLIANCE_NAME_LIST: readonly string[] = (() => {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (n: string): void => { if (!seen.has(n)) { seen.add(n); out.push(n); } };
+  for (const n of ALLIANCE_NAMES) add(n);
+  for (const c of ALLIANCE_COLLECTIVES) add(`The ${c}`);
+  for (const q of ALLIANCE_QUALITIES) for (const c of ALLIANCE_COLLECTIVES) add(`The ${q} ${c}`);
+  for (const w of ALLIANCE_PLACES) for (const c of ALLIANCE_COLLECTIVES) add(`${w} ${c}`);
+  for (const n of ALLIANCE_NUMBERS) for (const k of ALLIANCE_NUMBER_NOUNS) add(`${n} ${k}`);
+  return out;
+})();
+
+/** How many distinct names the composed floor can make. */
+export const ALLIANCE_NAME_SPACE = ALLIANCE_NAME_LIST.length;
+
+/** The `index`th composed alliance name (any integer; wraps). Pure. */
+export function allianceNameAt(index: number): string {
+  return ALLIANCE_NAME_LIST[((Math.floor(index) % ALLIANCE_NAME_SPACE) + ALLIANCE_NAME_SPACE) % ALLIANCE_NAME_SPACE]!;
+}
+
+/**
+ * Pick an unused alliance name (seeded). ONE `rng.int` draw, exactly as before (the main stream's consumption is unchanged); the draw addresses the whole
+ * composed space, and a taken name moves to the next free one (bounded, then a numbered plain fallback, which a space this size never reaches in a season).
+ * `avoid` is the previous seasons' names (an explicit input, default empty): they are skipped while any other name is left, so two seasons do not share names.
+ */
+export function pickAllianceName(rng: { int(n: number): number }, taken: ReadonlySet<string>, avoid: ReadonlySet<string> = new Set()): string {
+  const start = rng.int(ALLIANCE_NAME_SPACE);
+  for (const skipAvoid of [true, false]) {
+    for (let k = 0; k < ALLIANCE_NAME_SPACE; k++) {
+      const name = allianceNameAt(start + k);
+      if (!taken.has(name) && !(skipAvoid && avoid.has(name))) return name;
+    }
+  }
+  return `${allianceNameAt(start)} ${taken.size + 1}`;
 }
 
 /** Whether two member lists are the same set (order-independent) — the NPC-formation dedup. */
@@ -174,7 +229,11 @@ export function willingMembers(
  * nothing about an alliance is ever deleted (non-degradation, mandate #4). APPEND-ONLY: an entry is never removed or rewritten once appended (only `eventId` is filled in the one time the
  * engine records the matching event). Engine-only and Vault-sealed: the entries carry who was in a hidden pact, so no player or admin view reads them; the post-season retrospective may.
  */
-export type AllianceChange = "formed" | "joined" | "left" | "betrayed" | "faded" | "dissolved";
+export type AllianceChange = "formed" | "joined" | "left" | "betrayed" | "faded" | "dissolved" | GroupChange;
+/** 0172 (Theme 3 slice 6): the hidden group-life kinds the history also keeps. History-only: none of them records a player-facing event by itself (the act that a player can see records its own). */
+export type GroupChange = "roles" | "inner-circle" | "purpose" | "spy-planted" | "spy-report" | "spy-turned" | "spy-confessed" | "shadow-formed" | "cracked" | "pitched" | "pitch-withdrawn";
+/** The group-life kinds as a set (the event flush skips these: they are history, not events). */
+export const GROUP_CHANGES: ReadonlySet<string> = new Set<GroupChange>(["roles", "inner-circle", "purpose", "spy-planted", "spy-report", "spy-turned", "spy-confessed", "shadow-formed", "cracked", "pitched", "pitch-withdrawn"]);
 
 export interface AllianceHistoryEntry {
   /** 1-based, strictly increasing, never reused (the append position). */
@@ -190,8 +249,10 @@ export interface AllianceHistoryEntry {
   members: EntityId[];
   /** The member a `joined` / `left` / `betrayed` entry is about. */
   who?: EntityId;
-  /** Why it ended or left: `betrayal`, `cohesion`, `evicted`, `evicted-out`, `too-few-members`. */
+  /** Why it ended or left: `betrayal`, `cohesion`, `evicted`, `evicted-out`, `too-few-members`, `crack`. */
   why?: string;
+  /** 0172: what a group-life entry is about (engine-only, Vault-sealed): the roles dealt, the purpose reached, the alliance a shadow group answers, the alliance a cracked-off group came from. */
+  detail?: string;
   /** Whether the player was a member or had been told of the alliance when this happened (decides whether its event is visible to them). */
   playerKnew: boolean;
   /** The event recorded for this change (set once). */
@@ -219,7 +280,7 @@ export class AllianceStore {
     if (e && e.eventId === undefined) e.eventId = eventId;
   }
 
-  private note(a: Alliance, kind: AllianceChange, members: readonly EntityId[], extra: { who?: EntityId; why?: string } = {}): void {
+  private note(a: Pick<Alliance, "id" | "name" | "founder" | "knownTo">, kind: AllianceChange, members: readonly EntityId[], extra: { who?: EntityId; why?: string; detail?: string } = {}): void {
     this.log.push({
       seq: (this.log[this.log.length - 1]?.seq ?? 0) + 1,
       allianceId: a.id, name: a.name, founder: a.founder, kind,
@@ -227,6 +288,7 @@ export class AllianceStore {
       members: [...members],
       ...(extra.who !== undefined ? { who: extra.who } : {}),
       ...(extra.why !== undefined ? { why: extra.why } : {}),
+      ...(extra.detail !== undefined ? { detail: extra.detail } : {}),
       playerKnew: members.includes(PLAYER_ID) || a.knownTo.includes(PLAYER_ID),
     });
   }
@@ -249,6 +311,14 @@ export class AllianceStore {
 
   forMember(member: EntityId): Alliance[] { return alliancesOf(this.alliances, member); }
 
+  /** ORW-509: set an alliance's name (the caller has already applied the naming rules). */
+  rename(id: string, name: string): Alliance | undefined {
+    const i = this.alliances.findIndex((a) => a.id === id);
+    if (i < 0) return undefined;
+    this.alliances[i] = { ...this.alliances[i]!, name };
+    return this.alliances[i];
+  }
+
   byId(id: string): Alliance | undefined { return this.alliances.find((a) => a.id === id); }
 
   /** The alliances a houseguest is AWARE of but NOT a member of (a pitch they can still accept). */
@@ -256,9 +326,10 @@ export class AllianceStore {
     return this.alliances.filter((a) => a.knownTo.includes(who) && !a.members.includes(who));
   }
 
-  /** Make `who` aware of an alliance (a pitch surfaces it without enrolling them). */
-  reveal(id: string, who: EntityId): void {
+  /** Make `who` aware of an alliance (a pitch surfaces it without enrolling them). `told` (0172): the roster the player is told at the pitch, frozen once. */
+  reveal(id: string, who: EntityId, told?: readonly EntityId[]): void {
     const a = this.byId(id);
+    if (a && told && who === PLAYER_ID && !a.toldRoster) a.toldRoster = [...told];
     if (a && !a.knownTo.includes(who)) {
       a.knownTo.push(who);
       // The player told of an alliance in the same pass it formed: its still-unrecorded entries are then known to them (the only field of an entry that moves, besides `eventId`, and only false -> true before its event is recorded).
@@ -288,6 +359,50 @@ export class AllianceStore {
       this.alliances = this.alliances.filter((x) => x.id !== id);
       this.note(a, "dissolved", before, { why: why === "betrayal" ? "betrayal" : "too-few-members" });
     }
+  }
+
+  /**
+   * 0172: a hidden group-life entry (roles dealt, an inner circle, a spy, a shadow group, a purpose shift) appended to the history for a live alliance, or for an ended one by its last
+   * entry's name. Append-only like every entry; nothing about the live list changes. Returns false when the id was never an alliance.
+   */
+  annotate(allianceId: string, kind: GroupChange, extra: { who?: EntityId; why?: string; detail?: string; members?: readonly EntityId[] } = {}): boolean {
+    const a = this.byId(allianceId);
+    if (a) { this.note(a, kind, extra.members ?? a.members, extra); return true; }
+    const last = [...this.log].reverse().find((e) => e.allianceId === allianceId);
+    if (!last) return false;
+    this.note({ id: last.allianceId, name: last.name, founder: last.founder, knownTo: [] }, kind, extra.members ?? last.members, extra);
+    return true;
+  }
+
+  /** 0172 / ORW-611: the alliance withdraws a pitch the player has not accepted (an observable act; the player's awareness of it as a pitch ends, the history keeps it). Never touches an alliance the player belongs to. */
+  withdrawPitch(id: string, who: EntityId): boolean {
+    const a = this.byId(id);
+    if (!a || a.members.includes(who) || !a.knownTo.includes(who)) return false;
+    this.note(a, "pitch-withdrawn", a.members, { who });
+    a.knownTo = a.knownTo.filter((k) => k !== who);
+    return true;
+  }
+
+  /**
+   * 0172: an alliance CRACKS. `leavers` walk out of it; two or more of them found a new alliance (named by the caller, already through the naming rules), one alone just leaves. Nothing is deleted: the original keeps its
+   * history (a `cracked` entry with its whole roster, a `left` per leaver), and the new one gets its own `formed`. The original dissolves, as ever, when it falls under two members. Returns the new alliance, if any.
+   */
+  crack(id: string, leavers: readonly EntityId[], newName: string, formedBeat: number): Alliance | undefined {
+    const a = this.byId(id);
+    if (!a) return undefined;
+    const out = a.members.filter((m) => leavers.includes(m));
+    if (out.length === 0 || out.length === a.members.length) return undefined;
+    const before = [...a.members];
+    this.note(a, "cracked", before, { why: "crack", detail: out.join(",") });
+    a.members = a.members.filter((m) => !out.includes(m));
+    for (const m of out) this.note(a, "left", before, { who: m, why: "crack" });
+    if (a.members.length < 2) {
+      this.alliances = this.alliances.filter((x) => x.id !== id);
+      this.note(a, "dissolved", before, { why: "crack" });
+    }
+    if (out.length < 2) return undefined;
+    const founder = out[0]!;
+    return this.add(newName, founder, out, formedBeat);
   }
 
   /** Every active alliance the two houseguests SHARE (for the betrayal-stakes fold). */

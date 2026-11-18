@@ -22,7 +22,7 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
     // 0150 (ORW-330 slice 2): full-strength beliefs changed which seasons make the player a juror; seed 7 kept askJuror's output exercised.
     // 0163 (ORW-539, 2026-11-16): which seasons seat the player keeps moving with the house's balance, so (the repo's seed-search pattern, #1954) the
     // three sweep seeds always run, and further seeds run only until askJuror has told something. Never pinned to one seed.
-    const SWEEP = [2, 5, 7], EXTRA = [3, 8, 10, 1, 4, 6, 9, 11, 12, 13, 14, 15];
+    const SWEEP = [2, 5, 7], EXTRA = [3, 8, 10, 1, 4, 6, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]; // ORW-574: the own view moves which seasons seat the player as a juror again; the search just reaches further
     for (const seed of [...SWEEP, ...EXTRA]) {
       if (!SWEEP.includes(seed) && totalJurorsTold > 0) break;
       const reg = new GameSessionRegistry();
@@ -383,4 +383,25 @@ describe("A3 - the sentinel canary bites the spectator / week-digest path (0133)
     }
     expect(exercised, "a seed in 1..60 evicted the player before the jury formed").toBe(true);
   }, 600_000);
+
+  it("ORW-618: a juror-player's jury-mode prompt never carries another houseguest's private knowledge (the jury house takes the disclosure gate)", async () => {
+    const reg = new GameSessionRegistry();
+    const user = "u-jury-sentinel";
+    const player = reg.resolver()("player", user) as McpServer;
+    await player.callTool("createCharacter", { playerName: "The Player", seed: 7020 });
+    const sentinels = plantLiveSentinels(reg, user, 7020);
+    const sess = reg.sandboxFor(user).session as any;
+    sess.setJuryHouseEnabled(true);
+    sess.live.playedGame = true;
+    // the player holds a juror's seat; the planted private-knowledge holder (a role) is one of the jurors the prompt voices
+    sess.live.evictionOrder = [npc(10), npc(11), npc(12), npc(13), npc(15), PLAYER, npc(1), npc(2), npc(3), npc(4), npc(5), npc(6), npc(7), npc(8)];
+    sess.live.active = [npc(9), npc(14)];
+    expect(sess.juryHouseView(), "the player is a juror").toBeDefined();
+    const knows = JSON.stringify(reg.sandboxFor(user).engine.knowledge.knownTo(npc(2)));
+    expect(sentinels.some((s) => s.includes("npcknow") && knows.includes(s)), "the private-knowledge sentinel is held by a juror").toBe(true);
+    const seen = [JSON.stringify(sess.presentKnowledgeForPrompt())];
+    for (const [tool, a] of [["getMomentPrompt", { moment: "social" }], ["gameStatus", {}], ["getGameState", {}]] as const) seen.push(JSON.stringify(await player.callTool(tool, a as never)));
+    const all = seen.join("\n");
+    for (const s of sentinels) expect(all.includes(s), `${s} reached the juror-player`).toBe(false);
+  });
 });

@@ -7,6 +7,7 @@ import { richOffscreenStretch } from "../engine/offscreen";
 import { scaleImpactByValence, natureFoldImpact } from "../engine/relationshipConstants";
 import { rollOverhears } from "../engine/presence";
 import { spreadForScenes } from "../engine/copresenceSpread";
+import type { NetworkRoles } from "../engine/networkSpread";
 import { natureFromContent } from "../engine/gossipBeliefs";
 import { diffuseGossip, makeSocialGraph, rumorFrom, gossipEdgeAffinity, GOSSIP } from "../engine/gossip";
 import { confessionalFor, recordConfessional, selectRecentForConfessional } from "../engine/confessionals";
@@ -885,7 +886,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
     // warming fold) but their barbs cut DEEPER (sore ≥ 1 amplifies the souring fold). `{1,1}` (rested /
     // flag-off / clock-off) ⇒ byte-identical to the calibration spine. GAME natures fold their full
     // valence-scaled strategic impact; FRIENDLY natures fold affinity only (unchanged nature split).
-    const sway = sandbox.session.socialFoldValence(s.initiator);
+    const sway = sandbox.session.socialFoldValence(s.initiator, s.partner, s.initiator); // ORW-561: per pair (holder = the partner, about = the initiator)
     const foldImpact = natureFoldImpact(s.type);
     const scaled = sway.warm === 1 && sway.sore === 1
       ? foldImpact
@@ -967,6 +968,8 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   // spine is untouched even while ON. The player learns a bartered secret only if a later pathway
   // (overhear/gossip below, 0002/0094) terminates at them — never as a Vault read.
   sandbox.session.secretBarterTick(sandbox.engine.events, sandbox.engine.knowledge);
+  // 0188 / ORW-619: the trap - once a day, watch the canaries set and maybe set a new one (own side stream; played games only; engine-only).
+  sandbox.session.trapTick(sandbox.engine.knowledge);
 
   // B27b — live gossip: occasionally one of the night's scenes becomes a RUMOR that diffuses along
   // the affinity graph (who actually talks to whom), with low per-edge transmission, decaying
@@ -993,6 +996,8 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
         style: (id) => npcsById.get(id)?.character.strategyStyle,
         volatility: (id) => npcsById.get(id)?.soul.volatility ?? 0.3,
         audienceOf: () => 0,
+        // 0179 (Theme 3 slice 9, ORWELL_NETWORK_SPREAD, default ON): the house's shape adds to the motive - brokers carry news across cliques, weak ties carry across, loners hear late. Undefined when off => byte-identical.
+        ...((): { network?: NetworkRoles } => { const n = sandbox.session.networkRoles(); return n ? { network: n } : {}; })(),
         // B48 (ORWELL_CREDIBILITY, default ON): a lie's arriving confidence scales with how far the LISTENER believes the holder (their own caught-lie evidence + repeats to their ear). Absent => the B34 stand-in.
         ...(sandbox.session.credibilityEnabledNow() ? { credibilityOf: (h: EntityId, l: EntityId, n: number) => sandbox.session.credibilityOf(l, h, n) } : {}),
         // B24/B36: the co-presence receipt writes the SAME `heard-rumor` claim the graph path does (gated by ORWELL_NPC_BELIEFS inside the observer; undefined when off => byte-identical).
@@ -1167,7 +1172,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
         // so this is byte-identical there and only narrows on the opt-in live-time path.
         witnessSet: [PLAYER, ...awakeIds],
         hidden: false,
-        content: nextHouseEvent(sandbox.engine.events, ambientRng, { week: core.week, phase: core.phase }), // E58: varied + day-indexed, never a verbatim repeat
+        content: nextHouseEvent(sandbox.engine.events, ambientRng, { week: core.week, phase: core.phase, ...(core.worldAvoid?.eventLines?.length ? { avoid: new Set(core.worldAvoid.eventLines) } : {}) }), // E58: varied + day-indexed, never a verbatim repeat
       });
     }
   }

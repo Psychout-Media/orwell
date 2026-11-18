@@ -6,6 +6,7 @@ The store path is redirected to a tmp file so the real data dir is never touched
 """
 
 import importlib
+import threading
 
 import pytest
 
@@ -226,3 +227,44 @@ def test_clear_is_per_user_scoped():
     ledger.clear("player-a")
     assert ledger.get_recent("player-a") == []
     assert [r["turnId"] for r in ledger.get_recent("player-b")] == ["tb"]  # untouched
+
+
+# ── async writer: flush drains, multi-thread records all land ─────────────────────────────────
+
+
+def test_flush_returns_true_and_makes_the_entry_visible_on_disk(tmp_path):
+    ledger.record_turn("player", session="s", turn_id="t1", cost=0.5)
+    assert ledger.drain_pending_writes() is True  # drained within the timeout
+    import json
+
+    stored = json.loads((tmp_path / "orwell_token_ledger.json").read_text())
+    assert [e["turnId"] for e in stored["player"]] == ["t1"]
+
+
+def test_records_from_many_threads_all_land_after_flush(tmp_path):
+    """record_turn hands the write to the writer thread; a flush must join every queued
+    entry — nothing lost, and each thread's records survive in submission order."""
+    import json
+
+    n_threads, n_each = 4, 25
+
+    def worker(tag):
+        for i in range(n_each):
+            ledger.record_turn("player", session="s", turn_id=f"{tag}-{i}")
+
+    threads = [threading.Thread(target=worker, args=(f"t{k}",)) for k in range(n_threads)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert ledger.drain_pending_writes(timeout=10.0) is True
+
+    stored = json.loads((tmp_path / "orwell_token_ledger.json").read_text())
+    ids = [e["turnId"] for e in stored["player"]]
+    assert len(ids) == n_threads * n_each  # nothing dropped
+    assert len(set(ids)) == len(ids)  # nothing duplicated
+    for k in range(n_threads):
+        # within one thread's submissions the writer preserved queue order (single consumer, FIFO)
+        thread_seq = [i for i in range(n_each) if f"t{k}-{i}" in set(ids)]
+        positions = [ids.index(f"t{k}-{i}") for i in thread_seq]
+        assert positions == sorted(positions)

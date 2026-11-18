@@ -111,7 +111,13 @@ describe("eviction ballots - one per step", () => {
   });
   it("same evictee, same ballot order, same week as the headless one-beat path (rolls unchanged)", () => {
     const staged = boot(dir()), headless = boot(dir(), false);
+    // ORW-574: a played game reads each decider's own view (`ORWELL_OWN_VIEW`) and the headless path does not by design, so this staging-parity check turns the own view off on both: it proves STAGING leaves the rolls unchanged, not the view.
+    (staged as Any).setOwnViewEnabled(false); (headless as Any).setOwnViewEnabled(false);
     toEviction(staged, "player"); toEviction(headless, "player");
+    // ORW-573: a played game's voters read the HOH's target from what they know, so their ballots may differ from the headless hidden read BY DESIGN. This test is
+    // about the staging only (presentation over the same rolls), so the staged game's read is pinned to the headless one (TEST-ONLY seam): what is left between the
+    // two runs is the staging itself.
+    staged.hohTargetReadOf = (_v: string, h: string, fn: readonly [string, string]) => (staged.rel.edge(h, fn[0]).threat >= staged.rel.edge(h, fn[1]).threat ? fn[0] : fn[1]);
     const rec = (s: Any): Any => { const l = s.live as LiveSeasonState; return l.voteRecord![l.voteRecord!.length - 1]; };
     staged.advanceGame();
     drive(staged, staged.advanceGame());

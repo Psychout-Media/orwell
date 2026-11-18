@@ -16,12 +16,12 @@
  */
 import type { EntityId } from "../domain/ids";
 import { clamp01 } from "../domain/num";
-import type { Agenda, AgendaBoard, AgendaCharacter, GoalKind } from "./agenda";
+import type { Agenda, AgendaBoard, AgendaCharacter, Goal, GoalKind } from "./agenda";
 import { agendaRoll } from "./agenda";
 import { REASONS } from "./agendaConstants";
 
 /** Which way a decision cuts against a candidate: nominate / vote to evict / final-HOH eviction are "against"; a veto save is "for". */
-export type DecisionKind = "nominate" | "replacement" | "veto" | "vote" | "final-hoh-evict" | "deal-consent" | "deal-break" | "deal-renegotiate";
+export type DecisionKind = "nominate" | "replacement" | "veto" | "veto-hold" | "hc-pick" | "comp-throw" | "vote" | "final-hoh-evict" | "deal-consent" | "deal-break" | "deal-renegotiate";
 
 export interface GoalPull {
   /** Signed: positive = the agenda wants this candidate OUT; negative = it wants them kept. Same scale as a threat read. */
@@ -35,7 +35,7 @@ export interface GoalPull {
  * How the holder's agenda pulls on `candidate`. `mates` is the holder's alliance mates now (a "last alliance standing" aim protects them).
  * Long con: before its stage the mark is KEPT close (negative); once the stage is reached, the mark is CUT (positive) - the con pays off.
  */
-export function goalPull(agenda: Agenda | undefined, candidate: EntityId, board: AgendaBoard, mates: readonly EntityId[] = []): GoalPull {
+export function goalPull(agenda: Agenda | undefined, candidate: EntityId, board: AgendaBoard, mates: readonly EntityId[] = [], carried?: GoalCarry): GoalPull {
   if (!agenda || candidate === agenda.owner) return { value: 0 };
   let value = 0;
   let best: { abs: number; id: string; kind: GoalKind } | undefined;
@@ -48,7 +48,7 @@ export function goalPull(agenda: Agenda | undefined, candidate: EntityId, board:
     const w = g.commitment * REASONS.goalWeight;
     if (g.target === candidate) {
       switch (g.kind) {
-        case "get-them-out": case "revenge": note(w, g.id, g.kind); break;
+        case "get-them-out": case "revenge": note(carried ? netOfSources(g, w, carried) : w, g.id, g.kind); break;
         case "keep-them-safe": case "protect-my-person": note(-w, g.id, g.kind); break;
         case "pull-them-in": note(-w * REASONS.recruitShield, g.id, g.kind); break;
         case "long-con": {
@@ -61,7 +61,40 @@ export function goalPull(agenda: Agenda | undefined, candidate: EntityId, board:
     }
     if (g.kind === "last-alliance-standing" && mates.includes(candidate)) note(-w * REASONS.allianceShield, g.id, g.kind);
   }
+  if (carried && value > 0) value = Math.max(0, softStack(value + carried.memory + carried.belief) - carried.memory - carried.belief);
   return best ? { value, goalId: best.id, goalKind: best.kind } : { value };
+}
+
+/**
+ * ORW-635 (stacking audit S-2): what the SAME decision's own terms already carry for a candidate, as non-negative amounts on the threat scale.
+ * A get-them-out / revenge goal is FORMED from the threat read, the grudge and the belief (`agenda.ts` `why`), and the decision already adds those
+ * three itself, so the goal's pull counts only what it brings BEYOND them. `threat` is 0 where the decision has no threat term (the veto).
+ */
+export interface GoalCarry { threat: number; memory: number; belief: number }
+
+/** The part of a push goal's pull (`w`) already carried by the decision's own threat / memory / belief terms: only the causes the goal was formed from are netted, each by at most what it was formed from. */
+function netOfSources(g: Goal, w: number, carried: GoalCarry): number {
+  let taken = 0;
+  for (const c of g.why) {
+    if (c.about !== undefined && c.about !== g.target) continue;
+    if (c.kind === "threat-read") taken += Math.min(c.weight, carried.threat);
+    else if (c.kind === "memory") taken += Math.min(c.weight * (g.kind === "get-them-out" ? 0.5 : 1), carried.memory); // a get-them-out goal took half the grudge (`agenda.ts`); a revenge goal all of it
+    else if (c.kind === "belief") taken += Math.min(c.weight, carried.belief);
+  }
+  return Math.max(0, w - REASONS.netShare * taken);
+}
+
+/** ORW-635: a smooth, strictly increasing ceiling on the stacked goal + belief + memory read for one option: the identity up to `stackKnee`, then it bends toward (never reaches) `stackCeiling`. Continuous in value and slope, so ordering is never flattened. */
+export function softStack(x: number): number {
+  const k = REASONS.stackKnee;
+  if (x <= k) return x;
+  const room = REASONS.stackCeiling - k;
+  return k + room * Math.tanh((x - k) / room);
+}
+
+/** ORW-638 (stacking audit S-8): `softStack` made symmetric about zero (odd, strictly increasing) - bounds a SIGNED summed bias to `stackCeiling` either way, identity inside +-`stackKnee`. */
+export function softStackSigned(x: number): number {
+  return x < 0 ? -softStack(-x) : softStack(x);
 }
 
 // --- Reasons -------------------------------------------------------------------------------------------------------------------------
@@ -78,6 +111,8 @@ export interface RealReason {
   goalId?: string;
   terms: DecisionTerm[];
   tactic?: "direct" | "pawn" | "backdoor";
+  /** ORW-608: a refused deal's real reason (engine-only; never projected). */
+  refusal?: "distrust" | "threat" | "targeted" | "grudge" | "opposed" | "cost";
 }
 
 /** What a houseguest SAYS their reason was. A closed set the narrator voices in the houseguest's own words. */
@@ -90,20 +125,54 @@ export type StatedReasonKind =
   | "didnt-trust-you"     // "I never knew where you stood"
   | "had-it-planned"      // "this was always the plan"
   | "nothing-personal"    // "it's purely strategic, nothing personal"
-  | "house-wants-it";     // "it's what the house wanted"
+  | "house-wants-it"      // "it's what the house wanted"
+  | "keeping-the-noms";   // ORW-578: "I'm keeping the nominations the same" (a veto holder who does not use it)
 export type Candor = "truth" | "part-truth" | "cover";
 export interface StatedReason { kind: StatedReasonKind; about: EntityId; /** VAULT-CLASS: whether the stated reason is honest. Never sent to the narrator. */ candor: Candor }
 
 /** The honest way to say the real reason. */
+/** ORW-608: the refusal reasons a houseguest never states truthfully (they would reveal a scheme or a hidden read): they always give a cover. */
+const NEVER_STATED: ReadonlySet<string> = new Set(["targeted", "opposed"]);
+
 export function truthfulKind(real: RealReason): StatedReasonKind {
+  if (real.decision === "deal-consent") {
+    // ORW-608 (Ryne 2026-11-17, (a)): a refused deal's honest reason, in the stated-reason vocabulary. A scheme against the player or a belief they are coming after you is never said.
+    switch (real.refusal) {
+      case "distrust": return "didnt-trust-you";
+      case "threat": return "biggest-threat";
+      case "grudge": return "came-after-me";
+      default: return "nothing-personal";
+    }
+  }
+  if (real.decision === "veto-hold") return "keeping-the-noms"; // ORW-578 part 2b: not using the veto is keeping the HOH's nominations
   if (real.tactic === "pawn") return "pawn-youll-be-fine";
   switch (real.goalKind) {
     case "revenge": return "came-after-me";
     case "long-con": return "had-it-planned";
-    case "keep-them-safe": case "protect-my-person": case "last-alliance-standing": return "loyal-to-my-side";
+    case "keep-them-safe": case "protect-my-person": case "last-alliance-standing": case "pull-them-in": return "loyal-to-my-side"; // ORW-578: a save to pull someone in is loyalty, not a threat read
     default: break;
   }
-  const top = [...real.terms].sort((a, b) => Math.abs(b.value) - Math.abs(a.value) || a.name.localeCompare(b.name))[0];
+  // ORW-578 (Fable T1-11): the reason is the term that PUSHED the choice - the largest POSITIVE contribution to the chosen option's score - never the largest
+  // by size regardless of sign (a protective term that pulled AGAINST the choice is not why they made it).
+  const top = real.terms.filter((t) => t.value > 0).sort((a, b) => b.value - a.value || a.name.localeCompare(b.name))[0];
+  if (real.decision === "comp-throw") return "loyal-to-my-side"; // ORW-578 part 3: a throw hands a close ally the power
+  if (real.decision === "hc-pick") {
+    // ORW-578 part 3: Houseguest's Choice is a pick FOR someone, like a save: a bond or a memory is loyalty; the holder's own strategy is a plan.
+    switch (top?.name) {
+      case "bond": case "memory": return "loyal-to-my-side";
+      case "goal": return "had-it-planned";
+      default: return "nothing-personal";
+    }
+  }
+  if (real.decision === "veto") {
+    // A save is a choice FOR someone: what pushed it is a bond, a debt, a promise or the house - never "you are the biggest threat".
+    switch (top?.name) {
+      case "deal": return "kept-my-word";
+      case "campaign": case "pitch": return "house-wants-it";
+      case "alliance": case "bond": case "memory": case "belief": case "goal": return "loyal-to-my-side";
+      default: return "nothing-personal";
+    }
+  }
   switch (top?.name) {
     case "memory": return "came-after-me";
     case "alliance": case "bond": return "loyal-to-my-side";
@@ -121,6 +190,7 @@ const PART_TRUTH: Readonly<Record<StatedReasonKind, StatedReasonKind>> = {
   "came-after-me": "biggest-threat", "had-it-planned": "biggest-threat", "loyal-to-my-side": "nothing-personal",
   "pawn-youll-be-fine": "pawn-youll-be-fine", "kept-my-word": "kept-my-word", "didnt-trust-you": "biggest-threat",
   "biggest-threat": "biggest-threat", "nothing-personal": "nothing-personal", "house-wants-it": "house-wants-it",
+  "keeping-the-noms": "keeping-the-noms",
 };
 
 /**
@@ -134,6 +204,8 @@ export function explainDecision(real: RealReason, speaker: AgendaCharacter, seed
   const roll = agendaRoll(seed, real.decider, `reason:${real.decision}:${real.choice}:d${day}`);
   // A backdoor: the HOH tells the pawns they are pawns and never names the real target (the classic lie).
   if (real.tactic === "backdoor" && real.decision === "nominate") return { kind: "pawn-youll-be-fine", about: real.choice, candor: "cover" };
+  // ORW-608: a refusal for a reason that would give away a scheme or a hidden read is always a cover story.
+  if (real.decision === "deal-consent" && real.refusal !== undefined && NEVER_STATED.has(real.refusal)) return { kind: real.refusal === "opposed" ? "nothing-personal" : "didnt-trust-you", about: real.choice, candor: "cover" };
   let candor = (REASONS.candorByArchetype[speaker.archetype] ?? 0.5) + (REASONS.candorByStyle[speaker.strategyStyle] ?? 0);
   if (SECRETIVE.has(honest)) candor -= REASONS.secretivePenalty;
   candor = clamp01(candor);

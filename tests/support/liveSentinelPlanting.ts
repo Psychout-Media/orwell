@@ -45,7 +45,7 @@ export function plantLiveSentinels(reg: GameSessionRegistry, user: string, seed:
   // actually serialise: the ledger entry's `kind` (cast — there is no engine write path for free text; the real writers `remember` / `recordRumorClaim` take enums) and the
   // claim's `id` + `nature` + `kind`. Injected into the snapshot the same way the soul/hidden strings above are (`remember` / `beliefNomTiltFor` are private). Each row sits beside
   // a REAL-kind row so the engine genuinely consumes this holder's memory/beliefs in nominations and votes, and the sentinel rows are built to SURVIVE the ledger cap (a
-  // future-dated, severity-1 entry never decays or evicts) and the belief compaction (confidence 1.0 is never the lowest) for the whole season.
+  // future-dated, severity-1 entry never decays or evicts) and the belief compaction (ORW-591: refuted first, then oldest; these rows are never refuted, and the finish check proves they survive) for the whole season.
   const live = core.live!;
   const ledger = (live.npcMemory ??= {});
   const store = (live.beliefs ??= {});
@@ -226,6 +226,10 @@ export const args = (name: string, seed: number): Record<string, unknown> => {
     case "recordRoomCanon": return { roomId: "kitchen", feature: "a worn butcher-block counter" };
     case "resolveOpenLedger": return { entryId: "open:1", status: "kept", note: "she did" };
     case "openLedgerHere": return {};
+    case "groupsAwaitingWords": return {};
+    case "allianceNameTickets": return {};
+    case "recordAllianceName": return { ticket: "nt-00000000", name: "A Quiet Table" };
+    case "recordGroupIdentity": return { groupId: "alliance:1", name: "The Porch Crowd", ritual: "a quiet check-in after the week" };
     case "recordOpenLedger": return { text: "I will keep your secret", speaker: "player", addressedTo: [], kind: "promise" };
     // 0070: the FE texture write-back addresses a planted HIDDEN off-screen event by id and writes
     // voiced prose — content-only. Point it at the real sentinel-bearing hidden event so the sweep

@@ -33,8 +33,10 @@ describe("decideDealConsent — who agrees", () => {
   });
 
   it("an NPC who believes the player is gunning for them refuses, as 'targeted'", () => {
-    expect(decideDealConsent({ ...NEUTRAL, targetsMe: 0.18 })).toEqual({ accept: false, reason: "targeted" });
-    expect(decideDealConsent({ ...NEUTRAL, targetsMe: 0.1 }).accept, "even one believed claim is enough for a stranger").toBe(false);
+    // ORW-637 (Fable S-7): the read is the full-strength belief pull (0..1); a held belief still ends a stranger's deal, a faint doubt alone no longer does.
+    expect(decideDealConsent({ ...NEUTRAL, targetsMe: 1 })).toEqual({ accept: false, reason: "targeted" });
+    expect(decideDealConsent({ ...NEUTRAL, targetsMe: 0.85 }).accept, "one trusted claim is enough for a stranger").toBe(false);
+    expect(decideDealConsent({ ...NEUTRAL, targetsMe: 0.1 }).accept, "a faint doubt alone no longer ends a deal").toBe(true);
   });
 
   it("an NPC holding a grudge refuses, as 'grudge'", () => {

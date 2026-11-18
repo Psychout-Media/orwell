@@ -5,7 +5,7 @@ import { GameSessionRegistry, type UserSandbox } from "../../src/composition/reg
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import { RelationshipModel } from "../../src/engine/relationships";
-import { confessionalFor, type Confessional } from "../../src/engine/confessionals";
+import { confessionalFor, TARGET_LINES, type Confessional } from "../../src/engine/confessionals";
 import { generateVoice } from "../../src/engine/voice";
 import { PLAYER, npc } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
@@ -61,7 +61,12 @@ function grounded(): RelationshipModel {
   return rel;
 }
 /** The 0040 measured-pool target/ally lines (the shared templated phrasing an un-voiced confessor uses). */
-const TEMPLATED = /I need .+? gone — they're my biggest threat|every road to the end runs through .+?, and they have to go|is the one I'm watching — they're playing everybody|is the name I write down|I'm still reading the room/;
+// The un-voiced (shared) phrasing is the engine's own floor pool. ORW-509 widened it from four authored sentences to composed ones, so the
+// pattern is built from the pool itself ({T} = any name) rather than from a hand copy of the old four, plus the no-target line.
+const escapeRe = (x: string): string => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const TEMPLATED = new RegExp(
+  [...TARGET_LINES.map((l) => l.split("{T}").map(escapeRe).join(".+?")), "I'm still reading the room"].join("|"),
+);
 const words = (s: string): number => s.split(/\s+/).filter(Boolean).length;
 const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
 
