@@ -95,6 +95,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // houseguests witness them; occupants of adjacent rooms may overhear (both directions).
   commands.setPresenceProvider(() => session.sendTimeOccupancy());
   commands.setSceneSink((ids) => session.noteConversationPartners(ids)); // ORW-212: who the player is talking to holds the room (calm presence)
+  commands.setDiaryVisitSink(() => session.noteDiaryVisit(engine.events)); // ORW-668 (0210 C2): the house sees the player go to the Diary Room (no content crosses: the sink takes none)
   // ADR 0006: someone who has turned in for the night neither witnesses nor overhears a player scene.
   commands.setAwakeProvider(() => session.awakeIds());
   // P4g: a recorded betrayal / conflict / kindness scene is remembered (0024 ledger) by the NPCs it touched.

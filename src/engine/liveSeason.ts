@@ -1001,6 +1001,8 @@ export interface LiveSeasonState {
   goalApproaches?: Record<string, { desire: string; goalId: string; hour: number }>;
   /** ORW-581 (Fable T1-14, played games only): the absolute in-game hour of the last house-life stretch and how many stretches came before it in that same hour (0 = it was the first). Keys a repeated hour's rolls fresh. */
   lifeHour?: { at: number; n: number };
+  /** ORW-668 (0210 C2, played games only): the Diary Room calls - who is in there now, the append-only record of finished calls (`diaryCallSeen`, no content field), calls per day, the player's last recorded visit. Engine-only. Absent in headless sims => byte-identical. */
+  diaryCalls?: import("./diaryCalls").DiaryCallsState;
   /** ORW-651 / spec 0209 (VAULT-CLASS, engine-only, never projected): each houseguest's routines, composed once and kept (never replaced or thinned); and the days the player has seen each kept (3 separate days = known). A played game only. */
   routines?: Record<EntityId, import("./routines").Routine[]>;
   routineSightings?: import("./routineLife").RoutineSightings;

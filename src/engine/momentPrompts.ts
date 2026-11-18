@@ -9,6 +9,7 @@ import { MILESTONE_LABEL, milestoneLabel } from "./daySchedule";
 import { genderPresentationPhrase, pronounsFor, genderGuidanceClause } from "../domain/gender";
 import { provenanceWord } from "../domain/humanize";
 import { countFact, countShape } from "./productionHost";
+import { renderDiaryCallLines } from "./diaryCalls";
 
 /**
  * #1326 — dedupe the "no genderPresentation facet on file" warning per houseguest (per process),
@@ -1630,6 +1631,8 @@ export function renderGameContext(view: GameStateView): string {
               : `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for this ${view.daySchedule.phase} — the house knows it's coming; nobody is surprised when production calls them in.`,
         ]
       : []),
+    // ORW-668 (0210 C2): the Diary Room calls as facts to voice (absent unless a call is live, a return just happened, or the player is invited). Per-turn, never the base prompt.
+    ...renderDiaryCallLines(view.diaryCall),
   ].join("\n");
 }
 

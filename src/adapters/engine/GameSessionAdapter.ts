@@ -1,4 +1,4 @@
-import { liveHouseEvent } from "../../engine/houseEvent";
+import { liveHouseEvent, isCompOrCeremonyKind } from "../../engine/houseEvent";
 import { stallTimer } from "../stallTiming";
 import type {
   GameSession, CreateCharacterReq, GameStateView, HouseMeetingView, MomentPromptReq, MomentPromptView,
@@ -136,6 +136,7 @@ import type { EditMoment, EditMomentKind } from "../../engine/editWorthiness";
 import { questionLive, questionAnswered } from "../../engine/voteQuestions";
 import { agendaDumpRows } from "../../engine/agendaDump";
 import { hostRegister, registerWords, hostQuestionTexts, playerRoles, type HostLine } from "../../engine/productionHost";
+import { decideDiaryCall, awayHours, seenOf, callEventText, backEventText, playerVisitText, producerRegisterWords, type DiaryCallsState, type DiaryCallView } from "../../engine/diaryCalls";
 import { buildHouseStories } from "../../engine/houseStory";
 import type { StatedReasonView } from "../../ports/GameSession";
 import { goalPull, explainDecision, voiceableReason, type GoalPull, type RealReason, type StatedReasonRecord } from "../../engine/agendaDecisions";
@@ -353,7 +354,7 @@ import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
 import { sideStream, type WorldAvoid } from "../../engine/data/composedFloor";
 import type { HouseTheme } from "../../engine/data/houseThemes";
 import { ANCHOR_WORDS } from "../../engine/data/anchorWords";
-import { HOUSE_ROOMS as HOUSE_ROOM_IDS } from "../../domain/house";
+import { HOUSE_ROOMS as HOUSE_ROOM_IDS, HOUSE_ADJACENCY } from "../../domain/house";
 const normTitle = (t: string): string => t.toLowerCase().replace(/^the\s+/, "").replace(/[^a-z0-9]+/g, " ").trim();
 import type { CompetitionDef } from "../../engine/competitionLibrary";
 import { formatClockLabel, formatClockBandLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, isEarlyMorning, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
@@ -3928,7 +3929,7 @@ export class GameSessionAdapter implements GameSession {
     const here = this.presence.get(me);
     if (here === undefined) return;
     const awake = this.awakeNow();
-    const notHere = this.notYetArrived();
+    const notHere = this.notInHouseNow();
     const day = this.live.dayNumber ?? 1;
     const part = this.live.timeOfDay ?? "";
     this.captureNpcSightings(); // ORW-475: what each houseguest could see now becomes their own last-known sighting
@@ -7903,7 +7904,7 @@ export class GameSessionAdapter implements GameSession {
   private awakeNpcs(): NamedRef[] | undefined {
     const awake = this.awakeNow();
     if (!awake) return undefined;
-    const notHere = this.notYetArrived();
+    const notHere = this.notInHouseNow();
     return this.presenceActive()
       .filter((id) => id !== PLAYER && awake.has(id) && !notHere?.has(id))
       .map((id) => ({ id, name: this.nameOf(id) }));
@@ -8591,7 +8592,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private houseSearchView(me: EntityId, myRoom: Room, gathered: boolean, lookingFor?: string): HouseSearchView {
     const awake = this.awakeNow();
-    const notHere = this.notYetArrived();
+    const notHere = this.notInHouseNow();
     const houseguests: HouseSearchEntry[] = [];
     const byRoom = new Map<Room, NamedRef[]>();
     // ORW-462 (Kevin, 2026-11-15): the player is not omniscient, and the game must not confirm where someone is if the player does not know. The search names a room ONLY for what the player can SEE now (their own room and the
@@ -8709,7 +8710,7 @@ export class GameSessionAdapter implements GameSession {
     const ev = this.houseEventInSession();
     if (ev) {
       const named = (id: EntityId): NamedRef => ({ id, name: this.nameOf(id) });
-      const notHere = this.notYetArrived(); // A9: un-arrived houseguests are nowhere during the entrances
+      const notHere = this.notInHouseNow(); // A9: un-arrived houseguests are nowhere during the entrances
       const others = this.livingIds().filter((id) => id !== me && !notHere?.has(id));
       const compSplit = ev.field
         ? (() => {
@@ -8742,7 +8743,7 @@ export class GameSessionAdapter implements GameSession {
     // ADR 0006: as the night thins, houseguests who have turned in are no longer "around" — the house
     // empties for the player. `null` when the clock is off ⇒ everyone shows ⇒ byte-identical whereabouts.
     const awake = this.awakeNow();
-    const notHere2 = this.notYetArrived();
+    const notHere2 = this.notInHouseNow();
     const isUp = (id: EntityId): boolean => !awake || awake.has(id);
     const inRoom = (r: Room): NamedRef[] => {
       const out: NamedRef[] = [];
@@ -8987,7 +8988,7 @@ export class GameSessionAdapter implements GameSession {
     const player = this.house.player.id;
     // B52/audit D5: an evicted houseguest can't pull you aside — only LIVING NPCs approach.
     const evicted = new Set(this.live?.evictionOrder ?? []);
-    const notHere = this.notYetArrived(); // A9: un-arrived houseguests cannot approach
+    const notHere = this.notInHouseNow(); // A9: un-arrived houseguests cannot approach
     const npcIds0 = this.house.npcs.filter((n) => !evicted.has(n.id) && !notHere?.has(n.id)).map((n) => n.id);
     // ADR 0006: a houseguest who has turned in for the night won't pull you aside at 3am — only those
     // still up approach. Identity when the clock is off ⇒ byte-identical approach ranking.
@@ -9232,6 +9233,13 @@ export class GameSessionAdapter implements GameSession {
       ...(pe.stage === "toast" && speakers ? { toastRemaining: Math.max(0, toastSpeakers(pe.order).length - pe.spoke.length) } : {}),
       ...(pe.stage === "toast" ? { playerToast: !pe.spoke.includes(me) ? "later" as const : (speakers ?? []).some((x) => x.isPlayer) ? "now" as const : "done" as const } : {}),
     };
+  }
+
+  /** ORW-668 (0210 C2): the houseguests who are not in the house's rooms right now: the un-arrived during the entrances, plus anyone production has called to the Diary Room (until they are back). Null when nobody is. */
+  private notInHouseNow(): Set<EntityId> | null {
+    const base = this.notYetArrived();
+    const d = this.diaryAwayIds();
+    return d ? new Set([...(base ?? []), ...d]) : base;
   }
 
   /** A9 - the houseguests who have NOT yet entered during the staged entrances (else null: nothing hidden). */
@@ -14683,6 +14691,76 @@ export class GameSessionAdapter implements GameSession {
     const partner = bedPartner(beds, id, inHouse);
     return { bedroom, ...(roommates.length ? { roommates } : {}), ...(partner && awake.has(partner) ? { bedPartner: partner } : {}) };
   }
+  /** ORW-668 (0210 C2, `ORWELL_DIARY_CALLS`, default ON; `=0` = no calls): production calls a houseguest to the Diary Room and the house sees it. Facts only; changes no outcome and draws no shared rng. */
+  private diaryCallsEnabled = flagDefaultOn("ORWELL_DIARY_CALLS");
+  setDiaryCallsEnabled(on: boolean): void { this.diaryCallsEnabled = on; }
+  private diaryCallsLive(): boolean {
+    return this.diaryCallsEnabled && this.live?.playedGame === true && !this.live.spectator && this.house !== null && this.inGameAbsHour() !== undefined;
+  }
+  /** A comp or ceremony (or the toast) has the house gathered: nobody is called, and anyone in the Diary Room is back for it. */
+  private diaryHouseBusy(): boolean { const l = this.live; return !!l && (isCompOrCeremonyKind(liveHouseEvent(l)?.kind) || l.champagneCircle === "gathered"); }
+  /** The houseguest in the Diary Room right now (a pure read), or null. A whole-house event (a ceremony, a comp) calls everyone out, so they are back for it. */
+  private diaryAwayIds(): Set<EntityId> | null {
+    const a = this.live?.diaryCalls?.away;
+    if (!a || !this.diaryCallsEnabled || this.diaryHouseBusy()) return null;
+    const abs = this.inGameAbsHour();
+    return abs !== undefined && abs >= a.until ? null : new Set([a.who]);
+  }
+  /** Who could see the Diary Room door: the awake living people in the living room and the open rooms off it (the player included when they are there). */
+  private diaryWitnesses(): EntityId[] {
+    const presence = this.presence;
+    if (!presence) return [];
+    const rooms = new Set<Room>(["living-room", ...(HOUSE_ADJACENCY.get("living-room") ?? []).filter((r) => r !== "diary-room" && r !== "hoh-room")]);
+    const awake = this.awakeNow();
+    return this.livingIds().filter((id) => rooms.has(presence.get(id) as Room) && (!awake || awake.has(id))).sort();
+  }
+  /** One public call event: the whole room as witnesses, a fact and nothing said in there. The player is a witness only when they were there to see it (an unwitnessed event is hidden). */
+  private recordDiaryCallEvent(events: EventStore, who: EntityId, content: string, id: string): void {
+    const set = [...new Set([who, ...this.diaryWitnesses()])];
+    const hidden = !set.includes(PLAYER);
+    // The integrity checkpoint reads a hidden content that equals any text the player can see as a leak, and the same houseguest is called more than once: a call the player did not see says so, so it never equals one they did.
+    events.record({ id, ts: 0, type: "diary-call", initiator: who, witnessSet: set, hidden, content: hidden ? `${content}, out of the player's sight` : content });
+  }
+  private diaryCallStep(events: EventStore, awakeIds: readonly EntityId[]): void {
+    if (!this.diaryCallsLive()) return;
+    const s = this.live!, seed = this.gameSeed ?? 0, abs = this.inGameAbsHour()!;
+    const st: DiaryCallsState = (s.diaryCalls ??= { seen: [], byDay: {} });
+    const a = st.away;
+    if (a && !this.livingIds().includes(a.who)) delete st.away; // voted out while in there (the 0129 jury house): no return beat for someone who has left the game
+    else if (a && (abs >= a.until || this.diaryHouseBusy())) {
+      const seen = seenOf(a, this.soulObj(a.who)?.emotionalState ?? a.moodBefore);
+      st.seen.push({ ...seen, at: abs });
+      delete st.away;
+      this.recordDiaryCallEvent(events, a.who, backEventText(this.nameOf(a.who), seen), `diary-call:back:${seed}:${a.since}:${a.who}`);
+    }
+    if (st.away || this.diaryHouseBusy() || this.phase === "premiere") return;
+    const day = s.dayNumber ?? s.week;
+    const pick = decideDiaryCall({ seed, day, abs, callsToday: st.byDay[String(day)] ?? 0, awayNow: false, candidates: awakeIds.filter((id) => id !== PLAYER && this.seatOf(id) === "active") });
+    if (!pick) return;
+    st.away = { who: pick.who, since: abs, until: abs + awayHours(pick.minutes), minutes: pick.minutes, moodBefore: this.soulObj(pick.who)?.emotionalState ?? 0.5, day };
+    st.byDay[String(day)] = (st.byDay[String(day)] ?? 0) + 1;
+    this.recordDiaryCallEvent(events, pick.who, callEventText(this.nameOf(pick.who)), `diary-call:${seed}:${abs}:${pick.who}`);
+  }
+  /** The player went to the Diary Room (their own entry): the house sees them go, once per in-game hour. Nothing they said is read here, passed on or stored. */
+  noteDiaryVisit(events: EventStore): void {
+    if (!this.diaryCallsLive()) return;
+    const s = this.live!, seed = this.gameSeed ?? 0, abs = this.inGameAbsHour()!;
+    const st: DiaryCallsState = (s.diaryCalls ??= { seen: [], byDay: {} });
+    if (st.playerLast === abs) return;
+    st.playerLast = abs;
+    st.seen.push({ who: PLAYER, day: s.dayNumber ?? s.week, long: false, comesBack: "same", at: abs }); // the engine never says how it left the player feeling
+    this.recordDiaryCallEvent(events, PLAYER, playerVisitText(this.nameOf(PLAYER)), `diary-call:player:${seed}:${abs}`);
+  }
+  /** The Diary Room calls as facts for the narrator, or undefined. */
+  private diaryCallView(invited: boolean): DiaryCallView | undefined {
+    if (!this.diaryCallsLive()) return undefined;
+    const s = this.live!, abs = this.inGameAbsHour()!;
+    const away = this.diaryAwayIds();
+    const back = (s.diaryCalls?.seen ?? []).filter((x) => x.who !== PLAYER && x.at === abs).map((x) => ({ name: this.nameOf(x.who), long: x.long, comesBack: x.comesBack }));
+    if (!away && !back.length && !invited) return undefined;
+    return { register: producerRegisterWords(this.gameSeed ?? 0), ...(away ? { away: [...away].map((id) => this.nameOf(id)) } : {}), ...(back.length ? { back } : {}), ...(invited ? { invited: true as const } : {}) };
+  }
+
   /**
    * One stretch of house life: every AWAKE NPC who is not in the player's room (those are in the player's own scene, which the narrator voices)
    * takes ONE action (`houseLife.chooseHourAction`) from their agenda's next step, habits (model-authored when ORW-319 wrote them), mood and who
@@ -14693,6 +14771,7 @@ export class GameSessionAdapter implements GameSession {
   houseLifeStretch(events: EventStore, awakeIds: readonly EntityId[], stretchIndex: number, knowledge?: KnowledgeService): OffscreenScene[] {
     const s = this.live!, house = this.house!, presence = this.presence!;
     this.statusTick(); // 0173: once a day, flag-gated (a no-op otherwise)
+    this.diaryCallStep(events, awakeIds); // ORW-668 (0210 C2): a call may go out or come back; flag-gated, played games only (a no-op otherwise)
     const playerRoom = presence.get(house.player.id);
     const actors = awakeIds.filter((id) => presence.has(id) && presence.get(id) !== playerRoom);
     // ORW-621 (0198): the people in the player's room live too. Played games with the flag on only; off => empty => every line below is byte-identical.
@@ -16705,7 +16784,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-382 (Ryne, playtest 11-15: no day-in-review when he went to bed on Day 1): the premiere night and any quiet day have no ceremony/deal, so the review was EMPTY and the narrator rightly skipped it. The scenes the player
     // witnessed themselves (never hidden, in their own witness set) are their own knowledge - the review is built from those too. Capped, trimmed, no rng.
     const yourDay = allEvents.slice(evFrom)
-      .filter((e) => !e.hidden && !isHighlight(e) && e.type !== "surfacing" && e.type !== "gossip" && e.type !== "diary-room" && e.witnessSet.includes(PLAYER) && e.content.trim().length > 0 && !e.content.startsWith("surfaced to player via ")) // ORW-385: the player's own Diary Room is out-of-character and never enters "your day" (0013, 0102). review of #2664/#2672: by kind, never by matching text (a separate scene with identical words stays); bookkeeping kinds never ride // the provenance bookkeeping event is not a scene (live check: it reached the model raw)
+      .filter((e) => !e.hidden && !isHighlight(e) && e.type !== "surfacing" && e.type !== "gossip" && e.type !== "diary-room" && !(e.type === "diary-call" && e.initiator === PLAYER) && e.witnessSet.includes(PLAYER) && e.content.trim().length > 0 && !e.content.startsWith("surfaced to player via ")) // ORW-385: the player's own Diary Room is out-of-character and never enters "your day" (0013, 0102). review of #2664/#2672: by kind, never by matching text (a separate scene with identical words stays); bookkeeping kinds never ride // the provenance bookkeeping event is not a scene (live check: it reached the model raw)
       .map((e) => e.content.trim().slice(0, 200)).slice(-5);
     const knownAll = this.playerKnowledgeReader?.() ?? [];
     const knFrom = Math.min(s.dailyRecapKnowledgeCursor ?? 0, knownAll.length);
@@ -21810,6 +21889,7 @@ export class GameSessionAdapter implements GameSession {
         : {}),
       // 0013 §5 / PG-14 / PS-4: the producer's Diary-Room invitation at the current dramatic beat.
       ...(drPrompt.invite ? { diaryRoomInvite: drPrompt as { invite: true; reason?: string } } : {}),
+      ...(this.diaryCallView(drPrompt.invite) ? { diaryCall: this.diaryCallView(drPrompt.invite)! } : {}), // ORW-668 (0210 C2): the Diary Room calls as facts to voice
       // 0115: the player's DR strategy as a PRIVATE narrator steer (present only when they've recorded one).
       ...(drStrategy.length ? { playerDiaryRoom: drStrategy } : {}),
       // #1793: the player's dossier (present only when the flag is ON and there are tagged entries).

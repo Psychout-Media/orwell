@@ -6,6 +6,8 @@ import type { Receipt } from "../engine/receipts";
 import type { PullQuoteWeek } from "../engine/pullQuoteReel";
 import type { StructuralMilestone } from "../engine/daySchedule";
 import type { TimeOfDay } from "../engine/timeOfDay";
+import type { DiaryCallView } from "../engine/diaryCalls";
+export type { DiaryCallView };
 import type { DealPlanRetro } from "../engine/dealPlans";
 
 /**
@@ -632,6 +634,11 @@ export interface GameStateView {
    * a forced interruption, and it carries no obligation — declining changes nothing.
    */
   diaryRoomInvite?: { invite: true; reason?: string };
+  /**
+   * ORW-668 (0210 C2, `ORWELL_DIARY_CALLS`): the Diary Room calls the narrator voices - who production has called away (and is in there now), who has just come back and how long and how they looked,
+   * and whether the player is invited this beat. Names and words only: no content of any confessional, no id, no number. Absent for headless games or with the flag off.
+   */
+  diaryCall?: DiaryCallView;
   /**
    * 0115 — the player's recent Diary-Room STRATEGY, in their own words (most-recent-first, capped).
    * Vault-free by construction: it is the player's OWN out-of-character `NO_NPC_PATHWAY` knowledge —
