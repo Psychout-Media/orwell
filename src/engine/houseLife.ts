@@ -27,6 +27,10 @@ import type { TimeOfDay } from "./timeOfDay";
 import type { Agenda, AgendaCharacter, Goal, GoalKind } from "./agenda";
 import { agendaRoll } from "./agenda";
 import { CULTURE_CANDOR_SHIFT, HOUSE_LIFE, type HouseCulture, type Habit } from "./houseLifeConstants";
+import { composeFloorRoutine, ROUTINES, type Routine } from "./routines";
+import { isStressed, routineKey, routineNow } from "./routineLife";
+import { TIME_OF_DAY_ORDER } from "./timeOfDay";
+import { HOUSE_ROOMS } from "../domain/house";
 
 // --- The action library --------------------------------------------------------------------------------------------------------------
 
@@ -145,6 +149,44 @@ export function habitsFor(c: AgendaCharacter, owner: EntityId, seed: number): Ha
   return scored.slice(0, count).map((x) => x.h);
 }
 
+/** ORW-651 (0209): where a routine of this act happens when the act has no usual place of its own: the shared rooms (never a bedroom, the HOH room or the diary room, which are someone's own or private). */
+const ROUTINE_ROOMS: readonly Room[] = HOUSE_ROOMS.filter((r) => !r.startsWith("bedroom") && r !== "hoh-room" && r !== "diary-room");
+/** The acts a habit can be: ordinary life done alone or in company (never strategy, never a competition reaction, never the private diary room). Derived from the action library, not listed. */
+const ROUTINE_ACTIONS: readonly ActionKind[] = (Object.keys(ACTIONS) as ActionKind[]).filter((k) => {
+  const a = ACTIONS[k];
+  return (a.family === "house-life" || a.family === "alone") && a.partners.min === 0 && !a.publicOnly && a.place !== "diary-room";
+});
+
+/**
+ * ORW-651 (0209): the engine's floor routines for a houseguest: two to four, each composed from a time of day (distinct), a place, an act, a company and a strength, every part its own keyed roll
+ * (`agendaRoll`, a local hash: no shared rng). The archetype's lean (the same data that leaned the old habit draw) doubles the weight of the acts it leans to; the act's own usual place wins over a rolled one.
+ * When the cast-authoring write-back lands routines they replace these; until then this stands in (and says `floor`).
+ */
+export function floorRoutinesFor(c: AgendaCharacter, owner: EntityId, seed: number): Routine[] {
+  const lean = (HOUSE_LIFE.habitLean[c.archetype] ?? []).map((h) => HABIT_ACTION[h].action);
+  const acts: readonly ActionKind[] = [...ROUTINE_ACTIONS, ...lean.filter((k) => ROUTINE_ACTIONS.includes(k))];
+  const { min, max } = ROUTINES.perPerson;
+  const count = min + Math.min(max - min, Math.floor(agendaRoll(seed, owner, "routine-count") * (max - min + 1)));
+  const slots = [...TIME_OF_DAY_ORDER].sort((a, b) => agendaRoll(seed, owner, `routine-slot:${a}`) - agendaRoll(seed, owner, `routine-slot:${b}`)).slice(0, count);
+  return slots.map((slot, i) => {
+    const r = composeFloorRoutine({ slots: [slot], rooms: ROUTINE_ROOMS, actions: acts }, {
+      slot: 0, place: agendaRoll(seed, owner, `routine-place:${i}`), action: agendaRoll(seed, owner, `routine-act:${i}`),
+      company: agendaRoll(seed, owner, `routine-company:${i}`), strength: agendaRoll(seed, owner, `routine-strength:${i}`),
+    });
+    return { ...r, place: ACTIONS[r.action as ActionKind].place ?? r.place };
+  });
+}
+
+/** ORW-651 (0209): a save (or a cast-authoring pass) that wrote the old named habits keeps them: each becomes a routine at one of its own times, doing its own act, so no authored habit thins. */
+export function routinesFromHabits(habits: readonly Habit[], owner: EntityId, seed: number): Routine[] {
+  return habits.map((h, i) => {
+    const { action, when } = HABIT_ACTION[h];
+    const slot = when[Math.min(when.length - 1, Math.floor(agendaRoll(seed, owner, `routine-habit-slot:${i}`) * when.length))]!;
+    const place = ACTIONS[action].place ?? ROUTINE_ROOMS[Math.min(ROUTINE_ROOMS.length - 1, Math.floor(agendaRoll(seed, owner, `routine-habit-place:${i}`) * ROUTINE_ROOMS.length))]!;
+    return { slot, place, action, company: "whoever" as const, strength: HOUSE_LIFE.habitChance, source: "authored" as const };
+  });
+}
+
 // --- Choosing an action ---------------------------------------------------------------------------------------------------------------
 
 /** Everything the holder can see this hour, from their own view. */
@@ -155,6 +197,8 @@ export interface HourView {
   /** ORW-625: the step each goal's stored plan says is next (goal id -> step). A goal with a plan takes ITS step, waiting for the partner, instead of re-rolling the hour. Absent = byte-identical. */
   plans?: ReadonlyMap<string, PlanStep>;
   habits: readonly Habit[];
+  /** ORW-651 (0209): this houseguest's routines. Present = the routine pull replaces the habit pull for the hour; absent = the habit branch, byte-identical. */
+  routines?: readonly Routine[];
   /** Soul emotional state 0..1 (0.5 calm). */
   emotional: number;
   /** Where they are now. */
@@ -243,6 +287,8 @@ export interface PlannedAction {
   fold?: InteractionType;
   /** 0173: this step is the houseguest seeking out the HOH (the court). Engine-only. */
   court?: boolean;
+  /** ORW-651: the key of the routine this step is (engine-only; the caller counts the player's sightings of it). */
+  routine?: string;
   /** ORW-620: this step is a late-night talk among the awake few (the caller stamps it on the event; engine-only). */
   nightOwl?: boolean;
 }
@@ -453,7 +499,19 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
       return finish({ kind: ritual.action, with: company, ritual: ritual.name, ...(spot ? { place: spot } : {}) });
     }
   }
-  const habit = v.habits.find((h) => HABIT_ACTION[h].when.includes(v.timeOfDay) && roll(`habit:${h}`) < HOUSE_LIFE.habitChance);
+  if (v.routines) {
+    // ORW-651 (0209): the routine pull. One keyed roll per routine (no shared draw); weaker when stressed. They go to the routine's place (only the actor moves) and take its act; company is whoever is ALREADY there.
+    const r = routineNow(v.routines, v.timeOfDay, isStressed(v.emotional, v.nominees.includes(v.owner)), (k) => roll(`routine:${k}`));
+    if (r) {
+      const k = r.action as ActionKind;
+      const spot = k === "nap" && v.bedroom ? v.bedroom : r.place;
+      const there = pool.filter((p) => roomOf(v, p) === spot && !avoid.has(p));
+      const regular = byScore(pool.filter((p) => !avoid.has(p)), (p) => v.affinity.get(p) ?? 0.4)[0];
+      const company = r.company === "alone" ? [] : r.company === "a-regular" ? (regular !== undefined && there.includes(regular) ? [regular] : []) : there;
+      return { ...finish({ kind: k, with: company.slice(0, ACTIONS[k].partners.max), place: spot }), routine: routineKey(r) };
+    }
+  }
+  const habit = v.routines ? undefined : v.habits.find((h) => HABIT_ACTION[h].when.includes(v.timeOfDay) && roll(`habit:${h}`) < HOUSE_LIFE.habitChance);
   if (habit) {
     const k = HABIT_ACTION[habit].action;
     // ORW-466 slice 4: a night owl's bed talk is with their roommates, in their own bedroom; a napper naps in their own bed.
