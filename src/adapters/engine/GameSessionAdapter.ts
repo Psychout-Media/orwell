@@ -1894,6 +1894,15 @@ export class GameSessionAdapter implements GameSession {
     if (role === "wronged") this.noteMoodCause(holder, "betrayed", breaker); // 0194: a betrayal learned
   }
   /**
+   * ORW-684: the wronged party has just LEARNED of a quiet break. They hold what a caught lie leaves (the same `lied-to-me` claim, same id, same confidence as a break they saw; idempotent per deal per holder) and
+   * the betrayal mood cause it always had. Played games only (a headless season never plants it). Before this the claim was planted only for a break seen at once, so a planned or quiet break the wronged side
+   * later learned of left no claim for the credibility, revenge and recheck folds to read.
+   */
+  private learnedBreakClaim(wronged: EntityId, breaker: EntityId, deal: Deal): void {
+    if (this.live?.playedGame === true) this.writeDealBreakLie(wronged, breaker, deal, "wronged");
+    else this.noteMoodCause(wronged, "betrayed", breaker);
+  }
+  /**
    * B24 / #2017 14.5(5) - HEARD-ABOUT-ME. What a houseguest is TOLD about the player in a recorded chat scene is a belief they hold (engine-only, voiced only BY that holder), at the TELLER's reliability (the
    * listener's trust in them, plus a word-keeper bonus), and sometimes wrong by construction: a dedicated seeded roll (bounded, less likely the more reliable the teller) makes the listener mishear it onto a
    * different houseguest. No edge fold, no memory entry, no shared rng; absent a belief layer nothing is written. ON unless `ORWELL_HEARD_ABOUT_ME=0`. OFF => byte-identical.
@@ -6673,7 +6682,7 @@ export class GameSessionAdapter implements GameSession {
     this.deals.learnOfBreak(deal, {
       rel: this.rel, rng: new SeededRandom(hashSeed(`${seed}:learn-break:${deal.id}`)), currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
       juryDemerit: (w, b) => recordDealBetrayal(s, w, b),
-      learned: (w, b) => { this.noteMoodCause(w, "betrayed", b); }, // 0194 follow-up: a break LEARNED later is a betrayal cause the day they learn it
+      learned: (w, b, d) => this.learnedBreakClaim(w, b, d), // 0194 follow-up: a break LEARNED later is a betrayal cause the day they learn it (+ ORW-684: the lied-to-me claim)
       revealToWitness: (witness, b) => { this.onPlayerEvent?.(`${this.nameOf(b)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
     });
   }
@@ -18755,7 +18764,7 @@ export class GameSessionAdapter implements GameSession {
       // 0109 / #1993: the week the break lands in — lets an explicit negotiated term scale the betrayal-shock by
       // the life it had left. A deal with no `expiresWeek` scales by 1 either way ⇒ byte-identical to 0039.
       currentWeek: this.live.week,
-      learned: (w, b) => { this.noteMoodCause(w, "betrayed", b); }, // 0194 follow-up: a quiet break the wronged party LEARNS of through the breaker's public act
+      learned: (w, b, d) => this.learnedBreakClaim(w, b, d), // 0194 follow-up: a quiet break the wronged party LEARNS of through the breaker's public act (+ ORW-684: the lied-to-me claim)
       // 0121: the deal-depth layer — a kept deal compounds via the LOYALTY STREAK (consecutive kept deals
       // with the same partner scale the honored fold, bounded). OFF ⇒ the plain 0039/0109 honored fold,
       // byte-identical.
@@ -19835,6 +19844,22 @@ export class GameSessionAdapter implements GameSession {
     const b = this.live?.beat;
     return b === "nominations" ? "nominations" : b === "veto-competition" || b === "veto-ceremony" ? "veto" : b === "eviction" || b === "final-eviction" ? "vote" : "other";
   }
+  /** ORW-684: the 0142 weighing of one deal for one promisor, as the plan reads it (no rng). Used at plan time and again at the moment a plan is carried out, so the why-record names the terms of that moment. */
+  private weighPlannedDeal(deal: Deal, npc: EntityId): ReturnType<typeof weighDealBreak> {
+    const s = this.live!;
+    const other = deal.parties.find((p) => p !== npc)!;
+    const e = this.rel.edge(npc, other);
+    const living = this.livingIds().filter((id) => id !== PLAYER && id !== npc);
+    const cred = living.length ? living.reduce((a, id) => a + this.credibilityOf(id, npc), 0) / living.length : 1;
+    const reliableShare = living.length && this.reliabilityReader ? living.filter((id) => this.reliabilityReader!(id).has(npc)).length / living.length : 0;
+    const endgame: 0 | 1 | 2 = s.active.length <= 5 ? 2 : s.active.length <= 10 || s.evictionOrder.length >= 7 ? 1 : 0;
+    return weighDealBreak({
+      kind: deal.kind, threat: e.threat, trust: e.trust, affinity: e.affinity,
+      ownPush: this.ownPushAgainst(npc, other), agendaPull: this.agendaPullOf(other, npc).value, // ORW-613: the same push against an NPC partner as against the player
+      loyalty: Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(npc), this.emotionalReadOf(npc)))),
+      credibility: cred, reliableShare, endgame,
+    });
+  }
   /**
    * 0178 (Theme 3 slice 1, ORW-552) - TWO-FACED DEALS. (1) Every open deal an NPC is bound by gets that NPC's SECRET PLAN the first time it is seen (`dealPlans.ts`):
    * from the 0142 weighing at the moment of agreeing (their read of the other party, their own push and agenda, the price of being known as a liar), Ryne's Q1
@@ -19854,16 +19879,7 @@ export class GameSessionAdapter implements GameSession {
         if (npc === PLAYER || gone.has(npc) || store[deal.id]?.[npc]) continue;
         const other = deal.parties.find((p) => p !== npc)!;
         const e = this.rel.edge(npc, other);
-        const living = this.livingIds().filter((id) => id !== PLAYER && id !== npc);
-        const cred = living.length ? living.reduce((a, id) => a + this.credibilityOf(id, npc), 0) / living.length : 1;
-        const reliableShare = living.length && this.reliabilityReader ? living.filter((id) => this.reliabilityReader!(id).has(npc)).length / living.length : 0;
-        const endgame: 0 | 1 | 2 = s.active.length <= 5 ? 2 : s.active.length <= 10 || s.evictionOrder.length >= 7 ? 1 : 0;
-        const w = weighDealBreak({
-          kind: deal.kind, threat: e.threat, trust: e.trust, affinity: e.affinity,
-          ownPush: this.ownPushAgainst(npc, other), agendaPull: this.agendaPullOf(other, npc).value, // ORW-613: the same push against an NPC partner as against the player
-          loyalty: Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(npc), this.emotionalReadOf(npc)))),
-          credibility: cred, reliableShare, endgame,
-        });
+        const w = this.weighPlannedDeal(deal, npc);
         const rng = new SeededRandom(hashSeed(`${seed}:deal-plan:${deal.id}:${npc}`));
         const plan = decidePlan({
           kind: deal.kind, margin: w.margin, bond: planBond(e), dealsMade: all.filter((d) => d.parties.includes(npc)).length,
@@ -19891,13 +19907,18 @@ export class GameSessionAdapter implements GameSession {
         const due = how === "final-three" ? s.active.length <= 3 : !!plan.moment && momentDue(plan.moment, s.week, now);
         if (!due) continue;
         const rng = new SeededRandom(hashSeed(`${seed}:deal-plan-carry:${dealId}:${holder}:${s.week}`));
+        const why = partner !== undefined ? this.weighPlannedDeal(deal, holder) : undefined; // ORW-684: the terms of THIS moment, read before the break moves anything
         this.deals.breakDeliberately(deal, holder, {
           rel: this.rel, rng, currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
           juryDemerit: (wronged, breaker) => recordDealBetrayal(s, wronged, breaker),
           revealToWitness: (witness, breaker) => { this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
           reveal: (wronged, breaker, d) => this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a ${d.kind} deal with ${this.nameOf(wronged)} off-screen`, [breaker], "betrayal"),
         });
-        if ((deal.status as string) === "broken") plan.outcome = "carried-out"; // breakDeliberately changed it
+        if ((deal.status as string) === "broken") {
+          plan.outcome = "carried-out"; // breakDeliberately changed it
+          // ORW-684: a planned break folds like every other betrayal: the breaker's guilt (the 0181 fold, deduped per week), and the why of the choice on record (decisionWhy + statedReasons, Vault-class)
+          if (partner !== undefined) { this.feelGuilt(holder, partner); if (why) this.noteDealWeighing(holder, "deal-break", why, partner); }
+        }
         this.persist();
       }
     }
@@ -19973,13 +19994,15 @@ export class GameSessionAdapter implements GameSession {
         // uses the twist as cover: a REAL, quiet betrayal through `breakDeliberately` (the usual fold; the wronged party learns only through `learnOfBreak`'s pathways; the deal keeps
         // projecting open; nothing is narrated). Any other plan (keep / this-week / no plan) is the forced, innocent break: the renegotiation below, no betrayal, no fold.
         if (verdict === "break" && this.dealPlansEnabled && d.condition.promisors.includes(w.npc) && this.twoFacedPlan(d.id, w.npc)) {
-          if (d.parties.includes(PLAYER)) this.noteDealWeighing(w.npc, "deal-break", w.weighing);
+          const twistPartner = d.parties.find((p) => p !== w.npc);
+          if (twistPartner !== undefined) this.noteDealWeighing(w.npc, "deal-break", w.weighing, twistPartner); // ORW-684: a planned break leaves its why whoever the partner is
           this.deals.breakDeliberately(d, w.npc, {
             rel: this.rel, rng: new SeededRandom(hashSeed(`${seed}:deal-twist-betray:${deal.id}:${tk}`)), currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
             juryDemerit: (wronged, breaker) => { recordDealBetrayal(s, wronged, breaker); this.feelGuilt(breaker, wronged); },
             revealToWitness: (witness, breaker) => { this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
             reveal: (wronged, breaker, bd) => this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a ${bd.kind} deal with ${this.nameOf(wronged)} off-screen`, [breaker], "betrayal"),
           });
+          if ((d.status as string) === "broken" && twistPartner !== undefined) this.feelGuilt(w.npc, twistPartner); // ORW-684: the breaker's guilt at the break itself
           this.persist();
           continue;
         }
@@ -20075,19 +20098,19 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** 0142 idea 4: record WHY the NPC broke / asked to renegotiate - the named terms (`decisionWhy`) and the reason they would give aloud (`statedReasons`). A record only: no rng, no choice moves. Vault-class. */
-  private noteDealWeighing(npc: EntityId, kind: "deal-break" | "deal-renegotiate", w: ReturnType<typeof weighDealBreak>): void {
+  private noteDealWeighing(npc: EntityId, kind: "deal-break" | "deal-renegotiate", w: ReturnType<typeof weighDealBreak>, partner: EntityId = PLAYER): void {
     const s = this.live;
     if (!s) return;
     const t = w.terms;
     const names = ["threat", "low-bond", "push", "agenda", "endgame", "credibility", "reliable-reputation", "bond", "loyalty"];
     const vals = [t.threat, t.lowBond, t.push, t.agenda, t.endgame, -t.costCredibility, -t.costReliable, -t.costBond, -t.costLoyalty];
-    recordWhy(s, npc, { kind, options: [whyOption(PLAYER, "chosen", names, vals, sumVals(vals))] });
+    recordWhy(s, npc, { kind, options: [whyOption(partner, "chosen", names, vals, sumVals(vals))] });
     const agenda = s.agendas?.[npc];
     const character = this.agendaCharacterOf(npc);
     if (!agenda || !character) return;
-    const pull = this.agendaPullOf(PLAYER, npc);
+    const pull = this.agendaPullOf(partner, npc);
     const real: RealReason = {
-      decision: kind, decider: npc, choice: PLAYER,
+      decision: kind, decider: npc, choice: partner,
       ...(pull.value > 0 && pull.goalKind && pull.goalId ? { goalKind: pull.goalKind, goalId: pull.goalId } : {}),
       terms: [
         { name: "threat", value: t.threat }, { name: "goal", value: t.agenda }, { name: "bond", value: t.lowBond - t.costBond },
