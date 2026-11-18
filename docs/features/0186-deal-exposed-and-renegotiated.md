@@ -13,5 +13,8 @@ Status: built. Engine-only; nothing new is shown. Flag `ORWELL_DEAL_EXPOSURE` (d
 - A twist is handled once (`live.dealReopened`), one roll per deal per twist from a side stream keyed on (seed, deal, twist). If the one standing-offer slot is taken the player's deal waits for a later beat.
 - Vault class: no view, prompt, tool or admin projection shows the exposure state, the reopened keys or a deal weight. The offer line is the existing renegotiation line.
 
+## Amendment: a twist that makes a promise impossible
+When a twist reopens a deal and the promiser's weighing says the promise cannot be kept (the "break" verdict), the promiser's own secret plan (0178, read through `isBetrayal`; plan model flag `ORWELL_DEAL_PLANS`, with `ORWELL_DEAL_EXPOSURE`) decides what it was. A faking plan uses the twist as cover: a REAL, quiet betrayal through `DealLedger.breakDeliberately` (the usual fold, jury demerit and deal-broken memory; the deal keeps reading open to the partner), keyed on a side stream (seed, deal, twist); the partner's reaction waits for the existing `learnOfBreak` gate. Any other plan (keep, this-week, or none) is the forced innocent break: the renegotiation above, no betrayal, no fold. Either flag off is today's behaviour. Nothing is narrated and no plan reaches a view.
+
 ## Gates
 BDD `0186-deal-exposed-and-renegotiated.feature`, `tests/unit/dealExposure.test.ts` (pure rules, live adapter, flag-off, save round trip, wall).
