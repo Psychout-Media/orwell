@@ -37,7 +37,7 @@ import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion
 import { MOOD_CAUSES, causeLine, isBadNight, isCloseFriend, mayShareEventCause, strongestCause, type MoodCauseSource } from "../../engine/moodCauses";
 import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sceneSeenBy, sharedScenes, type SeenScene } from "../../engine/bondJealousy";
 import { HOH_ROOM, decideVisit, backstoryFacets, pickBackstoryFact } from "../../engine/hohRoom";
-import { GRUDGES, REPAIR, combineSalience, easeGrudge, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, repairAmount, type GrudgeKind } from "../../engine/grudges";
+import { GRUDGES, REPAIR, combineSalience, easeGrudge, easedShareOf, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, repairAmount, wrongWeight, type GrudgeKind } from "../../engine/grudges";
 import { breakDivisor, feelingKeep, feelsGuilt, guiltKey, guiltScale, markFeeling } from "../../engine/bondFeelings";
 import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
 import type { VoiceProfile } from "../../domain/voiceProfile";
@@ -1477,7 +1477,7 @@ export class GameSessionAdapter implements GameSession {
     const guests = this.house.npcs.filter((n) => n.id !== hoh && living.has(n.id)).map((n) => {
       const e = this.rel.peek(n.id, hoh);
       const row = s.grudges?.[grudgeKey(n.id, hoh)];
-      return { id: n.id, social: n.character.stats.social, affinity: e.affinity, threat: e.threat, grudge: row ? row.severity * grudgeFreshness(row, s.week) : 0 };
+      return { id: n.id, social: n.character.stats.social, affinity: e.affinity, threat: e.threat, grudge: row ? wrongWeight(row, s.week) : 0 };
     });
     const out = decideVisit(seed, s.week, hoh, guests);
     const playerGuest = hoh !== PLAYER && living.has(PLAYER);
@@ -6444,10 +6444,10 @@ export class GameSessionAdapter implements GameSession {
       const row = live.grudges[key]!;
       const g = this.grudgeOf(owner, toward, false);
       if (!g) continue;
-      const easedShare = row.peak > 0 ? Math.min(GRUDGES.EASE_CAP, row.eased / row.peak) : 0;
+      const easedShare = easedShareOf(row);
       const at = grudges.findIndex((x) => x.toward === toward);
       const memory = at >= 0 ? grudges[at]!.salience * (1 - easedShare) : 0;
-      const sal = combineSalience(memory, g.freshness * g.severity, dial);
+      const sal = combineSalience(memory, g.weight, dial);
       if (at >= 0) grudges[at] = { ...grudges[at]!, salience: sal };
       else if (sal > 0) grudges.push({ toward, salience: sal, ref: row.kind });
     }
@@ -6457,14 +6457,15 @@ export class GameSessionAdapter implements GameSession {
    * 0182: what `holder` still holds against `subject`, for the later slices that decide from it. ENGINE-ONLY: not on the GameSession port, never a tool, never projected. Read-only.
    * `freshness` fades with the weeks (loyalty and a grudge-keeper's nature slow it) but is never 0.
    */
-  grudgeOf(holder: EntityId, subject: EntityId, fold = true): { kind: GrudgeKind; freshness: number; severity: number; peak: number } | null {
+  grudgeOf(holder: EntityId, subject: EntityId, fold = true): { kind: GrudgeKind; freshness: number; severity: number; peak: number; weight: number } | null {
     if (holder === PLAYER) return null;
     if (fold) this.foldGrudges();
     const row = this.live?.grudges?.[grudgeKey(holder, subject)];
     if (!row || !this.live) return null;
     const keeper = this.grudgeKeeper(holder, subject);
-    const life = grudgeHalfLife({ loyalty: this.cultureMult("loyalty"), paranoia: this.cultureMult("paranoia"), keeper }) / this.juryEaseOf(holder, subject);
-    return { kind: row.kind, freshness: grudgeFreshness(row, this.live.week, life), severity: row.severity, peak: row.peak };
+    const dials = { loyalty: this.cultureMult("loyalty"), paranoia: this.cultureMult("paranoia"), keeper, ease: this.juryEaseOf(holder, subject) };
+    const life = grudgeHalfLife(dials) / dials.ease;
+    return { kind: row.kind, freshness: grudgeFreshness(row, this.live.week, life), severity: row.severity, peak: row.peak, weight: wrongWeight(row, this.live.week, dials) };
   }
 
   /** Derived state, NEVER snapshotted: the last house graph, reused within one in-game day. */
@@ -17953,7 +17954,7 @@ export class GameSessionAdapter implements GameSession {
     if (juror === PLAYER || !this.grudgesOn()) return 0;
     const g = this.grudgeOf(juror, finalist, false);
     if (!g) return 0;
-    return -Math.min(JURY_GRUDGE.max, JURY_GRUDGE.scale * g.freshness * g.severity);
+    return -Math.min(JURY_GRUDGE.max, JURY_GRUDGE.scale * g.weight);
   }
 
   /** ORW-87 - the Final-3 eviction and the secret-veto replacement read the NPC's memory ledger too. ON by default; `=0` turns it off. Read only for a played game (`live.playedGame`), so headless calibration sims stay byte-identical. */
