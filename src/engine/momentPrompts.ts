@@ -1075,7 +1075,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "When seasonRetrospective carries `yourStories`, tell the player the story of them and each houseguest in a few " +
     "plain sentences from that houseguest's own facts: how it began, the turning points, how it ended, and whether their " +
     "view of the player warmed, cooled, turned or held steady. Write it fresh each time, treating `line` as a bare " +
-    "fallback; be honest, never flatter, and show no number or id.",
+    "fallback; be honest, never flatter, and show no number or id. " +
     // ORW-656: `decisionReveal` rides this fragment too.
     "When seasonRetrospective carries `decisionReveal`, those are the decisions the houseguests made and what they said " +
     "drove each against what really did: where `mismatch` is true, say plainly that they gave one reason and acted on " +
