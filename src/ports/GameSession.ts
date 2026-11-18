@@ -1992,7 +1992,9 @@ export interface PremiereIntrosView {
     arrivedNames: string[];
     justArrived?: NamedRef;
     playerJustEntered?: boolean;
-    speakers?: Array<{ id?: string; name: string; host?: true; isPlayer?: true }>;
+    speakers?: Array<{ id?: string; name: string; host?: true; isPlayer?: true; /** ORW-653 / 0205: how this introduced houseguest comes across to the player on meeting (a plain word; never a number). */ manner?: "drawn-to" | "even" | "guarded" }>;
+    /** ORW-653 / 0205: this circle is the meet-the-cast moment (official introductions, first impressions). */
+    meetTheCast?: true;
     /**
      * ORW-368 (Ryne's playtest: "it seems to want me to go every time... after a few people it comes back to me as if I need to go again"): where the PLAYER'S OWN toast slot stands, derived from the engine's own done list (`spoke`, which
      * the player's slot is part of): `later` = their slot has not come up yet, `now` = it is in the latest batch (the narrator invites the player ONCE), `done` = it has passed. Toast stage only.

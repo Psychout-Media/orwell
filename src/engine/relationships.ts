@@ -441,9 +441,7 @@ export class RelationshipModel {
    * bond than one who has merely been pleasant. Evidence shades sentiment, never replaces it.
    */
   bondStrength(a: EntityId, b: EntityId): number {
-    const e = this.edge(a, b);
-    return (e.trust + e.affinity) / 2
-      + this.constants.RELIABILITY_WEIGHT * (e.reliability - this.constants.baseline.reliability);
+    return this.peekBondStrength(a, b); // ORW-682: a READ never creates the edge (a lazily created baseline edge decays and serializes, so it changed later play)
   }
 
   /**

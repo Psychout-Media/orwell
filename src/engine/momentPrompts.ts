@@ -2032,7 +2032,9 @@ export interface PremiereEntranceShape {
   headcount?: string;
   arrivedNames: string[];
   justArrived?: { id: string; name: string };
-  speakers?: { id?: string; name: string }[];
+  speakers?: { id?: string; name: string; manner?: string }[];
+  /** ORW-653 / 0205: the circle is the meet-the-cast moment. */
+  meetTheCast?: true;
   playerEntrance?: boolean;
   /** ORW-368: where the player's own toast slot stands (toast stage): not yet, in this batch, or passed. */
   playerToast?: "later" | "now" | "done";
@@ -2143,8 +2145,11 @@ function premiereEntranceLines(
       ...((ent.speakers ?? []).flatMap((x) => {
         const id = (x as { id?: string }).id;
         const card = id ? (met as ReadonlyArray<{ houseguest: { id: string; name: string } }>).find((m) => m.houseguest.id === id) : undefined;
-        return card && !(x as { isPlayer?: boolean }).isPlayer ? [`- THE TOAST \u2014 ${x.name}'s facts (voice their toast from these only, woven into the scene, never read out as a list):${(observable as (fi: unknown) => string)(card)}`] : [];
+        const manner = (x as { manner?: string }).manner;
+        return card && !(x as { isPlayer?: boolean }).isPlayer ? [`- THE TOAST \u2014 ${x.name}'s facts (voice their toast from these only, woven into the scene, never read out as a list):${(observable as (fi: unknown) => string)(card)}${ent.meetTheCast && manner ? ` On meeting the player they come across as ${manner}.` : ""}`] : [];
       })),
+      // ORW-653 / 0205: the circle is the meet-the-cast moment. A rule, never a sample line.
+      ...(ent.meetTheCast ? [`- PREMIERE \u2014 MEET THE CAST (engine truth): each speaker this batch is officially introduced to the house and to the player, in their own voice, from their facts. Where a speaker's facts say how they come across on meeting the player, show it in how they greet the player (conduct and tone only); never state it, never turn it into a number or a verdict, and never say what the player feels about anyone. The player introduces themselves in their own words when they choose; you never write their introduction or their first impressions.`] : []),
     ];
   }
   return [];
