@@ -1055,6 +1055,8 @@ export interface LiveSeasonState {
   orientationTold?: Record<string, true>;
   /** ORW-685 (ORWELL_COVER_SLIPS): the ids of spoken claims whose teller's cover slipped when the player asked who told them - append-only, so a repeat question folds nothing twice. */
   coverSlips?: string[];
+  /** ORW-687 (ORWELL_COVER_SLIPS): the questions a houseguest put to the player ("who told you that?") about a claim the player passed on, with the engine's own record of who really told the player. Append-only; a question once read keeps its read. Engine-only (never projected). */
+  sourceAsks?: import("./sourceAsk").SourceAsk[];
   /**
    * Phase 3a — the same one-shot day-break gate, extended to the REST of the weekly cadence so every
    * major beat lands on its OWN in-fiction day (day order WEEKLY_CADENCE.dayOf, within-day slot DAY_SCHEDULE: Day 1 HOH → 2 noms → 3 veto → 4 veto

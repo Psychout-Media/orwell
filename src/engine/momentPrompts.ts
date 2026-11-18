@@ -1982,6 +1982,8 @@ export interface GatedLeverFlags {
   disclosureSpin?: boolean;
   /** 0196 (ORWELL_DODGING, played games): add the rule for a `dodge` fact. Absent/false => byte-identical. */
   dodging?: boolean;
+  /** ORW-687 (ORWELL_COVER_SLIPS, played games): add the rule for `asksSource` / `readsAnswer`. Absent/false => byte-identical. */
+  askSource?: boolean;
   /** AMEND 3a #1 - the 0094 divergence (ORWELL_GOSSIP_CONSEQUENCE). False ⇒ `confront` always lands, so the prompt must not promise a misfire. */
   confrontMisfire?: boolean;
 }
@@ -2010,6 +2012,14 @@ function withSlantInstruction(base: string): string {
   return base.replace(anchor, anchor + "\n" +
     "    If the voice carries `slants`, the engine decided they frame what they just gave the player in their own favour: voice that in their manner, add no fact and take none away, and never\n" +
     "    say or hint that they are shading it.");
+}
+
+/** ORW-687 - `asksSource` is a question a houseguest puts to the player; `readsAnswer` is how they took the reply. The player's words are the player's alone. Appended only while the flag is on. */
+function withAskSourceInstruction(base: string): string {
+  const anchor = "    cheerful default, and do NOT state it or its cause aloud (they may not even know why another is off).";
+  return base.replace(anchor, anchor + "\n" +
+    "    If the voice carries `asksSource`, this houseguest wants to know where the player got that claim (the value is the claim in public names): they ask it once, in their own words and manner, then stop and wait; the answer is the player's alone, so never answer for the player,\n" +
+    "    never name or guess a source, and do not ask again while it stands open. If the voice carries `readsAnswer`, the player has just answered and this is how it landed with them: voice that reaction in their manner, add no fact, and never say what the truth is.");
 }
 
 /** 0196 - a `dodge` fact says how a declined press is turned aside; the narrator authors the words. Appended only while the flag is on. */
@@ -2267,6 +2277,7 @@ export function buildSystemPrompt(
   if (levers?.disclosureEngine === true) base = withDisclosureInstruction(base);
   if (levers?.disclosureSpin === true) base = withSlantInstruction(base);
   if (levers?.dodging === true) base = withDodgingInstruction(base);
+  if (levers?.askSource === true) base = withAskSourceInstruction(base);
   if (levers?.confrontMisfire === false) base = withoutConfrontMisfire(base);
   const gate = uncommittedCeremonyGate(moment, view);
   return [
