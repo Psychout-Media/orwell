@@ -66,12 +66,19 @@ Given("a houseguest who holds a grievance with high conviction", function () {
   const s = played(this); const b = bag(this);
   [b.holder, b.subject] = npcs(s);
   const live = seam(s).live;
-  recordClaim((live.beliefs ??= {}), { holder: b.holder!, kind: "voted-against-me", subject: b.subject!, value: true, origin: "deduced", confidence: 0.75, week: live.week });
+  recordClaim((live.beliefs ??= {}), { holder: b.holder!, kind: "voted-against-me", subject: b.subject!, value: true, origin: "deduced", confidence: 0.95, week: live.week });
 });
 
 Then("it counts in their decisions at full weight, as a fact would", function () {
   const b = bag(this);
-  assert.equal(seam(b.s!).beliefNomTiltFor(b.subject!, b.holder!), REASONS.goalWeight * 1); // 0.75 conviction, acted on as 1
+  assert.equal(seam(b.s!).beliefNomTiltFor(b.subject!, b.holder!), REASONS.goalWeight * 1); // 0.95 conviction: past CONVICTION.certain, acted on as 1
+});
+Then("a grievance held just over the bar of fact counts a little less, and never less than in proportion", function () {
+  const b = bag(this); const live = seam(b.s!).live;
+  const [, , other] = npcs(b.s!);
+  recordClaim((live.beliefs ??= {}), { holder: b.holder!, kind: "voted-against-me", subject: other!, value: true, origin: "deduced", confidence: 0.75, week: live.week });
+  const w = seam(b.s!).beliefNomTiltFor(other!, b.holder!) / REASONS.goalWeight;
+  assert.ok(w < 1 && w >= 0.75, `a 0.75 belief weighs ${w}`); // ORW-637: graded (0.775 at 0.75), no cliff
 });
 
 Given("a houseguest who doubts something they were told that is false", function () {

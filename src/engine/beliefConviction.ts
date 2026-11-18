@@ -10,15 +10,17 @@ import { evidenceKey, type BeliefClaim } from "./beliefStore";
  * A belief's `confidence` IS its conviction. It comes from the source (trust in the teller and corroboration, as before) scaled by the
  * holder's CREDULITY - their own sheet: disposition (clash = distrusting, bond = open), temperament drift (burned houseguests grow wary) and
  * archetype (calculating types question more), with a small fixed personal offset. Then:
- *  - conviction >= `asFact`: they act on it as a fact (full weight in decisions, `beliefDecisions.ts`);
+ *  - conviction >= `asFact`: they hold it as a fact (no longer tested); its weight in decisions rises with conviction to full at `certain` (`beliefDecisions.ts`, ORW-637);
  *  - a lower conviction on something that matters is TESTED: it becomes an open question (the agenda's find-out goal) and each night the
  *    evidence they have gathered THROUGH PATHWAYS (others telling them the same, or the opposite; catching the source lying) moves the conviction;
  *    with nothing new, the doubt fades - until it is a fact to them or they let it go (refuted). ORW-585: never the engine's hidden truth.
  * Pure rules: no I/O; the only randomness is the caller's seeded roll. ENGINE-ONLY.
  */
 export const CONVICTION = {
-  /** At or above this, a belief is acted on as fact. */
+  /** At or above this, a belief is held as fact: no longer tested or doubted (its decision weight is graded, see `certain`). */
   asFact: 0.7,
+  /** ORW-637 (Fable S-6): a belief's DECISION weight rises in proportion to its conviction and reaches full at this, with no cliff at `asFact`. */
+  certain: 0.9,
   /** Below this the holder no longer believes it (the belief is refuted). */
   dropBelow: 0.15,
   /** How far one night's evidence moves a tested conviction. */

@@ -87,11 +87,22 @@ export function grievanceOf(c: BeliefClaim, holder: EntityId): GrievanceKind | u
   }
 }
 
+/**
+ * ORW-637: a belief's decision weight from its conviction - in proportion below CONVICTION.asFact (unchanged), then rising on a straight line from there to
+ * full at CONVICTION.certain. Continuous: the old jump from asFact straight to full weight is gone.
+ */
+export function convictionWeight(confidence: number): number {
+  const c = Math.max(0, Math.min(1, confidence));
+  if (c < CONVICTION.asFact) return c;
+  return Math.min(1, CONVICTION.asFact + (1 - CONVICTION.asFact) * (c - CONVICTION.asFact) / (CONVICTION.certain - CONVICTION.asFact));
+}
+
 /** One belief's weight now: kind x confidence x decay. */
 function weightNow(c: BeliefClaim, kind: GrievanceKind, week: number): number {
   const age = Math.max(0, week - c.week);
-  // 0160 (conviction): a belief held at or above CONVICTION.asFact is acted on as a fact (full weight); below it, in proportion.
-  const conviction = c.confidence >= CONVICTION.asFact ? 1 : Math.max(0, Math.min(1, c.confidence));
+  // 0160 (conviction) / ORW-637 (Fable S-6): the weight rises with conviction and is full only near certainty - no cliff at CONVICTION.asFact, so a single
+  // broken casual assurance (held at ASSURANCE.brokenClaimConfidence) no longer counts as certain and founds a season-long revenge by itself.
+  const conviction = convictionWeight(c.confidence);
   return BELIEF_PULL.kindWeight[kind] * conviction * Math.pow(0.5, age / BELIEF_PULL.halfLifeWeeks);
 }
 
