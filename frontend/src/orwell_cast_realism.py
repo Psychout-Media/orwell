@@ -334,3 +334,67 @@ def look_fits_life(card: dict) -> list:
     if not field_text(card, "wardrobe").strip():
         out.append("missing")
     return out
+
+
+# ── ORW-563: a look that is a strong outlier for the WHOLE person ────────────────────────────────────────────────
+# Not a lean and not a costume: only a look so far from what this life would own that it reads as a generator error (a cottagecore
+# cardigan on a rural car-lot salesperson) is flagged. The weight is the ORW-480 fit times two more factors, the family's job world
+# and a clash with the person's own background words; under "outlier-weight" it is an outlier.
+
+CODE_LOOK_LIFE = "believability:look-life"
+_STORY_FIELDS = ("background", "vocation", "biography", "identityConcept")
+
+
+def life_fit_weight(family_id: str, card: dict) -> float:
+    """style_fit_weight times the family's job world (x0.3 when the job's sector is outside it) and a background clash (x0.3)."""
+    f = _fit()
+    w = style_fit_weight(family_id, card.get("vocation"), card.get("hometown"), card.get("age"))
+    worlds = f.get("family-sectors", {}).get(family_id)
+    sector = life_sector(card.get("vocation"))
+    if worlds and sector != "other" and sector not in worlds:
+        w *= 0.3
+    text = " ".join(str(card.get(k) or "") for k in _STORY_FIELDS)
+    if any(re.search(r"(?<![a-z])" + re.escape(x), text, re.I) for x in f.get("family-background-clash", {}).get(family_id, [])):
+        w *= 0.3
+    return w
+
+
+def look_shows_family(card: dict, family_id: str) -> bool:
+    """True when what is written for the card (style line and wardrobe) still wears the dealt family: it names the family, or carries one of its
+    tell-tale words. A card with nothing written yet (the engine floor) wears its dealt family by construction. A card whose wardrobe the
+    look-fit rewrite already wrote from the person (a worn grey hoodie on a 'preppy' label) does not."""
+    from src.orwell_style_families import families_mentioned, family_keyword_hits
+    phys = card.get("physicalCharacteristics") if isinstance(card.get("physicalCharacteristics"), dict) else {}
+    style = str(phys.get("style") or "")
+    wardrobe = field_text(card, "wardrobe")
+    if not style.strip() and not wardrobe.strip():
+        return True
+    return family_id in families_mentioned(style) or family_keyword_hits(family_id, style + " | " + wardrobe) >= 1
+
+
+def believability_look_life(card: dict) -> list:
+    """[CODE_LOOK_LIFE] when the dealt style family is a strong outlier for the whole person AND the written look still wears it, else [].
+    The label alone is context: a believable written wardrobe is never flagged."""
+    from src.orwell_style_families import family_for_label
+    fam = family_for_label(str(card.get("presentation") or ""))
+    if fam is None or not look_shows_family(card, fam["id"]):
+        return []
+    return [CODE_LOOK_LIFE] if life_fit_weight(fam["id"], card) < _fit()["outlier-weight"] else []
+
+
+def look_candidates(card: dict, taken: set, k: int = 3) -> list:
+    """The k best-fitting style family labels for the whole person that no other card holds and that are not outliers (the ORW-563 candidates)."""
+    from src.orwell_style_families import STYLE_FAMILIES
+    floor = _fit()["min-weight"]
+    scored = sorted(((life_fit_weight(f["id"], card), f["label"]) for f in STYLE_FAMILIES if f["label"] not in taken), key=lambda x: (-x[0], x[1]))
+    return [lab for w, lab in scored[:k] if w >= floor]
+
+
+def repick_look(card: dict, taken: set) -> Optional[str]:
+    """The family label to re-pick for an outlier: one of the three best candidates, chosen by a stable hash of the card's name (so the same
+    card always re-picks the same look, and a cast does not all land on the one best family). None when no plausible family is free."""
+    import hashlib
+    top = look_candidates(card, taken)
+    if not top:
+        return None
+    return top[int(hashlib.sha256(str(card.get("name") or card.get("id") or "").encode()).hexdigest(), 16) % len(top)]
