@@ -73,3 +73,21 @@ Feature: A promise with a term is kept or broken by what happens on the board, n
     Given promise terms: a house where a promiser has promised a promisee to take them to the final two
     When promise terms: the final two is the promiser and a third houseguest
     Then promise terms: the final-two promise is closed as broken by the engine and the promisee trusts the promiser less
+
+  Scenario: A promiser whose plan says to break it breaks it at the planned moment, once
+    Given ledger plan: a house where a promiser promised a promisee not to nominate them and plans to break it at the nominations
+    Then ledger plan: the promiser does not keep the promise at the nominations
+    When ledger plan: the promiser nominates the promisee twice
+    Then ledger plan: the promise is closed as broken by the engine and the promisee trusts the promiser less exactly once
+
+  Scenario: A promiser whose plan is to keep it keeps it
+    Given ledger plan: a house where a promiser promised a promisee not to nominate them and plans to keep it
+    Then ledger plan: the promiser keeps the promise at the nominations
+
+  Scenario: An improvised promise's plan never reaches a player or admin view
+    Given ledger plan: a house where a promiser promised a promisee not to nominate them and plans to break it at the nominations
+    Then ledger plan: no player or admin view shows the plan or its key
+
+  Scenario: With deal plans switched off an improvised promise gets no plan
+    Given ledger plan: a house with deal plans switched off where a promiser promised a promisee not to nominate them
+    Then ledger plan: no plan was made for the promise
