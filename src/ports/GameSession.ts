@@ -916,6 +916,8 @@ export type DealReqKind = "safety" | "vote" | "final-two" | "target-other" | "co
 
 export interface MakeDealReq {
   with: EntityId;
+  /** ORW-614 (P-12): the id of a standing offer (`openDealOffer` / `openVotePitch` `id`) from `with` that this deal answers with the player's own terms; the offer closes as countered. The deal itself is the player's act and goes through the usual consent read. */
+  countersOffer?: string;
   // 0121 — the two ACTIVE-obligation kinds (comp-throw / veto-save) are accepted only when the deal-depth
   // layer is on (`makeDeal` refuses them otherwise); off ⇒ only the four defensive kinds, byte-identical.
   kind: DealReqKind | "package";
