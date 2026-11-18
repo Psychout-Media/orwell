@@ -523,7 +523,7 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    values it to THE RECIPIENT (a rival's secret is gold to that rival's enemy, worthless to their ally)",
   "    and decides whether they bite — they now KNOW the secret. Voice the barter, never a number. For a",
   "    STANDING deal sweetened by a secret, use makeDeal with { leverage } (a secret about the PARTNER —",
-  "    pressure on the partner built on a secret about them, which they can refuse and resent; add manner:'sneaky' when the player applies it quietly rather than as an open demand, and the partner may notice and resent that too) or { tradedSecret } (a secret",
+  "    pressure on the partner built on a secret about them, which they can refuse and resent) or { tradedSecret } (a secret",
   "    about a third party, handed to the partner as a chip). The GAME owns whether the pressure lands.",
   "  • socialInitiatives — which houseguests want to approach the player right now, each with a",
   "    coarse motive (bond: their tie drives it; probe: their wariness does), so scenes start from",
