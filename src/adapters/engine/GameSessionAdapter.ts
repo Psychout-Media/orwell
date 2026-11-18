@@ -13509,7 +13509,7 @@ export class GameSessionAdapter implements GameSession {
     const playerRoom = presence.get(house.player.id);
     const actors = awakeIds.filter((id) => presence.has(id) && presence.get(id) !== playerRoom);
     // ORW-621 (0198): the people in the player's room live too. Played games with the flag on only; off => empty => every line below is byte-identical.
-    const roomIds = this.roomLifeOn() && playerRoom !== undefined && playerRoom !== "diary-room"
+    const roomIds = this.roomLifeOn() && playerRoom !== undefined && playerRoom !== "diary-room" && (this.awakeNow()?.has(house.player.id) ?? true) // a player who is asleep (a nap) sees nothing: no room steps
       ? awakeIds.filter((id) => id !== house.player.id && presence.get(id) === playerRoom).sort()
       : [];
     if (actors.length === 0 && roomIds.length < 2) return [];
@@ -13660,7 +13660,7 @@ export class GameSessionAdapter implements GameSession {
     const seed = this.gameSeed ?? 0;
     const hourKey = this.roomLifeHourKey(k);
     const prefix = `roomlife:${hourKey}|`;
-    const used = events.queryAll().slice(-ROOM_LIFE.lookback).filter((e) => e.id.startsWith(prefix)).map((e) => e.id.split("|")[1]!);
+    const used = (this.record?.events() ?? []).slice(-ROOM_LIFE.lookback).filter((e) => e.id.startsWith(prefix)).map((e) => e.id.split("|")[1]!);
     if (used.length >= ROOM_LIFE.perHour) return [];
     const stretchKey = `d${k.day}h${k.hour}r${k.repeat}`;
     if (agendaRoll(seed, "room-life", `chance:${stretchKey}`) >= ROOM_LIFE.chance) return [];
