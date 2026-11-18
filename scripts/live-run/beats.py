@@ -55,7 +55,13 @@ def run_veto_ceremony(eng, play, check, chat, turns=4):
     check("V1-reached-veto-ceremony", reached, f"phase {st.get('phase')} week {st.get('week')} (forced entry: the engine's closed set, stopped at the veto ceremony)")
     if not reached:
         return
-    check("V1b-clock-near-the-ceremony", advance_to_due(eng), f"daySchedule {(st.get('daySchedule') or {}).get('minutesUntil')} minutes until due (moved by engine ticks)", "warn")
+    eng.jumps += 1   # the runner's own clock moves are tagged so K1 never blames the game for them
+    advance_to_due(eng, minutes_before=0)
+    ds = (eng.call("getGameState") or {}).get("daySchedule") or {}
+    # the stall rule judges an event that is DUE: a ceremony still minutes away is not a stall (the first run of this beat read 20 minutes and called it one)
+    check("V1b-ceremony-is-due", bool(ds.get("due")), f"daySchedule due={ds.get('due')} minutesUntil={ds.get('minutesUntil')} before the first chat turn (moved by engine ticks)")
+    if not ds.get("due"):
+        return
     week = Week(chat.page, chat.base)
     week.name_fn = lambda: ((eng.call("getGameState") or {}).get("player") or {}).get("name")
     fired, played = False, 0
@@ -72,6 +78,7 @@ def run_veto_ceremony(eng, play, check, chat, turns=4):
 def run_finale(eng, play, check, chat, turns=4):
     """Jump to the finale and play it through the real chat. F1 reached, F2 the finale is over or still honestly in progress (never a phantom winner: B5 reads each turn)."""
     from live_week import CARD, Week
+    eng.jumps += 1   # the whole closed-set walk to the finale is the runner's own move (tagged so K1 never blames the game)
     eng.play_pendings_until("finale", "f1", max_steps=400)
     st = eng.call("getGameState")
     reached = st.get("phase") in ("finale", "complete") or finale_over(st)
