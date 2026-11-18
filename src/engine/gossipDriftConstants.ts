@@ -46,6 +46,8 @@ export const GOSSIP_DRIFT = {
   /** Hard clamps on the mediated escalation bias — never a certainty, always a lean. */
   escalationFloor: 0.08,
   escalationCeil: 0.92,
+  /** ORW-589: how much one same-room retelling that drifts adds to the fact's distortion (0..1, the spread's own scale); bounded by the spread's clamp at 1. */
+  sameRoomDistortionStep: 0.1,
 } as const;
 
 /**

@@ -272,3 +272,13 @@ Vault read — it is reading the player's own (mis)belief. The Wall is preserved
    deferred to keep v1 to the player's own beliefs.
 
 > **Tracks #865.**
+
+## 2026-11-18 - ORW-589: same-room retelling drift reaches played games
+
+Fable's audit (T2-6) found the per-retelling drift (`ORWELL_GOSSIP_DRIFT`) lived only on the graph diffusion path, which the default-ON same-room spread (`ORWELL_GOSSIP_COPRESENCE`) replaces. So in a played game no retelling drifted, and the spread's audience count was a constant 0 (`composition/orchestrator.ts`).
+
+- The spread (`copresenceSpread.ts`) now takes an optional `drift`. Each transmitted retelling runs `driftRetelling` (`gossip.ts`) on a FORK of the pair's own rng, so no other draw moves: from the second retelling on, a hedge in the teller's public voice replaces the last teller's, and a text that carries a scene nature may move it one rung (voice biases the direction). Free-text facts, which are what the spread carries in a played game, are never reworded: the engine holds no structured claim for them. The fact's distortion rises by `GOSSIP_DRIFT.sameRoomDistortionStep` (0.1, capped at 1). `originalContent` (the Vault truth) never changes.
+- The audience is the other awake houseguests in the pair's room, so a crowded room shares less (the disclosure rule already read it).
+- Gated by `ORWELL_GOSSIP_DRIFT` (default ON) AND a person playing; a headless or calibration game and `=0` are byte-identical. Hidden layer only; the player is never a node, so nothing reaches them except through a later pathway that ends at them.
+- Not done: swapping the subject of a free-text fact (needs a structured claim on the fact).
+- Tests: `tests/unit/sameRoomDrift.test.ts`.
