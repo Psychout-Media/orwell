@@ -115,3 +115,7 @@ overhears, trajectories, confessionals, campaigns, jury house) runs on these sce
 ## Not in slice 1
 Decisions reading the agenda and stored reasons (slice 2); the hour-by-hour actions and next step (slice 3); memory sentences and mood
 causes (slice 4); model words (slice 5); jury and final HOH from character (slice 6); house culture (slice 3/5).
+
+## Amendment — 2026-11-18 (ORW-639, Fable stacking audit S-11): more decisions leave a why
+
+The hidden `decisionWhy` record (ORW-305; engine-only, Vault-class, append-only, persisted with the season, read by no outward surface) gains three kinds, same shape: `jury-vote` (each NPC juror's vote: the lean as its named parts `bond-manner-reliability`, `game-respect`, `memory`, `grudge`, plus `finale-performance` and `finale-swing`, chosen finalist and the other), `houseguests-choice` (an NPC's sixth-player pick: `bond`, the temperature `wobble` the pick actually drew, and the memory / strategy `bias`, chosen and best other candidate) and `deal-keep` (a deal weighed and kept: the same named temptation and cost terms a `deal-break` records; player-party deals, no stated reason, nothing voiced). They draw no rng and move no choice. Still without a record: approach and recruit choices (the ranking lives in the conversation and hour-plan code, spread over several sites; a later slice).

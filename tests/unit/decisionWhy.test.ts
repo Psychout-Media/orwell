@@ -154,6 +154,35 @@ describe("ORW-305 decision WHY breakdowns", () => {
     expect(w.options[0]!.total >= w.options[1]!.total).toBe(true);
   });
 
+  it("ORW-639: every NPC juror's vote is recorded with the named lean parts, the performance and the swing, and the record IS the vote", () => {
+    const jv = records.filter((w) => w.kind === "jury-vote");
+    expect(jv.length).toBeGreaterThan(30);
+    const finished = all.filter((x) => x.s.finale?.votes);
+    expect(finished.length).toBeGreaterThan(3);
+    for (const x of finished) {
+      for (const w of x.why.filter((r) => r.kind === "jury-vote")) {
+        expect(w.options.length).toBe(2);
+        expect(x.s.finale!.votes![w.by]).toBe(w.options[0]!.option); // the record is the vote made
+        expect(w.options[0]!.total).toBeGreaterThanOrEqual(w.options[1]!.total); // the chosen finalist outswayed the other
+        const sum = w.options[0]!.terms.reduce((a, t) => a + t[1], 0);
+        expect(Math.abs(sum - w.options[0]!.total)).toBeLessThan(1e-9); // the terms reproduce the sway the vote used
+        expect(w.options[0]!.terms.map((t) => t[0]).every((n) => ["bond-manner-reliability", "game-respect", "memory", "grudge", "finale-performance", "finale-swing"].includes(n))).toBe(true);
+      }
+    }
+    expect(jv.every((w) => w.by !== PLAYER)).toBe(true);
+  });
+
+  it("ORW-639: an NPC's Houseguest's-Choice pick is recorded: the chosen sixth player, the best other candidate, bond + wobble + bias", () => {
+    const hc = records.filter((w) => w.kind === "houseguests-choice");
+    expect(hc.length).toBeGreaterThan(5);
+    for (const w of hc) {
+      expect(w.options[0]!.role).toBe("chosen");
+      expect(w.options[0]!.total).toBeGreaterThanOrEqual((w.options[1]?.total ?? -Infinity));
+      expect(Math.abs(w.options[0]!.terms.reduce((a, t) => a + t[1], 0) - w.options[0]!.total)).toBeLessThan(1e-9);
+      expect(w.options[0]!.option).not.toBe(w.by);
+    }
+  });
+
   it("survives save and restore, and the record only ever grows (append-only)", async () => {
     process.env.ORWELL_BEDTIME_GATE = "0";
     const d = mkdtempSync(join(tmpdir(), "orwell-305-"));
