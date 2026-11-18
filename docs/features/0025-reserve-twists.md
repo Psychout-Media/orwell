@@ -161,3 +161,22 @@ twists), **0011** (the loop a twist perturbs), **0002** (the reveal becomes know
 in reserve"; God Mode walled from the Vault even for the admin); `docs/features/0005` (1–2
 Vault-held reserve twists; invariants hold under them); `docs/features/0016` §5 (enable without
 learning content/timing); mandate #2 (the human/admin has never read the Vault).
+
+## 13. Amendment (2026-11-18, ORW-652): the double eviction is one long night
+
+Ryne (11-17): the double eviction should play as one fast, chaotic night: the first eviction, an instant Head of Household, hurried nominations, a rushed veto, the second eviction, all in one evening.
+Checked in a played game first. Before this change the format was right (new HOH, nominations, veto and vote in the same week, the same hard rules) but the clock was not: the second cycle charged full
+hours per beat, so a night that began at the evening eviction ran past the 8am wake; the day then rolled in the middle of the second ballot reveal, and the schedule gate held the second eviction until
+the next evening (a 480-minute hold), with an extra 60-minute draw-to-competition hold inside the night.
+
+**What changed (played games only, flag `ORWELL_LONG_NIGHT`, default ON; off or headless is byte-identical):**
+
+- While the second cycle runs (`longNightRunning`: the twist is `double-eviction`/`running` in a played game), every beat charges a fraction of its usual hours (`LONG_NIGHT_BEAT_SCALE`, a quarter), and the
+  clock never rolls the day: the whole night ends around three hours after the first eviction, and the one day roll is the ordinary morning after.
+- The schedule treats each ceremony of the second cycle as due the moment the one before it ends (no afternoon to wait for, no draw-to-competition gap), so the advance gate never holds the night.
+- Nobody can turn in mid-night: `turnIn` is held (typed, nothing commits) until the second eviction is done; the bedtime is the player's own again the moment the night ends.
+- The narrator is handed one per-turn board line (third person, public facts only: who has just been evicted, who holds the instant crown, who is on the block once named). It is a fact to voice, never a script.
+
+**Unchanged on purpose:** every roll and draw (the same seed yields the same evictees and Heads of Household with the compression on or off, pinned in `tests/unit/longNight.test.ts`), the eligibility rules (the
+outgoing HOH cannot take the second crown), the presentation-over-one-roll staging of competitions and ceremonies, and the player's agency in every seat (instant HOH, nominee, evicted in either eviction).
+Gate: `tests/unit/longNight.test.ts` + the three `long night:` scenarios in `0025-reserve-twists.feature`.

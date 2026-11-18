@@ -1,5 +1,5 @@
 import type { Beat, LiveSeasonState } from "./liveSeason";
-import { nightBreakPending, vetoDrawStage, drawMissedMorning } from "./liveSeason";
+import { nightBreakPending, vetoDrawStage, drawMissedMorning, longNightRunning } from "./liveSeason";
 import type { TimeOfDay } from "./timeOfDay";
 import { WAKE_HOUR, eventSpanHours, DAY_END_HOUR } from "./timeOfDay";
 import { CLOCK } from "./sleepConstants";
@@ -115,6 +115,8 @@ export function nextMilestone(live: LiveSeasonState | null | undefined): NextMil
   const m: StructuralMilestone = vetoDrawStage(live!) ? "veto-draw" : (beat as StructuralMilestone);
   const phase = DAY_SCHEDULE[m];
   let targetHour = phaseStartHour(phase);
+  // ORW-652: a double-eviction night is one continuous night - every ceremony of its second cycle is due the moment the one before it ends (no afternoon to wait for, no draw-to-comp gap).
+  if (longNightRunning(live!)) return { beat: m, phase: live!.timeOfDay ?? phase, targetHour: live!.nightDepth ?? targetHour };
   // ORW-565: the competition starts no sooner than the gap after the draw finished (a played game; the stamp is the draw's end on the absolute in-game clock).
   if (m === "veto-competition" && live!.playedGame === true && live!.vetoDrawnAtAbs !== undefined) {
     targetHour = Math.max(targetHour, live!.vetoDrawnAtAbs + VETO_DRAW_TO_COMP_GAP_HOURS - ((live!.dayNumber ?? 1) - 1) * 24);
