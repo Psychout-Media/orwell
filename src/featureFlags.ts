@@ -235,6 +235,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_PERCEIVED_BONDS', key: 'perceivedBonds', parser: 'defaultOn' },
   // ORW-37 / B40: lasting game philosophies - each NPC plays one philosophy (a seeded draw conditioned on archetype) that sets the nomination style they play. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_PHILOSOPHIES', key: 'philosophies', parser: 'defaultOn' },
+  // 0172 / ORW-611: a houseguest's goal step aimed at the player is recorded (a player-witnessed event once it surfaces), answerable by talking to them or striking a deal, and a hostile one the player ignores sours that houseguest's read of them. Played games only. ON by default; `=0` turns it off, byte-identical.
+  { envKey: 'ORWELL_PLAYER_AIMED', key: 'playerAimed', parser: 'defaultOn' },
   { envKey: 'ORWELL_PLAYER_DOSSIER', key: 'playerDossier', parser: 'defaultOn' },
   { envKey: 'ORWELL_PREMIERE_ENTRANCES',   key: 'premiereEntrances',      parser: 'defaultOn' },
   // ORW-669 / 0210 C3: in the player's own Diary Room the producer may raise a said-vs-did contradiction from the player's own recorded public record (a promise, then an act against the same houseguest); facts to the narrator, no outcome or relationship change, nothing reaches any houseguest. A played game only. `=0` opts out.
