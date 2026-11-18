@@ -29,7 +29,7 @@ Feature: A houseguest plants a lie on the player
   Scenario: Asking "who told you that?" about a planted lie never names a made-up source
     Given an NPC planted a lie on the player
     When the player asks who told them
-    Then the NPC says they saw it themself, and names no one
+    Then the NPC names no source
     And the narrator is not told the answer is untrue
 
   Scenario: The house mix and the late-game guards still pass
