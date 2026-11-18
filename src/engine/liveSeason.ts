@@ -818,6 +818,8 @@ export interface LiveSeasonState {
   traps?: import("./trap").Trap[];
   /** 0188: the last day the trap tick ran (once a day). */
   trapsDay?: number;
+  /** 0204 / ORW-647: the facts that have already broken in front of the house (once each). Engine-only, idempotent, only grows. */
+  secretBreaks?: string[];
   /**
    * 0130 — each evictee's exit interview, week by week: their public posture on the way out (a `stance`
    * DERIVED from their manner for an NPC, or the PLAYER's own chosen stance + words). Recorded as the

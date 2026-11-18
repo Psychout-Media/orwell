@@ -970,6 +970,8 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
   sandbox.session.secretBarterTick(sandbox.engine.events, sandbox.engine.knowledge);
   // 0188 / ORW-619: the trap - once a day, watch the canaries set and maybe set a new one (own side stream; played games only; engine-only).
   sandbox.session.trapTick(sandbox.engine.knowledge);
+  // 0204 / ORW-647: the night it all comes out - a fact enough houseguests hold breaks in front of the house, or its subject blows it up (once a day; own keyed rolls; played games only).
+  sandbox.session.secretBreakTick(sandbox.engine.knowledge);
 
   // B27b — live gossip: occasionally one of the night's scenes becomes a RUMOR that diffuses along
   // the affinity graph (who actually talks to whom), with low per-edge transmission, decaying

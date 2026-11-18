@@ -36,6 +36,7 @@ import { tellsOf, narratedTellsOf, refreshTells, tellChannel } from "../../engin
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
 import { MOOD_CAUSES, causeLine, isBadNight, isCloseFriend, mayShareEventCause, strongestLiveCause, type MoodCauseSource } from "../../engine/moodCauses";
 import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sceneSeenBy, sharedScenes, type SeenScene } from "../../engine/bondJealousy";
+import { SECRET_BREAK, breakDecision, breakLine, keptOutGrudge, pickSpoken, standingMove } from "../../engine/secretBreak";
 import { HOH_ROOM, decideVisit, backstoryFacets, pickBackstoryFact } from "../../engine/hohRoom";
 import { GRUDGES, REPAIR, combineSalience, easeGrudge, easedShareOf, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, repairAmount, wrongWeight, type GrudgeKind } from "../../engine/grudges";
 import { breakDivisor, feelingKeep, feelsGuilt, guiltKey, guiltScale, markFeeling } from "../../engine/bondFeelings";
@@ -1509,6 +1510,83 @@ export class GameSessionAdapter implements GameSession {
       if (fact) {
         done.used.push(`${hoh}|${fact.text}`);
         this.onPlayerEvent(`${this.nameOf(hoh)}'s photos and letter (${wk}) - ${fact.field}: ${fact.text}`, room, "hoh-room");
+      }
+    }
+  }
+  /** 0204 / ORW-647: THE NIGHT IT ALL COMES OUT (`ORWELL_SECRET_BREAKS`, default ON; `=0` = none). Played games with the belief layer only. */
+  private secretBreaksEnabled = flagDefaultOn("ORWELL_SECRET_BREAKS");
+  setSecretBreaksEnabled(on: boolean): void { this.secretBreaksEnabled = on; }
+  private secretBreakDayDone: number | undefined;
+  /**
+   * 0204 - once a day (the off-screen tick): a fact about a houseguest that enough of the others HOLD stops being a secret. Tonight it breaks in front of the awake room, either said by the others
+   * once it is due, or blown up by its own subject when they are pressured and volatile (`secretBreak.ts`, keyed rolls, no shared rng). One break a night, once per fact (saved). It is recorded
+   * as a public house event whose witnesses are the room (the player too, if awake: a witnessed event is not a secret), and lands through the existing stores: each present houseguest who did not
+   * hold it now holds it (pathway `public`), the room re-reads the subject (a bounded directed fold, less for a self-detonation), and each houseguest kept out holds it against the holder they had
+   * trusted most (a grudge). The player is never a holder and never detonates by the engine's hand. Engine-only; the narrator gets the fact as spoken and never a holder list or a truth marker.
+   */
+  secretBreakTick(knowledge: KnowledgeService): void {
+    const s = this.live;
+    if (!this.secretBreaksEnabled || !s || s.playedGame !== true || !this.npcBeliefsEnabled || !this.house || !this.onPlayerEvent) return;
+    const day = s.dayNumber ?? s.week;
+    if (this.secretBreakDayDone === day) return; // session-local: a restart on the same night re-reads the same keyed rolls, and a fact that broke is already saved
+    this.secretBreakDayDone = day;
+    const living = this.livingIds();
+    const livingSet = new Set(living);
+    const npcs = living.filter((id) => id !== PLAYER).sort();
+    const done = new Set(s.secretBreaks ?? []);
+    const awake = this.awakeNow();
+    const room = living.filter((id) => !awake || awake.has(id));
+    const seed = this.gameSeed ?? 0;
+    // Every fact about a living houseguest, with who holds it and in what words (engine-only; never carried outward).
+    const byFact = new Map<string, { subject: EntityId; held: Array<{ holder: EntityId; content: string; confidence?: number }> }>();
+    for (const h of npcs) {
+      for (const k of knowledge.knownTo(h)) {
+        const subject = k.subject;
+        const factId = k.factId ?? k.id;
+        if (subject === undefined || subject === h || !livingSet.has(subject) || done.has(factId) || factId.startsWith("canary:") || this.secretUsedAs[factId] === "exposed") continue;
+        const row = byFact.get(factId) ?? { subject, held: [] };
+        if (row.subject === subject && !row.held.some((x) => x.holder === h)) row.held.push({ holder: h, content: k.content, ...(k.confidence !== undefined ? { confidence: k.confidence } : {}) });
+        byFact.set(factId, row);
+      }
+    }
+    const nominated = new Set<EntityId>((s.nominees as readonly EntityId[] | undefined) ?? []);
+    const order = [...byFact.entries()].sort((a, b) => b[1].held.length - a[1].held.length || (a[0] < b[0] ? -1 : 1));
+    for (const [factId, row] of order) {
+      const subject = row.subject;
+      if (!room.includes(subject)) continue; // they are not in the room tonight
+      const pool = npcs.filter((id) => id !== subject);
+      const holders = row.held.filter((x) => pool.includes(x.holder));
+      const cold = pool.length ? pool.reduce((a, id) => a + Math.max(0, Math.min(1, (0.25 - this.rel.peek(id, subject).affinity) / 0.5)), 0) / pool.length : 0;
+      const soul = this.soulObj(subject);
+      const kind = breakDecision({
+        seed, subject, factId, week: s.week, day, holders: holders.length, pool: pool.length,
+        volatility: soul?.volatility ?? 0.3, steadiness: soul?.emotionalState ?? 0.5, onTheBlock: nominated.has(subject), coldness: cold, playerSubject: subject === PLAYER,
+      });
+      if (!kind) continue;
+      const spoken = pickSpoken(holders);
+      if (!spoken) continue;
+      this.stageSecretBreak(knowledge, { factId, subject, kind, spoken, holders: holders.map((x) => x.holder), room });
+      (s.secretBreaks ??= []).push(factId);
+      break; // one a night
+    }
+  }
+  private stageSecretBreak(knowledge: KnowledgeService, b: { factId: string; subject: EntityId; kind: "exposed" | "detonated"; spoken: string; holders: EntityId[]; room: EntityId[] }): void {
+    const s = this.live!;
+    const seed = this.gameSeed ?? 0;
+    this.onPlayerEvent!(breakLine(b.kind, this.nameOf(b.subject), b.spoken, weekWords(s.week)), b.room, "secret-break");
+    this.secretUsedAs[b.factId] = "exposed"; // the holder structure is now public: never re-wielded as leverage, a trade or an exposure
+    const npc = b.subject === PLAYER ? undefined : this.house!.npcs.find((n) => n.id === b.subject);
+    const severity = severityOf(npc ? this.headlineSecretOf(npc)?.kind : undefined);
+    const hit = standingMove(severity, b.kind);
+    const holders = new Set(b.holders);
+    const day = s.dayNumber ?? s.week;
+    for (const id of b.room) {
+      if (id === PLAYER || id === b.subject) continue;
+      if (!holders.has(id)) knowledge.seedBelief(id, { content: b.spoken, originalContent: b.spoken, factId: b.factId, subject: b.subject, confidence: 0.9, hops: 0, distortion: 0 }, "public");
+      this.rel.applyImpactDirected(id, b.subject, hit, new SeededRandom(hashSeed(`${seed}:secret-break:${b.factId}:${id}`)));
+      if (!holders.has(id) && this.grudgesOn() && holders.size > 0) {
+        const trusted = [...holders].filter((h) => h !== id).sort((x, y) => this.rel.peek(id, y).trust - this.rel.peek(id, x).trust || (x < y ? -1 : 1))[0];
+        if (trusted) noteGrudge((s.grudges ??= {}), id, trusted, "lied-to", Math.min(1, keptOutGrudge(severity)), s.week, day, `secret-break:${b.factId}:${id}`);
       }
     }
   }
