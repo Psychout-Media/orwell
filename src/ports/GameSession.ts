@@ -473,6 +473,13 @@ export interface GameStateView {
    */
   weekDigests?: WeekDigestView[];
   /**
+   * ORW-650 (0133, watching from the couch) — present only for a pre-jury evictee in WATCH mode: the latest PUBLIC
+   * moments of the season since they left (ceremony beats, competition results, house events the broadcast showed),
+   * as engine-recorded third-person facts for the narrator to voice. Never a hidden scene, a confessional or a
+   * ballot's attribution; never present for a juror (the jury house stays sequestered, 0129) or an active player.
+   */
+  watching?: { moments: string[] };
+  /**
    * 0129 — the JURY HOUSE: present ONLY while the player holds a juror's seat (0046). The other houseguests who are
    * on the jury right now, with the player's own public read of each. Vault-free by construction: the roster is the
    * public eviction order; `bearing` is a CATEGORICAL read of the recorded eviction manner toward the player (the

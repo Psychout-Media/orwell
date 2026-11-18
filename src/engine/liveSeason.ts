@@ -861,6 +861,8 @@ export interface LiveSeasonState {
    */
   spectator?: { mode: SpectatorMode; sinceWeek: number };
   spectatorOffered?: boolean;
+  /** ORW-650 (0133 couch): the event-record length when the watching player's season-following began (stamped once by the adapter; flag-gated, absent otherwise). */
+  couchFromEvent?: number;
   weekDigests?: WeekDigest[];
   finaleInterview?: { stance: ExitStance; message?: string };
   /**
