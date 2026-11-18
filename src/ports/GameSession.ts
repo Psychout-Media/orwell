@@ -64,6 +64,8 @@ export interface PlayerCard {
    * pre-jury — their season is over). Public, Vault-free: it says nothing about anyone's hidden state.
    */
   status: "active" | "jury" | "evicted";
+  /** ORW-641 — 1-based place in the public eviction order (1 = first out); present only once they have left the house. A broadcast ceremony fact, Vault-free. */
+  evictedSeq?: number;
   /**
    * 0133 — how an early-evicted player follows the rest of the season: absent for an active player or before the
    * choice; `watch` = the engine-built skeleton season (one `weekDigests` line per week), `skip` = fast-forwarded to
@@ -103,6 +105,8 @@ export interface HouseguestCard {
   lastSeenMood?: string;
   /** active | jury (evicted into the last-9) | evicted (pre-jury). Public ceremony fact. */
   status: string;
+  /** ORW-641 — 1-based place in the public eviction order (1 = first out); present only once they have left the house. A broadcast ceremony fact, Vault-free. */
+  evictedSeq?: number;
   archetype?: string;
   strategyStyle?: string;
   background?: string;
@@ -734,6 +738,8 @@ export interface GameStateView {
    * when the week rolls. Vault-free: public name, deal kind, a terms paraphrase — no numbers.
    */
   openDealOffer?: OpenDealOfferView | null;
+  /** 0174: the vote pitch, shown here only while an ordinary offer also stands (it has its own slot; with no other offer it is `openDealOffer`). Answer with `submitDecision deal-offer` plus `offerId` = `id`. */
+  openVotePitch?: OpenDealOfferView | null;
   /** 0142: favors houseguests owe the player (present only while any are banked). */
   owedFavors?: OwedFavorView[];
 }
@@ -1431,6 +1437,8 @@ export interface PublicGameStatus {
    * when the week rolls. Vault-free: public name, deal kind, a terms paraphrase — no numbers.
    */
   openDealOffer?: OpenDealOfferView | null;
+  /** 0174: the vote pitch, shown here only while an ordinary offer also stands (it has its own slot; with no other offer it is `openDealOffer`). Answer with `submitDecision deal-offer` plus `offerId` = `id`. */
+  openVotePitch?: OpenDealOfferView | null;
   /** 0142: favors houseguests owe the player (present only while any are banked). */
   owedFavors?: OwedFavorView[];
   /**
@@ -1609,6 +1617,8 @@ export interface BeatEventView {
 
 /** 0123 — a standing NPC deal offer, voiced in-scene (see `openDealOffer`). */
 export interface OpenDealOfferView {
+  /** 0174: set on a vote pitch (the `offerId` that answers it). */
+  id?: string;
   from: NamedRef;
   kind: string;
   terms: string;
@@ -2687,6 +2697,8 @@ export interface SubmitDecisionReq {
   /** eviction-vote / juror-vote: the finalist/nominee the player votes for.
    *  goodbye-message: the chosen tone ("warm" | "respectful" | "cold") rides here (E34). */
   vote?: EntityId;
+  /** deal-offer (0174): which standing offer this answers when an ordinary offer and the vote pitch both stand (the pitch's `id`). Absent = the ordinary offer, else the pitch. */
+  offerId?: string;
   /** finale-statement / juror-question: the player's free text (flavor; carries no score).
    *  goodbye-message: the optional message text accompanying the chosen tone. */
   statement?: string;

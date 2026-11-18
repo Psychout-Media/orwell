@@ -122,17 +122,51 @@ Then("triads: the camps pitch the player and one stands as an offer they may dec
     seamOf(v.p).swingAtVote(view);
     const s = seamOf(v.p).live;
     assert.equal(s.pending, undefined, "the player's ballot must not be decided or pended by the courting");
-    if (s.dealOffer) {
+    if (s.votePitch) {
       offered++;
-      assert.equal(s.dealOffer.kind, "vote");
+      assert.equal(s.votePitch.kind, "vote");
       assert.ok(heard.length > 0, "the player witnesses the pitch");
-      (v.p.seam as unknown as { resolveDealOffer(a: boolean): unknown }).resolveDealOffer(false); // the player may decline
-      assert.equal(s.dealOffer, undefined);
+      (v.p.seam as unknown as { resolveDealOffer(a: boolean, slot: string): unknown }).resolveDealOffer(false, "pitch"); // the player may decline
+      assert.equal(s.votePitch, undefined);
       assert.equal(s.pending, undefined);
     }
     assert.ok(courtedFor(v.p, PLAYER).length > 0 || !heard.length, "a pitch to the player is recorded as a courting of the player");
   }
   assert.ok(offered > 0, "no seed offered the player a pitch");
+});
+
+Given("a triads season where the player's vote could decide an eviction while another offer already stands", function () { bag(this); });
+Then("triads: the vote pitch lands in its own slot, the other offer stays, each is answered on its own, and the flag off keeps today's single slot", function () {
+  const resolve = (p: Played, accept: boolean, slot: string) => (p.seam as unknown as { resolveDealOffer(a: boolean, s: string): unknown }).resolveDealOffer(accept, slot);
+  let both = 0;
+  for (const seed of SEEDS) {
+    const v = closeVote(seed, true);
+    const s = seamOf(v.p).live;
+    const other = { id: `offer:${v.others[3]}:${s.week}`, from: v.others[3]!, kind: "safety", terms: "an ordinary approach", madeWeek: s.week };
+    s.dealOffer = other; s.lastDealOfferWeek = s.week; // another approach already stands, and this week's approach is spent
+    seamOf(v.p).swingAtVote({ ...v.view, previews: [{ voter: v.others[0]!, pick: v.nominees[0], gap: 0.5 }, { voter: v.others[1]!, pick: v.nominees[1], gap: 0.5 }] });
+    if (!s.votePitch) continue;
+    both++;
+    assert.equal(s.dealOffer, other, "the pitch must not displace the other approach");
+    assert.equal(s.lastDealOfferWeek, s.week);
+    assert.equal(s.votePitch.kind, "vote");
+    assert.notEqual(s.votePitch.id, other.id);
+    const before = JSON.stringify(s.votePitch);
+    seamOf(v.p).swingAtVote({ ...v.view, previews: [{ voter: v.others[0]!, pick: v.nominees[0], gap: 0.5 }, { voter: v.others[1]!, pick: v.nominees[1], gap: 0.5 }] });
+    assert.equal(JSON.stringify(s.votePitch), before, "one pitch per vote: the cap holds");
+    resolve(v.p, false, "pitch");
+    assert.equal(s.votePitch, undefined);
+    assert.equal(s.dealOffer, other, "answering the pitch leaves the other offer standing");
+  }
+  assert.ok(both > 0, "no seed raised a pitch beside a standing offer");
+  // flag off: nothing is raised in either slot
+  for (const seed of SEEDS.slice(0, 6)) {
+    const v = closeVote(seed, true);
+    v.p.session.setTriadsEnabled(false);
+    seamOf(v.p).swingAtVote({ ...v.view, previews: [{ voter: v.others[0]!, pick: v.nominees[0], gap: 0.5 }, { voter: v.others[1]!, pick: v.nominees[1], gap: 0.5 }] });
+    assert.equal(seamOf(v.p).live.votePitch, undefined);
+    assert.equal(seamOf(v.p).live.dealOffer, undefined);
+  }
 });
 
 Given("a triads season where two houseguests both hold the player as an enemy, and two others hold the player as a friend", function () { bag(this); });

@@ -635,6 +635,8 @@ export interface LiveSeasonState {
   playerPitch?: import("./hohCourt").PlayerPitchRecord;
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
   moodCauses?: Record<EntityId, MoodCause & { week: number }>;
+  /** 0194 / ORW-626: every other mood CAUSE a houseguest has had (a lie found out, a friend gone, a bad night, a win or loss), append-only. Vault-class; voiced only when the houseguest chooses to say it. Played games only; absent otherwise. */
+  moodCauseLog?: import("./moodCauses").MoodCauseEntry[];
   vetoField?: EntityId[];
   /** ORW-565: the absolute in-game hour ((day-1)*24 + clock hour) the veto DRAW finished (the field was published). Played games only; the competition waits a minimum gap after it. Re-armed each week. */
   vetoDrawnAtAbs?: number;
@@ -675,6 +677,8 @@ export interface LiveSeasonState {
   /** 0171: counters the player accepted whose condition (a rival goes up / someone is kept safe) is not yet true. Booked as a favor only when the condition holds at that week's eviction; otherwise lapsed. Append-only, engine-only. */
   favorConditions?: Array<{ id: string; owedBy: EntityId; owedTo: EntityId; origin: string; kind: "target" | "protect"; target: EntityId; week: number; state: "waiting" | "booked" | "lapsed" }>;
   lastDealOfferWeek?: number;
+  /** 0174 (ORWELL_TRIADS): the vote pitch an NPC camp makes the player when their ballot could decide an eviction. Its OWN offer slot, apart from `dealOffer`: a pitch neither displaces nor is displaced by another approach, and it never sets `lastDealOfferWeek`. One per vote (the courted-once guard); the player accepts or declines it, the engine never answers. Absent unless a pitch stands. */
+  votePitch?: NonNullable<LiveSeasonState["dealOffer"]>;
   /**
    * 0142 / ORW-88 idea 2 - favors the PLAYER is owed: a houseguest (`debtor`) kept a deal with the player, which banked one favor (`n`, capped) the player can call in
    * with `callInFavor`. Vault-free (it is the player's own deal history). Banked for played games only; absent otherwise => byte-identical. Persists with the season.

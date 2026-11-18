@@ -34,6 +34,7 @@ import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "..
 import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/voice";
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
+import { MOOD_CAUSES, causeLine, isBadNight, isCloseFriend, mayShareEventCause, strongestCause, type MoodCauseSource } from "../../engine/moodCauses";
 import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sceneSeenBy, sharedScenes, type SeenScene } from "../../engine/bondJealousy";
 import { HOH_ROOM, decideVisit, backstoryFacets, pickBackstoryFact } from "../../engine/hohRoom";
 import { GRUDGES, REPAIR, combineSalience, easeGrudge, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, repairAmount, type GrudgeKind } from "../../engine/grudges";
@@ -1622,11 +1623,13 @@ export class GameSessionAdapter implements GameSession {
     this.writeLieCaught(p.holder, p.liar, p.confidence, p.origin);
     const e = this.rel.edge(p.holder, p.liar);
     e.trust = Math.max(0, e.trust - caughtLieTrustDrop(p.confidence));
+    if (this.moodCausesOn()) { this.noteMoodCause(p.holder, "lied-to", p.liar); this.catchMood(p.holder, "betrayed", MOOD_CAUSES.liedToMoodScale); } // 0194: being lied to is a mood cause
   }
   /** ORW-545 - a broken formal deal is a caught lie for the wronged party (full weight) and for each formation witness (the witness factor); one claim per deal per holder (idempotent). Never for a sealed ballot break (the callers skip it). */
   private writeDealBreakLie(holder: EntityId, breaker: EntityId, deal: Deal, role: "wronged" | "witness"): void {
     if (holder === breaker || (role === "witness" && deal.parties.includes(holder))) return;
     this.writeLieCaught(holder, breaker, brokenDealLieConfidence(deal, this.live?.week, role), role === "wronged" ? "witnessed" : "told", brokenDealClaimId(holder, breaker, deal));
+    if (role === "wronged") this.noteMoodCause(holder, "betrayed", breaker); // 0194: a betrayal learned
   }
   /**
    * B24 / #2017 14.5(5) - HEARD-ABOUT-ME. What a houseguest is TOLD about the player in a recorded chat scene is a belief they hold (engine-only, voiced only BY that holder), at the TELLER's reliability (the
@@ -5943,7 +5946,8 @@ export class GameSessionAdapter implements GameSession {
       pending: this.pendingView(),
       // 0123 (PO ruling 2026-11-01) — a standing NPC deal offer, voiced in-scene by the narrator (no card).
       // Present ONLY while one stands, so the flag-off payload is byte-identical (no `openDealOffer: null`).
-      ...(this.live?.dealOffer ? { openDealOffer: this.openDealOfferView() } : {}),
+      ...(this.live?.dealOffer || this.live?.votePitch ? { openDealOffer: this.openDealOfferView() } : {}),
+      ...(this.live?.dealOffer && this.live?.votePitch ? { openVotePitch: this.openDealOfferView(this.live.votePitch) } : {}),
       ...(this.owedFavorsView().length ? { owedFavors: this.owedFavorsView() } : {}),
       // F3: the same public over-signal + broadcast winner the AdvanceView/SeasonRecap expose, so a
       // status-only client learns the season ended (and who won) without separately hitting /state or
@@ -6511,9 +6515,9 @@ export class GameSessionAdapter implements GameSession {
       if (bids.length > 0) {
         (t.courted ??= []).push({ week: s.week, voter: PLAYER, bidders: [...new Set(bids.map((b) => b.pitcher))].sort(), tier: priceTier(new Set(bids.map((b) => b.nominee)).size - 1), gap: 0 });
         const [first, ...rest] = bids;
-        if (first && !s.dealOffer && s.lastDealOfferWeek !== s.week && !this.dealOfferPartyGone(first.pitcher) && !this.memoryBlocksPlayerDeal(first.pitcher)) {
-          s.dealOffer = { id: `offer:${first.pitcher}:${s.week}`, from: first.pitcher, kind: "vote", terms: `${this.nameOf(first.pitcher)} asks ${this.nameOf(PLAYER)} to keep ${this.nameOf(first.nominee)} at this week's eviction`, madeWeek: s.week };
-          s.lastDealOfferWeek = s.week;
+        // Its OWN slot (`votePitch`): another approach standing in `dealOffer`, or already made this week, neither blocks the pitch nor is blocked by it. One per vote (the courted-once guard above) is the cap.
+        if (first && !s.votePitch && !this.dealOfferPartyGone(first.pitcher) && !this.memoryBlocksPlayerDeal(first.pitcher)) {
+          s.votePitch = { id: `pitch:${first.pitcher}:${s.week}`, from: first.pitcher, kind: "vote", terms: `${this.nameOf(first.pitcher)} asks ${this.nameOf(PLAYER)} to keep ${this.nameOf(first.nominee)} at this week's eviction`, madeWeek: s.week };
           this.onPlayerEvent?.(`${this.nameOf(first.pitcher)} makes their case to ${this.nameOf(PLAYER)} before the vote`, [PLAYER, first.pitcher], "conversation");
         } else if (first) rest.unshift(first);
         for (const b of rest) this.onPlayerEvent?.(`${this.nameOf(b.pitcher)} makes their case to ${this.nameOf(PLAYER)} before the vote`, [PLAYER, b.pitcher], "conversation");
@@ -13980,15 +13984,58 @@ export class GameSessionAdapter implements GameSession {
       if (a.cause) (this.live.moodCauses ??= {})[id] = { ...a.cause, week: this.live.week };
     }
   }
-  /** ORW-317: the mood cause this NPC would TELL the player now (this week's, shared only per `mayShareCause`), names filled in. */
+  /**
+   * ORW-317 + 0194: the mood cause this NPC would TELL the player now, names filled. Candidates are this week's goal cause (shared per `mayShareCause`) and, with `ORWELL_MOOD_CAUSES`, every other cause they have
+   * had (shared per `mayShareEventCause`); of the ones they would say, the heaviest wins. Hidden otherwise.
+   */
   private moodCauseFor(id: EntityId): { moodCause?: string } {
-    const c = this.live?.moodCauses?.[id];
-    if (!this.goalMoodEnabled || !c || c.week !== this.live!.week) return {};
+    const live = this.live;
+    if (!live) return {};
+    const goalOn = this.goalMoodEnabled, eventsOn = this.moodCausesOn();
+    if (!goalOn && !eventsOn) return {};
     const character = this.agendaCharacterOf(id);
     if (!character) return {};
     const candor = Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0)));
-    if (!mayShareCause(c, this.rel.edge(id, PLAYER).affinity, candor)) return {};
-    return { moodCause: c.about ? fillSubject(c.line, this.nameOf(c.about)) : c.line.split("{subject}").join("them") };
+    const affinity = this.rel.edge(id, PLAYER).affinity;
+    const say = (line: string, about?: EntityId): string => (about ? fillSubject(line, this.nameOf(about)) : line.split("{subject}").join("them"));
+    let best: { weight: number; text: string } | undefined;
+    const c = live.moodCauses?.[id];
+    if (goalOn && c && c.week === live.week && mayShareCause(c, affinity, candor)) best = { weight: MOOD_CAUSES.goalWeight, text: say(c.line, c.about) };
+    if (eventsOn) {
+      const e = strongestCause(live.moodCauseLog, id, live.week);
+      if (e && mayShareEventCause(e.source, affinity, candor) && (!best || MOOD_CAUSES.weight[e.source] > best.weight)) best = { weight: MOOD_CAUSES.weight[e.source], text: say(e.line, e.about) };
+    }
+    return best ? { moodCause: best.text } : {};
+  }
+  /** 0194 / ORW-626 (`ORWELL_MOOD_CAUSES`, default ON; `=0` byte-identical): more things give a houseguest a mood cause. Played games only; engine-only and append-only; no rng. */
+  private moodCausesEnabled = flagDefaultOn("ORWELL_MOOD_CAUSES");
+  setMoodCausesEnabled(on: boolean): void { this.moodCausesEnabled = on; }
+  private moodCausesOn(): boolean { return this.moodCausesEnabled && this.live?.playedGame === true; }
+  /** Record a cause for an NPC (the player's mood is theirs, never recorded). The same cause on the same day is not written twice. */
+  private noteMoodCause(holder: EntityId, source: MoodCauseSource, about?: EntityId): void {
+    const s = this.live;
+    if (!this.moodCausesOn() || !s || holder === PLAYER || holder === about) return;
+    const day = s.dayNumber;
+    const log = (s.moodCauseLog ??= []);
+    if (log.some((c) => c.holder === holder && c.source === source && c.about === about && c.week === s.week && c.day === day)) return;
+    log.push({ holder, source, line: causeLine(source), ...(about !== undefined ? { about } : {}), week: s.week, ...(day !== undefined ? { day } : {}) });
+  }
+  /** A close friend of the evictee (a bond at or above the friend line) has lost them: that is their cause. Reads the relationship edge (engine-only); no rng. */
+  private noteFriendEvicted(evictee: EntityId): void {
+    if (!this.moodCausesOn() || !this.live) return;
+    for (const h of this.live.active) {
+      if (h === PLAYER || h === evictee) continue;
+      const e = this.rel.edge(h, evictee);
+      if (isCloseFriend(e.trust, e.affinity)) this.noteMoodCause(h, "friend-evicted", evictee);
+    }
+  }
+  /** Read the night that just ended: each NPC whose hidden rest deficit is a bad night gets the cause. Called at a genuine night-end, before the conflicts clear. No rng. */
+  private noteBadSleepCauses(): void {
+    if (!this.moodCausesOn() || !this.live || !this.house || !this.timeOfDayEnabled || !this.live.timeOfDay) return;
+    for (const n of this.house.npcs) {
+      if (!this.live.active.includes(n.id)) continue;
+      if (isBadNight(npcRestDeficit(this.live, this.statsOf(n.id), n.id, this.effectiveBedDepth(n.id), this.lateCompanyFor(n.id)))) this.noteMoodCause(n.id, "bad-sleep");
+    }
   }
   /** Re-check agendas (every living NPC's, or just `only`) after a real event. Played games only; fail-soft; no rng. */
   private agendaRecheck(trigger: AgendaTrigger, only?: readonly EntityId[], ev?: BeatEvent): void {
@@ -14272,12 +14319,13 @@ export class GameSessionAdapter implements GameSession {
       case "hoh-competition": {
         const winner = ev.participants[0];
         if (winner) { this.inflect(winner, "comp-win"); this.spreadMood(winner, MOOD_CONTAGION.WIN_MAGNITUDE, "good", "comp-win"); }
+        if (winner) this.noteMoodCause(winner, "won");
         // E51 (`comp-loss`): a loss stings where it was genuinely CONTESTED — the final-3 HOH
         // crown, where each loser just watched their endgame narrow. Losing a 13-player
         // mid-season HOH comp is background noise (folding it for the whole house weekly would
         // also drown every soul's recall in identical filler — the C12/E55 lesson).
         if (winner && s && s.active.length === 3) {
-          for (const h of s.active) if (h !== winner) this.inflect(h, "comp-loss");
+          for (const h of s.active) if (h !== winner) { this.inflect(h, "comp-loss"); this.noteMoodCause(h, "lost"); }
         }
         break;
       }
@@ -14290,8 +14338,9 @@ export class GameSessionAdapter implements GameSession {
       case "veto-competition": {
         const holder = s?.vetoHolder;
         if (holder) { this.inflect(holder, "comp-win"); this.spreadMood(holder, MOOD_CONTAGION.WIN_MAGNITUDE, "good", "comp-win"); }
+        if (holder) this.noteMoodCause(holder, "won");
         // E51: the rest of the six-player field contested and lost (the participants ARE the field).
-        for (const h of ev.participants) if (h !== holder) this.inflect(h, "comp-loss");
+        for (const h of ev.participants) if (h !== holder) { this.inflect(h, "comp-loss"); this.noteMoodCause(h, "lost"); }
         break;
       }
       case "veto-ceremony": {
@@ -14306,6 +14355,7 @@ export class GameSessionAdapter implements GameSession {
         const hit = this.blindsideClosestAlly(evictee);
         // ORW-567 (mood contagion): a shocking exit rattles the evictee's circle most and the house a little (the closest ally already took the full blindside).
         this.spreadMood(evictee, shockOf(s?.mannerByEvictee?.[evictee]), "bad", "blindside", hit);
+        this.noteFriendEvicted(evictee); // 0194: a close friend gone is a mood cause
         this.feelEvictionGuilt(evictee); // ORW-568 / 0181: a voter who truly liked the evictee is shaken (private; the ballot is secret)
         // E51: the nominee who sat on the block and SURVIVED is emboldened — the 0041 arc beat.
         const survivor = s?.eviction?.nominees.find((n) => n !== evictee);
@@ -14929,7 +14979,7 @@ export class GameSessionAdapter implements GameSession {
       // did NOT reach via retirement.
       // Only when THIS advance crossed into the morning: an event's later 0-hour steps sit at the same 8am
       // and must not re-count the same night (greptile #1912 — one night accrued once per reveal).
-      if (!wasRetired && depthBefore !== WAKE_HOUR && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === (this.live!.wakeHour ?? WAKE_HOUR)) this.accrueNightFatigue();
+      if (!wasRetired && depthBefore !== WAKE_HOUR && this.live!.timeOfDay === DAY_START && (this.live!.nightDepth ?? WAKE_HOUR) === (this.live!.wakeHour ?? WAKE_HOUR)) { this.accrueNightFatigue(); this.noteBadSleepCauses(); }
       this.rollNightConflicts();
     }
   }
@@ -15027,7 +15077,10 @@ export class GameSessionAdapter implements GameSession {
     // hidden cooling is applied. Never silently decline on bad input (Greptile P1).
     if (req.kind === "deal-offer") {
       if (this.live.finished) return remember(this.advanceView(null)); // a post-season answer binds nothing
-      if (req.vote === "accept" || req.vote === "decline") return remember(this.resolveDealOffer(req.vote === "accept"));
+      // 0174: the vote pitch has its own slot. `offerId` names it when both stand; with no id the ordinary offer answers first, and the pitch when it is the only one standing.
+      const s0 = this.live;
+      const pitch = s0.votePitch && (req.offerId === s0.votePitch.id || (req.offerId === undefined && !s0.dealOffer));
+      if (req.vote === "accept" || req.vote === "decline") return remember(this.resolveDealOffer(req.vote === "accept", pitch ? "pitch" : "deal"));
       return remember(this.advanceView(null));
     }
     // ORW-596 - the player's own answer to an NPC's public accusation: open state (`live.houseMeetings`, not a pending card), answered like a deal offer. A missing/garbled stance is a safe no-op.
@@ -15456,6 +15509,7 @@ export class GameSessionAdapter implements GameSession {
       playerTurnIn(this.live!, PLAYER);
       this.bedThePlayer(); // ORW-466: the player sleeps (and wakes) in their own bed - the HOH room for the HOH
       { const up = this.awakeNow(); if (up) this.seatInOwnBeds(this.presenceActive().filter((id) => !up.has(id))); } // ORW-466: whoever is still asleep when the player wakes is in their own bed
+      this.noteBadSleepCauses(); // 0194: read the night just ended before the fatigue meter rolls it in
       this.accrueNightFatigue(); // the player chose bed — a genuine night-end; accrue before clearing conflicts
       this.rollNightConflicts();
       this.persist();
@@ -17936,6 +17990,20 @@ export class GameSessionAdapter implements GameSession {
         }).sort((a, b) => b.weighing.temptation - a.weighing.temptation || (a.npc < b.npc ? -1 : 1))[0]!;
         const verdict = decideDealBreak(w.weighing, new SeededRandom(hashSeed(`${seed}:deal-twist:${deal.id}:${tk}`)).next());
         if (verdict === "keep") continue;
+        // 0186 amendment: when the twist makes the promise impossible to keep ("break" verdict), the promiser's own SECRET PLAN (0178) decides what it was. A faking plan (`isBetrayal`)
+        // uses the twist as cover: a REAL, quiet betrayal through `breakDeliberately` (the usual fold; the wronged party learns only through `learnOfBreak`'s pathways; the deal keeps
+        // projecting open; nothing is narrated). Any other plan (keep / this-week / no plan) is the forced, innocent break: the renegotiation below, no betrayal, no fold.
+        if (verdict === "break" && this.dealPlansEnabled && d.condition.promisors.includes(w.npc) && this.twoFacedPlan(d.id, w.npc)) {
+          if (d.parties.includes(PLAYER)) this.noteDealWeighing(w.npc, "deal-break", w.weighing);
+          this.deals.breakDeliberately(d, w.npc, {
+            rel: this.rel, rng: new SeededRandom(hashSeed(`${seed}:deal-twist-betray:${deal.id}:${tk}`)), currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
+            juryDemerit: (wronged, breaker) => { recordDealBetrayal(s, wronged, breaker); this.feelGuilt(breaker, wronged); },
+            revealToWitness: (witness, breaker) => { this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
+            reveal: (wronged, breaker, bd) => this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a ${bd.kind} deal with ${this.nameOf(wronged)} off-screen`, [breaker], "betrayal"),
+          });
+          this.persist();
+          continue;
+        }
         const kind = renegotiatedKind(d.kind);
         if (kind === undefined) continue;
         if (d.parties.includes(PLAYER)) {
@@ -18095,12 +18163,13 @@ export class GameSessionAdapter implements GameSession {
    * move — never a betrayal-shock; the change is real, recorded, and invisible — the Vault Wall working).
    * Either way the offer is consumed. A no-op (safe) if no offer stands.
    */
-  private resolveDealOffer(accept: boolean): AdvanceView {
+  private resolveDealOffer(accept: boolean, slot: "deal" | "pitch" = "deal"): AdvanceView {
     const s = this.live;
-    if (!s?.dealOffer || !this.house) return this.advanceView(null);
+    const standing = slot === "pitch" ? s?.votePitch : s?.dealOffer;
+    if (!s || !standing || !this.house) return this.advanceView(null);
     return this.inOneCommit(() => {
-      const o = s.dealOffer!;
-      s.dealOffer = undefined; // consumed either way
+      const o = standing;
+      if (slot === "pitch") s.votePitch = undefined; else s.dealOffer = undefined; // consumed either way
       // An offer whose party has left (or a finished season) can no longer bind anyone (Greptile #1911).
       if (this.dealOfferPartyGone(o.from) || s.finished) {
         this.persist();
@@ -18148,6 +18217,7 @@ export class GameSessionAdapter implements GameSession {
    * lapse itself is recorded as a PLAYER-WITNESSED event (the player knows they never answered).
    */
   private maybeLapseDealOffer(standingOfferId: string | undefined): void {
+    this.maybeLapseVotePitch();
     const s = this.live;
     const o = s?.dealOffer;
     if (!s || !o || !this.house) return;
@@ -18175,6 +18245,15 @@ export class GameSessionAdapter implements GameSession {
     this.rel.applyDirected(o.from, PLAYER, "conflict", rng, L.scaleMin + (L.scaleMax - L.scaleMin) * vol);
   }
 
+  /** 0174: a vote pitch is moot once the week rolls past it (or its party left or the season ended). It lapses quietly: no cooling and no event, since the vote itself was the answer. */
+  private maybeLapseVotePitch(): void {
+    const s = this.live;
+    const o = s?.votePitch;
+    if (!s || !o) return;
+    const seasonOver = !!s.finished || s.beat === "finale" || s.beat === "complete";
+    if (this.dealOfferPartyGone(o.from) || seasonOver || s.week > o.madeWeek) s.votePitch = undefined;
+  }
+
   /** 0123 — true when either party to a deal offer has left the game (offerer or player evicted). */
   private dealOfferPartyGone(from: EntityId): boolean {
     const gone = new Set(this.live?.evictionOrder ?? []);
@@ -18182,13 +18261,14 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** 0123 — the standing NPC deal offer as Vault-free open state for the narrator (null when none). */
-  private openDealOfferView(): OpenDealOfferView | null {
-    const o = this.live?.dealOffer;
+  private openDealOfferView(only?: NonNullable<LiveSeasonState["dealOffer"]>): OpenDealOfferView | null {
+    const o = only ?? this.live?.dealOffer ?? this.live?.votePitch; // the vote pitch (0174) rides its own slot; it shows here when no other offer stands
     if (!o || !this.house) return null;
     // The voicing instruction rides WITH the offer (only while one stands) instead of the base prompt — no
     // standing prompt cost (the #1391 budget) and nothing at all when the layer is off / no offer stands.
     return {
       from: this.named(o.from)!, kind: o.kind, terms: o.terms, madeWeek: o.madeWeek,
+      ...(o === this.live?.votePitch ? { id: o.id } : {}),
       ...(o.replacesDealId ? { replacesDealId: o.replacesDealId } : {}),
       ...(o.counter ? { counter: { round: o.counter.round, ask: o.counter.ask.kind !== "vote" ? { kind: o.counter.ask.kind, target: this.named(o.counter.ask.target)! } : { kind: "vote" as const } } } : {}),
       ...(o.favor ? { favor: { kind: o.favor.favorId ? "called-in" as const : "asked" as const } } : {}),
@@ -18874,7 +18954,7 @@ export class GameSessionAdapter implements GameSession {
         moment, narrView, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
         // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
-        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() && !this.juryHouseView() },
+        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled || this.moodCausesEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() && !this.juryHouseView() },
       ),
       ...(hardConstraints ? { hardConstraints } : {}),
       // The producer's public name — the byline the FE renders as the chat sender (producer-persona
@@ -19855,6 +19935,12 @@ export class GameSessionAdapter implements GameSession {
     return armed.filter(([kind, on]) => on && !fired.has(kind)).map(([kind]) => ({ kind, firedWeek: null }));
   }
 
+  /** ORW-641: the 1-based place in the public eviction order, only for someone who has left. */
+  private evictedSeqOf(id: EntityId): { evictedSeq?: number } {
+    const idx = (this.live?.evictionOrder ?? []).indexOf(id);
+    return idx < 0 ? {} : { evictedSeq: idx + 1 };
+  }
+
   /** Any houseguest's public seat (B61): still playing, on the last-9 jury, or out pre-jury. */
   private seatOf(id: EntityId): "active" | "jury" | "evicted" {
     const order = this.live?.evictionOrder ?? [];
@@ -19928,7 +20014,8 @@ export class GameSessionAdapter implements GameSession {
       // silently missed it).
       pending: this.pendingView(),
       eviction: this.evictionView(),
-      ...(this.live?.dealOffer ? { openDealOffer: this.openDealOfferView() } : {}), // 0123: voiced in-scene, never a card
+      ...(this.live?.dealOffer || this.live?.votePitch ? { openDealOffer: this.openDealOfferView() } : {}), // 0123: voiced in-scene, never a card
+      ...(this.live?.dealOffer && this.live?.votePitch ? { openVotePitch: this.openDealOfferView(this.live.votePitch) } : {}), // 0174: the vote pitch's own slot, shown beside a standing deal offer
       ...(this.owedFavorsView().length ? { owedFavors: this.owedFavorsView() } : {}), // 0142
       finished: !!this.live?.finished, // B6-01: the over-signal the FE season lifecycle (0057) gates on
       // C8-04: the live ceremony state in the model's persistent context (the same Vault-free public
@@ -19967,6 +20054,7 @@ export class GameSessionAdapter implements GameSession {
         archetype: p.persona?.archetype ?? p.character.archetype,
         strategyStyle: p.persona?.strategyStyle ?? p.character.strategyStyle,
         status,
+        ...this.evictedSeqOf(p.id), // ORW-641
         ...(this.live?.spectator ? { spectator: this.live.spectator.mode } : {}),
         // ADR 0006 §Principle 5: the player's OWN qualitative tiredness (their body is their knowledge) —
         // a cue, never a number, and never any NPC's sleep state. Present only once the clock is running.
@@ -19993,6 +20081,7 @@ export class GameSessionAdapter implements GameSession {
       house: this.house.npcs.map((n) => ({
         id: n.id, name: n.name,
         status: this.seatOf(n.id),
+        ...this.evictedSeqOf(n.id), // ORW-641: the public eviction place (the cast wall orders the departed by it)
         // B61: the curated PUBLIC persona facets — the narrator's per-person voice anchor
         // (seed-stable, so a houseguest sounds the same in week 8 as week 1). Stats, the
         // soul, and hiddenElements are deliberately NOT selected here.
