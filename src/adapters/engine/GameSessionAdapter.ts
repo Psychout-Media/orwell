@@ -98,7 +98,7 @@ import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
 import { DEAL_NOMS } from "../../engine/dealNomConstants";
 import { proposeNpcDeals, planAwareDealPush, type PairBondRead } from "../../engine/npcDeals";
 import { decideDodge, type DodgeFact } from "../../engine/dodging";
-import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosure, routeDisclosureFull, type DisclosureEvent } from "../../engine/disclosureRoute";
+import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosureFull, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { beatShare, endgamePush, endgameFakeLean, isEndgame } from "../../engine/endgameTrust";
 import { heirOf, partnerReaction, debtorRelief } from "../../engine/evictedTake";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
@@ -403,6 +403,7 @@ import { sameMoment } from "../../engine/claimMoment";
 import { COMING_CLEAN, confessable, confessionTrustDrop, loopInTrustGain, catchRisk, confessChance, cleanActDone, otherVersionNear } from "../../engine/comingClean";
 import { CAUGHT_LIE, caughtLieTrustDrop, contradicts, overclaimedKeeps, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
 import { claimProblem, liesBy, claimsHeardBy, tellClaim, labelOfNature, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
+import { answerFold, decideAsk, namedSources, parseSourceDodge, readAnswer, trueSourceOf, type AnswerRead } from "../../engine/sourceAsk";
 import { askableClaims, claimPhrase, decideCover, decideSourceAnswer, pickAskedClaim, COVER, heldBeliefFor, namedInText, namedSourceContent, noRecordNote, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
@@ -3643,7 +3644,7 @@ export class GameSessionAdapter implements GameSession {
    * whether the surfacing actually reached the player (so the scheduler can count it for restraint).
    */
   private onThreadGossip?: (origin: EntityId, rumor: string, subject: EntityId) => void;
-  private onThreadSurfaceToPlayer?: (subject: EntityId, rumor: string) => boolean;
+  private onThreadSurfaceToPlayer?: (subject: EntityId, rumor: string, confidenceScale?: number) => boolean;
 
   setOnThreadGossip(fn: (origin: EntityId, rumor: string, subject: EntityId) => void): void {
     this.onThreadGossip = fn;
@@ -3662,6 +3663,9 @@ export class GameSessionAdapter implements GameSession {
   private disclosureSpinOn(): boolean { return this.disclosureSpinEnabled && this.disclosureEngineOn(); }
   /** ORW-261: one orientation-disclosure decision per (npc, week, phase), like `confideRoutes`. */
   private orientationRoutes = new Map<string, import("../../engine/disclosure").Disclosure>();
+  /** ORW-687: the orientation routes (same keys) whose single draw also said the teller slants a share. Memory only. The spin touches ONLY how firmly the player's record holds the houseguest's own words (`SPIN.spunConfidence`): it never reaches the narrator and never adds, changes or implies anything about an orientation (0141). */
+  private orientationSpins = new Set<string>();
+  private orientationSpun(key: string): boolean { return this.disclosureSpinOn() && this.orientationSpins.has(key); }
   private noteDisclosure(npc: EntityId, event: DisclosureEvent): void { this.beatDisclosures.set(npc, { epoch: this.disclosureEpoch, event }); }
   /** What `npc` did about telling the player something THIS beat (confirm / slip / deflect), or undefined when the engine rolled nothing for them. */
   disclosureThisBeat(npc: EntityId): DisclosureEvent | undefined {
@@ -3672,10 +3676,10 @@ export class GameSessionAdapter implements GameSession {
   /** N-17 vs 0092 - the delivery MARKER: a Vault-free counter + the source's PUBLIC id, set whenever a thread surfaces to the player OFF the tool path (the confidant slip / gossip chain run inside the orchestrator tick). Memory only (a restart resets it; the front-end reads a change, not an order). Never content. */
   private playerSurfaceN = 0;
   private playerSurfaceSource?: EntityId;
-  setOnThreadSurfaceToPlayer(fn: (subject: EntityId, rumor: string) => boolean): void {
-    this.onThreadSurfaceToPlayer = (subject, rumor) => {
-      const told = fn(subject, rumor);
-      if (told) { this.playerSurfaceN += 1; this.playerSurfaceSource = subject; this.noteDisclosure(subject, dripToDisclosure()); }
+  setOnThreadSurfaceToPlayer(fn: (subject: EntityId, rumor: string, confidenceScale?: number) => boolean): void {
+    this.onThreadSurfaceToPlayer = (subject, rumor, confidenceScale) => {
+      const told = fn(subject, rumor, confidenceScale);
+      if (told) { this.playerSurfaceN += 1; this.playerSurfaceSource = subject; this.noteDisclosure(subject, dripToDisclosure(confidenceScale !== undefined)); } // ORW-687: a slanted drip carries the same `slant` fact a slanted confidence does
       return told;
     };
   }
@@ -4291,6 +4295,8 @@ export class GameSessionAdapter implements GameSession {
       ...(isActive && this.disclosureEngineOn() && this.disclosureThisBeat(id)?.outcome === "deflect" ? { deflect: true as const } : {}),
       // ORW-685 (ORWELL_DISCLOSURE_SPIN): the houseguest gave the player a truthful confidence framed in their own favour this beat - a third-person fact, no content, no number.
       ...(isActive && this.disclosureSpinOn() && this.disclosureThisBeat(id)?.slant === true ? { slants: true as const } : {}),
+      // ORW-687 (ORWELL_COVER_SLIPS): this houseguest has put "who told you that?" to the player about a claim the player passed on and the player has not answered; or has just read the player's answer. Third-person facts, no source and no number.
+      ...(isActive ? this.sourceAskFor(id) : {}),
       // 0196: HOW the declined press was turned aside (approach / carriage / pushes back) - a third-person fact for the narrator to voice, no content and no number.
       ...(isActive && this.dodgingOn() && this.disclosureThisBeat(id)?.outcome === "deflect" ? (() => { const d = this.dodgeFor(id); return d ? { dodge: d } : {}; })() : {}),
       suspects: (() => {
@@ -7670,6 +7676,7 @@ export class GameSessionAdapter implements GameSession {
     const bedChanged = this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
     if (bedChanged) this.persist();
     if (this.resolveWhoToldYou(String(req.text ?? ""))) this.persist(); // 0152 (theme 2 slice 4b): "who told you that?", read before the narrator writes (same seam)
+    if (this.resolveSourceAnswer(String(req.text ?? ""))) this.persist(); // ORW-687: the player's own answer to a houseguest's "who told you that?", read before the narrator writes (same seam)
     if (this.resolvePlayerMeetingCall(String(req.text ?? ""))) this.persist(); // 0156 slice 7b: the player calls a house meeting in their own words, before the narrator writes (same seam)
     // ORW-522: claiming a bed is going to it (to drop your things on it). With no other room named, a fresh claim is a move to that bedroom, through the
     // same pin as any move: gathered for an event, the narrator is told the player stays with the house; otherwise the engine moves them before the narrator writes.
@@ -8269,6 +8276,62 @@ export class GameSessionAdapter implements GameSession {
   private coverSlipsEnabled = flagDefaultOn("ORWELL_COVER_SLIPS");
   setCoverSlipsEnabled(on: boolean): void { this.coverSlipsEnabled = on; }
   private coverSlipsOn(): boolean { return this.coverSlipsEnabled && this.live?.playedGame === true; }
+
+  /**
+   * ORW-687 - a houseguest ASKS THE PLAYER "who told you that?" (the mirror of the cover slip above). Called when the player passes a claim on: the houseguest it was said to may ask where the player got it,
+   * decided on its own keyed side stream (`decideAsk`; less trust in the player asks more). Only a claim the engine HAS a recorded teller for is ever asked (nothing to compare otherwise). One open question per
+   * houseguest, once per claim, recorded append-only in `live.sourceAsks`; it is an open approach the player may answer or ignore, and lapses with the week. Played games, `ORWELL_COVER_SLIPS`; off => nothing recorded.
+   */
+  private maybeAskSource(told: readonly SpokenClaim[], addressedTo: readonly string[]): void {
+    const live = this.live;
+    if (!this.coverSlipsOn() || !live?.claims) return;
+    for (const claim of told) {
+      const asker = claim.listener;
+      if (claim.origin !== "player" || claim.speaker !== PLAYER || asker === PLAYER || !addressedTo.includes(asker)) continue;
+      const asks = live.sourceAsks ?? [];
+      if (asks.some((a) => a.claimId === claim.id || (a.asker === asker && a.read === undefined && a.week === live.week))) continue;
+      const source = trueSourceOf(live.claims.items, claim);
+      if (source === undefined || !decideAsk(this.gameSeed ?? 0, asker, claim.id, this.rel.edge(asker, PLAYER).trust)) continue;
+      live.sourceAsks = [...asks, { claimId: claim.id, asker, week: live.week, source }];
+      this.sourceAskEpoch.set(claim.id, this.disclosureEpoch);
+    }
+  }
+  /** The turn a question was put (memory only): the narrator is handed it that turn and the next, never nagged after. */
+  private sourceAskEpoch = new Map<string, number>();
+  /** The read the asker just made of the player's answer, this turn only (memory; replaced by the next `resolvePlayerMove`). */
+  private sourceReads = new Map<EntityId, AnswerRead>();
+  /** The player's own answer, read from their words before the narrator writes. Names exactly the recorded teller / names someone else / declines to name anyone; the asker's read folds a bounded step once (`answerFold`). Returns true when something was recorded. */
+  private resolveSourceAnswer(text: string): boolean {
+    this.sourceReads.clear();
+    const live = this.live;
+    if (!this.coverSlipsOn() || !live?.sourceAsks?.some((a) => a.read === undefined) || !this.house || !this.presence || parseWhoToldYou(text)) return false;
+    const here = this.presence.get(this.house.player.id);
+    if (here === undefined) return false;
+    const present = new Set(this.awakeAmong(this.livingIds().filter((id) => id !== PLAYER && this.presence!.get(id) === here)));
+    const roster = this.house.npcs.map((n) => ({ id: n.id as EntityId, name: n.name }));
+    let changed = false;
+    live.sourceAsks = live.sourceAsks.map((a) => {
+      if (a.read !== undefined || a.week !== live.week || !present.has(a.asker)) return a;
+      const read = readAnswer(a.source, namedSources(text, roster, a.asker), parseSourceDodge(text));
+      if (read === undefined) return a; // no sign it was an answer: the question stays open
+      const f = answerFold(read);
+      this.rel.applyDirected(a.asker, PLAYER, f.type, new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:source-answer-fold:${a.asker}:${a.claimId}`)), f.scale);
+      this.sourceReads.set(a.asker, read);
+      changed = true;
+      return { ...a, read };
+    });
+    return changed;
+  }
+  /** The narrator's facts for one houseguest: the question they have put and not yet had answered (this turn or the next), or the read they just made of the answer. Vault-free: the claim in public names, never the teller. */
+  private sourceAskFor(id: EntityId): { asksSource?: string; readsAnswer?: "believed" | "noticed-a-dodge" | "doubts-it" } {
+    const read = this.sourceReads.get(id);
+    if (read) return { readsAnswer: read === "matches" ? "believed" : read === "dodged" ? "noticed-a-dodge" : "doubts-it" };
+    const live = this.live;
+    if (!this.coverSlipsOn() || !live?.sourceAsks) return {};
+    const open = live.sourceAsks.find((a) => a.asker === id && a.read === undefined && a.week === live.week && this.disclosureEpoch - (this.sourceAskEpoch.get(a.claimId) ?? -99) <= 1);
+    const claim = open ? live.claims?.items.find((c) => c.id === open.claimId) : undefined;
+    return claim ? { asksSource: claimPhrase(claim, (x) => this.nameOf(x), this.nameOf(id)) } : {};
+  }
   private resolveWhoToldYou(text: string): boolean {
     this.claimSourceNote = null;
     if (!this.house || !this.presence || !this.live?.claims || !parseWhoToldYou(text)) return false;
@@ -10990,7 +11053,7 @@ export class GameSessionAdapter implements GameSession {
     this.pacingDripCount = 0;
     this.pacingTickCount = 0;
     this.confideRoutes.clear(); this.confideSlants.clear(); // review of ORW-261: a restarted season must not replay the old season's cached disclosure decisions (keyed by npc:week:phase)
-    this.orientationRoutes.clear();
+    this.orientationRoutes.clear(); this.orientationSpins.clear();
     this.pacingLastDrippedWeek = {};
   }
 
@@ -11817,13 +11880,17 @@ export class GameSessionAdapter implements GameSession {
         : rng.next() < THREAD.surfaceToPlayerProb && this.onThreadSurfaceToPlayer !== undefined;
     // B33 / D1: a forced (0092 drip) delivery to the player in a PLAYED game asks `disclosureDecision`; a `hold` defers the thread (stays unspent for a later tick). Dedicated side stream, played games
     // only => headless sims byte-identical.
+    let dripSlant = false;
     if (toPlayer && force === "player" && this.live?.playedGame) {
       const src = this.house?.npcs.find((n) => n.id === thread.sourceId);
-      if (src && routeDisclosure({
+      // ORW-687 (ORWELL_DISCLOSURE_SPIN): the same ONE draw that decides share / slip / hold also says whether the teller slants a truthful drip (a cunning teller slants it), so no new roll is taken.
+      const full = src ? routeDisclosureFull({
         signals: this.confidenceSignalsFor(src), style: src.character.strategyStyle, volatility: this.soulObj(src.id)?.volatility,
         audience: 0, pressure: 0.5, risk: 0.2,
         roll: new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:dripRoute:${thread.id}:${this.week}:${this.phase}`)).next(),
-      }) === "hold") return false;
+      }) : undefined;
+      if (full?.decision === "hold") return false;
+      if (full && full.decision === "share" && full.spin !== undefined && full.spin !== "truthful" && this.disclosureSpinOn()) dripSlant = true;
     }
     if (toPlayer && this.onThreadSurfaceToPlayer) {
       // Rare: a modeled pathway already reaches the player — surface a content-lineage-anchored belief
@@ -11833,7 +11900,7 @@ export class GameSessionAdapter implements GameSession {
       const belief = this.isPlayerConfidant(thread.sourceId)
         ? this.confidantThreadRumor(thread, name)
         : rumor;
-      const told = this.onThreadSurfaceToPlayer(thread.sourceId, belief);
+      const told = dripSlant ? this.onThreadSurfaceToPlayer(thread.sourceId, belief, SPIN.spunConfidence) : this.onThreadSurfaceToPlayer(thread.sourceId, belief);
       // #1913 — nobody awake to relay it tonight: the story is not spent (clock off ⇒ unchanged).
       if (!told && awake) return false;
     } else if (livingNpcs.length > 0 && this.onThreadGossip) {
@@ -12308,16 +12375,18 @@ export class GameSessionAdapter implements GameSession {
     let route = this.orientationRoutes.get(key);
     if (route === undefined) {
       const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:orientation-disclosure:${key}`));
-      route = routeDisclosure({
+      const full = routeDisclosureFull({
         signals, style: npc.character.strategyStyle, volatility: this.soulObj(npcId)?.volatility, audience: this.audienceAround(npcId),
         pressure: ORIENTATION_DISCLOSURE.unpromptedPressure, risk: ORIENTATION_DISCLOSURE.risk, roll: rng.next(),
       });
+      route = full.decision;
       if (route === "share" && rng.next() >= ORIENTATION_DISCLOSURE.unpromptedRarity) route = "hold";
+      if (route === "share" && full.spin !== undefined && full.spin !== "truthful") this.orientationSpins.add(key);
       this.orientationRoutes.set(key, route);
     }
     if (route !== "share") return undefined;
     const said = orientationDisclosureText(orientation);
-    this.onConfide?.(npcId, said, 0.9);
+    this.onConfide?.(npcId, said, 0.9 * (this.orientationSpun(key) ? SPIN.spunConfidence : 1)); // ORW-687: a slanted telling is taken at the spin confidence (no `slants` fact: see `orientationSpins`)
     live.orientationTold = { ...(live.orientationTold ?? {}), [npcId]: true };
     // A53 / ORW-24: this is an ENGINE-decided disclosure (`routeDisclosure` said share) delivered with no lever call, so it leaves the same Vault-free delivery marker the 0092 drip does (a counter and the teller's public id)
     // and the closed-set event. The front end's invented-confession guard (N-17) then treats the turn as engine-backed, and an engine-delivered disclosure is never swapped for a deflection.
@@ -18383,11 +18452,13 @@ export class GameSessionAdapter implements GameSession {
     const key = `${npcId}:${live.week}:${this.phase}`;
     let route = this.orientationRoutes.get(key);
     if (route === undefined) {
-      route = routeDisclosure({
+      const full = routeDisclosureFull({
         signals, style: npc.character.strategyStyle, volatility: this.soulObj(npcId)?.volatility, audience: this.audienceAround(npcId),
         pressure: ORIENTATION_DISCLOSURE.pressure, risk: ORIENTATION_DISCLOSURE.risk,
         roll: new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:orientation-disclosure:${key}`)).next(),
       });
+      route = full.decision;
+      if (route === "share" && full.spin !== undefined && full.spin !== "truthful") this.orientationSpins.add(key);
       this.orientationRoutes.set(key, route);
     }
     if (route !== "share") return undefined;
@@ -18464,7 +18535,7 @@ export class GameSessionAdapter implements GameSession {
     if (decision.truthful && prior?.truthful
       && this.tierRank(decision.tier) <= this.tierRank(prior.tier)) {
       const orientationSaid = this.maybeShareOrientation(npcId, signals, npc);
-      if (orientationSaid) { this.onConfide?.(npcId, orientationSaid, 0.9); this.persist(); }
+      if (orientationSaid) { this.onConfide?.(npcId, orientationSaid, 0.9 * (this.orientationSpun(`${npcId}:${this.live.week}:${this.phase}`) ? SPIN.spunConfidence : 1)); this.persist(); } // ORW-687: the repeat path records it on its own, so the spin applies to it
       return { disclosed: true, tier: prior.tier, truthful: true, content: [discloseTrue(secret, prior.tier), orientationSaid].filter(Boolean).join(" ") };
     }
 
@@ -21092,7 +21163,7 @@ export class GameSessionAdapter implements GameSession {
         moment, narrView, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
         // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
-        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled || this.moodCausesEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() && !this.juryHouseView(), disclosureSpin: this.disclosureSpinOn() && !this.juryHouseView(), dodging: this.dodgingOn() && !this.juryHouseView() },
+        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled || this.moodCausesEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() && !this.juryHouseView(), disclosureSpin: this.disclosureSpinOn() && !this.juryHouseView(), dodging: this.dodgingOn() && !this.juryHouseView(), askSource: this.coverSlipsOn() && !this.juryHouseView() },
       ),
       ...(hardConstraints ? { hardConstraints } : {}),
       // The producer's public name — the byline the FE renders as the chat sender (producer-persona
@@ -21602,7 +21673,10 @@ export class GameSessionAdapter implements GameSession {
     if (out.outcome !== "recorded") return { accepted: false, reason: out.outcome };
     this.openLedger = out.ledger;
     // 0155 / ORW-330 slice 6: a claim the narrator wrote on its own becomes an engine claim (a re-statement above never re-tells it).
-    if (claim) this.tellNarratedClaim(claim, p.speaker, p.addressedTo, wa.present.map((x) => x.id as string), p.speaker === OPEN_LEDGER_PLAYER && p.kind.toLowerCase() === "statement" ? "player" : "narrated");
+    if (claim) {
+      const told = this.tellNarratedClaim(claim, p.speaker, p.addressedTo, wa.present.map((x) => x.id as string), p.speaker === OPEN_LEDGER_PLAYER && p.kind.toLowerCase() === "statement" ? "player" : "narrated");
+      if (p.speaker === OPEN_LEDGER_PLAYER && p.kind.toLowerCase() === "statement") this.maybeAskSource(told, p.addressedTo); // ORW-687: the houseguest it was said to may ask where the player got it
+    }
     this.backgroundPersist(); // durable, but NOT a board beat: no beatSeq bump
     return { accepted: true, ...(out.id ? { entryId: out.id } : {}) };
   }

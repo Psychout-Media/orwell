@@ -33,8 +33,8 @@ export function confideToDisclosure(d: ConfidenceDecision): DisclosureEvent {
 }
 
 /** The 0092 drip / confidant slip delivering something unprompted. */
-export function dripToDisclosure(): DisclosureEvent {
-  return { outcome: "slip", via: "drip", truthful: true };
+export function dripToDisclosure(slant = false): DisclosureEvent {
+  return { outcome: "slip", via: "drip", truthful: true, ...(slant ? { slant: true as const } : {}) };
 }
 
 /**

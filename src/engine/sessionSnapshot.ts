@@ -12,6 +12,7 @@ import type { Alliance } from "./alliances";
 import { isAgendaSuperset } from "./agenda";
 import { beliefStoreSuperset } from "./beliefStore";
 import { claimLogSuperset } from "./spokenClaims";
+import { sourceAsksSuperset } from "./sourceAsk";
 import { toldLeadsSuperset } from "./toldLeads";
 import { cleanActsSuperset } from "./comingClean";
 import { grudgeBookSuperset } from "./grudges";
@@ -979,6 +980,9 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
 
   // claims (0149 / ORW-591): the season's claim log is append-only - no claim told is ever lost, and its id counter never goes back.
   if (!claimLogSuperset(later.live?.claims, earlier.live?.claims)) return "claims";
+
+  // sourceAsks (ORW-687): the questions houseguests put to the player are append-only, and a read once made stays.
+  if (!sourceAsksSuperset(later.live?.sourceAsks, earlier.live?.sourceAsks)) return "sourceAsks";
 
   // toldLeads (0197 / ORW-631): the leads houseguests gave the player are append-only - none is ever lost.
   if (!toldLeadsSuperset(later.live?.toldLeads, earlier.live?.toldLeads)) return "toldLeads";
