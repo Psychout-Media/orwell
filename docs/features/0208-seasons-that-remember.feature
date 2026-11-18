@@ -10,13 +10,7 @@ Feature: Seasons that remember
     When they instead return
     Then their reputation walks in with them, and a returner may be cast
 
-  # B1
-  Scenario: A returning houseguest is real and remembers the player
-    Given the player returns and has played seasons before
-    When a returner is cast
-    Then they are a real houseguest from a season this player played, any of them
-    And they start with the feelings they ended that season with, softened by time but never gone
-    And they can tell new houseguests what the player did, as their own account, through the house's usual pathways
+  # B1: wired in 0208-returning-houseguests.feature (ORW-663)
 
   # B2 (executable now: 0208-your-reputation-walks-in.feature, 2026-11-18; this scenario stays as the design statement)
   Scenario: Last season's play shapes day-one reads, for those who know of it

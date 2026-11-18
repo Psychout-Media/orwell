@@ -357,6 +357,11 @@ export interface GenesisNpcProposal {
   persuasiveness?: unknown;
   susceptibility?: unknown;
   trigger?: unknown;
+  // 0208 / ORW-663: a RETURNING houseguest is never authored here - only a validated archived entry can return (`resolveReturnee`); these keys are flagged + ignored.
+  returnee?: unknown;
+  returning?: unknown;
+  returningFrom?: unknown;
+  pastSeason?: unknown;
 }
 
 /** The whole-cast proposal (expected 15 NPCs + 0–2 ties). */
@@ -660,6 +665,7 @@ export function validateHiddenElements(
 const FORBIDDEN_WEIGHT_KEYS: readonly string[] = [
   "influence", "volatility", "dayOnePerception", "persuasiveness", "susceptibility", "trigger",
   "trustLean", "affinityLean", "threatLean", "emotionalBaseline", "emotionalState",
+  "returnee", "returning", "returningFrom", "pastSeason", // 0208: a returner is archive-resolved, never model-proposed
 ];
 /** Which forbidden hidden-weight keys a proposed NPC illegally carried (present ⇒ flagged + ignored). */
 function forbiddenWeightKeys(p: GenesisNpcProposal): string[] {
