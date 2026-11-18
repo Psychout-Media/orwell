@@ -1,4 +1,5 @@
 import type { EntityId } from "../domain/ids";
+import { isRoleLabel } from "./socialRoles";
 import { PLAYER } from "../domain/ids";
 import { evidenceKey, recordClaim, type BeliefStore, type ClaimKind } from "./beliefStore";
 import { heardConfidence, tellerReliability } from "./heardAboutMe";
@@ -35,6 +36,7 @@ export const SPOKEN_CLAIM_KINDS = [
   "lying-about",        // subject is lying to object (to the listener when object is absent)
   "voted-against",      // subject voted to evict object (0153: so "they voted against ME" - the speaker - can be said; ORW-330 slice 3, asked for by slice 4)
   "voted-to-keep",      // subject voted to KEEP object (did not vote to evict them): "I voted to keep you" (0153, for slice 5's vote lies)
+  "has-reputation",     // 0184 part 2a: the subject has a name in the house as `label` (a social role or a reputation), in the speaker's own words; may be about the listener ("everyone thinks you're the snake")
 ] as const;
 export type SpokenClaimKind = typeof SPOKEN_CLAIM_KINDS[number];
 
@@ -60,6 +62,8 @@ export interface SpokenClaim {
   kind: SpokenClaimKind;
   subject: EntityId;
   object?: EntityId;
+  /** 0184 part 2a: the label of a `has-reputation` claim. */
+  label?: string;
   week: number;
   day?: number;
   /** The engine's truth: false means the speaker lied. Engine-only. */
@@ -75,6 +79,8 @@ export interface ClaimLog { seq: number; items: SpokenClaim[] }
 
 export interface ClaimInput {
   speaker: EntityId; listener: EntityId; kind: SpokenClaimKind; subject: EntityId; object?: EntityId;
+  /** 0184 part 2a: for `has-reputation`, the role or reputation said (an engine `RoleLabel`, voiced by the narrator in its own words). */
+  label?: string;
   isTrue: boolean; intent: ClaimIntent;
   /** 0155: set to "narrated" for a claim the open ledger caught; absent = an engine claim. */
   origin?: "narrated" | "player";
@@ -108,6 +114,7 @@ export function claimProblem(c: ClaimInput, living: readonly EntityId[], jury?: 
   const inRoom = (id: EntityId): boolean => (pair ? jury!.includes(id) : living.includes(id));
   if (!inRoom(c.speaker) || !inRoom(c.listener) || !inHouse(c.subject)) return "not in the house";
   if (c.speaker === c.listener) return "speaker is the listener";
+  if (c.kind === "has-reputation" && !isRoleLabel(c.label)) return "a reputation needs a role"; // 0184 part 2a: only the engine's own role words
   if (c.subject === c.speaker && !ABOUT_OWN_VOTE.has(c.kind)) return "a claim is about someone else"; // a houseguest may claim their OWN vote ("I voted to keep you")
   if (ABOUT_LISTENER.has(c.kind) && c.subject === c.listener) return "a claim is about someone else";
   if (NEEDS_OBJECT.has(c.kind)) {
@@ -118,8 +125,9 @@ export function claimProblem(c: ClaimInput, living: readonly EntityId[], jury?: 
 }
 
 /** The belief a claim plants in its listener: the belief kind, subject and object (Q1: one mapping per claim kind). */
-export function beliefFor(c: Pick<SpokenClaim, "kind" | "listener" | "subject" | "object">): { kind: ClaimKind; subject: EntityId; object?: EntityId; nature?: string } {
+export function beliefFor(c: Pick<SpokenClaim, "kind" | "listener" | "subject" | "object" | "label">): { kind: ClaimKind; subject: EntityId; object?: EntityId; nature?: string } {
   switch (c.kind) {
+    case "has-reputation": return { kind: "heard-rumor", subject: c.subject, nature: reputationNature(c.label ?? "") };
     case "targets-you": return { kind: "targets-me", subject: c.subject, object: c.listener };
     case "voted-to-evict-you": return { kind: "voted-against-me", subject: c.subject };
     case "final-two-with": return { kind: "allied-with", subject: c.subject, object: c.object };
@@ -140,6 +148,11 @@ export function beliefFor(c: Pick<SpokenClaim, "kind" | "listener" | "subject" |
   }
 }
 
+/** 0184 part 2a: a heard reputation is held as a heard rumor whose nature carries the label (`rep:<label>`); no new belief field. */
+export const REPUTATION_NATURE_PREFIX = "rep:";
+export const reputationNature = (label: string): string => `${REPUTATION_NATURE_PREFIX}${label}`;
+export const labelOfNature = (nature: string | undefined): string | undefined => (nature?.startsWith(REPUTATION_NATURE_PREFIX) ? nature.slice(REPUTATION_NATURE_PREFIX.length) : undefined);
+
 /** The confidence a listener holds a claim at: the speaker's reliability in their eyes (trust, plus the word-keeper bonus), as for B24. */
 export function claimConfidence(trustInSpeaker: number, credited: boolean): number {
   return heardConfidence(tellerReliability(trustInSpeaker, credited));
@@ -155,7 +168,7 @@ export function tellClaim(log: ClaimLog, beliefs: BeliefStore | undefined, input
   log.seq += 1;
   const claim: SpokenClaim = {
     id: `claim:${log.seq}`, speaker: input.speaker, listener: input.listener, kind: input.kind, subject: input.subject,
-    ...(input.object !== undefined ? { object: input.object } : {}),
+    ...(input.object !== undefined ? { object: input.object } : {}), ...(input.label !== undefined ? { label: input.label } : {}),
     week: ctx.week, ...(ctx.day !== undefined ? { day: ctx.day } : {}),
     isTrue: input.isTrue, intent: input.intent, origin: input.origin ?? "engine",
   };

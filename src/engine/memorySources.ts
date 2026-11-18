@@ -18,8 +18,8 @@ export const DECISION_SOURCES: Readonly<Record<StrategicDecision, readonly Memor
   evictionVote: ["dealsOf", "tieVotePushFor", "campaignTiltFor", "memoryTiltFor", "beliefTiltFor", "assuranceVoteFor", "moodTiltFor", "feelingKeepFor"],
   // The NPC HOH's `nominationPlan(...)` call in `advanceBeat` case "nominations".
   hohNominations: ["campaignPushFor", "tieNomPushFor", "memoryTiltFor", "beliefTiltFor", "assuranceProtects", "pitchTiltFor", "dealNomPushFor", "moodTiltFor", "drivePushFor", "feelingKeepFor"],
-  // The NPC HOH's replacement pick (`replacementPick(...)`).
-  replacementNominee: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor", "feelingKeepFor"],
+  // The NPC HOH's replacement pick (`replacementPick(...)`). ORW-639: it also reads the deal / pre-show-tie / lobbying / kept-assurance terms the nominations read (`nominationOnlyTerms`, ORWELL_REPLACEMENT_TERMS).
+  replacementNominee: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor", "feelingKeepFor", "dealNomPushFor", "tieNomPushFor", "pitchTiltFor", "assuranceProtects"],
   // The NPC veto holder's save (`chooseVetoSave(...)`): campaign bias + (B7 M1, ORWELL_VETO_MEMORY) one combined memory/belief/deal bias.
   vetoSave: ["campaignPushFor", "vetoMemoryFor", "moodVetoFor", "drivePushFor"],
   // The NPC Houseguest's-Choice holder's sixth-player pick (`resolveVetoDraw` -> `chooseStrongestBond`): strongest bond + (B7 M4b, ORWELL_HC_MEMORY) the same combined memory/belief/deal read.
@@ -32,7 +32,7 @@ export const DECISION_SOURCES: Readonly<Record<StrategicDecision, readonly Memor
   final3Eviction: ["endgameMemoryFor"],
   // ORW-581 (Fable T1-14): in a played game the secret-veto replacement is the shared replacement read (`npcReplacementPick`), so it reads what the replacement reads; the legacy
   // threat + paranoia + memory read (headless sims, byte-identical) keeps `endgameMemoryFor` (absent outside a played game, so 0 there).
-  secretVetoReplacement: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor", "feelingKeepFor", "endgameMemoryFor"],
+  secretVetoReplacement: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor", "feelingKeepFor", "endgameMemoryFor", "dealNomPushFor", "tieNomPushFor", "pitchTiltFor", "assuranceProtects"],
   approaches: ["approachMemoryFor", "moodApproachFor"],
 };
 

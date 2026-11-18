@@ -29,7 +29,7 @@ import type { NamedRef, RumorMill, RumorMillBelief } from "../ports/GameSession"
 export const RUMOR_MILL_CAP = 5;
 
 /** What the false claim said, in plain words ("them" = each believer). */
-function claimText(kind: SpokenClaimKind, subject: string, object: string | undefined): string {
+function claimText(kind: SpokenClaimKind, subject: string, object: string | undefined, label?: string): string {
   switch (kind) {
     case "targets-you": return `that ${subject} was targeting them`;
     case "voted-to-evict-you": return `that ${subject} voted to evict them`;
@@ -39,6 +39,7 @@ function claimText(kind: SpokenClaimKind, subject: string, object: string | unde
     case "lying-about": return object ? `that ${subject} was lying to ${object}` : `that ${subject} was lying to them`;
     case "voted-against": return `that ${subject} voted to evict ${object ?? "them"}`;
     case "voted-to-keep": return `that ${subject} voted to keep ${object ?? "them"}`;
+    case "has-reputation": return `that the house had a name for ${subject}`; // Ryne 11-17: the role word stays engine-only (label kept for the record, never shown)
   }
 }
 
@@ -46,7 +47,7 @@ interface Group { first: number; claims: SpokenClaim[] }
 
 /** What the house wrongly believes about the player outside the claim log: key -> the believing holders, earliest week, and a source if recorded. */
 function falseBeliefsAboutPlayer(beliefs: BeliefStore | undefined, facts: TruthFacts | undefined) {
-  const out = new Map<string, { kind: SpokenClaimKind; subject: EntityId; object?: EntityId; holders: Set<EntityId>; week: number; source?: EntityId }>();
+  const out = new Map<string, { kind: SpokenClaimKind; subject: EntityId; object?: EntityId; label?: string; holders: Set<EntityId>; week: number; source?: EntityId }>();
   if (!beliefs || !facts) return out;
   for (const holder of Object.keys(beliefs).sort()) {
     if (holder === PLAYER) continue;
@@ -57,7 +58,7 @@ function falseBeliefsAboutPlayer(beliefs: BeliefStore | undefined, facts: TruthF
       const key = `${c.kind}|${c.subject}|${c.object ?? ""}`;
       const g = out.get(key);
       if (g) { g.holders.add(holder); g.week = Math.min(g.week, b.week); if (g.source === undefined && b.source) g.source = b.source; }
-      else out.set(key, { kind: c.kind, subject: c.subject, ...(c.object ? { object: c.object } : {}), holders: new Set([holder]), week: b.week, ...(b.source ? { source: b.source } : {}) });
+      else out.set(key, { kind: c.kind, subject: c.subject, ...(c.object ? { object: c.object } : {}), ...(c.label ? { label: c.label } : {}), holders: new Set([holder]), week: b.week, ...(b.source ? { source: b.source } : {}) });
     }
   }
   return out;
@@ -80,7 +81,7 @@ export function buildRumorMill(log: ClaimLog | undefined, nameOf: (id: EntityId)
     const believers = [...new Set(g.claims.filter((c) => c.listener !== PLAYER).map((c) => c.listener))].sort();
     const passed = [...new Set(g.claims.slice(1).filter((c) => c.intent === "inform" && c.speaker !== start.speaker).map((c) => c.speaker))].sort();
     const row: RumorMillBelief = {
-      claim: claimText(start.kind, nameOf(start.subject), start.object ? nameOf(start.object) : undefined),
+      claim: claimText(start.kind, nameOf(start.subject), start.object ? nameOf(start.object) : undefined, start.label),
       starter: ref(start.speaker), startedWeek: start.week,
       passedOn: passed.map(ref), believers: believers.map(ref),
       tellings: g.claims.length, toldToYou: g.claims.some((c) => c.listener === PLAYER),
@@ -101,7 +102,7 @@ export function buildRumorMill(log: ClaimLog | undefined, nameOf: (id: EntityId)
     const starter = e.source ?? [...e.holders].sort()[0]!;
     const g: Group = { first: order++, claims: [] };
     rows.push({ g, subject: e.subject, row: {
-      claim: claimText(e.kind, nameOf(e.subject), e.object ? nameOf(e.object) : undefined),
+      claim: claimText(e.kind, nameOf(e.subject), e.object ? nameOf(e.object) : undefined, e.label),
       starter: ref(starter), startedWeek: e.week, passedOn: [], believers: [...e.holders].sort().map(ref), tellings: e.holders.size, toldToYou: false,
     } });
     aboutOnly.add(g);

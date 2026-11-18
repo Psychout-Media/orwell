@@ -78,3 +78,16 @@ describe("recordInteraction.statement", () => {
     expect(playerClaims(e).some((x) => x.listener === e.third && x.speaker === PLAYER && x.subject === e.subject)).toBe(false);
   });
 });
+
+describe("0184 part 2a: the player can spread a reputation (has-reputation statement)", () => {
+  it("the player telling a houseguest someone is a snake leaves the listener holding it, the player as the source; an unknown role word becomes nothing", async () => {
+    const e = started();
+    await e.say({ to: e.listener, about: e.subject, kind: "has-reputation", label: "snake" });
+    const c = playerClaims(e).find((x) => x.listener === e.listener && x.kind === "has-reputation");
+    expect(c).toMatchObject({ speaker: PLAYER, subject: e.subject, label: "snake" });
+    const held = (e.live().beliefs?.[e.listener] ?? []) as Array<{ kind: string; subject: string; nature?: string; source?: string }>;
+    expect(held.some((b) => b.kind === "heard-rumor" && b.subject === e.subject && b.nature === "rep:snake" && b.source === PLAYER)).toBe(true);
+    await e.say({ to: e.listener, about: e.third, kind: "has-reputation", label: "the worst" });
+    expect(playerClaims(e).some((x) => x.subject === e.third && x.kind === "has-reputation")).toBe(false);
+  });
+});

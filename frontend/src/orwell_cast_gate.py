@@ -305,6 +305,14 @@ def is_blocking(code: str) -> bool:
     return code in BLOCKING
 
 
+def _look_life_codes(card: dict) -> list:
+    try:
+        from src import orwell_cast_realism as _R
+        return _R.believability_look_life(card)
+    except Exception:  # failsoft-ok: the realism table never blocks a card
+        return []
+
+
 def card_codes(profile: dict, npc: dict, cast=None, registry: Optional[dict] = None) -> list:
     """Every reason the final card fails the gate ([] = passes). Codes only. The consistency core is ORW-430's
     `card_consistency` (one implementation of each check); this adds the extras it does not cover."""
@@ -328,6 +336,7 @@ def card_codes(profile: dict, npc: dict, cast=None, registry: Optional[dict] = N
     if not (isinstance(v, dict) and v and v.get("lexicon")):
         codes.append("voice-missing")
     codes += background_codes(card)
+    codes += _look_life_codes(card)  # ORW-563: non-blocking and counted on the season line; the cast-level judge (orwell_cast_believability) decides who is re-picked
     if registry is not None and isinstance(bio, str) and bio.strip():
         for other, rec in registry.items():
             if other != hid and _norm(bio) and _norm(bio) == rec.get("bio"):
@@ -416,6 +425,7 @@ class SeasonGate:
         self.realism_found = self.realism_fixed = 0  # ORW-480: casting-director offenders named, and the ones a rewrite cleared
         self.n = 0  # the cast size, from the first card gated
         self.codes: dict = {}
+        self.believe: dict = {}  # ORW-563: the cast-level believability judge's tallies (calls, chars, flagged, repicked)
         self.registry: dict = {}
 
     def count(self, codes) -> None:
@@ -545,6 +555,10 @@ class SeasonGate:
                 f"rewritten={self.rewritten} failing={self.failing} accepted-with-non-blocking={self.accepted_soft} codes={per} "
                 f"rep-rewritten={self.rep_rewritten} rep-fixed={self.rep_fixed} realism-demand={self.realism_demand} "
                 f"realism-asked={self.realism_rewrites}/{REALISM_REWRITE_BUDGET} realism-fixed={self.realism_fixed} marks={self.marks_dealt()}")
+
+    def believability_line(self) -> str:
+        from src import orwell_cast_believability as B
+        return B.stats_line(self.believe)
 
     def log_summary(self) -> None:
         if self.checked:

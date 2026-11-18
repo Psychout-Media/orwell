@@ -147,7 +147,7 @@ _SYSTEM = (
     "STYLE AND CLOTHES START FROM THE PERSON: ask what a person of this age and job, from this hometown, with this money and "
     "personality, would really own and wear to be photographed for TV, and could buy in an ordinary shop in or near their hometown on their income, and write that. The skeleton's presentation is only a "
     "tiebreak between equal choices (a colour, a cut, one accent piece), never a theme to build the outfit from, and never blended "
-    "with another family (no rocker edge layered over bohemian). Write \"style\" as those real clothes in a phrase. Every piece is ONE "
+    "with another family (no rocker edge layered over bohemian). Interests and hobbies in the biography come from this person's own life (job, family, town, background), never from the look: a style does not hand a person a pastime. Write \"style\" as those real clothes in a phrase. Every piece is ONE "
     "garment or accessory a shop sells (a shirt, a jacket, jeans, boots, a watch): no piece that combines two things (not \"a vest "
     "over a polo\", not \"sneakers with a gold chain\": two pieces), no uniform worn as a style (never \"worn like a uniform\"), no "
     "costume, no work badge, name tag or lanyard, no bare skin under a blazer, no hand-sewn or DIY decoration. "
@@ -3223,7 +3223,8 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
         authored_cards[hid] = {**npc, "id": hid,
                                "physicalCharacteristics": {**(npc.get("physicalCharacteristics") or {}),
                                                            **(_phys if isinstance(_phys, dict) else {})},
-                               **({"voice": profile["voice"]} if isinstance(profile.get("voice"), dict) else {})}
+                               **({"voice": profile["voice"]} if isinstance(profile.get("voice"), dict) else {}),
+                               **({"biography": profile["biography"]} if isinstance(profile.get("biography"), str) and profile["biography"].strip() else {})}
         authored_ids.append(hid)
         return 1
 
@@ -3243,6 +3244,14 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             if look_write_fn is not None:
                 await dedupe_photo_sheets(list(authored_cards.values()), llm_fn, look_write_fn)
                 await fit_audit_pass(list(authored_cards.values()), llm_fn, look_write_fn)  # ORW-480: the cast-level look-fits-life audit
+                try:  # ORW-563: ONE batched believability judgement per cast (a far outlier is re-picked and its clothes rewritten)
+                    from src import orwell_cast_believability as _B
+                    _taken = {str(c.get("presentation") or "") for c in (cast or []) if isinstance(c, dict)} - {""}
+                    _taken |= {str(c.get("presentation") or "") for c in authored_cards.values()} - {""}
+                    await _B.believability_pass(list(authored_cards.values()), _taken, llm_fn, write_fn, look_write_fn, user=user, stats=season_gate.believe)
+                    logger.info(season_gate.believability_line())
+                except Exception as e:  # failsoft-ok: best-effort-enrichment (the dealt looks stand)
+                    logger.warning(f"[cast-authoring] believability pass failed: {type(e).__name__}")
         except Exception as e:  # failsoft-ok: best-effort-enrichment (the original sheets stand)
             logger.warning(f"[cast-authoring] photo-sheet de-duplication failed: {type(e).__name__}")
     for _hid, _card in authored_cards.items():

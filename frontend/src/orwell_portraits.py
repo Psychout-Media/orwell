@@ -346,6 +346,63 @@ def generation_progress(user: Optional[str]) -> Optional[dict]:
 BACKFILL_DEBOUNCE_S = 10 * 60
 _LAST_BACKFILL_AT: dict = {}
 
+# ── Per-photo retry queue (casting in the background, stage 1) ───────────────────────────────
+# A face whose shot failed (a timeout, a provider hiccup, the in-flight-credits 402 that outlasted its requeues)
+# retries ON ITS OWN with a growing wait, instead of waiting for the 10-minute lazy-backfill window or the 5-minute
+# reconciler sweep. Those two stay as the safety net after the queue gives up. A real billing/auth refusal is NOT
+# queued here: the billing breaker owns that wait. The retry goes through `backfill_missing`, so the ADR 0013
+# authoring gate and the idempotent skip of a face already on disk both apply.
+FACE_RETRY_WAITS_S = (5.0, 10.0, 20.0, 40.0, 120.0, 120.0, 120.0, 120.0)
+_FACE_RETRY: dict = {}  # safe user -> {safe id: {"n": attempts so far, "task": the pending timer}}
+
+
+def face_retry_pending(user: Optional[str]) -> list:
+    """Safe ids with a retry timer waiting (introspection for the cast panel and tests)."""
+    return sorted(k for k, v in _FACE_RETRY.get(_safe_user(user), {}).items() if v.get("task") is not None)
+
+
+def _schedule_face_retry(user: Optional[str], hid, reason: Optional[str], detail: Optional[str] = None) -> bool:
+    """Queue ONE retry of this face after its next backoff wait. Returns True when a timer was set."""
+    try:
+        if image_gen_disabled() or not hid or _safe_id(str(hid)) == PLAYER_PORTRAIT_ID:
+            return False
+        if is_billing_error(reason, detail) and not is_inflight_credit_error(reason, detail):
+            return False  # out of credits / bad key: the breaker owns this wait, not a per-face timer
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    safe, sid = _safe_user(user), _safe_id(str(hid))
+    slot = _FACE_RETRY.setdefault(safe, {}).setdefault(sid, {"n": 0, "task": None})
+    if slot["task"] is not None or slot["n"] >= len(FACE_RETRY_WAITS_S):
+        return False  # one timer per face; a spent queue leaves the face to the reconciler and the lazy paths
+    delay = FACE_RETRY_WAITS_S[slot["n"]]
+
+    async def _run():
+        await asyncio.sleep(delay)
+        slot["task"] = None  # the shot below may fail and queue the next retry
+        slot["n"] += 1
+        if portrait_file(user, str(hid)) is not None:
+            _FACE_RETRY.get(safe, {}).pop(sid, None)
+            return
+        try:
+            await backfill_missing([str(hid)], user)
+        except Exception as e:  # failsoft-ok: handled-by-terminal (backfill_missing records its own failures; the next timer or the reconciler retries)
+            logger.info("[portraits] face retry for %s failed: %s", sid, e)
+        if portrait_file(user, str(hid)) is not None:
+            _FACE_RETRY.get(safe, {}).pop(sid, None)
+
+    slot["task"] = loop.create_task(_run())
+    logger.info("[portraits] face %s failed (%s): retry %d in %.0fs", sid, reason, slot["n"] + 1, delay)
+    return True
+
+
+def cancel_face_retries(user: Optional[str]) -> None:
+    for v in _FACE_RETRY.pop(_safe_user(user), {}).values():
+        t = v.get("task")
+        if t is not None and not t.done():
+            t.cancel()
+
+
 # ── G20 reconciler: verify-and-retry until the cast portrait set is complete ──────────────
 # The G9 backfill is LAZY (it fires only when someone views the roster) — if no model was
 # available when the cast moved in and nobody opens the panel, the set stays incomplete
@@ -1167,6 +1224,16 @@ _PROVIDER_PROVEN = {"ok": False}  # a call has succeeded since the last trip; un
 _FIRST_CONTACT_LOCK: dict = {}  # event loop -> asyncio.Lock
 
 
+INFLIGHT_RETRY_WAITS = (10.0, 25.0, 50.0)   # seconds before each re-ask of a refusal that only says other requests are in flight
+
+
+def is_inflight_credit_refusal(reason: Optional[str], detail: Optional[str] = None) -> bool:
+    """True for an HTTP 402 whose own words say the balance is fine until the requests in flight settle (a busy account, not an empty one)."""
+    if _http_status_of(reason) != 402 and _http_status_of(detail) != 402:
+        return False
+    return "in-flight" in f"{reason or ''} {detail or ''}".lower()
+
+
 def is_billing_error(reason: Optional[str], detail: Optional[str] = None) -> bool:
     """True for HTTP 401/402/403 from the image provider (credits/billing/auth) or the breaker's own
     skip reason."""
@@ -1482,26 +1549,172 @@ async def _gpt_image_fallback(client, user: Optional[str], prompt: str,
     return None
 
 
+# ── One process-wide image queue ─────────────────────────────────────────────────────────────
+# At most `portrait_parallel` (default 3) image generations are in flight PER PROCESS, whoever asks: every per-face
+# backfill, reshoot and cast run goes through `_generate_one`, so thirteen faces asked for at once wait their turn
+# instead of all hitting the provider together. OpenRouter counts in-flight cost against the credit balance and
+# answers 402 "would exceed your available credits given your current in-flight requests": that is BACK-PRESSURE,
+# not billing, so it requeues the face after a short wait and never opens the billing breaker.
+INFLIGHT_RETRY_WAITS_S = (10.0, 15.0, 20.0, 20.0, 20.0, 20.0)
+_INFLIGHT_402_RE = re.compile(r"in[\s-]?flight", re.IGNORECASE)
+
+
+def is_inflight_credit_error(reason: Optional[str], detail: Optional[str] = None) -> bool:
+    """True for the provider's HTTP 402 that says the account would exceed its credits GIVEN requests already in flight
+    (back-pressure that clears as those finish), as opposed to a real out-of-credits or auth refusal."""
+    return _http_status_of(reason) == 402 and bool(_INFLIGHT_402_RE.search(str(detail or "")) or _INFLIGHT_402_RE.search(str(reason or "")))
+
+
+# Opening-scene faces first: the ids of the houseguests in the opening scene, per user. A waiting request for one of them
+# is granted the next free slot ahead of every other waiting face (FIFO inside each group).
+_OPENING_IDS: dict = {}
+
+
+def set_opening_ids(user: Optional[str], ids) -> None:
+    """Tell the queue which houseguests are in the opening scene, so their faces are shot first."""
+    _OPENING_IDS[_safe_user(user)] = {_safe_id(str(h)) for h in (ids or []) if h}
+
+
+def _face_priority(user: Optional[str], sid: Optional[str]) -> int:
+    return 0 if (sid and sid in _OPENING_IDS.get(_safe_user(user), ())) else 1
+
+
+# Back-pressure: OpenRouter refuses when the maximum possible cost of ALL in-flight requests would exceed the account
+# balance, so when it says so the queue shrinks to ONE in flight (the refused face requeues) and stays shrunk until a
+# shot succeeds or the window passes. This never opens the billing breaker.
+BACKPRESSURE_WINDOW_S = 60.0
+_BACKPRESSURE = {"until": 0.0}
+
+
+def _note_backpressure() -> None:
+    _BACKPRESSURE["until"] = time.monotonic() + BACKPRESSURE_WINDOW_S
+
+
+def _clear_backpressure() -> None:
+    _BACKPRESSURE["until"] = 0.0
+
+
+def effective_image_parallel() -> int:
+    return 1 if time.monotonic() < _BACKPRESSURE["until"] else portrait_parallel()
+
+
+class _ImageGate:
+    """The process-wide image queue: a counting gate whose limit is read at each grant (so the `portrait_parallel`
+    setting stays live) and whose waiters are served opening-scene faces first, then in arrival order."""
+
+    def __init__(self) -> None:
+        self.live = 0
+        self.max_live = 0
+        self._waiters: list = []
+        self._seq = 0
+
+    def _grant(self) -> None:
+        while self._waiters and self.live < effective_image_parallel():
+            best = min(self._waiters, key=lambda w: (_face_priority(w[1], w[2]), w[0]))
+            self._waiters.remove(best)
+            if best[3].done():
+                continue
+            self.live += 1
+            self.max_live = max(self.max_live, self.live)
+            best[3].set_result(None)
+
+    def slot(self, user: Optional[str] = None):
+        return _GateSlot(self, user)
+
+
+class _GateSlot:
+    def __init__(self, gate: _ImageGate, user: Optional[str]) -> None:
+        self.gate, self.user = gate, user
+
+    async def __aenter__(self):
+        g = self.gate
+        fut = asyncio.get_running_loop().create_future()
+        entry = (g._seq, self.user, _safe_id(str(_CURRENT_HID.get())) if _CURRENT_HID.get() else None, fut)
+        g._seq += 1
+        g._waiters.append(entry)
+        g._grant()
+        try:
+            await fut
+        except asyncio.CancelledError:
+            if fut.done() and not fut.cancelled():
+                g.live -= 1  # granted just as we were cancelled: hand the slot back
+                g._grant()
+            elif entry in g._waiters:
+                g._waiters.remove(entry)
+            raise
+        return self
+
+    async def __aexit__(self, *exc):
+        self.gate.live -= 1
+        self.gate._grant()
+        return False
+
+
+_IMAGE_GATES: dict = {}  # event loop -> gate (a gate is bound to the loop that created it)
+
+
+def image_gate() -> _ImageGate:
+    loop = asyncio.get_running_loop()
+    g = _IMAGE_GATES.get(loop)
+    if g is None:
+        for dead in [k for k in _IMAGE_GATES if k.is_closed()]:
+            _IMAGE_GATES.pop(dead, None)
+        g = _IMAGE_GATES[loop] = _ImageGate()
+    return g
+
+
 async def _generate_one(prompt: str, user: Optional[str],
                         reference_png: Optional[bytes] = None,
                         keep_identity: bool = True) -> Optional[bytes]:
+    """The process-wide image queue (see above) around `_generate_one_gated`: waits for a free slot, and requeues the
+    face after a delay when the provider answers the in-flight-credits 402. The slot is released while it waits."""
+    attempt = 0
+    while True:
+        async with image_gate().slot(user):
+            png = await _generate_one_gated(prompt, user, reference_png, keep_identity)
+        if png:
+            _clear_backpressure()
+            return png
+        if not is_inflight_credit_error(*_peek_gen_error()):
+            return png
+        _note_backpressure()  # the queue drops to one in flight until a shot lands
+        if attempt >= len(INFLIGHT_RETRY_WAITS_S):
+            return png
+        logger.info("[portraits] provider credits are held by in-flight requests for %s: requeue %d after %.0fs",
+                    _hid_tag(), attempt + 1, INFLIGHT_RETRY_WAITS_S[attempt])
+        await asyncio.sleep(INFLIGHT_RETRY_WAITS_S[attempt])
+        attempt += 1
+
+
+async def _generate_one_gated(prompt: str, user: Optional[str],
+                              reference_png: Optional[bytes] = None,
+                              keep_identity: bool = True) -> Optional[bytes]:
     """ORW-397 billing breaker around `_generate_one_inner` (see the breaker block above): no call
-    while the provider's breaker is open; a 401/402/403 opens it; a success closes it."""
+    while the provider's breaker is open; a 401/402/403 opens it; a success closes it. The in-flight-credits
+    402 is back-pressure, not billing: it never opens the breaker."""
     ctx: dict = {}
-    if _PROVIDER_PROVEN["ok"]:
-        png = await _generate_one_inner(prompt, user, reference_png, keep_identity, _ctx=ctx)
-    else:
-        # No success seen since start/the last trip: go one at a time, so a refused provider sees ONE
-        # call (the breaker then blocks the callers queued behind it).
-        lock = _FIRST_CONTACT_LOCK.setdefault(asyncio.get_running_loop(), asyncio.Lock())
-        async with lock:
+    for attempt in range(len(INFLIGHT_RETRY_WAITS) + 1):
+        ctx = {}
+        if _PROVIDER_PROVEN["ok"]:
             png = await _generate_one_inner(prompt, user, reference_png, keep_identity, _ctx=ctx)
+        else:
+            # No success seen since start/the last trip: go one at a time, so a refused provider sees ONE
+            # call (the breaker then blocks the callers queued behind it).
+            lock = _FIRST_CONTACT_LOCK.setdefault(asyncio.get_running_loop(), asyncio.Lock())
+            async with lock:
+                png = await _generate_one_inner(prompt, user, reference_png, keep_identity, _ctx=ctx)
+        # ORW-480: "would exceed your available credits given your current in-flight requests" is a busy
+        # account, not an empty one (fifteen photos asked at once on a small balance): wait for the other
+        # requests to settle and ask again, never an hour-long breaker for the whole cast.
+        if png or ctx.get("skipped") or attempt >= len(INFLIGHT_RETRY_WAITS) or not is_inflight_credit_refusal(*_peek_gen_error()):
+            break
+        await asyncio.sleep(INFLIGHT_RETRY_WAITS[attempt])
     host = ctx.get("host")
     if host and not ctx.get("skipped"):
         if png:
             _PROVIDER_PROVEN["ok"] = True
             _close_billing_breaker(host)
-        elif is_billing_error(*_peek_gen_error()):
+        elif is_billing_error(*_peek_gen_error()) and not is_inflight_credit_error(*_peek_gen_error()):
             _trip_billing_breaker(host)
     return png
 
@@ -1811,6 +2024,24 @@ def _stamp_version_one(user: Optional[str], sid: str) -> None:
 # retried by the ORW-369 upgrader: at most this many upgrader passes per houseguest, each ONE new image (no in-pass
 # re-shoot), so the extra spend is at most PHOTO_CHECK_RETRY_BOUND images (about 4.5 cents each) per affected houseguest.
 PHOTO_CHECK_RETRY_BOUND = 2
+# The setting `portrait_check_reshoot_cap` is the TOTAL number of check-driven re-shoots one face may get: the one
+# in-pass re-shoot plus the upgrader passes. The default (3) is today's behaviour exactly (1 + PHOTO_CHECK_RETRY_BOUND);
+# 1 keeps only the in-pass re-shoot, 0 turns check-driven re-shoots off (the owners have not chosen a different cap).
+PHOTO_CHECK_RESHOOT_CAP_DEFAULT = 1 + PHOTO_CHECK_RETRY_BOUND
+
+
+def check_reshoot_cap(user: Optional[str] = None) -> int:
+    try:
+        from src.settings import get_setting
+        n = int(get_setting("portrait_check_reshoot_cap", PHOTO_CHECK_RESHOOT_CAP_DEFAULT))
+    except Exception:  # failsoft-ok: expected-empty (a bad setting means today's default)
+        n = PHOTO_CHECK_RESHOOT_CAP_DEFAULT
+    return max(0, min(6, n))
+
+
+def photo_check_retry_bound(user: Optional[str] = None) -> int:
+    """The upgrader passes still allowed per face under the current cap (today: PHOTO_CHECK_RETRY_BOUND)."""
+    return max(0, check_reshoot_cap(user) - 1)
 
 
 def _check_retries(entry) -> int:
@@ -1818,7 +2049,7 @@ def _check_retries(entry) -> int:
     but malformed (a corrupt "2.5" must never grant two more paid attempts; review of #2748)."""
     if not isinstance(entry, dict) or entry.get("checkRetries") is None:
         return 0
-    return _safe_int(entry.get("checkRetries"), PHOTO_CHECK_RETRY_BOUND)
+    return _safe_int(entry.get("checkRetries"), photo_check_retry_bound())
 
 
 def check_retry_ids(manifest: dict) -> list:
@@ -1827,7 +2058,7 @@ def check_retry_ids(manifest: dict) -> list:
     for k, e in (manifest or {}).items():
         c = e.get("check") if isinstance(e, dict) else None
         if (isinstance(c, dict) and c.get("ok") is False and e.get("source") != "upload"
-                and _check_retries(e) < PHOTO_CHECK_RETRY_BOUND):
+                and _check_retries(e) < photo_check_retry_bound()):
             out.append(str(k))
     return sorted(out)
 
@@ -1861,6 +2092,8 @@ async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref
                 old_png = portrait_file(user, _CURRENT_HID.get() or "")
                 if old_png is not None:
                     return old_png.read_bytes(), {"ok": False, "problems": list(prior), "reshot": False}
+            return png, {"ok": False, "problems": first["problems"], "reshot": False}
+        if check_reshoot_cap(user) < 1:  # the owners' cap says no check-driven re-shoot: keep the photo, record the verdict
             return png, {"ok": False, "problems": first["problems"], "reshot": False}
         meta = {"ok": False, "problems": first["problems"], "reshot": True, "first": first["problems"]}
         prov_first = _peek_gen_provider()      # ORW-480: the provider of the first image, restored when the first photo is the one kept
@@ -2450,16 +2683,32 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
     sem = asyncio.Semaphore(limit)
     serial = asyncio.Lock()
     manifest_lock = asyncio.Lock()  # one manifest read-modify-write at a time
-    run = {"rate_limited": False}
+    run = {"rate_limited": False, "live": 0}
 
     async def _one(entry):
         nonlocal generated, skipped
+        await _one_body(entry, run)
+
+    async def _shoot(prompt_text, **kw):
+        """The image slot covers ONLY the generation: it is released before the vision check runs (a check takes
+        about as long as a shot, and holding the slot through it halved the throughput)."""
         async with sem:
             if run["rate_limited"]:
                 async with serial:
-                    await _one_body(entry, run)
-            else:
-                await _one_body(entry, run)
+                    while run["live"]:  # a provider 429: the rest go strictly ONE at a time, after any shot already in flight
+                        await asyncio.sleep(0.005)
+                    return await _timed_generate(prompt_text, **kw)
+            return await _timed_generate(prompt_text, **kw)
+
+    async def _timed_generate(prompt_text, **kw):
+        run["live"] += 1
+        try:
+            png = await _generate_one(prompt_text, user, **kw)
+        finally:
+            run["live"] -= 1
+        if not png and is_rate_limited(_peek_gen_error()[0]):
+            run["rate_limited"] = True  # set before the slot is handed on, so the next waiter already sees it
+        return png
 
     async def _one_body(entry, run):
         nonlocal generated, skipped
@@ -2578,10 +2827,10 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
             _upgrade_ref = bool(ref and sid in reshoot_ids and entry.get("identityPrefix") is True
                                 and _safe_id(str(hid)) in forced)
             if _upgrade_ref:
-                png = await _generate_one(UPGRADE_IDENTITY_PREFIX + str(prompt), user, reference_png=ref,
-                                          keep_identity=False)
+                png = await _shoot(UPGRADE_IDENTITY_PREFIX + str(prompt), reference_png=ref,
+                                   keep_identity=False)
             else:
-                png = await _generate_one(str(prompt), user, reference_png=ref)
+                png = await _shoot(str(prompt), reference_png=ref)
             duration_ms = int((time.monotonic() - t0) * 1000)
             if ref and not png:
                 source = "generated"  # reference failed; the log carries the reason
@@ -2602,6 +2851,7 @@ async def generate_and_store(prompts: list, user: Optional[str], *, record_beats
                 # #1599: surface the failure RED on /admin/status — a silent placeholder was the
                 # original trigger; the initials floor stands (auto-corrected), still RED.
                 _note_generation_failure(user, str(hid), reason)
+                _schedule_face_retry(user, hid, reason, _detail)
                 skipped += 1
                 return
             check_meta = None
@@ -3803,6 +4053,8 @@ def scrub_user(user: Optional[str]) -> None:
     _GEN_PROGRESS.pop(_safe_user(user), None)
     # The reconciler's transient-signal cache describes the OLD cast's ids.
     _LAST_GEN_ERROR_BY_ID.pop(_safe_user(user), None)
+    cancel_face_retries(user)  # the per-photo retry timers belong to the OLD cast
+    _OPENING_IDS.pop(_safe_user(user), None)
 
 
 def scrub_all() -> None:
@@ -3825,3 +4077,6 @@ def scrub_all() -> None:
     _NO_PROMPT_LOGGED.clear()  # the once-only no-prompt logs describe casts that no longer exist
     _GEN_PROGRESS.clear()  # L15: no run is in flight after a wholesale scrub
     _LAST_GEN_ERROR_BY_ID.clear()  # the reconciler's transient-signal cache is per-cast
+    for _u in list(_FACE_RETRY):
+        cancel_face_retries(_u)
+    _OPENING_IDS.clear()
