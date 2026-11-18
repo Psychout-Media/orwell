@@ -61,7 +61,7 @@ import { juryFadeRate, juryEaseFactor, juryPersonalityMult, type JuryPersonality
 import { planJuryNotes } from "../../engine/juryNotes";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
-import { chooseHourAction, assembleScenes, habitsFor, actionLine, roomActLine, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction } from "../../engine/houseLife";
+import { chooseHourAction, assembleScenes, habitsFor, actionLine, roomActLine, formPlan, GOAL_PLAN, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction, type PlanStep } from "../../engine/houseLife";
 import { HOUSE_LIFE, ROOM_LIFE } from "../../engine/houseLifeConstants";
 import { REASONS } from "../../engine/agendaConstants";
 import { askDisposition, askRoll } from "../../engine/askAround";
@@ -117,7 +117,7 @@ import { validateTraits, validateCulture, validateReflection } from "../../engin
 import { jurorArchetypeFor, finalHohChoice, estimateJuryShare, type FinalHohOption } from "../../engine/juryMinds";
 import type { Agenda, Goal, AgendaCharacter, AgendaView, AgendaBoard, AgendaTrigger } from "../../engine/agenda";
 import { seedAgenda, recheckAgenda, mullAgenda, tieAvoids, agendaRoll } from "../../engine/agenda";
-import { AUDIENCE, crowdFor, emptyStanding, favoriteOf, foldMoment, tasteOf, type CrowdReaction } from "../../engine/audience";
+import { AUDIENCE, crowdFor, emptyStanding, evictionKey, fanThreatFor, favoriteOf, foldMoment, tasteOf, type CrowdReaction } from "../../engine/audience";
 import type { EditMoment, EditMomentKind } from "../../engine/editWorthiness";
 import { questionLive, questionAnswered } from "../../engine/voteQuestions";
 import { agendaDumpRows } from "../../engine/agendaDump";
@@ -325,7 +325,7 @@ import {
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
   advanceClock, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, playerNightDeficit, napFactor, npcRestDeficit, isInertBeat, eventBeatHours, spreadClockHours, ceremonyRef, CEREMONY_STEP_TEXT,
   honorWeight, recordWhy, nightBreakPending, markNightGateCrossed, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
-  type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
+  type LiveSeasonState, type WeekDigest, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
 } from "../../engine/liveSeason";
 import { buildBeatAnnouncements, announcementHeadline, type BeatAnnouncement } from "../../engine/beatAnnouncement";
@@ -4801,12 +4801,37 @@ export class GameSessionAdapter implements GameSession {
   audienceAfterEviction(): void {
     const s = this.live;
     if (!this.audienceEnabled || !s || s.playedGame !== true || !this.house) return;
+    const a = this.audienceFold();
+    // (3) the crowd as the evictee walks out - normally decided as their exit interview began (`exitCrowd`); here only when none was
+    const last = (s.weekDigests ?? []).filter((d) => d.evictee !== null).pop();
+    if (last?.evictee) this.walkOut(a, last.week, last.evictee);
+    // (4) a fan reward in its weeks: the public's favorite still in the house. The house sees it, and reads the winner as a bigger jury threat (the player included).
+    if (AUDIENCE.perkWeeks.includes(s.week) && !a.perks.some((p) => p.week === s.week)) {
+      const to = favoriteOf(a.live, this.livingIds());
+      if (to) {
+        a.perks.push({ week: s.week, to });
+        this.onPlayerEvent?.(`${this.nameOf(to)} wins the viewers' vote and a reward from home`, this.livingIds(), "house-event");
+        for (const h of this.livingIds()) {
+          if (h === to || h === PLAYER) continue; // the player forms their own read of the winner from the moment itself
+          this.rel.applyImpactDirected(h, to, { threat: fanThreatFor(this.statsOf(h).social) }, new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:fan-threat:${s.week}:${h}`)));
+        }
+      }
+    }
+  }
+  /**
+   * ORW-624 - fold the PUBLIC record into the standing: every eviction not yet folded (a `pending` one is the eviction in progress, folded early so its walk out can
+   * read it) and every scene since the last fold. Idempotent by eviction key and event cursor.
+   */
+  private audienceFold(pending?: WeekDigest): NonNullable<LiveSeasonState["audience"]> {
+    const s = this.live!;
     const a = (s.audience ??= { live: emptyStanding(), full: emptyStanding(), cursor: 0, weeks: [], crowd: [], perks: [] });
     const fold = (m: EditMoment): void => { foldMoment(a.full, m, this.audienceTaste); if (m.public) foldMoment(a.live, m, this.audienceTaste); };
-    // (1) the week's public record
-    for (const d of s.weekDigests ?? []) {
-      if (a.weeks.includes(d.week) || d.evictee === null) continue;
-      a.weeks.push(d.week);
+    // (1) the public record of each eviction
+    for (const d of [...(s.weekDigests ?? []), ...(pending ? [pending] : [])]) {
+      if (d.evictee === null) continue;
+      const key = evictionKey(d.week, d.evictee);
+      if (a.folded?.includes(key) || a.weeks.includes(d.week)) continue; // `weeks` = folds saved before the key
+      (a.folded ??= []).push(key);
       if (d.hoh) fold({ kind: "comp-win", actor: d.hoh, week: d.week, public: true });
       for (const n of d.nominees) fold({ kind: "nomination", ...(d.hoh ? { actor: d.hoh } : {}), subject: n, week: d.week, public: true });
       if (d.vetoHolder) fold({ kind: d.vetoUsed ? "veto-save" : "veto-kept", actor: d.vetoHolder, week: d.week, public: true });
@@ -4827,22 +4852,29 @@ export class GameSessionAdapter implements GameSession {
       fold({ kind, actor: e.initiator, ...(other ? { subject: other } : {}), week: s.week, crowd: e.witnessSet.length + (e.houseLife?.seenBy?.length ?? 0), public: !e.hidden });
     }
     a.cursor = events.length;
-    // (3) the crowd as the evictee walks out (the house hears it through the door)
-    const last = (s.weekDigests ?? []).filter((d) => d.evictee !== null).pop();
-    if (last?.evictee && !a.crowd.some((c) => c.week === last.week && c.evictee === last.evictee)) {
-      const reaction = crowdFor(a.live, last.evictee);
-      a.crowd.push({ week: last.week, evictee: last.evictee, reaction });
-      const WORDS: Readonly<Record<CrowdReaction, string>> = { cheers: "to cheers from the crowd outside", mixed: "to a mixed reaction from the crowd outside", boos: "to boos from the crowd outside", silence: "to near silence from the crowd outside" };
-      this.onPlayerEvent?.(`${this.nameOf(last.evictee)} walks out ${WORDS[reaction]}`, this.livingIds(), "house-event"); // the HOUSE hears the crowd (never the evictee: a juror is sequestered from the house, 0129)
-    }
-    // (4) a fan reward in its weeks: the public's favorite still in the house
-    if (AUDIENCE.perkWeeks.includes(s.week) && !a.perks.some((p) => p.week === s.week)) {
-      const to = favoriteOf(a.live, this.livingIds());
-      if (to) {
-        a.perks.push({ week: s.week, to });
-        this.onPlayerEvent?.(`${this.nameOf(to)} wins the viewers' vote and a reward from home`, this.livingIds(), "house-event");
-      }
-    }
+    return a;
+  }
+  /**
+   * ORW-624 - the walk out, once per eviction: the house hears the crowd through the door; a player-evictee hears their OWN crowd (never the house's news: a juror is
+   * sequestered, 0129). Returns the reaction.
+   */
+  private walkOut(a: NonNullable<LiveSeasonState["audience"]>, week: number, evictee: EntityId): CrowdReaction {
+    const had = a.crowd.find((c) => c.week === week && c.evictee === evictee);
+    if (had) return had.reaction;
+    const reaction = crowdFor(a.live, evictee);
+    a.crowd.push({ week, evictee, reaction });
+    const WORDS: Readonly<Record<CrowdReaction, string>> = { cheers: "to cheers from the crowd outside", mixed: "to a mixed reaction from the crowd outside", boos: "to boos from the crowd outside", silence: "to near silence from the crowd outside" };
+    const house = this.livingIds().filter((id) => id !== evictee);
+    if (house.length) this.onPlayerEvent?.(`${this.nameOf(evictee)} walks out ${WORDS[reaction]}`, house, "house-event");
+    if (evictee === PLAYER) this.onPlayerEvent?.(`${this.nameOf(PLAYER)} walks out of the house ${WORDS[reaction]}`, [PLAYER], "house-event");
+    return reaction;
+  }
+  /** ORW-624 - the `exitCrowd` season hook: fold the eviction in progress (its ceremony state is still live) and decide the crowd the evictee walks out to. */
+  private exitCrowd(evictee: EntityId): CrowdReaction | undefined {
+    const s = this.live;
+    if (!this.audienceEnabled || !s || s.playedGame !== true || !this.house) return undefined;
+    const pending: WeekDigest = { week: s.week, hoh: s.hoh ?? null, nominees: [...(s.finalNominees ?? s.nominees ?? [])], vetoHolder: s.vetoHolder ?? null, vetoUsed: !!s.vetoUsed, evictee, juryCount: 0 };
+    return this.walkOut(this.audienceFold(pending), s.week, evictee);
   }
   /** ORW-624: America's Favorite - after the crown only (it may read the hidden moments then: the recap). */
   private americasFavorite(): { id: EntityId; name: string } | undefined {
@@ -5043,6 +5075,7 @@ export class GameSessionAdapter implements GameSession {
       evictee: { id: x.evictee, name: this.nameOf(x.evictee) },
       stance: x.stance,
       ...(x.message ? { message: this.retroScrub(x.message) } : {}),
+      ...(x.crowd ? { crowd: x.crowd } : {}), // ORW-624: the crowd they walked out to (public as it happened)
     }));
     return {
       winner: this.live.winner ? this.named(this.live.winner) : null,
@@ -11105,6 +11138,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.triadsOn() ? { swingAtVote: (v: Parameters<NonNullable<SeasonCtx["swingAtVote"]>>[0]) => this.swingAtVote(v), triadsAtResult: (r: { evictee: EntityId; voteOf: Readonly<Record<EntityId, EntityId>>; hoh: EntityId | undefined }) => this.triadsAtResult(r) } : {}),
       ...(this.favorsOn() ? { favorsAtTally: (fn: readonly EntityId[], v: readonly EntityId[]) => this.favorsAtTally(fn, v), favorShieldFor: (n: EntityId, v: EntityId) => this.favorShieldFor(n, v) } : {}),
       ...(this.liesCaughtWriting ? { evictionCountPublic: (t: PublicTally) => this.evictionCountPublic(t) } : {}),
+      ...(this.audienceEnabled ? { exitCrowd: (id: EntityId) => this.exitCrowd(id) } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceKeptAtNominations: (h: EntityId, ns: readonly EntityId[]) => this.assuranceKeptAtNominations(h, ns), assuranceKeptAtVote: (v: EntityId, sp: EntityId, among?: readonly EntityId[]) => this.assuranceKeptAtVote(v, sp, among), assuranceKeptAtTally: (fn: readonly EntityId[]) => this.assuranceKeptAtTally(fn) } : {}),
       ...(this.npcBeliefsEnabled && (this.npcBeliefNomsEnabled || this.scapegoatsOn()) ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => (this.npcBeliefNomsEnabled ? this.beliefNomTiltFor(subject, holder) : 0) + this.scapegoatLeanFor(subject, holder) } : {}), // 0180 part 3: a hard week's scapegoat rides the belief term
@@ -13525,7 +13559,8 @@ export class GameSessionAdapter implements GameSession {
       const withPlayerView = !room && playerRoom !== undefined;
       const showmance = this.showmancePartnerOf(id);
       const avoid = tieAvoids(this.agendaView(id)?.character ?? character);
-      return chooseHourAction({
+      if (!room && this.goalPlansOn()) this.maintainGoalPlans(id, day); // ORW-625: goal plans advance only for the usual stretch, never for the room's speculative look
+      const hv: Parameters<typeof chooseHourAction>[0] = {
         owner: id, character, agenda: s.agendas?.[id], ...(avoid.length ? { avoid } : {}), habits: authored[id]?.habits ?? habitsFor(character, id, seed),
         emotional: this.soulObj(id)?.emotionalState ?? 0.5, room: whereM.get(id)!, whereabouts: viewM,
         affinity: new Map([...others, ...(withPlayerView ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).affinity] as const)),
@@ -13543,7 +13578,11 @@ export class GameSessionAdapter implements GameSession {
         ...(!room && this.nightOwlsEnabled && s.playedGame === true ? { nightOwl: { playerUp: playerUp } } : {}),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),
         ...(this.bondFeelingsOn() ? { rivalry: this.rivalryStrandsOf(id, [...others, ...(withPlayerView ? [house.player.id] : [])]) } : {}), // ORW-622: a grudge rubs at dinner
-      }, seed);
+        ...(this.goalPlansOn() ? { plans: this.planStepsFor(id) } : {}), // ORW-625: each goal's stored plan
+      };
+      const chosen = chooseHourAction(hv, seed);
+      if (!room && this.goalPlansOn() && chosen.goalId) this.noteGoalPlan(id, chosen, hv, day); // ORW-625: form or advance the goal's plan
+      return chosen;
     };
     for (const id of actors) { const p = planFor(id, where, view, actors.filter((x) => x !== id), false); if (p) plans.push(p); }
     // ORW-621 (0198): the people in the player's room take their own steps there, in the player's view (bounded; a keyed rotation, no shared draw).
@@ -14327,6 +14366,51 @@ export class GameSessionAdapter implements GameSession {
    */
   private bondFeelingsEnabled = flagDefaultOn("ORWELL_BOND_FEELINGS");
   setBondFeelingsEnabled(on: boolean): void { this.bondFeelingsEnabled = on; }
+  /** ORW-625: stored goal plans (`ORWELL_GOAL_PLANS`, default ON; `=0` = the hour re-rolls each goal's step as before). Played games with agendas only. */
+  private goalPlansEnabled = flagDefaultOn("ORWELL_GOAL_PLANS");
+  setGoalPlansEnabled(on: boolean): void { this.goalPlansEnabled = on; }
+  private goalPlansOn(): boolean { return this.goalPlansEnabled && this.live?.playedGame === true && !!this.live.agendas; }
+  /** ORW-625: the next step of each of `owner`'s active plans (goal id -> step). */
+  private planStepsFor(owner: EntityId): ReadonlyMap<string, PlanStep> {
+    const out = new Map<string, PlanStep>();
+    for (const p of this.live?.goalPlans?.[owner] ?? []) if (p.status === "active" && p.steps[p.at]) out.set(p.goalId, p.steps[p.at]!);
+    return out;
+  }
+  /** ORW-625: drop a plan only for a reason - its goal ended, a partner left the game, or it stalled. The record stays (append-only). */
+  private maintainGoalPlans(owner: EntityId, day: number): void {
+    const s = this.live!;
+    const mine = s.goalPlans?.[owner];
+    if (!mine?.length) return;
+    const goals = new Map((s.agendas?.[owner]?.goals ?? []).map((g) => [g.id, g] as const));
+    const living = new Set(this.livingIds());
+    for (const p of mine) {
+      if (p.status !== "active") continue;
+      const g = goals.get(p.goalId);
+      if (!g || g.status !== "active") { p.status = "dropped"; p.reason = "goal-ended"; continue; }
+      const step = p.steps[p.at];
+      if (step && [...step.with, ...(step.about ? [step.about] : [])].some((x) => !living.has(x))) { p.status = "dropped"; p.reason = "partner-gone"; continue; }
+      if (day - p.lastDay >= GOAL_PLAN.stallDays) { p.status = "dropped"; p.reason = "stalled"; }
+    }
+  }
+  /** ORW-625: the hour's goal action forms the goal's plan (its first step) or advances it (when it is the plan's step). */
+  private noteGoalPlan(owner: EntityId, a: PlannedAction, hv: Parameters<typeof chooseHourAction>[0], day: number): void {
+    const s = this.live!;
+    const goal = (s.agendas?.[owner]?.goals ?? []).find((g) => g.id === a.goalId);
+    if (!goal) return;
+    const mine = ((s.goalPlans ??= {})[owner] ??= []);
+    const plan = mine.find((p) => p.status === "active" && p.goalId === goal.id);
+    if (plan) {
+      const step = plan.steps[plan.at];
+      if (step && step.kind === a.kind && step.with.join() === a.with.join()) {
+        plan.at += 1; plan.lastDay = day;
+        if (plan.at >= plan.steps.length) plan.status = "done";
+      }
+      return;
+    }
+    const seed = this.gameSeed ?? 0;
+    const steps = formPlan(goal, hv, { kind: a.kind, with: [...a.with], ...(a.about ? { about: a.about } : {}) }, (k) => agendaRoll(seed, owner, `plan:${goal.id}:d${day}:${k}`));
+    mine.push({ goalId: goal.id, steps, at: 1, madeDay: day, lastDay: day, status: steps.length > 1 ? "active" : "done" });
+  }
   /** ORW-622: the holder's grudge strand toward each of these houseguests (only those with one), from the bond record. */
   private rivalryStrandsOf(holder: EntityId, others: readonly EntityId[]): ReadonlyMap<EntityId, number> {
     const reader = this.bondReader();

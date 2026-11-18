@@ -2592,7 +2592,7 @@ export interface RetrospectiveView {
    * spoke it on the way out); it surfaces here as the retrospective's first-person exit reel. Empty when
    * no eviction was interviewed (e.g. a Final-3 atomic eviction outside the staged 0047 path).
    */
-  exitInterviews?: Array<{ week: number; evictee: NamedRef; stance: string; message?: string }>;
+  exitInterviews?: Array<{ week: number; evictee: NamedRef; stance: string; message?: string; /** ORW-624: the crowd they walked out to */ crowd?: "cheers" | "mixed" | "boos" | "silence" }>;
   /** 0133 — the early-evicted player's own finale-night interview (posture + words), when they gave one. */
   finaleInterview?: { stance: string; message?: string };
 }
