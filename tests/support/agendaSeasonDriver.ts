@@ -7,11 +7,13 @@ import { resolvePending } from "../../features/support/answerPending";
  * ORW-312: drives a PLAYED season (a person is playing: `noteMessage`) headlessly through the real loop - ceremonies due on schedule, the player turning in at night - and mimics the
  * orchestrator's sleep step (`settleOvernight`) after each night. Roles only. `maxSteps` bounds the loop; `stopAtWeek` ends it after that many weeks have closed (for the 3-week case).
  */
-export interface PlayedSeason { s: GameSessionAdapter; nights: number; finished: boolean }
-export function playSeason(seed: number, opts: { stopAtWeek?: number; maxSteps?: number; mull?: boolean; ownViewOff?: boolean; observe?: (live: Record<string, unknown> & { week: number }) => void } = {}): PlayedSeason {
+export interface PlayedSeason { s: GameSessionAdapter; nights: number; finished: boolean; sb: ReturnType<GameSessionRegistry["sandboxFor"]> }
+export function playSeason(seed: number, opts: { stopAtWeek?: number; maxSteps?: number; mull?: boolean; ownViewOff?: boolean; configure?: (s: GameSessionAdapter) => void; observe?: (live: Record<string, unknown> & { week: number }) => void } = {}): PlayedSeason {
   GameSessionAdapter.setTimeOfDayEnabled(true);
-  const s = new GameSessionRegistry().sandboxFor(`agenda-${seed}-${Math.random()}`).session as GameSessionAdapter;
+  const sb = new GameSessionRegistry().sandboxFor(`agenda-${seed}-${Math.random()}`);
+  const s = sb.session as GameSessionAdapter;
   s.createCharacter({ playerName: "P", seed });
+  opts.configure?.(s);
   s.setPerConversationClockEnabled(true);
   if (opts.ownViewOff) (s as unknown as { setOwnViewEnabled(on: boolean): void }).setOwnViewEnabled(false); // ORW-574: a test that isolates one effect can take the decider's own view out of the season
   const live = () => s.snapshot().live as unknown as { evictionOrder?: string[]; nightDepth?: number; timeOfDay?: string; finished?: boolean; week: number };
@@ -33,7 +35,7 @@ export function playSeason(seed: number, opts: { stopAtWeek?: number; maxSteps?:
       if (l.evictionOrder?.includes(PLAYER)) { const v = s.advanceGame(); if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req)); }
     } else s.advanceClockPerConversation();
   }
-  return { s, nights, finished: live().finished === true };
+  return { s, nights, finished: live().finished === true, sb };
 }
 
 /** A freshly cast, PLAYED game (a person has started talking): the agendas exist, the cast and pre-show ties already do. Also hands back the sandbox (its event store) for a scenario that reads the scenes. */
