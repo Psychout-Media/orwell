@@ -275,8 +275,8 @@ import { producerReadPrompt, type ExchangeAccounting } from "../../engine/produc
 import { buildShowBrief } from "../../engine/showBrief";
 import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
 import { emptyNarrationUse, narrationAnchor, narrationSeasonLine, narrationUsageSection, recordNarration, restoreNarrationUse, type NarrationUse } from "../../engine/narrationUsage";
-import { brokenPromiseClaimId, isPromiseWhat, judgePromise, ledgerPlanRetroRows, PROMISE_VETO_LEAN, promiseNote, termAssuranceKind, termIdsKnown, termPlanDealKind, termSubject, type PromiseBoardFact, type PromiseTerm, type PromiseWhat, type PromiseWindow } from "../../engine/promiseTerms";
-import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerSameDayDealLine, openLedgerSection, partiesOf, closeOpenEntry, recordDealEntry, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
+import { brokenPromiseClaimId, isPromiseWhat, judgePromise, ledgerPlanRetroRows, PROMISE_VETO_LEAN, promiseNote, termAssuranceKind, termIdsKnown, termPlanDealKind, termSubject, uncoveredPlayerAssurances,type PromiseBoardFact, type PromiseTerm, type PromiseWhat, type PromiseWindow } from "../../engine/promiseTerms";
+import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, openLedgerCommitmentKind,emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerSameDayDealLine, openLedgerSection, partiesOf, closeOpenEntry, recordDealEntry, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
 import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
@@ -5165,7 +5165,7 @@ export class GameSessionAdapter implements GameSession {
     const houseYouNeverSaw = this.houseStories();
     const rumorMill = buildRumorMill(this.live.claims, (id) => this.nameOf(id), this.live.beliefs, this.truthFacts()); // ORW-525 (spec 0157): reads the claim log + beliefs about the player, read-only; same gate
     const houseCultureWords = describeHouseLeans(this.live.houseLeans); // ORW-551 (spec 0168): texture words only, same crown gate; absent when no culture was drawn
-    const dealPlans = this.withLedgerPlans(buildDealPlanRetro(this.live.dealPlans, this.deals.all, this.openLedger.entries, PLAYER, (id) => this.nameOf(id))); // 0178 (Ryne Q2): the secret plans beside the player's own promise record; same crown gate (+ ORW-586 slice 5: the plans of improvised promises)
+    const dealPlans = this.withLedgerPlans(buildDealPlanRetro(this.live.dealPlans, this.deals.all, this.openLedger.entries, PLAYER, (id) => this.nameOf(id), uncoveredPlayerAssurances(this.live.assurances?.items, this.openLedger.entries, PLAYER).map((a) => ({ to: a.to, kind: a.kind, week: a.week, status: a.status })), openLedgerCommitmentKind)); // ORW-602: one promise record (deals, said, typed, assurances); 0178 (Ryne Q2): the secret plans beside the player's own promise record; same crown gate (+ ORW-586 slice 5: the plans of improvised promises)
     const americasFavorite = this.americasFavorite(); // ORW-624: after the crown only
     const yourEdit = this.buildYourEditView(); // 0200 / ORW-632: after the crown only (the same gate); facts only
     const groupLife = this.buildGroupLifeView(); // 0183 part d: the sanctioned unsealing of hidden groups' names and words; same gate; facts only
