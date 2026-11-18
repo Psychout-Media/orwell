@@ -90,6 +90,7 @@ import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness"
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
 import { DEAL_NOMS } from "../../engine/dealNomConstants";
 import { proposeNpcDeals, planAwareDealPush, type PairBondRead } from "../../engine/npcDeals";
+import { decideDodge, type DodgeFact } from "../../engine/dodging";
 import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosure, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, BreakCause, Deal } from "../../engine/deals";
@@ -104,7 +105,7 @@ import { CONFESSIONAL } from "../../engine/confessionalConstants";
 import { buildPullQuoteReel } from "../../engine/pullQuoteReel";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
 import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOut";
-import { SEEK } from "../../engine/copresenceSpread";
+import { CUNNING, LEAKY, SEEK } from "../../engine/copresenceSpread";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, streakHolds, nextStreak, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
 import { sumVals, whyOption, type WhySink } from "../../engine/decisionWhy";
@@ -3688,6 +3689,33 @@ export class GameSessionAdapter implements GameSession {
   private disclosureEngineEnabled = flagDefaultOn("ORWELL_DISCLOSURE_ENGINE");
   setDisclosureEngineEnabled(on: boolean): void { this.disclosureEngineEnabled = on; }
   private disclosureEngineOn(): boolean { return this.disclosureEngineEnabled && this.live?.playedGame === true; }
+  /**
+   * 0196 / ORW-630 (ORWELL_DODGING, default ON; Ryne 11-17): when a played-game press is declined (the A52 deflect), the engine also decides HOW they dodge from their character, their bond to the asker and the stakes, on a keyed side stream
+   * (never the shared rng), appends it to a saved log, and `npcVoice.dodge` hands the narrator that third-person fact. Off, or headless => no key, no draw, nothing saved.
+   */
+  private dodgingEnabled = flagDefaultOn("ORWELL_DODGING");
+  setDodgingEnabled(on: boolean): void { this.dodgingEnabled = on; }
+  private dodgingOn(): boolean { return this.dodgingEnabled && this.disclosureEngineOn(); }
+  /** Append-only: one entry per (houseguest, week, phase) press that was turned aside. Saved when non-empty. */
+  private dodgeLog: Array<{ npc: EntityId; week: number; phase: string } & DodgeFact> = [];
+  private recordDodge(npc: { id: EntityId; character: { strategyStyle?: import("../../engine/characterFactory").StrategyStyle } }, signals: ConfidenceSignals): void {
+    if (!this.dodgingOn()) return;
+    const phase = String(this.phase);
+    if (this.dodgeLog.some((d) => d.npc === npc.id && d.week === this.week && d.phase === phase)) return;
+    const style = npc.character.strategyStyle;
+    const vol = this.soulObj(npc.id)?.volatility ?? 0.3;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:dodge:${npc.id}:${this.week}:${phase}`));
+    const fact = decideDodge({
+      cunning: style ? CUNNING[style] ?? 0.3 : 0.3, leakiness: (style ? LEAKY[style] ?? 0.3 : 0.3) + 0.2 * vol, rattled: Math.max(0, vol - 0.5) * 2,
+      trustInAsker: signals.npcTrust, stakes: 0.3,
+    }, [rng.next(), rng.next(), rng.next()]);
+    this.dodgeLog.push({ npc: npc.id, week: this.week, phase, ...fact });
+  }
+  /** The dodge the engine decided for `npc` in the current week and phase (the voice shows it only while the press is this beat's). */
+  private dodgeFor(npc: EntityId): DodgeFact | undefined {
+    const d = this.dodgeLog.find((x) => x.npc === npc && x.week === this.week && x.phase === String(this.phase));
+    return d ? { approach: d.approach, openness: d.openness, pushesBack: d.pushesBack } : undefined;
+  }
   /** The facts `holder` knows, cut to what the player also holds when the disclosure engine is on (a match by lineage when both copies carry a `factId`, OR by identical content). */
   private voiceKnownFacts(holder: EntityId): ReadonlyArray<{ content: string; factId?: string }> {
     const mine = this.npcKnowledge?.known(holder) ?? [];
@@ -3898,6 +3926,8 @@ export class GameSessionAdapter implements GameSession {
       knows: dedupeKeepNewest(this.voiceKnownFacts(id).map((f) => this.humanizeTidy(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP),
       // A52: a live press the engine declined this beat - the houseguest deflects (absent unless the disclosure engine decided it).
       ...(isActive && this.disclosureEngineOn() && this.disclosureThisBeat(id)?.outcome === "deflect" ? { deflect: true as const } : {}),
+      // 0196: HOW the declined press was turned aside (approach / carriage / pushes back) - a third-person fact for the narrator to voice, no content and no number.
+      ...(isActive && this.dodgingOn() && this.disclosureThisBeat(id)?.outcome === "deflect" ? (() => { const d = this.dodgeFor(id); return d ? { dodge: d } : {}; })() : {}),
       suspects: (() => {
         const base = this.voiceSuspectFacts(id)
           .slice(-GameSessionAdapter.VOICE_SUSPECTS_CAP)
@@ -5403,6 +5433,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.jurorTold.size ? { jurorTold: [...this.jurorTold] } : {}),
       ...(this.lieCount > 0 ? { confideLieCount: this.lieCount } : {}),
       ...(Object.keys(this.confideLiesBy).length ? { confideLiesBy: { ...this.confideLiesBy } } : {}),
+      ...(this.dodgeLog.length ? { dodgeLog: this.dodgeLog.map((d) => ({ ...d })) } : {}),
       // 0093/0099 — secrets as power: which learned secrets the player has SPENT (`usedAs`) + the per-
       // season expose/trade/bluff counts. Persisted so a restored game remembers a spent secret can't be
       // re-wielded and the season caps don't reopen (non-degradation, 0007/0030). Engine-only.
@@ -5775,6 +5806,7 @@ export class GameSessionAdapter implements GameSession {
     this.jurorTold = new Set(core.jurorTold ?? []);
     this.lieCount = core.confideLieCount ?? 0;
     this.confideLiesBy = core.confideLiesBy ? { ...core.confideLiesBy } : {};
+    this.dodgeLog = core.dodgeLog ? core.dodgeLog.map((d) => ({ ...d })) as typeof this.dodgeLog : [];
     // 0093/0099 — restore the secrets-as-power ledger (absent on pre-0093 saves ⇒ empty/zero): which
     // secrets the player has spent + the per-season caps, so a spent secret stays spent across a restart.
     this.secretUsedAs = core.secretUsedAs ? cloneSession(core.secretUsedAs) : {};
@@ -9032,7 +9064,7 @@ export class GameSessionAdapter implements GameSession {
       this.triggerTickCount = 0;
       this.confideState = {};
     this.jurorTold = new Set();
-      this.lieCount = 0; this.confideLiesBy = {};
+      this.lieCount = 0; this.confideLiesBy = {}; this.dodgeLog = [];
       this.resetSecretPower(); // 0093/0099 — a fresh season has spent no secrets and an unspent cap
       this.resetTieSurfacing(); // 0059 §5 — a fresh season: no tie discovered, the player-surface cap unspent
       this.resetSecretPacing(); // 0092 — a fresh season: the weekly drip cadence + anti-spam start clean
@@ -9368,7 +9400,7 @@ export class GameSessionAdapter implements GameSession {
     this.triggerTickCount = 0;
     this.confideState = {};
     this.jurorTold = new Set();
-    this.lieCount = 0; this.confideLiesBy = {};
+    this.lieCount = 0; this.confideLiesBy = {}; this.dodgeLog = [];
     this.resetSecretPower(); // 0093/0099 — a warmed/fresh cast has spent no secrets, the caps unspent
     this.resetTieSurfacing(); // 0059 §5 — a warmed/fresh cast carries no tie-surfacing history
     this.resetSecretPacing(); // 0092 — a warmed/fresh cast carries no secret-pacing drip history
@@ -9886,7 +9918,7 @@ export class GameSessionAdapter implements GameSession {
     // 0075 — a fresh season has heard no confidences and spent no lies.
     this.confideState = {};
     this.jurorTold = new Set();
-    this.lieCount = 0; this.confideLiesBy = {};
+    this.lieCount = 0; this.confideLiesBy = {}; this.dodgeLog = [];
     this.resetSecretPower(); // 0093/0099 — a fresh season has spent no secrets, the caps unspent
     // 0059 §5 — a fresh season: no tie discovered, the player-surface cap unspent, the stream at 0.
     this.resetTieSurfacing();
@@ -16532,7 +16564,7 @@ export class GameSessionAdapter implements GameSession {
       decision = routed.decision; disclosureEvent = routed.event;
     }
     this.noteDisclosure(npcId, disclosureEvent); // B33: the closed-set record of what the engine just rolled
-    if (!decision.disclosed) return none;
+    if (!decision.disclosed) { if (this.live.playedGame) this.recordDodge(npc, signals); return none; }
 
     // Monotonic: never re-tell a TRUE secret at a LOWER tier than already reached — idempotent, no new
     // fold (the house's memory only deepens; it never thins, 0007/0030). A lie is its own track.
@@ -18982,7 +19014,7 @@ export class GameSessionAdapter implements GameSession {
         moment, narrView, this.storyFacts(moment), this.worldContext(moment), this.producerVoice(moment),
         this.freshSurfacedFacts(),
         // the diary levers are advertised only while their engine flags are live (a flag-off tool is dead)
-        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled || this.moodCausesEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() && !this.juryHouseView() },
+        { playerDossier: this.playerDossierEnabled, boothReceipts: this.boothReceiptsEnabled, npcTells: this.npcTellsEnabled, npcMemorySpeech: this.npcMemorySpeechEnabled && this.npcMemoryEnabled, goalMood: this.goalMoodEnabled || this.moodCausesEnabled, confrontMisfire: this.gossipConsequenceEnabled, disclosureEngine: this.disclosureEngineOn() && !this.juryHouseView(), dodging: this.dodgingOn() && !this.juryHouseView() },
       ),
       ...(hardConstraints ? { hardConstraints } : {}),
       // The producer's public name — the byline the FE renders as the chat sender (producer-persona
