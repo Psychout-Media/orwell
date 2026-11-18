@@ -4,7 +4,7 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 import { EngineCommandsAdapter } from "../../src/adapters/engine/EngineCommandsAdapter";
 import { McpServer } from "../../src/adapters/mcp/McpServer";
 import { PLAYER_TOOLS, PLAYER_AGENT_LEVERS } from "../../src/surfaces/tools/registry";
-import { ALLIANCE_NAMING, NAME_RULES, sharedAnonymousTraits, traitCounts, validateAllianceName, issueNightBatch } from "../../src/engine/allianceNaming";
+import { ALLIANCE_NAMING, NAME_RULES, sharedAnonymousTraits, traitCounts, validateAllianceName, issueNightBatch, jointCarriers } from "../../src/engine/allianceNaming";
 import { allianceNameFromHouse } from "../../src/engine/groupIdentity";
 import { buildSandbox } from "../support/sandbox";
 import { PLAYER } from "../../src/domain/ids";
@@ -99,6 +99,32 @@ describe("C1: nothing identifying in the payload (k-anonymity floor)", () => {
       const traits = (JSON.parse(t.prompt.split("\n")[1]!) as { sharedTraits: string[] }).sharedTraits;
       for (const tr of traits) expect(counts.get(tr)!, tr).toBeGreaterThanOrEqual(ALLIANCE_NAMING.decoyMinMembers + ALLIANCE_NAMING.floorExtra);
       expect(traits.some((x) => x.startsWith("solo"))).toBe(false);
+    }
+  });
+});
+
+describe("C1 (ORW-684): the floor holds for the traits TOGETHER", () => {
+  // Each trait passes the per-trait floor alone, but the three the members share are carried together by exactly the members: intersecting the prompt's traits names the group.
+  const table = (): Map<string, string[]> => {
+    const t = new Map<string, string[]>();
+    for (let i = 0; i < 16; i++) t.set(`h${i}`, []);
+    const give = (trait: string, ids: number[]) => ids.forEach((i) => t.get(`h${i}`)!.push(trait));
+    give("t0", [0, 1, 2, 3, 4, 5, 6]); give("t1", [0, 1, 2, 7, 8, 9, 10]); give("t2", [0, 1, 2, 11, 12, 13, 14]);
+    give("t3", [3, 4, 5, 6, 7, 8, 9]); give("t4", [10, 11, 12, 13, 14, 15, 3]); give("t5", [0, 5, 9, 12, 14, 15, 2]);
+    return t;
+  };
+  it("C1: no prompt's traits can be intersected down below the floor (real or decoy), and every ticket carries the same number of traits", () => {
+    const tbl = table();
+    for (const night of [2, 3, 4, 5, 6]) for (const pending of [[], [{ id: "g", members: ["h0", "h1", "h2"] }]]) {
+      const out = Object.values(issueNightBatch({ seed: 5, night, pending, table: tbl, culture: undefined }));
+      const shown = out.map((t) => (JSON.parse(t.prompt.split("\n")[1]!) as { sharedTraits: string[] }).sharedTraits);
+      for (const [i, t] of out.entries()) {
+        const floor = t.kind === "real" ? 3 + ALLIANCE_NAMING.floorExtra : ALLIANCE_NAMING.decoyMinMembers + ALLIANCE_NAMING.floorExtra;
+        expect(jointCarriers(tbl, shown[i]!), `${t.kind} ${shown[i]}`).toBeGreaterThanOrEqual(floor);
+      }
+      expect(new Set(shown.map((x) => x.length)).size).toBe(1);
+      // the count does not depend on what formed: the same night with and without a group shows the same number of traits
+      expect(shown[0]!.length).toBe((JSON.parse(Object.values(issueNightBatch({ seed: 5, night, pending: [], table: tbl, culture: undefined }))[0]!.prompt.split("\n")[1]!) as { sharedTraits: string[] }).sharedTraits.length);
     }
   });
 });
