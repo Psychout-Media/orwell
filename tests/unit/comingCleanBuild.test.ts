@@ -143,7 +143,7 @@ describe("0203 the player, both directions", () => {
     expect(t.s.playerConfess({ to: t.a })).toEqual({ accepted: true });
     expect(before - t.edge(t.a, PLAYER).trust).toBeCloseTo(COMING_CLEAN.confessShare * caughtLieTrustDrop(1), 12);
     expect(planted(t.p, t.a, c.id)?.refuted).toBe(true);
-    expect(t.events.map((e) => e.w)).toEqual([[PLAYER, t.a]]);
+    expect(t.events, "the player's own words are the recorded scene; the engine authors none").toEqual([]);
     expect(t.s.playerConfess({ to: t.a })).toEqual({ accepted: false, reason: "no-lie" });
   });
   it("the player loops an ally in on their own lie to someone else", () => {
@@ -161,6 +161,41 @@ describe("0203 the player, both directions", () => {
     expect(t.events).toHaveLength(1);
     expect(t.events[0]!.w).toEqual([t.liar, PLAYER]);
     expect(t.events[0]!.text).not.toMatch(/\d|lie|lied|trust|belie|claim|isTrue|confess/i);
+  });
+});
+
+describe("0203 the statement door: retracts / tellsAbout", () => {
+  it("applies a valid retraction once, and drops a false, not-own, wrong-listener or flag-off one", () => {
+    const t = season("door");
+    const own = t.lie(t.a, "going-after", PLAYER);
+    t.s.tellClaim({ speaker: PLAYER, listener: t.b, kind: "talking-about", subject: t.subject, object: t.a, isTrue: true, intent: "inform", origin: "player" }); // a TRUE claim: nothing to retract
+    t.lie(t.ally, "going-after", t.liar); // a houseguest's lie, not the player's
+    expect(t.s.recordPlayerStatement({ to: t.b, retracts: true })).toEqual({ accepted: false, reason: "no-lie" }); // only a true claim told there
+    expect(t.s.recordPlayerStatement({ to: t.ally, retracts: true })).toEqual({ accepted: false, reason: "no-lie" }); // the houseguest's lie is not the player's
+    expect(t.s.recordPlayerStatement({ to: t.subject, retracts: true })).toEqual({ accepted: false, reason: "no-lie" }); // told nothing
+    expect(t.s.recordPlayerStatement({ to: t.a, retracts: true, about: t.b })).toEqual({ accepted: false, reason: "no-lie" }); // wrong subject
+    expect(t.p.live.cleanActs).toBeUndefined();
+    expect(t.s.recordPlayerStatement({ to: t.a, retracts: true })).toEqual({ accepted: true });
+    expect(t.s.recordPlayerStatement({ to: t.a, retracts: true })).toEqual({ accepted: false, reason: "no-lie" }); // once
+    expect(planted(t.p, t.a, own.id)?.refuted).toBe(true);
+    expect(t.p.live.cleanActs).toHaveLength(1);
+    t.s.setComingCleanEnabled(false);
+    expect(t.s.recordPlayerStatement({ to: t.a, retracts: true })).toEqual({ accepted: false, reason: "off" });
+  });
+  it("a loop-in tells an ally about a lie told to someone ELSE; the ally can't be the one lied to; both fields together are refused", () => {
+    const t = season("door2");
+    const own = t.lie(t.a, "going-after", PLAYER);
+    expect(t.s.recordPlayerStatement({ to: t.a, tellsAbout: t.a })).toEqual({ accepted: false, reason: "no-lie" });
+    expect(t.s.recordPlayerStatement({ to: t.ally, tellsAbout: t.b })).toEqual({ accepted: false, reason: "no-lie" }); // nothing told to b
+    expect(t.s.recordPlayerStatement({ to: t.ally, tellsAbout: t.a, retracts: true })).toEqual({ accepted: false, reason: "bad-shape" });
+    expect(t.s.recordPlayerStatement({ to: t.ally, tellsAbout: t.a })).toEqual({ accepted: true });
+    expect(t.s.recordPlayerStatement({ to: t.ally, tellsAbout: t.a })).toEqual({ accepted: false, reason: "no-lie" });
+    expect(planted(t.p, t.ally, `loopin:${own.id}`)).toBeDefined();
+  });
+  it("the old statement form is unchanged", () => {
+    const t = season("door3");
+    t.s.setPromiseTermsEnabled?.(true);
+    expect(t.s.recordPlayerStatement({ to: t.a, about: t.b, kind: "not-a-kind" }).accepted).toBe(false);
   });
 });
 

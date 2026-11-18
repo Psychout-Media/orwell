@@ -13005,10 +13005,10 @@ export class GameSessionAdapter implements GameSession {
   }
   /** The scene a coming-clean act is, when the player is a party to it (the speaker's words, composed from names; never whether anything is true beyond what they say). Houseguest-to-houseguest acts stay engine-only. */
   private cleanScene(by: EntityId, to: EntityId, c: SpokenClaim, kind: "confess" | "loop-in"): void {
-    if (by !== PLAYER && to !== PLAYER) return;
+    if (to !== PLAYER || by === PLAYER) return; // the player's own act is their own words, already the recorded scene: the engine never authors it
     const n = (id: EntityId): string => this.nameOf(id);
     const text = kind === "confess"
-      ? `${n(by)} tells ${n(to)} that what they said about ${n(c.subject)} was not so`
+      ? `${n(by)} says what they told ${n(to)} wasn't so`
       : `${n(by)} tells ${n(to)} the truth about what they told ${n(c.listener)} about ${n(c.subject)}`;
     this.onPlayerEvent?.(text, [by, to], "conversation");
   }
@@ -20641,10 +20641,17 @@ export class GameSessionAdapter implements GameSession {
    * and a false claim is a lie on the record (the player holds no engine beliefs). A kind outside the claim set, an unknown or absent houseguest, or a refused entry makes no claim and never throws. Gated by ORWELL_PROMISE_TERMS
    * and the open ledger; off => nothing.
    */
-  recordPlayerStatement(req: { to: string; about: string; kind: string; object?: string; label?: string }): { accepted: boolean; reason?: string } {
+  recordPlayerStatement(req: { to: string; about?: string; kind?: string; object?: string; label?: string; retracts?: true; tellsAbout?: string }): { accepted: boolean; reason?: string } {
+    // 0203 / ORW-646: the player owns a lie (`retracts`) or tells an ally the truth about a lie told to someone else (`tellsAbout`). The player's words are the scene already recorded; the engine finds the player's own open lie
+    // from its claim log and DROPS the act unless it matches (own, false, told to that listener; for a loop-in, told to someone other than the ally). Never exposes a claim id.
+    if (req && (req.retracts === true || req.tellsAbout !== undefined)) {
+      if (typeof req.to !== "string" || (req.about !== undefined && typeof req.about !== "string") || (req.retracts === true && req.tellsAbout !== undefined)) return { accepted: false, reason: "bad-shape" };
+      return req.retracts === true ? this.playerConfess({ to: req.to, ...(req.about ? { about: req.about } : {}) }) : this.playerLoopIn({ ally: req.to, to: String(req.tellsAbout), ...(req.about ? { about: req.about } : {}) });
+    }
+    if (!req || typeof req.about !== "string" || typeof req.kind !== "string") return { accepted: false, reason: "bad-shape" };
     if (!this.promiseTermsLive) return { accepted: false, reason: "off" };
     if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
-    if (!req || typeof req.to !== "string" || typeof req.about !== "string" || typeof req.kind !== "string") return { accepted: false, reason: "bad-shape" };
+    if (typeof req.to !== "string") return { accepted: false, reason: "bad-shape" };
     if (!(SPOKEN_CLAIM_KINDS as readonly string[]).includes(req.kind)) return { accepted: false, reason: "bad-shape" };
     const known = new Set<string>(this.house.npcs.map((n) => n.id as string));
     const objectOk = req.object === undefined || (typeof req.object === "string" && known.has(req.object));
