@@ -19720,6 +19720,9 @@ export class GameSessionAdapter implements GameSession {
     }
     for (const r of claimsOf(store, holder)) {
       if (r.kind !== "heard-rumor" || r.nature !== "betrayal" || r.refuted || r.week !== week) continue;
+      // ORW-686 item 5 (played games): a betrayal rumor says its subject betrayed SOMEONE. It is "they target me" only when the holder is the one betrayed; otherwise the rumor
+      // stays what it is (the heard-rumor belief, already read as a grievance where gossip beliefs are on) and is not folded a second time into a claim nobody made.
+      if (played && r.object !== holder) continue;
       recordClaim(store, { id: `${holder}|targets-me|${r.subject}|r:${r.id}|${week}`, holder, kind: "targets-me", subject: r.subject, object: holder, value: true, origin: "gossip", confidence: Math.max(0, Math.min(1, r.confidence)) * 0.5, week });
     }
   }
