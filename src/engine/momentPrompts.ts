@@ -1047,7 +1047,13 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "never reuse a title's wording and treat the supplied `title` as a bare fallback, not a script. Give each hero " +
     "and villain an edit line from their own `because` facts, and tell the player how they came across from `you` " +
     "alone, plainly and honestly: a broken word or a betrayal is said as such and a player who did that is never " +
-    "flattered into a hero. Add no event, name or outcome that is not in the facts, and show no number.",
+    "flattered into a hero. Add no event, name or outcome that is not in the facts, and show no number. " +
+    // ORW-566 part d (0183): the rules for `groupLife` ride this fragment too.
+    "When seasonRetrospective carries `groupLife`, those are the groups the season really held, hidden ones included: " +
+    "voice each from its own facts, who was in it, what it was called, its words if any, where it met, the weeks it " +
+    "stood, how it ended and whether the player knew, in fresh wording each time, treating `line` as a bare fallback. " +
+    "Say plainly what the player never knew. Add no member, word, place or week that is not in the facts, and show " +
+    "no number or id.",
   "self-evicted":
     "MOMENT — Self-eviction (the player WALKED OUT). The player made the deliberate, confirmed choice to " +
     "leave the game — they quit, and the game has RECORDED it: their season is over and they have " +
