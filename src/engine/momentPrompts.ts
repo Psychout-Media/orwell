@@ -10,6 +10,7 @@ import { genderPresentationPhrase, pronounsFor, genderGuidanceClause } from "../
 import { provenanceWord } from "../domain/humanize";
 import { countFact, countShape } from "./productionHost";
 import { renderDiaryCallLines } from "./diaryCalls";
+import { renderPushbackLines } from "./producerPushback";
 
 /**
  * #1326 — dedupe the "no genderPresentation facet on file" warning per houseguest (per process),
@@ -1632,6 +1633,8 @@ export function renderGameContext(view: GameStateView): string {
       : []),
     // ORW-668 (0210 C2): the Diary Room calls as facts to voice (absent unless a call is live, a return just happened, or the player is invited). Per-turn, never the base prompt.
     ...renderDiaryCallLines(view.diaryCall),
+    // ORW-669 (0210 C3): the producer's pushback as facts to voice (absent unless the player is in the Diary Room and their own record contradicts their word). Per-turn, never the base prompt.
+    ...renderPushbackLines(view.producerPushback),
   ].join("\n");
 }
 
