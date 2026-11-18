@@ -141,11 +141,11 @@ describe("ORW-596 - an NPC accuses the player, who answers in their own words", 
     const { ids } = cast(s);
     const holder = ids[0]!;
     (live(s).beliefs ??= {})[holder] = [{ id: `${holder}|targets-me|${PLAYER}||1`, holder, kind: "targets-me", subject: PLAYER, object: holder, value: true, origin: "told", confidence: 0.9, week: 1 }];
-    const call = (s as unknown as { npcCallsHouseMeeting(): void; meetingCallDecided: Set<string> });
+    const call = (s as unknown as { npcCallsHouseMeeting(): void });
     let held = false;
     for (let day = 1; day <= 200 && !held; day++) {
       live(s).dayNumber = day;
-      call.meetingCallDecided.clear();
+      (live(s) as unknown as { meetingCallsDecided?: string[] }).meetingCallsDecided = []; // ORW-686: the once-per-day record is now persisted on the live season (was an in-memory set)
       call.npcCallsHouseMeeting();
       held = (live(s).houseMeetings ?? []).length > 0;
     }
