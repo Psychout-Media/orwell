@@ -36,6 +36,7 @@ import { tellsOf, narratedTellsOf, refreshTells, tellChannel } from "../../engin
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
 import { MOOD_CAUSES, causeLine, isBadNight, isCloseFriend, mayShareEventCause, strongestLiveCause, type MoodCauseSource } from "../../engine/moodCauses";
 import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sceneSeenBy, sharedScenes, type SeenScene } from "../../engine/bondJealousy";
+import { SECRET_BREAK, breakDecision, breakLine, keptOutGrudge, pickSpoken, standingMove } from "../../engine/secretBreak";
 import { HOH_ROOM, decideVisit, backstoryFacets, pickBackstoryFact } from "../../engine/hohRoom";
 import { GRUDGES, REPAIR, combineSalience, easeGrudge, easedShareOf, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, repairAmount, wrongWeight, type GrudgeKind } from "../../engine/grudges";
 import { breakDivisor, feelingKeep, feelsGuilt, guiltKey, guiltScale, markFeeling } from "../../engine/bondFeelings";
@@ -275,8 +276,8 @@ import { producerReadPrompt, type ExchangeAccounting } from "../../engine/produc
 import { buildShowBrief } from "../../engine/showBrief";
 import { roomCanonProposal, roomCanonSection } from "../../engine/roomCanon";
 import { emptyNarrationUse, narrationAnchor, narrationSeasonLine, narrationUsageSection, recordNarration, restoreNarrationUse, type NarrationUse } from "../../engine/narrationUsage";
-import { brokenPromiseClaimId, isPromiseWhat, judgePromise, ledgerPlanRetroRows, PROMISE_VETO_LEAN, promiseNote, termAssuranceKind, termIdsKnown, termPlanDealKind, termSubject, type PromiseBoardFact, type PromiseTerm, type PromiseWhat, type PromiseWindow } from "../../engine/promiseTerms";
-import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerSameDayDealLine, openLedgerSection, partiesOf, closeOpenEntry, recordDealEntry, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
+import { brokenPromiseClaimId, isPromiseWhat, judgePromise, ledgerPlanRetroRows, PROMISE_VETO_LEAN, promiseNote, termAssuranceKind, termIdsKnown, termPlanDealKind, termSubject, uncoveredPlayerAssurances,type PromiseBoardFact, type PromiseTerm, type PromiseWhat, type PromiseWindow } from "../../engine/promiseTerms";
+import { OPEN_LEDGER_BRIEF_MAX, OPEN_LEDGER_PLAYER, openLedgerCommitmentKind,emptyOpenLedger, flagOpenEntriesDue, openLedgerDueEntries, openLedgerLinkable, openLedgerProposal, openLedgerRelevant, openLedgerSameDayDealLine, openLedgerSection, partiesOf, closeOpenEntry, recordDealEntry, recordOpenEntry, resolveOpenEntry, restoreOpenLedger, settleOpenEntryDue, syncOpenLedger, type OpenLedger } from "../../engine/openLedger";
 import { forbiddenFixtureTerm, roomMapEntry } from "../../domain/houseFixtures";
 import { notorietyBias, recognitionFor } from "../../engine/notoriety";
 import type { NotorietySummary, OpenSetSeasonOutcome } from "../../engine/notoriety";
@@ -390,6 +391,7 @@ import { buildRumorMill } from "../../engine/rumorMill";
 import { drawHouseLeans, describeHouseLeans, dialMult, type DialId } from "../../engine/houseLeans";
 import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, meetingClaimFor, meetingWeekSpent, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingAnswer, type MeetingCaller, type MeetingRefusal } from "../../engine/houseMeeting";
 import { decideTellToPlayer, presentedBand, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
+import { HIDE, HIDDEN_TYPES, hideChance } from "../../engine/fakedDistance";
 import { TRAP, OVERHEAR_PLANT, canaryReturned, canarySubject, claimWords, doubtsDiscretionOf, overhearers, type Trap } from "../../engine/trap";
 import { decidePlantToPlayer, toldTodayBy } from "../../engine/plantToPlayer";
 import type { DeepProfile, StoryThread } from "../../engine/deepProfile";
@@ -1510,6 +1512,83 @@ export class GameSessionAdapter implements GameSession {
       if (fact) {
         done.used.push(`${hoh}|${fact.text}`);
         this.onPlayerEvent(`${this.nameOf(hoh)}'s photos and letter (${wk}) - ${fact.field}: ${fact.text}`, room, "hoh-room");
+      }
+    }
+  }
+  /** 0204 / ORW-647: THE NIGHT IT ALL COMES OUT (`ORWELL_SECRET_BREAKS`, default ON; `=0` = none). Played games with the belief layer only. */
+  private secretBreaksEnabled = flagDefaultOn("ORWELL_SECRET_BREAKS");
+  setSecretBreaksEnabled(on: boolean): void { this.secretBreaksEnabled = on; }
+  private secretBreakDayDone: number | undefined;
+  /**
+   * 0204 - once a day (the off-screen tick): a fact about a houseguest that enough of the others HOLD stops being a secret. Tonight it breaks in front of the awake room, either said by the others
+   * once it is due, or blown up by its own subject when they are pressured and volatile (`secretBreak.ts`, keyed rolls, no shared rng). One break a night, once per fact (saved). It is recorded
+   * as a public house event whose witnesses are the room (the player too, if awake: a witnessed event is not a secret), and lands through the existing stores: each present houseguest who did not
+   * hold it now holds it (pathway `public`), the room re-reads the subject (a bounded directed fold, less for a self-detonation), and each houseguest kept out holds it against the holder they had
+   * trusted most (a grudge). The player is never a holder and never detonates by the engine's hand. Engine-only; the narrator gets the fact as spoken and never a holder list or a truth marker.
+   */
+  secretBreakTick(knowledge: KnowledgeService): void {
+    const s = this.live;
+    if (!this.secretBreaksEnabled || !s || s.playedGame !== true || !this.npcBeliefsEnabled || !this.house || !this.onPlayerEvent) return;
+    const day = s.dayNumber ?? s.week;
+    if (this.secretBreakDayDone === day) return; // session-local: a restart on the same night re-reads the same keyed rolls, and a fact that broke is already saved
+    this.secretBreakDayDone = day;
+    const living = this.livingIds();
+    const livingSet = new Set(living);
+    const npcs = living.filter((id) => id !== PLAYER).sort();
+    const done = new Set(s.secretBreaks ?? []);
+    const awake = this.awakeNow();
+    const room = living.filter((id) => !awake || awake.has(id));
+    const seed = this.gameSeed ?? 0;
+    // Every fact about a living houseguest, with who holds it and in what words (engine-only; never carried outward).
+    const byFact = new Map<string, { subject: EntityId; held: Array<{ holder: EntityId; content: string; confidence?: number }> }>();
+    for (const h of npcs) {
+      for (const k of knowledge.knownTo(h)) {
+        const subject = k.subject;
+        const factId = k.factId ?? k.id;
+        if (subject === undefined || subject === h || !livingSet.has(subject) || done.has(factId) || factId.startsWith("canary:") || this.secretUsedAs[factId] === "exposed") continue;
+        const row = byFact.get(factId) ?? { subject, held: [] };
+        if (row.subject === subject && !row.held.some((x) => x.holder === h)) row.held.push({ holder: h, content: k.content, ...(k.confidence !== undefined ? { confidence: k.confidence } : {}) });
+        byFact.set(factId, row);
+      }
+    }
+    const nominated = new Set<EntityId>((s.nominees as readonly EntityId[] | undefined) ?? []);
+    const order = [...byFact.entries()].sort((a, b) => b[1].held.length - a[1].held.length || (a[0] < b[0] ? -1 : 1));
+    for (const [factId, row] of order) {
+      const subject = row.subject;
+      if (!room.includes(subject)) continue; // they are not in the room tonight
+      const pool = npcs.filter((id) => id !== subject);
+      const holders = row.held.filter((x) => pool.includes(x.holder));
+      const cold = pool.length ? pool.reduce((a, id) => a + Math.max(0, Math.min(1, (0.25 - this.rel.peek(id, subject).affinity) / 0.5)), 0) / pool.length : 0;
+      const soul = this.soulObj(subject);
+      const kind = breakDecision({
+        seed, subject, factId, week: s.week, day, holders: holders.length, pool: pool.length,
+        volatility: soul?.volatility ?? 0.3, steadiness: soul?.emotionalState ?? 0.5, onTheBlock: nominated.has(subject), coldness: cold, playerSubject: subject === PLAYER,
+      });
+      if (!kind) continue;
+      const spoken = pickSpoken(holders);
+      if (!spoken) continue;
+      this.stageSecretBreak(knowledge, { factId, subject, kind, spoken, holders: holders.map((x) => x.holder), room });
+      (s.secretBreaks ??= []).push(factId);
+      break; // one a night
+    }
+  }
+  private stageSecretBreak(knowledge: KnowledgeService, b: { factId: string; subject: EntityId; kind: "exposed" | "detonated"; spoken: string; holders: EntityId[]; room: EntityId[] }): void {
+    const s = this.live!;
+    const seed = this.gameSeed ?? 0;
+    this.onPlayerEvent!(breakLine(b.kind, this.nameOf(b.subject), b.spoken, weekWords(s.week)), b.room, "secret-break");
+    this.secretUsedAs[b.factId] = "exposed"; // the holder structure is now public: never re-wielded as leverage, a trade or an exposure
+    const npc = b.subject === PLAYER ? undefined : this.house!.npcs.find((n) => n.id === b.subject);
+    const severity = severityOf(npc ? this.headlineSecretOf(npc)?.kind : undefined);
+    const hit = standingMove(severity, b.kind);
+    const holders = new Set(b.holders);
+    const day = s.dayNumber ?? s.week;
+    for (const id of b.room) {
+      if (id === PLAYER || id === b.subject) continue;
+      if (!holders.has(id)) knowledge.seedBelief(id, { content: b.spoken, originalContent: b.spoken, factId: b.factId, subject: b.subject, confidence: 0.9, hops: 0, distortion: 0 }, "public");
+      this.rel.applyImpactDirected(id, b.subject, hit, new SeededRandom(hashSeed(`${seed}:secret-break:${b.factId}:${id}`)));
+      if (!holders.has(id) && this.grudgesOn() && holders.size > 0) {
+        const trusted = [...holders].filter((h) => h !== id).sort((x, y) => this.rel.peek(id, y).trust - this.rel.peek(id, x).trust || (x < y ? -1 : 1))[0];
+        if (trusted) noteGrudge((s.grudges ??= {}), id, trusted, "lied-to", Math.min(1, keptOutGrudge(severity)), s.week, day, `secret-break:${b.factId}:${id}`);
       }
     }
   }
@@ -5166,7 +5245,7 @@ export class GameSessionAdapter implements GameSession {
     const houseYouNeverSaw = this.houseStories();
     const rumorMill = buildRumorMill(this.live.claims, (id) => this.nameOf(id), this.live.beliefs, this.truthFacts()); // ORW-525 (spec 0157): reads the claim log + beliefs about the player, read-only; same gate
     const houseCultureWords = describeHouseLeans(this.live.houseLeans); // ORW-551 (spec 0168): texture words only, same crown gate; absent when no culture was drawn
-    const dealPlans = this.withLedgerPlans(buildDealPlanRetro(this.live.dealPlans, this.deals.all, this.openLedger.entries, PLAYER, (id) => this.nameOf(id))); // 0178 (Ryne Q2): the secret plans beside the player's own promise record; same crown gate (+ ORW-586 slice 5: the plans of improvised promises)
+    const dealPlans = this.withLedgerPlans(buildDealPlanRetro(this.live.dealPlans, this.deals.all, this.openLedger.entries, PLAYER, (id) => this.nameOf(id), uncoveredPlayerAssurances(this.live.assurances?.items, this.openLedger.entries, PLAYER).map((a) => ({ to: a.to, kind: a.kind, week: a.week, status: a.status })), openLedgerCommitmentKind)); // ORW-602: one promise record (deals, said, typed, assurances); 0178 (Ryne Q2): the secret plans beside the player's own promise record; same crown gate (+ ORW-586 slice 5: the plans of improvised promises)
     const americasFavorite = this.americasFavorite(); // ORW-624: after the crown only
     const yourEdit = this.buildYourEditView(); // 0200 / ORW-632: after the crown only (the same gate); facts only
     const groupLife = this.buildGroupLifeView(); // 0183 part d: the sanctioned unsealing of hidden groups' names and words; same gate; facts only
@@ -14280,9 +14359,10 @@ export class GameSessionAdapter implements GameSession {
           id: `offscreen:${type}:${events.count()}:${hashSeed(`${seed}:life:${day}:${hour}:${p.actor}:${p.kind}`) % 1_000_000_000}`,
           ts: stretchIndex, type, initiator: p.actor, witnessSet: people, hidden: true, content, baseContent: content,
           houseLife: { ...(p.nightOwl ? { nightOwl: true } : {}), action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), ...(p.ritual ? { ritual: p.ritual } : {}), ...(p.habit ? { habit: p.habit } : {}), stretch: stretchIndex, ...(this.inGameAbsHour() !== undefined ? { at: this.inGameAbsHour() } : {}),
-            ...(() => { const seen = [...presence.entries()].filter(([id, room]) => room === p.place && !people.includes(id) && id !== house.player.id).map(([id]) => id).sort(); return seen.length ? { seenBy: seen } : {}; })() }, // ORW-539: who could see it
+            ...(() => { const seen = this.onlookers([...presence.entries()].filter(([id, room]) => room === p.place && !people.includes(id) && id !== house.player.id).map(([id]) => id).sort(), type, people, `${seed}:hide-catch:${day}:${hour}:${p.actor}:${p.kind}`); return seen.length ? { seenBy: seen } : {}; })() }, // ORW-539: who could see it; 0184 part 2b: a hiding pair's time together is caught only on a roll
         };
         events.record(event);
+        this.playerCatchesHiddenPair(type, people, p.place, presence, `${seed}:hide-catch:${day}:${hour}:${p.actor}:${p.kind}`); // 0184 part 2b
         out.push({ event, type, initiator: p.actor, partner });
         if (p.habit) this.noteHabitScene(p, event);
         }
@@ -18432,6 +18512,43 @@ export class GameSessionAdapter implements GameSession {
    * ORW-596 / ORW-574: in a PLAYED game (`ownViewOn`) the read is ONLY what the holder saw (every warm or cold scene between the two, plus allied-with beliefs), with no
    * true-bond half, and someone's warmth toward the holder is the holder's perception (`perceivedTrust`). Headless games keep the v2 blend, byte for byte.
    */
+  /** 0184 part 2b (ORW-564): faked distance (`ORWELL_FAKED_DISTANCE`, default ON; `=0` = no pair hides). Played games only. */
+  private fakedDistanceEnabled = flagDefaultOn("ORWELL_FAKED_DISTANCE");
+  setFakedDistanceEnabled(on: boolean): void { this.fakedDistanceEnabled = on; }
+  private fakedDistanceOn(): boolean { return this.fakedDistanceEnabled && this.live?.playedGame === true; }
+  /**
+   * 0184 part 2b: the close pairs faking distance this week, decided once a week and kept. A pair hides when each feels close to the other (`HIDE.bondAtLeast`) and its keyed
+   * weekly roll falls under `hideChance` (either one's cunning, the house's paranoia). NPC pairs only (the player's own scenes are never registered by onlookers). Side stream; no rng drawn
+   * from any other stream.
+   */
+  /** 0184 part 2b: the onlookers who register a scene. A hiding pair's warm time together is registered only by those who catch it (each on their own keyed roll). */
+  private onlookers(room: readonly EntityId[], type: string, people: readonly EntityId[], salt: string): EntityId[] {
+    if (!HIDDEN_TYPES.has(type) || people.length !== 2 || !this.hidingPairs().has(pairKey(people[0]!, people[1]!))) return [...room];
+    return room.filter((id) => new SeededRandom(hashSeed(`${salt}:${id}`)).next() < HIDE.catchChance);
+  }
+  /** 0184 part 2b: the player in the room may catch a hiding pair slipping off together: a scene the player witnessed (their own read to make). Same keyed roll as any onlooker. */
+  private playerCatchesHiddenPair(type: string, people: readonly EntityId[], place: string, presence: ReadonlyMap<EntityId, string>, salt: string): void {
+    if (!HIDDEN_TYPES.has(type) || people.length !== 2 || presence.get(PLAYER) !== place || !this.hidingPairs().has(pairKey(people[0]!, people[1]!))) return;
+    if (new SeededRandom(hashSeed(`${salt}:${PLAYER}`)).next() >= HIDE.catchChance) return;
+    this.onPlayerEvent?.(`${this.nameOf(PLAYER)} catches ${this.nameOf(people[0]!)} and ${this.nameOf(people[1]!)} slipping off for a quiet word, away from the others`, [PLAYER], "overheard");
+  }
+  hidingPairs(): ReadonlySet<string> {
+    const s = this.live;
+    if (!this.fakedDistanceOn() || !s || !this.house) return new Set();
+    if (s.hiding?.week !== s.week) {
+      const ids = this.livingIds().filter((id) => id !== PLAYER).sort(); // NPC pairs: under own-view no onlooker ever registers the player's own scenes, so a pair with the player has nothing to hide
+      const pairs: string[] = [];
+      for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+        const a = ids[i]!, b = ids[j]!;
+        if (this.rel.bondStrength(a, b) < HIDE.bondAtLeast || this.rel.bondStrength(b, a) < HIDE.bondAtLeast) continue;
+        const cunning = Math.max(this.fakingCunningOf(a), this.fakingCunningOf(b));
+        const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:hide:${s.week}:${pairKey(a, b)}`)).next();
+        if (roll < hideChance(cunning, this.cultureMult("paranoia"))) pairs.push(pairKey(a, b));
+      }
+      s.hiding = { week: s.week, pairs };
+    }
+    return new Set(s.hiding.pairs);
+  }
   private perceivedBond(holder: EntityId, from: EntityId, to: EntityId): number {
     const own = this.ownViewOn();
     // ORW-574: in a played game, how warm the OTHER one is to the holder is the holder's perception of it (their own bond, shaded by what they believe), never the other's hidden edge

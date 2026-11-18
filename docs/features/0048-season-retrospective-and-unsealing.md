@@ -112,3 +112,6 @@ because once the season is done, the only thing left to do with the secret is *e
 unsealed, this-season-only, isolated).
 **Open decision: resolved (§1)** — post-season, after-winner, this-season, player-triggered. If the owner
 ever wants it off, the gate is one flag.
+
+## Amendment 2026-11-18 - the player's promise record (ORW-602)
+`dealPlans.yourPromises` (the post-crown retrospective's record of what the player promised) lists each promise once and by meaning, adds the player's casual assurances, and marks who settled each row (`judgedBy`: the engine, or the narrator for a free-text line). Same crown gate, no new tool, no number, no hidden plan. See `0187-promises-bind.md`, amendment 2026-11-18 (ORW-602).

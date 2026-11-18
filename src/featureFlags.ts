@@ -107,6 +107,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_ENDGAME_MEMORY', key: 'endgameMemory', parser: 'defaultOn' },
   // 0193 / ORW-623: the endgame changes the rules of trust - at four left, "can I beat you?" pushes nominations and the vote, tilts reassurances toward faking, and final twos get tested out loud. `=0` = off.
   { envKey: 'ORWELL_ENDGAME_TRUST', key: 'endgameTrust', parser: 'defaultOn' },
+  // 0184 part 2b / ORW-564: a close pair fakes distance in public - their time together is caught only on a roll, and the house reads them as no closer than it has seen. `=0` = off.
+  { envKey: 'ORWELL_FAKED_DISTANCE', key: 'fakedDistance', parser: 'defaultOn' },
   // 0195 / ORW-628: what the evicted take with them - their deals, favors and assurances leave with them (a held favor may pass to their closest ally), and the house reacts. `=0` = off.
   { envKey: 'ORWELL_EVICTED_TAKE', key: 'evictedTake', parser: 'defaultOn' },
   { envKey: 'ORWELL_FAVORS', key: 'favors', parser: 'defaultOn' },
@@ -234,6 +236,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_ROOM_LIFE', key: 'roomLife', parser: 'defaultOn' },
   { envKey: 'ORWELL_SCHEME_TARGETS',         key: 'schemeTargets',          parser: 'defaultOn' },
   { envKey: 'ORWELL_SECRET_BARTER',          key: 'secretBarter',           parser: 'defaultOn' },
+  // ORW-647 (spec 0204): the night it all comes out - a fact enough houseguests hold breaks in front of the awake house, or its own subject blows it up when pressured; consequences land through the bond, belief and grudge stores. ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_SECRET_BREAKS', key: 'secretBreaks', parser: 'defaultOn' },
   { envKey: 'ORWELL_SECRET_PACING',          key: 'secretPacing',           parser: 'defaultOn' },
   { envKey: 'ORWELL_SEEDED_TIE_SURFACING',   key: 'seededTieSurfacing',    parser: 'defaultOn' },
   { envKey: 'ORWELL_SHOWRUNNER',             key: 'showrunner',             parser: 'defaultOn' },
