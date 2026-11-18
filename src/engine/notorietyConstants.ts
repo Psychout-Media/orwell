@@ -52,6 +52,8 @@ export interface NotorietyConstants {
    * a misremembered reputation is a softer, less reliable signal than a clear one.
    */
   distortionScale: number;
+  /** 0208 B2: see the value below. */
+  brokenWordKnownAt: number;
   /** HARD cap on `legendBeats` carried in the summary — a reputation gist, never a transcript. */
   maxLegendBeats: number;
   /**
@@ -70,6 +72,8 @@ export interface NotorietyConstants {
     treacheryBeat: number;
     /** Jury respect (share of jury votes / a deep, respected run) → social + a touch of competitor. */
     juryRespect: number;
+    /** 0208 B2: the house's heard record of the player's broken word (mean share of standing lost across the cast, 0..1) -> treachery. Zero when absent. */
+    brokenWord: number;
   };
 }
 
@@ -80,11 +84,14 @@ export const NOTORIETY: NotorietyConstants = {
   distortionProb: 0.22,
   distortionScale: 0.5,
   maxLegendBeats: 4,
+  /** 0208 B2: the heard-wrong mean at or above which the returning player is known to have a name for breaking their word. */
+  brokenWordKnownAt: 0.15,
   derive: {
     placementRespect: 0.45,
     compWin: 0.18,
     loyaltyBeat: 0.3,
     treacheryBeat: 0.34,
     juryRespect: 0.5,
+    brokenWord: 1.2,
   },
 };
