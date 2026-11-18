@@ -60,6 +60,22 @@ describe("ORW-602 (A) - the pure record", () => {
   });
 });
 
+describe("ORW-602 (A3) - a typed promise the assurance ledger also holds is ONE row", () => {
+  it("a typed no-evict-vote that is also a vote assurance gives one row in yourPromises (the said row), not a said row and an assured row", () => {
+    const typed = line({ kind: "statement", status: "kept", term: { by: "player", to: "h", what: "no-evict-vote" as const, week: 3 }, day: 14 });
+    const asr = [{ from: "player", to: "h", kind: "vote", week: 3, source: "player", status: "kept" }];
+    const rows = uncoveredPlayerAssurances(asr, [typed] as never, "player");
+    expect(rows).toEqual([]);
+    const r = buildDealPlanRetro(undefined, [], [typed], "player", nameOf, rows.map((a) => ({ to: a.to as never, kind: a.kind, week: a.week, status: a.status })))!;
+    expect(r.yourPromises).toHaveLength(1);
+    expect(r.yourPromises[0]).toMatchObject({ source: "said", status: "kept", judgedBy: "engine", what: "no-evict-vote" });
+    // and the same assurance with NO typed promise beside it is listed once, as an assurance
+    const alone = uncoveredPlayerAssurances(asr, [], "player");
+    const r2 = buildDealPlanRetro(undefined, [], [], "player", nameOf, alone.map((a) => ({ to: a.to as never, kind: a.kind, week: a.week, status: a.status })))!;
+    expect(r2.yourPromises.map((p) => p.source)).toEqual(["assured"]);
+  });
+});
+
 describe("ORW-602 (A2) - secretPlans is untouched by the promise-record edit", () => {
   it("secretPlans is byte-identical to what the pre-edit function produced for the same fixture (a ledger: plan key never shows as a deal's plan)", () => {
     const deals = [
