@@ -3178,6 +3178,7 @@ export class GameSessionAdapter implements GameSession {
    * `persist`, keeps an interior deferred `persist` from double-counting one logical commit.)
    */
   bumpBeatSeq(): void {
+    this.foldAtCommit(); // ORW-684: the bond and grudge folds ride the commit (before the candidate snapshot is exported), never a read
     this.beatSeq++;
     // ORW-439 - DIAGNOSTIC ONLY: name the tool whose call caused this bump (tool name, counter value, timestamp - nothing else).
     // In memory, never persisted, never read by game logic; it cannot change the counter, the snapshot or any result.
@@ -3188,6 +3189,17 @@ export class GameSessionAdapter implements GameSession {
       if (this.beatLogEvicted.length > GameSessionAdapter.BEAT_LOG_SPILL) this.beatLogEvicted.splice(0, this.beatLogEvicted.length - GameSessionAdapter.BEAT_LOG_SPILL);
     }
     this.captureBeatCheckpoint();
+  }
+
+  /**
+   * ORW-684 (ENGINE-ONLY, never a tool): the bond record and the grudge book catch up with what the last mutation recorded, once per committed mutation, in a fixed order (bonds, then grudges, the order the old
+   * lazy read used). Idempotent (event cursors and seen-marks), no rng. Reads (`bondReader`, `grudgeOf`, `houseGraph`) used to run these as a side effect, so looking at the house moved
+   * its cursors and changed the game; now they only read the state as of the last commit.
+   */
+  foldAtCommit(): void {
+    if (!this.live || !this.house) return;
+    this.foldBonds();
+    this.foldGrudges();
   }
 
   /** ORW-439 - the last BEAT_LOG_CAP bumps, oldest first. In-memory diagnostic; copies, so a caller cannot edit the ring. */
@@ -6488,14 +6500,14 @@ export class GameSessionAdapter implements GameSession {
    */
   bondReader(): BondReader {
     if (!this.bondRecordEnabled) return edgeBondReader(this.rel, () => this.livingIds(), () => this.live?.dayNumber ?? 1);
-    this.foldBonds();
+    // ORW-684: a READ folds nothing (a game must not change because someone looked at it): the bond and grudge folds run at the commit funnel (`foldAtCommit`) and overnight.
     const favor = this.favorDebt ?? this.ownFavorDebt();
-    const wrong = this.grudgesOn() ? (this.foldGrudges(), { wrong: (h: EntityId, o: EntityId) => this.bookWrongOf(h, o) }) : {};
+    const wrong = this.grudgesOn() ? { wrong: (h: EntityId, o: EntityId) => this.bookWrongOf(h, o) } : {};
     return recordBondReader(this.rel, () => this.live?.bonds, () => this.livingIds(), () => this.live?.dayNumber ?? 1, { ...(favor ? { favorDebt: favor } : {}), ...wrong });
   }
   /** ORW-607 part 2: the grudge book's wrong `holder` carries toward `other` (weight on its curve now, and the row's peak), for the bond reader. Read-only; undefined with no row. */
   private bookWrongOf(holder: EntityId, other: EntityId): BookWrong | undefined {
-    const g = this.grudgeOf(holder, other, false);
+    const g = this.grudgeOf(holder, other);
     return g ? { weight: g.weight, peak: g.peak } : undefined;
   }
   /** ORW-607 part 2 (ENGINE-ONLY, never a tool or projection): the ONE grievance `holder` carries toward `other` - the book's wrong plus the record's friction resentment, summed once, 0..1. Headless / flag off: the record's resentment. */
@@ -6969,7 +6981,7 @@ export class GameSessionAdapter implements GameSession {
       if (!key.startsWith(`${owner}|`)) continue;
       const toward = key.slice(owner.length + 1) as EntityId;
       const row = live.grudges[key]!;
-      const g = this.grudgeOf(owner, toward, false);
+      const g = this.grudgeOf(owner, toward);
       if (!g) continue;
       const easedShare = easedShareOf(row);
       const at = grudges.findIndex((x) => x.toward === toward);
@@ -6984,9 +6996,9 @@ export class GameSessionAdapter implements GameSession {
    * 0182: what `holder` still holds against `subject`, for the later slices that decide from it. ENGINE-ONLY: not on the GameSession port, never a tool, never projected. Read-only.
    * `freshness` fades with the weeks (loyalty and a grudge-keeper's nature slow it) but is never 0.
    */
-  grudgeOf(holder: EntityId, subject: EntityId, fold = true): { kind: GrudgeKind; freshness: number; severity: number; peak: number; weight: number } | null {
+  grudgeOf(holder: EntityId, subject: EntityId): { kind: GrudgeKind; freshness: number; severity: number; peak: number; weight: number } | null {
     if (holder === PLAYER) return null;
-    if (fold) this.foldGrudges();
+    // ORW-684: a read never folds; the book is folded at the commit funnel and overnight.
     const row = this.live?.grudges?.[grudgeKey(holder, subject)];
     if (!row || !this.live) return null;
     const keeper = this.grudgeKeeper(holder, subject);
@@ -19423,7 +19435,7 @@ export class GameSessionAdapter implements GameSession {
   /** 0182 PR 3 - a bitter juror's signed lean (<= 0) toward `finalist`: -scale x freshness x severity of the grudge the juror holds against them, clamped to JURY_GRUDGE.max. Pure read (no fold, no rng); 0 for the player as a juror. The overlap with manner and memory is netted by the caller. */
   juryGrudgeFor(juror: EntityId, finalist: EntityId): number {
     if (juror === PLAYER || !this.grudgesOn()) return 0;
-    const g = this.grudgeOf(juror, finalist, false);
+    const g = this.grudgeOf(juror, finalist);
     if (!g) return 0;
     return -Math.min(JURY_GRUDGE.max, JURY_GRUDGE.scale * g.weight);
   }
@@ -19776,7 +19788,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private bookReadFor(holder: EntityId, subject: EntityId, raw: readonly MemoryEntry[]): BookRead | undefined {
     if (!this.grudgesOn() || !this.live) return undefined;
-    const g = this.grudgeOf(holder, subject, false);
+    const g = this.grudgeOf(holder, subject);
     if (!g) return undefined;
     const arr = this.live.grudgesSeen;
     if (!this.grudgesSeenCache || this.grudgesSeenCache.arr !== arr) this.grudgesSeenCache = { arr, set: new Set(arr ?? []) }; // (no seen-marks yet: `arr` is undefined, which equals the empty cache's undefined, so test for the cache itself)

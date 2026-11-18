@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { atCommit } from "../support/commitFold";
 import { GRUDGES, easeGrudge, freshness, grudgeKey, halfLifeFor, noteGrudge, type GrudgeBook } from "../../src/engine/grudges";
 import { GameSessionRegistry } from "../../src/composition/registry";
 
@@ -88,48 +89,48 @@ describe("folds from each source in a played game", () => {
   it("a friend's cut (memory ledger) becomes a cut-by-ally grudge, once", () => {
     const { s } = start(3, "a"); const [H, S] = npcs(s);
     s.live.npcMemory = { [H!]: { [S!]: [{ kind: "nominated-by-friend", week: 1, severity: 0.5 }] } };
-    const g = s.grudgeOf(H!, S!);
+    const g = atCommit(s).grudgeOf(H!, S!);
     expect(g).toMatchObject({ kind: "cut-by-ally", severity: 0.5, peak: 0.5 });
     expect(g!.freshness).toBeGreaterThan(0);
     const seen = JSON.stringify(s.live.grudgesSeen);
-    s.grudgeOf(H!, S!); s.settleOvernight(1);
+    atCommit(s).grudgeOf(H!, S!); s.settleOvernight(1);
     expect(JSON.stringify(s.live.grudgesSeen)).toBe(seen);
     expect(Object.keys(s.live.grudges!)).toEqual([`${H}|${S}`]);
   });
   it("a broken deal: the wronged party holds it against the breaker, not the reverse", () => {
     const { s } = start(3, "b"); const [H, S] = npcs(s);
     const d = s.deals.make([H!, S!], "safety", "terms", undefined, 1);
-    expect(s.grudgeOf(H!, S!)).toBeNull(); // an open deal is no grudge
+    expect(atCommit(s).grudgeOf(H!, S!)).toBeNull(); // an open deal is no grudge
     d.status = "broken"; d.brokenBy = S!;
-    expect(s.grudgeOf(H!, S!)).toMatchObject({ kind: "deal-broken", severity: GRUDGES.DEAL_BREAK_SEVERITY });
-    expect(s.grudgeOf(S!, H!)).toBeNull();
+    expect(atCommit(s).grudgeOf(H!, S!)).toMatchObject({ kind: "deal-broken", severity: GRUDGES.DEAL_BREAK_SEVERITY });
+    expect(atCommit(s).grudgeOf(S!, H!)).toBeNull();
   });
   it("a lied-to claim and a voted-against claim", () => {
     const { s } = start(3, "c"); const [H, S, T] = npcs(s);
     s.live.beliefs = { [H!]: [{ id: "c1", holder: H, kind: "lied-to-me", subject: S, value: true, origin: "witnessed", confidence: 0.8, week: 1 }, { id: "c2", holder: H, kind: "voted-against-me", subject: T, value: true, origin: "witnessed", confidence: 0.6, week: 1 }, { id: "c3", holder: H, kind: "lied-to-me", subject: T, value: true, refuted: true, origin: "gossip", confidence: 0.9, week: 1 }] };
-    expect(s.grudgeOf(H!, S!)).toMatchObject({ kind: "lied-to", severity: 0.8 });
-    expect(s.grudgeOf(H!, T!)).toMatchObject({ kind: "vote-against", severity: 0.6 }); // the refuted lie adds nothing
+    expect(atCommit(s).grudgeOf(H!, S!)).toMatchObject({ kind: "lied-to", severity: 0.8 });
+    expect(atCommit(s).grudgeOf(H!, T!)).toMatchObject({ kind: "vote-against", severity: 0.6 }); // the refuted lie adds nothing
   });
   it("a blindside and an alliance betrayal (eviction manner)", () => {
     const { s } = start(3, "d"); const [E, W, A, B] = npcs(s);
     s.live.evictionOrder = [E!];
     s.live.mannerByEvictee = { [E!]: { [W!]: { blindsided: true, intensity: 0.7 } }, [A!]: { [B!]: { betrayed: true, intensity: 0.4 } } };
-    expect(s.grudgeOf(E!, W!)).toMatchObject({ kind: "blindsided", severity: 0.7 });
-    expect(s.grudgeOf(A!, B!)).toMatchObject({ kind: "cut-by-ally", severity: 0.4 });
+    expect(atCommit(s).grudgeOf(E!, W!)).toMatchObject({ kind: "blindsided", severity: 0.7 });
+    expect(atCommit(s).grudgeOf(A!, B!)).toMatchObject({ kind: "cut-by-ally", severity: 0.4 });
   });
   it("the player is never a holder; an NPC may hold one against the player", () => {
     const { s } = start(3, "e"); const [H] = npcs(s);
     s.live.mannerByEvictee = { [PLAYER]: { [H!]: { blindsided: true, intensity: 1 } }, [H!]: { [PLAYER]: { betrayed: true, intensity: 0.5 } } };
-    expect(s.grudgeOf(PLAYER, H!)).toBeNull();
+    expect(atCommit(s).grudgeOf(PLAYER, H!)).toBeNull();
     expect(Object.keys(s.live.grudges ?? {}).some((k) => k.startsWith(`${PLAYER}|`))).toBe(false);
-    expect(s.grudgeOf(H!, PLAYER)).not.toBeNull();
+    expect(atCommit(s).grudgeOf(H!, PLAYER)).not.toBeNull();
   });
   it("the memory fades with the weeks but is never zero", () => {
     const { s } = start(3, "f"); const [H, S] = npcs(s);
     s.live.npcMemory = { [H!]: { [S!]: [{ kind: "deal-broken", week: 1, severity: 0.8 }] } };
-    const early = s.grudgeOf(H!, S!)!.freshness;
+    const early = atCommit(s).grudgeOf(H!, S!)!.freshness;
     s.live.week = 80;
-    const late = s.grudgeOf(H!, S!)!.freshness;
+    const late = atCommit(s).grudgeOf(H!, S!)!.freshness;
     expect(late).toBeLessThan(early);
     expect(late).toBeGreaterThan(0);
   });
@@ -144,7 +145,7 @@ describe("flag off, headless, persistence, wall", () => {
     for (const seed of [3, 11]) {
       const off = start(seed, "g", false).s; wrong(off);
       const base = start(seed, "g2", false).s; wrong(base);
-      for (const x of [off, base]) { x.grudgeOf(npcs(x)[0]!, npcs(x)[1]!); x.settleOvernight(1); }
+      for (const x of [off, base]) { atCommit(x).grudgeOf(npcs(x)[0]!, npcs(x)[1]!); x.settleOvernight(1); }
       expect(off.live.grudges).toBeUndefined();
       expect(off.live.grudgesSeen).toBeUndefined();
       expect(JSON.stringify(off.snapshot())).toBe(JSON.stringify(base.snapshot()));
@@ -161,13 +162,13 @@ describe("flag off, headless, persistence, wall", () => {
   });
   it("headless (playedGame false): nothing folds", () => {
     const { s } = start(3, "i"); wrong(s); s.live.playedGame = false;
-    expect(s.grudgeOf(npcs(s)[0]!, npcs(s)[1]!)).toBeNull();
+    expect(atCommit(s).grudgeOf(npcs(s)[0]!, npcs(s)[1]!)).toBeNull();
     expect(s.live.grudges).toBeUndefined();
   });
   it("the book and its seen-marks survive save and restore", () => {
     const { s } = start(3, "j"); wrong(s);
     const [H, S] = npcs(s);
-    s.grudgeOf(H!, S!);
+    atCommit(s).grudgeOf(H!, S!);
     const snap = JSON.parse(JSON.stringify(s.snapshot()));
     expect(JSON.stringify(snap)).toContain("grudgesSeen");
     const { s: t } = start(3, "j2");
@@ -175,14 +176,14 @@ describe("flag off, headless, persistence, wall", () => {
     expect(t.live.grudges).toEqual(s.live.grudges);
     expect(t.live.grudgesSeen).toEqual(s.live.grudgesSeen);
     const before = JSON.stringify(t.live.grudges);
-    t.grudgeOf(H!, S!);
+    atCommit(t).grudgeOf(H!, S!);
     expect(JSON.stringify(t.live.grudges)).toBe(before); // idempotent after restore
-    expect(t.grudgeOf(H!, S!)).toMatchObject({ kind: "deal-broken", severity: 0.8 });
+    expect(atCommit(t).grudgeOf(H!, S!)).toMatchObject({ kind: "deal-broken", severity: 0.8 });
   });
   it("the wall: no grudge field in any projection, prompt or admin read", async () => {
     const { sb, s } = start(3, "k"); wrong(s);
     const [H, S] = npcs(s);
-    s.grudgeOf(H!, S!);
+    atCommit(s).grudgeOf(H!, S!);
     const dump = JSON.stringify([
       s.live.active.map((id) => s.npcVoice(id)),
       s.getMomentPrompt({ moment: "social" }).systemPrompt,

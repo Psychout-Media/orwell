@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { atCommit } from "../support/commitFold";
 import { readFileSync } from "node:fs";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { BOND, bondKey, bondOf, emptyBond, foldBreak, foldRepair, foldScene, grievanceOf, peakGrievanceOf, withGrievance, kindOf, strandsOf, bondStrengthOf, type BondStore } from "../../src/engine/bondRecord";
@@ -82,13 +83,13 @@ describe("a played game", () => {
   it("a deal break leaves no resentment or peak in the record, the book row exists, and grievanceOf is the book's weight", () => {
     const { s, H, S } = start(3, "a");
     breakDeal(s, H, S);
-    const v = s.bondReader().bond(H, S);
+    const v = atCommit(s).bondReader().bond(H, S);
     const rec = bondOf(s.live.bonds, H, S);
     expect(rec.resentment).toBe(0); expect(rec.peakResentment).toBe(0);
     expect(rec.strain).toBeGreaterThan(0);
-    const book = s.grudgeOf(H, S, false)!;
+    const book = atCommit(s).grudgeOf(H, S, false)!;
     expect(book.weight).toBeGreaterThan(0);
-    expect(s.grievanceOf(H, S)).toBeCloseTo(book.weight * BOND.wrongShare, 12);
+    expect(atCommit(s).grievanceOf(H, S)).toBeCloseTo(book.weight * BOND.wrongShare, 12);
     expect(v.resentment).toBeCloseTo(book.weight * BOND.wrongShare, 12);
   });
   it("a friction conflict still writes the record's resentment, and a wrong plus friction sum once (clamped)", () => {
@@ -96,48 +97,48 @@ describe("a played game", () => {
     foldScene((s.live.bonds ??= {}), "conflict", [H, S]);
     const friction = bondOf(s.live.bonds, H, S).resentment;
     expect(friction).toBeGreaterThan(0);
-    expect(s.grievanceOf(H, S)).toBeCloseTo(friction, 12);
+    expect(atCommit(s).grievanceOf(H, S)).toBeCloseTo(friction, 12);
     breakDeal(s, H, S);
-    const w = s.grudgeOf(H, S)!.weight;
-    expect(s.grievanceOf(H, S)).toBeCloseTo(Math.min(1, friction + w), 12);
-    expect(s.grievanceOf(H, S)).toBeLessThanOrEqual(1);
+    const w = atCommit(s).grudgeOf(H, S)!.weight;
+    expect(atCommit(s).grievanceOf(H, S)).toBeCloseTo(Math.min(1, friction + w), 12);
+    expect(atCommit(s).grievanceOf(H, S)).toBeLessThanOrEqual(1);
   });
   it("repair eases the wrong once (in the book) and the friction part by its half rate; the wrong is never in the record to be eased twice", () => {
     const { s, H, S } = start(3, "c");
     foldScene((s.live.bonds ??= {}), "conflict", [H, S]);
     breakDeal(s, H, S);
-    s.grudgeOf(H, S);
-    const f0 = bondOf(s.live.bonds, H, S).resentment, w0 = s.grudgeOf(H, S, false)!.weight;
+    atCommit(s).grudgeOf(H, S);
+    const f0 = bondOf(s.live.bonds, H, S).resentment, w0 = atCommit(s).grudgeOf(H, S, false)!.weight;
     s.repairGrudge(H, S, 0.1);
     const eased = s.live.grudges![`${H}|${S}`]!.eased;
     expect(eased).toBeGreaterThan(0);
     expect(bondOf(s.live.bonds, H, S).resentment).toBeCloseTo(Math.max(0, f0 - eased * BOND.repairResentShare), 12);
-    expect(s.grudgeOf(H, S, false)!.weight).toBeLessThan(w0);
+    expect(atCommit(s).grudgeOf(H, S, false)!.weight).toBeLessThan(w0);
   });
   it("flag off: the record keeps the old resentment for a deal break and grievanceOf is just it", () => {
     const { s, H, S } = start(3, "d", false);
     breakDeal(s, H, S);
-    s.bondReader();
+    atCommit(s).bondReader();
     expect(bondOf(s.live.bonds, H, S).resentment).toBe(BOND.resentPerBreak);
-    expect(s.grievanceOf(H, S)).toBe(BOND.resentPerBreak);
+    expect(atCommit(s).grievanceOf(H, S)).toBe(BOND.resentPerBreak);
   });
   it("headless (not a played game): the old record resentment, byte for byte", () => {
     const { s, H, S } = start(11, "e");
     s.live.playedGame = false;
     breakDeal(s, H, S);
-    s.bondReader();
+    atCommit(s).bondReader();
     expect(bondOf(s.live.bonds, H, S).resentment).toBe(BOND.resentPerBreak);
-    expect(s.grievanceOf(H, S)).toBe(BOND.resentPerBreak);
+    expect(atCommit(s).grievanceOf(H, S)).toBe(BOND.resentPerBreak);
   });
   it("the player as the wronged party keeps the record's resentment (the book never holds a player's grudge)", () => {
     const { s, S } = start(3, "f");
     const d = s.deals.make(["player", S], "safety", "terms", undefined, 1); d.status = "broken"; d.brokenBy = S; d.learned = true;
-    s.bondReader();
+    atCommit(s).bondReader();
     expect(bondOf(s.live.bonds, "player", S).resentment).toBe(BOND.resentPerBreak);
   });
   it("the wall: no grievance or peak field in a snapshot", () => {
     const { s, H, S } = start(3, "g");
-    breakDeal(s, H, S); s.bondReader();
+    breakDeal(s, H, S); atCommit(s).bondReader();
     const dump = JSON.stringify(s.snapshot());
     for (const w of ["grievance", "wrongShare", "bookHoldsWrong"]) expect(dump).not.toContain(w);
   });
