@@ -282,6 +282,27 @@ async def _resolve_llm_fn(owner: Optional[str]) -> Optional[LlmFn]:
     return await _shared(owner)
 
 
+# ORW-480: which season seed's identity the model has already applied, per user. The interview-time warm runs the identity step once; when it fails (an
+# outage) nothing ran it again, so the engine's dealt genders, heritages and ages stood next to names the writer chose later.
+_APPLIED: dict = {}
+
+
+def applied_for(owner: Optional[str], seed) -> bool:
+    return str(owner or "") in _APPLIED and _APPLIED[str(owner or "")] == seed
+
+
+async def ensure_identity(cast: list[dict], owner: Optional[str], seed=None, *, run=None) -> int:
+    """The create-time belt for the identity step: run it when this season's cast has none applied yet (the warm failed), so the model's gender, heritage and
+    age proposal cohere with the names genesis wrote. Returns how many houseguests were applied (0 when already applied or when it failed again)."""
+    if applied_for(owner, seed):
+        return 0
+    try:
+        return int(await (run or run_identity)(cast, owner, seed=seed) or 0)
+    except Exception as e:  # failsoft-ok: handled-by-terminal (run_identity records a failed seed loudly under the strict policy)
+        logger.warning(f"[cast-identity] create-time identity failed: {e}")
+        return 0
+
+
 async def run_identity(cast: list[dict], owner: Optional[str], *,
                        write: Optional[WriteFn] = None, seed=None) -> int:
     """Resolve the live deps and seed the cast's identity. Under the `soft` enrichment policy a
@@ -310,6 +331,8 @@ async def run_identity(cast: list[dict], owner: Optional[str], *,
         return await orwell_engine.record_cast_identity(facets, user=owner)
 
     applied = await seed_cast_identity(cast, llm_fn, write or _write, seed)
+    if applied:
+        _APPLIED[str(owner or "")] = seed
     # STRICT: a run that seeded NOTHING (llm failure / nothing usable / refused write-back — all
     # already logged inside seed_cast_identity) is ledgered loudly. Soft: byte-identical legacy.
     if strict and not applied and cast:

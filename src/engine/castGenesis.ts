@@ -384,6 +384,10 @@ export interface GenesisContext {
   playerHometown?: string;
   /** NAME-1 (#547): prior seasons' names the new cast must avoid (given-token exclusion). */
   priorSeasonNames?: readonly string[];
+  /** ORW-532: names the recent-seasons memory asks this cast to avoid (any case); a proposed name on it is refused (the dealt floor name stands). */
+  avoidNames?: readonly string[];
+  /** ORW-532: the surname on the warmed card was dealt from the Census table and is fixed; the writer picks the given name. A proposed surname that differs is replaced by the dealt one. */
+  keepDealtSurname?: boolean;
 }
 
 // ── Structured VIOLATIONS (what the FE driver echoes into a bounded re-roll) ─────────────────────────
@@ -708,6 +712,10 @@ export function validateCastGenesis(proposal: CastGenesisProposal, ctx: GenesisC
   const GENESIS_MAX_PER_VOCATION = 2;
   const cityKey = (s: string): string => s.split(",")[0]!.trim().toLowerCase();
   const priorGiven = new Set<string>((ctx.priorSeasonNames ?? []).map((n) => (n ?? "").trim().split(/\s+/)[0]?.toLowerCase() ?? "").filter(Boolean));
+  const avoidList = (ctx.avoidNames ?? []).map((n) => (n ?? "").trim().toLowerCase()).filter(Boolean);
+  const avoidFull = new Set(avoidList);
+  const avoidGiven = new Set(avoidList.map((n) => n.split(/\s+/)[0]!));
+  const avoidSurname = new Set(avoidList.filter((n) => n.includes(" ")).map((n) => n.split(/\s+/).slice(-1)[0]!));
   const playerName = (ctx.playerName ?? "").trim();
   const playerLower = playerName.toLowerCase();
 
@@ -730,7 +738,15 @@ export function validateCastGenesis(proposal: CastGenesisProposal, ctx: GenesisC
     // full). A rejected name falls back to the floor name (which is corpus-clean + unique) — the NPC is
     // never broken. (The post-hoc near-duplicate name nudge is folded into the player-collision check.)
     if (typeof p.name === "string" && p.name.trim().length > 0) {
-      const name = p.name.trim();
+      let name = p.name.trim();
+      if (ctx.keepDealtSurname && isPlausibleGenesisName(name)) {
+        const dealt = cx.floorName.trim().split(/\s+/).slice(1).join(" ");
+        const parts = name.split(/\s+/);
+        if (dealt && parts.length === 2 && parts[1]!.toLowerCase() !== dealt.toLowerCase()) {
+          violations.push({ scope: "npc", npcId: cx.id, field: "name", rule: "surname is the dealt surname (the writer picks the given name)", action: "repaired" });
+          name = `${parts[0]} ${dealt}`;
+        }
+      }
       const tokens = name.split(/\s+/);
       const given = tokens[0]!.toLowerCase();
       const surname = tokens[tokens.length - 1]!.toLowerCase();
@@ -741,6 +757,7 @@ export function validateCastGenesis(proposal: CastGenesisProposal, ctx: GenesisC
       else if (playerLower.length >= 3 && (full === playerLower || given === playerLower.split(/\s+/)[0]))
         rejectRule = "collides with the player's name";
       else if (priorGiven.has(given)) rejectRule = "repeats a prior season's houseguest";
+      else if (avoidFull.has(full) || avoidGiven.has(given) || avoidSurname.has(surname)) rejectRule = "on the recent-seasons memory";
       else if (usedFull.has(full) || usedGiven.has(given) || usedSurname.has(surname))
         rejectRule = "duplicate name within the cast";
       if (rejectRule) {

@@ -4759,6 +4759,8 @@ export class GameSessionAdapter implements GameSession {
       })),
       playerId: PLAYER,
       ...(this.intake.playerName && this.intake.playerName.trim() ? { playerName: this.intake.playerName.trim() } : {}),
+      ...(() => { const a = avoidFromWire(req.avoid); return a && a.names.size ? { avoidNames: [...a.names] } : {}; })(),
+      ...(req.keepDealtSurname ? { keepDealtSurname: true } : {}),
     };
     const result = validateCastGenesis(req as unknown as CastGenesisProposal, gctx);
 
