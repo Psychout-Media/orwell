@@ -156,6 +156,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // B30 / #2017 E4a: who seeks the player out reads the NPC's visible emotional state (needs ORWELL_NPC_TELLS). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_MOOD_APPROACH', key: 'moodApproach', parser: 'defaultOn' },
   { envKey: 'ORWELL_MOOD_CAMPAIGN', key: 'moodCampaign', parser: 'defaultOn' },
+  // 0194 / ORW-626: more things give a houseguest a mood cause (a lie found out, a betrayal learned, a close friend gone, a bad night's sleep, a win, a loss); engine-only, told only when they choose
+  { envKey: 'ORWELL_MOOD_CAUSES', key: 'moodCauses', parser: 'defaultOn' },
   // 0185 / ORW-567 (theme 3 slice 15): mood contagion - a shocking eviction rattles the evictee's close allies most and the house a little; a big win lifts the winner's circle a little. Moves the existing mood only. A played game only. `=0` opts out.
   { envKey: 'ORWELL_MOOD_CONTAGION', key: 'moodContagion', parser: 'defaultOn' },
   // ORW-343 (Ryne audit card 17, 2026-11-04): the cast card shows each houseguest's mood word as the player last saw it. ON by default; `=0` turns it off.

@@ -635,6 +635,8 @@ export interface LiveSeasonState {
   playerPitch?: import("./hohCourt").PlayerPitchRecord;
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
   moodCauses?: Record<EntityId, MoodCause & { week: number }>;
+  /** 0194 / ORW-626: every other mood CAUSE a houseguest has had (a lie found out, a friend gone, a bad night, a win or loss), append-only. Vault-class; voiced only when the houseguest chooses to say it. Played games only; absent otherwise. */
+  moodCauseLog?: import("./moodCauses").MoodCauseEntry[];
   vetoField?: EntityId[];
   /** ORW-565: the absolute in-game hour ((day-1)*24 + clock hour) the veto DRAW finished (the field was published). Played games only; the competition waits a minimum gap after it. Re-armed each week. */
   vetoDrawnAtAbs?: number;
