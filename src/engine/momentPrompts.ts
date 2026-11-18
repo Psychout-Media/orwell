@@ -1322,6 +1322,10 @@ export function renderGameContext(view: GameStateView): string {
       "  room changes, or \"still to arrive\" houseguests — the whole cast is already in the house):",
       `    Your room: ${roomRefHere(wa.room)} (you've been here ${tenureWord(wa.turnsHere)}).`,
       ...(wa.roomLook ? [`    This season it looks like this (dress the scene with it; never read it out as a list): ${wa.roomLook}`] : []),
+      // ORW-654 / 0206: the one-time room card - the player has just stepped into this room for the first time.
+      ...(wa.roomCard
+        ? [`    FIRST VISIT - ROOM CARD (engine truth, once only): the player has just stepped into ${wa.roomCard.name} for the first time. Author a short arrival moment for it live, in your own words, from these facts: its name${wa.roomCard.look ? `; its look: ${wa.roomCard.look}` : ""}; ${wa.roomCard.here.length ? `who is in it: ${wa.roomCard.here.join(", ")}` : "nobody else is in it"}; ${wa.roomCard.opensOnto.length ? `what it opens onto: ${wa.roomCard.opensOnto.join(", ")}` : "it opens onto nothing else"}. Give it a name-and-look moment that the player takes in; never read the facts out as a list, never invent a person who is not listed, and do not repeat the card on later turns.`]
+        : []),
       `    With you: ${here}.`,
       // ORW-249: the engine re-seated the house after the player's message - voice who walked in / out as ONE short beat so the story and the widget change together.
       ...(wa.sinceSend && (wa.sinceSend.arrived.length || wa.sinceSend.departed.length)
@@ -1996,6 +2000,8 @@ export interface PremiereEntranceShape {
   /** ORW-205: the engine's own headcount (optional so an older payload still renders). */
   insideCount?: number;
   playerInside?: boolean;
+  /** ORW-654 / 0206: the self-guided tour is open (the player has walked in and may explore); `everyoneIn` once the last houseguest has arrived. */
+  tour?: { open: true; everyoneIn: boolean };
   headcount?: string;
   arrivedNames: string[];
   justArrived?: { id: string; name: string };
@@ -2055,6 +2061,18 @@ function premiereEntranceLines(
   observable: (fi: never) => string,
 ): string[] {
   const inside = ent.arrivedNames.length ? ent.arrivedNames.join(", ") : "nobody yet";
+  if (ent.stage === "entrances" && ent.tour?.open) {
+    // ORW-654 / 0206: the self-guided tour. The player is inside and free; the engine places people, the narrator voices what the whereabouts shows. Rules, not samples.
+    return [
+      `- PREMIERE \u2014 THE SELF-GUIDED TOUR (engine truth): the player has walked in and may look round the house on their own. They walk where they choose; the game never walks them anywhere and you never move them. ` +
+        (ent.headcount ? `HEADCOUNT (engine truth): ${ent.headcount}. Never count the room yourself. ` : "") +
+        `Voice only the rooms and the people the whereabouts shows: most houseguests stand about in the open common area and a few are elsewhere in the house, so never gather the house or place anyone yourself. ` +
+        `When the player steps into a room for the first time the game hands you a room card: author that arrival moment live from the card's facts, once. ` +
+        (ent.tour.everyoneIn
+          ? `Everyone is inside now and the house is open. Let the player wander and talk as they choose. When they have had a look round, signal they are ready or ask for the next thing, and they are not mid-scene with someone, call advanceGame ONCE: production then calls the whole house to the living room for the champagne circle. Never call it yourself earlier and never announce it before the game does.`
+          : `The rest of the cast still arrives one at a time through the front door (advanceGame brings the next arrival; the game shows who just arrived). When the player is not in the room where an arrival walks in, voice it as something heard or glimpsed from where they stand, never as a scene in a room they are not in. Call advanceGame for the next arrival only when the player lulls or asks for it.`),
+    ];
+  }
   if (ent.stage === "entrances") {
     const ja = ent.justArrived;
     const card = ja ? (met as ReadonlyArray<{ houseguest: { id: string; name: string } }>).find((m) => m.houseguest.id === ja.id) : undefined;

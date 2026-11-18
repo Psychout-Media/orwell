@@ -157,3 +157,19 @@ def test_after_the_toast_there_is_no_message_count_hold_the_clock_morning_follow
     assert ch.premiere_is_holding(u) is False
     assert ch._PREMIERE_MSGS.get(ch._runway_key(u)) is None, "no message counting once the toast is done"
     ch.clear_social_runway(u)
+
+
+def test_the_self_guided_tour_stage_does_not_auto_call_the_circle():
+    """ORW-654 / 0206: with everyone inside and the house open to the player, the engine keeps stage `entrances` but carries tour.everyoneIn. The FE stashes it as `tour`,
+    so the every-two-messages arrival cadence stops (it would call the circle after two messages); an explicit cue and the ordinary lull ladder still do."""
+    u = "u-a9-tour"
+    gs = {"started": True, "phase": "premiere", "premiere": {"entrance": {"stage": "entrances", "index": 16, "total": 16, "tour": {"open": True, "everyoneIn": True}}}}
+    assert ch._entrance_stage_of(gs) == "tour"
+    ch.note_premiere_turn(u, gs)
+    assert ch.premiere_entrance_active(u) is True
+    assert ch._PREMIERE_ENTRANCE_STAGE.get(ch._runway_key(u)) == "tour"
+    assert al._entrance_pacing(5, "ok, this place is huge", False, False, stage="tour") == (False, False)
+    assert al._entrance_pacing(1, "ok next", False, False, stage="tour") == (True, True)
+    # arrivals still trickling in on the tour (not everyone in): the arrival cadence stands
+    gs2 = {"started": True, "phase": "premiere", "premiere": {"entrance": {"stage": "entrances", "tour": {"open": True, "everyoneIn": False}}}}
+    assert ch._entrance_stage_of(gs2) == "entrances"

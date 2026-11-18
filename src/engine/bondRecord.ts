@@ -77,6 +77,8 @@ export const BOND = {
   /** `strength` = the edge strength, plus warmth, minus resentment (clamped 0..1). */
   warmthWeight: 0.3,
   resentmentWeight: 0.3,
+  /** ORW-607 part 2: how much of the grudge book's `wrongWeight` (and its peak) counts as the wrong half of a grievance in a played game. 1 = the book's curve exactly; the one dial if the measurement says to turn the wrongs down. */
+  wrongShare: 1,
   /** Kinds read from the record (`kindOf`). */
   friendshipAt: 0.3,
   showmanceScenes: 2,
@@ -178,11 +180,17 @@ export function foldScene(store: BondStore, kind: SceneFold, participants: reado
   }
 }
 
-/** A deal broken by `breaker`: the wronged party's grudge and strain, the breaker's own strain. */
-export function foldBreak(store: BondStore, breaker: EntityId, wronged: EntityId): void {
+/**
+ * A deal broken by `breaker`: the wronged party's grudge and strain, the breaker's own strain.
+ * ORW-607 part 2: with `bookHoldsWrong` (a played game whose grudge book records this wrong) the GRUDGE is not written here - the wrong lives in the book on its curve and
+ * `grievanceOf` reads it from there; the record keeps the strain and the history. Absent / false => the old fold, byte-identical.
+ */
+export function foldBreak(store: BondStore, breaker: EntityId, wronged: EntityId, opts: { bookHoldsWrong?: boolean } = {}): void {
   const w = touch(store, wronged, breaker);
-  w.resentment = clamp(w.resentment + BOND.resentPerBreak, 0, 1);
-  w.peakResentment = Math.max(w.peakResentment, w.resentment);
+  if (opts.bookHoldsWrong !== true) {
+    w.resentment = clamp(w.resentment + BOND.resentPerBreak, 0, 1);
+    w.peakResentment = Math.max(w.peakResentment, w.resentment);
+  }
   w.strain = clamp(w.strain + BOND.strainPerBreak, 0, 1);
   w.history += 1;
   const b = touch(store, breaker, wronged);
@@ -261,6 +269,28 @@ export function kindOf(rec: BondRecord): BondKind {
   if (rec.commitment !== "none" && rec.warmth < BOND.friendshipAt) return "business";
   if (rec.warmth >= BOND.friendshipAt) return "friendship";
   return "none";
+}
+
+/** What the grudge book holds for one directed pair: its `wrongWeight` now and the row's peak severity (both 0..1). */
+export interface BookWrong { weight: number; peak: number }
+
+/**
+ * ORW-607 part 2: the ONE grievance a holder carries toward another in a played game: the book's wrong (on its own curve) plus the record's friction resentment, summed once, 0..1.
+ * With no book (headless, flag off, no row) it is exactly the record's resentment.
+ */
+export function grievanceOf(rec: BondRecord, book?: BookWrong): number {
+  return clamp(rec.resentment + BOND.wrongShare * clamp(book?.weight ?? 0, 0, 1), 0, 1);
+}
+
+/** The worst grievance the pair ever reached: the record's friction peak plus the book's peak severity, summed once, 0..1. */
+export function peakGrievanceOf(rec: BondRecord, book?: BookWrong): number {
+  return clamp(rec.peakResentment + BOND.wrongShare * clamp(book?.peak ?? 0, 0, 1), 0, 1);
+}
+
+/** The record as every reader should see it: its resentment and peak are the grievance (identity when there is no book wrong). */
+export function withGrievance(rec: BondRecord, book?: BookWrong): BondRecord {
+  if (!book) return rec;
+  return { ...rec, resentment: grievanceOf(rec, book), peakResentment: peakGrievanceOf(rec, book) };
 }
 
 /** The bond's 0..1 strength: the edge's, plus warmth, minus a grudge. */

@@ -34,3 +34,7 @@ Only records that already exist, at the severity they already carry: a friend's 
 
 ## Gates
 BDD `0182-grudges.feature` and `tests/unit/grudges.test.ts` (pure book, each fold source, flag-off byte-identity, persistence, wall).
+
+## ORW-607 part 2: the bond record's resentment split (played games, behind the same flag)
+
+A wrong the book records (a deal broken, a favor refused) is no longer also folded into the bond record's resentment: it lives only in the book, on its `wrongWeight` curve. The record keeps the strain, the history and its own resentment from everyday friction (conflict scenes), on its own nightly fade. Every reader of a pair's grudge (feelings, hesitation, guilt, jealousy, the rivalry strand, the pair's kind and strength) reads ONE grievance: the book's weight plus the record's friction resentment, summed once and clamped to 0..1 (`grievanceOf`; the peak likewise from the book's peak). Repair eases the book's wrong once and the record's friction at its half rate. A wronged player (the book never holds a player's grudge), headless games and the flag off keep the old record fold byte for byte. Dial: `BOND.wrongShare` (1 = the book's curve exactly).

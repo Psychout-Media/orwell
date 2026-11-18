@@ -23,7 +23,7 @@ import type {
   BeatAnnouncementView,
   NotorietyLegendView,
 } from "../../ports/GameSession";
-import type { ShowBriefView } from "../../ports/GameSession";
+import type { ShowBriefView, RoomCardView } from "../../ports/GameSession";
 import { randomBytes } from "node:crypto";
 import { currentBeatCause } from "../../ports/BeatCause";
 import { applyClosedFacetGuard, monitorLegacyInkGuard } from "../../engine/facetDiff";
@@ -302,6 +302,7 @@ import { roomLabel, roomRef, roomLook, roomNamesFor, themedRoomAliases, drawHous
 /** ORW-466: how many of a player's recent seasons' house themes the next draw avoids (a quarter of the library). */
 const MAX_PRIOR_HOUSE_THEMES = 6;
 import { BED_RUSH, arrivalTick, claimKeepsFloor, type BedRushState } from "../../engine/bedRush";
+import { tourFree, tourRoomFor, everyoneIn } from "../../engine/houseTour";
 import { BED_MOVES, BED_RULES, applyMove, bedmateShare, bedroomNames, decideSwap, freeBedIn, otherHalf, parsePlayerBedIntent, pickBedFor, planGoalMove, spotScore, swapBeds, type BedGoals, type BedReader } from "../../engine/bedClaims";
 import { BEDROOM_LAYOUT, spotsIn } from "../../engine/data/bedrooms";
 import { recohereCastingTypes } from "../../domain/castingTypes";
@@ -325,7 +326,7 @@ import { rolesFromGraph, type NetworkRoles } from "../../engine/networkSpread";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { CREDIBILITY } from "../../engine/credibilityConstants";
 import { standing, composeWithCredibility, dealWillingnessShift, type HeardWrong } from "../../engine/reputation";
-import { SCENE_FOLDS, bondKey, bondOf, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, recordedSceneRoles, sceneRoles, sceneScale, type SceneFold } from "../../engine/bondRecord";
+import { SCENE_FOLDS, bondKey, bondOf, commitmentFor, emptyBond, foldBreak, foldKept, foldRepair, foldSave, foldScene, nightPasses, recordedSceneRoles, sceneRoles, sceneScale, type BookWrong, type SceneFold } from "../../engine/bondRecord";
 import { TRIADS, SWING } from "../../engine/triadsConstants";
 import { commonFriendNudges, kingmakerOf, priceTier, sharedEnemyNudges, strainedTriads, swingRead, triadPairKey, type TriadView } from "../../engine/triads";
 import { deriveDailyHouseGraph, type DailyHouseGraph, type HouseGraph } from "../../engine/houseGraph";
@@ -766,6 +767,8 @@ const JUROR_PROFILES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_JUROR_PROFILES");
 const PREMIERE_ENTRANCES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PREMIERE_ENTRANCES");
 /** ORW-672 / 0201 - the BED RUSH: no bed is claimed before the champagne circle closes, then the house races for the bedrooms (a claim needs reaching the room). A played game only. ON by default; `=0` restores the walk-in-order claim. */
 const BED_RUSH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_BED_RUSH");
+/** ORW-654 / 0206 - the SELF-GUIDED TOUR: after walking in the player explores the house until production calls the circle; the houseguests mostly gather in the common area; the first entry into each room is a one-time room card. A played game only. ON by default; `=0` restores the held premiere. */
+const HOUSE_TOUR_ENABLED_DEFAULT = flagDefaultOn("ORWELL_HOUSE_TOUR");
 
 /**
  * "Hang out until X" (PO 2026-11-04) - the safe fast-forward lever (`hangOut`). ON unless `ORWELL_HANGOUT=0` (or the diagnostic `ORWELL_FLAGS_OFF=1`) - flipped ON 2026-11-04 (PO: Ryne) after the live rerun showed it stops exactly at the scheduled event and the HOH comp stages when due. Off => `hangOut()` returns `{ ok:false }` with no state change and the spine is byte-identical.
@@ -1290,6 +1293,7 @@ export class GameSessionAdapter implements GameSession {
     this.messageMode = true;
     this.ensurePremiereClock(); // ORW-116: a player talking during the premiere starts the clock (afternoon) - never a later jump
     if (this.live) this.live.playedGame = true; // ORW-258: a person is playing (the event-per-day cadence keys on this, not on clockInteractive)
+    this.armHouseTour(); // ORW-654 / 0206: a person is playing a staged premiere - the tour opens once they have walked in
     // ORW-466 (Ryne 2026-11-15: "Themes should be random"): the season's house theme, drawn once when a person starts playing - seeded (the same season, the same theme) and never one of this
     // player's recent seasons'. A headless or calibration game never draws one, so its text stays as it was.
     const firstPlayedMessage = !!this.live && !this.live.houseTheme; // the same moment as the theme: a season already under way when this ships never gains a culture mid-flight
@@ -2611,6 +2615,8 @@ export class GameSessionAdapter implements GameSession {
   private premiereEntrancesEnabled = PREMIERE_ENTRANCES_ENABLED_DEFAULT;
   /** ORW-672 / 0201: the bed rush (see `BED_RUSH_ENABLED_DEFAULT`). */
   private bedRushEnabled = BED_RUSH_ENABLED_DEFAULT;
+  /** ORW-654 / 0206: the self-guided tour (see `HOUSE_TOUR_ENABLED_DEFAULT`). */
+  private houseTourEnabled = HOUSE_TOUR_ENABLED_DEFAULT;
   private finalHohThreePartEnabled = FINAL_HOH_THREE_PART_ENABLED_DEFAULT;
   private jurorProfilesEnabled = JUROR_PROFILES_ENABLED_DEFAULT;
   private hangOutEnabled = HANGOUT_ENABLED_DEFAULT;
@@ -6324,7 +6330,18 @@ export class GameSessionAdapter implements GameSession {
   bondReader(): BondReader {
     if (!this.bondRecordEnabled) return edgeBondReader(this.rel, () => this.livingIds(), () => this.live?.dayNumber ?? 1);
     this.foldBonds();
-    return recordBondReader(this.rel, () => this.live?.bonds, () => this.livingIds(), () => this.live?.dayNumber ?? 1, this.favorDebt ?? this.ownFavorDebt() ? { favorDebt: (this.favorDebt ?? this.ownFavorDebt())! } : {});
+    const favor = this.favorDebt ?? this.ownFavorDebt();
+    const wrong = this.grudgesOn() ? (this.foldGrudges(), { wrong: (h: EntityId, o: EntityId) => this.bookWrongOf(h, o) }) : {};
+    return recordBondReader(this.rel, () => this.live?.bonds, () => this.livingIds(), () => this.live?.dayNumber ?? 1, { ...(favor ? { favorDebt: favor } : {}), ...wrong });
+  }
+  /** ORW-607 part 2: the grudge book's wrong `holder` carries toward `other` (weight on its curve now, and the row's peak), for the bond reader. Read-only; undefined with no row. */
+  private bookWrongOf(holder: EntityId, other: EntityId): BookWrong | undefined {
+    const g = this.grudgeOf(holder, other, false);
+    return g ? { weight: g.weight, peak: g.peak } : undefined;
+  }
+  /** ORW-607 part 2 (ENGINE-ONLY, never a tool or projection): the ONE grievance `holder` carries toward `other` - the book's wrong plus the record's friction resentment, summed once, 0..1. Headless / flag off: the record's resentment. */
+  grievanceOf(holder: EntityId, other: EntityId): number {
+    return this.bondReader().bond(holder, other).resentment;
   }
   /** Theme 3 slice 3 (Overseer B): the favor ledger as a second source of a bond's debt (signed like BondView.debt). Absent => the record's own debt only. */
   private favorDebt?: DebtSource;
@@ -6539,7 +6556,11 @@ export class GameSessionAdapter implements GameSession {
     for (const d of this.deals.all) {
       const [a, b] = d.parties;
       // ORW-597: a break reaches the bond only once the wronged side has learned of it, and a sealed ballot never names its breaker.
-      if (d.status === "broken" && d.brokenBy && (d.learned === true || (d.learned === undefined && !d.sealedBallot)) && mark(`broken:${d.id}`)) foldBreak(store, d.brokenBy, d.brokenBy === a ? b : a);
+      if (d.status === "broken" && d.brokenBy && (d.learned === true || (d.learned === undefined && !d.sealedBallot)) && mark(`broken:${d.id}`)) {
+        const wronged = d.brokenBy === a ? b : a;
+        // ORW-607 part 2 (played games with the grudge book): the book records this wrong (the same `holderKnowsOfBreak` gate `foldGrudges` uses; never a player holder), so the record keeps only the strain.
+        foldBreak(store, d.brokenBy, wronged, this.grudgesOn() && wronged !== PLAYER && this.holderKnowsOfBreak(wronged, d) ? { bookHoldsWrong: true } : {});
+      }
       else if (d.status === "kept" && mark(`kept:${d.id}`)) foldKept(store, a, b);
       else if (d.status === "open") for (const [x, y] of [[a, b], [b, a]] as const) (open.get(bondKey(x, y)) ?? open.set(bondKey(x, y), []).get(bondKey(x, y))!).push(d.kind);
     }
@@ -7317,6 +7338,62 @@ export class GameSessionAdapter implements GameSession {
     }
   }
 
+  // ---------------------------------------------------------------------------------------------------------------------------------------------------------------
+  // ORW-654 / feature 0206 - THE SELF-GUIDED TOUR
+  // ---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+  /** Arm the tour: a person is playing, the staged premiere is still in its entrances and the flag is on. Idempotent; never armed for a headless game (so today's premiere is byte-identical). */
+  private armHouseTour(): void {
+    const s = this.live;
+    if (!this.houseTourEnabled || !s || s.playedGame !== true || s.houseTour || s.premiereEntrance?.stage !== "entrances") return;
+    s.houseTour = { seen: [] };
+    if (s.premiereEntrance.arrived > s.premiereEntrance.playerPos) this.noteRoomEntry("living-room"); // the player is already inside: the living room is where they walked in
+  }
+
+  /** The room-card state of THIS turn only (stamped with the message it happened on, like a walk-in); the persisted part is `live.houseTour.seen`. */
+  private roomCardNow: { msg?: string; room: Room } | null = null;
+
+  /** The player stepped into `room`: the first time ever is a one-time card (the room joins `seen`, which only grows). Only the player ever triggers it; NPCs never do. */
+  private noteRoomEntry(room: Room): void {
+    const s = this.live;
+    if (!this.houseTourEnabled || !s?.houseTour || s.playedGame !== true || s.houseTour.seen.includes(room)) return;
+    s.houseTour.seen.push(room);
+    this.roomCardNow = { ...this.walkInStamp(), room };
+  }
+
+  /** The card handed to the narrator for the room the player has just entered for the first time: the season's own name and look for it, who is in it, and what opens onto it. Third person, number-free, Vault-free. */
+  private roomCardView(room: Room, present: NamedRef[]): { roomCard?: RoomCardView } {
+    const c = this.roomCardNow;
+    const cur = this.seenMessageIds.length > 0 ? this.seenMessageIds[this.seenMessageIds.length - 1] : undefined;
+    if (!c || c.room !== room || c.msg !== cur) return {};
+    const look = roomLook(room, this.live?.houseTheme);
+    return {
+      roomCard: {
+        room,
+        name: this.roomName(room),
+        ...(look ? { look } : {}),
+        here: present.map((p) => p.name),
+        opensOnto: (HOUSE_SIGHTLINE.get(room) ?? []).map((r) => this.roomName(r)),
+      },
+    };
+  }
+
+  /** While the tour is open, the houseguests who are inside stand where the tour puts them (a keyed side stream; the calibration base is never touched). Idempotent for one step. */
+  private applyTourPlacement(): void {
+    const s = this.live;
+    if (!this.houseTourEnabled || !tourFree(s) || s!.playedGame !== true || !this.presence || !this.house) return;
+    const away = this.notYetArrived();
+    const step = `${s!.premiereEntrance!.arrived}:${this.seenMessageIds.length}`;
+    for (const n of this.house.npcs) {
+      if (this.seatOf(n.id) !== "active" || away?.has(n.id)) continue;
+      const room = tourRoomFor(this.gameSeed ?? 0, n.id, step);
+      if (this.presence.get(n.id) === room) continue;
+      this.presence.set(n.id, room);
+      this.presenceTenure?.set(n.id, 0);
+      this.presenceZone?.delete(n.id);
+    }
+  }
+
   movePlayer(room: string, expectedBeatSeq?: number): WhereaboutsView | null {
     // 0065 Part A — refuse a move computed against a superseded board BEFORE any mutation.
     this.guardBeatSeq(expectedBeatSeq);
@@ -7343,6 +7420,7 @@ export class GameSessionAdapter implements GameSession {
     (this.presenceTenure ??= new Map()).set(me, 0); // a fresh arrival
     this.sendOccupancy = null; // ORW-249 (#2321): the frozen send-time roster dies at the FIRST room change, so leaving and returning during one reply cannot revive it
     this.sendAwake = null;
+    this.noteRoomEntry(dest); // ORW-654 / 0206: the first entry into a room is a one-time card
     this.detectWalkIn(dest); // ORW-473: walking in on a private talk
     this.persist();
     return this.whereabouts();
@@ -7487,7 +7565,7 @@ export class GameSessionAdapter implements GameSession {
     const base = this.presence;
     const live = this.live;
     if (!base || !live || !this.house) return base;
-    const entrances = live.premiereEntrance?.stage === "entrances";
+    const entrances = live.premiereEntrance?.stage === "entrances" && !tourFree(live); // ORW-654: on the tour the house is not convened round the player
     if (!entrances && live.champagneCircle !== "gathered") return base;
     const me = this.house.player.id;
     const room = base.get(me) ?? "living-room";
@@ -8354,6 +8432,7 @@ export class GameSessionAdapter implements GameSession {
   }
   private ceremonyBasePlayerRoom: Room | null = null;
   private gatherForCeremony(force = false): boolean {
+    this.applyTourPlacement(); // ORW-654 / 0206: the tour places the arrived houseguests (a no-op unless the tour is open)
     const ev = this.houseEventInSession();
     const kind = ev?.kind;
     // ORW-281 slice 6 (Ryne 2026-11-11): ceremonies live in the living room, comps all take place in the backyard. Comps move the house for real in a PLAYED game only (headless sims keep no gather).
@@ -8628,6 +8707,7 @@ export class GameSessionAdapter implements GameSession {
       ...this.leadsFoundWrongView(),
       ...this.sinceSendBeat(me, room, presentPlain, isUp, notHere2),
       ...this.themedRoomsView(room),
+      ...this.roomCardView(room, presentPlain.map((p) => ({ id: p.id, name: p.name }))),
     };
   }
 
@@ -9052,6 +9132,7 @@ export class GameSessionAdapter implements GameSession {
       playerPosition: pe.playerPos + 1,
       insideCount: pe.arrived,
       playerInside: pe.arrived > pe.playerPos,
+      ...(this.live?.houseTour && pe.stage === "entrances" && pe.arrived > pe.playerPos ? { tour: { open: true as const, everyoneIn: pe.arrived >= pe.order.length } } : {}),
       headcount: `${pe.arrived} of ${pe.order.length} are inside` + (pe.arrived > pe.playerPos ? " (the player is one of them)" : " (the player has NOT walked in yet; they are not counted)"),
       arrivedNames: arrivedIds.filter((id) => id !== me).map((id) => this.nameOf(id)),
       ...(lastId && lastId !== me ? { justArrived: { id: lastId, name: this.nameOf(lastId) } } : {}),
@@ -9097,14 +9178,28 @@ export class GameSessionAdapter implements GameSession {
   private advancePremiereEntrance(): AdvanceView {
     const s = this.live!;
     this.ensurePremiereClock();
-    if (this.perConversationClockLive()) { s.clockInteractive = true; tickPremiereClock(s, PREMIERE_STEP_HOURS); } // ORW-116 (b): a staged premiere with the clock on IS real play - the night is held from the first entrance, never only after the first message // ORW-116: the entrances take real time
+    const callingCircle = s.premiereEntrance?.stage === "entrances" && !!s.houseTour && everyoneIn(s); // ORW-654 / 0206: calling the circle is not a new scene - it takes no premiere step, so the clock reads as it did before the tour
+    if (this.perConversationClockLive()) { s.clockInteractive = true; if (!callingCircle) tickPremiereClock(s, PREMIERE_STEP_HOURS); } // ORW-116 (b): a staged premiere with the clock on IS real play - the night is held from the first entrance, never only after the first message // ORW-116: the entrances take real time
     const pe = s.premiereEntrance!;
     const me = this.house!.player.id;
+    if (pe.stage === "entrances" && s.houseTour && everyoneIn(s)) {
+      // ORW-654 / 0206: everyone is in and the player has had the run of the house - production calls the champagne circle. The player is called to the living room (the same place the whole house is
+      // convened for a ceremony); the circle then runs as ever (toast, then the bed rush).
+      pe.stage = "toast";
+      s.champagneCircle = "gathered";
+      this.presence?.set(me, "living-room"); this.presenceBase?.set(me, "living-room");
+      // The tour's placement was a player-facing overlay only: when it ends the house goes back to the seats its own (untouched) movement gave it, so the tour leaves no trace on the week-1 society
+      for (const [id, room] of this.presenceBase ?? []) if (id !== me && this.presence?.has(id)) { this.presence.set(id, room); this.presenceTenure?.set(id, 0); this.presenceZone?.delete(id); }
+      this.persist();
+      return { ...this.advanceView(null), event: { beat: "premiere-toast", content: "Production calls the house to the living room for the champagne circle", detail: { speakers: [], index: 0, of: toastSpeakers(pe.order).length, called: true } } };
+    }
     if (pe.stage === "entrances") {
       const r = this.recordArrival(pe.arrived);
       pe.arrived += 1;
       this.ensureBeds(); // ORW-466 slice 2: the arriver claims a bed as they walk in (a played game only; headless games stay bed-free)
-      if (pe.arrived >= pe.order.length) {
+      this.applyTourPlacement(); // ORW-654 / 0206: the new arrival (and everyone inside) takes their place on the tour
+      if (r.playerEntrance) this.noteRoomEntry("living-room"); // ORW-654 / 0206: the player walks in through the common area - their first card
+      if (pe.arrived >= pe.order.length && !s.houseTour) { // ORW-654 / 0206: on the tour the house stays open after the last arrival; the NEXT advance calls the circle
         pe.stage = "toast";
         s.champagneCircle = "gathered"; // the existing whole-house pin
       }
@@ -11850,6 +11945,8 @@ export class GameSessionAdapter implements GameSession {
   setPremiereEntrancesEnabled(on: boolean): void { this.premiereEntrancesEnabled = on; }
   /** ORW-672 / 0201: turn the bed rush on/off for this session (tests/BDD; the deploy sets `ORWELL_BED_RUSH`). */
   setBedRushEnabled(on: boolean): void { this.bedRushEnabled = on; }
+  /** ORW-654 / 0206: turn the self-guided tour on/off for this session (tests/BDD; the deploy sets `ORWELL_HOUSE_TOUR`). */
+  setHouseTourEnabled(on: boolean): void { this.houseTourEnabled = on; }
   premiereEntrancesEnabledNow(): boolean { return this.premiereEntrancesEnabled; }
   /** 0128 - turn the three-part Final HOH on/off for this session (tests/BDD; the deploy sets `ORWELL_FINAL_HOH_THREE_PART`). */
   setFinalHohThreePartEnabled(on: boolean): void { this.finalHohThreePartEnabled = on; }
@@ -14675,7 +14772,7 @@ export class GameSessionAdapter implements GameSession {
     if (holder === PLAYER) { if (this.bondRecordEnabled) foldBreak((s.bonds ??= {}), debtor, holder); return; }
     this.remember(holder, debtor, "deal-broken", ASSURANCE.brokenMemorySeverity * FAVOR.refusalMemoryShare);
     if (this.grudgesOn()) noteGrudge((s.grudges ??= {}), holder, debtor, "deal-broken", GRUDGES.DEAL_BREAK_SEVERITY * FAVOR.refusalGrudgeShare, s.week, s.dayNumber ?? 1, `favor:${favorId}`);
-    if (this.bondRecordEnabled) foldBreak((s.bonds ??= {}), debtor, holder);
+    if (this.bondRecordEnabled) foldBreak((s.bonds ??= {}), debtor, holder, this.grudgesOn() ? { bookHoldsWrong: true } : {}); // ORW-607 part 2: the wrong is in the book (just noted above), so the record keeps only its strain
   }
 
   /** 0171: settle the accepted counters at this eviction: booked only if the stated condition holds now (the rival is on the block / the protected houseguest is not), else lapsed. Nothing is deleted. */
