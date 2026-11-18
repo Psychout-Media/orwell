@@ -205,3 +205,11 @@ shipped here; this awaits the owner's grant.
 - **Work item 6** — the allowlist registry (empty by default; the lint reads it).
 - The remaining Class-A tail: `orwell_cast_authoring` per-NPC WARNs, the `do_*` rollup, and the
   **TS engine adapter** sites.
+
+## 2026-11-18 amendment (ORW-500): cast-authoring and cast-gate corrections in the health totals
+
+Design choice (Coordinator call 2026-11-17): count them in the existing rollup totals under their own
+namespaces, with no new tile. `_SOFT_FAIL_PREFIXES` in `frontend/routes/admin_health_routes.py` now
+includes `cast-authoring:` and `cast-gate:`, so every such record shows in the admin health guards
+table. They are routine (several per cast), so they never alarm: no storm class reads them and the
+`auto-corrected` alarm skips them. Pinned in `frontend/tests/test_1599_failsoft.py`.

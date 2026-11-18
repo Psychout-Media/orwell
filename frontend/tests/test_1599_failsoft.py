@@ -382,3 +382,28 @@ def test_health_payload_does_not_leak_another_users_llm_or_tool_failure(monkeypa
     assert body_a["healthRollup"]["llm"]["narration"]["failed"] == 1
     assert body_a["healthRollup"]["tools"]["recordInteraction"]["failed"] == 3
     assert {"narration-failure", "writeback-storm"} <= {a["code"] for a in body_a["alarms"]}
+
+
+# ── ORW-500: cast-authoring / cast-gate corrections reach the rollup totals, never an alarm ──
+
+def test_cast_authoring_and_cast_gate_corrections_count_in_totals_without_alarming():
+    _clear_rings()
+    for _ in range(6):  # a normal ~15-houseguest cast with several repairs
+        log_rings.record_soft_failure("cast-authoring:voice-repaired", "repaired",
+                                      corrected="seeded-voice-dial")
+    log_rings.record_soft_failure("cast-gate:non-blocking", "accepted with a soft gap",
+                                  corrected="backfill")
+    rollup = ahr._compute_health_rollup()
+    assert rollup["guards"]["cast-authoring:voice-repaired"]["failed"] == 6
+    assert rollup["guards"]["cast-authoring:voice-repaired"]["autoCorrected"] == 6
+    assert rollup["guards"]["cast-gate:non-blocking"]["failed"] == 1
+    assert ahr._compute_alarms(rollup) == []
+
+
+def test_cast_corrections_do_not_hide_other_auto_corrected_alarms():
+    _clear_rings()
+    log_rings.record_soft_failure("cast-authoring:voice-repaired", "r", corrected="x")
+    log_rings.record_soft_failure("overseer:judge-call-failed", "t", corrected="floor")
+    alarms = ahr._compute_alarms(ahr._compute_health_rollup())
+    auto = [a for a in alarms if a["code"] == "auto-corrected"]
+    assert auto and auto[0]["count"] == 1
