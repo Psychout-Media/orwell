@@ -289,15 +289,25 @@ def widgets(eng, check, chat, where):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--run-dir", required=True); ap.add_argument("--fe", default=None)
+    ap.add_argument("--run-dir", default=None); ap.add_argument("--fe", default=None)
     ap.add_argument("--engine", default=None); ap.add_argument("--token", default="rehlocal")
     ap.add_argument("--turn-limit-secs", type=int, default=120, help="a reply slower than this is a STALL warning; 240 is a FAIL")
     ap.add_argument("--crossover", action="store_true", help="ORW-433: after the veto morning, play on to eviction night and cross into Week 2 through the real chat bed")
     ap.add_argument("--eviction", action="store_true", help="ORW-506: after the veto morning, force-drive the engine to eviction night and play it through the real chat, answering its decision cards (not with --crossover)")
     ap.add_argument("--eviction-turns", type=int, default=8, help="with --eviction: the bound on real chat turns of the night (1..20)")
+    ap.add_argument("--veto-ceremony", action="store_true", help="ORW-109: after the veto morning, jump the engine to the veto ceremony and play it through the real chat (the ORW-10 stall beat)")
+    ap.add_argument("--finale", action="store_true", help="ORW-109: after the earlier beats, jump the engine to the finale and play a few turns of it through the real chat")
+    ap.add_argument("--max-spend", type=float, default=None, help="ORW-109: abort cleanly (CAPPED report) once the estimated spend reaches this many dollars; default RIG_SPEND_CAP when set")
+    ap.add_argument("--max-turns", type=int, default=None, help="ORW-109: abort cleanly once this many real chat turns were played (cast and premiere turns count)")
+    ap.add_argument("--beat-turns", type=int, default=4, help="chat turns per veto-ceremony / finale beat (1..6)")
+    ap.add_argument("--dry-run", action="store_true", help="ORW-109: offline stub mode: run the comparator over built-in clean and broken transcripts and write the report; no browser, no engine, no model, no spend (what CI-safe runs use)")
     ap.add_argument("--rescore", action="store_true", help="re-score the saved report.json turns with the current pass bar (no game is played)")
     a = ap.parse_args()
     if a.eviction and a.crossover: ap.error("--eviction and --crossover both drive the engine to eviction night; pick one")
+    if a.dry_run:
+        import live_compare
+        ok, lines = live_compare.selftest(); print("\n".join(lines)); sys.exit(0 if ok else 1)
+    if not a.run_dir: ap.error("--run-dir is required (except with --dry-run)")
     a.fe = a.fe or slot_default(a.run_dir, "RIG_BASE", "http://127.0.0.1:17000"); a.engine = a.engine or slot_default(a.run_dir, "RIG_ENGINE_URL", "http://127.0.0.1:18765")  # slot-1 default when neither the environment nor the run's slot.env says otherwise
     if a.rescore:
         saved = json.load(open(f"{a.run_dir}/report.json")); turns = saved["turns"]; checks = []
@@ -313,7 +323,13 @@ def main():
     def check(cid, ok, detail, severity="fail"):
         checks.append({"id": cid, "ok": bool(ok), "severity": severity, "detail": detail})
 
+    import live_compare
+    budget = live_compare.Budget(a.max_spend, a.max_turns, lambda: json.load(open(f"{a.run_dir}/spend.json")).get("usd_estimate") or 0)
+    beats_played = []
+
     def play(label, text, expect_phase=None):
+        budget.check()   # ORW-109: BEFORE the model-costing send: at the cap the run stops cleanly (BudgetExceeded -> a CAPPED report)
+        budget.note_turn()
         st0 = eng.call("getGameState")
         r = chat.send(text)
         st = eng.call("getGameState")
@@ -331,6 +347,10 @@ def main():
              "veto_holder": ((st.get("veto") or (st.get("ceremony") or {}).get("veto")) or {}).get("holder"),
              # T16 (ORW-376): the engine's headcounts, the player included, at the start and end of the turn (an eviction inside a reply changes the house)
              "counts_start": (st0.get("whereabouts") or {}).get("counts"), "counts": (st.get("whereabouts") or {}).get("counts")}
+        house = [h for h in (st.get("house") or []) if isinstance(h, dict)]
+        t.update({"cast": [h.get("name") for h in house if h.get("name")], "evicted": [h.get("name") for h in house if h.get("status") not in (None, "active") and h.get("name")],
+                  "player": (st.get("player") or {}).get("name") if isinstance(st.get("player"), dict) else None, "engine_pending": bool(st.get("pending")),
+                  "finished": st.get("finished"), "winner": st.get("winner"), "finalists": [x.get("name") if isinstance(x, dict) else x for x in (st.get("finalists") or [])]})
         t["harness_jump"] = eng.jumps; eng.jumps = 0
         t["clock_pre_send"] = st0.get("clockLabel")  # ORW-503: the clock just before THIS message, so the runner's own moves are excused only up to here
         t["rooms_known"] = isinstance(st.get("whereabouts"), dict) and "present" in st["whereabouts"]  # ORW-503: an empty room list is only "alone" when the engine actually sent whereabouts
@@ -367,18 +387,39 @@ def main():
             check("G2-reached-veto-morning", st.get("phase") == "veto-competition", f"phase {st.get('phase')} at {st.get('clockLabel')}")
             for i, line in enumerate(VETO_MORNING): play(f"veto-morning-{i + 1}", line)
             if a.crossover: crossover(eng, play, check, chat)
+            import beats
+            if a.veto_ceremony:
+                beats_played.append("veto-ceremony"); beats.run_veto_ceremony(eng, play, check, chat, a.beat_turns)
             if a.eviction:
                 import eviction_e1
-                eviction_e1.run(eng, play, check, chat, a.eviction_turns)
+                beats_played.append("eviction"); eviction_e1.run(eng, play, check, chat, a.eviction_turns)
+            if a.finale:
+                beats_played.append("finale"); beats.run_finale(eng, play, check, chat, a.beat_turns)
             b.close()
+    except live_compare.BudgetExceeded as e:  # ORW-109: the cap is a clean stop, not a crash: score what was played, report CAPPED with the spend so far
+        score(turns, checks, check, a.turn_limit_secs); live_compare.apply_comparison(turns, check)
+        write(a.run_dir, turns, checks, None); _bar(a, turns, checks, budget, beats_played, None, True)
+        print(f"CAPPED: {e}"); sys.exit(4)
     except Exception as e:  # noqa: BLE001
-        print("could not run:", repr(e)[:300]); write(a.run_dir, turns, checks, str(e)); sys.exit(2)
+        print("could not run:", repr(e)[:300]); write(a.run_dir, turns, checks, str(e)); _bar(a, turns, checks, budget, beats_played, str(e)[:300], False); sys.exit(2)
 
     score(turns, checks, check, a.turn_limit_secs)
-    write(a.run_dir, turns, checks, None)
+    live_compare.apply_comparison(turns, check)   # ORW-109: engine truth vs the narration, the stall rule, the livelock rule
+    write(a.run_dir, turns, checks, None); _bar(a, turns, checks, budget, beats_played, None, False)
     hard = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
     print("RESULT:", "FAIL" if hard else "PASS", f"({len(hard)} failing, {sum(1 for c in checks if not c['ok'] and c['severity'] == 'warn')} warnings)")
     sys.exit(1 if hard else 0)
+
+
+def _bar(a, turns, checks, budget, beats_played, error, capped):
+    """The formal short tier's one concise report (bar-report.md / .json / plane-comment.html): scrubbed of cast names, no transcript, no secrets."""
+    import live_compare
+    def _j(n):
+        try: return json.load(open(f"{a.run_dir}/{n}"))
+        except Exception: return {}
+    meta = _j("meta.json"); names = sorted({n for t in turns for n in (t.get("cast") or [])})
+    md, data = live_compare.build_report({k: meta.get(k) for k in ("sha", "ref", "model")}, checks, beats_played or ["veto-morning"], budget.summary(), error, capped, names)
+    live_compare.write_report(a.run_dir, md, data)
 
 
 # T13: a clock time the player can read ("8:15", "8:15pm", "9 am", "nine o'clock", "noon"/"midnight" only in a time phrase: "at/by/until noon", "it's midnight", "noon sharp"; not "Midnight snack", "the midnight-blue dress" or "high noon"). Parts of the day are allowed.
