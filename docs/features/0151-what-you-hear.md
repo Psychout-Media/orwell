@@ -15,3 +15,11 @@ Vault Wall (only claims the player heard; no truth, no intent); the engine decid
 
 A houseguest's speech step aimed at the player (plant, leak, confirm, fish) is told to the player as a claim when they step up, like any other
 telling; see 0153 (same date). It adds no new field to `tellsYou`.
+
+## 2026-11-18: "who told you that?" answers the claim asked about, and a liar's cover can slip (ORW-685, T2-14)
+- The answer is about ONE claim: the one the player named (a subject or object in their words; most names matched wins), otherwise the newest the houseguest told them. It no longer falls through to an older claim that happens to be easier to answer.
+- A liar asked about a lie they planted has no belief behind it. They play it off (say they saw it themself, or will not say who) or the cover slips. The slip chance is the actor's: it falls with cunning and rises with nerves, inside a band (`COVER` in `src/engine/claimSource.ts`), decided on its own keyed side stream (`${seed}:cover-slip`), so asking again gives the same answer and no other roll moves.
+- A slip hands the narrator one Vault-free fact (the account does not hold together; voice a visible stumble; name no one; never say outright anything is untrue). The engine writes no line and the player decides what it means.
+- Hidden impact, once per claim (recorded in `live.coverSlips`, append-only, persisted): the liar's read of the player takes a small bounded `conflict` step (`COVER.foldScale`).
+- Flag `ORWELL_COVER_SLIPS` (default ON, played games only; off = today: the liar always says they saw it themself, the first askable claim is answered). Test: `tests/unit/orw685.test.ts`.
+- Not built here: an NPC asking the PLAYER "who told you that?" (the engine would have to read the player's answer in their own words; parked for the Coordinator).

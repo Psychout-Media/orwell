@@ -1978,6 +1978,8 @@ export interface GatedLeverFlags {
   goalMood?: boolean;
   /** A52 (ORWELL_DISCLOSURE_ENGINE, played games): add the instruction that `knows` is only what the engine has put on the table. Absent/false => byte-identical. */
   disclosureEngine?: boolean;
+  /** ORW-685 (ORWELL_DISCLOSURE_SPIN, played games): add the rule for a `slants` fact. Absent/false => byte-identical. */
+  disclosureSpin?: boolean;
   /** 0196 (ORWELL_DODGING, played games): add the rule for a `dodge` fact. Absent/false => byte-identical. */
   dodging?: boolean;
   /** AMEND 3a #1 - the 0094 divergence (ORWELL_GOSSIP_CONSEQUENCE). False ⇒ `confront` always lands, so the prompt must not promise a misfire. */
@@ -2000,6 +2002,14 @@ function withDisclosureInstruction(base: string): string {
   return base.replace(anchor, anchor + "\n" +
     "    A houseguest's `knows` is only what the engine has put on the table with the player. They hold more than that; you do NOT have it, so never invent a secret, a plan or\n" +
     "    a confession for them to spill. If the voice carries `deflect`, the engine declined this press: they turn it aside, they do not give it up.");
+}
+
+/** ORW-685 - a `slants` fact says the houseguest framed what they gave the player in their own favour; the narrator authors the manner and never adds a fact. Appended only while the flag is on. */
+function withSlantInstruction(base: string): string {
+  const anchor = "    a confession for them to spill. If the voice carries `deflect`, the engine declined this press: they turn it aside, they do not give it up.";
+  return base.replace(anchor, anchor + "\n" +
+    "    If the voice carries `slants`, the engine decided they frame what they just gave the player in their own favour: voice that in their manner, add no fact and take none away, and never\n" +
+    "    say or hint that they are shading it.");
 }
 
 /** 0196 - a `dodge` fact says how a declined press is turned aside; the narrator authors the words. Appended only while the flag is on. */
@@ -2255,6 +2265,7 @@ export function buildSystemPrompt(
   if (levers?.npcMemorySpeech === true) base = withMemorySpeechInstruction(base);
   if (levers?.goalMood === true) base = withMoodCauseInstruction(base);
   if (levers?.disclosureEngine === true) base = withDisclosureInstruction(base);
+  if (levers?.disclosureSpin === true) base = withSlantInstruction(base);
   if (levers?.dodging === true) base = withDodgingInstruction(base);
   if (levers?.confrontMisfire === false) base = withoutConfrontMisfire(base);
   const gate = uncommittedCeremonyGate(moment, view);

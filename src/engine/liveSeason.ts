@@ -1047,6 +1047,8 @@ export interface LiveSeasonState {
   agendas?: Record<EntityId, Agenda>;
   /** ORW-261 (spec 0141): houseguests who have already told the player their private orientation by their own choice (once each; persisted so a reload never re-tells). Played games only; absent => byte-identical. */
   orientationTold?: Record<string, true>;
+  /** ORW-685 (ORWELL_COVER_SLIPS): the ids of spoken claims whose teller's cover slipped when the player asked who told them - append-only, so a repeat question folds nothing twice. */
+  coverSlips?: string[];
   /**
    * Phase 3a — the same one-shot day-break gate, extended to the REST of the weekly cadence so every
    * major beat lands on its OWN in-fiction day (day order WEEKLY_CADENCE.dayOf, within-day slot DAY_SCHEDULE: Day 1 HOH → 2 noms → 3 veto → 4 veto
