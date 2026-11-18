@@ -85,6 +85,7 @@
 #   ORWELL_HOMOPHILY            0176 / ORW-561 slice 10 part 1: houseguests who are alike bond a little faster and sour slower, a mismatched pair the reverse (a played game only; =0 opts out).
 #   ORWELL_HOH_COURT            0173 / Theme 3 slice 11: a hidden pecking order and informal leaders, houseguests seeking out the new HOH, power vacuums, and third-person goal actions that move someone (a played game only; =0 opts out).
 #   ORWELL_HOH_ROOM             0199 / ORW-629: the new HOH's room is opened to the whole house; a rare snub the house reads as rude; a guest's real feeling hides or slips by how well they can act; photos and a letter reveal a true backstory fact (a played game only; =0 opts out).
+#   ORWELL_HOST                 0210 / ORW-667 (Theme C slice 1): the host of eviction night - a seeded manner and the public facts of the night go to the narrator on a played eviction; no outcome changes. ON; `=0` is the kill switch.
 #   ORWELL_TERRITORY            0176 / ORW-561 slice 10 part 2: a hidden tenure map (hours per room), a mild pull toward people who share your top room, a small capped bond nudge for roommates (a played game only; =0 opts out).
 #   ORWELL_MOOD_CONTAGION       0185 / ORW-567 slice 15: a shocking eviction rattles the evictee's close allies most and the house a little; a big win lifts the winner's circle a little (moves the existing mood only; a played game only). ON 2026-11-17.
 #   ORWELL_REPUTATION           0184 / ORW-564 slice 8 part 1: what a houseguest has heard or seen of another's lying and turning on people (softened by promises kept to them) scales how far they believe that houseguest and how willing they are to deal with them (hidden; a played game only; needs ORWELL_BOND_RECORD). ON 2026-11-17.
@@ -200,6 +201,7 @@ ORWELL_HEARD_ABOUT_ME=1
 ORWELL_HOH_COURT=1
 ORWELL_HOH_ROOM=1
 ORWELL_HOMOPHILY=1
+ORWELL_HOST=1
 ORWELL_HOUSE_CULTURE=1
 ORWELL_HOUSE_LIFE=1
 ORWELL_HOUSE_MEETINGS=1

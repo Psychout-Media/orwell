@@ -145,6 +145,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // ORW-629 (spec 0199): the HOH room is opened to the whole house; a rare snub the house reads as rude; a mask that slips by how well a guest can act; photos and a letter reveal one true backstory fact. ON by default; `=0` turns it off.
   { envKey: 'ORWELL_HOH_ROOM', key: 'hohRoom', parser: 'defaultOn' },
   { envKey: 'ORWELL_HOMOPHILY', key: 'homophily', parser: 'defaultOn' },
+  // ORW-667 / 0210 C1: the host of eviction night - a seeded manner and the public facts of the night, handed to the narrator on a played eviction; changes no outcome. `=0` = no host block.
+  { envKey: 'ORWELL_HOST', key: 'host', parser: 'defaultOn' },
   // 0168 / ORW-551 (house culture slice 1): a played season draws a loose seeded blend of a few culture leans, stored engine-only; nothing reads it yet, so no dial moves. `=0` opts out.
   { envKey: 'ORWELL_HOUSE_CULTURE', key: 'houseCulture', parser: 'defaultOn' },
   { envKey: 'ORWELL_HOUSE_LIFE',              key: 'houseLife',              parser: 'defaultOn' },
