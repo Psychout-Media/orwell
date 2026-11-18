@@ -25,7 +25,7 @@ export const HOUSE_LIFE = {
   /** A content houseguest (emotional > 0.6) is pulled a little more toward plain living. */
   contentLifeBonus: 0.15,
   /** ORW-656: the chance, per houseguest per stretch, that someone in the winner's room reacts to the result while the beat is still the one right after the crown. */
-  afterBuzzerChance: 0.6,
+  afterBuzzerChance: 0.25, // ORW-656: shrunk from 0.6 after the 12-season house-mix guard read conflict 10.7 vs the 5.2 reference (the taunt folds a conflict scene): the span, not the tolerance
   /** Chance a habit that fits the time of day is followed when no goal is pursued. */
   habitChance: 0.6,
   /** ORW-337 (spec 0146 lane 2): a house ritual's chance to pull anyone free into its action at its time of day. `npcMindsAuthored.AUTHORED.ritualPull` is this value. */
