@@ -152,9 +152,9 @@ describe("source pins: every reader takes the grievance", () => {
     expect(bonds).toContain("bondStrengthOf(edgeStrength(rel, holder, other), seen(holder, other))");
     expect(bonds).not.toMatch(/resentment: r\.resentment, peakResentment: r\.peakResentment[^\n]*bondOf\(/);
   });
-  it("the adapter hands the book to the reader in played games and both break folds pass the split", () => {
+  it("the adapter hands the book to the reader in played games and the break folds pass the split (a deal break, a refused favor and, since the Theme A breakup, the heartbreak)", () => {
     expect(adapter).toContain("wrong: (h: EntityId, o: EntityId) => this.bookWrongOf(h, o)");
-    expect((adapter.match(/bookHoldsWrong: true/g) ?? []).length).toBe(2);
+    expect((adapter.match(/bookHoldsWrong: true/g) ?? []).length).toBe(3); // deal break, refused favor, and the showmance breakup (its heartbreak lives in the book)
   });
   it("no feeling, jealousy, triad or house-graph reader reads the record's raw resentment", () => {
     for (const f of ["bondFeelings", "bondJealousy", "houseGraph", "triadsConstants"]) expect(readFileSync(`src/engine/${f}.ts`, "utf8")).not.toMatch(/bondOf\(|\.bonds\b\??\.\[/);
