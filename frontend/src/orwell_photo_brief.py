@@ -80,7 +80,7 @@ def job_is_secret(card: dict) -> bool:
     try:
         s = sheet_of(card)
         return bool(SECRET_JOB_RE.search(" ".join(str(s.get(k) or "") for k in ("biography", "identity"))))
-    except Exception:
+    except Exception:  # failsoft-ok: best-effort-enrichment (a sheet that cannot be read is not a secret job)
         return False
 
 
