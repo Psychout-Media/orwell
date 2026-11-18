@@ -13,6 +13,7 @@ import { isAgendaSuperset } from "./agenda";
 import { beliefStoreSuperset } from "./beliefStore";
 import { claimLogSuperset } from "./spokenClaims";
 import { toldLeadsSuperset } from "./toldLeads";
+import { houseTourSuperset } from "./houseTour";
 import type { KnowledgeSnapshot } from "../domain/knowledge";
 import type { EdgeRecord, GameState, PersistedCharacter, PersistedSoul } from "../domain/saveState";
 import type { Room, Zone } from "../domain/house";
@@ -977,6 +978,9 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
 
   // toldLeads (0197 / ORW-631): the leads houseguests gave the player are append-only - none is ever lost.
   if (!toldLeadsSuperset(later.live?.toldLeads, earlier.live?.toldLeads)) return "toldLeads";
+
+  // houseTour (0206 / ORW-654): a room the player has stepped into is never forgotten (its one-time card has been given).
+  if (!houseTourSuperset(later.live?.houseTour, earlier.live?.houseTour)) return "houseTour";
 
   // beliefs (#2017 / ORW-591): a belief once held is never lost (nor a telling folded into it), except by the per-holder cap's compaction, which
   // takes refuted beliefs before live ones (`beliefStoreSuperset`).

@@ -6,6 +6,7 @@
  */
 import type { LiveSeasonState } from "./liveSeason";
 import type { EntityId } from "../domain/ids";
+import { tourFree } from "./houseTour";
 
 export type LiveHouseEventKind =
   | "premiere-entrances" | "champagne-circle" | "hoh-competition" | "veto-competition"
@@ -13,7 +14,7 @@ export type LiveHouseEventKind =
 
 export function liveHouseEvent(s: LiveSeasonState | undefined | null, opts: { includeDraw?: boolean } = {}): { kind: LiveHouseEventKind; field?: EntityId[] } | null {
   if (!s) return null;
-  if (s.premiereEntrance?.stage === "entrances") return { kind: "premiere-entrances" };
+  if (s.premiereEntrance?.stage === "entrances" && !tourFree(s)) return { kind: "premiere-entrances" };
   if (s.champagneCircle === "gathered") return { kind: "champagne-circle" };
   if (s.competition) return { kind: s.competition.comp as LiveHouseEventKind, field: [...s.competition.field] };
   if (s.ceremony) return { kind: s.ceremony.hold as LiveHouseEventKind }; // ORW-281 4a: the staged ceremony holds the house event for its WHOLE length (the gathering never dissolves between steps)

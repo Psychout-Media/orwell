@@ -597,6 +597,8 @@ export interface LiveSeasonState {
   /** ORW-466: the player's recent seasons' house themes (most recent first, bounded), so this season draws a different one. Carried across a confirmed restart. */
   priorHouseThemes?: string[];
   premiereEntrance?: { order: string[]; playerPos: number; arrived: number; stage: "entrances" | "toast" | "done"; spoke: string[] };
+  /** ORW-654 / 0206 (`ORWELL_HOUSE_TOUR`): the self-guided tour, armed when a person starts playing during the premiere. `seen` = the rooms the player has stepped into (append-only; the first entry into each is the one-time room card). Absent when the flag is off or the game is headless (byte-identical). */
+  houseTour?: import("./houseTour").HouseTourState;
   /** The player's declared intent for the upcoming competition (B46); consumed when it resolves. */
   compIntent?: Intent;
   hoh?: EntityId;

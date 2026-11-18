@@ -152,6 +152,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_HOUSE_MEETINGS', key: 'houseMeetings', parser: 'defaultOn' },
   // 0180 / ORW-552 (Theme 3 slice 12 part 1): house norms - the house shuns a houseguest (or the player) it KNOWS broke their word (each observer's own held beliefs). `=0` = no shunning.
   { envKey: 'ORWELL_HOUSE_NORMS', key: 'houseNorms', parser: 'defaultOn' },
+  // ORW-654 / 0206: the SELF-GUIDED TOUR - once the player has walked in they explore the house freely, the houseguests mostly gather in the open common area with a few wandering, and the first entry into each room hands the narrator that room's card (the season's own name and look for it). The champagne circle is called after the tour. A played game only. `=0` restores the held premiere.
+  { envKey: 'ORWELL_HOUSE_TOUR', key: 'houseTour', parser: 'defaultOn' },
   { envKey: 'ORWELL_JUROR_PROFILES',          key: 'jurorProfiles',          parser: 'defaultOn' },
   { envKey: 'ORWELL_JURY_HOUSE',             key: 'juryHouse',              parser: 'defaultOn' },
   // B26-jury layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
