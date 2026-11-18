@@ -72,7 +72,7 @@ export class EngineCommandsAdapter implements EngineCommands {
   private awakeProvider?: () => ReadonlySet<EntityId> | null;
   private sceneMemorySink?: (holders: readonly EntityId[], kind: string, subject?: EntityId) => void;
   private promiseSink?: (p: { by: EntityId; to: EntityId; what: string; subject?: EntityId }) => { accepted: boolean; assuranceWritten: boolean };
-  private statementSink?: (s: { to: EntityId; about: EntityId; kind: string; object?: EntityId; label?: string }) => { accepted: boolean };
+  private statementSink?: (s: { to: EntityId; about?: EntityId; kind?: string; object?: EntityId; label?: string; retracts?: true; tellsAbout?: EntityId }) => { accepted: boolean };
   private heardAboutMeSink?: (h: { teller: EntityId; listeners: EntityId[]; nature: "targeting" | "betrayal" }) => void;
   private assuranceSink?: (a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc"; heardBy?: EntityId[] }) => void;
   /**
@@ -216,7 +216,7 @@ export class EngineCommandsAdapter implements EngineCommands {
   }
 
   /** ORW-612 part C - wire the player-statement writer so a recorded scene's `statement` becomes a claim the listener holds as a belief. Unwired => inert. */
-  setStatementSink(fn: (s: { to: EntityId; about: EntityId; kind: string; object?: EntityId }) => { accepted: boolean }): void {
+  setStatementSink(fn: (s: { to: EntityId; about?: EntityId; kind?: string; object?: EntityId; label?: string; retracts?: true; tellsAbout?: EntityId }) => { accepted: boolean }): void {
     this.statementSink = fn;
   }
 
@@ -606,7 +606,12 @@ export class EngineCommandsAdapter implements EngineCommands {
       }
     }
     // ORW-612 part C: the player's own word about a third person rides the recorded scene. Only to a NAMED, awake partner; the engine re-validates; a refused or malformed one is ignored.
-    if (this.statementSink && req.statement && typeof req.statement.to === "string" && typeof req.statement.about === "string" && typeof req.statement.kind === "string"
+    // 0203 / ORW-646: or the player owns a lie they told this houseguest (`retracts`), or tells this ally the truth about a lie told to someone else (`tellsAbout`): the engine finds the lie itself.
+    const st = req.statement;
+    const cleanForm = !!st && (st.retracts === true || typeof st.tellsAbout === "string") && typeof st.to === "string";
+    if (this.statementSink && st && cleanForm && req.initiator === PLAYER && awakeNamed.includes(st.to)) {
+      try { this.statementSink({ to: st.to, ...(typeof st.about === "string" ? { about: st.about } : {}), ...(st.retracts === true ? { retracts: true as const } : { tellsAbout: st.tellsAbout! }) }); } catch { /* ignored by design */ }
+    } else if (this.statementSink && req.statement && typeof req.statement.to === "string" && typeof req.statement.about === "string" && typeof req.statement.kind === "string"
       && req.initiator === PLAYER && awakeNamed.includes(req.statement.to)) {
       try { this.statementSink({ to: req.statement.to, about: req.statement.about, kind: req.statement.kind, ...(req.statement.object ? { object: req.statement.object } : {}), ...(typeof req.statement.label === "string" ? { label: req.statement.label } : {}) }); } catch { /* ignored by design */ }
     }

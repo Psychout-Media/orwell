@@ -24,6 +24,14 @@ export const COMING_CLEAN = {
   /** An NPC liar's chance (per decision point) to confess a lie to its listener is at most this. */
   confessMax: 0.6,
   /** The catch risk a liar reads, weights: another version told about the same subject to someone the listener is close to; the listener already doubting; the subject close to the listener. */
+  /** A pair this close (0..1, trust and affinity) counts as near: the bar for "another version reached someone close to the listener" and "the subject is close to the listener". */
+  nearBond: 0.6,
+  /** A listener whose belief in the lie sits below this already doubts it (an open test). */
+  doubtBelow: 0.5,
+  /** The bond both ways an ally needs before a liar will loop them in. */
+  allyBond: 0.6,
+  /** An NPC liar who does not confess loops an ally in at this share of the confess chance. */
+  loopInShare: 0.5,
   risk: { otherVersion: 0.35, doubting: 0.3, subjectClose: 0.25 },
 } as const;
 
@@ -63,4 +71,25 @@ export function versionsAbout(claims: readonly CleanClaim[], speaker: EntityId, 
     confessedTo: acts.filter((a) => a.kind === "confess" && a.claimId === claim.id).map((a) => a.to),
     loopedIn: acts.filter((a) => a.kind === "loop-in" && a.claimId === claim.id).map((a) => a.to),
   }));
+}
+
+/** The save check's rule for the record (append-only, never thinned): no coming-clean act is ever lost. */
+export function cleanActsSuperset(later: readonly CleanAct[] | undefined, earlier: readonly CleanAct[] | undefined): boolean {
+  if (!earlier || earlier.length === 0) return true;
+  const key = (a: CleanAct): string => `${a.kind}|${a.by}|${a.to}|${a.claimId}|${a.kind === "loop-in" ? a.toldTo : ""}`;
+  const have = new Set((later ?? []).map(key));
+  return earlier.every((a) => have.has(key(a)));
+}
+
+/** Has this act already been done (a confession once per claim and listener; a loop-in once per claim and ally)? */
+export function cleanActDone(acts: readonly CleanAct[], a: { kind: CleanAct["kind"]; claimId: string; to: EntityId }): boolean {
+  return acts.some((x) => x.kind === a.kind && x.claimId === a.claimId && x.to === a.to);
+}
+
+/**
+ * Does the NPC liar read a SECOND version of this lie as near the listener? Another claim by the same speaker about the same subject, told to someone else
+ * (a different listener) whom the listener is close to. `closeTo` is the caller's read of the pair's bond (0..1).
+ */
+export function otherVersionNear(claims: readonly CleanClaim[], claim: CleanClaim, closeTo: (a: EntityId, b: EntityId) => number, bar: number): boolean {
+  return claims.some((c) => c.id !== claim.id && c.speaker === claim.speaker && c.subject === claim.subject && c.listener !== claim.listener && closeTo(c.listener, claim.listener) >= bar);
 }

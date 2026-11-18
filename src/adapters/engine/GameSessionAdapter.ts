@@ -329,7 +329,7 @@ import { dissentMove, findScapegoat, heardDissenters, herdPull, herdVoices, hold
 import { rolesFromGraph, type NetworkRoles } from "../../engine/networkSpread";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { CREDIBILITY } from "../../engine/credibilityConstants";
-import { standing, composeWithCredibility, dealWillingnessShift, type HeardWrong } from "../../engine/reputation";
+import { REPUTATION, standing, composeWithCredibility, dealWillingnessShift, type HeardWrong } from "../../engine/reputation";
 import { SCENE_FOLDS, bondKey, bondOf, commitmentFor, emptyBond, foldBreak, foldBreakup, foldKept, foldRepair, foldSave, foldScene, foldShaken, kindOf, nightPasses, recordedSceneRoles, sceneRoles, sceneScale, strandsOf, type BookWrong, type SceneFold } from "../../engine/bondRecord";
 import { TRIADS, SWING } from "../../engine/triadsConstants";
 import { commonFriendNudges, kingmakerOf, priceTier, sharedEnemyNudges, strainedTriads, swingRead, triadPairKey, type TriadView } from "../../engine/triads";
@@ -388,6 +388,7 @@ import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
 import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
 import { sameMoment } from "../../engine/claimMoment";
+import { COMING_CLEAN, confessable, confessionTrustDrop, loopInTrustGain, catchRisk, confessChance, cleanActDone, otherVersionNear } from "../../engine/comingClean";
 import { CAUGHT_LIE, caughtLieTrustDrop, contradicts, overclaimedKeeps, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
 import { claimProblem, liesBy, claimsHeardBy, tellClaim, labelOfNature, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
 import { askableClaims, claimPhrase, decideSourceAnswer, heldBeliefFor, namedInText, namedSourceContent, noRecordNote, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
@@ -409,6 +410,8 @@ import { nameGenderOf, nameGenderStrict, pickGivenNameFor } from "../../engine/d
 import { avoidFromWire, type AvoidSets } from "../../domain/recentSeasons";
 import { dealEraGivenNames, dealSurnames, censusGroupOfHeritage } from "../../engine/data/worldNames";
 import type { Orientation, GenderPresentation } from "../../engine/diversityConstants";
+import { ATTRACTION_LIFE, attractionOf, chemistryFor, drawnTo, type AttractionIdentity } from "../../engine/attractionLife"; // 0207 A1
+import { chemistryKey, readsAsCouple, coupleNomPush } from "../../engine/attraction";
 import { ALL_ETHNICITIES, GENDER_PRESENTATIONS } from "../../engine/diversityConstants";
 import { isGenderPresentation } from "../../domain/gender"; // #1326
 import { foldHiddenImpact } from "../../engine/consequence";
@@ -1244,6 +1247,23 @@ export class GameSessionAdapter implements GameSession {
    * 0184: `observer`'s standing for `target` (1 = nothing heard against them), from the observer's OWN belief claims about the target (a wrong they heard of or witnessed done to someone else) and from the
    * deals the target kept with the observer. The observer's own caught lies are credibility's (B48), not counted here. Pure read: no rng, no writes. Engine-only: never projected.
    */
+  /** 0184 part 2c: does either of the two hold the other at a bad name (`REPUTATION.pactBar`)? Then no pact or alliance between them (the player's name counts like anyone's). Played games with reputations on only. */
+  /** 0184 part 2c: the house's social map for the post-crown retrospective (the caller is behind the crown gate): each person's roles as the houseguests read them. */
+  private socialMapRetro(): NonNullable<RetrospectiveView["socialMap"]> | undefined {
+    const s = this.live;
+    if (!s?.finished || !this.house || !this.socialRolesOn()) return undefined;
+    const npcs = this.house.npcs.map((n) => n.id);
+    const people = [PLAYER, ...npcs].map((id) => {
+      const counts = new Map<string, number>();
+      for (const o of npcs) { if (o === id) continue; const r = this.roleOf(o, id); if (r) counts.set(r, (counts.get(r) ?? 0) + 1); }
+      return { id, name: this.nameOf(id), heldAs: [...counts].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0])).map(([role, by]) => ({ role, by })) };
+    }).filter((p) => p.heldAs.length > 0);
+    return people.length ? { people } : undefined; // the pairs that faked distance join here once 0184 part 2b (#3031) keeps a weekly record
+  }
+  private badNameBetween(a: EntityId, b: EntityId): boolean {
+    if (!this.reputationOn() || this.live?.playedGame !== true) return false;
+    return (a !== PLAYER && this.reputationOf(a, b) <= REPUTATION.pactBar) || (b !== PLAYER && this.reputationOf(b, a) <= REPUTATION.pactBar);
+  }
   reputationOf(observer: EntityId, target: EntityId): number {
     if (!this.reputationOn() || observer === target) return 1;
     const live = this.live!;
@@ -5263,7 +5283,8 @@ export class GameSessionAdapter implements GameSession {
     const americasFavorite = this.americasFavorite(); // ORW-624: after the crown only
     const yourEdit = this.buildYourEditView(); // 0200 / ORW-632: after the crown only (the same gate); facts only
     const groupLife = this.buildGroupLifeView(); // 0183 part d: the sanctioned unsealing of hidden groups' names and words; same gate; facts only
-    return { ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
+    const socialMap = this.socialMapRetro(); // 0184 part 2c: after the crown only
+    return { ...(socialMap ? { socialMap } : {}), ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
@@ -11949,6 +11970,7 @@ export class GameSessionAdapter implements GameSession {
       // ORW-568 / 0181: the voter's (or HOH's) real feeling for the person keeps them. Played games with the bond record only, so a headless sim carries no hook (+0, byte-identical).
       ...(this.bondFeelingsOn() ? { feelingKeepFor: (n: EntityId, v: EntityId) => this.feelingKeepOf(n, v) } : {}),
       ...(this.houseNormsEnabled && this.live?.playedGame === true && this.npcBeliefsEnabled ? { herdFor: (n: EntityId, v: EntityId, fn: readonly [EntityId, EntityId]) => this.herdFor(n, v, fn) } : {}), // 0180 part 2
+      ...(this.showmancesEnabled && this.live?.playedGame === true ? { couplePushFor: (t: EntityId, h: EntityId) => this.couplePushFor(t, h) } : {}), // 0207 A2: a pair the HOH reads as a couple is a target
       ...(this.endgameTrustEnabled && this.live?.playedGame === true ? { endgameFor: (t: EntityId, d: EntityId) => this.endgameFor(t, d) } : {}), // 0193
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
@@ -13097,9 +13119,135 @@ export class GameSessionAdapter implements GameSession {
       this.fadeAlliances();
       this.formNpcAlliances(rng);
       this.groupLifeTick();
+      this.comingCleanTick();
     } finally { this.inAlliancePass = false; }
   }
   private inAlliancePass = false;
+
+
+  // --- 0203 / ORW-646 (Theme 4) - COMING CLEAN, NUANCED ---------------------------------------------------------------------------------------------------------------------------------------
+  /**
+   * A speaker owns a lie BEFORE it is caught (`confess`), or tells an ally the truth about a lie told to someone else (`loopIn`). Both are engine acts on the claim log (the claim is the speaker's own, and a lie), recorded
+   * claim by claim on `live.cleanActs` (append-only), so who heard which version, who was told the truth and who was looped in is always known (`versionsAbout`). Played games only; `ORWELL_COMING_CLEAN=0` => nothing runs
+   * (byte-identical). No shared rng: the NPC decisions are keyed `agendaRoll`s. Engine-only; nothing here is a number the player sees, and no tool exposes it - the player's own words reach it through
+   * `playerConfess` / `playerLoopIn` (engine entry points; the lever wiring is a separate step).
+   */
+  private comingCleanEnabled = flagDefaultOn("ORWELL_COMING_CLEAN");
+  setComingCleanEnabled(on: boolean): void { this.comingCleanEnabled = on; }
+  private get comingCleanLive(): boolean { return this.comingCleanEnabled && this.live?.playedGame === true && !!this.house; }
+  private claimCaught(c: SpokenClaim): boolean {
+    return c.listener !== PLAYER && (this.live?.beliefs?.[c.listener] ?? []).some((b) => plantedBy(b, c.id) && b.refuted === true && !(this.live?.cleanActs ?? []).some((a) => a.kind === "confess" && a.claimId === c.id));
+  }
+  private openLie(c: SpokenClaim | undefined): c is SpokenClaim {
+    return !!c && confessable(c, this.claimCaught(c) ? new Set([c.id]) : new Set<string>(), this.live?.cleanActs ?? []);
+  }
+  /** The scene a coming-clean act is, when the player is a party to it (the speaker's words, composed from names; never whether anything is true beyond what they say). Houseguest-to-houseguest acts stay engine-only. */
+  private cleanScene(by: EntityId, to: EntityId, c: SpokenClaim, kind: "confess" | "loop-in"): void {
+    if (to !== PLAYER || by === PLAYER) return; // the player's own act is their own words, already the recorded scene: the engine never authors it
+    const n = (id: EntityId): string => this.nameOf(id);
+    const text = kind === "confess"
+      ? `${n(by)} says what they told ${n(to)} wasn't so`
+      : `${n(by)} tells ${n(to)} the truth about what they told ${n(c.listener)} about ${n(c.subject)}`;
+    this.onPlayerEvent?.(text, [by, to], "conversation");
+  }
+  /** `by` owns the lie `claimId` to the listener it was told to, before it is caught: the listener trusts `by` a little less (a share of a caught lie's cost), takes back the belief it planted, and holds no `lied-to-me`. */
+  confess(by: EntityId, to: EntityId, claimId: string): boolean {
+    if (!this.comingCleanLive) return false;
+    const live = this.live!;
+    const c = live.claims?.items.find((x) => x.id === claimId);
+    const living = this.livingIds();
+    if (!this.openLie(c) || c.speaker !== by || c.listener !== to || by === to || !living.includes(by) || !living.includes(to)) return false;
+    if (to !== PLAYER) {
+      refuteToldBelief(live.beliefs, to, c.id, (h, x) => this.rel.edge(h, x));
+      const e = this.rel.edge(to, by);
+      e.trust = Math.max(0, e.trust - confessionTrustDrop());
+    }
+    (live.cleanActs ??= []).push({ kind: "confess", by, to, claimId, week: live.week });
+    this.cleanScene(by, to, c, "confess");
+    return true;
+  }
+  /** `by` tells `ally` the truth about the lie `claimId` (told to someone else): the ally trusts `by` a little more (by how close they already were) and now HOLDS "`by` lied to that person" as a fact, which can travel on. */
+  loopIn(by: EntityId, ally: EntityId, claimId: string): boolean {
+    if (!this.comingCleanLive) return false;
+    const live = this.live!;
+    const c = live.claims?.items.find((x) => x.id === claimId);
+    const living = this.livingIds();
+    if (!this.openLie(c) || c.speaker !== by || ally === by || ally === c.listener || !living.includes(by) || !living.includes(ally)) return false;
+    if (cleanActDone(live.cleanActs ?? [], { kind: "loop-in", claimId, to: ally })) return false;
+    if (ally !== PLAYER) {
+      const e = this.rel.edge(ally, by);
+      const closeness = (e.trust + e.affinity) / 2;
+      e.trust = clamp01(e.trust + loopInTrustGain(closeness));
+      if (this.npcBeliefsEnabled) {
+        recordClaim((live.beliefs ??= {}), { id: `${ally}|heard-rumor|${by}|loopin:${claimId}`, holder: ally, kind: "heard-rumor", subject: by, object: c.listener, nature: "lying", value: true, origin: "told", source: by, confidence: COMING_CLEAN.loopInConfidence, week: live.week });
+      }
+    }
+    (live.cleanActs ??= []).push({ kind: "loop-in", by, to: ally, claimId, toldTo: c.listener, week: live.week });
+    this.cleanScene(by, ally, c, "loop-in");
+    return true;
+  }
+  /** The player owns their OWN lie to `to`, in their own words (the scene belt proposes the act; the engine re-validates it against the claim log: the claim is the player's own, and false). `about` picks which when there are several; else the latest. */
+  playerConfess(req: { to: string; about?: string }): { accepted: boolean; reason?: string } {
+    if (!this.comingCleanLive) return { accepted: false, reason: "off" };
+    const c = this.playerOpenLie(req.to, req.about);
+    return c && this.confess(PLAYER, c.listener, c.id) ? { accepted: true } : { accepted: false, reason: "no-lie" };
+  }
+  /** The player tells an ally the truth about their own lie to someone else (`to` = who was lied to; `ally` = who is told). */
+  playerLoopIn(req: { ally: string; to: string; about?: string }): { accepted: boolean; reason?: string } {
+    if (!this.comingCleanLive) return { accepted: false, reason: "off" };
+    const c = this.playerOpenLie(req.to, req.about);
+    return c && this.loopIn(PLAYER, req.ally as EntityId, c.id) ? { accepted: true } : { accepted: false, reason: "no-lie" };
+  }
+  private playerOpenLie(to: string, about?: string): SpokenClaim | undefined {
+    const mine = (this.live?.claims?.items ?? []).filter((c) => c.speaker === PLAYER && c.listener === to && (about === undefined || c.subject === about) && this.openLie(c));
+    return mine[mine.length - 1];
+  }
+  /**
+   * Once a day, each houseguest who holds a lie that is still open reads the risk of it being caught from what THEY can see (another version told to someone close to the listener; the listener already doubting it;
+   * the subject close to the listener) and rolls once, keyed on (seed, speaker, day, claim): confess it if the roll lands under `confessChance` (the risk and their candor), else sometimes loop their closest ally in.
+   * At most one act per speaker per day. A confession to the player needs the two in the same room, awake. The marker is set FIRST (recording a scene commits, and a commit runs the tick again).
+   */
+  private comingCleanTick(): void {
+    if (!this.comingCleanLive) return;
+    const live = this.live!;
+    const claims = live.claims?.items;
+    if (!claims || claims.length === 0) return;
+    const day = live.dayNumber ?? live.week;
+    if (live.cleanDay !== undefined && live.cleanDay >= day) return;
+    live.cleanDay = day;
+    const seed = this.gameSeed ?? 0;
+    const living = this.livingIds();
+    const bond = (x: EntityId, y: EntityId): number => { const e = this.rel.peek(x, y); return (e.trust + e.affinity) / 2; };
+    const awake = this.awakeNow();
+    const withPlayer = (id: EntityId): boolean => (!awake || (awake.has(id) && awake.has(PLAYER))) && this.presence?.get(id) !== undefined && this.presence.get(id) === this.presence.get(PLAYER);
+    const liars = [...new Set(claims.filter((c) => !c.isTrue && c.speaker !== PLAYER).map((c) => c.speaker))].filter((l) => living.includes(l)).sort();
+    for (const liar of liars) {
+      const character = this.agendaCharacterOf(liar);
+      const candor = Math.max(0, Math.min(1, (REASONS.candorByArchetype[character?.archetype ?? ""] ?? 0.5) + (REASONS.candorByStyle[character?.strategyStyle ?? ""] ?? 0)));
+      for (const claim of liesBy(live.claims, liar)) {
+        if (!this.openLie(claim) || !living.includes(claim.listener)) continue;
+        const planted = claim.listener === PLAYER ? undefined : (live.beliefs?.[claim.listener] ?? []).find((b) => plantedBy(b, claim.id) && !b.refuted);
+        const risk = catchRisk({
+          otherVersionNearListener: otherVersionNear(claims, claim, (a, b) => (a === PLAYER || b === PLAYER ? 0 : Math.min(bond(a, b), bond(b, a))), COMING_CLEAN.nearBond),
+          listenerDoubting: !!planted && planted.confidence < COMING_CLEAN.doubtBelow,
+          subjectCloseToListener: claim.listener !== PLAYER && claim.subject !== claim.listener && bond(claim.listener, claim.subject) >= COMING_CLEAN.nearBond,
+        });
+        if (risk <= 0) continue;
+        const chance = confessChance(risk, candor);
+        if (agendaRoll(seed, liar, `coming-clean:d${day}:${claim.id}`) < chance) {
+          if (claim.listener === PLAYER && !withPlayer(liar)) continue;
+          if (this.confess(liar, claim.listener, claim.id)) break;
+          continue;
+        }
+        if (agendaRoll(seed, liar, `coming-clean-loop:d${day}:${claim.id}`) < chance * COMING_CLEAN.loopInShare) {
+          const ally = living.filter((a) => a !== liar && a !== claim.listener && a !== claim.subject && (a !== PLAYER || withPlayer(liar))
+            && !cleanActDone(live.cleanActs ?? [], { kind: "loop-in", claimId: claim.id, to: a }) && Math.min(bond(liar, a), bond(a, liar)) >= COMING_CLEAN.allyBond)
+            .sort((x, y) => Math.min(bond(liar, y), bond(y, liar)) - Math.min(bond(liar, x), bond(x, liar)) || (x < y ? -1 : 1))[0];
+          if (ally !== undefined && this.loopIn(liar, ally, claim.id)) break;
+        }
+      }
+    }
+  }
 
   /**
    * 0172 / ORW-603, ORW-611 (Theme 3 slice 6) - the HIDDEN LIFE of the NPC alliances, once per in-game day, played games only (`ORWELL_GROUP_ROLES`). Per alliance: roles dealt from the members' own bonds and stats, an inner circle
@@ -13505,7 +13653,7 @@ export class GameSessionAdapter implements GameSession {
         .filter((m) => m !== founder)
         .sort((a, b) => mutual(founder, b) - mutual(founder, a) || a.localeCompare(b))
         .slice(0, maxSize - 1);
-      const willing = willingMembers(founder, proposed, (m) => mutual(founder, m), npcFloor);
+      const willing = willingMembers(founder, proposed.filter((m) => !this.badNameBetween(founder, m)), (m) => mutual(founder, m), npcFloor); // 0184 part 2c: neither takes a bad name into an alliance
       if (willing.length < 2) continue; // nobody bonded enough — no alliance this tick
       if (!holds([founder, ...willing])) continue; // ORW-353: not hollow: the same cohesion that would fade it must clear the floor at the start
       if (this.alliances.all().some((a) => sameMembers(a.members, willing))) continue; // dedup
@@ -13513,7 +13661,7 @@ export class GameSessionAdapter implements GameSession {
       const a = this.alliances.add(name, founder, willing, beat);
       this.noteAllianceIdentity(a.id, a.name, founder);
       // Pitch the player: a founder bonded enough reveals the alliance so the player can accept it.
-      if (mutual(founder, PLAYER) >= ALLIANCE.pitchPlayerFloor) this.alliances.reveal(a.id, PLAYER, this.groupRolesOn() ? a.members : undefined);
+      if (mutual(founder, PLAYER) >= ALLIANCE.pitchPlayerFloor && !this.badNameBetween(founder, PLAYER)) this.alliances.reveal(a.id, PLAYER, this.groupRolesOn() ? a.members : undefined);
       this.flushAllianceEvents(); // after the player pitch above, so a pitched player is told
       this.agendaRecheck("alliance-changed"); // ORW-312
       this.persist();
@@ -14366,6 +14514,81 @@ export class GameSessionAdapter implements GameSession {
   houseLifeActiveNow(): boolean {
     return this.houseLifeEnabled && this.live?.playedGame === true && !!this.live.agendas && !!this.house && !!this.presence;
   }
+  /**
+   * 0207 Theme A, A1 (ORW-658; `ORWELL_SHOWMANCES`, default ON; `=0` opts out): attraction is real and private. A played game only (headless sims never reach house life, so they stay byte-identical). The chemistry
+   * ceiling per ordered pair is a keyed side roll (never the shared rng), grows with the stretches the pair spends in one room, and bends only who a houseguest seeks out and flirts with.
+   * Never projected; no number, no label. Who may be drawn to whom is read from the two characters' own data (`attractionLife.drawnTo`): nothing is inferred, and a houseguest with no orientation or presentation on file is drawn to no one.
+   */
+  private attractionOn(): boolean { return this.showmancesEnabled && this.live?.playedGame === true; } // the one flag (declared with A3/A4 below)
+  private attractionIdentityOf(id: EntityId): AttractionIdentity | undefined {
+    const n = this.house?.npcs.find((x) => x.id === id);
+    if (!n) return undefined;
+    // the same sources the 0063 eligibility predicate reads: the out orientation on the character, else the engine-only private one, else the cast default (straight is the absence of a queer orientation in this data)
+    return { orientation: (n.character.outOrientation as Orientation | undefined) ?? this.privateOrientations[id] ?? "straight", gender: n.character.genderPresentation };
+  }
+  /** The player's own stated presentation (casting or later); undefined = they have not said, and nobody is drawn to them. Their orientation is never read. */
+  private playerStatedGender(): GenderPresentation | undefined { return this.house?.player.character.genderPresentation; }
+  /** Draw the private chemistry once (every ordered pair among the cast, on keyed side rolls, seeded showmances starting high), and the houseguest-to-player ceilings as soon as the player has said how they present. Idempotent; an entry is never removed. */
+  private ensureChemistry(): void {
+    const s = this.live, house = this.house;
+    if (!s || !house) return;
+    const seed = this.gameSeed ?? 0;
+    const chem = (s.chemistry ??= {});
+    if (!s.together) {
+      s.together = {};
+      const ids = house.npcs.map((n) => n.id);
+      for (const a of ids) for (const b of ids) {
+        if (a === b) continue;
+        const c = chemistryFor(seed, a, b, drawnTo(this.attractionIdentityOf(a), house.npcs.find((n) => n.id === b)?.character.genderPresentation));
+        if (c > 0) chem[chemistryKey(a, b)] = c;
+      }
+      for (const sm of this.seededRels.showmances) {
+        for (const [a, b] of [[sm.a, sm.b], [sm.b, sm.a]] as const) {
+          if (!drawnTo(this.attractionIdentityOf(a), house.npcs.find((n) => n.id === b)?.character.genderPresentation)) continue;
+          const key = chemistryKey(a, b);
+          chem[key] = Math.max(chem[key] ?? 0, ATTRACTION_LIFE.seededChemistry);
+          s.together[key] = Math.max(s.together[key] ?? 0, ATTRACTION_LIFE.seededDays * ATTRACTION_LIFE.stretchesPerDay);
+        }
+      }
+    }
+    const pg = this.playerStatedGender();
+    if (pg !== undefined) {
+      for (const n of house.npcs) {
+        const key = chemistryKey(n.id, house.player.id);
+        if (chem[key] !== undefined) continue;
+        const c = chemistryFor(seed, n.id, house.player.id, drawnTo(this.attractionIdentityOf(n.id), pg));
+        if (c > 0) chem[key] = c;
+      }
+    }
+  }
+  /** One stretch of shared time: every pair with chemistry that is awake in the same room this stretch counts it (monotonic). */
+  private countTogether(presence: ReadonlyMap<EntityId, Room>, up: ReadonlySet<EntityId>): void {
+    const s = this.live;
+    if (!s?.chemistry) return;
+    const tg = (s.together ??= {});
+    for (const key of Object.keys(s.chemistry)) {
+      const gt = key.indexOf(">");
+      const from = key.slice(5, gt) as EntityId, to = key.slice(gt + 1) as EntityId;
+      const r = presence.get(from);
+      if (r !== undefined && r !== "diary-room" && r === presence.get(to) && up.has(from) && up.has(to)) tg[key] = (tg[key] ?? 0) + 1;
+    }
+  }
+  /** What `id` is drawn to among `targets` right now (only people they are drawn to), and which of those a flirt may start with. Undefined when there is nothing to feel (byte-identical hour view). */
+  private attractionViewOf(id: EntityId, targets: readonly EntityId[]): { attract: Map<EntityId, number>; flirtable: Set<EntityId> } | undefined {
+    const s = this.live, house = this.house;
+    if (!s?.chemistry || !house) return undefined;
+    const attract = new Map<EntityId, number>(), flirtable = new Set<EntityId>();
+    const gate = this.offscreenShowmanceGate();
+    const pg = this.playerStatedGender();
+    for (const t of targets) {
+      if (t === house.player.id && !drawnTo(this.attractionIdentityOf(id), pg)) continue; // read-time: the player may have unsaid their gender
+      const a = attractionOf(s.chemistry, s.together, id, t);
+      if (a <= 0) continue;
+      attract.set(t, a);
+      if (t !== house.player.id && gate.plausible(id, t) && !gate.hasActiveShowmance(id) && !gate.hasActiveShowmance(t)) flirtable.add(t);
+    }
+    return attract.size ? { attract, flirtable } : undefined;
+  }
   /** The active showmance partner of `id` (engine-only seeded relationships), if any. */
   private showmancePartnerOf(id: EntityId): EntityId | undefined {
     const evicted = new Set(this.live?.evictionOrder ?? []);
@@ -14559,6 +14782,9 @@ export class GameSessionAdapter implements GameSession {
       const spin = 1 + LIE_AUDIENCE.rotation * agendaRoll(seed, listener, `lie-audience:d${day}h${hour}r${repeat}:${target}`);
       return pivot * (LIE_AUDIENCE.credulityBase + this.credulityOf(listener)) * spin;
     } : undefined;
+    const attractOn = this.attractionOn();
+    if (attractOn) this.ensureChemistry(); // 0207 A1: the private chemistry (keyed side rolls; idempotent)
+    const attractView = attractOn ? (id: EntityId, targets: readonly EntityId[]) => this.attractionViewOf(id, targets) : undefined;
     const playerUp = playerRoom !== undefined && (this.awakeNow()?.has(house.player.id) ?? false); // ORW-620: a player who stays up is a night owl too
     // ORW-621: one houseguest's hour, built once for the people in other rooms (the usual stretch) and once, in `room` mode, for the people in the player's own room: a view of that room's houseguests only (the player is never a partner, never moved).
     const planFor = (id: EntityId, whereM: ReadonlyMap<EntityId, Room>, viewM: ReadonlyMap<EntityId, Room>, others: readonly EntityId[], room: boolean): PlannedAction | undefined => {
@@ -14577,6 +14803,7 @@ export class GameSessionAdapter implements GameSession {
         threat: new Map([...others, ...(withPlayerView ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).threat] as const)), // ORW-507 (#2612): the player is in the threat map too (the planner used a flat 0.3 for them)
         mates: [...mates].sort(), ...(s.hoh ? { hoh: s.hoh } : {}), nominees: s.nominees ? [...s.nominees] : [],
         ...(showmance && whereM.has(showmance) ? { showmance } : {}),
+        ...(attractView ? (() => { const av = attractView(id, [...others, ...(withPlayerView ? [house.player.id] : [])]); return av ? { attract: av.attract, flirtable: av.flirtable } : {}; })() : {}), // 0207 A1: private attraction (played games, flag on)
         ...this.roommateView(bedsNow, id, inHouse, whereM),
         ...(!room && kindredOf(id) ? { kindred: kindredOf(id)! } : {}),
         timeOfDay: tod, day, hour, ...(repeat > 0 ? { repeat } : {}), inCompetition: this.compReactionsOn() && !!s.competition && !s.competition.stillIn.includes(id),
@@ -14605,7 +14832,7 @@ export class GameSessionAdapter implements GameSession {
     const approachAllowed = (p: PlannedAction): boolean => this.desireClockEnabled && (hostileAtPlayer(p) || this.rel.edge(p.actor, house.player.id).trust >= DESIRE.goalMinTrust) && !tieAvoids(this.agendaView(p.actor)?.character ?? this.agendaCharacterOf(p.actor)!).includes(house.player.id);
     for (const p of plans) {
       if (p.place === "diary-room" || !where.has(p.actor)) continue;
-      if ((p.goalId || p.nightOwl) && p.with.includes(house.player.id) && !approachAllowed(p)) continue;
+      if ((p.goalId || p.nightOwl || p.drawn) && p.with.includes(house.player.id) && !approachAllowed(p)) continue;
       if (presence.get(p.actor) !== p.place) { this.presenceTenure?.set(p.actor, 0); this.presenceZone?.delete(p.actor); } // ORW-386: walking to another room is a fresh arrival; the tenure used to keep counting through this move (Marisol: "22 turns" in a kitchen she had just walked into)
       presence.set(p.actor, p.place);
       this.presenceBase?.set(p.actor, p.place);
@@ -14615,6 +14842,11 @@ export class GameSessionAdapter implements GameSession {
       // ORW-614 (P-11): the player's own hours count toward the crowd they keep, like anyone's (never while napping; the Diary Room is private).
       const pr = presence.get(house.player.id);
       if (pr && pr !== "diary-room" && !awakeIds.includes(house.player.id) && (this.awakeNow()?.has(house.player.id) ?? true)) bumpTenure(t, house.player.id, pr);
+    }
+    if (attractOn) { // 0207 A1: this stretch's shared time (awake houseguests in one room; the player counts when up)
+      const up = new Set<EntityId>(awakeIds);
+      if (this.awakeNow()?.has(house.player.id) ?? true) up.add(house.player.id);
+      this.countTogether(presence, up);
     }
     const gate = this.offscreenShowmanceGate();
     const out: OffscreenScene[] = [];
@@ -14628,6 +14860,8 @@ export class GameSessionAdapter implements GameSession {
           (s.goalApproaches ??= {})[p.actor] = { desire: hostileAtPlayer(p) ? "probe" : desireForAction(p.kind), goalId: p.goalId, hour: this.absHour() };
         } else if (p.nightOwl && p.with.includes(house.player.id) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: "night-owl", hour: this.absHour() }; // ORW-620: an awake houseguest comes to the player who is still up, through the desire clock's own path and guards
+        } else if (p.drawn && p.with.includes(house.player.id) && approachAllowed(p)) {
+          (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: "attraction", hour: this.absHour() }; // 0207 A1: drawn to the player, they come to them through the desire clock's own path and guards (what the player does about it is theirs)
         } else if (p.court && p.with.includes(house.player.id) && approachAllowed(p)) {
           (s.goalApproaches ??= {})[p.actor] = { desire: desireForAction(p.kind), goalId: "court", hour: this.absHour() }; // 0173: the player is the HOH: the court comes to them, through the desire clock's own path and guards
         }
@@ -15489,6 +15723,44 @@ export class GameSessionAdapter implements GameSession {
     return new Map(others.map((o) => [o, reader.bond(holder, o).strands.rivalry ?? 0] as const).filter(([, v]) => v > 0));
   }
   private bondFeelingsOn(): boolean { return this.bondFeelingsEnabled && this.live?.playedGame === true && this.bondRecordEnabled; }
+
+  /** 0207 A2: the romance scenes `holder` registered (they were in it, or watched it from the room), as unordered pair keys; cached by the record's length. A hiding pair's scenes are caught only on a roll (0184 2b), so this is only what they caught. */
+  private seenRomanceCache = new Map<EntityId, { n: number; pairs: Set<string> }>();
+  private romanceSeenBy(holder: EntityId, a: EntityId, b: EntityId): boolean {
+    const events = this.record?.events() ?? [];
+    let c = this.seenRomanceCache.get(holder);
+    if (!c || c.n !== events.length) {
+      const pairs = new Set<string>();
+      for (const e of events) {
+        if (e.type !== "showmance" || e.witnessSet.length < 2) continue;
+        if (!e.witnessSet.includes(holder) && !(e.houseLife?.seenBy ?? []).includes(holder)) continue;
+        const people = e.witnessSet.filter((x) => x !== holder);
+        if (people.length === 2) pairs.add([...people].sort().join("|"));
+      }
+      c = { n: events.length, pairs };
+      this.seenRomanceCache.set(holder, c);
+    }
+    return c.pairs.has([a, b].sort().join("|"));
+  }
+  /**
+   * 0207 A2 (ORW-659): the couple is a target. An NPC HOH outside a pair they READ as a couple (their own view of the pair's bond at the foundation's bar, plus a romance scene they were in or watched) puts
+   * `coupleNomPush` on ONE of the two: whichever of them the HOH reads as the bigger threat (ties by id), so the other is pulled in beside them by the duo read. Perceived, never the truth: a pair nobody caught
+   * is no couple to this HOH, and a couple that hides it (faked distance) is read only by those who caught them. The push scales with how coupled the pair looks. Played games only, no rng.
+   */
+  private couplePushFor(target: EntityId, hoh: EntityId): number {
+    const s = this.live;
+    if (!this.showmancesEnabled || !s || s.playedGame !== true || hoh === PLAYER || target === hoh) return 0;
+    let best = 0;
+    for (const other of s.active) {
+      if (other === target || other === hoh) continue;
+      const bond = this.perceivedBond(hoh, target, other);
+      if (!readsAsCouple(bond, this.romanceSeenBy(hoh, target, other))) continue;
+      const mine = this.rel.edge(hoh, target).threat, theirs = this.rel.edge(hoh, other).threat;
+      if (mine < theirs || (mine === theirs && target > other)) continue; // the push lands on the bigger threat of the two
+      best = Math.max(best, coupleNomPush(true, false) * Math.min(1, bond));
+    }
+    return best;
+  }
 
   /** The signed provider value for a vote or a nomination: how much `holder`'s real feeling for `other` keeps them (0 for the player: their own choices are theirs). */
   private feelingKeepOf(other: EntityId, holder: EntityId): number {
@@ -18762,6 +19034,7 @@ export class GameSessionAdapter implements GameSession {
     });
     for (const p of proposals) {
       const [a, b] = p.parties;
+      if (this.badNameBetween(a, b)) continue; // 0184 part 2c: a pact needs both to hold the other above a bad name
       const evId = this.onPlayerEvent(`${this.nameOf(a)} and ${this.nameOf(b)} settle a quiet ${p.kind} understanding`, [a, b], "deal");
       this.deals.make(p.parties, p.kind, "a quiet pact sealed away from the cameras", evId, s.week); // its plans: main's planAndCarryOutDeals, like every deal
     }
@@ -20836,10 +21109,17 @@ export class GameSessionAdapter implements GameSession {
    * and a false claim is a lie on the record (the player holds no engine beliefs). A kind outside the claim set, an unknown or absent houseguest, or a refused entry makes no claim and never throws. Gated by ORWELL_PROMISE_TERMS
    * and the open ledger; off => nothing.
    */
-  recordPlayerStatement(req: { to: string; about: string; kind: string; object?: string; label?: string }): { accepted: boolean; reason?: string } {
+  recordPlayerStatement(req: { to: string; about?: string; kind?: string; object?: string; label?: string; retracts?: true; tellsAbout?: string }): { accepted: boolean; reason?: string } {
+    // 0203 / ORW-646: the player owns a lie (`retracts`) or tells an ally the truth about a lie told to someone else (`tellsAbout`). The player's words are the scene already recorded; the engine finds the player's own open lie
+    // from its claim log and DROPS the act unless it matches (own, false, told to that listener; for a loop-in, told to someone other than the ally). Never exposes a claim id.
+    if (req && (req.retracts === true || req.tellsAbout !== undefined)) {
+      if (typeof req.to !== "string" || (req.about !== undefined && typeof req.about !== "string") || (req.retracts === true && req.tellsAbout !== undefined)) return { accepted: false, reason: "bad-shape" };
+      return req.retracts === true ? this.playerConfess({ to: req.to, ...(req.about ? { about: req.about } : {}) }) : this.playerLoopIn({ ally: req.to, to: String(req.tellsAbout), ...(req.about ? { about: req.about } : {}) });
+    }
+    if (!req || typeof req.about !== "string" || typeof req.kind !== "string") return { accepted: false, reason: "bad-shape" };
     if (!this.promiseTermsLive) return { accepted: false, reason: "off" };
     if (!this.house || !this.live || this.live.playedGame !== true) return { accepted: false, reason: "no-game" };
-    if (!req || typeof req.to !== "string" || typeof req.about !== "string" || typeof req.kind !== "string") return { accepted: false, reason: "bad-shape" };
+    if (typeof req.to !== "string") return { accepted: false, reason: "bad-shape" };
     if (!(SPOKEN_CLAIM_KINDS as readonly string[]).includes(req.kind)) return { accepted: false, reason: "bad-shape" };
     const known = new Set<string>(this.house.npcs.map((n) => n.id as string));
     const objectOk = req.object === undefined || (typeof req.object === "string" && known.has(req.object));

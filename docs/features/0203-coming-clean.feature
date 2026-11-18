@@ -1,4 +1,3 @@
-# spec-only: 0203 (ORW-646, Theme 4) - the foundation (src/engine/comingClean.ts) is built and unit-tested; these scenarios are wired when the build lands (A or B).
 # Feature 0203 - coming clean, nuanced (Ryne 2026-11-17). Design: vault note "Coming Clean Spec 0203". Roles only.
 
 Feature: Coming clean, nuanced
