@@ -10,7 +10,7 @@ export interface MixScene { type: string; action: string; msg: number; week: num
 
 export interface MixGame { scenes: MixScene[]; /** alliance betrayals recorded (events of type betrayal) */ betrayals: number; /** of those, the ones a goal clash caused (an NPC turning on a fellow member) */ goalClashBreaks: number; /** alliance betrayals by game week (the week the event happened in) */ betrayalsByWeek: Record<number, number> }
 
-export async function playMixGame(seed: number, messages: number, opts: { advanceEvery?: number; /** stop as soon as the game reaches this week (default: play all `messages`) */ stopAtWeek?: number; /** 0178: read the finished sandbox (a report hook; read-only) */ inspect?: (session: unknown) => void; /** 0178: an active player - called after each message, may call tools (the report makes deals) */ onMessage?: (call: (name: string, args: Record<string, unknown>) => Promise<unknown>, i: number) => Promise<void> } = {}): Promise<MixGame> {
+export async function playMixGame(seed: number, messages: number, opts: { advanceEvery?: number; /** stop as soon as the game reaches this week (default: play all `messages`) */ stopAtWeek?: number; /** 0178: read the finished sandbox (a report hook; read-only) */ inspect?: (session: unknown) => void; /** ORW-634: read the live sandbox after each message (read-only; a report hook) */ onStep?: (session: unknown) => void; /** 0178: an active player - called after each message, may call tools (the report makes deals) */ onMessage?: (call: (name: string, args: Record<string, unknown>) => Promise<unknown>, i: number) => Promise<void> } = {}): Promise<MixGame> {
   const every = opts.advanceEvery ?? 12; // ORW-518: the late-game guard advances faster so EVERY seed reaches the late weeks (at 12 a played week is ~400 messages)
   const user = `mixdrv-${seed}`;
   const reg = composeRuntime({ clock: new FakeClock(), seed }).registry;
@@ -39,6 +39,7 @@ export async function playMixGame(seed: number, messages: number, opts: { advanc
     const n = reg.sandboxFor(user).engine.events.queryAll().length;
     const out = !!sess.live?.evictionOrder?.includes(sess.house!.player.id);
     while (seen < n) { stamp[seen++] = { msg: i, week, out }; }
+    opts.onStep?.(reg.sandboxFor(user).session); // ORW-634: a read-only look at the live sandbox after each message (a report hook)
     if (opts.stopAtWeek !== undefined && week >= opts.stopAtWeek) break;
   }
   const scenes: MixScene[] = [];

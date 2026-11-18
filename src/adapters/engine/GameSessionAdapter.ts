@@ -6350,6 +6350,13 @@ export class GameSessionAdapter implements GameSession {
   /** Theme 3 slice 3 (Overseer B): the favor ledger as a second source of a bond's debt (signed like BondView.debt). Absent => the record's own debt only. */
   private favorDebt?: DebtSource;
   setFavorDebtSource(fn: DebtSource | undefined): void { this.favorDebt = fn; }
+  /** ORW-634: the house's typical bond - bond strength, averaged over every ordered pair still in the house (the centre of the HOH referendum). Pure read. */
+  private houseTypicalBond(): number {
+    const ids = this.livingIds();
+    let sum = 0, n = 0;
+    for (const a of ids) for (const b of ids) if (a !== b) { sum += this.rel.peekBondStrength(a, b); n++; } // peek: a read must never create an edge (bondStrength does), or a refused commit is not rolled back
+    return n ? sum / n : 0;
+  }
   /** 0193 (ORW-623): the endgame changes the rules of trust (`ORWELL_ENDGAME_TRUST`, default ON; `=0` = byte-identical). Played games only, at four left or fewer. */
   private endgameTrustEnabled = flagDefaultOn("ORWELL_ENDGAME_TRUST");
   setEndgameTrustEnabled(on: boolean): void { this.endgameTrustEnabled = on; }
@@ -6396,6 +6403,7 @@ export class GameSessionAdapter implements GameSession {
     }
   }
 
+  /** 0180 (Theme 3 slice 12, part 1): house norms (`ORWELL_HOUSE_NORMS`, default ON; `=0` = no shunning, byte-identical). Played games with beliefs only. */
   private houseNormsEnabled = flagDefaultOn("ORWELL_HOUSE_NORMS");
   setHouseNormsEnabled(on: boolean): void { this.houseNormsEnabled = on; }
   /**
@@ -11882,6 +11890,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.live?.playedGame === true && this.live.agendas ? {
         agendaPullFor: (t: EntityId, d: EntityId, at?: "veto") => this.agendaPullOf(t, d, at),
         hohTargetReadFor: (v: EntityId, h: EntityId, fn: readonly [EntityId, EntityId]) => this.hohTargetReadOf(v, h, fn), // ORW-573: what the voter knows, never the HOH's hidden reads
+        ...(this.ownViewOn() ? { hohReferendumCentre: () => this.houseTypicalBond() } : {}), // ORW-634: alignment with the HOH is read against the house's own typical bond (with the own view, ORW-574: decisions read the relationships the house holds)
         statedReasonFor: (real: RealReason, day: number) => explainDecision(real, this.agendaCharacterOf(real.decider)!, this.gameSeed ?? 0, day),
       } : {}),
       // ORW-568 / 0181: the voter's (or HOH's) real feeling for the person keeps them. Played games with the bond record only, so a headless sim carries no hook (+0, byte-identical).

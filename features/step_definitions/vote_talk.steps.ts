@@ -146,7 +146,7 @@ async function arm(flag: "0" | "1") {
   const week1 = [];
   for (const seed of [3, 5]) week1.push(...(await playMixGame(seed, 360)).scenes);
   const late = [];
-  for (const seed of [1, 2, 3]) late.push(...(await playMixGame(seed, 450, { advanceEvery: 4 })).scenes.filter((s) => s.msg >= 250));
+  for (const seed of [1, 2, 3, 4, 5, 6]) late.push(...(await playMixGame(seed, 450, { advanceEvery: 4 })).scenes.filter((s) => s.msg >= 250));
   return { w1: mixShares(week1), late: mixShares(late) };
 }
 When("seeded seasons play with caught lies and vote claims on", { timeout: 1_200_000 }, async function () {

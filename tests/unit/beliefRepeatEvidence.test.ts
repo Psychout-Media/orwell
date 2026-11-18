@@ -119,6 +119,8 @@ describe("ORW-591 a second DISTINCT source is real corroboration", () => {
   });
 });
 
+const claimsOfWeeks = (st: BeliefStore): number[] => (st[LISTENER] ?? []).map((b) => b.week);
+
 describe("ORW-591 the save check guards the claim log and the beliefs", () => {
   const snap = (live: Record<string, unknown>): SessionSnapshot => ({ live } as unknown as SessionSnapshot);
   const belief = (n: number, extra: Partial<BeliefClaim> = {}): BeliefClaim => ({ id: `${LISTENER}|targets-me|npc:s${n}|x`, holder: LISTENER, kind: "targets-me", subject: `npc:s${n}`, object: LISTENER, value: true, origin: "told", source: SPEAKER, confidence: 0.5, week: n, ...extra });
@@ -159,11 +161,40 @@ describe("ORW-591 the save check guards the claim log and the beliefs", () => {
     const earlier = snap({ beliefs: full });
     const tookRefuted = clone(full); tookRefuted[LISTENER]!.splice(7, 1); tookRefuted[LISTENER]!.push(belief(100));
     expect(sessionCoreSupersetViolation(snap({ beliefs: tookRefuted }), earlier)).toBeNull();
-    const tookLive = clone(full); tookLive[LISTENER]!.splice(0, 1); tookLive[LISTENER]!.push(belief(100));
+    const tookLive = clone(full); tookLive[LISTENER]!.splice(20, 1); tookLive[LISTENER]!.push(belief(100));
     expect(sessionCoreSupersetViolation(snap({ beliefs: tookLive }), earlier)).toBe("beliefs");
     const noneRefuted: BeliefStore = { [LISTENER]: Array.from({ length: BELIEF_CAP_PER_HOLDER }, (_, i) => belief(i)) };
     const tookOldest = clone(noneRefuted); tookOldest[LISTENER]!.splice(0, 1); tookOldest[LISTENER]!.push(belief(100));
     expect(sessionCoreSupersetViolation(snap({ beliefs: tookOldest }), snap({ beliefs: noneRefuted }))).toBeNull();
+  });
+
+  it("ORW-682: a live belief refuted and compacted within ONE commit, with an older-refuted-first rule, passes; a live loss ahead of a not-older refuted survivor is still refused", () => {
+    // earlier save: at the cap; the live belief at week 2 and a refuted belief at week 10
+    const full: BeliefStore = { [LISTENER]: Array.from({ length: BELIEF_CAP_PER_HOLDER }, (_, i) => belief(i, i === 10 ? { refuted: true } : {})) };
+    const earlier = clone(full);
+    // within one commit: the week-2 belief is refuted, then a new write compacts - the oldest REFUTED belief is now the week-2 one
+    const later = clone(full);
+    const cap = later[LISTENER]!;
+    cap[2]!.refuted = true;
+    recordClaim(later, belief(100));
+    expect(claimsOfWeeks(later)).not.toContain(2);
+    expect(claimsOfWeeks(later)).toContain(10);                       // the older-refuted one survives, as the cap's rule dictates
+    expect(beliefStoreSuperset(later, earlier)).toBe(true);
+    // the seed-8 shape: two refuted beliefs of the SAME week; the one refuted in-commit sits earlier in the list, so the tie goes to it (not the older-written refuted one)
+    const tie: BeliefStore = { [LISTENER]: Array.from({ length: BELIEF_CAP_PER_HOLDER }, (_, i) => belief(i, { week: 3, ...(i === 6 ? { refuted: true } : {}) })) };
+    const tieLater = clone(tie);
+    tieLater[LISTENER]![2]!.refuted = true;
+    recordClaim(tieLater, belief(100, { week: 8 }));
+    expect(tieLater[LISTENER]!.map((b) => b.id)).not.toContain(tie[LISTENER]![2]!.id);
+    expect(tieLater[LISTENER]!.map((b) => b.id)).toContain(tie[LISTENER]![6]!.id);
+    expect(beliefStoreSuperset(tieLater, tie)).toBe(true);
+    // real degradation still refused: a live belief NEWER than a surviving refuted one cannot be the loss
+    const bad = clone(full);
+    bad[LISTENER]!.splice(20, 1); bad[LISTENER]!.push(belief(100));
+    expect(beliefStoreSuperset(bad, earlier)).toBe(false);
+    // ... and a live loss below the cap is refused as ever
+    const below = clone(full); below[LISTENER]!.splice(2, 1);
+    expect(beliefStoreSuperset(below, earlier)).toBe(false);
   });
 
   it("the cap's own compaction always passes the save check (writes, repeats and refutations, step by step)", () => {
