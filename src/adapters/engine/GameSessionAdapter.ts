@@ -93,6 +93,7 @@ import { DEAL_NOMS } from "../../engine/dealNomConstants";
 import { proposeNpcDeals, planAwareDealPush, type PairBondRead } from "../../engine/npcDeals";
 import { decideDodge, type DodgeFact } from "../../engine/dodging";
 import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosure, type DisclosureEvent } from "../../engine/disclosureRoute";
+import { beatShare, endgamePush, endgameFakeLean, isEndgame } from "../../engine/endgameTrust";
 import { heirOf, partnerReaction, debtorRelief } from "../../engine/evictedTake";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, BreakCause, Deal } from "../../engine/deals";
@@ -334,7 +335,7 @@ import {
   firstCeremonyBeatResolved,
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
   advanceClock, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, playerNightDeficit, napFactor, npcRestDeficit, isInertBeat, eventBeatHours, spreadClockHours, ceremonyRef, CEREMONY_STEP_TEXT,
-  honorWeight, recordWhy, nightBreakPending, markNightGateCrossed, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
+  honorWeight, recordWhy, preJuryEvictionCount, nightBreakPending, markNightGateCrossed, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type WeekDigest, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
 } from "../../engine/liveSeason";
@@ -2358,7 +2359,9 @@ export class GameSessionAdapter implements GameSession {
       // ORW-601: one faking model - the shared dials (the person's cunning, every promise they have made so far, deals and assurances, and the culture) when deal plans are on.
       const made = this.deals.all.filter((d) => d.parties.includes(a.from)).length + ledger.all.filter((x) => x.from === a.from).length + 1;
       const pFake = this.dealPlansEnabled ? Math.max(0, Math.min(1, fakingLean(made, this.fakingCunningOf(a.from)) + DEAL_PLANS.cultureLean * ((this.cultureMult("lying") - 1) - (this.cultureMult("loyalty") - 1)))) : undefined;
-      sincerity = npcAssuranceSincerity(loyalty, roll, pFake);
+      // 0193: in the endgame, someone reassuring a rival they can't beat leans toward faking it (only ever adds; absent outside the endgame).
+      const lean = pFake !== undefined && a.to !== a.from && this.endgameOn() ? endgameFakeLean(this.beatShareOf(a.from, a.to)) : 0;
+      sincerity = npcAssuranceSincerity(loyalty, roll, pFake !== undefined && lean > 0 ? Math.min(1, pFake + lean) : pFake);
     }
     const { heardBy, ...rest } = a;
     ledger.add({ ...rest, sincerity, week: this.live.week, ...(this.memoryPromisesEnabled && heardBy && heardBy.length > 0 ? { heardBy: [...heardBy] } : {}) });
@@ -6246,7 +6249,52 @@ export class GameSessionAdapter implements GameSession {
   /** Theme 3 slice 3 (Overseer B): the favor ledger as a second source of a bond's debt (signed like BondView.debt). Absent => the record's own debt only. */
   private favorDebt?: DebtSource;
   setFavorDebtSource(fn: DebtSource | undefined): void { this.favorDebt = fn; }
-  /** 0180 (Theme 3 slice 12, part 1): house norms (`ORWELL_HOUSE_NORMS`, default ON; `=0` = no shunning, byte-identical). Played games with beliefs only. */
+  /** 0193 (ORW-623): the endgame changes the rules of trust (`ORWELL_ENDGAME_TRUST`, default ON; `=0` = byte-identical). Played games only, at four left or fewer. */
+  private endgameTrustEnabled = flagDefaultOn("ORWELL_ENDGAME_TRUST");
+  setEndgameTrustEnabled(on: boolean): void { this.endgameTrustEnabled = on; }
+  private endgameOn(): boolean {
+    const s = this.live;
+    return this.endgameTrustEnabled && !!s && s.playedGame === true && !s.finished && isEndgame(s.active.length);
+  }
+  /** 0193: `me`'s OWN read of their jury odds against `rival` at a final two - the jurors' bonds as `me` can see them (their own warmth to `me` they know), and the public comp record. */
+  private beatShareOf(me: EntityId, rival: EntityId): number {
+    const s = this.live!;
+    const jurors = s.evictionOrder.slice(preJuryEvictionCount(s));
+    const bond = (j: EntityId, f: EntityId): number => (this.perceivedBondsEnabled ? this.perceivedBond(me, j, f) : this.rel.bondStrength(j, f));
+    return beatShare(me, rival, jurors, bond, (id) => s.resume?.[id] ?? 0);
+  }
+  /** 0193: "can I beat you?" as a push on evicting / nominating `target` (+ = `decider` can't beat them). NPC deciders only: the player makes their own call. */
+  private endgameFor(target: EntityId, decider: EntityId): number {
+    if (!this.endgameOn() || decider === PLAYER || target === decider) return 0;
+    return endgamePush(this.beatShareOf(decider, target));
+  }
+  /**
+   * 0193: old final-two promises get tested out loud, once per endgame week. Each NPC side of an open final two asks the other. An NPC partner answers with a fresh
+   * reassurance on the assurance ledger, its sincerity the engine's (and tilted toward faking when they can't beat the one they reassure), so a later vote against the
+   * asker breaks it with the full B4 cost. A player partner is asked to their face, and their answer is their own words (a scene they play; the ledger records it).
+   */
+  endgameTests(): void {
+    const s = this.live;
+    if (!this.endgameOn() || !s) return;
+    const done = (s.endgameTested ??= []);
+    if (done.includes(s.week)) return;
+    done.push(s.week);
+    const living = new Set(s.active);
+    for (const d of this.deals.all) {
+      if (d.status !== "open" || d.kind !== "final-two") continue;
+      const [a, b] = d.parties;
+      if (!living.has(a) || !living.has(b)) continue;
+      for (const [asker, partner] of [[a, b], [b, a]] as const) {
+        if (asker === PLAYER) continue; // the player tests by asking in play; the NPC side's own question to them is below
+        if (partner === PLAYER) {
+          this.onPlayerEvent?.(`${this.nameOf(asker)} pulls ${this.nameOf(PLAYER)} aside and asks whether their final two still stands`, [asker, PLAYER]); // a deal event the player is in; the asker started it
+          continue;
+        }
+        this.recordAssurance({ from: partner, to: asker, kind: "vote", sincerity: 0, source: "npc" }); // an NPC's sincerity is the engine's call (recordAssurance)
+      }
+    }
+  }
+
   private houseNormsEnabled = flagDefaultOn("ORWELL_HOUSE_NORMS");
   setHouseNormsEnabled(on: boolean): void { this.houseNormsEnabled = on; }
   /**
@@ -11608,6 +11656,7 @@ export class GameSessionAdapter implements GameSession {
       // ORW-568 / 0181: the voter's (or HOH's) real feeling for the person keeps them. Played games with the bond record only, so a headless sim carries no hook (+0, byte-identical).
       ...(this.bondFeelingsOn() ? { feelingKeepFor: (n: EntityId, v: EntityId) => this.feelingKeepOf(n, v) } : {}),
       ...(this.houseNormsEnabled && this.live?.playedGame === true && this.npcBeliefsEnabled ? { herdFor: (n: EntityId, v: EntityId, fn: readonly [EntityId, EntityId]) => this.herdFor(n, v, fn) } : {}), // 0180 part 2
+      ...(this.endgameTrustEnabled && this.live?.playedGame === true ? { endgameFor: (t: EntityId, d: EntityId) => this.endgameFor(t, d) } : {}), // 0193
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
       ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId, among?: readonly EntityId[]) => this.assuranceVotedOut(v, n, among) } : {}),
@@ -17667,6 +17716,7 @@ export class GameSessionAdapter implements GameSession {
       this.deals.expireWeekScoped(this.live?.week ?? 0);
       this.talkAboutTheVote(); // 0154 slice 5b: after the eviction the voters may tell each other how they voted (flag-gated, own seeded stream)
       this.evictedTakeWithThem(); // 0195: what the evictee held leaves with them, and the house reacts
+      this.endgameTests(); // 0193: at four left or fewer, old final-two promises get tested out loud
       this.audienceAfterEviction(); // ORW-624: the audience outside - the crowd as the evictee walks out, and a fan reward in its weeks
     }
     // T0-3 (issue #1778) — derive this beat's Vault-free broadcast chyron(s), IF ANY, from the SAME
