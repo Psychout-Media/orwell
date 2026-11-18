@@ -121,6 +121,7 @@
 #       (2026-07-21, #1779). With it unset `secretBarterTick` returns before drawing anything (the
 #       dedicated barter-rng stream never advances, no secret changes hands) — the seeded comp/vote/jury
 #       spine is byte-identical — see `secretBarterConstants.ts:14-18`.
+#   ORWELL_SECRET_BREAKS        0204 / ORW-647: the night it all comes out - a fact enough houseguests hold breaks in front of the awake house, or its subject blows it up when pressured and volatile; the room re-reads them, kept-out houseguests hold a grudge (a played game only; =0 opts out).
 #   ORWELL_SHOWRUNNER           AI Showrunner (0101/#1401) Phase-1 ONLY — owner ruling Q2 (2026-07-21,
 #       #1779: "Phase-1 observe-only; REWEIGHT stays off"). Phase-1 composes on a pure scoring pass (no
 #       rng) and only routes an emphasized surfaced thread's belief to the player, fold-free — the
@@ -178,6 +179,7 @@ ORWELL_EMBEDDINGS=fastembed
 ORWELL_EMBED_CACHE=${data_dir}/models
 ORWELL_ENDGAME_MEMORY=1
 ORWELL_ENDGAME_TRUST=1
+ORWELL_FAKED_DISTANCE=1
 ORWELL_EVICTED_TAKE=1
 ORWELL_FAVORS=1
 ORWELL_FINAL_HOH_THREE_PART=1
@@ -250,6 +252,7 @@ ORWELL_ROOM_CANON=1
 ORWELL_ROOM_LIFE=1
 ORWELL_SCHEME_TARGETS=1
 ORWELL_SECRET_BARTER=1
+ORWELL_SECRET_BREAKS=1
 ORWELL_SECRET_PACING=1
 ORWELL_SEEDED_TIE_SURFACING=1
 ORWELL_SHOWRUNNER=1

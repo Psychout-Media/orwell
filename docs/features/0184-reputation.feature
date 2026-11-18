@@ -36,3 +36,17 @@ Feature: A houseguest heard to be a snake is believed less by those who heard it
     And the player starting several fights the observer saw
     Then the observer reads the player as the house villain
     And a houseguest who heard it may tell the player what the house thinks of them, as gossip in their own words
+
+  # Part 2b (ORW-564): a close pair fakes distance in public.
+  Scenario: A pair faking distance is mostly not seen together, and only those who caught them read them as close
+    Given a played season with faked distance on
+    And two close allies who are hiding it this week
+    When they spend time together in a room with others, again and again
+    Then only a few of the onlookers register it each time
+    And a houseguest who never caught them reads them as less close than one who did
+
+  Scenario: The player can catch a hidden pair
+    Given a played season with faked distance on
+    And two close allies who are hiding it this week
+    When the pair keeps slipping off in a room the player is in
+    Then the player sometimes catches them, as a scene only the player saw

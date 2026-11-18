@@ -42,5 +42,11 @@ Labels the observer was TOLD count toward a role at their confidence. So a role 
 
 **The player in both directions.** The player's own scenes make their role in each observer's eyes (start fights and the house reads a villain). Gossip about the player reaches the player. The player can spread a reputation too: telling a houseguest someone is a snake (or any role) is an ORW-612 statement of kind `has-reputation` with the role word (the front end's scene belt proposes it, validated against the engine's role words, and the engine re-checks), and the listener holds it from the player like any claim.
 
-## Still to come (part 2b, 2c)
-Faked distance and perceived bonds beyond the HOH's read (2b); the retrospective's social map and reputation read by NPC-to-NPC deals and alliance offers (2c).
+## Part 2b: a close pair fakes distance in public (ORW-564; flag `ORWELL_FAKED_DISTANCE`, default ON)
+- **Who hides (`src/engine/fakedDistance.ts`).** Each week, an NPC pair where each feels close to the other (`HIDE.bondAtLeast`) decides whether to hide it. The chance rises with either one's cunning and with the house's paranoia dial. It's decided once a week on its own seeded side stream and kept on the season (`live.hiding`).
+- **What hiding does.** Their warm time together (bonding, showmance, strategy, alliance talk) stays low-key: someone else in the room registers it only on a keyed catch roll (`HIDE.catchChance`). A fight is never hidden. Under own-view (ORW-574, played games) the house reads a pair only from the scenes it registered, so anyone who never caught them reads them as no closer than strangers; one who did reads them closer.
+- **The player in both directions.** The player in the room can catch a hiding pair slipping off together, as a scene only the player saw (their own read to make). The player's own time with a houseguest is never registered by onlookers in the first place (own-view: only what is told spreads), so only NPC pairs decide to hide.
+- **Measured:** see the PR (the 12-season mix guard; scene types are unchanged, only who registers them).
+
+## Still to come (part 2c)
+The retrospective's social map and reputation read by NPC-to-NPC deals and alliance offers (2c).
