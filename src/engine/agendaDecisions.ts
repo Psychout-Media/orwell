@@ -237,6 +237,8 @@ export interface StatedReasonRecord {
   public: boolean;
   real: RealReason;
   stated: StatedReason;
+  /** ORW-578 (b): the id of the player-witnessed event that kept this said-aloud reason as the house's shared memory (set once, by the adapter, in a played game; absent otherwise). The event holds only the said kind in words; the real reason stays here. */
+  saidEventId?: string;
 }
 
 /** The ORW-305 term names (and the veto's bias inputs) mapped onto the closed set a RealReason carries. Unmapped names are dropped. */
