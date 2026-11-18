@@ -35,6 +35,7 @@ import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/v
 import { tellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
 import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sceneSeenBy, sharedScenes, type SeenScene } from "../../engine/bondJealousy";
+import { HOH_ROOM, decideVisit, backstoryFacets, pickBackstoryFact } from "../../engine/hohRoom";
 import { GRUDGES, REPAIR, combineSalience, easeGrudge, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, repairAmount, type GrudgeKind } from "../../engine/grudges";
 import { breakDivisor, feelingKeep, feelsGuilt, guiltKey, guiltScale, markFeeling } from "../../engine/bondFeelings";
 import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
@@ -60,7 +61,7 @@ import { juryFadeRate, juryEaseFactor, juryPersonalityMult, type JuryPersonality
 import { planJuryNotes } from "../../engine/juryNotes";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
-import { chooseHourAction, assembleScenes, habitsFor, actionLine, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction } from "../../engine/houseLife";
+import { chooseHourAction, assembleScenes, habitsFor, actionLine, formPlan, GOAL_PLAN, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction, type PlanStep } from "../../engine/houseLife";
 import { HOUSE_LIFE } from "../../engine/houseLifeConstants";
 import { REASONS } from "../../engine/agendaConstants";
 import { askDisposition, askRoll } from "../../engine/askAround";
@@ -116,7 +117,7 @@ import { validateTraits, validateCulture, validateReflection } from "../../engin
 import { jurorArchetypeFor, finalHohChoice, estimateJuryShare, type FinalHohOption } from "../../engine/juryMinds";
 import type { Agenda, Goal, AgendaCharacter, AgendaView, AgendaBoard, AgendaTrigger } from "../../engine/agenda";
 import { seedAgenda, recheckAgenda, mullAgenda, tieAvoids, agendaRoll } from "../../engine/agenda";
-import { AUDIENCE, crowdFor, emptyStanding, favoriteOf, foldMoment, tasteOf, type CrowdReaction } from "../../engine/audience";
+import { AUDIENCE, crowdFor, emptyStanding, evictionKey, fanThreatFor, favoriteOf, foldMoment, tasteOf, type CrowdReaction } from "../../engine/audience";
 import type { EditMoment, EditMomentKind } from "../../engine/editWorthiness";
 import { questionLive, questionAnswered } from "../../engine/voteQuestions";
 import { agendaDumpRows } from "../../engine/agendaDump";
@@ -324,7 +325,7 @@ import {
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
   advanceClock, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, playerNightDeficit, napFactor, npcRestDeficit, isInertBeat, eventBeatHours, spreadClockHours, ceremonyRef, CEREMONY_STEP_TEXT,
   honorWeight, recordWhy, nightBreakPending, markNightGateCrossed, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
-  type LiveSeasonState, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
+  type LiveSeasonState, type WeekDigest, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
 } from "../../engine/liveSeason";
 import { buildBeatAnnouncements, announcementHeadline, type BeatAnnouncement } from "../../engine/beatAnnouncement";
@@ -1438,6 +1439,58 @@ export class GameSessionAdapter implements GameSession {
     for (const p of this.derivePitches(PLAYER)) {
       if (p.from === PLAYER) continue;
       (s.goalApproaches ??= {})[p.from] = { desire: p.kind === "safety" ? "plea" : p.kind === "threat" ? "probe" : "campaign", goalId: "court", hour: this.absHour() };
+    }
+  }
+  /** ORW-629 (spec 0199): the HOH room reveal. ON unless `ORWELL_HOH_ROOM=0`. Played games only; OFF or headless => nothing is read, drawn or recorded (byte-identical). */
+  private hohRoomEnabled = flagDefaultOn("ORWELL_HOH_ROOM");
+  setHohRoomEnabled(on: boolean): void { this.hohRoomEnabled = on; }
+  private hohRoomOn(): boolean { return this.hohRoomEnabled && this.live?.playedGame === true; }
+  /**
+   * ORW-629 - once per HOH crowning the new HOH's room is opened to the WHOLE house (the player too). Skipping is a rare engine-decided snub the house reads as rude (a small directed bond move, the HOH
+   * most). Up there each guest's true feeling toward the HOH stays hidden or slips by how well they can act (`hohRoom.ts`); only a SLIP is recorded, as an observable event with its direction (never the
+   * strength, never the mask). The photos and letter reveal one TRUE fact from the HOH's own public backstory to a player who came up. No number crosses; the narrator voices every line from these facts.
+   * Idempotent per (week, HOH) through `live.hohRoom` (saved).
+   */
+  private recordHohRoom(hoh: EntityId): void {
+    const s = this.live;
+    if (!this.hohRoomOn() || !s || !this.house || !this.onPlayerEvent) return;
+    const done = (s.hohRoom ??= { done: [], used: [] });
+    const key = `${s.week}:${hoh}`;
+    if (done.done.includes(key)) return;
+    done.done.push(key);
+    const seed = this.gameSeed ?? 0;
+    const living = new Set(this.livingIds());
+    const guests = this.house.npcs.filter((n) => n.id !== hoh && living.has(n.id)).map((n) => {
+      const e = this.rel.peek(n.id, hoh);
+      const row = s.grudges?.[grudgeKey(n.id, hoh)];
+      return { id: n.id, social: n.character.stats.social, affinity: e.affinity, threat: e.threat, grudge: row ? row.severity * grudgeFreshness(row, s.week) : 0 };
+    });
+    const out = decideVisit(seed, s.week, hoh, guests);
+    const playerGuest = hoh !== PLAYER && living.has(PLAYER);
+    const room = [hoh, ...out.attended, ...(playerGuest ? [PLAYER] : [])];
+    const wk = `week ${weekWords(s.week)}`;
+    const move = (from: EntityId, to: EntityId, imp: Partial<Record<"affinity" | "trust", number>>, tag: string): void => {
+      if (from === PLAYER) return; // the human forms their own read
+      this.rel.applyImpactDirected(from, to, imp, new SeededRandom(hashSeed(`${seed}:hoh-room:${tag}:${s.week}:${hoh}:${from}:${to}`)));
+    };
+    this.onPlayerEvent(`${this.nameOf(hoh)}'s room is opened to the whole house (${wk})`, room, "hoh-room");
+    for (const id of out.snubbed) {
+      this.onPlayerEvent(`${this.nameOf(id)} did not come up to ${this.nameOf(hoh)}'s room (${wk})`, room, "hoh-room");
+      move(hoh, id, HOH_ROOM.snubByHoh, "snub");
+      for (const a of out.attended) move(a, id, HOH_ROOM.snubByHouse, "snub-house");
+    }
+    for (const sl of out.slipped) {
+      this.onPlayerEvent(`${this.nameOf(sl.id)} slipped in ${this.nameOf(hoh)}'s room: ${sl.direction} showed (${wk})`, room, "hoh-room");
+      move(hoh, sl.id, HOH_ROOM.slipByHoh, "slip");
+    }
+    const npc = this.house.npcs.find((n) => n.id === hoh);
+    if (npc && playerGuest) {
+      const usedHere = new Set(done.used.filter((u) => u.startsWith(`${hoh}|`)).map((u) => u.slice(hoh.length + 1)));
+      const fact = pickBackstoryFact(seed, hoh, s.week, backstoryFacets(npc.character), usedHere);
+      if (fact) {
+        done.used.push(`${hoh}|${fact.text}`);
+        this.onPlayerEvent(`${this.nameOf(hoh)}'s photos and letter (${wk}) - ${fact.field}: ${fact.text}`, room, "hoh-room");
+      }
     }
   }
   /** B38: the (week:HOH) crownings whose pitches are already recorded. Session-local: a restart mid-week may re-record once, which is idempotent for deals (bound-pair check) and only repeats a hidden line. */
@@ -4752,12 +4805,37 @@ export class GameSessionAdapter implements GameSession {
   audienceAfterEviction(): void {
     const s = this.live;
     if (!this.audienceEnabled || !s || s.playedGame !== true || !this.house) return;
+    const a = this.audienceFold();
+    // (3) the crowd as the evictee walks out - normally decided as their exit interview began (`exitCrowd`); here only when none was
+    const last = (s.weekDigests ?? []).filter((d) => d.evictee !== null).pop();
+    if (last?.evictee) this.walkOut(a, last.week, last.evictee);
+    // (4) a fan reward in its weeks: the public's favorite still in the house. The house sees it, and reads the winner as a bigger jury threat (the player included).
+    if (AUDIENCE.perkWeeks.includes(s.week) && !a.perks.some((p) => p.week === s.week)) {
+      const to = favoriteOf(a.live, this.livingIds());
+      if (to) {
+        a.perks.push({ week: s.week, to });
+        this.onPlayerEvent?.(`${this.nameOf(to)} wins the viewers' vote and a reward from home`, this.livingIds(), "house-event");
+        for (const h of this.livingIds()) {
+          if (h === to || h === PLAYER) continue; // the player forms their own read of the winner from the moment itself
+          this.rel.applyImpactDirected(h, to, { threat: fanThreatFor(this.statsOf(h).social) }, new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:fan-threat:${s.week}:${h}`)));
+        }
+      }
+    }
+  }
+  /**
+   * ORW-624 - fold the PUBLIC record into the standing: every eviction not yet folded (a `pending` one is the eviction in progress, folded early so its walk out can
+   * read it) and every scene since the last fold. Idempotent by eviction key and event cursor.
+   */
+  private audienceFold(pending?: WeekDigest): NonNullable<LiveSeasonState["audience"]> {
+    const s = this.live!;
     const a = (s.audience ??= { live: emptyStanding(), full: emptyStanding(), cursor: 0, weeks: [], crowd: [], perks: [] });
     const fold = (m: EditMoment): void => { foldMoment(a.full, m, this.audienceTaste); if (m.public) foldMoment(a.live, m, this.audienceTaste); };
-    // (1) the week's public record
-    for (const d of s.weekDigests ?? []) {
-      if (a.weeks.includes(d.week) || d.evictee === null) continue;
-      a.weeks.push(d.week);
+    // (1) the public record of each eviction
+    for (const d of [...(s.weekDigests ?? []), ...(pending ? [pending] : [])]) {
+      if (d.evictee === null) continue;
+      const key = evictionKey(d.week, d.evictee);
+      if (a.folded?.includes(key) || a.weeks.includes(d.week)) continue; // `weeks` = folds saved before the key
+      (a.folded ??= []).push(key);
       if (d.hoh) fold({ kind: "comp-win", actor: d.hoh, week: d.week, public: true });
       for (const n of d.nominees) fold({ kind: "nomination", ...(d.hoh ? { actor: d.hoh } : {}), subject: n, week: d.week, public: true });
       if (d.vetoHolder) fold({ kind: d.vetoUsed ? "veto-save" : "veto-kept", actor: d.vetoHolder, week: d.week, public: true });
@@ -4778,22 +4856,29 @@ export class GameSessionAdapter implements GameSession {
       fold({ kind, actor: e.initiator, ...(other ? { subject: other } : {}), week: s.week, crowd: e.witnessSet.length + (e.houseLife?.seenBy?.length ?? 0), public: !e.hidden });
     }
     a.cursor = events.length;
-    // (3) the crowd as the evictee walks out (the house hears it through the door)
-    const last = (s.weekDigests ?? []).filter((d) => d.evictee !== null).pop();
-    if (last?.evictee && !a.crowd.some((c) => c.week === last.week && c.evictee === last.evictee)) {
-      const reaction = crowdFor(a.live, last.evictee);
-      a.crowd.push({ week: last.week, evictee: last.evictee, reaction });
-      const WORDS: Readonly<Record<CrowdReaction, string>> = { cheers: "to cheers from the crowd outside", mixed: "to a mixed reaction from the crowd outside", boos: "to boos from the crowd outside", silence: "to near silence from the crowd outside" };
-      this.onPlayerEvent?.(`${this.nameOf(last.evictee)} walks out ${WORDS[reaction]}`, this.livingIds(), "house-event"); // the HOUSE hears the crowd (never the evictee: a juror is sequestered from the house, 0129)
-    }
-    // (4) a fan reward in its weeks: the public's favorite still in the house
-    if (AUDIENCE.perkWeeks.includes(s.week) && !a.perks.some((p) => p.week === s.week)) {
-      const to = favoriteOf(a.live, this.livingIds());
-      if (to) {
-        a.perks.push({ week: s.week, to });
-        this.onPlayerEvent?.(`${this.nameOf(to)} wins the viewers' vote and a reward from home`, this.livingIds(), "house-event");
-      }
-    }
+    return a;
+  }
+  /**
+   * ORW-624 - the walk out, once per eviction: the house hears the crowd through the door; a player-evictee hears their OWN crowd (never the house's news: a juror is
+   * sequestered, 0129). Returns the reaction.
+   */
+  private walkOut(a: NonNullable<LiveSeasonState["audience"]>, week: number, evictee: EntityId): CrowdReaction {
+    const had = a.crowd.find((c) => c.week === week && c.evictee === evictee);
+    if (had) return had.reaction;
+    const reaction = crowdFor(a.live, evictee);
+    a.crowd.push({ week, evictee, reaction });
+    const WORDS: Readonly<Record<CrowdReaction, string>> = { cheers: "to cheers from the crowd outside", mixed: "to a mixed reaction from the crowd outside", boos: "to boos from the crowd outside", silence: "to near silence from the crowd outside" };
+    const house = this.livingIds().filter((id) => id !== evictee);
+    if (house.length) this.onPlayerEvent?.(`${this.nameOf(evictee)} walks out ${WORDS[reaction]}`, house, "house-event");
+    if (evictee === PLAYER) this.onPlayerEvent?.(`${this.nameOf(PLAYER)} walks out of the house ${WORDS[reaction]}`, [PLAYER], "house-event");
+    return reaction;
+  }
+  /** ORW-624 - the `exitCrowd` season hook: fold the eviction in progress (its ceremony state is still live) and decide the crowd the evictee walks out to. */
+  private exitCrowd(evictee: EntityId): CrowdReaction | undefined {
+    const s = this.live;
+    if (!this.audienceEnabled || !s || s.playedGame !== true || !this.house) return undefined;
+    const pending: WeekDigest = { week: s.week, hoh: s.hoh ?? null, nominees: [...(s.finalNominees ?? s.nominees ?? [])], vetoHolder: s.vetoHolder ?? null, vetoUsed: !!s.vetoUsed, evictee, juryCount: 0 };
+    return this.walkOut(this.audienceFold(pending), s.week, evictee);
   }
   /** ORW-624: America's Favorite - after the crown only (it may read the hidden moments then: the recap). */
   private americasFavorite(): { id: EntityId; name: string } | undefined {
@@ -4994,6 +5079,7 @@ export class GameSessionAdapter implements GameSession {
       evictee: { id: x.evictee, name: this.nameOf(x.evictee) },
       stance: x.stance,
       ...(x.message ? { message: this.retroScrub(x.message) } : {}),
+      ...(x.crowd ? { crowd: x.crowd } : {}), // ORW-624: the crowd they walked out to (public as it happened)
     }));
     return {
       winner: this.live.winner ? this.named(this.live.winner) : null,
@@ -5858,7 +5944,8 @@ export class GameSessionAdapter implements GameSession {
       pending: this.pendingView(),
       // 0123 (PO ruling 2026-11-01) — a standing NPC deal offer, voiced in-scene by the narrator (no card).
       // Present ONLY while one stands, so the flag-off payload is byte-identical (no `openDealOffer: null`).
-      ...(this.live?.dealOffer ? { openDealOffer: this.openDealOfferView() } : {}),
+      ...(this.live?.dealOffer || this.live?.votePitch ? { openDealOffer: this.openDealOfferView() } : {}),
+      ...(this.live?.dealOffer && this.live?.votePitch ? { openVotePitch: this.openDealOfferView(this.live.votePitch) } : {}),
       ...(this.owedFavorsView().length ? { owedFavors: this.owedFavorsView() } : {}),
       // F3: the same public over-signal + broadcast winner the AdvanceView/SeasonRecap expose, so a
       // status-only client learns the season ended (and who won) without separately hitting /state or
@@ -6381,9 +6468,9 @@ export class GameSessionAdapter implements GameSession {
       if (bids.length > 0) {
         (t.courted ??= []).push({ week: s.week, voter: PLAYER, bidders: [...new Set(bids.map((b) => b.pitcher))].sort(), tier: priceTier(new Set(bids.map((b) => b.nominee)).size - 1), gap: 0 });
         const [first, ...rest] = bids;
-        if (first && !s.dealOffer && s.lastDealOfferWeek !== s.week && !this.dealOfferPartyGone(first.pitcher) && !this.memoryBlocksPlayerDeal(first.pitcher)) {
-          s.dealOffer = { id: `offer:${first.pitcher}:${s.week}`, from: first.pitcher, kind: "vote", terms: `${this.nameOf(first.pitcher)} asks ${this.nameOf(PLAYER)} to keep ${this.nameOf(first.nominee)} at this week's eviction`, madeWeek: s.week };
-          s.lastDealOfferWeek = s.week;
+        // Its OWN slot (`votePitch`): another approach standing in `dealOffer`, or already made this week, neither blocks the pitch nor is blocked by it. One per vote (the courted-once guard above) is the cap.
+        if (first && !s.votePitch && !this.dealOfferPartyGone(first.pitcher) && !this.memoryBlocksPlayerDeal(first.pitcher)) {
+          s.votePitch = { id: `pitch:${first.pitcher}:${s.week}`, from: first.pitcher, kind: "vote", terms: `${this.nameOf(first.pitcher)} asks ${this.nameOf(PLAYER)} to keep ${this.nameOf(first.nominee)} at this week's eviction`, madeWeek: s.week };
           this.onPlayerEvent?.(`${this.nameOf(first.pitcher)} makes their case to ${this.nameOf(PLAYER)} before the vote`, [PLAYER, first.pitcher], "conversation");
         } else if (first) rest.unshift(first);
         for (const b of rest) this.onPlayerEvent?.(`${this.nameOf(b.pitcher)} makes their case to ${this.nameOf(PLAYER)} before the vote`, [PLAYER, b.pitcher], "conversation");
@@ -11056,6 +11143,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.triadsOn() ? { swingAtVote: (v: Parameters<NonNullable<SeasonCtx["swingAtVote"]>>[0]) => this.swingAtVote(v), triadsAtResult: (r: { evictee: EntityId; voteOf: Readonly<Record<EntityId, EntityId>>; hoh: EntityId | undefined }) => this.triadsAtResult(r) } : {}),
       ...(this.favorsOn() ? { favorsAtTally: (fn: readonly EntityId[], v: readonly EntityId[]) => this.favorsAtTally(fn, v), favorShieldFor: (n: EntityId, v: EntityId) => this.favorShieldFor(n, v) } : {}),
       ...(this.liesCaughtWriting ? { evictionCountPublic: (t: PublicTally) => this.evictionCountPublic(t) } : {}),
+      ...(this.audienceEnabled ? { exitCrowd: (id: EntityId) => this.exitCrowd(id) } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       ...(this.assurancesEnabled ? { assuranceKeptAtNominations: (h: EntityId, ns: readonly EntityId[]) => this.assuranceKeptAtNominations(h, ns), assuranceKeptAtVote: (v: EntityId, sp: EntityId, among?: readonly EntityId[]) => this.assuranceKeptAtVote(v, sp, among), assuranceKeptAtTally: (fn: readonly EntityId[]) => this.assuranceKeptAtTally(fn) } : {}),
       ...(this.npcBeliefsEnabled && (this.npcBeliefNomsEnabled || this.scapegoatsOn()) ? { beliefTiltFor: (subject: EntityId, holder: EntityId) => (this.npcBeliefNomsEnabled ? this.beliefNomTiltFor(subject, holder) : 0) + this.scapegoatLeanFor(subject, holder) } : {}), // 0180 part 3: a hard week's scapegoat rides the belief term
@@ -13479,7 +13567,8 @@ export class GameSessionAdapter implements GameSession {
       const others = actors.filter((x) => x !== id);
       const showmance = this.showmancePartnerOf(id);
       const avoid = tieAvoids(this.agendaView(id)?.character ?? character);
-      plans.push(chooseHourAction({
+      if (this.goalPlansOn()) this.maintainGoalPlans(id, day);
+      const hv: Parameters<typeof chooseHourAction>[0] = {
         owner: id, character, agenda: s.agendas?.[id], ...(avoid.length ? { avoid } : {}), habits: authored[id]?.habits ?? habitsFor(character, id, seed),
         emotional: this.soulObj(id)?.emotionalState ?? 0.5, room: where.get(id)!, whereabouts: view,
         affinity: new Map([...others, ...(playerRoom !== undefined ? [house.player.id] : [])].map((o) => [o, this.rel.edge(id, o).affinity] as const)),
@@ -13497,7 +13586,11 @@ export class GameSessionAdapter implements GameSession {
         ...(this.nightOwlsEnabled && s.playedGame === true ? { nightOwl: { playerUp: playerUp } } : {}),
         candor: Math.max(0, Math.min(1, (REASONS.candorByArchetype[character.archetype] ?? 0.5) + (REASONS.candorByStyle[character.strategyStyle] ?? 0))),
         ...(this.bondFeelingsOn() ? { rivalry: this.rivalryStrandsOf(id, [...others, ...(playerRoom !== undefined ? [house.player.id] : [])]) } : {}), // ORW-622: a grudge rubs at dinner
-      }, seed));
+        ...(this.goalPlansOn() ? { plans: this.planStepsFor(id) } : {}), // ORW-625: each goal's stored plan
+      };
+      const chosen = chooseHourAction(hv, seed);
+      plans.push(chosen);
+      if (this.goalPlansOn() && chosen.goalId) this.noteGoalPlan(id, chosen, hv, day); // ORW-625: form or advance the goal's plan
     }
     // They walk there on purpose (one hour is enough to cross the house): both presence views, so the society and the map agree.
     // ORW-507 (#2612): an NPC whose goal plan names the player but whose approach is suppressed (distrust, an avoidant tie, or the desire clock off) does not walk into the player's room for it.
@@ -14223,6 +14316,51 @@ export class GameSessionAdapter implements GameSession {
    */
   private bondFeelingsEnabled = flagDefaultOn("ORWELL_BOND_FEELINGS");
   setBondFeelingsEnabled(on: boolean): void { this.bondFeelingsEnabled = on; }
+  /** ORW-625: stored goal plans (`ORWELL_GOAL_PLANS`, default ON; `=0` = the hour re-rolls each goal's step as before). Played games with agendas only. */
+  private goalPlansEnabled = flagDefaultOn("ORWELL_GOAL_PLANS");
+  setGoalPlansEnabled(on: boolean): void { this.goalPlansEnabled = on; }
+  private goalPlansOn(): boolean { return this.goalPlansEnabled && this.live?.playedGame === true && !!this.live.agendas; }
+  /** ORW-625: the next step of each of `owner`'s active plans (goal id -> step). */
+  private planStepsFor(owner: EntityId): ReadonlyMap<string, PlanStep> {
+    const out = new Map<string, PlanStep>();
+    for (const p of this.live?.goalPlans?.[owner] ?? []) if (p.status === "active" && p.steps[p.at]) out.set(p.goalId, p.steps[p.at]!);
+    return out;
+  }
+  /** ORW-625: drop a plan only for a reason - its goal ended, a partner left the game, or it stalled. The record stays (append-only). */
+  private maintainGoalPlans(owner: EntityId, day: number): void {
+    const s = this.live!;
+    const mine = s.goalPlans?.[owner];
+    if (!mine?.length) return;
+    const goals = new Map((s.agendas?.[owner]?.goals ?? []).map((g) => [g.id, g] as const));
+    const living = new Set(this.livingIds());
+    for (const p of mine) {
+      if (p.status !== "active") continue;
+      const g = goals.get(p.goalId);
+      if (!g || g.status !== "active") { p.status = "dropped"; p.reason = "goal-ended"; continue; }
+      const step = p.steps[p.at];
+      if (step && [...step.with, ...(step.about ? [step.about] : [])].some((x) => !living.has(x))) { p.status = "dropped"; p.reason = "partner-gone"; continue; }
+      if (day - p.lastDay >= GOAL_PLAN.stallDays) { p.status = "dropped"; p.reason = "stalled"; }
+    }
+  }
+  /** ORW-625: the hour's goal action forms the goal's plan (its first step) or advances it (when it is the plan's step). */
+  private noteGoalPlan(owner: EntityId, a: PlannedAction, hv: Parameters<typeof chooseHourAction>[0], day: number): void {
+    const s = this.live!;
+    const goal = (s.agendas?.[owner]?.goals ?? []).find((g) => g.id === a.goalId);
+    if (!goal) return;
+    const mine = ((s.goalPlans ??= {})[owner] ??= []);
+    const plan = mine.find((p) => p.status === "active" && p.goalId === goal.id);
+    if (plan) {
+      const step = plan.steps[plan.at];
+      if (step && step.kind === a.kind && step.with.join() === a.with.join()) {
+        plan.at += 1; plan.lastDay = day;
+        if (plan.at >= plan.steps.length) plan.status = "done";
+      }
+      return;
+    }
+    const seed = this.gameSeed ?? 0;
+    const steps = formPlan(goal, hv, { kind: a.kind, with: [...a.with], ...(a.about ? { about: a.about } : {}) }, (k) => agendaRoll(seed, owner, `plan:${goal.id}:d${day}:${k}`));
+    mine.push({ goalId: goal.id, steps, at: 1, madeDay: day, lastDay: day, status: steps.length > 1 ? "active" : "done" });
+  }
   /** ORW-622: the holder's grudge strand toward each of these houseguests (only those with one), from the bond record. */
   private rivalryStrandsOf(holder: EntityId, others: readonly EntityId[]): ReadonlyMap<EntityId, number> {
     const reader = this.bondReader();
@@ -14855,7 +14993,10 @@ export class GameSessionAdapter implements GameSession {
     // hidden cooling is applied. Never silently decline on bad input (Greptile P1).
     if (req.kind === "deal-offer") {
       if (this.live.finished) return remember(this.advanceView(null)); // a post-season answer binds nothing
-      if (req.vote === "accept" || req.vote === "decline") return remember(this.resolveDealOffer(req.vote === "accept"));
+      // 0174: the vote pitch has its own slot. `offerId` names it when both stand; with no id the ordinary offer answers first, and the pitch when it is the only one standing.
+      const s0 = this.live;
+      const pitch = s0.votePitch && (req.offerId === s0.votePitch.id || (req.offerId === undefined && !s0.dealOffer));
+      if (req.vote === "accept" || req.vote === "decline") return remember(this.resolveDealOffer(req.vote === "accept", pitch ? "pitch" : "deal"));
       return remember(this.advanceView(null));
     }
     // ORW-596 - the player's own answer to an NPC's public accusation: open state (`live.houseMeetings`, not a pending card), answered like a deal offer. A missing/garbled stance is a safe no-op.
@@ -16854,6 +16995,7 @@ export class GameSessionAdapter implements GameSession {
     if (ev) this.recordCeremonyConfessionals(ev);
     // E46: as the block goes up, the tightest unbound NPC pair may seal a hidden pact of their own.
     if (ev && ev.beat === "hoh-competition" && ev.participants[0]) this.recordLobbyPitches(ev.participants[0]); // B38: the pitches made to the new HOH are real, mostly hidden, events
+    if (ev && ev.beat === "hoh-competition" && ev.participants[0]) this.recordHohRoom(ev.participants[0]); // ORW-629: then the room is opened to the whole house
     if (ev && ev.beat === "nominations") { this.mintNpcDeal(); if (this.npcDealsEnabled) this.mintManyNpcDeals(); }
     // 0142 idea 3 (information): an NPC who promised to tell the player what they hear does so when the two are together. No open information deal (always so in a headless/unplayed game) => no-op, no rng.
     if (ev) this.deliverInformationDeals();
@@ -17826,6 +17968,20 @@ export class GameSessionAdapter implements GameSession {
         }).sort((a, b) => b.weighing.temptation - a.weighing.temptation || (a.npc < b.npc ? -1 : 1))[0]!;
         const verdict = decideDealBreak(w.weighing, new SeededRandom(hashSeed(`${seed}:deal-twist:${deal.id}:${tk}`)).next());
         if (verdict === "keep") continue;
+        // 0186 amendment: when the twist makes the promise impossible to keep ("break" verdict), the promiser's own SECRET PLAN (0178) decides what it was. A faking plan (`isBetrayal`)
+        // uses the twist as cover: a REAL, quiet betrayal through `breakDeliberately` (the usual fold; the wronged party learns only through `learnOfBreak`'s pathways; the deal keeps
+        // projecting open; nothing is narrated). Any other plan (keep / this-week / no plan) is the forced, innocent break: the renegotiation below, no betrayal, no fold.
+        if (verdict === "break" && this.dealPlansEnabled && d.condition.promisors.includes(w.npc) && this.twoFacedPlan(d.id, w.npc)) {
+          if (d.parties.includes(PLAYER)) this.noteDealWeighing(w.npc, "deal-break", w.weighing);
+          this.deals.breakDeliberately(d, w.npc, {
+            rel: this.rel, rng: new SeededRandom(hashSeed(`${seed}:deal-twist-betray:${deal.id}:${tk}`)), currentWeek: s.week, dealDepth: this.dealDepthEnabled, dealsWitnesses: this.dealsWitnessesEnabled,
+            juryDemerit: (wronged, breaker) => { recordDealBetrayal(s, wronged, breaker); this.feelGuilt(breaker, wronged); },
+            revealToWitness: (witness, breaker) => { this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a deal that ${this.nameOf(witness)} witnessed`, [witness], "betrayal"); },
+            reveal: (wronged, breaker, bd) => this.onPlayerEvent?.(`${this.nameOf(breaker)} broke a ${bd.kind} deal with ${this.nameOf(wronged)} off-screen`, [breaker], "betrayal"),
+          });
+          this.persist();
+          continue;
+        }
         const kind = renegotiatedKind(d.kind);
         if (kind === undefined) continue;
         if (d.parties.includes(PLAYER)) {
@@ -17985,12 +18141,13 @@ export class GameSessionAdapter implements GameSession {
    * move — never a betrayal-shock; the change is real, recorded, and invisible — the Vault Wall working).
    * Either way the offer is consumed. A no-op (safe) if no offer stands.
    */
-  private resolveDealOffer(accept: boolean): AdvanceView {
+  private resolveDealOffer(accept: boolean, slot: "deal" | "pitch" = "deal"): AdvanceView {
     const s = this.live;
-    if (!s?.dealOffer || !this.house) return this.advanceView(null);
+    const standing = slot === "pitch" ? s?.votePitch : s?.dealOffer;
+    if (!s || !standing || !this.house) return this.advanceView(null);
     return this.inOneCommit(() => {
-      const o = s.dealOffer!;
-      s.dealOffer = undefined; // consumed either way
+      const o = standing;
+      if (slot === "pitch") s.votePitch = undefined; else s.dealOffer = undefined; // consumed either way
       // An offer whose party has left (or a finished season) can no longer bind anyone (Greptile #1911).
       if (this.dealOfferPartyGone(o.from) || s.finished) {
         this.persist();
@@ -18038,6 +18195,7 @@ export class GameSessionAdapter implements GameSession {
    * lapse itself is recorded as a PLAYER-WITNESSED event (the player knows they never answered).
    */
   private maybeLapseDealOffer(standingOfferId: string | undefined): void {
+    this.maybeLapseVotePitch();
     const s = this.live;
     const o = s?.dealOffer;
     if (!s || !o || !this.house) return;
@@ -18065,6 +18223,15 @@ export class GameSessionAdapter implements GameSession {
     this.rel.applyDirected(o.from, PLAYER, "conflict", rng, L.scaleMin + (L.scaleMax - L.scaleMin) * vol);
   }
 
+  /** 0174: a vote pitch is moot once the week rolls past it (or its party left or the season ended). It lapses quietly: no cooling and no event, since the vote itself was the answer. */
+  private maybeLapseVotePitch(): void {
+    const s = this.live;
+    const o = s?.votePitch;
+    if (!s || !o) return;
+    const seasonOver = !!s.finished || s.beat === "finale" || s.beat === "complete";
+    if (this.dealOfferPartyGone(o.from) || seasonOver || s.week > o.madeWeek) s.votePitch = undefined;
+  }
+
   /** 0123 — true when either party to a deal offer has left the game (offerer or player evicted). */
   private dealOfferPartyGone(from: EntityId): boolean {
     const gone = new Set(this.live?.evictionOrder ?? []);
@@ -18072,13 +18239,14 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** 0123 — the standing NPC deal offer as Vault-free open state for the narrator (null when none). */
-  private openDealOfferView(): OpenDealOfferView | null {
-    const o = this.live?.dealOffer;
+  private openDealOfferView(only?: NonNullable<LiveSeasonState["dealOffer"]>): OpenDealOfferView | null {
+    const o = only ?? this.live?.dealOffer ?? this.live?.votePitch; // the vote pitch (0174) rides its own slot; it shows here when no other offer stands
     if (!o || !this.house) return null;
     // The voicing instruction rides WITH the offer (only while one stands) instead of the base prompt — no
     // standing prompt cost (the #1391 budget) and nothing at all when the layer is off / no offer stands.
     return {
       from: this.named(o.from)!, kind: o.kind, terms: o.terms, madeWeek: o.madeWeek,
+      ...(o === this.live?.votePitch ? { id: o.id } : {}),
       ...(o.replacesDealId ? { replacesDealId: o.replacesDealId } : {}),
       ...(o.counter ? { counter: { round: o.counter.round, ask: o.counter.ask.kind !== "vote" ? { kind: o.counter.ask.kind, target: this.named(o.counter.ask.target)! } : { kind: "vote" as const } } } : {}),
       ...(o.favor ? { favor: { kind: o.favor.favorId ? "called-in" as const : "asked" as const } } : {}),
@@ -19818,7 +19986,8 @@ export class GameSessionAdapter implements GameSession {
       // silently missed it).
       pending: this.pendingView(),
       eviction: this.evictionView(),
-      ...(this.live?.dealOffer ? { openDealOffer: this.openDealOfferView() } : {}), // 0123: voiced in-scene, never a card
+      ...(this.live?.dealOffer || this.live?.votePitch ? { openDealOffer: this.openDealOfferView() } : {}), // 0123: voiced in-scene, never a card
+      ...(this.live?.dealOffer && this.live?.votePitch ? { openVotePitch: this.openDealOfferView(this.live.votePitch) } : {}), // 0174: the vote pitch's own slot, shown beside a standing deal offer
       ...(this.owedFavorsView().length ? { owedFavors: this.owedFavorsView() } : {}), // 0142
       finished: !!this.live?.finished, // B6-01: the over-signal the FE season lifecycle (0057) gates on
       // C8-04: the live ceremony state in the model's persistent context (the same Vault-free public

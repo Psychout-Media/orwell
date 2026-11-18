@@ -23,9 +23,12 @@ Summary: a simulated viewing public forms its own opinion of every houseguest, t
 - The player is judged by the same moments as anyone (their wins, saves and blow-ups).
 - The player hears the crowd at every walk-out and can read it, like the house does.
 
-## Not yet
-- Exit interviews (0127) taking their tone from the crowd.
-- Houseguests reacting to being booed or cheered.
-- Both are small follow-ups.
+## Follow-up (ORW-624): the walk out, the exit interview, the fan reward
+- **The walk out comes first.** The crowd is decided as the evictee's exit interview begins: the audience folds the week so far (the ceremony state is still live), and the evictee walks out. The exit interview beat carries the crowd they walked out to, so the narrator can play their tone against it. The stance itself stays derived from the manner of the eviction (0130), never from the crowd.
+- **The walk out happens once per eviction.** The after-eviction step reuses the decided crowd. Evictions are folded by key, so a twist night's second eviction folds too.
+- **A player-evictee hears their own crowd** before their exit interview, as an event for them alone. The house hears its own line through the door, and a juror never gets the house's news (0129).
+- **The house reads the viewers' favorite as a jury threat.** A fan reward is a public moment: each houseguest's threat read of the winner rises, more as they play the social game. The player can be the winner, and the house then fears the player more. An NPC winner is told to the player as the house event it is; the player's own read is theirs to form.
+- **Retrospective:** each exit interview row keeps the crowd.
+- Per the Coordinator, houseguests sense the crowd only at the public fan-reward moments, never from the walk out's cheers or boos.
 
-Tests: `tests/unit/audience.test.ts`, `0190-the-audience-outside.feature`.
+Tests: `tests/unit/audience.test.ts`, `tests/unit/audienceCrowd.test.ts`, `0190-the-audience-outside.feature`.

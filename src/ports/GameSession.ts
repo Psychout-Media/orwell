@@ -734,6 +734,8 @@ export interface GameStateView {
    * when the week rolls. Vault-free: public name, deal kind, a terms paraphrase — no numbers.
    */
   openDealOffer?: OpenDealOfferView | null;
+  /** 0174: the vote pitch, shown here only while an ordinary offer also stands (it has its own slot; with no other offer it is `openDealOffer`). Answer with `submitDecision deal-offer` plus `offerId` = `id`. */
+  openVotePitch?: OpenDealOfferView | null;
   /** 0142: favors houseguests owe the player (present only while any are banked). */
   owedFavors?: OwedFavorView[];
 }
@@ -1431,6 +1433,8 @@ export interface PublicGameStatus {
    * when the week rolls. Vault-free: public name, deal kind, a terms paraphrase — no numbers.
    */
   openDealOffer?: OpenDealOfferView | null;
+  /** 0174: the vote pitch, shown here only while an ordinary offer also stands (it has its own slot; with no other offer it is `openDealOffer`). Answer with `submitDecision deal-offer` plus `offerId` = `id`. */
+  openVotePitch?: OpenDealOfferView | null;
   /** 0142: favors houseguests owe the player (present only while any are banked). */
   owedFavors?: OwedFavorView[];
   /**
@@ -1609,6 +1613,8 @@ export interface BeatEventView {
 
 /** 0123 — a standing NPC deal offer, voiced in-scene (see `openDealOffer`). */
 export interface OpenDealOfferView {
+  /** 0174: set on a vote pitch (the `offerId` that answers it). */
+  id?: string;
   from: NamedRef;
   kind: string;
   terms: string;
@@ -2592,7 +2598,7 @@ export interface RetrospectiveView {
    * spoke it on the way out); it surfaces here as the retrospective's first-person exit reel. Empty when
    * no eviction was interviewed (e.g. a Final-3 atomic eviction outside the staged 0047 path).
    */
-  exitInterviews?: Array<{ week: number; evictee: NamedRef; stance: string; message?: string }>;
+  exitInterviews?: Array<{ week: number; evictee: NamedRef; stance: string; message?: string; /** ORW-624: the crowd they walked out to */ crowd?: "cheers" | "mixed" | "boos" | "silence" }>;
   /** 0133 — the early-evicted player's own finale-night interview (posture + words), when they gave one. */
   finaleInterview?: { stance: string; message?: string };
 }
@@ -2687,6 +2693,8 @@ export interface SubmitDecisionReq {
   /** eviction-vote / juror-vote: the finalist/nominee the player votes for.
    *  goodbye-message: the chosen tone ("warm" | "respectful" | "cold") rides here (E34). */
   vote?: EntityId;
+  /** deal-offer (0174): which standing offer this answers when an ordinary offer and the vote pitch both stand (the pitch's `id`). Absent = the ordinary offer, else the pitch. */
+  offerId?: string;
   /** finale-statement / juror-question: the player's free text (flavor; carries no score).
    *  goodbye-message: the optional message text accompanying the chosen tone. */
   statement?: string;
