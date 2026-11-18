@@ -16388,6 +16388,23 @@ export class GameSessionAdapter implements GameSession {
     return { jurors };
   }
 
+  /** ORW-650: watching from the couch (`ORWELL_COUCH_WATCH`, default ON; `=0` = the 0133 skeleton digests only). */
+  private couchWatchEnabled = flagDefaultOn("ORWELL_COUCH_WATCH");
+  /**
+   * ORW-650 — the PUBLIC moments a WATCHING evictee may see: the broadcast record only (`season:` ceremony/competition/house
+   * beats that are not hidden — the same predicate `seasonRecap` uses), recorded AFTER they left. Ballots are already
+   * anonymized at the source beat. Never for a juror (no `spectator`), never while in the game. Pure read, no rng.
+   */
+  private couchMoments(): string[] | undefined {
+    const live = this.live;
+    if (!this.couchWatchEnabled || !live?.spectator || live.spectator.mode !== "watch" || live.couchFromEvent === undefined) return undefined;
+    const out = (this.record?.events() ?? []).slice(live.couchFromEvent)
+      .filter((e) => !e.hidden && e.id.startsWith("season:") && e.type === "house-event" && e.content.trim().length > 0)
+      .map((e) => e.content.trim().slice(0, 240));
+    return out.length > 0 ? out.slice(-GameSessionAdapter.COUCH_MOMENT_CAP) : undefined;
+  }
+  private static readonly COUCH_MOMENT_CAP = 12;
+
   /** 0133 — the PUBLIC week digests an early-evicted, spectating player may read (named, Vault-free). */
   private weekDigestViews(): WeekDigestView[] | undefined {
     const live = this.live;
@@ -18582,6 +18599,8 @@ export class GameSessionAdapter implements GameSession {
 
   /** Fold a resolved beat into the public projection: record the event, reconcile deals, sync, persist. */
   private commit(ev: BeatEvent | null): void {
+    // ORW-650: the watching player's feed starts after everything recorded up to (and including) this beat. Stamped once.
+    if (this.couchWatchEnabled && this.live?.spectator && this.live.couchFromEvent === undefined) this.live.couchFromEvent = (this.record?.events().length ?? 0) + (ev && this.onEvent ? 1 : 0);
     if (ev) this.onEvent?.({ ...ev, content: this.humanize(ev.content) });
     // 0039/E42: a binding ceremony beat may honor or break open deals — the engine adjudicates
     // EVERY binding actor's action (NPC votes and tie-breaks included), never only the player's.
@@ -21759,6 +21778,7 @@ export class GameSessionAdapter implements GameSession {
       moment,
       // 0133: an early-evicted spectator's public week digests (absent for everyone else).
       ...(this.weekDigestViews() ? { weekDigests: this.weekDigestViews() } : {}),
+      ...(this.couchMoments() ? { watching: { moments: this.couchMoments()! } } : {}), // ORW-650
       // 0129: the jury house — present only while the player holds a juror's seat.
       ...(this.juryHouseView() ? { juryHouse: this.juryHouseView() } : {}),
       // #1411: the closed-set required lever (present ONLY at a comp/ceremony/eviction beat) — the FE's
