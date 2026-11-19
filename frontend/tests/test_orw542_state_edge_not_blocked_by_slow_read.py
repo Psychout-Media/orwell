@@ -57,3 +57,37 @@ def test_run_started_edge_is_sent_while_an_engine_read_hangs(run, monkeypatch):
         await H.stop(ws, t)
 
     run(main())
+
+
+def test_run_started_edge_is_not_queued_behind_a_burst_of_hung_edge_reads(run, monkeypatch):
+    """ORW-706: casting genesis publishes a burst of game-updated edges. Each one used to wait its own bound on the same hung read, so the sender's
+    run-started edge sat behind the whole burst (a casting reply stuck for minutes). The bound is now paid once per busy spell."""
+    async def main():
+        calls = {"n": 0}
+
+        async def _state(user):
+            calls["n"] += 1
+            if calls["n"] > 1:
+                await asyncio.sleep(3600)
+            return {"started": False, "beatSeq": 7}
+
+        monkeypatch.setattr(ws_routes, "_engine_state", _state)
+        monkeypatch.setattr(ws_routes, "_EDGE_STATE_READ_S", 0.3, raising=False)
+        canon = H.seed_live_game(None, "live-canon")
+        ws = H.new_ws(); t = H.spawn(ws)
+        await H.hello(ws, canon)
+        ws.client_send({"t": "subscribe", "ch": "state", "cid": "c_s1"})
+        for _ in range(400):
+            if session_events.subscriber_count(canon) == 1:
+                break
+            await asyncio.sleep(0.005)
+        for _ in range(20):
+            session_events.publish(canon, "game-updated")
+        session_events.publish(canon, "run-started")
+        _t0 = asyncio.get_event_loop().time()
+        st = await ws.recv_where(lambda f: f.get("t") == "state" and (f.get("d") or {}).get("reason") == "run-started", timeout=1.5)
+        assert st["d"]["reason"] == "run-started"
+        assert asyncio.get_event_loop().time() - _t0 < 1.5   # the whole burst is not paid edge by edge (20 x 0.3 s)
+        await H.stop(ws, t)
+
+    run(main())
