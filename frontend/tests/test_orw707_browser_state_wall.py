@@ -71,11 +71,12 @@ def test_dossier_of_a_houseguest_who_has_not_arrived_is_not_found(_stack):
     if ent.get("stage") != "entrances":
         pytest.skip("the stack's premiere is past the entrances; the gate has nothing to hold")
     raw = _engine(_stack, "getGameState")
-    met_ids = {r["houseguest"]["id"] for r in (raw.get("premiere") or {}).get("met", [])}
-    outside = [c for c in raw["house"] if c["id"] not in met_ids]
-    inside = [c for c in raw["house"] if c["id"] in met_ids]
-    assert outside, "precondition: houseguests are still outside during the entrances"
-    for c in outside:
-        assert _get(_stack, f"/api/orwell/dossier/{c['id']}") == {"found": False}
+    # ORW-710: while the entrances run the state read carries only houseguests who have walked in (plus `unarrivedCount`), so the ones still outside are no longer listed; any id that is not an arrived houseguest must have no dossier.
+    assert (raw.get("unarrivedCount") or 0) > 0, "precondition: houseguests are still outside during the entrances"
+    arrived_ids = {c["id"] for c in raw["house"]}
+    inside = [c for c in raw["house"] if c["id"] not in {raw.get("player", {}).get("id")}]
+    outside_ids = [f"npc:{n}" for n in range(1, 40) if f"npc:{n}" not in arrived_ids]
+    for oid in outside_ids:
+        assert _get(_stack, f"/api/orwell/dossier/{oid}") == {"found": False}, oid
     if inside:
         assert _get(_stack, f"/api/orwell/dossier/{inside[0]['id']}").get("found") is True
