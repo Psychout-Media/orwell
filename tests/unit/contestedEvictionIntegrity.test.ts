@@ -206,7 +206,8 @@ describe("#1106 — a REAL contested eviction (player-HOH TIE) through the produ
     // time the difficulty changes. Anything other than "this seed had no tie" surfaces.
     const user = "u";
     // ORW-218 (CI speed): seed 44 no longer ties, so the search walked 25 full games (~350 s) before reaching 25, the first seed that does. 25 is tried first now; 44 and the 1..80 tail stay as the fallback when the balance moves again.
-    const SEARCH: number[] = [25, 44, ...Array.from({ length: 80 }, (_, i) => i + 1)];
+    // ORW-711 (the new floor plan moved the seeded trajectories): 25 and 44 no longer tie; a scan of seeds 1-40 found 38 as the only one that does, so it goes first.
+    const SEARCH: number[] = [38, 25, 44, ...Array.from({ length: 80 }, (_, i) => i + 1)];
     let dir = "";
     let runtime!: ReturnType<typeof composeRuntime>;
     let reg!: ReturnType<typeof composeRuntime>["registry"];
