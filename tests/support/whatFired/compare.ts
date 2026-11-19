@@ -24,8 +24,7 @@ export function restartPoints(seed: number, count: number, seasonMessages: numbe
 }
 
 /**
- * What a restart difference MEANS. The off-screen random stream is created per sandbox from the seed and is not part of the save (orchestrator `rngFor`), so a restarted season is not byte-identical
- * to the uninterrupted one from the first tick after the restart: that is "continues-differently" (reported, but kept apart). "state-lost" is the finding that matters: the restarted game differs AT or
+ * What a restart difference MEANS. The engine's two stateful seeded streams, the tick cadence anchors and the play-clock are part of the save (ORW-730), so a restarted season is normally byte-identical to the uninterrupted one. "continues-differently" is what remains (reported, but kept apart): state a refused action changed in memory and no commit saved before the restart. "state-lost" is the finding that matters: the restarted game differs AT or
  * BEFORE the restart point, or its event count falls (a save that dropped something).
  */
 export type RestartVerdict = "identical" | "continues-differently" | "state-lost";

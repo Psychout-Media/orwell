@@ -59,6 +59,9 @@ describe("R3 cache — the cached export equals a full recompute (correctness)",
       relationships: sb.engine.relationships.serialize().edges,
       knowledge: sb.engine.knowledge.serialize(),
       vault: sb.engine.vault.readHidden(),
+      // ORW-730: the stream positions and tick anchors come from the orchestrator's live probe and the command seam, not from the heavy stores this test re-reads; carried over so the comparison stays about those stores.
+      ...(reg.snapshot(U).streamPos ? { streamPos: reg.snapshot(U).streamPos } : {}),
+      ...(reg.snapshot(U).tickAnchors ? { tickAnchors: reg.snapshot(U).tickAnchors } : {}),
     });
 
     for (let w = 0; w < 24; w++) {

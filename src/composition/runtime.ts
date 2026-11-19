@@ -171,7 +171,12 @@ export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
   // Every from-disk rebuild (boot warm-up, a request that arrives first, a resume after an LRU unload) re-baselines
   // unconditionally: a baseline kept from a previous in-memory object graph is the stale case `seedBaseline`
   // documents (review of #2747). The unload drops it, so an idle user pins no snapshot.
-  registry.setOnResume((user) => orchestrator.seedBaseline(user));
+  registry.setOnResume((user) => {
+    // ORW-730: the play-clock picks up where the save left it (tick seeds and recency windows are keyed on it), so a restart does not re-key every later draw.
+    const saved = registry.resumedTickState(user)?.clock;
+    if (ownedClock && saved !== undefined) ownedClock.raiseTo(saved);
+    orchestrator.seedBaseline(user);
+  });
   registry.setOnUnload((user) => orchestrator.dropBaseline(user));
   // God Mode can SEE sandbox health (B58/audit E5+E6): integrity, faults, the circuit state.
   registry.setHealthProvider((user) => orchestrator.sandboxHealth(user));
