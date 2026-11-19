@@ -12999,13 +12999,15 @@ export class GameSessionAdapter implements GameSession {
    * player are the hidden-layer reads that stay in the engine-only archive.
    */
   archiveFinishedSeason(season: number): ArchivedHouseguest[] | null {
-    if (!this.seasonMemoryEnabled || !this.house || !this.live?.finished || this.live.playedGame !== true) return null;
+    // PO ruling 2026-11-19 (Ryne: "Old players can return no matter what ... an actual previous NPC from an older season we played"): a PLAYED season the player ended mid-way (ORW-713) still lends its houseguests to the returner archive once someone had actually been played against (at least one eviction); it earns NO hall-of-fame record (`hallRecordDraft` still needs a finished season).
+    const abandoned = !this.live?.finished && this.live?.playedGame === true && (this.live.evictionOrder?.length ?? 0) > 0;
+    if (!this.seasonMemoryEnabled || !this.house || !this.live || this.live.playedGame !== true || (!this.live.finished && !abandoned)) return null;
     const order = this.live.evictionOrder ?? [];
     const castSize = 1 + this.house.npcs.length;
     const jurors = new Set(order.slice(-9));
     const records: SeasonNpcRecord[] = this.house.npcs.map((n) => {
       const idx = order.indexOf(n.id);
-      const placement = this.live!.winner === n.id ? 1 : this.live!.finalTwo?.includes(n.id) ? 2 : idx >= 0 ? castSize - idx : castSize;
+      const placement = this.live!.winner === n.id ? 1 : this.live!.finalTwo?.includes(n.id) ? 2 : idx >= 0 ? castSize - idx : castSize - (this.live!.finished ? 0 : order.length); // an unfinished season: those still in the house outlast everyone already out
       const e = this.rel.edge(n.id, PLAYER);
       return {
         id: n.id, name: n.name, character: n.character, placement, juror: jurors.has(n.id) || placement <= 2,
