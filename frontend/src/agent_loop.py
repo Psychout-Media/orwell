@@ -5297,7 +5297,7 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
                 '"terms":"<one short clause of what was promised, as spoken>",'
                 '"termWeeks":<integer weeks it runs counting this week, ONLY if a duration was explicitly named, else null>}]}\n'
                 "List a deal ONLY when BOTH sides explicitly AGREED to a concrete commitment, with the kind that matches "
-                "the words actually spoken. If it was loose talk, a one-sided pitch, a 'maybe', or a refusal, leave it "
+                "the words actually spoken; if no listed kind matches what was spoken, leave that deal out. If it was loose talk, a one-sided pitch, a 'maybe', or a refusal, leave it "
                 "out; no deal at all => an empty list. kind: " + _kind_desc + "."},
             {"role": "user", "content":
                 f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
@@ -5342,7 +5342,12 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
             if with_id in _skip or (with_id, prop.get("kind")) in _seen:
                 continue  # the model already dealt with this houseguest this turn / a repeat of this very deal
             _seen.add((with_id, prop.get("kind")))
-            kind = prop.get("kind") if prop.get("kind") in set(_kinds) else "safety"  # the 0039 floor: an off-enum kind still records the handshake, as the closed-set safety kind
+            kind = prop.get("kind")
+            if kind not in set(_kinds):
+                # ORW-732: the belt never engine-authors a kind. A deal filed under a kind other than the one spoken is a
+                # deal with terms other than the spoken ones, so an off-enum kind records NOTHING (no deal, no belt fire).
+                logger.info(f"[orwell] deal back-fill: kind {kind!r} is not in the closed deal-kind set - skipped, no deal recorded user={owner}")
+                continue
             terms = (prop.get("terms") or "").strip()[:200] or "a mutual protection deal"
             # 0109 - a duration the scene explicitly named rides along (shape-filtered; the ENGINE bounds it).
             _tw = prop.get("termWeeks")

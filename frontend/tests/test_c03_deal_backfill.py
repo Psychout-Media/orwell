@@ -59,12 +59,33 @@ def test_invalid_partner_id_is_rejected(monkeypatch):
     assert deals == []
 
 
-def test_unknown_kind_defaults_to_a_safe_kind(monkeypatch):
-    deals = []
+def test_unknown_kind_records_nothing(monkeypatch):
+    # ORW-732: was `..._defaults_to_a_safe_kind`. Filing an unmappable kind as "safety" records terms other than the
+    # ones spoken, so the belt now SKIPS it: no deal, no applied entry (no belt fire).
+    deals, applied = [], []
     _wire(monkeypatch, '{"struck":true,"withId":"npc:7","kind":"weird","terms":"protect each other"}', deals)
-    out = _run(al._auto_record_deal("Tobias and I agree to protect each other.", "x", HOUSE, "url", "m", {}, "owner"))
-    assert out is True
-    assert deals[0]["kind"] in al._DEAL_KINDS
+    out = _run(al._auto_record_deal("Tobias and I agree to protect each other.", "x", HOUSE, "url", "m", {}, "owner", applied_out=applied))
+    assert out is False and deals == [] and applied == []
+
+
+def test_spoken_final_two_records_a_final_two_deal(monkeypatch):
+    deals = []
+    _wire(monkeypatch, '{"deals":[{"withId":"npc:7","kind":"final-two","terms":"we go to the end together"}]}', deals)
+    out = _run(al._auto_record_deal("Tobias: final two, you and me.", "x", HOUSE, "url", "m", {}, "owner"))
+    assert out is True and [(d["with"], d["kind"]) for d in deals] == [("npc:7", "final-two")]
+
+
+def test_extraction_prompt_offers_the_derived_closed_kind_set(monkeypatch):
+    seen = {}
+
+    async def fake_llm(*a, **k):
+        seen["p"] = k["messages"][0]["content"]
+        return '{"deals":[]}'
+
+    monkeypatch.setattr(llm_core, "llm_call_async", fake_llm)
+    _run(al._auto_record_deal("deal", "x", HOUSE, "url", "m", {}, "owner"))
+    from src.tool_schemas import current_deal_kinds
+    assert "final-two" in current_deal_kinds() and ", ".join(current_deal_kinds()) in seen["p"]
 
 
 def test_extraction_hiccup_is_fail_closed(monkeypatch):
