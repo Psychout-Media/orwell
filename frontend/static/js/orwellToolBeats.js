@@ -63,6 +63,8 @@ export const ORWELL_TOOL_BEATS = {
   'confront': '⚡ Confrontation',
   // 0142: call in a favor a houseguest owes the player.
   'callInFavor': '🤝 Calling in a favor',
+  // ORW-727b: a private word with a houseguest, or asking one to come over.
+  'askToTalkAlone': '🤫 Asking for a private word',
   'accuseTie': '🔍 Calling out a tie',
   // 0075: the player presses an ally to open up; the engine decides the disclosure.
   'confide': '🤫 Confiding',
