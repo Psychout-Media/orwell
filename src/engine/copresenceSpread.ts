@@ -68,6 +68,11 @@ export const SPIN = { spunConfidence: 0.85, spunDistortion: 0.15, lieConfidence:
 export const CUNNING: Partial<Record<StrategyStyle, number>> = { strategic: 0.7, aggressive: 0.6, "under-the-radar": 0.55 };
 export const LEAKY: Partial<Record<StrategyStyle, number>> = { emotional: 0.7, social: 0.5, aggressive: 0.4, loyal: 0.2, strategic: 0.1, "under-the-radar": 0.1 };
 
+/** ORW-688: the lineage-id prefixes of rumor-origin beliefs (diffused scene rumor, thread rumor, pre-show tie, confide); the origin is already recorded in the id, so no new state. */
+const RUMOR_ORIGIN_PREFIXES = ["fact:", "thread-belief:", "tie-belief:", "confide:"] as const;
+/** ORW-688 (measured): a rumor-origin retelling records no `heard-rumor` claim (as before it had a subject). Recording one moves the listener's relationship edges (rumor distrust) and shifted the whole house mix (gossip +7, strategy -5); the subject is still carried for the secret consumers. ORW-702 may revisit when it rebalances the season. */
+export const isRumorOrigin = (factId: string | undefined): boolean => factId !== undefined && RUMOR_ORIGIN_PREFIXES.some((p) => factId.startsWith(p));
+
 /** How much `holder` wants `listener` to hear fact `c`: affinity to the listener, the threat of the fact's subject, and the fact's confidence. 0..1, no rng. Shared by the spread and by seeking. */
 export function factMotive(c: { subject?: EntityId; confidence: number }, holder: EntityId, listener: EntityId, d: Pick<SpreadDeps, "affinity" | "threat">): number {
   const subjThreat = c.subject !== undefined ? d.threat(holder, c.subject) : 0;
@@ -141,7 +146,7 @@ export function spreadBetween(holder: EntityId, listener: EntityId, d: SpreadDep
           distortion: Math.min(1, Math.max(src.distortion ?? 0, spinDist) + (retold.drifted ? GOSSIP_DRIFT.sameRoomDistortionStep : 0)), ...(src.subject !== undefined ? { subject: src.subject } : {}),
         }, `told-by:${holder}`);
         transmitted = true;
-        if (d.onTold && src.subject !== undefined) d.onTold({ holder, listener, subject: src.subject, factId: h.factId, confidence: base, slipped: decision === "slip", content: retold.content });
+        if (d.onTold && src.subject !== undefined && !isRumorOrigin(h.factId)) d.onTold({ holder, listener, subject: src.subject, factId: h.factId, confidence: base, slipped: decision === "slip", content: retold.content });
       }
     }
     out.push({ holder, listener, factId: h.factId, decision: told, transmitted });

@@ -186,6 +186,8 @@ export interface SessionCore {
    */
   secretBarterTickCount?: number;
   secretBarterCount?: number;
+  /** ORW-688: each houseguest's recent trading, `{ n: decayed count at tick t }`, so the appetite for trading survives a restart. Absent => none. ENGINE-ONLY, never outward. */
+  secretBarterRecent?: Record<EntityId, { n: number; t: number }>;
   /** ORW-581 (Fable T1-14): the per-night conflict tally (0066 Phase-2 Extension 2) - a fight tonight sends the people in it to bed earlier. Persisted so a restart mid-night turns the same people in at the same hour. Cleared at each new morning. Absent => none (a pre-ORW-581 save, or no fight tonight). ENGINE-ONLY. */
   nightConflicts?: Record<EntityId, number>;
   /** ORW-581 (Fable T1-14): per houseguest, the in-game day, how many memories of the player they have raised that day (`bringUp`) and which memories they raised lately (ORW-131). Persisted so a restart neither re-raises a memory nor grants an extra mention. Absent => none. ENGINE-ONLY. */
@@ -242,6 +244,10 @@ export interface SessionCore {
   /** ORW-473: the private talk the player walked in on (stamped with its message). Absent on older saves. Vault-free. */
   /** ORW-473: ids of the talks already walked in on, so one talk fires once (a bounded ring of the last few). Absent on older saves. */
   walkInDone?: string[];
+  /** ORW-698 (B2-12): the first-time room card of THIS turn (engine-only, turn-scoped like `walkIn`), so a restart between the step and the narration does not lose a card whose room is already marked seen. Absent on an old save. Replaced each time, so not superset-guarded. */
+  roomCardNow?: { msg?: string; room: Room };
+  /** ORW-698 (B2-12): habit scenes seen from a public spot, waiting for the calm tick's whisper (engine-only queue; consumed and emptied by the whisper, so not superset-guarded). Absent on an old save. */
+  habitSightings?: Array<{ pair: [EntityId, EntityId]; room: Room; onlookers: EntityId[] }>;
   walkIn?: { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: "goes-quiet" | "carries-on-guarded" | "moves-the-talk" | "pulls-the-player-in" }[] };
   /**
    * The presence-tick COUNTER (L21/L24). Movement randomness rides a DEDICATED stream forked off the
@@ -1014,6 +1020,29 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
   if (!bondStoreSuperset(later.live?.bonds, earlier.live?.bonds)) return "bonds";
   if (!grudgeBookSuperset(later.live?.grudges, earlier.live?.grudges)) return "grudges";
   if (!groupIdentitySuperset(later.live?.groupIdentity, earlier.live?.groupIdentity)) return "groupIdentity";
+
+  // ORW-698 (B2-11): the engine-only stores below only ever grow, so a save that lost any of it lost detail. Each guard reads only what is monotone;
+  // what is deliberately NOT guarded: `leveragePlays[].status` (an open play closes, so a status compare would fault normal play - only the record's
+  // presence is guarded), `viewOfPlayer` values (the week's sample is overwritten by the latest of the week - only the week's presence is guarded),
+  // `diaryCalls.byDay`/`away`/`playerLast` (per-day counters and the call in progress come and go), `bedRush.plan`/`done` (the plan is decided once
+  // but `done`/`windowEnded` are state, not history), and `together` is guarded as a monotone counter (it only takes a max or adds).
+  const lv = later.live, ev = earlier.live;
+  const keysKept = (a: Record<string, unknown> | undefined, b: Record<string, unknown> | undefined): boolean => Object.keys(a ?? {}).every((k) => (b ?? {})[k] !== undefined);
+  const numsKept = (a: Record<string, number> | undefined, b: Record<string, number> | undefined): boolean => Object.entries(a ?? {}).every(([k, v]) => (b ?? {})[k] !== undefined && (b ?? {})[k]! >= v);
+  if (!keysKept(ev?.routines, lv?.routines) || Object.entries(ev?.routines ?? {}).some(([k, rs]) => (lv?.routines?.[k]?.length ?? 0) < rs.length)) return "routines";
+  const sightKept = Object.entries(ev?.routineSightings ?? {}).every(([who, byKey]) => Object.entries(byKey).every(([key, days]) => days.every((d) => (lv?.routineSightings?.[who]?.[key] ?? []).includes(d))));
+  if (!sightKept) return "routineSightings";
+  if (!numsKept(ev?.chemistry, lv?.chemistry)) return "chemistry";
+  if (!numsKept(ev?.together, lv?.together)) return "together";
+  if (!numsKept(ev?.romances, lv?.romances)) return "romances";
+  if ((ev?.breakups ?? []).some((k) => !(lv?.breakups ?? []).includes(k))) return "breakups";
+  if ((ev?.diaryCalls?.seen?.length ?? 0) > (lv?.diaryCalls?.seen?.length ?? 0)) return "diaryCalls";
+  if ((ev?.leveragePlays ?? []).some((p) => !(lv?.leveragePlays ?? []).some((q) => q.id === p.id))) return "leveragePlays";
+  if (Object.entries(ev?.viewOfPlayer ?? {}).some(([who, pts]) => pts.some((pt) => !(lv?.viewOfPlayer?.[who] ?? []).some((q) => q.week === pt.week)))) return "viewOfPlayer";
+  if (!keysKept(ev?.returners, lv?.returners)) return "returners";
+  // secretBreakDay (ORW-698): the day the nightly break pass last ran only moves forward (a restore must not re-run a night it already ran).
+  if ((ev?.secretBreakDay ?? 0) > (lv?.secretBreakDay ?? 0)) return "secretBreakDay";
+  if (ev?.bedRush && ((lv?.bedRush?.log?.length ?? 0) < ev.bedRush.log.length || (lv?.bedRush?.tick ?? 0) < ev.bedRush.tick)) return "bedRush";
 
   return null;
 }

@@ -711,6 +711,11 @@ describe("review M1 (real engine): a linked entry survives 30 days while the dea
     expect([st(linked.entryId), st(twin.entryId)]).toEqual(["open", "lapsed"]);
     priv(g).live.dayNumber = base + 30; priv(g).persist();
     expect(st(linked.entryId)).toBe("open");
+    // ORW-688: thirty days on, the house has moved on its own (a rumor now carries who it is about, so the off-screen tick plays differently); the speaker is brought back into the room first, since this checks the ledger's bound and not where they happen to be.
+    const wa = g.whereabouts()!;
+    const room = wa.present.some((p) => p.id === who) ? wa.room : wa.nearby.find((r) => r.present.some((p) => p.id === who))?.room;
+    expect(room).toBeDefined();
+    expect(g.movePlayer(room!)!.present.some((p) => p.id === who)).toBe(true);
     expect(g.openLedgerHere().some((x) => x.id === linked.entryId)).toBe(true);
   });
 });
