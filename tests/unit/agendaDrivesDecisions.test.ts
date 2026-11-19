@@ -220,6 +220,18 @@ describe("(c) the narrator gets the stated reason's kind and subject, never the 
     expect(JSON.stringify(s.snapshot())).toContain(SENT_GOAL); // it IS in the engine's own state
   });
 
+  it("ORW-314 follow-up: every stated-reason gloss is a third-person fact, never a first-person speakable line, and the rendered fragment carries it", () => {
+    for (const [kind, text] of Object.entries(STATED_REASON_GLOSS)) {
+      expect(text, kind).not.toMatch(/\b(i|i'm|i've|i'll|me|my|mine|we|our|us|you|your|you're|you'll)\b/i);
+      expect(text.split(/\s+/).length, kind).toBeLessThanOrEqual(12);
+    }
+    const { s } = played();
+    const text = s.getMomentPrompt({ moment: "nominations" } as never).systemPrompt;
+    expect(text).toContain("they say the person named came after them first");
+    expect(text).not.toContain("you came after me first");
+    expect(text).toMatch(/never stock phrasing/);
+  });
+
   it("a secret ballot's reason is stored but never voiced, and an act not yet on the board is not voiced early", () => {
     const { s, hoh, mark, other } = played();
     const core = s.snapshot();

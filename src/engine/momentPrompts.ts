@@ -1532,7 +1532,7 @@ export function renderGameContext(view: GameStateView): string {
           const cues = presentCues(e);
           if (cues) lines.push(`        now (play as conduct, never state): ${cues}`);
           // ORW-314: the reason this houseguest GAVE ALOUD for a public act on the board. Closed set; the kind and the subject only. Voice it; never add or swap another.
-          for (const r of e.statedReasons ?? []) lines.push(`        said aloud (${STATED_ACT[r.decision] ?? "deciding on"} ${neutralizeForPrompt(r.about.name)}): "${STATED_REASON_GLOSS[r.kind] ?? "it is purely strategic"}" - voice THIS reason in their own words and no other`);
+          for (const r of e.statedReasons ?? []) lines.push(`        said aloud (${STATED_ACT[r.decision] ?? "deciding on"} ${neutralizeForPrompt(r.about.name)}): the reason they give - ${STATED_REASON_GLOSS[r.kind] ?? "they call it purely strategic"}; voice THIS reason in their own words, never stock phrasing, and no other`);
           // ORW-338: ORW-317's two NPC-mind lines, pushed here (npcVoice-gated already) so the narrator has them without calling the under-called tool. They sit in this per-turn block, i.e. the volatile tail, never the leading stable lines.
           if (e.moodCause) lines.push(`        moodCause (they chose to tell the player why they feel this way; the ONLY reason they may give): "${neutralizeForPrompt(e.moodCause)}"`);
           if (e.tellsYou) lines.push(`        tellsYou (their own words to the player, certainty ${e.tellsYou.certainty.replace("-", " ")}): ${neutralizeForPrompt(e.tellsYou.subject)} ${TELLS_YOU_VERB[e.tellsYou.kind] ?? "is involved with"}${e.tellsYou.label ? ` ${e.tellsYou.label} (gossip, in their own words, never as a label)` : ""}${e.tellsYou.object ? ` ${e.tellsYou.object === e.name ? "the speaker themself" : neutralizeForPrompt(e.tellsYou.object)}` : ""}`);
@@ -1689,18 +1689,18 @@ export function renderGameContext(view: GameStateView): string {
 }
 
 /** Audit band D F2 — the compact carriage-cue clause for one present houseguest, or "" when none set. */
-/** ORW-314: how each closed-set STATED reason sounds as a line the houseguest says aloud (the narrator words it in their voice; it is the reason they GIVE, which may or may not be the whole story). */
+/** ORW-314: what each closed-set STATED reason IS, as a third-person fact about the houseguest (never a quotable line: the narrator voices it live in their own words; it is the reason they GIVE, which may or may not be the whole story). */
 export const STATED_REASON_GLOSS: Readonly<Record<string, string>> = {
-  "biggest-threat": "you are the biggest threat in this house",
-  "came-after-me": "you came after me first",
-  "loyal-to-my-side": "I had to protect my people",
-  "pawn-youll-be-fine": "you are a pawn and you will be fine",
-  "kept-my-word": "I made a promise and I kept it",
-  "didnt-trust-you": "I never knew where you stood",
-  "had-it-planned": "this was always the plan",
-  "nothing-personal": "it is purely strategic, nothing personal",
-  "house-wants-it": "it is what the house wanted",
-  "keeping-the-noms": "I am keeping the nominations the same",
+  "biggest-threat": "they see the person named as the biggest threat in the house",
+  "came-after-me": "they say the person named came after them first",
+  "loyal-to-my-side": "they are protecting their own side",
+  "pawn-youll-be-fine": "they call the person named a pawn who will be fine",
+  "kept-my-word": "they say they are keeping a promise",
+  "didnt-trust-you": "they say they never knew where the person named stood",
+  "had-it-planned": "they say this was always the plan",
+  "nothing-personal": "they call it purely strategic, nothing personal",
+  "house-wants-it": "they say it is what the house wanted",
+  "keeping-the-noms": "they are keeping the nominations the same",
 };
 /** 0151: what a `tellsYou` kind says, as a verb phrase between the subject and the second party. */
 const TELLS_YOU_VERB: Record<string, string> = {
