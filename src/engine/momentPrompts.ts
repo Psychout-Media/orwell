@@ -298,6 +298,7 @@ export const BASE_GAME_MASTER_PROMPT = [
   "\"ugh, I want to leave\" stays intent — you keep them present and play on. NEVER fabricate the exit",
   "yourself, and until the GAME marks the player as evicted (or self-evicted) or the season as over, the",
   "player is still ACTIVE in the house — voice them as present, never as having left.",
+  "Ending the season is the player's own act: the New Chat control, behind their confirm. You have no lever for it; never offer to take them somewhere or call a door closed.",
   "",
   "THE REAL WORLD. The houseguests lived in the real world until move-in day. When the player",
   "references something real you don't know — a film, an artist, a news story — you may QUIETLY use",
@@ -1185,6 +1186,26 @@ export function physicalLook(card: {
 }
 
 /** A Vault-free context block woven into the system prompt. Reads ONLY public projection fields. */
+
+/** ORW-715: the veto holder's decision as an engine FACT, so the narrator neither invents one before the ceremony announces it nor gets the announced one wrong. Facts only, no wording to recite. */
+function vetoDecisionLines(cer: GameStateView["ceremony"]): string[] {
+  const d = cer.veto.decision;
+  if (!cer.veto.holder || !d) return [];
+  if (!d.made) {
+    return ["    Veto decision: NOT MADE YET. The game announces it at the Veto Ceremony; until then nobody, the holder included, has decided, so no one states or hints which way it went, and nobody is named as coming down."];
+  }
+  if (!d.used) return [`    Veto decision (made): ${cer.veto.holder.name} did NOT use it; the nominees stand as they are.`];
+  const saved = d.saved ? (d.saved.id === cer.veto.holder.id ? "themselves" : d.saved.name) : "a nominee";
+  return [`    Veto decision (made): ${cer.veto.holder.name} USED it on ${saved}${d.replacement ? `; ${cer.hoh ? cer.hoh.name : "the HOH"} named ${d.replacement.name} as the replacement` : ""}. Nobody else came down.`];
+}
+
+/** ORW-715: who is still on the floor of a staged competition and who is already out, so an eliminated houseguest is never put back into a later round or the final. */
+function competitionFloorLines(cer: GameStateView["ceremony"]): string[] {
+  const c = cer.competition;
+  if (!c || !c.out.length) return [];
+  return [`    Competition floor: still in ${c.stillIn.map((p) => p.name).join(", ") || "no one"}; already out ${c.out.map((p) => p.name).join(", ")} (an eliminated houseguest does not compete again).`];
+}
+
 export function renderGameContext(view: GameStateView): string {
   if (!view.started || !view.player) {
     const lines = [
@@ -1304,7 +1325,9 @@ export function renderGameContext(view: GameStateView): string {
     // the field so the model never tells a drawn houseguest (the player included) they aren't playing.
     `    Playing the veto: ${vetoPlayers.length ? vetoPlayers.map((p) => p.name).join(", ") : "not yet drawn"}`,
     `    Veto: ${cer.veto.holder ? `held by ${cer.veto.holder.name}${cer.veto.used ? " (already used)" : ""}` : "not yet played"}`,
+    ...vetoDecisionLines(cer),
   ];
+  const ceremonyAndFloorLines = [...ceremonyLines, ...competitionFloorLines(cer)];
   // E58: the in-game day index, derived from the ceremony cadence (Day 1 HOH → Day 5 eviction),
   // grounds the model's sense of the week — a week is five beats, never seven invented days.
   const day = dayOfWeek(view.phase);
@@ -1595,7 +1618,7 @@ export function renderGameContext(view: GameStateView): string {
       : []),
     `- Houseguests remaining: ${remaining} of ${total} (use THIS exact number for any count — never`,
     "  do your own arithmetic about how many are left, on podiums, etc.).",
-    ...ceremonyLines,
+    ...ceremonyAndFloorLines,
     ...whereaboutsLines,
     ...presentKnowledgeLines,
     ...premiereLines,

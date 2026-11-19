@@ -10,6 +10,9 @@ Three hard facts, all from Vault-free public state:
   clock-time      a clock time is stated while the zero-clocks setting is on (ORW-377 wording rules, reused)
   schedule-words  the next event is on a later day (`daySchedule.tomorrow`) but the text puts it today ("this afternoon", "tonight")
 Pure functions, fail-open, no rng.
+
+ORW-715 adds two more, from the engine's own ceremony facts (`ceremony.veto.decision`, `eviction.evictee`), checked INCLUDING quoted speech (a houseguest voicing the result is how an invented one reaches the
+player): veto-decision (a veto decision stated before the engine made one, or the wrong one: use / not use / who came down / the replacement) and evictee-named (a different houseguest named as evicted).
 """
 from __future__ import annotations
 
@@ -20,10 +23,12 @@ from typing import Any, Iterable, NamedTuple, Optional
 
 logger = logging.getLogger(__name__)
 
-_STATE_FIELDS = ("asleep", "daySchedule")  # the only parts of the cached board the checks read
+_STATE_FIELDS = ("asleep", "daySchedule", "ceremony", "eviction")  # the only parts of the cached board the checks read
 FACT_ASLEEP = "asleep-speaks"
 FACT_CLOCK = "clock-time"
 FACT_SCHEDULE = "schedule-words"
+FACT_VETO = "veto-decision"  # ORW-715
+FACT_EVICTEE = "evictee-named"  # ORW-715
 
 # The sleeper is only MENTIONED (asleep, snoring, in bed, dreaming): allowed. Anything else near their name with a voice or a movement is a conflict.
 _SLEEP_OK_RE = re.compile(r"\b(?:asleep|sleep\w*|snor\w+|slumber\w*|dream\w*|turned\s+in|in\s+(?:his|her|their)\s+bed|in\s+bed|under\s+the\s+covers|out\s+cold|fast\s+asleep)\b", re.IGNORECASE)
@@ -160,6 +165,115 @@ def schedule_conflict(text: str, schedule: Any, *, in_quote: bool = False) -> Op
     return None
 
 
+# ── ORW-715: the veto decision and the vote result as hard facts ───────────────────────────────────────────────────────
+# A season playtest had a houseguest announce "I'm not using it" a day before the engine made any veto decision, and "I used it. I took X down" when the engine had the holder save herself. The engine now
+# publishes `ceremony.veto.decision` ({made: false} until the ceremony's result step; then used / saved / replacement) and `eviction.evictee` once the vote is decided; these checks compare the text to them.
+# Unlike the other facts, QUOTED speech is checked here: a houseguest voicing the result in dialogue is exactly how the invented result reached the player. Hypothetical, conditional and question
+# sentences are exempt, as is anything that says it has not happened yet. Names are matched against the engine's own ceremony names; a name the board does not know is never a conflict.
+_HEDGE_RE = re.compile(r"\b(?:if|unless|whether|would|could|might|may|maybe|perhaps|should|suppose|supposing|wonder\w*|what\s+if|hypothetical\w*|when|until|promis\w+|swear\w*|yet|still\s+deciding|has(?:n't|\s+not)\s+decided|not\s+decided)\b", re.IGNORECASE)
+_VETO_WORD = r"(?:the\s+(?:power\s+of\s+)?veto|the\s+pov|my\s+veto|that\s+veto)"
+_FP = r"I(?:'ve|\s+have|'m|\s+am)?"  # first person: "I used it" needs no veto word, the speaker is the holder in a veto scene
+_USE_RE = re.compile(
+    r"\b" + _FP + r"\s+(?:used|using|decided\s+to\s+use|chosen\s+to\s+use|choosing\s+to\s+use)\s+(?:it|" + _VETO_WORD + r")"
+    + r"|\b(?:used|uses|using)\s+" + _VETO_WORD
+    + r"|\b" + _VETO_WORD + r"\s+(?:was|is|has\s+been|got)\s+used\b"
+    + r"|\bdecided\s+to\s+use\s+(?:it|" + _VETO_WORD + r")|\bI(?:'ve|\s+have)?\s+decided\s+to\s+use\b", re.IGNORECASE)
+_NOT_USE_RE = re.compile(
+    r"\bI(?:'m|\s+am)\s+not\s+(?:using|going\s+to\s+use)\b|\bI\s+(?:won't|will\s+not|do\s+not|don't|did\s+not|didn't)\s+use\b|\bI(?:'ve|\s+have)?\s+decided\s+not\s+to\s+use\b"
+    r"|\bdecided\s+not\s+to\s+use\s+(?:it|" + _VETO_WORD + r")|\b(?:did\s+not|didn't|does\s+not|doesn't|will\s+not|won't|is\s+not\s+going\s+to)\s+use\s+" + _VETO_WORD
+    + r"|\b(?:is\s+not|isn't|was\s+not|wasn't)\s+using\s+" + _VETO_WORD, re.IGNORECASE)
+_NAME_TOKEN = r"(?-i:[A-Z][\w'’\-]+(?:\s+[A-Z][\w'’\-]+)?)"  # case-SENSITIVE inside the otherwise case-blind patterns
+_TOOK_DOWN_RE = re.compile(r"\b(?:took|take|takes|taking|pulled|pull|pulls|pulling|saved|save|saves|saving)\s+(?P<who>myself|himself|herself|themselves?|" + _NAME_TOKEN + r")\s+(?:down|off)\b"
+                           r"|\b(?:uses?|used|using)\s+(?:it|the\s+(?:power\s+of\s+)?veto)\s+on\s+(?P<who2>myself|himself|herself|themselves?|" + _NAME_TOKEN + r")\b", re.IGNORECASE)
+_REPLACEMENT_RE = re.compile(r"\b(?:names?|named|naming|put|puts|putting)\s+(?P<who>" + _NAME_TOKEN + r")\s+(?:up\s+)?as\s+the\s+replacement\b|\b(?P<who2>" + _NAME_TOKEN + r")\s+(?:is|was|becomes|became)\s+the\s+replacement\b", re.IGNORECASE)
+_EVICTED_RE = re.compile(r"\b(?P<who>" + _NAME_TOKEN + r")(?:,\s*you(?:'ve|\s+have)?|\s+(?:is|was|has\s+been|have\s+been|are))\s+(?:been\s+)?evicted\b", re.IGNORECASE)
+_SELF_WORDS = {"myself", "himself", "herself", "themself", "themselves"}
+
+
+def _name_is(who: str, name: Any) -> bool:
+    """`who` (as written in the text) is the houseguest `name`: the whole name, or a single-token shorthand of it (first name)."""
+    w = (who or "").strip().lower()
+    n = str(name or "").strip().lower()
+    if not w or not n:
+        return False
+    return w == n or (len(w.split()) == 1 and w in n.split())
+
+
+def _ceremony_names(cer: dict) -> "list[str]":
+    out: "list[str]" = []
+    veto = cer.get("veto") if isinstance(cer.get("veto"), dict) else {}
+    dec = veto.get("decision") if isinstance(veto.get("decision"), dict) else {}
+    for node in [cer.get("hoh"), veto.get("holder"), dec.get("saved"), dec.get("replacement")] + list(cer.get("nominees") or []):
+        if isinstance(node, dict) and str(node.get("name") or "").strip():
+            out.append(str(node["name"]).strip())
+    return out
+
+
+def _names_claim(rx: "re.Pattern[str]", sent: str, known: "list[str]") -> bool:
+    """`rx` matches `sent` and the person it names is yourself-word or someone on the ceremony board (so a stray capitalised word never counts)."""
+    for m in rx.finditer(sent):
+        who = (m.group("who") or m.group("who2") or "").strip()
+        if who.lower() in _SELF_WORDS or any(_name_is(who, k) for k in known):
+            return True
+    return False
+
+
+def veto_decision_conflict(text: str, ceremony: Any) -> "Optional[str]":
+    """The first sentence of `text` that states a veto decision / who came down / who is the replacement against the engine's `ceremony.veto.decision`. Before the decision is MADE, stating any decision
+    is an invented result; after, a statement that disagrees with the engine's is wrong. None when there is no holder / no decision field (flag off, older engine) or nothing conflicts."""
+    if not text or not isinstance(ceremony, dict):
+        return None
+    veto = ceremony.get("veto") if isinstance(ceremony.get("veto"), dict) else {}
+    dec = veto.get("decision")
+    if not veto.get("holder") or not isinstance(dec, dict):
+        return None
+    made, used = bool(dec.get("made")), bool(dec.get("used"))
+    holder = (veto.get("holder") or {}).get("name")
+    saved, repl = (dec.get("saved") or {}).get("name"), (dec.get("replacement") or {}).get("name")
+    known = _ceremony_names(ceremony)
+    for sent in _sentences(text):
+        if "?" in sent or _HEDGE_RE.search(sent):
+            continue
+        if not made or not used:
+            # nothing is decided / nothing was used: any use, any "took X down", any replacement naming a person of the board is a claim the engine did not make (and, unmade, a not-use claim too)
+            if _USE_RE.search(sent) or (not made and _NOT_USE_RE.search(sent)) or _names_claim(_TOOK_DOWN_RE, sent, known) or _names_claim(_REPLACEMENT_RE, sent, known):
+                return sent.strip()
+            continue
+        if _NOT_USE_RE.search(sent):
+            return sent.strip()
+        for m in _TOOK_DOWN_RE.finditer(sent):
+            who = (m.group("who") or m.group("who2") or "").strip()
+            if who.lower() in _SELF_WORDS or who.lower() == "themselves":
+                if saved and holder and not _name_is(holder, saved) and str(holder).strip().lower() != str(saved).strip().lower():
+                    return sent.strip()
+            elif saved and any(_name_is(who, k) for k in known) and not _name_is(who, saved):
+                return sent.strip()
+        for m in _REPLACEMENT_RE.finditer(sent):
+            who = (m.group("who") or m.group("who2") or "").strip()
+            if repl and any(_name_is(who, k) for k in known) and not _name_is(who, repl):
+                return sent.strip()
+    return None
+
+
+def evictee_conflict(text: str, eviction: Any, ceremony: Any) -> "Optional[str]":
+    """Once the engine has decided the eviction (`eviction.evictee`), a sentence that says a DIFFERENT houseguest of the board was evicted contradicts it. No decided evictee => no fact (the
+    ballot reveal is staged and the tally is the outcome guard's job). None when nothing conflicts."""
+    if not text or not isinstance(eviction, dict) or not isinstance(eviction.get("evictee"), dict):
+        return None
+    evictee = str(eviction["evictee"].get("name") or "").strip()
+    if not evictee or not isinstance(ceremony, dict):
+        return None
+    known = _ceremony_names(ceremony)
+    for sent in _sentences(text):
+        if "?" in sent or _HEDGE_RE.search(sent):
+            continue
+        for m in _EVICTED_RE.finditer(sent):
+            who = m.group("who").strip()
+            if not _name_is(who, evictee) and any(_name_is(who, k) for k in known):
+                return sent.strip()
+    return None
+
+
 def find_conflicts(text: str, state: Any, *, zero_clocks: bool, in_quote: bool = False) -> "list[str]":
     """The hard-fact conflicts in `text` against the Vault-free `getGameState` dict. Returns fact ids, e.g. ["clock-time"]. Fail-open: any hiccup => [].
     Derived from `conflict_details` (review of #2723) so a hard fact is defined in one place."""
@@ -172,6 +286,8 @@ def correction_for(fact: str) -> str:
         FACT_ASLEEP: "A houseguest who has turned in for the night spoke or acted; they are asleep and do not speak or act.",
         FACT_CLOCK: "A clock time was stated; the house has no clocks, so name only the part of the day.",
         FACT_SCHEDULE: "The next event is on a later day; do not place it today or tonight.",
+        FACT_VETO: "The veto decision is stated wrongly or before the game made it; state only the engine's decision, or none if it is not made yet.",
+        FACT_EVICTEE: "A houseguest is named as evicted who the game did not evict; name only the engine's evictee.",
     }.get(fact, "")
 
 
@@ -244,6 +360,10 @@ def conflict_details(text: str, state: Any, *, zero_clocks: bool, in_quote: bool
         sched = state.get("daySchedule")
         if schedule_conflict(text, sched, in_quote=in_quote):
             out.append(Conflict(FACT_SCHEDULE, str((sched or {}).get("next") or "").replace("-", " ")))
+        if veto_decision_conflict(text, state.get("ceremony")):
+            out.append(Conflict(FACT_VETO, _veto_correction_detail(state.get("ceremony"))))
+        if evictee_conflict(text, state.get("eviction"), state.get("ceremony")):
+            out.append(Conflict(FACT_EVICTEE, str(((state.get("eviction") or {}).get("evictee") or {}).get("name") or "")))
         return out
     except Exception:  # failsoft-ok: orw408-detail-check (fail-open: an unreadable check never holds narration)
         return []
@@ -307,6 +427,24 @@ def drop_conflicting_sentences(text: str, owner: Any, *, in_quote: bool = False)
         return text, []
 
 
+def _veto_correction_detail(cer: Any) -> str:
+    """The engine's own statement of the veto decision, carried into the correction (public ceremony names only)."""
+    try:
+        veto = cer.get("veto") or {}
+        dec = veto.get("decision") or {}
+        holder = (veto.get("holder") or {}).get("name") or "the holder"
+        if not dec.get("made"):
+            return "not made"
+        if not dec.get("used"):
+            return f"{holder} did not use it"
+        saved = (dec.get("saved") or {}).get("name")
+        on = "themselves" if saved and saved == (veto.get("holder") or {}).get("name") else (saved or "a nominee")
+        repl = (dec.get("replacement") or {}).get("name")
+        return f"{holder} used it on {on}" + (f" and {repl} is the replacement" if repl else "")
+    except Exception:  # failsoft-ok: orw715-detail
+        return ""
+
+
 def _correction_line(c: Conflict) -> str:
     if c.fact == FACT_ASLEEP:
         return f"{c.detail} is asleep and cannot speak or act in this scene."
@@ -314,6 +452,12 @@ def _correction_line(c: Conflict) -> str:
         return "Do not state clock times; use the part of day."
     if c.fact == FACT_SCHEDULE:
         return f"The {c.detail or 'next event'} is tomorrow, not today; do not place it today or tonight."
+    if c.fact == FACT_VETO:
+        if c.detail == "not made":
+            return "The veto decision has not been made yet; nobody has decided, so no one says which way it went or who comes down."
+        return f"The veto decision is made and it is: {c.detail}. State only that."
+    if c.fact == FACT_EVICTEE:
+        return f"{c.detail} is the houseguest the game evicted; no one else was evicted."
     return correction_for(c.fact)
 
 

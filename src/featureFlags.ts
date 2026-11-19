@@ -83,6 +83,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_CASTING_PRONOUN_ASK', key: 'castingPronounAsk', parser: 'defaultOn' },
   // 0197 / ORW-631: catching a misdirection - a lead a houseguest gave the player about where someone is is recorded (engine-only: where the person really was, whether it was meant to mislead) and resolved by what the player later sees; a lead that did not pan out is handed to the narrator as a plain observed fact. Played games only. `=0` turns it off (byte-identical).
   { envKey: 'ORWELL_CATCH_MISDIRECTION', key: 'catchMisdirection', parser: 'defaultOn' },
+  // ORW-715 (Fable season playtest W1-1): the ceremony facts the narrator was missing - whether the veto holder's decision has been made yet (and, once made, which way it went and who came down), and who is still on the floor of a staged competition. Without them a narrator invented a veto result a day early, got the announced one wrong, and put an eliminated houseguest back into the final round. Facts to the narrator only; no outcome changes. A played game only. `=0` = today's prompt, byte for byte.
+  { envKey: 'ORWELL_CEREMONY_FACTS', key: 'ceremonyFacts', parser: 'defaultOn' },
   // A52 / ORW-23 (Ryne card 19: the narrator does not improvise disclosures): in a played game `npcVoice.knows` is only what the player also holds (engine-delivered or witnessed together); a declined press carries `deflect`. ON by default; `=0` turns it off.
   // 0151 / ORW-330 (theme 2 slice 4a): a houseguest who trusts the player may pass on one belief per day, hedged by their certainty (engine-decided, own side stream, no outcome moves). Default-ON; `=0` opts out.
   { envKey: 'ORWELL_CLAIMS_TO_PLAYER', key: 'claimsToPlayer', parser: 'defaultOn' },

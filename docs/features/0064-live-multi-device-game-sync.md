@@ -474,3 +474,6 @@ the `sync:game-updated` reason — dispatched **only** by the 0064 SSE, never th
 settle (the A↔B parity lag), and confirms the turn actually mutated (engine `beatSeq` before/after) so a
 non-mutating turn can never produce a false green. RED on the base branch (B never receives a push from a
 chat turn → it would only converge on its poll); GREEN after the fix.
+
+## Amendment 2026-11-19 (ORW-713 / ORW-714 root cause) - every new season opens a fresh canonical chat
+Every door that starts a new season unbinds the canonical game chat so the next entry opens a fresh chat and the old chat stays in the list as a past season (rows untouched): `reset-progress`, `next-season`, `new-game` already did; the OPS game reset (`deploy/orwell-game-reset.sh`) kept the chat sessions AND the binding, so the old season's rows sat above the new casting interview. The script now removes the binding file (`orwell_game_session.json`, after the services are stopped; `--dry-run` only reports it). The in-chat "run it back" (the model calling `createCharacter` with `confirmRestart` after a finale) still continues in the same chat: switching chats mid-stream is the #1086 hazard; the #3102 chapter-start defence covers it. Tests: `frontend/tests/test_orw713_new_season_path.py`.

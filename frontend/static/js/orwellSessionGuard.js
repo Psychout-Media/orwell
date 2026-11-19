@@ -45,8 +45,35 @@
 
   let _pending = null; // in-flight confirm — collapses redundant double-fires onto ONE dialog.
 
-  // Returns a Promise<boolean> — true = safe to proceed (no live game, or the player confirmed
-  // leaving it); false = the player chose to stay, the caller must not detach.
+  // ORW-713: the confirm must DO what it says. A new chat cannot detach from a live game (one game =
+  // one chat per user, ADR 0008/0012), so the old confirm opened an empty chat still bound to
+  // the same season. Now the player's explicit confirm ENDS the season through the ONE sanctioned restart
+  // door (POST /api/orwell/reset-progress -> the engine's registry.resetUser hinge; it also unbinds the
+  // canonical chat), and a fresh chat opens for the new casting. The old chat stays in the list, readable.
+  // Returns a Promise<boolean> — true = safe to proceed with the caller's own new-chat flow (no live game);
+  // false = the player stayed, OR the season was ended here and the fresh chat is opened by the restart seam.
+  async function endSeasonAndRestart() {
+    let r = null;
+    try {
+      r = await fetch("/api/orwell/reset-progress", {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true }),
+      });
+    } catch (_) { r = null; }
+    if (!r || !r.ok) {
+      try { window.OrwellReport && window.OrwellReport.fail("session-guard", "end-season", new Error("reset-progress " + (r ? r.status : "unreachable"))); } catch (_) {}
+      try { window.uiModule && window.uiModule.showToast && window.uiModule.showToast("Couldn't end your season just now. It is untouched. Try again in a moment."); } catch (_) {}
+      return false;
+    }
+    // Arm the fresh-session split (E65), then open the new chat AFTER this guard settles (the restart seam
+    // clicks New Chat, which re-enters the guard; by then the season is over so it passes straight through).
+    try { window._orwellMarkRestart && window._orwellMarkRestart(); } catch (_) {}
+    try { window.orwellGameChanged && window.orwellGameChanged("reset-progress"); } catch (_) {}
+    setTimeout(() => { try { window._orwellFreshSession && window._orwellFreshSession(); } catch (_) {} }, 0);
+    return false;
+  }
+
   async function confirmLeaveGame() {
     if (!gameBuild()) return true;
     if (_pending) return _pending;
@@ -54,12 +81,14 @@
       const st = await jget("/api/orwell/state");
       if (!isLive(st)) return true;
       if (!window.styledConfirm) return true; // no dialog available — never trap the player
-      return window.styledConfirm(
-        "Leave your current season?\n\nStarting a new chat here will step you away from your " +
-        "live, in-progress season — the house, your relationships, everything you've built so " +
-        "far. This isn't a fresh conversation you can just reopen later.",
-        { confirmText: "Leave my season", cancelText: "Stay in my season", danger: true }
+      const ok = await window.styledConfirm(
+        "End this season and start a new one?\n\nYour season is still in progress. Starting a new one ends it " +
+        "for good: it will not be finished, so it will not enter your hall of fame, and you begin again at " +
+        "casting. This season's chat stays in your list so you can still read it.",
+        { confirmText: "End season, start new", cancelText: "Stay in my season", danger: true }
       );
+      if (!ok) return false;
+      return endSeasonAndRestart();
     })();
     try {
       return await _pending;
