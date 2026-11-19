@@ -394,6 +394,7 @@ def test_every_agent_loop_belt_notes_its_fire_as_a_real_call():
         '"casting-finalize-force"',
         '"eviction-reveal-steer"',
         '"ceremony-narration-steer"',
+        '"refusal-withheld"',             # ORW-717: _withhold_leading_refusal (helper call site in agent_loop)
     ):
         _assert_belt_call(src, token, "agent_loop.py")
 
