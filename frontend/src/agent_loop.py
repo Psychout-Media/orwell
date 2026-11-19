@@ -6848,6 +6848,16 @@ def _drop_fallback_turns(messages):
     return out
 
 
+def _hold_generic_cutaway(guarded, cutaway_before: bool, live_game: bool):
+    """ORW-726: the generic feeds-cut stand-in is an engine-authored sentence, so it is never shown ahead of real narration. In a live game it is HELD instead of
+    streamed (returns (guarded without it, True)): if the turn then yields narration the stand-in never appears, and if nothing is shown the blank-turn guard
+    re-prompts with a fact and falls to the engine-board line. The engine-true board line (a fact recap, from the 2nd consecutive cut) still streams. Pure."""
+    if (live_game and guarded.cutaway_emitted and not cutaway_before
+            and _SCENE_CUTAWAY_LINE in (guarded.text or "")):
+        return guarded._replace(text=guarded.text.replace(_SCENE_CUTAWAY_LINE, "")), True
+    return guarded, False
+
+
 async def _emit_guarded_scene(clean: str, owner, *, scene_broken: bool, emitted_visible: bool,
                               cutaway_emitted: bool) -> "_GuardedScene":
     """A2 (2026-07-03) — run one leak-scrubbed stream chunk through BOTH the whole-scene circuit-breaker
@@ -9071,6 +9081,7 @@ async def _stream_agent_loop_impl(
     _turn_refusal_withheld = False  # ORW-717: a refusal-only round was held back this turn (the blank-turn re-prompt then carries one fact)
     _turn_narrate_nudges = 0  # planning-only round → blank turn; we re-prompt once for the scene)
     _cutaway_emitted = False  # A2 (2026-07-03): the diegetic feeds-cut line is emitted at most once/turn
+    _cutaway_held = False  # ORW-726: a cut/emptied chunk's generic stand-in was held back (never streamed ahead of real narration)
     _pd_rewrite_used = False  # ORW-408: at most ONE quiet sentence-level rewrite per turn
     _pv_state = None  # ORW-725: the player-voice net's per-turn carry (built lazily with the player's own message)
     _pv_msg = ""
@@ -9863,6 +9874,8 @@ async def _stream_agent_loop_impl(
                                         cutaway_emitted=_cutaway_emitted,
                                     )
                                     _scene_broken = _guarded.scene_broken
+                                    _guarded, _cut_held = _hold_generic_cutaway(_guarded, _cutaway_emitted, _is_live_game)
+                                    _cutaway_held = _cutaway_held or _cut_held
                                     _cutaway_emitted = _guarded.cutaway_emitted
                                     # A0 knowledge wall: NEVER overridden by a blank-turn fallback — a
                                     # houseguest voicing the player's sealed Diary-Room content is a
@@ -10110,6 +10123,8 @@ async def _stream_agent_loop_impl(
                     flush=True,
                 )
                 _scene_broken = _guarded.scene_broken
+                _guarded, _cut_held = _hold_generic_cutaway(_guarded, _cutaway_emitted, _is_live_game)
+                _cutaway_held = _cutaway_held or _cut_held
                 _cutaway_emitted = _guarded.cutaway_emitted
                 # A0 knowledge wall: a Vault-Wall leak is never re-admitted by a fallback. A2 (#1726)
                 # presence wall runs right after it, equally non-overridden — drops a phantom
@@ -11822,6 +11837,9 @@ async def _stream_agent_loop_impl(
                     logger.info(f"[orwell] blank-turn guard: re-prompting for narration round {round_num} user={owner}")
                     _rf_fact = ("The previous attempt produced no scene. Continue the scene from the engine facts. "
                                 if _turn_refusal_withheld else "")
+                    if _cutaway_held and not _rf_fact:  # ORW-726: the draft was withheld for stating a board result the game has not reached
+                        _rf_fact = ("The previous draft was withheld because it stated a board result the game has not reached. "
+                                    "Continue the scene from the engine facts, announcing nothing the game has not committed. ")
                     messages.append({"role": "system", "content": _rf_fact + (
                         "Your last turn produced no narration the player could see — only private "
                         "planning. Write the SCENE NOW, fully in character: what the houseguest says "
