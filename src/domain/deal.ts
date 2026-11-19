@@ -59,6 +59,8 @@ export interface Deal {
   status: DealStatus;
   /** Theme 3 / 0175: who broke the deal, when `status` is "broken" (absent on saves from before it, and on every other status). */
   brokenBy?: EntityId;
+  /** ORW-697: the week the deal was broken (when the sink knew the week; absent on older saves). */
+  brokenWeek?: number;
   /**
    * ORW-597 (Fable T3-1, design hole 1): has the wronged party LEARNED of the break? A break by a public act (nominating, replacing) is learned at once; a quiet,
    * deliberate break is not, until a pathway (the breaker's later public act against them, or catching the breaker lying to them) - only then does the wronged side

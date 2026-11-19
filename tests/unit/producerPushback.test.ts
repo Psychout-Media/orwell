@@ -79,6 +79,16 @@ describe("0210 C3 - in the player's Diary Room", () => {
     expect(JSON.stringify(v)).not.toMatch(/\d|npc:/);
     expect(JSON.stringify(s.getGameState().producerPushback)).toEqual(JSON.stringify(v)); // deterministic
   });
+  it("ORW-697: a withdrawn/lapsed word is not held against the player; an open one still is", () => {
+    const { s, ally, sb } = boot();
+    contradict(s, ally);
+    const live = s.live as LiveSeasonState;
+    const l = AssuranceLedger.fromJSON(live.assurances!);
+    expect(l.lapseMatching({ from: PLAYER, to: ally, kind: "safe" })).toBe(1);
+    live.assurances = l.toJSON();
+    sb.commands.diaryRoom({ entry: SENTINEL });
+    expect(s.getGameState().producerPushback).toBeUndefined();
+  });
   it("a consistent player gets none", () => {
     const { s, sb, ally } = boot();
     const live = s.live as LiveSeasonState;
