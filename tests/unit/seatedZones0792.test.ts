@@ -33,8 +33,8 @@ const cast = (n: number): EntityId[] => [PLAYER, ...Array.from({ length: n }, (_
 describe("issue #792 — seatZones (pure)", () => {
   it("seats a valid sub-zone for every id in a zoned room, and NOTHING for un-zoned rooms", () => {
     const occ = new Map<EntityId, Room>([
-      [npc(1), "backyard"], [npc(2), "backyard"], [npc(3), "lounge"],
-      [npc(4), "kitchen"], [npc(5), "bedroom-a"],
+      [npc(1), "backyard"], [npc(2), "backyard"], [npc(3), "backyard"],
+      [npc(4), "kitchen"], [npc(5), "bedroom-a"], [npc(6), "lounge"], // ORW-711: the lounge is one small room, not zoned
     ]);
     const out = new Map<EntityId, Zone>();
     seatZones(occ, null, out, { rng: new SeededRandom(3), salt: "s" });
@@ -44,7 +44,7 @@ describe("issue #792 — seatZones (pure)", () => {
       expect(zonesFor(room)).toContain(out.get(id));
     }
     // un-zoned rooms ⇒ no seat at all
-    for (const id of [npc(4), npc(5)]) expect(out.has(id)).toBe(false);
+    for (const id of [npc(4), npc(5), npc(6)]) expect(out.has(id)).toBe(false);
   });
 
   it("a HELD zoned-room stay can DRIFT to a different sub-zone across ticks (not fixed by id+room)", () => {

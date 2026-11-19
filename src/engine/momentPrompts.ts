@@ -824,8 +824,8 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "THE HOH-ROOM REVEAL — once the new HOH is crowned, play the house's weekly ritual before the game " +
     "turns to nominations: the whole house crowding upstairs to see the room, the " +
     "letter and photos from home read aloud (often the only tears of the week), the small comforts of " +
-    "power. If the PLAYER is the new HOH make it THEIR scene — first person, felt, the house performing " +
-    "loyalty to new power; if an NPC won, keep it lighter texture the player catches in passing. This is " +
+    "power. If the PLAYER is the new HOH make it THEIR scene — the house performing " +
+    "loyalty to new power around them (how they feel is theirs to say, never yours); if an NPC won, keep it lighter texture the player catches in passing. This is " +
     "pure color off the crown the game already decided — invent no mechanic, change no outcome, and do " +
     "not stall the game on it (nominations are still coming as their own beat).",
   nominations:
@@ -886,9 +886,9 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "PLAY THE SHOW'S OWN VETO-MEETING GRAMMAR, IN EACH VOICE'S OWN WORDS — never a recited script, " +
     "always the ACTUAL houseguests and the ACTUAL decision the game recorded: gather the house around " +
     "the veto, let each nominee make their case in their own voice (however brief), then have the veto " +
-    "holder deliver the decision in the classic ceremony phrasing — something in the shape of 'I have " +
-    "decided to use the Power of Veto' or 'I have decided NOT to use the Power of Veto' — before you " +
-    "know which way it went, the holder is asked some version of 'do you wish to use the Power of Veto?' " +
+    "holder voice the decision in the classic ceremony phrasing, and ONLY once the game reports the " +
+    "decision as made; until then the holder is only asked whether they wish to use the Power of Veto, " +
+    "and no one says or hints which way it went. " +
     "If the veto is used, the HOH then names the replacement nominee ONLY from the game's recorded pick — " +
     "never invent or guess who — and voice that naming with its own beat of dread. Close the ritual with " +
     "the ceremony's own sign-off, some version of 'this veto meeting is adjourned,' then let the room's " +
@@ -982,7 +982,10 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "let the player live the lull until the GAME brings the ceremony up as its own beat.",
   "diary-room":
     "MOMENT — Diary Room. A private, out-of-character producer aside. The player's own space — " +
-    "nothing said here reaches any NPC, so do not let it change the house. Listen; read their game.",
+    "nothing said here reaches any NPC, so do not let it change the house. Listen; read their game. " +
+    "The producer speaks only from the public record and the facts the game supplied this turn. It never states, " +
+    "confirms or denies what any houseguest thinks, feels, intends or has said about the player, and never says " +
+    "where an unseen houseguest is or what they are doing; asked, it declines in character, from the facts it has.",
   "jury-finale":
     "MOMENT — Jury & finale. Final statements, each juror questioning both finalists, and the game's " +
     "jury vote to crown the winner. Gravitas and payoff; you voice the game's result. " +
@@ -1044,7 +1047,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     // already-decided placement in THE PLAYER'S OWN SEASON fact below, which the game hands you verbatim).
     "THE CROWNING MOMENT — give it real weight before easing into hosting. Check THE PLAYER'S OWN SEASON " +
     "fact below (never invent a different placement): if it says they WON, this is their victory — play " +
-    "the champion's moment as it lands, first person, felt: the crown, the house's reaction, disbelief " +
+    "the champion's moment as it lands around them (how they feel is theirs to say, never yours): the crown, the house's reaction, disbelief " +
     "tipping into joy (\"You won Big Brother.\"), before settling into hosting. If it says RUNNER-UP, " +
     "play the near-miss with real weight — pride in a season well fought, grace in a close loss, the " +
     "jury's verdict landing — before settling into hosting. If they sat on the jury or were evicted " +
@@ -1812,6 +1815,8 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
   // ORW-718: the player's own pronouns ride the terminal block too (the region the NPC locks measured best in); a houseguest called a
   // player who never stated a gender "a man", and one who did state it by the wrong word, from the roster line buried mid-prompt.
   lines.push(`- ${playerGenderRule(view.player.genderPresentation)}`);
+  // ORW-725: the player is plugged in. Rule only (no example lines): the playtest showed first-person narration voicing the player and a houseguest reciting the player's own message as their speech.
+  lines.push("- PLAYER'S VOICE: what the player says, does, decides or feels is only what their own message this turn states; speak of them in second person, never first. Write no line, action, choice or answer for them (an earlier question to them stays theirs to answer), and never give a houseguest the player's own words as that houseguest's speech: each houseguest reacts in their own voice.");
   const houseById = new Map(view.house.map((h) => [h.id, h] as const));
   for (const p of wa.present) {
     const h = houseById.get(p.id);

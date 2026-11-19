@@ -41,7 +41,7 @@ describe("a settled goal moves the mood and leaves a cause (ORW-317)", () => {
     evict(s, target);
     s.agendaRecheck("eviction");
     expect(s.soulObj(holder)!.emotionalHistory.length).toBeGreaterThan(before);
-    expect(s.live.moodCauses![holder]).toMatchObject({ outcome: "worked", line: "I got {subject} out, like I planned" });
+    expect(s.live.moodCauses![holder]).toMatchObject({ outcome: "worked", line: "{subject} was voted out, as they had planned" });
   });
 
   it("with the flag off nothing moves", async () => {
@@ -58,13 +58,13 @@ describe("a settled goal moves the mood and leaves a cause (ORW-317)", () => {
 describe("the cause is theirs to share (Ryne: no motive hints)", () => {
   it("a revealing cause reaches the player's view of them only with high trust; with low trust the mood shows but the cause does not", async () => {
     const { s, holder } = await setup(13);
-    s.live.moodCauses = { [holder]: { goalKind: "get-them-out", outcome: "worked", about: s.live.active.find((x) => x !== holder && x !== PLAYER), line: "I got {subject} out, like I planned", week: s.live.week } as never };
+    s.live.moodCauses = { [holder]: { goalKind: "get-them-out", outcome: "worked", about: s.live.active.find((x) => x !== holder && x !== PLAYER), line: "{subject} was voted out, as they had planned", week: s.live.week } as never };
     const rel = s.rel as unknown as { edge(a: EntityId, b: EntityId): { affinity: number } };
     rel.edge(holder, PLAYER).affinity = 0.1;
     expect(s.npcVoice(holder)!.moodCause).toBeUndefined();
     rel.edge(holder, PLAYER).affinity = 0.95;
     const said = s.npcVoice(holder)!.moodCause;
-    expect(said).toMatch(/^I got .+ out, like I planned$/);
+    expect(said).toMatch(/^.+ was voted out, as they had planned$/);
     expect(said).not.toMatch(/npc:|\{subject\}/);
   });
 

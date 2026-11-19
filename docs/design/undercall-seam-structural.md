@@ -79,6 +79,7 @@ branch. An ignored nudge that leaves the identical gate stalled notes nothing.
 | **`_auto_confide`** (0075) | Player pressed an ally to open up, no `confide` | `confide` | The trust-gated disclosure — the 0075 payoff — never fires |
 | **`_auto_expose` / `_auto_trade`** (0093/0099) | Player outed/traded a known secret, no lever call | `exposeSecret` / `tradeSecret` | The marquee offense moves never fire; secrets-as-power is dead weight |
 | **`_auto_move_player`** (L21/L24) / **`_auto_move_npc`** (ADR 0009) | Movement language, no `moveTo` / `moveHouseguest` | The positional write | Whereabouts snap-back: the board contradicts the prose next turn |
+| **Refusal-only round guard** (ORW-717, 2026-11-19, `frontend/src/refusal_guard.py` + `_withhold_leading_refusal`, flag `ORWELL_REFUSAL_GUARD`, default on; belt `refusal-withheld`) | A round OPENS with a short first-person refusal line (apology/can't/unable + continue/assist/request/direction), no quotes, nothing shown yet this round (a narrow compiled detector, fail-open) | Writing the scene: it emitted a one-line refusal beside a native tool call, then wrote the scene next round | The player sees a bare refusal as the reply. Pre-emission: the line is held back and cut from the stored text. A refusal-only FINAL round leaves the turn blank, so the existing blank-turn guard re-prompts once (carrying one fact: the last attempt produced no scene), then the double-blank fallback; the refusal is never shown |
 
 ### 2.3 Game-start / premiere seams
 

@@ -45,7 +45,7 @@ export function dayOfWeek(phase: string): number | null {
  */
 export const HOUSE_EVENT_POOL: ReadonlyArray<string> = [
   "A house meeting over food and chores boils into a shouting match before it settles.",
-  "A slop week hits the have-nots and tempers fray by mid-afternoon.",
+  "A tight grocery budget hits the whole house and tempers fray by mid-afternoon.",
   "A luxury reward splits the house into winners celebrating and losers sulking.",
   "A late-night kitchen clean-up turns into a whispered debrief of the week so far.",
   "A backyard workout session becomes a quiet summit between unlikely partners.",
@@ -72,7 +72,7 @@ export const HOUSE_EVENT_POOL: ReadonlyArray<string> = [
   "A shared photo album from home sparks a wave of nostalgia in the living room.",
   "A gardening chore assignment pairs up two unlikely houseguests for an afternoon.",
   "A missing snack stash reignites the never-ending kitchen-hoarding feud.",
-  "A late-night round of confessions in the have-not room gets more honest than planned.",
+  "A late-night round of confessions in the lounge gets more honest than planned.",
   "A pool-pump breakdown cancels the afternoon swim and tempers rise in the heat.",
   "A surprise cleaning inspection sends the house scrambling before a live show.",
   "A birthday toast with makeshift decorations turns into a rare all-house gathering.",

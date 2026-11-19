@@ -7,7 +7,7 @@
  *     `{subject}` is a placeholder the narrator seam fills with the public name; no names live in the engine text. With these, any
  *     houseguest can bring up what ANYONE did, not only what the player did (today only NPC-to-player memory is voiced).
  *  2. `appraiseGoal` - when a goal settles, the feeling it causes (an existing EmotionalEvent, so the soul's bounded arc is unchanged)
- *     and the CAUSE in engine terms ("my plan to get them out fell apart"). Mood stops being only event-to-number.
+ *     and the CAUSE as a third-person fact ("their plan to get them out fell apart"). Mood stops being only event-to-number.
  *  3. `mayShareCause` - whether the houseguest would SAY why they feel that way to a given listener. Ryne's motive rule (2026-11-12):
  *     no hints point at a motive; the player infers from actions. Saying "I'm gutted my plan fell apart" is an action the houseguest
  *     chooses - so they say it only to people they trust, and an honest houseguest more readily than a guarded one. Everyone can still
@@ -58,35 +58,35 @@ export interface MoodCause {
   goalKind: GoalKind;
   outcome: CauseOutcome;
   about?: string;
-  /** Engine words, first person, with `{subject}` for the target when there is one. Vault-class until the houseguest chooses to say it. */
+  /** An engine FACT in the third person (never a line to recite: the narrator voices it in the houseguest's own words; ORW-717), with `{subject}` for the target when there is one. Vault-class until the houseguest chooses to say it. */
   line: string;
 }
 export interface Appraisal { event: EmotionalEvent | undefined; cause: MoodCause | undefined }
 
 const WORKED: Partial<Record<GoalKind, [EmotionalEvent, string]>> = {
-  "get-them-out": ["comp-win", "I got {subject} out, like I planned"],
-  revenge: ["comp-win", "{subject} is gone, and I made sure of it"],
-  "stay-safe": ["survived-vote", "I'm still here when they wanted me gone"],
-  "pull-them-in": ["bond", "{subject} is with me now"],
-  "keep-them-safe": ["survived-vote", "I kept {subject} safe"],
-  "win-power": ["comp-win", "I finally have some power in this house"],
-  "find-out": ["calm", "now I know what really happened"],
-  "long-con": ["comp-win", "{subject} never saw it coming"],
-  "reach-jury": ["survived-vote", "I made it to jury"],
-  "prove-not-a-floater": ["comp-win", "nobody can call me a floater now"],
-  "protect-my-person": ["bond", "{subject} made it to the end with me"],
+  "get-them-out": ["comp-win", "{subject} was voted out, as they had planned"],
+  revenge: ["comp-win", "{subject}, who wronged them, is gone, and they helped make it happen"],
+  "stay-safe": ["survived-vote", "they are still in the house although others wanted them gone"],
+  "pull-them-in": ["bond", "{subject} has come over to their side"],
+  "keep-them-safe": ["survived-vote", "they kept {subject} safe"],
+  "win-power": ["comp-win", "they now hold some power in the house"],
+  "find-out": ["calm", "they found out what really happened"],
+  "long-con": ["comp-win", "{subject} did not see their long game coming"],
+  "reach-jury": ["survived-vote", "they made it to the jury"],
+  "prove-not-a-floater": ["comp-win", "they proved they are not a floater"],
+  "protect-my-person": ["bond", "{subject} reached the end alongside them"],
 };
 const FELL_APART: Partial<Record<GoalKind, [EmotionalEvent, string]>> = {
-  "get-them-out": ["comp-loss", "my plan to get {subject} out fell apart"],
-  revenge: ["comp-loss", "{subject} is still here after what they did"],
-  "pull-them-in": ["comp-loss", "{subject} wouldn't come over to my side"],
-  "keep-them-safe": ["blindside", "I couldn't keep {subject} safe"],
-  "win-power": ["comp-loss", "I needed that win and didn't get it"],
-  "find-out": ["scheme", "I still don't know what really happened"],
-  "long-con": ["betrayed", "my long game with {subject} blew up"],
-  "keep-my-secret": ["blindside", "everyone knows my secret now"],
-  "protect-my-person": ["blindside", "I lost {subject}"],
-  "last-alliance-standing": ["betrayed", "my alliance didn't make it"],
+  "get-them-out": ["comp-loss", "their plan to get {subject} out fell apart"],
+  revenge: ["comp-loss", "{subject} is still in the house after what they did to them"],
+  "pull-them-in": ["comp-loss", "{subject} would not come over to their side"],
+  "keep-them-safe": ["blindside", "they could not keep {subject} safe"],
+  "win-power": ["comp-loss", "they needed that win and did not get it"],
+  "find-out": ["scheme", "they still do not know what really happened"],
+  "long-con": ["betrayed", "their long game with {subject} blew up"],
+  "keep-my-secret": ["blindside", "everyone knows their secret now"],
+  "protect-my-person": ["blindside", "they lost {subject}"],
+  "last-alliance-standing": ["betrayed", "their alliance did not make it"],
 };
 
 /**
@@ -97,8 +97,8 @@ export function appraiseGoal(g: Goal, minCommitment = 0.35): Appraisal {
   if (g.status === "active") return { event: undefined, cause: undefined };
   const about = g.target;
   const mk = (outcome: CauseOutcome, line: string): MoodCause => ({ goalKind: g.kind, outcome, line, ...(about !== undefined ? { about } : {}) });
-  if (g.status === "dropped") return { event: undefined, cause: mk("gave-up", "I let go of something I wanted") };
-  if (g.status === "replaced") return { event: undefined, cause: mk("overtaken", "something bigger came up") };
+  if (g.status === "dropped") return { event: undefined, cause: mk("gave-up", "they gave up on something they wanted") };
+  if (g.status === "replaced") return { event: undefined, cause: mk("overtaken", "a newer aim took the place of the one they had") };
   if (g.commitment < minCommitment) return { event: undefined, cause: undefined };
   const table = g.status === "achieved" ? WORKED : g.status === "failed" ? FELL_APART : undefined;
   const hit = table?.[g.kind];

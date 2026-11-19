@@ -2211,6 +2211,26 @@ def _note_belt(owner, belt: str, n: int = 1) -> None:
         pass
 
 
+def _withhold_leading_refusal(owner, round_num: int, round_response: str, clean: str, round_emitted: str):
+    """ORW-717: hold back a refusal-only line that opens a round (nothing shown yet this round). Pre-emission,
+    so nothing is retracted; the raw/stored text drops it too (shown == stored). Success-gated telemetry.
+    Returns (round_response, clean, withheld)."""
+    try:
+        from src import refusal_guard as _rg
+        if not clean or round_emitted.strip() or not _rg.enabled():
+            return round_response, clean, False
+        kept, n = _rg.strip_leading_refusal(clean)
+        if not n:
+            return round_response, clean, False
+        round_response = _mirror_wall_drop(round_response, clean, kept)
+        _rg.note_withheld()
+        logger.info(f"[orwell] refusal-only round withheld round={round_num} chars={n}")
+        _note_belt(owner, "refusal-withheld")
+        return round_response, kept, True
+    except Exception:  # failsoft-ok: detector error shows the text as today
+        return round_response, clean, False
+
+
 def _note_forced_choice(owner, tool: str, *, honored: bool) -> None:
     """T0-4 (telemetry + probe arm) — count one forced-``tool_choice`` ATTEMPT, with its
     outcome, in the Vault-free sync ledger (`orwell_sync_ledger.note_forced_choice`). Unlike
@@ -6393,6 +6413,38 @@ async def _presence_wall_guard(text: str, owner, alt_state=None) -> str:
         return text
 
 
+def _pd_qopen_pv(emitted: str) -> bool:
+    try:
+        from src.predisplay_check import quote_open_after
+        return quote_open_after(emitted)
+    except Exception:  # failsoft-ok: quote state
+        return False
+
+
+async def _player_voice_guard(text: str, owner, player_msg, state, in_quote: bool = False) -> "tuple[str, list]":
+    """ORW-725 - the player-voice net: withhold a whole sentence that speaks or decides for the player (first-person narration and the answer after it, `You say, "..."` the player never typed, a decision they never made)
+    or that hands the player's own message to a houseguest as their speech. A detector only (never authors text; `src/player_voice_guard.py`), fail-open, one flag read per call (`ORWELL_PLAYER_VOICE_GUARD`),
+    and only in a STARTED game on a fresh cached read (never fetches: a casting producer legitimately speaks in the first person). Returns (text, [(withheld, "")]) so the caller mirrors the cut into the raw buffer.
+    The belt is noted only when a sentence was actually withheld (success-gated)."""
+    if not text or not str(player_msg or "").strip():
+        return text, []
+    try:
+        from src import engine_read_cache, player_voice_guard as _pvg
+        if not _pvg.enabled():
+            return text, []
+        _st = engine_read_cache.peek("getGameState", owner, fields=("started",))
+        if not isinstance(_st, dict) or not _st.get("started"):
+            return text, []
+        kept, dropped = _pvg.screen(text, player_msg, state, in_quote=in_quote)
+        if dropped:
+            _note_belt(owner, "player-voice-withheld", len(dropped))
+            logger.info("[player-voice] withheld %d sentence(s): %s", len(dropped), ",".join(sorted({f for f, _ in dropped})))
+            return kept, [(sent, "") for _, sent in dropped]
+        return text, []
+    except Exception:  # failsoft-ok: player-voice net (fail-open: emitted as today)
+        return text, []
+
+
 async def _headcount_wall_guard(text: str, owner) -> str:
     """ORW-205 — the PRE-EMISSION headcount wall: drops any sentence that STATES how many houseguests are
     inside (or still to come) during the premiere entrances when the engine's live count contradicts it
@@ -9016,9 +9068,18 @@ async def _stream_agent_loop_impl(
     _turn_npc_move_nudges = 0  # ADR 0009 NPC auto-move belt: at most one per finishing turn
     _turn_approach_nudges = 0  # 0036/0049: at most one NPC-approach nudge per finishing turn
     _emitted_visible = False  # did the player see ANY narration this turn? (scrub can empty a
+    _turn_refusal_withheld = False  # ORW-717: a refusal-only round was held back this turn (the blank-turn re-prompt then carries one fact)
     _turn_narrate_nudges = 0  # planning-only round → blank turn; we re-prompt once for the scene)
     _cutaway_emitted = False  # A2 (2026-07-03): the diegetic feeds-cut line is emitted at most once/turn
     _pd_rewrite_used = False  # ORW-408: at most ONE quiet sentence-level rewrite per turn
+    _pv_state = None  # ORW-725: the player-voice net's per-turn carry (built lazily with the player's own message)
+    _pv_msg = ""
+    try:
+        from src.player_voice_guard import PlayerVoiceState as _PVS
+        from src.orwell_transcript_recall import _last_user_text as _pv_last_user
+        _pv_state, _pv_msg = _PVS(), _pv_last_user(messages)
+    except Exception:  # failsoft-ok: player-voice net setup
+        _pv_state, _pv_msg = None, ""
     _scene_cut_retry_used = False  # A/B 2026-11-04: at most ONE in-turn re-voice after a whole-scene cut that left only the cutaway
     # Orwell #872 (item B): a per-turn flag set when an upstream provider error (e.g. deepseek-v4-pro
     # intermittently 400ing on a continuation/tool round) was surfaced this turn. A pure-error turn
@@ -9787,6 +9848,9 @@ async def _stream_agent_loop_impl(
                                     _visible_halted = True
                                     _ooc_open = ""
                                     _clean = ""
+                                if _clean and not _scene_broken:
+                                    round_response, _clean, _rf_hit = _withhold_leading_refusal(owner, round_num, round_response, _clean, _round_emitted_text)
+                                    _turn_refusal_withheld = _turn_refusal_withheld or _rf_hit
                                 if _clean:
                                     # A2: run the whole-scene circuit-breaker + 0065 Part C per-sentence
                                     # pre-emission outcome guard (see `_emit_guarded_scene`'s docstring for
@@ -9809,6 +9873,9 @@ async def _stream_agent_loop_impl(
                                     _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner)  # N-17
                                     round_response = _mirror_confession_replace(round_response, _cf_ops)
                                     _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
+                                    _pv_text, _pv_ops = await _player_voice_guard(_guarded.text, owner, _pv_msg, _pv_state, _pd_qopen_pv(_round_emitted_text))  # ORW-725
+                                    round_response = _mirror_confession_replace(round_response, _pv_ops)
+                                    _guarded = _guarded._replace(text=_pv_text)
                                     _guarded_text = await _knowledge_wall_guard(_guarded.text, owner)
                                     _guarded_text = await _presence_wall_guard(_guarded_text, owner, alt_state=_pre_bed_state)
                                     try:  # ORW-408: count (never alter) narration that contradicts an engine hard fact; the rewrite needs a held-back reply (see src/predisplay_check.py)
@@ -10025,6 +10092,9 @@ async def _stream_agent_loop_impl(
                 _round_replay = True
                 _ooc_open = ""
                 _clean = ""
+            if _clean and not _scene_broken and not _round_replay:
+                round_response, _clean, _rf_hit = _withhold_leading_refusal(owner, round_num, round_response, _clean, _round_emitted_text)
+                _turn_refusal_withheld = _turn_refusal_withheld or _rf_hit
             if _round_replay:
                 pass  # a dropped replay round: nothing to guard or emit (and no cutaway line — it is not a board fabrication)
             elif _clean or _ooc_open:
@@ -10047,6 +10117,9 @@ async def _stream_agent_loop_impl(
                 _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner)  # N-17
                 round_response = _mirror_confession_replace(round_response, _cf_ops)
                 _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
+                _pv_text, _pv_ops = await _player_voice_guard(_guarded.text, owner, _pv_msg, _pv_state, _pd_qopen_pv(_round_emitted_text))  # ORW-725
+                round_response = _mirror_confession_replace(round_response, _pv_ops)
+                _guarded = _guarded._replace(text=_pv_text)
                 _guarded_text = await _knowledge_wall_guard(_guarded.text, owner)
                 _guarded_text = await _presence_wall_guard(_guarded_text, owner, alt_state=_pre_bed_state)
                 # Greptile P1 (#1746): mirror any DROP back into the raw round buffer (see
@@ -11747,7 +11820,9 @@ async def _stream_agent_loop_impl(
                         and not (tool_policy and tool_policy.blocks("ask_user"))):
                     _turn_narrate_nudges += 1
                     logger.info(f"[orwell] blank-turn guard: re-prompting for narration round {round_num} user={owner}")
-                    messages.append({"role": "system", "content": (
+                    _rf_fact = ("The previous attempt produced no scene. Continue the scene from the engine facts. "
+                                if _turn_refusal_withheld else "")
+                    messages.append({"role": "system", "content": _rf_fact + (
                         "Your last turn produced no narration the player could see — only private "
                         "planning. Write the SCENE NOW, fully in character: what the houseguest says "
                         "and does, what happens in the room. No meta, no mention of your process or "

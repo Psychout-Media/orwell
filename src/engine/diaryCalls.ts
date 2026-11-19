@@ -83,12 +83,18 @@ export interface DiaryCallView {
   back?: Array<{ name: string; long: boolean; comesBack: ComesBack }>;
   /** Production invites the player this beat; the player goes or declines in their own words. */
   invited?: true;
+  /** ORW-724: how many times the player has gone to the Diary Room this game (the engine's own record of the player's own act), present only while the player is in there. */
+  playerVisits?: number;
 }
+
+/** The count as the producer would say it: a word, never a digit string the narrator must reformat. */
+export const visitWords = (n: number): string => (n === 1 ? "once" : n === 2 ? "twice" : `${n} times`);
 
 /** The moment's call block: facts to voice. Rides the per-turn hard constraints, never the base prompt. */
 export function renderDiaryCallLines(v: DiaryCallView | undefined): string[] {
   if (!v) return [];
   const out: string[] = [];
+  if (v.playerVisits) out.push(`- DIARY ROOM VISITS (engine record of the player's own acts): the player has been in the Diary Room ${visitWords(v.playerVisits)} this game, counting this visit. If the producer speaks of how often the player has been in, it is this count and no other; never a number the producer makes up.`);
   const voice = `the producer's manner this season is ${v.register}; you author the producer's words yourself, from these facts and nothing else`;
   if (v.away?.length) out.push(`- DIARY ROOM CALL: production has called ${v.away.join(" and ")} to the Diary Room and they are in there now, so they are not in any room and cannot appear in a scene; the house saw them go. What is said in there is private: never narrate it or guess at it. (${voice}.)`);
   for (const b of v.back ?? []) out.push(`- DIARY ROOM RETURN: ${b.name} has just come out of the Diary Room after ${b.long ? "a long while" : "a short while"}, ${b.comesBack === "same" ? "looking much as they did going in" : `looking ${b.comesBack} than going in`}. The house can see that and nothing more; say nothing of what was said.`);

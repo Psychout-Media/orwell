@@ -11,42 +11,72 @@ export type Room =
   | "kitchen" | "living-room" | "dining-room" | "backyard"
   | "hallway"
   | "bedroom-a" | "bedroom-b" | "bedroom-c" | "bathroom" | "lounge"
-  | "hoh-room" | "storage-room" | "diary-room";
+  | "hoh-room" | "storage-room" | "diary-room"
+  | "landing";
 
 export const HOUSE_ROOMS: readonly Room[] = [
   "kitchen", "living-room", "dining-room", "backyard",
   "hallway",
   "bedroom-a", "bedroom-b", "bedroom-c", "bathroom", "lounge",
   "hoh-room", "storage-room", "diary-room",
+  "landing",
 ];
 
 /**
- * The floor plan (0077 — recent-BB layout). Symmetric by construction (asserted by the unit tests):
- * an OPEN PUBLIC CORE where privacy is impossible (kitchen ⇄ living-room ⇄ dining-room ⇄ backyard),
- * a `hallway` chokepoint off the living room, and a PRIVATE WING reached only through the hallway
- * (the three bedrooms, the bathroom, the lounge). The HOH room sits up its own stairs off the living
- * room; the storage room is the classic quick-meeting spot off the kitchen; the diary room opens off
- * the living room and adjoins nothing else (PRIVATE — overhearing it is impossible by data). Owner
- * note #1: the BATHROOM is NOT adjacent to any bedroom (it opens off the hallway).
+ * The floor plan (ORW-711, owner ruling 2026-11-19; the house is a general U shape). An OPEN PUBLIC CORE off the front door:
+ * the `living-room` is the front-door hub (kitchen, dining room, hallway, bathroom, lounge, the stairs to the landing and the diary
+ * room all open off it); the kitchen and the dining room both open onto the `backyard`, which is off to the side (NOT off the living
+ * room). The three bedrooms sit on the ground floor off the `hallway`. The bathroom and the one small lounge are off the living room
+ * (and off each other); there is no have-not room. Upstairs there is only the HOH room, reached through a small `landing` (the stairs
+ * come up from the living room): the landing is semi-public, where people wait to see the HOH and play games. The HOH room is closed
+ * and private and opens onto the landing alone; the storage room is the quick-meeting spot off the kitchen; the diary room opens off
+ * the living room and adjoins nothing else (PRIVATE, so overhearing it is impossible by data). Symmetric by construction (asserted by
+ * the unit tests).
  */
 export const HOUSE_ADJACENCY: ReadonlyMap<Room, readonly Room[]> = new Map<Room, readonly Room[]>([
   ["kitchen", ["living-room", "dining-room", "backyard", "storage-room"]],
-  ["living-room", ["kitchen", "dining-room", "backyard", "hallway", "hoh-room", "diary-room"]],
-  ["dining-room", ["kitchen", "living-room"]],
-  ["backyard", ["kitchen", "living-room"]],
-  ["hallway", ["living-room", "bedroom-a", "bedroom-b", "bedroom-c", "bathroom", "lounge"]],
+  ["living-room", ["kitchen", "dining-room", "hallway", "bathroom", "lounge", "landing", "diary-room"]],
+  ["dining-room", ["kitchen", "living-room", "backyard"]],
+  ["backyard", ["kitchen", "dining-room"]],
+  ["hallway", ["living-room", "bedroom-a", "bedroom-b", "bedroom-c"]],
   ["bedroom-a", ["hallway"]],
   ["bedroom-b", ["hallway"]],
   ["bedroom-c", ["hallway"]],
-  ["bathroom", ["hallway"]],
-  ["lounge", ["hallway"]],
-  ["hoh-room", ["living-room"]],
+  ["bathroom", ["living-room", "lounge"]],
+  ["lounge", ["living-room", "bathroom"]],
+  ["landing", ["living-room", "hoh-room"]],
+  ["hoh-room", ["landing"]],
   ["storage-room", ["kitchen"]],
   ["diary-room", ["living-room"]],
 ]);
 
 export function areAdjacent(a: Room, b: Room): boolean {
   return a !== b && (HOUSE_ADJACENCY.get(a) ?? []).includes(b);
+}
+
+/**
+ * ORW-711 (player parity): the rooms strictly BETWEEN `from` and `to` on the shortest walk through the adjacency graph (deterministic breadth-first, neighbours tried in the table's own order; no rng).
+ * Empty for an adjacent pair, the same room, or an unreachable one. Pure.
+ */
+export function roomsBetween(from: Room, to: Room): Room[] {
+  if (from === to) return [];
+  const prev = new Map<Room, Room>();
+  const seen = new Set<Room>([from]);
+  const queue: Room[] = [from];
+  for (let i = 0; i < queue.length; i++) {
+    const cur = queue[i]!;
+    if (cur === to) break;
+    for (const n of HOUSE_ADJACENCY.get(cur) ?? []) {
+      if (seen.has(n)) continue;
+      seen.add(n);
+      prev.set(n, cur);
+      queue.push(n);
+    }
+  }
+  if (!seen.has(to)) return [];
+  const path: Room[] = [];
+  for (let c = prev.get(to); c !== undefined && c !== from; c = prev.get(c)) path.unshift(c);
+  return path;
 }
 
 /**
@@ -61,11 +91,13 @@ export function areAdjacent(a: Room, b: Room): boolean {
  * meeting spot), or the sealed diary room reveals NOTHING about who is inside — crucially, from the
  * hallway you do NOT see into the bedrooms it adjoins. That opacity is the privacy payoff (owner note
  * #3): who is behind a closed door is KNOWLEDGE you earn by watching a doorway, never a free read.
+ * ORW-711: the `landing` is the one semi-public upstairs room: the stairs are open to the living room, so the two see each other, and
+ * the HOH room's door opens onto the landing, so anyone standing there watches who goes in and out of it (see `canWitnessDeparture`).
  * Symmetric + irreflexive (asserted by the unit tests).
  */
 export const HOUSE_SIGHTLINE: ReadonlyMap<Room, readonly Room[]> = new Map<Room, readonly Room[]>([
   ["kitchen", ["living-room", "dining-room", "backyard"]],
-  ["living-room", ["kitchen", "dining-room", "backyard", "hallway"]],
+  ["living-room", ["kitchen", "dining-room", "backyard", "hallway", "landing"]],
   ["dining-room", ["kitchen", "living-room", "backyard"]],
   ["backyard", ["kitchen", "living-room", "dining-room"]],
   ["hallway", ["living-room"]],
@@ -74,6 +106,7 @@ export const HOUSE_SIGHTLINE: ReadonlyMap<Room, readonly Room[]> = new Map<Room,
   ["bedroom-c", []],
   ["bathroom", []],
   ["lounge", []],
+  ["landing", ["living-room"]],
   ["hoh-room", []],
   ["storage-room", []],
   ["diary-room", []],
@@ -82,6 +115,14 @@ export const HOUSE_SIGHTLINE: ReadonlyMap<Room, readonly Room[]> = new Map<Room,
 /** Whether an observer standing in room `a` can SEE the occupants of room `b` (0077 Phase 2 eyeshot). */
 export function areVisible(a: Room, b: Room): boolean {
   return a !== b && (HOUSE_SIGHTLINE.get(a) ?? []).includes(b);
+}
+
+/**
+ * The doorway-watch rule (0077, ORW-711): an observer standing in `observer` WITNESSES someone leaving `origin` when it is their own room
+ * or in their eyeshot. Standing on the landing, you therefore see who goes in and out of the HOH room (the door is on the landing). Pure.
+ */
+export function canWitnessDeparture(observer: Room, origin: Room): boolean {
+  return origin === observer || areVisible(observer, origin);
 }
 
 /**
@@ -106,21 +147,20 @@ export function isPrivateRoom(room: Room): boolean {
 export type Zone = string;
 
 /**
- * The 1–2 genuinely BIG rooms carry zones; every other room is a single space (no entry here ⇒ no
+ * The one genuinely BIG room carries zones (ORW-711: the lounge is one small room now, so it has none); every other room is a single space (no entry here ⇒ no
  * zoning — `zonesFor` returns `[]`, and earshot/eyeshot behave exactly as the pre-zone build). The
- * backyard runs poolside → patio → workout (a line); the lounge has two separated corners. Owner
+ * backyard runs poolside → patio → workout (a line). Owner
  * note #2 + "resist zoning small rooms" (open question #4). Order is the canonical zone order.
  */
 export const ROOM_ZONES: ReadonlyMap<Room, readonly Zone[]> = new Map<Room, readonly Zone[]>([
   ["backyard", ["poolside", "patio", "workout"]],
-  ["lounge", ["couches", "window-nook"]],
 ]);
 
 /**
  * Which zones of a room are close enough to carry a small RESIDUAL overhear (adjacent zones), vs. far
  * enough to be fully out of earshot. The backyard is a LINE — poolside↔patio↔workout — so the two
  * ends (poolside/workout) are out of earshot of each other (the BDD "pool vs. workout corner" case);
- * the lounge's two corners are deliberately NON-adjacent (two private corners, the whole point). A
+ * (ORW-711: the lounge is one small room, so it has no zones.) A
  * room with no entry has no intra-room adjacency (every zone pair is "far", trivially — there is one
  * zone). Symmetric by construction (asserted by the unit tests).
  */
@@ -129,10 +169,6 @@ const ZONE_ADJACENCY: ReadonlyMap<Room, ReadonlyMap<Zone, readonly Zone[]>> = ne
     ["poolside", ["patio"]],
     ["patio", ["poolside", "workout"]],
     ["workout", ["patio"]],
-  ])],
-  ["lounge", new Map<Zone, readonly Zone[]>([
-    ["couches", []],
-    ["window-nook", []],
   ])],
 ]);
 
@@ -167,9 +203,8 @@ export function zonesSameEarshot(room: Room, a: Zone | undefined, b: Zone | unde
  * for a RARE, PARTIAL, lower-confidence OVERHEAR — the same fragment treatment an adjacent ROOM gets —
  * but NOT full earshot (that is `zonesSameEarshot`). False for the same zone (that is full earshot, not
  * an overhear), for un-zoned/undefined zones (one space — no intra-room overhear path), and for FAR
- * zones (the two ends of the backyard line, the two lounge corners — out of earshot entirely). The
- * backyard line poolside↔patio↔workout makes patio adjacent to both ends; the lounge corners are
- * deliberately non-adjacent (two private corners). Symmetric by construction (asserted by the tests).
+ * zones (the two ends of the backyard line — out of earshot entirely). The
+ * backyard line poolside↔patio↔workout makes patio adjacent to both ends. Symmetric by construction (asserted by the tests).
  */
 export function zonesAdjacentEarshot(room: Room, a: Zone | undefined, b: Zone | undefined): boolean {
   if (a === undefined || b === undefined || a === b) return false;
@@ -180,7 +215,7 @@ export function zonesAdjacentEarshot(room: Room, a: Zone | undefined, b: Zone | 
 /**
  * Whether two zones of the SAME room are within earshot of each other AT ALL (0077): same zone OR
  * adjacent zone. The UNION of `zonesSameEarshot` + `zonesAdjacentEarshot`, retained for callers that
- * only need "can these two hear each other in any form". Far zones (the lounge corners) are not.
+ * only need "can these two hear each other in any form". Far zones (the two ends of the backyard) are not.
  */
 export function zonesInEarshot(room: Room, a: Zone | undefined, b: Zone | undefined): boolean {
   return zonesSameEarshot(room, a, b) || zonesAdjacentEarshot(room, a, b);
@@ -258,8 +293,12 @@ const ROOM_ALIASES: ReadonlyMap<string, Room> = new Map<string, Room>([
   ["lounge", "lounge"],
   ["games-room", "lounge"],
   ["game-room", "lounge"],
-  ["have-not", "lounge"],
-  ["have-not-room", "lounge"],
+  ["landing", "landing"],
+  ["upstairs", "landing"],
+  ["stairs", "landing"],
+  ["staircase", "landing"],
+  ["stairwell", "landing"],
+  ["top-of-the-stairs", "landing"],
   ["hoh-room", "hoh-room"],
   ["hoh", "hoh-room"],
   ["hoh-suite", "hoh-room"],

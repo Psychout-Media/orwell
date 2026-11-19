@@ -93,8 +93,8 @@ Feature: House presence and lingering play
   Scenario: Leaving with no destination goes through the nearest door
     Given a started game with the player in the backyard and no house event in session
     When the engine reads the player's words "I want to leave the backyard"
-    Then the engine has the player in the living room
-    And the game state hands the narrator the move from the backyard to the living room
+    Then the engine has the player in the kitchen
+    And the game state hands the narrator the move from the backyard to the kitchen
 
   Scenario Outline: A future or conditional phrase is not a move
     Given a started game with the player in the backyard and no house event in session
