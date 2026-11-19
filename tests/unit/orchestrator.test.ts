@@ -234,3 +234,45 @@ describe("A9 — a supplementary turn-driven off-screen tick with an empty socie
     }
   });
 });
+
+describe("ORW-701 part 3 - a supplementary off-screen tick that throws never fails the player's turn", () => {
+  it("is contained: turn stands, state rolled back to the committed baseline, typed content-free fault, streak untouched, next clean tick works", () => {
+    const registry = new GameSessionRegistry();
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let boom = true;
+      const SECRET = "TICK-THROW-SENTINEL";
+      const apply = (sb: UserSandbox): number => {
+        // half-applied state, then the throw (message carries hidden-looking text that must never surface)
+        sb.engine.events.record({ id: "half:h", ts: 1, type: "conversation", initiator: npc(1), witnessSet: [npc(1), npc(2)], hidden: true, content: `half ${SECRET}` });
+        if (boom) throw new Error(`exploded ${SECRET}`);
+        return 0;
+      };
+      const orch = new Orchestrator(registry, new FakeClock(), { seed: 5, apply, turnDriven: true });
+      registry.sandboxFor(U).session.createCharacter({ playerName: "P", seed: 5 });
+      expect(() => orch.commitPlayerTurn(U)).not.toThrow(); // first commit: baseline established, tick contained
+      const committed = registry.sandboxFor(U).engine.events.queryAll().length;
+      expect(() => orch.commitPlayerTurn(U)).not.toThrow(); // a second turn: the tick throws again, contained again
+      const sb = registry.sandboxFor(U);
+      expect(sb.engine.events.queryAll().length).toBe(committed); // no half-applied event survived
+      expect(sb.engine.events.queryAll().some((e) => e.content.includes(SECRET))).toBe(false);
+      const h = orch.sandboxHealth(U) as { faults: { kind: string }[]; circuitOpen: boolean; lastTrigger: string };
+      expect(h.faults.some((f) => f.kind === "tick-failure")).toBe(true);
+      expect(h.faults.every((f) => f.kind === "tick-failure")).toBe(true);
+      expect(h.circuitOpen).toBe(false);
+      for (let i = 0; i < 6; i++) orch.commitPlayerTurn(U); // many throwing turns: still not the corruption alarm
+      expect((orch.sandboxHealth(U) as { circuitOpen: boolean }).circuitOpen).toBe(false);
+      expect((orch.sandboxHealth(U) as { faults: unknown[] }).faults.length).toBeLessThanOrEqual(20); // capped ring (MAX_STORED_FAULTS)
+      const json = JSON.stringify(orch.sandboxHealth(U));
+      expect(json.includes(SECRET)).toBe(false);
+      expect(json.includes("exploded")).toBe(false);
+      for (const f of (orch.sandboxHealth(U) as { faults: object[] }).faults) expect(Object.keys(f).sort()).toEqual(["kind", "when"]);
+
+      boom = false; // a clean tick afterwards works
+      expect(() => orch.commitPlayerTurn(U)).not.toThrow();
+      expect((orch.sandboxHealth(U) as { circuitOpen: boolean }).circuitOpen).toBe(false);
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+});

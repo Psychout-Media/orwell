@@ -1695,7 +1695,7 @@ def _compute_alarms(rollup: dict, *, embeddings=None, sync_recent=None, belt_tot
     if isinstance(sandbox, dict):
         faults = sandbox.get("faults") if isinstance(sandbox.get("faults"), list) else []
         state_faults = [f for f in faults
-                        if isinstance(f, dict) and f.get("kind") != "persist-failure"]
+                        if isinstance(f, dict) and f.get("kind") not in ("persist-failure", "tick-failure")]
         circuit_open = bool(sandbox.get("circuitOpen"))
         if circuit_open or state_faults or sandbox.get("lastIntegrity") == "fault":
             alarms.append(_alarm(
