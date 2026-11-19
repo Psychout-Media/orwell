@@ -17243,6 +17243,22 @@ export class GameSessionAdapter implements GameSession {
     return recap;
   }
 
+  /**
+   * ORW-707 (PT-7): the houseguests the player has NOT met: never introduced (`introducedNames`, the durable name-lock set) and in no scene the player witnessed. Empty when the game ran no introductions at all (a
+   * seat that never had a premiere), so a recap is never emptied by a missing marker. Ids and their public names only.
+   */
+  private recapStrangers(allEvents: ReadonlyArray<{ hidden: boolean; witnessSet: readonly string[] }>): { ids: Set<EntityId>; names: string[] } {
+    const none = { ids: new Set<EntityId>(), names: [] as string[] };
+    if (!this.house || this.introducedNames.size === 0) return none;
+    const known = new Set<string>(this.introducedNames);
+    for (const e of allEvents) {
+      if (e.hidden || !e.witnessSet.includes(PLAYER)) continue;
+      for (const w of e.witnessSet) known.add(w);
+    }
+    for (const n of this.house.npcs) if (!known.has(n.id)) { none.ids.add(n.id); none.names.push(n.name); }
+    return none;
+  }
+
   /** The digest for `day`, stitched from the tail since the persisted cursors; records it as the latest recap and advances the cursors. Does NOT touch `dayNumber`. */
   private buildRecapForDay(day: number): DailyRecapView {
     const s = this.live!;
@@ -17257,8 +17273,12 @@ export class GameSessionAdapter implements GameSession {
       .map((e) => e.content.trim().slice(0, 200)).slice(-5);
     const knownAll = this.playerKnowledgeReader?.() ?? [];
     const knFrom = Math.min(s.dailyRecapKnowledgeCursor ?? 0, knownAll.length);
+    // ORW-707 (PT-7): a recap line may only name a houseguest the player has actually been introduced to or shared a scene with. A rumor about two houseguests one of whom the player has never met is a
+    // hint the player cannot have heard on screen; it stays in the journal but never rides the bedtime recap. Structural: the person sets are ids and public names, never matched on prose meaning.
+    const strangers = this.recapStrangers(allEvents);
     const surfacedRaw = knownAll.slice(knFrom)
       .filter((f) => f.pathway !== NO_NPC_PATHWAY)
+      .filter((f) => !(f.subject !== undefined && strangers.ids.has(f.subject as EntityId)) && !strangers.names.some((n) => f.content.includes(n)))
       .map((f) => this.humanizeTidy(f.content));
     // ORW-400: the same overheard/retold line is listed once (first kept, order stable).
     const surfaced = [...new Set(surfacedRaw)];
