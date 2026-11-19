@@ -220,7 +220,7 @@ function captured(intake: CastingIntake, field: keyof CastingIntake): boolean {
  * Where the interview stands. `ready` is the hard gate (a name exists); `missing`/`next` are the
  * engine-ordered coverage still to acquire — the producer follows the engine, not its own memory.
  */
-export function castingStatusOf(intake: CastingIntake, overwrote: string[] = []): CastingStatusView {
+export function castingStatusOf(intake: CastingIntake, overwrote: string[] = [], opts: { askPronouns?: boolean } = {}): CastingStatusView {
   const known: Record<string, string> = {};
   const missing: string[] = [];
   let next: string | null = null;
@@ -242,6 +242,9 @@ export function castingStatusOf(intake: CastingIntake, overwrote: string[] = [])
     finalizable: castingFinalizable(intake),
   };
   if (overwrote.length > 0) status.overwrote = overwrote;
+  // The player's own pronouns: nothing on file (not even a recorded "unstated" skip) means the producer asks once. Any recorded value,
+  // including the skip, ends the ask for good. Never inferred; the producer asks and the player answers or declines.
+  if (opts.askPronouns && !captured(intake, "genderPresentation")) status.askPronouns = true;
   return status;
 }
 
