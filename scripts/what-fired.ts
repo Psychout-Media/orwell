@@ -51,6 +51,7 @@ async function baseline(out: string): Promise<void> {
     if (n === 0 && argv.includes("--determinism")) { const again = await playSeason({ seed, maxMessages }); determinism.push({ seed, difference: firstDifference(trace, again.trace) }); }
     const restartSeeds = nums(arg("restart-seeds"), seeds);
     for (const point of restartSeeds.includes(seed) ? restartPoints(seed, restartsPer, r.messages) : []) {
+      mkdirSync(scratch, { recursive: true }); // a runner that sweeps its temp folder between jobs must not take the scratch folder from under a run
       const dir = mkdtempSync(join(scratch, "save-"));
       const run = await playSeason({ seed, maxMessages, restartAt: point, saveDir: dir });
       const difference = firstDifference(trace, run.trace);
