@@ -570,6 +570,8 @@ def clear_social_runway(user) -> None:
     _PREMIERE_CLOCK_HOLD.pop(key, None)
     _PREMIERE_CLOCK_STARTED.discard(key)
     _PREMIERE_TOAST_SPEAKERS.pop(key, None)
+    for _d in (_ARRIVALS_NAMED, _ARRIVALS_FRAMED, _ARRIVAL_VOICE_HOLDS, _TOAST_BATCH_NAMED):  # ORW-704
+        _d.pop(key, None)
     for _d in (_COMP_PAUSED, _COMP_CONT, _COMP_STEER_BASE):  # review of ORW-232: a restart mid-pause must not leak the old pause / steer into the new season
         _d.pop(key, None)
 
@@ -892,6 +894,72 @@ def premiere_entrance_active(user) -> bool:
         return False
 
 
+# ORW-704 (PT-2 / PT-9, the playtest where 4 of 15 entrances were never named and some houseguests introduced themselves again and again). The engine releases ONE arrival per advance, but it shows the narrator only the LATEST
+# (`justArrived`): an arrival the reply did not voice (or one a second release overtook before the next framing) was never shown to the player, and the ORW-301 check remembered only that one name and counted ANY name as voiced.
+# So the FE now keeps, per game, who walked in after the player and whether a reply has named them; whoever is still unnamed is owed to the next turn, and the next release waits (bounded) until the latest arrival is named.
+# The toast has the mirror fault: the engine keeps the current batch on the board until the next release, so every turn re-read "voice every speaker" and the same houseguests introduced themselves again; a batch already named is flagged as such.
+_ARRIVALS_NAMED: dict = {}      # runway key -> set of arrival names a reply has already voiced (the post-player arrivals)
+_ARRIVALS_FRAMED: dict = {}     # runway key -> names the narrator was framed with this turn (the latest, plus any owed from before)
+_ARRIVAL_VOICE_HOLDS: dict = {}  # runway key -> consecutive turns the next release was held for an unnamed arrival
+_ARRIVAL_VOICE_HOLD_CAP = 2
+_TOAST_BATCH_NAMED: dict = {}   # runway key -> tuple of the toast batch a reply already voiced
+
+
+def _name_voiced_in(text: str, name: str) -> bool:
+    """True if `text` names this houseguest (the full name, or the first word of it). Pure; an empty name is never voiced."""
+    t = (text or "").lower()
+    n = (name or "").strip().lower()
+    if not n:
+        return False
+    first = n.split()[0]
+    return n in t or (len(first) >= 3 and first in t)
+
+
+def _post_player_arrivals(ent) -> list:
+    """The NPCs who walked in AFTER the player, in the engine's arrival order (the player's own entrance voices everyone already inside as one room). Pure."""
+    try:
+        names = [str(x) for x in (ent.get("arrivedNames") or [])]
+        pos = int(ent.get("playerPosition") or 0)
+        if int(ent.get("index") or 0) < pos:  # the player has not walked in yet
+            return []
+        return names[max(0, pos - 1):]
+    except Exception:
+        return []
+
+
+def arrival_voice_hold(user, narration: str) -> bool:
+    """ORW-704: True when the latest arrival the narrator was framed with is still unnamed in this turn's reply and the bounded hold has not run out, so the next release waits. Fail-open (False)."""
+    try:
+        key = _runway_key(user)
+        framed = _ARRIVALS_FRAMED.get(key) or []
+        if not framed or any(_name_voiced_in(narration, n) for n in framed[-1:]):
+            _ARRIVAL_VOICE_HOLDS.pop(key, None)
+            return False
+        if _ARRIVAL_VOICE_HOLDS.get(key, 0) >= _ARRIVAL_VOICE_HOLD_CAP:
+            _ARRIVAL_VOICE_HOLDS.pop(key, None)
+            return False
+        _ARRIVAL_VOICE_HOLDS[key] = _ARRIVAL_VOICE_HOLDS.get(key, 0) + 1
+        return True
+    except Exception:
+        return False
+
+
+def note_premiere_narration(user, narration: str) -> None:
+    """ORW-704: after a premiere turn, remember which framed arrivals / which toast batch this reply actually named. Never raises."""
+    try:
+        key = _runway_key(user)
+        named = _ARRIVALS_NAMED.setdefault(key, set())
+        for n in _ARRIVALS_FRAMED.get(key) or []:
+            if _name_voiced_in(narration, n):
+                named.add(n)
+        sp = _PREMIERE_TOAST_SPEAKERS.get(key)
+        people = [x for x in (sp or []) if x != "host"]
+        if people and all(_name_voiced_in(narration, x) for x in people):
+            _TOAST_BATCH_NAMED[key] = tuple(people)
+    except Exception:
+        pass
+
+
 def note_premiere_turn(user, game_state) -> None:
     """Count this turn if the game is at the premiere; any other phase clears the count. Called once per framed turn. Fail-soft.
     A9: while `entrance.stage` is entrances/toast the message-count hold does NOT count (it starts only after stage == "done")."""
@@ -906,13 +974,22 @@ def note_premiere_turn(user, game_state) -> None:
             # ORW-301: the engine names exactly ONE arrival per released entrance ("JUST ARRIVED: <name>") and tells the narrator to voice it, but nothing checked that the reply actually names that houseguest
             # (the 2026-11-12 live run: in 7 of 10 logged arrival rounds the same-round reply never named them). Remember the arrival with the existing committed-beat voicing check: if the reply names
             # none of them, the post-turn check re-grounds the NEXT turn ("the engine committed this beat but your last turn never voiced it ... use ONLY the names given here").
-            if stage == "entrances":
+            if stage in ("entrances", "tour"):  # ORW-704: the last arrival(s) before the circle is called are owed too
                 try:
                     _ent = ((game_state or {}).get("premiere") or {}).get("entrance") or {}
                     _ja = _ent.get("justArrived")
                     _jn = str((_ja or {}).get("name") or "").strip() if isinstance(_ja, dict) else ""
                     if _jn:
                         note_ceremony_beat_for_voicing(user, f"{_jn} just walked in (premiere entrance {_ent.get('index')} of {_ent.get('total')})", [_jn])
+                    # ORW-704: every arrival after the player that no reply has named yet is owed to this turn, not only the latest one.
+                    _named = _ARRIVALS_NAMED.setdefault(key, set())
+                    _owed = [n for n in _post_player_arrivals(_ent) if n not in _named]
+                    _ARRIVALS_FRAMED[key] = _owed
+                    _earlier = [n for n in _owed if n != _jn]
+                    if _earlier:
+                        _SCHEDULE_STEER[key] = (_SCHEDULE_STEER.get(key, "") + "\n\n" if _SCHEDULE_STEER.get(key) else "") + (
+                            "ENTRANCES OWED (engine truth): these houseguests walked in earlier and the player has never been shown them: " + ", ".join(_earlier)
+                            + ". Give each a brief moment of their own in this scene alongside the new arrival, from their own facts, and use only the names given here.")
                 except Exception:  # failsoft-ok: expected-empty (a malformed premiere view only skips the voicing check; the entrance itself is the engine's and is unaffected)
                     pass
             # live finding (Thursday dry run): the engine RECORDS each toast batch, but a chatting player pulls the narrator off the circle and the speeches are never voiced. Remember who is
@@ -926,10 +1003,17 @@ def note_premiere_turn(user, game_state) -> None:
                 sp = []
             if stage == "toast" and sp:
                 _PREMIERE_TOAST_SPEAKERS[key] = sp
+                _people = tuple(x for x in sp if x != "host")
+                if _people and _TOAST_BATCH_NAMED.get(key) == _people:
+                    _SCHEDULE_STEER[key] = (_SCHEDULE_STEER.get(key, "") + "\n\n" if _SCHEDULE_STEER.get(key) else "") + (
+                        "THE TOAST BATCH HAS ALREADY BEEN VOICED (engine truth): " + ", ".join(_people)
+                        + " have already given their toasts and introduced themselves to the house. Do not introduce them again; play the circle with them as part of the room, and bring the next batch with advanceGame when the player lulls.")
             else:
                 _PREMIERE_TOAST_SPEAKERS.pop(key, None)
             return
         _PREMIERE_ENTRANCE_STAGE.pop(key, None)
+        for _d in (_ARRIVALS_NAMED, _ARRIVALS_FRAMED, _ARRIVAL_VOICE_HOLDS, _TOAST_BATCH_NAMED):
+            _d.pop(key, None)  # ORW-704: the staged premiere is over (or a new game): nothing is owed
         if stage == "done":
             # Live finding (A9 rerun #2): with the entrances ON, the entrances + toast ARE the premiere. Stacking the 48-message premiere hold on top of them froze the engine at
             # phase=premiere for 25+ messages (the stall-nudge was suppressed) while the narrator kept the house "in the morning" - and the clock-driven 48-message Day-1 morning
@@ -3881,6 +3965,7 @@ async def record_post_turn_desync_check(user, narration: str, this_turn_progress
     narrated-but-uncommitted case (board unchanged, or this turn itself progressed) is untouched."""
     try:
         _dkey = _desync_key(user)  # #1045: stable key — functions single-tenant (user=None) too.
+        note_premiere_narration(user, narration)  # ORW-704: which arrivals / toast batch this reply named
         _cnote = _CEREMONY_UNVOICED.pop(_dkey, None)
         if _cnote and narration and _ceremony_beat_unvoiced(narration, _cnote):
             _reground_enqueue(_dkey, "RE-GROUND ON THE CEREMONY: the engine just committed this beat - " + _cnote["label"] + " - but your last turn never voiced it, so the player has not been told. Open your next turn by "

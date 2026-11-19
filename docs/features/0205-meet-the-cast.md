@@ -15,3 +15,9 @@ Ryne's ruling (2026-11-18): the champagne circle is the meet-the-cast moment - o
 ## Left for later
 - An NPC introduction beat that speaks to the player's own introduction when they give one (reads from the recorded scene).
 - Letting the first impression see more of the player's public profile than the age.
+
+## Amendment 2026-11-19 (ORW-704 / ORW-710): who the narrator and the strip may name, and no introduction twice
+
+- While the premiere's entrances run, the state read and the narrator's roster carry only the houseguests who have walked in (the met set). The ones still to come are a count (`unarrivedCount`, and one anonymous placeholder each in `premiere.remaining`); their names and cards ship nowhere (the narrator, the browser state, the roster, the premiere strip) until their own entrance. The strip draws an unlit, nameless tile per placeholder, labelled from the placeholder's own data. Flag `ORWELL_MET_ONLY_ROSTER` (default on; off ships the whole cast as before). Proof: `tests/unit/metOnlyRoster.test.ts` (an unmet houseguest's name is in the engine record, absent everywhere player-facing until they arrive, present after).
+- Recap-beat rule (in the entrance beat while anyone is outside): a beat that must refer to a houseguest the player has not met may call them only a not-yet-introduced arrival, never by name, until their entrance; a recap beat may name only houseguests the player has met.
+- Entrances and the toast must not repeat or skip: the front end keeps who walked in after the player and whether a reply named them, owes the narrator any arrival not yet named (not only the latest), holds the next release (bounded) until the latest arrival is named, and tells the narrator when the current toast batch has already been voiced. Proof: `frontend/tests/test_orw704_entrances_voiced.py`.

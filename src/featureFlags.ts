@@ -190,6 +190,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_MEMORY_FRIENDS', key: 'memoryFriends', parser: 'defaultOn' },
   // B22: houseguests who HEARD a promise (a casual assurance) remember its keeping / breaking too, at a lower weight. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_MEMORY_PROMISES', key: 'memoryPromises', parser: 'defaultOn' },
+  // ORW-710 (Vault Wall): during the premiere's entrances the state read and the narrator's roster carry only the houseguests who have walked in (the player's met set); the rest are a count, with no name or card, until their own entrance. `=0` ships the whole cast as before.
+  { envKey: 'ORWELL_MET_ONLY_ROSTER', key: 'metOnlyRoster', parser: 'defaultOn' },
   // B30 / #2017 E4a: who seeks the player out reads the NPC's visible emotional state (needs ORWELL_NPC_TELLS). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_MOOD_APPROACH', key: 'moodApproach', parser: 'defaultOn' },
   { envKey: 'ORWELL_MOOD_CAMPAIGN', key: 'moodCampaign', parser: 'defaultOn' },

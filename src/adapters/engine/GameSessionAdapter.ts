@@ -785,6 +785,8 @@ const JUROR_PROFILES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_JUROR_PROFILES");
  * `createCharacter` (season start). Off => nothing new is written.
  */
 const PREMIERE_ENTRANCES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PREMIERE_ENTRANCES");
+/** ORW-710: while the premiere's entrances run, the state read and the narrator's roster carry only the houseguests who have walked in (the player's met set); `=0` ships the whole cast as before. */
+const MET_ONLY_ROSTER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_MET_ONLY_ROSTER");
 /** ORW-672 / 0201 - the BED RUSH: no bed is claimed before the champagne circle closes, then the house races for the bedrooms (a claim needs reaching the room). A played game only. ON by default; `=0` restores the walk-in-order claim. */
 const BED_RUSH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_BED_RUSH");
 /** ORW-654 / 0206 - the SELF-GUIDED TOUR: after walking in the player explores the house until production calls the circle; the houseguests mostly gather in the common area; the first entry into each room is a one-time room card. A played game only. ON by default; `=0` restores the held premiere. */
@@ -2729,6 +2731,7 @@ export class GameSessionAdapter implements GameSession {
   /** C1 (#1788) — the Wipeout Reel presentation layer; off ⇒ `comp-elimination` content is untouched. */
   private wipeoutReelEnabled = WIPEOUT_REEL_ENABLED_DEFAULT;
   private premiereEntrancesEnabled = PREMIERE_ENTRANCES_ENABLED_DEFAULT;
+  private metOnlyRosterEnabled = MET_ONLY_ROSTER_ENABLED_DEFAULT;
   /** ORW-672 / 0201: the bed rush (see `BED_RUSH_ENABLED_DEFAULT`). */
   private bedRushEnabled = BED_RUSH_ENABLED_DEFAULT;
   /** ORW-654 / 0206: the self-guided tour (see `HOUSE_TOUR_ENABLED_DEFAULT`). */
@@ -12341,6 +12344,8 @@ export class GameSessionAdapter implements GameSession {
   setHouseTourEnabled(on: boolean): void { this.houseTourEnabled = on; }
   setMeetTheCastEnabled(on: boolean): void { this.meetTheCastEnabled = on; }
   premiereEntrancesEnabledNow(): boolean { return this.premiereEntrancesEnabled; }
+  /** ORW-710: turn the met-only roster on/off for this session (tests/BDD; the deploy sets `ORWELL_MET_ONLY_ROSTER`). */
+  setMetOnlyRosterEnabled(on: boolean): void { this.metOnlyRosterEnabled = on; }
   /** 0128 - turn the three-part Final HOH on/off for this session (tests/BDD; the deploy sets `ORWELL_FINAL_HOH_THREE_PART`). */
   setFinalHohThreePartEnabled(on: boolean): void { this.finalHohThreePartEnabled = on; }
   finalHohThreePartEnabledNow(): boolean { return this.finalHohThreePartEnabled; }
@@ -22254,6 +22259,7 @@ export class GameSessionAdapter implements GameSession {
         pending: null,
       };
     }
+    const unarrivedHidden = this.metOnlyRosterEnabled && this.inPremiere() ? (this.notYetArrived() ?? undefined) : undefined; // ORW-710
     const p = this.house.player;
     const status = this.playerStatus();
     // Once the player is out, the moment frames their new seat (closure / the jury spectator box, 0046)
@@ -22371,7 +22377,9 @@ export class GameSessionAdapter implements GameSession {
           ...(p.archetypeDefaulted ? { defaulted: true } : {}),
         },
       },
-      house: this.house.npcs.map((n) => ({
+      // ORW-710 (Vault Wall): while the entrances run, a houseguest the player has not met is not in the roster at all (no name, no card); the view carries only how many are still to come.
+      ...(unarrivedHidden && unarrivedHidden.size - (unarrivedHidden.has(this.house.player.id) ? 1 : 0) > 0 ? { unarrivedCount: unarrivedHidden.size - (unarrivedHidden.has(this.house.player.id) ? 1 : 0) } : {}),
+      house: this.house.npcs.filter((n) => !unarrivedHidden?.has(n.id)).map((n) => ({
         id: n.id, name: n.name,
         status: this.seatOf(n.id),
         ...this.evictedSeqOf(n.id), // ORW-641: the public eviction place (the cast wall orders the departed by it)
