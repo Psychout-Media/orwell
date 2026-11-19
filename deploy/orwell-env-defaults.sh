@@ -79,6 +79,7 @@
 #   ORWELL_YOUR_STORY           0211 / ORW-648: the story of you and them - each houseguest's own view of the player is sampled weekly (read-only, no rng) and after the crown the retrospective carries each story as facts (a played game only; =0 opts out).
 #   ORWELL_YOUR_EDIT            0200 / ORW-632: your edit - after the crown the post-season retrospective also carries the season as TV would have cut it (episode facts, who was cut a hero and a villain, how you came across); facts only, the narrator voices the titles (a played, finished game only). ON 2026-11-17.
 #   ORWELL_JUROR_PROFILES       Per-juror vote profiles (A2/A63) - measured calibration-neutral. ON 2026-11-06 (ORW-16).
+#   ORWELL_DOZE_BACK_TO_BED     ORW-705 PT-10 (PO ruling 2026-11-19): a player who woke before the house's wake-up call can turnIn to go back to sleep until that call (capped there; no recap, no new day); a still-tired early-waking houseguest dozes back too. Played games only. ON; `=0` restores the refusal.
 #   ORWELL_DIARY_CALLS          0210 / ORW-668 (Theme C slice 2): production visibly calls a houseguest to the Diary Room; the house sees who went, how long and how they looked coming back, never what was said; the player is invited, never sent (a played game only; no outcome changes). ON; `=0` is the kill switch.
 #   ORWELL_DISCLOSURE_ENGINE    A52 / ORW-23 (Ryne card 19: the narrator does not improvise disclosures): in a PLAYED game npcVoice.knows is only what the player also holds; a declined press carries deflect. ON 2026-11-14; read-only projection, moves no outcome.
 #   ORWELL_NARRATION_USAGE      ORW-510: the live narration-use record (what the narrator already used: sentence openings, scene closers, per-houseguest gestures and lines) handed back as the Show Brief's ALREADY USED section, capped at 200 tokens, plus a counts-only repetition season line. No model call. ON by default; 0 turns it off.
@@ -162,6 +163,7 @@ ORWELL_ADVANCE_GATE=1
 ORWELL_APPROACH_MEMORY=1
 ORWELL_ASSURANCES=1
 ORWELL_AUDIENCE=1
+ORWELL_BAD_SLEEP_REACH=1
 ORWELL_BARTER_APPETITE=1
 ORWELL_BEDTIME_GATE=1
 ORWELL_BED_RUSH=1
@@ -196,8 +198,10 @@ ORWELL_DIARY_CALLS=1
 ORWELL_DISCLOSURE_ENGINE=1
 ORWELL_DISCLOSURE_SPIN=1
 ORWELL_DODGING=1
+ORWELL_DOZE_BACK_TO_BED=1
 ORWELL_DRIFT_FIX=1
 ORWELL_DRIVE_DECISIONS=1
+ORWELL_EDIT_MOMENTS=1
 ORWELL_EMBEDDINGS=fastembed
 ORWELL_EMBED_CACHE=${data_dir}/models
 ORWELL_ENDGAME_MEMORY=1
@@ -240,6 +244,7 @@ ORWELL_LONG_NIGHT=1
 ORWELL_MEET_THE_CAST=1
 ORWELL_MEMORY_FRIENDS=1
 ORWELL_MEMORY_PROMISES=1
+ORWELL_MET_ONLY_ROSTER=1
 ORWELL_MOOD_APPROACH=1
 ORWELL_MOOD_CAMPAIGN=1
 ORWELL_MOOD_CAUSES=1

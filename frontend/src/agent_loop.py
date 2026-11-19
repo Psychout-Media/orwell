@@ -10410,6 +10410,9 @@ async def _stream_agent_loop_impl(
                                 _is_lull, _stale = False, False
                             else:
                                 _TOAST_VOICE_HOLDS.pop(_bk, None)
+                    # ORW-704: the arrivals twin of the toast hold: do not release the NEXT arrival until the narrator has named the one the game just showed (bounded: the hold runs out after two turns).
+                    if _ch.premiere_entrance_active(owner) and (_is_lull or _stale) and _ch._PREMIERE_ENTRANCE_STAGE.get(_ch._runway_key(owner)) == "entrances" and _ch.arrival_voice_hold(owner, full_response):
+                        _is_lull, _stale = False, False
                 except Exception:
                     pass
                 # The ORDER of the turn's beat-tools decides whether it left an uncommitted/undelivered

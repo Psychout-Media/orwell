@@ -113,6 +113,12 @@ export const SOCIETY_TICK_HOURS = 1.5;
  * (`0.5 ^ (hoursNappedToday / halvingHours)`), never to zero. `stepHours` is the clock granularity the nap is slept in (so an event coming due wakes the player on the dot).
  * `seenReadThreat`: the one small bounded character-read a houseguest who SEES the player napping folds (threat down, competitive types only).
  */
+/**
+ * ORW-705 PT-10 (PO ruling 2026-11-19): the early-morning doze. `tiredDeficit` is the hidden rest deficit (0..1, the same term the competition fold reads) at or above which an early-waking houseguest
+ * is still tired enough to go back to bed until the house's wake-up call. Read off existing per-character state only (the multi-night fatigue meter); no draw, no list, no archetype.
+ */
+export const DOZE = { tiredDeficit: 0.2 } as const;
+
 export const NAP = { minHours: 0.5, maxHours: 3, defaultHours: 1, lengthStepHours: 0.5, halvingHours: 2, clockStepHours: 0.1, seenReadThreat: -0.03, competitiveStat: 0.65 } as const;
 
 // --- Bedtimes & the immediate (single-night) sleep debt -------------------------------------------

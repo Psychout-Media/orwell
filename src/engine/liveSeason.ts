@@ -402,6 +402,8 @@ export interface WeekDigest {
   vetoUsed: boolean;
   evictee: EntityId | null;
   juryCount: number;
+  /** ORW-691: the replacement nominee the HOH named after a veto save (kept for the post-crown edit; absent otherwise). */
+  replacement?: EntityId;
 }
 
 /** The first `castSize − 11` evictions are pre-jury; the next 9 form the jury (cast size is conserved). */
@@ -994,7 +996,7 @@ export interface LiveSeasonState {
   /** 0148 / ORW-417: hours the player has napped TODAY (the nap credit `playerRestDeficit` reads). Reset by `playerTurnIn` (a night in bed resets the credit with the night). Absent (serialization-neutral) when 0. Persisted. */
   napHoursToday?: number;
   /** 0148: the player's last nap, for the one-shot "while you slept" read the narrator gets on waking (the room they slept in, who was in it at the start, the hour they woke). Vault-free (ids + hours). Cleared once voiced. */
-  napWake?: { room: string; before: string[]; startHour: number; endHour: number; wokenBy?: "event" | "evening"; /** ORW-477: the length the player asked for, hours (set when the nap was cut short, so the narrator can say how much of it they got). */ askedHours?: number };
+  napWake?: { room: string; before: string[]; startHour: number; endHour: number; wokenBy?: "event" | "evening"; /** ORW-477: the length the player asked for, hours (set when the nap was cut short, so the narrator can say how much of it they got). */ askedHours?: number; /** ORW-705: set when this was the early-morning doze back to bed (the player woke before the house and slept on to its wake-up call), not a daytime nap. */ doze?: true };
   /**
    * "Hang out until X": how many hang-out calls have run (the side-stream salt), the in-game day the player was last
    * PULLED during a hang-out (at most once a day), and the recorded stop of every call. Written ONLY by the flag-gated
@@ -2943,6 +2945,7 @@ function rollWeek(s: LiveSeasonState): void {
     week: s.week, hoh: s.hoh ?? null, nominees: [...(s.finalNominees ?? s.nominees ?? [])],
     vetoHolder: s.vetoHolder ?? null, vetoUsed: !!s.vetoUsed, evictee: s.evictee ?? null,
     juryCount: Math.max(0, s.evictionOrder.length - preJuryEvictionCount(s)),
+    ...(s.vetoUsed && s.replacement ? { replacement: s.replacement } : {}),
   });
   s.outgoingHoh = s.hoh;
   s.hoh = undefined; s.nominees = undefined; s.nominationTarget = undefined; s.vetoField = undefined; s.vetoDrawnAtAbs = undefined;

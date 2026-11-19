@@ -72,8 +72,9 @@ Given("a finished season whose houseguests held a view of the player", function 
   const b = bag(this); stage(b);
   const [a, c] = b.ids!;
   b.g!.live.viewOfPlayer = {
-    [a!]: [{ week: 1, trust: 0.05, affinity: 0.05 }, { week: 2, trust: 0.05, affinity: 0.05 }, { week: 3, trust: 0.4, affinity: 0.4 }],
-    [c!]: [{ week: 1, trust: 0.3, affinity: 0.3 }, { week: 2, trust: 0.3, affinity: 0.3 }],
+    // ORW-691: the samples are raw edge values (an unmet pair reads 0.25 + 0.25), the shape is read against that neutral baseline
+    [a!]: [{ week: 1, trust: 0.3, affinity: 0.3 }, { week: 2, trust: 0.3, affinity: 0.3 }, { week: 3, trust: 0.7, affinity: 0.7 }],
+    [c!]: [{ week: 1, trust: 0.5, affinity: 0.5 }, { week: 2, trust: 0.5, affinity: 0.5 }],
   };
   b.g!.live.finished = true; b.g!.live.winner = c;
   b.stories = b.g!.seasonRetrospective()!.yourStories;
