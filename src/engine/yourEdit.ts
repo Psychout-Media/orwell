@@ -40,7 +40,9 @@ export const YOUR_EDIT = {
 
 /** A scene as the log holds it (a structural subset of `GameEvent`). */
 export interface EditEvent { type: string; initiator: EntityId; witnessSet: readonly EntityId[]; hidden: boolean; content: string; seenBy?: readonly string[] }
-export interface EditDigest { week: number; hoh: EntityId | null; nominees: EntityId[]; vetoHolder: EntityId | null; vetoUsed: boolean; evictee: EntityId | null }
+export interface EditDigest { week: number; hoh: EntityId | null; nominees: EntityId[]; vetoHolder: EntityId | null; vetoUsed: boolean; evictee: EntityId | null; /** ORW-691: who the HOH named in the saved nominee's place (absent when the veto was not used, and in a save from before this was kept). */ replacement?: EntityId }
+/** ORW-691: a house meeting as the edit reads it (who called it, who was accused, how many were in the room). */
+export interface EditMeeting { week: number; caller: EntityId; accused: EntityId; attendees: number }
 export interface EditDeal { parties: readonly EntityId[]; status: string; brokenBy?: EntityId }
 
 /** The moments one completed week's PUBLIC record makes (shared with the audience: the same kinds, the same twist from the vote's margin). */
@@ -59,9 +61,12 @@ export function weekMoments(d: EditDigest, ballots: readonly EntityId[], calledP
 /** The scene kinds the log's event types stand for. */
 export const SCENE_KIND: Readonly<Partial<Record<string, EditMomentKind>>> = { conflict: "blowup", betrayal: "betrayal", showmance: "showmance" };
 
-/** One scene as a moment (null when it is not edit-worthy: a lone thought, or a kind the cut does not use). */
-export function sceneMoment(e: EditEvent, week: number): EditMoment | null {
-  const kind = SCENE_KIND[e.type];
+/** ORW-691: the scene kinds only the edit (never the audience) also reads: a strategy scene is a scheme. */
+export const EDIT_SCENE_KIND: Readonly<Partial<Record<string, EditMomentKind>>> = { strategy: "scheme" };
+
+/** One scene as a moment (null when it is not edit-worthy: a lone thought, or a kind the cut does not use). `moreKinds` adds the edit-only kinds (the audience never passes it). */
+export function sceneMoment(e: EditEvent, week: number, moreKinds = false): EditMoment | null {
+  const kind = SCENE_KIND[e.type] ?? (moreKinds ? EDIT_SCENE_KIND[e.type] : undefined);
   if (!kind || e.witnessSet.length < 2) return null;
   const other = e.witnessSet.find((w) => w !== e.initiator);
   return { kind, actor: e.initiator, ...(other ? { subject: other } : {}), week, crowd: e.witnessSet.length + (e.seenBy?.length ?? 0), public: !e.hidden };
@@ -108,6 +113,8 @@ export interface YourEditInput {
   /** Week of each log position (insertion order, delimited by the eviction announcements), the same reconstruction the pull-quote reel uses. */
   eventWeeks: readonly number[];
   deals: readonly EditDeal[];
+  /** ORW-691 (`ORWELL_EDIT_MOMENTS`): when set, the cut also reads replacements, house meetings and schemes (all three were weighted but never emitted). Absent = the old cut, byte-identical. */
+  more?: { meetings: readonly EditMeeting[] };
   winner: EntityId | null;
   jury?: { finalists: readonly EntityId[]; votes: ReadonlyArray<{ votedFor: EntityId }> };
 }
@@ -138,8 +145,10 @@ export function buildYourEdit(inp: YourEditInput): YourEditView {
     if (d.evictee === null) continue;
     const rec = inp.voteRecord.find((r) => r.week === d.week && r.evictee === d.evictee);
     for (const m of weekMoments(d, rec ? Object.values(rec.voteOf) : [], inp.calledPawn(d.week, d.evictee))) add(m);
+    if (inp.more && d.replacement) add({ kind: "replacement", ...(d.hoh ? { actor: d.hoh } : {}), subject: d.replacement, week: d.week, public: true });
   }
-  inp.events.forEach((e, i) => { const m = sceneMoment(e, Math.min(maxWeek, inp.eventWeeks[i] ?? maxWeek)); if (m) add(m); });
+  if (inp.more) for (const mt of inp.more.meetings) add({ kind: "house-meeting", actor: mt.caller, subject: mt.accused, week: Math.min(maxWeek, mt.week), crowd: mt.attendees, public: true });
+  inp.events.forEach((e, i) => { const m = sceneMoment(e, Math.min(maxWeek, inp.eventWeeks[i] ?? maxWeek), !!inp.more); if (m) add(m); });
 
   const tallies = new Map<EntityId, Tally>();
   const tally = (id: EntityId): Tally => tallies.get(id) ?? tallies.set(id, { net: 0, abs: 0, kept: 0, broke: 0, betrayed: 0, facts: [] }).get(id)!;

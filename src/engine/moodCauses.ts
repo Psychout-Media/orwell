@@ -29,6 +29,8 @@ export const MOOD_CAUSES = {
   goalWeight: 0.6,
   /** A night counts as a bad night's sleep from this hidden rest deficit (0..1 = hours past midnight / 8; 0.25 is two in the morning). */
   badSleepDeficit: 0.25,
+  /** ORW-691: the bar a played game actually uses (`ORWELL_BAD_SLEEP_REACH`). 0.25 is exactly a 2am bed and the latest houseguest bed is just under it, so that bar was never met; 0.125 is a bed past 1am, which the late owls do reach. */
+  badSleepDeficitReachable: 0.125,
   /** A close friend is someone whose bond (the mean of trust and affinity toward the evictee) is at least this. */
   friendBond: 0.55,
   /** A lie costs the liar's word, and the mood: the existing "betrayed" step at this share. */
@@ -75,8 +77,8 @@ export function mayShareEventCause(source: MoodCauseSource, listenerAffinity: nu
 }
 
 /** Whether a night's hidden rest deficit is a bad night's sleep. */
-export function isBadNight(deficit: number): boolean {
-  return deficit >= MOOD_CAUSES.badSleepDeficit;
+export function isBadNight(deficit: number, reachable = false): boolean {
+  return deficit >= (reachable ? MOOD_CAUSES.badSleepDeficitReachable : MOOD_CAUSES.badSleepDeficit);
 }
 
 /** Whether a bond (trust and affinity toward someone) makes them a close friend. */

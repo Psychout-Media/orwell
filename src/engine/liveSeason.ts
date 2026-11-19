@@ -402,6 +402,8 @@ export interface WeekDigest {
   vetoUsed: boolean;
   evictee: EntityId | null;
   juryCount: number;
+  /** ORW-691: the replacement nominee the HOH named after a veto save (kept for the post-crown edit; absent otherwise). */
+  replacement?: EntityId;
 }
 
 /** The first `castSize − 11` evictions are pre-jury; the next 9 form the jury (cast size is conserved). */
@@ -2941,6 +2943,7 @@ function rollWeek(s: LiveSeasonState): void {
     week: s.week, hoh: s.hoh ?? null, nominees: [...(s.finalNominees ?? s.nominees ?? [])],
     vetoHolder: s.vetoHolder ?? null, vetoUsed: !!s.vetoUsed, evictee: s.evictee ?? null,
     juryCount: Math.max(0, s.evictionOrder.length - preJuryEvictionCount(s)),
+    ...(s.vetoUsed && s.replacement ? { replacement: s.replacement } : {}),
   });
   s.outgoingHoh = s.hoh;
   s.hoh = undefined; s.nominees = undefined; s.nominationTarget = undefined; s.vetoField = undefined; s.vetoDrawnAtAbs = undefined;
