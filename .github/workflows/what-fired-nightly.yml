@@ -1,0 +1,147 @@
+# Nightly "what fired" report (ORW-729, Automation 1). SCHEDULED, NON-BLOCKING, NO MODEL CALLS, no credentials.
+#
+# Plays full seasons in-process with a scripted talking player (seeded; the narrator is never called) on main's tip and writes ONE markdown report:
+#   1. what fired: per flag (discovered from the registry, never a hand list), did turning it the other way change the played game? ZERO = built but never fires;
+#   2. crashes, stalls and loops (typed faults, a decision re-raised without progress, a season that does not finish);
+#   3. save and restart: restart the runtime at a seeded point, compare the continued season with the uninterrupted one;
+#   4. the house mix by week (information only, against the house-mix guard's reference).
+# plus a SHORT DIFF against the last report, so new zeros, new faults and new loops can become cards.
+#
+# It runs ONLY on this schedule or by hand (workflow_dispatch). It has no pull_request trigger, so it never doubles PR CI, and it is not in ci.yml's ci-gate.needs
+# (a unit test pins both). Every job is continue-on-error: a red night is a finding to read, never a blocked merge.
+# The report is counts, kinds and roles only (no names, no save contents, no addresses): the tool refuses to write a line that looks like one. The artifact is retained 30 days.
+name: what-fired-nightly
+
+on:
+  schedule:
+    - cron: "47 5 * * *"
+  workflow_dispatch:
+    inputs:
+      seeds:
+        description: "played seasons (seed numbers, comma separated)"
+        default: "1,2,3,4,5,6"
+      ablate_max:
+        description: "limit the flags ablated per shard (blank = all)"
+        default: ""
+
+permissions:
+  contents: read
+  actions: read   # to fetch the last report's artifact for the diff
+
+concurrency:
+  group: what-fired-nightly
+  cancel-in-progress: true
+
+env:
+  ONNXRUNTIME_NODE_INSTALL: "skip"
+
+jobs:
+  seasons:
+    name: seasons (seed ${{ matrix.seed }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # one season per job: the played season, one seeded restart run (seed 1 also plays the determinism check)
+      - name: play the season
+        run: |
+          extra=""
+          if [ "${{ matrix.seed }}" = "1" ]; then extra="--determinism"; fi
+          npx tsx scripts/what-fired.ts baseline --seeds ${{ matrix.seed }} --restarts 1 $extra --out tmp/wf/seed-${{ matrix.seed }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wf-seasons-${{ matrix.seed }}
+          path: tmp/wf/seed-${{ matrix.seed }}
+          retention-days: 30
+          if-no-files-found: warn
+
+  ablate:
+    name: ablate (shard ${{ matrix.shard }}/12)
+    needs: seasons
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: wf-seasons-1
+          path: tmp/wf/seed-1
+        continue-on-error: true
+      - name: ablate this shard's flags against seed 1 (each flag in its own process; stops at the first difference)
+        run: |
+          lim=""
+          if [ -n "${{ inputs.ablate_max }}" ]; then lim="--ablate-max ${{ inputs.ablate_max }}"; fi
+          npx tsx scripts/what-fired.ts ablate --trace-dir tmp/wf/seed-1 --ablate-seeds 1 --shard ${{ matrix.shard }}/12 $lim --out tmp/wf/ablate-${{ matrix.shard }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wf-ablate-${{ matrix.shard }}
+          path: tmp/wf/ablate-${{ matrix.shard }}
+          retention-days: 30
+          if-no-files-found: warn
+
+  report:
+    needs: [seasons, ablate]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wf-*
+          path: tmp/wf-in
+      # the last night's summary, for the diff (a first run, or an expired artifact, simply has no diff)
+      - name: fetch the previous report
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p tmp/wf-prev
+          id=$(gh run list --workflow what-fired-nightly.yml --branch "${{ github.ref_name }}" --status completed --limit 5 --json databaseId,conclusion -q '.[] | select(.databaseId != ${{ github.run_id }}) | .databaseId' | head -1 || true)
+          if [ -n "$id" ]; then gh run download "$id" --name what-fired-report --dir tmp/wf-prev || true; fi
+      - name: merge, render and diff
+        run: |
+          dirs=$(find tmp/wf-in -mindepth 1 -maxdepth 1 -type d | paste -sd, -)
+          npx tsx scripts/what-fired.ts report --in "$dirs" --out tmp/what-fired --previous tmp/wf-prev/summary.json
+      - name: summary
+        run: |
+          d=$(ls tmp/what-fired/*.md | head -1)
+          { echo '## What fired'; sed -n '1,25p' "$d"; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: what-fired-report
+          path: tmp/what-fired
+          retention-days: 30
+          if-no-files-found: warn
