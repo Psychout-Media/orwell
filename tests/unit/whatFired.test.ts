@@ -4,7 +4,7 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FEATURE_FLAGS } from "../../src/featureFlags";
 import { discoverFlags, discoverFeatures, commentsByFlag, tagsOf } from "../support/whatFired/discover";
-import { firstDifference, restartPoints } from "../support/whatFired/compare";
+import { firstDifference, restartPoints, restartVerdict } from "../support/whatFired/compare";
 import { buildSummary, diffSummaries, renderMarkdown, assertClean, GUARD_REFERENCE, LOOP_REPEATS, type Inputs } from "../support/whatFired/report";
 import { scrub, type SeasonRecord, type TraceRow } from "../support/whatFired/player";
 
@@ -84,9 +84,18 @@ describe("the save/restart comparer", () => {
     for (const p of restartPoints(7, 5, 500)) { expect(p).toBeGreaterThanOrEqual(1); expect(p).toBeLessThan(500); }
   });
   it("reports a restart difference in the summary and the diff", () => {
-    const cur = buildSummary(inputs({ restarts: [{ seed: 1, point: 40, difference: { at: 41, field: "state" }, finished: true }] }));
-    expect(diffSummaries(null, cur).newRestartDifferences).toEqual(["seed 1 at 40: state"]);
-    expect(renderMarkdown(cur, diffSummaries(null, cur))).toContain("DIFFERS at message 41 (state)");
+    const cur = buildSummary(inputs({ restarts: [{ seed: 1, point: 40, difference: { at: 40, field: "state" }, verdict: "state-lost", finished: true }, { seed: 2, point: 40, difference: { at: 41, field: "events" }, verdict: "continues-differently", finished: true }] }));
+    expect(diffSummaries(null, cur).newRestartDifferences).toEqual(["seed 1 at 40: state lost (state)"]); // the re-rolled stream is shown, not alarmed
+    const md = renderMarkdown(cur, diffSummaries(null, cur));
+    expect(md).toContain("STATE LOST: first difference at message 40 (state)");
+    expect(md).toContain("continues differently: first difference at message 41 (events)");
+  });
+  it("tells a lost save from a re-rolled off-screen stream", () => {
+    const run = (evs: number[]): TraceRow[] => evs.map((ev, i) => ({ i, ev, last: "x" }));
+    expect(restartVerdict(2, null, run([1, 2, 3, 4]))).toBe("identical");
+    expect(restartVerdict(2, { at: 3, field: "events" }, run([1, 2, 3, 5]))).toBe("continues-differently");
+    expect(restartVerdict(2, { at: 2, field: "state" }, run([1, 2, 3, 5]))).toBe("state-lost");
+    expect(restartVerdict(2, { at: 3, field: "events" }, run([1, 2, 3, 2]))).toBe("state-lost"); // the event count fell
   });
 });
 

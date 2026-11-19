@@ -22,3 +22,16 @@ export function restartPoints(seed: number, count: number, seasonMessages: numbe
   const hi = Math.max(2, Math.floor(seasonMessages * 0.9));
   return Array.from({ length: count }, () => 1 + Math.floor(next() * (hi - 1))).sort((x, y) => x - y);
 }
+
+/**
+ * What a restart difference MEANS. The off-screen random stream is created per sandbox from the seed and is not part of the save (orchestrator `rngFor`), so a restarted season is not byte-identical
+ * to the uninterrupted one from the first tick after the restart: that is "continues-differently" (reported, but kept apart). "state-lost" is the finding that matters: the restarted game differs AT or
+ * BEFORE the restart point, or its event count falls (a save that dropped something).
+ */
+export type RestartVerdict = "identical" | "continues-differently" | "state-lost";
+export function restartVerdict(point: number, diff: Difference | null, restartTrace: readonly TraceRow[]): RestartVerdict {
+  const before = restartTrace[point]?.ev ?? 0;
+  for (let i = point + 1; i < restartTrace.length; i++) if (restartTrace[i]!.ev < before) return "state-lost";
+  if (!diff) return "identical";
+  return diff.at <= point ? "state-lost" : "continues-differently";
+}

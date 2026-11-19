@@ -60,6 +60,8 @@ export interface SeasonRecord {
   noEffect: Record<string, number>;
   /** social actions the script tried, by tool */
   tried: Record<string, number>;
+  /** the game week the player left the game (evicted), when they did: a season where the player goes early exercises the late game only as a spectator */
+  playerOutWeek?: number;
   scenes: MixScene[];
   trace: TraceRow[];
 }
@@ -158,7 +160,7 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
     const key = `${p.kind}|${r.status?.week ?? ""}|${(p.options ?? []).map((o) => o.id).join(",")}`;
     if (key === lastPendingKey) { repeats++; rec.pendingRepeats[p.kind] = Math.max(rec.pendingRepeats[p.kind] ?? 0, repeats); } else { lastPendingKey = key; repeats = 0; }
     if ((p.kind as string) === "ceremony-step") { await must("advanceGame", {}, msg); return; }
-    const veto = rnd() < 0.4 ? "always-use-veto" : "never-use-veto"; // a varied player: sometimes uses the veto
+    const veto = p.kind === "veto-decision" || rnd() < 0.4 ? "always-use-veto" : "never-use-veto"; // a player on the block (or holding the veto) uses it // a varied player: sometimes uses the veto
     try { await call("submitDecision", autoResolve(p, veto)); } catch (e) { crash("submitDecision", msg, e); await must("advanceGame", {}, msg); }
   };
 
@@ -178,8 +180,8 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
       case 4: await social("recordInteraction", { initiator: npc, witnessSet: ["player", npc], content: "they tell me I am safe with them this week", kind: "alliance", assurance: { kind: "vote" } }); break;
       case 6: if (present.length >= 2) { const r = await social("formAlliance", { name: `Alliance ${t}`, members: [npc, other] }); allianceId = r?.id ?? r?.allianceId ?? allianceId; } break;
       case 7: if (allianceId) await social("joinAlliance", { allianceId }); break;
-      case 8: await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we argue about the last vote", kind: "conflict" }); break;
-      case 10: if (present.length >= 2) await social("accuseTie", { aId: npc, bId: other }); break;
+      case 8: if (t % 64 === 8) await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we argue about the last vote", kind: "conflict" }); else await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we plan the week together", kind: "strategy" }); break;
+      case 10: if (present.length >= 2 && t % 48 === 10) await social("accuseTie", { aId: npc, bId: other }); break;
       case 11: await social("callInFavor", { npcId: npc }); break;
       case 12: await social("diaryRoom", { entry: "I think I am in a decent spot this week." }); break;
       case 14: { const f = factIds[t % Math.max(1, factIds.length)]; if (f) await social("tradeSecret", { toNpcId: npc, factId: f }); else await social("tradeSecret", { toNpcId: npc, bluff: true, subject: other }); break; }
@@ -227,6 +229,7 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
     if (gs?.finished) finished = true;
     const evs = events();
     const out = !!sess().live?.evictionOrder?.includes(sess().house?.player?.id);
+    if (out && rec.playerOutWeek === undefined) rec.playerOutWeek = week;
     while (stampedUpTo < evs.length) stamp[stampedUpTo++] = { msg, week, out };
     const row: TraceRow = { i: msg, ev: evs.length, last: eventHash(evs[evs.length - 1]) };
     if (msg % sampleEvery === 0) row.st = sampleState();

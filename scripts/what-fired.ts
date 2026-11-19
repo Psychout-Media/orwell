@@ -38,7 +38,7 @@ const shardOf = <T>(xs: T[], spec: string | undefined): T[] => { if (!spec) retu
 
 async function baseline(out: string): Promise<void> {
   const { playSeason } = await import("../tests/support/whatFired/player");
-  const { firstDifference, restartPoints } = await import("../tests/support/whatFired/compare");
+  const { firstDifference, restartPoints, restartVerdict } = await import("../tests/support/whatFired/compare");
   const seeds = nums(arg("seeds"), [1, 2, 3]);
   const maxMessages = Number(arg("max-messages", "40000"));
   const restartsPer = Number(arg("restarts", "1"));
@@ -48,14 +48,15 @@ async function baseline(out: string): Promise<void> {
     const r = await playSeason({ seed, maxMessages });
     const { trace, ...rest } = r;
     writeJson(join(out, `season-${seed}.json`), rest); writeJson(join(out, `trace-${seed}.json`), trace);
-    console.log(`[what-fired] seed ${seed}: ${r.stopped} at message ${r.messages}, week ${r.week} (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
+    console.log(`[what-fired] seed ${seed}: ${r.stopped} at message ${r.messages}, week ${r.week}, player out ${r.playerOutWeek ?? "never"} (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
     if (n === 0 && argv.includes("--determinism")) { const again = await playSeason({ seed, maxMessages }); determinism.push({ seed, difference: firstDifference(trace, again.trace) }); }
     for (const point of restartPoints(seed, restartsPer, r.messages)) {
       const dir = mkdtempSync(join(scratch, "save-"));
       const run = await playSeason({ seed, maxMessages, restartAt: point, saveDir: dir });
-      restarts.push({ seed, point, difference: firstDifference(trace, run.trace), finished: run.finished });
+      const difference = firstDifference(trace, run.trace);
+      restarts.push({ seed, point, difference, verdict: restartVerdict(point, difference, run.trace), finished: run.finished });
       rmSync(dir, { recursive: true, force: true });
-      console.log(`[what-fired] seed ${seed}: restart at ${point}: ${firstDifference(trace, run.trace) ? "DIFFERS" : "identical"}`);
+      console.log(`[what-fired] seed ${seed}: restart at ${point}: ${(restarts[restarts.length - 1] as { verdict: string }).verdict}`);
     }
   }
   writeJson(join(out, "restart.json"), restarts); writeJson(join(out, "determinism.json"), determinism);

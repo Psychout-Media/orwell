@@ -2,7 +2,7 @@ import { mixShares, type MixScene } from "../houseMixDriver";
 import type { FlagInfo, FeatureInfo } from "./discover";
 import type { SeasonRecord } from "./player";
 import { MASKS } from "./player";
-import type { Difference } from "./compare";
+import type { Difference, RestartVerdict } from "./compare";
 
 /**
  * ORW-729: aggregate the played seasons + ablation results into ONE summary (JSON, stable keys), render it as markdown, diff it against the last night's summary, and refuse to
@@ -14,7 +14,7 @@ export const GUARD_REFERENCE = { bonding: 30.2, strategy: 34.7, gossip: 28.5, co
 export const SPEC_FLOOR = 49; // the card's range: specs 0049 and later
 
 export interface AblationResult { envKey: string; seed: number; fired: boolean; divergedAt: number | null; stopped: string; messages: number }
-export interface RestartResult { seed: number; point: number; difference: Difference | null; finished: boolean }
+export interface RestartResult { seed: number; point: number; difference: Difference | null; verdict: RestartVerdict; finished: boolean }
 export interface Inputs {
   date: string;
   seasons: SeasonRecord[];
@@ -116,7 +116,7 @@ export function diffSummaries(prev: Summary | null, cur: Summary): Diff {
   const pf = new Set((prev?.faults ?? []).map(fk)); d.newFaults = cur.faults.map(fk).filter((k) => !pf.has(k)).sort();
   const pc = new Set((prev?.crashes ?? []).map((c) => `${c.tool}: ${c.what}`)); d.newCrashes = cur.crashes.map((c) => `${c.tool}: ${c.what}`).filter((k) => !pc.has(k)).sort();
   const pl = new Set((prev?.loops ?? []).map((l) => l.what.replace(/\d+/g, "N"))); d.newLoops = cur.loops.map((l) => `seed ${l.seed}: ${l.what}`).filter((k) => !pl.has(k.replace(/^seed \d+: /, "").replace(/\d+/g, "N"))).sort();
-  const rd = (s: Summary | null): Set<string> => new Set((s?.restarts ?? []).filter((r) => r.difference).map((r) => `seed ${r.seed} at ${r.point}: ${r.difference!.field}`));
+  const rd = (s: Summary | null): Set<string> => new Set((s?.restarts ?? []).filter((r) => r.verdict === "state-lost" || !r.finished).map((r) => `seed ${r.seed} at ${r.point}: ${r.verdict === "state-lost" ? `state lost (${r.difference?.field ?? "events fell"})` : "restarted season did not finish"}`));
   const pr = rd(prev); d.newRestartDifferences = [...rd(cur)].filter((k) => !pr.has(k)).sort();
   if (prev) {
     const ct = new Set(cur.eventTypes.map((e) => e.type));
@@ -143,8 +143,8 @@ export function renderMarkdown(s: Summary, d: Diff): string {
   L.push("", `Crashes (an exception out of a load-bearing tool): ${s.crashes.length ? "" : "none"}`); for (const c of s.crashes) L.push(`- ${c.tool}: ${c.what} (seeds ${c.seeds.join(", ")}; ${c.count} times)`);
   L.push("", `Typed faults (sandboxHealth, includes tick-failure): ${s.faults.length ? "" : "none"}`); for (const f of s.faults) L.push(`- ${f.kind}${f.detail ? ` (${f.detail})` : ""}: seeds ${f.seeds.join(", ")}`);
   L.push("", "## 3. Save and restart", "", `Determinism check (the same seed twice, nothing changed): ${s.determinism.map((x) => `seed ${x.seed} ${x.difference ? `DIFFERS at message ${x.difference.at} (${x.difference.field})` : "identical"}`).join("; ") || "not run"}`, "");
-  L.push(tbl(["seed", "restart at message", "result"], s.restarts.map((r) => [r.seed, r.point, r.difference ? `DIFFERS at message ${r.difference.at} (${r.difference.field})` : "identical"])), "");
-  L.push("Masked before comparing (listed so nothing hides silently):", ...MASKS.map((m) => `- \`${m.key}\`: ${m.why}`));
+  L.push(tbl(["seed", "restart at message", "result", "restarted season"], s.restarts.map((r) => [r.seed, r.point, r.verdict === "identical" ? "identical" : `${r.verdict === "state-lost" ? "STATE LOST" : "continues differently"}: first difference at message ${r.difference?.at ?? "-"} (${r.difference?.field ?? "events fell"})`, r.finished ? "finished" : "DID NOT FINISH"])), "");
+  L.push("\"continues differently\" is expected: the off-screen random stream restarts from its seed and is not saved, so a restarted season is not byte-identical from the first tick after the restart. \"STATE LOST\" (a difference at or before the restart, or the event count falling) is the finding.", "", "Masked before comparing (listed so nothing hides silently):", ...MASKS.map((m) => `- \`${m.key}\`: ${m.why}`));
   L.push("", "## 4. House mix by week (information only; the agreed whole-season target comes from ORW-702)", "", `Guard week-1 reference: ${GUARD_REFERENCE.bonding} / ${GUARD_REFERENCE.strategy} / ${GUARD_REFERENCE.gossip} / ${GUARD_REFERENCE.conflict} (bonding / strategy / gossip / conflict, percent).`, "");
   L.push(tbl(["week", "scenes", "bonding", "strategy", "gossip", "conflict"], s.mixByWeek.map((m) => [m.week, m.n, pct(m.bonding), pct(m.strategy), pct(m.gossip), pct(m.conflict)])));
   L.push("", "## 1. What fired", "", "A flag FIRES when playing a season with it turned the other way from its default changes the played game (the event stream or the saved state) from some message on; ZERO means no change in any measured season. First fire is the median message where the two games first differ. Flags are discovered from the registry, not listed by hand.", "");
