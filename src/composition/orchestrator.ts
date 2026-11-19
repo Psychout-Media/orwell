@@ -261,6 +261,20 @@ export class Orchestrator {
     this.baselines.delete(user);
   }
 
+  /**
+   * ORW-730: roll the sandbox back to a committed snapshot AND put the off-screen stream and tick anchors back where that snapshot had them, so memory and the durable
+   * save agree after a contained failure (a restart resumes from the saved position; continued play must resume from the same one). Only runs on a rollback, so a season
+   * that never rolls back is untouched.
+   */
+  private rollbackTo(user: string, snap: SessionSnapshot): void {
+    this.registry.restore(user, snap);
+    const r = this.rngs.get(user);
+    if (r) r.seekTo(snap.streamPos?.tick ?? 0);
+    const a = snap.tickAnchors;
+    if (a?.hour !== undefined) this.lastSocietyTickHour.set(user, a.hour); else this.lastSocietyTickHour.delete(user);
+    if (a?.abs !== undefined) this.lastSocietyTickAbs.set(user, a.abs); else this.lastSocietyTickAbs.delete(user);
+  }
+
   /** Per-user deterministic RNG stream (seed + user), created once and advanced across ticks. */
   private rngFor(user: string): SeededRandom {
     let r = this.rngs.get(user);
@@ -317,7 +331,7 @@ export class Orchestrator {
   private containTickThrow(user: string, trigger: Trigger, restoreTo: SessionSnapshot): Fault[] {
     const when = this.clock.now();
     const f: Fault[] = [{ when, kind: "tick-failure" }];
-    try { this.registry.restore(user, restoreTo); } catch { /* best effort; the committed save on disk is intact */ }
+    try { this.rollbackTo(user, restoreTo); } catch { /* best effort; the committed save on disk is intact */ }
     this.logFaults(user, trigger, f);
     const prior = this.health.get(user);
     this.recordHealth(user, this.registry.sandboxFor(user), trigger, when, "fault",
@@ -419,7 +433,7 @@ export class Orchestrator {
           // the state circuit), and return a fault result — the committed player turn STANDS (the
           // supplementary tick is enrichment, not the turn).
           const f: Fault[] = [{ when, kind: "persist-failure" }];
-          this.registry.restore(user, baseline);
+          this.rollbackTo(user, baseline);
           this.countFaults(user, f);
           this.logFaults(user, trigger, f);
           const failPrior = this.health.get(user);
@@ -445,7 +459,7 @@ export class Orchestrator {
 
     // Fail-closed: roll the in-memory sandbox back to the baseline (clean rebuild,
     // no aborted events left behind) and DO NOT persist. The prior save is intact.
-    if (trigger !== "audit") this.registry.restore(user, baseline);
+    if (trigger !== "audit") this.rollbackTo(user, baseline);
     this.countFaults(user, faults); // state faults only — a persist blip never opens the circuit
     this.logFaults(user, trigger, faults);
     const prior = this.health.get(user);
@@ -519,7 +533,7 @@ export class Orchestrator {
     faults: Fault[],
     baseline: SessionSnapshot | undefined,
   ): void {
-    if (baseline) this.registry.restore(user, baseline);
+    if (baseline) this.rollbackTo(user, baseline);
     this.countFaults(user, faults); // state faults only (#1106/E7) — a disk blip never opens the circuit
     this.logFaults(user, trigger, faults);
     const prior = this.health.get(user);
