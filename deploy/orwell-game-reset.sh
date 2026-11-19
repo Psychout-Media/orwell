@@ -316,6 +316,19 @@ if [[ -d "$PORTRAITS_DIR" ]]; then
   do_rm "$PORTRAITS_DIR"
 fi
 
+# ── 2d. Unbind the canonical game chat (ORW-713, the ORW-714 root cause) ───────────────────────
+#       The front-end KEEPS chat sessions across a game reset, and remembers WHICH chat is each
+#       user's game chat. Left bound, the new season's casting interview opens inside the old
+#       season's chat (its rows sit above the new casting). Dropping the binding file makes the next
+#       visit start a FRESH chat for the new season; the old chat stays in the list, readable as a
+#       past season (no session row is touched).
+GAME_SESSION_FILE="${FE_DATA_DIR}/orwell_game_session.json"
+if [[ -e "$GAME_SESSION_FILE" ]]; then
+  sanity_path "$GAME_SESSION_FILE" "canonical game-chat binding"
+  msg "unbinding the canonical game chat (${GAME_SESSION_FILE##*/}); old chats stay readable"
+  do_rm "$GAME_SESSION_FILE"
+fi
+
 # ── 3. Restart so the engine reloads with no saves; the front-end keeps its config ────────────
 if [[ "$RESTART" -eq 1 && "$have_systemd" -eq 1 ]]; then
   msg "restarting services"

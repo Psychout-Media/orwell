@@ -233,11 +233,21 @@ _PREGAME_STATE = {"started": False}
 
 def _stub_state(page, body):
     page._a6_state_hits = 0  # A83: how many times the stubbed /api/orwell/state was answered (a condition to wait on instead of a sleep)
+    page._a6_state = body
+    # ORW-713: confirming "End season, start new" POSTs the ONE restart door (/api/orwell/reset-progress);
+    # the stub records it and flips the state to a fresh pre-game one, as the real engine would.
+    page._a6_resets = []
 
     def handler(route):
         page._a6_state_hits += 1
-        route.fulfill(status=200, content_type="application/json", body=__import__("json").dumps(body))
+        route.fulfill(status=200, content_type="application/json", body=__import__("json").dumps(page._a6_state))
+
+    def reset_handler(route):
+        page._a6_resets.append(route.request.post_data)
+        page._a6_state = _PREGAME_STATE
+        route.fulfill(status=200, content_type="application/json", body='{"reset": true}')
     page.route("**/api/orwell/state", handler)
+    page.route("**/api/orwell/reset-progress", reset_handler)
 
 
 def _new_page(pw, app, state_body):
@@ -321,9 +331,11 @@ def test_live_game_cancel_blocks_detach(_app, entry_id):
         _wait_until(page, "window.__a6_confirmCalls.length >= 1")
         calls = page.evaluate("window.__a6_confirmCalls.length")
         detach_calls = _detach_calls(page)
+        resets = list(page._a6_resets)
         browser.close()
     assert calls == 1, f"{entry_id}: a live game must raise exactly one confirm dialog, got {calls}"
     assert detach_calls == 0, f"{entry_id}: declining the confirm must NOT detach the session"
+    assert resets == [], f"{entry_id}: declining must NOT end the season"
 
 
 @pytest.mark.parametrize("entry_id", ["rail-new-session", "sidebar-brand-btn"])
@@ -346,9 +358,14 @@ def test_live_game_confirm_allows_detach(_app, entry_id):
         _wait_until(page, "(window.__a6_setSessionCalls + window.__a6_createDirectChatCalls) > 0")
         calls = page.evaluate("window.__a6_confirmCalls.length")
         detach_calls = _detach_calls(page)
+        resets = list(page._a6_resets)
+        confirm_text = page.evaluate("window.__a6_confirmCalls[0].msg + '|' + window.__a6_confirmCalls[0].opts.confirmText")
         browser.close()
     assert calls == 1, f"{entry_id}: a live game must raise exactly one confirm dialog, got {calls}"
-    assert detach_calls > 0, f"{entry_id}: confirming must proceed with the detach"
+    # ORW-713: the dialog says what it does, and confirming REALLY ends the season through the one restart door.
+    assert "End this season" in confirm_text and "Leave my season" not in confirm_text
+    assert len(resets) == 1 and '"confirm":true' in resets[0].replace(" ", ""), f"{entry_id}: confirming must POST reset-progress once with confirm=true, got {resets}"
+    assert detach_calls > 0, f"{entry_id}: confirming must open the fresh chat for the new season"
 
 
 def test_sidebar_new_chat_row_double_wire_still_shows_one_dialog(_app):
