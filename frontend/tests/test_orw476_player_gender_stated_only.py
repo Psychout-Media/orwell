@@ -253,3 +253,33 @@ def test_player_own_words_collects_every_typed_turn_but_no_production_cue():
     got = al._player_own_words(msgs)
     assert "I'm a woman" in got and "call me Sam" in got
     assert "continue the casting interview" not in got and "he/him" not in got
+
+
+# --- the casting pronoun ask: the recorder files what the player said when the model did not -------------------------------------
+
+
+def test_stated_answer_the_model_did_not_file_is_recorded(words, seen):
+    words("my pronouns are she/her")
+    _run(ti.do_update_casting(json.dumps({"playerName": "Sam"})))
+    assert seen["casting"] == [{"playerName": "Sam", "genderPresentation": "woman"}]
+
+
+def test_a_skip_is_recorded_as_unstated_and_nothing_is_guessed(words, seen):
+    words("I'd rather not say. Call me Sam.")
+    _run(ti.do_update_casting(json.dumps({"playerName": "Sam", "genderPresentation": "unstated"})))
+    assert seen["casting"] == [{"playerName": "Sam", "genderPresentation": "unstated"}]
+
+
+def test_nothing_stated_nothing_filled(words, seen):
+    words("Sam. I play loyal.")
+    _run(ti.do_update_casting(json.dumps({"playerName": "Sam"})))
+    assert seen["casting"] == [{"playerName": "Sam"}]
+
+
+def test_finalize_fallback_extracts_a_stated_answer_but_never_forwards_a_skip(words, seen):
+    words("I'm a woman. Sam.")
+    _run(ti.do_create_character(json.dumps({"playerName": "Sam"})))
+    assert seen["create"] and seen["create"][0].get("gender_presentation") == "woman"
+    words("rather not say")
+    _run(ti.do_create_character(json.dumps({"playerName": "Sam", "genderPresentation": "unstated"})))
+    assert seen["create"][-1].get("gender_presentation") is None

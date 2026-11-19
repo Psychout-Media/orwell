@@ -1231,6 +1231,9 @@ export function renderGameContext(view: GameStateView): string {
       // ORW-718: the producer never assumed a gender the player did not give ("you're a man who ..." from a name and a job).
       const gp = String(c.known.genderPresentation ?? "").toLowerCase();
       lines.push(`- ${playerGenderRule(gp === "man" || gp === "woman" || gp === "nonbinary" ? gp : undefined)}`);
+      if (c.askPronouns) {
+        lines.push("- PRONOUNS: not on file. Ask once before finalizing, in your voice; a skip is genderPresentation \"unstated\". Never again after.");
+      }
       // The finalize gate, stated as ENGINE truth so the model never has to judge "is the interview
       // done?" itself (it gets that wrong both ways — re-asking forever, or finalizing early and
       // eating a `createRefused: casting-incomplete`). `ready` is name-only; `finalizable` is the real

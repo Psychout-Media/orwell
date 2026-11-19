@@ -856,6 +856,8 @@ export interface CastingStatusView {
    * silently clobbering an answer. Empty/absent when nothing captured was changed.
    */
   overwrote?: string[];
+  /** True while the player's pronouns are not on file (a recorded skip, "unstated", counts as on file): the producer asks once. Absent flag-off. */
+  askPronouns?: boolean;
   /**
    * Keys the caller passed that are NOT casting fields (audit R4-01) — e.g. `name` (the field is
    * `playerName`), `notes`, or a typo. Echoed so a recording is never silently dropped: the
