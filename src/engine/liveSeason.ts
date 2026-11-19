@@ -987,6 +987,10 @@ export interface LiveSeasonState {
    */
   nightDepth?: number;
   lastSleepDepth?: number;
+  /** ORW-696 (B2-3): the clock-hour a long double-eviction night began (set only while it runs; absent otherwise). */
+  longNightStartHour?: number;
+  /** ORW-696 (B2-3): the hours the long night itself ran, which nobody could choose to sleep through. Subtracted from the next night's stamped bed hour for EVERYONE (the player's stamp; the NPCs read the same stamp), then cleared. Absent => byte-identical. */
+  longNightForcedHours?: number;
   /** ORW-322: how many conversation ticks the PLAYER has played in the night band (20:00 on) since the last wake. Sleep debt is banked off the clock edge ONLY when this is > 0 - i.e. when the player chose to stay up. Ceremony-beat hours (presentation) alone never bank debt. Undefined (serialization-neutral) when 0. */
   nightTurns?: number;
   /** 0148 / ORW-417: hours the player has napped TODAY (the nap credit `playerRestDeficit` reads). Reset by `playerTurnIn` (a night in bed resets the credit with the night). Absent (serialization-neutral) when 0. Persisted. */
@@ -2639,9 +2643,10 @@ function advanceClockBy(s: LiveSeasonState, hours: number, wrapAtEnd: boolean): 
       // ORW-322: ...but ONLY if the player actually lingered into the night. Ceremony-beat hours are presentation (felt durations differ from the flat default), and a debt banked off them made the outcome depend on
       // presentation time (0119 "the felt duration never changes who wins"). Debt comes from the player's choice to stay up (night conversation ticks), or their turnIn hour.
       if ((s.nightTurns ?? 0) > 0) {
-        s.lastSleepDepth = DAY_END_HOUR;
-        s.lastSleepPhase = DAY_END_HOUR;
+        s.lastSleepDepth = chosenBedHour(s, DAY_END_HOUR);
+        s.lastSleepPhase = s.lastSleepDepth;
       }
+      s.longNightForcedHours = undefined;
       s.nightTurns = undefined;
       s.napHoursToday = undefined; s.napWake = undefined; // 0148: a new day - the nap credit resets with the night
       s.wakeHour = undefined;
@@ -2735,6 +2740,15 @@ export function advanceClock(s: LiveSeasonState, hours: number = CLOCK.perBeatHo
     return;
   }
   advanceClockBy(s, hours, true);
+}
+
+/**
+ * ORW-696 (B2-3, ADR 0006): the bed hour that counts toward sleep debt for the night just ended. A double-eviction long night is one nobody can turn in during (the player is held, the house
+ * is awake), so the hours it ran are waived: the stamp is the real hour minus those forced hours. The stamp is the SAME `lastSleepDepth` every NPC's debt reads as the night's end, so
+ * the player and the house are charged alike (only hours anyone chose to stay up after the night count). No long night ran => the hour unchanged (byte-identical). Pure.
+ */
+export function chosenBedHour(s: Pick<LiveSeasonState, "longNightForcedHours">, hour: number): number {
+  return Math.max(WAKE_HOUR, hour - (s.longNightForcedHours ?? 0));
 }
 
 /** ORW-652: is the second cycle of a double-eviction night running in a game that keeps it as one long night? Pure read of persisted state (a restore resumes it identically). */
@@ -2848,7 +2862,8 @@ export function crossToNextDay(s: LiveSeasonState): void {
   // crossing again is the same morning - not a second night.
   if (s.nightDepth > (s.wakeHour ?? WAKE_HOUR) + 1e-6) s.dayNumber = (s.dayNumber ?? 1) + 1;
   // ORW-116 (b): the player outlasted the whole night without turning in (the clock sat at the bitter pre-dawn edge) - they wake at 8am running on empty: FULL sleep debt, same as the per-beat wrap.
-  if (!s.playerRetired && s.nightDepth >= DAY_END_HOUR - 0.01) { s.lastSleepDepth = DAY_END_HOUR; s.lastSleepPhase = DAY_END_HOUR; }
+  if (!s.playerRetired && s.nightDepth >= DAY_END_HOUR - 0.01) { s.lastSleepDepth = chosenBedHour(s, DAY_END_HOUR); s.lastSleepPhase = s.lastSleepDepth; }
+  s.longNightForcedHours = undefined;
   s.wakeHour = undefined;
   s.nightTurns = undefined; // ORW-322: a new night starts counting from zero
   s.napHoursToday = undefined; s.napWake = undefined; // 0148: a new day - the nap credit resets with the night
@@ -2866,8 +2881,9 @@ export function crossToNextDay(s: LiveSeasonState): void {
 export function playerTurnIn(s: LiveSeasonState, player: EntityId): void {
   if (s.finished || playerHasLeft(s, player)) return;
   const hour = s.nightDepth ?? WAKE_HOUR;
-  s.lastSleepDepth = hour;
-  s.lastSleepPhase = hour; // legacy field name; now the clock-hour the player was last awake to
+  s.lastSleepDepth = chosenBedHour(s, hour); // ORW-696: the hours a long night forced awake are not counted against the player (nor, through the shared stamp, any NPC)
+  s.lastSleepPhase = s.lastSleepDepth; // legacy field name; now the clock-hour the player was last awake to
+  s.longNightForcedHours = undefined;
   s.playerRetired = true;
   s.nightTurns = undefined; // ORW-322: the player chose bed; their debt is the bed hour just stamped
   s.napHoursToday = undefined; // 0148: a night in bed resets the nap credit along with the night
@@ -2963,6 +2979,7 @@ function rollWeek(s: LiveSeasonState): void {
   // sealed twist simply never fires (0048's "the twist that never fired").
   if (s.twist?.phase === "pending" && s.twist.kind === "double-eviction" && s.active.length > 3) {
     s.twist = { kind: s.twist.kind, phase: "running" };
+    if (longNightRunning(s) && s.nightDepth !== undefined) s.longNightStartHour = s.nightDepth; // ORW-696: remember where the forced night began
     s.beat = "twist-reveal";
     return;
   }
@@ -2970,6 +2987,8 @@ function rollWeek(s: LiveSeasonState): void {
     // The second evictee just walked out — the twist night is complete (exactly once).
     (s.firedTwists ??= []).push({ kind: s.twist.kind, beat: s.week });
     s.twist = undefined;
+    if (s.longNightStartHour !== undefined && s.nightDepth !== undefined) s.longNightForcedHours = Math.max(0, s.nightDepth - s.longNightStartHour); // ORW-696: the hours the night itself ran
+    s.longNightStartHour = undefined;
   }
   s.week += 1; s.beat = "hoh-competition";
   // B4 slice 5: an open casual assurance older than the horizon lapses (no longer binding) at the week roll. The ledger exists ONLY when ORWELL_ASSURANCES is on, so off => untouched.
