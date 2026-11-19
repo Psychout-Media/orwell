@@ -10013,6 +10013,32 @@ def mark_message_phase(message, phase: str) -> None:
         logger.warning("Failed to mark message phase=%s", phase, exc_info=True)
 
 
+def mark_new_season_start(sess) -> bool:
+    """ORW-718: stamp the trailing user line `season_start` when an EARLIER season was played in this chat (a `game`-stamped
+    line after the newest season start, or from the top when there is none). Called only on a pre-game turn the engine
+    answered, so a feeds-down blip mid-season never opens a season. Returns True when it stamped one."""
+    hist = getattr(sess, "history", None) or []
+    if len(hist) < 2:
+        return False
+    last = hist[-1]
+    if (getattr(last, "metadata", None) or {}).get("season_start"):
+        return False
+    for m in reversed(hist[:-1]):
+        md = getattr(m, "metadata", None) or {}
+        if md.get("season_start"):
+            return False
+        if md.get("phase") == "game":
+            from core.models import _session_manager as _sm
+            if _sm is not None and hasattr(_sm, "mark_message_season_start"):
+                _sm.mark_message_season_start(last)
+            else:
+                if last.metadata is None:
+                    last.metadata = {}
+                last.metadata["season_start"] = True
+            return True
+    return False
+
+
 def discard_last_user_message(sess) -> None:
     """E25 (belt): remove the just-persisted trailing user message when a turn is REFUSED
     after build_chat_context already added it (the sync route's game-turn 409) — otherwise
@@ -10669,6 +10695,10 @@ async def build_chat_context(
         _last = sess.history[-1]
         if getattr(_last, "role", None) == "user":
             mark_message_phase(_last, "casting")
+            # ORW-718: the engine answered and holds NO season (not a feeds-down turn), yet this chat already played one:
+            # the game was reset and the chat stayed. This line opens the new season; the narrator's context starts here.
+            if engine_available and not feed_down:
+                mark_new_season_start(sess)
     # #530 (STRUCTURAL): once the season is live, stamp the live user turn `phase=game` — the
     # durable season-start boundary the context build cuts on. With it, every pre-game turn
     # before the boundary is excluded whether or not its own `casting` stamp ever landed, so a
@@ -10705,7 +10735,7 @@ async def build_chat_context(
     # season is live, drop every turn before the `game` boundary that isn't itself a live turn, so
     # an unstamped pre-game turn (a missed `casting` stamp) is still excluded.
     messages = preface + sess.get_context_messages(
-        exclude_phases=_exclude_phases, exclude_pre_game=bool(game_active),
+        exclude_phases=_exclude_phases, exclude_pre_game=bool(game_active), current_season_only=True,
     )
 
     # Auto-compact
