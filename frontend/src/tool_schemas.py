@@ -1944,10 +1944,10 @@ FUNCTION_TOOL_SCHEMAS = [
                     },
                     "genderPresentation": {
                         "type": "string",
-                        "enum": ["man", "woman", "nonbinary"],
+                        "enum": ["man", "woman", "nonbinary", "unstated"],
                         "description": (
                             "OPTIONAL — if they mention their pronouns or how they present, map it to the "
-                            "closest of these three (never required, never re-asked if they'd rather skip it). "
+                            "closest of these (never required; \"unstated\" records that they chose not to say, and is never re-asked). "
                             "Never inferred from their name — only record this from what they actually said."
                         ),
                     },

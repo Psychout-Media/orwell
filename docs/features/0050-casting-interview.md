@@ -227,3 +227,10 @@ casting-interview moment prompt opens the producer on the 📷 panel accordingly
   never secret, no NPC pathway. It crosses no boundary it shouldn't (it rides the same Vault-free
   `UpdateCastingReq` every other casting field does; no allowlist/schema strips it — `updateCasting`
   takes the request wholesale and the MCP `requireShape` has no field allowlist for it).
+
+## Amendment 2026-11-19: the producer asks the player's pronouns once (standing rule: ask, never assume)
+
+- While the player's pronouns are not on file, the casting status carries `askPronouns` and the casting context gets one per-turn board line ("PRONOUNS: not on file"): the producer asks once, in its own voice, before it finalizes. No question text is authored by the engine.
+- **Recorded as an engine fact.** The answer lands in `genderPresentation` (the same field as before; `view.player.genderPresentation` renders as the PRONOUN LOCK). A skip or "rather not say" is recorded as `unstated`: it counts as on file, so the ask ends for good, and the narrator keeps "address as you". `unstated` never reaches the character.
+- **The front end records what the player said when the model did not file it** (`fill_stated_player_gender`): the player's own typed words are read by the closed detector in `orwell_player_gender.py`, on `updateCasting` and the `createCharacter` finalize. A model-filed gender that disagrees with the player's words stays dropped; a name never implies a gender.
+- Never blocks casting: `ready`/`finalizable` are unchanged. Flag `ORWELL_CASTING_PRONOUN_ASK` (default ON; `=0` restores the old casting context byte for byte). Tests: `tests/unit/castingPronounAsk.test.ts`, `frontend/tests/test_orw476_player_gender_stated_only.py`.
