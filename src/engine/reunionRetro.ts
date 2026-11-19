@@ -102,7 +102,7 @@ export interface YourStory {
   met?: { week: number; kind: string };
   /** The weeks the view moved most, biggest first, and the scenes the two of you shared that week. */
   turns: Array<{ week: number; direction: "warmer" | "cooler"; scenes: string[] }>;
-  ended: { how: "won" | "runner-up" | "evicted"; week?: number; juror?: { votedFor: "you" | "someone else"; for?: string } };
+  ended: { how: "won" | "runner-up" | "evicted"; week?: number; /** ORW-697: false when the player was already out at the end. */ besideYou?: boolean; juror?: { votedFor: "you" | "someone else"; for?: string } };
   line: string;
 }
 export interface YourStoriesView { stories: YourStory[] }
@@ -117,13 +117,13 @@ export interface StoryGuest {
   votedFor?: EntityId;
   finalist?: boolean;
 }
-export interface StoriesInput { finished: boolean; nameOf: (id: EntityId) => string; winner: EntityId | null; guests: readonly StoryGuest[] }
+export interface StoriesInput { finished: boolean; /** ORW-697: the player sat in the final two (absent reads as true, the older behaviour). */ playerFinalist?: boolean; nameOf: (id: EntityId) => string; winner: EntityId | null; guests: readonly StoryGuest[] }
 
 export function storyLine(s: Omit<YourStory, "line">): string {
   const open = s.met ? `You first shared a ${s.met.kind} scene with ${s.name} in week ${s.met.week}.` : `You and ${s.name} hardly shared a scene.`;
   const arc = s.shape === "turned" ? `Their view of you turned over the season` : s.shape === "warmed" ? `They warmed to you` : s.shape === "cooled" ? `They cooled on you` : `They held steady toward you`;
   const turn = s.turns[0] ? `; the biggest change came in week ${s.turns[0].week}, as they grew ${s.turns[0].direction}${s.turns[0].scenes.length ? ` after a ${s.turns[0].scenes[0]} scene` : ""}` : "";
-  const end = s.ended.how === "won" ? `${s.name} won the game.` : s.ended.how === "runner-up" ? `${s.name} was beside you at the end and lost the vote.`
+  const end = s.ended.how === "won" ? `${s.name} won the game.` : s.ended.how === "runner-up" ? s.ended.besideYou === false ? `${s.name} reached the final two and lost the vote.` : `${s.name} was beside you at the end and lost the vote.`
     : `${s.name} left in week ${s.ended.week ?? 0}${s.ended.juror ? s.ended.juror.votedFor === "you" ? " and gave you their jury vote" : ` and gave their jury vote to ${s.ended.juror.for ?? "someone else"}` : ""}.`;
   return `${open} ${arc}${turn}. ${end}`;
 }
@@ -143,7 +143,7 @@ export function buildYourStories(inp: StoriesInput): YourStoriesView | undefined
     const who = n(g.id);
     const how: YourStory["ended"]["how"] = inp.winner === g.id ? "won" : g.finalist ? "runner-up" : "evicted";
     const ended: YourStory["ended"] = {
-      how, ...(how === "evicted" ? { week: g.evictedWeek ?? 0 } : {}),
+      how, ...(how === "runner-up" ? { besideYou: inp.playerFinalist !== false } : {}), ...(how === "evicted" ? { week: g.evictedWeek ?? 0 } : {}),
       ...(g.votedFor ? { juror: g.votedFor === PLAYER ? { votedFor: "you" as const } : { votedFor: "someone else" as const, for: n(g.votedFor) } } : {}),
     };
     const part = { name: who, shape: arcShape(g.points), ...(first ? { met: { week: first.week, kind: first.kind } } : {}), turns, ended };
