@@ -1225,6 +1225,9 @@ export function renderGameContext(view: GameStateView): string {
           : `- CASTING STATUS — already on file (do not re-ask): ${knownEntries.map(([k, v]) => `${k}: ${JSON.stringify(neutralizeForPrompt(String(v)))}`).join("; ")}`,
       );
       if (c.next) lines.push(`- NEXT STEP: ${c.next}`);
+      // ORW-718: the producer never assumed a gender the player did not give ("you're a man who ..." from a name and a job).
+      const gp = String(c.known.genderPresentation ?? "").toLowerCase();
+      lines.push(`- ${playerGenderRule(gp === "man" || gp === "woman" || gp === "nonbinary" ? gp : undefined)}`);
       // The finalize gate, stated as ENGINE truth so the model never has to judge "is the interview
       // done?" itself (it gets that wrong both ways — re-asking forever, or finalizing early and
       // eating a `createRefused: casting-incomplete`). `ready` is name-only; `finalizable` is the real
@@ -1783,6 +1786,13 @@ export function headcountLines(wa: { counts?: { room: number; others: number; ho
   return lines;
 }
 
+/** ORW-718: the one rule line for how the player is referred to. Stated pronouns are used exactly; none stated means none are assumed (the engine never knows a gender the player did not give). */
+export function playerGenderRule(g: "man" | "woman" | "nonbinary" | undefined | null): string {
+  return g
+    ? `PRONOUN LOCK: the player uses ${pronounsFor(g)}. Use these exactly, every time they are spoken of; never guessed from the name.`
+    : `The player's gender is unstated: say "you", no gendered noun or pronoun for them; never guess it from the name.`;
+}
+
 export function renderHardConstraints(view: GameStateView): string | undefined {
   if (!view.started || !view.player) return undefined;
   const wa = view.whereabouts ?? null;
@@ -1799,6 +1809,9 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
       : "- The player is ALONE right now. Do NOT place or voice any houseguest in this scene.",
   );
   for (const l of headcountLines(wa)) lines.push(`- ${l}`);
+  // ORW-718: the player's own pronouns ride the terminal block too (the region the NPC locks measured best in); a houseguest called a
+  // player who never stated a gender "a man", and one who did state it by the wrong word, from the roster line buried mid-prompt.
+  lines.push(`- ${playerGenderRule(view.player.genderPresentation)}`);
   const houseById = new Map(view.house.map((h) => [h.id, h] as const));
   for (const p of wa.present) {
     const h = houseById.get(p.id);
