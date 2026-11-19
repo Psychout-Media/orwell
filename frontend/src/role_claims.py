@@ -390,6 +390,7 @@ def screen_role_units(text: str, sig: dict, carry: Optional[dict] = None):
         kept: "list[str]" = []
         stripped: "list[dict]" = []
         drop_closers = False
+        quote_dropped = False  # ORW-715: the last stripped unit opened a quote it never closed, so its closing mark leads the NEXT part
         offset = 0
         for orig, unit in split_units(text):
             tail = text[offset + len(orig):].split("\n", 1)[0]  # ORW-372: the rest of this physical line (vocative-vs-readout)
@@ -401,8 +402,18 @@ def screen_role_units(text: str, sig: dict, carry: Optional[dict] = None):
                 # raw round buffer drops it too (the caller mirrors every reported unit).
                 stripped.append({"unit": orig, "roles": [], "reason": "closing wrapper of a stripped unit"})
                 continue
+            if quote_dropped and stripped:
+                # ORW-715 (the blank quotes in a vote reveal): a stripped unit such as `"A vote to evict X.` took its opening quote with it, and its closing quote leads the next whole part
+                # (`" A slip turned.`), which streamed as a stray quote mark. The closing mark goes with the unit it closes, as one exact piece of the raw text (so the mirror erases it too).
+                lead = re.match(r"^[*_]*[\"\u201d]+[*_]*", orig)
+                if lead and lead.group(0):
+                    stripped[-1]["unit"] = stripped[-1]["unit"] + lead.group(0)
+                    orig = orig[len(lead.group(0)):]
+                    unit = unit[len(lead.group(0)):] if unit.startswith(lead.group(0)) else unit.lstrip("*_\"\u201d")
+            quote_dropped = False
             if not unit.strip():
-                kept.append(orig)
+                if orig:
+                    kept.append(orig)
                 continue
             drop_closers = False
             inst = cue_instances(unit, phase)
@@ -415,6 +426,7 @@ def screen_role_units(text: str, sig: dict, carry: Optional[dict] = None):
                 if starts_cont or names:
                     carry = {"roles": set(), "ttl": 0}  # a named continuation (stripped or not) consumes the carry
                 drop_closers = True
+                quote_dropped = (orig.count('"') % 2 == 1) or (orig.count("\u201c") > orig.count("\u201d"))
                 continue
             kept.append(orig)
             drop_closers = False
