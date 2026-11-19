@@ -149,7 +149,7 @@ Then("the holder tells that cause to a player they trust but not to one they do 
   assert.equal(s.npcVoice(c.holder)!.moodCause, undefined, "low trust: the cause is not told");
   e.affinity = 0.95; e.trust = 0.95;
   const said = s.npcVoice(c.holder)!.moodCause;
-  assert.match(said ?? "", /^I got .+ out, like I planned$/);
+  assert.match(said ?? "", /^.+ was voted out, as they had planned$/);
 });
 
 // --- 5. houseguests bring up what others did, only what the house saw ---------------------------------------------------------
