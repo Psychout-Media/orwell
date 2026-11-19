@@ -366,7 +366,7 @@ import { ANCHOR_WORDS } from "../../engine/data/anchorWords";
 import { HOUSE_ROOMS as HOUSE_ROOM_IDS, HOUSE_ADJACENCY } from "../../domain/house";
 const normTitle = (t: string): string => t.toLowerCase().replace(/^the\s+/, "").replace(/[^a-z0-9]+/g, " ").trim();
 import type { CompetitionDef } from "../../engine/competitionLibrary";
-import { formatClockLabel, formatClockBandLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, isEarlyMorning, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
+import { formatClockLabel, formatClockBandLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, isEarlyMorning, dozesBackToBed, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
 import { MINUTES_PER_MESSAGE, NAP } from "../../engine/sleepConstants";
 import { APPROACH_GATE, APPROACH_COOLDOWN_STRETCHES } from "../../engine/decisionConstants";
 import { FINALE_APPEALS, type FinaleAppeal } from "../../engine/jury";
@@ -7884,15 +7884,25 @@ export class GameSessionAdapter implements GameSession {
     return set;
   }
   private awakeSetNow(live: LiveSeasonState, house: NonNullable<GameSessionAdapter["house"]>): Set<EntityId> {
-    return new Set(
-      awakeSet({
-        active: this.presenceActive(),
-        hour: live.nightDepth ?? WAKE_HOUR, // the clock-HOUR (8..32) — the 24-hour model (#1125)
-        player: house.player.id,
-        playerRetired: live.playerRetired ?? false,
-        bedtimeOf: (id) => this.effectiveBedDepth(id), // chronotype bedtime HOUR, conflict-drained (0066 Phase-2)
-      }),
-    );
+    const hour = live.nightDepth ?? WAKE_HOUR; // the clock-HOUR (8..32) — the 24-hour model (#1125)
+    const up = awakeSet({
+      active: this.presenceActive(),
+      hour,
+      player: house.player.id,
+      playerRetired: live.playerRetired ?? false,
+      bedtimeOf: (id) => this.effectiveBedDepth(id), // chronotype bedtime HOUR, conflict-drained (0066 Phase-2)
+    });
+    // ORW-705 PT-10: before the house's wake-up call, a houseguest who woke early and is still tired (their own hidden rest deficit) dozes back off and stays out of the awake set until the call.
+    if (!this.dozeWindowOpen(live)) return new Set(up);
+    return new Set(up.filter((id) => id === house.player.id || !dozesBackToBed(hour, this.restDeficitOf(id))));
+  }
+
+  private dozeBackEnabled = flagDefaultOn("ORWELL_DOZE_BACK_TO_BED"); // ORW-705 PT-10
+  setDozeBackEnabled(on: boolean): void { this.dozeBackEnabled = on; }
+  /** ORW-705 PT-10: the pre-dawn window - a played game, the player at the early hour a bed before midnight wakes them to (the 0-8 clock scale), before the house's wake-up call. */
+  private dozeWindowOpen(live: LiveSeasonState): boolean {
+    return this.dozeBackEnabled && this.timeOfDayEnabled && live.playedGame === true && !live.finished
+      && live.nightDepth !== undefined && live.nightDepth >= 0 && live.nightDepth < WAKE_HOUR - 1e-6;
   }
 
   /**
@@ -17493,6 +17503,9 @@ export class GameSessionAdapter implements GameSession {
       return remember(this.inOneCommit(() => { if (this.live!.pending?.kind === "ceremony-step") this.advanceOneBeat(); return this.spectatorFastForward(); }));
     }
     if (this.live.finished || playerHasLeft(this.live, PLAYER)) return remember(this.advanceView(null));
+    // ORW-705 PT-10 (PO ruling 2026-11-19): a player who woke before the house (their own early hour) may go back to bed until the house's wake-up call - never past it, and never refused as 'not bedtime'.
+    // Anything open (a decision, an event coming due) falls through to the gate below exactly as before.
+    if (this.dozeWindowOpen(this.live) && !this.live.pending && !milestoneDueOf(this.live)) return remember(this.dozeBackToBed());
     // Bedtime gate (found in a live run: the narrator called turnIn on "wake up in the morning" and the engine slept through a whole day). A bed in the morning or afternoon is not a night: refuse with a typed
     // `held` (nothing commits, beatSeq unchanged) so the narrator is told it is not bedtime yet. From the evening on the player owns their bedtime exactly as before (ADR 0006).
     // ORW-258 (Ryne 2026-11-11: "I don't think you should be able to go to sleep before the night time period"): the evening is not bedtime either - the evening ceremonies happen then.
@@ -17530,6 +17543,32 @@ export class GameSessionAdapter implements GameSession {
     }));
   }
 
+
+  /**
+   * ORW-705 PT-10: the player CHOSE (turnIn) to go back to sleep after waking before the house. The clock moves to the house's wake-up call and no later; the same day continues (no recap, no new day, no rest
+   * stamp: the night's bookkeeping - `lastSleepDepth`, the fatigue meters - is left exactly as the first bed wrote it, and a bed before midnight carries no debt for the extra hours to ease). The house lives the
+   * span unseen on the nap machinery; whoever was still tired and dozing is seated in their own bed and is up again at the call. Inside the caller's commit-less path: runs its own commit. Vault-free.
+   */
+  private dozeBackToBed(): AdvanceView {
+    return this.inOneCommit(() => {
+      const live = this.live!;
+      const startHour = live.nightDepth ?? WAKE_HOUR;
+      const up = this.awakeNow();
+      this.bedThePlayer();
+      if (up) this.seatInOwnBeds(this.presenceActive().filter((id) => !up.has(id)));
+      const here = (this.presence?.get(PLAYER) ?? "") as string;
+      const before = this.presence ? [...this.presence].filter(([id, where]) => id !== PLAYER && where === here).map(([id]) => id).sort() : [];
+      live.nightDepth = WAKE_HOUR;
+      live.timeOfDay = phaseForHour(WAKE_HOUR);
+      live.playerRetired = false; // up at the call (a still-pending wake from the first bed is spent)
+      live.wakeHour = undefined; // the day's wake is the house's own now (crossToNextDay must not read the early wake as a passed night)
+      live.napWake = { room: here, before, startHour, endHour: WAKE_HOUR, doze: true };
+      this.napPendingHours += WAKE_HOUR - startHour;
+      this.hangOutSkipStepAt = undefined;
+      this.persist();
+      return this.advanceView(null);
+    });
+  }
 
   /**
    * "Hang out until X" (PO 2026-11-04): a bounded run of short beats that stops at the FIRST interruption. Flag-gated; every
@@ -17763,6 +17802,7 @@ export class GameSessionAdapter implements GameSession {
     const came = now.filter((id) => !before.has(id)).map((id) => this.nameOf(id));
     const went = nw.before.filter((id) => !nowSet.has(id)).map((id) => this.nameOf(id));
     const tod = live.timeOfDay ? TIME_OF_DAY_LABEL[live.timeOfDay].toLowerCase() : "the afternoon";
+    if (nw.doze) return [`You woke before the house and went back to sleep; the house's wake-up call has come and it is morning. You are in ${this.roomRefOf(here as Room)}.`, now.length ? `In the room now: ${now.map((id) => this.nameOf(id)).join(", ")}.` : "Nobody else is in the room.", "You saw none of the rest of the house; voice only this, never what happened elsewhere."].join(" ");
     const parts = [`You just woke from a nap in ${this.roomRefOf(here as Room)}; it is now ${tod}${nw.wokenBy === "event" ? " and production woke you for the next event" : nw.wokenBy === "evening" ? " and the evening woke you" : ""}.`];
     // ORW-477: a nap cut short says so: how much was slept against how much was meant, and what cut it (the clock moved by the slept part only).
     const sleptH = nw.endHour - nw.startHour;

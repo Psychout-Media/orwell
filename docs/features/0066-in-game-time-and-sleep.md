@@ -273,3 +273,16 @@ the §10 DoD "final magnitudes set" is **done**. The settled values:
 
 Only fine adjustment remains open (not new scope): the per-beat / per-conversation hour steps and the
 conversation/event duration tables — all in `src/engine/sleepConstants.ts`.
+
+## 11. Amendment 2026-11-19 — dozing back to bed before the house wakes (ORW-705 PT-10)
+
+*(PR #3097's note recording this gap was not on `main` when this was written, so this section stands on its own.)*
+
+**Premise.** A player who bedded before midnight wakes at their own early hour (bed + 8h, the P4d "early riser"; the clock reads 0-8, phase "morning"). The `turnIn` lever refused that as "not bedtime" (morning band) and `nap` is daytime-only, so the player could not go back to sleep until the house woke.
+
+**Ruling (PO-backed, approved by the Coordinator).** While the clock is before the house's wake-up call (`WAKE_HOUR`, 8am), in a played game, the player's own `turnIn` puts them back to bed. It is **capped at that hour**: the clock moves to the wake-up call and no later. The player still CHOOSES it; the engine only allows it.
+
+- Same day carries on: no recap, no new night, no new-day roll. Rest bookkeeping is left exactly as the first bed wrote it (`lastSleepDepth`, the multi-night meters); a bed before midnight carries no debt, so there is nothing for the extra hours to ease and nothing can go negative.
+- The house lives the slept span unseen on the nap machinery; the next moment prompt carries a one-shot third-person "you woke before the house and went back to sleep" read (no numbers). Refused as today when a decision is pending or an event is due; after the call, or in the evening, the lever behaves as before.
+- **NPC parity.** An early-waking houseguest whose own hidden rest deficit (`restDeficitOf`: the multi-night fatigue meter on top of the night's deficit; `DOZE.tiredDeficit` in `sleepConstants.ts`) is still tired dozes back off and is out of the awake set until the call; a rested one stays up. Pure and deterministic: no draw, no list, no archetype; nothing is shown to the player (they only see who is up).
+- Flag `ORWELL_DOZE_BACK_TO_BED` (default ON; `=0` restores the refusal and the old awake set). Played games only.
