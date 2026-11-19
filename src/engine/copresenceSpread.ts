@@ -70,17 +70,17 @@ export const LEAKY: Partial<Record<StrategyStyle, number>> = { emotional: 0.7, s
 
 /** ORW-688: the lineage-id prefixes of rumor-origin beliefs (diffused scene rumor, thread rumor, pre-show tie, confide); the origin is already recorded in the id, so no new state. */
 const RUMOR_ORIGIN_PREFIXES = ["fact:", "thread-belief:", "tie-belief:", "confide:"] as const;
-const isRumorOrigin = (factId: string | undefined): boolean => factId !== undefined && RUMOR_ORIGIN_PREFIXES.some((p) => factId.startsWith(p));
+/** ORW-688 (measured): a rumor-origin retelling records no `heard-rumor` claim (as before it had a subject). Recording one moves the listener's relationship edges (rumor distrust) and shifted the whole house mix (gossip +7, strategy -5); the subject is still carried for the secret consumers. ORW-702 may revisit when it rebalances the season. */
+export const isRumorOrigin = (factId: string | undefined): boolean => factId !== undefined && RUMOR_ORIGIN_PREFIXES.some((p) => factId.startsWith(p));
 
 /** How much `holder` wants `listener` to hear fact `c`: affinity to the listener, the threat of the fact's subject, and the fact's confidence. 0..1, no rng. Shared by the spread and by seeking. */
-export function factMotive(c: { subject?: EntityId; confidence: number; factId?: string }, holder: EntityId, listener: EntityId, d: Pick<SpreadDeps, "affinity" | "threat">): number {
-  // ORW-688: a rumor-origin fact (scene rumor, thread rumor, pre-show tie, confide) only just gained its subject; it keeps the motive it had without one (no threat term), so populating the subject does not move gossip volume. ORW-702 may revisit.
-  const subjThreat = c.subject !== undefined && !isRumorOrigin(c.factId) ? d.threat(holder, c.subject) : 0;
+export function factMotive(c: { subject?: EntityId; confidence: number }, holder: EntityId, listener: EntityId, d: Pick<SpreadDeps, "affinity" | "threat">): number {
+  const subjThreat = c.subject !== undefined ? d.threat(holder, c.subject) : 0;
   return Math.max(0, Math.min(1, 0.5 * d.affinity(holder, listener) + 0.4 * subjThreat + 0.1 * c.confidence));
 }
 
 /** 0179: the fact motive plus the house's shape (`networkSpread.ts`), clamped 0..1; exactly `factMotive` when no shape is supplied. The spread and seeking both use it. */
-export function shapedMotive(c: { subject?: EntityId; confidence: number; factId?: string }, holder: EntityId, listener: EntityId, d: Pick<SpreadDeps, "affinity" | "threat" | "network">): number {
+export function shapedMotive(c: { subject?: EntityId; confidence: number }, holder: EntityId, listener: EntityId, d: Pick<SpreadDeps, "affinity" | "threat" | "network">): number {
   const base = factMotive(c, holder, listener, d);
   return d.network ? Math.max(0, Math.min(1, base + networkMotive(holder, listener, c.subject, d.network))) : base;
 }
@@ -146,7 +146,7 @@ export function spreadBetween(holder: EntityId, listener: EntityId, d: SpreadDep
           distortion: Math.min(1, Math.max(src.distortion ?? 0, spinDist) + (retold.drifted ? GOSSIP_DRIFT.sameRoomDistortionStep : 0)), ...(src.subject !== undefined ? { subject: src.subject } : {}),
         }, `told-by:${holder}`);
         transmitted = true;
-        if (d.onTold && src.subject !== undefined) d.onTold({ holder, listener, subject: src.subject, factId: h.factId, confidence: base, slipped: decision === "slip", content: retold.content });
+        if (d.onTold && src.subject !== undefined && !isRumorOrigin(h.factId)) d.onTold({ holder, listener, subject: src.subject, factId: h.factId, confidence: base, slipped: decision === "slip", content: retold.content });
       }
     }
     out.push({ holder, listener, factId: h.factId, decision: told, transmitted });
