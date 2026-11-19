@@ -17238,6 +17238,22 @@ export class GameSessionAdapter implements GameSession {
     return recap;
   }
 
+  /**
+   * ORW-707 (PT-7): the houseguests the player has NOT met: never introduced (`introducedNames`, the durable name-lock set) and in no scene the player witnessed. Empty when the game ran no introductions at all (a
+   * seat that never had a premiere), so a recap is never emptied by a missing marker. Ids and their public names only.
+   */
+  private recapStrangers(allEvents: ReadonlyArray<{ hidden: boolean; witnessSet: readonly string[] }>): { ids: Set<EntityId>; names: string[] } {
+    const none = { ids: new Set<EntityId>(), names: [] as string[] };
+    if (!this.house || this.introducedNames.size === 0) return none;
+    const known = new Set<string>(this.introducedNames);
+    for (const e of allEvents) {
+      if (e.hidden || !e.witnessSet.includes(PLAYER)) continue;
+      for (const w of e.witnessSet) known.add(w);
+    }
+    for (const n of this.house.npcs) if (!known.has(n.id)) { none.ids.add(n.id); none.names.push(n.name); }
+    return none;
+  }
+
   /** The digest for `day`, stitched from the tail since the persisted cursors; records it as the latest recap and advances the cursors. Does NOT touch `dayNumber`. */
   private buildRecapForDay(day: number): DailyRecapView {
     const s = this.live!;
@@ -17252,8 +17268,12 @@ export class GameSessionAdapter implements GameSession {
       .map((e) => e.content.trim().slice(0, 200)).slice(-5);
     const knownAll = this.playerKnowledgeReader?.() ?? [];
     const knFrom = Math.min(s.dailyRecapKnowledgeCursor ?? 0, knownAll.length);
+    // ORW-707 (PT-7): a recap line may only name a houseguest the player has actually been introduced to or shared a scene with. A rumor about two houseguests one of whom the player has never met is a
+    // hint the player cannot have heard on screen; it stays in the journal but never rides the bedtime recap. Structural: the person sets are ids and public names, never matched on prose meaning.
+    const strangers = this.recapStrangers(allEvents);
     const surfacedRaw = knownAll.slice(knFrom)
       .filter((f) => f.pathway !== NO_NPC_PATHWAY)
+      .filter((f) => !(f.subject !== undefined && strangers.ids.has(f.subject as EntityId)) && !strangers.names.some((n) => f.content.includes(n)))
       .map((f) => this.humanizeTidy(f.content));
     // ORW-400: the same overheard/retold line is listed once (first kept, order stable).
     const surfaced = [...new Set(surfacedRaw)];
@@ -20728,7 +20748,7 @@ export class GameSessionAdapter implements GameSession {
     const refs = (ids: EntityId[]): NamedRef[] => ids.map((id) => ({ id, name: this.nameOf(id) }));
     const cer = ceremonyRef(this.live!);
     if (p.kind === "ceremony-step" && cer) { // ORW-281 4a: a WATCH step of a staged ceremony (non-binding; answered by advanceGame)
-      const text = (CEREMONY_STEP_TEXT[`${cer.kind}/${cer.stepId}`] ?? "").replace("{hoh}", this.live!.hoh ? this.nameOf(this.live!.hoh) : "The Head of Household").replace("{field}", cer.kind === "veto-draw" && this.live!.vetoField ? this.live!.vetoField.map((id) => this.nameOf(id)).join(", ") : "").replace("{nominees}", cer.kind === "veto-ceremony" && this.live!.finalNominees ? this.live!.finalNominees.map((id) => this.nameOf(id)).join(" and ") : ""); // {nominees}: the FINAL nominees, named only at the veto ceremony's 'result' step (after the engine committed them) // {field}: named only AFTER the engine committed it (the 'field' step)
+      const text = (CEREMONY_STEP_TEXT[`${cer.kind}/${cer.stepId}`] ?? "").replace("{hoh}", this.live!.hoh ? this.nameOf(this.live!.hoh) : "The Head of Household").replace("{field}", cer.kind === "veto-draw" && this.live!.vetoField ? this.live!.vetoField.map((id) => this.nameOf(id)).join(", ") : "").replace("{nominees}", (cer.kind === "veto-ceremony" ? this.live!.finalNominees : cer.kind === "nominations" ? this.live!.nominees : undefined)?.map((id) => this.nameOf(id)).join(" and ") ?? ""); // {nominees}: the FINAL nominees, named only at the veto ceremony's 'result' step (after the engine committed them) // {field}: named only AFTER the engine committed it (the 'field' step)
       return { kind: "ceremony-step", by, prompt: text, options: [], pick: 0, binding: false, ceremony: cer, text };
     }
     switch (p.kind) {

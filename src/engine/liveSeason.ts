@@ -206,7 +206,7 @@ export const CEREMONY_BINDING: ReadonlySet<string> = new Set(["nominations/choos
 /** The Vault-free line a WATCH step shows (public names via `{hoh}` and the step id only - never an outcome ahead of the engine). 4b-4d just add rows. */
 export const CEREMONY_STEP_TEXT: Record<string, string> = {
   "nominations/hoh-speech": "{hoh} is about to name the nominees",
-  "nominations/named": "The nominees have been named",
+  "nominations/named": "The nominees have been named: {nominees}", // ORW-703: named only at this step, after the engine committed them (s.nominees is set when it opens)
   "veto-draw/chips": "The chips for the Power of Veto are being drawn",
   "veto-draw/field": "The Power of Veto players are set: {field}",
   "eviction/speeches": "The nominees plead their case and the house gathers for the vote",
