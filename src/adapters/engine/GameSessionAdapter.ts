@@ -15328,8 +15328,10 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live!, abs = this.inGameAbsHour()!;
     const away = this.diaryAwayIds();
     const back = (s.diaryCalls?.seen ?? []).filter((x) => x.who !== PLAYER && x.at === abs).map((x) => ({ name: this.nameOf(x.who), long: x.long, comesBack: x.comesBack }));
-    if (!away && !back.length && !invited) return undefined;
-    return { register: producerRegisterWords(this.gameSeed ?? 0), ...(away ? { away: [...away].map((id) => this.nameOf(id)) } : {}), ...(back.length ? { back } : {}), ...(invited ? { invited: true as const } : {}) };
+    const last = s.diaryCalls?.playerLast;
+    const visits = last !== undefined && abs - last <= 1 ? (s.diaryCalls?.seen ?? []).filter((x) => x.who === PLAYER).length : 0; // ORW-724: the player's own visit count, only while they are in there
+    if (!away && !back.length && !invited && !visits) return undefined;
+    return { register: producerRegisterWords(this.gameSeed ?? 0), ...(visits ? { playerVisits: visits } : {}), ...(away ? { away: [...away].map((id) => this.nameOf(id)) } : {}), ...(back.length ? { back } : {}), ...(invited ? { invited: true as const } : {}) };
   }
 
   /**

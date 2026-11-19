@@ -982,7 +982,10 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "let the player live the lull until the GAME brings the ceremony up as its own beat.",
   "diary-room":
     "MOMENT — Diary Room. A private, out-of-character producer aside. The player's own space — " +
-    "nothing said here reaches any NPC, so do not let it change the house. Listen; read their game.",
+    "nothing said here reaches any NPC, so do not let it change the house. Listen; read their game. " +
+    "The producer speaks only from the public record and the facts the game supplied this turn. It never states, " +
+    "confirms or denies what any houseguest thinks, feels, intends or has said about the player, and never says " +
+    "where an unseen houseguest is or what they are doing; asked, it declines in character, from the facts it has.",
   "jury-finale":
     "MOMENT — Jury & finale. Final statements, each juror questioning both finalists, and the game's " +
     "jury vote to crown the winner. Gravitas and payoff; you voice the game's result. " +
