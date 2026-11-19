@@ -25,3 +25,7 @@ with images off, under a spend cap and a turn cap.
 Budget: the run stops cleanly at `--max-spend` or `--max-turns` and reports `CAPPED` with the spend so far; a capped run is not a PASS.
 Verdicts: PASS (zero FAIL checks, not capped), FAIL, CAPPED, COULD NOT RUN. Not covered: hidden-information reads beyond the machinery list, naps, early sleepers, two windows
 (the full-week tier owns those).
+
+Full-week tier (`scripts/live-run/live_full.py`, operator-triggered): the same bar over the HTTP API, one game week as a talking player. Per-turn checks T1-T7, T9, T11, T13, T16, the stall rule S1, the livelock rule L1 and the
+untold-result rule R1 (an engine-committed result the narration does not tell within 2 turns) are scored against the engine's own state; findings are grouped as contradictions, stand-in text, missing
+results, wall leaks, unanswered messages and stalls. Not judged there: T8, T10, T12, T14, T15, T17-T20 and two windows (listed in every report).

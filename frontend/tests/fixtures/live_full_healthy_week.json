@@ -1,0 +1,897 @@
+{
+ "note": "healthy sequence",
+ "first": {
+  "started": true,
+  "phase": "hoh-competition",
+  "week": 1,
+  "clockLabel": "9:50am, Day 2",
+  "daySchedule": {
+   "due": false,
+   "next": null,
+   "minutesUntil": 90
+  },
+  "ceremony": {
+   "hoh": null,
+   "nominees": []
+  },
+  "veto": {},
+  "house": [
+   {
+    "id": "hg0",
+    "name": "Pa Aa",
+    "status": "active"
+   },
+   {
+    "id": "hg1",
+    "name": "Pb Bb",
+    "status": "active"
+   },
+   {
+    "id": "hg2",
+    "name": "Pc Cc",
+    "status": "active"
+   },
+   {
+    "id": "hg3",
+    "name": "Pd Dd",
+    "status": "active"
+   },
+   {
+    "id": "hg4",
+    "name": "Pe Ee",
+    "status": "active"
+   },
+   {
+    "id": "hg5",
+    "name": "Pf Ff",
+    "status": "active"
+   }
+  ],
+  "player": {
+   "name": "Pa Aa"
+  },
+  "pending": null,
+  "finished": false,
+  "winner": null,
+  "whereabouts": {
+   "counts": {
+    "house": 6,
+    "room": 4
+   },
+   "present": [
+    {
+     "name": "Pb Bb"
+    },
+    {
+     "name": "Pc Cc"
+    },
+    {
+     "name": "Pd Dd"
+    },
+    {
+     "name": "Pe Ee"
+    }
+   ]
+  }
+ },
+ "steps": [
+  {
+   "state": {
+    "started": true,
+    "phase": "hoh-competition",
+    "week": 1,
+    "clockLabel": "10:00am, Day 2",
+    "daySchedule": {
+     "due": false,
+     "next": null,
+     "minutesUntil": 90
+    },
+    "ceremony": {
+     "hoh": null,
+     "nominees": []
+    },
+    "veto": {},
+    "house": [
+     {
+      "id": "hg0",
+      "name": "Pa Aa",
+      "status": "active"
+     },
+     {
+      "id": "hg1",
+      "name": "Pb Bb",
+      "status": "active"
+     },
+     {
+      "id": "hg2",
+      "name": "Pc Cc",
+      "status": "active"
+     },
+     {
+      "id": "hg3",
+      "name": "Pd Dd",
+      "status": "active"
+     },
+     {
+      "id": "hg4",
+      "name": "Pe Ee",
+      "status": "active"
+     },
+     {
+      "id": "hg5",
+      "name": "Pf Ff",
+      "status": "active"
+     }
+    ],
+    "player": {
+     "name": "Pa Aa"
+    },
+    "pending": null,
+    "finished": false,
+    "winner": null,
+    "whereabouts": {
+     "counts": {
+      "house": 6,
+      "room": 4
+     },
+     "present": [
+      {
+       "name": "Pb Bb"
+      },
+      {
+       "name": "Pc Cc"
+      },
+      {
+       "name": "Pd Dd"
+      },
+      {
+       "name": "Pe Ee"
+      }
+     ]
+    }
+   },
+   "reply": "The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. Everyone talks about the coming competition."
+  },
+  {
+   "state": {
+    "started": true,
+    "phase": "nominations",
+    "week": 1,
+    "clockLabel": "11:00am, Day 2",
+    "daySchedule": {
+     "due": true,
+     "next": "nominations",
+     "minutesUntil": 0
+    },
+    "ceremony": {
+     "hoh": {
+      "name": "Pb Bb"
+     },
+     "nominees": []
+    },
+    "veto": {},
+    "house": [
+     {
+      "id": "hg0",
+      "name": "Pa Aa",
+      "status": "active"
+     },
+     {
+      "id": "hg1",
+      "name": "Pb Bb",
+      "status": "active"
+     },
+     {
+      "id": "hg2",
+      "name": "Pc Cc",
+      "status": "active"
+     },
+     {
+      "id": "hg3",
+      "name": "Pd Dd",
+      "status": "active"
+     },
+     {
+      "id": "hg4",
+      "name": "Pe Ee",
+      "status": "active"
+     },
+     {
+      "id": "hg5",
+      "name": "Pf Ff",
+      "status": "active"
+     }
+    ],
+    "player": {
+     "name": "Pa Aa"
+    },
+    "pending": null,
+    "finished": false,
+    "winner": null,
+    "whereabouts": {
+     "counts": {
+      "house": 6,
+      "room": 4
+     },
+     "present": [
+      {
+       "name": "Pb Bb"
+      },
+      {
+       "name": "Pc Cc"
+      },
+      {
+       "name": "Pd Dd"
+      },
+      {
+       "name": "Pe Ee"
+      }
+     ]
+    }
+   },
+   "reply": "The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. The HOH is the new Head of Household and the room buzzes."
+  },
+  {
+   "state": {
+    "started": true,
+    "phase": "nominations",
+    "week": 1,
+    "clockLabel": "11:05am, Day 2",
+    "daySchedule": {
+     "due": false,
+     "next": null,
+     "minutesUntil": 90
+    },
+    "ceremony": {
+     "hoh": {
+      "name": "Pb Bb"
+     },
+     "nominees": [
+      {
+       "name": "Pc Cc"
+      },
+      {
+       "name": "Pd Dd"
+      }
+     ]
+    },
+    "veto": {},
+    "house": [
+     {
+      "id": "hg0",
+      "name": "Pa Aa",
+      "status": "active"
+     },
+     {
+      "id": "hg1",
+      "name": "Pb Bb",
+      "status": "active"
+     },
+     {
+      "id": "hg2",
+      "name": "Pc Cc",
+      "status": "active"
+     },
+     {
+      "id": "hg3",
+      "name": "Pd Dd",
+      "status": "active"
+     },
+     {
+      "id": "hg4",
+      "name": "Pe Ee",
+      "status": "active"
+     },
+     {
+      "id": "hg5",
+      "name": "Pf Ff",
+      "status": "active"
+     }
+    ],
+    "player": {
+     "name": "Pa Aa"
+    },
+    "pending": null,
+    "finished": false,
+    "winner": null,
+    "whereabouts": {
+     "counts": {
+      "house": 6,
+      "room": 4
+     },
+     "present": [
+      {
+       "name": "Pb Bb"
+      },
+      {
+       "name": "Pc Cc"
+      },
+      {
+       "name": "Pd Dd"
+      },
+      {
+       "name": "Pe Ee"
+      }
+     ]
+    }
+   },
+   "reply": "The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. Two houseguests are nominated and sit stunned on the block."
+  },
+  {
+   "state": {
+    "started": true,
+    "phase": "veto-competition",
+    "week": 1,
+    "clockLabel": "1:00pm, Day 3",
+    "daySchedule": {
+     "due": true,
+     "next": "veto-competition",
+     "minutesUntil": 0
+    },
+    "ceremony": {
+     "hoh": {
+      "name": "Pb Bb"
+     },
+     "nominees": [
+      {
+       "name": "Pc Cc"
+      },
+      {
+       "name": "Pd Dd"
+      }
+     ]
+    },
+    "veto": {},
+    "house": [
+     {
+      "id": "hg0",
+      "name": "Pa Aa",
+      "status": "active"
+     },
+     {
+      "id": "hg1",
+      "name": "Pb Bb",
+      "status": "active"
+     },
+     {
+      "id": "hg2",
+      "name": "Pc Cc",
+      "status": "active"
+     },
+     {
+      "id": "hg3",
+      "name": "Pd Dd",
+      "status": "active"
+     },
+     {
+      "id": "hg4",
+      "name": "Pe Ee",
+      "status": "active"
+     },
+     {
+      "id": "hg5",
+      "name": "Pf Ff",
+      "status": "active"
+     }
+    ],
+    "player": {
+     "name": "Pa Aa"
+    },
+    "pending": null,
+    "finished": false,
+    "winner": null,
+    "whereabouts": {
+     "counts": {
+      "house": 6,
+      "room": 4
+     },
+     "present": [
+      {
+       "name": "Pb Bb"
+      },
+      {
+       "name": "Pc Cc"
+      },
+      {
+       "name": "Pd Dd"
+      },
+      {
+       "name": "Pe Ee"
+      }
+     ]
+    }
+   },
+   "reply": "The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. Everyone gathers for the veto draw."
+  },
+  {
+   "state": {
+    "started": true,
+    "phase": "veto-ceremony",
+    "week": 1,
+    "clockLabel": "3:00pm, Day 4",
+    "daySchedule": {
+     "due": true,
+     "next": "veto-ceremony",
+     "minutesUntil": 0
+    },
+    "ceremony": {
+     "hoh": {
+      "name": "Pb Bb"
+     },
+     "nominees": [
+      {
+       "name": "Pc Cc"
+      },
+      {
+       "name": "Pd Dd"
+      }
+     ]
+    },
+    "veto": {
+     "holder": "Pe Ee"
+    },
+    "house": [
+     {
+      "id": "hg0",
+      "name": "Pa Aa",
+      "status": "active"
+     },
+     {
+      "id": "hg1",
+      "name": "Pb Bb",
+      "status": "active"
+     },
+     {
+      "id": "hg2",
+      "name": "Pc Cc",
+      "status": "active"
+     },
+     {
+      "id": "hg3",
+      "name": "Pd Dd",
+      "status": "active"
+     },
+     {
+      "id": "hg4",
+      "name": "Pe Ee",
+      "status": "active"
+     },
+     {
+      "id": "hg5",
+      "name": "Pf Ff",
+      "status": "active"
+     }
+    ],
+    "player": {
+     "name": "Pa Aa"
+    },
+    "pending": null,
+    "finished": false,
+    "winner": null,
+    "whereabouts": {
+     "counts": {
+      "house": 6,
+      "room": 4
+     },
+     "present": [
+      {
+       "name": "Pb Bb"
+      },
+      {
+       "name": "Pc Cc"
+      },
+      {
+       "name": "Pd Dd"
+      },
+      {
+       "name": "Pe Ee"
+      }
+     ]
+    }
+   },
+   "reply": "The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. The veto winner steps forward with the veto in hand."
+  },
+  {
+   "state": {
+    "started": true,
+    "phase": "eviction",
+    "week": 1,
+    "clockLabel": "7:00pm, Day 5",
+    "daySchedule": {
+     "due": true,
+     "next": "eviction",
+     "minutesUntil": 0
+    },
+    "ceremony": {
+     "hoh": {
+      "name": "Pb Bb"
+     },
+     "nominees": [
+      {
+       "name": "Pc Cc"
+      },
+      {
+       "name": "Pd Dd"
+      }
+     ]
+    },
+    "veto": {
+     "holder": "Pe Ee"
+    },
+    "house": [
+     {
+      "id": "hg0",
+      "name": "Pa Aa",
+      "status": "active"
+     },
+     {
+      "id": "hg1",
+      "name": "Pb Bb",
+      "status": "active"
+     },
+     {
+      "id": "hg2",
+      "name": "Pc Cc",
+      "status": "active"
+     },
+     {
+      "id": "hg3",
+      "name": "Pd Dd",
+      "status": "active"
+     },
+     {
+      "id": "hg4",
+      "name": "Pe Ee",
+      "status": "active"
+     },
+     {
+      "id": "hg5",
+      "name": "Pf Ff",
+      "status": "active"
+     }
+    ],
+    "player": {
+     "name": "Pa Aa"
+    },
+    "pending": null,
+    "finished": false,
+    "winner": null,
+    "whereabouts": {
+     "counts": {
+      "house": 6,
+      "room": 4
+     },
+     "present": [
+      {
+       "name": "Pb Bb"
+      },
+      {
+       "name": "Pc Cc"
+      },
+      {
+       "name": "Pd Dd"
+      },
+      {
+       "name": "Pe Ee"
+      }
+     ]
+    }
+   },
+   "reply": "The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. The house gathers on the couches for the live vote."
+  },
+  {
+   "state": {
+    "started": true,
+    "phase": "hoh-competition",
+    "week": 1,
+    "clockLabel": "9:00pm, Day 5",
+    "daySchedule": {
+     "due": false,
+     "next": null,
+     "minutesUntil": 90
+    },
+    "ceremony": {
+     "hoh": null,
+     "nominees": []
+    },
+    "veto": {},
+    "house": [
+     {
+      "id": "hg0",
+      "name": "Pa Aa",
+      "status": "active"
+     },
+     {
+      "id": "hg1",
+      "name": "Pb Bb",
+      "status": "active"
+     },
+     {
+      "id": "hg2",
+      "name": "Pc Cc",
+      "status": "active"
+     },
+     {
+      "id": "hg3",
+      "name": "Pd Dd",
+      "status": "evicted"
+     },
+     {
+      "id": "hg4",
+      "name": "Pe Ee",
+      "status": "active"
+     },
+     {
+      "id": "hg5",
+      "name": "Pf Ff",
+      "status": "active"
+     }
+    ],
+    "player": {
+     "name": "Pa Aa"
+    },
+    "pending": null,
+    "finished": false,
+    "winner": null,
+    "whereabouts": {
+     "counts": {
+      "house": 5,
+      "room": 4
+     },
+     "present": [
+      {
+       "name": "Pb Bb"
+      },
+      {
+       "name": "Pc Cc"
+      },
+      {
+       "name": "Pd Dd"
+      },
+      {
+       "name": "Pe Ee"
+      }
+     ]
+    }
+   },
+   "reply": "The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. The votes are read aloud and the room goes silent as the house votes out a nominee."
+  },
+  {
+   "state": {
+    "started": true,
+    "phase": "nominations",
+    "week": 2,
+    "clockLabel": "10:00am, Day 6",
+    "daySchedule": {
+     "due": false,
+     "next": null,
+     "minutesUntil": 90
+    },
+    "ceremony": {
+     "hoh": {
+      "name": "Pc Cc"
+     },
+     "nominees": []
+    },
+    "veto": {},
+    "house": [
+     {
+      "id": "hg0",
+      "name": "Pa Aa",
+      "status": "active"
+     },
+     {
+      "id": "hg1",
+      "name": "Pb Bb",
+      "status": "active"
+     },
+     {
+      "id": "hg2",
+      "name": "Pc Cc",
+      "status": "active"
+     },
+     {
+      "id": "hg3",
+      "name": "Pd Dd",
+      "status": "evicted"
+     },
+     {
+      "id": "hg4",
+      "name": "Pe Ee",
+      "status": "active"
+     },
+     {
+      "id": "hg5",
+      "name": "Pf Ff",
+      "status": "active"
+     }
+    ],
+    "player": {
+     "name": "Pa Aa"
+    },
+    "pending": null,
+    "finished": false,
+    "winner": null,
+    "whereabouts": {
+     "counts": {
+      "house": 5,
+      "room": 4
+     },
+     "present": [
+      {
+       "name": "Pb Bb"
+      },
+      {
+       "name": "Pc Cc"
+      },
+      {
+       "name": "Pd Dd"
+      },
+      {
+       "name": "Pe Ee"
+      }
+     ]
+    }
+   },
+   "reply": "The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. The new Head of Household sits in the HOH room and thinks."
+  },
+  {
+   "state": {
+    "started": true,
+    "phase": "nominations",
+    "week": 2,
+    "clockLabel": "11:00am, Day 6",
+    "daySchedule": {
+     "due": false,
+     "next": null,
+     "minutesUntil": 90
+    },
+    "ceremony": {
+     "hoh": {
+      "name": "Pc Cc"
+     },
+     "nominees": []
+    },
+    "veto": {},
+    "house": [
+     {
+      "id": "hg0",
+      "name": "Pa Aa",
+      "status": "active"
+     },
+     {
+      "id": "hg1",
+      "name": "Pb Bb",
+      "status": "active"
+     },
+     {
+      "id": "hg2",
+      "name": "Pc Cc",
+      "status": "active"
+     },
+     {
+      "id": "hg3",
+      "name": "Pd Dd",
+      "status": "evicted"
+     },
+     {
+      "id": "hg4",
+      "name": "Pe Ee",
+      "status": "active"
+     },
+     {
+      "id": "hg5",
+      "name": "Pf Ff",
+      "status": "active"
+     }
+    ],
+    "player": {
+     "name": "Pa Aa"
+    },
+    "pending": null,
+    "finished": false,
+    "winner": null,
+    "whereabouts": {
+     "counts": {
+      "house": 5,
+      "room": 4
+     },
+     "present": [
+      {
+       "name": "Pb Bb"
+      },
+      {
+       "name": "Pc Cc"
+      },
+      {
+       "name": "Pd Dd"
+      },
+      {
+       "name": "Pe Ee"
+      }
+     ]
+    }
+   },
+   "reply": "The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. The new week settles in and people drift between rooms."
+  },
+  {
+   "state": {
+    "started": true,
+    "phase": "nominations",
+    "week": 2,
+    "clockLabel": "11:00am, Day 6",
+    "daySchedule": {
+     "due": false,
+     "next": null,
+     "minutesUntil": 90
+    },
+    "ceremony": {
+     "hoh": {
+      "name": "Pc Cc"
+     },
+     "nominees": []
+    },
+    "veto": {},
+    "house": [
+     {
+      "id": "hg0",
+      "name": "Pa Aa",
+      "status": "active"
+     },
+     {
+      "id": "hg1",
+      "name": "Pb Bb",
+      "status": "active"
+     },
+     {
+      "id": "hg2",
+      "name": "Pc Cc",
+      "status": "active"
+     },
+     {
+      "id": "hg3",
+      "name": "Pd Dd",
+      "status": "evicted"
+     },
+     {
+      "id": "hg4",
+      "name": "Pe Ee",
+      "status": "active"
+     },
+     {
+      "id": "hg5",
+      "name": "Pf Ff",
+      "status": "active"
+     }
+    ],
+    "player": {
+     "name": "Pa Aa"
+    },
+    "pending": null,
+    "finished": false,
+    "winner": null,
+    "whereabouts": {
+     "counts": {
+      "house": 5,
+      "room": 4
+     },
+     "present": [
+      {
+       "name": "Pb Bb"
+      },
+      {
+       "name": "Pc Cc"
+      },
+      {
+       "name": "Pd Dd"
+      },
+      {
+       "name": "Pe Ee"
+      }
+     ]
+    }
+   },
+   "reply": "The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. The kitchen hums with low talk; the HOH stirs a pot and glances up at a nominee while the afternoon light slants across the counter, and the whole room seems to wait on someone to say the thing nobody has said yet. The new week settles in and people drift between rooms."
+  }
+ ]
+}
