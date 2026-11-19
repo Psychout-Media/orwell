@@ -2211,6 +2211,26 @@ def _note_belt(owner, belt: str, n: int = 1) -> None:
         pass
 
 
+def _withhold_leading_refusal(owner, round_num: int, round_response: str, clean: str, round_emitted: str):
+    """ORW-717: hold back a refusal-only line that opens a round (nothing shown yet this round). Pre-emission,
+    so nothing is retracted; the raw/stored text drops it too (shown == stored). Success-gated telemetry.
+    Returns (round_response, clean, withheld)."""
+    try:
+        from src import refusal_guard as _rg
+        if not clean or round_emitted.strip() or not _rg.enabled():
+            return round_response, clean, False
+        kept, n = _rg.strip_leading_refusal(clean)
+        if not n:
+            return round_response, clean, False
+        round_response = _mirror_wall_drop(round_response, clean, kept)
+        _rg.note_withheld()
+        logger.info(f"[orwell] refusal-only round withheld round={round_num} chars={n}")
+        _note_belt(owner, "refusal-withheld")
+        return round_response, kept, True
+    except Exception:  # failsoft-ok: detector error shows the text as today
+        return round_response, clean, False
+
+
 def _note_forced_choice(owner, tool: str, *, honored: bool) -> None:
     """T0-4 (telemetry + probe arm) — count one forced-``tool_choice`` ATTEMPT, with its
     outcome, in the Vault-free sync ledger (`orwell_sync_ledger.note_forced_choice`). Unlike
@@ -9016,6 +9036,7 @@ async def _stream_agent_loop_impl(
     _turn_npc_move_nudges = 0  # ADR 0009 NPC auto-move belt: at most one per finishing turn
     _turn_approach_nudges = 0  # 0036/0049: at most one NPC-approach nudge per finishing turn
     _emitted_visible = False  # did the player see ANY narration this turn? (scrub can empty a
+    _turn_refusal_withheld = False  # ORW-717: a refusal-only round was held back this turn (the blank-turn re-prompt then carries one fact)
     _turn_narrate_nudges = 0  # planning-only round → blank turn; we re-prompt once for the scene)
     _cutaway_emitted = False  # A2 (2026-07-03): the diegetic feeds-cut line is emitted at most once/turn
     _pd_rewrite_used = False  # ORW-408: at most ONE quiet sentence-level rewrite per turn
@@ -9787,6 +9808,9 @@ async def _stream_agent_loop_impl(
                                     _visible_halted = True
                                     _ooc_open = ""
                                     _clean = ""
+                                if _clean and not _scene_broken:
+                                    round_response, _clean, _rf_hit = _withhold_leading_refusal(owner, round_num, round_response, _clean, _round_emitted_text)
+                                    _turn_refusal_withheld = _turn_refusal_withheld or _rf_hit
                                 if _clean:
                                     # A2: run the whole-scene circuit-breaker + 0065 Part C per-sentence
                                     # pre-emission outcome guard (see `_emit_guarded_scene`'s docstring for
@@ -10025,6 +10049,9 @@ async def _stream_agent_loop_impl(
                 _round_replay = True
                 _ooc_open = ""
                 _clean = ""
+            if _clean and not _scene_broken and not _round_replay:
+                round_response, _clean, _rf_hit = _withhold_leading_refusal(owner, round_num, round_response, _clean, _round_emitted_text)
+                _turn_refusal_withheld = _turn_refusal_withheld or _rf_hit
             if _round_replay:
                 pass  # a dropped replay round: nothing to guard or emit (and no cutaway line — it is not a board fabrication)
             elif _clean or _ooc_open:
@@ -11747,7 +11774,9 @@ async def _stream_agent_loop_impl(
                         and not (tool_policy and tool_policy.blocks("ask_user"))):
                     _turn_narrate_nudges += 1
                     logger.info(f"[orwell] blank-turn guard: re-prompting for narration round {round_num} user={owner}")
-                    messages.append({"role": "system", "content": (
+                    _rf_fact = ("The previous attempt produced no scene. Continue the scene from the engine facts. "
+                                if _turn_refusal_withheld else "")
+                    messages.append({"role": "system", "content": _rf_fact + (
                         "Your last turn produced no narration the player could see — only private "
                         "planning. Write the SCENE NOW, fully in character: what the houseguest says "
                         "and does, what happens in the room. No meta, no mention of your process or "
