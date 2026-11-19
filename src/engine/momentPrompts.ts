@@ -824,8 +824,8 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "THE HOH-ROOM REVEAL — once the new HOH is crowned, play the house's weekly ritual before the game " +
     "turns to nominations: the whole house crowding upstairs to see the room, the " +
     "letter and photos from home read aloud (often the only tears of the week), the small comforts of " +
-    "power. If the PLAYER is the new HOH make it THEIR scene — first person, felt, the house performing " +
-    "loyalty to new power; if an NPC won, keep it lighter texture the player catches in passing. This is " +
+    "power. If the PLAYER is the new HOH make it THEIR scene — the house performing " +
+    "loyalty to new power around them (how they feel is theirs to say, never yours); if an NPC won, keep it lighter texture the player catches in passing. This is " +
     "pure color off the crown the game already decided — invent no mechanic, change no outcome, and do " +
     "not stall the game on it (nominations are still coming as their own beat).",
   nominations:
@@ -1044,7 +1044,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     // already-decided placement in THE PLAYER'S OWN SEASON fact below, which the game hands you verbatim).
     "THE CROWNING MOMENT — give it real weight before easing into hosting. Check THE PLAYER'S OWN SEASON " +
     "fact below (never invent a different placement): if it says they WON, this is their victory — play " +
-    "the champion's moment as it lands, first person, felt: the crown, the house's reaction, disbelief " +
+    "the champion's moment as it lands around them (how they feel is theirs to say, never yours): the crown, the house's reaction, disbelief " +
     "tipping into joy (\"You won Big Brother.\"), before settling into hosting. If it says RUNNER-UP, " +
     "play the near-miss with real weight — pride in a season well fought, grace in a close loss, the " +
     "jury's verdict landing — before settling into hosting. If they sat on the jury or were evicted " +
