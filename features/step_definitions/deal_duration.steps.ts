@@ -81,7 +81,8 @@ const dealIds = new WeakMap<BbWorld, { id: string; openId?: string }>();
 Given("a season-horizon deal with an explicit two-week term", function (this: BbWorld) {
   const a = liveGame();
   const d = a.s.makeDeal({ with: a.npc, kind: "final-two", terms: "two weeks, then free", term: { weeks: 2 } }) as DealView;
-  const open = a.s.makeDeal({ with: a.npc, kind: "final-two", terms: "forever" }) as DealView;
+  const other = a.s.livingIds().find((id) => id !== PLAYER && id !== a.npc)!; // ORW-727: one live deal per pair and kind, so the termless one is struck with a second houseguest
+  const open = a.s.makeDeal({ with: other, kind: "final-two", terms: "forever" }) as DealView;
   live.set(this, { a, b: a, t0a: 0, t0b: 0, trust0a: 0 });
   dealIds.set(this, { id: d.id, openId: open.id });
   assert.equal(d.term?.expiresWeek, weekOf(a.s) + 1, "the engine recorded the two-week term from the live makeDeal");
