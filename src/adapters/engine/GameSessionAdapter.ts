@@ -15194,10 +15194,13 @@ export class GameSessionAdapter implements GameSession {
    * partner records ONE hidden event (witness set = the action's people) that folds through its action's interaction type. A speech action
    * that was false is marked on the event (`houseLife.truthful = false`). Solo actions record nothing. No shared rng (local hashes only).
    */
-  houseLifeStretch(events: EventStore, awakeIds: readonly EntityId[], stretchIndex: number, knowledge?: KnowledgeService): OffscreenScene[] {
+  houseLifeStretch(events: EventStore, awakeAll: readonly EntityId[], stretchIndex: number, knowledge?: KnowledgeService): OffscreenScene[] {
     const s = this.live!, house = this.house!, presence = this.presence!;
     this.statusTick(); // 0173: once a day, flag-gated (a no-op otherwise)
-    this.diaryCallStep(events, awakeIds); // ORW-668 (0210 C2): a call may go out or come back; flag-gated, played games only (a no-op otherwise)
+    this.diaryCallStep(events, awakeAll); // ORW-668 (0210 C2): a call may go out or come back; flag-gated, played games only (a no-op otherwise)
+    // ORW-695: one place at a time. A houseguest in the Diary Room takes no part in this stretch: not an actor, not in a room's steps, not a partner, not a witness (they take their turn again when they are back).
+    const awayNow = this.diaryAwayIds();
+    const awakeIds = awayNow ? awakeAll.filter((id) => !awayNow.has(id)) : awakeAll;
     const playerRoom = presence.get(house.player.id);
     const actors = awakeIds.filter((id) => presence.has(id) && presence.get(id) !== playerRoom);
     // ORW-621 (0198): the people in the player's room live too. Played games with the flag on only; off => empty => every line below is byte-identical.
