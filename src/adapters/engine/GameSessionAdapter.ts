@@ -6523,6 +6523,27 @@ export class GameSessionAdapter implements GameSession {
     ];
   }
 
+  /** ORW-715: show the narrator what the veto decision IS (and that none exists yet). ON unless `ORWELL_CEREMONY_FACTS=0`. OFF => the view carries neither fact => byte-identical. */
+  private ceremonyFactsEnabled = flagDefaultOn("ORWELL_CEREMONY_FACTS");
+
+  /** ORW-715: the veto holder's decision as the game has PUBLISHED it. The staged ceremony decides inside the engine at the convene step but commits and announces only at its result step
+   *  (`finalNominees` set, beat moved on), so before that nothing has been decided as far as the house is concerned. Undefined with no holder, a flat game or the flag off. Public facts only. */
+  private vetoDecisionFact(): NonNullable<GameStateView["ceremony"]["veto"]["decision"]> | undefined {
+    const s = this.live;
+    if (!this.ceremonyFactsEnabled || !s || !this.ceremony.vetoHolder || !this.playedGameNow()) return undefined;
+    const made = s.finalNominees !== undefined && (s.beat === "eviction" || s.beat === "final-eviction");
+    if (!made) return { made: false };
+    if (!s.vetoUsed) return { made: true, used: false };
+    return { made: true, used: true, ...(s.saved ? { saved: { id: s.saved, name: this.nameOf(s.saved) } } : {}), ...(s.replacement ? { replacement: { id: s.replacement, name: this.nameOf(s.replacement) } } : {}) };
+  }
+
+  /** ORW-715: the staged competition's floor - who is still in and who has already gone out (the drops the game has announced). Undefined unless a staged competition is live. */
+  private competitionFieldFact(): { stillIn: Array<{ id: EntityId; name: string }>; out: Array<{ id: EntityId; name: string }> } | undefined {
+    const c = this.live?.competition;
+    if (!this.ceremonyFactsEnabled || !c || !this.playedGameNow() || !c.eliminated?.length) return undefined;
+    return { stillIn: c.stillIn.map((id) => ({ id, name: this.nameOf(id) })), out: c.eliminated.map((id) => ({ id, name: this.nameOf(id) })) };
+  }
+
   private card(id?: EntityId): { id: EntityId; name: string } | null {
     return id ? { id, name: this.nameOf(id) } : null;
   }
@@ -22503,7 +22524,9 @@ export class GameSessionAdapter implements GameSession {
           holder: this.card(this.ceremony.vetoHolder),
           used: this.ceremony.vetoUsed,
           players: (this.live?.vetoField ?? []).map((id) => ({ id, name: this.nameOf(id) })), // R9-AGENCY-1: the drawn six
+          ...(this.vetoDecisionFact() ? { decision: this.vetoDecisionFact()! } : {}), // ORW-715
         },
+        ...(this.competitionFieldFact() ? { competition: this.competitionFieldFact()! } : {}), // ORW-715
       },
       // L21/L24: the player's live whereabouts (room, who's with them + tenure, adjacent rooms) so the
       // narrator voices the REAL, persistent occupancy the engine drives — never invented positions.
