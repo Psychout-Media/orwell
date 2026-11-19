@@ -1003,6 +1003,9 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
 
   // votesTalked (ORW-686): an eviction whose vote talk was had is never un-had (append-only; a restore must not re-roll it).
   if ((earlier.live?.votesTalked ?? []).some((k) => !(later.live?.votesTalked ?? []).includes(k))) return "votesTalked";
+  // aimedSeq / aimedAtPlayer (ORW-701): the id sequence never goes back and a record once made is never removed (a restore must not re-mint a used id).
+  if ((earlier.live?.aimedSeq ?? 0) > (later.live?.aimedSeq ?? 0)) return "aimedSeq";
+  if ((earlier.live?.aimedAtPlayer ?? []).some((r) => !(later.live?.aimedAtPlayer ?? []).some((x) => x.id === r.id))) return "aimedAtPlayer";
   // lobbiesRecorded / meetingCallsDecided (ORW-686): once-per-key decisions are never un-made (append-only; a restore must not re-roll them).
   if ((earlier.live?.lobbiesRecorded ?? []).some((k) => !(later.live?.lobbiesRecorded ?? []).includes(k))) return "lobbiesRecorded";
   if ((earlier.live?.meetingCallsDecided ?? []).some((k) => !(later.live?.meetingCallsDecided ?? []).includes(k))) return "meetingCallsDecided";
