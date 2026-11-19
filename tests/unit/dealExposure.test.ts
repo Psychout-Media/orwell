@@ -135,12 +135,25 @@ describe("exposure in the live adapter", () => {
 });
 
 describe("a twist reopens deals in the live adapter", () => {
-  it("a partner's HOH win turns the player's final two into a standing offer to swap (the player may decline); once per twist", () => {
+  it("a partner's HOH win does NOT turn the player's final two into a vote offer: the HOH has no vote to give (ORW-727), so the deal stands as it was", () => {
+    for (let seed = 21; seed < 41; seed++) {
+      const { g, npcs } = setup(seed);
+      const p = npcs[0]!;
+      g.live.hoh = p; g.live.dealOffer = undefined;
+      const e = g.rel.edge(p, PLAYER); e.trust = 0.2; e.affinity = 0.2; e.threat = 0.9;
+      const deal = g.deals.make([p, PLAYER], "final-two", "t", undefined, g.live.week);
+      g.reopenDealsOnTwist();
+      expect(g.live.dealOffer, "the new HOH offers no vote term").toBeUndefined();
+      expect(deal.status).toBe("open");
+    }
+  });
+  it("a double eviction turns the player's final two into a standing offer to swap from a houseguest who HAS a vote (the player may decline); once per twist", () => {
     let found = false;
     for (let seed = 21; seed < 61 && !found; seed++) {
       const { g, npcs } = setup(seed);
       const p = npcs[0]!;
-      g.live.hoh = p; g.live.dealOffer = undefined;
+      g.live.hoh = npcs[2]!; g.live.dealOffer = undefined; g.live.twist = { kind: "double-eviction", phase: "pending" } as never;
+      (g.live as unknown as { nominees?: unknown }).nominees = undefined; // the nominations are still ahead, so the player is exposed to the eviction
       const e = g.rel.edge(p, PLAYER); e.trust = 0.2; e.affinity = 0.2; e.threat = 0.9;
       const deal = g.deals.make([p, PLAYER], "final-two", "t", undefined, g.live.week);
       g.reopenDealsOnTwist();

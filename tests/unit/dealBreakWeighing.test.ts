@@ -83,8 +83,9 @@ function setup(o: { trust: number; affinity: number; threat: number; goal?: bool
   const g = s as unknown as Internals;
   g.setDealDepthEnabled(true);
   g.live.playedGame = o.played ?? true;
-  const npc = [...s.livingIds()].find((i) => i !== PLAYER)!;
-  g.live.hoh ??= npc; g.live.pending = undefined;
+  // ORW-727: the houseguest who weighs the deal holds no HOH crown (the HOH has no vote to give, so could not offer the lighter vote term); an HOH is crowned from someone else when none stands.
+  const npc = [...s.livingIds()].find((i) => i !== PLAYER && i !== g.live.hoh)!;
+  g.live.hoh ??= [...s.livingIds()].find((i) => i !== PLAYER && i !== npc)!; g.live.pending = undefined;
   const e = g.rel.edge(npc, PLAYER); e.trust = o.trust; e.affinity = o.affinity; e.threat = o.threat;
   if (o.active !== undefined) (g.live as unknown as { active: string[] }).active = (g.live as unknown as { active: string[] }).active.slice(0, o.active);
   const goalKind = o.goalKind === "keep-them-safe" ? "keep-them-safe" : o.goalKind ? "long-con" : "get-them-out";
