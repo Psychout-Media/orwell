@@ -5338,6 +5338,9 @@ export class GameSessionAdapter implements GameSession {
   /** 0200 / ORW-632: "your edit" (`ORWELL_YOUR_EDIT`, default ON; `=0` = none). Played, finished games only; the caller holds the crown gate. */
   private yourEditEnabled = flagDefaultOn("ORWELL_YOUR_EDIT");
   setYourEditEnabled(on: boolean): void { this.yourEditEnabled = on; }
+  /** ORW-691 (B1-5): the cut also reads replacements, house meetings and schemes (`ORWELL_EDIT_MOMENTS`, default ON; `=0` = the old cut). Read-only, post-crown. */
+  private editMomentsEnabled = flagDefaultOn("ORWELL_EDIT_MOMENTS");
+  setEditMomentsEnabled(on: boolean): void { this.editMomentsEnabled = on; }
   yourEditOn(): boolean { return this.yourEditEnabled; }
   private buildYourEditView(): YourEditView | undefined {
     const s = this.live;
@@ -5351,6 +5354,7 @@ export class GameSessionAdapter implements GameSession {
       events: events.map((e) => ({ type: e.type, initiator: e.initiator, witnessSet: e.witnessSet, hidden: e.hidden, content: e.content, ...(e.houseLife?.seenBy ? { seenBy: e.houseLife.seenBy } : {}) })),
       eventWeeks: this.logWeeks(events, maxWeek),
       deals: this.deals.all, winner: s.winner ?? null,
+      ...(this.editMomentsEnabled ? { more: { meetings: (s.houseMeetings ?? []).map((m) => ({ week: m.week, caller: m.caller, accused: m.accused, attendees: m.attendees.length })) } } : {}),
       ...(finale?.votes ? { jury: { finalists: finale.finalists, votes: Object.values(finale.votes).map((votedFor) => ({ votedFor })) } } : {}),
     });
   }
@@ -5411,11 +5415,13 @@ export class GameSessionAdapter implements GameSession {
     const maxWeek = (s.weekDigests ?? []).reduce((m, d) => Math.max(m, d.week), 1);
     const weeks = this.logWeeks(events, maxWeek);
     const finalists = new Set<EntityId>(s.finale?.finalists ?? s.finalTwo ?? []);
+    // ORW-691 (B1-3): the weekly samples are raw 0..1 edge values; the story's shape reads a sign change, so it is measured against the neutral baseline an unmet pair starts from.
+    const neutral = RELATIONSHIP_CONSTANTS.baseline;
     const guests: StoryGuest[] = this.house.npcs.map((n) => n.id).sort().map((id) => {
       const scenes = events.flatMap((e, i) => (!e.hidden && e.type !== "house-event" && (e.witnessSet.includes(id) || e.initiator === id) && (e.witnessSet.includes(PLAYER) || e.initiator === PLAYER)) ? [{ week: weeks[i]!, kind: e.type }] : []);
       const out = (s.weekDigests ?? []).find((d) => d.evictee === id);
       const votedFor = s.finale?.votes?.[id];
-      return { id, points: s.viewOfPlayer?.[id] ?? [], scenes, ...(out ? { evictedWeek: out.week } : {}), ...(votedFor ? { votedFor } : {}), ...(finalists.has(id) ? { finalist: true } : {}) };
+      return { id, points: (s.viewOfPlayer?.[id] ?? []).map((p) => ({ week: p.week, trust: p.trust - neutral.trust, affinity: p.affinity - neutral.affinity })), scenes, ...(out ? { evictedWeek: out.week } : {}), ...(votedFor ? { votedFor } : {}), ...(finalists.has(id) ? { finalist: true } : {}) };
     });
     return buildYourStories({ finished: true, playerFinalist: finalists.has(PLAYER), nameOf: (id) => this.nameOf(id), winner: s.winner ?? null, guests });
   }
@@ -15820,6 +15826,9 @@ export class GameSessionAdapter implements GameSession {
   /** 0194 / ORW-626 (`ORWELL_MOOD_CAUSES`, default ON; `=0` byte-identical): more things give a houseguest a mood cause. Played games only; engine-only and append-only; no rng. */
   private moodCausesEnabled = flagDefaultOn("ORWELL_MOOD_CAUSES");
   setMoodCausesEnabled(on: boolean): void { this.moodCausesEnabled = on; }
+  /** ORW-691 (B1-4): the reachable bad-night bar (`ORWELL_BAD_SLEEP_REACH`, default ON; `=0` = the old, never-met bar). */
+  private badSleepReachEnabled = flagDefaultOn("ORWELL_BAD_SLEEP_REACH");
+  setBadSleepReachEnabled(on: boolean): void { this.badSleepReachEnabled = on; }
   private moodCausesOn(): boolean { return this.moodCausesEnabled && this.live?.playedGame === true; }
   /** Record a cause for an NPC (the player's mood is theirs, never recorded). The same cause on the same day is not written twice. */
   private noteMoodCause(holder: EntityId, source: MoodCauseSource, about?: EntityId): boolean {
@@ -15845,7 +15854,7 @@ export class GameSessionAdapter implements GameSession {
     if (!this.moodCausesOn() || !this.live || !this.house || !this.timeOfDayEnabled || !this.live.timeOfDay) return;
     for (const n of this.house.npcs) {
       if (!this.live.active.includes(n.id)) continue;
-      if (isBadNight(npcRestDeficit(this.live, this.statsOf(n.id), n.id, this.effectiveBedDepth(n.id), this.lateCompanyFor(n.id)))) {
+      if (isBadNight(npcRestDeficit(this.live, this.statsOf(n.id), n.id, this.effectiveBedDepth(n.id), this.lateCompanyFor(n.id)), this.badSleepReachEnabled)) {
         // follow-up: a bad night also moves the mood word, once per night (a repeat read the same day writes no new cause), through the existing "scheme" step at a bounded share
         if (this.noteMoodCause(n.id, "bad-sleep")) this.catchMood(n.id, "scheme", MOOD_CAUSES.badSleepMoodScale);
       }
