@@ -612,6 +612,17 @@ export interface SessionSnapshot extends SessionCore {
   vault?: HiddenRecord[];
   /** ORW-401: the per-window relationship-fold counts (played games), so a restart does not refill them. Counts only. */
   foldMeter?: { key: string; counts: Record<string, number> };
+  /**
+   * ORW-730: the POSITION (draws made) of the engine's two stateful seeded streams, so a restart picks the
+   * season up where it was instead of rerolling it. `tick` is the orchestrator's per-user off-screen stream,
+   * `commands` the command seam's. ENGINE-ONLY like the rest of this snapshot: never projected to any read
+   * (a position could reveal how far the seeded outcomes have been consumed). Optional and additive: a save
+   * without it loads as before (the streams start fresh), so no schema bump. Every other draw in the live
+   * path is a keyed hash of the game seed plus its own key, with nothing to save.
+   */
+  streamPos?: { tick?: number; commands?: number };
+  /** ORW-730: the in-game hour and absolute hour of the last off-screen society tick (the tick's debounce anchors) and the play-clock reading (tick seeds are keyed on it), engine-only like `streamPos`. Optional and additive. */
+  tickAnchors?: { hour?: number; abs?: number; clock?: number };
 }
 
 export function cloneSession<T>(value: T): T {
@@ -1012,9 +1023,15 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
   // aimedSeq / aimedAtPlayer (ORW-701): the id sequence never goes back and a record once made is never removed (a restore must not re-mint a used id).
   if ((earlier.live?.aimedSeq ?? 0) > (later.live?.aimedSeq ?? 0)) return "aimedSeq";
   if ((earlier.live?.aimedAtPlayer ?? []).some((r) => !(later.live?.aimedAtPlayer ?? []).some((x) => x.id === r.id))) return "aimedAtPlayer";
+  // approachAsked (ORW-709): a houseguest's asked question is never un-asked and an answer never reverts (append-only per houseguest; a restore must not let a closed question be asked again).
+  for (const [id, e] of Object.entries(earlier.live?.approachAsked ?? {})) { const l = later.live?.approachAsked?.[id]; if (!l) return "approachAsked"; if (l.q === e.q && e.answered === true && l.answered !== true) return "approachAsked"; if (l.q === e.q && l.n < e.n) return "approachAsked"; }
   // lobbiesRecorded / meetingCallsDecided (ORW-686): once-per-key decisions are never un-made (append-only; a restore must not re-roll them).
   if ((earlier.live?.lobbiesRecorded ?? []).some((k) => !(later.live?.lobbiesRecorded ?? []).includes(k))) return "lobbiesRecorded";
   if ((earlier.live?.meetingCallsDecided ?? []).some((k) => !(later.live?.meetingCallsDecided ?? []).includes(k))) return "meetingCallsDecided";
+
+  // streamPos (ORW-730): a seeded stream's position only moves forward (a restore must not rewind it and reroll draws already made).
+  if ((earlier.streamPos?.tick ?? 0) > (later.streamPos?.tick ?? 0)) return "streamPos.tick";
+  if ((earlier.streamPos?.commands ?? 0) > (later.streamPos?.commands ?? 0)) return "streamPos.commands";
 
   // bonds, grudges, group identity (ORW-606): the season-long stores of Theme 3 are never thinned. (Room tenure is deliberately outside: it resets whenever a houseguest moves.)
   if (!bondStoreSuperset(later.live?.bonds, earlier.live?.bonds)) return "bonds";
