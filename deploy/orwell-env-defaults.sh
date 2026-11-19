@@ -113,6 +113,7 @@
 #       being pulled, an NPC approaching, something observed, or bedtime. PO ruling 2026-11-04 (Ryne). Engine default ON too; listed so a box .env states its posture.
 #   ORWELL_PREMIERE_ENTRANCES    A9: the premiere opens with ONE-AT-A-TIME entrances (a seeded order, the player at a random slot), then the living-room champagne toast with a speech
 #       from the host and each houseguest, then the Day-1 morning. PO ruling 2026-11-04 (Ryne). Engine default ON too; listed so a box .env states its posture.
+#   ORWELL_PREMIERE_ONE_STEP    ORW-705 (PT-10): in a played game a premiere entrance or toast release costs the player's one message-step, not that plus a 9-minute premiere step (14 min a message). ON.
 #   ORWELL_COMING_CLEAN         Coming clean, nuanced (0203) — confess a lie before it is caught, loop an ally in.
 #   ORWELL_COMP_INTENT          NPC competition intent (0006b) — derived compete/throw/play-safe.
 #   ORWELL_MYTH_MAKING          NPC myth-making (0101) — a rare notable player act becomes house folklore
@@ -271,6 +272,7 @@ ORWELL_PLAYER_AIMED=1
 ORWELL_PLAYER_DOSSIER=1
 ORWELL_PLAYER_SCENE_MOVES=1
 ORWELL_PREMIERE_ENTRANCES=1
+ORWELL_PREMIERE_ONE_STEP=1
 ORWELL_PRODUCER_PUSHBACK=1
 ORWELL_PRODUCER_READ=1
 ORWELL_PROMISE_TERMS=1

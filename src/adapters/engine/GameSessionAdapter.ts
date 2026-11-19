@@ -785,6 +785,8 @@ const JUROR_PROFILES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_JUROR_PROFILES");
  * `createCharacter` (season start). Off => nothing new is written.
  */
 const PREMIERE_ENTRANCES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PREMIERE_ENTRANCES");
+/** ORW-705 / PT-10 - in a played game the premiere's entrance and toast releases cost the player's ONE message-step only (`noteMessage`), not that plus `PREMIERE_STEP_HOURS` (14 minutes a message in the dev playtest). ON by default; `=0` restores the double bill. */
+const PREMIERE_ONE_STEP_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PREMIERE_ONE_STEP");
 /** ORW-672 / 0201 - the BED RUSH: no bed is claimed before the champagne circle closes, then the house races for the bedrooms (a claim needs reaching the room). A played game only. ON by default; `=0` restores the walk-in-order claim. */
 const BED_RUSH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_BED_RUSH");
 /** ORW-654 / 0206 - the SELF-GUIDED TOUR: after walking in the player explores the house until production calls the circle; the houseguests mostly gather in the common area; the first entry into each room is a one-time room card. A played game only. ON by default; `=0` restores the held premiere. */
@@ -2729,6 +2731,7 @@ export class GameSessionAdapter implements GameSession {
   /** C1 (#1788) — the Wipeout Reel presentation layer; off ⇒ `comp-elimination` content is untouched. */
   private wipeoutReelEnabled = WIPEOUT_REEL_ENABLED_DEFAULT;
   private premiereEntrancesEnabled = PREMIERE_ENTRANCES_ENABLED_DEFAULT;
+  private premiereOneStepEnabled = PREMIERE_ONE_STEP_ENABLED_DEFAULT; // ORW-705 / PT-10
   /** ORW-672 / 0201: the bed rush (see `BED_RUSH_ENABLED_DEFAULT`). */
   private bedRushEnabled = BED_RUSH_ENABLED_DEFAULT;
   /** ORW-654 / 0206: the self-guided tour (see `HOUSE_TOUR_ENABLED_DEFAULT`). */
@@ -6497,6 +6500,7 @@ export class GameSessionAdapter implements GameSession {
       phase: this.phase,
       ...(this.timeOfDayEnabled && (this.live?.timeOfDay ?? this.premiereClockPreview()) ? { timeOfDay: (this.live?.timeOfDay ?? this.premiereClockPreview())!, dayNumber: this.live?.dayNumber ?? 1, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && (this.live?.timeOfDay === "late-night" || this.live?.timeOfDay === "morning") && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in (observable); ORW-115: + the day number the HUD shows
       day: dayOfWeek(this.phase), // E58: the canonical beat→day index (hoh=1 … eviction=5), or null off-ladder
+      ...(this.live?.evictionOrder?.length ? { lastEviction: { evictee: { id: this.live.evictionOrder[this.live.evictionOrder.length - 1]!, name: this.nameOf(this.live.evictionOrder[this.live.evictionOrder.length - 1]!) } } } : {}), // ORW-705 / PT-11: the "Last out" row
       hoh: this.card(this.ceremony.hoh),
       nominees: this.ceremony.nominees.map((id) => ({ id, name: this.nameOf(id) })),
       veto: {
@@ -9557,7 +9561,7 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live!;
     this.ensurePremiereClock();
     const callingCircle = s.premiereEntrance?.stage === "entrances" && !!s.houseTour && everyoneIn(s); // ORW-654 / 0206: calling the circle is not a new scene - it takes no premiere step, so the clock reads as it did before the tour
-    if (this.perConversationClockLive()) { s.clockInteractive = true; if (!callingCircle) tickPremiereClock(s, PREMIERE_STEP_HOURS); } // ORW-116 (b): a staged premiere with the clock on IS real play - the night is held from the first entrance, never only after the first message // ORW-116: the entrances take real time
+    if (this.perConversationClockLive()) { s.clockInteractive = true; if (!callingCircle && !(this.premiereOneStepEnabled && this.messageMode && s.playedGame === true)) tickPremiereClock(s, PREMIERE_STEP_HOURS); } // ORW-116 (b): a staged premiere with the clock on IS real play - the night is held from the first entrance, never only after the first message // ORW-116: the entrances take real time
     const pe = s.premiereEntrance!;
     const me = this.house!.player.id;
     if (pe.stage === "entrances" && s.houseTour && everyoneIn(s)) {
@@ -12360,6 +12364,7 @@ export class GameSessionAdapter implements GameSession {
   setWipeoutReelEnabled(on: boolean): void { this.wipeoutReelEnabled = on; }
   /** A9 - turn the staged premiere entrances on/off for this session (read at `createCharacter`; tests/BDD; the deploy sets `ORWELL_PREMIERE_ENTRANCES`). */
   setPremiereEntrancesEnabled(on: boolean): void { this.premiereEntrancesEnabled = on; }
+  setPremiereOneStepEnabled(on: boolean): void { this.premiereOneStepEnabled = on; }
   /** ORW-672 / 0201: turn the bed rush on/off for this session (tests/BDD; the deploy sets `ORWELL_BED_RUSH`). */
   setBedRushEnabled(on: boolean): void { this.bedRushEnabled = on; }
   /** ORW-654 / 0206: turn the self-guided tour on/off for this session (tests/BDD; the deploy sets `ORWELL_HOUSE_TOUR`). */

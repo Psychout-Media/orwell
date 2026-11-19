@@ -688,6 +688,11 @@ _STATED_WAIT_RE = re.compile(
     r"\b(?:wait|stay(?:\s+put)?|sit(?:\s+tight)?|linger|remain|stick\s+around|hang\s+(?:around|back))\b(?:\s+(?:" + _WAIT_FILLER + r")){0,5}?\s+(?:for\s+)?"
     r"(?:" + _STATED_DURATION_PAT + r"|the\s+rest\s+of\s+the\s+(?:morning|afternoon|evening))\b",
     re.IGNORECASE)
+# C (ORW-705 / PT-10): waiting FOR a named scheduled event ("I wait in the living room for the nominations ceremony") is the same wait as "until it starts": the player owns the span, production owns the
+# schedule. Narrow on purpose: the object must be the event itself (a ceremony or a competition), so "I wait for the HOH to speak" and "wait for me" stay ordinary talk.
+_WAIT_FOR_EVENT_RE = re.compile(
+    r"\b(?:wait(?:\s+around)?|sit\s+tight|stay\s+put)\b[^.?!\n]{0,60}?\bfor\s+(?:the\s+)?(?:[A-Za-z']+\s+){0,2}?(?:ceremony|competition|comp)\b",
+    re.IGNORECASE)
 # ORW-477: sentences that are NOT the player's own wait: reported or past speech, a question, a negation, somebody else's wait. Read on the clause before the verb and the sentence after it.
 _NOT_MINE_BEFORE_RE = re.compile(
     r"\b(?:been|said|says|saying|told|tells|asked|asks|thought|heard|wondered|if|whether|because|had|was|were|he|she|they|someone|somebody|nobody|not|never|without|tell|ask|say|order|you|your)\b|n['’]t\b|"
@@ -735,7 +740,7 @@ def _is_not_the_players_wait(text: str, m) -> bool:
 
 def _wait_intent_match(text: str):
     """The first wait phrase (shape A or B) that is the player's own, else None."""
-    for rx in (_HANGOUT_INTENT_RE, _STATED_WAIT_RE):
+    for rx in (_HANGOUT_INTENT_RE, _STATED_WAIT_RE, _WAIT_FOR_EVENT_RE):
         for m in rx.finditer(text):
             if not _is_not_the_players_wait(text, m):
                 return m
@@ -8302,6 +8307,12 @@ def _format_game_moment(game_state: dict) -> Optional[str]:
     _ds = game_state.get("daySchedule")
     if isinstance(_ds, dict) and isinstance(_ds.get("todaysEvent"), str) and _ds.get("todaysEvent"):
         phase = _ds["todaysEvent"]
+    # ORW-705 (PT-11, dev playtest): the engine's phase stays `premiere` through the whole of Day 2 until the first HOH competition STARTS, so a Day-2 morning stamped "Premiere". Once the first
+    # night has passed (day 2+) and the next scheduled event is the HOH competition, today is the HOH day: the stamp names it, the same rule as ORW-258 for every later day.
+    _day = game_state.get("dayNumber")
+    if (phase == "premiere" and isinstance(_day, int) and not isinstance(_day, bool) and _day >= 2
+            and isinstance(_ds, dict) and _ds.get("next") == "hoh-competition"):
+        phase = "hoh-competition"
     if phase:
         parts.append(_MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " "))
     tod = (game_state.get("timeOfDay") or "").strip()

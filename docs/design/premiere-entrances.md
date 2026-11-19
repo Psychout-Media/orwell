@@ -37,3 +37,5 @@ Shipped DEFAULT ON (`ORWELL_PREMIERE_ENTRANCES`, #2086 / #2113; `=0` restores th
 - **Test lanes.** The unit and BDD lanes pin the flag OFF per file (they test other features through the old premiere; entrance tests opt IN); property / UAT / calibration run the shipped default ON. juryReach + calibrationGradient held their bands ON. The reactive-twist secret-veto floor moved 12 -> 11 under ON (approved).
 
 Known gaps: only `event-due` of the hang-out stops was seen on screen; the other four are unit-proven. The 300-seed PO-band gate with entrances ON was not run (juryReach + gradient is the bar the three-part-HOH flip used).
+
+**Amendment 2026-11-19 (ORW-705, PT-10).** In a played game an entrance / toast release bills the player's one message-step only; the extra `PREMIERE_STEP_HOURS` (0.15 h) no longer stacks on it (flag `ORWELL_PREMIERE_ONE_STEP`, default ON). Headless / unannounced drivers keep the old step.

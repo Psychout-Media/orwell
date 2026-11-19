@@ -249,6 +249,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // ORW-614 (P-11): flirt, strategy and gossip scenes move a houseguest's mood and memory like the four scene kinds that already did (the player's scenes and those between houseguests read one table). Played games only. `=0` = those kinds move nothing.
   { envKey: 'ORWELL_PLAYER_SCENE_MOVES', key: 'playerSceneMoves', parser: 'defaultOn' },
   { envKey: 'ORWELL_PREMIERE_ENTRANCES',   key: 'premiereEntrances',      parser: 'defaultOn' },
+  // ORW-705 / PT-10: in a played game an entrance or toast release is billed by the player's message alone (one message-step), not that step plus a 9-minute premiere step on top (14 minutes a message). `=0` = the old double bill.
+  { envKey: 'ORWELL_PREMIERE_ONE_STEP', key: 'premiereOneStep', parser: 'defaultOn' },
   // ORW-669 / 0210 C3: in the player's own Diary Room the producer may raise a said-vs-did contradiction from the player's own recorded public record (a promise, then an act against the same houseguest); facts to the narrator, no outcome or relationship change, nothing reaches any houseguest. A played game only. `=0` opts out.
   { envKey: 'ORWELL_PRODUCER_PUSHBACK', key: 'producerPushback', parser: 'defaultOn' },
   { envKey: 'ORWELL_PRODUCER_READ', key: 'producerRead', parser: 'defaultOn' },

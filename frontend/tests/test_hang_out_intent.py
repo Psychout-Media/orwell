@@ -13,6 +13,9 @@ from routes import chat_helpers as ch
     "kick back in the lounge for a while",
     "I want to relax for the rest of the morning",
     "Hang out in the kitchen until production calls us",
+    "I wait in the living room for the nominations ceremony.",
+    "I spend the whole day socializing around the house and wait for the nominations ceremony this evening.",
+    "I sit tight for the HOH competition",
 ])
 def test_intent_recognised(msg):
     assert ch.hang_out_intent(msg)
@@ -23,6 +26,10 @@ def test_intent_recognised(msg):
     "I wait for the HOH to speak",
     "Tell Sam I want to talk",
     "Can we start the HOH comp?",
+    "I wait for the HOH to speak",
+    "Wait for me, I want to see the ceremony",
+    "She said wait for the ceremony",
+    "Should I wait for the ceremony?",
     "", None,
 ])
 def test_non_intent_ignored(msg):
