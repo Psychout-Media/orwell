@@ -5384,7 +5384,7 @@ export class GameSessionAdapter implements GameSession {
       const votedFor = s.finale?.votes?.[id];
       return { id, points: s.viewOfPlayer?.[id] ?? [], scenes, ...(out ? { evictedWeek: out.week } : {}), ...(votedFor ? { votedFor } : {}), ...(finalists.has(id) ? { finalist: true } : {}) };
     });
-    return buildYourStories({ finished: true, nameOf: (id) => this.nameOf(id), winner: s.winner ?? null, guests });
+    return buildYourStories({ finished: true, playerFinalist: finalists.has(PLAYER), nameOf: (id) => this.nameOf(id), winner: s.winner ?? null, guests });
   }
   /** ORW-566 part d (0183): every alliance and close-pair habit the season held, hidden ones included (the retrospective is the sanctioned unsealing; the caller holds the crown gate). Names only. */
   private buildGroupLifeView(): GroupLifeView | undefined {
@@ -15161,17 +15161,18 @@ export class GameSessionAdapter implements GameSession {
       const other = d.parties[0] === PLAYER ? d.parties[1] : d.parties[0];
       if (d.condition.protect === other && d.condition.promisors.includes(PLAYER) && d.status !== "lapsed") {
         said.push({ claimId: d.id, to: other, promise: "deal", week: d.madeWeek ?? 1 });
-        if (d.status === "broken" && d.brokenBy === PLAYER) did.push({ eventId: `deal:${d.id}`, act: "broke-deal", target: other, week: s.week });
+        if (d.status === "broken" && d.brokenBy === PLAYER) did.push({ eventId: `deal:${d.id}`, act: "broke-deal", target: other, week: d.brokenWeek ?? s.week });
       }
     }
     if (s.assurances) {
       for (const a of AssuranceLedger.fromJSON(s.assurances).all) {
         if (a.from !== PLAYER || a.source !== "player") continue;
+        if (a.status === "lapsed" || a.status === "kept") continue; // ORW-697: a withdrawn/lapsed or kept word is not a word to hold the player to
         said.push({ claimId: a.id, to: a.to, promise: a.kind === "safe" ? "safe" : a.kind === "vote" ? "vote-with" : "not-target", week: a.week });
       }
     }
     for (const d of s.weekDigests ?? []) if (d.hoh === PLAYER) for (const n of d.nominees) did.push({ eventId: `nom:${d.week}:${n}`, act: "nominated", target: n, week: d.week });
-    if (s.hoh === PLAYER && s.nominees && !(s.weekDigests ?? []).some((d) => d.week === s.week)) for (const n of s.nominees) did.push({ eventId: `nom:${s.week}:${n}`, act: "nominated", target: n, week: s.week });
+    if (s.hoh === PLAYER && s.nominees && !(s.weekDigests ?? []).some((d) => d.week === s.week && d.hoh === s.hoh && [...d.nominees].sort().join() === [...s.nominees!].sort().join())) for (const n of s.nominees) did.push({ eventId: `nom:${s.week}:${n}`, act: "nominated", target: n, week: s.week });
     for (const r of s.voteRecord ?? []) { const t = r.voteOf[PLAYER]; if (t) did.push({ eventId: `vote:${r.week}:${t}`, act: "voted-against", target: t, week: r.week }); }
     if (!said.length || !did.length) return undefined;
     const facts = pushbackFacts(said, did, (id) => this.nameOf(id), s.week);
