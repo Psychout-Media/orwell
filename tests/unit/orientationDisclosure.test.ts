@@ -20,7 +20,7 @@ function started(seed: number, trust: number, played = true) {
   if (presence) { presence.set(PLAYER, "kitchen"); presence.set(npc.id, "kitchen"); }
   const rel = (session as unknown as { rel: RelationshipModel }).rel;
   for (const [a, b] of [[npc.id, PLAYER], [PLAYER, npc.id]] as const) { const e = rel.edge(a, b); e.trust = trust; e.affinity = trust; e.threat = 0.05; }
-  for (let i = 0; i < 3; i++) session.makeDeal({ with: npc.id, kind: "final-two", terms: "ride or die" });
+  for (const kind of ["final-two", "safety", "vote"] as const) session.makeDeal({ with: npc.id, kind, terms: "ride or die" }); // ORW-727: one live deal per pair and kind, so the goodwill is three DIFFERENT open pacts
   if (played) session.noteMessage({ messageId: "first" });
   return { session, npc: npc.id, told };
 }

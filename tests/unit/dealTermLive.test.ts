@@ -106,7 +106,8 @@ describe("0109 — makeDeal carries a negotiated term in live play", () => {
     const { s, npc } = game();
     const w = week(s);
     const termed = s.makeDeal({ with: npc, kind: "final-two", terms: "one week", term: { weeks: 1 } }) as DealView;
-    const open = s.makeDeal({ with: npc, kind: "final-two", terms: "forever" }) as DealView;
+    const other = s.livingIds().find((id) => id !== "player" && id !== npc)!; // ORW-727: one live deal per pair and kind, so the termless one is struck with a second houseguest
+    const open = s.makeDeal({ with: other, kind: "final-two", terms: "forever" }) as DealView;
     for (let i = 0; i < 400 && week(s) <= w; i++) {
       const v = s.advanceGame();
       if (v.pending) resolvePending(v.pending, (req) => s.submitDecision(req));
@@ -146,7 +147,8 @@ describe("0109 — an explicit term governs a week-scoped kind (#1993 review)", 
     const { s, npc } = game();
     const w = week(s);
     const d = s.makeDeal({ with: npc, kind: "safety", terms: "three weeks", term: { weeks: 3 } }) as DealView;
-    const plain = s.makeDeal({ with: npc, kind: "safety", terms: "this week" }) as DealView;
+    const other = s.livingIds().find((id) => id !== "player" && id !== npc)!; // ORW-727: one live deal per pair and kind, so the plain one is struck with a second houseguest
+    const plain = s.makeDeal({ with: other, kind: "safety", terms: "this week" }) as DealView;
     for (let i = 0; i < 400 && week(s) <= w; i++) {
       const v = s.advanceGame();
       if (v.pending) resolvePending(v.pending, (req) => s.submitDecision(req));

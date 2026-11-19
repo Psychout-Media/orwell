@@ -73,7 +73,7 @@ function liveGame(seed: number, marker: string, opts: { trust?: number; sealed?:
 function trust(g: Game, t: number): void {
   const rel = (g.sb.session as unknown as { rel: RelationshipModel }).rel;
   for (const [a, b] of [[g.npc, PLAYER], [PLAYER, g.npc]] as const) { const e = rel.edge(a, b); e.trust = t; e.affinity = t; e.threat = 0.05; }
-  for (let i = 0; i < 3; i++) g.sb.session.makeDeal({ with: g.npc, kind: "final-two", terms: "ride or die" });
+  for (const kind of ["final-two", "safety", "vote"] as const) g.sb.session.makeDeal({ with: g.npc, kind, terms: "ride or die" }); // ORW-727: one live deal per pair and kind, so three different open pacts
 }
 
 /** The player and the houseguest share one room; everyone else is elsewhere ("alone together"). */

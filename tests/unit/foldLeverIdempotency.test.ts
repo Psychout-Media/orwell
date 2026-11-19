@@ -70,7 +70,7 @@ function earnFullConfidence(session: GameSessionAdapter, npcId: EntityId): void 
   const r = rel(session);
   const gate = r.edge(npcId, PLAYER); gate.trust = 0.95; gate.affinity = 0.95; gate.threat = 0.05;
   const moved = r.edge(PLAYER, npcId); moved.trust = 0.55; moved.affinity = 0.55; moved.threat = 0.2;
-  for (let i = 0; i < 3; i++) session.makeDeal({ with: npcId, kind: "final-two", terms: "ride or die" });
+  for (const kind of ["final-two", "safety", "vote"] as const) session.makeDeal({ with: npcId, kind, terms: "ride or die" }); // ORW-727: one live deal per pair and kind, so the goodwill is three DIFFERENT open pacts
 }
 
 /** Set a houseguest up as a manipulator (high threat, no warmth) so `confide` fabricates a LIE (mirror
@@ -98,6 +98,7 @@ function learnSecretAbout(session: GameSessionAdapter, sb: ReturnType<typeof bui
   return fact.factId ?? fact.id;
 }
 
+// ORW-727: these use `target-other` (a repeatable kind) because one live safety / vote / final-two deal per pair is now the rule, so a duplicate of those is refused, not created.
 describe("A10/#591 — makeDeal is at-most-once per idempotencyKey", () => {
   it("a REPEAT key returns the prior deal and creates it exactly ONCE (no duplicate, no double-fold)", async () => {
     const { server, session } = playerServer(1);
@@ -105,11 +106,11 @@ describe("A10/#591 — makeDeal is at-most-once per idempotencyKey", () => {
     session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const target = session.livingIds().find((id) => id !== PLAYER)!;
 
-    const first = (await server.callTool("makeDeal", { with: target, kind: "safety", terms: "keep me safe", idempotencyKey: "D1" })) as DealView;
+    const first = (await server.callTool("makeDeal", { with: target, kind: "target-other", terms: "keep me safe", idempotencyKey: "D1" })) as DealView;
     expect(first?.id).toBeTruthy();
     const dealsAfterOne = openDeals(session);
 
-    const second = (await server.callTool("makeDeal", { with: target, kind: "safety", terms: "keep me safe", idempotencyKey: "D1" })) as DealView;
+    const second = (await server.callTool("makeDeal", { with: target, kind: "target-other", terms: "keep me safe", idempotencyKey: "D1" })) as DealView;
     expect(second.id).toBe(first.id);                 // the SAME deal, not a second one
     expect(openDeals(session)).toBe(dealsAfterOne); // no duplicate deal created
   });
@@ -119,9 +120,9 @@ describe("A10/#591 — makeDeal is at-most-once per idempotencyKey", () => {
     session.createCharacter({ playerName: "The Player", seed: 2 });
     session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const target = session.livingIds().find((id) => id !== PLAYER)!;
-    await server.callTool("makeDeal", { with: target, kind: "safety", terms: "keep me safe" });
+    await server.callTool("makeDeal", { with: target, kind: "target-other", terms: "keep me safe" });
     const afterOne = openDeals(session);
-    await server.callTool("makeDeal", { with: target, kind: "safety", terms: "keep me safe" });
+    await server.callTool("makeDeal", { with: target, kind: "target-other", terms: "keep me safe" });
     expect(openDeals(session)).toBe(afterOne + 1); // the legacy double-apply (a duplicate deal)
   });
 });
@@ -218,7 +219,7 @@ describe("A10/#591 — the shared ledger is NAMESPACED by lever (no cross-lever 
     const bondBefore = edge(session, PLAYER, npcId);
 
     // Lever 1: makeDeal with the shared key — creates a deal, caches under `makeDeal:SHARED`.
-    const deal = (await server.callTool("makeDeal", { with: npcId, kind: "safety", terms: "keep me safe", idempotencyKey: "SHARED" })) as DealView;
+    const deal = (await server.callTool("makeDeal", { with: npcId, kind: "target-other", terms: "keep me safe", idempotencyKey: "SHARED" })) as DealView;
     expect(deal?.id).toBeTruthy();
     expect(openDeals(session)).toBe(dealsBefore + 1);
 
@@ -237,7 +238,7 @@ describe("A10/#591 — the shared ledger is NAMESPACED by lever (no cross-lever 
     const npcId = session.livingIds().find((id) => id !== PLAYER)!;
     earnFullConfidence(session, npcId);
 
-    await server.callTool("makeDeal", { with: npcId, kind: "safety", terms: "keep me safe", idempotencyKey: "K" });
+    await server.callTool("makeDeal", { with: npcId, kind: "target-other", terms: "keep me safe", idempotencyKey: "K" });
     const first = (await server.callTool("confide", { npcId, idempotencyKey: "K" })) as ConfideResult;
     const afterConfide = edge(session, PLAYER, npcId);
     const second = (await server.callTool("confide", { npcId, idempotencyKey: "K" })) as ConfideResult; // repeat confide+K
@@ -275,13 +276,13 @@ describe("A10/#591 — the REAL relationship fold (not just record-creation) is 
     const factId = learnSecretAbout(session, sb, partner); // leverage is about the deal PARTNER
     const before = edge(session, partner, PLAYER);         // the leverage fold moves the partner's read of the player
 
-    const first = (await server.callTool("makeDeal", { with: partner, kind: "safety", terms: "keep me safe", leverage: { factId }, idempotencyKey: "L1" })) as DealView;
+    const first = (await server.callTool("makeDeal", { with: partner, kind: "target-other", terms: "keep me safe", leverage: { factId }, idempotencyKey: "L1" })) as DealView;
     expect(first?.id).toBeTruthy();
     const afterOne = edge(session, partner, PLAYER);
     expect(afterOne).not.toEqual(before);                  // the leverage squeeze actually folded (a REAL fold, not just the deal row)
     const dealsAfterOne = openDeals(session);
 
-    const second = (await server.callTool("makeDeal", { with: partner, kind: "safety", terms: "keep me safe", leverage: { factId }, idempotencyKey: "L1" })) as DealView;
+    const second = (await server.callTool("makeDeal", { with: partner, kind: "target-other", terms: "keep me safe", leverage: { factId }, idempotencyKey: "L1" })) as DealView;
     expect(second.id).toBe(first.id);
     expect(edge(session, partner, PLAYER)).toEqual(afterOne); // the squeeze did NOT fold a second time
     expect(openDeals(session)).toBe(dealsAfterOne);          // and no duplicate deal
@@ -313,7 +314,7 @@ describe("A10/#591 — an EMPTY idempotencyKey is rejected (it identifies no ope
     session.createCharacter({ playerName: "The Player", seed: 1 });
     session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const npcId = session.livingIds().find((id) => id !== PLAYER)!;
-    await expect(server.callTool("makeDeal", { with: npcId, kind: "safety", terms: "x", idempotencyKey: "" })).rejects.toThrow(/idempotencyKey/);
+    await expect(server.callTool("makeDeal", { with: npcId, kind: "target-other", terms: "x", idempotencyKey: "" })).rejects.toThrow(/idempotencyKey/);
     await expect(server.callTool("confide", { npcId, idempotencyKey: "" })).rejects.toThrow(/idempotencyKey/);
   });
 
@@ -324,8 +325,8 @@ describe("A10/#591 — an EMPTY idempotencyKey is rejected (it identifies no ope
     session.setNpcDealConsentEnabled(false); // these tests exercise deal MECHANICS, not NPC consent (dealConsent*.test.ts cover that)
     const target = session.livingIds().find((id) => id !== PLAYER)!;
     const before = openDeals(session);
-    session.makeDeal({ with: target, kind: "safety", terms: "a", idempotencyKey: "" });
-    session.makeDeal({ with: target, kind: "safety", terms: "b", idempotencyKey: "" });
+    session.makeDeal({ with: target, kind: "target-other", terms: "a", idempotencyKey: "" });
+    session.makeDeal({ with: target, kind: "target-other", terms: "b", idempotencyKey: "" });
     expect(openDeals(session)).toBe(before + 2); // two distinct deals — the empty key never de-duped them
   });
 });

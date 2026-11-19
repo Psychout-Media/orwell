@@ -264,7 +264,7 @@ describe("a simulated season of deals: the open bound is never reached", () => {
         day = d;
         const wa = g.movePlayer(["living-room", "kitchen", "backyard", "bedroom", "bathroom"][rng.int(5)]!);
         const people = (wa?.present ?? []).map((p) => p.id as string).filter((x) => x !== ME);
-        for (let k = 0; k < 6 && people.length; k++) {
+        for (let k = 0; k < 12 && people.length; k++) { // ORW-727: twelve tries a day, since a repeat of a live deal or an unkeepable vote term is now refused (fewer land)
           const out = g.makeDeal({ with: people[rng.int(people.length)] as never, kind: ["safety", "vote", "final-two"][rng.int(3)] as never, terms: `day ${d} deal ${k}` });
           if (out && !("refused" in out)) made++;
         }
