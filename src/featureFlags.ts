@@ -58,6 +58,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'defaultOn' },
   // ORW-624: the audience outside - a simulated public that judges from what would make the edit; felt as the crowd at a walk-out, a fan reward, America's Favorite. `=0` = no public.
   { envKey: 'ORWELL_AUDIENCE', key: 'audience', parser: 'defaultOn' },
+  // ORW-688: a houseguest who just traded a secret, or who was burned (a broken deal, an exposed secret, a betrayal), trades less, and the appetite comes back with the days; scales the fire chance after the draws, so the dedicated stream is unchanged. Played games only. `=0` = today's volume.
+  { envKey: 'ORWELL_BARTER_APPETITE', key: 'barterAppetite', parser: 'defaultOn' },
   // A65: the engine-side schedule gate - an ordinary advanceGame before the next milestone is due returns a typed `held` and commits nothing. ON by default (see ORWELL_ADVANCE_GATE below); `=0` turns it off.
   // Bedtime gate: `turnIn` in the morning or afternoon is refused with a typed `held` (nothing commits). ON by default.
   { envKey: 'ORWELL_BEDTIME_GATE', key: 'bedtimeGate', parser: 'defaultOn' },
@@ -270,6 +272,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_ROOM_LIFE', key: 'roomLife', parser: 'defaultOn' },
   // 0209 / ORW-651 (Ryne approved 2026-11-17): each houseguest's routines (a time, a place, an act, composed from the character) shape where they are and what they do in a free hour, replacing the named-habit pull; the player learns one by seeing it on three separate days. Played games only; `=0` = the old habit branch.
   { envKey: 'ORWELL_ROUTINES', key: 'routines', parser: 'defaultOn' },
+  // ORW-688: a scene or thread rumor carries who it is ABOUT, so barter (0099), leverage (0202) and the night it all comes out (0204) can match it; an old save's rumors are backfilled from their own fields. Played games only. ON by default; `=0` leaves rumors subject-less (byte-identical).
+  { envKey: 'ORWELL_RUMOR_SUBJECTS', key: 'rumorSubjects', parser: 'defaultOn' },
   // ORW-578 (b): a reason an NPC gave aloud at a public act is kept as a witnessed event (the said kind in words only; never the real reason). ON by default; `=0` turns it off.
   { envKey: 'ORWELL_SAID_ALOUD_MEMORY', key: 'saidAloudMemory', parser: 'defaultOn' },
   { envKey: 'ORWELL_SCHEME_TARGETS',         key: 'schemeTargets',          parser: 'defaultOn' },
