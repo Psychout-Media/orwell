@@ -117,7 +117,7 @@ export interface RealReason {
 
 /** What a houseguest SAYS their reason was. A closed set the narrator voices in the houseguest's own words. */
 export type StatedReasonKind =
-  | "biggest-threat"      // "you're the biggest threat in this house"
+  | "biggest-threat"      // they see the person named as the biggest threat
   | "came-after-me"       // "you came after me first"
   | "loyal-to-my-side"    // "I had to protect my people"
   | "pawn-youll-be-fine"  // "you're a pawn, you'll be fine"

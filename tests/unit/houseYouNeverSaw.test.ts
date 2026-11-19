@@ -18,7 +18,7 @@ import { PLAYER } from "../../src/domain/ids";
 afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(false));
 type Live = { agendas?: Record<string, Agenda>; statedReasons?: StatedReasonRecord[]; evictionOrder: string[]; finished?: boolean; voteRecord?: Array<{ week: number; evictee: string }>; npcMindsAuthored?: { reflections?: Record<string, Array<{ night: number; text: string }>> } };
 const live = (s: GameSessionAdapter): Live => (s as unknown as { live: Live }).live;
-const COVER_LINE = "it is purely strategic, nothing personal";
+const COVER_LINE = "they call it purely strategic, nothing personal";
 
 function plant(s: GameSessionAdapter): { con: string; liar: string; early: string; mark: string } {
   const l = live(s);
