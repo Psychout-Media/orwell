@@ -44,8 +44,11 @@ export interface Summary {
   tools: Array<{ tool: string; tried: number; refused: number; noEffect: number }>;
   restarts: RestartResult[];
   determinism: Inputs["determinism"];
-  mixByWeek: Array<{ week: number; n: number; bonding: number; strategy: number; gossip: number; conflict: number }>;
+  mixByWeek: MixRow[];
+  /** the same, counting the scenes after the player left the game too (the house a spectator watches) */
+  mixByWeekAll: MixRow[];
 }
+export type MixRow = { week: number; n: number; bonding: number; strategy: number; gossip: number; conflict: number };
 
 const median = (xs: number[]): number | null => { if (!xs.length) return null; const s = [...xs].sort((a, b) => a - b); return s[s.length >> 1]!; };
 const safe = (s: string): string => (/^[A-Za-z0-9:_.\- ]{1,64}$/.test(s) ? s : "(other)"); // a kind is a short token; anything else is bucketed, never printed
@@ -85,9 +88,9 @@ export function buildSummary(inp: Inputs): Summary {
     if (r.stopped === "stalled") loops.push({ seed: r.seed, what: `no progress for 3000 messages (week ${r.week})` });
     if (r.stopped === "cap") loops.push({ seed: r.seed, what: `season did not finish within ${r.messages} messages (week ${r.week}), no crown` });
   }
-  const all: MixScene[] = rs.flatMap((r) => r.scenes).filter((s) => !s.playerOut);
-  const weeks = [...new Set(all.map((s) => s.week))].sort((a, b) => a - b);
-  const mixByWeek = weeks.map((w) => { const m = mixShares(all.filter((s) => s.week === w)); return { week: w, n: m.n, bonding: +m.bonding.toFixed(1), strategy: +m.strategy.toFixed(1), gossip: +m.gossip.toFixed(1), conflict: +m.conflict.toFixed(1) }; });
+  const everyScene: MixScene[] = rs.flatMap((r) => r.scenes);
+  const byWeek = (scenes: MixScene[]): MixRow[] => [...new Set(scenes.map((s) => s.week))].sort((a, b) => a - b).map((w) => { const m = mixShares(scenes.filter((s) => s.week === w)); return { week: w, n: m.n, bonding: +m.bonding.toFixed(1), strategy: +m.strategy.toFixed(1), gossip: +m.gossip.toFixed(1), conflict: +m.conflict.toFixed(1) }; });
+  const mixByWeek = byWeek(everyScene.filter((s) => !s.playerOut)), mixByWeekAll = byWeek(everyScene);
   const ev = perSeason(rs, (r) => r.eventTypes), hl = perSeason(rs, (r) => r.houseLifeActions);
   return {
     date: inp.date,
@@ -99,7 +102,7 @@ export function buildSummary(inp: Inputs): Summary {
     stateKeysNeverPopulated: [...seenKeys].filter((k) => !popKeys.has(k)).sort(),
     faults: [...faults.values()], crashes: [...crashes.values()], loops,
     tools: [...tools.entries()].map(([tool, v]) => ({ tool, ...v })).sort((a, b) => (a.tool < b.tool ? -1 : 1)),
-    restarts: inp.restarts, determinism: inp.determinism, mixByWeek,
+    restarts: inp.restarts, determinism: inp.determinism, mixByWeek, mixByWeekAll,
   };
 }
 
@@ -146,7 +149,8 @@ export function renderMarkdown(s: Summary, d: Diff): string {
   L.push(tbl(["seed", "restart at message", "result", "restarted season"], s.restarts.map((r) => [r.seed, r.point, r.verdict === "identical" ? "identical" : `${r.verdict === "state-lost" ? "STATE LOST" : "continues differently"}: first difference at message ${r.difference?.at ?? "-"} (${r.difference?.field ?? "events fell"})`, r.finished ? "finished" : "DID NOT FINISH"])), "");
   L.push("\"continues differently\" is expected: the off-screen random stream restarts from its seed and is not saved, so a restarted season is not byte-identical from the first tick after the restart. \"STATE LOST\" (a difference at or before the restart, or the event count falling) is the finding.", "", "Masked before comparing (listed so nothing hides silently):", ...MASKS.map((m) => `- \`${m.key}\`: ${m.why}`));
   L.push("", "## 4. House mix by week (information only; the agreed whole-season target comes from ORW-702)", "", `Guard week-1 reference: ${GUARD_REFERENCE.bonding} / ${GUARD_REFERENCE.strategy} / ${GUARD_REFERENCE.gossip} / ${GUARD_REFERENCE.conflict} (bonding / strategy / gossip / conflict, percent).`, "");
-  L.push(tbl(["week", "scenes", "bonding", "strategy", "gossip", "conflict"], s.mixByWeek.map((m) => [m.week, m.n, pct(m.bonding), pct(m.strategy), pct(m.gossip), pct(m.conflict)])));
+  const mixRows = (rows: MixRow[]): string => tbl(["week", "scenes", "bonding", "strategy", "gossip", "conflict"], rows.map((m) => [m.week, m.n, pct(m.bonding), pct(m.strategy), pct(m.gossip), pct(m.conflict)]));
+  L.push("While the player is still in the game:", "", mixRows(s.mixByWeek), "", "Every scene, including the weeks after the player left (the house a spectator watches):", "", mixRows(s.mixByWeekAll));
   L.push("", "## 1. What fired", "", "A flag FIRES when playing a season with it turned the other way from its default changes the played game (the event stream or the saved state) from some message on; ZERO means no change in any measured season. First fire is the median message where the two games first differ. Flags are discovered from the registry, not listed by hand.", "");
   L.push(`### Zero or near-zero flags (${zero.length})`, "");
   L.push(zero.length ? tbl(["flag", "default", "source", "specs", "themes"], zero.map((f) => [`\`${f.envKey}\``, f.defaultOn ? "ON" : "off", f.source, f.specs.join(" ") || "-", f.themes.join(" ") || "-"])) : "none", "");

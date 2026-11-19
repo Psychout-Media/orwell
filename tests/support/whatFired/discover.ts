@@ -65,7 +65,7 @@ export function discoverFeatures(root: string = ROOT): FeatureInfo[] {
     const m = /^(\d{4})-(.+)\.md$/.exec(f);
     if (!m) continue;
     const text = readFileSync(join(dir, f), "utf8");
-    const title = (/^#\s+(.+)$/m.exec(text)?.[1] ?? m[2]!).replace(/^\d{4}\s*[-:]?\s*/, "").slice(0, 110);
+    const title = (/^#\s+(.+)$/m.exec(text)?.[1] ?? m[2]!).replace(/^\d{4}\s*[-:\u2014\u2013]?\s*/, "").slice(0, 110);
     const status = (/^Status:\s*(.+)$/m.exec(text)?.[1] ?? "").slice(0, 80);
     out.push({ id: m[1]!, slug: m[2]!, title, hasFeatureFile: existsSync(join(dir, f.replace(/\.md$/, ".feature"))), status });
   }
