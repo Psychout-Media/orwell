@@ -33,7 +33,7 @@ export interface KnowledgeService {
    */
   surfaceInformationTo(
     entity: EntityId,
-    fact: { content: string; subject?: EntityId; confidence?: number },
+    fact: { content: string; subject?: EntityId; confidence?: number; /** ORW-688: the lineage this surfacing belongs to (so a record with a subject also has a lineage the secret consumers can count). Absent => lineage-less, as before. */ factId?: string },
     pathway: string,
   ): KnowledgeFact | null;
 

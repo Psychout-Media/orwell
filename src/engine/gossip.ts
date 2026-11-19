@@ -1,4 +1,5 @@
 import type { KnowledgeService } from "../ports/KnowledgeService";
+import type { KnowledgeFact, KnowledgeSnapshot } from "../domain/knowledge";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import type { EntityId } from "../domain/ids";
 import { PLAYER } from "../domain/ids";
@@ -115,6 +116,29 @@ export const RUMOR_GLOSS: Record<string, string> = {
  */
 export function rumorFrom(initiator: EntityId, partner: EntityId, type: string): string {
   return `word around the house is that ${initiator} and ${partner} are ${RUMOR_GLOSS[type] ?? "up to something"}`;
+}
+
+/**
+ * ORW-688: who a scene rumor is ABOUT, from the scene's own two names: the one who is not the origin (the teller does not gossip about themselves), else the first. Pure, no rng.
+ * The same derivation backfills an old save's rumor (its `fact:<origin>:<n>` lineage id names the origin; its undrifted `originalContent` names the pair).
+ */
+export function rumorSubjectOf(origin: EntityId, pair: readonly EntityId[]): EntityId | undefined {
+  return pair.find((x) => x !== origin) ?? pair[0];
+}
+const SCENE_RUMOR = /^word around the house is that (\S+) and (\S+) are /;
+/** ORW-688: an old save's scene rumors gain the subject they were always about (append-only: only a missing `subject` is filled, nothing else is touched or removed). */
+export function backfillRumorSubjects(snap: KnowledgeSnapshot): KnowledgeSnapshot {
+  const knowledge: Record<EntityId, KnowledgeFact[]> = {};
+  for (const [holder, facts] of Object.entries(snap.knowledge)) {
+    knowledge[holder] = facts.map((f) => {
+      if (f.subject !== undefined || !f.factId?.startsWith("fact:")) return f;
+      const origin = f.factId.split(":")[1];
+      const m = SCENE_RUMOR.exec(f.originalContent ?? f.content);
+      const subject = origin && m ? rumorSubjectOf(origin, [m[1]!, m[2]!]) : undefined;
+      return subject === undefined ? f : { ...f, subject };
+    });
+  }
+  return { ...snap, knowledge };
 }
 
 /**
@@ -283,7 +307,8 @@ export function diffuseGossip(deps: {
   graph: SocialGraph;
   rng: RandomnessSource;
   origin: EntityId;
-  fact: { content: string };
+  /** ORW-688: `subject` = who the rumor is ABOUT (engine-only knowledge metadata; every holder's copy carries it, so the secret consumers can key on it). ABSENT => subject-less, byte-identical. */
+  fact: { content: string; subject?: EntityId };
   rounds: number;
   transmitProb?: number;
   decay?: number;
@@ -337,7 +362,7 @@ export function diffuseGossip(deps: {
   if (!originHolds) {
     knowledge.seedBelief(
       origin,
-      { content: original, originalContent: original, factId, confidence: 1, hops: 0, distortion: 0, source: origin },
+      { content: original, originalContent: original, factId, confidence: 1, hops: 0, distortion: 0, source: origin, ...(fact.subject !== undefined ? { subject: fact.subject } : {}) },
       "origin",
     );
   }
@@ -432,6 +457,7 @@ export function diffuseGossip(deps: {
             content: distort(believedContent, driftRng, hedge),
             originalContent: original,
             factId,
+            ...(fact.subject !== undefined ? { subject: fact.subject } : {}),
             confidence,
             source: from,
             hops,

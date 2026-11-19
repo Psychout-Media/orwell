@@ -10,7 +10,7 @@ import { overheardLine } from "../engine/houseLife";
 import { spreadForScenes } from "../engine/copresenceSpread";
 import type { NetworkRoles } from "../engine/networkSpread";
 import { natureFromContent } from "../engine/gossipBeliefs";
-import { diffuseGossip, makeSocialGraph, rumorFrom, gossipEdgeAffinity, GOSSIP } from "../engine/gossip";
+import { diffuseGossip, makeSocialGraph, rumorFrom, rumorSubjectOf, gossipEdgeAffinity, GOSSIP } from "../engine/gossip";
 import { confessionalFor, recordConfessional, selectRecentForConfessional } from "../engine/confessionals";
 import { nextHouseEvent, dayOfWeek } from "../engine/houseEvents";
 import { SOCIETY_TICK_HOURS } from "../engine/sleepConstants";
@@ -1096,7 +1096,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
         graph: makeSocialGraph(edges),
         rng,
         origin: scene.initiator,
-        fact: { content: rumorFrom(scene.initiator, scene.partner, scene.type) },
+        fact: { content: rumorFrom(scene.initiator, scene.partner, scene.type), ...(sandbox.session.rumorSubjectsEnabledNow() ? { subject: rumorSubjectOf(scene.initiator, [scene.initiator, scene.partner])! } : {}) },
         rounds: GOSSIP.rounds,
         transmitProb: GOSSIP.transmitProb,
         decay: GOSSIP.decay,

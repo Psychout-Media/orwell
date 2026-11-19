@@ -17,7 +17,7 @@ import { SEEDED_TIE_SURFACING } from "../engine/seededRelationshipConstants";
 import {
   PRIVATE_ORIENTATION_KIND, privateOrientationVaultId, privateOrientationToVaultContent,
 } from "../engine/diversity";
-import { diffuseGossip, makeSocialGraph, GOSSIP, spreadReliableReputation } from "../engine/gossip";
+import { diffuseGossip, makeSocialGraph, GOSSIP, spreadReliableReputation, backfillRumorSubjects } from "../engine/gossip";
 import { reliableFactId, reliableHonorerFrom } from "../domain/deal";
 import { recallWitnessedMoments } from "../engine/memoryCallback";
 import type { EntityId } from "../domain/ids";
@@ -309,7 +309,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
       graph: makeSocialGraph(edges),
       rng: new SeededRandom(hashSeed(`${core.seed ?? user}:thread-gossip:${subject}:${core.week}`)),
       origin,
-      fact: { content: rumor },
+      fact: { content: rumor, ...(session.rumorSubjectsEnabledNow() ? { subject } : {}) },
       rounds: GOSSIP.rounds,
       transmitProb: GOSSIP.transmitProb,
       decay: GOSSIP.decay,
@@ -384,7 +384,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
     if (!confidant) return false;
     const factId = `thread-belief:${subject}:${engine.events.count()}`;
     // The confidant first HOLDS the rumor (an origin belief), so the told-by pathway is content-anchored.
-    engine.knowledge.seedBelief(confidant, { content: rumor, originalContent: rumor, factId, confidence: 0.6, hops: 1, distortion: 1, source: confidant }, "origin");
+    engine.knowledge.seedBelief(confidant, { content: rumor, originalContent: rumor, factId, confidence: 0.6, hops: 1, distortion: 1, source: confidant, ...(session.rumorSubjectsEnabledNow() ? { subject } : {}) }, "origin");
     const fact = engine.knowledge.surfaceInformationTo(PLAYER, { content: rumor, subject, confidence: 0.5 * (confidenceScale ?? 1) }, `told-by:${confidant}`); // ORW-687: a slanted drip is taken at the spin confidence; absent => 0.5 exactly
     return fact !== null;
   });
@@ -403,7 +403,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
     const confidant = session.awakeAmong(core.house.npcs.map((n) => n.id)).find((id) => id !== subject && !evicted.has(id));
     if (!confidant) return false;
     const factId = `tie-belief:${subject}:${engine.events.count()}`;
-    engine.knowledge.seedBelief(confidant, { content: observation, originalContent: observation, factId, confidence: 0.6, hops: 1, distortion: 1, source: confidant }, "origin");
+    engine.knowledge.seedBelief(confidant, { content: observation, originalContent: observation, factId, confidence: 0.6, hops: 1, distortion: 1, source: confidant, ...(session.rumorSubjectsEnabledNow() ? { subject } : {}) }, "origin");
     const fact = engine.knowledge.surfaceInformationTo(PLAYER, { content: observation, subject, confidence: SEEDED_TIE_SURFACING.surfacedConfidence }, `told-by:${confidant}`);
     return fact !== null;
   });
@@ -414,7 +414,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // believes it); only the engine knows it is false.
   session.setOnConfide((npcId, content, confidence) => {
     const factId = `confide:${npcId}:${engine.events.count()}`;
-    engine.knowledge.seedBelief(npcId, { content, originalContent: content, factId, confidence: 0.9, hops: 0, distortion: 0, source: npcId }, "origin");
+    engine.knowledge.seedBelief(npcId, { content, originalContent: content, factId, confidence: 0.9, hops: 0, distortion: 0, source: npcId, ...(session.rumorSubjectsEnabledNow() ? { subject: npcId } : {}) }, "origin");
     const fact = engine.knowledge.surfaceInformationTo(PLAYER, { content, subject: npcId, confidence }, `told-by:${npcId}`);
     return fact !== null;
   });
@@ -443,10 +443,13 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // pathway (the player is the source). The recipient first HOLDS the content (a seeded origin belief so
   // the told-by/overheard pathway is content-anchored, E9), then it surfaces as their KNOWLEDGE — never a
   // Vault read. Mirrors `setOnConfide`. Returns whether they came to hold it.
-  session.setOnSurfaceToHouseguest((npcId, content, subject, pathway, confidence) => {
-    const factId = `secret-power:${npcId}:${engine.events.count()}`;
-    engine.knowledge.seedBelief(npcId, { content, originalContent: content, factId, confidence: 0.9, hops: 0, distortion: 0, source: PLAYER }, "origin");
-    const fact = engine.knowledge.surfaceInformationTo(npcId, { content, subject, confidence }, pathway);
+  session.setOnSurfaceToHouseguest((npcId, content, subject, pathway, confidence, lineage) => {
+    // ORW-688: with a lineage (the player's own fact id) every recipient of the SAME secret holds ONE lineage (so enough holders can be counted, and an exposed one is known to be out), and the record
+    // carries who it is about. No lineage (a bluff, or the flag off) => the old per-recipient id, subject-less, byte-identical.
+    const factId = lineage ?? `secret-power:${npcId}:${engine.events.count()}`;
+    const holds = lineage !== undefined && engine.knowledge.knownTo(npcId).some((k) => k.factId === lineage);
+    if (!holds) engine.knowledge.seedBelief(npcId, { content, originalContent: content, factId, confidence: 0.9, hops: 0, distortion: 0, source: PLAYER, ...(lineage !== undefined && subject !== undefined ? { subject } : {}) }, "origin");
+    const fact = engine.knowledge.surfaceInformationTo(npcId, { content, subject, confidence, ...(lineage !== undefined ? { factId } : {}) }, pathway);
     return fact !== null;
   });
   // Weekly-loop beats (0011) are player-witnessed events: record them so they enter the
@@ -560,7 +563,7 @@ function importSnapshot(sb: UserSandbox, snap: SessionSnapshot): void {
   for (const e of snap.events) sb.engine.events.restoreRecord(e); // ids/ts/hidden preserved exactly
   sb.engine.relationships.load(snap.relationships);
   sb.commands.restoreFoldMeter(snap.foldMeter);
-  if (snap.knowledge) sb.engine.knowledge.load(snap.knowledge);
+  if (snap.knowledge) sb.engine.knowledge.load(sb.session.rumorSubjectsBackfillEnabled() ? backfillRumorSubjects(snap.knowledge) : snap.knowledge);
   for (const r of snap.vault ?? []) sb.engine.vault.writeHidden(r); // the producer's secrets resume sealed
   // 0065 Part E — the events are now loaded: seed the delta ring's BASELINE at the resumed beatSeq so the
   // first delta a resumed session serves (keyed on the resumed token) slices its tail instead of looping
