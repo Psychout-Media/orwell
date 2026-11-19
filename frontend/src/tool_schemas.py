@@ -1885,7 +1885,7 @@ FUNCTION_TOOL_SCHEMAS = [
                             "back in chat. This ends the finished season and starts a fresh one; the front "
                             "end advances their season counter. Omit it during a normal first-time casting "
                             "(it no-ops/refuses on a started game). Never use it to reset a LIVE season — "
-                            "a mid-season restart is a settings 'red zone' action, never a chat one."
+                            "a mid-season restart is the player's own confirmed act in the app (New Chat or Settings), never a chat one."
                         ),
                     },
                     "keepCharacter": {

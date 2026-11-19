@@ -65,3 +65,6 @@ Returning houseguests are built: the per-user `UserSeasonArchive` (engine-only, 
 
 ## Amendment 2026-11-19 (ORW-690)
 A returning houseguest's public persona is not re-authored by the cast-profile write-back: the engine drops the public facets of that write for a returner (hidden fields still apply). Test: `tests/unit/returnerPersonaGuard.test.ts`.
+
+## Amendment 2026-11-19 (ORW-713)
+A season the player ends mid-way (New Chat -> "End this season and start a new one", see 0057) is abandoned, not finished: `hallRecordDraft` and `archiveFinishedSeason` both require a finished, played season, so it earns no hall-of-fame record and adds no returner. Conservative reading of this spec; giving an abandoned season a hall entry would be a one-line change to those guards. Test: `tests/unit/abandonSeason713.test.ts`.
