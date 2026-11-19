@@ -68,7 +68,7 @@ export type Trigger = "player-turn" | "offscreen-tick" | "audit";
 export interface Fault {
   when: number;
   /** `persist-failure` is its OWN class (audit E7): a disk failure is never misread as degradation. */
-  kind: "degradation" | "no-daily-event" | "vault-leak" | "persist-failure";
+  kind: "degradation" | "no-daily-event" | "vault-leak" | "persist-failure" | "tick-failure";
   /** ORW-321: the NAME of the first failing invariant (a field / count name only - never game content or a Vault value), so a refusal is diagnosable in one look. */
   detail?: string;
 }
@@ -287,7 +287,26 @@ export class Orchestrator {
    * breaker (God Mode's corruption alarm) honors the same split.
    */
   private static isStateFault(kind: Fault["kind"]): boolean {
-    return kind !== "persist-failure";
+    return kind !== "persist-failure" && kind !== "tick-failure";
+  }
+
+  /**
+   * ORW-701 part 3: a supplementary off-screen tick THREW. The tick is enrichment riding on a player turn
+   * that already committed and saved, so it must never fail that turn or leave half-applied state: roll the
+   * sandbox back to the committed baseline, record a typed `tick-failure` fault (kind only: no message, no
+   * detail, nothing from the throw, so nothing hidden can reach a health read) and carry on. Environmental
+   * like a persist-failure: it neither advances nor resets the corruption streak. A tick that keeps throwing
+   * is contained and rolled back every turn; the fault ring is capped, so it cannot grow.
+   */
+  private containTickThrow(user: string, trigger: Trigger, restoreTo: SessionSnapshot): Fault[] {
+    const when = this.clock.now();
+    const f: Fault[] = [{ when, kind: "tick-failure" }];
+    try { this.registry.restore(user, restoreTo); } catch { /* best effort; the committed save on disk is intact */ }
+    this.logFaults(user, trigger, f);
+    const prior = this.health.get(user);
+    this.recordHealth(user, this.registry.sandboxFor(user), trigger, when, "fault",
+      [...(prior?.faults ?? []), ...f].slice(-Orchestrator.MAX_STORED_FAULTS));
+    return f;
   }
 
   /** Advance the consecutive-STATE-fault streak for a fault batch (persist-failures don't move it). */
@@ -346,7 +365,17 @@ export class Orchestrator {
     let produced = 0;
     if (trigger !== "audit") {
       // ORW-529 settleOnly: the overnight settle already ran (outside the commit seam) and no society tick runs, so the checkpoint + save below persist it.
-      if (!opts.settleOnly) produced = this.applyFn(sandbox, trigger, opts.rng ?? this.rngFor(user), this.clock.now(), this.offscreenInteractions);
+      if (!opts.settleOnly) {
+        if (opts.supplementary) {
+          try {
+            produced = this.applyFn(sandbox, trigger, opts.rng ?? this.rngFor(user), this.clock.now(), this.offscreenInteractions);
+          } catch {
+            // ORW-701 part 3: the supplementary tick threw (see containTickThrow): never fail the committed player turn.
+            this.registry.invalidateSnapshot(user);
+            return { events: 0, integrity: "fault", faults: this.containTickThrow(user, trigger, baseline) };
+          }
+        } else produced = this.applyFn(sandbox, trigger, opts.rng ?? this.rngFor(user), this.clock.now(), this.offscreenInteractions);
+      }
       // R3 — `applyFn` mutated the sandbox OUTSIDE the `commit` seam (it never fires `onPersist`), so the
       // registry's snapshot cache must be invalidated before we read the candidate, or it would hand back
       // the pre-tick capture. (An `audit` produces nothing, so its candidate IS the current cache.)
@@ -448,7 +477,15 @@ export class Orchestrator {
       this.consecutiveFaults.set(user, 0); // a good player turn closes the circuit (B58/E6)
       this.baselines.set(user, candidate);
       this.touch(user);
-      this.maybeTurnDrivenTick(user, baseline, candidate); // may record an offscreen-tick health entry…
+      try {
+        this.maybeTurnDrivenTick(user, baseline, candidate); // may record an offscreen-tick health entry…
+      } catch {
+        // ORW-701 part 3: any other throw out of the supplementary seam (settle, clock bill, a later tick) is contained too:
+        // restore the committed turn exactly (and re-save it so disk and memory agree if an earlier tick already saved).
+        this.containTickThrow(user, "offscreen-tick", candidate);
+        try { this.registry.saveUser(user, candidate); } catch { /* disk blip: the committed turn is already saved */ }
+        this.baselines.set(user, candidate);
+      }
       this.recordHealth(user, this.registry.sandboxFor(user), "player-turn", when, "ok"); // …player-turn has the last word
       return;
     }
