@@ -7943,6 +7943,8 @@ export class GameSessionAdapter implements GameSession {
     return set;
   }
   private awakeSetNow(live: LiveSeasonState, house: NonNullable<GameSessionAdapter["house"]>): Set<EntityId> {
+    // ORW-696 (B2-2): on a double-eviction long night nobody turns in until it is over (turn-in is held for the player; the house is awake too), so no bedtime applies.
+    if (longNightRunning(live)) return new Set(this.presenceActive().filter((id) => id !== house.player.id || !(live.playerRetired ?? false)));
     const hour = live.nightDepth ?? WAKE_HOUR; // the clock-HOUR (8..32) — the 24-hour model (#1125)
     const up = awakeSet({
       active: this.presenceActive(),
