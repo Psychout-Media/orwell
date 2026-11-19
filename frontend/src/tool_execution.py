@@ -1702,6 +1702,9 @@ async def execute_tool_block(
         result = {"error": f"Unknown tool type: {tool}", "exit_code": 1}
 
     logger.info(f"Tool executed: {desc} -> exit_code={result.get('exit_code', 'n/a')}")
+    # ORW-706: a refused game-engine call said nothing about WHY in the journal (six refused recordInteraction calls left no reason). Log the engine's own refusal text, capped; it is Vault-free by construction.
+    if isinstance(result, dict) and result.get("exit_code") not in (None, 0, "n/a") and isinstance(result.get("error"), str) and str(tool) in ("recordInteraction", "makeDeal", "surfaceInformationTo"):
+        logger.warning("[orwell] %s refused: %s", tool, result["error"][:300])
     return desc, result
 
 
