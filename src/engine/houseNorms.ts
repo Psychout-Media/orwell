@@ -68,6 +68,8 @@ export const HERD = {
   dissentTrust: -0.03,
   /** Below this majority share (evict votes / voters) a split vote is just a split: no one is singled out. */
   dissentMinMajority: 0.6,
+  /** ORW-692: how sure a houseguest is of a campaign they heard first-hand (a fact to them, not a doubt to go asking around about). */
+  heardConfidence: 0.75,
 } as const;
 
 /** The voices `voter` holds for each nominee: distinct houseguests they heard are going after that nominee this week (never the voter themself). */

@@ -155,6 +155,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_HC_STRATEGY', key: 'hcStrategy', parser: 'defaultOn' },
   // B24 / #2017 14.5(5): what an NPC is TOLD about the player in a recorded chat scene (`recordInteraction.heardAboutMe`) writes a belief claim for each named listener at the teller's reliability, sometimes wrong by construction (seeded, bounded). Needs ORWELL_NPC_BELIEFS. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_HEARD_ABOUT_ME', key: 'heardAboutMe', parser: 'defaultOn' },
+  // ORW-692 (Fable bug scan B1-8): the herd's writer. A houseguest working to get a house nominee out, in a scene with another houseguest in a vote week, is HEARD doing it (the partner, and bystanders in the room on their own keyed roll), so the voices the herd counts (`heard-rumor` going-after, this week) can really arise. Needs ORWELL_NPC_BELIEFS and ORWELL_HOUSE_NORMS. A played game only. `=0` restores the old read byte for byte.
+  { envKey: 'ORWELL_HERD_VOICES', key: 'herdVoices', parser: 'defaultOn' },
   // 0173 (theme 3 slice 11): status and the HOH court - a hidden pecking order and informal leaders (never shown), houseguests seeking out the new HOH (the ones in danger most, the player-HOH too), a power vacuum when a leader leaves, and the third-person goal actions (campaign against, wedge, lobby for, count votes) moving the listener's read of the named person. A played game only. `=0` opts out.
   { envKey: 'ORWELL_HOH_COURT', key: 'hohCourt', parser: 'defaultOn' },
   // ORW-620 (spec 0192): late-night talks among the houseguests still awake, catchable by a player who stays up; sleepers never scheme. ON by default; `=0` turns it off.
@@ -215,6 +217,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_NIGHT_OWLS', key: 'nightOwls', parser: 'defaultOn' },
   // B49 / PO ruling card 24: the hard per-season counts (NPC confide lies 2, player exposes 3, trades 5) stop being a design rule - ON leaves only a high safety valve and an escalating, recipient-scaled REPETITION COST on each further expose/trade/lie by the same actor. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_NO_HARD_CAPS', key: 'noHardCaps', parser: 'defaultOn' },
+  // ORW-692 (Fable bug scan B1-10): the assurance vote shield's NPC-to-NPC writer. A nominee who calls in a favor or bargains with a houseguest who will vote is answered with an assurance on the ledger (kind vote, the engine's own sincerity), so a kept one can shield them at the vote. Needs ORWELL_ASSURANCES. A played game only. `=0` restores the old read byte for byte.
+  { envKey: 'ORWELL_NPC_ASSURANCES', key: 'npcAssurances', parser: 'defaultOn' },
   // #2017 S0a: the NPC belief store. Default-ON (PO ruling 2026-11-04, Ryne: "turn it on"); `=0`/`false`/`off` opts out, `ORWELL_FLAGS_OFF=1` forces off.
   { envKey: 'ORWELL_NPC_BELIEFS', key: 'npcBeliefs', parser: 'defaultOn' },
   // B3 / #2017 (+B3b vote term): the HOH nominates / the house votes from its BELIEF about who is targeting it (needs ORWELL_NPC_BELIEFS). Default-ON with it (PO 2026-11-04).
