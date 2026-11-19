@@ -146,6 +146,8 @@ import type { PlayerSaid, PlayerDid } from "../../engine/production";
 import { decideDiaryCall, awayHours, seenOf, callEventText, backEventText, playerVisitText, producerRegisterWords, type DiaryCallsState, type DiaryCallView } from "../../engine/diaryCalls";
 import { buildHouseStories } from "../../engine/houseStory";
 import type { StatedReasonView } from "../../ports/GameSession";
+import type { AskToTalkAloneReq, AskToTalkAloneResult } from "../../ports/GameSession";
+import { TALK_ALONE, decideTalkAlone, talkAloneRoom } from "../../engine/talkAlone";
 import { goalPull, explainDecision, voiceableReason, type GoalPull, type RealReason, type StatedReasonRecord } from "../../engine/agendaDecisions";
 import { memoryLine, fillSubject, appraiseGoal, mayShareCause } from "../../engine/innerLife";
 import type { GamePhilosophy } from "../../engine/philosophyConstants";
@@ -6574,6 +6576,7 @@ export class GameSessionAdapter implements GameSession {
       // 0123 (PO ruling 2026-11-01) — a standing NPC deal offer, voiced in-scene by the narrator (no card).
       // Present ONLY while one stands, so the flag-off payload is byte-identical (no `openDealOffer: null`).
       ...(this.live?.dealOffer || this.live?.votePitch ? { openDealOffer: this.openDealOfferView() } : {}),
+      ...(this.openTalkAskView() ? { openTalkAsk: this.openTalkAskView() } : {}), // ORW-727b: a houseguest's own ask for a private word, voiced in-scene (never a card)
       ...(this.live?.dealOffer && this.live?.votePitch ? { openVotePitch: this.openDealOfferView(this.live.votePitch) } : {}),
       ...(this.owedFavorsView().length ? { owedFavors: this.owedFavorsView() } : {}),
       // F3: the same public over-signal + broadcast winner the AdvanceView/SeasonRecap expose, so a
@@ -7560,6 +7563,7 @@ export class GameSessionAdapter implements GameSession {
     // advanced byte-identically to the calibrated spine.
     const nextBase = assign(prevBase, false);   // calibration spine — the society's occupancy
     const next = assign(prev, true);            // personality-weighted — the player's positions
+    this.enforceTalkHold(next);                 // ORW-727b: a houseguest who agreed to a private word stays; a private room stays closed
     // The player's position is authoritative and identical in both views (never personality-weighted) —
     // force the base to agree with the weighted player room so a player overhear of an off-screen scene
     // reads the player's REAL room, and the two views never disagree about where the player is.
@@ -7832,6 +7836,107 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * ORW-727b: the houseguest agreed to a private word (or to come over) and waits in the room until the hold lapses, the player leaves a private room, or they are gone. Lazily clears a spent hold (chat-side bookkeeping).
+   * Played games only; reads the clock and the floor, draws no rng.
+   */
+  private talkHoldNow(): { npc: EntityId; room: Room; until: number; private: boolean } | null {
+    const live = this.live;
+    const h = live?.talkHold;
+    if (!live || !h) return null;
+    if (live.playedGame !== true || this.absHour() >= h.until || !this.presence?.has(h.npc as EntityId) || (h.private && this.presence.get(PLAYER) !== h.room)) { delete live.talkHold; return null; }
+    return { npc: h.npc as EntityId, room: h.room as Room, until: h.until, private: h.private };
+  }
+  /** ORW-727b: keep a held houseguest where they agreed to be, and a private room closed to everyone else, on the player-facing map `next` the movement tick just drew. A no-op with no hold. */
+  private enforceTalkHold(next: Map<EntityId, Room>): void {
+    const h = this.talkHoldNow();
+    if (!h) return;
+    next.set(h.npc, h.room);
+    if (!h.private) return;
+    for (const [id, r] of next) {
+      if (id === PLAYER || id === h.npc || r !== h.room) continue;
+      const was = this.presence?.get(id);
+      next.set(id, was !== undefined && was !== h.room ? was : "living-room");
+    }
+  }
+  /** ORW-727b: a houseguest's standing ask for a private word (the open offer the narrator voices), while it has not lapsed. */
+  private openTalkAskView(): { from: NamedRef } | null {
+    const a = this.live?.talkAsk;
+    if (!a || this.live?.playedGame !== true || this.absHour() >= a.until || !this.presence?.has(a.npc as EntityId)) return null;
+    const from = this.named(a.npc as EntityId);
+    return from ? { from } : null;
+  }
+  /** ORW-727b: would this houseguest agree to a private word with the player? Their own read of the player through the deal-consent reads (trust, liking, threat, grudge, favour, who they believe is after them, their own drive against the player) and one KEYED jitter per hour; no shared rng. */
+  private talkAloneConsent(npcId: EntityId): boolean {
+    const live = this.live!;
+    const e = this.rel.edge(npcId, PLAYER);
+    const entries = this.npcMemoryEnabled ? this.memoryEntriesSeenBy(npcId, live.npcMemory?.[npcId]?.[PLAYER], PLAYER) : undefined;
+    const carry = this.npcMemoryStandaloneEnabled ? { threatAboveBaseline: 0, bondAboveNeutral: 0 } : this.memoryCarry(npcId, PLAYER);
+    const decay = this.memoryDecayScale(npcId);
+    const jitter = (agendaRoll(this.gameSeed ?? 0, npcId, `talk-alone:w${live.week}:h${Math.floor(this.absHour())}`) * 2 - 1) * DEAL_CONSENT.jitter;
+    const rep = this.reputationOn() ? dealWillingnessShift(this.reputationOf(npcId, PLAYER)) : 0;
+    return decideTalkAlone({
+      trust: e.trust, affinity: e.affinity, threat: e.threat,
+      grudge: memoryGrudge(entries, live.week, decay, carry, this.memoryConstants()),
+      favor: memoryFavor(entries, live.week, decay, carry, this.memoryConstants()),
+      targetsMe: this.npcBeliefsEnabled ? beliefPull(live.beliefs, npcId, PLAYER, live.week) : 0,
+      opposed: this.ownPushAgainstPlayer(npcId),
+      ...(rep ? { mood: rep } : {}),
+    }, jitter);
+  }
+  /**
+   * ORW-727b: the houseguests who SEE the player and a houseguest leave together: awake, living, standing in (or in eyeshot of) a room the pair set off from. A plain witnessed house event naming them, and each one remembers where the
+   * pair was heading (the same departure sighting an ordinary walk leaves). Nothing is recorded when nobody saw. Played games only; draws no rng.
+   */
+  private notePairDeparture(origins: readonly Room[], npc: EntityId, dest: Room): void {
+    if (!this.presence || !this.house) return;
+    const me = this.house.player.id;
+    const awake = this.awakeNow();
+    const away = this.notYetArrived();
+    const left = origins.filter((o) => o !== dest);
+    if (left.length === 0) return;
+    const seers = this.presenceActive().filter((id) => id !== me && id !== npc && (!awake || awake.has(id)) && !away?.has(id) && left.some((o) => canWitnessDeparture(this.presence!.get(id) as Room, o))).sort();
+    if (seers.length === 0) return;
+    for (const v of seers) this.noteNpcSighting(v, npc, dest, true);
+    this.onPlayerEvent?.(`The player and ${this.nameOf(npc)} left the ${roomDisplayName(left[0]!)} together for the ${roomDisplayName(dest)}, in plain sight of ${seers.map((id) => this.nameOf(id)).join(", ")}`, [me, npc, ...seers], "house-event");
+  }
+
+  askToTalkAlone(req: AskToTalkAloneReq): AskToTalkAloneResult | null {
+    const idemKey = this.foldLedgerKey("askToTalkAlone", req.idempotencyKey);
+    const replay = this.foldReplay<AskToTalkAloneResult | null>(idemKey);
+    if (replay.hit) return replay.value;
+    this.guardBeatSeq(req.expectedBeatSeq);
+    const live = this.live;
+    const npc = req.npcId;
+    if (!live || live.playedGame !== true || !this.house || !this.presence || npc === PLAYER || !this.presenceActive().includes(npc) || !this.presence.has(npc)) return null;
+    const here = this.presence.get(PLAYER);
+    if (here === undefined) return null;
+    const finish = (r: AskToTalkAloneResult): AskToTalkAloneResult => { r.beatSeq = this.beatSeqNow(); return idemKey ? this.rememberFoldIdempotent(idemKey, r) : r; };
+    if (this.houseEventInSession()) return finish({ outcome: "gathered" });
+    const now = this.absHour();
+    const theirAsk = live.talkAsk?.npc === npc && live.talkAsk.until > now; // they asked first: the player's yes is all it takes
+    const awake = this.awakeNow();
+    if (!theirAsk && ((awake && !awake.has(npc)) || !this.talkAloneConsent(npc))) return finish({ outcome: "declined" });
+    const resolved = typeof req.room === "string" && req.room.trim() !== "" ? resolveRoom(req.room, here, this.themedAliases()) : null;
+    const named: Room | null = resolved === null ? null : resolved.kind === "ok" ? resolved.room : resolved.kind === "ambiguous" ? resolved.candidates[0]! : null;
+    const priv = req.private !== false;
+    const hoh = this.ceremony.hoh;
+    const dest: Room | null = priv
+      ? talkAloneRoom({ from: here, named, hohInvolved: hoh === npc, occupiedByOthers: (r) => [...this.presence!].some(([id, where]) => where === r && id !== PLAYER && id !== npc) })
+      : named !== null && WALKABLE_ROOMS.includes(named) ? named : here !== "diary-room" ? here : null;
+    if (dest === null) return finish({ outcome: "occupied" });
+    const theirRoom = this.presence.get(npc)!;
+    this.notePairDeparture(priv ? [here, theirRoom] : [theirRoom], npc, dest);
+    if (priv && dest !== here) this.movePlayer(dest); // the player walks there too (one move, witnessed along the way like any other)
+    if (theirRoom !== dest) { this.presence.set(npc, dest); this.presenceBase?.set(npc, dest); this.presenceTenure?.set(npc, 0); this.presenceZone?.delete(npc); }
+    this.sendOccupancy = null; this.sendAwake = null; // they are here now: the scene that follows is theirs, not the roster the player spoke to
+    live.talkHold = { npc, room: dest, until: now + TALK_ALONE.holdHours, private: priv };
+    if (live.talkAsk?.npc === npc) delete live.talkAsk;
+    this.noteConversationPartners([npc]);
+    this.persist();
+    return finish({ outcome: "accepted", room: dest, roomName: this.roomName(dest) });
+  }
+
+  /**
    * ORW-559: "I go to <houseguest>" - the room that houseguest is in, but ONLY when the player can see them now (a room in the whereabouts
    * `nearby` sightline list). Same projection the narrator gets: an unseen houseguest never resolves, so nothing hidden is revealed and
    * nothing teleports; the narrator plays "you look around". Same room (or no name) => null.
@@ -7890,6 +7995,8 @@ export class GameSessionAdapter implements GameSession {
       : resolved.kind === "ambiguous" ? resolved.candidates[0]!
       : null;
     if (dest === null || !WALKABLE_ROOMS.includes(dest)) return { status: "illegal", whereabouts: this.whereabouts() };
+    const held = this.talkHoldNow(); // ORW-727b: a narrated move cannot take the held houseguest out of the room they agreed to, or put anyone into a closed private room
+    if (held && (id === held.npc ? dest !== held.room : held.private && dest === held.room)) return { status: "illegal", whereabouts: this.whereabouts() };
     if (here === dest) return { status: "noop", whereabouts: this.whereabouts() };
     // OPEN set only — `presenceBase` is deliberately NOT touched (calibration neutrality, see above).
     this.presence.set(id, dest);
@@ -12482,6 +12589,7 @@ export class GameSessionAdapter implements GameSession {
     if (!live || !this.house || ids.length === 0 || !firstCeremonyBeatResolved(live)) return null;
     // ORW-709: the Diary Room is private. Nobody approaches a player who is in it, and a houseguest who is in it is away and cannot make an approach.
     if (live.playedGame === true && this.presence?.get(PLAYER) === "diary-room") return null;
+    if (live.playedGame === true && this.talkHoldNow()?.private) return null; // ORW-727b: nobody steps in on a private word
     if (live.playedGame === true && this.presence) ids = ids.filter((id) => this.presence!.get(id) !== "diary-room");
     if (ids.length === 0) return null;
     const played = live.playedGame === true;
@@ -12574,6 +12682,7 @@ export class GameSessionAdapter implements GameSession {
     if (live.playedGame === true && q !== undefined) { // ORW-709: the question is asked now; the houseguest comes over to where the player is and waits for the answer
       const prev = live.approachAsked?.[npc];
       (live.approachAsked ??= {})[npc] = { q, week: live.week, n: (prev?.week === live.week ? prev.n : 0) + 1, shownAt: this.absHour() };
+      if (!live.talkAsk && !this.talkHoldNow() && this.rel.edge(npc, PLAYER).trust >= DESIRE.goalMinTrust && agendaRoll(this.gameSeed ?? 0, npc, `talk-ask:w${live.week}:h${Math.floor(this.absHour())}`) < TALK_ALONE.askRarity) live.talkAsk = { npc, until: this.absHour() + TALK_ALONE.askHours }; // ORW-727b: rarely, they ask for a private word instead of the question here (a keyed roll; the player says yes through askToTalkAlone)
       const room = this.presence?.get(PLAYER);
       if (room && room !== "diary-room" && this.presence!.get(npc) !== room) { this.presence!.set(npc, room); this.presenceBase?.set(npc, room); this.presenceTenure?.set(npc, 0); this.presenceZone?.delete(npc); }
     }
@@ -15492,6 +15601,8 @@ export class GameSessionAdapter implements GameSession {
     // ORW-709: a houseguest who has just stepped up to the player and not yet been answered stays with them (patience is the desire clock's own rest period); they do not wander off before the answer can land.
     const waiting = (id: EntityId): boolean => { const k = s.approachAsked?.[id]; return s.playedGame === true && k !== undefined && k.answered !== true && this.absHour() - k.shownAt < DESIRE.cooldownHours * (1 + k.n); };
     for (let i = plans.length - 1; i >= 0; i--) { const q = plans[i]!; if (waiting(q.actor) && presence.get(q.actor) !== undefined && presence.get(q.actor) !== q.place) plans.splice(i, 1); }
+    const talkHeld = this.talkHoldNow(); // ORW-727b: the houseguest who agreed to a private word is not planned elsewhere, and nobody else is planned into a private room that is closed
+    if (talkHeld) for (let i = plans.length - 1; i >= 0; i--) { const q = plans[i]!; if (q.actor === talkHeld.npc ? q.place !== talkHeld.room : talkHeld.private && q.place === talkHeld.room) plans.splice(i, 1); }
     for (const p of plans) {
       if (p.place === "diary-room" || !where.has(p.actor)) continue;
       if ((p.goalId || p.nightOwl || p.drawn) && p.with.includes(house.player.id) && !approachAllowed(p)) continue;
@@ -22562,6 +22673,7 @@ export class GameSessionAdapter implements GameSession {
       pending: this.pendingView(),
       eviction: this.evictionView(),
       ...(this.live?.dealOffer || this.live?.votePitch ? { openDealOffer: this.openDealOfferView() } : {}), // 0123: voiced in-scene, never a card
+      ...(this.openTalkAskView() ? { openTalkAsk: this.openTalkAskView() } : {}), // ORW-727b
       ...(this.live?.dealOffer && this.live?.votePitch ? { openVotePitch: this.openDealOfferView(this.live.votePitch) } : {}), // 0174: the vote pitch's own slot, shown beside a standing deal offer
       ...(this.owedFavorsView().length ? { owedFavors: this.owedFavorsView() } : {}), // 0142
       finished: !!this.live?.finished, // B6-01: the over-signal the FE season lifecycle (0057) gates on
