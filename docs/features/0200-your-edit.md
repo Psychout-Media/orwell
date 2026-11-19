@@ -31,3 +31,6 @@ The retrospective window renders the floor lines under "Your edit" (render-only,
 
 ## Deferred
 Writing the narrator's authored titles back to the engine so the window shows them too (a four-place write-back); alliances in the player's edit; the audience's own favorite beside the edit; floater and comic-relief edits.
+
+## Amendment 2026-11-19 (ORW-691, B1-5): the cut now emits replacements, house meetings and schemes
+The weights for `replacement`, `house-meeting` and `scheme` existed (`YOUR_EDIT.actor/.subject`, `EDIT_BASE`) but nothing produced those kinds, so they never reached an episode or a hero/villain band. The edit (only the edit; the audience still reads the old kinds) now reads: the replacement a veto save brought (kept on the week digest as `replacement`, written only when one was named), each house meeting (caller as actor, accused as subject, the room as the crowd) and a strategy scene as a scheme (`EDIT_SCENE_KIND`, behind `sceneMoment(..., moreKinds)`). Read-only, after the crown, no fold, no rng. Flag `ORWELL_EDIT_MOMENTS` (default ON; `=0` is the old cut, byte-identical). Test: `tests/unit/orw691YourEditKinds.test.ts`.

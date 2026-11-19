@@ -1304,10 +1304,10 @@ export function renderGameContext(view: GameStateView): string {
   const day = dayOfWeek(view.phase);
   // Hand-off #6: the EXACT remaining count, computed here, so the model never does its own
   // arithmetic (a play-through narrated "fourteen becomes thirteen" with 15 of 16 still in).
-  const activeNpcs = view.house.filter((h) => h.status === "active").length;
+  const activeNpcs = view.house.filter((h) => h.status === "active").length + (view.unarrivedCount ?? 0);
   const playerIn = !view.player.status || view.player.status === "active";
   const remaining = activeNpcs + (playerIn ? 1 : 0);
-  const total = view.house.length + 1; // the whole cast (player + every houseguest), never changes
+  const total = view.house.length + (view.unarrivedCount ?? 0) + 1; // the whole cast (player + every houseguest, the ones still to arrive included), never changes
   // L21/L24: the player's live whereabouts — engine ground truth the model voices instead of inventing
   // positions or "still to arrive" houseguests (the whole cast is seated at premiere). Scoped to the
   // player's room + adjacent rooms only; tenure grounds continuity (who has lingered vs. just arrived).
@@ -1395,7 +1395,7 @@ export function renderGameContext(view: GameStateView): string {
     return bits.length ? ` — ${bits.join(", ")}` : "";
   };
   const ent = pr ? premiereEntranceOf(pr) : null;
-  const premiereLines: string[] = !pr ? [] : ent ? premiereEntranceLines(ent, pr.met, observable) : [
+  const premiereLines: string[] = !pr ? [] : ent ? premiereEntranceLines(ent, pr.met, observable, pr.remaining?.length ?? 0) : [
     `- PREMIERE — THE CHAMPAGNE CIRCLE (engine truth): the producers convened the whole house for ` +
       `champagne-circle introductions, so all ${pr.total - 1} houseguests are MET at the toast — there is ` +
       `no roll-call to work through and nobody left to hunt down.`,
@@ -1553,7 +1553,7 @@ export function renderGameContext(view: GameStateView): string {
         ? ` They present as ${genderPresentationPhrase(view.player.genderPresentation)} (use ${pronounsFor(view.player.genderPresentation)}) — never infer their gender/pronouns from their name.`
         // ORW-444: none recorded = the player's gender is UNSTATED; houseguests/narration must not assign one (no "man"/"he"/"the woman"), and must not flip it later.
         : ` Their gender is unstated: address them as "you"; no gendered nouns or pronouns for them, and never guess from their name.`),
-    `- The house (${view.house.length} other houseguests) — each line is THAT person's OWN self and YOUR`,
+    `- The house (${view.house.length + (view.unarrivedCount ?? 0)} other houseguests) — each line is THAT person's OWN self and YOUR`,
     "  PRIVATE voice cue for how to play THEM; it is NOT shared knowledge the rest of the cast has. A",
     "  houseguest knows only their OWN line plus whatever an in-game pathway has taught them about others",
     "  (npcVoice reports that) — they do NOT know each other's backstory, job, hometown, or history unless",
@@ -2103,7 +2103,7 @@ function premiereEntrancesFragment(): string {
     "Voice ONLY the arrival the game shows as just arrived, as a SHORT vignette: a line in that person's own " +
     "register (from their card), ONE observable vibe (look, energy, how they carry themselves), and ONE " +
     "reaction from someone already inside. Never invent who is present \u2014 the inside list is the whole " +
-    "inside; never name anyone who has not arrived \u2014 you may know the whole cast from the roster cards, but a " +
+    "inside; never name anyone who has not arrived \u2014 the roster lists only houseguests the player has met, and a " +
     "houseguest who is not on the inside list has NOT walked in: they must not appear, speak, react or be named in " +
     "the room, however much you want to move things along. Only the game brings in the next arrival (advanceGame); " +
     "if no new arrival is shown this turn, play the scene with those already inside \u2014 do NOT introduce one yourself. " +
@@ -2132,6 +2132,7 @@ function premiereEntranceLines(
   ent: PremiereEntranceShape,
   met: ReadonlyArray<{ houseguest: { id: string; name: string } }>,
   observable: (fi: never) => string,
+  unarrived = 0,
 ): string[] {
   const inside = ent.arrivedNames.length ? ent.arrivedNames.join(", ") : "nobody yet";
   if (ent.stage === "entrances" && ent.tour?.open) {
@@ -2152,7 +2153,9 @@ function premiereEntranceLines(
     return [
       `- PREMIERE \u2014 ENTRANCES (engine truth): arrival ${ent.index} of ${ent.total}. INSIDE THE HOUSE NOW: ${inside}. ` +
         (ent.headcount ? `HEADCOUNT (engine truth): ${ent.headcount}. This is the ONLY count you may state; never count the room yourself. ` : "") +
-        `Nobody else has arrived \u2014 never place anyone else in the room, and never introduce a new arrival yourself (the game does, via advanceGame). If the arrival shown below is someone you already voiced, do NOT voice them again as new: play the scene with those inside, and call advanceGame when the player lulls or asks for the next.`,
+        `Nobody else has arrived \u2014 never place anyone else in the room, and never introduce a new arrival yourself (the game does, via advanceGame). ` +
+        (unarrived > 0 ? `RECAP RULE: ${unarrived} houseguest${unarrived === 1 ? " has" : "s have"} not walked in. A beat that must refer to one of them may call them only a not-yet-introduced arrival, never by name, until their own entrance; a recap beat may name only houseguests the player has met. ` : "") +
+        ` If the arrival shown below is someone you already voiced, do NOT voice them again as new: play the scene with those inside, and call advanceGame when the player lulls or asks for the next.`,
       ...(ent.playerEntrance
         ? [`- PREMIERE \u2014 THIS ARRIVAL IS THE PLAYER: narrate their own entrance from THEIR point of view \u2014 the room turns, the houseguests inside see them for the first time.`]
         : ja

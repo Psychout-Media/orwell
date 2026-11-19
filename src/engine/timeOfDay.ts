@@ -16,7 +16,7 @@
  * night runs past midnight, NPCs turn in and the awake set thins; then pre-dawn larks wake and it refills.
  */
 
-import { CLOCK, SCENE, EARLY_WAKE_FLOOR_HOUR, EARLY_WAKE_MIN_BED_HOUR, SLEEP, EVENT_DURATION, AFTER_HOURS, type AfterHoursConstants } from "./sleepConstants";
+import { CLOCK, SCENE, EARLY_WAKE_FLOOR_HOUR, EARLY_WAKE_MIN_BED_HOUR, SLEEP, DOZE, EVENT_DURATION, AFTER_HOURS, type AfterHoursConstants } from "./sleepConstants";
 
 export { SLEEP, type SleepConstants } from "./sleepConstants";
 
@@ -168,6 +168,14 @@ export function isAwakeAtHour(hour: number, bedHour: number): boolean {
   if (hour < bedHour) return true;                     // still up tonight
   const wakeAgain = bedHour + CLOCK.sleepNeedHours;     // when their 8h sleep would end
   return hour >= wakeAgain;                             // back up in the pre-dawn window (if before the 8am wake)
+}
+
+/**
+ * ORW-705 PT-10 - does an early-waking houseguest doze back off? Only in the pre-dawn window before the house's wake-up call (the 0-8 hour scale a bed before midnight wakes on) and only when
+ * their own hidden rest deficit says they are still tired. Pure, deterministic, no draw: a rested houseguest stays up, a tired one is out of the awake set until the call.
+ */
+export function dozesBackToBed(hour: number, restDeficit: number): boolean {
+  return hour >= 0 && hour < WAKE_HOUR && restDeficit >= DOZE.tiredDeficit;
 }
 
 /** Legacy phase-keyed awake predicate (coarse): awake through their bedtime phase, asleep after. Kept for

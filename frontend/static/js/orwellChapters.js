@@ -36,6 +36,23 @@ function _hasNumericWeek(msg) {
  * A numeric `metadata.week` is honoured as stamped, which is how the eviction-night goodnight reply (saved AFTER the new week's chapter row but stamped with the OLD week)
  * stays at the end of the week it closes. Every other row (parsed from game_moment, or carrying nothing) takes the running maximum, so a stray older text stamp can never
  * reopen an earlier chapter. */
+/** ORW-714: where the CURRENT season starts in a transcript. A game reset keeps the chat, so a new season's casting interview (rows stamped `phase: 'casting'`)
+ * follows the old season's game rows. The first casting row after any game row opens a new season; weeks restart at 1 there, and must not be filed under the old season's later weeks. */
+export function seasonStart(history) {
+  const rows = Array.isArray(history) ? history : [];
+  let sawGame = false;
+  let start = 0;
+  for (let i = 0; i < rows.length; i++) {
+    const md = rows[i] && rows[i].metadata;
+    if (md && md.phase === 'casting') {
+      if (sawGame) { start = i; sawGame = false; }
+    } else if (chapterOfMessage(rows[i]) !== null) {
+      sawGame = true;
+    }
+  }
+  return start;
+}
+
 export function chapterIndex(history) {
   const rows = Array.isArray(history) ? history : [];
   const raw = rows.map(chapterOfMessage);
@@ -85,6 +102,8 @@ function _enabled() {
 /** The rows a history render/reconcile should use for this session. Also refreshes the bar and the "show earlier" button. */
 export function rowsFor(sessionId, history) {
   if (!_enabled() || !Array.isArray(history)) { updateBar(null, null); updateMore(null); return history; }
+  const seasonAt = seasonStart(history);
+  if (seasonAt > 0) history = history.slice(seasonAt); // ORW-714: an earlier season in the same chat is not part of this season's chapters
   const idx = chapterIndex(history);
   if (idx.weeks.length < 2) { updateBar(null, null); return windowRows(sessionId, 'all', history); }
   let view = getView(sessionId);

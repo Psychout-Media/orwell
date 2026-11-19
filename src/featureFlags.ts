@@ -58,6 +58,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'defaultOn' },
   // ORW-624: the audience outside - a simulated public that judges from what would make the edit; felt as the crowd at a walk-out, a fan reward, America's Favorite. `=0` = no public.
   { envKey: 'ORWELL_AUDIENCE', key: 'audience', parser: 'defaultOn' },
+  // ORW-691 (B1-4 / 0194): a bad night's sleep is reachable - the old bar (a rest deficit of 0.25) is exactly a 2am bed, which no houseguest ever reaches (the latest bed is just under it), so the cause never fired; a houseguest up past 1am now has one. A played game only. `=0` = the old bar.
+  { envKey: 'ORWELL_BAD_SLEEP_REACH', key: 'badSleepReach', parser: 'defaultOn' },
   // ORW-688: a houseguest who just traded a secret, or who was burned (a broken deal, an exposed secret, a betrayal), trades less, and the appetite comes back with the days; scales the fire chance after the draws, so the dedicated stream is unchanged. Played games only. `=0` = today's volume.
   { envKey: 'ORWELL_BARTER_APPETITE', key: 'barterAppetite', parser: 'defaultOn' },
   // A65: the engine-side schedule gate - an ordinary advanceGame before the next milestone is due returns a typed `held` and commits nothing. ON by default (see ORWELL_ADVANCE_GATE below); `=0` turns it off.
@@ -118,9 +120,13 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // 0196 / ORW-630: a pressed houseguest the engine has decided will not answer also gets HOW they dodge (what they do with the question, how their carriage reads, whether they hand it back), decided on a keyed side stream from their character, bond and the stakes, saved, and handed to the narrator as a third-person fact. A played game only. `=0` turns it off.
   { envKey: 'ORWELL_DODGING', key: 'dodging', parser: 'defaultOn' },
   // B32 / #2017 E5: chat betrayal/conflict feed the emotional arc and temperament drift gets a negativity bias (clash x1.5, bond x0.75) so hardening is reachable. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
+  // ORW-705 PT-10 (PO ruling 2026-11-19): a player who woke at their own early hour (bed + 8h, before the house's wake-up call) can `turnIn` to doze back to bed - the clock moves to the wake-up call and no later; a still-tired early-waking houseguest (the hidden rest meter) dozes back too and is out of the awake set until the call. A played game only. ON by default; `=0` restores the refusal.
+  { envKey: 'ORWELL_DOZE_BACK_TO_BED', key: 'dozeBackToBed', parser: 'defaultOn' },
   { envKey: 'ORWELL_DRIFT_FIX', key: 'driftFix', parser: 'defaultOn' },
   // B51 / AMEND 3b: the HOH's / veto holder's own drive (target adds, build protects) feeds its nomination and veto-save scores. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_DRIVE_DECISIONS', key: 'driveDecisions', parser: 'defaultOn' },
+  // ORW-691 (B1-5 / 0200): YOUR EDIT also reads the replacement a veto save brings, the house meetings and the schemes (weighted since it shipped, never emitted). Read-only, after the crown, no fold. `=0` = the old cut.
+  { envKey: 'ORWELL_EDIT_MOMENTS', key: 'editMoments', parser: 'defaultOn' },
   // ORW-87 / B7 remainder: the NPC final HOH's Final-3 eviction and the secret-veto replacement read the NPC's memory ledger (grudge/favor), for a played game only. ON by default; `=0` turns it off.
   { envKey: 'ORWELL_ENDGAME_MEMORY', key: 'endgameMemory', parser: 'defaultOn' },
   // 0193 / ORW-623: the endgame changes the rules of trust - at four left, "can I beat you?" pushes nominations and the vote, tilts reassurances toward faking, and final twos get tested out loud. `=0` = off.
@@ -192,6 +198,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_MEMORY_FRIENDS', key: 'memoryFriends', parser: 'defaultOn' },
   // B22: houseguests who HEARD a promise (a casual assurance) remember its keeping / breaking too, at a lower weight. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_MEMORY_PROMISES', key: 'memoryPromises', parser: 'defaultOn' },
+  // ORW-710 (Vault Wall): during the premiere's entrances the state read and the narrator's roster carry only the houseguests who have walked in (the player's met set); the rest are a count, with no name or card, until their own entrance. `=0` ships the whole cast as before.
+  { envKey: 'ORWELL_MET_ONLY_ROSTER', key: 'metOnlyRoster', parser: 'defaultOn' },
   // B30 / #2017 E4a: who seeks the player out reads the NPC's visible emotional state (needs ORWELL_NPC_TELLS). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_MOOD_APPROACH', key: 'moodApproach', parser: 'defaultOn' },
   { envKey: 'ORWELL_MOOD_CAMPAIGN', key: 'moodCampaign', parser: 'defaultOn' },
