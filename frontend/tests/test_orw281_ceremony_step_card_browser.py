@@ -266,3 +266,41 @@ def test_a_status_read_that_lands_late_and_agrees_keeps_the_card_and_one_that_di
                 raise AssertionError("a status that shows no pending must drop the watch card (ORW-298)")
         finally:
             browser.close()
+
+
+def test_orw703_continue_shows_the_nominees_chyron_from_the_continue_response(fe):
+    """ORW-703 (real browser): the Continue response carries the nominations announcement; the player must SEE it (it used to be dropped - a silent Continue)."""
+    sync_api = pytest.importorskip("playwright.sync_api")
+    first = _step(1, 2, "The Head of Household is about to name the nominees", kind="nominations")
+    named = _step(2, 2, "The nominees have been named: Role A and Role B", kind="nominations")
+    ann = {"id": "a-703", "kind": "nominations", "week": 1, "beatSeq": 5, "headline": "The Head of Household has nominated Role A and Role B for eviction.",
+           "subjects": [{"id": "npc:1", "name": "Role A"}, {"id": "npc:2", "name": "Role B"}], "detail": {"by": {"id": "npc:3", "name": "Role H"}}}
+    engine = {"pending": first}
+
+    def cont(route):
+        engine["pending"] = named
+        route.fulfill(**_j({"beatSeq": 5, "pending": named, "announcements": [ann]}))
+
+    with sync_api.sync_playwright() as p:
+        browser = p.chromium.launch()
+        try:
+            page = browser.new_context(viewport={"width": 390, "height": 844}, has_touch=True).new_page()
+            page.route("**/api/orwell/state", lambda r: r.fulfill(**_j({"started": True, "asleep": []})))
+            page.route("**/api/orwell/status", lambda r: r.fulfill(**_j({"pending": engine["pending"]})))
+            page.route("**/api/orwell/roster", lambda r: r.fulfill(**_j({"roster": []})))
+            page.route("**/api/orwell/whereabouts", lambda r: r.fulfill(**_j({"whereabouts": {"room": "kitchen", "present": []}})))
+            page.route("**/api/orwell/ceremony-continue", cont)
+            page.goto(fe, wait_until="domcontentloaded")
+            page.wait_for_selector("#chat-history", timeout=15000)
+            page.evaluate("""(p) => window.dispatchEvent(new CustomEvent('orwell:pending', { detail: { pending: p } }))""", first)
+            page.wait_for_selector(".odec-watch", timeout=10000)
+            page.click(".odec-watch button.odec-confirm")
+            for _ in range(40):
+                body = page.evaluate("document.body.innerText")
+                if "Role A and Role B for eviction" in body:
+                    break
+                page.wait_for_timeout(200)
+            else:
+                raise AssertionError("the nominations announcement from the Continue response never reached the player")
+        finally:
+            browser.close()

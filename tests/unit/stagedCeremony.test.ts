@@ -59,6 +59,18 @@ describe("nominations as a staged ceremony (NPC HOH)", () => {
     expect(c.beatSeq).toBeGreaterThan(b.beatSeq);
     expect((s.live as LiveSeasonState).ceremony).toBeUndefined();
   });
+  it("ORW-703: the 'named' step TELLS the player who is nominated - on the card line and as the nominations announcement the Continue response carries", () => {
+    const s = boot(dir());
+    toNominations(s, "npc");
+    s.advanceGame();
+    const b = s.advanceGame();
+    const names = (b.event.participants as Any[]).slice(1).map((p) => p.name as string); // [hoh, nomineeA, nomineeB]
+    expect(names).toHaveLength(2);
+    for (const n of names) expect(b.pending.text, "the watch card line names each nominee").toContain(n);
+    const ann = (b.announcements as Any[] | undefined)?.find((x) => x.kind === "nominations");
+    expect(ann, "the Continue response carries the nominations announcement").toBeDefined();
+    expect((ann!.subjects as Any[]).map((x) => x.name).sort()).toEqual([...names].sort());
+  });
   it("a second window answering a past step gets the structured stale-beat refusal", () => {
     const s = boot(dir());
     toNominations(s, "npc");
