@@ -366,7 +366,7 @@ import { ANCHOR_WORDS } from "../../engine/data/anchorWords";
 import { HOUSE_ROOMS as HOUSE_ROOM_IDS } from "../../domain/house";
 const normTitle = (t: string): string => t.toLowerCase().replace(/^the\s+/, "").replace(/[^a-z0-9]+/g, " ").trim();
 import type { CompetitionDef } from "../../engine/competitionLibrary";
-import { formatClockLabel, formatClockBandLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, isEarlyMorning, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
+import { formatClockLabel, formatClockBandLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, isEarlyMorning, dozesBackToBed, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
 import { MINUTES_PER_MESSAGE, NAP } from "../../engine/sleepConstants";
 import { APPROACH_GATE, APPROACH_COOLDOWN_STRETCHES } from "../../engine/decisionConstants";
 import { FINALE_APPEALS, type FinaleAppeal } from "../../engine/jury";
@@ -785,6 +785,8 @@ const JUROR_PROFILES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_JUROR_PROFILES");
  * `createCharacter` (season start). Off => nothing new is written.
  */
 const PREMIERE_ENTRANCES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PREMIERE_ENTRANCES");
+/** ORW-710: while the premiere's entrances run, the state read and the narrator's roster carry only the houseguests who have walked in (the player's met set); `=0` ships the whole cast as before. */
+const MET_ONLY_ROSTER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_MET_ONLY_ROSTER");
 /** ORW-705 / PT-10 - in a played game the premiere's entrance and toast releases cost the player's ONE message-step only (`noteMessage`), not that plus `PREMIERE_STEP_HOURS` (14 minutes a message in the dev playtest). ON by default; `=0` restores the double bill. */
 const PREMIERE_ONE_STEP_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PREMIERE_ONE_STEP");
 /** ORW-672 / 0201 - the BED RUSH: no bed is claimed before the champagne circle closes, then the house races for the bedrooms (a claim needs reaching the room). A played game only. ON by default; `=0` restores the walk-in-order claim. */
@@ -2748,6 +2750,7 @@ export class GameSessionAdapter implements GameSession {
   /** C1 (#1788) — the Wipeout Reel presentation layer; off ⇒ `comp-elimination` content is untouched. */
   private wipeoutReelEnabled = WIPEOUT_REEL_ENABLED_DEFAULT;
   private premiereEntrancesEnabled = PREMIERE_ENTRANCES_ENABLED_DEFAULT;
+  private metOnlyRosterEnabled = MET_ONLY_ROSTER_ENABLED_DEFAULT;
   private premiereOneStepEnabled = PREMIERE_ONE_STEP_ENABLED_DEFAULT; // ORW-705 / PT-10
   /** ORW-672 / 0201: the bed rush (see `BED_RUSH_ENABLED_DEFAULT`). */
   private bedRushEnabled = BED_RUSH_ENABLED_DEFAULT;
@@ -5335,6 +5338,9 @@ export class GameSessionAdapter implements GameSession {
   /** 0200 / ORW-632: "your edit" (`ORWELL_YOUR_EDIT`, default ON; `=0` = none). Played, finished games only; the caller holds the crown gate. */
   private yourEditEnabled = flagDefaultOn("ORWELL_YOUR_EDIT");
   setYourEditEnabled(on: boolean): void { this.yourEditEnabled = on; }
+  /** ORW-691 (B1-5): the cut also reads replacements, house meetings and schemes (`ORWELL_EDIT_MOMENTS`, default ON; `=0` = the old cut). Read-only, post-crown. */
+  private editMomentsEnabled = flagDefaultOn("ORWELL_EDIT_MOMENTS");
+  setEditMomentsEnabled(on: boolean): void { this.editMomentsEnabled = on; }
   yourEditOn(): boolean { return this.yourEditEnabled; }
   private buildYourEditView(): YourEditView | undefined {
     const s = this.live;
@@ -5348,6 +5354,7 @@ export class GameSessionAdapter implements GameSession {
       events: events.map((e) => ({ type: e.type, initiator: e.initiator, witnessSet: e.witnessSet, hidden: e.hidden, content: e.content, ...(e.houseLife?.seenBy ? { seenBy: e.houseLife.seenBy } : {}) })),
       eventWeeks: this.logWeeks(events, maxWeek),
       deals: this.deals.all, winner: s.winner ?? null,
+      ...(this.editMomentsEnabled ? { more: { meetings: (s.houseMeetings ?? []).map((m) => ({ week: m.week, caller: m.caller, accused: m.accused, attendees: m.attendees.length })) } } : {}),
       ...(finale?.votes ? { jury: { finalists: finale.finalists, votes: Object.values(finale.votes).map((votedFor) => ({ votedFor })) } } : {}),
     });
   }
@@ -5408,11 +5415,13 @@ export class GameSessionAdapter implements GameSession {
     const maxWeek = (s.weekDigests ?? []).reduce((m, d) => Math.max(m, d.week), 1);
     const weeks = this.logWeeks(events, maxWeek);
     const finalists = new Set<EntityId>(s.finale?.finalists ?? s.finalTwo ?? []);
+    // ORW-691 (B1-3): the weekly samples are raw 0..1 edge values; the story's shape reads a sign change, so it is measured against the neutral baseline an unmet pair starts from.
+    const neutral = RELATIONSHIP_CONSTANTS.baseline;
     const guests: StoryGuest[] = this.house.npcs.map((n) => n.id).sort().map((id) => {
       const scenes = events.flatMap((e, i) => (!e.hidden && e.type !== "house-event" && (e.witnessSet.includes(id) || e.initiator === id) && (e.witnessSet.includes(PLAYER) || e.initiator === PLAYER)) ? [{ week: weeks[i]!, kind: e.type }] : []);
       const out = (s.weekDigests ?? []).find((d) => d.evictee === id);
       const votedFor = s.finale?.votes?.[id];
-      return { id, points: s.viewOfPlayer?.[id] ?? [], scenes, ...(out ? { evictedWeek: out.week } : {}), ...(votedFor ? { votedFor } : {}), ...(finalists.has(id) ? { finalist: true } : {}) };
+      return { id, points: (s.viewOfPlayer?.[id] ?? []).map((p) => ({ week: p.week, trust: p.trust - neutral.trust, affinity: p.affinity - neutral.affinity })), scenes, ...(out ? { evictedWeek: out.week } : {}), ...(votedFor ? { votedFor } : {}), ...(finalists.has(id) ? { finalist: true } : {}) };
     });
     return buildYourStories({ finished: true, playerFinalist: finalists.has(PLAYER), nameOf: (id) => this.nameOf(id), winner: s.winner ?? null, guests });
   }
@@ -7913,15 +7922,26 @@ export class GameSessionAdapter implements GameSession {
     return set;
   }
   private awakeSetNow(live: LiveSeasonState, house: NonNullable<GameSessionAdapter["house"]>): Set<EntityId> {
-    return new Set(
-      awakeSet({
-        active: this.presenceActive(),
-        hour: live.nightDepth ?? WAKE_HOUR, // the clock-HOUR (8..32) — the 24-hour model (#1125)
-        player: house.player.id,
-        playerRetired: live.playerRetired ?? false,
-        bedtimeOf: (id) => this.effectiveBedDepth(id), // chronotype bedtime HOUR, conflict-drained (0066 Phase-2)
-      }),
-    );
+    const hour = live.nightDepth ?? WAKE_HOUR; // the clock-HOUR (8..32) — the 24-hour model (#1125)
+    const up = awakeSet({
+      active: this.presenceActive(),
+      hour,
+      player: house.player.id,
+      playerRetired: live.playerRetired ?? false,
+      bedtimeOf: (id) => this.effectiveBedDepth(id), // chronotype bedtime HOUR, conflict-drained (0066 Phase-2)
+    });
+    // ORW-705 PT-10: before the house's wake-up call, a houseguest who woke early and is still tired (their own hidden rest deficit) dozes back off and stays out of the awake set until the call.
+    if (!this.dozeWindowOpen(live)) return new Set(up);
+    return new Set(up.filter((id) => id === house.player.id || !dozesBackToBed(hour, this.restDeficitOf(id))));
+  }
+
+  private dozeBackEnabled = flagDefaultOn("ORWELL_DOZE_BACK_TO_BED"); // ORW-705 PT-10
+  setDozeBackEnabled(on: boolean): void { this.dozeBackEnabled = on; }
+  /** ORW-705 PT-10: the pre-dawn window - a played game, the player at the early hour a bed before midnight wakes them to (the 0-8 clock scale), before the house's wake-up call. */
+  private dozeWindowOpen(live: LiveSeasonState): boolean {
+    return this.dozeBackEnabled && this.timeOfDayEnabled && live.playedGame === true && !live.finished
+      && live.wakeHour !== undefined && live.timeOfDay === DAY_START && !live.playerRetired // the player already took an EARLY bed and is UP at their own wake hour before the house (P4d); a turn-in at night crosses the night gate as before
+      && live.nightDepth !== undefined && live.nightDepth >= 0 && live.nightDepth < WAKE_HOUR - 1e-6;
   }
 
   /**
@@ -12386,6 +12406,8 @@ export class GameSessionAdapter implements GameSession {
   setHouseTourEnabled(on: boolean): void { this.houseTourEnabled = on; }
   setMeetTheCastEnabled(on: boolean): void { this.meetTheCastEnabled = on; }
   premiereEntrancesEnabledNow(): boolean { return this.premiereEntrancesEnabled; }
+  /** ORW-710: turn the met-only roster on/off for this session (tests/BDD; the deploy sets `ORWELL_MET_ONLY_ROSTER`). */
+  setMetOnlyRosterEnabled(on: boolean): void { this.metOnlyRosterEnabled = on; }
   /** 0128 - turn the three-part Final HOH on/off for this session (tests/BDD; the deploy sets `ORWELL_FINAL_HOH_THREE_PART`). */
   setFinalHohThreePartEnabled(on: boolean): void { this.finalHohThreePartEnabled = on; }
   finalHohThreePartEnabledNow(): boolean { return this.finalHohThreePartEnabled; }
@@ -15804,6 +15826,9 @@ export class GameSessionAdapter implements GameSession {
   /** 0194 / ORW-626 (`ORWELL_MOOD_CAUSES`, default ON; `=0` byte-identical): more things give a houseguest a mood cause. Played games only; engine-only and append-only; no rng. */
   private moodCausesEnabled = flagDefaultOn("ORWELL_MOOD_CAUSES");
   setMoodCausesEnabled(on: boolean): void { this.moodCausesEnabled = on; }
+  /** ORW-691 (B1-4): the reachable bad-night bar (`ORWELL_BAD_SLEEP_REACH`, default ON; `=0` = the old, never-met bar). */
+  private badSleepReachEnabled = flagDefaultOn("ORWELL_BAD_SLEEP_REACH");
+  setBadSleepReachEnabled(on: boolean): void { this.badSleepReachEnabled = on; }
   private moodCausesOn(): boolean { return this.moodCausesEnabled && this.live?.playedGame === true; }
   /** Record a cause for an NPC (the player's mood is theirs, never recorded). The same cause on the same day is not written twice. */
   private noteMoodCause(holder: EntityId, source: MoodCauseSource, about?: EntityId): boolean {
@@ -15829,7 +15854,7 @@ export class GameSessionAdapter implements GameSession {
     if (!this.moodCausesOn() || !this.live || !this.house || !this.timeOfDayEnabled || !this.live.timeOfDay) return;
     for (const n of this.house.npcs) {
       if (!this.live.active.includes(n.id)) continue;
-      if (isBadNight(npcRestDeficit(this.live, this.statsOf(n.id), n.id, this.effectiveBedDepth(n.id), this.lateCompanyFor(n.id)))) {
+      if (isBadNight(npcRestDeficit(this.live, this.statsOf(n.id), n.id, this.effectiveBedDepth(n.id), this.lateCompanyFor(n.id)), this.badSleepReachEnabled)) {
         // follow-up: a bad night also moves the mood word, once per night (a repeat read the same day writes no new cause), through the existing "scheme" step at a bounded share
         if (this.noteMoodCause(n.id, "bad-sleep")) this.catchMood(n.id, "scheme", MOOD_CAUSES.badSleepMoodScale);
       }
@@ -17536,6 +17561,9 @@ export class GameSessionAdapter implements GameSession {
       return remember(this.inOneCommit(() => { if (this.live!.pending?.kind === "ceremony-step") this.advanceOneBeat(); return this.spectatorFastForward(); }));
     }
     if (this.live.finished || playerHasLeft(this.live, PLAYER)) return remember(this.advanceView(null));
+    // ORW-705 PT-10 (PO ruling 2026-11-19): a player who woke before the house (their own early hour) may go back to bed until the house's wake-up call - never past it, and never refused as 'not bedtime'.
+    // Anything open (a decision, an event coming due) falls through to the gate below exactly as before.
+    if (this.dozeWindowOpen(this.live) && !this.live.pending && !milestoneDueOf(this.live)) return remember(this.dozeBackToBed());
     // Bedtime gate (found in a live run: the narrator called turnIn on "wake up in the morning" and the engine slept through a whole day). A bed in the morning or afternoon is not a night: refuse with a typed
     // `held` (nothing commits, beatSeq unchanged) so the narrator is told it is not bedtime yet. From the evening on the player owns their bedtime exactly as before (ADR 0006).
     // ORW-258 (Ryne 2026-11-11: "I don't think you should be able to go to sleep before the night time period"): the evening is not bedtime either - the evening ceremonies happen then.
@@ -17573,6 +17601,33 @@ export class GameSessionAdapter implements GameSession {
     }));
   }
 
+
+  /**
+   * ORW-705 PT-10: the player CHOSE (turnIn) to go back to sleep after waking before the house. The clock moves to the house's wake-up call and no later; the same day continues (no recap, no new day, no rest
+   * stamp: the night's bookkeeping - `lastSleepDepth`, the fatigue meters - is left exactly as the first bed wrote it, and a bed before midnight carries no debt for the extra hours to ease). The house lives the
+   * span unseen on the nap machinery; whoever was still tired and dozing is seated in their own bed and is up again at the call. Inside the caller's commit-less path: runs its own commit. Vault-free.
+   */
+  private dozeBackToBed(): AdvanceView {
+    return this.inOneCommit(() => {
+      const live = this.live!;
+      const startHour = live.nightDepth ?? WAKE_HOUR;
+      const up = this.awakeNow();
+      this.bedThePlayer();
+      if (up) this.seatInOwnBeds(this.presenceActive().filter((id) => !up.has(id)));
+      const here = (this.presence?.get(PLAYER) ?? "") as string;
+      const before = this.presence ? [...this.presence].filter(([id, where]) => id !== PLAYER && where === here).map(([id]) => id).sort() : [];
+      live.nightDepth = WAKE_HOUR;
+      live.timeOfDay = phaseForHour(WAKE_HOUR);
+      live.playerRetired = false; // up at the call (a still-pending wake from the first bed is spent)
+      live.wakeHour = undefined; // the day's wake is the house's own now (crossToNextDay must not read the early wake as a passed night)
+      if (nightBreakPending(live)) markNightGateCrossed(live); // as playerTurnIn does: the bed the player just took IS the night the pending day-break would have rolled (else the gate holds a second night nobody asked for)
+      live.napWake = { room: here, before, startHour, endHour: WAKE_HOUR, doze: true };
+      this.napPendingHours += WAKE_HOUR - startHour;
+      this.hangOutSkipStepAt = undefined;
+      this.persist();
+      return this.advanceView(null);
+    });
+  }
 
   /**
    * "Hang out until X" (PO 2026-11-04): a bounded run of short beats that stops at the FIRST interruption. Flag-gated; every
@@ -17806,6 +17861,7 @@ export class GameSessionAdapter implements GameSession {
     const came = now.filter((id) => !before.has(id)).map((id) => this.nameOf(id));
     const went = nw.before.filter((id) => !nowSet.has(id)).map((id) => this.nameOf(id));
     const tod = live.timeOfDay ? TIME_OF_DAY_LABEL[live.timeOfDay].toLowerCase() : "the afternoon";
+    if (nw.doze) return [`You woke before the house and went back to sleep; the house's wake-up call has come and it is morning. You are in ${this.roomRefOf(here as Room)}.`, now.length ? `In the room now: ${now.map((id) => this.nameOf(id)).join(", ")}.` : "Nobody else is in the room.", "You saw none of the rest of the house; voice only this, never what happened elsewhere."].join(" ");
     const parts = [`You just woke from a nap in ${this.roomRefOf(here as Room)}; it is now ${tod}${nw.wokenBy === "event" ? " and production woke you for the next event" : nw.wokenBy === "evening" ? " and the evening woke you" : ""}.`];
     // ORW-477: a nap cut short says so: how much was slept against how much was meant, and what cut it (the clock moved by the slept part only).
     const sleptH = nw.endHour - nw.startHour;
@@ -22332,6 +22388,7 @@ export class GameSessionAdapter implements GameSession {
         pending: null,
       };
     }
+    const unarrivedHidden = this.metOnlyRosterEnabled && this.inPremiere() ? (this.notYetArrived() ?? undefined) : undefined; // ORW-710
     const p = this.house.player;
     const status = this.playerStatus();
     // Once the player is out, the moment frames their new seat (closure / the jury spectator box, 0046)
@@ -22449,7 +22506,9 @@ export class GameSessionAdapter implements GameSession {
           ...(p.archetypeDefaulted ? { defaulted: true } : {}),
         },
       },
-      house: this.house.npcs.map((n) => ({
+      // ORW-710 (Vault Wall): while the entrances run, a houseguest the player has not met is not in the roster at all (no name, no card); the view carries only how many are still to come.
+      ...(unarrivedHidden && unarrivedHidden.size - (unarrivedHidden.has(this.house.player.id) ? 1 : 0) > 0 ? { unarrivedCount: unarrivedHidden.size - (unarrivedHidden.has(this.house.player.id) ? 1 : 0) } : {}),
+      house: this.house.npcs.filter((n) => !unarrivedHidden?.has(n.id)).map((n) => ({
         id: n.id, name: n.name,
         status: this.seatOf(n.id),
         ...this.evictedSeqOf(n.id), // ORW-641: the public eviction place (the cast wall orders the departed by it)
