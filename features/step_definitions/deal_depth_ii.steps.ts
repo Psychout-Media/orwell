@@ -411,8 +411,8 @@ function weighSetup(o: { trust: number; affinity: number; threat: number; goal?:
   const g = s as unknown as Internals;
   g.setDealDepthEnabled(true);
   g.live.playedGame = o.played ?? true;
-  const n = s.livingIds().find((i) => i !== PLAYER)! as EntityId;
-  g.live.hoh ??= n; g.live.pending = undefined;
+  const n = s.livingIds().find((i) => i !== PLAYER && i !== g.live.hoh)! as EntityId; // ORW-727: the houseguest who weighs the deal holds no crown (the HOH has no vote to offer in its place)
+  g.live.hoh ??= s.livingIds().find((i) => i !== PLAYER && i !== n)! as EntityId; g.live.pending = undefined;
   setEdge(g, n, PLAYER, { trust: o.trust, affinity: o.affinity, threat: o.threat });
   g.live.agendas = { [n]: { owner: n, formedForWeek: 1, history: [], goals: o.goal ? [{ id: "g1", owner: n, horizon: "season", kind: "get-them-out", target: PLAYER, why: [], test: { kind: "evicted", who: PLAYER }, commitment: 1, status: "active", formedDay: 1, formedWeek: 1 } as never] : [] } } as never;
   const deal = g.deals.make([n, PLAYER], o.kind ?? "safety", "t", undefined, g.live.week);

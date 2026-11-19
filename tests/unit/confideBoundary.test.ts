@@ -67,7 +67,7 @@ function earnFullConfidence(session: GameSessionAdapter, npcId: string): void {
     e.trust = 0.95; e.affinity = 0.95; e.threat = 0.05;
   }
   // Goodwill from the 0039 deal ledger (open pacts) — warmth alone never clears the gate by design.
-  for (let i = 0; i < 3; i++) session.makeDeal({ with: npcId, kind: "final-two", terms: "ride or die" });
+  for (const kind of ["final-two", "safety", "vote"] as const) session.makeDeal({ with: npcId, kind, terms: "ride or die" }); // ORW-727: one live deal per pair and kind, so the goodwill is three DIFFERENT open pacts
 }
 
 /** Set a houseguest up as a manipulator the player reads as a high threat with no warmth — the strategic

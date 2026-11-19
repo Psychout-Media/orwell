@@ -103,6 +103,7 @@ import { beatShare, endgamePush, endgameFakeLean, isEndgame } from "../../engine
 import { heirOf, partnerReaction, debtorRelief } from "../../engine/evictedTake";
 import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, BreakCause, Deal } from "../../engine/deals";
+import { dealTermIllegal, voteTermIllegal, duplicateLiveDeal, type DealWeek, type DealIllegalReason } from "../../engine/dealLegality";
 import { isPositiveObligation, RELIABLE_FACT_PREFIX } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
 import { AllianceStore, allianceTieBoost, allianceFavor, willingMembers, pickAllianceName, sameMembers, ALLIANCE, GROUP_CHANGES } from "../../engine/alliances";
@@ -18100,6 +18101,18 @@ export class GameSessionAdapter implements GameSession {
     const isActiveOther = target !== PLAYER
       && this.house.npcs.some((n) => n.id === target) && !evicted.has(target);
     if (!isActiveOther) return null;
+    // ORW-727: closed-set legality, before the houseguest is even asked. A promise to vote to keep someone safe must be keepable this week (a vote to give, someone exposed to keep), and the
+    // same pair cannot hold the same live deal twice. Typed, Vault-free refusal; no event, no deal, no fold, no consent roll.
+    {
+      const week = this.live.week;
+      const illegal: DealIllegalReason | undefined = dealTermIllegal(req.kind as DealKind, PLAYER, target, this.dealWeek())
+        ?? (duplicateLiveDeal(this.deals.all, req.kind as DealKind, PLAYER, target, week) ? "already-live" : undefined);
+      if (illegal) {
+        const refusal: DealRefusal = { refused: true, illegal };
+        if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, refusal);
+        return refusal;
+      }
+    }
     // NPC CONSENT (anti-sycophancy): the ENGINE decides whether the NPC agrees, BEFORE anything is recorded or folded. A refusal returns here - no event, no deal, no
     // leverage/trade fold, no persist - and (when keyed) is remembered so a re-driven duplicate replays the same refusal. Flag OFF => this block does not exist.
     if (this.npcDealConsentEnabled) {
@@ -18151,6 +18164,19 @@ export class GameSessionAdapter implements GameSession {
     // A10/#591/R1c — record the at-most-once result ONLY after the clean commit, so a re-drive replays it.
     if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, view);
     return view;
+  }
+
+  /** ORW-727: true when a deal of `kind` that `giver` would offer `other` cannot be made now: its vote term is not keepable this week, or the pair already holds this very deal. `exceptId` is a deal the new one replaces. */
+  private offeredDealBlocked(kind: DealKind, giver: EntityId, other: EntityId, exceptId?: string): boolean {
+    const s = this.live;
+    if (!s) return false;
+    return (kind === "vote" && voteTermIllegal(giver, other, this.dealWeek()) !== undefined) || duplicateLiveDeal(this.deals.all, kind, giver, other, s.week, exceptId) !== undefined;
+  }
+
+  /** ORW-727: this week's real powers, for deal legality (who holds the HOH, who is on the block, whether the nominations are made). Read only. */
+  private dealWeek(): DealWeek {
+    const s = this.live!;
+    return { hoh: s.hoh, nominees: s.finalNominees ?? s.nominees ?? [], nominationsMade: s.nominees !== undefined && s.beat !== "hoh-competition" && s.beat !== "nominations", noBallot: s.beat === "final-eviction" };
   }
 
   /** The kinds a package may bundle: the defensive and the 0142 kinds. Not the 0121 active kinds (their direction/ask handling is its own thing). */
@@ -20442,6 +20468,7 @@ export class GameSessionAdapter implements GameSession {
         }
         const kind = renegotiatedKind(d.kind);
         if (kind === undefined) continue;
+        if (d.parties.includes(PLAYER) ? this.offeredDealBlocked(kind, w.npc, PLAYER, d.id) : (dealTermIllegal(kind, w.npc, w.who, this.dealWeek()) !== undefined || duplicateLiveDeal(this.deals.all, kind, w.npc, w.who, s.week, d.id) !== undefined)) continue; // ORW-727: the swap term must be keepable and not already live; otherwise the deal stands as it was
         if (d.parties.includes(PLAYER)) {
           this.noteDealWeighing(w.npc, "deal-renegotiate", w.weighing);
           const terms = "the house has changed, so I would rather we swap our deal for a lighter one: I will vote to keep you safe at this week's eviction";
@@ -20498,7 +20525,7 @@ export class GameSessionAdapter implements GameSession {
       const rng = new SeededRandom(hashSeed(`${seed}:deal-weigh:${deal.id}:${s.week}`));
       const verdict = decideDealBreak(w, rng.next());
       if (verdict === "keep") { this.noteDealKept(npc, w); continue; } // ORW-639 (S-11): a deal weighed and KEPT leaves its why too
-      if (verdict === "renegotiate" && (renegotiatedKind(deal.kind) === undefined || s.dealOffer)) continue;
+      if (verdict === "renegotiate" && (renegotiatedKind(deal.kind) === undefined || s.dealOffer || this.offeredDealBlocked(renegotiatedKind(deal.kind)!, npc, PLAYER, deal.id))) continue; // ORW-727: a lighter term the offerer cannot keep (no vote, nobody to keep safe) or one already live is not offered
       this.noteDealWeighing(npc, verdict === "break" ? "deal-break" : "deal-renegotiate", w);
       if (verdict === "break") {
         this.deals.breakDeliberately(deal, npc, {
@@ -20621,7 +20648,9 @@ export class GameSessionAdapter implements GameSession {
         this.persist();
         return this.advanceView(null);
       }
-      if (accept) {
+      if (accept && slot === "deal" && this.offeredDealBlocked(o.kind, o.from, PLAYER, o.replacesDealId)) {
+        // ORW-727: the term is no longer keepable (the board moved under the offer) or the pair already holds this very deal: nothing is made, and a deal being replaced stands.
+      } else if (accept) {
         const evId = this.onPlayerEvent?.(
           `${this.nameOf(PLAYER)} accepts ${this.nameOf(o.from)}'s ${o.kind} deal: ${o.terms}`,
           [PLAYER, o.from], "deal",

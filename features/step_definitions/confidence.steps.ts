@@ -89,7 +89,10 @@ function seatWithPlayer(s: GameSessionAdapter, id: EntityId): void {
 
 /** Bank `n` open pacts — the 0039 goodwill the disclosure motive reads (one open pact ≈ 0.2 goodwill). */
 function addDeals(s: GameSessionAdapter, id: EntityId, n: number): void {
-  for (let i = 0; i < n; i++) s.makeDeal({ with: id, kind: "final-two", terms: "ride or die" });
+  // ORW-727: one live deal per pair and kind, so the banked pacts are DIFFERENT kinds (each open pact is the same goodwill).
+  const kinds = ["final-two", "safety", "vote", "target-other"] as const;
+  const have = (s.getGameState().deals ?? []).length; // later calls continue the cycle, so no kind repeats
+  for (let i = 0; i < n; i++) s.makeDeal({ with: id, kind: kinds[(have + i) % kinds.length]!, terms: "ride or die" });
 }
 
 /** A manipulator the player reads as a high threat with no warmth — the strategic (lie) pull. */

@@ -111,7 +111,7 @@ describe("makeDeal — the NPC decides whether they agree", () => {
       setEdge(p, npc, { trust: 0.12, affinity: 0.12, threat: 0.35 });
       const first = s.makeDeal(req(npc, "vote"));
       const again = s.makeDeal(req(npc, "vote"));
-      return { first: isRefusal(first) ? first.reason : "accepted", again: isRefusal(again) ? again.reason : "accepted" };
+      return { first: isRefusal(first) ? (first.reason ?? first.illegal ?? "refused") : "accepted", again: isRefusal(again) ? (again.reason ?? again.illegal ?? "refused") : "accepted" };
     };
     const a = ask("dc-det-a");
     expect(ask("dc-det-b")).toEqual(a);

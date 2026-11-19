@@ -220,7 +220,13 @@ export interface DealRefusal {
    * ORW-608 (Ryne 2026-11-17, (a)): the reason the houseguest GIVES, in the stated-reason vocabulary - honest, softened or a cover story as the engine decides from their
    * candor; the real reason is never revealed (it stays engine-only and reaches only the post-crown retrospective). The narrator voices it in the houseguest's own words.
    */
-  reason: StatedReasonView["kind"];
+  reason?: StatedReasonView["kind"];
+  /**
+   * ORW-727: the engine REFUSED the deal as impossible to keep (closed-set legality, ADR 0005), before the houseguest was asked: `reason` is then absent. No event, no deal, no fold. A closed Vault-free word:
+   * `no-vote-power` (the giver has no vote this week: the HOH, a nominee, the final eviction), `not-at-risk` (the person it protects is not exposed to this week's eviction), or `already-live` (the
+   * same pair already holds this very deal this week). Voice it plainly; never say the deal was made.
+   */
+  illegal?: "no-vote-power" | "not-at-risk" | "already-live";
   /** 0142: a lukewarm houseguest (reason `cost`) answers with terms instead of a flat no. Present only when one now stands as the open `openDealOffer` (the player accepts or declines it with submitDecision deal-offer). */
   counteroffer?: { kind: string; terms: string };
 }
