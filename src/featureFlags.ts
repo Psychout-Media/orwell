@@ -58,6 +58,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'defaultOn' },
   // ORW-624: the audience outside - a simulated public that judges from what would make the edit; felt as the crowd at a walk-out, a fan reward, America's Favorite. `=0` = no public.
   { envKey: 'ORWELL_AUDIENCE', key: 'audience', parser: 'defaultOn' },
+  // ORW-688: a houseguest who just traded a secret, or who was burned (a broken deal, an exposed secret, a betrayal), trades less, and the appetite comes back with the days; scales the fire chance after the draws, so the dedicated stream is unchanged. Played games only. `=0` = today's volume.
+  { envKey: 'ORWELL_BARTER_APPETITE', key: 'barterAppetite', parser: 'defaultOn' },
   // A65: the engine-side schedule gate - an ordinary advanceGame before the next milestone is due returns a typed `held` and commits nothing. ON by default (see ORWELL_ADVANCE_GATE below); `=0` turns it off.
   // Bedtime gate: `turnIn` in the morning or afternoon is refused with a typed `held` (nothing commits). ON by default.
   { envKey: 'ORWELL_BEDTIME_GATE', key: 'bedtimeGate', parser: 'defaultOn' },

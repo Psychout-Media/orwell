@@ -16,12 +16,12 @@ describe.skipIf(!RUN)("secret subject consumers report (not a gate)", () => {
     const rows: string[] = [];
     const tot = { facts: 0, plays: 0, breaks: 0, barters: 0 };
     for (let seed = 1; seed <= N; seed++) {
-      let r = { facts: 0, plays: 0, breaks: 0, barters: 0 };
+      let r = { facts: 0, plays: 0, breaks: 0, barters: 0, ticks: 0 };
       await playMixGame(seed, MSGS, { advanceEvery: 6, inspect: (s) => {
-        const sess = s as { live?: { leveragePlays?: unknown[]; secretBreaks?: string[] }; secretBarterCount?: number; snapshotKnowledge?: () => unknown };
-        r = { facts: 0, plays: sess.live?.leveragePlays?.length ?? 0, breaks: sess.live?.secretBreaks?.length ?? 0, barters: sess.secretBarterCount ?? 0 };
+        const sess = s as { live?: { leveragePlays?: unknown[]; secretBreaks?: string[] }; secretBarterCount?: number; secretBarterTickCount?: number; snapshotKnowledge?: () => unknown };
+        r = { facts: 0, plays: sess.live?.leveragePlays?.length ?? 0, breaks: sess.live?.secretBreaks?.length ?? 0, barters: sess.secretBarterCount ?? 0, ticks: sess.secretBarterTickCount ?? 0 };
       }, onStep: undefined });
-      rows.push(`${seed}:facts=${r.facts} plays=${r.plays} breaks=${r.breaks} barters=${r.barters}`);
+      rows.push(`${seed}:facts=${r.facts} plays=${r.plays} breaks=${r.breaks} barters=${r.barters} ticks=${r.ticks}`);
       tot.plays += r.plays; tot.breaks += r.breaks; tot.barters += r.barters;
     }
     console.log(`SECRETSUBJ seeds=${N} per-season plays=${(tot.plays / N).toFixed(2)} breaks=${(tot.breaks / N).toFixed(2)} barters=${(tot.barters / N).toFixed(2)}`);

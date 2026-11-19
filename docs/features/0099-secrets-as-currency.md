@@ -367,3 +367,13 @@ Every consumer here keys on a held fact's `subject` (who it is about), but the r
 - An old save is backfilled on load from the record's own fields (a scene rumor's lineage id names its origin and its undrifted text names the pair), append-only, no rng.
 - Flag `ORWELL_RUMOR_SUBJECTS` (default ON, `=0` = subject-less, byte-identical). Played games only. The subject is engine-only (Vault class): only a fact the player was told reaches them, with its source. Test `tests/unit/rumorSubjects.test.ts`; report `tests/calibration/secretSubjectReport.test.ts` (`ORWELL_SECRET_SUBJECT_REPORT=1`).
 - Not done: an overheard fragment (presence) is still subject-less.
+
+## Amendment 2026-11-19 (ORW-688, part 2): a houseguest's own brake on trading
+
+With subjects on the facts, off-screen barters rose about threefold per season (about 15 to about 45) and pushed the whole-season mix toward gossip. The fix keeps the subjects (leverage plays and secret breaks now fire) and brings barter volume back with a brake that comes from the houseguests, not a cap.
+- `appetite = 1 / (1 + satietyWeight x sated) x (1 - burnWeight x burn)`, a pure read of recorded state, in `secretBarterConstants.ts` (`BARTER_APPETITE`, a reason on each constant).
+- `sated` is the holder's own recent trading: a count that grows by one with each barter they make and halves every `satietyHalfLifeTicks` off-screen ticks (it comes back with the days). It is saved with the season (`secretBarterRecent`, a small map; absent on an older save, engine-only, never outward).
+- `burn` is how much a broken deal, an exposed secret, a betrayal in a scene or a deal made behind their back still weighs on them: the NPC memory ledger's salience over everyone, at the holder's own decay (a grudge-holder stays wary longer). A burned houseguest still trades, warily.
+- The brake scales the fire chance AFTER the dedicated stream's draws: the same draw is compared against `barterRate x appetite`, so the draw count is identical on or off and the stream is byte-identical.
+- Flag `ORWELL_BARTER_APPETITE` (default ON; `=0` = the volume before the brake). Played games only; headless sims are untouched. No new projection: nothing about appetite or wariness reaches the player, the narrator or admin.
+- Test `tests/unit/barterAppetite.test.ts`; before/after numbers from `tests/calibration/secretSubjectReport.test.ts` are in the PR notes of ORW-688.

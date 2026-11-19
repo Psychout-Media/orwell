@@ -438,7 +438,7 @@ import {
   tradeValue, tradeDealBoost, tradeOutcome, bluffBelieved,
   type LeverageSignals, type TradeSignals, type BarterCandidate,
 } from "../../engine/leverage";
-import { SECRET_BARTER } from "../../engine/secretBarterConstants";
+import { SECRET_BARTER, BARTER_APPETITE, barterAppetite } from "../../engine/secretBarterConstants";
 import { LEVERAGE, SECRET_TRADE } from "../../engine/leverageConstants";
 import { LEVERAGE_PLAY, pressureDesire, willPlay, chooseManner, sneakyNoticed, type LeveragePlay, type LeverageManner, type PlaySignals } from "../../engine/leveragePlay";
 import { NO_HARD_CAPS } from "../../engine/noHardCapsConstants";
@@ -2666,6 +2666,24 @@ export class GameSessionAdapter implements GameSession {
   /** The monotonic count of secrets SPENT into the hidden economy this season (0099, sibling of
    *  `legendCount`/`tradeCount`) — the knowledge layer only deepens as secrets change hands (++ only). */
   private secretBarterCount = 0;
+  /** ORW-688 (`ORWELL_BARTER_APPETITE`): each houseguest's recent trading as a decaying count `n` as of off-screen tick `t` (the brake's satiety; persisted). */
+  private secretBarterRecent = new Map<EntityId, { n: number; t: number }>();
+  private barterAppetiteEnabled = flagDefaultOn("ORWELL_BARTER_APPETITE");
+  setBarterAppetiteEnabled(on: boolean): void { this.barterAppetiteEnabled = on; }
+  /** ORW-688: the holder's decayed recent-trade count at the current tick. Pure read. */
+  private barterSated(holder: EntityId): number {
+    const r = this.secretBarterRecent.get(holder);
+    return r ? r.n * Math.pow(0.5, Math.max(0, this.secretBarterTickCount - r.t) / BARTER_APPETITE.satietyHalfLifeTicks) : 0;
+  }
+  /** ORW-688: how burned the holder is (0..1): the NPC memory ledger's salience of a broken deal / exposed secret / betrayal, over everyone, at the holder's own decay. Pure read; the ledger is engine-only. */
+  private barterBurn(holder: EntityId): number {
+    const row = this.live?.npcMemory?.[holder];
+    if (!row || !this.live) return 0;
+    const decay = this.memoryDecayScale(holder);
+    let keep = 1;
+    for (const subj of Object.keys(row).sort()) keep *= 1 - salience(row[subj], BARTER_APPETITE.burnKinds, this.live.week, decay, this.memoryConstants());
+    return 1 - keep;
+  }
   /**
    * 0086 — every active houseguest's current DRIVE (motivation + intensity), keyed by id. Computed each
    * campaignTick (sticky — carried from the prior tick), engine-only + Vault-sealed, never projected. The
@@ -5843,6 +5861,7 @@ export class GameSessionAdapter implements GameSession {
       // survive a restart (0007/0030). Absent ⇒ 0 on restore (byte-shaped as a pre-0099-barter save / off).
       ...(this.secretBarterTickCount > 0 ? { secretBarterTickCount: this.secretBarterTickCount } : {}),
       ...(this.secretBarterCount > 0 ? { secretBarterCount: this.secretBarterCount } : {}),
+      ...(this.secretBarterRecent.size ? { secretBarterRecent: Object.fromEntries([...this.secretBarterRecent].map(([k, v]) => [k, { n: v.n, t: v.t }])) } : {}), // ORW-688
       // 0087: persist the hidden relationship-trajectory momentum + its recent-fold ring buffers, so a
       // multi-week arc RESUMES mid-curdle (0007/0030) and ACCUMULATES, never thins. Vault-class hidden state
       // (no player/admin-visible number) — already inside the never-outward snapshot. Absent ⇒ byte-shaped
@@ -6185,6 +6204,7 @@ export class GameSessionAdapter implements GameSession {
     // (absent on pre-0099-barter saves ⇒ 0).
     this.secretBarterTickCount = core.secretBarterTickCount ?? 0;
     this.secretBarterCount = core.secretBarterCount ?? 0;
+    this.secretBarterRecent = new Map(Object.entries(core.secretBarterRecent ?? {}).map(([k, v]) => [k, { n: v.n, t: v.t }])); // ORW-688
     // 0086: restore live drives (absent on pre-0086 saves ⇒ none ⇒ re-derived on the next campaign tick).
     this.drives = core.drives ? new Map(Object.entries(core.drives) as [EntityId, Drive][]) : new Map();
     // 0096: restore the emergent-nemesis arc + its sustain history (absent on a pre-0096 save / when the
@@ -11137,6 +11157,7 @@ export class GameSessionAdapter implements GameSession {
   private resetSecretBarter(): void {
     this.secretBarterTickCount = 0;
     this.secretBarterCount = 0;
+    this.secretBarterRecent = new Map(); // ORW-688
   }
 
   private seedSeededRelationships(seed: number): void {
@@ -14781,7 +14802,9 @@ export class GameSessionAdapter implements GameSession {
       // tradeable secret × its candidate recipients, keep the STRICT argmax of `tradeValue` above the floor
       // (issue #1438): the holder spends its TOP-valued (secret, recipient), NOT the lexicographically-first
       // `factId`. A holder with a single tradeable secret is byte-identical to the prior single-scan path.
-      const fires = rng.next() < SECRET_TRADE.barterRate;
+      // ORW-688 (`ORWELL_BARTER_APPETITE`, played games): the SAME draw is compared against the rate scaled by the holder's appetite (what they just traded, what burned them), so the draw count is unchanged.
+      const appetite = this.barterAppetiteEnabled && this.live?.playedGame === true ? barterAppetite(this.barterSated(holder), this.barterBurn(holder)) : 1;
+      const fires = rng.next() < SECRET_TRADE.barterRate * appetite;
       let bestValue: number = SECRET_TRADE.barterValueFloor;
       let bestSecret: ReturnType<typeof tradeableOf>[number] | undefined;
       let bestRecipient: EntityId | undefined;
@@ -14825,6 +14848,7 @@ export class GameSessionAdapter implements GameSession {
         },
         `told-by:${holder}`,
       );
+      if (this.barterAppetiteEnabled && this.live?.playedGame === true) this.secretBarterRecent.set(holder, { n: this.barterSated(holder) + 1, t: this.secretBarterTickCount });
       this.secretBarterCount += 1; // monotonic — a secret has been spent into the hidden economy (non-degradation #4)
       barters += 1;
     }

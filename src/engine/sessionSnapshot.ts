@@ -186,6 +186,8 @@ export interface SessionCore {
    */
   secretBarterTickCount?: number;
   secretBarterCount?: number;
+  /** ORW-688: each houseguest's recent trading, `{ n: decayed count at tick t }`, so the appetite for trading survives a restart. Absent => none. ENGINE-ONLY, never outward. */
+  secretBarterRecent?: Record<EntityId, { n: number; t: number }>;
   /** ORW-581 (Fable T1-14): the per-night conflict tally (0066 Phase-2 Extension 2) - a fight tonight sends the people in it to bed earlier. Persisted so a restart mid-night turns the same people in at the same hour. Cleared at each new morning. Absent => none (a pre-ORW-581 save, or no fight tonight). ENGINE-ONLY. */
   nightConflicts?: Record<EntityId, number>;
   /** ORW-581 (Fable T1-14): per houseguest, the in-game day, how many memories of the player they have raised that day (`bringUp`) and which memories they raised lately (ORW-131). Persisted so a restart neither re-raises a memory nor grants an extra mention. Absent => none. ENGINE-ONLY. */
