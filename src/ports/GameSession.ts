@@ -1438,6 +1438,8 @@ export interface PublicGameStatus {
    * ADR 0006 — the houseguests who've TURNED IN for the night (see `GameStateView.asleep`). Names only;
    * Vault-free; present only when the clock is running.
    */
+  /** ORW-705 / PT-11: who was voted out most recently (the eviction's public result, from the eviction record) - the status panel's "Last out" row. Absent until someone has left. Name only: no tally, no ballot. */
+  lastEviction?: { evictee: NamedRef };
   asleep?: NamedRef[];
   /** ORW-383 — the houseguests who are UP and available right now (day and night): the complement of `asleep` among the arrived NPCs. Names only; Vault-free; present only when the clock is running AND no staged ceremony is open (it is omitted then; `asleep` is still sent, so read absence as unknown, not as an empty house); never includes the player. */
   awake?: NamedRef[];
