@@ -857,6 +857,8 @@ export interface LiveSeasonState {
   leveragePlaysDay?: number;
   /** 0204 / ORW-647: the facts that have already broken in front of the house (once each). Engine-only, idempotent, only grows. */
   secretBreaks?: string[];
+  /** ORW-698: the last in-game day the nightly secret-break pass ran (monotone), so a restart on the same night does not run it again. Absent in an old save (loads as not run). Engine-only, never projected. */
+  secretBreakDay?: number;
   /**
    * 0130 — each evictee's exit interview, week by week: their public posture on the way out (a `stance`
    * DERIVED from their manner for an NPC, or the PLAYER's own chosen stance + words). Recorded as the

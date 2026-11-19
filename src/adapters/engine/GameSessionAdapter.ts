@@ -1594,7 +1594,6 @@ export class GameSessionAdapter implements GameSession {
   /** 0204 / ORW-647: THE NIGHT IT ALL COMES OUT (`ORWELL_SECRET_BREAKS`, default ON; `=0` = none). Played games with the belief layer only. */
   private secretBreaksEnabled = flagDefaultOn("ORWELL_SECRET_BREAKS");
   setSecretBreaksEnabled(on: boolean): void { this.secretBreaksEnabled = on; }
-  private secretBreakDayDone: number | undefined;
   /**
    * 0204 - once a day (the off-screen tick): a fact about a houseguest that enough of the others HOLD stops being a secret. Tonight it breaks in front of the awake room, either said by the others
    * once it is due, or blown up by its own subject when they are pressured and volatile (`secretBreak.ts`, keyed rolls, no shared rng). One break a night, once per fact (saved). It is recorded
@@ -1606,8 +1605,8 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live;
     if (!this.secretBreaksEnabled || !s || s.playedGame !== true || !this.npcBeliefsEnabled || !this.house || !this.onPlayerEvent) return;
     const day = s.dayNumber ?? s.week;
-    if (this.secretBreakDayDone === day) return; // session-local: a restart on the same night re-reads the same keyed rolls, and a fact that broke is already saved
-    this.secretBreakDayDone = day;
+    if (s.secretBreakDay === day) return; // ORW-698: kept on the live season (persisted, monotone), so a restart on the same night does not run the pass twice
+    s.secretBreakDay = day;
     const living = this.livingIds();
     const livingSet = new Set(living);
     const npcs = living.filter((id) => id !== PLAYER).sort();
@@ -5344,9 +5343,12 @@ export class GameSessionAdapter implements GameSession {
     if (!this.reunionEnabled || !s?.finished || s.playedGame !== true || !this.house) return undefined;
     const grudges = Object.entries(s.grudges ?? {}).map(([k, row]) => { const [holder, at] = k.split("|") as [EntityId, EntityId]; return { holder, at, size: row.peak, kind: row.kind }; })
       .sort((a, b) => `${a.holder}|${a.at}`.localeCompare(`${b.holder}|${b.at}`));
-    const caught = (listener: EntityId, speaker: EntityId): boolean => listener !== PLAYER && claimsOf(s.beliefs, listener).some((c) => c.kind === "lied-to-me" && c.subject === speaker && !c.refuted && !!c.value);
+    // ORW-698 (B2-12): caught is per TELLING (the claim), not per listener and speaker: the listener holds the lie against the speaker AND the belief THIS telling planted was taken back (the same per-telling check the rumor mill uses).
+    const caught = (c: { id: string; listener: EntityId; speaker: EntityId }): boolean => c.listener !== PLAYER
+      && claimsOf(s.beliefs, c.listener).some((b) => b.kind === "lied-to-me" && b.subject === c.speaker && !b.refuted && !!b.value)
+      && (s.beliefs?.[c.listener] ?? []).some((b) => b.refuted === true && plantedBy(b, c.id));
     const claims = (s.claims?.items ?? []).map((c) => ({
-      id: c.id, speaker: c.speaker, listener: c.listener, isTrue: c.isTrue, caught: caught(c.listener, c.speaker), week: c.week,
+      id: c.id, speaker: c.speaker, listener: c.listener, isTrue: c.isTrue, caught: caught(c), week: c.week,
       said: claimText(c.kind, this.nameOf(c.subject), c.object ? this.nameOf(c.object) : undefined, c.label),
     }));
     const store = s.groupIdentity ?? {};
@@ -5858,6 +5860,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.presenceBase ? { presenceBase: Object.fromEntries(this.presenceBase) as Record<EntityId, Room> } : {}),
       ...(this.presenceTenure ? { presenceTenure: Object.fromEntries(this.presenceTenure) as Record<EntityId, number> } : {}),
       ...(this.walkIn ? { walkIn: { ...this.walkIn } } : {}), ...(this.walkInDone.length ? { walkInDone: [...this.walkInDone] } : {}), // ORW-473
+      ...(this.roomCardNow ? { roomCardNow: { ...this.roomCardNow } } : {}), ...(this.habitSightings.length ? { habitSightings: this.habitSightings.map((h) => ({ pair: [...h.pair] as [EntityId, EntityId], room: h.room, onlookers: [...h.onlookers] })) } : {}), // ORW-698
       ...(this.playerMove ? { playerMove: { ...this.playerMove } } : {}), // ORW-419
       // L21/L24: the dedicated movement stream's tick counter — persisted so the personality-weighted
       // movement trajectory stays reproducible across a restart (absent ⇒ 0).
@@ -6207,6 +6210,8 @@ export class GameSessionAdapter implements GameSession {
     this.presenceTenure = core.presenceTenure ? new Map(Object.entries(core.presenceTenure) as [EntityId, number][]) : null;
     this.walkIn = core.walkIn ? { ...core.walkIn } : null; // ORW-473
     this.walkInDone = core.walkInDone ? [...core.walkInDone] : [];
+    this.roomCardNow = core.roomCardNow ? { ...core.roomCardNow } : null; // ORW-698
+    this.habitSightings = core.habitSightings ? core.habitSightings.map((h) => ({ pair: [...h.pair] as [EntityId, EntityId], room: h.room, onlookers: [...h.onlookers] })) : []; // ORW-698
     this.playerMove = core.playerMove ? ({ ...core.playerMove } as PlayerMoveView) : null; // ORW-419
     // L21/L24: restore the dedicated movement stream's tick counter (absent on older saves ⇒ 0).
     this.presenceTickCount = core.presenceTickCount ?? 0;
