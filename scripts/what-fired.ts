@@ -2,7 +2,7 @@
  * ORW-729 (Automation 1): the nightly "what fired" report. A DEVELOPER TOOL: it plays full seasons in-process with a scripted talking player (no model calls, seeded) and writes
  * one markdown report. It is not an MCP/HTTP tool and no surface imports it. Usage (see docs/WHAT-FIRED.md or `--help`):
  *
- *   tsx scripts/what-fired.ts run      [--seeds 1,2,3] [--restarts 1] [--ablate-seeds 1] [--ablate-max N] [--shard i/n] [--out DIR] [--previous summary.json] [--date YYYY-MM-DD]
+ *   tsx scripts/what-fired.ts run      [--seeds 1,2,3] [--restarts 1] [--restart-seeds 1] [--no-determinism] [--ablate-seeds 1] [--ablate-max N] [--shard i/n] [--out DIR] [--previous summary.json] [--date YYYY-MM-DD]
  *   tsx scripts/what-fired.ts baseline [--seeds ...] [--restarts K] --out DIR                  (the played seasons, the determinism check, the restart runs)
  *   tsx scripts/what-fired.ts ablate   --trace-dir DIR [--ablate-seeds ...] [--shard i/n] [--ablate-max N] --out DIR   (the flag ablations, one child process per flag and seed)
  *   tsx scripts/what-fired.ts report   --in DIR[,DIR...] --out DIR [--previous summary.json] [--date ...]      (merge, render, diff)
@@ -22,7 +22,6 @@ const ROOT = resolve(HERE, "..");
 const today = (): string => new Date().toISOString().slice(0, 10);
 
 // A season is saved and reloaded through a throw-away folder; the engine's own stores must never touch the repository's data dir.
-process.env["ORWELL_SAVE_FSYNC"] ??= "sync";
 const scratch = mkdtempSync(join(tmpdir(), "what-fired-"));
 process.env["ORWELL_DATA_DIR"] = join(scratch, "data");
 delete process.env["ORWELL_FLAGS_OFF"];
@@ -50,7 +49,8 @@ async function baseline(out: string): Promise<void> {
     writeJson(join(out, `season-${seed}.json`), rest); writeJson(join(out, `trace-${seed}.json`), trace);
     console.log(`[what-fired] seed ${seed}: ${r.stopped} at message ${r.messages}, week ${r.week}, player out ${r.playerOutWeek ?? "never"} (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
     if (n === 0 && argv.includes("--determinism")) { const again = await playSeason({ seed, maxMessages }); determinism.push({ seed, difference: firstDifference(trace, again.trace) }); }
-    for (const point of restartPoints(seed, restartsPer, r.messages)) {
+    const restartSeeds = nums(arg("restart-seeds"), seeds);
+    for (const point of restartSeeds.includes(seed) ? restartPoints(seed, restartsPer, r.messages) : []) {
       const dir = mkdtempSync(join(scratch, "save-"));
       const run = await playSeason({ seed, maxMessages, restartAt: point, saveDir: dir });
       const difference = firstDifference(trace, run.trace);
@@ -116,6 +116,6 @@ async function report(dirs: string[], out: string): Promise<void> {
   if (mode === "baseline") return baseline(out);
   if (mode === "ablate") return ablate(out);
   if (mode === "report") return report((arg("in") ?? out).split(",").map((d) => resolve(ROOT, d)), out);
-  if (mode === "run") { mkdirSync(out, { recursive: true }); argv.push("--determinism"); await baseline(out); argv.push("--trace-dir", out); await ablate(out); return report([out], out); }
+  if (mode === "run") { mkdirSync(out, { recursive: true }); if (!argv.includes("--no-determinism")) argv.push("--determinism"); await baseline(out); argv.push("--trace-dir", out); await ablate(out); return report([out], out); }
   console.error("usage: what-fired.ts run|baseline|ablate|report (see the header of this file)"); process.exit(2);
 })().catch((e) => { console.error(e); process.exit(1); });

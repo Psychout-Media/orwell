@@ -213,6 +213,7 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
   rec.stopped = "cap";
   for (; msg < maxMessages && !finished; msg++) {
     await must("noteMessage", { messageId: `m${msg}` }, msg);
+    if (opts.saveDir && msg % 10 === 0) await new Promise<void>((r) => setImmediate(r)); // the durable store syncs in the background: let it, or its files pile up in a loop that never yields
     if (msg % talkEvery === 0) await talk(msg / talkEvery | 0);
     if (msg % 40 === 20) { // learn what the player knows: the facts a secret trade or confrontation can use
       const d = await read("getVisibleStateFor", { entity: "player" });
