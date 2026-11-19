@@ -7316,8 +7316,9 @@ def _landed_tool_events(tool_events):
     `exit_code != 0`). A refusal resolved nothing, so it must not look like "the model resolved a decision"
     — otherwise the loop injects the "call advanceGame NOW" deliver nudge and can advance past a card
     the player has not confirmed (PR #1951 review)."""
+    # ORW-706: a REFUSED scene record (recordInteraction/makeDeal/surfaceInformationTo, `exit_code != 0`) wrote nothing either - counting it as "recorded" suppressed the 0055 belt and lost the promise.
     return [ev for ev in tool_events
-            if not (isinstance(ev, dict) and ev.get("tool") == "submitDecision"
+            if not (isinstance(ev, dict) and ev.get("tool") in ("submitDecision", *_RECORD_TOOLS)
                     and ev.get("exit_code") not in (None, 0))]
 
 
@@ -12430,8 +12431,9 @@ async def _stream_agent_loop_impl(
                 _ANTI_STALE_CAP_HOLDS.pop(_belt_key(owner), None)  # F1: model advanced itself — reset the release-valve hold counter
                 _TURNS_SINCE_PROGRESS[_belt_key(owner)] = 0  # movement happened — restart the staleness clock
                 _turn_advance_nudges = 0
-            if _is_live_game and block.tool_type in _RECORD_TOOLS:
-                _turn_record_nudges = 1  # model recorded organically — don't also auto-record
+            if (_is_live_game and block.tool_type in _RECORD_TOOLS
+                    and (not isinstance(result, dict) or result.get("exit_code") in (None, 0))):
+                _turn_record_nudges = 1  # model recorded organically — don't also auto-record (ORW-706: only when the record LANDED; a refused one leaves the 0055 belt armed)
             if _is_live_game and block.tool_type == "makeDeal":
                 _turn_deal_nudges = 1  # model struck the deal itself — don't also back-fill one
             if _is_live_game and block.tool_type == "submitDecision":

@@ -571,6 +571,41 @@ def _house_entry_overlay(user: Optional[str], st):
     return out
 
 
+# ORW-707 (PT-13, Vault Wall): what the BROWSER may receive about a houseguest from `/state`. The panels read only who is in the house and whether they are still playing
+# (the tile strip, the head count, the cast wall's departure order and mood word); the full public card (biography, archetype, strategy, identity line, voice, orientation, look)
+# is the NARRATOR's material, not the player's, and it covers houseguests who have not walked in yet. The browser gets this closed set and nothing else, so a facet added to the
+# engine's card later cannot ride to the browser by default.
+_BROWSER_HOUSEGUEST_KEYS = ("id", "name", "status", "evictedSeq", "lastSeenMood")
+
+
+def _browser_state_projection(st):
+    """Project the engine's `getGameState` for the browser: every `house[]` entry and every premiere `met[]` entry is cut to the closed set the panels render. Pure and
+    non-mutating (the engine read cache hands the same dict to every caller). Anything that is not the expected shape passes through untouched (fail-open for the shape,
+    never for the content: an unexpected extra key is dropped, not forwarded)."""
+    if not isinstance(st, dict):
+        return st
+    out = dict(st)
+    house = st.get("house")
+    if isinstance(house, list):
+        out["house"] = [
+            {k: hg[k] for k in _BROWSER_HOUSEGUEST_KEYS if k in hg} if isinstance(hg, dict) else hg
+            for hg in house
+        ]
+    prem = st.get("premiere")
+    if isinstance(prem, dict):
+        p2 = dict(prem)
+        for key in ("met", "remaining"):
+            rows = prem.get(key)
+            if isinstance(rows, list):
+                p2[key] = [
+                    {"houseguest": {k: r["houseguest"][k] for k in ("id", "name") if k in r["houseguest"]}, "met": r.get("met")}
+                    if isinstance(r, dict) and isinstance(r.get("houseguest"), dict) else r
+                    for r in rows
+                ]
+        out["premiere"] = p2
+    return out
+
+
 def _casting_finalize_overlay(st):
     """S2-1 — a STRUCTURAL 'Enter the house' affordance for the pre-game casting interview.
 
@@ -830,6 +865,19 @@ def _refs_include(refs, houseguest_id: str, name: Optional[str]) -> bool:
     return any(_entity_matches(r, houseguest_id, name) for r in refs)
 
 
+def _dossier_unarrived(state: dict, card: dict) -> bool:
+    """ORW-707 (PT-13): True while the premiere's staged entrances are still running and this houseguest is not among those the engine counts as met (the engine already
+    drops the not-yet-arrived from `premiere.met`). The player cannot open a dossier for someone who has not walked in, whatever id the request carries."""
+    if card.get("isPlayer"):
+        return False
+    prem = state.get("premiere") if isinstance(state.get("premiere"), dict) else None
+    ent = prem.get("entrance") if prem and isinstance(prem.get("entrance"), dict) else None
+    if not ent or ent.get("stage") != "entrances":
+        return False
+    met = {str((r.get("houseguest") or {}).get("id")) for r in (prem.get("met") or []) if isinstance(r, dict)}
+    return str(card.get("id")) not in met
+
+
 def _dossier_card(state: dict, houseguest_id: str) -> Optional[dict]:
     """Resolve the ONE public card (player or house) this dossier is for — the SAME id-or-name
     resolution `_roster_cards` uses, so a dossier id built from a roster card always matches."""
@@ -996,7 +1044,8 @@ def setup_orwell_routes() -> APIRouter:
             def _project():
                 return _house_entry_overlay(
                     _current_user(request), _casting_finalize_overlay(st))
-            return _etag_json_response(request, _project())
+            # ORW-707 (PT-13): the browser gets the closed panel set, never the engine's full houseguest cards (applied last, over the overlays).
+            return _etag_json_response(request, _browser_state_projection(_project()))
         except Exception as e:
             detail = _err_detail(e)
             _warn_throttled("state", f"[orwell] state failed: {detail}")
@@ -1312,8 +1361,8 @@ def setup_orwell_routes() -> APIRouter:
             return {"found": False}
 
         card = _dossier_card(state, houseguest_id)
-        if card is None:
-            return {"found": False}
+        if card is None or _dossier_unarrived(state, card):
+            return {"found": False}  # ORW-707: a houseguest who has not walked in yet has no card to open (no persona, no id probing)
         name = card.get("name")
 
         # The player's OWN visible projection (witness-filtered by the engine already) —
