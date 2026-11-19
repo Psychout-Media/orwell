@@ -438,7 +438,7 @@ import {
   tradeValue, tradeDealBoost, tradeOutcome, bluffBelieved,
   type LeverageSignals, type TradeSignals, type BarterCandidate,
 } from "../../engine/leverage";
-import { SECRET_BARTER } from "../../engine/secretBarterConstants";
+import { SECRET_BARTER, BARTER_APPETITE, barterAppetite } from "../../engine/secretBarterConstants";
 import { LEVERAGE, SECRET_TRADE } from "../../engine/leverageConstants";
 import { LEVERAGE_PLAY, pressureDesire, willPlay, chooseManner, sneakyNoticed, type LeveragePlay, type LeverageManner, type PlaySignals } from "../../engine/leveragePlay";
 import { NO_HARD_CAPS } from "../../engine/noHardCapsConstants";
@@ -1594,7 +1594,6 @@ export class GameSessionAdapter implements GameSession {
   /** 0204 / ORW-647: THE NIGHT IT ALL COMES OUT (`ORWELL_SECRET_BREAKS`, default ON; `=0` = none). Played games with the belief layer only. */
   private secretBreaksEnabled = flagDefaultOn("ORWELL_SECRET_BREAKS");
   setSecretBreaksEnabled(on: boolean): void { this.secretBreaksEnabled = on; }
-  private secretBreakDayDone: number | undefined;
   /**
    * 0204 - once a day (the off-screen tick): a fact about a houseguest that enough of the others HOLD stops being a secret. Tonight it breaks in front of the awake room, either said by the others
    * once it is due, or blown up by its own subject when they are pressured and volatile (`secretBreak.ts`, keyed rolls, no shared rng). One break a night, once per fact (saved). It is recorded
@@ -1606,8 +1605,8 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live;
     if (!this.secretBreaksEnabled || !s || s.playedGame !== true || !this.npcBeliefsEnabled || !this.house || !this.onPlayerEvent) return;
     const day = s.dayNumber ?? s.week;
-    if (this.secretBreakDayDone === day) return; // session-local: a restart on the same night re-reads the same keyed rolls, and a fact that broke is already saved
-    this.secretBreakDayDone = day;
+    if (s.secretBreakDay === day) return; // ORW-698: kept on the live season (persisted, monotone), so a restart on the same night does not run the pass twice
+    s.secretBreakDay = day;
     const living = this.livingIds();
     const livingSet = new Set(living);
     const npcs = living.filter((id) => id !== PLAYER).sort();
@@ -2668,6 +2667,24 @@ export class GameSessionAdapter implements GameSession {
   /** The monotonic count of secrets SPENT into the hidden economy this season (0099, sibling of
    *  `legendCount`/`tradeCount`) — the knowledge layer only deepens as secrets change hands (++ only). */
   private secretBarterCount = 0;
+  /** ORW-688 (`ORWELL_BARTER_APPETITE`): each houseguest's recent trading as a decaying count `n` as of off-screen tick `t` (the brake's satiety; persisted). */
+  private secretBarterRecent = new Map<EntityId, { n: number; t: number }>();
+  private barterAppetiteEnabled = flagDefaultOn("ORWELL_BARTER_APPETITE");
+  setBarterAppetiteEnabled(on: boolean): void { this.barterAppetiteEnabled = on; }
+  /** ORW-688: the holder's decayed recent-trade count at the current tick. Pure read. */
+  private barterSated(holder: EntityId): number {
+    const r = this.secretBarterRecent.get(holder);
+    return r ? r.n * Math.pow(0.5, Math.max(0, this.secretBarterTickCount - r.t) / BARTER_APPETITE.satietyHalfLifeTicks) : 0;
+  }
+  /** ORW-688: how burned the holder is (0..1): the NPC memory ledger's salience of a broken deal / exposed secret / betrayal, over everyone, at the holder's own decay. Pure read; the ledger is engine-only. */
+  private barterBurn(holder: EntityId): number {
+    const row = this.live?.npcMemory?.[holder];
+    if (!row || !this.live) return 0;
+    const decay = this.memoryDecayScale(holder);
+    let keep = 1;
+    for (const subj of Object.keys(row).sort()) keep *= 1 - salience(row[subj], BARTER_APPETITE.burnKinds, this.live.week, decay, this.memoryConstants());
+    return 1 - keep;
+  }
   /**
    * 0086 — every active houseguest's current DRIVE (motivation + intensity), keyed by id. Computed each
    * campaignTick (sticky — carried from the prior tick), engine-only + Vault-sealed, never projected. The
@@ -3725,7 +3742,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** 0093/0099 — wire the in-game pathway that surfaces an exposed/traded secret into a houseguest's knowledge. */
-  setOnSurfaceToHouseguest(fn: (npcId: EntityId, content: string, subject: EntityId | undefined, pathway: string, confidence: number) => boolean): void {
+  setOnSurfaceToHouseguest(fn: (npcId: EntityId, content: string, subject: EntityId | undefined, pathway: string, confidence: number, lineage?: string) => boolean): void {
     this.onSurfaceToHouseguest = fn;
   }
 
@@ -3848,7 +3865,7 @@ export class GameSessionAdapter implements GameSession {
    * expose/trade (`told-by:player` / `overheard`): the engine records the witnessed pathway event so the
    * recipient correctly comes to KNOW the secret — never a Vault read. Returns whether it surfaced.
    */
-  private onSurfaceToHouseguest?: (npcId: EntityId, content: string, subject: EntityId | undefined, pathway: string, confidence: number) => boolean;
+  private onSurfaceToHouseguest?: (npcId: EntityId, content: string, subject: EntityId | undefined, pathway: string, confidence: number, lineage?: string) => boolean;
   /** 0066 Phase-2: per-NIGHT conflict tally per houseguest (cleared at each new day). A character conflict
    *  drains the people in it ⇒ they turn in earlier tonight. ORW-581 (Fable T1-14): saved with the season (`nightConflicts`), so a mid-night
    *  restart turns the same people in at the same hour; only ever populated on the clock-ON path, so the calibration spine is unaffected. */
@@ -5344,9 +5361,12 @@ export class GameSessionAdapter implements GameSession {
     if (!this.reunionEnabled || !s?.finished || s.playedGame !== true || !this.house) return undefined;
     const grudges = Object.entries(s.grudges ?? {}).map(([k, row]) => { const [holder, at] = k.split("|") as [EntityId, EntityId]; return { holder, at, size: row.peak, kind: row.kind }; })
       .sort((a, b) => `${a.holder}|${a.at}`.localeCompare(`${b.holder}|${b.at}`));
-    const caught = (listener: EntityId, speaker: EntityId): boolean => listener !== PLAYER && claimsOf(s.beliefs, listener).some((c) => c.kind === "lied-to-me" && c.subject === speaker && !c.refuted && !!c.value);
+    // ORW-698 (B2-12): caught is per TELLING (the claim), not per listener and speaker: the listener holds the lie against the speaker AND the belief THIS telling planted was taken back (the same per-telling check the rumor mill uses).
+    const caught = (c: { id: string; listener: EntityId; speaker: EntityId }): boolean => c.listener !== PLAYER
+      && claimsOf(s.beliefs, c.listener).some((b) => b.kind === "lied-to-me" && b.subject === c.speaker && !b.refuted && !!b.value)
+      && (s.beliefs?.[c.listener] ?? []).some((b) => b.refuted === true && plantedBy(b, c.id));
     const claims = (s.claims?.items ?? []).map((c) => ({
-      id: c.id, speaker: c.speaker, listener: c.listener, isTrue: c.isTrue, caught: caught(c.listener, c.speaker), week: c.week,
+      id: c.id, speaker: c.speaker, listener: c.listener, isTrue: c.isTrue, caught: caught(c), week: c.week,
       said: claimText(c.kind, this.nameOf(c.subject), c.object ? this.nameOf(c.object) : undefined, c.label),
     }));
     const store = s.groupIdentity ?? {};
@@ -5846,6 +5866,7 @@ export class GameSessionAdapter implements GameSession {
       // survive a restart (0007/0030). Absent ⇒ 0 on restore (byte-shaped as a pre-0099-barter save / off).
       ...(this.secretBarterTickCount > 0 ? { secretBarterTickCount: this.secretBarterTickCount } : {}),
       ...(this.secretBarterCount > 0 ? { secretBarterCount: this.secretBarterCount } : {}),
+      ...(this.secretBarterRecent.size ? { secretBarterRecent: Object.fromEntries([...this.secretBarterRecent].map(([k, v]) => [k, { n: v.n, t: v.t }])) } : {}), // ORW-688
       // 0087: persist the hidden relationship-trajectory momentum + its recent-fold ring buffers, so a
       // multi-week arc RESUMES mid-curdle (0007/0030) and ACCUMULATES, never thins. Vault-class hidden state
       // (no player/admin-visible number) — already inside the never-outward snapshot. Absent ⇒ byte-shaped
@@ -5858,6 +5879,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.presenceBase ? { presenceBase: Object.fromEntries(this.presenceBase) as Record<EntityId, Room> } : {}),
       ...(this.presenceTenure ? { presenceTenure: Object.fromEntries(this.presenceTenure) as Record<EntityId, number> } : {}),
       ...(this.walkIn ? { walkIn: { ...this.walkIn } } : {}), ...(this.walkInDone.length ? { walkInDone: [...this.walkInDone] } : {}), // ORW-473
+      ...(this.roomCardNow ? { roomCardNow: { ...this.roomCardNow } } : {}), ...(this.habitSightings.length ? { habitSightings: this.habitSightings.map((h) => ({ pair: [...h.pair] as [EntityId, EntityId], room: h.room, onlookers: [...h.onlookers] })) } : {}), // ORW-698
       ...(this.playerMove ? { playerMove: { ...this.playerMove } } : {}), // ORW-419
       // L21/L24: the dedicated movement stream's tick counter — persisted so the personality-weighted
       // movement trajectory stays reproducible across a restart (absent ⇒ 0).
@@ -6188,6 +6210,7 @@ export class GameSessionAdapter implements GameSession {
     // (absent on pre-0099-barter saves ⇒ 0).
     this.secretBarterTickCount = core.secretBarterTickCount ?? 0;
     this.secretBarterCount = core.secretBarterCount ?? 0;
+    this.secretBarterRecent = new Map(Object.entries(core.secretBarterRecent ?? {}).map(([k, v]) => [k, { n: v.n, t: v.t }])); // ORW-688
     // 0086: restore live drives (absent on pre-0086 saves ⇒ none ⇒ re-derived on the next campaign tick).
     this.drives = core.drives ? new Map(Object.entries(core.drives) as [EntityId, Drive][]) : new Map();
     // 0096: restore the emergent-nemesis arc + its sustain history (absent on a pre-0096 save / when the
@@ -6207,6 +6230,8 @@ export class GameSessionAdapter implements GameSession {
     this.presenceTenure = core.presenceTenure ? new Map(Object.entries(core.presenceTenure) as [EntityId, number][]) : null;
     this.walkIn = core.walkIn ? { ...core.walkIn } : null; // ORW-473
     this.walkInDone = core.walkInDone ? [...core.walkInDone] : [];
+    this.roomCardNow = core.roomCardNow ? { ...core.roomCardNow } : null; // ORW-698
+    this.habitSightings = core.habitSightings ? core.habitSightings.map((h) => ({ pair: [...h.pair] as [EntityId, EntityId], room: h.room, onlookers: [...h.onlookers] })) : []; // ORW-698
     this.playerMove = core.playerMove ? ({ ...core.playerMove } as PlayerMoveView) : null; // ORW-419
     // L21/L24: restore the dedicated movement stream's tick counter (absent on older saves ⇒ 0).
     this.presenceTickCount = core.presenceTickCount ?? 0;
@@ -11143,6 +11168,7 @@ export class GameSessionAdapter implements GameSession {
   private resetSecretBarter(): void {
     this.secretBarterTickCount = 0;
     this.secretBarterCount = 0;
+    this.secretBarterRecent = new Map(); // ORW-688
   }
 
   private seedSeededRelationships(seed: number): void {
@@ -14788,7 +14814,9 @@ export class GameSessionAdapter implements GameSession {
       // tradeable secret × its candidate recipients, keep the STRICT argmax of `tradeValue` above the floor
       // (issue #1438): the holder spends its TOP-valued (secret, recipient), NOT the lexicographically-first
       // `factId`. A holder with a single tradeable secret is byte-identical to the prior single-scan path.
-      const fires = rng.next() < SECRET_TRADE.barterRate;
+      // ORW-688 (`ORWELL_BARTER_APPETITE`, played games): the SAME draw is compared against the rate scaled by the holder's appetite (what they just traded, what burned them), so the draw count is unchanged.
+      const appetite = this.barterAppetiteEnabled && this.live?.playedGame === true ? barterAppetite(this.barterSated(holder), this.barterBurn(holder)) : 1;
+      const fires = rng.next() < SECRET_TRADE.barterRate * appetite;
       let bestValue: number = SECRET_TRADE.barterValueFloor;
       let bestSecret: ReturnType<typeof tradeableOf>[number] | undefined;
       let bestRecipient: EntityId | undefined;
@@ -14832,6 +14860,7 @@ export class GameSessionAdapter implements GameSession {
         },
         `told-by:${holder}`,
       );
+      if (this.barterAppetiteEnabled && this.live?.playedGame === true) this.secretBarterRecent.set(holder, { n: this.barterSated(holder) + 1, t: this.secretBarterTickCount });
       this.secretBarterCount += 1; // monotonic — a secret has been spent into the hidden economy (non-degradation #4)
       barters += 1;
     }
@@ -14874,6 +14903,12 @@ export class GameSessionAdapter implements GameSession {
   /** Whether voice-mediated gossip drift is live (issue #1397) — the orchestrator reads this to decide
    *  whether to hand `diffuseGossip` a `voiceOf` resolver. */
   gossipDriftEnabledNow(): boolean { return this.gossipDriftEnabled; }
+  /** ORW-688: a scene or thread rumor carries who it is ABOUT (`subject`), so the secret consumers (0099 barter, 0202 leverage, 0204 breaks) can match it. Played games only; OFF => subject-less, byte-identical. */
+  private rumorSubjectsEnabled = flagDefaultOn("ORWELL_RUMOR_SUBJECTS");
+  setRumorSubjectsEnabled(on: boolean): void { this.rumorSubjectsEnabled = on; }
+  rumorSubjectsEnabledNow(): boolean { return this.rumorSubjectsEnabled && this.live?.playedGame === true; }
+  /** Same flag, for the load-time backfill of an old save (no played-game read yet at that point). */
+  rumorSubjectsBackfillEnabled(): boolean { return this.rumorSubjectsEnabled; }
 
   /**
    * #2017 S0b-2 — the observer the orchestrator hands `diffuseGossip` so each E44 receipt fold is recorded as a `heard-rumor` belief claim (with the edge delta it absorbed).
@@ -15216,10 +15251,13 @@ export class GameSessionAdapter implements GameSession {
    * partner records ONE hidden event (witness set = the action's people) that folds through its action's interaction type. A speech action
    * that was false is marked on the event (`houseLife.truthful = false`). Solo actions record nothing. No shared rng (local hashes only).
    */
-  houseLifeStretch(events: EventStore, awakeIds: readonly EntityId[], stretchIndex: number, knowledge?: KnowledgeService): OffscreenScene[] {
+  houseLifeStretch(events: EventStore, awakeAll: readonly EntityId[], stretchIndex: number, knowledge?: KnowledgeService): OffscreenScene[] {
     const s = this.live!, house = this.house!, presence = this.presence!;
     this.statusTick(); // 0173: once a day, flag-gated (a no-op otherwise)
-    this.diaryCallStep(events, awakeIds); // ORW-668 (0210 C2): a call may go out or come back; flag-gated, played games only (a no-op otherwise)
+    this.diaryCallStep(events, awakeAll); // ORW-668 (0210 C2): a call may go out or come back; flag-gated, played games only (a no-op otherwise)
+    // ORW-695: one place at a time. A houseguest in the Diary Room takes no part in this stretch: not an actor, not in a room's steps, not a partner, not a witness (they take their turn again when they are back).
+    const awayNow = this.diaryAwayIds();
+    const awakeIds = awayNow ? awakeAll.filter((id) => !awayNow.has(id)) : awakeAll;
     const playerRoom = presence.get(house.player.id);
     const actors = awakeIds.filter((id) => presence.has(id) && presence.get(id) !== playerRoom);
     // ORW-621 (0198): the people in the player's room live too. Played games with the flag on only; off => empty => every line below is byte-identical.
@@ -18299,7 +18337,7 @@ export class GameSessionAdapter implements GameSession {
         this.catchPlayerBluff(recipient, resolved.subject, 0.8, "told"); // a real truth contradicts a prior bluff (evidence: the 0.8 told-by surfacing below)
         // The recipient now HOLDS the traded secret — a recorded `told-by:player` pathway (never a Vault read).
         const content = this.factContentFor(resolved.factId!) ?? `${this.nameOf(PLAYER)} shared a secret about ${this.nameOf(resolved.subject)}`;
-        this.onSurfaceToHouseguest?.(recipient, content, resolved.subject, `told-by:${PLAYER}`, 0.8);
+        this.onSurfaceToHouseguest?.(recipient, content, resolved.subject, `told-by:${PLAYER}`, 0.8, this.rumorSubjectsEnabledNow() ? resolved.factId : undefined);
       }
       // Mark the REAL secret traded (monotonic — it has been spent into the economy); a bluff is not a real fact.
       if (resolved.factId && this.secretUsedAs[resolved.factId] !== "exposed") this.secretUsedAs[resolved.factId] = "traded";
@@ -18725,7 +18763,7 @@ export class GameSessionAdapter implements GameSession {
     // Surface the exposure to the house as a WITNESSED pathway event — the house now KNOWS it (0002).
     const content = resolved.bluff ? `${this.nameOf(PLAYER)} outed something about ${this.nameOf(subject)} to the house`
       : this.factContentFor(resolved.factId!) ?? `${this.nameOf(PLAYER)} exposed a secret about ${this.nameOf(subject)}`;
-    this.exposeToHouse(subject, content, resolved.bluff ? 0.6 : 0.85);
+    this.exposeToHouse(subject, content, resolved.bluff ? 0.6 : 0.85, resolved.bluff ? undefined : resolved.factId);
     // Mark the REAL secret SPENT (public ⇒ never re-leveraged). A bluff is not a real fact to mark.
     if (resolved.factId) this.secretUsedAs[resolved.factId] = "exposed";
     this.exposeCount++;
@@ -18788,12 +18826,12 @@ export class GameSessionAdapter implements GameSession {
   /** 0093 — surface an exposed secret to EVERY other active houseguest as witnessed knowledge (0002). The
    *  player is the teller (`told-by:player`): the house learns it BECAUSE the player outed it — a recorded
    *  in-game pathway anchored on the player's own held content (E9), never a Vault read. */
-  private exposeToHouse(subject: EntityId, content: string, confidence: number): void {
+  private exposeToHouse(subject: EntityId, content: string, confidence: number, lineage?: string): void {
     if (!this.house || !this.live) return;
     const evicted = new Set(this.live.evictionOrder);
     for (const other of this.house.npcs) {
       if (other.id === subject || evicted.has(other.id)) continue;
-      this.onSurfaceToHouseguest?.(other.id, content, subject, `told-by:${PLAYER}`, confidence);
+      this.onSurfaceToHouseguest?.(other.id, content, subject, `told-by:${PLAYER}`, confidence, this.rumorSubjectsEnabledNow() ? lineage : undefined);
     }
   }
 

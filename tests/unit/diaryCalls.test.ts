@@ -111,6 +111,24 @@ describe("0210 C2 - in a played game", () => {
     }
     expect(sawAway).toBe(true);
   });
+  it("ORW-695: while away the houseguest takes no part in any house-life stretch (no scene, no event, no witness), and the narrator's away fact names the same person", () => {
+    const { sb, s } = boot(5);
+    const live = s.live as LiveSeasonState;
+    let checked = 0;
+    for (let d = 1; d <= 8; d++) for (let h = 9; h <= 22; h++) {
+      live.dayNumber = d; live.nightDepth = h;
+      const before = new Set(sb.engine.events.queryAll().map((e: Any) => e.id));
+      const scenes = s.houseLifeStretch(sb.engine.events, s.livingIds().filter((x: string) => x !== PLAYER), (d - 1) * 24 + h, sb.engine.knowledge) as Any[];
+      const gone = [...(s.diaryAwayIds() ?? [])] as string[];
+      if (!gone.length) continue;
+      checked++;
+      const fresh = sb.engine.events.queryAll().filter((e: Any) => !before.has(e.id) && !String(e.type).startsWith("diary-call"));
+      for (const x of scenes) { expect(x.initiator).not.toBe(gone[0]); expect(x.partner).not.toBe(gone[0]); expect(x.event.witnessSet).not.toContain(gone[0]); }
+      for (const e of fresh) { expect(e.initiator).not.toBe(gone[0]); expect(e.witnessSet).not.toContain(gone[0]); }
+      expect(s.getGameState().diaryCall.away).toEqual(gone.map((id) => s.nameOf(id)));
+    }
+    expect(checked).toBeGreaterThan(0);
+  });
   it("is deterministic per seed and recorded once across a save and restore", () => {
     const a = boot(5), b = boot(5);
     run(a.sb, a.s); run(b.sb, b.s);

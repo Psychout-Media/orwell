@@ -41,3 +41,13 @@ A play record holds fact ids and ids of houseguests; the narrator fact holds a m
 - `confront` as an explicit way for the player to answer an approach (a deal is the only answer today).
 - Favours that become debts across days (the sneaky debt is a single small fold today, not a tracked owing).
 - NPC-to-NPC plays leave no observable tell yet beyond edge shifts.
+
+## Amendment 2026-11-19 (ORW-688): the facts houseguests hold now say who they are about
+
+Every consumer here keys on a held fact's `subject` (who it is about), but the records the houseguests actually held had none: the confidant's origin belief for a thread rumor, a pre-show tie observation and a confidence was lodged without it (only the copy handed to the player carried it), and a secret the player exposed or traded was lodged under a fresh id per recipient (so no two houseguests ever held one lineage) with the subject only on a separate, lineage-less copy. So plays, breaks and barters found almost nothing to match in a played game.
+- The origin beliefs now carry the subject; a thread rumor diffused along the graph carries it on every hop; a scene rumor (graph path) names the one who is not the teller.
+- An exposed or traded secret is lodged under the player's own fact id as its lineage, so the whole house holds ONE lineage with the subject on it (and a secret already exposed is known to be out, so 0204 does not re-break it).
+- `surfaceInformationTo` takes an optional `factId` so a record with a subject also has a lineage.
+- An old save is backfilled on load from the record's own fields (a scene rumor's lineage id names its origin and its undrifted text names the pair), append-only, no rng.
+- Flag `ORWELL_RUMOR_SUBJECTS` (default ON, `=0` = subject-less, byte-identical). Played games only. The subject is engine-only (Vault class): only a fact the player was told reaches them, with its source. Test `tests/unit/rumorSubjects.test.ts`; report `tests/calibration/secretSubjectReport.test.ts` (`ORWELL_SECRET_SUBJECT_REPORT=1`).
+- Not done: an overheard fragment (presence) is still subject-less.
