@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { playMixGame } from "../support/houseMixDriver";
-import { assurancePull, assuranceKeepChance, pullKeeps, assuranceTermScale } from "../../src/engine/assurances";
+import { assurancePull, assuranceKeepChance, pullKeeps, assuranceTermScale, pullVerdict, decideKeep } from "../../src/engine/assurances";
 
 /**
  * ORW-723 (Ryne: "Depends on the person. For sure."): a vote promise's pull comes from the voter's own loyalty, honesty and bond to the nominee. Pure shape tests, then
@@ -28,7 +28,7 @@ describe("ORW-723 the pull is monotone in the person", () => {
   it("at the same roll a loyal, honest, bonded voter keeps and a scheming, unbonded one breaks", () => {
     const loyal = assurancePull({ loyalty: 0.9, honesty: 0.9, bond: 0.8, threat: 0.1 });
     const schemer = assurancePull({ loyalty: 0.1, honesty: 0.1, bond: 0.1, threat: 0.7 });
-    const rolls = [0.45, 0.55, 0.65];
+    const rolls = [0.5, 0.6, 0.7];
     for (const r of rolls) { expect(pullKeeps(loyal, r)).toBe(true); expect(pullKeeps(schemer, r)).toBe(false); }
   });
 });
@@ -60,6 +60,26 @@ async function play(seed: number, off: boolean) {
   return { kept, broke, shields, brokenSeen, claimOnceOk };
 }
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / (xs.length || 1);
+
+describe("ORW-723 the pull DECIDES a sincere promise (it is not an extra gate on decideKeep)", () => {
+  const ROLLS = Array.from({ length: 2000 }, (_, i) => (i + 0.5) / 2000);
+  const loyal = assurancePull({ loyalty: 0.85, honesty: 0.85, bond: 0.5, threat: 0.2 });
+  const schemer = assurancePull({ loyalty: 0.15, honesty: 0.15, bond: 0.2, threat: 0.5 });
+  const rate = (f: (r: number) => boolean) => ROLLS.filter(f).length / ROLLS.length;
+  it("a loyal voter keeps a sincere promise usually even where the old cost-benefit said break; a scheming one breaks it usually even where it said keep", () => {
+    const legacyBreak = decideKeep({ keepWeight: 0.2, sincerity: 1, breakBenefit: 0.6 }), legacyKeep = decideKeep({ keepWeight: 0.9, sincerity: 1, breakBenefit: 0.0 });
+    expect(legacyBreak).toBe(false); expect(legacyKeep).toBe(true);
+    expect(rate((r) => pullVerdict({ plan: undefined, sincerity: 1, legacyKeep: legacyBreak, pull: loyal, roll: r }))).toBeGreaterThanOrEqual(0.7);
+    expect(rate((r) => pullVerdict({ plan: undefined, sincerity: 1, legacyKeep: legacyKeep, pull: schemer, roll: r }))).toBeLessThanOrEqual(0.35);
+    // the control: the old AND-gate design (legacy && pullKeeps) cannot lift a loyal voter's keep rate above the legacy verdict
+    expect(rate((r) => legacyBreak && pullKeeps(loyal, r))).toBe(0);
+  });
+  it("a planned betrayal always breaks; a faked promise keeps the faking model's verdict", () => {
+    expect(rate((r) => pullVerdict({ plan: true, sincerity: 1, legacyKeep: true, pull: loyal, roll: r }))).toBe(0);
+    expect(pullVerdict({ plan: undefined, sincerity: 0.1, legacyKeep: true, pull: schemer, roll: 0.99 })).toBe(true);
+    expect(pullVerdict({ plan: undefined, sincerity: 0.1, legacyKeep: false, pull: loyal, roll: 0.01 })).toBe(false);
+  });
+});
 
 describe("ORW-723 in real play", () => {
   it("ON: both outcomes occur, keepers carry a higher pull than breakers, shields vary by person", async () => {

@@ -14,7 +14,7 @@ const N = Number.parseInt(process.env.ORWELL_ASSURANCE_PULL_REPORT_SEEDS ?? "8",
 const MSGS = Number.parseInt(process.env.ORWELL_ASSURANCE_PULL_REPORT_MESSAGES ?? "1500", 10);
 const BANDS = ["loyal-honest", "middling", "scheming"] as const;
 type Band = (typeof BANDS)[number];
-type Sess = { assuranceVoteFor(n: string, v: string): number; assuranceTraitsOf(id: string): { loyalty: number; honesty: number }; live?: { assurances?: { items: Array<{ id: string; from: string; to: string; kind: string; source: string; status: string }> } } };
+type Sess = { assurancePullOf(v: string, n: string): number; assuranceVoteFor(n: string, v: string): number; assuranceTraitsOf(id: string): { loyalty: number; honesty: number }; live?: { assurances?: { items: Array<{ id: string; sincerity: number; from: string; to: string; kind: string; source: string; status: string }> } } };
 const bandOf = (t: { loyalty: number; honesty: number }): Band => { const x = 0.5 * t.loyalty + 0.5 * t.honesty; return x >= 0.6 ? "loyal-honest" : x <= 0.4 ? "scheming" : "middling"; };
 
 async function onMessage(call: (name: string, args: Record<string, unknown>) => Promise<unknown>, i: number): Promise<void> {
@@ -34,18 +34,18 @@ async function onMessage(call: (name: string, args: Record<string, unknown>) => 
 
 describe.skipIf(!RUN)("assurance pull report (not a gate)", () => {
   it("prints, per voter band, the keep and break rate of NPC vote promises and the vote term's presence and decisiveness", async () => {
-    const mk = () => ({ pullKept: 0, pullBroke: 0, gaps: [] as number[], kept: 0, broken: 0, open: 0, lapsed: 0, rows: 0, decisions: 0, present: 0, decisive: 0 });
+    const mk = () => ({ pullSum: 0, pullKept: 0, pullBroke: 0, gaps: [] as number[], kept: 0, broken: 0, open: 0, lapsed: 0, rows: 0, decisions: 0, present: 0, decisive: 0 });
     const by = new Map<string, ReturnType<typeof mk>>();
     const stat = (k: string) => by.get(k) ?? by.set(k, mk()).get(k)!;
     for (let seed = 1; seed <= N; seed++) {
       const bandAt = new Map<string, Band>();
-      const lastShield = new Map<string, { band: Band; to: string; kept: boolean }>();
+      const lastShield = new Map<string, { band: Band; sincere: boolean; pull: number; to: string; kept: boolean }>();
       await playMixGame(seed, MSGS, { advanceEvery: 6, onMessage, onStep: (s) => {
         const sess = s as Sess;
-        for (const a of sess.live?.assurances?.items ?? []) { if (a.source !== "npc" || a.from === "player") continue; if (!bandAt.has(a.id)) bandAt.set(a.id, bandOf(sess.assuranceTraitsOf(a.from))); if (a.status === "open" && (a.kind === "vote" || a.kind === "safe")) lastShield.set(a.id, { band: bandAt.get(a.id)!, to: a.to, kept: sess.assuranceVoteFor(a.to, a.from) > 0 }); }
+        for (const a of sess.live?.assurances?.items ?? []) { if (a.source !== "npc" || a.from === "player") continue; if (!bandAt.has(a.id)) bandAt.set(a.id, bandOf(sess.assuranceTraitsOf(a.from))); if (a.status === "open" && (a.kind === "vote" || a.kind === "safe")) lastShield.set(a.id, { band: bandAt.get(a.id)!, sincere: a.sincerity >= 0.5, pull: sess.assurancePullOf(a.from, a.to), to: a.to, kept: sess.assuranceVoteFor(a.to, a.from) > 0 }); }
       }, inspect: (s) => {
         const sess = s as Sess;
-        for (const v of lastShield.values()) { const st = stat(`pull:${v.band}`); if (v.kept) st.pullKept++; else st.pullBroke++; }
+        for (const v of lastShield.values()) { for (const key of v.sincere ? [`pull:${v.band}`, `sinc:${v.band}`] : [`pull:${v.band}`]) { const st = stat(key); st.pullSum += v.pull; if (v.kept) st.pullKept++; else st.pullBroke++; } }
         for (const a of sess.live?.assurances?.items ?? []) {
           if (a.source !== "npc" || a.from === "player") continue;
           const st = stat(`${a.to === "player" ? "to-player" : "to-npc"}:${bandAt.get(a.id) ?? bandOf(sess.assuranceTraitsOf(a.from))}`);
@@ -72,6 +72,8 @@ describe.skipIf(!RUN)("assurance pull report (not a gate)", () => {
       console.log(`ASSURANCE-PULL ${side} ${b}: made=${s.kept + s.broken + s.open + s.lapsed} resolved=${res} kept=${s.kept} broken=${s.broken} keep%=${pct(s.kept, res)} break%=${pct(s.broken, res)}`);
     }
     for (const b of BANDS) { const s = stat(`pull:${b}`); console.log(`ASSURANCE-PULL pull-decision ${b}: open vote/safe promises=${s.pullKept + s.pullBroke} keep=${pct(s.pullKept, s.pullKept + s.pullBroke)}% break=${pct(s.pullBroke, s.pullKept + s.pullBroke)}%`); }
+    for (const b of BANDS) { const s = stat(`sinc:${b}`); console.log(`ASSURANCE-PULL sincere-only ${b}: open promises=${s.pullKept + s.pullBroke} keep=${pct(s.pullKept, s.pullKept + s.pullBroke)}% mean pull=${(s.pullSum / Math.max(1, s.pullKept + s.pullBroke)).toFixed(2)}`); }
+    { const all = BANDS.map((b) => stat(`pull:${b}`)); const k = all.reduce((x, s) => x + s.pullKept, 0), n = all.reduce((x, s) => x + s.pullKept + s.pullBroke, 0); console.log(`ASSURANCE-PULL overall keep=${pct(k, n)}% of ${n}`); }
     for (const b of BANDS) { const s = stat(`vote:${b}`); console.log(`ASSURANCE-PULL vote ${b}: decisions=${s.decisions} nonzero=${pct(s.present, s.decisions)}% decisive=${pct(s.decisive, s.decisions)}% median gap where present=${s.gaps.length ? [...s.gaps].sort((x, y) => x - y)[s.gaps.length >> 1]!.toFixed(2) : "-"} (n=${s.gaps.length})`); }
   }, 3_600_000);
 });

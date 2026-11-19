@@ -55,8 +55,13 @@ export const ASSURANCE = {
   pullBond: 0.25,
   pullCalm: 0.15,
   /** P(keep) = floor + span * pull (clamped): a pure schemer with no bond still keeps sometimes; a loyal honest friend almost always does. */
-  keepChanceFloor: 0.3,
-  keepChanceSpan: 0.7,
+  keepChanceFloor: 0.05,
+  keepChanceCeil: 0.95,
+  /** The keep chance is a logistic of the pull: centre and steepness (steep, so a loyal honest friend usually keeps and a schemer usually breaks; the floor and ceiling keep it off 0 and 1). */
+  keepChanceCentre: 0.47,
+  keepChanceSteep: 12,
+  /** A promise at or above this sincerity is decided by the pull; a lower one was already faked by the faking model and keeps that verdict. */
+  sincereAt: 0.5,
   /** The vote term's size scales with the pull: factor = floor + span * pull (a scheming voter's term is weak, a loyal friend's strong). */
   termScaleFloor: 0.5,
   termScaleSpan: 2,
@@ -148,11 +153,22 @@ export function assurancePull(i: { loyalty: number; honesty: number; bond: numbe
 }
 /** ORW-723: the chance a voter keeps the promise given their pull. Monotone in the pull. */
 export function assuranceKeepChance(pull: number): number {
-  return clamp(ASSURANCE.keepChanceFloor + ASSURANCE.keepChanceSpan * clamp(pull, 0, 1), 0, 1);
+  const A = ASSURANCE;
+  return clamp(A.keepChanceFloor + (A.keepChanceCeil - A.keepChanceFloor) / (1 + Math.exp(-A.keepChanceSteep * (clamp(pull, 0, 1) - A.keepChanceCentre))), 0, 1);
 }
 /** ORW-723: keep iff the assurance's own keyed roll (a draw in [0,1)) falls under the keep chance. Monotone in the pull and the roll. */
 export function pullKeeps(pull: number, roll: number): boolean { return clamp(roll, 0, 1) < assuranceKeepChance(pull); }
 /** ORW-723: the multiplier on the vote term's base weight. Monotone in the pull. */
 export function assuranceTermScale(pull: number): number {
   return ASSURANCE.termScaleFloor + ASSURANCE.termScaleSpan * clamp(pull, 0, 1);
+}
+
+/**
+ * ORW-723: the keep-or-break verdict of ONE open vote promise when the pull is on. A planned betrayal (`plan === true`) always breaks. A SINCERE promise (sincerity >= `sincereAt`, or the plan says honest) is decided by the pull's own
+ * keyed roll alone - the old trait-free cost-benefit (`decideKeep`) no longer lowers a loyal voter's keep rate. A faked promise keeps the faking model's verdict (`legacyKeep`, the old `decideKeep`).
+ */
+export function pullVerdict(i: { plan: boolean | undefined; sincerity: number; legacyKeep: boolean; pull: number; roll: number }): boolean {
+  if (i.plan === true) return false;
+  const sincerity = i.plan === false ? 1 : i.sincerity;
+  return sincerity >= ASSURANCE.sincereAt ? pullKeeps(i.pull, i.roll) : i.legacyKeep;
 }

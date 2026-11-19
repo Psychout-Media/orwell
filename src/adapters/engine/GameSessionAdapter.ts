@@ -101,7 +101,7 @@ import { decideDodge, type DodgeFact } from "../../engine/dodging";
 import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosureFull, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { beatShare, endgamePush, endgameFakeLean, isEndgame } from "../../engine/endgameTrust";
 import { heirOf, partnerReaction, debtorRelief } from "../../engine/evictedTake";
-import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, assurancePull, pullKeeps, assuranceTermScale, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
+import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, assurancePull, pullVerdict, assuranceTermScale, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, BreakCause, Deal } from "../../engine/deals";
 import { isPositiveObligation, RELIABLE_FACT_PREFIX } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
@@ -1710,13 +1710,13 @@ export class GameSessionAdapter implements GameSession {
     const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(voter), this.emotionalReadOf(voter))));
     const keepWeight = assuranceKeepWeight({ loyalty, aggression: stats ? Math.max(0, Math.min(1, 1 - stats.social)) : 0.5 });
     const breakBenefit = Math.max(0, Math.min(1, this.rel.edge(voter, n).threat));
-    const kept = open.every((a) => { const plan = this.ledgerPlanVerdictFor(a, "vote"); return plan !== true && decideKeep({ keepWeight, sincerity: plan === false ? 1 : a.sincerity, breakBenefit }); }); // ORW-586 slice 5: the plan, as in assuranceProtects
-    if (!kept) return 0;
+    const verdict = (a: Assurance): { plan: boolean | undefined; legacy: boolean } => { const plan = this.ledgerPlanVerdictFor(a, "vote"); return { plan, legacy: plan !== true && decideKeep({ keepWeight, sincerity: plan === false ? 1 : a.sincerity, breakBenefit }) }; }; // ORW-586 slice 5: the plan, as in assuranceProtects
     const base = 0.5 * DECISION.vote.dealHonorWeight;
-    if (!this.assurancePullEnabled || this.live.playedGame !== true) return base;
-    // ORW-723: a promise already faked (insincere, the one faking model) keeps its own verdict above; the pull decides the SINCERE ones. The pull is THIS voter's own (loyalty, honesty, bond to the nominee, how threatening they read). Each assurance holds or breaks on its own keyed roll (stable across reads, never the shared rng).
+    if (!this.assurancePullEnabled || this.live.playedGame !== true) return open.every((a) => verdict(a).legacy) ? base : 0;
+    // ORW-723: a SINCERE promise is decided by THIS voter's own pull (loyalty, honesty, bond to the nominee, how threatening they read) on the assurance's own keyed roll (stable across reads, never the shared rng); a planned betrayal
+    // still breaks and a faked promise keeps the faking model's verdict (`pullVerdict`). A kept one weighs more the stronger the pull.
     const pull = this.assurancePullOf(voter, n);
-    const keeps = open.every((a) => a.sincerity < 0.5 || pullKeeps(pull, new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:assurance-keep:${a.id}`)).next()));
+    const keeps = open.every((a) => { const v = verdict(a); return pullVerdict({ plan: v.plan, sincerity: a.sincerity, legacyKeep: v.legacy, pull, roll: new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:assurance-keep:${a.id}`)).next() }); });
     return keeps ? base * assuranceTermScale(pull) : 0;
   }
   /**
