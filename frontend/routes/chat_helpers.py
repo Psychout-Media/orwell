@@ -7293,7 +7293,7 @@ _EC_NEG_TAIL_RE = re.compile(r"(?:\bnot|n['’]t|\bno\s+longer|\bnever)\s+(?:\w+
 _EC_CLAUSE_CUT_RE = re.compile(r",\s*(?:and\s+)?|\band\s+", re.IGNORECASE)
 _EC_COPULA_RE = re.compile(r"\b(?:is|are|was|were|sits|stands|sit|stand|waits|wait)\b", re.IGNORECASE)
 _EC_ROOM_WORDS = (("kitchen", "kitchen"), ("living room", "living-room"), ("great room", "living-room"), ("dining room", "dining-room"), ("back yard", "backyard"), ("backyard", "backyard"),
-                  ("yard", "backyard"), ("hallway", "hallway"), ("lounge", "lounge"), ("bathroom", "bathroom"), ("hoh room", "hoh-room"),
+                  ("yard", "backyard"), ("hallway", "hallway"), ("lounge", "lounge"), ("bathroom", "bathroom"), ("hoh room", "hoh-room"), ("landing", "landing"),
                   ("storage room", "storage-room"), ("diary room", "diary-room"))
 
 
