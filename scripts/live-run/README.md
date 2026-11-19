@@ -35,6 +35,61 @@ like `main~55` (`run_short.sh main~55`), which is how the known-bad proof below 
 2. `python3 scripts/live-run/live_short.py --run-dir <the staged run dir>` (use the FE venv for Playwright; `TMPDIR` on disk if `/tmp` is a nearly full tmpfs).
 3. Read `report.md` in the run dir. Exit code: 0 pass, 1 fail, 2 could not run. Stop the rig by PID when done.
 
+## Formal short tier: veto ceremony, eviction, finale (ORW-109)
+
+The written bar is `docs/live-run-pass-bar.md` (12 checks). One command, the real narrator (DeepSeek, images off), under a spend cap and a turn cap:
+
+    RIG_BEATS="veto-ceremony eviction finale" RIG_SPEND_CAP=0.75 RIG_MAX_TURNS=60 scripts/live-run/run_short.sh [REF]
+
+- Each beat JUMPS the engine to its phase with the engine's own player API (no model call), then plays a few real chat turns (`--beat-turns`, 1..6). `RIG_BEATS` takes any subset.
+- Every turn is compared with engine truth by `live_compare.py` (pure, unit-tested): veto holder, nominees, evictee, sealed ballots (E12), a phantom winner, reasoning or operator text in the bubble (B1-B6), plus the
+  stall rule S1 (an event due and nothing committed for more than 3 turns, 1 after an explicit ask: the ORW-10 shape) and the livelock rule L1.
+- `--max-spend` / `--max-turns` are enforced in the harness before every model-costing send: at the cap the run stops cleanly, scores what was played and reports `CAPPED` (exit 4). The out-of-process `spend_guard.py` stays as the backstop.
+- It writes `bar-report.md`, `bar-report.json` and `plane-comment.html` into the run dir (no transcript, cast names scrubbed, no secrets); the agent on watch posts the comment on the board.
+- Offline stub mode, never spends and needs no rig: `python3 scripts/live-run/live_short.py --dry-run` runs the comparator over a clean and a broken transcript and exits 0 only while its positive control (the planted stall and phantom veto claim are detected) holds. Operator-triggered; there is no CI job for the live run.
+
+## Full-week tier over HTTP: `live_full.py` (ORW-109, operator-triggered only)
+
+One game week played as a TALKING PLAYER against a configured front-end URL (dev), over the same API the browser uses, every turn compared with the engine's own state. No browser, no rig,
+no CI job, no cron, no nightly: an operator (or the coordinator's agent) runs it by hand, on DeepSeek with images off, at most 3 live jobs at once on the runner.
+
+    python3 scripts/live-run/live_full.py --creds ~/.config/orwell-dev/<account-file>.json --max-spend 3 --max-turns 200 [--base-url URL] [--out DIR] [--transport auto|sse|ws]
+
+- **Needs:** the account file (JSON with `server`, `username`, `password`; read INSIDE the process, handed to the login call, never printed, logged or written to a report) and a
+  started game bound to that account (play casting and the premiere in the browser first; the driver does not run casting). `--base-url` overrides the file's `server`. Python 3 and the
+  `websockets` package only when the game build is WebSocket-only (the SSE route answers 426 there and `--transport auto` falls through to the `turn` frame).
+- **What it does:** logs in, reads the bound game session, then loops: read `GET /api/orwell/state` (truth), answer a pending decision card through `POST /api/orwell/decision` (the
+  simplest legal option, as the browser's card posts it), otherwise send one player message through the chat stream and read the public bubble (reasoning is kept apart by the stream's
+  own `thinking` flag). The player is deterministic and mostly social: it talks to the least-recently-talked-to houseguest in the room, asks, shares, answers a question put to it, asks
+  to start a due event then hangs out, goes to bed late, tries one nap and one move with no destination. It stops at the weekly eviction plus the next head of household (and plays
+  two more turns so the last result is judged), at `--max-turns`, or at `--max-spend`.
+- **Caps, enforced in the harness:** `--max-spend` (default $3; priced from the stream's own `usage` events with `spend_guard.row_usd`'s deliberately high flash-tier rates, padded x1.5 for
+  the calls the stream does not show, and a high per-turn estimate when a stream carries none) and `--max-turns` (default 200, ceiling 400). The check runs BEFORE every model-costing send; at the cap the
+  run stops cleanly, scores what was played, writes the report as CAPPED and exits 4. A run without a working cap is never started.
+- **Spend model:** about $0.01 to $0.02 per player turn on DeepSeek at those rates, so $1.50 to $3 for 150 to 250 turns; a short stop (stall found early) costs a few cents. Estimate, not a bill.
+- **Judge (`live_full_eval.py`, pure):** the vault note's per-turn checks (T1 real scene, T2 phase, T3 phantom outcome, T4 retcon, T5 answered, T6 machinery, T7 sealed ballots, T9 time,
+  T11 narrator speaking for the player, T13 zero clocks, T16 headcounts), the stall rule S1 (3 turns, 1 after an explicit ask), the livelock rule L1, and the coordinator's untold-result rule R1
+  (a committed result no narration told within 2 turns). Findings are grouped: **contradictions, stand-in, missing-results, wall-leaks, unanswered, stalls**. Verdicts PASS / NOTE / FAIL /
+  CAPPED / COULD NOT RUN per the bar (T1 may fail on at most 1 turn in 50). Exit 0 PASS or NOTE, 1 FAIL, 2 could not run, 4 CAPPED.
+- **Detector sets come from the code (`live_detect.py`):** stand-in lines = every `_..._LINE` / `..FALLBACK..` string constant in `frontend/src/agent_loop.py`, read with `ast` (a new one is
+  detected the day it lands; a test fails if a known one is renamed away); wall leaks = the FE's own operator-aside regexes (`agent_loop._GAME_LEAK_*`), the harness machinery list
+  (`live_short.LEAK_RE`), reasoning shapes (`live_compare.REASONING_RE`), a raw `npc:<id>`, and the narrator prompt's own words (8-word runs and ALL-CAPS labels read from
+  `src/engine/momentPrompts.ts`); refusal-only = `refusal_guard.strip_leading_refusal`; the narrator writing the player's words = `player_voice_guard.screen`. Detectors that need the FE
+  importable (the FE venv) record `degraded` when they were not live.
+- **Report:** `report.md`, `report.json` and `plane-comment.html` in `--out`, anonymised (cast names become a role word, the account name and server are redacted, no transcript, no key).
+  Header (build from `/api/orwell/health`, tier, UTC and Arizona time, model, turns, spend), verdict line, the check counts, the longest wait for a due event, the stall result, the six finding
+  groups with turn numbers, notes, and "what this run did not cover" (T8, T10, T12, T14, T15, T17-T20, two windows, hidden-information reads beyond the regexes).
+- **Offline, no network, no model, no spend:** `--stub healthy|planted|stall|stand_in|missing|leak|unanswered|retcon|timeskip|orw10` plays a generated week through the SAME loop and judge; `--replay FILE`
+  plays a recorded `{first, steps}` JSON. `frontend/tests/test_live_full.py` pins a positive control for every finding class, the caps, the stream readers, the report and the credential handling.
+- **Not proven live yet:** the WebSocket `turn` transport and the real `/api/orwell/health` shape; the first operator run is that proof (a transport failure shows as a no-reply turn, never as made-up text).
+
+### The ORW-10 proof
+
+`frontend/tests/fixtures/live_full_orw10_veto_stall.json` is the RECORDED SHAPE of the ORW-10 veto stall (#2208 / #2212): the veto ceremony due for 35 messages, nothing committed, a canned cutaway line
+shown as every reply. It is rebuilt from the card and its fix commits, not a captured transcript: a real old-build run on a real model was not practical in the build session. Both the full-week judge
+(`--replay`, FAIL on S1, L1, T5) and the short tier's `live_compare.detect_stall` go RED on it; `live_full_healthy_week.json` goes green. A live old-build run is still the stronger proof:
+`run_short.sh main~N` with `RIG_BEATS=veto-ceremony` on a build before #2208.
+
 ## Rig slots (ORW-344): two playtests at once
 
 The rehearsal kit used to have exactly one rig. It now has two, picked by ONE variable, `RIG_SLOT` (default 1), read by every kit and live-run script (`scripts/rehearsal-kit/slot.sh`):
@@ -104,5 +159,5 @@ A run PASSES when every FAIL check holds. WARN checks are listed in the report a
 - Hidden-information leaks beyond the machinery list (the Vault Wall is gated structurally in CI; this tier only catches visible leaks).
 - Claims the engine did not do other than the pre-narrated competition (nominees named before the ceremony, a winner before the result). Add as checks when
   a staged break is available to prove each one fails.
-- "The short run catches the ORW-10 stall on the old build" (the card's must-pass): needs the old build staged; not done.
+- The ORW-10 proof is a recorded-shape fixture (see the ORW-10 proof above); a real old-build staged run is still owed.
 - The BDD Auditor's approved-scenario pass bar: this table is a first draft from the live-run findings so far and is for the Auditor to amend.

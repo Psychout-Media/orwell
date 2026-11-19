@@ -824,8 +824,8 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "THE HOH-ROOM REVEAL — once the new HOH is crowned, play the house's weekly ritual before the game " +
     "turns to nominations: the whole house crowding upstairs to see the room, the " +
     "letter and photos from home read aloud (often the only tears of the week), the small comforts of " +
-    "power. If the PLAYER is the new HOH make it THEIR scene — first person, felt, the house performing " +
-    "loyalty to new power; if an NPC won, keep it lighter texture the player catches in passing. This is " +
+    "power. If the PLAYER is the new HOH make it THEIR scene — the house performing " +
+    "loyalty to new power around them (how they feel is theirs to say, never yours); if an NPC won, keep it lighter texture the player catches in passing. This is " +
     "pure color off the crown the game already decided — invent no mechanic, change no outcome, and do " +
     "not stall the game on it (nominations are still coming as their own beat).",
   nominations:
@@ -1047,7 +1047,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     // already-decided placement in THE PLAYER'S OWN SEASON fact below, which the game hands you verbatim).
     "THE CROWNING MOMENT — give it real weight before easing into hosting. Check THE PLAYER'S OWN SEASON " +
     "fact below (never invent a different placement): if it says they WON, this is their victory — play " +
-    "the champion's moment as it lands, first person, felt: the crown, the house's reaction, disbelief " +
+    "the champion's moment as it lands around them (how they feel is theirs to say, never yours): the crown, the house's reaction, disbelief " +
     "tipping into joy (\"You won Big Brother.\"), before settling into hosting. If it says RUNNER-UP, " +
     "play the near-miss with real weight — pride in a season well fought, grace in a close loss, the " +
     "jury's verdict landing — before settling into hosting. If they sat on the jury or were evicted " +
@@ -1231,6 +1231,9 @@ export function renderGameContext(view: GameStateView): string {
       // ORW-718: the producer never assumed a gender the player did not give ("you're a man who ..." from a name and a job).
       const gp = String(c.known.genderPresentation ?? "").toLowerCase();
       lines.push(`- ${playerGenderRule(gp === "man" || gp === "woman" || gp === "nonbinary" ? gp : undefined)}`);
+      if (c.askPronouns) {
+        lines.push("- PRONOUNS: not on file. Ask once before finalizing, in your voice; a skip is genderPresentation \"unstated\". Never again after.");
+      }
       // The finalize gate, stated as ENGINE truth so the model never has to judge "is the interview
       // done?" itself (it gets that wrong both ways — re-asking forever, or finalizing early and
       // eating a `createRefused: casting-incomplete`). `ready` is name-only; `finalizable` is the real
@@ -1529,7 +1532,7 @@ export function renderGameContext(view: GameStateView): string {
           const cues = presentCues(e);
           if (cues) lines.push(`        now (play as conduct, never state): ${cues}`);
           // ORW-314: the reason this houseguest GAVE ALOUD for a public act on the board. Closed set; the kind and the subject only. Voice it; never add or swap another.
-          for (const r of e.statedReasons ?? []) lines.push(`        said aloud (${STATED_ACT[r.decision] ?? "deciding on"} ${neutralizeForPrompt(r.about.name)}): "${STATED_REASON_GLOSS[r.kind] ?? "it is purely strategic"}" - voice THIS reason in their own words and no other`);
+          for (const r of e.statedReasons ?? []) lines.push(`        said aloud (${STATED_ACT[r.decision] ?? "deciding on"} ${neutralizeForPrompt(r.about.name)}): the reason they give - ${STATED_REASON_GLOSS[r.kind] ?? "they call it purely strategic"}; voice THIS reason in their own words, never stock phrasing, and no other`);
           // ORW-338: ORW-317's two NPC-mind lines, pushed here (npcVoice-gated already) so the narrator has them without calling the under-called tool. They sit in this per-turn block, i.e. the volatile tail, never the leading stable lines.
           if (e.moodCause) lines.push(`        moodCause (they chose to tell the player why they feel this way; the ONLY reason they may give): "${neutralizeForPrompt(e.moodCause)}"`);
           if (e.tellsYou) lines.push(`        tellsYou (their own words to the player, certainty ${e.tellsYou.certainty.replace("-", " ")}): ${neutralizeForPrompt(e.tellsYou.subject)} ${TELLS_YOU_VERB[e.tellsYou.kind] ?? "is involved with"}${e.tellsYou.label ? ` ${e.tellsYou.label} (gossip, in their own words, never as a label)` : ""}${e.tellsYou.object ? ` ${e.tellsYou.object === e.name ? "the speaker themself" : neutralizeForPrompt(e.tellsYou.object)}` : ""}`);
@@ -1686,18 +1689,18 @@ export function renderGameContext(view: GameStateView): string {
 }
 
 /** Audit band D F2 — the compact carriage-cue clause for one present houseguest, or "" when none set. */
-/** ORW-314: how each closed-set STATED reason sounds as a line the houseguest says aloud (the narrator words it in their voice; it is the reason they GIVE, which may or may not be the whole story). */
+/** ORW-314: what each closed-set STATED reason IS, as a third-person fact about the houseguest (never a quotable line: the narrator voices it live in their own words; it is the reason they GIVE, which may or may not be the whole story). */
 export const STATED_REASON_GLOSS: Readonly<Record<string, string>> = {
-  "biggest-threat": "you are the biggest threat in this house",
-  "came-after-me": "you came after me first",
-  "loyal-to-my-side": "I had to protect my people",
-  "pawn-youll-be-fine": "you are a pawn and you will be fine",
-  "kept-my-word": "I made a promise and I kept it",
-  "didnt-trust-you": "I never knew where you stood",
-  "had-it-planned": "this was always the plan",
-  "nothing-personal": "it is purely strategic, nothing personal",
-  "house-wants-it": "it is what the house wanted",
-  "keeping-the-noms": "I am keeping the nominations the same",
+  "biggest-threat": "they see the person named as the biggest threat in the house",
+  "came-after-me": "they say the person named came after them first",
+  "loyal-to-my-side": "they are protecting their own side",
+  "pawn-youll-be-fine": "they call the person named a pawn who will be fine",
+  "kept-my-word": "they say they are keeping a promise",
+  "didnt-trust-you": "they say they never knew where the person named stood",
+  "had-it-planned": "they say this was always the plan",
+  "nothing-personal": "they call it purely strategic, nothing personal",
+  "house-wants-it": "they say it is what the house wanted",
+  "keeping-the-noms": "they are keeping the nominations the same",
 };
 /** 0151: what a `tellsYou` kind says, as a verb phrase between the subject and the second party. */
 const TELLS_YOU_VERB: Record<string, string> = {
@@ -1815,6 +1818,8 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
   // ORW-718: the player's own pronouns ride the terminal block too (the region the NPC locks measured best in); a houseguest called a
   // player who never stated a gender "a man", and one who did state it by the wrong word, from the roster line buried mid-prompt.
   lines.push(`- ${playerGenderRule(view.player.genderPresentation)}`);
+  // ORW-725: the player is plugged in. Rule only (no example lines): the playtest showed first-person narration voicing the player and a houseguest reciting the player's own message as their speech.
+  lines.push("- PLAYER'S VOICE: what the player says, does, decides or feels is only what their own message this turn states; speak of them in second person, never first. Write no line, action, choice or answer for them (an earlier question to them stays theirs to answer), and never give a houseguest the player's own words as that houseguest's speech: each houseguest reacts in their own voice.");
   const houseById = new Map(view.house.map((h) => [h.id, h] as const));
   for (const p of wa.present) {
     const h = houseById.get(p.id);

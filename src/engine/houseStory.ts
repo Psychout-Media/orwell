@@ -124,11 +124,11 @@ export function buildHouseStories(inp: HouseStoryInputs): HouseStory[] {
       why: g.why.map((c) => scrub(causeLine(c, nameOf, scrub))), ended: endedLine(g, scrub),
     }));
     const decisions: HouseStoryDecision[] = decided.map((r) => {
-      const said = STATED_REASON_GLOSS[r.stated.kind] ?? "it is purely strategic";
+      const said = STATED_REASON_GLOSS[r.stated.kind] ?? "they call it purely strategic";
       const lie = r.stated.candor === "cover";
       return {
         week: r.week, day: r.day, act: `${ACT[r.decision] ?? r.decision} ${nameOf(r.real.choice)}`,
-        real: scrub(realLine(r, nameOf, goalById)), said: `"${said}"`, aired: r.public,
+        real: scrub(realLine(r, nameOf, goalById)), said: said, aired: r.public,
         honesty: lie ? "lie" : r.stated.candor === "part-truth" ? "part-truth" : "truth",
       };
     });

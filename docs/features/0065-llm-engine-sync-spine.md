@@ -268,3 +268,8 @@ Each part is BDD/TDD-first (write the test red, implement to green), verified wi
 6. **No behavior change when the new optional fields are absent** (every part is opt-in/back-compatible).
 7. The expressive-non-collapse gate stays green throughout — no part flattens the open set (ADR 0005).
 8. Every new surface is Vault-free and cross-user-isolated; dependency-cruiser stays clean.
+
+## Amendment 2026-11-19 (ORW-726): a win the pre-resolve committed this turn is tellable, and the stand-in never leads narration
+
+- **Part C (pre-emission guard).** The FE pre-resolve can walk a competition to its result before the turn's baseline is captured, so the baseline already holds the new HOH / veto holder. A narrated win then read as "one beat early" and the sentence naming the winner (the player's own, in the Season 2 playtest) was dropped. A baseline flagged `compWalked` now treats a holder the board carries as freshly committed; a wrong named winner is still caught, and a walk with no committed holder is still a phantom (`frontend/tests/test_orw726_pre_resolved_win_is_not_early.py`).
+- **Cut-scene stand-in.** In a live game the generic engine-authored "feeds cut away" sentence is held, not streamed. If the turn then shows narration it never appears; if nothing is shown the existing blank-turn guard re-prompts once with a fact (the draft was withheld for stating an uncommitted result) and falls to the engine-board line. The engine-true board recap (2nd consecutive cut) still streams (`frontend/tests/test_orw726_no_standin_before_narration.py`).
