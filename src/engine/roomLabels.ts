@@ -48,7 +48,8 @@ export function acceptHouseThemeDraft(raw: unknown, opts: { avoidNames?: readonl
   if (d.pitch.length < 20 || d.pitch.length > 300 || d.name.trim().length < 3 || d.name.length > 60) return no("length");
   const rooms = {} as Record<Room, { name: string; look: string }>;
   for (const r of HOUSE_ROOMS) {
-    const x = d.rooms[r];
+    // ORW-711: a draft written before the landing existed has no landing; the library lends one (picked from the draft's own name, so it is reproducible) rather than refusing a whole house.
+    const x = d.rooms[r] ?? (r === "landing" ? HOUSE_THEMES[hashSeed(String(d.name)) % HOUSE_THEMES.length]!.rooms.landing : undefined);
     if (!x || typeof x.name !== "string" || typeof x.look !== "string") return no("shape");
     const name = x.name.trim(); const look = x.look.trim();
     if (name.length < 3 || name.length > 48 || look.length < 20 || look.length > 280) return no("length");
