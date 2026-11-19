@@ -139,7 +139,7 @@ When("the holder's target is evicted", function () {
 Then("the holder's mood is lifted and the cause is recorded in their own words", function () {
   const c = nm(this), s = c.ms as MoodS;
   assert.ok(s.soulObj(c.holder)!.emotionalHistory.length > c.moodBefore, "the holder's soul got the event");
-  assert.deepEqual({ outcome: s.live.moodCauses![c.holder]!.outcome, line: s.live.moodCauses![c.holder]!.line }, { outcome: "worked", line: "I got {subject} out, like I planned" });
+  assert.deepEqual({ outcome: s.live.moodCauses![c.holder]!.outcome, line: s.live.moodCauses![c.holder]!.line }, { outcome: "worked", line: "{subject} was voted out, as they had planned" });
 });
 Then("the holder tells that cause to a player they trust but not to one they do not", function () {
   const c = nm(this), s = c.ms as MoodS;

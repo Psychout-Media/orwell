@@ -30,13 +30,13 @@ describe("mood with a cause", () => {
   it("a plan that works lifts the mood, with the reason in the holder's own words", () => {
     const a = appraiseGoal(goal("get-them-out", "achieved"));
     expect(a.event).toBe("comp-win");
-    expect(a.cause).toMatchObject({ outcome: "worked", about: "npc:2", line: "I got {subject} out, like I planned" });
+    expect(a.cause).toMatchObject({ outcome: "worked", about: "npc:2", line: "{subject} was voted out, as they had planned" });
   });
 
   it("a plan that falls apart hurts, and losing the person you protect hurts most", () => {
     expect(appraiseGoal(goal("get-them-out", "failed")).event).toBe("comp-loss");
     expect(appraiseGoal(goal("keep-them-safe", "failed")).event).toBe("blindside");
-    expect(appraiseGoal(goal("keep-my-secret", "failed", 0.8, undefined)).cause?.line).toBe("everyone knows my secret now");
+    expect(appraiseGoal(goal("keep-my-secret", "failed", 0.8, undefined)).cause?.line).toBe("everyone knows their secret now");
   });
 
   it("a goal they barely cared about passes without a feeling; a dropped or replaced one leaves a quiet cause, no event", () => {
@@ -55,5 +55,20 @@ describe("the cause is guarded (Ryne: no motive hints; actions are the evidence)
     expect(mayShareCause(plot, 0.5, 0.5)).toBe(false);
     expect(mayShareCause(loss, 0.5, 0.5)).toBe(true);
     expect(mayShareCause(loss, 0.2, 0.3)).toBe(false);
+  });
+});
+
+describe("ORW-717: a goal cause is a third-person FACT, never a line the houseguest recites", () => {
+  const GOAL_KINDS = ["get-them-out", "revenge", "stay-safe", "pull-them-in", "keep-them-safe", "win-power", "find-out", "long-con", "reach-jury", "prove-not-a-floater",
+    "protect-my-person", "keep-my-secret", "last-alliance-standing"] as Goal["kind"][];
+  it("no cause line, for any goal kind or settled status, is spoken in the first person (a first-person line was read out verbatim by many houseguests in a season)", () => {
+    let seen = 0;
+    for (const k of GOAL_KINDS) for (const st of ["achieved", "failed", "dropped", "replaced"] as Goal["status"][]) {
+      const line = appraiseGoal(goal(k, st)).cause?.line;
+      if (!line) continue;
+      seen++;
+      expect(line, `${k}/${st}`).not.toMatch(/\b(I|I'm|I've|me|my|mine|we|our|us)\b/i);
+    }
+    expect(seen).toBeGreaterThan(20);
   });
 });
