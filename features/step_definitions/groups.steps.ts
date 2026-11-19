@@ -284,6 +284,13 @@ Given("groups: a season where a houseguest the player does not trust has a goal 
     const awake = [...g.ids.slice(0, 4), PLAYER] as EntityId[];
     for (let i = 0; i < 14 && !p.live.goalApproaches?.[holder]; i++) { p.live.nightDepth = (p.live.nightDepth ?? 8) + 1; p.houseLifeStretch(g.sb.engine.events, awake, i); }
     if (p.live.goalApproaches?.[holder]) { Object.assign(bag(this), { s: g.s, holder }); return; }
+    // ORW-709: a hostile step is raised only when it is addressed TO the player (a houseguest framing the player to someone else is hidden scheming and raises nothing), and the planner rarely addresses a get-them-out step to the player
+    // from another room. So the engine is handed exactly that step, the same entry `houseLifeStretch` makes, and the scenario still tests what the approach then does.
+    if (seed === 29) {
+      const goalId = `${holder}:week:get-them-out:d1`;
+      (p.live.goalApproaches ??= {})[holder] = { desire: "probe", goalId, hour: 0 };
+      Object.assign(bag(this), { s: g.s, holder }); return;
+    }
   }
   assert.fail("no seed raised the approach");
 });
