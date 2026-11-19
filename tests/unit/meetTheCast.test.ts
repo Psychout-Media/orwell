@@ -10,9 +10,9 @@ import { resolvePending } from "../../features/support/answerPending";
 type Live = { premiereEntrance?: { stage: string; order: string[]; arrived: number; playerPos: number; spoke: string[]; introduced?: string[] }; champagneCircle?: string; beds?: { owner: Record<string, string> } };
 const liveOf = (s: GameSessionAdapter) => (s as unknown as { live: Live }).live;
 let n = 0;
-function start(seed: number, on = true): GameSessionAdapter {
+function start(seed: number, on = true, tour = true): GameSessionAdapter {
   const s = new GameSessionRegistry().sandboxFor(`meet-${n++}`).session as GameSessionAdapter;
-  s.setPremiereEntrancesEnabled(true); s.setBedRushEnabled(true); s.setHouseTourEnabled(true); s.setMeetTheCastEnabled(on);
+  s.setPremiereEntrancesEnabled(true); s.setBedRushEnabled(true); s.setHouseTourEnabled(tour); s.setMeetTheCastEnabled(on);
   s.createCharacter({ playerName: "P", seed });
   s.noteMessage({ messageId: "m1" });
   return s;
@@ -121,5 +121,28 @@ describe("meet the cast: flag off", () => {
     step(s); const ent = s.premiereIntros()?.entrance as { speakers?: Array<{ manner?: string }>; meetTheCast?: boolean } | undefined;
     expect(ent?.meetTheCast).toBeUndefined();
     for (const sp of ent?.speakers ?? []) expect(sp.manner).toBeUndefined();
+  });
+});
+
+describe("meet the cast: arms whether or not the tour runs (ORW-690)", () => {
+  it("with the tour off, the circle still arms the introductions, each houseguest once, before the bed rush", () => {
+    for (const seed of [3, 7, 11]) {
+      const s = start(seed, true, false);
+      expect((liveOf(s) as { houseTour?: unknown }).houseTour, "no tour ran").toBeUndefined();
+      for (let i = 0; i < 40 && pe(s).stage === "entrances"; i++) { step(s); if (pe(s).stage === "entrances") expect(pe(s).introduced, "nothing before the circle").toBeUndefined(); }
+      expect(pe(s).stage).toBe("toast");
+      expect(pe(s).introduced).toEqual([]);
+      for (let i = 0; i < 30 && pe(s).stage === "toast"; i++) step(s);
+      const intro = pe(s).introduced!;
+      expect(new Set(intro).size).toBe(intro.length);
+      expect([...intro].sort()).toEqual([...pe(s).order].sort());
+      expect(liveOf(s).champagneCircle).toBe("done");
+      expect((s as unknown as { live: { bedRush?: unknown } }).live.bedRush === undefined || pe(s).stage === "done").toBe(true);
+    }
+  });
+  it("with the tour off and the flag off the circle is the old one", () => {
+    const s = start(9, false, false);
+    for (let i = 0; i < 40 && pe(s).stage === "entrances"; i++) step(s);
+    expect(pe(s).introduced).toBeUndefined();
   });
 });
