@@ -1023,6 +1023,8 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
   // aimedSeq / aimedAtPlayer (ORW-701): the id sequence never goes back and a record once made is never removed (a restore must not re-mint a used id).
   if ((earlier.live?.aimedSeq ?? 0) > (later.live?.aimedSeq ?? 0)) return "aimedSeq";
   if ((earlier.live?.aimedAtPlayer ?? []).some((r) => !(later.live?.aimedAtPlayer ?? []).some((x) => x.id === r.id))) return "aimedAtPlayer";
+  // approachAsked (ORW-709): a houseguest's asked question is never un-asked and an answer never reverts (append-only per houseguest; a restore must not let a closed question be asked again).
+  for (const [id, e] of Object.entries(earlier.live?.approachAsked ?? {})) { const l = later.live?.approachAsked?.[id]; if (!l) return "approachAsked"; if (l.q === e.q && e.answered === true && l.answered !== true) return "approachAsked"; if (l.q === e.q && l.n < e.n) return "approachAsked"; }
   // lobbiesRecorded / meetingCallsDecided (ORW-686): once-per-key decisions are never un-made (append-only; a restore must not re-roll them).
   if ((earlier.live?.lobbiesRecorded ?? []).some((k) => !(later.live?.lobbiesRecorded ?? []).includes(k))) return "lobbiesRecorded";
   if ((earlier.live?.meetingCallsDecided ?? []).some((k) => !(later.live?.meetingCallsDecided ?? []).includes(k))) return "meetingCallsDecided";
