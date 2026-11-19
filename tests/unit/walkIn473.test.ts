@@ -60,6 +60,8 @@ function stage(action = "pitch", played = true, group = 2, nightOwl = false) {
   h.presence = new Map(seats);
   h.awakeNow = () => new Set<EntityId>([PLAYER, ...crew]);
   h.live.playedGame = played;
+  // ORW-709: a houseguest who steps up to the player now walks over to the player's room, which would move one of the pair out of the kitchen on the message. These pins are about the walk-in, not approaches, so the desire clock is off here.
+  s.setDesireClockEnabled(false);
   const orig = (s as unknown as { record: { events: () => Ev[]; hidden: unknown } }).record;
   const talk: Ev = { id: "offscreen:strategy:test", ts: 1, type: "strategy", initiator: A, witnessSet: crew, hidden: true, content: "A and B plotted against C SENTINEL-HIDDEN", houseLife: { ...(nightOwl ? { nightOwl: true } : {}), action, place: "kitchen", manner: "low", truthful: true, stretch: 1, at: s.inGameAbsHour() } };
   s.setRecordProviders({ events: () => [...orig.events(), talk] as never, hidden: orig.hidden as never });
