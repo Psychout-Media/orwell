@@ -12478,10 +12478,19 @@ export class GameSessionAdapter implements GameSession {
    * A8 - the one NPC (awake, living) whose desire clock has crossed its threshold RIGHT NOW, or null. Deterministic: the relationship drive comes from `rankApproaches` on an
    * hours-keyed stream, the role is public standing (HOH/nominee), the schedule is the public day schedule. Pure read - the caller records the approach.
    */
-  private desireApproach(ids: EntityId[]): { npc: EntityId; desire: string; capped?: true } | null {
+  private desireApproach(ids: EntityId[]): { npc: EntityId; desire: string; capped?: true; q?: string } | null {
     const live = this.live;
     if (!live || !this.house || ids.length === 0 || !firstCeremonyBeatResolved(live)) return null;
+    // ORW-709: the Diary Room is private. Nobody approaches a player who is in it, and a houseguest who is in it is away and cannot make an approach.
+    if (live.playedGame === true && this.presence?.get(PLAYER) === "diary-room") return null;
+    if (live.playedGame === true && this.presence) ids = ids.filter((id) => this.presence!.get(id) !== "diary-room");
+    if (ids.length === 0) return null;
+    const played = live.playedGame === true;
     const m = nextMilestone(live);
+    // ORW-709: the question an approach carries (its purpose with the beat or goal behind it). A houseguest who has asked it - answered or still awaiting - does not ask it again; how often they press at all rises slower each time this week.
+    const asked = live.approachAsked;
+    const qOf = (id: EntityId, desire: string, goalId?: string): string => goalId !== undefined ? `goal:${goalId}` : `${desire}:${m?.beat ?? "none"}:${live.week}`;
+    const pressesOf = (id: EntityId): number => (played && asked?.[id]?.week === live.week ? asked[id]!.n : 0);
     const noms = new Set<EntityId>(this.ceremony.nominees ?? []);
     const rng = new SeededRandom(hashSeed(`desire:${this.gameSeed ?? ""}:${Math.floor(this.absHour() * 10)}`));
     const drive = new Map(rankApproaches(PLAYER, ids, this.rel, rng, undefined, this.approachBiasHook(PLAYER), this.grudgeStanceHook(PLAYER)).map((a) => [a.npc, a.drive] as const));
@@ -12490,7 +12499,8 @@ export class GameSessionAdapter implements GameSession {
     for (const id of ids) {
       const desire = desireFor(m?.beat, { isHoh: this.ceremony.hoh === id, isNominee: noms.has(id) });
       if (!desire) continue;
-      cands.push({ npc: id, desire, drive: drive.get(id) ?? 0, hoursSinceApproach: since[id] === undefined ? undefined : this.absHour() - since[id]! });
+      if (played && asked?.[id]?.q === qOf(id, desire)) continue; // ORW-709: already asked this question
+      cands.push({ npc: id, desire, drive: drive.get(id) ?? 0, hoursSinceApproach: since[id] === undefined ? undefined : this.absHour() - since[id]!, presses: pressesOf(id) });
     }
     const until = m ? Math.max(0, m.targetHour - (live.nightDepth ?? WAKE_HOUR)) : null;
     const best = mostUrgent(cands, until);
@@ -12498,13 +12508,16 @@ export class GameSessionAdapter implements GameSession {
     const goalCands: Candidate[] = ids.flatMap((id) => {
       const g = live.goalApproaches?.[id];
       if (!g || this.absHour() - g.hour > DESIRE.goalFreshHours) return [];
-      return [{ npc: id, desire: g.desire as Desire, drive: drive.get(id) ?? 0, hoursSinceApproach: since[id] === undefined ? undefined : this.absHour() - since[id]! }];
+      if (played && asked?.[id]?.q === qOf(id, g.desire, g.goalId)) return []; // ORW-709: already asked this question
+      return [{ npc: id, desire: g.desire as Desire, drive: drive.get(id) ?? 0, hoursSinceApproach: since[id] === undefined ? undefined : this.absHour() - since[id]! , presses: pressesOf(id) }];
     });
     const byGoal = goalDriven(goalCands);
     const pick = byGoal && (!best || DESIRE.goalUrgency > best.urgency) ? byGoal : best ? { npc: best.npc, desire: best.desire } : null;
+    // ORW-709: the pick carries the question it asks (played games), so the caller can record it as asked.
+    const picked = pick && played ? (() => { const g = live.goalApproaches?.[pick.npc]; const viaGoal = !!byGoal && pick.npc === byGoal.npc && !!g; return { ...pick, q: viaGoal ? qOf(pick.npc, pick.desire, g!.goalId) : qOf(pick.npc, pick.desire) }; })() : pick;
     // ORW-423: in a PLAYED game, after `streakCap` same-purpose approaches in one stretch the next one is marked `capped`: the caller spends the want exactly as before (cooldown, movement, orientation untouched, so the house-life mix is unchanged) but the player is not interrupted.
-    if (pick && live.playedGame === true && streakHolds(live.approachStreak, pick.desire, this.absHour())) return { ...pick, capped: true };
-    return pick;
+    if (picked && live.playedGame === true && streakHolds(live.approachStreak, picked.desire, this.absHour())) return { ...picked, capped: true };
+    return picked;
   }
 
   /**
@@ -12545,7 +12558,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** A8 - record that `npc` approached now (the hours-based cooldown). */
-  private noteApproach(npc: EntityId, desire?: string, capped?: boolean): void {
+  private noteApproach(npc: EntityId, desire?: string, capped?: boolean, q?: string): void {
     const live = this.live!;
     // ORW-452 point 2 (Kevin with Ryne: "dynamic based on character sheets"): a houseguest the same-purpose cap HELD BACK decides what to do next from THEIR OWN sheet: come straight back (the want is kept: no cooldown is stamped, so they are
     // eligible again as soon as the cap allows), wait (the normal spent want and 3-hour cooldown), or give up (a second cooldown on top). Played games only: the cap exists nowhere else, so headless output is unchanged.
@@ -12559,6 +12572,12 @@ export class GameSessionAdapter implements GameSession {
       return;
     }
     (live.desireApproachedAt ??= {})[npc] = this.absHour();
+    if (live.playedGame === true && q !== undefined) { // ORW-709: the question is asked now; the houseguest comes over to where the player is and waits for the answer
+      const prev = live.approachAsked?.[npc];
+      (live.approachAsked ??= {})[npc] = { q, week: live.week, n: (prev?.week === live.week ? prev.n : 0) + 1, shownAt: this.absHour() };
+      const room = this.presence?.get(PLAYER);
+      if (room && room !== "diary-room" && this.presence!.get(npc) !== room) { this.presence!.set(npc, room); this.presenceBase?.set(npc, room); this.presenceTenure?.set(npc, 0); this.presenceZone?.delete(npc); }
+    }
     if (live.playedGame === true && desire !== undefined && !capped) live.approachStreak = nextStreak(live.approachStreak, desire, this.absHour()); // ORW-423
     if (live.goalApproaches) delete live.goalApproaches[npc]; // ORW-340: the goal that brought them has been acted on
   }
@@ -12938,8 +12957,8 @@ export class GameSessionAdapter implements GameSession {
       const awake = this.awakeNow();
       const ids = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
       const hit = this.desireApproach(ids);
-      if (hit) { const aimedSay = this.live.goalApproaches?.[hit.npc]?.say; this.noteApproach(hit.npc, hit.desire, hit.capped);
-        if (!hit.capped) this.markAimedShown(hit.npc);
+      if (hit) { const aimedSay = this.live.goalApproaches?.[hit.npc]?.say; const aimedGoal = this.live.goalApproaches?.[hit.npc]?.goalId; this.noteApproach(hit.npc, hit.desire, hit.capped, hit.q);
+        if (!hit.capped) this.markAimedShown(hit.npc, aimedGoal);
         if (hit.capped && this.live.playedGame === true) this.live.approachHeld = true; // ORW-443: narration-only - the view tells the narrator nobody new steps up this turn
         if (!hit.capped) { this.live.interruption = { npc: hit.npc, desire: hit.desire, atHour: this.live.nightDepth ?? WAKE_HOUR };
           if (aimedSay && this.claimsToPlayerOn()) this.live.interruption.say = aimedSay; // ORW-611 follow-up: told when the view for this framing is built (the houseguest is with the player)
@@ -14740,11 +14759,13 @@ export class GameSessionAdapter implements GameSession {
     s.aimedSeq = seq;
     list.push({ id: `aim:${p.actor}:${p.goalId}:${day}:${Math.floor(this.absHour())}:${seq}`, actor: p.actor, goalId: p.goalId, ...(p.goalKind ? { goalKind: p.goalKind } : {}), step: p.kind, hostile, day, hour: this.absHour(), status: "open" });
   }
-  private markAimedShown(npc: EntityId): void {
-    const r = this.live?.aimedAtPlayer?.find((x) => x.actor === npc && x.status === "open");
+  /** ORW-709: a record surfaces only when the approach that surfaced IS that record's own goal (an ordinary vote ask by the same houseguest is not their step aimed at the player). */
+  private markAimedShown(npc: EntityId, goalId?: string): void {
+    const r = this.live?.aimedAtPlayer?.find((x) => x.actor === npc && x.status === "open" && x.goalId === goalId);
     if (r) r.status = "shown";
   }
   private answerAimedFrom(npc: EntityId): void {
+    const ask = this.live?.approachAsked?.[npc]; if (ask && ask.answered !== true) ask.answered = true; // ORW-709: the player's answer is recorded: the question is closed and stays so
     if (!this.playerAimedEnabled) return;
     for (const r of this.live?.aimedAtPlayer ?? []) if (r.actor === npc && (r.status === "open" || r.status === "shown")) r.status = "answered";
   }
@@ -14752,18 +14773,20 @@ export class GameSessionAdapter implements GameSession {
    * 0172 / ORW-611: once a day. A step that surfaced as an approach is written down as a scene the player was present for (a witnessed event, never hidden); a step the player never answered closes: a hostile one costs that houseguest's
    * read of the player (the squeeze shape, bounded, on its own keyed stream), a non-hostile one just fades. Nothing is ever removed.
    */
+  private writeAimedScene(events: EventStore, r: NonNullable<LiveSeasonState["aimedAtPlayer"]>[number]): void {
+    const content = `${this.nameOf(r.actor)} steps up to ${this.nameOf(PLAYER)}${r.hostile ? " to have it out" : " with a move of their own"}`;
+    const sceneId = `${r.id}:scene`;
+    // ORW-701: a scene already written under this id (a save stuck on a duplicate record) is adopted, never recorded twice, never thrown on.
+    if (!events.queryAll().some((e) => e.id === sceneId)) events.record({ id: sceneId, ts: events.count(), type: r.hostile ? "conflict" : "strategy", initiator: r.actor, witnessSet: [r.actor, PLAYER], hidden: false, content, baseContent: content });
+    r.eventId = sceneId;
+  }
   aimedAtPlayerTick(events: EventStore): void {
     const s = this.live;
     if (!this.playerAimedEnabled || !s || s.playedGame !== true || !s.aimedAtPlayer?.length) return;
     const day = s.dayNumber ?? s.week;
     for (const r of s.aimedAtPlayer) {
-      if (r.status === "shown" && r.eventId === undefined) {
-        const content = `${this.nameOf(r.actor)} steps up to ${this.nameOf(PLAYER)}${r.hostile ? " to have it out" : " with a move of their own"}`;
-        const sceneId = `${r.id}:scene`;
-        // ORW-701: a scene already written under this id (a save stuck on a duplicate record) is adopted, never recorded twice, never thrown on.
-        if (!events.queryAll().some((e) => e.id === sceneId)) events.record({ id: sceneId, ts: events.count(), type: r.hostile ? "conflict" : "strategy", initiator: r.actor, witnessSet: [r.actor, PLAYER], hidden: false, content, baseContent: content });
-        r.eventId = sceneId;
-      }
+      // ORW-709: a hostile step the player has not answered writes its fight only when it closes (below); an answered one never does. A non-hostile one is written as it surfaces.
+      if (r.status === "shown" && r.eventId === undefined && !r.hostile) this.writeAimedScene(events, r);
     }
     if (s.aimedAtPlayerDay === day) return;
     s.aimedAtPlayerDay = day;
@@ -14771,6 +14794,7 @@ export class GameSessionAdapter implements GameSession {
       if ((r.status !== "open" && r.status !== "shown") || day - r.day < LEVERAGE_PLAY.answerDays) continue;
       if (r.hostile && r.status === "shown") {
         r.status = "ignored";
+        this.writeAimedScene(events, r);
         this.rel.applyImpactDirected(r.actor, PLAYER, scaleImpact(LEVERAGE.squeezeBacklash, LEVERAGE_PLAY.ignoredMult), new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:aimed-at-player:ignored:${r.id}`)));
       } else r.status = "lapsed";
     }
@@ -15464,8 +15488,11 @@ export class GameSessionAdapter implements GameSession {
     // They walk there on purpose (one hour is enough to cross the house): both presence views, so the society and the map agree.
     // ORW-507 (#2612): an NPC whose goal plan names the player but whose approach is suppressed (distrust, an avoidant tie, or the desire clock off) does not walk into the player's room for it.
     // 0172 / ORW-611: a HOSTILE plan aimed at the player (a get-them-out or revenge goal whose target the player is) is an approach too: the trust floor exists to keep a houseguest the player does not trust from pressing a request, and a hostile one is not pressing a request. The avoidance, the cooldown and the desire clock's own guards still hold.
-    const hostileAtPlayer = (p: PlannedAction): boolean => this.groupRolesOn() && (p.goalKind === "get-them-out" || p.goalKind === "revenge") && (p.about === house.player.id || p.with.includes(house.player.id));
+    const hostileAtPlayer = (p: PlannedAction): boolean => this.groupRolesOn() && (p.goalKind === "get-them-out" || p.goalKind === "revenge") && p.with.includes(house.player.id); // ORW-709: hostile AT the player only when the step is addressed TO them; a houseguest framing the player to a third party is hidden scheming (the player is its subject, not its audience)
     const approachAllowed = (p: PlannedAction): boolean => this.desireClockEnabled && (hostileAtPlayer(p) || this.rel.edge(p.actor, house.player.id).trust >= DESIRE.goalMinTrust) && !tieAvoids(this.agendaView(p.actor)?.character ?? this.agendaCharacterOf(p.actor)!).includes(house.player.id);
+    // ORW-709: a houseguest who has just stepped up to the player and not yet been answered stays with them (patience is the desire clock's own rest period); they do not wander off before the answer can land.
+    const waiting = (id: EntityId): boolean => { const k = s.approachAsked?.[id]; return s.playedGame === true && k !== undefined && k.answered !== true && this.absHour() - k.shownAt < DESIRE.cooldownHours * (1 + k.n); };
+    for (let i = plans.length - 1; i >= 0; i--) { const q = plans[i]!; if (waiting(q.actor) && presence.get(q.actor) !== undefined && presence.get(q.actor) !== q.place) plans.splice(i, 1); }
     for (const p of plans) {
       if (p.place === "diary-room" || !where.has(p.actor)) continue;
       if ((p.goalId || p.nightOwl || p.drawn) && p.with.includes(house.player.id) && !approachAllowed(p)) continue;
@@ -17776,7 +17803,7 @@ export class GameSessionAdapter implements GameSession {
             // A8: the NPC whose own desire clock has crossed its threshold approaches (no flat roll); recorded for the hours-based cooldown.
             const hit = approachOpen ? this.desireApproach(awakeNpcs()) : null;
             if (!hit) return null;
-            this.noteApproach(hit.npc, hit.desire, hit.capped);
+            this.noteApproach(hit.npc, hit.desire, hit.capped, hit.q);
             if (hit.capped) { if (live.playedGame === true) live.approachHeld = true; return null; } // ORW-423: the want is spent (3 h cooldown), the player is not stopped; ORW-452: narration-only held flag, as the conversation tick
             delete live.approachHeld; // ORW-452 (cubic): a REAL approach later in the same wait supersedes an earlier hold, so the narrator is never told both "someone approaches" and "no one new steps up"
             return { npc: this.nameOf(hit.npc), desire: hit.desire };

@@ -71,22 +71,25 @@ export interface UrgencyIn {
   hoursUntil: number | null;
   /** Hours since this NPC last approached; `undefined` = never. */
   hoursSinceApproach: number | undefined;
+  /** ORW-709: how many times this houseguest has already pressed the player this week (played games). Their wish to press rises slower with each: the rest they need grows with it. Absent = 0 = unchanged. */
+  presses?: number;
 }
 
 /** 0..~2 - how badly this NPC wants to find the player right now. Monotone: rises as the event nears, is damped right after an approach, scales with the relationship drive. */
 export function urgency(i: UrgencyIn): number {
   const proximity = i.hoursUntil === null ? 0 : 1 - Math.min(1, Math.max(0, i.hoursUntil) / DESIRE.horizonHours);
   const rested = i.hoursSinceApproach === undefined ? 1 : Math.min(1, Math.max(0, i.hoursSinceApproach) / DESIRE.cooldownHours);
-  return (DESIRE.baseline + DESIRE.weight[i.desire] * proximity) * (0.5 + Math.max(0, i.drive)) * rested;
+  // ORW-709: each time they have already pressed the player this week the urge is worth that much less (it rises slowly; a new week starts it again).
+  return ((DESIRE.baseline + DESIRE.weight[i.desire] * proximity) * (0.5 + Math.max(0, i.drive)) * rested) / (1 + Math.max(0, i.presses ?? 0));
 }
 
-export interface Candidate { npc: EntityId; desire: Desire; drive: number; hoursSinceApproach: number | undefined }
+export interface Candidate { npc: EntityId; desire: Desire; drive: number; hoursSinceApproach: number | undefined; presses?: number }
 
 /** The single most urgent NPC at/over the threshold, or `null`. Ties break on the lower id (stable, no rng). */
 export function mostUrgent(cands: readonly Candidate[], hoursUntil: number | null): { npc: EntityId; desire: Desire; urgency: number } | null {
   let best: { npc: EntityId; desire: Desire; urgency: number } | null = null;
   for (const c of cands) {
-    const u = urgency({ desire: c.desire, drive: c.drive, hoursUntil, hoursSinceApproach: c.hoursSinceApproach });
+    const u = urgency({ desire: c.desire, drive: c.drive, hoursUntil, hoursSinceApproach: c.hoursSinceApproach, ...(c.presses ? { presses: c.presses } : {}) });
     if (u < DESIRE.threshold) continue;
     if (!best || u > best.urgency + 1e-12 || (Math.abs(u - best.urgency) <= 1e-12 && c.npc < best.npc)) best = { npc: c.npc, desire: c.desire, urgency: u };
   }
@@ -119,7 +122,7 @@ export function desireForAction(kind: string): Desire {
 export function goalDriven(cands: readonly Candidate[]): { npc: EntityId; desire: Desire } | null {
   let best: Candidate | null = null;
   for (const c of cands) {
-    if (c.hoursSinceApproach !== undefined && c.hoursSinceApproach < DESIRE.cooldownHours) continue; // the cooldown still holds
+    if (c.hoursSinceApproach !== undefined && c.hoursSinceApproach < DESIRE.cooldownHours * (1 + Math.max(0, c.presses ?? 0))) continue; // the cooldown still holds
     if (!best || c.drive > best.drive + 1e-12 || (Math.abs(c.drive - best.drive) <= 1e-12 && c.npc < best.npc)) best = c;
   }
   return best ? { npc: best.npc, desire: best.desire } : null;
