@@ -107,7 +107,7 @@ def _audit_against(t: str, parts: set, b) -> list:
         same = {b.location.lower()} | ({re.sub(r"^the\s+", "", b.location_name, flags=re.IGNORECASE).strip().lower().replace(" ", "-")}
                                        if getattr(b, "location_name", "") else set())
         if rooms and not rooms <= same:
-            out.append({"fact": "player-room", "detail": "a block's room differs from the briefing's (" + b.location + ")"})
+            out.append({"fact": "player-room", "detail": "a block's room differs from the briefing's (" + b.location + "); blocks say: " + ", ".join(sorted(rooms)) + "; themed name: " + (getattr(b, "location_name", "") or "none")})  # ORW-706: name the two sides so the journal shows the cause (the 131 spurious-looking dev conflicts carried only the briefing side)
     if b.day is not None:
         days = set(_DAY_RE.findall(t))
         if days and days != {str(b.day)}:

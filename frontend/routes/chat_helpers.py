@@ -9777,7 +9777,7 @@ def _is_progress_only_message(text) -> bool:
     return False
 
 
-async def ensure_turn_recorded(user, player_message, narration, tools_called, beat_seq_before=None, session_id=None) -> bool:
+async def ensure_turn_recorded(user, player_message, narration, tools_called, beat_seq_before=None, session_id=None, failed_tools=None) -> bool:
     """E22 — the server-side guard for the cardinal sin. Prompt wording told the model to
     record scenes; nothing ENFORCED it (the GM asking "Record this interaction?" was the
     symptom). On a completed game turn with non-trivial narration and ZERO engine writes,
@@ -9838,7 +9838,19 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
         if isinstance(_bn, int) and _bn > beat_seq_before:
             logger.info("[orwell] E22 guard: stood down - a bare progress prompt and the board advanced (beatSeq %s -> %s), no scene to fold (ORW-288) user=%s", beat_seq_before, _bn, user)
             return False
-    writes = [t for t in (tools_called or []) if t in GAME_ENGINE_WRITE_TOOLS]
+    # ORW-706: a write tool call that was REFUSED (exit_code != 0) committed nothing, so it must not stand the fallback down (dev playtest: six refused recordInteraction calls
+    # stood the guard down by name and the player's promise was never folded). Each failure cancels one call of that name.
+    _failed_left = {}
+    for _ft in (failed_tools or []):
+        _failed_left[_ft] = _failed_left.get(_ft, 0) + 1
+    writes = []
+    for t in (tools_called or []):
+        if t not in GAME_ENGINE_WRITE_TOOLS:
+            continue
+        if _failed_left.get(t, 0) > 0:
+            _failed_left[t] -= 1
+            continue
+        writes.append(t)
     if writes:
         # A real write (recordInteraction, makeDeal, …) stands the fallback down by name. But when the
         # ONLY "writes" were progression levers and the board did not move (beatSeq unchanged over the
