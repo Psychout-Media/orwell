@@ -63,8 +63,9 @@ Then("the bathroom is not adjacent to any bedroom", function () {
   }
 });
 
-Then("the bathroom is reachable through the hallway", function () {
-  assert.ok(areAdjacent("bathroom", "hallway"), "the bathroom opens off the hallway");
+Then("the bathroom is reachable through the living room", function () {
+  // ORW-711 (owner ruling 2026-11-19): the bathroom is an off-shoot of the living room (the front door), not of the hallway.
+  assert.ok(areAdjacent("bathroom", "living-room"), "the bathroom opens off the living room");
 });
 
 Then("the kitchen, living room, dining room, and backyard are mutually in sightline", function () {

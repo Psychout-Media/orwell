@@ -59,8 +59,8 @@ export function seatZones(
     const zones = zonesFor(room);
     const heldZone = prevZones?.get(id);
     // A HELD seat = the houseguest carries a prior zone that is VALID FOR THE CURRENT ROOM. Zone
-    // vocabularies don't overlap between rooms (backyard: poolside/patio/workout; lounge: couches/
-    // window-nook), so a prior zone valid here means they kept this zoned room — no prior-room read needed.
+    // vocabularies don't overlap between rooms (only the backyard is zoned: poolside/patio/workout; a lounge zone saved by an older
+    // game is simply not valid for any room now), so a prior zone valid here means they kept this zoned room — no prior-room read needed.
     const held = heldZone !== undefined && zones.includes(heldZone);
     if (held) {
       // Hold the corner most ticks; occasionally amble to another (cluster-weighted) zone. ONE drift draw.

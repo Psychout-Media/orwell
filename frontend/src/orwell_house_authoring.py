@@ -1,7 +1,7 @@
 """ORW-509 - the writer authors the season's HOUSE at season setup (no menu).
 
 One bounded call, run beside cast genesis (the same setup moment, the same model resolution), authors a house for THIS season: a name, a pitch and a name plus a
-look for each of the 13 rooms, from the season's own facts (the seeded brief) and three random anchor words. No theme list and no example house is in the prompt.
+look for each of the 14 rooms, from the season's own facts (the seeded brief) and three random anchor words. No theme list and no example house is in the prompt.
 The engine reads the draft with ``acceptHouseThemeDraft`` (shape, length, unique, not-plain, fresh against the library and the last seasons); a refusal returns the
 rule counts, the writer gets ONE retry with them, and after that the plain room labels stand (never a blocked season). Fail-soft: no model, no usable output, or a
 refusal leaves the engine floor untouched. Roles and places only: no houseguest name is handed in.
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 ROOM_IDS = (
     "kitchen", "living-room", "dining-room", "backyard", "hallway", "bedroom-a", "bedroom-b", "bedroom-c",
-    "bathroom", "lounge", "hoh-room", "storage-room", "diary-room",
+    "bathroom", "lounge", "hoh-room", "storage-room", "diary-room", "landing",
 )
 # Random starting points (objects and places). Not a menu: the writer is told to let ONE of them colour the house and to invent the rest.
 ANCHORS = (
@@ -50,7 +50,7 @@ def build_messages(brief: Optional[dict], seed, rejected: Optional[dict] = None)
     if isinstance(brief, dict):
         facts = f"This season's casting direction: {brief.get('demographicSkew', '')}; {brief.get('regionalFlavor', '')}.\n"
     system = (
-        "You are the production designer of a reality-TV house. Invent THIS season's house: a short NAME, a one-sentence PITCH, and for EACH of the 13 rooms a NAME (3-48 "
+        "You are the production designer of a reality-TV house. Invent THIS season's house: a short NAME, a one-sentence PITCH, and for EACH of the 14 rooms a NAME (3-48 "
         "characters) and a LOOK (one line of physical detail: materials, colours, objects; no people, no events). The three bedrooms are related but distinct "
         "(bedroom-a sleeps six, bedroom-b and bedroom-c five). Every room name must be different, and none may be just the plain room word. Invent from the season facts and "
         "the anchor words; do not reach for a stock theme. Output ONLY a JSON object: "

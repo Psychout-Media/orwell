@@ -89,7 +89,7 @@ describe("ORW-509 narrator-authored alliance name at the join", () => {
 describe("ORW-509 seeded flavour block (no extra call)", () => {
   it("is absent without a house event today and carries two anchors and the used lines when one was just recorded", () => {
     const s = new GameSessionAdapter();
-    s.createCharacter({ playerName: "The Player", seed: 31, avoidWorld: { eventLines: ["A slop week hits the have-nots and tempers fray by mid-afternoon."] } });
+    s.createCharacter({ playerName: "The Player", seed: 31, avoidWorld: { eventLines: ["A tight grocery budget hits the whole house and tempers fray by mid-afternoon."] } });
     expect(s.gameStatus().flavourSeed).toBeUndefined();
     const ev = { id: "t:1", ts: 1, type: "house-event" as const, initiator: PLAYER, witnessSet: [PLAYER], hidden: false, content: `Week ${s.gameStatus().week}, day ${s.gameStatus().day}: A pillow fight breaks out in the bedroom.` };
     (s as unknown as { record: { events(): unknown[] } }).record = { events: () => [ev] } as never;

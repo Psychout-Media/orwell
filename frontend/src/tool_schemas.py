@@ -1539,7 +1539,7 @@ FUNCTION_TOOL_SCHEMAS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "room": {"type": "string", "description": "The room the player walks to (e.g. kitchen, living-room, backyard, bedroom, storage-room, hoh-room)."},
+                    "room": {"type": "string", "description": "The room the player walks to (e.g. kitchen, living-room, backyard, bedroom, storage-room, landing, hoh-room)."},
                 },
                 "required": ["room"],
             },

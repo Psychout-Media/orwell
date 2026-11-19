@@ -12,7 +12,7 @@ import type { Occupancy, Room } from "../../src/domain/house";
  * motiveless one. The measured MULTIPLE is the baseline A10 (raise the strength + per-NPC want) has to beat. Roles only.
  */
 const SUBJECT = npc(1), TARGET = npc(2);
-const TARGET_ROOM: Room = "lounge", START: Room = "hallway";
+const TARGET_ROOM: Room = "lounge", START: Room = "living-room";
 
 function share(intent: ((id: EntityId) => MovementIntent | null) | null, trials = 200, steps = 20): number {
   let inRoom = 0;

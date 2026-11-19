@@ -77,7 +77,9 @@ describe("0065 Part E — the beatSeq-keyed delta returns exactly what changed s
     expect(iAlpha).toBeGreaterThanOrEqual(0);
     expect(iBeta).toBeGreaterThan(iAlpha);
     // Nothing but the two mutations and (optionally) a single ambient day headline — no unrelated leakage.
-    const extras = contents.filter((c) => !c.includes("ALPHA") && !c.includes("BETA"));
+    // ORW-711: the living room now has the bathroom, the lounge and the stairs off it, so the player standing there is next door to more rooms and can half-overhear a scene
+    // in this window too ("surfaced to P via something they half-overheard", a player-visible pathway, never the content). So: at most one headline, and any extra is that overhear line.
+    const extras = contents.filter((c) => !c.includes("ALPHA") && !c.includes("BETA") && !/half-overheard/.test(c));
     expect(extras.length).toBeLessThanOrEqual(1);
     for (const c of extras) expect(c).toMatch(/^Week \d+(, day \d+)?: /);
   });

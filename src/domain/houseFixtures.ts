@@ -193,7 +193,7 @@ export const BASE_HOUSE_MAP: HouseMap = new Map<Room, RoomMapEntry>([
     room: "hallway",
     fixtures: [
       f("hallway", "photo-wall", "framed photo wall", "decor"),
-      f("hallway", "doors", "doors to the bedrooms, bathroom and lounge", "structure"),
+      f("hallway", "doors", "doors to the three bedrooms", "structure"),
       f("hallway", "laundry", "laundry alcove with a washer and dryer", "appliance"),
       f("hallway", "linen-closet", "linen closet", "structure"),
       f("hallway", "thermostat", "thermostat", "appliance"),
@@ -221,8 +221,8 @@ export const BASE_HOUSE_MAP: HouseMap = new Map<Room, RoomMapEntry>([
   ["lounge", {
     room: "lounge",
     fixtures: [
-      f("lounge", "couches", "couches", "furniture", { zone: "couches" }),
-      f("lounge", "window-nook", "window nook", "structure", { zone: "window-nook" }),
+      f("lounge", "couches", "couches", "furniture"),
+      f("lounge", "window-nook", "window nook", "structure"),
       f("lounge", "bookshelf", "bookshelf", "furniture"),
       f("lounge", "game-shelf", "board-game shelf", "furniture"),
       f("lounge", "cushions", "floor cushions", "furniture"),
@@ -269,6 +269,18 @@ export const BASE_HOUSE_MAP: HouseMap = new Map<Room, RoomMapEntry>([
       f("diary-room", "door", "padded door", "structure"),
     ],
     allowedProps: [],
+  }],
+  ["landing", {
+    room: "landing",
+    fixtures: [
+      f("landing", "stair-rail", "stair railing", "structure", { aliases: ["banister", "railing"] }),
+      f("landing", "hoh-door", "HOH door", "structure"),
+      f("landing", "bench", "waiting bench", "furniture", { aliases: ["bench"] }),
+      f("landing", "game-table", "game table", "furniture", { aliases: ["card table"] }),
+      f("landing", "window", "landing window", "structure"),
+      f("landing", "rug", "runner rug", "decor", { aliases: ["runner"] }),
+    ],
+    allowedProps: ["game-toy", "book-magazine", "drinkware"],
   }],
 ]);
 

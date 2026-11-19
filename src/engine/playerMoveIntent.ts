@@ -17,10 +17,11 @@ import { HOUSE_ADJACENCY, areAdjacent, resolveRoom, type Room } from "../domain/
 /**
  * The door map for "leave X" / "go inside" with no destination: the room the player steps into when they
  * walk OUT of `room`, taken from the floor plan (every entry is asserted adjacent by the unit tests).
- * The backyard opens onto the kitchen and the living room - the living room is the main door.
+ * The backyard opens onto the kitchen and the dining room (it is off to the side, not off the living room); the front door is in the living room;
+ * the HOH room opens onto the landing, and the landing onto the living room (ORW-711).
  */
 const EXIT_ROOM: ReadonlyMap<Room, Room> = new Map<Room, Room>([
-  ["backyard", "living-room"],
+  ["backyard", "kitchen"],
   ["kitchen", "living-room"],
   ["dining-room", "living-room"],
   ["living-room", "kitchen"],
@@ -28,9 +29,10 @@ const EXIT_ROOM: ReadonlyMap<Room, Room> = new Map<Room, Room>([
   ["bedroom-a", "hallway"],
   ["bedroom-b", "hallway"],
   ["bedroom-c", "hallway"],
-  ["bathroom", "hallway"],
-  ["lounge", "hallway"],
-  ["hoh-room", "living-room"],
+  ["bathroom", "living-room"],
+  ["lounge", "living-room"],
+  ["landing", "living-room"],
+  ["hoh-room", "landing"],
   ["storage-room", "kitchen"],
   ["diary-room", "living-room"],
 ]);

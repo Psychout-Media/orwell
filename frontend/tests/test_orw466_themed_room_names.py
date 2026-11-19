@@ -185,3 +185,21 @@ def test_briefing_audit_reads_every_themed_room_line():
     assert flagged("Main Street") and flagged("the Captain's Quarters") and flagged("the Séance Room")
     lounge = build_briefing({"whereabouts": {"room": "lounge", "present": [], "roomNames": THEMED}}, zero_clocks=False)
     assert [c for c in audit_briefing([{"role": "system", "content": "    Your room: the Séance Room (here a moment)."}], lounge) if c["fact"] == "player-room"] == []
+
+
+# ORW-711: the landing at the top of the stairs is a room the map names, plain or themed, and the front end's room list carries it.
+@pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def test_presence_gadget_names_the_landing():
+    import src.house_rooms as hr
+    assert "landing" in hr.HOUSE_ROOMS
+    src, _js = _room_label_js()
+    harness = src + "\nconsole.log(JSON.stringify([roomLabel('landing'), roomLabel('landing', {landing: 'the Quarterdeck'}), roomLabel('landing', {landing: 'the Quarterdeck'}, true)]));\n"
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as f:
+        f.write(harness)
+        path = f.name
+    try:
+        out = subprocess.run(["node", path], capture_output=True, text=True, timeout=20)
+    finally:
+        os.unlink(path)
+    assert out.returncode == 0, out.stderr
+    assert json.loads(out.stdout.strip().splitlines()[-1]) == ["Landing", "The Quarterdeck", "the Quarterdeck"]
