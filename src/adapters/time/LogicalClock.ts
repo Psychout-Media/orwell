@@ -25,6 +25,11 @@ export class LogicalClock implements Clock {
     return this.t;
   }
 
+  /** ORW-730: a resumed season brings the play-clock back to where its save left it (only ever forward, never back). */
+  raiseTo(ms: number): void {
+    if (Number.isFinite(ms) && ms > this.t) this.t = ms;
+  }
+
   /** Step the clock forward by `ms` (composition calls this once per committed mutation). */
   advance(ms: number): void {
     this.t += ms;

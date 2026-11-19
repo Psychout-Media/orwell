@@ -189,6 +189,12 @@ export class Orchestrator {
     this.seed = cfg.seed ?? 1;
     this.offscreenInteractions = cfg.offscreenInteractions ?? 3; // matches the long-standing live cadence
     this.applyFn = cfg.apply ?? defaultApply;
+    // ORW-730: the registry exports this stream's position with every snapshot (engine-only).
+    this.registry.setTickStateProbe((user) => {
+      const draws = this.rngs.get(user)?.position(), hour = this.lastSocietyTickHour.get(user), abs = this.lastSocietyTickAbs.get(user);
+      const now = this.clock.now();
+      return { ...(draws ? { draws } : {}), ...(hour !== undefined ? { hour } : {}), ...(abs !== undefined ? { abs } : {}), ...(Number.isFinite(now) ? { clock: now } : {}) };
+    });
     this.turnDriven = cfg.turnDriven ?? false;
     this.auxTickDebounceMs = cfg.auxTickDebounceMs ?? Orchestrator.AUX_TICK_DEBOUNCE_MS;
     this.auxTicksNever = cfg.auxTicksNever ?? false;
@@ -229,8 +235,16 @@ export class Orchestrator {
    * stale baseline to the freshly-mutated candidate and wrongly refuses the next turn as degradation.
    */
   seedBaseline(user: string): void {
+    this.adoptResumedAnchors(user);
     this.registry.invalidateSnapshot(user);
     this.baselines.set(user, this.registry.snapshot(user));
+  }
+
+  /** ORW-730: a season resumed from disk carries the cadence anchors of its last society tick; take them (never over a live value) so the restart neither re-fires nor skips a tick. */
+  private adoptResumedAnchors(user: string): void {
+    const t = this.registry.resumedTickState(user);
+    if (t?.hour !== undefined && !this.lastSocietyTickHour.has(user)) this.lastSocietyTickHour.set(user, t.hour);
+    if (t?.abs !== undefined && !this.lastSocietyTickAbs.has(user)) this.lastSocietyTickAbs.set(user, t.abs);
   }
 
   /** Seed the baseline only when none exists (a sandbox just resumed from disk by whichever path got there first). */
@@ -252,6 +266,8 @@ export class Orchestrator {
     let r = this.rngs.get(user);
     if (!r) {
       r = new SeededRandom(hashSeed(`${this.seed}:${user}`));
+      const resumed = this.registry.takeResumedTickDraws(user); // ORW-730: a restarted season picks the stream up where the save left it
+      if (resumed) r.seekTo(resumed);
       this.rngs.set(user, r);
     }
     return r;
