@@ -11,10 +11,10 @@ describe("ORW-419 parsePlayerMoveIntent", () => {
     ["take me to bedroom A", "hallway", "bedroom-a"],
     ["go into the hallway", "living-room", "hallway"],
     ["Okay, I'm heading to the lounge", "hallway", "lounge"],
-    ["I want to leave the backyard", "backyard", "living-room"],
-    ["leave the backyard", "backyard", "living-room"],
+    ["I want to leave the backyard", "backyard", "kitchen"],
+    ["leave the backyard", "backyard", "kitchen"],
     ["I leave", "bedroom-b", "hallway"],
-    ["I go inside", "backyard", "living-room"],
+    ["I go inside", "backyard", "kitchen"],
     ["I go outside", "kitchen", "backyard"],
     ["I go to the kitchen and grab a snack", "backyard", "kitchen"],
     ["I smile at them. I go to the storage room.", "kitchen", "storage-room"],
@@ -57,6 +57,9 @@ describe("ORW-419 parsePlayerMoveIntent", () => {
       expect(to, r).not.toBeNull();
       expect(areAdjacent(r, to!)).toBe(true);
     }
-    expect(exitRoomFrom("backyard")).toBe("living-room");
+    // ORW-711: the backyard is off to the side, off the kitchen and the dining room, so the way in is the kitchen; the HOH room opens onto the landing
+    expect(exitRoomFrom("backyard")).toBe("kitchen");
+    expect(exitRoomFrom("hoh-room")).toBe("landing");
+    expect(exitRoomFrom("landing")).toBe("living-room");
   });
 });

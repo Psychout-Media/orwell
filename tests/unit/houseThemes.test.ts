@@ -5,12 +5,12 @@ import { roomLabel, themedRoomAliases, drawHouseTheme } from "../../src/engine/r
 
 /** ORW-466 (Ryne 2026-11-15: "all rooms in the house to be themed"; "Themes should be random"): the season house themes. */
 describe("season house themes", () => {
-  it("every theme names all 13 rooms, each name unique in its theme, and the Diary Room always reads as the Diary Room", () => {
+  it("every theme names all 14 rooms, each name unique in its theme, and the Diary Room always reads as the Diary Room", () => {
     expect(HOUSE_THEMES.length).toBeGreaterThanOrEqual(20);
     for (const t of HOUSE_THEMES) {
       const names = HOUSE_ROOMS.map((r) => t.rooms[r]?.name);
       expect(names.every(Boolean), `${t.id} names every room`).toBe(true);
-      expect(new Set(names.map((n) => n!.toLowerCase())).size, `${t.id} has no repeated room name`).toBe(13);
+      expect(new Set(names.map((n) => n!.toLowerCase())).size, `${t.id} has no repeated room name`).toBe(14);
       expect(t.rooms["diary-room"].name, `${t.id}`).toMatch(/Diary Room/);
     }
   });

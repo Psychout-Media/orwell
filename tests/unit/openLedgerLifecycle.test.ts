@@ -713,7 +713,8 @@ describe("review M1 (real engine): a linked entry survives 30 days while the dea
     expect(st(linked.entryId)).toBe("open");
     // ORW-688: thirty days on, the house has moved on its own (a rumor now carries who it is about, so the off-screen tick plays differently); the speaker is brought back into the room first, since this checks the ledger's bound and not where they happen to be.
     const wa = g.whereabouts()!;
-    const room = wa.present.some((p) => p.id === who) ? wa.room : wa.nearby.find((r) => r.present.some((p) => p.id === who))?.room;
+    // ORW-711: the living room has the bathroom and the lounge off it now, so on 30 days of drift the speaker may be behind one of those closed doors (not in view): fall back to the engine's own seat.
+    const room = wa.present.some((p) => p.id === who) ? wa.room : (wa.nearby.find((r) => r.present.some((p) => p.id === who))?.room ?? (g as unknown as { presence: Map<string, string> }).presence.get(who as string));
     expect(room).toBeDefined();
     expect(g.movePlayer(room!)!.present.some((p) => p.id === who)).toBe(true);
     expect(g.openLedgerHere().some((x) => x.id === linked.entryId)).toBe(true);

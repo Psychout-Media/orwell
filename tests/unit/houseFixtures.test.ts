@@ -23,13 +23,15 @@ const K9_TABLE: Record<Room, { fixtures: string[]; props: string[] }> = {
   "living-room": { fixtures: ["big sectional couch", "armchairs", "coffee table", "area rug", "floor-to-ceiling glass doors to the yard", "console table", "bean bags", "feature wall", "air-conditioner vents", "staircase up to the HOH room"], props: ["drinkware", "food-snack", "book-magazine", "game-toy", "clothing", "footwear", "tech-personal"] },
   "dining-room": { fixtures: ["long dining table", "chairs", "sideboard", "pendant lights", "wall mirror", "fruit bowl"], props: ["drinkware", "food-snack", "book-magazine", "game-toy"] },
   "backyard": { fixtures: ["pool", "hot tub", "pool pump house", "patio furniture and umbrella", "hammock", "grill", "workout bench and weights", "planters", "privacy fence", "sprinkler heads", "pool-deck drain", "string lights"], props: ["drinkware", "towel-linen", "footwear", "book-magazine", "game-toy", "fitness-gear", "plant-flower", "food-snack"] },
-  "hallway": { fixtures: ["framed photo wall", "doors to the bedrooms, bathroom and lounge", "laundry alcove with a washer and dryer", "linen closet", "thermostat", "runner rug", "wall mirror"], props: ["towel-linen", "clothing", "footwear", "toiletry"] },
+  "hallway": { fixtures: ["framed photo wall", "doors to the three bedrooms", "laundry alcove with a washer and dryer", "linen closet", "thermostat", "runner rug", "wall mirror"], props: ["towel-linen", "clothing", "footwear", "toiletry"] },
   "bedroom-a": { fixtures: ["beds", "nightstands", "dresser", "closet", "shared hamper", "lamp", "window with blinds", "wall mirror", "themed decor piece"], props: ["clothing", "footwear", "jewelry-accessory", "book-magazine", "toiletry", "tech-personal", "plant-flower", "towel-linen"] },
   "bedroom-b": { fixtures: ["beds", "nightstands", "dresser", "closet", "shared hamper", "lamp", "window with blinds", "wall mirror", "themed decor piece"], props: ["clothing", "footwear", "jewelry-accessory", "book-magazine", "toiletry", "tech-personal", "plant-flower", "towel-linen"] },
   "bedroom-c": { fixtures: ["beds", "nightstands", "dresser", "closet", "shared hamper", "lamp", "window with blinds", "wall mirror", "themed decor piece"], props: ["clothing", "footwear", "jewelry-accessory", "book-magazine", "toiletry", "tech-personal", "plant-flower", "towel-linen"] },
   "bathroom": { fixtures: ["double vanity", "mirrors", "toilet stalls", "shower stalls", "towel hooks", "medicine cabinet", "hamper"], props: ["toiletry", "towel-linen", "jewelry-accessory"] },
   "lounge": { fixtures: ["couches", "window nook", "bookshelf", "board-game shelf", "floor cushions", "small table", "rug"], props: ["book-magazine", "game-toy", "craft-hobby", "drinkware", "plant-flower"] },
   "hoh-room": { fixtures: ["HOH bed", "desk", "armchair", "private bathroom", "closet", "balcony", "mini fridge", "music player and speakers", "window"], props: ["clothing", "jewelry-accessory", "book-magazine", "toiletry", "tech-personal", "drinkware", "plant-flower"] },
+  // ORW-711 (owner ruling 2026-11-19): the landing at the top of the stairs is new, and the hallway now serves the three bedrooms only (the bathroom and the lounge moved off the living room).
+  "landing": { fixtures: ["stair railing", "HOH door", "waiting bench", "game table", "landing window", "runner rug"], props: ["game-toy", "book-magazine", "drinkware"] },
   "storage-room": { fixtures: ["metal shelving", "bulk food bins", "cleaning supplies shelf", "mop sink", "spare linens", "costume closet", "folded cots"], props: ["food-snack", "towel-linen", "craft-hobby"] },
   "diary-room": { fixtures: ["the chair", "the camera wall", "soft lighting", "padded door"], props: [] },
 };
@@ -58,7 +60,7 @@ describe("the v0 house map (K9 §1.2, pending Ryne sign-off C1)", () => {
     expect(validateHouseMap(BASE_HOUSE_MAP)).toEqual([]);
   });
 
-  it("covers exactly the 13 house rooms, in house order", () => {
+  it("covers exactly the 14 house rooms, in house order", () => {
     expect([...BASE_HOUSE_MAP.keys()]).toEqual([...HOUSE_ROOMS]);
   });
 

@@ -245,5 +245,5 @@ def test_house_rooms_mirror_the_engine_floor_plan():
     # extraction would reject a real room (or relay a bogus one the engine no-ops).
     assert set(al._HOUSE_ROOMS) == {
         "kitchen", "living-room", "dining-room", "backyard", "hallway", "bedroom-a", "bedroom-b",
-        "bedroom-c", "bathroom", "lounge", "hoh-room", "storage-room", "diary-room",
+        "bedroom-c", "bathroom", "lounge", "hoh-room", "storage-room", "diary-room", "landing",
     }

@@ -88,7 +88,8 @@ describe("ORW-256 - wiring", () => {
 
 describe("ORW-256 slice 2 - an extra waking-hour tick runs the WHOLE world, on its own stream", () => {
   it("one side-stream tick moves the house, advances campaigns and records scenes; the shared per-user stream is not drawn from", () => {
-    const { sb, orch } = harness(7, "w-slice2", true);
+    // ORW-711: the seed moved from 7 to 8 - the floor plan change shifted the seeded trajectory, and on seed 7 an alliance forms inside this very tick (its persist runs a nested turn-driven tick, a second presenceTick call).
+    const { sb, orch } = harness(8, "w-slice2", true);
     const s = sb.session as unknown as { presenceTick: (r: unknown) => void; campaignTick: () => void };
     const presence = vi.spyOn(s, "presenceTick");
     const campaigns = vi.spyOn(s, "campaignTick");

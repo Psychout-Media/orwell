@@ -29,9 +29,9 @@ describe("ORW-419 resolvePlayerMove (engine)", () => {
 
   it("'leave the backyard' lands on the adjacent room; 'go inside' too", () => {
     const a = started(22).s;
-    expect(a.resolvePlayerMove({ text: "I want to leave the backyard" }).playerMove).toEqual({ from: "backyard", to: "living-room" });
+    expect(a.resolvePlayerMove({ text: "I want to leave the backyard" }).playerMove).toEqual({ from: "backyard", to: "kitchen" });
     const b = started(23).s;
-    expect(b.resolvePlayerMove({ text: "I go inside" }).playerMove).toEqual({ from: "backyard", to: "living-room" });
+    expect(b.resolvePlayerMove({ text: "I go inside" }).playerMove).toEqual({ from: "backyard", to: "kitchen" });
   });
 
   it("a future / conditional phrase never moves the player and clears last turn's move", () => {
