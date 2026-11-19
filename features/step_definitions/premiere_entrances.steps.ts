@@ -18,8 +18,9 @@ function start(seed: number, on: boolean, user: string): { session: GameSessionA
   return { session, sandbox };
 }
 const everyone = (s: GameSessionAdapter): string[] => {
-  const st = s.getGameState();
-  return [st.player!.id, ...st.house.map((h) => h.id)];
+  // ORW-710: the state read carries only houseguests who have walked in while the entrances run, so the whole house is read off the engine's own record.
+  const h = s.snapshot().house!;
+  return [h.player.id, ...h.npcs.map((x) => x.id)];
 };
 const entranceState = (s: GameSessionAdapter): { order: string[]; playerPos: number; stage: string } | undefined =>
   (s.snapshot().live as unknown as { premiereEntrance?: { order: string[]; playerPos: number; stage: string } }).premiereEntrance;

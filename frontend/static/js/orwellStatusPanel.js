@@ -708,6 +708,18 @@ import { onNarrowChange } from './platform.js';
       cardKeys.add(hk);
       cards.push({ id: h.id || h.name, name: h.name, status: h.status || "active", isPlayer: false });
     }
+    // ORW-710 (Vault Wall): a houseguest who has not walked in is NOT in `house` (the engine ships no name or card for them); the engine's `remaining` carries one anonymous placeholder each
+    // (an ordinal id and its own neutral label). Each becomes an unlit tile with no name and no portrait, so the strip still counts the cast without naming anyone who is still outside.
+    if (Array.isArray(prem.remaining)) {
+      for (const fi of prem.remaining) {
+        const hg = fi && fi.houseguest;
+        if (!hg || hg.id == null || cards.length >= 16) continue;
+        const pk = String(hg.id);
+        if (cardKeys.has(pk)) continue;
+        cardKeys.add(pk);
+        cards.push({ id: pk, name: "", label: hg.name != null ? String(hg.name) : "", status: "active", isPlayer: false, placeholder: true });
+      }
+    }
     if (!cards.length) {
       clearPremiereStrip(el);
       return;
@@ -717,7 +729,7 @@ import { onNarrowChange } from './platform.js';
     for (const card of cards) {
       const key = String(card.id);
       seen.add(key);
-      const met = card.isPlayer || (!unmet.has(key) && !unmet.has(String(card.name))); // player always met; honor premiereUnmetIds' id-or-name key
+      const met = !card.placeholder && (card.isPlayer || (!unmet.has(key) && !unmet.has(String(card.name)))); // player always met; a placeholder is never lit; honor premiereUnmetIds' id-or-name key
       let tile = _stripTiles.get(key);
       if (!tile) {
         tile = document.createElement("button");
@@ -730,7 +742,7 @@ import { onNarrowChange } from './platform.js';
       // #1324: a real persisted portrait when the shared OrwellMonogram cache (id→portrait,
       // refreshed off the ONE `orwell:gamechanged` dispatcher) has one on file, the designed
       // monogram otherwise (face()'s own sanctioned fallback) — never forced to monogram-only.
-      const cached = window.OrwellMonogram.portraitFor ? window.OrwellMonogram.portraitFor(card.id) : null;
+      const cached = !card.placeholder && window.OrwellMonogram.portraitFor ? window.OrwellMonogram.portraitFor(card.id) : null;
       // Repaint only when identity/status/met/portrait changed — a loaded tile is never rebuilt
       // (no flicker), but a portrait landing OR being regenerated mid-premiere DOES change the
       // sig so the tile upgrades (the URL itself is in the sig — portrait_ref cache-busts with a
@@ -745,8 +757,8 @@ import { onNarrowChange } from './platform.js';
         tile.classList.toggle("os-tile-unmet", !met); // the unlit gate (CSS pin)
         tile.classList.toggle("ow-portrait--muted-grey", !met); // #1638: the shared dim+desaturate modifier
         const you = card.isPlayer ? " (you)" : "";
-        tile.setAttribute("aria-label", card.name + you + (met ? " — met" : " — not yet met") + ". Tap to talk in chat.");
-        tile.title = card.name + (met ? "" : " — not yet met");
+        tile.setAttribute("aria-label", card.placeholder ? card.label : card.name + you + (met ? " — met" : " — not yet met") + ". Tap to talk in chat.");
+        tile.title = card.placeholder ? card.label : card.name + (met ? "" : " — not yet met");
       }
     }
     // Drop vanished ids (defensive) and reconcile order (player first, then house order).

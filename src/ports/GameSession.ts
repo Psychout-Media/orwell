@@ -575,6 +575,8 @@ export interface GameStateView {
   /** ORW-473: the player walked in on a private talk this turn (only on the message it happened on). */
   walkedIn?: WalkedInView;
   player: PlayerCard | null;
+  /** ORW-710: how many houseguests are still to walk in during the premiere's entrances; they are not in `house` (no name, no card) until they arrive. Absent otherwise. */
+  unarrivedCount?: number;
   house: HouseguestCard[];
   /** Deals the player is party to (0039) — fact + status only, never the hidden opinion numbers. */
   deals?: DealView[];
