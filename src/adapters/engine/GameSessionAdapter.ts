@@ -4602,6 +4602,13 @@ export class GameSessionAdapter implements GameSession {
     if (!ctx) return { accepted: false, publicFields: [], hiddenFields: [], reason: "no game started" };
     const target = ctx.npcs.find((n) => n.id === req.houseguestId);
     if (!target) return { accepted: false, publicFields: [], hiddenFields: [], reason: "unknown houseguest" };
+    // ORW-690: a returner is the actual previous houseguest (spec 0208): their recorded public persona is never re-authored. Every public facet of the write is dropped (the hidden
+    // storyline fields still apply, exactly as the per-field drops below), so a late authoring write-back cannot thin or replace what the player once knew of them.
+    if (!ctx.prewarm && this.live?.returners?.[target.id] !== undefined) {
+      const { name: _n, vocation: _v, biography: _b, identityConcept: _i, presentation: _p, physicalCharacteristics: _ph, voice: _vo, ...kept } = req;
+      void _n; void _v; void _b; void _i; void _p; void _ph; void _vo;
+      req = kept as typeof req;
+    }
 
     // ORW-360: clean the two optional look fields (control characters stripped, lengths clamped) before
     // anything reads the facet. Absent or empty after cleaning means the key is dropped, never stored "".
@@ -5384,7 +5391,7 @@ export class GameSessionAdapter implements GameSession {
       const votedFor = s.finale?.votes?.[id];
       return { id, points: s.viewOfPlayer?.[id] ?? [], scenes, ...(out ? { evictedWeek: out.week } : {}), ...(votedFor ? { votedFor } : {}), ...(finalists.has(id) ? { finalist: true } : {}) };
     });
-    return buildYourStories({ finished: true, nameOf: (id) => this.nameOf(id), winner: s.winner ?? null, guests });
+    return buildYourStories({ finished: true, playerFinalist: finalists.has(PLAYER), nameOf: (id) => this.nameOf(id), winner: s.winner ?? null, guests });
   }
   /** ORW-566 part d (0183): every alliance and close-pair habit the season held, hidden ones included (the retrospective is the sanctioned unsealing; the caller holds the crown gate). Names only. */
   private buildGroupLifeView(): GroupLifeView | undefined {
@@ -9528,6 +9535,12 @@ export class GameSessionAdapter implements GameSession {
     return { id, inside, playerEntrance: id === me };
   }
 
+  /** ORW-653 / ORW-690 / 0205: arm the introductions when the circle is called, on either path into the toast (the tour's call, or the last arrival with no tour). Idempotent: an armed record is never reset. */
+  private armMeetTheCast(): void {
+    const pe = this.live?.premiereEntrance;
+    if (this.meetTheCastEnabled && this.live?.playedGame === true && pe && pe.introduced === undefined) pe.introduced = [];
+  }
+
   /** A9 - the staged premiere's entrances + toast, one `advanceGame` per release. */
   private advancePremiereEntrance(): AdvanceView {
     const s = this.live!;
@@ -9541,7 +9554,7 @@ export class GameSessionAdapter implements GameSession {
       // convened for a ceremony); the circle then runs as ever (toast, then the bed rush).
       pe.stage = "toast";
       s.champagneCircle = "gathered";
-      if (this.meetTheCastEnabled && s.playedGame === true) pe.introduced = []; // ORW-653 / 0205: the circle is the meet-the-cast moment (armed only here, so nothing is introduced before the circle is called)
+      this.armMeetTheCast(); // ORW-653 / 0205: the circle is the meet-the-cast moment (armed only when the circle is called, so nothing is introduced before it)
       this.presence?.set(me, "living-room"); this.presenceBase?.set(me, "living-room");
       // The tour's placement was a player-facing overlay only: when it ends the house goes back to the seats its own (untouched) movement gave it, so the tour leaves no trace on the week-1 society
       for (const [id, room] of this.presenceBase ?? []) if (id !== me && this.presence?.has(id)) { this.presence.set(id, room); this.presenceTenure?.set(id, 0); this.presenceZone?.delete(id); }
@@ -9557,6 +9570,7 @@ export class GameSessionAdapter implements GameSession {
       if (pe.arrived >= pe.order.length && !s.houseTour) { // ORW-654 / 0206: on the tour the house stays open after the last arrival; the NEXT advance calls the circle
         pe.stage = "toast";
         s.champagneCircle = "gathered"; // the existing whole-house pin
+        if (pe.stage === "toast") this.armMeetTheCast(); // ORW-690: with no tour the circle is still the meet-the-cast moment (it used to arm only on the tour's branch)
       }
       this.persist();
       const view = this.advanceView(null);
@@ -15167,17 +15181,18 @@ export class GameSessionAdapter implements GameSession {
       const other = d.parties[0] === PLAYER ? d.parties[1] : d.parties[0];
       if (d.condition.protect === other && d.condition.promisors.includes(PLAYER) && d.status !== "lapsed") {
         said.push({ claimId: d.id, to: other, promise: "deal", week: d.madeWeek ?? 1 });
-        if (d.status === "broken" && d.brokenBy === PLAYER) did.push({ eventId: `deal:${d.id}`, act: "broke-deal", target: other, week: s.week });
+        if (d.status === "broken" && d.brokenBy === PLAYER) did.push({ eventId: `deal:${d.id}`, act: "broke-deal", target: other, week: d.brokenWeek ?? s.week });
       }
     }
     if (s.assurances) {
       for (const a of AssuranceLedger.fromJSON(s.assurances).all) {
         if (a.from !== PLAYER || a.source !== "player") continue;
+        if (a.status === "lapsed" || a.status === "kept") continue; // ORW-697: a withdrawn/lapsed or kept word is not a word to hold the player to
         said.push({ claimId: a.id, to: a.to, promise: a.kind === "safe" ? "safe" : a.kind === "vote" ? "vote-with" : "not-target", week: a.week });
       }
     }
     for (const d of s.weekDigests ?? []) if (d.hoh === PLAYER) for (const n of d.nominees) did.push({ eventId: `nom:${d.week}:${n}`, act: "nominated", target: n, week: d.week });
-    if (s.hoh === PLAYER && s.nominees && !(s.weekDigests ?? []).some((d) => d.week === s.week)) for (const n of s.nominees) did.push({ eventId: `nom:${s.week}:${n}`, act: "nominated", target: n, week: s.week });
+    if (s.hoh === PLAYER && s.nominees && !(s.weekDigests ?? []).some((d) => d.week === s.week && d.hoh === s.hoh && [...d.nominees].sort().join() === [...s.nominees!].sort().join())) for (const n of s.nominees) did.push({ eventId: `nom:${s.week}:${n}`, act: "nominated", target: n, week: s.week });
     for (const r of s.voteRecord ?? []) { const t = r.voteOf[PLAYER]; if (t) did.push({ eventId: `vote:${r.week}:${t}`, act: "voted-against", target: t, week: r.week }); }
     if (!said.length || !did.length) return undefined;
     const facts = pushbackFacts(said, did, (id) => this.nameOf(id), s.week);

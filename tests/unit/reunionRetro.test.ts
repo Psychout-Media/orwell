@@ -56,6 +56,13 @@ describe("the story of you and them (pure)", () => {
     expect(v.stories[0]!.ended.how).toBe("runner-up");
     expect(JSON.stringify(v)).not.toMatch(/\d\.\d|"trust"|"affinity"/);
   });
+  it("ORW-697: a runner-up is only 'beside you' when the player sat in the final two", () => {
+    const g = [{ id: "a", points: pts(0.5, 0.5), scenes: [], finalist: true }];
+    const out = buildYourStories({ finished: true, nameOf: names, winner: "w", playerFinalist: false, guests: g })!.stories[0]!;
+    expect(out.line).not.toMatch(/beside you/);
+    expect(out.line).toMatch(/final two and lost the vote/);
+    expect(buildYourStories({ finished: true, nameOf: names, winner: PLAYER, playerFinalist: true, guests: g })!.stories[0]!.line).toMatch(/beside you/);
+  });
   it("a turned view is named turned, and the turns are bounded", () => {
     const v = buildYourStories({ finished: true, nameOf: names, winner: null, guests: [{ id: "t", points: pts(-0.6, 0.4, -0.5, 0.5, -0.4, 0.6, 0.8), scenes: [] }] })!;
     expect(v.stories[0]!.shape).toBe("turned");

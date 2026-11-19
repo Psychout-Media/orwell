@@ -1788,6 +1788,7 @@ def setup_chat_routes(
                 _agent_rounds = 0
                 _agent_tool_calls = 0
                 _agent_tools_called: List[str] = []  # E22: which tools actually ran this turn
+                _agent_tools_failed: List[str] = []  # ORW-706: the ones among them whose result was a refusal/error (exit_code != 0)
                 # 0064 §B/D / F5: snapshot the user's last-seen engine beatSeq BEFORE the turn so the
                 # end-of-turn HUD-parity push can tell a committed mutation from a no-op/OOC turn.
                 _beat_seq_before = last_beat_seq(ctx.user)
@@ -1886,6 +1887,9 @@ def setup_chat_routes(
                                         _agent_tool_calls += 1
                                         if data.get("tool"):
                                             _agent_tools_called.append(str(data["tool"]))
+                                    elif (data.get("type") == "tool_output" and data.get("tool")
+                                          and data.get("exit_code") not in (None, 0)):
+                                        _agent_tools_failed.append(str(data["tool"]))  # ORW-706: a refused call is not a write
                                     elif (data.get("type") == "tool_output" and ctx.game_active
                                           and data.get("exit_code") == 0
                                           and str(data.get("tool") or "") in GAME_ENGINE_WRITE_TOOLS):
@@ -1991,7 +1995,7 @@ def setup_chat_routes(
                                     _rec_task = asyncio.create_task(ensure_turn_recorded(
                                         ctx.user, message, full_response, _agent_tools_called,
                                         beat_seq_before=_beat_seq_before,
-                                        session_id=session,
+                                        session_id=session, failed_tools=_agent_tools_failed,
                                     ))
                                     # Retain a strong ref until the task finishes (weak-ref GC guard).
                                     _BG_TASKS.add(_rec_task)

@@ -15,3 +15,7 @@ Ryne's ruling (2026-11-18): the champagne circle is the meet-the-cast moment - o
 ## Left for later
 - An NPC introduction beat that speaks to the player's own introduction when they give one (reads from the recorded scene).
 - Letting the first impression see more of the player's public profile than the age.
+
+## Amendment 2026-11-19 (ORW-690)
+- **Arms on either path into the circle.** The record used to arm only on the tour's call. The circle is the meet-the-cast moment whether or not the tour ran, so it now also arms when the last arrival closes the entrances with no tour (flag off, no tour). One idempotent arming step serves both paths; order is unchanged (entrances, tour if any, circle, bed rush). Same flag, same played-game condition.
+- **A returner is never re-authored (0208).** `recordCastProfile` drops every public facet (name, vocation, biography, identity concept, presentation, look, voice) for a returner on a live house; the hidden storyline fields still apply. The recorded persona the player knew stays byte-stable.
