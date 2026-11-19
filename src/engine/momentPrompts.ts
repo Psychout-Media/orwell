@@ -298,6 +298,7 @@ export const BASE_GAME_MASTER_PROMPT = [
   "\"ugh, I want to leave\" stays intent — you keep them present and play on. NEVER fabricate the exit",
   "yourself, and until the GAME marks the player as evicted (or self-evicted) or the season as over, the",
   "player is still ACTIVE in the house — voice them as present, never as having left.",
+  "Ending the season is the player's own act: the New Chat control, behind their confirm. You have no lever for it; never offer to take them somewhere or call a door closed.",
   "",
   "THE REAL WORLD. The houseguests lived in the real world until move-in day. When the player",
   "references something real you don't know — a film, an artist, a news story — you may QUIETLY use",
@@ -1185,6 +1186,26 @@ export function physicalLook(card: {
 }
 
 /** A Vault-free context block woven into the system prompt. Reads ONLY public projection fields. */
+
+/** ORW-715: the veto holder's decision as an engine FACT, so the narrator neither invents one before the ceremony announces it nor gets the announced one wrong. Facts only, no wording to recite. */
+function vetoDecisionLines(cer: GameStateView["ceremony"]): string[] {
+  const d = cer.veto.decision;
+  if (!cer.veto.holder || !d) return [];
+  if (!d.made) {
+    return ["    Veto decision: NOT MADE YET. The game announces it at the Veto Ceremony; until then nobody, the holder included, has decided, so no one states or hints which way it went, and nobody is named as coming down."];
+  }
+  if (!d.used) return [`    Veto decision (made): ${cer.veto.holder.name} did NOT use it; the nominees stand as they are.`];
+  const saved = d.saved ? (d.saved.id === cer.veto.holder.id ? "themselves" : d.saved.name) : "a nominee";
+  return [`    Veto decision (made): ${cer.veto.holder.name} USED it on ${saved}${d.replacement ? `; ${cer.hoh ? cer.hoh.name : "the HOH"} named ${d.replacement.name} as the replacement` : ""}. Nobody else came down.`];
+}
+
+/** ORW-715: who is still on the floor of a staged competition and who is already out, so an eliminated houseguest is never put back into a later round or the final. */
+function competitionFloorLines(cer: GameStateView["ceremony"]): string[] {
+  const c = cer.competition;
+  if (!c || !c.out.length) return [];
+  return [`    Competition floor: still in ${c.stillIn.map((p) => p.name).join(", ") || "no one"}; already out ${c.out.map((p) => p.name).join(", ")} (an eliminated houseguest does not compete again).`];
+}
+
 export function renderGameContext(view: GameStateView): string {
   if (!view.started || !view.player) {
     const lines = [
@@ -1204,6 +1225,9 @@ export function renderGameContext(view: GameStateView): string {
           : `- CASTING STATUS — already on file (do not re-ask): ${knownEntries.map(([k, v]) => `${k}: ${JSON.stringify(neutralizeForPrompt(String(v)))}`).join("; ")}`,
       );
       if (c.next) lines.push(`- NEXT STEP: ${c.next}`);
+      // ORW-718: the producer never assumed a gender the player did not give ("you're a man who ..." from a name and a job).
+      const gp = String(c.known.genderPresentation ?? "").toLowerCase();
+      lines.push(`- ${playerGenderRule(gp === "man" || gp === "woman" || gp === "nonbinary" ? gp : undefined)}`);
       // The finalize gate, stated as ENGINE truth so the model never has to judge "is the interview
       // done?" itself (it gets that wrong both ways — re-asking forever, or finalizing early and
       // eating a `createRefused: casting-incomplete`). `ready` is name-only; `finalizable` is the real
@@ -1298,7 +1322,9 @@ export function renderGameContext(view: GameStateView): string {
     // the field so the model never tells a drawn houseguest (the player included) they aren't playing.
     `    Playing the veto: ${vetoPlayers.length ? vetoPlayers.map((p) => p.name).join(", ") : "not yet drawn"}`,
     `    Veto: ${cer.veto.holder ? `held by ${cer.veto.holder.name}${cer.veto.used ? " (already used)" : ""}` : "not yet played"}`,
+    ...vetoDecisionLines(cer),
   ];
+  const ceremonyAndFloorLines = [...ceremonyLines, ...competitionFloorLines(cer)];
   // E58: the in-game day index, derived from the ceremony cadence (Day 1 HOH → Day 5 eviction),
   // grounds the model's sense of the week — a week is five beats, never seven invented days.
   const day = dayOfWeek(view.phase);
@@ -1589,7 +1615,7 @@ export function renderGameContext(view: GameStateView): string {
       : []),
     `- Houseguests remaining: ${remaining} of ${total} (use THIS exact number for any count — never`,
     "  do your own arithmetic about how many are left, on podiums, etc.).",
-    ...ceremonyLines,
+    ...ceremonyAndFloorLines,
     ...whereaboutsLines,
     ...presentKnowledgeLines,
     ...premiereLines,
@@ -1760,6 +1786,13 @@ export function headcountLines(wa: { counts?: { room: number; others: number; ho
   return lines;
 }
 
+/** ORW-718: the one rule line for how the player is referred to. Stated pronouns are used exactly; none stated means none are assumed (the engine never knows a gender the player did not give). */
+export function playerGenderRule(g: "man" | "woman" | "nonbinary" | undefined | null): string {
+  return g
+    ? `PRONOUN LOCK: the player uses ${pronounsFor(g)}. Use these exactly, every time they are spoken of; never guessed from the name.`
+    : `The player's gender is unstated: say "you", no gendered noun or pronoun for them; never guess it from the name.`;
+}
+
 export function renderHardConstraints(view: GameStateView): string | undefined {
   if (!view.started || !view.player) return undefined;
   const wa = view.whereabouts ?? null;
@@ -1776,6 +1809,9 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
       : "- The player is ALONE right now. Do NOT place or voice any houseguest in this scene.",
   );
   for (const l of headcountLines(wa)) lines.push(`- ${l}`);
+  // ORW-718: the player's own pronouns ride the terminal block too (the region the NPC locks measured best in); a houseguest called a
+  // player who never stated a gender "a man", and one who did state it by the wrong word, from the roster line buried mid-prompt.
+  lines.push(`- ${playerGenderRule(view.player.genderPresentation)}`);
   const houseById = new Map(view.house.map((h) => [h.id, h] as const));
   for (const p of wa.present) {
     const h = houseById.get(p.id);

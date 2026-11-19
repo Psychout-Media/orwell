@@ -555,7 +555,22 @@ export interface GameStateView {
      * narrator voices who actually competes (and never tells the player they're benched when the
      * engine drew them IN — audit R9-AGENCY-1) instead of inventing the field.
      */
-    veto: { holder: { id: EntityId; name: string } | null; used: boolean; players: Array<{ id: EntityId; name: string }> };
+    veto: {
+      holder: { id: EntityId; name: string } | null;
+      used: boolean;
+      players: Array<{ id: EntityId; name: string }>;
+      /**
+       * ORW-715: the veto holder's DECISION as the game has published it. `used` alone cannot tell "not used" from "not decided yet" (both read false), so the narrator
+       * invented a decision before the ceremony announced one. Absent when nobody holds the veto or `ORWELL_CEREMONY_FACTS=0`. `made` is false until the ceremony's result step has
+       * committed it; once made, `used` says which way it went, and `saved` / `replacement` name who came off the block and who went up (public ceremony facts).
+       */
+      decision?: { made: boolean; used?: boolean; saved?: { id: EntityId; name: string }; replacement?: { id: EntityId; name: string } };
+    };
+    /**
+     * ORW-715: while a staged competition is under way, who is still on the floor and who is already out (public ceremony facts, the drops the game has already announced).
+     * Without it a narrator who watches a multi-round competition has to remember the field and put an eliminated houseguest back into the final round. Absent otherwise.
+     */
+    competition?: { stillIn: Array<{ id: EntityId; name: string }>; out: Array<{ id: EntityId; name: string }> };
   };
   /**
    * WHERE THE PLAYER IS — their room, who is with them, and each ADJACENT room with its occupants

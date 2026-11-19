@@ -577,6 +577,39 @@ class SessionManager:
         except Exception:
             logger.warning("Failed to stamp message phase=%s", phase, exc_info=True)
 
+    def mark_message_season_start(self, message: ChatMessage) -> None:
+        """ORW-718: durably stamp `metadata.season_start` on a user line that opens a NEW season in a chat that already
+        carried an earlier one (the game was reset, the chat stayed). The narrator's context starts at the newest such
+        line, so an old season's names never reach the new season. Best-effort, idempotent; never breaks the turn."""
+        try:
+            if message is None:
+                return
+            if message.metadata is None:
+                message.metadata = {}
+            if message.metadata.get("season_start"):
+                return
+            message.metadata["season_start"] = True
+            db_id = message.metadata.get("_db_id")
+            if not db_id:
+                return
+            db = SessionLocal()
+            try:
+                row = db.query(DbChatMessage).filter(DbChatMessage.id == db_id).first()
+                if row is not None:
+                    meta = json.loads(row.meta_data) if row.meta_data else {}
+                    if not isinstance(meta, dict):
+                        meta = {}
+                    meta["season_start"] = True
+                    row.meta_data = json.dumps(meta)
+                    db.commit()
+            except Exception:
+                db.rollback()
+                raise
+            finally:
+                db.close()
+        except Exception:
+            logger.warning("Failed to stamp message season_start", exc_info=True)
+
     def truncate_messages(self, session_id: str, keep_count: int) -> bool:
         """Truncate session history, keeping only the first `keep_count` messages."""
         session = self.get_session(session_id)

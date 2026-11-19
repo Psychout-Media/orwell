@@ -237,7 +237,7 @@ describe("(c) the narrator gets the stated reason's kind and subject, never the 
     expect(n).not.toMatch(/however brief|purely strategic, nothing personal|soften the/i);
     expect(n).toMatch(/said aloud/);
     expect(n).toMatch(/no other reason of your own/i);
-    expect(BASE_GAME_MASTER_PROMPT.length).toBeLessThanOrEqual(47_100); // +100 for ORW-417 (the nap manifest line), as promptBudget.test.ts
+    expect(BASE_GAME_MASTER_PROMPT.length).toBeLessThanOrEqual(47_300); // +100 for ORW-417 (the nap manifest line), +200 for ORW-713 (the one New Chat / ending-the-season line), as promptBudget.test.ts
     for (const text of [BASE_GAME_MASTER_PROMPT, n, ...Object.values(STATED_REASON_GLOSS)]) expect(text).not.toMatch(/the engine/i);
   });
 });

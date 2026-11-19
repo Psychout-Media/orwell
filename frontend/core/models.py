@@ -137,6 +137,7 @@ class Session:
     def get_context_messages(
         self, exclude_phases: Optional[set] = None,
         exclude_pre_game: bool = False,
+        current_season_only: bool = False,
     ) -> List[Dict[str, Any]]:
         """Get messages in format for LLM API.
 
@@ -168,19 +169,30 @@ class Session:
         ``"game"``-stamped turn (the boundary, by sequence) that is not itself a
         live turn — so any UNSTAMPED pre-game turn is treated as casting and
         excluded structurally, even if its ``"casting"`` stamp was never written.
+
+        ``current_season_only`` (ORW-718): a game reset keeps the chat, so an earlier season's rows sit above the new
+        season's casting interview. The line that opens the new season carries ``metadata.season_start``; with this
+        flag the context starts at the NEWEST such line, so no earlier season's names reach the model. No marker
+        (the common case) leaves the context exactly as before.
         """
         phases = exclude_phases or set()
+        history = self.history
+        if current_season_only:
+            for _i in range(len(history) - 1, -1, -1):
+                if (history[_i].metadata or {}).get("season_start"):
+                    history = history[_i:]
+                    break
         # #530: the season-start boundary = the first live ("game") turn. Everything in scroll
         # order before it is pre-game (casting / OOC setup), regardless of whether each turn got
         # its per-message stamp. Index-based so it survives a stamp miss AND a DB reload.
         boundary = -1
         if exclude_pre_game:
-            for i, msg in enumerate(self.history):
+            for i, msg in enumerate(history):
                 if (msg.metadata or {}).get("phase") == "game":
                     boundary = i
                     break
         result: List[Dict[str, Any]] = []
-        for i, msg in enumerate(self.history):
+        for i, msg in enumerate(history):
             md = msg.metadata or {}
             if md.get("source") == "slash":
                 continue
