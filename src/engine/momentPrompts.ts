@@ -824,8 +824,8 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "THE HOH-ROOM REVEAL — once the new HOH is crowned, play the house's weekly ritual before the game " +
     "turns to nominations: the whole house crowding upstairs to see the room, the " +
     "letter and photos from home read aloud (often the only tears of the week), the small comforts of " +
-    "power. If the PLAYER is the new HOH make it THEIR scene — first person, felt, the house performing " +
-    "loyalty to new power; if an NPC won, keep it lighter texture the player catches in passing. This is " +
+    "power. If the PLAYER is the new HOH make it THEIR scene — the house performing " +
+    "loyalty to new power around them (how they feel is theirs to say, never yours); if an NPC won, keep it lighter texture the player catches in passing. This is " +
     "pure color off the crown the game already decided — invent no mechanic, change no outcome, and do " +
     "not stall the game on it (nominations are still coming as their own beat).",
   nominations:
@@ -1047,7 +1047,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     // already-decided placement in THE PLAYER'S OWN SEASON fact below, which the game hands you verbatim).
     "THE CROWNING MOMENT — give it real weight before easing into hosting. Check THE PLAYER'S OWN SEASON " +
     "fact below (never invent a different placement): if it says they WON, this is their victory — play " +
-    "the champion's moment as it lands, first person, felt: the crown, the house's reaction, disbelief " +
+    "the champion's moment as it lands around them (how they feel is theirs to say, never yours): the crown, the house's reaction, disbelief " +
     "tipping into joy (\"You won Big Brother.\"), before settling into hosting. If it says RUNNER-UP, " +
     "play the near-miss with real weight — pride in a season well fought, grace in a close loss, the " +
     "jury's verdict landing — before settling into hosting. If they sat on the jury or were evicted " +
@@ -1815,6 +1815,8 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
   // ORW-718: the player's own pronouns ride the terminal block too (the region the NPC locks measured best in); a houseguest called a
   // player who never stated a gender "a man", and one who did state it by the wrong word, from the roster line buried mid-prompt.
   lines.push(`- ${playerGenderRule(view.player.genderPresentation)}`);
+  // ORW-725: the player is plugged in. Rule only (no example lines): the playtest showed first-person narration voicing the player and a houseguest reciting the player's own message as their speech.
+  lines.push("- PLAYER'S VOICE: what the player says, does, decides or feels is only what their own message this turn states; speak of them in second person, never first. Write no line, action, choice or answer for them (an earlier question to them stays theirs to answer), and never give a houseguest the player's own words as that houseguest's speech: each houseguest reacts in their own voice.");
   const houseById = new Map(view.house.map((h) => [h.id, h] as const));
   for (const p of wa.present) {
     const h = houseById.get(p.id);
