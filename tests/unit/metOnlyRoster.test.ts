@@ -43,6 +43,23 @@ describe("ORW-710 the narrator roster and the state read carry only houseguests 
     expect(s.getGameState().unarrivedCount).toBeUndefined();
   });
 
+  it("PO ruling (met = introduced at the entrances or the circle, not a conversation): once the last entrance lands nobody is hidden, through the champagne circle and after it", () => {
+    const s = start(11);
+    const npcs = record(s).npcs;
+    for (let i = 0; i < 40 && s.premiereIntros()?.entrance?.stage === "entrances"; i++) s.advanceGame();
+    let sawToast = false;
+    for (let i = 0; i < 60; i++) {
+      const stage = s.premiereIntros()?.entrance?.stage;
+      if (stage === "toast") sawToast = true;
+      const hay = everything(s);
+      for (const x of npcs) expect(mentions(hay, x.name), `${x.id} hidden at stage ${stage}`).toBe(true);
+      expect(s.getGameState().unarrivedCount).toBeUndefined();
+      if (sawToast && stage !== "toast") break;
+      s.advanceGame();
+    }
+    expect(sawToast, "the run passed through the circle").toBe(true);
+  });
+
   it("the recap rule rides the entrance beat only while someone is still to arrive", () => {
     const s = start(11);
     expect(s.getMomentPrompt({ moment: "premiere" } as never).systemPrompt).toContain("RECAP RULE");
