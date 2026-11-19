@@ -88,7 +88,7 @@ def _drive(monkeypatch, *, tools, scene=SCENE, user_msg="I call out Contestant A
         yield 'data: ' + json.dumps({"delta": scene}) + '\n\n'
         if i == 0 and tools:
             yield 'data: ' + json.dumps({"type": "tool_calls", "calls": [
-                {"id": f"c{k}", "name": t, "arguments": "{}"} for k, t in enumerate(tools)]}) + '\n\n'
+                {"id": f"c{k}", "name": t, "arguments": (json.dumps({"withIds": ["npc:1"], "kind": "social", "content": "The player called out and spoke with Contestant Alpha."}) if t == "recordInteraction" else "{}")} for k, t in enumerate(tools)]}) + '\n\n'
         yield 'data: ' + json.dumps({"type": "finish", "reason": "stop"}) + '\n\n'
         yield "data: [DONE]\n\n"
 
