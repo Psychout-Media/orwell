@@ -526,6 +526,7 @@ async def ws_session(websocket: WebSocket) -> None:
             (Vault Wall trivially intact); the client re-reads its own Vault-free projection on the
             edge, exactly as the deleted 20/25s poll did, now edge-triggered."""
             canonical = sock["canonical"]
+            _read_inflight: list = []   # ORW-706: the edge read still unanswered, if any (one per channel)
             try:
                 async for raw in session_events.subscribe(canonical):
                     reason = _sse_event_name(raw)
@@ -537,10 +538,18 @@ async def ws_session(websocket: WebSocket) -> None:
                     # ORW-366: read the run identity BEFORE the (slow, during casting genesis) engine-state await
                     # so the edge names the run that raised it, not whichever run exists seconds later.
                     _rid_at_edge = agent_runs.run_id(canonical) if reason == "run-started" else None
-                    try:
-                        st = await asyncio.wait_for(asyncio.shield(asyncio.ensure_future(_engine_state(user))), timeout=_EDGE_STATE_READ_S)
-                    except asyncio.TimeoutError:
-                        st = {}   # ORW-542: a busy engine must not hold the edge; send it with the last known beat
+                    # ORW-706: the bound is paid ONCE per busy spell, not once per edge. Casting genesis publishes a burst of game-updated edges; with every
+                    # edge waiting its own 2.5 s on the same hung read the sender's run-started edge sat behind the whole burst (minutes). While an earlier
+                    # read is still unanswered the edge goes out at once with the last known beat.
+                    if _read_inflight and not _read_inflight[0].done():
+                        st = {}
+                    else:
+                        _fut = asyncio.ensure_future(_engine_state(user))
+                        _read_inflight[:] = [_fut]
+                        try:
+                            st = await asyncio.wait_for(asyncio.shield(_fut), timeout=_EDGE_STATE_READ_S)
+                        except asyncio.TimeoutError:
+                            st = {}   # ORW-542: a busy engine must not hold the edge; send it with the last known beat
                     bs = _beat_seq_of(st)
                     if bs is not None:
                         sock["beatSeq"] = bs
