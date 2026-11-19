@@ -103,7 +103,7 @@ export class InMemoryKnowledgeService implements KnowledgeService {
 
   surfaceInformationTo(
     entity: EntityId,
-    fact: { content: string; subject?: EntityId; confidence?: number },
+    fact: { content: string; subject?: EntityId; confidence?: number; factId?: string },
     pathway: string,
   ): KnowledgeFact | null {
     // Anti-sycophancy anchor (A4): a surfacing must trace to a REAL source. An unanchored "fact" —
@@ -127,7 +127,7 @@ export class InMemoryKnowledgeService implements KnowledgeService {
     // A surfaced fact may carry reduced confidence (0049: an overhear is partial — heard through a
     // wall, not witnessed). Witnessed/told facts omit it (full confidence by default).
     return this.pushKnown(entity, {
-      content: fact.content, pathway, sourceEventId, ts, subject: fact.subject,
+      content: fact.content, pathway, sourceEventId, ts, subject: fact.subject, ...(fact.factId !== undefined ? { factId: fact.factId } : {}),
       ...(fact.confidence !== undefined ? { confidence: fact.confidence } : {}),
     });
   }

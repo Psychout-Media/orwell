@@ -3722,7 +3722,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** 0093/0099 — wire the in-game pathway that surfaces an exposed/traded secret into a houseguest's knowledge. */
-  setOnSurfaceToHouseguest(fn: (npcId: EntityId, content: string, subject: EntityId | undefined, pathway: string, confidence: number) => boolean): void {
+  setOnSurfaceToHouseguest(fn: (npcId: EntityId, content: string, subject: EntityId | undefined, pathway: string, confidence: number, lineage?: string) => boolean): void {
     this.onSurfaceToHouseguest = fn;
   }
 
@@ -3845,7 +3845,7 @@ export class GameSessionAdapter implements GameSession {
    * expose/trade (`told-by:player` / `overheard`): the engine records the witnessed pathway event so the
    * recipient correctly comes to KNOW the secret — never a Vault read. Returns whether it surfaced.
    */
-  private onSurfaceToHouseguest?: (npcId: EntityId, content: string, subject: EntityId | undefined, pathway: string, confidence: number) => boolean;
+  private onSurfaceToHouseguest?: (npcId: EntityId, content: string, subject: EntityId | undefined, pathway: string, confidence: number, lineage?: string) => boolean;
   /** 0066 Phase-2: per-NIGHT conflict tally per houseguest (cleared at each new day). A character conflict
    *  drains the people in it ⇒ they turn in earlier tonight. ORW-581 (Fable T1-14): saved with the season (`nightConflicts`), so a mid-night
    *  restart turns the same people in at the same hour; only ever populated on the clock-ON path, so the calibration spine is unaffected. */
@@ -14853,6 +14853,12 @@ export class GameSessionAdapter implements GameSession {
   /** Whether voice-mediated gossip drift is live (issue #1397) — the orchestrator reads this to decide
    *  whether to hand `diffuseGossip` a `voiceOf` resolver. */
   gossipDriftEnabledNow(): boolean { return this.gossipDriftEnabled; }
+  /** ORW-688: a scene or thread rumor carries who it is ABOUT (`subject`), so the secret consumers (0099 barter, 0202 leverage, 0204 breaks) can match it. Played games only; OFF => subject-less, byte-identical. */
+  private rumorSubjectsEnabled = flagDefaultOn("ORWELL_RUMOR_SUBJECTS");
+  setRumorSubjectsEnabled(on: boolean): void { this.rumorSubjectsEnabled = on; }
+  rumorSubjectsEnabledNow(): boolean { return this.rumorSubjectsEnabled && this.live?.playedGame === true; }
+  /** Same flag, for the load-time backfill of an old save (no played-game read yet at that point). */
+  rumorSubjectsBackfillEnabled(): boolean { return this.rumorSubjectsEnabled; }
 
   /**
    * #2017 S0b-2 — the observer the orchestrator hands `diffuseGossip` so each E44 receipt fold is recorded as a `heard-rumor` belief claim (with the edge delta it absorbed).
@@ -18257,7 +18263,7 @@ export class GameSessionAdapter implements GameSession {
         this.catchPlayerBluff(recipient, resolved.subject, 0.8, "told"); // a real truth contradicts a prior bluff (evidence: the 0.8 told-by surfacing below)
         // The recipient now HOLDS the traded secret — a recorded `told-by:player` pathway (never a Vault read).
         const content = this.factContentFor(resolved.factId!) ?? `${this.nameOf(PLAYER)} shared a secret about ${this.nameOf(resolved.subject)}`;
-        this.onSurfaceToHouseguest?.(recipient, content, resolved.subject, `told-by:${PLAYER}`, 0.8);
+        this.onSurfaceToHouseguest?.(recipient, content, resolved.subject, `told-by:${PLAYER}`, 0.8, this.rumorSubjectsEnabledNow() ? resolved.factId : undefined);
       }
       // Mark the REAL secret traded (monotonic — it has been spent into the economy); a bluff is not a real fact.
       if (resolved.factId && this.secretUsedAs[resolved.factId] !== "exposed") this.secretUsedAs[resolved.factId] = "traded";
@@ -18683,7 +18689,7 @@ export class GameSessionAdapter implements GameSession {
     // Surface the exposure to the house as a WITNESSED pathway event — the house now KNOWS it (0002).
     const content = resolved.bluff ? `${this.nameOf(PLAYER)} outed something about ${this.nameOf(subject)} to the house`
       : this.factContentFor(resolved.factId!) ?? `${this.nameOf(PLAYER)} exposed a secret about ${this.nameOf(subject)}`;
-    this.exposeToHouse(subject, content, resolved.bluff ? 0.6 : 0.85);
+    this.exposeToHouse(subject, content, resolved.bluff ? 0.6 : 0.85, resolved.bluff ? undefined : resolved.factId);
     // Mark the REAL secret SPENT (public ⇒ never re-leveraged). A bluff is not a real fact to mark.
     if (resolved.factId) this.secretUsedAs[resolved.factId] = "exposed";
     this.exposeCount++;
@@ -18746,12 +18752,12 @@ export class GameSessionAdapter implements GameSession {
   /** 0093 — surface an exposed secret to EVERY other active houseguest as witnessed knowledge (0002). The
    *  player is the teller (`told-by:player`): the house learns it BECAUSE the player outed it — a recorded
    *  in-game pathway anchored on the player's own held content (E9), never a Vault read. */
-  private exposeToHouse(subject: EntityId, content: string, confidence: number): void {
+  private exposeToHouse(subject: EntityId, content: string, confidence: number, lineage?: string): void {
     if (!this.house || !this.live) return;
     const evicted = new Set(this.live.evictionOrder);
     for (const other of this.house.npcs) {
       if (other.id === subject || evicted.has(other.id)) continue;
-      this.onSurfaceToHouseguest?.(other.id, content, subject, `told-by:${PLAYER}`, confidence);
+      this.onSurfaceToHouseguest?.(other.id, content, subject, `told-by:${PLAYER}`, confidence, this.rumorSubjectsEnabledNow() ? lineage : undefined);
     }
   }
 

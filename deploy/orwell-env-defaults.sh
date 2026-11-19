@@ -94,6 +94,7 @@
 #   ORWELL_TERRITORY            0176 / ORW-561 slice 10 part 2: a hidden tenure map (hours per room), a mild pull toward people who share your top room, a small capped bond nudge for roommates (a played game only; =0 opts out).
 #   ORWELL_MOOD_CONTAGION       0185 / ORW-567 slice 15: a shocking eviction rattles the evictee's close allies most and the house a little; a big win lifts the winner's circle a little (moves the existing mood only; a played game only). ON 2026-11-17.
 #   ORWELL_REPUTATION           0184 / ORW-564 slice 8 part 1: what a houseguest has heard or seen of another's lying and turning on people (softened by promises kept to them) scales how far they believe that houseguest and how willing they are to deal with them (hidden; a played game only; needs ORWELL_BOND_RECORD). ON 2026-11-17.
+#   ORWELL_RUMOR_SUBJECTS       ORW-688: a scene or thread rumor carries who it is about, so secret barter, leverage plays and the night it all comes out can match it (a played game only; =0 opts out).
 #   ORWELL_SAID_ALOUD_MEMORY    ORW-578 (b): a reason an NPC gave aloud at a public act is kept as a witnessed event the player (and the house) heard: the said kind in words only, never the real reason (a played game only; =0 opts out).
 #   ORWELL_ROOM_LIFE            0198 / ORW-621: the houseguests in the player's own room take their goal steps there, in the player's view (a bounded few per hour; the player is never moved or spoken for; a played game only; =0 opts out).
 #   ORWELL_FAVORS               0171 / Theme 3 slice 3: a counter asks for what the houseguest wants this week (rival up), a favor owed is a hidden debt that is called in at a close vote and costs trust (with witnesses) when refused, passed on, remembered; the bond's debt reads the ledger (a played game only). ON 2026-11-17; `=0` is the kill switch.
@@ -279,6 +280,7 @@ ORWELL_REUNION=1
 ORWELL_ROOM_CANON=1
 ORWELL_ROOM_LIFE=1
 ORWELL_ROUTINES=1
+ORWELL_RUMOR_SUBJECTS=1
 ORWELL_SAID_ALOUD_MEMORY=1
 ORWELL_SCHEME_TARGETS=1
 ORWELL_SEASON_MEMORY=1
