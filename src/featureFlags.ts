@@ -79,6 +79,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_CAMPAIGNS',              key: 'campaigns',              parser: 'defaultOn' },
   // B7 / #2017 M4: campaign targets also read grudges and beliefs. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_CAMPAIGN_MEMORY', key: 'campaignMemory', parser: 'defaultOn' },
+  // 0050 / the standing rule "ask gender or pronouns, don't assume": while the player's pronouns are not on file, the casting interview's status carries a one-line board fact so the producer asks ONCE in its own voice; a skip is recorded as "unstated" and ends the ask. A stated answer the model did not file is recorded by the front end from the player's own words. Never inferred. `=0` restores the old casting context byte for byte.
+  { envKey: 'ORWELL_CASTING_PRONOUN_ASK', key: 'castingPronounAsk', parser: 'defaultOn' },
   // 0197 / ORW-631: catching a misdirection - a lead a houseguest gave the player about where someone is is recorded (engine-only: where the person really was, whether it was meant to mislead) and resolved by what the player later sees; a lead that did not pan out is handed to the narrator as a plain observed fact. Played games only. `=0` turns it off (byte-identical).
   { envKey: 'ORWELL_CATCH_MISDIRECTION', key: 'catchMisdirection', parser: 'defaultOn' },
   // A52 / ORW-23 (Ryne card 19: the narrator does not improvise disclosures): in a played game `npcVoice.knows` is only what the player also holds (engine-delivered or witnessed together); a declined press carries `deflect`. ON by default; `=0` turns it off.
