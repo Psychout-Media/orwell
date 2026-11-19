@@ -1812,6 +1812,8 @@ export function renderHardConstraints(view: GameStateView): string | undefined {
   // ORW-718: the player's own pronouns ride the terminal block too (the region the NPC locks measured best in); a houseguest called a
   // player who never stated a gender "a man", and one who did state it by the wrong word, from the roster line buried mid-prompt.
   lines.push(`- ${playerGenderRule(view.player.genderPresentation)}`);
+  // ORW-725: the player is plugged in. Rule only (no example lines): the playtest showed first-person narration voicing the player and a houseguest reciting the player's own message as their speech.
+  lines.push("- PLAYER'S VOICE: what the player says, does, decides or feels is only what their own message this turn states; speak of them in second person, never first. Write no line, action, choice or answer for them (an earlier question to them stays theirs to answer), and never give a houseguest the player's own words as that houseguest's speech: each houseguest reacts in their own voice.");
   const houseById = new Map(view.house.map((h) => [h.id, h] as const));
   for (const p of wa.present) {
     const h = houseById.get(p.id);
