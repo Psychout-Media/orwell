@@ -71,3 +71,10 @@ def test_veto_field_chyron_has_an_icon_and_a_label():
 
 def test_decision_cards_in_a_ceremony_show_step_x_of_y():
     assert "_stepSuffix(pending)" in JS and "c.step + \" of \" + c.of" in JS
+
+
+def test_orw703_continue_hands_the_step_announcements_to_the_chyron_seam():
+    """ORW-703: Continue is not a chat turn - the nominations / veto-field / veto-result announcements ride the continue response and must reach the chyron renderer."""
+    i = JS.index('"/api/orwell/ceremony-continue"')
+    handler = JS[i:i + 3000]
+    assert "res.announcements" in handler and "orwell:announcements" in handler
