@@ -586,6 +586,11 @@
         _markStepDone(_sig(pending));
         removeCard();
         if (window.orwellGameChanged) window.orwellGameChanged("ceremony-step", res && res.beatSeq);
+        // ORW-703: the step's committed public fact (the nominees, the veto field, the veto result) rides THIS response as `announcements`; Continue is not a chat turn, so
+        // without this the player is told nothing (the chyron is the one source of truth for a closed-set ceremony fact; it dedupes by id with the chat path).
+        if (res && Array.isArray(res.announcements) && res.announcements.length) {
+          try { window.dispatchEvent(new CustomEvent("orwell:announcements", { detail: { announcements: res.announcements } })); } catch (_) {}
+        }
         // The next step (or the next binding decision) arrives on the same view: mount it now.
         const nxt = res && res.pending;
         if (nxt && nxt.kind) window.dispatchEvent(new CustomEvent("orwell:pending", { detail: { pending: nxt } }));
