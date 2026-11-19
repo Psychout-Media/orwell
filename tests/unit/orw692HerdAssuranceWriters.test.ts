@@ -34,7 +34,7 @@ async function play(seed: number, env: Record<string, string | undefined>): Prom
 }
 
 describe("ORW-692: the herd and the assurance shield have working writers in a played game", () => {
-  const SEEDS = [1, 2, 3];
+  const SEEDS = [1, 2, 3, 4, 5]; // ORW-723: the shield now also needs the voter's own pull to hold, so a seed that never had a keeper (1-3) is widened rather than re-picked blindly
   it("ON: real play produces herd voices at a nominee and NPC-to-NPC vote assurances that shield", async () => {
     const all = [];
     for (const seed of SEEDS) all.push(await play(seed, {}));
