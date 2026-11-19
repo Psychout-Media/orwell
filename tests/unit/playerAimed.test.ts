@@ -3,6 +3,7 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import type { Goal } from "../../src/engine/agenda";
+import { sessionCoreSupersetViolation } from "../../src/engine/sessionSnapshot";
 
 /**
  * ORW-611 (0172 / 0173): a houseguest's goal step aimed at the player is RECORDED (a witnessed event once it surfaces), answerable like one aimed at an NPC, and a hostile one the player ignores
@@ -96,5 +97,57 @@ describe("a step aimed at the player is recorded", () => {
     expect(s.live.aimedAtPlayer).toBeUndefined();
     s.aimedAtPlayerTick(sb.engine.events);
     expect(s.live.aimedAtPlayerDay).toBeUndefined();
+  });
+});
+
+describe("ORW-701: a repeated aimed step in the same hour never crashes house life", () => {
+  type Seam = { noteAimedStep(p: object, hostile: boolean, day: number): void; live: P["live"] & { aimedSeq?: number } };
+  const step = (holder: string) => ({ actor: holder, goalId: `${holder}:week:get-them-out:d1`, goalKind: "get-them-out", kind: "approach" });
+  function answeredThenAimedAgain() {
+    const { sb, s, holder } = raised();
+    const q = s as unknown as Seam;
+    const day = s.live.dayNumber ?? s.live.week;
+    s.live.aimedAtPlayer!.find((x) => x.actor === holder)!.status = "shown";
+    s.aimedAtPlayerTick(sb.engine.events); // the scene is written
+    s.notePlayerTalk([holder], "conversation", undefined); // the player answers it
+    q.noteAimedStep(step(holder), true, day); // the same goal aims again, same hour
+    return { sb, s, q, holder, day };
+  }
+  it("answer, then the same goal aims again in the same hour: distinct ids, and the tick does not throw", () => {
+    const { sb, s, holder } = answeredThenAimedAgain();
+    const recs = s.live.aimedAtPlayer!.filter((x) => x.actor === holder);
+    expect(recs.length).toBe(2);
+    expect(new Set(recs.map((r) => r.id)).size).toBe(2);
+    expect(recs[0]!.id.startsWith("aim:")).toBe(true);
+    recs[1]!.status = "shown";
+    expect(() => s.aimedAtPlayerTick(sb.engine.events)).not.toThrow();
+    expect(new Set(recs.map((r) => r.eventId)).size).toBe(2);
+  });
+  it("heals a save already holding two records with one id: the tick completes and adopts the written scene", () => {
+    const { sb, s, holder } = raised();
+    const dup = { id: "aim:legacy:g:1:1", actor: holder, goalId: "g", step: "approach", hostile: false, day: 1, hour: 1 };
+    s.live.aimedAtPlayer = [{ ...dup, status: "shown" }, { ...dup, status: "shown" }];
+    expect(() => s.aimedAtPlayerTick(sb.engine.events)).not.toThrow();
+    expect(s.live.aimedAtPlayer.map((r) => r.eventId)).toEqual(["aim:legacy:g:1:1:scene", "aim:legacy:g:1:1:scene"]);
+    expect(sb.engine.events.queryAll().filter((e) => e.id === "aim:legacy:g:1:1:scene").length).toBe(1);
+    s.live.dayNumber = (s.live.dayNumber ?? s.live.week) + 1;
+    expect(() => s.aimedAtPlayerTick(sb.engine.events)).not.toThrow(); // house life continues
+  });
+  it("the id sequence survives snapshot and restore, never goes back, and a later record gets a fresh id", () => {
+    const { sb, s, q, holder, day } = answeredThenAimedAgain();
+    expect(q.live.aimedSeq).toBe(2);
+    const snap = JSON.parse(JSON.stringify(sb.session.snapshot()));
+    const sb2 = new GameSessionRegistry().sandboxFor("aimed701-restored");
+    sb2.session.restore(snap);
+    const s2 = sb2.session as unknown as Seam;
+    expect(s2.live.aimedSeq).toBe(2);
+    s2.live.aimedAtPlayer!.forEach((r) => { r.status = "answered"; });
+    s2.noteAimedStep(step(holder), true, day);
+    const ids = s2.live.aimedAtPlayer!.map((r) => r.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(s2.live.aimedSeq).toBe(3);
+    const back = JSON.parse(JSON.stringify(snap)); back.live.aimedSeq = 1;
+    expect(sessionCoreSupersetViolation(back as never, snap as never)).toBe("aimedSeq");
+    expect(s.live.aimedAtPlayer!.length).toBe(2);
   });
 });

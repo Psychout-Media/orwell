@@ -14578,7 +14578,10 @@ export class GameSessionAdapter implements GameSession {
     if (!this.playerAimedEnabled || !s || s.playedGame !== true || !p.goalId) return;
     const list = (s.aimedAtPlayer ??= []);
     if (list.some((r) => r.actor === p.actor && r.goalId === p.goalId && (r.status === "open" || r.status === "shown"))) return;
-    list.push({ id: `aim:${p.actor}:${p.goalId}:${day}:${Math.floor(this.absHour())}`, actor: p.actor, goalId: p.goalId, ...(p.goalKind ? { goalKind: p.goalKind } : {}), step: p.kind, hostile, day, hour: this.absHour(), status: "open" });
+    // ORW-701: a UNIQUE id per record. actor:goal:day:hour alone repeats when an answered record's goal aims again in the same hour (the scene event id then collided and the tick threw for the rest of the season). A running sequence (engine-only, persisted, no rng) is appended; an old save without it resumes from the record count.
+    const seq = (s.aimedSeq ?? list.length) + 1;
+    s.aimedSeq = seq;
+    list.push({ id: `aim:${p.actor}:${p.goalId}:${day}:${Math.floor(this.absHour())}:${seq}`, actor: p.actor, goalId: p.goalId, ...(p.goalKind ? { goalKind: p.goalKind } : {}), step: p.kind, hostile, day, hour: this.absHour(), status: "open" });
   }
   private markAimedShown(npc: EntityId): void {
     const r = this.live?.aimedAtPlayer?.find((x) => x.actor === npc && x.status === "open");
@@ -14599,8 +14602,10 @@ export class GameSessionAdapter implements GameSession {
     for (const r of s.aimedAtPlayer) {
       if (r.status === "shown" && r.eventId === undefined) {
         const content = `${this.nameOf(r.actor)} steps up to ${this.nameOf(PLAYER)}${r.hostile ? " to have it out" : " with a move of their own"}`;
-        events.record({ id: `${r.id}:scene`, ts: events.count(), type: r.hostile ? "conflict" : "strategy", initiator: r.actor, witnessSet: [r.actor, PLAYER], hidden: false, content, baseContent: content });
-        r.eventId = `${r.id}:scene`;
+        const sceneId = `${r.id}:scene`;
+        // ORW-701: a scene already written under this id (a save stuck on a duplicate record) is adopted, never recorded twice, never thrown on.
+        if (!events.queryAll().some((e) => e.id === sceneId)) events.record({ id: sceneId, ts: events.count(), type: r.hostile ? "conflict" : "strategy", initiator: r.actor, witnessSet: [r.actor, PLAYER], hidden: false, content, baseContent: content });
+        r.eventId = sceneId;
       }
     }
     if (s.aimedAtPlayerDay === day) return;
