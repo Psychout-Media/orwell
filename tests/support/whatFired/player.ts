@@ -74,7 +74,8 @@ export const MASKS: ReadonlyArray<{ key: string; why: string }> = [
   { key: "savedAt", why: "a save's own write stamp" },
 ];
 const MASKED = new Set(MASKS.map((m) => m.key));
-const stable = (v: unknown): string => JSON.stringify(v, (k, x) => (MASKED.has(k) ? undefined : x));
+// Canonical form: object keys sorted, so a state that was saved and loaded (keys re-inserted in file order) compares equal to the same state that never was (ORW-730).
+const stable = (v: unknown): string => JSON.stringify(v, (k, x) => (MASKED.has(k) ? undefined : x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : x));
 
 const mulberry = (a: number) => () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 const nonEmpty = (v: unknown): boolean => v !== null && v !== undefined && v !== false && v !== 0 && v !== "" && !(Array.isArray(v) && v.length === 0) && !(typeof v === "object" && !Array.isArray(v) && Object.keys(v as object).length === 0);

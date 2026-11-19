@@ -506,7 +506,11 @@ function buildUserSandbox(user = "default"): UserSandbox {
 }
 
 /** Export the user's full durable snapshot: session core + engine detail (events + hidden beliefs + knowledge). */
-function exportSnapshot(sb: UserSandbox): SessionSnapshot {
+/** ORW-730: the off-screen tick's engine-only state: the stream position and the cadence anchors. */
+export interface TickResume { draws?: number; hour?: number; abs?: number; clock?: number }
+
+function exportSnapshot(sb: UserSandbox, tick?: TickResume): SessionSnapshot {
+  const commandsPosition = sb.commands.rngPosition();
   return {
     ...sb.session.snapshot(),
     snapshotVersion: SNAPSHOT_VERSION,
@@ -518,6 +522,11 @@ function exportSnapshot(sb: UserSandbox): SessionSnapshot {
     // The Vault's hidden records (B53/audit I7) — sealed twists et al. survive a restart too.
     vault: sb.engine.vault.readHidden(),
     ...(sb.commands.foldMeterState() ? { foldMeter: sb.commands.foldMeterState() } : {}),
+    // ORW-730: where the two stateful seeded streams are, so a restart does not reroll the season (engine-only, never projected).
+    ...(tick?.draws || commandsPosition ? { streamPos: { ...(tick?.draws ? { tick: tick.draws } : {}), ...(commandsPosition ? { commands: commandsPosition } : {}) } } : {}),
+    // ORW-730: the off-screen tick's cadence anchors (the in-game hour and absolute hour of the last society tick), so a restart does not re-fire or skip a tick.
+    // The play-clock reading too: tick seeds and recency windows are keyed on it, so a restart that restarted the clock at its epoch re-keyed every later draw.
+    ...(tick?.hour !== undefined || tick?.abs !== undefined || tick?.clock !== undefined ? { tickAnchors: { ...(tick.hour !== undefined ? { hour: tick.hour } : {}), ...(tick.abs !== undefined ? { abs: tick.abs } : {}), ...(tick.clock !== undefined ? { clock: tick.clock } : {}) } } : {}),
   };
 }
 
@@ -563,6 +572,7 @@ function importSnapshot(sb: UserSandbox, snap: SessionSnapshot): void {
   for (const e of snap.events) sb.engine.events.restoreRecord(e); // ids/ts/hidden preserved exactly
   sb.engine.relationships.load(snap.relationships);
   sb.commands.restoreFoldMeter(snap.foldMeter);
+  sb.commands.restoreRngPosition(snap.streamPos?.commands);
   if (snap.knowledge) sb.engine.knowledge.load(sb.session.rumorSubjectsBackfillEnabled() ? backfillRumorSubjects(snap.knowledge) : snap.knowledge);
   for (const r of snap.vault ?? []) sb.engine.vault.writeHidden(r); // the producer's secrets resume sealed
   // 0065 Part E — the events are now loaded: seed the delta ring's BASELINE at the resumed beatSeq so the
@@ -592,6 +602,29 @@ export class GameSessionRegistry {
   private readonly liveKnobsByUser = new Map<string, Record<string, unknown>>();
   /** 0016: EVERYTHING the admin submitted (including unsupported / invalid knobs), so a rebuilt sandbox's inspectable config is not silently dropped. */
   private readonly adminConfigByUser = new Map<string, Record<string, unknown>>();
+  /**
+   * ORW-730: the orchestrator's per-user off-screen stream and tick-cadence anchors live in the orchestrator, so the registry asks it
+   * (`tickStateProbe`) for them when it exports a snapshot, and holds what a resume read from disk (`resumedTick`) until the orchestrator
+   * takes it. Engine-only.
+   */
+  private tickStateProbe?: (user: string) => TickResume | undefined;
+  private readonly resumedTick = new Map<string, TickResume>();
+  setTickStateProbe(fn: (user: string) => TickResume | undefined): void { this.tickStateProbe = fn; }
+  /** What the saved season had for the tick (read, not cleared: the anchors and the stream position are taken separately). */
+  resumedTickState(user: string): TickResume | undefined { return this.resumedTick.get(user); }
+  /** The orchestrator's stream was just built for this user: take (and clear) the position the saved season had reached. */
+  takeResumedTickDraws(user: string): number | undefined {
+    const t = this.resumedTick.get(user);
+    if (!t) return undefined;
+    const n = t.draws;
+    delete t.draws;
+    return n;
+  }
+  private tickStateFor(user: string): TickResume | undefined {
+    const live = this.tickStateProbe?.(user);
+    const saved = this.resumedTick.get(user);
+    return live || saved ? { ...saved, ...live } : undefined;
+  }
   /** R3 — per-user last-export cache (`{ rev, snap }`); reused while the rev is unchanged. */
   private readonly snapshotCache = new Map<string, SnapshotCacheEntry>();
 
@@ -814,6 +847,8 @@ export class GameSessionRegistry {
         if (snap) {
           try {
             importSnapshot(sb, snap); // resume instead of fresh setup (the welcome-overlay fix)
+            // ORW-730: hand the saved off-screen stream position to the orchestrator's stream (built lazily on its first tick). Only a DISK resume does this; an in-process rollback leaves the live stream alone.
+            this.resumedTick.set(user, { ...(snap.streamPos?.tick ? { draws: snap.streamPos.tick } : {}), ...(snap.tickAnchors?.hour !== undefined ? { hour: snap.tickAnchors.hour } : {}), ...(snap.tickAnchors?.abs !== undefined ? { abs: snap.tickAnchors.abs } : {}), ...(snap.tickAnchors?.clock !== undefined ? { clock: snap.tickAnchors.clock } : {}) });
             resumedFromSave = true;
           } catch {
             // G12: a refused resume may already have flooded the shared soul-index lane
@@ -903,7 +938,7 @@ export class GameSessionRegistry {
    *  that already exported the snapshot passes it (R3) — never re-serialize the same state. */
   saveUser(user: string, snap?: SessionSnapshot): void {
     const sb = this.sandboxes.get(user);
-    if (sb && this.saveStore) this.saveStore.saveFor(user, snap ?? exportSnapshot(sb));
+    if (sb && this.saveStore) this.saveStore.saveFor(user, snap ?? exportSnapshot(sb, this.tickStateFor(user)));
   }
 
   /**
@@ -920,7 +955,7 @@ export class GameSessionRegistry {
     const events = sb.engine.events.count();
     const cached = this.snapshotCache.get(user);
     if (cached && cached.rev === rev && cached.events === events) return cached.snap;
-    const snap = exportSnapshot(sb);
+    const snap = exportSnapshot(sb, this.tickStateFor(user));
     this.snapshotCache.set(user, { rev, events, snap });
     return snap;
   }
@@ -998,6 +1033,7 @@ export class GameSessionRegistry {
     // the cutover the advance-warm was prepared for. Captured now; injected onto the fresh sandbox below.
     const advanceWarm = this.captureNextSeasonWarm(user);
     this.saveStore?.resetUser?.(user); // rotate the dead season's saves off the live path (R1)
+    this.resumedTick.delete(user);
     this.onReset?.(user); // invalidate the orchestrator's baseline/health/rng for this user (E1)
     const sb = buildUserSandbox(user);
     this.wireHooks(user, sb);

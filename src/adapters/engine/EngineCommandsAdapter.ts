@@ -669,6 +669,19 @@ export class EngineCommandsAdapter implements EngineCommands {
     return { key: this.meterKey, counts: Object.fromEntries(this.meterCounts) };
   }
 
+  /** ORW-730: the command stream's position (draws made), engine-only; undefined when it has not drawn or is not a seeded stream. */
+  rngPosition(): number | undefined {
+    const r = this.rng as { position?: () => number };
+    const n = typeof r.position === "function" ? r.position() : 0;
+    return n > 0 ? n : undefined;
+  }
+
+  /** ORW-730: put a freshly built command stream back where the saved season left it (so a restart does not reroll the next folds). */
+  restoreRngPosition(position: number | undefined): void {
+    const r = this.rng as { seekTo?: (n: number) => void };
+    if (position !== undefined && typeof r.seekTo === "function") r.seekTo(position);
+  }
+
   restoreFoldMeter(state: { key: string; counts: Record<string, number> } | undefined): void {
     this.meterCounts.clear();
     this.meterKey = state?.key ?? "";
