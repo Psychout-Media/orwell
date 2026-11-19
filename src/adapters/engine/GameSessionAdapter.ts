@@ -4602,6 +4602,13 @@ export class GameSessionAdapter implements GameSession {
     if (!ctx) return { accepted: false, publicFields: [], hiddenFields: [], reason: "no game started" };
     const target = ctx.npcs.find((n) => n.id === req.houseguestId);
     if (!target) return { accepted: false, publicFields: [], hiddenFields: [], reason: "unknown houseguest" };
+    // ORW-690: a returner is the actual previous houseguest (spec 0208): their recorded public persona is never re-authored. Every public facet of the write is dropped (the hidden
+    // storyline fields still apply, exactly as the per-field drops below), so a late authoring write-back cannot thin or replace what the player once knew of them.
+    if (!ctx.prewarm && this.live?.returners?.[target.id] !== undefined) {
+      const { name: _n, vocation: _v, biography: _b, identityConcept: _i, presentation: _p, physicalCharacteristics: _ph, voice: _vo, ...kept } = req;
+      void _n; void _v; void _b; void _i; void _p; void _ph; void _vo;
+      req = kept as typeof req;
+    }
 
     // ORW-360: clean the two optional look fields (control characters stripped, lengths clamped) before
     // anything reads the facet. Absent or empty after cleaning means the key is dropped, never stored "".
@@ -9528,6 +9535,12 @@ export class GameSessionAdapter implements GameSession {
     return { id, inside, playerEntrance: id === me };
   }
 
+  /** ORW-653 / ORW-690 / 0205: arm the introductions when the circle is called, on either path into the toast (the tour's call, or the last arrival with no tour). Idempotent: an armed record is never reset. */
+  private armMeetTheCast(): void {
+    const pe = this.live?.premiereEntrance;
+    if (this.meetTheCastEnabled && this.live?.playedGame === true && pe && pe.introduced === undefined) pe.introduced = [];
+  }
+
   /** A9 - the staged premiere's entrances + toast, one `advanceGame` per release. */
   private advancePremiereEntrance(): AdvanceView {
     const s = this.live!;
@@ -9541,7 +9554,7 @@ export class GameSessionAdapter implements GameSession {
       // convened for a ceremony); the circle then runs as ever (toast, then the bed rush).
       pe.stage = "toast";
       s.champagneCircle = "gathered";
-      if (this.meetTheCastEnabled && s.playedGame === true) pe.introduced = []; // ORW-653 / 0205: the circle is the meet-the-cast moment (armed only here, so nothing is introduced before the circle is called)
+      this.armMeetTheCast(); // ORW-653 / 0205: the circle is the meet-the-cast moment (armed only when the circle is called, so nothing is introduced before it)
       this.presence?.set(me, "living-room"); this.presenceBase?.set(me, "living-room");
       // The tour's placement was a player-facing overlay only: when it ends the house goes back to the seats its own (untouched) movement gave it, so the tour leaves no trace on the week-1 society
       for (const [id, room] of this.presenceBase ?? []) if (id !== me && this.presence?.has(id)) { this.presence.set(id, room); this.presenceTenure?.set(id, 0); this.presenceZone?.delete(id); }
@@ -9557,6 +9570,7 @@ export class GameSessionAdapter implements GameSession {
       if (pe.arrived >= pe.order.length && !s.houseTour) { // ORW-654 / 0206: on the tour the house stays open after the last arrival; the NEXT advance calls the circle
         pe.stage = "toast";
         s.champagneCircle = "gathered"; // the existing whole-house pin
+        if (pe.stage === "toast") this.armMeetTheCast(); // ORW-690: with no tour the circle is still the meet-the-cast moment (it used to arm only on the tour's branch)
       }
       this.persist();
       const view = this.advanceView(null);

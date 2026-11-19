@@ -62,3 +62,6 @@ Returning houseguests are built: the per-user `UserSeasonArchive` (engine-only, 
 - **What B1 must provide:** nothing. B3 is independent of the archive; if B1 later wants "was a past winner" for a returner, `hallOfFame().seasons` already carries winners by name.
 - **Known limit:** `bestMove` and `worstBetrayal` read the top two facts behind the player's edit (`you.because`), so a season whose top two are both neutral files none; the counts still carry. A fuller pick needs the edit tally exposed (Auditor-owned `yourEdit.ts`).
 - **Tests:** `tests/unit/hallOfFame.test.ts`, `docs/features/0208-the-hall-of-fame.feature` (prefix "hall of fame:").
+
+## Amendment 2026-11-19 (ORW-690)
+A returning houseguest's public persona is not re-authored by the cast-profile write-back: the engine drops the public facets of that write for a returner (hidden fields still apply). Test: `tests/unit/returnerPersonaGuard.test.ts`.
