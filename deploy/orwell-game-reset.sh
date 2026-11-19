@@ -6,7 +6,8 @@
 # CONFIG IS PRESERVED, all of it: the engine data/.env (ports, tokens, LLM keys, AND the
 # public-deployment / SSL profile — ORWELL_PUBLIC, ALLOWED_HOSTS/ORIGINS, SECURE_COOKIES, …),
 # the data/ops/ public-deployment apply record, AND the entire front-end store (accounts,
-# sessions, settings — including the LLM endpoint config). The OS-level cloudflared tunnel is
+# sessions, settings — including the LLM endpoint config). The per-player season archive, hall of
+# fame and notoriety subtrees also survive (returners and standing carry into the next season). The OS-level cloudflared tunnel is
 # untouched, so a box that was made PUBLIC on the web STAYS public. Players keep their logins and
 # the box keeps its LLM + internet setup; the next visit simply starts a brand-new game at the
 # casting interview. (Old chat transcripts are kept too — a fresh game session begins on the next
@@ -279,10 +280,14 @@ recheck_data_dir "$ENGINE_SAVE_DIR" "engine SAVE dir"
 # ── 2a. Scrub the engine SAVE dir — the per-user games (saves + hidden Vault layer), ──────────
 #       always KEEPING .env AND data/ops/ (the public-deployment apply record + ops trigger dir)
 #       in case the save dir and the config dir are the same.
+# ORW-698: the per-PLAYER archives (finished seasons' houseguests = how returners work, the hall of fame, notoriety)
+# live in their own subtrees beside the per-user saves and are meant to SURVIVE a new season; only the OOBE / factory
+# reset (orwell-oobe-reset.sh) clears them, with the rest of the install.
+PLAYER_KEEP=(! -name season-archive ! -name hall-of-fame ! -name notoriety)
 msg "scrubbing engine saves in ${ENGINE_SAVE_DIR}"
 if [[ -d "$ENGINE_SAVE_DIR" ]]; then
   while IFS= read -r -d '' entry; do do_rm "$entry"; done \
-    < <(find "$ENGINE_SAVE_DIR" -mindepth 1 -maxdepth 1 ! -name "$ENV_KEEP" ! -name models ! -name ops -print0)
+    < <(find "$ENGINE_SAVE_DIR" -mindepth 1 -maxdepth 1 ! -name "$ENV_KEEP" ! -name models ! -name ops "${PLAYER_KEEP[@]}" -print0)
 else
   warn "engine save dir ${ENGINE_SAVE_DIR} absent — nothing to scrub there"
 fi
@@ -294,7 +299,7 @@ if [[ "$CONFIG_DIR" != "$ENGINE_SAVE_DIR" ]]; then
   msg "scrubbing config dir ${CONFIG_DIR} (keeping ${ENV_KEEP})"
   if [[ -d "$CONFIG_DIR" ]]; then
     while IFS= read -r -d '' entry; do do_rm "$entry"; done \
-      < <(find "$CONFIG_DIR" -mindepth 1 -maxdepth 1 -type d ! -name models ! -name ops -print0)
+      < <(find "$CONFIG_DIR" -mindepth 1 -maxdepth 1 -type d ! -name models ! -name ops "${PLAYER_KEEP[@]}" -print0)
   fi
 fi
 
