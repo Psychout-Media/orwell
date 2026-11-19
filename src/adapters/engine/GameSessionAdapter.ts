@@ -787,6 +787,8 @@ const JUROR_PROFILES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_JUROR_PROFILES");
 const PREMIERE_ENTRANCES_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PREMIERE_ENTRANCES");
 /** ORW-710: while the premiere's entrances run, the state read and the narrator's roster carry only the houseguests who have walked in (the player's met set); `=0` ships the whole cast as before. */
 const MET_ONLY_ROSTER_ENABLED_DEFAULT = flagDefaultOn("ORWELL_MET_ONLY_ROSTER");
+/** ORW-705 / PT-10 - in a played game the premiere's entrance and toast releases cost the player's ONE message-step only (`noteMessage`), not that plus `PREMIERE_STEP_HOURS` (14 minutes a message in the dev playtest). ON by default; `=0` restores the double bill. */
+const PREMIERE_ONE_STEP_ENABLED_DEFAULT = flagDefaultOn("ORWELL_PREMIERE_ONE_STEP");
 /** ORW-672 / 0201 - the BED RUSH: no bed is claimed before the champagne circle closes, then the house races for the bedrooms (a claim needs reaching the room). A played game only. ON by default; `=0` restores the walk-in-order claim. */
 const BED_RUSH_ENABLED_DEFAULT = flagDefaultOn("ORWELL_BED_RUSH");
 /** ORW-654 / 0206 - the SELF-GUIDED TOUR: after walking in the player explores the house until production calls the circle; the houseguests mostly gather in the common area; the first entry into each room is a one-time room card. A played game only. ON by default; `=0` restores the held premiere. */
@@ -2732,6 +2734,7 @@ export class GameSessionAdapter implements GameSession {
   private wipeoutReelEnabled = WIPEOUT_REEL_ENABLED_DEFAULT;
   private premiereEntrancesEnabled = PREMIERE_ENTRANCES_ENABLED_DEFAULT;
   private metOnlyRosterEnabled = MET_ONLY_ROSTER_ENABLED_DEFAULT;
+  private premiereOneStepEnabled = PREMIERE_ONE_STEP_ENABLED_DEFAULT; // ORW-705 / PT-10
   /** ORW-672 / 0201: the bed rush (see `BED_RUSH_ENABLED_DEFAULT`). */
   private bedRushEnabled = BED_RUSH_ENABLED_DEFAULT;
   /** ORW-654 / 0206: the self-guided tour (see `HOUSE_TOUR_ENABLED_DEFAULT`). */
@@ -5394,7 +5397,7 @@ export class GameSessionAdapter implements GameSession {
       const votedFor = s.finale?.votes?.[id];
       return { id, points: s.viewOfPlayer?.[id] ?? [], scenes, ...(out ? { evictedWeek: out.week } : {}), ...(votedFor ? { votedFor } : {}), ...(finalists.has(id) ? { finalist: true } : {}) };
     });
-    return buildYourStories({ finished: true, nameOf: (id) => this.nameOf(id), winner: s.winner ?? null, guests });
+    return buildYourStories({ finished: true, playerFinalist: finalists.has(PLAYER), nameOf: (id) => this.nameOf(id), winner: s.winner ?? null, guests });
   }
   /** ORW-566 part d (0183): every alliance and close-pair habit the season held, hidden ones included (the retrospective is the sanctioned unsealing; the caller holds the crown gate). Names only. */
   private buildGroupLifeView(): GroupLifeView | undefined {
@@ -6500,6 +6503,7 @@ export class GameSessionAdapter implements GameSession {
       phase: this.phase,
       ...(this.timeOfDayEnabled && (this.live?.timeOfDay ?? this.premiereClockPreview()) ? { timeOfDay: (this.live?.timeOfDay ?? this.premiereClockPreview())!, dayNumber: this.live?.dayNumber ?? 1, asleep: this.asleepNpcs() ?? [], ...(this.live?.ceremony ? {} : { awake: this.awakeNpcs() ?? [] }) } : {}), ...(this.timeOfDayEnabled && (this.live?.timeOfDay === "late-night" || this.live?.timeOfDay === "morning") && isEarlyMorning(this.live.nightDepth) ? { earlyMorning: true as const } : {}), // ORW-392 // ADR 0006: the public day-phase + who's turned in (observable); ORW-115: + the day number the HUD shows
       day: dayOfWeek(this.phase), // E58: the canonical beat→day index (hoh=1 … eviction=5), or null off-ladder
+      ...(this.live?.evictionOrder?.length ? { lastEviction: { evictee: { id: this.live.evictionOrder[this.live.evictionOrder.length - 1]!, name: this.nameOf(this.live.evictionOrder[this.live.evictionOrder.length - 1]!) } } } : {}), // ORW-705 / PT-11: the "Last out" row
       hoh: this.card(this.ceremony.hoh),
       nominees: this.ceremony.nominees.map((id) => ({ id, name: this.nameOf(id) })),
       veto: {
@@ -9549,7 +9553,7 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live!;
     this.ensurePremiereClock();
     const callingCircle = s.premiereEntrance?.stage === "entrances" && !!s.houseTour && everyoneIn(s); // ORW-654 / 0206: calling the circle is not a new scene - it takes no premiere step, so the clock reads as it did before the tour
-    if (this.perConversationClockLive()) { s.clockInteractive = true; if (!callingCircle) tickPremiereClock(s, PREMIERE_STEP_HOURS); } // ORW-116 (b): a staged premiere with the clock on IS real play - the night is held from the first entrance, never only after the first message // ORW-116: the entrances take real time
+    if (this.perConversationClockLive()) { s.clockInteractive = true; if (!callingCircle && !(this.premiereOneStepEnabled && this.messageMode && s.playedGame === true)) tickPremiereClock(s, PREMIERE_STEP_HOURS); } // ORW-116 (b): a staged premiere with the clock on IS real play - the night is held from the first entrance, never only after the first message // ORW-116: the entrances take real time
     const pe = s.premiereEntrance!;
     const me = this.house!.player.id;
     if (pe.stage === "entrances" && s.houseTour && everyoneIn(s)) {
@@ -12352,6 +12356,7 @@ export class GameSessionAdapter implements GameSession {
   setWipeoutReelEnabled(on: boolean): void { this.wipeoutReelEnabled = on; }
   /** A9 - turn the staged premiere entrances on/off for this session (read at `createCharacter`; tests/BDD; the deploy sets `ORWELL_PREMIERE_ENTRANCES`). */
   setPremiereEntrancesEnabled(on: boolean): void { this.premiereEntrancesEnabled = on; }
+  setPremiereOneStepEnabled(on: boolean): void { this.premiereOneStepEnabled = on; }
   /** ORW-672 / 0201: turn the bed rush on/off for this session (tests/BDD; the deploy sets `ORWELL_BED_RUSH`). */
   setBedRushEnabled(on: boolean): void { this.bedRushEnabled = on; }
   /** ORW-654 / 0206: turn the self-guided tour on/off for this session (tests/BDD; the deploy sets `ORWELL_HOUSE_TOUR`). */
@@ -15180,17 +15185,18 @@ export class GameSessionAdapter implements GameSession {
       const other = d.parties[0] === PLAYER ? d.parties[1] : d.parties[0];
       if (d.condition.protect === other && d.condition.promisors.includes(PLAYER) && d.status !== "lapsed") {
         said.push({ claimId: d.id, to: other, promise: "deal", week: d.madeWeek ?? 1 });
-        if (d.status === "broken" && d.brokenBy === PLAYER) did.push({ eventId: `deal:${d.id}`, act: "broke-deal", target: other, week: s.week });
+        if (d.status === "broken" && d.brokenBy === PLAYER) did.push({ eventId: `deal:${d.id}`, act: "broke-deal", target: other, week: d.brokenWeek ?? s.week });
       }
     }
     if (s.assurances) {
       for (const a of AssuranceLedger.fromJSON(s.assurances).all) {
         if (a.from !== PLAYER || a.source !== "player") continue;
+        if (a.status === "lapsed" || a.status === "kept") continue; // ORW-697: a withdrawn/lapsed or kept word is not a word to hold the player to
         said.push({ claimId: a.id, to: a.to, promise: a.kind === "safe" ? "safe" : a.kind === "vote" ? "vote-with" : "not-target", week: a.week });
       }
     }
     for (const d of s.weekDigests ?? []) if (d.hoh === PLAYER) for (const n of d.nominees) did.push({ eventId: `nom:${d.week}:${n}`, act: "nominated", target: n, week: d.week });
-    if (s.hoh === PLAYER && s.nominees && !(s.weekDigests ?? []).some((d) => d.week === s.week)) for (const n of s.nominees) did.push({ eventId: `nom:${s.week}:${n}`, act: "nominated", target: n, week: s.week });
+    if (s.hoh === PLAYER && s.nominees && !(s.weekDigests ?? []).some((d) => d.week === s.week && d.hoh === s.hoh && [...d.nominees].sort().join() === [...s.nominees!].sort().join())) for (const n of s.nominees) did.push({ eventId: `nom:${s.week}:${n}`, act: "nominated", target: n, week: s.week });
     for (const r of s.voteRecord ?? []) { const t = r.voteOf[PLAYER]; if (t) did.push({ eventId: `vote:${r.week}:${t}`, act: "voted-against", target: t, week: r.week }); }
     if (!said.length || !did.length) return undefined;
     const facts = pushbackFacts(said, did, (id) => this.nameOf(id), s.week);

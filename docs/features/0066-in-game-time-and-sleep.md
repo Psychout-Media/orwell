@@ -273,3 +273,9 @@ the §10 DoD "final magnitudes set" is **done**. The settled values:
 
 Only fine adjustment remains open (not new scope): the per-beat / per-conversation hour steps and the
 conversation/event duration tables — all in `src/engine/sleepConstants.ts`.
+
+## Amendment 2026-11-19 (ORW-705, PT-10 / PT-11, dev playtest)
+
+- **One message-step in the premiere too.** In a played game the entrance and toast releases no longer add the 9-minute premiere step (`PREMIERE_STEP_HOURS`) on top of the player's message-step: a premiere message costs exactly `MINUTES_PER_MESSAGE` like every other (the playtest measured 14 minutes a message). Flag `ORWELL_PREMIERE_ONE_STEP`, default ON; `=0` restores the double bill. Headless drivers (no announced message) are byte-identical. Test: `tests/unit/premiereOneStep705.test.ts`.
+- **Known gap, not built (needs a PO decision).** A player who turned in early wakes at their own early hour (P4d) and, at 4-5am, "sleeps until the house wakes" - there is no lever for it: `turnIn` is held as "not bedtime" in the morning band and `nap` is a daytime lever. Recommendation: let `turnIn` go back to bed while the clock is before the house's wake-up call (cap = that wake hour), rather than a new lever.
+- **Status.** `PublicGameStatus.lastEviction` ({ evictee }, name only) now feeds the panel's "Last out" row; the Day-2 pre-HOH bubble stamp names the HOH competition instead of "Premiere".
