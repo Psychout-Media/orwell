@@ -76,7 +76,7 @@ describe("a goal brings an NPC to the player (live)", () => {
   it("a nominated houseguest with a stay-safe goal raises a PLEA approach to the player within the day, through the desire clock", async () => {
     const { s, holder, goal } = await setupRaising();
     expect(s.live.goalApproaches![holder]).toMatchObject({ desire: "plea", goalId: goal.id });
-    expect(s.desireApproach([holder])).toEqual({ npc: holder, desire: "plea" });
+    expect(s.desireApproach([holder])).toMatchObject({ npc: holder, desire: "plea" }); // ORW-709: a played pick also names the question it asks (`q`)
   });
 
   it("a houseguest with no goal involving the player does not approach for that reason", async () => {

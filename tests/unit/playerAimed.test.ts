@@ -42,8 +42,15 @@ function stage(seed: number, flag = true) {
   return { sb, s, holder };
 }
 function raised(flag = true) {
-  for (let seed = 11; seed < 30; seed++) { const w = stage(seed, flag); if (w.s.live.goalApproaches?.[w.holder]) return w; }
-  throw new Error("no seed raised the approach");
+  for (let seed = 11; seed < 30; seed++) { const w = stage(seed, flag); if (w.s.live.goalApproaches?.[w.holder] && w.s.live.aimedAtPlayer?.some((r) => r.actor === w.holder && r.hostile)) return w; }
+  // ORW-709: a hostile step is now raised only when it is addressed TO the player (it used to fire when the player was merely the step's subject, which is hidden scheming: see the ORW-709 tests). The planner rarely addresses a
+  // get-them-out step to the player from another room, so these pins hand the engine exactly that step (the same entry `houseLifeStretch` makes) and keep testing what happens to the record.
+  const w = stage(11, flag);
+  if (!flag) return w;
+  const day = w.s.live.dayNumber ?? w.s.live.week;
+  (w.s as unknown as { noteAimedStep(p: object, hostile: boolean, day: number): void }).noteAimedStep({ actor: w.holder, goalId: `${w.holder}:week:get-them-out:d1`, goalKind: "get-them-out", kind: "confront", with: [PLAYER] }, true, day);
+  (w.s.live.goalApproaches ??= {})[w.holder] = { desire: "probe", goalId: `${w.holder}:week:get-them-out:d1`, hour: 0 };
+  return w;
 }
 
 describe("a step aimed at the player is recorded", () => {
@@ -59,7 +66,12 @@ describe("a step aimed at the player is recorded", () => {
     s.live.aimedAtPlayer!.find((x) => x.actor === holder)!.status = "shown";
     s.aimedAtPlayerTick(sb.engine.events);
     const r = s.live.aimedAtPlayer!.find((x) => x.actor === holder)!;
+    // ORW-709: a hostile step the player has not answered writes its fight when it CLOSES (a kind answer in between folds no conflict); a non-hostile one is written as it surfaces.
+    expect(r.eventId).toBeUndefined();
+    s.live.dayNumber = (s.live.dayNumber ?? s.live.week) + 5;
+    s.aimedAtPlayerTick(sb.engine.events);
     const ev = sb.engine.events.queryAll().find((e) => e.id === r.eventId)!;
+    expect(ev.type).toBe("conflict");
     expect(ev.hidden).toBe(false);
     expect(ev.witnessSet).toEqual(expect.arrayContaining([PLAYER, holder]));
     s.aimedAtPlayerTick(sb.engine.events);
@@ -121,7 +133,11 @@ describe("ORW-701: a repeated aimed step in the same hour never crashes house li
     expect(recs[0]!.id.startsWith("aim:")).toBe(true);
     recs[1]!.status = "shown";
     expect(() => s.aimedAtPlayerTick(sb.engine.events)).not.toThrow();
-    expect(new Set(recs.map((r) => r.eventId)).size).toBe(2);
+    // ORW-709: the answered one wrote no fight; the unanswered hostile one writes its scene when it closes.
+    expect(recs[0]!.eventId).toBeUndefined();
+    s.live.dayNumber = (s.live.dayNumber ?? s.live.week) + 5;
+    expect(() => s.aimedAtPlayerTick(sb.engine.events)).not.toThrow();
+    expect(recs[1]!.eventId).toBeDefined();
   });
   it("heals a save already holding two records with one id: the tick completes and adopts the written scene", () => {
     const { sb, s, holder } = raised();
