@@ -7902,6 +7902,7 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-705 PT-10: the pre-dawn window - a played game, the player at the early hour a bed before midnight wakes them to (the 0-8 clock scale), before the house's wake-up call. */
   private dozeWindowOpen(live: LiveSeasonState): boolean {
     return this.dozeBackEnabled && this.timeOfDayEnabled && live.playedGame === true && !live.finished
+      && live.wakeHour !== undefined && live.timeOfDay === DAY_START && !live.playerRetired // the player already took an EARLY bed and is UP at their own wake hour before the house (P4d); a turn-in at night crosses the night gate as before
       && live.nightDepth !== undefined && live.nightDepth >= 0 && live.nightDepth < WAKE_HOUR - 1e-6;
   }
 
@@ -17562,6 +17563,7 @@ export class GameSessionAdapter implements GameSession {
       live.timeOfDay = phaseForHour(WAKE_HOUR);
       live.playerRetired = false; // up at the call (a still-pending wake from the first bed is spent)
       live.wakeHour = undefined; // the day's wake is the house's own now (crossToNextDay must not read the early wake as a passed night)
+      if (nightBreakPending(live)) markNightGateCrossed(live); // as playerTurnIn does: the bed the player just took IS the night the pending day-break would have rolled (else the gate holds a second night nobody asked for)
       live.napWake = { room: here, before, startHour, endHour: WAKE_HOUR, doze: true };
       this.napPendingHours += WAKE_HOUR - startHour;
       this.hangOutSkipStepAt = undefined;
