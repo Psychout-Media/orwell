@@ -43,15 +43,18 @@ python3 "$KIT/spend_guard.py" "$LLMIO" "$CAP" "$RUN" > "$RUN/spend-guard.out" 2>
 CROSS=(); [ "${RIG_CROSSOVER:-}" = 1 ] && CROSS=(--crossover)   # only the exact value 1 (RIG_CROSSOVER=0 must not turn it on)
 [ "${RIG_EVICTION:-}" = 1 ] && [ "${RIG_CROSSOVER:-}" != 1 ] && CROSS=(--eviction)   # ORW-506: RIG_EVICTION=1 forces eviction night and plays it (the exact value 1; not with RIG_CROSSOVER=1); the run stays under the same RIG_SPEND_CAP guard
 case "${RIG_EVICTION_TURNS:-}" in [0-9]|[0-9][0-9]) [ "${CROSS[*]:-}" = "--eviction" ] && CROSS=(--eviction --eviction-turns "$RIG_EVICTION_TURNS") ;; esac   # the bound on the night's chat turns (1..20; eviction_e1.py clamps)
-"$PY" "$HERE/live_short.py" --fe "$RIG_BASE" --engine "$RIG_ENGINE_URL" --run-dir "$RUN" ${CROSS[@]+"${CROSS[@]}"} > "$RUN/live_short.out" 2>&1 & echo $! > "$RUN/driver.pid"
+# ORW-109 formal short tier: RIG_BEATS="veto-ceremony eviction finale" (any subset) adds the beats; --max-spend is the run's cap, --max-turns bounds the real chat turns (RIG_MAX_TURNS, default 60).
+BEATS=(); for b in ${RIG_BEATS:-}; do case "$b" in veto-ceremony) BEATS+=(--veto-ceremony);; eviction) [ "${CROSS[*]:-}" = "" ] && CROSS=(--eviction);; finale) BEATS+=(--finale);; *) echo "LIVE-SHORT COULD-NOT-RUN unknown RIG_BEATS entry '$b'"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2;; esac; done
+case "${RIG_MAX_TURNS:-60}" in ''|*[!0-9]*|0) echo "LIVE-SHORT COULD-NOT-RUN RIG_MAX_TURNS must be a positive integer"; "$KIT/stop.sh" >/dev/null 2>&1; exit 2;; esac
+"$PY" "$HERE/live_short.py" --max-spend "$CAP" --max-turns "${RIG_MAX_TURNS:-60}" ${BEATS[@]+"${BEATS[@]}"} --fe "$RIG_BASE" --engine "$RIG_ENGINE_URL" --run-dir "$RUN" ${CROSS[@]+"${CROSS[@]}"} > "$RUN/live_short.out" 2>&1 & echo $! > "$RUN/driver.pid"
 wait "$(cat "$RUN/driver.pid")"; RC=$?
 kill "$(cat "$RUN/spend.pid")" 2>/dev/null
 python3 "$KIT/spend_guard.py" "$LLMIO" "$CAP" "$RUN" --once >/dev/null 2>&1   # a final spend.json for the report
 short_patch_spend "$RUN"; [ -f "$RUN/SPEND-CAP-HIT" ] && short_partial_report "$RUN" "$SHA" "$CAP"
 "$KIT/stop.sh" >/dev/null 2>&1
 # a COULD-NOT-RUN revision stays untested, so --if-new tries it again; a CAPPED run (the guard TERMs the driver: RC 143) DID run and spend its cap, so it is recorded or every poll would re-spend the cap on the same build
-if [ -f "$RUN/SPEND-CAP-HIT" ]; then echo "$SHA" > "$STATE/last-sha$RIG_SUFFIX"; else case $RC in 0|1) echo "$SHA" > "$STATE/last-sha$RIG_SUFFIX";; esac; fi
+if [ -f "$RUN/SPEND-CAP-HIT" ]; then echo "$SHA" > "$STATE/last-sha$RIG_SUFFIX"; else case $RC in 0|1|4) echo "$SHA" > "$STATE/last-sha$RIG_SUFFIX";; esac; fi
 cp "$RUN/report.md" "$STATE/last-report$RIG_SUFFIX.md" 2>/dev/null
 if [ -f "$RUN/SPEND-CAP-HIT" ]; then echo "LIVE-SHORT CAPPED $SHA $RUN/report.md (spend cap \$$CAP hit; see $RUN/spend.json)"; exit 4; fi
-case $RC in 0) V=PASS;; 1) V=FAIL;; *) V=COULD-NOT-RUN;; esac
+case $RC in 0) V=PASS;; 1) V=FAIL;; 4) V=CAPPED;; *) V=COULD-NOT-RUN;; esac
 echo "LIVE-SHORT $V $SHA $RUN/report.md"; exit $RC

@@ -35,6 +35,19 @@ like `main~55` (`run_short.sh main~55`), which is how the known-bad proof below 
 2. `python3 scripts/live-run/live_short.py --run-dir <the staged run dir>` (use the FE venv for Playwright; `TMPDIR` on disk if `/tmp` is a nearly full tmpfs).
 3. Read `report.md` in the run dir. Exit code: 0 pass, 1 fail, 2 could not run. Stop the rig by PID when done.
 
+## Formal short tier: veto ceremony, eviction, finale (ORW-109)
+
+The written bar is `docs/live-run-pass-bar.md` (12 checks). One command, the real narrator (DeepSeek, images off), under a spend cap and a turn cap:
+
+    RIG_BEATS="veto-ceremony eviction finale" RIG_SPEND_CAP=0.75 RIG_MAX_TURNS=60 scripts/live-run/run_short.sh [REF]
+
+- Each beat JUMPS the engine to its phase with the engine's own player API (no model call), then plays a few real chat turns (`--beat-turns`, 1..6). `RIG_BEATS` takes any subset.
+- Every turn is compared with engine truth by `live_compare.py` (pure, unit-tested): veto holder, nominees, evictee, sealed ballots (E12), a phantom winner, reasoning or operator text in the bubble (B1-B6), plus the
+  stall rule S1 (an event due and nothing committed for more than 3 turns, 1 after an explicit ask: the ORW-10 shape) and the livelock rule L1.
+- `--max-spend` / `--max-turns` are enforced in the harness before every model-costing send: at the cap the run stops cleanly, scores what was played and reports `CAPPED` (exit 4). The out-of-process `spend_guard.py` stays as the backstop.
+- It writes `bar-report.md`, `bar-report.json` and `plane-comment.html` into the run dir (no transcript, cast names scrubbed, no secrets); the agent on watch posts the comment on the board.
+- Offline stub mode, never spends and needs no rig: `python3 scripts/live-run/live_short.py --dry-run` runs the comparator over a clean and a broken transcript and exits 0 only while its positive control (the planted stall and phantom veto claim are detected) holds. Operator-triggered; there is no CI job for the live run.
+
 ## Rig slots (ORW-344): two playtests at once
 
 The rehearsal kit used to have exactly one rig. It now has two, picked by ONE variable, `RIG_SLOT` (default 1), read by every kit and live-run script (`scripts/rehearsal-kit/slot.sh`):
@@ -104,5 +117,5 @@ A run PASSES when every FAIL check holds. WARN checks are listed in the report a
 - Hidden-information leaks beyond the machinery list (the Vault Wall is gated structurally in CI; this tier only catches visible leaks).
 - Claims the engine did not do other than the pre-narrated competition (nominees named before the ceremony, a winner before the result). Add as checks when
   a staged break is available to prove each one fails.
-- "The short run catches the ORW-10 stall on the old build" (the card's must-pass): needs the old build staged; not done.
+- The ORW-10 old-build proof is recorded on the card (see the formal short tier above).
 - The BDD Auditor's approved-scenario pass bar: this table is a first draft from the live-run findings so far and is for the Auditor to amend.
