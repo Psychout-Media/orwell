@@ -4907,7 +4907,7 @@ async def do_create_character(
             motivation=args.get("motivation"),
             private_strategy=args.get("privateStrategy"),
             interview_notes=args.get("interviewNotes"),
-            gender_presentation=gate_player_gender(args).get("genderPresentation"),
+            gender_presentation=(lambda g: None if str(g or "").lower() == "unstated" else g)(fill_stated_player_gender(args).get("genderPresentation")),  # a skip is already in the intake; it must not shadow a stated one
             seed=args.get("seed"),
             # The ONE sanctioned player-channel restart door (D1/R1): a confirmed play-again over a
             # finished/abandoned season delegates through the engine's registry.resetUser hinge.
@@ -5338,7 +5338,7 @@ async def do_update_casting(content: str, owner: Optional[str] = None) -> Dict:
     except ValueError:
         return {"error": "Invalid JSON arguments", "exit_code": 1}
     try:
-        res = await orwell_engine.update_casting(gate_player_gender(args), user=owner)
+        res = await orwell_engine.update_casting(fill_stated_player_gender(args), user=owner)
         await _refresh_after_model_progression(owner, res)  # adopt a post-commit beatSeq if the engine echoes one (harmless otherwise)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
@@ -5949,9 +5949,24 @@ def gate_player_gender(args: dict) -> dict:
             continue
         v = str(out[k] or "").strip().lower().replace(" ", "")
         v = {"nonbinary": "nonbinary", "non-binary": "nonbinary"}.get(v, v)
-        if v != "unset" and v not in stated:  # "unset" clears (the heal); it never sets a gender
+        if v not in ("unset", "unstated") and v not in stated:  # "unset" clears (the heal), "unstated" records a skip; neither sets a gender
             logger.info("[orwell] ORW-476: dropped a player genderPresentation the player never stated")
             del out[k]
+    return out
+
+def fill_stated_player_gender(args: dict) -> dict:
+    """The casting pronoun ask's recorder: when the player's OWN typed words state a gender and the model filed none, file what they
+    stated (the closed man / woman / nonbinary set, read by the same detector the gate uses; never a name, never a guess). A model
+    filing "unstated" while the player did state one is overridden by what they said. Returns a new dict; no stated gender, no change."""
+    out = gate_player_gender(args)
+    from src.orwell_player_gender import stated_gender
+    stated = stated_gender(PLAYER_OWN_WORDS.get() or PLAYER_TURN_TEXT.get())
+    filed = [str(args[k] or "").strip().lower() for k in (args or {}) if str(k).lower() in _GENDER_KEYS]
+    # Only when the model filed nothing or a skip: a model-filed gender that disagrees with the player's words stays dropped.
+    if stated and all(v in ("", "unstated") for v in filed):
+        for k in [k for k in out if str(k).lower() in _GENDER_KEYS]:
+            del out[k]
+        out["genderPresentation"] = stated
     return out
 
 _DEAL_NUM = r"(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|a|another|the next|next)"

@@ -631,6 +631,8 @@ function sanitizeFlavor(s: string, max = 160): string {
 const WEEK_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"];
 const weekWords = (n: number): string => (n >= 0 && n < WEEK_WORDS.length ? WEEK_WORDS[n]! : `no ${n.toString(36).replace(/[0-9]/g, (d) => "abcdefghij"[Number(d)]!)}`);
 const CAMPAIGNS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_CAMPAIGNS");
+/** The casting interview asks the player their pronouns once when none are on file (default ON). */
+const CASTING_PRONOUN_ASK_ENABLED = flagDefaultOn("ORWELL_CASTING_PRONOUN_ASK");
 /** 0107 Phase B — the binding-action kinds that count as a betrayal of a named co-ally. */
 const ALLIANCE_ADVERSE = new Set(["nominate", "replace", "vote-evict"]);
 
@@ -10745,7 +10747,7 @@ export class GameSessionAdapter implements GameSession {
     if (JSON.stringify(before) !== JSON.stringify(this.intake)) {
       this.persist(); // a half-done interview is durable state (0030)
     }
-    const status = castingStatusOf(this.intake, overwrote);
+    const status = castingStatusOf(this.intake, overwrote, { askPronouns: CASTING_PRONOUN_ASK_ENABLED });
     if (ignoredKeys.length > 0) status.ignoredKeys = ignoredKeys;
     return status;
   }
@@ -22497,7 +22499,7 @@ export class GameSessionAdapter implements GameSession {
         started: false, beatSeq: this.beatSeq, finished: false, week: 0, phase: this.phase, moment: "character-creation",
         ceremony: { hoh: null, nominees: [], veto: { holder: null, used: false, players: [] } },
         whereabouts: null,
-        player: null, house: [], casting: castingStatusOf(this.intake),
+        player: null, house: [], casting: castingStatusOf(this.intake, [], { askPronouns: CASTING_PRONOUN_ASK_ENABLED }),
         pending: null,
       };
     }

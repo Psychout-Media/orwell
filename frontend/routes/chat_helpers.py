@@ -3712,6 +3712,14 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
     text = _strip_anonymized_ballots(text, after)  # N-7: the sanctioned anonymized-ballot reveal is not an eviction claim
     if not text.strip():
         return None
+    if before.get("compWalked"):
+        # ORW-726: the FE pre-resolve walked the competition to its result THIS turn, BEFORE the baseline was taken, so the new holder already sits in `before`
+        # and a narrated win would read as "one beat early" (the player's own win was dropped from the reply). A holder the board now carries was committed
+        # by that walk: read the baseline holder as empty so the win is a fresh commit (a WRONG named winner is then still caught by the identity branches).
+        before = dict(before)
+        for _k in ("vetoHolder", "hoh"):
+            if after.get(_k) is not None:
+                before[_k] = None
 
     desync = None  # the specific outcome the narration claimed that the board never moved on
 
