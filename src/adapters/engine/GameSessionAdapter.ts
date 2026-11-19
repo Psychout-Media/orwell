@@ -79,7 +79,7 @@ import type { OffscreenScene } from "../../engine/offscreen";
 import type { TimeOfDay as LifeTimeOfDay } from "../../engine/timeOfDay";
 import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } from "../../engine/presenceConstants";
 import { dayOfWeek } from "../../engine/houseEvents";
-import { HOUSE_SIGHTLINE, areVisible, canWitnessDeparture, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
+import { HOUSE_SIGHTLINE, roomsBetween, areVisible, canWitnessDeparture, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
 import type { Room, Zone, Occupancy } from "../../domain/house";
 import { parsePlayerMoveIntent, parsePlayerPersonIntent, matchHouseguestName } from "../../engine/playerMoveIntent";
 import type { RandomnessSource } from "../../ports/RandomnessSource";
@@ -7708,6 +7708,24 @@ export class GameSessionAdapter implements GameSession {
     }
   }
 
+  /**
+   * ORW-711 (player parity): the player's move to a room that is not next door is ONE move (no extra clock, no extra beat), but it is PATHED through the rooms between for WITNESSING, as an NPC's walk is:
+   * every awake, living houseguest standing in a room on the way sees the player pass (so whoever is on the landing sees the player go into the HOH room). A plain witnessed event; an adjacent move records nothing.
+   * Played games only; deterministic; draws no rng.
+   */
+  private noteWalkThrough(from: Room | null, dest: Room): void {
+    if (from === null || this.live?.playedGame !== true || !this.onPlayerEvent || !this.presence || !this.house) return;
+    const via = roomsBetween(from, dest);
+    if (via.length === 0) return;
+    const me = this.house.player.id;
+    const awake = this.awakeNow();
+    const away = this.notYetArrived();
+    const seers = this.presenceActive().filter((id) => id !== me && via.includes(this.presence!.get(id) as Room) && (!awake || awake.has(id)) && !away?.has(id)).sort();
+    if (seers.length === 0) return;
+    const last = via[via.length - 1]!;
+    this.onPlayerEvent(`The player went through the ${roomDisplayName(last)} into the ${roomDisplayName(dest)}, in plain sight of ${seers.map((id) => this.nameOf(id)).join(", ")}`, [me, ...seers], "house-event");
+  }
+
   movePlayer(room: string, expectedBeatSeq?: number): WhereaboutsView | null {
     // 0065 Part A — refuse a move computed against a superseded board BEFORE any mutation.
     this.guardBeatSeq(expectedBeatSeq);
@@ -7727,6 +7745,7 @@ export class GameSessionAdapter implements GameSession {
       : null;
     if (dest === null) return this.whereabouts(); // truly unknown — stay put, report where they are
     if (here === dest) return this.whereabouts(); // already there — nothing to move
+    this.noteWalkThrough(here, dest); // ORW-711: still ONE move, but whoever stands in a room on the way sees the player go by
     this.presence.set(me, dest);
     // L21/L24: the player's position is identical in both views — keep the calibration-neutral base in sync
     // so the society's player-overhears and `whereabouts` always agree about where the player is.

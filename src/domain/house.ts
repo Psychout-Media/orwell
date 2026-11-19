@@ -55,6 +55,31 @@ export function areAdjacent(a: Room, b: Room): boolean {
 }
 
 /**
+ * ORW-711 (player parity): the rooms strictly BETWEEN `from` and `to` on the shortest walk through the adjacency graph (deterministic breadth-first, neighbours tried in the table's own order; no rng).
+ * Empty for an adjacent pair, the same room, or an unreachable one. Pure.
+ */
+export function roomsBetween(from: Room, to: Room): Room[] {
+  if (from === to) return [];
+  const prev = new Map<Room, Room>();
+  const seen = new Set<Room>([from]);
+  const queue: Room[] = [from];
+  for (let i = 0; i < queue.length; i++) {
+    const cur = queue[i]!;
+    if (cur === to) break;
+    for (const n of HOUSE_ADJACENCY.get(cur) ?? []) {
+      if (seen.has(n)) continue;
+      seen.add(n);
+      prev.set(n, cur);
+      queue.push(n);
+    }
+  }
+  if (!seen.has(to)) return [];
+  const path: Room[] = [];
+  for (let c = prev.get(to); c !== undefined && c !== from; c = prev.get(c)) path.unshift(c);
+  return path;
+}
+
+/**
  * The SIGHTLINE graph (0077 Phase 2 — eyeshot, NARROWER than adjacency where it matters). Adjacency
  * is who you can WALK to; sightline is whose occupants you can SEE from where you stand. The OPEN-PLAN
  * PUBLIC CORE (kitchen / living-room / dining-room / backyard) is one mutual-visibility CLIQUE —
