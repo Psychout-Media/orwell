@@ -337,7 +337,7 @@ import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs
 import { BELIEF_RULES, PERCEIVED_BOND, OWN_VIEW, beliefPull, believedGrievances, blameForTargeting, believedRegard } from "../../engine/beliefDecisions";
 import { CONVICTION, credulityOf, dealTrust, pathwayEvidence, testRef, underTest } from "../../engine/beliefConviction";
 import { RelationshipModel, relationshipLabel, currentReadOf } from "../../engine/relationships";
-import { dissentMove, findScapegoat, heardDissenters, herdPull, herdVoices, holdsGrievance, knownBreaches, normStrength, scapegoatLean, shunMove, weekHardness } from "../../engine/houseNorms";
+import { HERD, dissentMove, findScapegoat, heardDissenters, herdPull, herdVoices, holdsGrievance, knownBreaches, normStrength, scapegoatLean, shunMove, weekHardness } from "../../engine/houseNorms";
 import { rolesFromGraph, type NetworkRoles } from "../../engine/networkSpread";
 import { edgeBondReader, recordBondReader, type BondReader, type DebtSource } from "../../engine/bonds";
 import { CREDIBILITY } from "../../engine/credibilityConstants";
@@ -7922,6 +7922,8 @@ export class GameSessionAdapter implements GameSession {
     return set;
   }
   private awakeSetNow(live: LiveSeasonState, house: NonNullable<GameSessionAdapter["house"]>): Set<EntityId> {
+    // ORW-696 (B2-2): on a double-eviction long night nobody turns in until it is over (turn-in is held for the player; the house is awake too), so no bedtime applies.
+    if (longNightRunning(live)) return new Set(this.presenceActive().filter((id) => id !== house.player.id || !(live.playerRetired ?? false)));
     const hour = live.nightDepth ?? WAKE_HOUR; // the clock-HOUR (8..32) — the 24-hour model (#1125)
     const up = awakeSet({
       active: this.presenceActive(),
@@ -14611,6 +14613,49 @@ export class GameSessionAdapter implements GameSession {
     if (traps.length === 0) delete s.traps;
   }
   /**
+   * ORW-692 (Fable bug scan B1-8) - THE HERD'S WRITER. The herd reads `heard-rumor` going-after claims aimed at a nominee, one voice per houseguest, this week; before this nothing wrote one in a
+   * vote week (the speech actions voice what a houseguest believes ABOUT the target, so the nominee was the claim's subject, and a houseguest cannot claim their own stance). A houseguest working
+   * to get a house nominee out (a goal step of get-them-out or revenge, about that nominee) in a scene with another houseguest is HEARD doing it: the partner, and awake bystanders in the room on
+   * their own keyed roll, each hold "that houseguest is going after the nominee" (first-hand, so it is true by construction). Never the nominee themself (that is a confrontation), never the
+   * player's own knowledge (the player sees the scene). A played game with beliefs and house norms only; own keyed side stream; `ORWELL_HERD_VOICES=0` => nothing written => byte-identical.
+   */
+  private herdVoicesEnabled = flagDefaultOn("ORWELL_HERD_VOICES");
+  setHerdVoicesEnabled(on: boolean): void { this.herdVoicesEnabled = on; }
+  private noteHeardCampaign(p: PlannedAction, partner: EntityId, presence: ReadonlyMap<EntityId, string>, salt: string): void {
+    const s = this.live;
+    if (!this.herdVoicesEnabled || !s || s.playedGame !== true || !this.npcBeliefsEnabled || !this.houseNormsEnabled) return;
+    const target = p.about;
+    if (target === undefined || !HOUSE_LIFE_ACTIONS[p.kind].speech || (p.goalKind !== "get-them-out" && p.goalKind !== "revenge")) return;
+    const block = s.finalNominees ?? s.nominees;
+    if (!block || !(block as readonly EntityId[]).includes(target) || p.actor === target || p.actor === PLAYER) return;
+    const awake = this.awakeNow();
+    const room = [...presence.entries()].filter(([, r]) => r === p.place).map(([id]) => id);
+    const bystanders = overhearers(room.filter((id) => id !== PLAYER && id !== target), p.actor, partner, (id) => !awake || awake.has(id), (id) => new SeededRandom(hashSeed(`${salt}:${p.actor}:${id}`)).next());
+    const beliefs = (s.beliefs ??= {});
+    for (const [holder, origin] of [[partner, "told"], ...bystanders.map((id) => [id, "overheard"] as const)] as Array<readonly [EntityId, "told" | "overheard"]>) {
+      if (holder === PLAYER || holder === target || holder === p.actor) continue;
+      recordClaim(beliefs, { holder, kind: "heard-rumor", nature: "going-after", subject: p.actor, object: target, value: true, origin, source: p.actor, confidence: HERD.heardConfidence, week: s.week });
+    }
+  }
+  /**
+   * ORW-692 (Fable bug scan B1-10) - THE ASSURANCE SHIELD'S NPC-TO-NPC WRITER. The shield (`assuranceVoteFor`) reads an assurance a VOTER made to a NOMINEE, but the only writers were the player's
+   * recorded scenes (the player is never an NPC voter) and an NPC assuring the player. A nominee who calls in a favor or bargains with a houseguest who will vote (the stay-safe steps whose partner
+   * is warm enough to be asked) is answered with an assurance from that houseguest on the ledger: kind vote, the engine's own sincerity (`recordAssurance` rolls it; some are faked), once per
+   * pair per week. Never the HOH (no ballot), never a houseguest on the block, never the player. A played game only; no rng drawn here; `ORWELL_NPC_ASSURANCES=0` => nothing written => byte-identical.
+   */
+  private npcAssurancesEnabled = flagDefaultOn("ORWELL_NPC_ASSURANCES");
+  setNpcAssurancesEnabled(on: boolean): void { this.npcAssurancesEnabled = on; }
+  private noteNomineeAssured(p: PlannedAction, voter: EntityId): void {
+    const s = this.live;
+    if (!this.npcAssurancesEnabled || !this.assurancesEnabled || !s || s.playedGame !== true) return;
+    if (p.kind !== "call-in-favor" && p.kind !== "bargain") return;
+    const block = (s.finalNominees ?? s.nominees) as readonly EntityId[] | undefined;
+    if (!block || !block.includes(p.actor) || block.includes(voter) || voter === s.hoh || voter === PLAYER || p.actor === PLAYER) return;
+    if (!this.livingIds().includes(voter)) return;
+    const have = (s.assurances?.items ?? []).some((a) => a.week === s.week && a.from === voter && a.to === p.actor && a.kind === "vote");
+    if (!have) this.recordAssurance({ from: voter, to: p.actor, kind: "vote", sincerity: 0, source: "npc" });
+  }
+  /**
    * 0188 part 2 / ORW-627: who in the room overheard a plant. A houseguest holds that the planter is talking about the target behind their back; the player hears the
    * words as a scene they were in (never whether it is true). Each bystander on their own keyed roll; the awake only. Flag-gated with the traps.
    */
@@ -15439,6 +15484,8 @@ export class GameSessionAdapter implements GameSession {
         const said = this.sayInHouseLife(p, partner, `${seed}:speech:${day}:${hour}${repeat > 0 ? `r${repeat}` : ""}`); // ORW-581: a repeated hour says things fresh too
         // 0188 part 2 / ORW-627: a story planted in a room can be overheard by anyone else there, awake (the player included)
         if (said && speechActionOf(p.kind) === "plant") this.overhearPlant(said, p.place, presence, `${seed}:overhear-plant:${day}:${hour}${repeat > 0 ? `r${repeat}` : ""}`);
+        this.noteHeardCampaign(p, partner, presence, `${seed}:herd-voice:${day}:${hour}${repeat > 0 ? `r${repeat}` : ""}`); // ORW-692 (B1-8)
+        this.noteNomineeAssured(p, partner); // ORW-692 (B1-10)
       }
     }
     return out;

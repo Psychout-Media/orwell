@@ -251,6 +251,7 @@ function step(g: GameSessionAdapter, v: AdvanceView): AdvanceView {
   if (p.kind === "veto-decision") return g.submitDecision({ kind: "veto-decision", use: false });
   if (p.kind === "replacement") return g.submitDecision({ kind: "replacement", replacement: p.options[0]!.id });
   if (p.kind === "comp-intent" || p.kind === "comp-round") return g.submitDecision({ kind: p.kind, intent: "compete" });
+  if (p.kind === "finale-answer") return g.submitDecision({ kind: "finale-answer", appeal: (p as { appeals?: string[] }).appeals![0]! } as never); // ORW-692: votes now differ, so this seed reaches the finale
   return g.submitDecision({ kind: p.kind, vote: p.options?.[0]?.id } as never);
 }
 

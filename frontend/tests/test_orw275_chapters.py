@@ -247,6 +247,61 @@ def test_the_boundary_row_renders_as_a_recap_card_with_no_footer_actions(_stack)
         browser.close()
 
 
+# ── ORW-714: a new season in the SAME chat must not hide its own replies behind the old season's later week ─────────
+# A game reset keeps the chat sessions, so the old season's rows (up to its Week 2) stay above the new casting interview. The new season's narrator replies are stamped with the
+# numeric week 1, which the running maximum of the old season (2) filed under a past chapter: the bar read "Week 2", the player's own lines (no stamp) stayed visible and every
+# narrator reply vanished, even after a reload.
+SEASON_RESTART = [
+    _row("assistant", "old w1", week=1),
+    _row("user", "old w2 q", week=2),
+    _row("assistant", "old w2 a", week=2),
+    _row("user", "cast hello", phase="casting"),
+    _row("assistant", "cast question", phase="casting"),
+    _row("user", "new first line"),
+    _row("assistant", "new narrator reply", week=1, game_moment="Week 1 · Premiere · Evening"),
+]
+
+
+def test_orw714_a_new_season_in_the_same_chat_shows_its_own_rows_only():
+    out = _node(f"const h={json.dumps(SEASON_RESTART)};const v=c.rowsFor('s714',h).map(m=>m.content);process.stdout.write(JSON.stringify({{v,w:c.chapterIndex(h.slice(c.seasonStart(h))).weeks}}));")
+    assert out["v"] == ["cast hello", "cast question", "new first line", "new narrator reply"]
+    assert out["w"] == [1]
+
+
+def test_orw714_one_season_with_a_casting_prefix_is_untouched():
+    h = [_row("user", "cast hello", phase="casting"), _row("assistant", "cast q", phase="casting"), _row("assistant", "w1", week=1), _row("assistant", "w2", week=2)]
+    out = _node(f"const h={json.dumps(h)};process.stdout.write(JSON.stringify(c.rowsFor('s714b',h).map(m=>m.content)));")
+    assert out == ["w2"]
+
+
+@pytest.mark.browser
+def test_orw714_the_first_narrator_reply_of_a_new_season_is_visible_and_survives_a_reload(_stack):  # noqa: F811
+    from playwright.sync_api import sync_playwright
+    sid = _game_chat(_stack, "ch714")
+    hist = [dict(m, id=f"sid{i}", seq=i + 1) for i, m in enumerate(SEASON_RESTART)]
+    with sync_playwright() as pw:
+        try:
+            browser = pw.chromium.launch()
+        except Exception as e:  # noqa: BLE001
+            pytest.skip(f"chromium unavailable: {e}")
+        page = browser.new_context().new_page()
+        page.route("**/api/history/**", lambda route: route.fulfill(status=200, content_type="application/json", body=json.dumps({"history": hist, "model": "stub-narrator"})))
+        page.goto(_stack["fe"] + "/#" + sid, wait_until="load")
+        app_ready(page, names=("chatModule", "sessionModule"))
+        _select(page, sid)
+        page.wait_for_function("() => document.querySelector('#chat-history').textContent.includes('new first line')", timeout=15000)
+        _settled(page)
+        assert "new narrator reply" in page.inner_text("#chat-history")
+        assert "old w2 a" not in page.inner_text("#chat-history")
+        page.reload(wait_until="load")
+        app_ready(page, names=("chatModule", "sessionModule"))
+        _select(page, sid)
+        page.wait_for_function("() => document.querySelector('#chat-history').textContent.includes('new first line')", timeout=15000)
+        _settled(page)
+        assert "new narrator reply" in page.inner_text("#chat-history")
+        browser.close()
+
+
 # ── ORW-161: the anchored history window ──────────────────────────────────────────────────────────────────────────
 def _seq_rows(n):
     return [{"role": "assistant" if i % 2 else "user", "content": f"m{i}", "seq": i + 1, "metadata": {}} for i in range(n)]

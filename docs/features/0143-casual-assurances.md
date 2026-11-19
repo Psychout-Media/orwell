@@ -24,3 +24,6 @@ The ledger, memories and claims are engine-only (no number reaches the player, a
 
 ## Known gaps
 No standalone FE surface; the lever is diegetic only. `lied-to-me` is read only by the B48 believability read.
+
+## Amendment - 2026-11-19 (ORW-692, Fable bug scan B1-10: an NPC-to-NPC writer for the vote shield)
+The eviction-vote shield (`assuranceVoteFor`) reads an assurance a VOTER made to a NOMINEE, but the only writers were the player's recorded scenes (the player is never an NPC voter) and an NPC assuring the player. Now a nominee who calls in a favor or bargains with a houseguest who will vote (the stay-safe house-life steps) is answered with an assurance from that houseguest: kind `vote`, sincerity the engine's own (`recordAssurance` rolls it; some are faked), once per pair per week; never the HOH, never a houseguest on the block, never the player. The weights are unchanged. Played games only, no rng drawn, flag `ORWELL_NPC_ASSURANCES` (default ON; `=0` restores the old read byte for byte). Test: `tests/unit/orw692HerdAssuranceWriters.test.ts`.
