@@ -46,6 +46,20 @@ export const ASSURANCE = {
   brokenClaimConfidence: 0.8,
   /** The sincerity of an NPC's strategic-lie assurance (B4 slice 7). */
   liarSincerity: 0.1,
+  /**
+   * ORW-723 (Ryne: "Depends on the person. For sure."): the PULL of a vote promise comes from the voter's own traits and bond to the nominee. Weights of the pull (they sum to 1):
+   * loyalty, honesty (1 - cunning), the voter's own bond to the nominee, and how un-threatening the nominee reads to them.
+   */
+  pullLoyalty: 0.3,
+  pullHonesty: 0.3,
+  pullBond: 0.25,
+  pullCalm: 0.15,
+  /** P(keep) = floor + span * pull (clamped): a pure schemer with no bond still keeps sometimes; a loyal honest friend almost always does. */
+  keepChanceFloor: 0.3,
+  keepChanceSpan: 0.7,
+  /** The vote term's size scales with the pull: factor = floor + span * pull (a scheming voter's term is weak, a loyal friend's strong). */
+  termScaleFloor: 0.5,
+  termScaleSpan: 2,
 } as const;
 
 const clamp = clampGuarded;
@@ -125,4 +139,20 @@ export function npcAssuranceSincerity(loyalty: number, roll: number, pFake?: num
 /** B39 - does the assured wrongly come to believe a KEPT assurance was broken? `roll` is a draw in [0,1) from a dedicated seeded stream (never the shared one). Pure, monotone in the roll. */
 export function isRumoredBreak(roll: number): boolean {
   return clamp(roll, 0, 1) < ASSURANCE.rumoredBreakP;
+}
+
+/** ORW-723: how strongly a voter is pulled to honor a vote promise, 0..1 - monotone UP in loyalty, honesty and bond, DOWN in how threatening the nominee reads. Pure. */
+export function assurancePull(i: { loyalty: number; honesty: number; bond: number; threat: number }): number {
+  const A = ASSURANCE;
+  return clamp(A.pullLoyalty * clamp(i.loyalty, 0, 1) + A.pullHonesty * clamp(i.honesty, 0, 1) + A.pullBond * clamp(i.bond, 0, 1) + A.pullCalm * (1 - clamp(i.threat, 0, 1)), 0, 1);
+}
+/** ORW-723: the chance a voter keeps the promise given their pull. Monotone in the pull. */
+export function assuranceKeepChance(pull: number): number {
+  return clamp(ASSURANCE.keepChanceFloor + ASSURANCE.keepChanceSpan * clamp(pull, 0, 1), 0, 1);
+}
+/** ORW-723: keep iff the assurance's own keyed roll (a draw in [0,1)) falls under the keep chance. Monotone in the pull and the roll. */
+export function pullKeeps(pull: number, roll: number): boolean { return clamp(roll, 0, 1) < assuranceKeepChance(pull); }
+/** ORW-723: the multiplier on the vote term's base weight. Monotone in the pull. */
+export function assuranceTermScale(pull: number): number {
+  return ASSURANCE.termScaleFloor + ASSURANCE.termScaleSpan * clamp(pull, 0, 1);
 }

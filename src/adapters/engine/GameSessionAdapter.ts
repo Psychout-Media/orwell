@@ -101,7 +101,7 @@ import { decideDodge, type DodgeFact } from "../../engine/dodging";
 import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosureFull, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { beatShare, endgamePush, endgameFakeLean, isEndgame } from "../../engine/endgameTrust";
 import { heirOf, partnerReaction, debtorRelief } from "../../engine/evictedTake";
-import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
+import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, assurancePull, pullKeeps, assuranceTermScale, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
 import type { BindingAction, BreakCause, Deal } from "../../engine/deals";
 import { isPositiveObligation, RELIABLE_FACT_PREFIX } from "../../domain/deal";
 import type { DealKind } from "../../domain/deal";
@@ -1708,7 +1708,29 @@ export class GameSessionAdapter implements GameSession {
     const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(voter), this.emotionalReadOf(voter))));
     const keepWeight = assuranceKeepWeight({ loyalty, aggression: stats ? Math.max(0, Math.min(1, 1 - stats.social)) : 0.5 });
     const breakBenefit = Math.max(0, Math.min(1, this.rel.edge(voter, n).threat));
-    return open.every((a) => { const plan = this.ledgerPlanVerdictFor(a, "vote"); return plan !== true && decideKeep({ keepWeight, sincerity: plan === false ? 1 : a.sincerity, breakBenefit }); }) ? 0.5 * DECISION.vote.dealHonorWeight : 0; // ORW-586 slice 5: the plan, as in assuranceProtects
+    const kept = open.every((a) => { const plan = this.ledgerPlanVerdictFor(a, "vote"); return plan !== true && decideKeep({ keepWeight, sincerity: plan === false ? 1 : a.sincerity, breakBenefit }); }); // ORW-586 slice 5: the plan, as in assuranceProtects
+    if (!kept) return 0;
+    const base = 0.5 * DECISION.vote.dealHonorWeight;
+    if (!this.assurancePullEnabled || this.live.playedGame !== true) return base;
+    // ORW-723: a promise already faked (insincere, the one faking model) keeps its own verdict above; the pull decides the SINCERE ones. The pull is THIS voter's own (loyalty, honesty, bond to the nominee, how threatening they read). Each assurance holds or breaks on its own keyed roll (stable across reads, never the shared rng).
+    const pull = this.assurancePullOf(voter, n);
+    const keeps = open.every((a) => a.sincerity < 0.5 || pullKeeps(pull, new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:assurance-keep:${a.id}`)).next()));
+    return keeps ? base * assuranceTermScale(pull) : 0;
+  }
+  /**
+   * ORW-723 (Ryne 2026-11-19: "Depends on the person. For sure."): a vote promise's pull comes from the voter's own traits and bond, not a fixed weight. Loyal, honest, bonded houseguests usually keep it and
+   * schemers often break it (a broken one folds through the existing break path, once, and the house can learn it). ON unless `ORWELL_ASSURANCE_PULL=0` (OFF => the fixed weight, byte-identical). Played games only.
+   */
+  private assurancePullEnabled = flagDefaultOn("ORWELL_ASSURANCE_PULL");
+  setAssurancePullEnabled(on: boolean): void { this.assurancePullEnabled = on; }
+  /** The two trait reads of the pull (hidden; for the calibration report's bands only - nothing on a player/narrator/admin path calls this). */
+  assuranceTraitsOf(voter: EntityId): { loyalty: number; honesty: number } {
+    return { loyalty: derivedLoyalty(this.dispositionReadOf(voter), this.emotionalReadOf(voter)), honesty: 1 - this.fakingCunningOf(voter) };
+  }
+  /** The voter's pull to honor a promise to `nominee`, 0..1 (hidden; never leaves the engine). Honesty is the other side of the person's cunning (`fakingCunningOf`). */
+  assurancePullOf(voter: EntityId, nominee: EntityId): number {
+    const { loyalty, honesty } = this.assuranceTraitsOf(voter);
+    return assurancePull({ loyalty, honesty, bond: this.rel.bondStrength(voter, nominee), threat: this.rel.edge(voter, nominee).threat });
   }
 
   /**
