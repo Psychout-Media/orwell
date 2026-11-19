@@ -28,7 +28,7 @@ HABITS = ("early-riser", "night-owl", "gym-rat", "house-cook", "neat-freak", "na
           "storyteller", "card-shark", "sun-seeker")
 AIMS = ("win-by-comps", "win-by-being-liked", "run-the-house", "reach-jury", "last-alliance-standing", "prove-not-a-floater")
 ROOMS = ("kitchen", "living-room", "dining-room", "backyard", "hallway", "bedroom-a", "bedroom-b", "bedroom-c", "bathroom",
-         "lounge", "hoh-room", "storage-room")
+         "lounge", "hoh-room", "storage-room", "landing")
 TIMES = ("morning", "afternoon", "evening", "night", "late-night")
 RITUAL_ACTIONS = ("cook", "work-out", "do-chores", "nap", "prank", "comfort", "homesick-talk", "bed-talk", "game-of-cards",
                   "sunbathe", "tell-stories")

@@ -15,14 +15,14 @@ import type { Room, Occupancy } from "../../src/domain/house";
  * toward, which the seeded juryReach + gradient gates re-verify). Roles only — no names.
  *
  * Each fixture pins the TARGET in a fixed room (so it is in the occupancy the mover reads) and zeroes
- * affinity, isolating intent as the only steering force. The subject starts in the hallway — adjacent
+ * affinity, isolating intent as the only steering force. The subject starts in the living room — adjacent
  * to the lounge (a private room) — so the target's room is a legal one-step destination.
  */
 
 const SUBJECT = npc(1);
 const TARGET = npc(2);
 const TARGET_ROOM: Room = "lounge";
-const START: Room = "hallway"; // adjacent to the lounge
+const START: Room = "living-room"; // adjacent to the lounge (ORW-711: the lounge is off the living room now, not the hallway)
 
 function towardTarget(weight = 1, avoid = false): (id: EntityId) => MovementIntent | null {
   return (id) => (id === SUBJECT ? [{ target: TARGET, weight, avoid }] : null);

@@ -79,7 +79,7 @@ import type { OffscreenScene } from "../../engine/offscreen";
 import type { TimeOfDay as LifeTimeOfDay } from "../../engine/timeOfDay";
 import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } from "../../engine/presenceConstants";
 import { dayOfWeek } from "../../engine/houseEvents";
-import { HOUSE_SIGHTLINE, areVisible, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
+import { HOUSE_SIGHTLINE, roomsBetween, areVisible, canWitnessDeparture, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
 import type { Room, Zone, Occupancy } from "../../domain/house";
 import { parsePlayerMoveIntent, parsePlayerPersonIntent, matchHouseguestName } from "../../engine/playerMoveIntent";
 import type { RandomnessSource } from "../../ports/RandomnessSource";
@@ -363,7 +363,7 @@ import { themeForWeek, applyTheme } from "../../engine/competitionThemes";
 import { sideStream, type WorldAvoid } from "../../engine/data/composedFloor";
 import type { HouseTheme } from "../../engine/data/houseThemes";
 import { ANCHOR_WORDS } from "../../engine/data/anchorWords";
-import { HOUSE_ROOMS as HOUSE_ROOM_IDS, HOUSE_ADJACENCY } from "../../domain/house";
+import { HOUSE_ROOMS as HOUSE_ROOM_IDS } from "../../domain/house";
 const normTitle = (t: string): string => t.toLowerCase().replace(/^the\s+/, "").replace(/[^a-z0-9]+/g, " ").trim();
 import type { CompetitionDef } from "../../engine/competitionLibrary";
 import { formatClockLabel, formatClockBandLabel, restStatusFor, TIME_OF_DAY_LABEL, DAY_START, WAKE_HOUR, isEarlyMorning, dozesBackToBed, phaseForHour, DAY_END_HOUR, awakeSet, bedtimeDepthFor, socialSwayScale, soreSwayScale, CONFLICT_BEDTIME_DRAIN, BEDTIME_DEPTH_FLOOR, accrueFatigue, combinedRestDeficit, eventSpanHours, CLOCK, SCENE, type ConversationKind } from "../../engine/timeOfDay";
@@ -7731,6 +7731,24 @@ export class GameSessionAdapter implements GameSession {
     }
   }
 
+  /**
+   * ORW-711 (player parity): the player's move to a room that is not next door is ONE move (no extra clock, no extra beat), but it is PATHED through the rooms between for WITNESSING, as an NPC's walk is:
+   * every awake, living houseguest standing in a room on the way sees the player pass (so whoever is on the landing sees the player go into the HOH room). A plain witnessed event; an adjacent move records nothing.
+   * Played games only; deterministic; draws no rng.
+   */
+  private noteWalkThrough(from: Room | null, dest: Room): void {
+    if (from === null || this.live?.playedGame !== true || !this.onPlayerEvent || !this.presence || !this.house) return;
+    const via = roomsBetween(from, dest);
+    if (via.length === 0) return;
+    const me = this.house.player.id;
+    const awake = this.awakeNow();
+    const away = this.notYetArrived();
+    const seers = this.presenceActive().filter((id) => id !== me && via.includes(this.presence!.get(id) as Room) && (!awake || awake.has(id)) && !away?.has(id)).sort();
+    if (seers.length === 0) return;
+    const last = via[via.length - 1]!;
+    this.onPlayerEvent(`The player went through the ${roomDisplayName(last)} into the ${roomDisplayName(dest)}, in plain sight of ${seers.map((id) => this.nameOf(id)).join(", ")}`, [me, ...seers], "house-event");
+  }
+
   movePlayer(room: string, expectedBeatSeq?: number): WhereaboutsView | null {
     // 0065 Part A — refuse a move computed against a superseded board BEFORE any mutation.
     this.guardBeatSeq(expectedBeatSeq);
@@ -7750,6 +7768,7 @@ export class GameSessionAdapter implements GameSession {
       : null;
     if (dest === null) return this.whereabouts(); // truly unknown — stay put, report where they are
     if (here === dest) return this.whereabouts(); // already there — nothing to move
+    this.noteWalkThrough(here, dest); // ORW-711: still ONE move, but whoever stands in a room on the way sees the player go by
     this.presence.set(me, dest);
     // L21/L24: the player's position is identical in both views — keep the calibration-neutral base in sync
     // so the society's player-overhears and `whereabouts` always agree about where the player is.
@@ -9206,7 +9225,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private observeMoveIntoPrivate(subject: EntityId, origin: Room, dest: Room, playerRoom: Room): void {
     if (subject === this.house?.player.id || !isPrivateRoom(dest)) return;
-    if (origin !== playerRoom && !areVisible(playerRoom, origin)) return; // the player didn't see them go
+    if (!canWitnessDeparture(playerRoom, origin)) return; // the player didn't see them go (from the landing: who goes in and out of the HOH room, ORW-711)
     (this.trackedSightings ??= new Map()).set(subject, {
       room: dest,
       zone: this.seatedZone(subject, dest),
@@ -15247,7 +15266,7 @@ export class GameSessionAdapter implements GameSession {
   private diaryWitnesses(): EntityId[] {
     const presence = this.presence;
     if (!presence) return [];
-    const rooms = new Set<Room>(["living-room", ...(HOUSE_ADJACENCY.get("living-room") ?? []).filter((r) => r !== "diary-room" && r !== "hoh-room")]);
+    const rooms = new Set<Room>(["living-room", ...(HOUSE_SIGHTLINE.get("living-room") ?? [])]); // ORW-711: the open rooms in view of the living room (the bathroom and the lounge are closed doors off it, so they see nothing)
     const awake = this.awakeNow();
     return this.livingIds().filter((id) => rooms.has(presence.get(id) as Room) && (!awake || awake.has(id))).sort();
   }
@@ -15330,8 +15349,10 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live!, abs = this.inGameAbsHour()!;
     const away = this.diaryAwayIds();
     const back = (s.diaryCalls?.seen ?? []).filter((x) => x.who !== PLAYER && x.at === abs).map((x) => ({ name: this.nameOf(x.who), long: x.long, comesBack: x.comesBack }));
-    if (!away && !back.length && !invited) return undefined;
-    return { register: producerRegisterWords(this.gameSeed ?? 0), ...(away ? { away: [...away].map((id) => this.nameOf(id)) } : {}), ...(back.length ? { back } : {}), ...(invited ? { invited: true as const } : {}) };
+    const last = s.diaryCalls?.playerLast;
+    const visits = last !== undefined && abs - last <= 1 ? (s.diaryCalls?.seen ?? []).filter((x) => x.who === PLAYER).length : 0; // ORW-724: the player's own visit count, only while they are in there
+    if (!away && !back.length && !invited && !visits) return undefined;
+    return { register: producerRegisterWords(this.gameSeed ?? 0), ...(visits ? { playerVisits: visits } : {}), ...(away ? { away: [...away].map((id) => this.nameOf(id)) } : {}), ...(back.length ? { back } : {}), ...(invited ? { invited: true as const } : {}) };
   }
 
   /**

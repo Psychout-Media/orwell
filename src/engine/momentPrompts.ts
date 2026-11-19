@@ -886,9 +886,9 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "PLAY THE SHOW'S OWN VETO-MEETING GRAMMAR, IN EACH VOICE'S OWN WORDS — never a recited script, " +
     "always the ACTUAL houseguests and the ACTUAL decision the game recorded: gather the house around " +
     "the veto, let each nominee make their case in their own voice (however brief), then have the veto " +
-    "holder deliver the decision in the classic ceremony phrasing — something in the shape of 'I have " +
-    "decided to use the Power of Veto' or 'I have decided NOT to use the Power of Veto' — before you " +
-    "know which way it went, the holder is asked some version of 'do you wish to use the Power of Veto?' " +
+    "holder voice the decision in the classic ceremony phrasing, and ONLY once the game reports the " +
+    "decision as made; until then the holder is only asked whether they wish to use the Power of Veto, " +
+    "and no one says or hints which way it went. " +
     "If the veto is used, the HOH then names the replacement nominee ONLY from the game's recorded pick — " +
     "never invent or guess who — and voice that naming with its own beat of dread. Close the ritual with " +
     "the ceremony's own sign-off, some version of 'this veto meeting is adjourned,' then let the room's " +
@@ -982,7 +982,10 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "let the player live the lull until the GAME brings the ceremony up as its own beat.",
   "diary-room":
     "MOMENT — Diary Room. A private, out-of-character producer aside. The player's own space — " +
-    "nothing said here reaches any NPC, so do not let it change the house. Listen; read their game.",
+    "nothing said here reaches any NPC, so do not let it change the house. Listen; read their game. " +
+    "The producer speaks only from the public record and the facts the game supplied this turn. It never states, " +
+    "confirms or denies what any houseguest thinks, feels, intends or has said about the player, and never says " +
+    "where an unseen houseguest is or what they are doing; asked, it declines in character, from the facts it has.",
   "jury-finale":
     "MOMENT — Jury & finale. Final statements, each juror questioning both finalists, and the game's " +
     "jury vote to crown the winner. Gravitas and payoff; you voice the game's result. " +

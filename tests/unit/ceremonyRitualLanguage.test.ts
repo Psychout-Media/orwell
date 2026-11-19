@@ -36,9 +36,10 @@ describe("ceremony moment-prompt fragments carry the show's ritual-language cues
 
   it("veto-ceremony: cues the veto-meeting ritual grammar (the show's thinnest ceremony, BB-18)", () => {
     const p = MOMENT_PROMPTS["veto-ceremony"];
-    expect(p).toMatch(/do you wish to use the Power of Veto\?/i);
-    expect(p).toMatch(/I have decided to use the Power of Veto/i);
-    expect(p).toMatch(/I have decided NOT to use the Power of Veto/i);
+    // ORW-722: the holder's decision is voiced ONLY once the game reports it made (the per-turn "Veto decision" fact, ORW-715); no decision line to recite.
+    expect(p).toMatch(/ONLY once the game reports the decision as made/);
+    expect(p).toMatch(/only asked whether they wish to use the Power of Veto/i);
+    expect(p).not.toMatch(/I have decided/i);
     expect(p).toMatch(/this veto meeting is adjourned/i);
     // The replacement is grounded in engine truth, never invented.
     expect(p).toMatch(/ONLY from the game's recorded pick|never invent or guess/i);

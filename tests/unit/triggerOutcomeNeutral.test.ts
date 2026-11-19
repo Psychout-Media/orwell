@@ -47,7 +47,8 @@ import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 // was picked as its replacement.
 // re-selected 2026-11-03, default flip (seed 8 no longer erupts within the bounded run)
 // re-selected 2026-11-16, 0163 perceived bonds (seed 7 no longer erupts within the bounded run; probed 7/8/42/3/5/11/13/21, 5 and 13 do)
-const SEED = 5;
+// re-selected 2026-11-19, ORW-711 (the new floor plan shifted the seeded presence trajectory; seed 5 no longer erupts within the bounded run; probed 13/7/8, 8 does)
+const SEED = 8;
 
 /** Drive a bounded, fully-deterministic sequence of orchestrator off-screen ticks + live-loop steps; capture
  *  the SHARED-rng-driven content (every recorded event) and the layer's own additive eruptions, separately. */

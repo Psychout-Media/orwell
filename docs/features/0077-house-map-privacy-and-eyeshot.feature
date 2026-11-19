@@ -15,7 +15,7 @@ Feature: 0077 — House map, privacy & eyeshot
 
     Scenario: The bathroom does not connect to any bedroom
       Then the bathroom is not adjacent to any bedroom
-      And the bathroom is reachable through the hallway
+      And the bathroom is reachable through the living room
 
     Scenario: The house has a public core and a private wing, and is fully connected
       Then the kitchen, living room, dining room, and backyard are mutually in sightline

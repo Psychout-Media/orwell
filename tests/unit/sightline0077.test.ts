@@ -9,7 +9,7 @@ import {
  * Feature 0077 Phase 2 — the SIGHTLINE graph (eyeshot). Adjacency is who you can WALK to; sightline is
  * whose occupants you can SEE. The HARD invariants: the graph is symmetric + irreflexive; the OPEN
  * PUBLIC CORE (kitchen/living-room/dining-room/backyard) is a mutual-visibility CLIQUE; the living room
- * sees into the hallway mouth; and EVERY closed door (the three bedrooms, bathroom, lounge, HOH, storage,
+ * sees into the hallway mouth and up the stairs to the landing (ORW-711); and EVERY closed door (the three bedrooms, bathroom, lounge, HOH, storage,
  * diary) is opaque from outside — crucially, the hallway sees NONE of the bedrooms it adjoins. Roles
  * only; pure data, no rng.
  */
@@ -40,8 +40,9 @@ describe("0077 sightline — eyeshot is the privacy structure", () => {
       }
     }
     // sightline reaches PAST a direct door here: dining ⇄ backyard are visible without being adjacent.
-    expect(areVisible("dining-room", "backyard")).toBe(true);
-    expect(areAdjacent("dining-room", "backyard")).toBe(false);
+    // ORW-711: the living room is no longer adjacent to the yard (the yard is off to the side, off the kitchen and the dining room), yet it still sees it through the glass.
+    expect(areVisible("living-room", "backyard")).toBe(true);
+    expect(areAdjacent("living-room", "backyard")).toBe(false);
   });
 
   it("the living room sees into the hallway mouth (movement is observable there)", () => {
@@ -63,10 +64,10 @@ describe("0077 sightline — eyeshot is the privacy structure", () => {
     }
   });
 
-  it("the public core + hallway are the ONLY non-private rooms (privacy scarcity)", () => {
+  it("the public core, the hallway and the landing are the ONLY non-private rooms (privacy scarcity; ORW-711 added the semi-public landing)", () => {
     const publicRooms = HOUSE_ROOMS.filter((r) => !isPrivateRoom(r));
     expect([...publicRooms].sort()).toEqual(
-      [...PUBLIC_CORE, "hallway"].sort(),
+      [...PUBLIC_CORE, "hallway", "landing"].sort(),
     );
   });
 
@@ -85,13 +86,13 @@ describe("0077 sightline — eyeshot is the privacy structure", () => {
 
 describe("0077 zones — earshot subdivides a big room (eyeshot stays room-wide)", () => {
   it("only the big rooms are zoned; every other room is a single space", () => {
-    expect([...ROOM_ZONES.keys()].sort()).toEqual(["backyard", "lounge"]);
+    expect([...ROOM_ZONES.keys()].sort()).toEqual(["backyard"]); // ORW-711: the lounge is one small room now, no zones
     for (const r of HOUSE_ROOMS) {
-      if (r === "backyard" || r === "lounge") expect(isZonedRoom(r), `${r} should be zoned`).toBe(true);
+      if (r === "backyard") expect(isZonedRoom(r), `${r} should be zoned`).toBe(true);
       else { expect(isZonedRoom(r), `${r} should NOT be zoned`).toBe(false); expect(zonesFor(r)).toEqual([]); }
     }
     expect(zonesFor("backyard")).toEqual(["poolside", "patio", "workout"]);
-    expect(zonesFor("lounge")).toEqual(["couches", "window-nook"]);
+    expect(zonesFor("lounge")).toEqual([]);
   });
 
   it("earshot is same-or-adjacent zone; the backyard's two ends are out of earshot", () => {
@@ -103,8 +104,8 @@ describe("0077 zones — earshot subdivides a big room (eyeshot stays room-wide)
     // Same zone is always in earshot; symmetric.
     expect(zonesInEarshot("backyard", "patio", "patio")).toBe(true);
     expect(zonesInEarshot("backyard", "workout", "poolside")).toBe(false);
-    // The lounge's two corners are deliberately separated — never in mutual earshot.
-    expect(zonesInEarshot("lounge", "couches", "window-nook")).toBe(false);
+    // ORW-711: the lounge has no zones, so an old save's lounge zone reads as one single space.
+    expect(zonesInEarshot("lounge", "couches", "window-nook")).toBe(true);
   });
 
   it("an un-zoned room (or absent zone info) is one space — pre-zone behavior preserved", () => {
@@ -128,8 +129,7 @@ describe("0077 zones — earshot subdivides a big room (eyeshot stays room-wide)
     // FAR zone (the line's two ends) ⇒ neither witness NOR overhear.
     expect(zonesSameEarshot("backyard", "poolside", "workout")).toBe(false);
     expect(zonesAdjacentEarshot("backyard", "poolside", "workout")).toBe(false);
-    // The lounge's two corners are non-adjacent ⇒ far ⇒ nothing either way.
-    expect(zonesSameEarshot("lounge", "couches", "window-nook")).toBe(false);
+    // The lounge is one small room (ORW-711): a stale zone from an old save is no subdivision, so no intra-room overhear.
     expect(zonesAdjacentEarshot("lounge", "couches", "window-nook")).toBe(false);
     // The union `zonesInEarshot` is exactly same OR adjacent (and symmetric).
     expect(zonesInEarshot("backyard", "poolside", "patio")).toBe(true);   // adjacent

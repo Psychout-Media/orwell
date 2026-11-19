@@ -58,7 +58,10 @@ describe("go to a houseguest by name", () => {
     expect(s.whereabouts()!.room).toBe("living-room");
     const w = r.whereabouts!; // the public room-name map lists every room; the person must appear in no list
     expect(JSON.stringify([w.present, w.nearby, w.tracked])).not.toContain("bedroom-a");
-    expect(JSON.stringify([w.present, w.nearby, w.tracked])).not.toContain(first);
+    // ORW-711: the living room is the hub with the bathroom, the lounge and the stairs off it, so the player may genuinely have SEEN this houseguest walk into one of those
+    // closed rooms on an earlier tick (a tracked belief the player earned by watching). What must never show is the bedroom they are in now, or them in view.
+    expect(JSON.stringify([w.present, w.nearby])).not.toContain(first);
+    expect(w.tracked.every((t) => t.room !== "bedroom-a")).toBe(true);
   });
   it("a houseguest already in the player's room: no move", () => {
     const { s, put } = start();

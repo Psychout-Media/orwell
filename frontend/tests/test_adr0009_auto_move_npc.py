@@ -198,5 +198,5 @@ def test_house_rooms_exclude_diary_room_for_npcs():
     # in test_diary_room_is_rejected). Keep the floor plan in lockstep with the engine.
     assert set(al._HOUSE_ROOMS) == {
         "kitchen", "living-room", "dining-room", "backyard", "hallway", "bedroom-a", "bedroom-b",
-        "bedroom-c", "bathroom", "lounge", "hoh-room", "storage-room", "diary-room",
+        "bedroom-c", "bathroom", "lounge", "hoh-room", "storage-room", "diary-room", "landing",
     }

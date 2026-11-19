@@ -112,12 +112,12 @@ describe("the movement effect (co-presence), at the deployed strength", () => {
   const share = (weight: number, trials = 200, steps = 20): number => {
     let inRoom = 0;
     for (let s = 0; s < trials; s++) {
-      let occ: Occupancy = new Map<EntityId, Room>([[SUBJECT, "hallway"], [TARGET, "lounge"]]);
+      let occ: Occupancy = new Map<EntityId, Room>([[SUBJECT, "hallway"], [TARGET, "bedroom-a"]] /* ORW-711: the old pin was hallway -> lounge; the lounge left the hallway, so the same hub-to-leaf-room geometry is hallway -> a bedroom */);
       const rng = new SeededRandom(9000 + s);
       const intent = (id: EntityId): MovementIntent | null => (id === SUBJECT ? [{ target: TARGET, weight, avoid: false }] : null);
       for (let t = 0; t < steps; t++) {
-        occ = assignRooms([SUBJECT], occ, { rng, affinity: () => 0, intent }, new Map<EntityId, Room>([[TARGET, "lounge"]]));
-        if (occ.get(SUBJECT) === "lounge") inRoom++;
+        occ = assignRooms([SUBJECT], occ, { rng, affinity: () => 0, intent }, new Map<EntityId, Room>([[TARGET, "bedroom-a"]]));
+        if (occ.get(SUBJECT) === "bedroom-a") inRoom++;
       }
     }
     return inRoom / (trials * steps);

@@ -11,7 +11,7 @@ import unicodedata
 _FALLBACK = (
     "kitchen", "living-room", "dining-room", "backyard", "hallway",
     "bedroom-a", "bedroom-b", "bedroom-c", "bathroom", "lounge",
-    "hoh-room", "storage-room", "diary-room",
+    "hoh-room", "storage-room", "diary-room", "landing",
 )
 
 

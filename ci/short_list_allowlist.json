@@ -2423,7 +2423,7 @@
    "path": "src/engine/momentPrompts.ts",
    "kind": "example",
    "name": "text",
-   "max": 6,
+   "max": 5,
    "owner": "ORW-510",
    "reason": "live narrator / moment prompt text"
   },

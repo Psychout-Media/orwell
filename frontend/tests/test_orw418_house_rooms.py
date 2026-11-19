@@ -9,7 +9,7 @@ from src import agent_loop as al
 from src import house_rooms as hr
 
 ENGINE_TS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src", "domain", "house.ts")
-MISSING = ["hallway", "lounge", "dining-room", "bedroom-c"]
+MISSING = ["hallway", "lounge", "dining-room", "bedroom-c", "landing"]
 
 
 def _engine_rooms():
@@ -20,7 +20,7 @@ def _engine_rooms():
 def test_the_belt_list_is_the_engines_list():
     if os.path.exists(ENGINE_TS):  # a frontend-only checkout has no engine source (house_rooms.py carries a _FALLBACK for that layout)
         assert list(al._HOUSE_ROOMS) == _engine_rooms()
-    assert len(al._HOUSE_ROOMS) == 13
+    assert len(al._HOUSE_ROOMS) == 14  # ORW-711: the landing joined the 13 rooms
 
 
 @pytest.mark.skipif(not os.path.exists(ENGINE_TS), reason="a frontend-only checkout has no engine source to compare the fallback with")  # review of #2751; CI checks out the whole repo and runs it
