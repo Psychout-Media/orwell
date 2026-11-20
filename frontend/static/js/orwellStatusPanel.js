@@ -456,6 +456,20 @@ import { onNarrowChange } from './platform.js';
   };
   const phaseLabel = (p) => PHASE_LABELS[p] || String(p || "").replace(/-/g, " ");
 
+  // ORW-740a (came back from ORW-425 / ORW-705 / ORW-713): the panel's phase row names the event that belongs to TODAY, the SAME rule as the bubble stamp
+  // (`_format_game_moment`, routes/chat_helpers.py): ORW-258 (every event gets its own day: while the next event waits behind its night, `daySchedule.todaysEvent` names today's) and
+  // ORW-705 (from Day 2 on, a `premiere` phase whose next event is the HOH competition reads HOH). The row used the engine's raw `phase` (the NEXT event), so after every ceremony it
+  // read one event ahead of the reply stamp until the day rolled. Pure; reads only the public status + schedule.
+  function headerPhase(st) {
+    const gs = (st && st._state) || {};
+    const ds = gs.daySchedule;
+    let p = st && st.phase;
+    if (ds && typeof ds.todaysEvent === "string" && ds.todaysEvent) p = ds.todaysEvent;
+    const day = Number.isInteger(st && st.dayNumber) ? st.dayNumber : gs.dayNumber;
+    if (p === "premiere" && Number.isInteger(day) && day >= 2 && ds && ds.next === "hoh-competition") p = "hoh-competition";
+    return p;
+  }
+
   // ADR 0006 — the in-game clock. A simple time-of-day graphic (no 12/24h), morning → late night.
   const TOD_LABELS = {
     "morning": "🌅 Morning", "afternoon": "🌞 Afternoon", "evening": "🌆 Evening",
@@ -501,7 +515,7 @@ import { onNarrowChange } from './platform.js';
     if (!a) return;
     const msgs = [];
     const cur = {
-      phase: phaseLabel(st.phase),
+      phase: phaseLabel(headerPhase(st)),
       hoh: names.hoh, noms: names.noms, veto: names.veto,
       tod: ((st.timeOfDay === "late-night" || st.timeOfDay === "morning") && st.earlyMorning === true ? "Early morning" : TOD_SPOKEN[st.timeOfDay]) || null,
     };
@@ -572,7 +586,7 @@ import { onNarrowChange } from './platform.js';
     if (doneEl) doneEl.hidden = true;
 
     setText(el.querySelector("#os-week"), "Week " + st.week);
-    setText(el.querySelector("#os-phase"), phaseLabel(st.phase));
+    setText(el.querySelector("#os-phase"), phaseLabel(headerPhase(st)));
     // ADR 0006: the in-game clock (ORWELL_TIME_OF_DAY is default-ON engine side and the FE setting time_of_day_enabled is True; absent timeOfDay ⇒ the chip simply stays hidden).
     { const todEl = el.querySelector("#os-tod"); const tod = todLabel(st.timeOfDay, st.earlyMorning) + (todLabel(st.timeOfDay, st.earlyMorning) && Number.isInteger(st.dayNumber) && st.dayNumber > 0 ? ", Day " + st.dayNumber : ""); // ORW-115: "Morning, Day 1" (time of day only, not minutes)
       if (todEl) { if (tod) { setText(todEl, tod); todEl.hidden = false; } else todEl.hidden = true; } }

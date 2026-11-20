@@ -24,7 +24,7 @@ def test_a3_status_hud_announces_deltas_not_rereads():
 def test_v3_no_raw_phase_enum_in_the_hud():
     js = _read("static", "js", "orwellStatusPanel.js")
     assert "PHASE_LABELS" in js
-    assert "phaseLabel(st.phase)" in js
+    assert "phaseLabel(headerPhase(st))" in js  # ORW-740a: the label still goes through phaseLabel, over the header phase
     for label in ("Veto ceremony", "Eviction night", "Move-in day"):
         assert label in js, label
 
