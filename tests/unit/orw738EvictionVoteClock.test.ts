@@ -75,13 +75,14 @@ describe("ORW-738: pressing Continue through a played eviction night (the player
 
     // the announcements: never blank; E12: no voter
     for (const v of [...ballots, result]) {
-      expect(Array.isArray(v.announcements) && v.announcements.length > 0).toBe(true);
-      for (const a of v.announcements) {
+      expect(v, "every ballot and the result is a view").toBeDefined();
+      expect(Array.isArray(v?.announcements) && (v?.announcements?.length ?? 0) > 0).toBe(true);
+      for (const a of v?.announcements ?? []) {
         expect(typeof a.headline === "string" && a.headline.trim().length > 0).toBe(true);
         expect(a.headline).not.toMatch(/votes? (by|from)|voted/i);
       }
     }
-    for (const v of ballots) expect(v.announcements[0].headline).toMatch(/^a vote to evict \S.*\.$/);
-    expect(result.announcements[0].headline).toMatch(/has been evicted from the house/);
+    for (const v of ballots) expect(v?.announcements?.[0]?.headline).toMatch(/^a vote to evict \S.*\.$/);
+    expect(result?.announcements?.[0]?.headline).toMatch(/has been evicted from the house/);
   });
 });
