@@ -18,10 +18,10 @@ pytestmark = pytest.mark.browser
 # The closed set the browser may hold per houseguest (mirrors routes/orwell_routes.py `_BROWSER_HOUSEGUEST_KEYS`).
 ALLOWED = {"id", "name", "status", "evictedSeq", "lastSeenMood"}
 # ORW-733: the closed set of TOP-LEVEL keys (mirrors routes/orwell_routes.py `_BROWSER_STATE_KEYS`). A new key in the state the browser receives fails here until a screen needs it.
-ALLOWED_TOP = {"started", "beatSeq", "pending", "eviction", "finished", "ceremony", "whereabouts", "week", "phase", "moment", "player", "house", "deals", "premiere",
+ALLOWED_TOP = {"started", "beatSeq", "pending", "eviction", "finished", "ceremony", "week", "phase", "moment", "player", "house", "deals", "premiere",
                "unarrivedCount", "timeOfDay", "asleep", "awake", "earlyMorning", "dayNumber", "daySchedule", "watching", "casting", "castingHouse", "enterHouse"}
 # Engine state keys that are the NARRATOR's (the public showmances the house knows, legends, returners, producer cues, open offers, the jury house, ...).
-NARRATOR_TOP = ("showmances", "notorietyLegend", "returningHouseguests", "diaryRoomInvite", "diaryCall", "producerPushback", "playerDiaryRoom", "playerDossier", "alliances", "openDealOffer",
+NARRATOR_TOP = ("whereabouts", "showmances", "notorietyLegend", "returningHouseguests", "diaryRoomInvite", "diaryCall", "producerPushback", "playerDiaryRoom", "playerDossier", "alliances", "openDealOffer",
                 "openVotePitch", "owedFavors", "playerMove", "walkedIn", "clockLabel", "weekDigests", "juryHouse", "requiredLever", "surfacedToPlayer", "interruption", "approachHeld")
 # The card facets that belong to the narrator and must never ride to the browser.
 NARRATOR_ONLY = ("biography", "archetype", "strategyStyle", "identityConcept", "voice", "outOrientation", "demeanor",

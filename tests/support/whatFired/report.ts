@@ -39,6 +39,8 @@ export interface Summary {
   eventTypes: Array<{ type: string; perSeason: number; seasons: number }>;
   houseLifeActions: Array<{ action: string; perSeason: number; seasons: number }>;
   stateKeysNeverPopulated: string[];
+  /** ORW-741: what the played seasons reached, by derived footprint (state sizes, post-season view kinds, the player's knowledge pathways): total per season and how many seasons reached it */
+  milestones: Array<{ name: string; perSeason: number; seasons: number }>;
   faults: Array<{ kind: string; detail: string; seeds: number[] }>;
   crashes: Array<{ tool: string; what: string; seeds: number[]; count: number }>;
   loops: Array<{ seed: number; what: string }>;
@@ -104,6 +106,7 @@ export function buildSummary(inp: Inputs): Summary {
     flags, specs, themes,
     eventTypes: ev.map((e) => ({ type: e.k, perSeason: e.perSeason, seasons: e.seasons })),
     houseLifeActions: hl.map((e) => ({ action: e.k, perSeason: e.perSeason, seasons: e.seasons })),
+    milestones: perSeason(rs, (r) => r.milestones ?? {}).map((m) => ({ name: m.k, perSeason: m.perSeason, seasons: m.seasons })),
     stateKeysNeverPopulated: [...seenKeys].filter((k) => !popKeys.has(k)).sort(),
     faults: [...faults.values()], crashes: [...crashes.values()], loops,
     tools: [...tools.entries()].map(([tool, v]) => ({ tool, ...v })).sort((a, b) => (a.tool < b.tool ? -1 : 1)),
@@ -174,6 +177,7 @@ export function renderMarkdown(s: Summary, d: Diff): string {
   L.push("### Themes", "", tbl(["theme", "flags", "zero"], s.themes.map((t) => [t.theme, t.flags, t.zero.length ? t.zero.map((z) => `\`${z.replace(/^ORWELL_/, "")}\``).join(" ") : "-"])), "");
   L.push("### Event types per season (rarest first)", "", tbl(["type", "per season", "seasons"], s.eventTypes.map((e) => [e.type, e.perSeason, `${e.seasons}/${s.seasons.length}`])), "");
   L.push("### House-life actions per season (rarest first)", "", tbl(["action", "per season", "seasons"], s.houseLifeActions.map((e) => [e.action, e.perSeason, `${e.seasons}/${s.seasons.length}`])), "");
+  L.push(`### Milestones reached in the played seasons (${s.milestones.length})`, "", "Derived footprints, not a feature list: `state.<key>` = the size of a saved-state list or map at the end of the season; `view.<part>.<field>:<value>` = a kind, shape or action the post-season views carried (the edit's moments, the story shapes, the reunion); `pathway.<word>` = how the facts the player holds reached them (told, overheard, witnessed ...). A footprint a feature should leave and that is missing here is a feature that never fired in play.", "", tbl(["milestone", "per season", "seasons"], s.milestones.map((m) => [m.name, m.perSeason, `${m.seasons}/${s.seasons.length}`])), "");
   L.push(`### Saved-state keys that never became non-empty (${s.stateKeysNeverPopulated.length})`, "", s.stateKeysNeverPopulated.length ? s.stateKeysNeverPopulated.map((k) => `\`${k}\``).join(" ") : "none", "");
   L.push("### What the scripted player tried (a tool refused or without effect every time is a script gap or a dead lever)", "", tbl(["tool", "tried", "refused", "took no effect"], s.tools.map((t) => [t.tool, t.tried, t.refused, t.noEffect])), "");
   return L.join("\n");

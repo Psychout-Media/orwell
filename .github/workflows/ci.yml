@@ -393,6 +393,9 @@ jobs:
           # The seasons play at the same time in child processes inside the one leg (the longest is about 5 minutes), so the pooled numbers are judged in one place.
           - leg: season-mix
             scripts: "season-mix"
+          # ORW-741: the real-path tests (a feature reached in a PLAYED season, no hand-set state, and gone when switched off). A few minutes of play in all.
+          - leg: real-path
+            scripts: "real-path"
     name: heavy-sims (${{ matrix.leg }})
     steps:
       - uses: actions/checkout@v4

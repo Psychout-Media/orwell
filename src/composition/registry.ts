@@ -263,15 +263,15 @@ function buildUserSandbox(user = "default"): UserSandbox {
       });
     }
   });
-  // 0059/L40 — a showmance that becomes VISIBLE is a PUBLIC house fact: record it as a player-witnessed
-  // (non-hidden) event so it enters the player's knowledge and the narrator may voice the romance.
+  // 0059/L40 + ORW-733 — a showmance that becomes VISIBLE is a fact of the HOUSE (the pair and the houseguests who noticed), not of the player: the player is NOT in its witness set, so it
+  // never enters their knowledge (visible state, recap, the narrator's showmance list). The player learns of the pair only from a scene they are in or watch (`visibleShowmances` reads that).
   session.setOnShowmanceSurfaced((sm) => engine.events.record({
     id: `showmance:${sm.a}:${sm.b}:${engine.events.count()}`,
     ts: engine.events.count(),
     type: "house-event",
     initiator: sm.a,
-    witnessSet: [PLAYER, sm.a, sm.b],
-    hidden: false,
+    witnessSet: [sm.a, sm.b],
+    hidden: true,
     content: `${sm.aName} and ${sm.bName} have grown close — the house is starting to notice a showmance`,
   }));
   // 0060 — the story-thread scheduler's SURFACING seams. The session holds no events/knowledge handle;

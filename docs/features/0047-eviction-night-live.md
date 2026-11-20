@@ -107,3 +107,12 @@ them for the weekly eviction. **Test targets:** `tests/unit/evictionNight.test.t
 `docs/features/0047-*.feature` → `cucumber.cjs`. Assert §6 (esp. seeded reveal order, no pre-reveal leak, and
 the warm-vs-cold goodbye → jury-lean delta).
 **No open decisions.** Reveal ALL ballots in one advance (PO ruling 2026-11-04), seeded order, anonymized — the result is the next beat.
+
+## Amendment 2026-11-20 (ORW-738, Season 2 week 3 playtest: "the eviction vote ran with no narration")
+
+Diagnosis only, no behaviour change. A played eviction night pressed through with the Continue button reads as silent: the button is not a chat turn (ORW-703), so each press shows
+only the engine's public chyron line (`a vote to evict X.`, then `X has been evicted from the house.`) and no prose. The clock cost is the eviction night's ~2 in-game hour budget
+spread over its first five steps (ORW-262, `EVENT_SPREAD_STEPS`), 24 minutes a press and nothing after, plus 5 minutes for each typed message around the vote: 2h + 2 x 5 min is the
+4:00 -> 6:10pm the playtest saw. `tests/unit/orw738EvictionVoteClock.test.ts` pins the spread, the non-empty headline on every ballot and the result, and E12 (no voter named).
+The blank line in the bubble on that build was the role-claim guard dropping a premature Production result line and leaving a lone quote; #3105 closed it and
+`frontend/tests/test_orw738_blank_announcement_line.py` pins the transcript's shape.

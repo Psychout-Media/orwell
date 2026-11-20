@@ -160,16 +160,20 @@ describe("0059 live wiring — Vault-sealed, never projected, folds a behavioral
     expect(sb.session.visibleShowmances()).toEqual([]); // still sealed at bond
     const surfaced = sb.session.advanceShowmances(); // bond → visible
     expect(surfaced.length).toBe(1);
-    // now PUBLIC: it appears in the Vault-free projection and is LISTED in the narrator's context
+    // ORW-733: the HOUSE now knows, but the player has seen nothing: the narrator is not told, and the surfacing is the house's own (the player is not in its witness set)
+    expect(sb.session.visibleShowmances()).toEqual([]);
+    expect(sb.session.getMomentPrompt({}).systemPrompt).not.toMatch(CTX);
+    const surfacedName = surfaced[0]!.aName;
+    const houseEvent = sb.engine.events.queryAll().find((e) => e.content.includes(surfacedName) && /showmance|grown close/.test(e.content));
+    expect(houseEvent).toBeDefined();
+    expect(houseEvent!.witnessSet.includes(PLAYER)).toBe(false);
+    // once the player SEES the pair together (a romance scene they are in) it is public to the narrator
+    sb.engine.events.record({ id: "seen-scene", ts: 999, type: "showmance", initiator: pair.a, witnessSet: [PLAYER, pair.a, pair.b], hidden: false, content: "scene" });
     const visible = sb.session.visibleShowmances();
     expect(visible.length).toBe(1);
     const prompt = sb.session.getMomentPrompt({}).systemPrompt;
     expect(prompt).toMatch(CTX);
     expect(prompt).toContain(`${visible[0]!.a} & ${visible[0]!.b}`);
-    // and the surfacing fact reached the PLAYER's knowledge as a witnessed (non-hidden) event
-    const surfacedName = surfaced[0]!.aName;
-    const witnessed = sb.engine.events.queryAll().filter((e) => !e.hidden && e.witnessSet.includes(PLAYER));
-    expect(witnessed.some((e) => e.content.includes(surfacedName) && /showmance|grown close/.test(e.content))).toBe(true);
   });
 
   it("the seeded layer is sealed in the Vault and persists across a restart (stage never resets)", () => {

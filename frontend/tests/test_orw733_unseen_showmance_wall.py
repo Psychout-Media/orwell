@@ -49,5 +49,6 @@ def test_a_new_unlisted_key_is_dropped_by_construction():
 
 def test_the_panel_keys_survive():
     out = _project(_engine_state())
-    for k in ("started", "beatSeq", "phase", "week", "moment", "ceremony", "whereabouts", "player", "house", "deals", "pending", "eviction", "finished"):
+    for k in ("started", "beatSeq", "phase", "week", "moment", "ceremony", "player", "house", "deals", "pending", "eviction", "finished"):
         assert k in out, k
+    assert "whereabouts" not in out  # ORW-733 B: the strip reads the frozen /whereabouts route; the live read never rides /state

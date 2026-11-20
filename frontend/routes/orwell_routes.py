@@ -575,44 +575,119 @@ def _house_entry_overlay(user: Optional[str], st):
 # (the tile strip, the head count, the cast wall's departure order and mood word); the full public card (biography, archetype, strategy, identity line, voice, orientation, look)
 # is the NARRATOR's material, not the player's, and it covers houseguests who have not walked in yet. The browser gets this closed set and nothing else, so a facet added to the
 # engine's card later cannot ride to the browser by default.
-_BROWSER_HOUSEGUEST_KEYS = ("id", "name", "status", "evictedSeq", "lastSeenMood")
+# ORW-733 (Vault Wall): the browser receives a CLOSED SHAPE of `/api/orwell/state`, walked key by key at EVERY level (top level and nested), never a copy of the engine's read with a few keys
+# removed. A key not named here is dropped by construction, so a field the engine adds later (a facet, a cue, a planned id) never reaches the browser until a screen needs it and it is added
+# here. `T` = keep this key (a scalar only: a dict or list under a `T` key is dropped), `{...}` = a closed object, `[spec]` = a list of that spec. What each key is for (the screen that reads it):
+#   started / beatSeq / finished / week / phase / moment / timeOfDay / earlyMorning / dayNumber / unarrivedCount: the HUD, season progress, the session guard, the new-season gate, the premiere tutorial.
+#   player: id/name/status/spectator/restStatus (the HUD badge, the couch card, the rest cue); evictedSeq with the cast wall. The player's casting card / archetype / style are NOT read by any screen.
+#   house[] (ORW-707): the cast wall's tiles. asleep[] / awake[]: the night widget and the room strip's "turned in" marks. deals[]: the deal tracker (the player's OWN deals only).
+#   premiere: only `met[]`/`remaining[]` (id + name) light the cast-strip tiles; the counts are harmless flags kept for the HUD. The entrance order, `hotReads` and `powerReachable` are narrator material.
+#   daySchedule: the HUD's "next event" line. watching: the couch card. casting: only `missing` (the photo box). castingHouse / enterHouse: this front end's own overlays.
+#   ceremony / eviction / pending: NO screen reads them from /state (the HUD and the decision card read /api/orwell/status), so they are cut to the public board facts a tool or script may still poll
+#   (who holds what; the stage; the card's kind): no vote attribution, no options, no prompt, no round state, no planned ids.
+#   `whereabouts` is NOT sent: the presence strip reads /api/orwell/whereabouts, which serves the per-turn FROZEN view (ADR 0009), and the live read here would hand the browser positions the
+#   player has not been shown (who is where right now, who was seen heading off, the conspicuous pairs).
+_T = True
+_NAMED = {"id": _T, "name": _T}
+_MET_ROW = {"houseguest": _NAMED, "met": _T}
+_DEAL = {"id": _T, "parties": [_NAMED], "kind": _T, "terms": _T, "status": _T, "term": {"expiresWeek": _T, "vague": _T}, "packageId": _T}
+_DEAL["parts"] = [dict(_DEAL)]
+_BROWSER_STATE_SHAPE = {
+    "started": _T, "beatSeq": _T, "finished": _T, "week": _T, "phase": _T, "moment": _T, "timeOfDay": _T, "earlyMorning": _T, "dayNumber": _T, "unarrivedCount": _T,
+    "player": {"id": _T, "name": _T, "status": _T, "evictedSeq": _T, "spectator": _T, "restStatus": _T},
+    "house": [{"id": _T, "name": _T, "status": _T, "evictedSeq": _T, "lastSeenMood": _T}],
+    "asleep": [_NAMED], "awake": [_NAMED], "deals": [_DEAL],
+    "premiere": {"met": [_MET_ROW], "remaining": [_MET_ROW], "complete": _T, "metCount": _T, "total": _T, "champagneCircle": _T},
+    "daySchedule": {"next": _T, "phase": _T, "due": _T, "minutesUntil": _T, "todaysEvent": _T, "tomorrow": _T, "finalHohPart": _T},
+    "watching": {"moments": [_T]},
+    "casting": {"missing": [_T]},
+    "castingHouse": {"state": _T, "authored": _T, "total": _T, "missing": _T},
+    "enterHouse": {"available": _T, "label": _T, "reason": _T},
+    "ceremony": {"hoh": _NAMED, "nominees": [_NAMED], "veto": {"holder": _NAMED, "used": _T, "players": [_NAMED]}},
+    "eviction": {"stage": _T, "evictee": _NAMED, "nominees": [_NAMED]},
+    "pending": {"kind": _T},
+}
+_BROWSER_STATE_KEYS = frozenset(_BROWSER_STATE_SHAPE)
+_BROWSER_HOUSEGUEST_KEYS = tuple(_BROWSER_STATE_SHAPE["house"][0])
+_SCALAR = (str, int, float, bool, type(None))
 
-# ORW-733 (Vault Wall): the closed set of TOP-LEVEL keys the browser may receive from /api/orwell/state: exactly what the panels read, plus the keys the front end's own overlays add
-# (`casting`, `castingHouse`, `enterHouse`). Everything else the engine's state read carries is for the NARRATOR (the public showmances the house knows, the notoriety legend, returners,
-# the Diary-Room/producer cues, an open deal offer, the jury house, ...) and is dropped here BY CONSTRUCTION: a new engine field never reaches the browser until a screen needs it and it is added here.
-_BROWSER_STATE_KEYS = frozenset({
-    "started", "beatSeq", "pending", "eviction", "finished", "ceremony", "whereabouts", "week", "phase", "moment", "player", "house", "deals", "premiere",
-    "unarrivedCount", "timeOfDay", "asleep", "awake", "earlyMorning", "dayNumber", "daySchedule", "watching",
-    "casting", "castingHouse", "enterHouse",
-})
+
+def _cut(value, spec):
+    """Project `value` onto the closed `spec` (see `_BROWSER_STATE_SHAPE`). Anything outside the spec, or of the wrong kind, is dropped (never forwarded)."""
+    if spec is True:
+        return value if isinstance(value, _SCALAR) else None
+    if isinstance(spec, dict):
+        if not isinstance(value, dict):
+            return None
+        if "*" in spec:  # an open MAP of one value kind (e.g. room id -> this season's room name): every key stays, every value is cut to the spec
+            return {k: _cut(v, spec["*"]) for k, v in value.items() if isinstance(k, str)}
+        return {k: _cut(value[k], sub) for k, sub in spec.items() if k in value}
+    if isinstance(spec, list):
+        if not isinstance(value, list):
+            return None
+        return [_cut(v, spec[0]) for v in value]
+    return None
 
 
 def _browser_state_projection(st):
-    """Project the engine's `getGameState` for the browser: every `house[]` entry and every premiere `met[]` entry is cut to the closed set the panels render. Pure and
-    non-mutating (the engine read cache hands the same dict to every caller). Anything that is not the expected shape passes through untouched (fail-open for the shape,
-    never for the content: an unexpected extra key is dropped, not forwarded)."""
+    """Project the engine's `getGameState` for the browser onto `_BROWSER_STATE_SHAPE`: a closed shape at every nesting level. Pure and non-mutating (the engine read cache hands the same
+    dict to every caller). A non-dict read passes through untouched (the fail-open shape); content never does."""
     if not isinstance(st, dict):
         return st
-    out = {k: v for k, v in st.items() if k in _BROWSER_STATE_KEYS}
-    house = st.get("house")
-    if isinstance(house, list):
-        out["house"] = [
-            {k: hg[k] for k in _BROWSER_HOUSEGUEST_KEYS if k in hg} if isinstance(hg, dict) else hg
-            for hg in house
-        ]
-    prem = st.get("premiere")
-    if isinstance(prem, dict):
-        p2 = dict(prem)
-        for key in ("met", "remaining"):
-            rows = prem.get(key)
-            if isinstance(rows, list):
-                p2[key] = [
-                    {"houseguest": {k: r["houseguest"][k] for k in ("id", "name") if k in r["houseguest"]}, "met": r.get("met")}
-                    if isinstance(r, dict) and isinstance(r.get("houseguest"), dict) else r
-                    for r in rows
-                ]
-        out["premiere"] = p2
+    out = {k: _cut(st[k], sub) for k, sub in _BROWSER_STATE_SHAPE.items() if k in st}
+    # a null where the spec expects an object/list (e.g. `pending: null`, `eviction: null`, `ceremony.veto.holder: null`) stays null; a dropped wrong-kind value never becomes content
     return out
+
+
+# ORW-768 (Vault Wall): the same closed-shape technique for every OTHER route a screen polls. Each shape below names only what a screen reads (the JS that reads each key is cited); a key not named is
+# dropped by construction at every level, so a field the engine adds later never reaches the browser until a screen needs it and it is added here.
+#   /status: the HUD (orwellStatusPanel: week, phase, timeOfDay, dayNumber, earlyMorning, beatSeq, hoh, nominees, veto, winner, finished, lastEviction), the season bar (week, phase, finished), the monogram roles
+#     (hoh, nominees, veto, winner) and the decision card (orwellDecision: the `pending` card below). NOT read by any screen: day, asleep/awake (the night widget reads /state), the narrator's flavourSeed
+#     (random anchor words + the lines already used), openDealOffer, openVotePitch, openTalkAsk, owedFavors, alliances, alliancePitches, and the card's `by`, `stances`, `stepId`, `finalHohPart`.
+#   the decision card (`pending`): kind, prompt/text, pick, binding, round, options, stillIn, appeals, juror, finalist, jurorBrief, evictee, offer, ceremony{kind,step,of}: exactly what orwellDecision renders.
+_CARD = {"kind": _T, "prompt": _T, "text": _T, "pick": _T, "binding": _T, "round": _T, "options": [_NAMED], "stillIn": [_NAMED], "appeals": [_T], "juror": _NAMED, "finalist": _NAMED,
+         "jurorBrief": [{"finalist": _NAMED, "heard": [_T]}], "evictee": _NAMED, "offer": {"from": _NAMED, "kind": _T, "terms": _T}, "ceremony": {"kind": _T, "step": _T, "of": _T}}
+_BROWSER_STATUS_SHAPE = {
+    "started": _T, "beatSeq": _T, "week": _T, "phase": _T, "timeOfDay": _T, "earlyMorning": _T, "dayNumber": _T, "finished": _T, "winner": _NAMED, "lastEviction": {"evictee": _NAMED},
+    "hoh": _NAMED, "nominees": [_NAMED], "veto": {"holder": _NAMED, "used": _T, "players": [_NAMED]}, "pending": _CARD,
+    "castingHouse": {"state": _T, "authored": _T, "total": _T, "missing": _T},
+}
+#   /whereabouts: the presence gadget (orwellPresence: room, roomNames, zone, present[id,name,tell], nearby[room, present[id,name]], tracked[id,name,room,stale], conspicuous) and the room strip (room, present).
+#     NOT read by any screen: counts, companions, turnsHere, roomLook, roomCard, search, houseEvent, sinceSend, and a tracked sighting's confidence / pathway / sinceTurns (a belief's number never crosses).
+_BROWSER_WHEREABOUTS_SHAPE = {
+    "whereabouts": {"room": _T, "roomNames": {"*": _T}, "zone": _T, "present": [{"id": _T, "name": _T, "tell": _T}], "nearby": [{"room": _T, "present": [_NAMED]}],
+                    "tracked": [{"id": _T, "name": _T, "room": _T, "stale": _T}], "conspicuous": [_T]},
+    "unavailable": _T,
+}
+#   /recap (the retrospective panel: finished, winner, weeksPlayed, highlights, placement, margin), /finale (the finale panel: stage, finalists, asking, reveals; NOT the `bearing` of the asker, NOT the winner).
+_BROWSER_RECAP_SHAPE = {"recap": {"finished": _T, "winner": _NAMED, "weeksPlayed": _T, "highlights": [_T], "placement": _T, "margin": _T}}
+_BROWSER_FINALE_SHAPE = {"finale": {"stage": _T, "finalists": [_NAMED], "asking": _NAMED, "reveals": [{"juror": _NAMED, "votedFor": _NAMED}]}}
+#   /roster (the cast wall, pin and monogram: id, name, status, isPlayer, portrait, evictedSeq, lastSeenMood; the portrait counters and generation progress). NOT read by any screen: the per-card
+#     `authored` and `storyMissing` pipeline flags (they feed the FE's own backfill, which reads the raw cards, never this copy). KEPT although no screen reads it yet: `playerAwaitingUpload`, a public
+#     boolean about the player's OWN photo that the roster contract promises the panel (tests pin it).
+_BROWSER_ROSTER_SHAPE = {
+    "roster": [{"id": _T, "name": _T, "status": _T, "isPlayer": _T, "portrait": _T, "evictedSeq": _T, "lastSeenMood": _T}],
+    "portraitLastRun": {"generated": _T, "attempted": _T, "failing": _T}, "imagesAvailable": _T, "playerAwaitingUpload": _T, "portraitsPresent": _T, "portraitsTotal": _T,
+    "generation": {"total": _T, "done": _T, "active": _T}, "stale": _T,
+}
+#   /health (the engine banner reads `engine`, `busy`, `reconnecting` and the truthiness of `lastError.error`; it never shows the engine's address, the raw error text or a tool name, which stay on /admin/status).
+_BROWSER_HEALTH_SHAPE = {"engine": _T, "reconnecting": _T, "busy": _T, "lastError": {"error": _T}}
+#   /dossier (orwellDossier): already built field by field (`_public_persona`, `_public_deal`, `_public_alliance`, `_public_beat`); the shape holds the whole payload to it.
+_BROWSER_DOSSIER_SHAPE = {
+    "found": _T, "id": _T, "name": _T, "status": _T, "isPlayer": _T, "portrait": _T, "met": _T,
+    "persona": {"background": _T, "vocation": _T, "hometown": _T, "age": _T, "demeanor": _T, "biography": _T},
+    "history": [{"id": _T, "ts": _T, "type": _T, "content": _T}],
+    "deals": [{"id": _T, "parties": [_NAMED], "kind": _T, "terms": _T, "status": _T}],
+    "alliances": [{"id": _T, "name": _T, "members": [_NAMED], "youAreFounder": _T}],
+}
+_BROWSER_SEASON_SHAPE = {"season": _T}
+
+
+def _project_for_browser(payload, shape):
+    """Project a route payload onto its closed shape. A non-dict passes through untouched (the fail-open shape); content never does."""
+    if not isinstance(payload, dict):
+        return payload
+    return {k: _cut(payload[k], sub) for k, sub in shape.items() if k in payload}
 
 
 def _casting_finalize_overlay(st):
@@ -698,7 +773,7 @@ def _roster_payload(user: Optional[str], cards: list, *, stale: bool) -> dict:
         payload["generation"] = progress
     if stale:
         payload["stale"] = True
-    return payload
+    return _project_for_browser(payload, _BROWSER_ROSTER_SHAPE)   # ORW-768: the browser's copy; the FE's own backfill reads the raw cards, not this
 
 
 # ── M4-2: the Memory Wall (knowledge journal) projection ─────────────────────────────────────────
@@ -1018,22 +1093,22 @@ def setup_orwell_routes() -> APIRouter:
 
     @router.get("/health")
     async def orwell_health():
-        """Engine reachability for the visible status banner. `engine` (bool) is kept for back-compat;
-        `error` carries the concrete reason (refused / timeout / wrong URL) when it is down, and
-        `lastError` reports a recent failed tool call while the engine is otherwise up."""
+        """Engine reachability for the visible status banner: `engine` (bool), `busy`, `reconnecting`, and `lastError.error` (true when a recent call failed while the engine is up). The concrete
+        reason, the address and the failed tool stay on /admin/status (ORW-768)."""
         detail = await orwell_engine.engine_health_detail()
-        return {
+        # ORW-768: the browser banner reads `engine`, `busy`, `reconnecting` and only WHETHER a recent call failed. The engine's address, the raw error text and the failed tool's name stay on the
+        # operator's /admin/status health payload, never here.
+        _last = detail.get("lastError")
+        return _project_for_browser({
             "engine": bool(detail.get("ok")),
-            "engineUrl": detail.get("engineUrl"),
-            "error": detail.get("error"),
-            "lastError": detail.get("lastError"),
+            "lastError": {"error": True} if isinstance(_last, dict) and _last.get("error") else None,
             # Issue 1: a brief, soft "reconnecting…" while a transient outage is being retried —
             # the banner shows a recover-in-progress line instead of a hard red outage.
             "reconnecting": bool(detail.get("reconnecting")),
             # G8: "creating" while createCharacter is in flight — the banner holds in-fiction
             # (casting being finalized) instead of flashing a false "engine unavailable".
             "busy": detail.get("busy"),
-        }
+        }, _BROWSER_HEALTH_SHAPE)
 
     @router.get("/state")
     async def orwell_state(request: Request):
@@ -1094,7 +1169,8 @@ def setup_orwell_routes() -> APIRouter:
             _clear_warn("status")
             # #1313: while the house-entry gate holds, report the casting/holding state, never a
             # started game (the engine season is live internally; the overlay is the player truth).
-            return _house_entry_overlay(_current_user(request), st)
+            # ORW-768: the HUD and the decision card get the closed `_BROWSER_STATUS_SHAPE`, never the engine's whole status view.
+            return _project_for_browser(_house_entry_overlay(_current_user(request), st), _BROWSER_STATUS_SHAPE)
         except orwell_engine.EngineToolError as e:
             if e.no_game:
                 return {"started": False}
@@ -1154,7 +1230,7 @@ def setup_orwell_routes() -> APIRouter:
                 except Exception as e:  # never let the player-payoff enrichment break the recap route
                     logger.info(f"[orwell] recap placement enrichment skipped: {e}")
             _clear_warn("recap")
-            return {"recap": recap}
+            return _project_for_browser({"recap": recap}, _BROWSER_RECAP_SHAPE)
         except Exception as e:
             _warn_throttled("recap", f"[orwell] recap failed: {_err_detail(e)}")
             return {"recap": None}
@@ -1204,9 +1280,9 @@ def setup_orwell_routes() -> APIRouter:
             _live = await orwell_engine.whereabouts(user=_user)
             try:
                 from routes.chat_helpers import freeze_view
-                return {"whereabouts": freeze_view(_user, _live)}
+                return _project_for_browser({"whereabouts": freeze_view(_user, _live)}, _BROWSER_WHEREABOUTS_SHAPE)   # ORW-768: the presence gadget's closed shape
             except Exception:
-                return {"whereabouts": _live}
+                return _project_for_browser({"whereabouts": _live}, _BROWSER_WHEREABOUTS_SHAPE)
         except Exception as e:
             logger.warning(f"[orwell] whereabouts failed: {e}")
             return {"whereabouts": None, "unavailable": True}  # a failed read, not "no room": the strip keeps its last valid view
@@ -1223,7 +1299,7 @@ def setup_orwell_routes() -> APIRouter:
             # the finale is still staging (it vanishes once the season flips to `finished`).
             _remember_finale_tally(user, finale if isinstance(finale, dict) else None)
             _clear_warn("finale")
-            return {"finale": finale}
+            return _project_for_browser({"finale": finale}, _BROWSER_FINALE_SHAPE)
         except orwell_engine.EngineToolError as e:
             # Issue 2: pre-game ("no active game") is a NORMAL state, not a finale failure — the
             # panel just isn't staging yet. Return {finale: null} quietly (no log spam) so polling
@@ -1400,7 +1476,7 @@ def setup_orwell_routes() -> APIRouter:
             if isinstance(a, dict) and _refs_include(a.get("members"), houseguest_id, name)
         ]
 
-        return {
+        return _project_for_browser({
             "found": True,
             "id": card.get("id"),
             "name": name,
@@ -1413,7 +1489,7 @@ def setup_orwell_routes() -> APIRouter:
             "history": history[:20],
             "deals": deals,
             "alliances": alliances,
-        }
+        }, _BROWSER_DOSSIER_SHAPE)
 
     @router.post("/portraits/backfill")
     async def orwell_portraits_backfill(request: Request):
@@ -2179,7 +2255,7 @@ def setup_orwell_routes() -> APIRouter:
         """Feature 0057: the user's current season number ('level', 1-based). Vault-free; a count
         carries no game secret, and the store always answers (a corrupt/missing store ⇒ season 1)."""
         from src import orwell_seasons
-        return {"season": orwell_seasons.get_season(_current_user(request))}
+        return _project_for_browser({"season": orwell_seasons.get_season(_current_user(request))}, _BROWSER_SEASON_SHAPE)
 
     @router.post("/next-season")
     async def orwell_next_season(body: NextSeasonRequest, request: Request):
