@@ -17,6 +17,12 @@ pytestmark = pytest.mark.browser
 
 # The closed set the browser may hold per houseguest (mirrors routes/orwell_routes.py `_BROWSER_HOUSEGUEST_KEYS`).
 ALLOWED = {"id", "name", "status", "evictedSeq", "lastSeenMood"}
+# ORW-733: the closed set of TOP-LEVEL keys (mirrors routes/orwell_routes.py `_BROWSER_STATE_KEYS`). A new key in the state the browser receives fails here until a screen needs it.
+ALLOWED_TOP = {"started", "beatSeq", "pending", "eviction", "finished", "ceremony", "whereabouts", "week", "phase", "moment", "player", "house", "deals", "premiere",
+               "unarrivedCount", "timeOfDay", "asleep", "awake", "earlyMorning", "dayNumber", "daySchedule", "watching", "casting", "castingHouse", "enterHouse"}
+# Engine state keys that are the NARRATOR's (the public showmances the house knows, legends, returners, producer cues, open offers, the jury house, ...).
+NARRATOR_TOP = ("showmances", "notorietyLegend", "returningHouseguests", "diaryRoomInvite", "diaryCall", "producerPushback", "playerDiaryRoom", "playerDossier", "alliances", "openDealOffer",
+                "openVotePitch", "owedFavors", "playerMove", "walkedIn", "clockLabel", "weekDigests", "juryHouse", "requiredLever", "surfacedToPlayer", "interruption", "approachHeld")
 # The card facets that belong to the narrator and must never ride to the browser.
 NARRATOR_ONLY = ("biography", "archetype", "strategyStyle", "identityConcept", "voice", "outOrientation", "demeanor",
                  "physicalCharacteristics", "castingType", "ethnicity", "genderPresentation", "background", "vocation", "hometown", "age", "presentation")
@@ -80,3 +86,11 @@ def test_dossier_of_a_houseguest_who_has_not_arrived_is_not_found(_stack):
         assert _get(_stack, f"/api/orwell/dossier/{oid}") == {"found": False}, oid
     if inside:
         assert _get(_stack, f"/api/orwell/dossier/{inside[0]['id']}").get("found") is True
+
+
+def test_state_top_level_keys_are_a_closed_set(_stack):
+    """ORW-733: allowlist by construction at the top level: any key outside ALLOWED_TOP fails, so a new engine field cannot reach the browser silently."""
+    body = _get(_stack, "/api/orwell/state")
+    assert set(body) <= ALLOWED_TOP, f"a non-panel top-level field reached the browser: {sorted(set(body) - ALLOWED_TOP)}"
+    for k in NARRATOR_TOP:
+        assert k not in body, k
