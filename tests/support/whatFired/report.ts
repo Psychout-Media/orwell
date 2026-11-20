@@ -3,6 +3,7 @@ import type { FlagInfo, FeatureInfo } from "./discover";
 import type { SeasonRecord } from "./player";
 import { MASKS } from "./player";
 import type { Difference, RestartVerdict } from "./compare";
+import { PHASES, BANDS, poolSeason, inBand, type Phase, type Kind, type Share } from "../wholeSeasonMix";
 
 /**
  * ORW-729: aggregate the played seasons + ablation results into ONE summary (JSON, stable keys), render it as markdown, diff it against the last night's summary, and refuse to
@@ -47,6 +48,10 @@ export interface Summary {
   mixByWeek: MixRow[];
   /** the same, counting the scenes after the player left the game too (the house a spectator watches) */
   mixByWeekAll: MixRow[];
+  /** ORW-702: the pooled mix per season phase (early 1-3, mid 4-8, late 9+), while the player was in; judged against tests/support/wholeSeasonMix.ts */
+  mixByPhase: Record<Phase, Share>;
+  /** which scenes each phase was read from: the player-in ones, or (a phase the player never reached) the whole house */
+  mixPhaseBasis: Record<Phase, string>;
 }
 export type MixRow = { week: number; n: number; bonding: number; strategy: number; gossip: number; conflict: number };
 
@@ -103,6 +108,8 @@ export function buildSummary(inp: Inputs): Summary {
     faults: [...faults.values()], crashes: [...crashes.values()], loops,
     tools: [...tools.entries()].map(([tool, v]) => ({ tool, ...v })).sort((a, b) => (a.tool < b.tool ? -1 : 1)),
     restarts: inp.restarts, determinism: inp.determinism, mixByWeek, mixByWeekAll,
+    mixByPhase: poolSeason(everyScene).shares,
+    mixPhaseBasis: poolSeason(everyScene).basis,
   };
 }
 
@@ -133,6 +140,12 @@ export function diffSummaries(prev: Summary | null, cur: Summary): Diff {
 const tbl = (head: string[], rows: Array<Array<string | number>>): string => [`| ${head.join(" | ")} |`, `|${head.map(() => "---").join("|")}|`, ...rows.map((r) => `| ${r.join(" | ")} |`)].join("\n");
 const pct = (x: number): string => x.toFixed(1);
 
+const KINDS: Kind[] = ["bonding", "strategy", "gossip", "conflict"];
+/** The per-phase table with each cell marked in or out of its agreed band. */
+export function phaseTable(m: Record<Phase, Share>, basis?: Record<Phase, string>): string {
+  return tbl(["phase", "scenes", "read from", ...KINDS.map((k) => `${k} (band)`)], PHASES.map((p) => [p, m[p].n, basis?.[p] ?? "player-in", ...KINDS.map((k) => `${pct(m[p][k])} ${m[p].n === 0 ? "-" : inBand(p, k, m[p][k]) ? "ok" : "OUT"} (${BANDS[p][k][0]}-${BANDS[p][k][1]})`)]));
+}
+
 export function renderMarkdown(s: Summary, d: Diff): string {
   const L: string[] = [];
   const zero = s.flags.filter((f) => f.verdict === "ZERO"), fires = s.flags.filter((f) => f.verdict === "fires"), nm = s.flags.filter((f) => f.verdict === "not-measured");
@@ -150,6 +163,7 @@ export function renderMarkdown(s: Summary, d: Diff): string {
   L.push("\"continues differently\" is expected: the off-screen random stream restarts from its seed and is not saved, so a restarted season is not byte-identical from the first tick after the restart. \"STATE LOST\" (a difference at or before the restart, or the event count falling) is the finding.", "", "Masked before comparing (listed so nothing hides silently):", ...MASKS.map((m) => `- \`${m.key}\`: ${m.why}`));
   L.push("", "## 4. House mix by week (information only; the agreed whole-season target comes from ORW-702)", "", `Guard week-1 reference: ${GUARD_REFERENCE.bonding} / ${GUARD_REFERENCE.strategy} / ${GUARD_REFERENCE.gossip} / ${GUARD_REFERENCE.conflict} (bonding / strategy / gossip / conflict, percent).`, "");
   const mixRows = (rows: MixRow[]): string => tbl(["week", "scenes", "bonding", "strategy", "gossip", "conflict"], rows.map((m) => [m.week, m.n, pct(m.bonding), pct(m.strategy), pct(m.gossip), pct(m.conflict)]));
+  L.push("Whole-season target (ORW-702; bands from the whole-season mix constants module), pooled per phase over the played seasons (the player-in scenes; a phase the player never reached is read from the whole house and says so). A cell is `ok` inside its band, `OUT` outside:", "", phaseTable(s.mixByPhase, s.mixPhaseBasis), "");
   L.push("While the player is still in the game:", "", mixRows(s.mixByWeek), "", "Every scene, including the weeks after the player left (the house a spectator watches):", "", mixRows(s.mixByWeekAll));
   L.push("", "## 1. What fired", "", "A flag FIRES when playing a season with it turned the other way from its default changes the played game (the event stream or the saved state) from some message on; ZERO means no change in any measured season. First fire is the median message where the two games first differ. Flags are discovered from the registry, not listed by hand.", "");
   L.push(`### Zero or near-zero flags (${zero.length})`, "");
