@@ -61,6 +61,7 @@ export const PLAYER_PROJECTION_REGISTRY: readonly ProjectionEntry[] = [
   { method: "accuseTie", coveredBy: "lever", note: "lever result view, swept by liveSentinel.property.test.ts" },
   { method: "confront", coveredBy: "lever", note: "lever result view, swept by liveSentinel.property.test.ts" },
   { method: "callInFavor", coveredBy: "lever", note: "lever result view, swept by liveSentinel.property.test.ts" },
+  { method: "askToTalkAlone", coveredBy: "lever", note: "lever result view (an outcome and a room, never a reason or a number), swept by liveSentinel.property.test.ts" },
   { method: "exposeSecret", coveredBy: "lever", note: "lever result view, swept by liveSentinel.property.test.ts" },
   { method: "tradeSecret", coveredBy: "lever", note: "lever result view, swept by liveSentinel.property.test.ts" },
   { method: "socialInitiatives", coveredBy: "lever", note: "NPC-initiated openings" },

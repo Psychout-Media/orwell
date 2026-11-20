@@ -146,5 +146,7 @@ def test_a_model_made_deal_is_not_doubled_by_the_belt(monkeypatch):
     deals, seen = _turn(monkeypatch, round1_tools=("makeDeal",), narration=HANDSHAKE,
                         extraction=STRUCK, user_msg=SHAKE_MSG)
     assert seen["tools"] == ["makeDeal"], "precondition: the model made the deal itself"
-    assert seen["extractions"] == 0, "a model-made deal suppresses the belt: the extractor is never consulted"
+    # ORW-732: a model-made deal no longer switches the belt off (one turn can seal several handshakes and the model
+    # records one); the extractor is consulted once, but the partner the model already dealt with is skipped.
+    assert seen["extractions"] <= 1
     assert len(deals) == 1, f"model-driven makeDeal wins; the belt must not add a second one, got {deals}"

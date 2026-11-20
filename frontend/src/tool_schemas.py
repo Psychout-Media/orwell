@@ -1702,6 +1702,22 @@ FUNCTION_TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "askToTalkAlone",
+            "description": "ORW-727b — when the player asks a houseguest for a private word, or to come over, call askToTalkAlone({ npcId, room?, private? }). Asking for a private word (the default): the game picks the room (the one the player named when it is private and empty, else the nearest private one), moves the player and the houseguest there, and nobody else can come in; set room only when the player named a place. Asking the houseguest to come to them or to find them: set private to false; the houseguest goes to room (the player's own room when none is named) and the player does not move. The houseguest may DECLINE on their own read of the player: returns { outcome, room?, roomName? } with outcome accepted, declined, occupied or gathered. Voice only that result: on accepted, the two are in that room now and the scene that follows is theirs alone; on declined, they stay where they are and say no in character, never a reason; on occupied or gathered, nothing moved. When the state shows openTalkAsk, that houseguest asked the player for a private word: call this lever the moment the player says yes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "npcId": {"type": "string", "description": "The houseguest the player is asking (from the roster)."},
+                    "room": {"type": "string", "description": "The room the player named, only when they named one; for a houseguest coming to the player, the player's own room is the default."},
+                    "private": {"type": "boolean", "description": "True (the default) for a private word; false when the player asks the houseguest to come to them or find them."},
+                },
+                "required": ["npcId"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "callInFavor",
             "description": "Feature 0142 — when the player CALLS IN a favor a houseguest owes them (the state's owedFavors lists who: they kept a deal with the player), call callInFavor({npcId, ask}) with ask a deal kind (default vote: 'you owe me a vote'). The ENGINE decides whether they honor it; you never invent the outcome. Returns {honored}. Voice the houseguest honoring it, or brushing it off, accordingly; never state why.",
             "parameters": {
@@ -2106,6 +2122,8 @@ ORWELL_GAME_TOOLS = frozenset({
     "confront", "accuseTie",
     # 0142: call in a favor a houseguest owes the player (engine-decided).
     "callInFavor",
+    # ORW-727b: a private word with a houseguest, or asking one to come over (engine-decided consent and room).
+    "askToTalkAlone",
     # B64/0049: the Vault-free presence read (who's here, who's one room over).
     "whereabouts",
     # L21/L24: the player directs their own movement (the engine never auto-relocates a person).

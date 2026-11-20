@@ -159,7 +159,7 @@ _TURN_SEQ = itertools.count(1)
 BUMPING_WRITES = frozenset({
     "noteMessage", "recordInteraction", "moveTo", "moveHouseguest", "markHouseguestMet", "recordImageBeat", "makeDeal", "diaryRoom",
     "confide", "exposeSecret", "tradeSecret", "surfaceInformationTo", "turnIn", "advanceGame", "updateCasting", "resolvePlayerMove",
-    "accuseTie", "callInFavor", "confront", "askJuror", "submitDecision", "hangOut", "nap", "requestSelfEviction", "cancelSelfEviction",
+    "accuseTie", "callInFavor", "askToTalkAlone", "confront", "askJuror", "submitDecision", "hangOut", "nap", "requestSelfEviction", "cancelSelfEviction",
     "raiseSpectatorChoice", "formAlliance", "joinAlliance", "createCharacter", "preSeedCast", "recordCastGenesis", "advanceToFinale",
     "runCompetition",
 })

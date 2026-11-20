@@ -790,6 +790,8 @@ export interface GameStateView {
   openDealOffer?: OpenDealOfferView | null;
   /** 0174: the vote pitch, shown here only while an ordinary offer also stands (it has its own slot; with no other offer it is `openDealOffer`). Answer with `submitDecision deal-offer` plus `offerId` = `id`. */
   openVotePitch?: OpenDealOfferView | null;
+  /** ORW-727b: a houseguest has asked the player for a private word and it still stands. The narrator voices the ask in-scene (never a card); the player accepts by saying so, and the narrator calls `askToTalkAlone` for this houseguest (it is accepted). Present only while one stands. */
+  openTalkAsk?: { from: NamedRef } | null;
   /** 0142: favors houseguests owe the player (present only while any are banked). */
   owedFavors?: OwedFavorView[];
 }
@@ -1097,6 +1099,14 @@ export interface AccuseTieResult {
 export interface ConfrontResult {
   landed: boolean;
 }
+
+/** ORW-727b: the player's ask for a private word or for a houseguest to come over (see `GameSession.askToTalkAlone`). */
+export interface AskToTalkAloneReq { npcId: EntityId; room?: string; private?: boolean; expectedBeatSeq?: number; idempotencyKey?: string }
+/**
+ * ORW-727b: `accepted` (they are in `room` now: the player too when private), `declined` (they stay put; voice their refusal in character, never a reason), `occupied` (every private room has someone in it: nothing moved),
+ * `gathered` (the whole house is gathered for an event; nothing moved). Vault-free: an outcome and a room, never a number or a reason.
+ */
+export interface AskToTalkAloneResult { outcome: "accepted" | "declined" | "occupied" | "gathered"; room?: string; roomName?: string; beatSeq?: number }
 
 /** 0142: the houseguests who owe the player a favor for a deal they kept (Vault-free; `n` is how many are banked). */
 export interface OwedFavorView { from: NamedRef; n: number }
@@ -1506,6 +1516,8 @@ export interface PublicGameStatus {
   openDealOffer?: OpenDealOfferView | null;
   /** 0174: the vote pitch, shown here only while an ordinary offer also stands (it has its own slot; with no other offer it is `openDealOffer`). Answer with `submitDecision deal-offer` plus `offerId` = `id`. */
   openVotePitch?: OpenDealOfferView | null;
+  /** ORW-727b: a houseguest has asked the player for a private word and it still stands. The narrator voices the ask in-scene (never a card); the player accepts by saying so, and the narrator calls `askToTalkAlone` for this houseguest (it is accepted). Present only while one stands. */
+  openTalkAsk?: { from: NamedRef } | null;
   /** 0142: favors houseguests owe the player (present only while any are banked). */
   owedFavors?: OwedFavorView[];
   /**
@@ -3438,6 +3450,13 @@ export interface GameSession {
    * owed by that houseguest (or the request is invalid). Played games only; the engine prices honoring it from trust, threat, memory and what it costs them.
    */
   callInFavor(npcId: EntityId, ask?: DealReqKind, expectedBeatSeq?: number): CallInFavorResult | null;
+  /**
+   * ORW-727b - the player asks a houseguest for a private word, or to come over. ONE lever; the narrator maps the player's own words to it (no text is parsed here). `room` is the room the player named (or, for "come here",
+   * their own); `private` defaults to true: the two go to a PRIVATE room (the named one when it is private and empty, else the nearest private one; never the diary room or the landing, the HOH room only for the HOH).
+   * `private: false` is "come here" / "come find me": the houseguest goes to `room` (default: the player's own room) and the player does not move. The houseguest may DECLINE (their own read of the player, through the deal-consent
+   * machinery, one keyed roll per hour). An accepted houseguest waits in the room for a bounded time; in a private room nobody else can come in. Returns null pre-game / for an unknown or absent houseguest.
+   */
+  askToTalkAlone(req: AskToTalkAloneReq): AskToTalkAloneResult | null;
 
   /**
    * 0093 — OUT a learned secret to the house. The single engine authority (like `runCompetition` /

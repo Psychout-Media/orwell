@@ -56,6 +56,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_APPROACH_MEMORY', key: 'approachMemory', parser: 'defaultOn' },
   // B4 / #2017: casual assurances ("you're safe with me") recorded on scenes. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_ASSURANCES', key: 'assurances', parser: 'defaultOn' },
+  // ORW-723 (Ryne: "Depends on the person. For sure."): a vote promise's pull comes from the voter's own loyalty, honesty and bond to the nominee (not a fixed weight); loyal honest friends keep it, schemers often break it. Needs ORWELL_ASSURANCES. Played games only. `=0` restores the fixed weight byte for byte.
+  { envKey: 'ORWELL_ASSURANCE_PULL', key: 'assurancePull', parser: 'defaultOn' },
   // ORW-624: the audience outside - a simulated public that judges from what would make the edit; felt as the crowd at a walk-out, a fan reward, America's Favorite. `=0` = no public.
   { envKey: 'ORWELL_AUDIENCE', key: 'audience', parser: 'defaultOn' },
   // ORW-691 (B1-4 / 0194): a bad night's sleep is reachable - the old bar (a rest deficit of 0.25) is exactly a 2am bed, which no houseguest ever reaches (the latest bed is just under it), so the cause never fired; a houseguest up past 1am now has one. A played game only. `=0` = the old bar.
