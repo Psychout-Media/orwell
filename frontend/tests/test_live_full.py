@@ -29,7 +29,7 @@ CAST = ["Aa Bb", "Cc Dd", "Ee Ff", "Gg Hh", "Ii Jj"]
 def _t(text=SCENE, **kw):
     t = {"label": "turn-1", "msg": "I wait.", "text": text, "phase": "veto-competition", "phase_before": "veto-competition", "ds": {"due": False, "next": "veto-ceremony"},
          "cast": CAST, "nominees": ["Aa Bb", "Cc Dd"], "evicted": [], "veto_holder": "Ee Ff", "player": "Gg Hh", "engine_pending": False, "events": [], "week": 1,
-         "clock": "1:00pm, Day 3", "clock_before": "12:55pm, Day 3", "hoh_name": "Ii Jj"}
+         "clock": "afternoon, Day 3", "clock_before": "afternoon, Day 3", "hoh_name": "Ii Jj"}
     t.update(kw)
     return t
 
@@ -194,9 +194,9 @@ def test_retcon_a_different_veto_holder_later_in_the_same_week():
 
 
 def test_time_skip_without_a_reason_fails_and_a_bed_message_is_allowed():
-    skip = _t(clock_before="1:00pm, Day 3", clock="6:00pm, Day 3")
+    skip = _t(clock_before="morning, Day 3", clock="evening, Day 3")
     assert [f for f in ev.judge_run([skip])[0] if f["check"] == "T9"]
-    ok = _t(clock_before="1:00pm, Day 3", clock="6:00pm, Day 3", msg="I say goodnight and go to bed.")
+    ok = _t(clock_before="morning, Day 3", clock="evening, Day 3", msg="I say goodnight and go to bed.")
     assert not [f for f in ev.judge_run([ok])[0] if f["check"] == "T9"]
 
 
@@ -273,9 +273,12 @@ def test_ws_frames_split_reasoning_and_end_on_error():
 
 
 # --- the player ----------------------------------------------------------------------------------------------------------------------------------------------
-def _state(clock="1:00pm, Day 3", due=False, pending=None, phase="nominations"):
-    return {"phase": phase, "week": 1, "clockLabel": clock, "daySchedule": {"due": due, "next": "nominations" if due else None}, "player": {"name": "Gg Hh"}, "pending": pending,
-            "house": [{"name": n, "status": "active"} for n in CAST], "whereabouts": {"present": [{"name": "Aa Bb"}, {"name": "Cc Dd"}]}}
+def _state(clock="afternoon, Day 3", due=False, pending=None, phase="nominations"):
+    """What the three browser routes serve for one moment, composed by the real `screen_view`: /state (the card's kind only), /status (the full card), /whereabouts (the strip)."""
+    band, _, day = clock.partition(", Day ")
+    state = {"phase": phase, "week": 1, "timeOfDay": band, "dayNumber": int(day), "daySchedule": {"due": due, "next": "nominations" if due else None}, "player": {"id": "p", "name": "Gg Hh"},
+             "pending": {"kind": pending["kind"]} if pending else None, "house": [{"id": f"h{i}", "name": n, "status": "active"} for i, n in enumerate(CAST)]}
+    return lt.screen_view(state, {"pending": pending, "finished": False, "winner": None}, {"whereabouts": {"room": "kitchen", "present": [{"id": "a", "name": "Aa Bb"}, {"id": "c", "name": "Cc Dd"}]}})
 
 
 def test_player_is_deterministic_social_and_never_repeats_itself_three_times():
@@ -306,7 +309,7 @@ def test_player_asks_to_start_a_due_event_then_hangs_out_and_goes_to_bed_late():
     p = lf.Player()
     assert p.next_message(_state(due=True), []) == lf.GO_NOW
     assert p.next_message(_state(due=True), []) == lf.HANG_OUT
-    assert lf.Player().next_message(_state(clock="11:30pm, Day 3"), []) == lf.BED
+    assert lf.Player().next_message(_state(clock="night, Day 3"), []) == lf.BED
 
 
 def test_player_answers_a_question_from_the_reply():
@@ -322,7 +325,8 @@ def test_decision_body_is_the_browsers_own_shape():
 
 def test_decision_cards_are_answered_through_the_decision_route_not_the_chat():
     steps, first = lf.stub_week(None)
-    first = dict(first, pending={"kind": "comp-intent", "options": []})
+    sc = first["screens"]
+    first = {"screens": dict(sc, state=dict(sc["state"], pending={"kind": "comp-intent"}), status=dict(sc["status"], pending={"kind": "comp-intent", "options": []}))}
     world = lf.ReplayWorld(steps, first)
     meter = lf.SpendMeter()
     lf.run(world, lc.Budget(100, 100, meter), meter)
@@ -397,10 +401,11 @@ def test_healthy_sequence_goes_green(tmp_path):
 
 def test_the_short_tier_comparator_also_goes_red_on_the_orw10_shape():
     steps, first = lf.stub_week("orw10")
-    turns, prev = [], first
+    turns, prev = [], lt.screen_view(**first["screens"])
     for i, step in enumerate(steps):
-        turns.append(lt.turn_record(f"stub-{i}", "I wait.", prev, step["state"], step["reply"]))
-        prev = step["state"]
+        cur = lt.screen_view(**step["state"]["screens"])
+        turns.append(lt.turn_record(f"stub-{i}", "I wait.", prev, cur, step["reply"]))
+        prev = cur
     assert [c for c in lc.detect_stall(turns)]
 
 

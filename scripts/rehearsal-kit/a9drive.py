@@ -22,8 +22,20 @@ BUB = """() => [...document.querySelectorAll('#chat-history .msg-ai')].map(el =>
   c.querySelectorAll('.thinking-content,.thinking,[class*=thinking],.msg-footer').forEach(n=>n.remove());
   return {txt:(c.innerText||'').trim(), done:!!el.querySelector('.msg-footer')}; })"""
 def state():
+    """What a player's browser can read (GET /api/orwell/state: a closed shape, ORW-707/733). The premiere entrance is NOT on it, so it comes from the rig's own engine (see entrance())."""
     try: return json.load(urllib.request.urlopen(BASE + "/api/orwell/state", timeout=20))
     except Exception as e: return {"err": str(e)}
+def entrance():
+    """ORW-768: the premiere entrance (stage, index, who is inside, who just arrived) is engine truth the browser never receives; the rig reads it from its own engine, as a21_sync_drive does. {} when the engine is unreachable."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        from a21_sync_drive import slot_value
+        engine = slot_value(RUN, "RIG_ENGINE_URL", "http://127.0.0.1:18765")  # slot-1 default (a run staged before slots existed has no slot.env)
+        r = urllib.request.Request(engine + "/player/call", data=json.dumps({"name": "premiereIntros", "args": {}}).encode(), method="POST",
+                                   headers={"content-type": "application/json", "authorization": "Bearer " + os.environ.get("RIG_ENGINE_TOKEN", "rehlocal")})
+        res = json.load(urllib.request.urlopen(r, timeout=20)).get("result")
+        return (res or {}).get("entrance") or {} if isinstance(res, dict) else {}
+    except Exception: return {}
 with sync_playwright() as p:
     b = p.chromium.launch(args=["--disable-dev-shm-usage", "--disable-gpu", "--headless=old"])
     page = b.new_context(viewport={"width": 1440, "height": 900}).new_page()
@@ -43,9 +55,9 @@ with sync_playwright() as p:
             prev = sig
             if stable >= 3: break
         bs = page.evaluate(BUB); new = bs[before:] if len(bs) >= before else bs
-        st = state(); e = (st.get("premiere") or {}).get("entrance") or {}
+        st = state(); e = entrance()
         page.screenshot(path=f"{RUN}/shots/a9_{i:02d}.png")
         txt = "\n".join(x["txt"] for x in new)
-        log(json.dumps({"i": i, "msg": text[:60], "secs": round(time.time() - t0), "phase": st.get("phase"), "stage": e.get("stage"), "idx": e.get("index"), "inside": e.get("arrivedNames"), "just": (e.get("justArrived") or {}).get("name"), "ds": st.get("daySchedule"), "tod": (st.get("ceremony") or {}).get("timeOfDay") or st.get("timeOfDay"), "bubble": txt[:700]}))
+        log(json.dumps({"i": i, "msg": text[:60], "secs": round(time.time() - t0), "phase": st.get("phase"), "stage": e.get("stage"), "idx": e.get("index"), "inside": e.get("arrivedNames"), "just": (e.get("justArrived") or {}).get("name"), "ds": st.get("daySchedule"), "tod": st.get("timeOfDay"), "bubble": txt[:700]}))
     b.close()
 log("DONE")
