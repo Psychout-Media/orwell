@@ -208,7 +208,7 @@ def test_both_status_and_state_routes_route_through_the_overlay():
     ``_house_entry_overlay`` (the one status-read latch). A new started-bearing projection must
     join them — never bypass the mask."""
     src = _read("routes/orwell_routes.py")
-    assert src.count("return _house_entry_overlay(") >= 2, (
+    assert src.count("return _house_entry_overlay(") + src.count("_project_for_browser(_house_entry_overlay(") >= 2, (   # ORW-768: /status returns the overlay through its closed shape
         "/status and /state must both return through _house_entry_overlay — the latch has "
         "exactly one seam, and both started-bearing projections must use it"
     )
