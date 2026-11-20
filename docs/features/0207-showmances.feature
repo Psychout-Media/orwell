@@ -1,39 +1,63 @@
-# spec-only: 0207 (Theme A, ORW-657..661) - the foundation (src/engine/attraction.ts) is built and unit-tested; the slices wire these scenarios (A and B).
-# Feature 0207 - showmances and attraction (Ryne approved all four slices 2026-11-18). Design: 0207-showmances.md. Roles only. Never assume the player's gender or orientation.
+# Feature 0207 - showmances and attraction (Ryne approved all four slices 2026-11-18; the slow build is Ryne's ruling of 2026-11-20, ORW-736). Design: 0207-showmances.md. Roles only. Never assume the player's gender or orientation.
+# Executable since ORW-742 (steps in features/step_definitions/showmances_*.steps.ts): every scenario plays real seasons or real writers; none sets state by hand.
 
 Feature: Showmances and attraction
 
   # A1 (ORW-658)
   Scenario: Attraction is real, private and shows only in behaviour
-    Given a houseguest with chemistry toward another, within their own orientation
-    When they spend days in the house together
-    Then the houseguest seeks the other out more and sits near them more than chance
-    And no number or label for it reaches the player
+    Given a played season in which the player has said how they present
+    Then pairs with chemistry between them had romance scenes at a higher rate than pairs without
+    And no number or label for attraction reaches the player
 
   Scenario: Someone may be drawn to the player, once the player has said their gender
-    Given the player has told the game how they present
-    And a houseguest whose orientation includes that, with chemistry toward the player
-    Then that houseguest seeks the player out more, and what the player does about it is the player's own
-    And a player who has not said is never anyone's attraction
+    Given a played season in which the player has said how they present
+    Then only houseguests whose own orientation includes the player hold chemistry toward the player
+    And no houseguest started a romance scene with the player on their own
+    And in a season where the player has not said, nobody holds chemistry toward the player
 
   # A2 (ORW-659)
   Scenario: The couple is a target
-    Given two houseguests the house reads as a couple, from what each reader saw or was told
-    Then across seeds, an HOH outside the pair nominates one of them more often than otherwise
-    And a couple that hides it (faked distance) is read as a couple only by those who caught them
+    Given a played season in which the player has said how they present
+    Then an HOH outside a pair they read as a couple weighs that pair onto the block in some week of the season
+    And a houseguest reads a pair as a couple only from romance they saw or were told of
 
   # A3 (ORW-660)
   Scenario: Heart against game
-    Given a houseguest whose showmance partner and alliance pull opposite ways at a vote
-    Then their vote follows whichever tie is stronger for them, and they are shaken either way
+    Given a houseguest whose showmance tie and alliance tie pull opposite ways at a vote
+    Then their choice follows whichever tie is stronger for them, by their own nature, and they are shaken either way
 
   Scenario: A breakup hurts more than a broken deal
-    Given a showmance that ends in the house
-    Then the bond rupture is deeper than a broken deal's, and the grudge book holds it
+    Given a played game where the player and a houseguest have a showmance from the player's own scenes
+    When the player starts a clash with that houseguest
+    Then the grudge book holds a heartbreak deeper than a broken deal's grudge, once
 
   # A4 (ORW-661)
   Scenario: The player is in a showmance only by their own acts
-    Given a houseguest drawn to the player
-    Then the engine never decides the player is in a showmance
-    And when the player starts one and it is answered, the house notices, the partner expects loyalty, and rivals use it
-    And a houseguest the player turns down handles it in character
+    Given a played game where a houseguest started romance scenes toward the player and the player started none
+    Then the engine does not hold the player to be in a showmance
+    And the player's own showmance scenes, answered by a houseguest drawn to them, make one
+    And a houseguest whose orientation does not include the player does not answer in kind
+
+  # ORW-736: the slow build
+  Scenario: A showmance builds over days, one step at a time
+    Given played seasons with showmances
+    Then no pair climbs more than one step at a time
+    And each step up came after the least days that step needs
+    And a pair's progress rose only on a day they spent time together
+
+  Scenario: A public couple forms only late
+    Given played seasons with showmances
+    Then no pair was known house-wide in the first week
+
+  Scenario: A showmance is noticed in steps, and known only late
+    Given played seasons with showmances
+    Then a pair is sensed before it is noticed and noticed before it is known, and none is known before the late day
+
+  Scenario: The history of a pair is never lost
+    Given played seasons with showmances
+    Then every pair's recorded steps only grew, in order, each naming who had caught it
+
+  Scenario: The player's own romance builds at the same pace
+    Given a played game where the player keeps a romance going over many days
+    Then the player's pair climbed under the same minimum days as any other pair
+    And the player's pair did not move on a day the player spent no time with them

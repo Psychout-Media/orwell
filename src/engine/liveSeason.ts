@@ -780,6 +780,11 @@ export interface LiveSeasonState {
    * never projected: a hidden romance is a secret. Absent => none yet (old saves read none).
    */
   romances?: Record<string, number>;
+  /**
+   * ORW-736 (0207, the slow build): each romance pair's PACE record by unordered pair key (`showmancePace.ts`): the level, the chemistry accrued, the day it entered the level, and the append-only steps (up and down) with who had caught
+   * it at each. Written only in a played game with `ORWELL_SHOWMANCE_PACING` on. Engine-only (Vault class), never projected; steps never removed. Absent => none yet (old saves read none).
+   */
+  showmancePace?: Record<string, import("./showmancePace").PaceRecord>;
   /** 0207 A3: the pairs whose showmance has ENDED in the house (a breakup was folded once for each), by pair key, ordered, never pruned. ENGINE-ONLY. */
   breakups?: string[];
   /** 0207 A3: how many events of the record the breakup scan (a conflict scene between a showmance's two) has read. */

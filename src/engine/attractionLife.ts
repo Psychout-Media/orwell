@@ -54,3 +54,30 @@ export function attractionOf(chemistry: Readonly<Record<string, number>> | undef
   const c = chemistry?.[key];
   return c ? attractionNow(c, daysTogether(together?.[key] ?? 0)) : 0;
 }
+
+/**
+ * ORW-736 (PO ruling, Ryne 2026-11-20: "showmances are a slower build over several weeks, not a switch turned on"): the PACE of a showmance. Levels are 0 spark, 1 bond, 2 sensed (close allies caught it), 3 noticed (the room has), 4 known
+ * (house-wide: the public couple). Progress is chemistry-days: the days the pair spend in one room (the A1 `together` count) times their mutual chemistry. Every number has its reason; none is a per-person day count (the pair's own
+ * chemistry and a keyed per-pair factor set the speed). Engine-only; nothing here is ever shown.
+ */
+export const SHOWMANCE_PACE = {
+  /** Chemistry-days needed to reach level 1..4 (cumulative). A seeded pair holds chemistry 0.7+, measured: a pair shares about a quarter of a day per day, so the last bar is about eight shared days, over five weeks: the public couple is a late thing by construction. */
+  bars: [1.5, 3, 4.5, 6.5],
+  /** The least in-game days a pair must spend in level 0..3 before it can step up (time, not just a threshold crossing). */
+  minDays: [3, 4, 5, 6],
+  /** The earliest in-game day a public couple can form (a normal season is roughly 9-11 weeks of about five days, so this is about week 5). Derived from days, not a week number. */
+  publicNotBeforeDay: 22,
+  /** A level needs this share of the houseguests (the pair excluded) to have caught the romance before the room "has noticed" it, and this share before the whole house knows. Sensed needs one close ally. */
+  roomShare: 0.3,
+  houseShare: 0.6,
+  /** Chemistry-days lost per in-game day the pair spend apart (a week apart costs about two chemistry-days: a pause at the early levels, a fade from a high one). */
+  decayPerDayApart: 0.25,
+  /** A day or so apart is no time at all (a night's sleep, a busy day): cooling starts after this many days with no shared time. */
+  apartGraceDays: 1,
+  /** A level falls back one step when progress drops below this share of its own bar. */
+  fadeBelow: 0.7,
+  /** A houseguest counts as a close ally of one of the pair when their own affinity for that one is at least this (or they share an alliance): the sensed step needs one such person to have caught it. */
+  closeAffinity: 0.6,
+  /** The per-pair speed spread (the keyed factor is 1 +/- this), so no two pairs keep the same calendar. */
+  jitter: 0.25,
+} as const;
