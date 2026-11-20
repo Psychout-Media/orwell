@@ -7,6 +7,6 @@ import json, sys, urllib.request
 base = sys.argv[1].rstrip("/")
 req = urllib.request.Request(base + "/api/orwell/state", headers={"Cookie": sys.argv[2]} if len(sys.argv) > 2 else {})
 st = json.load(urllib.request.urlopen(req, timeout=20))
-tod = (st.get("ceremony") or {}).get("timeOfDay") or st.get("timeOfDay")
+tod = st.get("timeOfDay")   # ORW-768: the browser state is a closed shape; timeOfDay, daySchedule.{next,phase,due,minutesUntil} and beatSeq are on it (the wall test pins them)
 ds = st.get("daySchedule") or {}
 print(json.dumps({"timeOfDay": tod, "next": ds.get("next"), "phase": ds.get("phase"), "due": ds.get("due"), "minutesUntil": ds.get("minutesUntil"), "beatSeq": st.get("beatSeq")}))

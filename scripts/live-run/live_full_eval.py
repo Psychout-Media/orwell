@@ -33,6 +33,7 @@ NOT_COVERED = ["T8 choices go through the card (the driver answers every card it
                "T20 early sleepers wake alone",
                "two windows (the bar's full-week addition): one window is played",
                "T7 hidden information beyond a sealed ballot named to a voter, and T11 perspective leaks: those need a reader (the narration-fidelity audit), not a regex"]
+NOT_JUDGED = lt.NOT_JUDGED   # ORW-768: what no screen shows, so no check reads it (the browser wall: ORW-707 / ORW-733 / ORW-768). Listed in every report.
 
 
 def _f(turn, check, severity, detail, cid=None, category=None):
@@ -164,7 +165,7 @@ def build_report(meta, turns, findings, stats, budget, verdict_word, error=None,
     notes = [f for f in findings if f["severity"] == "note"]
     data = {"verdict": verdict_word, "meta": {k: S(v) for k, v in meta.items()}, "budget": budget, "stats": stats, "reached_end": reached_end, "error": S(error) if error else None,
             "findings": {c: [{"turn": f["turn"], "check": f["check"], "detail": S(f["detail"])} for f in v] for c, v in grouped.items()},
-            "notes": [{"turn": f["turn"], "check": f["check"], "detail": S(f["detail"])} for f in notes], "not_covered": NOT_COVERED}
+            "notes": [{"turn": f["turn"], "check": f["check"], "detail": S(f["detail"])} for f in notes], "not_covered": NOT_COVERED, "not_judged": NOT_JUDGED}
     nfail = sum(len(v) for v in grouped.values())
     L = [f"# Live run (full-week tier) - {verdict_word}", "",
          f"- Verdict: **{verdict_word}** - {nfail} failing finding(s) over {stats['turns']} turn(s); stall: {'YES' if stats['stall'] else 'no'}; livelock: {'YES' if stats['livelock'] else 'no'}; "
@@ -182,6 +183,7 @@ def build_report(meta, turns, findings, stats, budget, verdict_word, error=None,
     if notes:
         L += ["## Notes (not failures)", ""] + [f"- turn {f['turn']} `{f['check']}` - {S(f['detail'])}" for f in notes] + [""]
     L += ["## What this run did not cover", ""] + [f"- {x}" for x in NOT_COVERED] + [""]
+    L += ["## Not judged (no screen shows it)", ""] + [f"- {x}" for x in NOT_JUDGED] + [""]
     return "\n".join(L), data
 
 

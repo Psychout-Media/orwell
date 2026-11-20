@@ -58,7 +58,7 @@ no CI job, no cron, no nightly: an operator (or the coordinator's agent) runs it
 - **Needs:** the account file (JSON with `server`, `username`, `password`; read INSIDE the process, handed to the login call, never printed, logged or written to a report) and a
   started game bound to that account (play casting and the premiere in the browser first; the driver does not run casting). `--base-url` overrides the file's `server`. Python 3 and the
   `websockets` package only when the game build is WebSocket-only (the SSE route answers 426 there and `--transport auto` falls through to the `turn` frame).
-- **What it does:** logs in, reads the bound game session, then loops: read `GET /api/orwell/state` (truth), answer a pending decision card through `POST /api/orwell/decision` (the
+- **What it does:** logs in, reads the bound game session, then loops: read what a player's screens read (`GET /api/orwell/state` for the board, tiles and day part, composed with `GET /api/orwell/status` for the decision card's kind, options and prompt and the winner, and `GET /api/orwell/whereabouts` for who is in the room and the headcounts: `live_truth.screen_view`; ORW-768), answer a pending decision card through `POST /api/orwell/decision` (the
   simplest legal option, as the browser's card posts it), otherwise send one player message through the chat stream and read the public bubble (reasoning is kept apart by the stream's
   own `thinking` flag). The player is deterministic and mostly social: it talks to the least-recently-talked-to houseguest in the room, asks, shares, answers a question put to it, asks
   to start a due event then hangs out, goes to bed late, tries one nap and one move with no destination. It stops at the weekly eviction plus the next head of household (and plays
@@ -78,7 +78,7 @@ no CI job, no cron, no nightly: an operator (or the coordinator's agent) runs it
   importable (the FE venv) record `degraded` when they were not live.
 - **Report:** `report.md`, `report.json` and `plane-comment.html` in `--out`, anonymised (cast names become a role word, the account name and server are redacted, no transcript, no key).
   Header (build from `/api/orwell/health`, tier, UTC and Arizona time, model, turns, spend), verdict line, the check counts, the longest wait for a due event, the stall result, the six finding
-  groups with turn numbers, notes, and "what this run did not cover" (T8, T10, T12, T14, T15, T17-T20, two windows, hidden-information reads beyond the regexes).
+  groups with turn numbers, notes, a "Not judged" list, and "what this run did not cover" (T8, T10, T12, T14, T15, T17-T20, two windows, hidden-information reads beyond the regexes).
 - **Offline, no network, no model, no spend:** `--stub healthy|planted|stall|stand_in|missing|leak|unanswered|retcon|timeskip|orw10` plays a generated week through the SAME loop and judge; `--replay FILE`
   plays a recorded `{first, steps}` JSON. `frontend/tests/test_live_full.py` pins a positive control for every finding class, the caps, the stream readers, the report and the credential handling.
 - **Not proven live yet:** the WebSocket `turn` transport and the real `/api/orwell/health` shape; the first operator run is that proof (a transport failure shows as a no-reply turn, never as made-up text).
@@ -161,3 +161,21 @@ A run PASSES when every FAIL check holds. WARN checks are listed in the report a
   a staged break is available to prove each one fails.
 - The ORW-10 proof is a recorded-shape fixture (see the ORW-10 proof above); a real old-build staged run is still owed.
 - The BDD Auditor's approved-scenario pass bar: this table is a first draft from the live-run findings so far and is for the Auditor to amend.
+
+## The browser wall and what the full-week tier reads (ORW-768, 2026-11-20)
+
+`/api/orwell/state` is a closed shape at every level (ORW-707 / ORW-733), so the full-week tier no longer reads it alone. It plays as a player, so it reads only what a screen reads, from the route the screen reads it from:
+
+| Was read from `/api/orwell/state` | Now read from | Where |
+|---|---|---|
+| `whereabouts.present` (who to talk to) | `GET /api/orwell/whereabouts` (the presence strip's own route, the per-turn frozen view) | `live_truth.facts()["present"]`, `Player._pick_name` |
+| `whereabouts.counts` (T16 headcounts) | derived in `screen_view` from what the screens show (the tiles still in the game plus the player; the strip's room): the route no longer sends `counts` (ORW-768 part 1) | `live_truth.facts()["counts"]` |
+| `pending` options, prompt, round (the decision card) | `GET /api/orwell/status` (the HUD and the card read it; /state keeps only `pending.kind`) | `screen_view`, `decision_body` |
+| `winner`, `hoh`, `nominees`, `veto` | `GET /api/orwell/status` (the HUD's board), /state's `ceremony` as the fallback | `screen_view` |
+| `clockLabel` (exact minutes) | `timeOfDay` + `dayNumber` (the HUD chip: "evening, Day 4") | `live_truth.clock_label`, bed and nap by day part |
+
+**Not judged** (listed in every report, `report.json` key `not_judged`): T9 at minute precision (no screen shows minutes: a skip over a whole part of the day is caught, a skip inside one is not), and
+anything that needs the planned or hidden state behind a result. A read that fails leaves its keys absent (unknown), never invented. A check that needs engine truth the browser cannot get is dropped or
+listed here, never re-read through a route that crosses the wall. `frontend/tests/test_orw768_harness_reads_screens.py` holds the keys read from /state to the wall's shape. The short tier, the week tier and
+`eviction_e1.py` read the rig's own engine (`getGameState` over the engine's player channel), which is not the browser and is unchanged. In the rehearsal kit, `a9drive.py` now reads the premiere entrance
+from the rig's engine (as `a21_sync_drive.py` does) instead of `/api/orwell/state`, and `p0d_read.py` reads only keys still on the shape.
