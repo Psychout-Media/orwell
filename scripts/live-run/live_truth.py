@@ -40,7 +40,7 @@ STATE_READS = ("phase", "week", "timeOfDay", "dayNumber", "finished", "daySchedu
                "house[].id", "house[].name", "house[].status", "ceremony.hoh.id", "ceremony.hoh.name", "ceremony.nominees[].id", "ceremony.nominees[].name", "ceremony.veto.holder.id",
                "ceremony.veto.holder.name")
 STATUS_READS = ("hoh", "nominees", "veto", "pending", "finished", "winner")   # the HUD and the decision card read these from /api/orwell/status
-WHEREABOUTS_READS = ("present", "counts")                                       # the presence strip reads these from /api/orwell/whereabouts
+WHEREABOUTS_READS = ("present",)                                                # the presence strip reads who is in the room from /api/orwell/whereabouts (its `counts` no longer cross the wall: derived below)
 
 
 def screen_view(state, status=None, whereabouts=None):
@@ -61,6 +61,15 @@ def screen_view(state, status=None, whereabouts=None):
             st[k] = s[k]
     w = whereabouts.get("whereabouts") if isinstance(whereabouts, dict) and "whereabouts" in whereabouts else whereabouts
     if isinstance(w, dict):
+        w = dict(w)
+        if "counts" not in w and isinstance(w.get("present"), list) and isinstance(st.get("house"), list):
+            # ORW-768: the engine's `counts` no longer ride /whereabouts (no screen reads them). The headcounts a player could take off the screens are the tiles still in the game (the player is
+            # one of them) and the strip's room (the player plus who is listed with them): derived here, never read from a hidden field.
+            tiles = {h.get("id") for h in st["house"] if isinstance(h, dict) and h.get("status") in (None, "active")}
+            me = st.get("player") if isinstance(st.get("player"), dict) else {}
+            if me.get("id") and me.get("status") in (None, "active"):
+                tiles.add(me["id"])
+            w["counts"] = {"house": len(tiles), "room": len(w["present"]) + 1, "others": len(w["present"])}
         st["whereabouts"] = w
     return st
 

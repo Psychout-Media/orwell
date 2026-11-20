@@ -76,11 +76,6 @@
    "whereabouts": {
     "whereabouts": {
      "room": "kitchen",
-     "counts": {
-      "house": 6,
-      "others": 3,
-      "room": 4
-     },
      "present": [
       {
        "id": "hg1",
@@ -181,11 +176,6 @@
      "whereabouts": {
       "whereabouts": {
        "room": "kitchen",
-       "counts": {
-        "house": 6,
-        "others": 3,
-        "room": 4
-       },
        "present": [
         {
          "id": "hg1",
@@ -293,11 +283,6 @@
      "whereabouts": {
       "whereabouts": {
        "room": "kitchen",
-       "counts": {
-        "house": 6,
-        "others": 3,
-        "room": 4
-       },
        "present": [
         {
          "id": "hg1",
@@ -423,11 +408,6 @@
      "whereabouts": {
       "whereabouts": {
        "room": "kitchen",
-       "counts": {
-        "house": 6,
-        "others": 3,
-        "room": 4
-       },
        "present": [
         {
          "id": "hg1",
@@ -553,11 +533,6 @@
      "whereabouts": {
       "whereabouts": {
        "room": "kitchen",
-       "counts": {
-        "house": 6,
-        "others": 3,
-        "room": 4
-       },
        "present": [
         {
          "id": "hg1",
@@ -689,11 +664,6 @@
      "whereabouts": {
       "whereabouts": {
        "room": "kitchen",
-       "counts": {
-        "house": 6,
-        "others": 3,
-        "room": 4
-       },
        "present": [
         {
          "id": "hg1",
@@ -825,11 +795,6 @@
      "whereabouts": {
       "whereabouts": {
        "room": "kitchen",
-       "counts": {
-        "house": 6,
-        "others": 3,
-        "room": 4
-       },
        "present": [
         {
          "id": "hg1",
@@ -931,11 +896,6 @@
      "whereabouts": {
       "whereabouts": {
        "room": "kitchen",
-       "counts": {
-        "house": 5,
-        "others": 3,
-        "room": 4
-       },
        "present": [
         {
          "id": "hg1",
@@ -1043,11 +1003,6 @@
      "whereabouts": {
       "whereabouts": {
        "room": "kitchen",
-       "counts": {
-        "house": 5,
-        "others": 3,
-        "room": 4
-       },
        "present": [
         {
          "id": "hg1",
@@ -1155,11 +1110,6 @@
      "whereabouts": {
       "whereabouts": {
        "room": "kitchen",
-       "counts": {
-        "house": 5,
-        "others": 3,
-        "room": 4
-       },
        "present": [
         {
          "id": "hg1",
@@ -1267,11 +1217,6 @@
      "whereabouts": {
       "whereabouts": {
        "room": "kitchen",
-       "counts": {
-        "house": 5,
-        "others": 3,
-        "room": 4
-       },
        "present": [
         {
          "id": "hg1",

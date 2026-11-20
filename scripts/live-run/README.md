@@ -169,7 +169,7 @@ A run PASSES when every FAIL check holds. WARN checks are listed in the report a
 | Was read from `/api/orwell/state` | Now read from | Where |
 |---|---|---|
 | `whereabouts.present` (who to talk to) | `GET /api/orwell/whereabouts` (the presence strip's own route, the per-turn frozen view) | `live_truth.facts()["present"]`, `Player._pick_name` |
-| `whereabouts.counts` (T16 headcounts) | `GET /api/orwell/whereabouts` | `live_truth.facts()["counts"]` |
+| `whereabouts.counts` (T16 headcounts) | derived in `screen_view` from what the screens show (the tiles still in the game plus the player; the strip's room): the route no longer sends `counts` (ORW-768 part 1) | `live_truth.facts()["counts"]` |
 | `pending` options, prompt, round (the decision card) | `GET /api/orwell/status` (the HUD and the card read it; /state keeps only `pending.kind`) | `screen_view`, `decision_body` |
 | `winner`, `hoh`, `nominees`, `veto` | `GET /api/orwell/status` (the HUD's board), /state's `ceremony` as the fallback | `screen_view` |
 | `clockLabel` (exact minutes) | `timeOfDay` + `dayNumber` (the HUD chip: "evening, Day 4") | `live_truth.clock_label`, bed and nap by day part |

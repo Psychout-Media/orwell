@@ -50,11 +50,14 @@ def test_the_harness_never_reads_a_dropped_state_key_by_name():
 def test_whereabouts_and_the_card_come_from_their_own_routes_not_the_state():
     state = {"phase": "nominations", "week": 1, "pending": {"kind": "nominations"}, "house": [], "whereabouts": {"present": [{"name": S}]}}   # a state that (wrongly) held both
     status = {"pending": {"kind": "nominations", "options": [{"id": "a"}, {"id": "b"}, {"id": "c"}]}, "winner": None, "finished": False}
-    where = {"whereabouts": {"present": [{"id": "x", "name": "Aa Bb"}], "counts": {"house": 6, "room": 2}}}
+    state["house"] = [{"id": "a", "name": "Aa Bb", "status": "active"}, {"id": "b", "name": "Cc Dd", "status": "evicted"}]
+    state["player"] = {"id": "me", "name": "Gg Hh", "status": "active"}
+    where = {"whereabouts": {"present": [{"id": "x", "name": "Aa Bb"}]}}
     v = lt.screen_view(state, status, where)
     f = lt.facts(v)
     assert [o["id"] for o in f["pending"]["options"]] == ["a", "b", "c"]            # the card's options: /status
-    assert f["present"] == ["Aa Bb"] and f["counts"] == {"house": 6, "room": 2}        # who is here: /whereabouts
+    assert f["present"] == ["Aa Bb"]                                                    # who is here: /whereabouts
+    assert f["counts"] == {"house": 2, "room": 2, "others": 1}                          # headcounts: the tiles still in the game plus the player, and the strip's room: derived, never read from a hidden field
     assert lf.decision_body(f["pending"], "me") == {"kind": "nominations", "choice": ["a", "b"]}
     gone = lt.facts(lt.screen_view(state, None, None))                                 # a failed route leaves the key absent: not invented
     assert gone["pending"] == {"kind": "nominations"} and gone["counts"] is None
@@ -76,8 +79,11 @@ def test_every_replayed_state_is_a_payload_the_browser_wall_would_really_send():
         for sc in [rec["first"]] + [s["state"] for s in rec["steps"]]:
             st = sc["screens"]["state"]
             assert orwell_routes._browser_state_projection(st) == st, name
+            for route, shape in (("status", orwell_routes._BROWSER_STATUS_SHAPE), ("whereabouts", orwell_routes._BROWSER_WHEREABOUTS_SHAPE)):
+                assert orwell_routes._project_for_browser(sc["screens"][route], shape) == sc["screens"][route], (name, route)
     for sc in [first] + [s["state"] for s in steps]:
         assert orwell_routes._browser_state_projection(sc["screens"]["state"]) == sc["screens"]["state"]
+        assert orwell_routes._project_for_browser(sc["screens"]["status"], orwell_routes._BROWSER_STATUS_SHAPE) == sc["screens"]["status"]
 
 
 def test_a_planted_hidden_key_in_the_state_never_reaches_a_check():

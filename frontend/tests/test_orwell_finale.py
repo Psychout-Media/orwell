@@ -5,6 +5,7 @@ FinaleView and its FAIL-OPEN behaviour, with the engine call monkeypatched (dete
 """
 
 import importlib
+import json
 
 import pytest
 from fastapi import FastAPI
@@ -60,7 +61,7 @@ def test_finale_fails_open_to_null(client, monkeypatch):
     assert r.json() == {"finale": None}  # never blocks the page on an engine error
 
 
-# --- /health carries the concrete failure reason for the visible engine-status banner ---
+# --- /health: the visible engine-status banner reads engine / busy / reconnecting / whether a recent call failed (ORW-768: no reason, address or tool name) ---
 
 def test_health_reports_engine_down_with_a_reason(client, monkeypatch):
     async def fake_detail():
@@ -70,8 +71,8 @@ def test_health_reports_engine_down_with_a_reason(client, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert body["engine"] is False
-    assert body["error"] == "ConnectError: refused"  # surfaced so the banner can name it
-    assert body["engineUrl"] == "http://127.0.0.1:8765"
+    # ORW-768: the banner never names the reason or the address (those stay on /admin/status), so the player route does not carry them
+    assert "error" not in body and "engineUrl" not in body and "127.0.0.1" not in r.text and "refused" not in r.text
 
 
 def test_health_reports_engine_up(client, monkeypatch):
@@ -79,7 +80,7 @@ def test_health_reports_engine_up(client, monkeypatch):
         return {"ok": True, "engineUrl": "http://127.0.0.1:8765"}
     monkeypatch.setattr(orwell_engine, "engine_health_detail", fake_detail)
     r = client.get("/api/orwell/health")
-    assert r.json()["engine"] is True and r.json().get("error") is None
+    assert r.json()["engine"] is True and r.json().get("error") is None and "engineUrl" not in r.json()
 
 
 def test_status_pre_game_is_an_honest_200_not_a_fake_outage(client, monkeypatch):
@@ -108,5 +109,5 @@ def test_health_reports_a_recent_tool_error_while_up(client, monkeypatch):
     monkeypatch.setattr(orwell_engine, "engine_health_detail", fake_detail)
     body = client.get("/api/orwell/health").json()
     assert body["engine"] is True
-    assert body["lastError"]["tool"] == "advanceGame"
-    assert "internal error" in body["lastError"]["error"]
+    assert body["lastError"] == {"error": True}   # ORW-768: only THAT a call failed; the tool name and the raw error text stay on /admin/status
+    assert "advanceGame" not in json.dumps(body) and "internal error" not in json.dumps(body)

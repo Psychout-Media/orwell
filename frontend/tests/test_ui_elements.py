@@ -490,11 +490,11 @@ class TestRemainingOrwellRoutes:
         assert resp.status_code == 200
         assert resp.json()["engine"] is False
 
-    def test_health_reports_engine_url(self, monkeypatch):
+    def test_health_does_not_report_the_engine_url_to_the_browser(self, monkeypatch):  # ORW-768
         async def fake_detail():
             return {"ok": True, "engineUrl": "http://127.0.0.1:8765"}
 
         client = _build_client(monkeypatch, {"engine_health_detail": fake_detail})
         resp = client.get("/api/orwell/health")
         data = resp.json()
-        assert "engineUrl" in data or "engine_url" in data or "url" in data
+        assert "engineUrl" not in data and "engine_url" not in data and "url" not in data and "127.0.0.1" not in resp.text

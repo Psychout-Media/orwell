@@ -456,7 +456,7 @@ def _state(week, phase, clock, cast, hoh=None, nominees=(), veto=None, evicted=(
     state = {"started": True, "phase": phase, "week": week, "timeOfDay": band, "dayNumber": int(day), "daySchedule": {"due": due, "next": nxt, "minutesUntil": 0 if due else 90},
              "ceremony": board, "house": house, "player": ref(player) if player else None, "pending": {"kind": pending["kind"]} if pending else None, "finished": finished}
     status = dict(board, pending=pending, finished=finished, winner=ref(winner) if winner else None)
-    whereabouts = {"whereabouts": {"room": "kitchen", "counts": {"house": len([n for n in cast if n not in evicted]), "others": 3, "room": 4}, "present": [ref(n) for n in cast[1:5]]}}
+    whereabouts = {"whereabouts": {"room": "kitchen", "present": [ref(n) for n in cast[1:5]]}}
     return {"screens": {"state": state, "status": status, "whereabouts": whereabouts}}
 
 
