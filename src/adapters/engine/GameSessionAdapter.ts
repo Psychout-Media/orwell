@@ -11901,16 +11901,16 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
-   * 0059 / L40 — the Vault-free projection of the PUBLIC showmances (stage `visible`): once a showmance
-   * is visible the whole house knows it, so naming the pair is a public fact, not a Vault leak. This is
-   * what lets the narrator voice romance for THESE pairs ONLY (the L40 restraint). Pre-visible (sealed)
-   * showmances and the pre-game ties never appear here.
+   * 0059 / L40 + ORW-733 — the narrator's (and `getGameState().showmances`) list of showmances, a PURE PROJECTION of the PLAYER's knowledge: a pair at stage `visible` ("the house
+   * knows") is listed ONLY once the player has seen it (a romance scene they were in, or watched from the same room: `romanceSeenBy`, the one predicate the own-view reads use).
+   * The house knowing is not the player knowing: what the player knows about people is what they saw or were told, so a pair only the house has noticed is never named to the narrator,
+   * who would voice it as public. Pre-visible (sealed) showmances and the pre-game ties never appear here. The gate lives here, at the single source, so no consumer re-leaks.
    */
   visibleShowmances(): Array<{ a: string; b: string }> {
     if (!this.house) return [];
     const nameOf = (id: EntityId): string => this.house!.npcs.find((n) => n.id === id)?.name ?? id;
     return this.seededRels.showmances
-      .filter((s) => s.stage === "visible")
+      .filter((s) => s.stage === "visible" && this.romanceSeenBy(PLAYER, s.a, s.b))
       .map((s) => ({ a: nameOf(s.a), b: nameOf(s.b) }));
   }
 

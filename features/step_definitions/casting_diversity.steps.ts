@@ -370,9 +370,12 @@ When("the showmance earns visibility through an in-game pathway over weeks", fun
 
 Then("it surfaces as an event, never week-one and never telegraphed", function (this: BbWorld) {
   const sb = this.dvSandbox!;
-  // It became visible only after sustained growth (not at cast time): the public showmances now lists it.
-  const visible = sb.session.visibleShowmances();
-  assert.ok(visible.length > 0, "the earned showmance never became visible");
+  // It became visible only after sustained growth (not at cast time). ORW-733: the house noticing is not the player seeing it, so the narrator's list stays empty until a scene the player is in shows the pair.
+  const s = sb.session.snapshot().seededRelationships!.showmances[0]!;
+  assert.equal(s.stage, "visible", "the earned showmance never became visible");
+  assert.equal(sb.session.visibleShowmances().length, 0, "the house noticing must not tell the narrator");
+  sb.engine.events.record({ id: "bdd-seen-scene", ts: 9999, type: "showmance", initiator: s.a, witnessSet: [PLAYER, s.a, s.b], hidden: false, content: "scene" });
+  assert.ok(sb.session.visibleShowmances().length > 0, "a pair the player saw together never reached the narrator");
 });
 
 // ── Non-reductive / anti-sycophancy / reproducibility ────────────────────────────────────────────────
