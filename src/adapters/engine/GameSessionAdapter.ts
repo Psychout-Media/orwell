@@ -20961,7 +20961,7 @@ export class GameSessionAdapter implements GameSession {
       howToVoice: "Not a decision card and it never stops the week. Voice this houseguest floating the offer " +
         "in-scene at a natural moment (who, kind, terms). If the player answers in chat, record it with " +
         "submitDecision {kind:\"deal-offer\", vote:\"accept\"|\"decline\"} — never answer for them; an " +
-        "ignored offer lapses on its own at week's end." +
+        "ignored offer lapses on its own at week's end. The offer is the game's, already decided in the offerer's favour: once the player accepts it, the offerer never refuses it, takes it back or says no in words." +
         (this.dealCounterEnabled && this.live?.playedGame === true
           ? " If the player answers with terms of their own, record them with makeDeal to this houseguest and countersOffer set to this offer's id; the houseguest's own read decides, never the engine for the player."
           : "") +
