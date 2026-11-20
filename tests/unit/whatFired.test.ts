@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { milestonesOf } from "../support/whatFired/player";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,7 +14,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 const season = (seed: number, over: Partial<SeasonRecord> = {}): SeasonRecord => ({
   seed, finished: true, messages: 100, advances: 10, week: 5, stopped: "finished", eventTypes: { bonding: 4, gossip: 6 }, houseLifeActions: { cook: 3 }, eventFields: {}, stateKeysPopulated: ["live.a"], stateKeysSeen: ["live.a", "live.b"],
-  pendingKinds: {}, pendingRepeats: {}, faults: [], crashes: [], refused: {}, noEffect: {}, tried: { makeDeal: 4 }, scenes: [
+  pendingKinds: {}, pendingRepeats: {}, faults: [], crashes: [], refused: {}, noEffect: {}, tried: { makeDeal: 4 }, milestones: {}, scenes: [
     { type: "bonding", action: "cook", msg: 1, week: 1, playerOut: false }, { type: "gossip", action: "x", msg: 2, week: 1, playerOut: false }, { type: "strategy", action: "y", msg: 3, week: 2, playerOut: false }, { type: "conflict", action: "z", msg: 4, week: 2, playerOut: true },
   ], trace: [], ...over,
 });
@@ -150,5 +151,25 @@ describe("the nightly wiring", () => {
   it("calls no model and reads no secret", () => {
     expect(wf).not.toMatch(/secrets\.(?!GITHUB_TOKEN)/);
     expect(wf).not.toMatch(/OPENROUTER|ANTHROPIC|API_KEY/);
+  });
+});
+
+describe("ORW-741: the milestone footprints are derived, not listed", () => {
+  it("counts the size of a saved list or map, the kinds in the post-season views, and the knowledge pathways; copies no name, content or id", () => {
+    const m = milestonesOf(
+      { secretBreaks: ["f1", "f2"], leveragePlays: [], houseMeetings: [{ a: 1 }], grudges: { "a|b": 1 }, week: 4, finished: true },
+      { yourEdit: { episodes: [{ moments: [{ kind: "scheme", actor: "Some Name" }, { kind: "house-meeting" }, { kind: "scheme" }] }] }, yourStories: { stories: [{ name: "Some Name", shape: "turned" }] }, odd: { kind: "NOT a token!" } },
+      [{ pathway: "overheard:evt-1" }, { pathway: "told-by:npc:3" }, { pathway: "told-by:npc:4" }, {}],
+    );
+    expect(m).toEqual({ "state.secretBreaks": 2, "state.houseMeetings": 1, "state.grudges": 1, "view.yourEdit.kind:scheme": 2, "view.yourEdit.kind:house-meeting": 1, "view.yourStories.shape:turned": 1, "pathway.overheard": 1, "pathway.told": 2 });
+    expect(JSON.stringify(m)).not.toMatch(/Some Name|npc:|evt-1/);
+  });
+  it("reaches the summary and the rendered report, and survives a record from before the field existed", () => {
+    const s = buildSummary({ ...inputs(), seasons: [season(1, { milestones: { "state.secretBreaks": 3 } }), season(2, { milestones: undefined as never })] });
+    expect(s.milestones).toEqual([{ name: "state.secretBreaks", perSeason: 1.5, seasons: 1 }]);
+    const md = renderMarkdown(s, diffSummaries(null, s));
+    expect(md).toContain("### Milestones reached in the played seasons (1)");
+    expect(md).toContain("| state.secretBreaks | 1.5 | 1/2 |");
+    expect(() => assertClean(md)).not.toThrow();
   });
 });
