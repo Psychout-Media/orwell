@@ -65,6 +65,8 @@ export const ASSURANCE = {
   /** The vote term's size scales with the pull: factor = floor + span * pull (a scheming voter's term is weak, a loyal friend's strong). */
   termScaleFloor: 0.5,
   termScaleSpan: 2,
+  /** ORW-737: a houseguest who would NOT truly keep the player still SAYS they will with chance `stanceLieScale * (1 - honesty)` (a keyed roll): at most one in this fraction of the dishonest, never most of a house. */
+  stanceLieScale: 0.5,
 } as const;
 
 const clamp = clampGuarded;
@@ -171,4 +173,17 @@ export function pullVerdict(i: { plan: boolean | undefined; sincerity: number; l
   if (i.plan === true) return false;
   const sincerity = i.plan === false ? 1 : i.sincerity;
   return sincerity >= ASSURANCE.sincereAt ? pullKeeps(i.pull, i.roll) : i.legacyKeep;
+}
+
+/** ORW-737 - what a houseguest DECLARES to the player about a future vote, nomination or veto. The narrator voices this and nothing else; the private vote never crosses. */
+export type DeclaredStance = "will-keep" | "wont-commit";
+
+/**
+ * ORW-737 - the ENGINE decides what a houseguest tells the player about keeping them. A standing assurance (recorded, open or kept) is declared again. Otherwise a houseguest whose own pull would keep the
+ * player (`pullKeeps`, keyed roll) declares it truthfully; one who would not still declares it when `lieRoll` falls under `stanceLieScale * (1 - honesty)` (a lie, recorded later as a low-sincerity assurance);
+ * everyone else declines to commit. Pure: both rolls come from dedicated keyed streams, never the shared one.
+ */
+export function declaredStance(i: { standing: boolean; pull: number; honesty: number; keepRoll: number; lieRoll: number }): DeclaredStance {
+  if (i.standing || pullKeeps(i.pull, i.keepRoll)) return "will-keep";
+  return clamp(i.lieRoll, 0, 1) < ASSURANCE.stanceLieScale * (1 - clamp(i.honesty, 0, 1)) ? "will-keep" : "wont-commit";
 }
