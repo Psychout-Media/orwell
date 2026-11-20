@@ -101,7 +101,7 @@ import { decideDodge, type DodgeFact } from "../../engine/dodging";
 import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosureFull, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { beatShare, endgamePush, endgameFakeLean, isEndgame } from "../../engine/endgameTrust";
 import { heirOf, partnerReaction, debtorRelief } from "../../engine/evictedTake";
-import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, assurancePull, pullVerdict, assuranceTermScale, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
+import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, assurancePull, pullVerdict, assuranceTermScale, ASSURANCE, npcAssuranceSincerity, isRumoredBreak, declaredStance, pullKeeps, type DeclaredStance } from "../../engine/assurances";
 import type { BindingAction, BreakCause, Deal } from "../../engine/deals";
 import { dealTermIllegal, voteTermIllegal, duplicateLiveDeal, type DealWeek, type DealIllegalReason } from "../../engine/dealLegality";
 import { isPositiveObligation, RELIABLE_FACT_PREFIX } from "../../domain/deal";
@@ -2592,6 +2592,35 @@ export class GameSessionAdapter implements GameSession {
     this.keepAssurances((a) => a.kind === "safe" && !finalNominees.includes(a.to));
   }
 
+  /**
+   * ORW-737 - WHAT A HOUSEGUEST DECLARES TO THE PLAYER about a future vote, nomination or veto, decided by the ENGINE (the narrator never improvises a commitment). ON unless `ORWELL_DECLARED_STANCE=0`; played games only.
+   * Present only when something is at stake: a standing assurance to the player, the player on the block (a legal voter: not the HOH, not a nominee), or the HOH before nominations. A standing assurance is declared
+   * again; a voter declares keeping the player when their own pull would (a truthful promise) or, rarely, as a lie (`declaredStance`, keyed rolls, never the shared rng); the HOH, whose nomination intent is
+   * hidden, commits only through a recorded assurance. The private vote never crosses: only what is SAID. The words are the narrator's; a promise it voices is recorded by the existing promise path.
+   */
+  private declaredStanceEnabled = flagDefaultOn("ORWELL_DECLARED_STANCE");
+  setDeclaredStanceEnabled(on: boolean): void { this.declaredStanceEnabled = on; }
+  declaredStanceFor(id: EntityId): DeclaredStance | undefined {
+    const s = this.live;
+    if (!this.declaredStanceEnabled || !this.assurancesEnabled || !s || s.playedGame !== true || id === PLAYER || !this.livingIds().includes(id)) return undefined;
+    const standing = (s.assurances?.items ?? []).some((a) => a.from === id && a.to === PLAYER && (a.status === "open" || a.status === "kept") && (a.kind === "vote" || a.kind === "safe" || a.kind === "loyal"));
+    const block = (s.finalNominees ?? s.nominees) as readonly EntityId[] | undefined;
+    const onBlock = !!block && block.includes(PLAYER);
+    const voter = onBlock && id !== s.hoh && !block!.includes(id);
+    const hohBefore = s.hoh === id && (!block || block.length === 0);
+    if (!standing && !voter && !hohBefore) return undefined;
+    if (!voter) return standing ? "will-keep" : "wont-commit";
+    const key = `${this.gameSeed ?? 0}:stance:${s.week}:${id}`;
+    return declaredStance({ standing, pull: this.assurancePullOf(id, PLAYER), honesty: this.assuranceTraitsOf(id).honesty, keepRoll: new SeededRandom(hashSeed(key)).next(), lieRoll: new SeededRandom(hashSeed(`${key}:lie`)).next() });
+  }
+  /** ORW-737: the living houseguests with a recorded promise to keep the player (a vote or safe assurance, not lapsed): the only people eviction-night narration may say told the player they would keep them. No status: that would unseal a ballot. */
+  keepPromisersOfPlayer(): NamedRef[] {
+    const s = this.live;
+    if (!this.declaredStanceEnabled || !s || s.playedGame !== true || !s.assurances) return [];
+    const ids = [...new Set(s.assurances.items.filter((a) => a.to === PLAYER && a.status !== "lapsed" && (a.kind === "vote" || a.kind === "safe")).map((a) => a.from))];
+    return ids.filter((id) => this.livingIds().includes(id)).map((id) => ({ id, name: this.nameOf(id) }));
+  }
+
   /** B4 - append one recorded assurance to the live ledger (persisted with the season). */
   recordAssurance(a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc"; heardBy?: EntityId[] }): void {
     if (!this.assurancesEnabled || !this.live) return;
@@ -4372,6 +4401,8 @@ export class GameSessionAdapter implements GameSession {
       ...(isActive ? this.moodCauseFor(id) : {}),
       // ORW-314: the reason this houseguest gave aloud for a public act on the board this week (kind + subject only; the narrator voices it, never invents another).
       ...(isActive ? (() => { const r = this.statedReasonsFor(id); return r.length ? { statedReasons: r } : {}; })() : {}),
+      // ORW-737: what they DECLARE to the player about keeping them (the engine's call; the private vote never crosses). Absent when nothing is at stake.
+      ...(isActive ? (() => { const d = this.declaredStanceFor(id); return d ? { declaredStance: d } : {}; })() : {}),
       whereabouts: room ? { room, present } : null,
       // ORW-349: the same fact held twice (a retold rumour, the same overhear) is listed once, newest kept; the cap then counts DISTINCT facts. Deduped over the whole list BEFORE the cap, so repeats in the recent tail never crowd out distinct older facts.
       knows: dedupeKeepNewest(this.voiceKnownFacts(id).map((f) => this.humanizeTidy(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP),
@@ -20974,7 +21005,7 @@ export class GameSessionAdapter implements GameSession {
       howToVoice: "Not a decision card and it never stops the week. Voice this houseguest floating the offer " +
         "in-scene at a natural moment (who, kind, terms). If the player answers in chat, record it with " +
         "submitDecision {kind:\"deal-offer\", vote:\"accept\"|\"decline\"} — never answer for them; an " +
-        "ignored offer lapses on its own at week's end." +
+        "ignored offer lapses on its own at week's end. The offer is the game's, already decided in the offerer's favour: once the player accepts it, the offerer never refuses it, takes it back or says no in words." +
         (this.dealCounterEnabled && this.live?.playedGame === true
           ? " If the player answers with terms of their own, record them with makeDeal to this houseguest and countersOffer set to this offer's id; the houseguest's own read decides, never the engine for the player."
           : "") +
@@ -21629,6 +21660,7 @@ export class GameSessionAdapter implements GameSession {
           ...(v.currentRead ? { currentRead: v.currentRead } : {}),
           ...(v.rivalry ? { rivalry: v.rivalry } : {}),
           ...(v.statedReasons ? { statedReasons: v.statedReasons } : {}),
+          ...(v.declaredStance ? { declaredStance: v.declaredStance } : {}),
           // ORW-338: the two ORW-317 lines `npcVoice` already gated (flags, public kinds, this week, trust + candor); pushed, never recomputed here.
           ...(v.moodCause ? { moodCause: v.moodCause } : {}),
           ...(v.rememberedAboutOthers?.length ? { rememberedAboutOthers: v.rememberedAboutOthers } : {}),
@@ -21640,7 +21672,7 @@ export class GameSessionAdapter implements GameSession {
       .filter(
         (e): e is NonNullable<typeof e> =>
           e !== null &&
-          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined || e.moodCause !== undefined || e.rememberedAboutOthers !== undefined || e.tellsYou !== undefined || e.leansOnYou !== undefined),
+          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined || e.declaredStance !== undefined || e.moodCause !== undefined || e.rememberedAboutOthers !== undefined || e.tellsYou !== undefined || e.leansOnYou !== undefined),
       );
   }
 
@@ -21675,7 +21707,9 @@ export class GameSessionAdapter implements GameSession {
     const view4 = this.claimSourceNote ? { ...view3b, sourceNote: this.claimSourceNote } : view3b; // 0152: the answer to "who told you that?", this turn only
     const meetingNow = this.houseMeetingForNarrator(); // 0156 slice 7b: a meeting the player was in the house and awake to hear (one turn; absent otherwise)
     const view5 = meetingNow ? { ...view4, houseMeeting: meetingNow } : view4;
-    const view = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
+    const view6 = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
+    const keepers = (req.moment ?? view6.moment) === "eviction" ? this.keepPromisersOfPlayer() : []; // ORW-737: eviction night only
+    const view = keepers.length ? { ...view6, keepPromisers: keepers } : view6;
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
     const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
       ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)

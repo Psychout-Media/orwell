@@ -645,6 +645,8 @@ export interface GameStateView {
   houseMeeting?: HouseMeetingView;
   /** ORW-593 (moment prompt only, one turn): the player's call for a house meeting was refused, and why in the world's terms. Never a number or a hidden reason. */
   houseMeetingRefused?: "ceremony" | "asleep" | "nobody" | "spent";
+  /** ORW-737: on eviction night, the houseguests who HAVE a recorded promise to keep the player (an assurance on the ledger, kept or still open). The ONLY people the narrator may say told the player they would keep them. Absent when none. */
+  keepPromisers?: NamedRef[];
   /**
    * #1792 — Producer Read: Vault-free post-scene exchange-accounting string,
    * delivered ONCE in the moment prompt immediately following a substantive
@@ -2328,6 +2330,8 @@ export interface NpcVoiceView {
   dodge?: { approach: string; openness: string; pushesBack: boolean };
   /** ORW-314: the reasons this houseguest gave aloud for a public act on the board this week (nominations, the replacement, the veto, the Final HOH's eviction). Voice THAT reason; never invent another. Absent when none. */
   statedReasons?: StatedReasonView[];
+  /** ORW-737: what this houseguest DECLARES to the player about keeping them (a vote, a nomination, a veto): the ENGINE's call, never the houseguest's private vote. `will-keep` = they say they will (a recorded assurance, or one the engine decided they give); `wont-commit` = they decline to promise either way. Voice only this about the future; absent when nothing is at stake this turn. */
+  declaredStance?: "will-keep" | "wont-commit";
   /** A49 (#2017 E1a, flag ORWELL_NPC_TELLS, default ON): the houseguest's observable carriage right now - at most 2 closed-vocabulary tells (kind, band, channel), words only, never a number or a cause. Present only for a houseguest who is PRESENT in the player's room and awake. Absent flag-off => byte-identical. */
   tells?: ReadonlyArray<{ kind: string; band: string; channel: string }>;
   /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default ON): up to 3 plain facts this houseguest holds about the PLAYER (words + a recency word; never a kind slug, severity or number). Absent flag-off or when they hold none. */
@@ -2481,6 +2485,8 @@ export interface PresentKnowledgeView {
   rivalry?: { tone: "simmering" | "open" };
   /** ORW-314: the same stated reasons `npcVoice` carries, pushed so the narrator voices the DECIDER's reason without the under-called tool. */
   statedReasons?: StatedReasonView[];
+  /** ORW-737: the same `declaredStance` `npcVoice` carries, pushed so the narrator voices the engine's stance without the under-called tool. */
+  declaredStance?: "will-keep" | "wont-commit";
   /** ORW-338: the same `moodCause` `npcVoice` carries (this week's, only when they would tell the player), pushed so the narrator can voice it without the under-called tool. Same gates as `npcVoice`. */
   moodCause?: string;
   /** ORW-338: the same `rememberedAboutOthers` `npcVoice` carries (public-fact memories about people in the room, memory speech flag), pushed for the same reason. */

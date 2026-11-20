@@ -116,6 +116,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // 0178 / ORW-552 (Theme 3 slice 1): two-faced deals - each NPC's secret plan for a deal it agreed to (keep / this week / break at a moment / flip at the vote / cut at the final three), carried out at its moment. `=0` = no plans.
   { envKey: 'ORWELL_DEAL_PLANS', key: 'dealPlans', parser: 'defaultOn' },
   { envKey: 'ORWELL_DEAL_WITNESSES', key: 'dealsWitnesses', parser: 'defaultOn' },
+  // ORW-737: the engine decides what a houseguest DECLARES to the player about a future vote, nomination or veto (a closed will-keep / wont-commit stance; the narrator voices only that), and the eviction-night list of who promised to keep the player comes from the real assurance ledger. ON by default; `=0` turns it off.
+  { envKey: 'ORWELL_DECLARED_STANCE', key: 'declaredStance', parser: 'defaultOn' },
   // A8: the NPC desire clock (an NPC whose want crossed its threshold cuts in). ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_DESIRE_CLOCK', key: 'desireClock', parser: 'defaultOn' },
   // ORW-668 / 0210 C2: production visibly calls a houseguest to the Diary Room and the house sees them go and come back (who, how long, how they looked; never what was said); the player is invited, never sent. A played game only; changes no outcome. `=0` opts out.
