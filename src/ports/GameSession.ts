@@ -1198,6 +1198,12 @@ export interface CreateCharacterReq {
    */
   start?: "new" | "return";
   /**
+   * ORW-739 (rule 1, the second half of the choice): on a confirmed restart, return as one of the player's OWN previous characters, named by the season number they played them in
+   * (the game hands the narrator that list as facts). It restores that character's authored profile exactly as `keepCharacter` does for the season just finished, and it is a
+   * return (reputation walks in, a past houseguest may be cast back). Refused (typed) when it names no character of the player's, or with `start: "new"`. Returns nothing hidden.
+   */
+  returnAs?: number;
+  /**
    * Cross-season name memory (NAME-1 / #547) — names used by PRIOR seasons in the SAME game, so a new
    * season's corpus-sampled cast AVOIDS them (replayability/sameness, mandate #4). Carries both full
    * names and given names. ENGINE-INTERNAL: set on a confirmed restart from the dead season's roster

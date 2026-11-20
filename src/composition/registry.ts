@@ -746,6 +746,11 @@ export class GameSessionRegistry {
       sb.syncAdmin(); // the admin's inspectable state tracks the live game (B58/E5)
       this.commit(user);
     };
+    sb.session.setOwnCharacterSource(() => { // ORW-739: this user's own previous characters only (per-user closure); `current` = the number the season on screen takes when archived
+      const known = this.seasonArchive.read(user);
+      const past = this.seasonArchive.readOwn(user);
+      return { past, current: Math.max(nextSeasonNumber(known), past.reduce((m, c) => Math.max(m, c.season), 0) + 1) };
+    });
     sb.session.setHallOfFameSource(() => this.hallStore.read(user)); // 0208 B3: this user's hall only (per-user closure; never a cross-user read)
     sb.session.setOnPersist(persist); // save-on-mutation (0030) / checkpoint-then-save (B41)
     sb.commands.setOnPersist(persist);
@@ -1023,6 +1028,9 @@ export class GameSessionRegistry {
       const known = this.seasonArchive.read(user);
       const entries = sess?.archiveFinishedSeason(nextSeasonNumber(known));
       if (entries && entries.length > 0) this.seasonArchive.append(user, entries);
+      // ORW-739: the player's OWN character from the same season, so they may return as them later (their own authored profile; same season number as the houseguests).
+      const own = sess?.archiveOwnCharacter(Math.max(nextSeasonNumber(known), this.seasonArchive.readOwn(user).reduce((m, c) => Math.max(m, c.season), 0) + 1));
+      if (own) this.seasonArchive.appendOwn(user, own);
     } catch { /* the archive is a retention nicety - never let it wedge a reset */ }
 
     // G12: the dead season's queued (derived) soul-index work must not crowd the shared

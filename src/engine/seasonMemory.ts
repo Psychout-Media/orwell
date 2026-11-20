@@ -48,6 +48,21 @@ export interface ArchivedHouseguest {
   persona?: ArchivedPersona;
 }
 
+/**
+ * ORW-739 (B1 follow-on, Ryne 2026-11-18 rule 1): the player's OWN character from a season they played, archived at that season's end so they may return as them.
+ * `fields` is exactly what the player authored at casting (name, archetype/strategy, their own persona words, backstory, motivation, private strategy, interview notes,
+ * pronouns): the player's own material, no hidden layer, no number, no other houseguest. Per user, engine-only, append-only; the player sees only name and season number.
+ */
+export interface ArchivedOwnCharacter {
+  season: number;
+  name: string;
+  fields: OwnCharacterFields;
+}
+export interface OwnCharacterFields {
+  playerName?: string; archetype?: string; strategyStyle?: string; personaArchetype?: string; personaStrategyStyle?: string;
+  backstory?: string; privateStrategy?: string; motivation?: string; interviewNotes?: string[]; genderPresentation?: string;
+}
+
 /** B1: a static CHARACTER snapshot WITHOUT its `hiddenElements` (the prior season's hidden layer never rides the archive; a returner's secrets are minted fresh for the new season). */
 export type ArchivedPersona = Omit<Character, "hiddenElements">;
 

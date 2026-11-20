@@ -4,7 +4,7 @@ import {
 } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import type { UserSeasonArchive } from "../../ports/UserSeasonArchive";
-import type { ArchivedHouseguest } from "../../engine/seasonMemory";
+import type { ArchivedHouseguest, ArchivedOwnCharacter } from "../../engine/seasonMemory";
 
 /** Append-only merge: entries for a season already on file are ignored. */
 function merge(prior: readonly ArchivedHouseguest[], add: readonly ArchivedHouseguest[]): ArchivedHouseguest[] {
@@ -13,6 +13,11 @@ function merge(prior: readonly ArchivedHouseguest[], add: readonly ArchivedHouse
   const seasons = [...new Set(add.map((h) => h.season))].filter((s) => !have.has(s)).sort((a, b) => a - b);
   for (const s of seasons) out.push(...add.filter((h) => h.season === s));
   return out;
+}
+
+/** ORW-739: append-only merge of the player's own previous characters: a season already on file is ignored. */
+function mergeOwn(prior: readonly ArchivedOwnCharacter[], add: ArchivedOwnCharacter): ArchivedOwnCharacter[] {
+  return prior.some((c) => c.season === add.season) ? [...prior] : [...prior, add].sort((a, b) => a.season - b.season);
 }
 
 /**
@@ -49,6 +54,37 @@ export class FileUserSeasonArchive implements UserSeasonArchive {
     }
   }
 
+  /** ORW-739: the player's own previous characters live in `<hex-user>.own.json` beside the houseguest archive (a missing file = none, so an older archive loads unchanged). */
+  readOwn(user: string): ArchivedOwnCharacter[] {
+    const file = this.fileFor(user).replace(/\.json$/, ".own.json");
+    if (!existsSync(file)) return [];
+    try {
+      const parsed = JSON.parse(readFileSync(file, "utf8")) as unknown;
+      return Array.isArray(parsed) ? (parsed as ArchivedOwnCharacter[]) : [];
+    } catch (e) {
+      try { renameSync(file, `${file}.corrupt-${Date.now()}`); } catch { /* best-effort */ }
+      console.error(`[orwell] own-character archive file for a user was corrupt and has been quarantined (${e instanceof Error ? e.message : String(e)})`);
+      return [];
+    }
+  }
+
+  appendOwn(user: string, entry: ArchivedOwnCharacter): void {
+    const prior = this.readOwn(user);
+    const merged = mergeOwn(prior, entry);
+    if (merged.length === prior.length) return;
+    mkdirSync(this.baseDir, { recursive: true });
+    const file = this.fileFor(user).replace(/\.json$/, ".own.json");
+    const tmp = `${file}.tmp`;
+    const fd = openSync(tmp, "w");
+    try {
+      writeSync(fd, JSON.stringify(merged), null, "utf8");
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    renameSync(tmp, file);
+  }
+
   append(user: string, entries: readonly ArchivedHouseguest[]): void {
     const prior = this.read(user);
     const merged = merge(prior, entries);
@@ -74,6 +110,15 @@ export class FileUserSeasonArchive implements UserSeasonArchive {
 /** In-memory `UserSeasonArchive` (the test adapter + the default when no durable store is composed). Per-user keyed. */
 export class InMemoryUserSeasonArchive implements UserSeasonArchive {
   private readonly byUser = new Map<string, ArchivedHouseguest[]>();
+  private readonly ownByUser = new Map<string, ArchivedOwnCharacter[]>();
+
+  readOwn(user: string): ArchivedOwnCharacter[] {
+    return (this.ownByUser.get(user) ?? []).map((c) => JSON.parse(JSON.stringify(c)) as ArchivedOwnCharacter);
+  }
+
+  appendOwn(user: string, entry: ArchivedOwnCharacter): void {
+    this.ownByUser.set(user, mergeOwn(this.ownByUser.get(user) ?? [], JSON.parse(JSON.stringify(entry)) as ArchivedOwnCharacter));
+  }
 
   read(user: string): ArchivedHouseguest[] {
     return (this.byUser.get(user) ?? []).map((h) => JSON.parse(JSON.stringify(h)) as ArchivedHouseguest);

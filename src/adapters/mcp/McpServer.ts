@@ -78,6 +78,8 @@ function requireShape(name: string, args: Record<string, unknown>): void {
     case "createCharacter":
       // 0208 / ORW-663: the player's own choice at a new season: a clean slate ("new") or a return that brings their reputation and may cast a returner. Unknown values are refused (typed), absent = today's behaviour.
       if (args["start"] !== undefined && args["start"] !== "new" && args["start"] !== "return") refuse("start", "'new' or 'return' when present");
+      // ORW-739: `returnAs` = the season number of one of the player's own previous characters (the engine resolves it; a number that names none is refused, typed).
+      if (args["returnAs"] !== undefined && (typeof args["returnAs"] !== "number" || !Number.isInteger(args["returnAs"]) || args["returnAs"] < 1)) refuse("returnAs", "a season number (a positive whole number) when present");
       break;
     case "recordInteraction":
       guardSyncFields(true); // 0065 Part A CAS + Part B at-most-once idempotencyKey (A10/#591 — the FE re-drives a fold-bearing scene after a stale-409; the key makes that at-most-once, so a concurrent re-drive can't double-fold)
