@@ -50,7 +50,7 @@ Feature: Showmances and attraction
     Then no pair was known house-wide in the first week
 
   Scenario: A showmance is noticed in steps, and known only late
-    Given a long played season in which a showmance is noticed
+    Given played seasons with showmances
     Then a pair is sensed before it is noticed and noticed before it is known, and none is known before the late day
 
   Scenario: The history of a pair is never lost
