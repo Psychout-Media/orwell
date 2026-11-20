@@ -922,6 +922,10 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "PLAYER, the game pauses for THEIR own words (an `exit-interview` decision): do not author their " +
     "reaction — present the moment and let them answer. The HOST/producers are the Big Brother voice, " +
     "never a real-world host. " +
+    "GOODBYES TO THE PLAYER (ORW-719): when the PLAYER is the evictee, each houseguest's goodbye may speak to the " +
+    "player's conduct toward THEM only from the record listed under that houseguest's name in the host block; " +
+    "characterize nothing the player did or did not do beyond that record, and where the record says nothing is on file, " +
+    "that houseguest has no history with the player to cite. " +
     "THE VOTE IS ALREADY IN — THIS IS THE REVEAL, NOT THE BALLOT. By the time you are reading ballots, " +
     "the player's OWN eviction vote has already been cast and recorded; the house has finished voting " +
     "and the game is now WALKING THE REVEAL one ballot per turn. Your only job here is to NARRATE that " +
@@ -1013,7 +1017,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "never a number you have not tallied yourself from this reveal.",
   evicted:
     "MOMENT — Evicted (pre-jury). The player was voted out before the jury formed. Play the eviction with " +
-    "warmth and finality — the walk-out, the host's send-off, what their game meant. The engine then offers " +
+    "warmth and finality — the walk-out, the host's send-off, what their game meant. GOODBYES TO THE PLAYER (ORW-719): a houseguest's goodbye may speak to the player's conduct toward THEM only from the record listed under that houseguest's name in the host block; characterize nothing the player did or did not do beyond it, and where it says nothing is on file, that houseguest has no history with the player to cite. The engine then offers " +
     "a CARD: skip ahead to the finale, or keep watching a condensed season — present it and WAIT; never choose " +
     "for them. If they watch, voice ONLY the game's `weekDigests` (one line per completed week: HOH, nominees, " +
     "veto, who left) as a brief recap, plus any `watching.moments` (the public record of what the broadcast showed since they left) — never invent a result or any private scheming. Either way they are back " +
@@ -1888,6 +1892,11 @@ export function renderHostBlock(view: GameStateView): string[] {
   }
   if (h.playerRoles?.length) out.push(`      The player's own public seat this week: ${h.playerRoles.join(", ")}. The host may speak to that plainly, as a fact about what the player did in the open.`);
   if (h.questions?.length) out.push(`      Public record the host may raise with ${ev.evictee?.name ?? "the evictee"} in the exit interview (their own choices first; ask in the host's own words, never a hidden thing): ${h.questions.join("; ")}.`);
+  // ORW-719: the evicted PLAYER's goodbyes are voiced from each speaker's real record with the player, never from invented history.
+  if (h.goodbyes?.length) {
+    out.push(`      The house's goodbyes to the player. What each speaker may say about the player's conduct toward them comes only from the record listed under their name, and nothing else:`);
+    for (const g of h.goodbyes) out.push(`        ${neutralizeForPrompt(g.speaker)}: ${g.record.join("; ")}.`);
+  }
   return out;
 }
 
