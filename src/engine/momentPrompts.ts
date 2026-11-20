@@ -1967,6 +1967,7 @@ export function renderStoryFacts(
   recentWitnessed: ReadonlyArray<{ content: string }>,
   finale?: { winner: string; week: number; tally?: { winnerVotes: number; runnerUpVotes: number; runnerUp: string } } | null,
   playerSeason?: string | null,
+  ownCharacters?: ReadonlyArray<{ season: number; name: string }>,
 ): string {
   const lines: string[] = ["THE RECORD (witnessed events — voice these, never invent others):"];
   for (const e of recentWitnessed) lines.push(`  - ${e.content}`);
@@ -1982,6 +1983,10 @@ export function renderStoryFacts(
   }
   if (playerSeason) {
     lines.push(`THE PLAYER'S OWN SEASON: ${playerSeason} State this EXACTLY — never embellish how far they got, their placement, or their competition wins.`);
+  }
+  // ORW-739 (Ryne rule 1): the player CHOOSES how the next season starts. These are the characters they have played, by season number; absent = nothing to offer (a season that was not played).
+  if (ownCharacters && ownCharacters.length > 0) {
+    lines.push(`THE PLAYER'S OWN PREVIOUS CHARACTERS (the choice for a new season is theirs - a new person, or return as one of these; offer it in your own words, never as a dealt list, and never choose for them): ${ownCharacters.map((c) => `season ${c.season}: ${c.name}`).join("; ")}. To return as one, call createCharacter with confirmRestart=true, start="return" and returnAs=<that season number>; for a new person, start="new" (or omit it) and cast them fresh.`);
   }
   return lines.join("\n");
 }

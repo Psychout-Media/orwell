@@ -4763,6 +4763,11 @@ async def do_create_character(
     player_name = (args.get("playerName") or "").strip() or None
     confirm_restart = bool(args.get("confirmRestart"))
     keep_character = bool(args.get("keepCharacter"))  # 0056: carry the same houseguest into the next season
+    # ORW-739 (0208 rule 1): the player's own choice at a season's end. `start` is passed through only when it is a value the engine accepts;
+    # `returnAs` (a season number of one of the player's own previous characters) only when it is a real whole number. The engine validates both and refuses the rest, typed.
+    start_choice = args.get("start") if args.get("start") in ("new", "return") else None
+    _ra = args.get("returnAs")
+    return_as = int(_ra) if isinstance(_ra, (int, float)) and not isinstance(_ra, bool) and _ra == int(_ra) and _ra >= 1 else None
     # Restart-door backstop — error-correct the model the way the stall-nudge / auto-record do.
     # The model reliably FAILS to pass confirmRestart when the player asks to "play again" after a
     # season ends: it calls createCharacter repeatedly and every call no-ops (B36 guard), stranding
@@ -4915,6 +4920,7 @@ async def do_create_character(
             # player unable to start season 2 from chat — the relay used to drop the confirm.
             confirm_restart=confirm_restart,
             keep_character=keep_character,  # 0056: carry the same houseguest forward when asked
+            start=start_choice, return_as=return_as,  # ORW-739: new person, or return as one of their own previous characters
             user=owner,
         )
         # #1336 residual (1) — the STATUS-POLL race latch. The engine season is live the instant

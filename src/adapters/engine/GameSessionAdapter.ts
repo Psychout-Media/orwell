@@ -334,6 +334,7 @@ import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
 import type { ArchivedHouseguest } from "../../engine/seasonMemory";
+import type { ArchivedOwnCharacter, OwnCharacterFields } from "../../engine/seasonMemory";
 import { buildSeasonArchive, carriedNudge, nextSeasonNumber, planReturner, returnerBeliefs, returnerCharacter, seasonsSince, type SeasonNpcRecord } from "../../engine/returnees";
 import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, plantedBy, type EdgeDelta } from "../../engine/beliefStore";
 import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs";
@@ -10125,12 +10126,18 @@ export class GameSessionAdapter implements GameSession {
 
   createCharacter(req: CreateCharacterReq): GameStateView {
     if (req.start !== undefined && req.start !== "new" && req.start !== "return") throw new EngineRefusal(`invalid args for createCharacter: "start" must be 'new' or 'return' when present`);
+    if (req.returnAs !== undefined && req.start === "new") throw new EngineRefusal(`invalid args for createCharacter: "returnAs" is a return; it cannot be combined with start 'new'`);
     // 0056 — "keep the existing character": on a CONFIRMED restart with `keepCharacter`, capture the
     // prior player's AUTHORED fields HERE (the only point the prior season still exists, before any
     // reset) and fold them under the explicit req. The static CHARACTER is seed-independent, so re-
     // supplying these regenerates the SAME houseguest in the new season; explicit fields still win,
     // so the player may tweak on the way through. No hidden number is read.
-    const carried = (this.house && req.confirmRestart && req.keepCharacter) ? this.carryOverFields() : null;
+    // ORW-739: `returnAs` names one of the player's OWN previous characters (a season number); it restores that character's authored fields the same way `keepCharacter` does for the season just finished.
+    const carried = (this.house && req.confirmRestart && req.returnAs !== undefined)
+      ? this.ownCharacterFor(req.returnAs)
+      : (this.house && req.confirmRestart && req.keepCharacter) ? this.carryOverFields() : null;
+    const { returnAs: _returnAs, ...reqRest } = req; // consumed here: the fresh sandbox's createCharacter never sees it
+    void _returnAs;
     // NAME-1 (#547): on ANY confirmed restart capture the dead season's cast names so the next season's
     // corpus-sampled cast avoids them (cross-season diversity). This is the only point the prior cast
     // still exists, before the reset; it rides `effReq` through `onRestart` into the fresh sandbox.
@@ -10144,7 +10151,7 @@ export class GameSessionAdapter implements GameSession {
       : req.priorHouseThemes;
     const effReq: CreateCharacterReq = {
       ...(carried ?? {}),
-      ...req,
+      ...reqRest,
       ...(carried ? { keepCharacter: false } : {}),
       ...(priorCastNames && priorCastNames.length ? { priorCastNames } : {}),
       ...(priorHouseThemes && priorHouseThemes.length ? { priorHouseThemes } : {}),
@@ -13227,6 +13234,43 @@ export class GameSessionAdapter implements GameSession {
       };
     });
     return buildSeasonArchive(season, records);
+  }
+
+  // ─── ORW-739 - the player's OWN previous characters (rule 1: return as them) ───────────────────────
+  /** Where this user's own previous characters come from (the registry binds it per user; absent in a bare session = none). `current` is the season number the season on screen takes when archived. */
+  private ownCharacterSource: (() => { past: ArchivedOwnCharacter[]; current: number }) | undefined;
+  setOwnCharacterSource(read: (() => { past: ArchivedOwnCharacter[]; current: number }) | undefined): void { this.ownCharacterSource = read; }
+
+  /** Was the season on screen a PLAYED one that earns archive entries (finished, or ended mid-way after at least one eviction)? The one predicate the NPC archive and this share. */
+  private seasonIsArchivable(): boolean {
+    const abandoned = !this.live?.finished && this.live?.playedGame === true && (this.live?.evictionOrder?.length ?? 0) > 0;
+    return !!(this.seasonMemoryEnabled && this.house && this.live && this.live.playedGame === true && (this.live.finished || abandoned));
+  }
+
+  /** The player's own character from the season on screen, archived at the season cutover (null unless that season is archivable). Their own authored fields only: no hidden layer, no number. */
+  archiveOwnCharacter(season: number): ArchivedOwnCharacter | null {
+    if (!this.seasonIsArchivable()) return null;
+    const { playerName, ...rest } = this.carryOverFields();
+    if (!playerName) return null;
+    return { season, name: playerName, fields: JSON.parse(JSON.stringify({ playerName, ...rest })) as OwnCharacterFields };
+  }
+
+  /** The player's own previous characters the narrator may OFFER at a season's end: name and season number only, the one just finished included (it is the newest). Empty until a played season ends. */
+  private ownCharacterChoices(): Array<{ season: number; name: string }> {
+    const src = this.ownCharacterSource?.();
+    if (!src) return [];
+    const list = src.past.map((c) => ({ season: c.season, name: c.name }));
+    if (this.live?.finished && this.seasonIsArchivable() && this.house && !list.some((c) => c.season === src.current)) list.push({ season: src.current, name: this.house.player.name });
+    return list.sort((a, b) => a.season - b.season);
+  }
+
+  /** Resolve `returnAs` to a character's authored fields: the season just finished (current) from the live profile, an earlier one from the archive. A season that names no character of this player's is refused, typed. */
+  private ownCharacterFor(season: number): CreateCharacterReq {
+    const src = this.ownCharacterSource?.();
+    if (src && this.seasonIsArchivable() && season === src.current) return this.carryOverFields();
+    const hit = src?.past.find((c) => c.season === season);
+    if (!hit) throw new EngineRefusal(`invalid args for createCharacter: "returnAs" names no previous character of yours (season ${String(season)})`);
+    return { ...hit.fields } as CreateCharacterReq;
   }
 
   /** B1: the returner this cast carries (if any): applied after the cast is whole, before first impressions. Keyed rolls only (no shared draw). */
@@ -22510,6 +22554,7 @@ export class GameSessionAdapter implements GameSession {
       recent,
       winner ? { winner: winner.name, week: this.week, ...(tally ? { tally } : {}) } : null,
       playerSeason,
+      moment === "post-season" ? this.ownCharacterChoices() : undefined,
     );
   }
 

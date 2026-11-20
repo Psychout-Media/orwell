@@ -1912,6 +1912,24 @@ FUNCTION_TOOL_SCHEMAS = [
                             "when the player wants to keep playing as who they are; omit to recreate fresh."
                         ),
                     },
+                    "start": {
+                        "type": "string",
+                        "enum": ["new", "return"],
+                        "description": (
+                            "With confirmRestart, how the player starts the next season, THEIR choice (0208): \"new\" is a clean slate "
+                            "(no reputation, no returning houseguest); \"return\" brings their reputation into the house and a houseguest "
+                            "from a season they played may be cast back. The game hands you the player's own previous characters as facts "
+                            "at a season's end: offer the choice in your own words, never choose for them."
+                        ),
+                    },
+                    "returnAs": {
+                        "type": "integer",
+                        "description": (
+                            "With confirmRestart, return as one of the player's OWN previous characters, named by the season number the game "
+                            "lists them under (it restores that character exactly as they authored them, and counts as a return). "
+                            "A season the game did not list is refused."
+                        ),
+                    },
                 },
                 "required": [],
             },
