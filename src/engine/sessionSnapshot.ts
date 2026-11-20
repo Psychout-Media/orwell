@@ -1052,6 +1052,7 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
   if (!numsKept(ev?.chemistry, lv?.chemistry)) return "chemistry";
   if (!numsKept(ev?.together, lv?.together)) return "together";
   if (!numsKept(ev?.romances, lv?.romances)) return "romances";
+  if (Object.entries(ev?.showmancePace ?? {}).some(([k, r]) => (lv?.showmancePace?.[k]?.steps.length ?? -1) < r.steps.length)) return "showmancePace"; // ORW-736: a pair's pace record and its steps (up and down) are history: never lost
   if ((ev?.breakups ?? []).some((k) => !(lv?.breakups ?? []).includes(k))) return "breakups";
   if ((ev?.diaryCalls?.seen?.length ?? 0) > (lv?.diaryCalls?.seen?.length ?? 0)) return "diaryCalls";
   if ((ev?.leveragePlays ?? []).some((p) => !(lv?.leveragePlays ?? []).some((q) => q.id === p.id))) return "leveragePlays";
