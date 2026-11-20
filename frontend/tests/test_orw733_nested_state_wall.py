@@ -56,7 +56,9 @@ def _paths(v, p=""):
 
 
 def _outside(body):
-    return sorted(x for x in _paths(body) if x.rstrip("*") not in ALLOWED_PATHS and not x.endswith("[]*"))
+    # a null (or an empty list) at an OBJECT/LIST key of the shape (`pending: null`, `ceremony.hoh: null`) is allowed: it carries nothing; only a leaf path outside the list fails
+    parents = {a[: i] for a in ALLOWED_PATHS for i in range(len(a)) if a[i] in ".["}
+    return sorted(x for x in _paths(body) if x.rstrip("*") not in ALLOWED_PATHS and x.rstrip("*").rstrip("[]") not in parents and not x.endswith("[]*"))
 
 
 def _raw():
