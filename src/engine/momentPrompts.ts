@@ -564,10 +564,11 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    forgiving about phrasing (\"living room\", \"backyard\", \"HOH\" all resolve), but never invent a",
   "    room that isn't on that list. A bare \"bedroom\" resolves to the player's own bedroom.",
   "  • nap — the player's chosen daytime nap; how to call it is in the NAP line when one is open.",
+  "  • askToTalkAlone — a private word with a houseguest, or asking one to come over.",
   "  • surfaceInformationTo — when a houseguest tells the player something, or the player overhears it,",
   "    move that fact into the player's knowledge along the pathway it travelled.",
   "  • diaryRoom — record the player's private, out-of-character confessional. Nothing here reaches any",
-  "    houseguest; it is the player's own space, never an in-game pathway.",
+  "    houseguest.",
   "  • seasonRecap — the season's public arc straight from the recorded events (reigns, ceremonies,",
   "    evictions, deals). Use it for any recap or reunion beat — it is the record, never memory.",
   "  • dailyRecap — when the player heads to bed (turnIn), the result may carry a `dailyRecap` field (the",
@@ -904,7 +905,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "anyone got (do not say \"9 to 1\" unless the game's ballots add up to exactly that), and never " +
     "soften the count against the player to be kind — the real votes stand, flattering or not. Voice " +
     "ONLY the result the game announces. Ballots are anonymous: say \"a vote to evict\", never WHO " +
-    "cast it (per-voter attribution unseals only in the post-season retrospective). Play the goodbyes; " +
+    "cast it (per-voter attribution unseals only in the post-season retrospective). Say a houseguest promised the player their vote ONLY if the WHO TOLD THE PLAYER line names them; with no such line nobody did. Play the goodbyes; " +
     "record them with recordInteraction. The HOST is production / the Big Brother voice — NEVER name a " +
     "real-world host or any real person at the door. " +
     "CLOSE THE REVEAL IN THE SHOW'S OWN GRAMMAR — never a recited script, always the ACTUAL evictee the " +
@@ -922,6 +923,10 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "PLAYER, the game pauses for THEIR own words (an `exit-interview` decision): do not author their " +
     "reaction — present the moment and let them answer. The HOST/producers are the Big Brother voice, " +
     "never a real-world host. " +
+    "GOODBYES TO THE PLAYER (ORW-719): when the PLAYER is the evictee, each houseguest's goodbye may speak to the " +
+    "player's conduct toward THEM only from the record listed under that houseguest's name in the host block; " +
+    "characterize nothing the player did or did not do beyond that record, and where the record says nothing is on file, " +
+    "that houseguest has no history with the player to cite. " +
     "THE VOTE IS ALREADY IN — THIS IS THE REVEAL, NOT THE BALLOT. By the time you are reading ballots, " +
     "the player's OWN eviction vote has already been cast and recorded; the house has finished voting " +
     "and the game is now WALKING THE REVEAL one ballot per turn. Your only job here is to NARRATE that " +
@@ -1013,7 +1018,7 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "never a number you have not tallied yourself from this reveal.",
   evicted:
     "MOMENT — Evicted (pre-jury). The player was voted out before the jury formed. Play the eviction with " +
-    "warmth and finality — the walk-out, the host's send-off, what their game meant. The engine then offers " +
+    "warmth and finality — the walk-out, the host's send-off, what their game meant. GOODBYES TO THE PLAYER (ORW-719): a houseguest's goodbye may speak to the player's conduct toward THEM only from the record listed under that houseguest's name in the host block; characterize nothing the player did or did not do beyond it, and where it says nothing is on file, that houseguest has no history with the player to cite. The engine then offers " +
     "a CARD: skip ahead to the finale, or keep watching a condensed season — present it and WAIT; never choose " +
     "for them. If they watch, voice ONLY the game's `weekDigests` (one line per completed week: HOH, nominees, " +
     "veto, who left) as a brief recap, plus any `watching.moments` (the public record of what the broadcast showed since they left) — never invent a result or any private scheming. Either way they are back " +
@@ -1508,6 +1513,10 @@ export function renderGameContext(view: GameStateView): string {
         ...((view.presentKnowledge ?? []).some((e) => e.suspects.length)
           ? ["  (a `suspects` hunch is a possibility they hold, not a decision: voice it as a possibility in their own words - never as a confirmation, a plan, a number, or a campaign)"]
           : []),
+        // ORW-737: a `declaredStance` is what the ENGINE decided this houseguest tells the player about keeping them. Present only when something is at stake => byte-identical otherwise.
+        ...((view.presentKnowledge ?? []).some((e) => e.declaredStance)
+          ? ["  (a `declaredStance` is the ONLY commitment that houseguest may make about a future vote, nomination or veto: `will-keep` they say they will keep the player; `wont-commit` they decline to promise either way, in their own manner. Never promise, swear, shake on, deny or hint at what anyone WILL do beyond it, never refuse a deal the player has accepted, and the HOH never says whether the player will go up unless it says will-keep)"]
+          : []),
         // 0151: a `tellsYou` is something the engine decided this houseguest tells the player now. Present only when one does => byte-identical otherwise.
         ...((view.presentKnowledge ?? []).some((e) => e.tellsYou)
           ? ["  (a `tellsYou` is a belief this houseguest passes to the player now: voice it as THEIR OWN words, hedged by their certainty; do not say whether it is true or why they tell it)"]
@@ -1531,6 +1540,7 @@ export function renderGameContext(view: GameStateView): string {
           // govern them), never to state. Emitted only when set ⇒ byte-identical otherwise.
           const cues = presentCues(e);
           if (cues) lines.push(`        now (play as conduct, never state): ${cues}`);
+          if (e.declaredStance) lines.push(`        declaredStance (what they tell the player about keeping them): ${e.declaredStance}`);
           // ORW-314: the reason this houseguest GAVE ALOUD for a public act on the board. Closed set; the kind and the subject only. Voice it; never add or swap another.
           for (const r of e.statedReasons ?? []) lines.push(`        said aloud (${STATED_ACT[r.decision] ?? "deciding on"} ${neutralizeForPrompt(r.about.name)}): the reason they give - ${STATED_REASON_GLOSS[r.kind] ?? "they call it purely strategic"}; voice THIS reason in their own words, never stock phrasing, and no other`);
           // ORW-338: ORW-317's two NPC-mind lines, pushed here (npcVoice-gated already) so the narrator has them without calling the under-called tool. They sit in this per-turn block, i.e. the volatile tail, never the leading stable lines.
@@ -1632,6 +1642,7 @@ export function renderGameContext(view: GameStateView): string {
     // Absent when no exchange is pending (flag OFF ⇒ byte-identical).
     ...(view.napOpen ? ["- NAP (open now): if the player naps or lies down, call nap {hours} (0.5-3 from their words, else 1). An event wakes them; if refused, voice the `why`. On waking, voice only the WHILE YOU SLEPT line."] : []),
     ...(view.houseMeeting ? [`- HOUSE MEETING (engine truth; the player is in the room and heard it): ${houseMeetingLine(view.houseMeeting)}.${view.houseMeeting.answer === undefined ? "" : " Voice the accusation and the answer as the speakers' own words; do not say whether either is true, why the caller called it, or how anyone took it."}`] : []),
+    ...(view.keepPromisers?.length ? [`- WHO TOLD THE PLAYER THEY WOULD KEEP THEM (engine truth; the only people who may be said to have promised it; ballots stay anonymous, so never say how any of them voted): ${view.keepPromisers.map((h) => neutralizeForPrompt(h.name)).join(", ")}.`] : []),
     ...(view.houseMeetingRefused ? [`- HOUSE MEETING REFUSED (engine truth): ${houseMeetingRefusedLine(view.houseMeetingRefused)}.`] : []),
     ...(view.longNight ? [`- LONG NIGHT (engine truth; play it hurried and breathless in your own words, and never write a morning, a sleep or a day passing until this line is gone): ${view.longNight}.`] : []),
     ...(view.beds ? [`- BEDS (engine truth; the player claims or swaps a bed in their own words and the engine records it before you write, so never claim, swap or assign one for them): ${view.beds}`] : []),
@@ -1888,6 +1899,11 @@ export function renderHostBlock(view: GameStateView): string[] {
   }
   if (h.playerRoles?.length) out.push(`      The player's own public seat this week: ${h.playerRoles.join(", ")}. The host may speak to that plainly, as a fact about what the player did in the open.`);
   if (h.questions?.length) out.push(`      Public record the host may raise with ${ev.evictee?.name ?? "the evictee"} in the exit interview (their own choices first; ask in the host's own words, never a hidden thing): ${h.questions.join("; ")}.`);
+  // ORW-719: the evicted PLAYER's goodbyes are voiced from each speaker's real record with the player, never from invented history.
+  if (h.goodbyes?.length) {
+    out.push(`      The house's goodbyes to the player. What each speaker may say about the player's conduct toward them comes only from the record listed under their name, and nothing else:`);
+    for (const g of h.goodbyes) out.push(`        ${neutralizeForPrompt(g.speaker)}: ${g.record.join("; ")}.`);
+  }
   return out;
 }
 
@@ -1957,6 +1973,7 @@ export function renderStoryFacts(
   recentWitnessed: ReadonlyArray<{ content: string }>,
   finale?: { winner: string; week: number; tally?: { winnerVotes: number; runnerUpVotes: number; runnerUp: string } } | null,
   playerSeason?: string | null,
+  ownCharacters?: ReadonlyArray<{ season: number; name: string }>,
 ): string {
   const lines: string[] = ["THE RECORD (witnessed events — voice these, never invent others):"];
   for (const e of recentWitnessed) lines.push(`  - ${e.content}`);
@@ -1972,6 +1989,10 @@ export function renderStoryFacts(
   }
   if (playerSeason) {
     lines.push(`THE PLAYER'S OWN SEASON: ${playerSeason} State this EXACTLY — never embellish how far they got, their placement, or their competition wins.`);
+  }
+  // ORW-739 (Ryne rule 1): the player CHOOSES how the next season starts. These are the characters they have played, by season number; absent = nothing to offer (a season that was not played).
+  if (ownCharacters && ownCharacters.length > 0) {
+    lines.push(`THE PLAYER'S OWN PREVIOUS CHARACTERS (the choice for a new season is theirs - a new person, or return as one of these; offer it in your own words, never as a dealt list, and never choose for them): ${ownCharacters.map((c) => `season ${c.season}: ${c.name}`).join("; ")}. To return as one, call createCharacter with confirmRestart=true, start="return" and returnAs=<that season number>; for a new person, start="new" (or omit it) and cast them fresh.`);
   }
   return lines.join("\n");
 }

@@ -645,6 +645,8 @@ export interface GameStateView {
   houseMeeting?: HouseMeetingView;
   /** ORW-593 (moment prompt only, one turn): the player's call for a house meeting was refused, and why in the world's terms. Never a number or a hidden reason. */
   houseMeetingRefused?: "ceremony" | "asleep" | "nobody" | "spent";
+  /** ORW-737: on eviction night, the houseguests who HAVE a recorded promise to keep the player (an assurance on the ledger, kept or still open). The ONLY people the narrator may say told the player they would keep them. Absent when none. */
+  keepPromisers?: NamedRef[];
   /**
    * #1792 — Producer Read: Vault-free post-scene exchange-accounting string,
    * delivered ONCE in the moment prompt immediately following a substantive
@@ -790,6 +792,8 @@ export interface GameStateView {
   openDealOffer?: OpenDealOfferView | null;
   /** 0174: the vote pitch, shown here only while an ordinary offer also stands (it has its own slot; with no other offer it is `openDealOffer`). Answer with `submitDecision deal-offer` plus `offerId` = `id`. */
   openVotePitch?: OpenDealOfferView | null;
+  /** ORW-727b: a houseguest has asked the player for a private word and it still stands. The narrator voices the ask in-scene (never a card); the player accepts by saying so, and the narrator calls `askToTalkAlone` for this houseguest (it is accepted). Present only while one stands. */
+  openTalkAsk?: { from: NamedRef } | null;
   /** 0142: favors houseguests owe the player (present only while any are banked). */
   owedFavors?: OwedFavorView[];
 }
@@ -1098,6 +1102,14 @@ export interface ConfrontResult {
   landed: boolean;
 }
 
+/** ORW-727b: the player's ask for a private word or for a houseguest to come over (see `GameSession.askToTalkAlone`). */
+export interface AskToTalkAloneReq { npcId: EntityId; room?: string; private?: boolean; expectedBeatSeq?: number; idempotencyKey?: string }
+/**
+ * ORW-727b: `accepted` (they are in `room` now: the player too when private), `declined` (they stay put; voice their refusal in character, never a reason), `occupied` (every private room has someone in it: nothing moved),
+ * `gathered` (the whole house is gathered for an event; nothing moved). Vault-free: an outcome and a room, never a number or a reason.
+ */
+export interface AskToTalkAloneResult { outcome: "accepted" | "declined" | "occupied" | "gathered"; room?: string; roomName?: string; beatSeq?: number }
+
 /** 0142: the houseguests who owe the player a favor for a deal they kept (Vault-free; `n` is how many are banked). */
 export interface OwedFavorView { from: NamedRef; n: number }
 
@@ -1187,6 +1199,12 @@ export interface CreateCharacterReq {
    * anything else is new). Only meaningful with `confirmRestart`; any other value is refused. Returns nothing hidden.
    */
   start?: "new" | "return";
+  /**
+   * ORW-739 (rule 1, the second half of the choice): on a confirmed restart, return as one of the player's OWN previous characters, named by the season number they played them in
+   * (the game hands the narrator that list as facts). It restores that character's authored profile exactly as `keepCharacter` does for the season just finished, and it is a
+   * return (reputation walks in, a past houseguest may be cast back). Refused (typed) when it names no character of the player's, or with `start: "new"`. Returns nothing hidden.
+   */
+  returnAs?: number;
   /**
    * Cross-season name memory (NAME-1 / #547) — names used by PRIOR seasons in the SAME game, so a new
    * season's corpus-sampled cast AVOIDS them (replayability/sameness, mandate #4). Carries both full
@@ -1506,6 +1524,8 @@ export interface PublicGameStatus {
   openDealOffer?: OpenDealOfferView | null;
   /** 0174: the vote pitch, shown here only while an ordinary offer also stands (it has its own slot; with no other offer it is `openDealOffer`). Answer with `submitDecision deal-offer` plus `offerId` = `id`. */
   openVotePitch?: OpenDealOfferView | null;
+  /** ORW-727b: a houseguest has asked the player for a private word and it still stands. The narrator voices the ask in-scene (never a card); the player accepts by saying so, and the narrator calls `askToTalkAlone` for this houseguest (it is accepted). Present only while one stands. */
+  openTalkAsk?: { from: NamedRef } | null;
   /** 0142: favors houseguests owe the player (present only while any are banked). */
   owedFavors?: OwedFavorView[];
   /**
@@ -1872,6 +1892,8 @@ export interface HostView {
   playerRoles?: string[];
   /** Public record the host may raise with the evictee at the exit interview (the evictee's own choices first, at most 3). */
   questions?: string[];
+  /** ORW-719: present only when the PLAYER is the evictee. Per houseguest saying goodbye, the player's real public record with them (facts to voice; the narrator adds no other history). */
+  goodbyes?: Array<{ speaker: string; record: string[] }>;
 }
 
 /** The Vault-free result of advancing the game or resolving a decision. */
@@ -2308,6 +2330,8 @@ export interface NpcVoiceView {
   dodge?: { approach: string; openness: string; pushesBack: boolean };
   /** ORW-314: the reasons this houseguest gave aloud for a public act on the board this week (nominations, the replacement, the veto, the Final HOH's eviction). Voice THAT reason; never invent another. Absent when none. */
   statedReasons?: StatedReasonView[];
+  /** ORW-737: what this houseguest DECLARES to the player about keeping them (a vote, a nomination, a veto): the ENGINE's call, never the houseguest's private vote. `will-keep` = they say they will (a recorded assurance, or one the engine decided they give); `wont-commit` = they decline to promise either way. Voice only this about the future; absent when nothing is at stake this turn. */
+  declaredStance?: "will-keep" | "wont-commit";
   /** A49 (#2017 E1a, flag ORWELL_NPC_TELLS, default ON): the houseguest's observable carriage right now - at most 2 closed-vocabulary tells (kind, band, channel), words only, never a number or a cause. Present only for a houseguest who is PRESENT in the player's room and awake. Absent flag-off => byte-identical. */
   tells?: ReadonlyArray<{ kind: string; band: string; channel: string }>;
   /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default ON): up to 3 plain facts this houseguest holds about the PLAYER (words + a recency word; never a kind slug, severity or number). Absent flag-off or when they hold none. */
@@ -2461,6 +2485,8 @@ export interface PresentKnowledgeView {
   rivalry?: { tone: "simmering" | "open" };
   /** ORW-314: the same stated reasons `npcVoice` carries, pushed so the narrator voices the DECIDER's reason without the under-called tool. */
   statedReasons?: StatedReasonView[];
+  /** ORW-737: the same `declaredStance` `npcVoice` carries, pushed so the narrator voices the engine's stance without the under-called tool. */
+  declaredStance?: "will-keep" | "wont-commit";
   /** ORW-338: the same `moodCause` `npcVoice` carries (this week's, only when they would tell the player), pushed so the narrator can voice it without the under-called tool. Same gates as `npcVoice`. */
   moodCause?: string;
   /** ORW-338: the same `rememberedAboutOthers` `npcVoice` carries (public-fact memories about people in the room, memory speech flag), pushed for the same reason. */
@@ -3438,6 +3464,13 @@ export interface GameSession {
    * owed by that houseguest (or the request is invalid). Played games only; the engine prices honoring it from trust, threat, memory and what it costs them.
    */
   callInFavor(npcId: EntityId, ask?: DealReqKind, expectedBeatSeq?: number): CallInFavorResult | null;
+  /**
+   * ORW-727b - the player asks a houseguest for a private word, or to come over. ONE lever; the narrator maps the player's own words to it (no text is parsed here). `room` is the room the player named (or, for "come here",
+   * their own); `private` defaults to true: the two go to a PRIVATE room (the named one when it is private and empty, else the nearest private one; never the diary room or the landing, the HOH room only for the HOH).
+   * `private: false` is "come here" / "come find me": the houseguest goes to `room` (default: the player's own room) and the player does not move. The houseguest may DECLINE (their own read of the player, through the deal-consent
+   * machinery, one keyed roll per hour). An accepted houseguest waits in the room for a bounded time; in a private room nobody else can come in. Returns null pre-game / for an unknown or absent houseguest.
+   */
+  askToTalkAlone(req: AskToTalkAloneReq): AskToTalkAloneResult | null;
 
   /**
    * 0093 — OUT a learned secret to the house. The single engine authority (like `runCompetition` /

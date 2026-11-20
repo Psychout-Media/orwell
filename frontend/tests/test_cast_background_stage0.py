@@ -167,6 +167,7 @@ def test_thirteen_requests_never_exceed_three_in_flight(img, monkeypatch):
 
 def test_in_flight_402_requeues_and_never_opens_the_breaker(img, monkeypatch):
     monkeypatch.setattr(PO, "INFLIGHT_RETRY_WAITS_S", (0.01, 0.01, 0.01))
+    monkeypatch.setattr(PO, "INFLIGHT_RETRY_WAITS", (0.01, 0.01, 0.01))  # the inner (ORW-480) re-ask layer sleeps real seconds otherwise
     calls = {"n": 0}
 
     async def inner(prompt, user, reference_png=None, keep_identity=True, _ctx=None):
@@ -185,6 +186,7 @@ def test_in_flight_402_requeues_and_never_opens_the_breaker(img, monkeypatch):
 
 def test_in_flight_402_that_never_clears_still_does_not_trip_the_breaker(img, monkeypatch):
     monkeypatch.setattr(PO, "INFLIGHT_RETRY_WAITS_S", (0.01,))
+    monkeypatch.setattr(PO, "INFLIGHT_RETRY_WAITS", (0.01,))  # the inner (ORW-480) re-ask layer sleeps real seconds otherwise
 
     async def inner(prompt, user, reference_png=None, keep_identity=True, _ctx=None):
         _ctx["host"] = "openrouter.ai"
@@ -198,6 +200,7 @@ def test_in_flight_402_that_never_clears_still_does_not_trip_the_breaker(img, mo
 
 def test_a_real_402_still_opens_the_breaker(img, monkeypatch):
     monkeypatch.setattr(PO, "INFLIGHT_RETRY_WAITS_S", (0.01,))
+    monkeypatch.setattr(PO, "INFLIGHT_RETRY_WAITS", (0.01,))  # the inner (ORW-480) re-ask layer sleeps real seconds otherwise
     calls = {"n": 0}
 
     async def inner(prompt, user, reference_png=None, keep_identity=True, _ctx=None):

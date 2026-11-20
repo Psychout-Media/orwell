@@ -1027,6 +1027,10 @@ export interface LiveSeasonState {
   aimedAtPlayer?: Array<{ id: string; actor: string; goalId: string; goalKind?: string; step: string; hostile: boolean; day: number; hour: number; status: "open" | "shown" | "answered" | "ignored" | "lapsed"; eventId?: string }>;
   /** ORW-709 (engine-only, persisted, played games only): each houseguest's last approach to the player: the QUESTION it carried (purpose + beat or goal), the week, how many times they have pressed this week (their wish to press rises slowly with it), when it surfaced, and whether the player answered. An asked question is never asked again by the same houseguest (answered or awaiting). Append-only per houseguest: an entry is replaced by a later question, never removed, and `answered` never reverts for the same question. */
   approachAsked?: Record<string, { q: string; week: number; n: number; shownAt: number; answered?: true }>;
+  /** ORW-727b (engine-only, persisted, played games only): the houseguest who agreed to a private word or to come over: the room they wait in and the in-game hour the hold lapses. One at a time (a newer ask replaces it). `private` = the room is closed to everyone else while it holds. */
+  talkHold?: { npc: string; room: string; until: number; private: boolean };
+  /** ORW-727b (engine-only, persisted, played games only): a houseguest's OWN ask for a private word, standing until the hour it lapses; the player accepts it through the same lever (the room, when the houseguest has one in mind). */
+  talkAsk?: { npc: string; until: number };
   /** ORW-701 (engine-only, persisted): the running sequence that keeps every aimed-at-player record's id unique. Only ever grows. */
   aimedSeq?: number;
   /** ORW-611: the last day the aimed-at-player tick ran (once a day). */
@@ -1285,6 +1289,8 @@ export interface SeasonCtx {
   hohReferendumCentre?: () => number;
   /** 0178: the nominee `voter` votes out because their secret plan was to flip on them at this vote (unless something bigger happened since). Absent => no flip. */
   flipVoteFor?: (voter: EntityId, fn: readonly [EntityId, EntityId]) => EntityId | undefined;
+  /** ORW-723: the nominee this voter is BOUND to spare by a kept, sincere vote promise (the pull-keyed verdict said keep, and the voter is legally free to vote it). The vote then goes to the other nominee. Absent => byte-identical. */
+  assuranceBindsVoteFor?: (voter: EntityId, fn: readonly [EntityId, EntityId]) => EntityId | undefined;
   /** 0160 / ORW-330 (Ryne's Q3 ruling: "Low trust in the person would create a low trust deal"): how much a deal with `other` weighs for `holder`, 0..1. Absent => 1, byte-identical. */
   dealTrustFor?: (holder: EntityId, other: EntityId) => number;
   /** B6 slice 2 (ORWELL_LOBBYING): the nomination-score tilt from the pitches other houseguests made to `holder` about `subject`. Absent => byte-identical. */
@@ -2427,6 +2433,13 @@ export function voteChoice(
   if (flipOn !== undefined && fn.includes(flipOn)) {
     if (why) why({ kind: "vote", rule: "flip-plan", options: [{ option: flipOn, role: "chosen", total: 1, terms: [["deal", 1]] }, { option: fn[0] === flipOn ? fn[1] : fn[0], role: "runner-up", total: 0, terms: [] }] });
     return flipOn;
+  }
+  // ORW-723: a KEPT sincere vote promise BINDS the vote: the assured is spared and the other nominee takes it (a broken one, a planned betrayal and a faked one never bind; the adapter checks legality).
+  const spared = ctx.assuranceBindsVoteFor?.(voter, fn);
+  if (spared !== undefined && fn.includes(spared)) {
+    const other = fn[0] === spared ? fn[1] : fn[0];
+    if (why) why({ kind: "vote", rule: "assurance-bound", options: [{ option: other, role: "chosen", total: 1, terms: [["assurance", 1]] }, { option: spared, role: "runner-up", total: 0, terms: [] }] });
+    return other;
   }
   // The REFERENDUM ON THE HOH (PO ruling 2026-11-02): the HOH's target is the nominee the HOH reads
   // as the bigger threat. A voter aligned with the HOH gives it to them; an opposed voter keeps the

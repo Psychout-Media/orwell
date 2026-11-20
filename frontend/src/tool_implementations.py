@@ -4763,6 +4763,11 @@ async def do_create_character(
     player_name = (args.get("playerName") or "").strip() or None
     confirm_restart = bool(args.get("confirmRestart"))
     keep_character = bool(args.get("keepCharacter"))  # 0056: carry the same houseguest into the next season
+    # ORW-739 (0208 rule 1): the player's own choice at a season's end. `start` is passed through only when it is a value the engine accepts;
+    # `returnAs` (a season number of one of the player's own previous characters) only when it is a real whole number. The engine validates both and refuses the rest, typed.
+    start_choice = args.get("start") if args.get("start") in ("new", "return") else None
+    _ra = args.get("returnAs")
+    return_as = int(_ra) if isinstance(_ra, (int, float)) and not isinstance(_ra, bool) and _ra == int(_ra) and _ra >= 1 else None
     # Restart-door backstop — error-correct the model the way the stall-nudge / auto-record do.
     # The model reliably FAILS to pass confirmRestart when the player asks to "play again" after a
     # season ends: it calls createCharacter repeatedly and every call no-ops (B36 guard), stranding
@@ -4915,6 +4920,7 @@ async def do_create_character(
             # player unable to start season 2 from chat — the relay used to drop the confirm.
             confirm_restart=confirm_restart,
             keep_character=keep_character,  # 0056: carry the same houseguest forward when asked
+            start=start_choice, return_as=return_as,  # ORW-739: new person, or return as one of their own previous characters
             user=owner,
         )
         # #1336 residual (1) — the STATUS-POLL race latch. The engine season is live the instant
@@ -6361,6 +6367,32 @@ async def do_call_in_favor(content: str, owner: Optional[str] = None) -> Dict:
         res = await orwell_engine.call_in_favor(npc_id, ask, user=owner)
         if res is None:
             return {"output": json.dumps({"honored": None, "note": "no favor is owed by that houseguest"}), "exit_code": 0}
+        await _refresh_after_model_progression(owner, res)
+        return {"output": json.dumps(res, indent=2), "exit_code": 0}
+    except Exception as e:
+        return {"error": f"engine error: {e}", "exit_code": 1}
+
+
+async def do_ask_to_talk_alone(content: str, owner: Optional[str] = None) -> Dict:
+    """ORW-727b - the player asks a houseguest for a private word, or to come over. The ENGINE picks the room, asks the houseguest's own
+    consent and places both (null when no game is being played or the houseguest is unknown); we only forward {npcId, room, private}
+    and return its Vault-free {outcome, room, roomName}."""
+    from src import orwell_engine
+    try:
+        args = _parse_tool_args(content)
+    except ValueError:
+        return {"error": "Invalid JSON arguments", "exit_code": 1}
+    npc_id = (args.get("npcId") or args.get("npc_id") or "").strip()
+    room = (args.get("room") or "").strip() or None
+    private = args.get("private")
+    if private is not None and not isinstance(private, bool):
+        return {"error": "private must be true or false when given", "exit_code": 1}
+    if not npc_id:
+        return {"error": "npcId (the houseguest being asked) is required", "exit_code": 1}
+    try:
+        res = await orwell_engine.ask_to_talk_alone(npc_id, room, private, user=owner)
+        if res is None:
+            return {"output": json.dumps({"outcome": None, "note": "no such houseguest in the house, or no game is being played"}), "exit_code": 0}
         await _refresh_after_model_progression(owner, res)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:

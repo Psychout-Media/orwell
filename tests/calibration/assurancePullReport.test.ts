@@ -1,6 +1,7 @@
 import { describe, it } from "vitest";
 import { playMixGame } from "../support/houseMixDriver";
 import type { DecisionWhy } from "../../src/engine/decisionWhy";
+import { voteChoice, type SeasonCtx } from "../../src/engine/liveSeason";
 
 /**
  * REPORT, NOT A GATE (ORW-723). Plays N chat-paced seeded games (the stacking report's driver, an active player) and prints, per BAND of voter, how often a vote promise
@@ -14,7 +15,7 @@ const N = Number.parseInt(process.env.ORWELL_ASSURANCE_PULL_REPORT_SEEDS ?? "8",
 const MSGS = Number.parseInt(process.env.ORWELL_ASSURANCE_PULL_REPORT_MESSAGES ?? "1500", 10);
 const BANDS = ["loyal-honest", "middling", "scheming"] as const;
 type Band = (typeof BANDS)[number];
-type Sess = { assurancePullOf(v: string, n: string): number; assuranceVoteFor(n: string, v: string): number; assuranceTraitsOf(id: string): { loyalty: number; honesty: number }; live?: { assurances?: { items: Array<{ id: string; sincerity: number; from: string; to: string; kind: string; source: string; status: string }> } } };
+type Sess = { ctx(): SeasonCtx; assuranceBindFor(v: string, fn: readonly [string, string]): string | undefined; assurancePullOf(v: string, n: string): number; assuranceVoteFor(n: string, v: string): number; assuranceTraitsOf(id: string): { loyalty: number; honesty: number }; live?: { week?: number; hoh?: string; finalNominees?: [string, string]; assurances?: { items: Array<{ id: string; sincerity: number; from: string; to: string; kind: string; source: string; status: string }> } } };
 const bandOf = (t: { loyalty: number; honesty: number }): Band => { const x = 0.5 * t.loyalty + 0.5 * t.honesty; return x >= 0.6 ? "loyal-honest" : x <= 0.4 ? "scheming" : "middling"; };
 
 async function onMessage(call: (name: string, args: Record<string, unknown>) => Promise<unknown>, i: number): Promise<void> {
@@ -34,14 +35,27 @@ async function onMessage(call: (name: string, args: Record<string, unknown>) => 
 
 describe.skipIf(!RUN)("assurance pull report (not a gate)", () => {
   it("prints, per voter band, the keep and break rate of NPC vote promises and the vote term's presence and decisiveness", async () => {
-    const mk = () => ({ pullSum: 0, pullKept: 0, pullBroke: 0, gaps: [] as number[], kept: 0, broken: 0, open: 0, lapsed: 0, rows: 0, decisions: 0, present: 0, decisive: 0 });
+    const mk = () => ({ voted: 0, evictedAssured: 0, bound: 0, changed: 0, pullSum: 0, pullKept: 0, pullBroke: 0, gaps: [] as number[], kept: 0, broken: 0, open: 0, lapsed: 0, rows: 0, decisions: 0, present: 0, decisive: 0 });
     const by = new Map<string, ReturnType<typeof mk>>();
     const stat = (k: string) => by.get(k) ?? by.set(k, mk()).get(k)!;
     for (let seed = 1; seed <= N; seed++) {
       const bandAt = new Map<string, Band>();
+      const assuredAt = new Map<string, { to: string; band: Band }>();
+      const changedKeys = new Set<string>();
       const lastShield = new Map<string, { band: Band; sincere: boolean; pull: number; to: string; kept: boolean }>();
       await playMixGame(seed, MSGS, { advanceEvery: 6, onMessage, onStep: (s) => {
         const sess = s as Sess;
+        const fnn = sess.live?.finalNominees, wk = sess.live?.week ?? 0;
+        if (fnn && fnn.length === 2) for (const a of sess.live?.assurances?.items ?? []) {
+          if (a.status !== "open" || a.source !== "npc" || a.from === "player" || (a.kind !== "vote" && a.kind !== "safe") || !fnn.includes(a.to)) continue;
+          const band = bandAt.get(a.id) ?? bandOf(sess.assuranceTraitsOf(a.from));
+          assuredAt.set(`${wk}:${a.from}`, { to: a.to, band });
+          const key = `${wk}:${a.from}`;
+          if (sess.assuranceBindFor(a.from, fnn) === a.to && !changedKeys.has(key)) {
+            changedKeys.add(key);
+            try { const free = voteChoice(a.from, fnn, { ...sess.ctx(), assuranceBindsVoteFor: undefined }, [], sess.live?.hoh); if (free === a.to) stat(`bind:${band}`).changed++; } catch { /* approximate counterfactual (no blocs) */ }
+          }
+        }
         for (const a of sess.live?.assurances?.items ?? []) { if (a.source !== "npc" || a.from === "player") continue; if (!bandAt.has(a.id)) bandAt.set(a.id, bandOf(sess.assuranceTraitsOf(a.from))); if (a.status === "open" && (a.kind === "vote" || a.kind === "safe")) lastShield.set(a.id, { band: bandAt.get(a.id)!, sincere: a.sincerity >= 0.5, pull: sess.assurancePullOf(a.from, a.to), to: a.to, kept: sess.assuranceVoteFor(a.to, a.from) > 0 }); }
       }, inspect: (s) => {
         const sess = s as Sess;
@@ -54,6 +68,8 @@ describe.skipIf(!RUN)("assurance pull report (not a gate)", () => {
         const why = (s as { live?: { decisionWhy?: DecisionWhy[] } }).live?.decisionWhy ?? [];
         for (const d of why) {
           if (d.kind !== "vote" || d.options.length < 2 || d.by === "player") continue;
+          const as = assuredAt.get(`${d.week}:${d.by}`);
+          if (as) { const sa = stat(`bind:${as.band}`); sa.voted++; if (d.options[0]!.option === as.to) sa.evictedAssured++; if ((d as { rule?: string }).rule === "assurance-bound") sa.bound++; }
           const st = stat(`vote:${bandOf(sess.assuranceTraitsOf(d.by))}`);
           st.decisions++;
           if ((d.options[0]!.terms.some(([n]) => n === "assurance")) || d.options[1]!.terms.some(([n]) => n === "assurance")) st.gaps.push(d.options[0]!.total - d.options[1]!.total);
@@ -72,6 +88,7 @@ describe.skipIf(!RUN)("assurance pull report (not a gate)", () => {
       console.log(`ASSURANCE-PULL ${side} ${b}: made=${s.kept + s.broken + s.open + s.lapsed} resolved=${res} kept=${s.kept} broken=${s.broken} keep%=${pct(s.kept, res)} break%=${pct(s.broken, res)}`);
     }
     for (const b of BANDS) { const s = stat(`pull:${b}`); console.log(`ASSURANCE-PULL pull-decision ${b}: open vote/safe promises=${s.pullKept + s.pullBroke} keep=${pct(s.pullKept, s.pullKept + s.pullBroke)}% break=${pct(s.pullBroke, s.pullKept + s.pullBroke)}%`); }
+    for (const b of BANDS) { const s = stat(`bind:${b}`); console.log(`ASSURANCE-PULL binding ${b}: votes by an assurer on a nominee they assured=${s.voted} bound=${s.bound} evicted-the-assured=${pct(s.evictedAssured, s.voted)}% would-have-evicted-without-binding(approx, no blocs)=${s.changed}`); }
     for (const b of BANDS) { const s = stat(`sinc:${b}`); console.log(`ASSURANCE-PULL sincere-only ${b}: open promises=${s.pullKept + s.pullBroke} keep=${pct(s.pullKept, s.pullKept + s.pullBroke)}% mean pull=${(s.pullSum / Math.max(1, s.pullKept + s.pullBroke)).toFixed(2)}`); }
     { const all = BANDS.map((b) => stat(`pull:${b}`)); const k = all.reduce((x, s) => x + s.pullKept, 0), n = all.reduce((x, s) => x + s.pullKept + s.pullBroke, 0); console.log(`ASSURANCE-PULL overall keep=${pct(k, n)}% of ${n}`); }
     for (const b of BANDS) { const s = stat(`vote:${b}`); console.log(`ASSURANCE-PULL vote ${b}: decisions=${s.decisions} nonzero=${pct(s.present, s.decisions)}% decisive=${pct(s.decisive, s.decisions)}% median gap where present=${s.gaps.length ? [...s.gaps].sort((x, y) => x - y)[s.gaps.length >> 1]!.toFixed(2) : "-"} (n=${s.gaps.length})`); }

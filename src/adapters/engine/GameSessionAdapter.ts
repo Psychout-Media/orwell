@@ -101,7 +101,7 @@ import { decideDodge, type DodgeFact } from "../../engine/dodging";
 import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosureFull, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { beatShare, endgamePush, endgameFakeLean, isEndgame } from "../../engine/endgameTrust";
 import { heirOf, partnerReaction, debtorRelief } from "../../engine/evictedTake";
-import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, assurancePull, pullVerdict, assuranceTermScale, ASSURANCE, npcAssuranceSincerity, isRumoredBreak } from "../../engine/assurances";
+import { AssuranceLedger, type Assurance, assuranceKeepWeight, decideKeep, assurancePull, pullVerdict, assuranceTermScale, ASSURANCE, npcAssuranceSincerity, isRumoredBreak, declaredStance, pullKeeps, type DeclaredStance } from "../../engine/assurances";
 import type { BindingAction, BreakCause, Deal } from "../../engine/deals";
 import { dealTermIllegal, voteTermIllegal, duplicateLiveDeal, type DealWeek, type DealIllegalReason } from "../../engine/dealLegality";
 import { isPositiveObligation, RELIABLE_FACT_PREFIX } from "../../domain/deal";
@@ -141,12 +141,14 @@ import { AUDIENCE, crowdFor, emptyStanding, evictionKey, fanThreatFor, favoriteO
 import type { EditMoment, EditMomentKind } from "../../engine/editWorthiness";
 import { questionLive, questionAnswered } from "../../engine/voteQuestions";
 import { agendaDumpRows } from "../../engine/agendaDump";
-import { hostRegister, registerWords, hostQuestionTexts, playerRoles, type HostLine } from "../../engine/productionHost";
+import { hostRegister, registerWords, hostQuestionTexts, playerRoles, goodbyeRecordLines, type HostLine } from "../../engine/productionHost";
 import { pushbackFacts, type PushbackView } from "../../engine/producerPushback";
 import type { PlayerSaid, PlayerDid } from "../../engine/production";
 import { decideDiaryCall, awayHours, seenOf, callEventText, backEventText, playerVisitText, producerRegisterWords, type DiaryCallsState, type DiaryCallView } from "../../engine/diaryCalls";
 import { buildHouseStories } from "../../engine/houseStory";
 import type { StatedReasonView } from "../../ports/GameSession";
+import type { AskToTalkAloneReq, AskToTalkAloneResult } from "../../ports/GameSession";
+import { TALK_ALONE, decideTalkAlone, talkAloneRoom } from "../../engine/talkAlone";
 import { goalPull, explainDecision, voiceableReason, type GoalPull, type RealReason, type StatedReasonRecord } from "../../engine/agendaDecisions";
 import { memoryLine, fillSubject, appraiseGoal, mayShareCause } from "../../engine/innerLife";
 import type { GamePhilosophy } from "../../engine/philosophyConstants";
@@ -332,6 +334,7 @@ import { EngineRefusal, StaleBeatError } from "../../domain/errors";
 import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
 import type { ArchivedHouseguest } from "../../engine/seasonMemory";
+import type { ArchivedOwnCharacter, OwnCharacterFields } from "../../engine/seasonMemory";
 import { buildSeasonArchive, carriedNudge, nextSeasonNumber, planReturner, returnerBeliefs, returnerCharacter, seasonsSince, type SeasonNpcRecord } from "../../engine/returnees";
 import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, plantedBy, type EdgeDelta } from "../../engine/beliefStore";
 import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs";
@@ -1705,21 +1708,37 @@ export class GameSessionAdapter implements GameSession {
 
   /** B4 slice 4 - the eviction-vote shield `voter` owes nominee `n` from a KEPT 'vote'/'safe' assurance (0 when none, a strategic lie, or the voter decides to break it). Half a deal's honor weight. */
   assuranceVoteFor(n: EntityId, voter: EntityId): number {
-    if (!this.assurancesEnabled || !this.live?.assurances) return 0;
+    const r = this.assuranceVoteRead(n, voter);
+    if (!r) return 0;
+    const base = 0.5 * DECISION.vote.dealHonorWeight;
+    return !r.kept ? 0 : r.pull === undefined ? base : base * assuranceTermScale(r.pull);
+  }
+  /** The ONE read of an open vote/safe assurance `voter` made to `n`: `kept` (the keep-or-break verdict) and the `pull` (set only when the pull decides it). Null when none is open. */
+  private assuranceVoteRead(n: EntityId, voter: EntityId): { kept: boolean; pull?: number; pulled: boolean } | null {
+    if (!this.assurancesEnabled || !this.live?.assurances) return null;
     const open = AssuranceLedger.fromJSON(this.live.assurances).openFor(voter).filter((a) => a.to === n && (a.kind === "vote" || a.kind === "safe"));
-    if (open.length === 0) return 0;
+    if (open.length === 0) return null;
     const stats = this.house?.npcs.find((x) => x.id === voter)?.character.stats;
     const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(voter), this.emotionalReadOf(voter))));
     const keepWeight = assuranceKeepWeight({ loyalty, aggression: stats ? Math.max(0, Math.min(1, 1 - stats.social)) : 0.5 });
     const breakBenefit = Math.max(0, Math.min(1, this.rel.edge(voter, n).threat));
     const verdict = (a: Assurance): { plan: boolean | undefined; legacy: boolean } => { const plan = this.ledgerPlanVerdictFor(a, "vote"); return { plan, legacy: plan !== true && decideKeep({ keepWeight, sincerity: plan === false ? 1 : a.sincerity, breakBenefit }) }; }; // ORW-586 slice 5: the plan, as in assuranceProtects
-    const base = 0.5 * DECISION.vote.dealHonorWeight;
-    if (!this.assurancePullEnabled || this.live.playedGame !== true) return open.every((a) => verdict(a).legacy) ? base : 0;
+    if (!this.assurancePullEnabled || this.live.playedGame !== true) return { kept: open.every((a) => verdict(a).legacy), pulled: false };
     // ORW-723: a SINCERE promise is decided by THIS voter's own pull (loyalty, honesty, bond to the nominee, how threatening they read) on the assurance's own keyed roll (stable across reads, never the shared rng); a planned betrayal
     // still breaks and a faked promise keeps the faking model's verdict (`pullVerdict`). A kept one weighs more the stronger the pull.
     const pull = this.assurancePullOf(voter, n);
-    const keeps = open.every((a) => { const v = verdict(a); return pullVerdict({ plan: v.plan, sincerity: a.sincerity, legacyKeep: v.legacy, pull, roll: new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:assurance-keep:${a.id}`)).next() }); });
-    return keeps ? base * assuranceTermScale(pull) : 0;
+    const kept = open.every((a) => { const v = verdict(a); return pullVerdict({ plan: v.plan, sincerity: a.sincerity, legacyKeep: v.legacy, pull, roll: new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:assurance-keep:${a.id}`)).next() }); });
+    return { kept, pull, pulled: true };
+  }
+  /**
+   * ORW-723: a KEPT sincere vote promise BINDS the vote (not just a term). Returns the nominee `voter` must spare, or undefined (not bound). Legality is a veto: only a living NPC with a ballot (never the HOH, never a nominee, never the
+   * player - the engine never votes for the player) and exactly one of the two nominees assured; a faked, broken or planned-betrayal promise never binds. Same keyed verdict as the term (`assuranceVoteRead`).
+   */
+  assuranceBindFor(voter: EntityId, fn: readonly [EntityId, EntityId]): EntityId | undefined {
+    if (!this.assurancePullEnabled || voter === PLAYER || !this.live || this.live.playedGame !== true || voter === this.live.hoh || fn.includes(voter) || !this.livingIds().includes(voter)) return undefined;
+    if (!fn.every((n) => this.livingIds().includes(n))) return undefined;
+    const bound = fn.filter((n) => { const r = this.assuranceVoteRead(n, voter); return !!r && r.pulled && r.kept && (this.live!.assurances?.items ?? []).some((a) => a.status === "open" && a.from === voter && a.to === n && (a.kind === "vote" || a.kind === "safe") && a.sincerity >= ASSURANCE.sincereAt); });
+    return bound.length === 1 ? bound[0] : undefined;
   }
   /**
    * ORW-723 (Ryne 2026-11-19: "Depends on the person. For sure."): a vote promise's pull comes from the voter's own traits and bond, not a fixed weight. Loyal, honest, bonded houseguests usually keep it and
@@ -2572,6 +2591,35 @@ export class GameSessionAdapter implements GameSession {
   /** B4 slice 8 - the eviction nominees are FINAL (after the veto and any replacement): every open 'safe' assurance whose assured is not on the block was kept. */
   assuranceKeptAtTally(finalNominees: readonly EntityId[]): void {
     this.keepAssurances((a) => a.kind === "safe" && !finalNominees.includes(a.to));
+  }
+
+  /**
+   * ORW-737 - WHAT A HOUSEGUEST DECLARES TO THE PLAYER about a future vote, nomination or veto, decided by the ENGINE (the narrator never improvises a commitment). ON unless `ORWELL_DECLARED_STANCE=0`; played games only.
+   * Present only when something is at stake: a standing assurance to the player, the player on the block (a legal voter: not the HOH, not a nominee), or the HOH before nominations. A standing assurance is declared
+   * again; a voter declares keeping the player when their own pull would (a truthful promise) or, rarely, as a lie (`declaredStance`, keyed rolls, never the shared rng); the HOH, whose nomination intent is
+   * hidden, commits only through a recorded assurance. The private vote never crosses: only what is SAID. The words are the narrator's; a promise it voices is recorded by the existing promise path.
+   */
+  private declaredStanceEnabled = flagDefaultOn("ORWELL_DECLARED_STANCE");
+  setDeclaredStanceEnabled(on: boolean): void { this.declaredStanceEnabled = on; }
+  declaredStanceFor(id: EntityId): DeclaredStance | undefined {
+    const s = this.live;
+    if (!this.declaredStanceEnabled || !this.assurancesEnabled || !s || s.playedGame !== true || id === PLAYER || !this.livingIds().includes(id)) return undefined;
+    const standing = (s.assurances?.items ?? []).some((a) => a.from === id && a.to === PLAYER && (a.status === "open" || a.status === "kept") && (a.kind === "vote" || a.kind === "safe" || a.kind === "loyal"));
+    const block = (s.finalNominees ?? s.nominees) as readonly EntityId[] | undefined;
+    const onBlock = !!block && block.includes(PLAYER);
+    const voter = onBlock && id !== s.hoh && !block!.includes(id);
+    const hohBefore = s.hoh === id && (!block || block.length === 0);
+    if (!standing && !voter && !hohBefore) return undefined;
+    if (!voter) return standing ? "will-keep" : "wont-commit";
+    const key = `${this.gameSeed ?? 0}:stance:${s.week}:${id}`;
+    return declaredStance({ standing, pull: this.assurancePullOf(id, PLAYER), honesty: this.assuranceTraitsOf(id).honesty, keepRoll: new SeededRandom(hashSeed(key)).next(), lieRoll: new SeededRandom(hashSeed(`${key}:lie`)).next() });
+  }
+  /** ORW-737: the living houseguests with a recorded promise to keep the player (a vote or safe assurance, not lapsed): the only people eviction-night narration may say told the player they would keep them. No status: that would unseal a ballot. */
+  keepPromisersOfPlayer(): NamedRef[] {
+    const s = this.live;
+    if (!this.declaredStanceEnabled || !s || s.playedGame !== true || !s.assurances) return [];
+    const ids = [...new Set(s.assurances.items.filter((a) => a.to === PLAYER && a.status !== "lapsed" && (a.kind === "vote" || a.kind === "safe")).map((a) => a.from))];
+    return ids.filter((id) => this.livingIds().includes(id)).map((id) => ({ id, name: this.nameOf(id) }));
   }
 
   /** B4 - append one recorded assurance to the live ledger (persisted with the season). */
@@ -4354,6 +4402,8 @@ export class GameSessionAdapter implements GameSession {
       ...(isActive ? this.moodCauseFor(id) : {}),
       // ORW-314: the reason this houseguest gave aloud for a public act on the board this week (kind + subject only; the narrator voices it, never invents another).
       ...(isActive ? (() => { const r = this.statedReasonsFor(id); return r.length ? { statedReasons: r } : {}; })() : {}),
+      // ORW-737: what they DECLARE to the player about keeping them (the engine's call; the private vote never crosses). Absent when nothing is at stake.
+      ...(isActive ? (() => { const d = this.declaredStanceFor(id); return d ? { declaredStance: d } : {}; })() : {}),
       whereabouts: room ? { room, present } : null,
       // ORW-349: the same fact held twice (a retold rumour, the same overhear) is listed once, newest kept; the cap then counts DISTINCT facts. Deduped over the whole list BEFORE the cap, so repeats in the recent tail never crowd out distinct older facts.
       knows: dedupeKeepNewest(this.voiceKnownFacts(id).map((f) => this.humanizeTidy(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP),
@@ -6598,6 +6648,7 @@ export class GameSessionAdapter implements GameSession {
       // 0123 (PO ruling 2026-11-01) — a standing NPC deal offer, voiced in-scene by the narrator (no card).
       // Present ONLY while one stands, so the flag-off payload is byte-identical (no `openDealOffer: null`).
       ...(this.live?.dealOffer || this.live?.votePitch ? { openDealOffer: this.openDealOfferView() } : {}),
+      ...(this.openTalkAskView() ? { openTalkAsk: this.openTalkAskView() } : {}), // ORW-727b: a houseguest's own ask for a private word, voiced in-scene (never a card)
       ...(this.live?.dealOffer && this.live?.votePitch ? { openVotePitch: this.openDealOfferView(this.live.votePitch) } : {}),
       ...(this.owedFavorsView().length ? { owedFavors: this.owedFavorsView() } : {}),
       // F3: the same public over-signal + broadcast winner the AdvanceView/SeasonRecap expose, so a
@@ -7584,6 +7635,7 @@ export class GameSessionAdapter implements GameSession {
     // advanced byte-identically to the calibrated spine.
     const nextBase = assign(prevBase, false);   // calibration spine — the society's occupancy
     const next = assign(prev, true);            // personality-weighted — the player's positions
+    this.enforceTalkHold(next);                 // ORW-727b: a houseguest who agreed to a private word stays; a private room stays closed
     // The player's position is authoritative and identical in both views (never personality-weighted) —
     // force the base to agree with the weighted player room so a player overhear of an off-screen scene
     // reads the player's REAL room, and the two views never disagree about where the player is.
@@ -7856,6 +7908,107 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * ORW-727b: the houseguest agreed to a private word (or to come over) and waits in the room until the hold lapses, the player leaves a private room, or they are gone. Lazily clears a spent hold (chat-side bookkeeping).
+   * Played games only; reads the clock and the floor, draws no rng.
+   */
+  private talkHoldNow(): { npc: EntityId; room: Room; until: number; private: boolean } | null {
+    const live = this.live;
+    const h = live?.talkHold;
+    if (!live || !h) return null;
+    if (live.playedGame !== true || this.absHour() >= h.until || !this.presence?.has(h.npc as EntityId) || (h.private && this.presence.get(PLAYER) !== h.room)) { delete live.talkHold; return null; }
+    return { npc: h.npc as EntityId, room: h.room as Room, until: h.until, private: h.private };
+  }
+  /** ORW-727b: keep a held houseguest where they agreed to be, and a private room closed to everyone else, on the player-facing map `next` the movement tick just drew. A no-op with no hold. */
+  private enforceTalkHold(next: Map<EntityId, Room>): void {
+    const h = this.talkHoldNow();
+    if (!h) return;
+    next.set(h.npc, h.room);
+    if (!h.private) return;
+    for (const [id, r] of next) {
+      if (id === PLAYER || id === h.npc || r !== h.room) continue;
+      const was = this.presence?.get(id);
+      next.set(id, was !== undefined && was !== h.room ? was : "living-room");
+    }
+  }
+  /** ORW-727b: a houseguest's standing ask for a private word (the open offer the narrator voices), while it has not lapsed. */
+  private openTalkAskView(): { from: NamedRef } | null {
+    const a = this.live?.talkAsk;
+    if (!a || this.live?.playedGame !== true || this.absHour() >= a.until || !this.presence?.has(a.npc as EntityId)) return null;
+    const from = this.named(a.npc as EntityId);
+    return from ? { from } : null;
+  }
+  /** ORW-727b: would this houseguest agree to a private word with the player? Their own read of the player through the deal-consent reads (trust, liking, threat, grudge, favour, who they believe is after them, their own drive against the player) and one KEYED jitter per hour; no shared rng. */
+  private talkAloneConsent(npcId: EntityId): boolean {
+    const live = this.live!;
+    const e = this.rel.edge(npcId, PLAYER);
+    const entries = this.npcMemoryEnabled ? this.memoryEntriesSeenBy(npcId, live.npcMemory?.[npcId]?.[PLAYER], PLAYER) : undefined;
+    const carry = this.npcMemoryStandaloneEnabled ? { threatAboveBaseline: 0, bondAboveNeutral: 0 } : this.memoryCarry(npcId, PLAYER);
+    const decay = this.memoryDecayScale(npcId);
+    const jitter = (agendaRoll(this.gameSeed ?? 0, npcId, `talk-alone:w${live.week}:h${Math.floor(this.absHour())}`) * 2 - 1) * DEAL_CONSENT.jitter;
+    const rep = this.reputationOn() ? dealWillingnessShift(this.reputationOf(npcId, PLAYER)) : 0;
+    return decideTalkAlone({
+      trust: e.trust, affinity: e.affinity, threat: e.threat,
+      grudge: memoryGrudge(entries, live.week, decay, carry, this.memoryConstants()),
+      favor: memoryFavor(entries, live.week, decay, carry, this.memoryConstants()),
+      targetsMe: this.npcBeliefsEnabled ? beliefPull(live.beliefs, npcId, PLAYER, live.week) : 0,
+      opposed: this.ownPushAgainstPlayer(npcId),
+      ...(rep ? { mood: rep } : {}),
+    }, jitter);
+  }
+  /**
+   * ORW-727b: the houseguests who SEE the player and a houseguest leave together: awake, living, standing in (or in eyeshot of) a room the pair set off from. A plain witnessed house event naming them, and each one remembers where the
+   * pair was heading (the same departure sighting an ordinary walk leaves). Nothing is recorded when nobody saw. Played games only; draws no rng.
+   */
+  private notePairDeparture(origins: readonly Room[], npc: EntityId, dest: Room): void {
+    if (!this.presence || !this.house) return;
+    const me = this.house.player.id;
+    const awake = this.awakeNow();
+    const away = this.notYetArrived();
+    const left = origins.filter((o) => o !== dest);
+    if (left.length === 0) return;
+    const seers = this.presenceActive().filter((id) => id !== me && id !== npc && (!awake || awake.has(id)) && !away?.has(id) && left.some((o) => canWitnessDeparture(this.presence!.get(id) as Room, o))).sort();
+    if (seers.length === 0) return;
+    for (const v of seers) this.noteNpcSighting(v, npc, dest, true);
+    this.onPlayerEvent?.(`The player and ${this.nameOf(npc)} left the ${roomDisplayName(left[0]!)} together for the ${roomDisplayName(dest)}, in plain sight of ${seers.map((id) => this.nameOf(id)).join(", ")}`, [me, npc, ...seers], "house-event");
+  }
+
+  askToTalkAlone(req: AskToTalkAloneReq): AskToTalkAloneResult | null {
+    const idemKey = this.foldLedgerKey("askToTalkAlone", req.idempotencyKey);
+    const replay = this.foldReplay<AskToTalkAloneResult | null>(idemKey);
+    if (replay.hit) return replay.value;
+    this.guardBeatSeq(req.expectedBeatSeq);
+    const live = this.live;
+    const npc = req.npcId;
+    if (!live || live.playedGame !== true || !this.house || !this.presence || npc === PLAYER || !this.presenceActive().includes(npc) || !this.presence.has(npc)) return null;
+    const here = this.presence.get(PLAYER);
+    if (here === undefined) return null;
+    const finish = (r: AskToTalkAloneResult): AskToTalkAloneResult => { r.beatSeq = this.beatSeqNow(); return idemKey ? this.rememberFoldIdempotent(idemKey, r) : r; };
+    if (this.houseEventInSession()) return finish({ outcome: "gathered" });
+    const now = this.absHour();
+    const theirAsk = live.talkAsk?.npc === npc && live.talkAsk.until > now; // they asked first: the player's yes is all it takes
+    const awake = this.awakeNow();
+    if (!theirAsk && ((awake && !awake.has(npc)) || !this.talkAloneConsent(npc))) return finish({ outcome: "declined" });
+    const resolved = typeof req.room === "string" && req.room.trim() !== "" ? resolveRoom(req.room, here, this.themedAliases()) : null;
+    const named: Room | null = resolved === null ? null : resolved.kind === "ok" ? resolved.room : resolved.kind === "ambiguous" ? resolved.candidates[0]! : null;
+    const priv = req.private !== false;
+    const hoh = this.ceremony.hoh;
+    const dest: Room | null = priv
+      ? talkAloneRoom({ from: here, named, hohInvolved: hoh === npc, occupiedByOthers: (r) => [...this.presence!].some(([id, where]) => where === r && id !== PLAYER && id !== npc) })
+      : named !== null && WALKABLE_ROOMS.includes(named) ? named : here !== "diary-room" ? here : null;
+    if (dest === null) return finish({ outcome: "occupied" });
+    const theirRoom = this.presence.get(npc)!;
+    this.notePairDeparture(priv ? [here, theirRoom] : [theirRoom], npc, dest);
+    if (priv && dest !== here) this.movePlayer(dest); // the player walks there too (one move, witnessed along the way like any other)
+    if (theirRoom !== dest) { this.presence.set(npc, dest); this.presenceBase?.set(npc, dest); this.presenceTenure?.set(npc, 0); this.presenceZone?.delete(npc); }
+    this.sendOccupancy = null; this.sendAwake = null; // they are here now: the scene that follows is theirs, not the roster the player spoke to
+    live.talkHold = { npc, room: dest, until: now + TALK_ALONE.holdHours, private: priv };
+    if (live.talkAsk?.npc === npc) delete live.talkAsk;
+    this.noteConversationPartners([npc]);
+    this.persist();
+    return finish({ outcome: "accepted", room: dest, roomName: this.roomName(dest) });
+  }
+
+  /**
    * ORW-559: "I go to <houseguest>" - the room that houseguest is in, but ONLY when the player can see them now (a room in the whereabouts
    * `nearby` sightline list). Same projection the narrator gets: an unseen houseguest never resolves, so nothing hidden is revealed and
    * nothing teleports; the narrator plays "you look around". Same room (or no name) => null.
@@ -7914,6 +8067,8 @@ export class GameSessionAdapter implements GameSession {
       : resolved.kind === "ambiguous" ? resolved.candidates[0]!
       : null;
     if (dest === null || !WALKABLE_ROOMS.includes(dest)) return { status: "illegal", whereabouts: this.whereabouts() };
+    const held = this.talkHoldNow(); // ORW-727b: a narrated move cannot take the held houseguest out of the room they agreed to, or put anyone into a closed private room
+    if (held && (id === held.npc ? dest !== held.room : held.private && dest === held.room)) return { status: "illegal", whereabouts: this.whereabouts() };
     if (here === dest) return { status: "noop", whereabouts: this.whereabouts() };
     // OPEN set only — `presenceBase` is deliberately NOT touched (calibration neutrality, see above).
     this.presence.set(id, dest);
@@ -10003,12 +10158,18 @@ export class GameSessionAdapter implements GameSession {
 
   createCharacter(req: CreateCharacterReq): GameStateView {
     if (req.start !== undefined && req.start !== "new" && req.start !== "return") throw new EngineRefusal(`invalid args for createCharacter: "start" must be 'new' or 'return' when present`);
+    if (req.returnAs !== undefined && req.start === "new") throw new EngineRefusal(`invalid args for createCharacter: "returnAs" is a return; it cannot be combined with start 'new'`);
     // 0056 — "keep the existing character": on a CONFIRMED restart with `keepCharacter`, capture the
     // prior player's AUTHORED fields HERE (the only point the prior season still exists, before any
     // reset) and fold them under the explicit req. The static CHARACTER is seed-independent, so re-
     // supplying these regenerates the SAME houseguest in the new season; explicit fields still win,
     // so the player may tweak on the way through. No hidden number is read.
-    const carried = (this.house && req.confirmRestart && req.keepCharacter) ? this.carryOverFields() : null;
+    // ORW-739: `returnAs` names one of the player's OWN previous characters (a season number); it restores that character's authored fields the same way `keepCharacter` does for the season just finished.
+    const carried = (this.house && req.confirmRestart && req.returnAs !== undefined)
+      ? this.ownCharacterFor(req.returnAs)
+      : (this.house && req.confirmRestart && req.keepCharacter) ? this.carryOverFields() : null;
+    const { returnAs: _returnAs, ...reqRest } = req; // consumed here: the fresh sandbox's createCharacter never sees it
+    void _returnAs;
     // NAME-1 (#547): on ANY confirmed restart capture the dead season's cast names so the next season's
     // corpus-sampled cast avoids them (cross-season diversity). This is the only point the prior cast
     // still exists, before the reset; it rides `effReq` through `onRestart` into the fresh sandbox.
@@ -10022,7 +10183,7 @@ export class GameSessionAdapter implements GameSession {
       : req.priorHouseThemes;
     const effReq: CreateCharacterReq = {
       ...(carried ?? {}),
-      ...req,
+      ...reqRest,
       ...(carried ? { keepCharacter: false } : {}),
       ...(priorCastNames && priorCastNames.length ? { priorCastNames } : {}),
       ...(priorHouseThemes && priorHouseThemes.length ? { priorHouseThemes } : {}),
@@ -12343,7 +12504,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** Build the Vault-free season context the pure loop reads (stats + live relationships + mood). */
-  private ctx(): SeasonCtx {
+  ctx(): SeasonCtx {
     return {
       player: PLAYER,
       statsOf: (id) => this.statsOf(id),
@@ -12428,7 +12589,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.endgameTrustEnabled && this.live?.playedGame === true ? { endgameFor: (t: EntityId, d: EntityId) => this.endgameFor(t, d) } : {}), // 0193
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
-      ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId, among?: readonly EntityId[]) => this.assuranceVotedOut(v, n, among) } : {}),
+      ...(this.assurancesEnabled ? { assuranceBindsVoteFor: (v: EntityId, fn: readonly [EntityId, EntityId]) => this.assuranceBindFor(v, fn), assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId, among?: readonly EntityId[]) => this.assuranceVotedOut(v, n, among) } : {}),
       ...(this.triadsOn() ? { swingAtVote: (v: Parameters<NonNullable<SeasonCtx["swingAtVote"]>>[0]) => this.swingAtVote(v), triadsAtResult: (r: { evictee: EntityId; voteOf: Readonly<Record<EntityId, EntityId>>; hoh: EntityId | undefined }) => this.triadsAtResult(r) } : {}),
       ...(this.favorsOn() ? { favorsAtTally: (fn: readonly EntityId[], v: readonly EntityId[]) => this.favorsAtTally(fn, v), favorShieldFor: (n: EntityId, v: EntityId) => this.favorShieldFor(n, v) } : {}),
       ...(this.liesCaughtWriting ? { evictionCountPublic: (t: PublicTally) => this.evictionCountPublic(t) } : {}),
@@ -12556,6 +12717,7 @@ export class GameSessionAdapter implements GameSession {
     if (!live || !this.house || ids.length === 0 || !firstCeremonyBeatResolved(live)) return null;
     // ORW-709: the Diary Room is private. Nobody approaches a player who is in it, and a houseguest who is in it is away and cannot make an approach.
     if (live.playedGame === true && this.presence?.get(PLAYER) === "diary-room") return null;
+    if (live.playedGame === true && this.talkHoldNow()?.private) return null; // ORW-727b: nobody steps in on a private word
     if (live.playedGame === true && this.presence) ids = ids.filter((id) => this.presence!.get(id) !== "diary-room");
     if (ids.length === 0) return null;
     const played = live.playedGame === true;
@@ -12648,6 +12810,7 @@ export class GameSessionAdapter implements GameSession {
     if (live.playedGame === true && q !== undefined) { // ORW-709: the question is asked now; the houseguest comes over to where the player is and waits for the answer
       const prev = live.approachAsked?.[npc];
       (live.approachAsked ??= {})[npc] = { q, week: live.week, n: (prev?.week === live.week ? prev.n : 0) + 1, shownAt: this.absHour() };
+      if (!live.talkAsk && !this.talkHoldNow() && this.rel.edge(npc, PLAYER).trust >= DESIRE.goalMinTrust && agendaRoll(this.gameSeed ?? 0, npc, `talk-ask:w${live.week}:h${Math.floor(this.absHour())}`) < TALK_ALONE.askRarity) live.talkAsk = { npc, until: this.absHour() + TALK_ALONE.askHours }; // ORW-727b: rarely, they ask for a private word instead of the question here (a keyed roll; the player says yes through askToTalkAlone)
       const room = this.presence?.get(PLAYER);
       if (room && room !== "diary-room" && this.presence!.get(npc) !== room) { this.presence!.set(npc, room); this.presenceBase?.set(npc, room); this.presenceTenure?.set(npc, 0); this.presenceZone?.delete(npc); }
     }
@@ -13153,6 +13316,43 @@ export class GameSessionAdapter implements GameSession {
       };
     });
     return buildSeasonArchive(season, records);
+  }
+
+  // ─── ORW-739 - the player's OWN previous characters (rule 1: return as them) ───────────────────────
+  /** Where this user's own previous characters come from (the registry binds it per user; absent in a bare session = none). `current` is the season number the season on screen takes when archived. */
+  private ownCharacterSource: (() => { past: ArchivedOwnCharacter[]; current: number }) | undefined;
+  setOwnCharacterSource(read: (() => { past: ArchivedOwnCharacter[]; current: number }) | undefined): void { this.ownCharacterSource = read; }
+
+  /** Was the season on screen a PLAYED one that earns archive entries (finished, or ended mid-way after at least one eviction)? The one predicate the NPC archive and this share. */
+  private seasonIsArchivable(): boolean {
+    const abandoned = !this.live?.finished && this.live?.playedGame === true && (this.live?.evictionOrder?.length ?? 0) > 0;
+    return !!(this.seasonMemoryEnabled && this.house && this.live && this.live.playedGame === true && (this.live.finished || abandoned));
+  }
+
+  /** The player's own character from the season on screen, archived at the season cutover (null unless that season is archivable). Their own authored fields only: no hidden layer, no number. */
+  archiveOwnCharacter(season: number): ArchivedOwnCharacter | null {
+    if (!this.seasonIsArchivable()) return null;
+    const { playerName, ...rest } = this.carryOverFields();
+    if (!playerName) return null;
+    return { season, name: playerName, fields: JSON.parse(JSON.stringify({ playerName, ...rest })) as OwnCharacterFields };
+  }
+
+  /** The player's own previous characters the narrator may OFFER at a season's end: name and season number only, the one just finished included (it is the newest). Empty until a played season ends. */
+  private ownCharacterChoices(): Array<{ season: number; name: string }> {
+    const src = this.ownCharacterSource?.();
+    if (!src) return [];
+    const list = src.past.map((c) => ({ season: c.season, name: c.name }));
+    if (this.live?.finished && this.seasonIsArchivable() && this.house && !list.some((c) => c.season === src.current)) list.push({ season: src.current, name: this.house.player.name });
+    return list.sort((a, b) => a.season - b.season);
+  }
+
+  /** Resolve `returnAs` to a character's authored fields: the season just finished (current) from the live profile, an earlier one from the archive. A season that names no character of this player's is refused, typed. */
+  private ownCharacterFor(season: number): CreateCharacterReq {
+    const src = this.ownCharacterSource?.();
+    if (src && this.seasonIsArchivable() && season === src.current) return this.carryOverFields();
+    const hit = src?.past.find((c) => c.season === season);
+    if (!hit) throw new EngineRefusal(`invalid args for createCharacter: "returnAs" names no previous character of yours (season ${String(season)})`);
+    return { ...hit.fields } as CreateCharacterReq;
   }
 
   /** B1: the returner this cast carries (if any): applied after the cast is whole, before first impressions. Keyed rolls only (no shared draw). */
@@ -15566,6 +15766,8 @@ export class GameSessionAdapter implements GameSession {
     // ORW-709: a houseguest who has just stepped up to the player and not yet been answered stays with them (patience is the desire clock's own rest period); they do not wander off before the answer can land.
     const waiting = (id: EntityId): boolean => { const k = s.approachAsked?.[id]; return s.playedGame === true && k !== undefined && k.answered !== true && this.absHour() - k.shownAt < DESIRE.cooldownHours * (1 + k.n); };
     for (let i = plans.length - 1; i >= 0; i--) { const q = plans[i]!; if (waiting(q.actor) && presence.get(q.actor) !== undefined && presence.get(q.actor) !== q.place) plans.splice(i, 1); }
+    const talkHeld = this.talkHoldNow(); // ORW-727b: the houseguest who agreed to a private word is not planned elsewhere, and nobody else is planned into a private room that is closed
+    if (talkHeld) for (let i = plans.length - 1; i >= 0; i--) { const q = plans[i]!; if (q.actor === talkHeld.npc ? q.place !== talkHeld.room : talkHeld.private && q.place === talkHeld.room) plans.splice(i, 1); }
     for (const p of plans) {
       if (p.place === "diary-room" || !where.has(p.actor)) continue;
       if ((p.goalId || p.nightOwl || p.drawn) && p.with.includes(house.player.id) && !approachAllowed(p)) continue;
@@ -20854,7 +21056,7 @@ export class GameSessionAdapter implements GameSession {
       howToVoice: "Not a decision card and it never stops the week. Voice this houseguest floating the offer " +
         "in-scene at a natural moment (who, kind, terms). If the player answers in chat, record it with " +
         "submitDecision {kind:\"deal-offer\", vote:\"accept\"|\"decline\"} — never answer for them; an " +
-        "ignored offer lapses on its own at week's end." +
+        "ignored offer lapses on its own at week's end. The offer is the game's, already decided in the offerer's favour: once the player accepts it, the offerer never refuses it, takes it back or says no in words." +
         (this.dealCounterEnabled && this.live?.playedGame === true
           ? " If the player answers with terms of their own, record them with makeDeal to this houseguest and countersOffer set to this offer's id; the houseguest's own read decides, never the engine for the player."
           : "") +
@@ -21287,8 +21489,24 @@ export class GameSessionAdapter implements GameSession {
       const qs = hostQuestionTexts(lines, ev);
       if (qs.length) questions = qs;
     }
+    // ORW-719: when the PLAYER is the evictee, the house's goodbyes are voiced from each speaker's REAL public record with the player (what the player asked, answered, did in the open), never invented.
+    let goodbyes: Array<{ speaker: string; record: string[] }> | undefined;
+    if (e.evictee === player && (e.stage === "goodbye" || e.stage === "exit-interview" || e.stage === "result")) {
+      const events = (this.record?.events() ?? []).filter((x) => x.type === "conversation" && !x.hidden && x.witnessSet.includes(player));
+      const rows = e.goodbyeFrom.filter((id) => id !== player).map((id) => ({
+        speaker: nm(id),
+        record: goodbyeRecordLines({
+          approach: s.approachAsked?.[id] ? { week: s.approachAsked[id]!.week, answered: s.approachAsked[id]!.answered === true } : undefined,
+          playerScenes: events.filter((x) => x.witnessSet.includes(id) && x.initiator === player).length,
+          speakerScenes: events.filter((x) => x.witnessSet.includes(id) && x.initiator === id).length,
+          putOnBlockByPlayerWeeks: (s.weekDigests ?? []).filter((d) => d.hoh === player && (d.nominees.includes(id) || d.replacement === id)).map((d) => d.week),
+        }),
+      }));
+      if (rows.length) goodbyes = rows;
+    }
     return {
       register: registerWords(hostRegister(this.gameSeed ?? 0)),
+      ...(goodbyes ? { goodbyes } : {}),
       ...(s.hoh ? { hoh: nm(s.hoh) } : {}),
       ...(s.vetoHolder ? { vetoHolder: nm(s.vetoHolder), vetoUsed: !!s.vetoUsed } : {}),
       ...(roles.length ? { playerRoles: roles } : {}),
@@ -21493,6 +21711,7 @@ export class GameSessionAdapter implements GameSession {
           ...(v.currentRead ? { currentRead: v.currentRead } : {}),
           ...(v.rivalry ? { rivalry: v.rivalry } : {}),
           ...(v.statedReasons ? { statedReasons: v.statedReasons } : {}),
+          ...(v.declaredStance ? { declaredStance: v.declaredStance } : {}),
           // ORW-338: the two ORW-317 lines `npcVoice` already gated (flags, public kinds, this week, trust + candor); pushed, never recomputed here.
           ...(v.moodCause ? { moodCause: v.moodCause } : {}),
           ...(v.rememberedAboutOthers?.length ? { rememberedAboutOthers: v.rememberedAboutOthers } : {}),
@@ -21504,7 +21723,7 @@ export class GameSessionAdapter implements GameSession {
       .filter(
         (e): e is NonNullable<typeof e> =>
           e !== null &&
-          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined || e.moodCause !== undefined || e.rememberedAboutOthers !== undefined || e.tellsYou !== undefined || e.leansOnYou !== undefined),
+          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined || e.declaredStance !== undefined || e.moodCause !== undefined || e.rememberedAboutOthers !== undefined || e.tellsYou !== undefined || e.leansOnYou !== undefined),
       );
   }
 
@@ -21539,7 +21758,9 @@ export class GameSessionAdapter implements GameSession {
     const view4 = this.claimSourceNote ? { ...view3b, sourceNote: this.claimSourceNote } : view3b; // 0152: the answer to "who told you that?", this turn only
     const meetingNow = this.houseMeetingForNarrator(); // 0156 slice 7b: a meeting the player was in the house and awake to hear (one turn; absent otherwise)
     const view5 = meetingNow ? { ...view4, houseMeeting: meetingNow } : view4;
-    const view = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
+    const view6 = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
+    const keepers = (req.moment ?? view6.moment) === "eviction" ? this.keepPromisersOfPlayer() : []; // ORW-737: eviction night only
+    const view = keepers.length ? { ...view6, keepPromisers: keepers } : view6;
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
     const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
       ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)
@@ -22418,6 +22639,7 @@ export class GameSessionAdapter implements GameSession {
       recent,
       winner ? { winner: winner.name, week: this.week, ...(tally ? { tally } : {}) } : null,
       playerSeason,
+      moment === "post-season" ? this.ownCharacterChoices() : undefined,
     );
   }
 
@@ -22664,6 +22886,7 @@ export class GameSessionAdapter implements GameSession {
       pending: this.pendingView(),
       eviction: this.evictionView(),
       ...(this.live?.dealOffer || this.live?.votePitch ? { openDealOffer: this.openDealOfferView() } : {}), // 0123: voiced in-scene, never a card
+      ...(this.openTalkAskView() ? { openTalkAsk: this.openTalkAskView() } : {}), // ORW-727b
       ...(this.live?.dealOffer && this.live?.votePitch ? { openVotePitch: this.openDealOfferView(this.live.votePitch) } : {}), // 0174: the vote pitch's own slot, shown beside a standing deal offer
       ...(this.owedFavorsView().length ? { owedFavors: this.owedFavorsView() } : {}), // 0142
       finished: !!this.live?.finished, // B6-01: the over-signal the FE season lifecycle (0057) gates on

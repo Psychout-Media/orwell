@@ -12839,6 +12839,14 @@ async def _stream_agent_loop_impl(
     # belts down entirely under `AUTH_ENABLED=false` — the exact posture the owner runs — leaving
     # an eviction wedge with NO reactive net and an invented houseguest with NO structural check.
     if _is_live_game:
+        # ORW-719 — the voted-out PLAYER's night owes the house's goodbyes and the exit interview before any card exists. Walk them (bounded, success-gated) so the player's exit
+        # interview card is up when the turn ends; the surface-the-pending belt just below then shows it. Never answers a card, never authors content.
+        _evicted_drained = 0
+        try:
+            from routes.chat_helpers import drain_player_eviction_to_card
+            _evicted_drained = await drain_player_eviction_to_card(owner)
+        except Exception as _dpe_err:
+            logger.warning(f"[orwell] player-eviction drain failed: {_dpe_err}")
         # F14 (#1013) — the SURFACE-THE-PENDING belt. The eviction sub-loop wedges because the model
         # narrates "X has been evicted" with NO mutating tool call: it never calls submitDecision (so
         # the per-tool `orwell:pending` seam in chat.js never fires) and never advanceGame's (so the
@@ -12852,7 +12860,7 @@ async def _stream_agent_loop_impl(
         try:
             _turn_tool_names = {ev.get("tool") for ev in (tool_events or [])
                                 if isinstance(ev, dict) and ev.get("tool")}
-            if not (_turn_tool_names & _PROGRESSION_TOOLS):
+            if _evicted_drained or not (_turn_tool_names & _PROGRESSION_TOOLS):  # ORW-719: a drained card was raised by the FE, not the model's own tool seam
                 from src import orwell_engine as _oe_pend
                 _pend_status = await _oe_pend.game_status(user=owner)
                 _pending = (_pend_status or {}).get("pending") if isinstance(_pend_status, dict) else None

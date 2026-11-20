@@ -765,6 +765,7 @@ def creating_in_flight() -> bool:
 
 async def create_character(player_name: str | None = None, *, archetype=None, strategy_style=None,
                            seed=None, confirm_restart: bool = False, keep_character: bool = False,
+                           start: str | None = None, return_as: int | None = None,
                            user: str | None = None,
                            persona_archetype=None, persona_strategy_style=None,
                            backstory=None, motivation=None, private_strategy=None,
@@ -812,6 +813,10 @@ async def create_character(player_name: str | None = None, *, archetype=None, st
         # 0056: on a confirmed restart, carry the prior player's CHARACTER into the new season
         # (the engine re-supplies their authored fields; the same houseguest returns to a new cast).
         args["keepCharacter"] = True
+    if start in ("new", "return"):
+        args["start"] = start  # ORW-739 / 0208: the player's own choice; the engine validates it
+    if return_as is not None:
+        args["returnAs"] = int(return_as)  # ORW-739: the season number of one of the player's own previous characters
     global _CREATING_IN_FLIGHT
     _CREATING_IN_FLIGHT += 1  # G8: /health reports busy="creating" while this runs
     try:
@@ -1660,6 +1665,21 @@ async def call_in_favor(npc_id: str, ask: str | None = None, expected_beat_seq: 
     if expected_beat_seq is not None:
         args["expectedBeatSeq"] = expected_beat_seq
     return await _call("callInFavor", args, user=user)
+
+
+async def ask_to_talk_alone(npc_id: str, room: str | None = None, private: bool | None = None,
+                            expected_beat_seq: int | None = None, user: str | None = None) -> dict:
+    """ORW-727b - the player asks a houseguest for a private word, or to come over. The engine picks the room, asks the
+    houseguest's own consent and places both; returns the Vault-free `{outcome, room?, roomName?}` (never a reason or a number);
+    null (None) pre-game or for an unknown houseguest."""
+    args: dict = {"npcId": npc_id}
+    if room:
+        args["room"] = room
+    if private is not None:
+        args["private"] = bool(private)
+    if expected_beat_seq is not None:
+        args["expectedBeatSeq"] = expected_beat_seq
+    return await _call("askToTalkAlone", args, user=user)
 
 
 async def accuse_tie(a_id: str, b_id: str, expected_beat_seq: int | None = None,

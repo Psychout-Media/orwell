@@ -1,4 +1,4 @@
-import type { ArchivedHouseguest } from "../engine/seasonMemory";
+import type { ArchivedHouseguest, ArchivedOwnCharacter } from "../engine/seasonMemory";
 
 /**
  * Feature 0208 (Theme B, B1: returning houseguests) - the per-USER archive of the houseguests from seasons this player actually finished. Keyed by the
@@ -13,4 +13,8 @@ export interface UserSeasonArchive {
   read(user: string): ArchivedHouseguest[];
   /** Add a finished season's entries. A season already on file is ignored (idempotent: a retried reset can not double it). */
   append(user: string, entries: readonly ArchivedHouseguest[]): void;
+  /** ORW-739: this user's OWN previous characters (the player's authored profile from each played season), oldest first. Empty for a first-season player. */
+  readOwn(user: string): ArchivedOwnCharacter[];
+  /** ORW-739: add a finished season's own character. A season already on file is ignored (append-only, idempotent). */
+  appendOwn(user: string, entry: ArchivedOwnCharacter): void;
 }

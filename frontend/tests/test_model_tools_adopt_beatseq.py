@@ -18,6 +18,7 @@ CASES = [
     ("do_expose_secret", "expose_secret", '{"factId":"f1"}'),
     ("do_trade_secret", "trade_secret", '{"toNpcId":"npc:1","factId":"f1"}'),
     ("do_confront", "confront", '{"npcId":"npc:1","factId":"f1"}'),
+    ("do_ask_to_talk_alone", "ask_to_talk_alone", '{"npcId":"npc:1"}'),
     ("do_update_casting", "update_casting", '{"name":"The Player"}'),
 ]
 
