@@ -32,7 +32,7 @@ Then("the houseguest refuses the deal", function (this: BbWorld) {
   const r = st(this).result;
   assert.ok(isRefusal(r), "the engine's consent check refuses a distrustful houseguest");
   assert.equal((st(this).s as unknown as { refusalReal: WeakMap<object, string> }).refusalReal.get(r as object), "distrust"); // ORW-608: the real reason is engine-only
-  assert.ok(["didnt-trust-you", "nothing-personal", "house-wants-it"].includes((r as DealRefusal).reason), "the stated reason is one the houseguest would give");
+  assert.ok(["didnt-trust-you", "nothing-personal", "house-wants-it"].includes((r as DealRefusal).reason ?? ""), "the stated reason is one the houseguest would give");
 });
 
 Then("no deal is recorded", function (this: BbWorld) {

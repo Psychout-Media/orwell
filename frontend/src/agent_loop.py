@@ -5253,14 +5253,18 @@ _DEAL_SIGNAL_RE = re.compile(
     r"we have a deal|i'?m with you|stick together|lock(?:ed)? (?:it )?in)\b", re.I)
 
 
-async def _auto_record_deal(narration, last_user, house, endpoint_url, model, headers, owner) -> bool:
-    """GUARANTEE a struck deal is RECORDED (0039 back-fill). When an engaged turn's narration seals a
-    deal but the model skipped makeDeal, a constrained extraction proposes {withId, kind, terms} and
-    we call makeDeal ourselves — so the promise is real, reconciles against later play, and shows on
-    the deals surface. HIGH BAR: a deal is created ONLY for a clear, explicit, MUTUAL agreement (both
-    sides committed to concrete terms); loose talk / a one-sided pitch / a maybe returns struck=false,
-    so no phantom deal binds the player. Model-driven makeDeal always takes precedence; this only fills
-    the gap. Fail-closed: any hiccup just skips. Player↔ONE-houseguest only (the engine's deal shape)."""
+async def _auto_record_deal(narration, last_user, house, endpoint_url, model, headers, owner,
+                            skip_ids=None, applied_out=None) -> bool:
+    """GUARANTEE every struck deal is RECORDED (0039 back-fill). When an engaged turn's narration seals a
+    deal but the model skipped makeDeal, a constrained extraction proposes the deals {withId, kind, terms}
+    and we call makeDeal ourselves for EACH - so the promise is real, reconciles against later play, and shows
+    on the deals surface. ORW-732: one turn can seal several handshakes with different houseguests (the old
+    one-deal-per-turn shape lost the rest), and a turn where the model recorded one deal still gets the others
+    back-filled: `skip_ids` are the partners the model already dealt with this turn (recorded OR refused by
+    the engine), never re-driven. HIGH BAR: a deal is created ONLY for a clear, explicit, MUTUAL agreement
+    (both sides committed to concrete terms); loose talk / a one-sided pitch / a maybe yields no deal. Model-driven makeDeal always takes precedence. Fail-closed: any hiccup just skips. Each deal is
+    player<->ONE houseguest (the engine's deal shape). Returns True iff at least one deal was APPLIED;
+    `applied_out` (a list) receives one entry per applied deal, for success-gated telemetry."""
     try:
         from src.llm_core import llm_call_async
         from src import orwell_engine as _oe
@@ -5270,11 +5274,12 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
             return False
         # Focus the extraction on the deal moment: in a multi-round turn (one that also advanced a
         # ceremony) the handshake may sit anywhere in the narration, so center the window on the first
-        # deal-signal hit rather than blindly taking the head (which could be a comp/eviction beat).
+        # deal-signal hit rather than blindly taking the head (which could be a comp/eviction beat). The
+        # window runs long enough to hold several back-to-back handshakes (ORW-732).
         _m = _DEAL_SIGNAL_RE.search(narration or "")
-        scene = (narration[max(0, _m.start() - 600): _m.start() + 1200] if _m else (narration or "")[:1500])
-        # 0121 R2 — the kinds the extraction may pick track the engine's deal-depth flag (comp-throw/veto-save
-        # only when it is on); off ⇒ the original four ⇒ the prompt is unchanged.
+        scene = (narration[max(0, _m.start() - 600): _m.start() + 3400] if _m else (narration or "")[:4000])
+        # 0121 R2 - the kinds the extraction may pick track the engine's deal-depth flag (comp-throw/veto-save
+        # only when it is on); off => the original four => the prompt is unchanged.
         _kinds = current_deal_kinds()
         _kinds_csv = ", ".join(_kinds)
         _kind_desc = ("safety = won't nominate / will protect; vote = how to vote; final-two = go to the end "
@@ -5284,69 +5289,91 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
         msgs = [
             {"role": "system", "content":
                 _EXTRACTION_UNTRUSTED_FENCE +
-                "Decide whether the player and ONE houseguest just struck a BINDING DEAL in this Big "
-                "Brother scene. Reply IMMEDIATELY with ONLY a JSON object — no analysis, no thinking, "
-                "no prose, no code fence:\n"
-                '{"struck":<true|false>,"withId":"<the houseguest id from the roster>",'
+                "Decide which BINDING DEALS the player just struck with a houseguest in this Big "
+                "Brother scene (each deal is between the player and ONE houseguest; one scene can hold several). "
+                "Reply IMMEDIATELY with ONLY a JSON object - no analysis, no thinking, no prose, no code fence:\n"
+                '{"deals":[{"withId":"<the houseguest id from the roster>",'
                 '"kind":"<one of: ' + _kinds_csv + '>",'
-                '"terms":"<one short clause of what was promised>",'
-                '"termWeeks":<integer weeks it runs counting this week, ONLY if a duration was explicitly named, else null>}\n'
-                "struck=true ONLY when BOTH sides explicitly AGREED to a concrete commitment. If it was "
-                "loose talk, a one-sided pitch, a 'maybe', or a refusal, struck=false. kind: " + _kind_desc + "."},
+                '"terms":"<one short clause of what was promised, as spoken>",'
+                '"termWeeks":<integer weeks it runs counting this week, ONLY if a duration was explicitly named, else null>}]}\n'
+                "List a deal ONLY when BOTH sides explicitly AGREED to a concrete commitment, with the kind that matches "
+                "the words actually spoken; if no listed kind matches what was spoken, leave that deal out. If it was loose talk, a one-sided pitch, a 'maybe', or a refusal, leave it "
+                "out; no deal at all => an empty list. kind: " + _kind_desc + "."},
             {"role": "user", "content":
                 f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
                 f"WHAT HAPPENED:\n{scene}\n\nJSON:"},
         ]
         # Room for a reasoning model to think THEN emit the deal JSON (see _auto_record_scene).
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
-                                   temperature=0.1, max_tokens=1200, timeout=45,
+                                   temperature=0.1, max_tokens=1600, timeout=45,
                                    call_class="utility-extraction", user=_meter_user(owner)) or ""
         obj = None
-        for cand in reversed(re.findall(r"\{[^{}]*\"struck\"[^{}]*\}", raw, re.DOTALL)):
+        for cand in reversed(re.findall(r"\{(?:[^{}]|\{[^{}]*\})*\}", raw, re.DOTALL)):
+            if '"deals"' not in cand and '"struck"' not in cand:
+                continue
             try:
                 obj = json.loads(cand); break
             except Exception:
                 continue
         logger.info(f"[orwell] deal back-fill extraction: parsed={obj} (raw_len={len(raw)}) user={owner}")
-        if not obj or not obj.get("struck"):
+        if not isinstance(obj, dict):
+            return False
+        # The list shape (ORW-732); the legacy single-deal shape {"struck", "withId", ...} still parses.
+        if isinstance(obj.get("deals"), list):
+            proposals = [d for d in obj["deals"] if isinstance(d, dict)]
+        elif obj.get("struck"):
+            proposals = [obj]
+        else:
+            proposals = []
+        if not proposals:
             return False
         valid = {h.get("id") for h in house}
-        with_id = obj.get("withId")
-        if with_id not in valid:
-            logger.info(f"[orwell] deal back-fill: withId {with_id!r} not on roster — skipped user={owner}")
-            return False
-        kind = obj.get("kind") if obj.get("kind") in set(_kinds) else "safety"
-        terms = (obj.get("terms") or "").strip()[:200] or "a mutual protection deal"
-        # 0065 Part A: attach the CAS token + refresh last-seen from the response. A single stale 409
-        # (the board moved under us mid-turn) is reconciled-and-RETRIED (#591); a SECOND consecutive one
-        # is DEFERRED (CON-11, `defer_fold=True`) rather than dropped — a struck deal is the scene's
-        # only record and must land eventually, never evaporate (mandate #4).
-        # A10 / #591 / R1c: mint ONE stable at-most-once key for THIS deal and thread it through EVERY
-        # attempt (it rides in kwargs, so the single retry AND the CON-11 deferred queue reuse it) —
-        # the engine dedups by it (#1305), so a concurrently re-driven deal can never fold twice.
+        _skip = set(skip_ids or ())
+        _seen = set()
+        _any = False
         from routes import chat_helpers as _ch_idem
-        # 0109 — a duration the scene explicitly named rides along (shape-filtered; the ENGINE bounds it).
-        _tw = obj.get("termWeeks")
-        _term_kw = {"term": {"weeks": _tw}} if isinstance(_tw, int) and not isinstance(_tw, bool) and _tw >= 1 else {}
-        # N-4: the back-fill rides the SAME partner/term guard as the model-driven write.
         from src.tool_implementations import guard_make_deal as _guard_deal
-        _g_err, _g_term = await _guard_deal(with_id, _term_kw.get("term"), owner, last_user or "")
-        if _g_err:
-            logger.info(f"[orwell] deal back-fill refused by the N-4 guard: {_g_err} user={owner}")
-            return False
-        _term_kw = {"term": _g_term} if _g_term else {}
-        _deal_res = await _backfill_with_cas(owner, _oe.make_deal, with_id, kind, terms,
-                                             user=owner, defer_fold=True,
-                                             idempotency_key=_ch_idem._mint_idempotency_key(), **_term_kw)
-        if _deal_res is None:
-            return False
         from src.tool_implementations import is_deal_refusal as _is_deal_refusal
-        if _is_deal_refusal(_deal_res):
-            # The ENGINE decided the NPC declines (consent, anti-sycophancy): NO deal exists. The belt never overrules it - no retry, no re-ask.
-            logger.info(f"[orwell] deal back-fill: {with_id} declined ({_deal_res.get('reason')}) - no deal recorded user={owner}")
-            return False
-        logger.info(f"[orwell] auto-recorded deal (kind={kind}, with={with_id}) user={owner}")
-        return True
+        for prop in proposals[:4]:
+            with_id = prop.get("withId")
+            if with_id not in valid:
+                logger.info(f"[orwell] deal back-fill: withId {with_id!r} not on roster - skipped user={owner}")
+                continue
+            if with_id in _skip or (with_id, prop.get("kind")) in _seen:
+                continue  # the model already dealt with this houseguest this turn / a repeat of this very deal
+            _seen.add((with_id, prop.get("kind")))
+            kind = prop.get("kind")
+            if kind not in set(_kinds):
+                # ORW-732: the belt never engine-authors a kind. A deal filed under a kind other than the one spoken is a
+                # deal with terms other than the spoken ones, so an off-enum kind records NOTHING (no deal, no belt fire).
+                logger.info(f"[orwell] deal back-fill: kind {kind!r} is not in the closed deal-kind set - skipped, no deal recorded user={owner}")
+                continue
+            terms = (prop.get("terms") or "").strip()[:200] or "a mutual protection deal"
+            # 0109 - a duration the scene explicitly named rides along (shape-filtered; the ENGINE bounds it).
+            _tw = prop.get("termWeeks")
+            _term_kw = {"term": {"weeks": _tw}} if isinstance(_tw, int) and not isinstance(_tw, bool) and _tw >= 1 else {}
+            # N-4: the back-fill rides the SAME partner/term guard as the model-driven write.
+            _g_err, _g_term = await _guard_deal(with_id, _term_kw.get("term"), owner, last_user or "")
+            if _g_err:
+                logger.info(f"[orwell] deal back-fill refused by the N-4 guard: {_g_err} user={owner}")
+                continue
+            _term_kw = {"term": _g_term} if _g_term else {}
+            # 0065 Part A / A10 / #591 / R1c: one stable at-most-once key per deal, threaded through every
+            # attempt (the single stale-409 retry and the CON-11 deferred queue); the engine dedups by it.
+            _deal_res = await _backfill_with_cas(owner, _oe.make_deal, with_id, kind, terms,
+                                                 user=owner, defer_fold=True,
+                                                 idempotency_key=_ch_idem._mint_idempotency_key(), **_term_kw)
+            if _deal_res is None:
+                continue
+            if _is_deal_refusal(_deal_res):
+                # The ENGINE decided: the NPC declines (consent) or the deal is illegal (ORW-727). NO deal exists. The belt never overrules it - no retry, no re-ask.
+                logger.info(f"[orwell] deal back-fill: {with_id} declined ({_deal_res.get('reason') or _deal_res.get('illegal')}) - no deal recorded user={owner}")
+                continue
+            logger.info(f"[orwell] auto-recorded deal (kind={kind}, with={with_id}) user={owner}")
+            if isinstance(applied_out, list):
+                applied_out.append(with_id)
+            _any = True
+        return _any
     except Exception as _e:
         logger.warning(f"[orwell] auto-record deal failed: {_e}")
         return False
@@ -9069,7 +9096,8 @@ async def _stream_agent_loop_impl(
     _progressed = False
     _phase = None
     _merged_scene: dict = {}  # ORW-294: the merged extraction's scene section handed to the later scene-record belt
-    _turn_deal_nudges = 0  # 0039 deal back-fill: at most one auto-makeDeal per finishing turn
+    _turn_deal_nudges = 0  # 0039 deal back-fill: at most one belt run per finishing turn
+    _turn_model_deal_partners: set = set()  # ORW-732: partners the MODEL already called makeDeal for this turn (the belt skips them)
     _turn_offer_nudges = 0  # 0123 deal-offer answer belt: at most one auto-answer per finishing turn
     _turn_confide_nudges = 0  # 0075 confide belt: at most one auto-confide per finishing turn
     _turn_expose_nudges = 0  # 0093 expose belt: at most one auto-exposeSecret per finishing turn
@@ -10639,7 +10667,10 @@ async def _stream_agent_loop_impl(
                 # inline `<think>` in the CONTENT channel can survive the game-scrub). The OTHER belts
                 # (deal/confide/expose/trade) keep raw `_turn_narration` — pre-existing, out of scope.
                 _turn_narration_visible = _visible_move_narration(full_response)
-                _want_deal = (_turn_deal_nudges < 1
+                # ORW-732: a model-driven makeDeal no longer switches the belt off - one turn can seal several
+                # handshakes and the model records one; the belt back-fills the OTHERS (it skips the partners the
+                # model already dealt with, whether the engine took or refused them). Still one belt run per turn.
+                _want_deal = (_turn_deal_nudges < (2 if _turn_model_deal_partners else 1)
                               and bool(_DEAL_SIGNAL_RE.search(_turn_narration)))
                 # 0075 confide belt: the player PRESSED an ally to open up but the model never called
                 # confide, so the trust-gated disclosure never fired. Gated on a cheap press-language
@@ -10977,12 +11008,15 @@ async def _stream_agent_loop_impl(
                         _touched_deal = _scene_touched_houseguest(_turn_narration, messages, [h.get("name") for h in _house])
                         if _want_deal and _touched_deal:
                             _turn_deal_nudges += 1  # once per turn
+                            _applied_deals: list = []
                             if await _auto_record_deal(_turn_narration, _extract_last_user_message(messages),
-                                                       _house, _belt_endpoint, _belt_model, _belt_headers, owner):
+                                                       _house, _belt_endpoint, _belt_model, _belt_headers, owner,
+                                                       skip_ids=_turn_model_deal_partners, applied_out=_applied_deals):
                                 _turn_record_nudges = max(_turn_record_nudges, 1)  # deal banked the fold
-                                # gap #3 telemetry — only a genuinely BANKED deal counts (struck=false
-                                # loose talk / a failed extraction is a no-op, not a correction)
-                                _note_belt(owner, "auto-record-deal")
+                                # gap #3 telemetry - only a genuinely APPLIED deal counts (no deal / a failed
+                                # extraction / an engine refusal is a no-op, not a correction): one fire per applied deal
+                                for _ in (_applied_deals or [None]):  # a True return always counts at least once
+                                    _note_belt(owner, "auto-record-deal")
                         # 0123: a standing houseguest deal offer the player answered in chat but the model never
                         # submitted - record the answer (the engine adjudicates). Only an APPLIED submit counts.
                         if _want_offer_answer:
@@ -12531,7 +12565,13 @@ async def _stream_agent_loop_impl(
                     and (not isinstance(result, dict) or result.get("exit_code") in (None, 0))):
                 _turn_record_nudges = 1  # model recorded organically — don't also auto-record (ORW-706: only when the record LANDED; a refused one leaves the 0055 belt armed)
             if _is_live_game and block.tool_type == "makeDeal":
-                _turn_deal_nudges = 1  # model struck the deal itself — don't also back-fill one
+                _turn_deal_nudges = 1  # model struck a deal itself - the belt still runs once for any OTHER handshake (ORW-732), skipping this partner
+                try:
+                    _mdw = (json.loads(block.content) or {}).get("with") or ""
+                    if isinstance(_mdw, str) and _mdw.strip():
+                        _turn_model_deal_partners.add(_mdw.strip())
+                except Exception:
+                    pass
             if _is_live_game and block.tool_type == "submitDecision":
                 _turn_offer_nudges = 1  # model submitted a decision itself - don't also auto-answer a deal offer (0123)
             if _is_live_game and block.tool_type == "confide":
