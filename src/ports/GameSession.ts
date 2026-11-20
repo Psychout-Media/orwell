@@ -1886,6 +1886,8 @@ export interface HostView {
   playerRoles?: string[];
   /** Public record the host may raise with the evictee at the exit interview (the evictee's own choices first, at most 3). */
   questions?: string[];
+  /** ORW-719: present only when the PLAYER is the evictee. Per houseguest saying goodbye, the player's real public record with them (facts to voice; the narrator adds no other history). */
+  goodbyes?: Array<{ speaker: string; record: string[] }>;
 }
 
 /** The Vault-free result of advancing the game or resolving a decision. */

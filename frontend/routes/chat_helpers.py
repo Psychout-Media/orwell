@@ -3944,6 +3944,58 @@ def _narration_claims_outcome(narration: str, before_sig: dict, after_sig: dict)
 _CEREMONY_UNVOICED: dict = {}
 
 
+# ORW-719 - the voted-out PLAYER's night owes beats (the house's goodbyes, then the exit interview) before the engine raises the player's own cards. The model narrates the
+# result and stops; nothing pends and the player has no card until further turns each drip ONE beat. The engine's goodbye stage runs at most GOODBYE_MESSAGE_COUNT (3, in
+# src/engine/liveSeason.ts) house goodbyes, then the exit-interview stage, then the result stage (which raises the watch-or-skip card): so the walk to the first card needs at
+# most that many advances plus the stage hops. ONE documented bound, here and nowhere else (a stuck engine must never loop the turn).
+EVICTED_PLAYER_DRAIN_MAX_ADVANCES = 3 + 3
+_EVICTED_PLAYER_ID = "player"
+
+
+async def drain_player_eviction_to_card(user) -> int:
+    """Post-turn belt (progression family, success-gated): when the engine's eviction is the PLAYER's and no player card is open, call advanceGame until a card (the exit interview,
+    then the watch-or-skip choice) is raised or the night ends, bounded by EVICTED_PLAYER_DRAIN_MAX_ADVANCES. Returns how many advances MOVED the board (a belt fire is an applied
+    correction: the count is 0 when nothing was owed, a card is already open, the engine held, or an advance did not commit). Never authors content, never answers a card;
+    idempotent (a card open or no player eviction => 0); fail-soft."""
+    moved = 0
+    try:
+        from src import orwell_engine as _oe
+        st = await _oe.get_game_state(user)
+        for _ in range(EVICTED_PLAYER_DRAIN_MAX_ADVANCES):
+            ev = (st or {}).get("eviction") if isinstance(st, dict) else None
+            pend = (st or {}).get("pending") if isinstance(st, dict) else None
+            evictee = ((ev or {}).get("evictee") or {}).get("id") if isinstance(ev, dict) else None
+            if evictee != _EVICTED_PLAYER_ID or (isinstance(pend, dict) and (pend.get("kind") or "").strip()):
+                break
+            before = (st or {}).get("beatSeq")
+            try:
+                adv = await _oe.advance_game(expected_beat_seq=last_beat_seq(user), idempotency_key=_mint_idempotency_key(), user=user)
+            except Exception as e:
+                if _is_stale_beat_error(e):
+                    await _handle_stale_beat(user, e)
+                break
+            if not isinstance(adv, dict) or adv.get("held"):
+                break
+            after = adv.get("beatSeq")
+            if not (isinstance(before, int) and isinstance(after, int) and after > before):
+                break  # the beat did not move: no fire, no further tries
+            moved += 1
+            _refresh_beat_seq(user, adv)
+            mark_pre_resolved_advance(user)
+            stash_preresolved_announcements(user, adv)
+            evt = adv.get("event") or {}
+            if isinstance(evt, dict) and evt.get("content"):
+                note_ceremony_beat_for_voicing(user, str(evt.get("content")), [p.get("name") for p in (evt.get("participants") or []) if isinstance(p, dict)])
+            st = await _oe.get_game_state(user)
+        if moved:
+            from src import orwell_sync_ledger as _led
+            _led.note_belt_fire(user, "player-eviction-drain", moved)
+            logger.info("[orwell] player-eviction drain: %d advance(s) to the player's card for user=%s", moved, user)
+    except Exception as e:  # failsoft-ok: orw719-drain (a belt must never hurt the turn)
+        logger.warning("[orwell] player-eviction drain skipped: %s", _exc_detail(e))
+    return moved
+
+
 def note_ceremony_beat_for_voicing(user, label: str, names) -> None:
     """Remember the ceremony beat the engine committed this turn, with the houseguest names its narration must mention. Never raises."""
     try:

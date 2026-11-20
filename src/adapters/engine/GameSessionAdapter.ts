@@ -141,7 +141,7 @@ import { AUDIENCE, crowdFor, emptyStanding, evictionKey, fanThreatFor, favoriteO
 import type { EditMoment, EditMomentKind } from "../../engine/editWorthiness";
 import { questionLive, questionAnswered } from "../../engine/voteQuestions";
 import { agendaDumpRows } from "../../engine/agendaDump";
-import { hostRegister, registerWords, hostQuestionTexts, playerRoles, type HostLine } from "../../engine/productionHost";
+import { hostRegister, registerWords, hostQuestionTexts, playerRoles, goodbyeRecordLines, type HostLine } from "../../engine/productionHost";
 import { pushbackFacts, type PushbackView } from "../../engine/producerPushback";
 import type { PlayerSaid, PlayerDid } from "../../engine/production";
 import { decideDiaryCall, awayHours, seenOf, callEventText, backEventText, playerVisitText, producerRegisterWords, type DiaryCallsState, type DiaryCallView } from "../../engine/diaryCalls";
@@ -21394,8 +21394,24 @@ export class GameSessionAdapter implements GameSession {
       const qs = hostQuestionTexts(lines, ev);
       if (qs.length) questions = qs;
     }
+    // ORW-719: when the PLAYER is the evictee, the house's goodbyes are voiced from each speaker's REAL public record with the player (what the player asked, answered, did in the open), never invented.
+    let goodbyes: Array<{ speaker: string; record: string[] }> | undefined;
+    if (e.evictee === player && (e.stage === "goodbye" || e.stage === "exit-interview" || e.stage === "result")) {
+      const events = (this.record?.events() ?? []).filter((x) => x.type === "conversation" && !x.hidden && x.witnessSet.includes(player));
+      const rows = e.goodbyeFrom.filter((id) => id !== player).map((id) => ({
+        speaker: nm(id),
+        record: goodbyeRecordLines({
+          approach: s.approachAsked?.[id] ? { week: s.approachAsked[id]!.week, answered: s.approachAsked[id]!.answered === true } : undefined,
+          playerScenes: events.filter((x) => x.witnessSet.includes(id) && x.initiator === player).length,
+          speakerScenes: events.filter((x) => x.witnessSet.includes(id) && x.initiator === id).length,
+          putOnBlockByPlayerWeeks: (s.weekDigests ?? []).filter((d) => d.hoh === player && (d.nominees.includes(id) || d.replacement === id)).map((d) => d.week),
+        }),
+      }));
+      if (rows.length) goodbyes = rows;
+    }
     return {
       register: registerWords(hostRegister(this.gameSeed ?? 0)),
+      ...(goodbyes ? { goodbyes } : {}),
       ...(s.hoh ? { hoh: nm(s.hoh) } : {}),
       ...(s.vetoHolder ? { vetoHolder: nm(s.vetoHolder), vetoUsed: !!s.vetoUsed } : {}),
       ...(roles.length ? { playerRoles: roles } : {}),
