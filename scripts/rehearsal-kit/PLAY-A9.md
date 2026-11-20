@@ -2,7 +2,7 @@
 #   export ORWELL_PREMIERE_ENTRANCES=1; MERGE_BRANCHES=overseer-a/a9-premiere-entrances ./stage.sh   (DeepSeek key only inside stage.sh's subshell; images OFF; stop.sh when done)
 Checks (screenshot the first entrance, a mid entrance, the toast, the first morning):
 1. CAST: finalize with a name; the premiere opens on entrances, NOT the old circle: ONE arrival vignette per turn (a line + a vibe + a reaction), no 15-name roll-call dump.
-2. The player's position in the order varies by seed (record playerPosition from the board: `premiereIntros().entrance.playerPosition` via /api/orwell/state or the engine log).
+2. The player's position in the order varies by seed (record playerPosition from the board: `premiereIntros().entrance.playerPosition` from the rig's engine (a9drive.py logs it; /api/orwell/state no longer carries the entrance) or the engine log).
 3. Say something social between arrivals (greet, ask who someone is): the arrival cadence waits for a lull of 1–2 messages; typing "next" releases the next arrival at once; saying nothing special for 2 messages releases it.
 4. No "meet everyone" gate: ask to start the HOH early → "production hasn't called it yet" (P2b), not a roll-call demand.
 5. After the 15th arrival: the living-room toast — host first (generic voice, no real names), then speeches in batches; the player is invited to give theirs (and may ignore it).

@@ -1,7 +1,10 @@
 """ORW-109 - ENGINE TRUTH for the full-week tier: turn the engine's own state reads into the per-turn record the comparator judges, find what the engine COMMITTED between two
 reads, and judge the run-level rules (a committed result the narration never told, a silent retcon, skipped time). Pure: no network, no model.
 
-The state is the engine's `getGameState` as the front end serves it (GET /api/orwell/state, houseguest cards already cut to id / name / status). Roles only.
+The state is what a player's BROWSER can read, composed by `screen_view` from the three routes the screens use (ORW-768, after the ORW-707/733 wall): GET /api/orwell/state (the closed
+browser shape: board, house tiles, day schedule, time-of-day band), GET /api/orwell/status (the HUD and the decision card: the pending card with its options, the winner) and GET
+/api/orwell/whereabouts (the presence strip: who is in the room, the headcounts). Nothing here reads a hidden or planned field: what a screen cannot show is NOT JUDGED (see
+NOT_JUDGED). Roles only.
 """
 from __future__ import annotations
 
@@ -9,7 +12,11 @@ import re
 
 HOUR = 60.0
 RESULT_WINDOW = 2   # a committed result must be told within this many turns of the one that committed it (the pass bar's untold-result rule, set by the coordinator ruling 11-19)
-SKIP_HOURS = 1.0    # more than this in one message needs a sanctioned reason (a bed, a nap, a ceremony, a staged competition)
+SKIP_BANDS = 1      # more than this many parts of the day in one message needs a sanctioned reason (a bed, a nap, a ceremony, a staged competition). No screen shows minutes, so the clock is judged by day part.
+BANDS = ("morning", "afternoon", "evening", "night", "late-night")   # the HUD's time-of-day bands, in order within one in-game day
+# What the browser cannot show, so the run does not judge it (listed in every report beside the other "not covered" lines).
+NOT_JUDGED = ["T9 at minute precision (no screen shows minutes: the clock is judged by day part, a skip over a whole part of the day is caught, a skip inside one is not)",
+              "the planned or hidden state behind any result (who the engine planned to nominate, a ballot, a relationship): the browser never receives it, so no check reads it"]
 
 KEYWORDS = {
     "hoh": re.compile(r"(?i)head of household|\bhoh\b|\bcrown|new (?:head|hoh)"),
@@ -27,8 +34,55 @@ def _name(x):
     return x if isinstance(x, str) else None
 
 
+# The exact keys this tier reads from each browser route, as paths (`[]` = a list element). `frontend/tests/test_orw768_harness_reads_screens.py` holds /state's to `_BROWSER_STATE_SHAPE`, so a key the
+# wall drops can never again be read here silently.
+STATE_READS = ("phase", "week", "timeOfDay", "dayNumber", "finished", "daySchedule.due", "daySchedule.next", "daySchedule.minutesUntil", "player.id", "player.name", "pending.kind",
+               "house[].id", "house[].name", "house[].status", "ceremony.hoh.id", "ceremony.hoh.name", "ceremony.nominees[].id", "ceremony.nominees[].name", "ceremony.veto.holder.id",
+               "ceremony.veto.holder.name")
+STATUS_READS = ("hoh", "nominees", "veto", "pending", "finished", "winner")   # the HUD and the decision card read these from /api/orwell/status
+WHEREABOUTS_READS = ("present", "counts")                                       # the presence strip reads these from /api/orwell/whereabouts
+
+
+def screen_view(state, status=None, whereabouts=None):
+    """ORW-768: the ONE read a player's screens make, composed from the three browser routes. `state` = GET /api/orwell/state, `status` = GET /api/orwell/status (the HUD and the decision
+    card: the pending card with its options, the board, the winner), `whereabouts` = GET /api/orwell/whereabouts ({"whereabouts": view}) or the bare view. A route that failed is None
+    and its keys are simply absent (an absent key is read as unknown, never as empty). Returns the flat dict `facts` reads. Never adds a key a route did not send."""
+    st = dict(state) if isinstance(state, dict) else {}
+    s = status if isinstance(status, dict) else {}
+    cer = dict(st.get("ceremony") or {}) if isinstance(st.get("ceremony"), dict) else {}
+    if "hoh" in s or "nominees" in s or "veto" in s:   # the HUD's board wins over the state's own public ceremony facts
+        cer.update({k: s[k] for k in ("hoh", "nominees", "veto") if k in s})
+    if cer:
+        st["ceremony"] = cer
+    if "pending" in s:   # the decision card reads the status route; the state carries only the card's kind
+        st["pending"] = s["pending"]
+    for k in ("winner", "finished", "dayNumber", "timeOfDay", "earlyMorning", "lastEviction"):
+        if k in s and k not in st:
+            st[k] = s[k]
+    w = whereabouts.get("whereabouts") if isinstance(whereabouts, dict) and "whereabouts" in whereabouts else whereabouts
+    if isinstance(w, dict):
+        st["whereabouts"] = w
+    return st
+
+
+def clock_label(st):
+    """The clock as a player sees it: the HUD's day part and the day number ("morning, Day 2"). None while no clock runs."""
+    band, day = st.get("timeOfDay"), st.get("dayNumber")
+    if not isinstance(band, str) or not band:
+        return None
+    return f"{band}, Day {day}" if isinstance(day, int) else band
+
+
+def band_position(label):
+    """A monotonic position of a clock label on the day-part ladder (5 parts a day), or None. 'late-night' belongs to the Day it is shown with, as the HUD does."""
+    m = re.match(r"^([a-z-]+)(?:, Day (\d+))?$", (label or "").strip())
+    if not m or m.group(1) not in BANDS:
+        return None
+    return (int(m.group(2) or 1) - 1) * len(BANDS) + BANDS.index(m.group(1))
+
+
 def facts(st):
-    """The comparable facts of one engine read: who holds what, as plain names."""
+    """The comparable facts of one screen read (`screen_view`): who holds what, as plain names."""
     st = st or {}
     cer = st.get("ceremony") or {}
     hoh = cer.get("hoh") if isinstance(cer.get("hoh"), dict) else st.get("hoh")
@@ -37,13 +91,14 @@ def facts(st):
     house = [h for h in (st.get("house") or []) if isinstance(h, dict)]
     pl = st.get("player")
     return {
-        "phase": st.get("phase"), "week": st.get("week"), "clock": st.get("clockLabel"), "ds": st.get("daySchedule") or {},
+        "phase": st.get("phase"), "week": st.get("week"), "clock": clock_label(st), "ds": st.get("daySchedule") or {},
         "hoh": _name(hoh), "nominees": [n for n in (_name(x) for x in noms) if n],
         "veto_holder": _name(veto.get("holder")) if isinstance(veto, dict) else None,
         "cast": [h["name"] for h in house if h.get("name")],
         "evicted": [h["name"] for h in house if h.get("name") and h.get("status") not in (None, "active")],
         "player": _name(pl), "winner": _name(st.get("winner")), "finished": bool(st.get("finished")),
         "pending": st.get("pending") or None, "counts": (st.get("whereabouts") or {}).get("counts"),
+        "present": [h["name"] for h in ((st.get("whereabouts") or {}).get("present") or []) if isinstance(h, dict) and h.get("name")],
         "veto_holder_raw": veto.get("holder") if isinstance(veto, dict) else None,
     }
 
@@ -126,22 +181,14 @@ def retcons(turns):
     return out
 
 
-def _abs_hours(label):
-    m = re.match(r"^(\d{1,2}):(\d{2})\s?(am|pm),? Day (\d+)$", (label or "").strip(), re.I)
-    if not m:
-        return None
-    h = int(m.group(1)) % 12 + (12 if m.group(3).lower() == "pm" else 0) + int(m.group(2)) / 60
-    return (int(m.group(4)) - 1) * 24 + h + (24 if h < 8 else 0)
-
-
 def time_findings(turns):
-    """T9: more than an hour of in-game time inside one message with no sanctioned reason (a bed or nap message, a committed event, a phase move)."""
+    """T9: more than SKIP_BANDS parts of the day inside one message with no sanctioned reason (a bed or nap message, a committed event, a phase move). Day-part precision only."""
     out = []
     for t in turns:
-        a, b = _abs_hours(t.get("clock_before")), _abs_hours(t.get("clock"))
-        if a is None or b is None or b - a <= SKIP_HOURS:
+        a, b = band_position(t.get("clock_before")), band_position(t.get("clock"))
+        if a is None or b is None or b - a <= SKIP_BANDS:
             continue
         if NAP_RE.search(t.get("msg") or "") or t.get("events") or t.get("phase") != t.get("phase_before"):
             continue
-        out.append({"id": f"T9-time-skip[{t['label']}]", "ok": False, "severity": "fail", "detail": f"the clock moved {round(b - a, 1)} h in one message with no bed, nap, event or phase change"})
+        out.append({"id": f"T9-time-skip[{t['label']}]", "ok": False, "severity": "fail", "detail": f"the clock moved {b - a} parts of the day in one message with no bed, nap, event or phase change"})
     return out

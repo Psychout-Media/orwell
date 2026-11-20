@@ -5,7 +5,8 @@ turn compared with the engine's own state read. Operator-triggered only: no CI j
   python3 scripts/live-run/live_full.py --creds ~/.config/orwell-dev/<account>.json --max-spend 3 --max-turns 200 [--base-url URL] [--out DIR]
   python3 scripts/live-run/live_full.py --stub [healthy|planted|orw10]     offline: no network, no model, no spend (what CI-safe tests and a first look use)
 
-Truth is the engine's state (GET /api/orwell/state), never the narration. The player sends messages through the chat stream (SSE when the server allows it, the WebSocket
+Truth is what a player's browser can read of the engine's state (GET /api/orwell/state composed with /status for the HUD and the decision card and /whereabouts for the presence strip: `live_truth.screen_view`), never the narration.
+Nothing hidden or planned is read: what no screen shows is listed as NOT JUDGED in every report. The player sends messages through the chat stream (SSE when the server allows it, the WebSocket
 `turn` frame when the game build is WebSocket-only), answers decision cards through POST /api/orwell/decision, and reads the public bubble only (reasoning is kept apart).
 Credentials are read from the file named by --creds INSIDE this process and handed straight to the login call; they are never printed, logged or written to a report.
 Exit: 0 PASS or NOTE, 1 FAIL, 2 could not run, 4 CAPPED. Writes report.md, report.json and plane-comment.html (anonymised) into --out.
@@ -142,12 +143,14 @@ SHARES = ("I tell {name} I am still undecided about the week and want to keep my
           "I admit to {name} that I am nervous about the next competition", "I tell {name} I have been keeping an eye on who talks to whom")
 HANGOUTS = ("I sit with {name} and let the conversation wander", "I stay in the room and listen to what {name} and the others are saying",
             "I help {name} with whatever they are doing and see what they bring up")
-LATE_HOUR = 23.0   # the player turns in from this hour (the player owns their own bedtime)
+BED_BANDS = ("night", "late-night")   # the player turns in once the HUD says it is night (the player owns their own bedtime)
+NAP_BANDS = ("afternoon",)
 
 
-def clock_hour(label):
-    h = lt._abs_hours(label)
-    return None if h is None else h % 24
+def clock_band(label):
+    """The HUD's day part of a clock label ("morning, Day 2" -> "morning"), or None."""
+    m = re.match(r"^([a-z-]+)", (label or "").strip())
+    return m.group(1) if m and m.group(1) in lt.BANDS else None
 
 
 class Player:
@@ -159,8 +162,7 @@ class Player:
 
     def _pick_name(self, st):
         f = lt.facts(st)
-        present = [h for h in (st.get("whereabouts") or {}).get("present", []) if isinstance(h, dict) and h.get("name")]
-        pool = [h["name"] for h in present] or [n for n in f["cast"] if n != f["player"] and n not in f["evicted"]]
+        pool = list(f["present"]) or [n for n in f["cast"] if n != f["player"] and n not in f["evicted"]]
         if not pool:
             return None
         name = min(pool, key=lambda n: (self.talked.get(n, 0), pool.index(n)))
@@ -176,11 +178,11 @@ class Player:
         """The next thing the player says, from the engine's state and the last reply."""
         f = lt.facts(st)
         self.sent += 1
-        hour, ds = clock_hour(f["clock"]), f["ds"]
+        band, ds = clock_band(f["clock"]), f["ds"]
         last = (turns[-1].get("text") or "").strip() if turns else ""
         day = re.search(r"Day (\d+)", f["clock"] or "")
         day = day.group(1) if day else None
-        if hour is not None and hour >= LATE_HOUR and self.last_bed_day != day:
+        if band in BED_BANDS and self.last_bed_day != day:
             self.last_bed_day = day
             return BED
         if ds.get("due") and ds.get("next"):
@@ -189,7 +191,7 @@ class Player:
                 self.asked_ready.add(key)
                 return GO_NOW
             return HANG_OUT
-        if not self.did_nap and hour is not None and 13 <= hour < 17 and self.sent >= 8:
+        if not self.did_nap and band in NAP_BANDS and self.sent >= 8:
             self.did_nap = True
             return NAP
         if not self.did_move and self.sent >= 14:
@@ -275,7 +277,20 @@ class LiveWorld:
         return json.dumps({k: h.get(k) for k in ("commit", "version", "sha", "flags") if isinstance(h, dict) and k in h})[:300]
 
     def state(self):
-        return self._req("GET", "/api/orwell/state")
+        """What the player's screens read, from the routes they read it from: /state (the board, tiles, day part), /status (the HUD and the decision card) and /whereabouts (the presence
+        strip). A route that fails leaves its keys absent (unknown), never invented; /state failing is a failed read."""
+        state = self._req("GET", "/api/orwell/state")
+        status = whereabouts = None
+        for path in ("/api/orwell/status", "/api/orwell/whereabouts"):
+            try:
+                got = self._req("GET", path)
+            except RuntimeError:
+                got = None
+            if path.endswith("status"):
+                status = got
+            else:
+                whereabouts = got
+        return lt.screen_view(state, status, whereabouts)
 
     def decide(self, body):
         return self._req("POST", "/api/orwell/decision", body)
@@ -348,11 +363,20 @@ class ReplayWorld:
         return "offline stub"
 
     def state(self):
-        return self._state
+        """A step's `screens` ({state, status, whereabouts}: the routes' payloads) are composed exactly as the live world composes them; a plain dict is already a screen view."""
+        cur = self._state
+        if isinstance(cur, dict) and isinstance(cur.get("screens"), dict):
+            return lt.screen_view(cur["screens"].get("state"), cur["screens"].get("status"), cur["screens"].get("whereabouts"))
+        return cur
 
     def decide(self, body):
         self.decisions += 1
-        self._state = dict(self._state, pending=None)
+        cur = self._state
+        if isinstance(cur, dict) and isinstance(cur.get("screens"), dict):   # the card is answered: the HUD route and the state's card kind both clear
+            sc = cur["screens"]
+            self._state = {"screens": dict(sc, state=dict(sc.get("state") or {}, pending=None), status=dict(sc.get("status") or {}, pending=None))}
+        else:
+            self._state = dict(cur, pending=None)
         return {"ok": True}
 
     def send(self, message):
@@ -423,11 +447,17 @@ SCENE = ("The kitchen hums with low talk; {a} stirs a pot and glances up at {b} 
 
 
 def _state(week, phase, clock, cast, hoh=None, nominees=(), veto=None, evicted=(), player=None, due=False, nxt=None, pending=None, finished=False, winner=None):
-    house = [{"id": f"hg{i}", "name": n, "status": "evicted" if n in evicted else "active"} for i, n in enumerate(cast)]
-    return {"started": True, "phase": phase, "week": week, "clockLabel": clock, "daySchedule": {"due": due, "next": nxt, "minutesUntil": 0 if due else 90},
-            "ceremony": {"hoh": {"name": hoh} if hoh else None, "nominees": [{"name": n} for n in nominees]}, "veto": {"holder": veto} if veto else {}, "house": house,
-            "player": {"name": player}, "pending": pending, "finished": finished, "winner": winner,
-            "whereabouts": {"counts": {"house": len([n for n in cast if n not in evicted]), "room": 4}, "present": [{"name": n} for n in cast[1:5]]}}
+    """One generated step as the three browser routes would serve it, composed by the real `screen_view`. `clock` is the HUD's "<day part>, Day N"."""
+    band, _, day = clock.partition(", Day ")
+    ids = {n: f"hg{i}" for i, n in enumerate(cast)}
+    ref = lambda n: {"id": ids[n], "name": n}  # noqa: E731
+    house = [{"id": ids[n], "name": n, "status": "evicted" if n in evicted else "active"} for n in cast]
+    board = {"hoh": ref(hoh) if hoh else None, "nominees": [ref(n) for n in nominees], "veto": {"holder": ref(veto) if veto else None, "used": False, "players": []}}
+    state = {"started": True, "phase": phase, "week": week, "timeOfDay": band, "dayNumber": int(day), "daySchedule": {"due": due, "next": nxt, "minutesUntil": 0 if due else 90},
+             "ceremony": board, "house": house, "player": ref(player) if player else None, "pending": {"kind": pending["kind"]} if pending else None, "finished": finished}
+    status = dict(board, pending=pending, finished=finished, winner=ref(winner) if winner else None)
+    whereabouts = {"whereabouts": {"room": "kitchen", "counts": {"house": len([n for n in cast if n not in evicted]), "others": 3, "room": 4}, "present": [ref(n) for n in cast[1:5]]}}
+    return {"screens": {"state": state, "status": status, "whereabouts": whereabouts}}
 
 
 def stub_week(fault=None):
@@ -445,25 +475,25 @@ def stub_week(fault=None):
     def add(state, reply, **kw):
         st.append(dict({"state": state, "reply": reply}, **kw))
 
-    add(_state(1, "hoh-competition", "10:00am, Day 2", **base, due=False), scene + "Everyone talks about the coming competition.")
-    add(_state(1, "nominations", "11:00am, Day 2", hoh=cast[1], **base, due=True, nxt="nominations"), scene + "The HOH is the new Head of Household and the room buzzes.")
-    add(_state(1, "nominations", "11:05am, Day 2", hoh=cast[1], nominees=[cast[2], cast[3]], **base, due=False), scene + "Two houseguests are nominated and sit stunned on the block.")
-    add(_state(1, "veto-competition", "1:00pm, Day 3", hoh=cast[1], nominees=[cast[2], cast[3]], **base, due=True, nxt="veto-competition"), scene + "Everyone gathers for the veto draw.")
-    add(_state(1, "veto-ceremony", "3:00pm, Day 4", hoh=cast[1], nominees=[cast[2], cast[3]], veto=cast[4], **base, due=True, nxt="veto-ceremony"), scene + "The veto winner steps forward with the veto in hand.")
+    add(_state(1, "hoh-competition", "morning, Day 2", **base, due=False), scene + "Everyone talks about the coming competition.")
+    add(_state(1, "nominations", "morning, Day 2", hoh=cast[1], **base, due=True, nxt="nominations"), scene + "The HOH is the new Head of Household and the room buzzes.")
+    add(_state(1, "nominations", "morning, Day 2", hoh=cast[1], nominees=[cast[2], cast[3]], **base, due=False), scene + "Two houseguests are nominated and sit stunned on the block.")
+    add(_state(1, "veto-competition", "afternoon, Day 3", hoh=cast[1], nominees=[cast[2], cast[3]], **base, due=True, nxt="veto-competition"), scene + "Everyone gathers for the veto draw.")
+    add(_state(1, "veto-ceremony", "afternoon, Day 4", hoh=cast[1], nominees=[cast[2], cast[3]], veto=cast[4], **base, due=True, nxt="veto-ceremony"), scene + "The veto winner steps forward with the veto in hand.")
     if fault == "orw10":   # the recorded shape of the ORW-10 stall: the ceremony due, nothing committed, the same canned cutaway shown turn after turn
         for _ in range(35):   # the card: 35 messages with the ceremony due
-            add(_state(1, "veto-ceremony", "3:05pm, Day 4", hoh=cast[1], nominees=[cast[2], cast[3]], veto=cast[4], **base, due=True, nxt="veto-ceremony"), canned)
+            add(_state(1, "veto-ceremony", "afternoon, Day 4", hoh=cast[1], nominees=[cast[2], cast[3]], veto=cast[4], **base, due=True, nxt="veto-ceremony"), canned)
     elif fault == "stall":
         for k in range(6):
-            add(_state(1, "veto-ceremony", "3:05pm, Day 4", hoh=cast[1], nominees=[cast[2], cast[3]], veto=cast[4], **base, due=True, nxt="veto-ceremony"),
+            add(_state(1, "veto-ceremony", "afternoon, Day 4", hoh=cast[1], nominees=[cast[2], cast[3]], veto=cast[4], **base, due=True, nxt="veto-ceremony"),
                 scene + f"Still waiting, beat {k}, and nobody moves.")
-    add(_state(1, "eviction", "7:00pm, Day 5", hoh=cast[1], nominees=[cast[2], cast[3]], veto=cast[4], **base, due=True, nxt="eviction"), scene + "The house gathers on the couches for the live vote.")
+    add(_state(1, "eviction", "evening, Day 5", hoh=cast[1], nominees=[cast[2], cast[3]], veto=cast[4], **base, due=True, nxt="eviction"), scene + "The house gathers on the couches for the live vote.")
     ev_reply = scene + "The votes are read aloud and the room goes silent as the house votes out a nominee."
-    ev_state = _state(1, "hoh-competition", "9:00pm, Day 5", hoh=None, evicted=[cast[3]], **base)
+    ev_state = _state(1, "hoh-competition", "night, Day 5", hoh=None, evicted=[cast[3]], **base)
     add(ev_state, scene + "The house sleeps badly after a long and tense night." if fault == "missing" else ev_reply)
-    add(_state(2, "nominations", "10:00am, Day 6", hoh=cast[2], evicted=[cast[3]], **base), scene + "The new Head of Household sits in the HOH room and thinks.")
+    add(_state(2, "nominations", "morning, Day 6", hoh=cast[2], evicted=[cast[3]], **base), scene + "The new Head of Household sits in the HOH room and thinks.")
     for _ in range(lt.RESULT_WINDOW):
-        add(_state(2, "nominations", "11:00am, Day 6", hoh=cast[2], evicted=[cast[3]], **base), scene + "The new week settles in and people drift between rooms.")
+        add(_state(2, "nominations", "morning, Day 6", hoh=cast[2], evicted=[cast[3]], **base), scene + "The new week settles in and people drift between rooms.")
     pos = {"phantom": 1, "stand_in": 2, "leak": 3, "unanswered": 4, "retcon": 6, "timeskip": 0}
     if fault in pos:
         s = st[pos[fault]]
@@ -477,10 +507,10 @@ def stub_week(fault=None):
             s["reply"] = ""
             s["error"] = "no reply"
         elif fault == "retcon":
-            s["state"] = _state(1, "veto-ceremony", "3:00pm, Day 4", hoh=cast[5], nominees=[cast[2], cast[3]], veto=cast[4], **base, due=True, nxt="veto-ceremony")
+            s["state"] = _state(1, "veto-ceremony", "afternoon, Day 4", hoh=cast[5], nominees=[cast[2], cast[3]], veto=cast[4], **base, due=True, nxt="veto-ceremony")
         elif fault == "timeskip":
-            s["state"] = _state(1, "hoh-competition", "5:30pm, Day 2", **base)
-    first = _state(1, "hoh-competition", "9:50am, Day 2", **base)
+            s["state"] = _state(1, "hoh-competition", "evening, Day 2", **base)
+    first = _state(1, "hoh-competition", "morning, Day 2", **base)
     return st, first
 
 
