@@ -577,6 +577,15 @@ def _house_entry_overlay(user: Optional[str], st):
 # engine's card later cannot ride to the browser by default.
 _BROWSER_HOUSEGUEST_KEYS = ("id", "name", "status", "evictedSeq", "lastSeenMood")
 
+# ORW-733 (Vault Wall): the closed set of TOP-LEVEL keys the browser may receive from /api/orwell/state: exactly what the panels read, plus the keys the front end's own overlays add
+# (`casting`, `castingHouse`, `enterHouse`). Everything else the engine's state read carries is for the NARRATOR (the public showmances the house knows, the notoriety legend, returners,
+# the Diary-Room/producer cues, an open deal offer, the jury house, ...) and is dropped here BY CONSTRUCTION: a new engine field never reaches the browser until a screen needs it and it is added here.
+_BROWSER_STATE_KEYS = frozenset({
+    "started", "beatSeq", "pending", "eviction", "finished", "ceremony", "whereabouts", "week", "phase", "moment", "player", "house", "deals", "premiere",
+    "unarrivedCount", "timeOfDay", "asleep", "awake", "earlyMorning", "dayNumber", "daySchedule", "watching",
+    "casting", "castingHouse", "enterHouse",
+})
+
 
 def _browser_state_projection(st):
     """Project the engine's `getGameState` for the browser: every `house[]` entry and every premiere `met[]` entry is cut to the closed set the panels render. Pure and
@@ -584,7 +593,7 @@ def _browser_state_projection(st):
     never for the content: an unexpected extra key is dropped, not forwarded)."""
     if not isinstance(st, dict):
         return st
-    out = dict(st)
+    out = {k: v for k, v in st.items() if k in _BROWSER_STATE_KEYS}
     house = st.get("house")
     if isinstance(house, list):
         out["house"] = [
