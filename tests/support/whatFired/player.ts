@@ -28,6 +28,12 @@ export interface PlayOpts {
   restartAt?: number;
   /** a durable save folder (FileSaveStore); when absent the run is in-memory. */
   saveDir?: string;
+  /** ORW-741: called once right after the character is created, with the live session: the flag-off runs switch a feature off here through the session's own setter (the same switch the env var sets). */
+  setup?: (sess: any) => void;
+  /** ORW-741: called once when the season ends (finished, capped or watched), with the live session: the place to read a post-season view, or flip a read-only feature and read it again. */
+  after?: (ctx: { sess: any; engine: any; call: Call }) => void | Promise<void>;
+  /** ORW-741: called after every message with the live session (engine-side, in-process) and the player-channel caller; returning true ends the season early. The real-path tests use it to stop at the first moment the feature under test has fired: nothing is hand-set, the season is played. */
+  watch?: (ctx: { sess: any; engine: any; call: Call; msg: number }) => boolean | Promise<boolean>;
   /** compare against this trace as the run goes and STOP at the first difference (the ablation's early exit). */
   against?: readonly TraceRow[];
 }
@@ -40,7 +46,7 @@ export interface SeasonRecord {
   advances: number;
   week: number;
   /** why the run stopped early, when it did: "stalled" (no progress for a long time), "cap" (message cap, no crown), "diverged" (against a trace) */
-  stopped: "finished" | "cap" | "stalled" | "diverged";
+  stopped: "finished" | "cap" | "stalled" | "diverged" | "watched";
   divergedAt?: number;
   eventTypes: Record<string, number>;
   houseLifeActions: Record<string, number>;
@@ -62,6 +68,8 @@ export interface SeasonRecord {
   tried: Record<string, number>;
   /** the game week the player left the game (evicted), when they did: a season where the player goes early exercises the late game only as a spectator */
   playerOutWeek?: number;
+  /** ORW-741: generic footprints of what the season reached (counts), derived from the saved state and the post-season views, not from a list of features: see `milestonesOf`. */
+  milestones: Record<string, number>;
   scenes: MixScene[];
   trace: TraceRow[];
 }
@@ -85,6 +93,32 @@ export function scrub(s: string): string {
   return s.replace(/npc:\d+/g, "npc:N").replace(/\b[A-Z][a-z]+ [A-Z][a-z]+\b/g, "<name>").replace(/\d{3,}/g, "N").slice(0, 80);
 }
 
+/**
+ * ORW-741: the milestone footprints, all DERIVED (no list of feature names): (1) every saved-state key under `live` that is a list or a map: its size, `state.<key>`; (2) every `kind` / `shape` / `action` string
+ * in the post-season views (the story, the edit's moments, the reunion): `view.<head>.<field>:<value>`, one count per occurrence; (3) the pathway family of every fact the player holds
+ * (`pathway.<word before the first colon or dash>`). Counts and kinds only: no name, no content and no id is ever copied.
+ */
+export function milestonesOf(live: Record<string, unknown>, retro: unknown, knowledge: ReadonlyArray<{ pathway?: unknown }>): Record<string, number> {
+  const out: Record<string, number> = {};
+  const bump = (k: string, n = 1): void => { out[k] = (out[k] ?? 0) + n; };
+  for (const [k, v] of Object.entries(live)) {
+    if (Array.isArray(v) && v.length) bump(`state.${k}`, v.length);
+    else if (v && typeof v === "object" && !Array.isArray(v) && Object.keys(v as object).length) bump(`state.${k}`, Object.keys(v as object).length);
+  }
+  const FIELDS = new Set(["kind", "shape", "action"]);
+  const walk = (v: unknown, head: string, depth: number): void => {
+    if (depth > 6 || v === null || typeof v !== "object") return;
+    if (Array.isArray(v)) { for (const x of v) walk(x, head, depth + 1); return; }
+    for (const [f, x] of Object.entries(v as Record<string, unknown>)) {
+      if (FIELDS.has(f) && typeof x === "string" && /^[a-z][a-z0-9-]{0,30}$/.test(x)) bump(`view.${head}.${f}:${x}`);
+      else walk(x, head, depth + 1);
+    }
+  };
+  if (retro && typeof retro === "object") for (const [h, v] of Object.entries(retro as Record<string, unknown>)) walk(v, h, 0);
+  for (const f of knowledge) { const w = typeof f.pathway === "string" ? /^[a-z]+/.exec(f.pathway)?.[0] : undefined; if (w) bump(`pathway.${w}`); }
+  return out;
+}
+
 const SCENES = ["bonding", "strategy", "gossip", "conflict", "alliance"] as const;
 const DEALS = ["safety", "final-two", "vote"] as const;
 
@@ -101,7 +135,7 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
     admin: (n, a) => rt.registry.resolver()("admin", user).callTool(n, a) as Promise<any>,
   });
   let { call, admin } = bind();
-  const rec: SeasonRecord = { seed, finished: false, messages: 0, advances: 0, week: 1, stopped: "cap", eventTypes: {}, houseLifeActions: {}, eventFields: {}, stateKeysPopulated: [], stateKeysSeen: [], pendingKinds: {}, pendingRepeats: {}, faults: [], crashes: [], refused: {}, noEffect: {}, tried: {}, scenes: [], trace: [] };
+  const rec: SeasonRecord = { seed, finished: false, messages: 0, advances: 0, week: 1, stopped: "cap", eventTypes: {}, houseLifeActions: {}, eventFields: {}, stateKeysPopulated: [], stateKeysSeen: [], pendingKinds: {}, pendingRepeats: {}, faults: [], crashes: [], refused: {}, noEffect: {}, tried: {}, scenes: [], milestones: {}, trace: [] };
   const populated = new Set<string>(), seen = new Set<string>();
   const crash = (tool: string, at: number, e: unknown): void => {
     const what = scrub(`${(e as Error)?.name ?? "Error"}: ${(e as Error)?.message ?? String(e)}`);
@@ -128,6 +162,7 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
   const eventHash = (e: any): string => (e ? hash(stable({ t: e.type, i: e.initiator, w: e.witnessSet, h: e.hidden, c: e.content, a: e.houseLife?.action })) : "-");
 
   await must("createCharacter", { playerName: "The Player", seed, archetype: "floater" }, -1);
+  opts.setup?.(sess());
   let msg = 0, nonce = 0, stampedUpTo = 0, week = 1, finished = false, restarted = false;
   let lastProgress = "", lastProgressAt = 0;
   let lastPendingKey = "", repeats = 0;
@@ -240,6 +275,7 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
       const b = opts.against[msg];
       if (!b || b.ev !== row.ev || b.last !== row.last || (b.st !== undefined && row.st !== undefined && b.st !== row.st)) { rec.stopped = "diverged"; rec.divergedAt = msg; msg++; break; }
     }
+    if (opts.watch && (await opts.watch({ sess: sess(), engine: rt.registry.sandboxFor(user).engine, call, msg }))) { rec.stopped = "watched"; msg++; break; }
     const prog = `${week}|${gs?.phase}|${gs?.dayNumber}|${evs.length}`;
     if (prog !== lastProgress) { lastProgress = prog; lastProgressAt = msg; } else if (msg - lastProgressAt > 3000) { rec.stopped = "stalled"; msg++; break; }
     if (opts.restartAt !== undefined && msg === opts.restartAt && !restarted && opts.saveDir) {
@@ -248,6 +284,8 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
     }
   }
   if (finished) rec.stopped = "finished";
+  rec.milestones = milestonesOf(sess().snapshot()?.live ?? {}, finished ? await read("seasonRetrospective", {}) : null, rt.registry.sandboxFor(user).engine.knowledge.knownTo("player" as never));
+  await opts.after?.({ sess: sess(), engine: rt.registry.sandboxFor(user).engine, call });
   rec.finished = finished; rec.messages = msg; rec.week = week;
   const evs = events();
   for (const e of evs) {
