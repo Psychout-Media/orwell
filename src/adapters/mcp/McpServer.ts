@@ -7,7 +7,7 @@ import type { AdminPort } from "../../surfaces/admin/AdminPort";
 import type { SummaryService } from "../../services/SummaryService";
 import type { EngineCommands, RecordInteractionReq, SurfaceReq, DiaryRoomReq, RecordImageBeatReq } from "../../ports/EngineCommands";
 import type { EntityId } from "../../domain/ids";
-import type { GameSession, ConfideResult, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordGroupIdentityReq, RecordAllianceNameReq, RecordRoomCanonReq, RecordNarrationUseReq, RecordOpenLedgerReq, ResolveOpenLedgerReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
+import type { GameSession, ConfideResult, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordGroupIdentityReq, RecordAllianceNameReq, RecordRoomCanonReq, RecordNarrationUseReq, RecordOpenLedgerReq, ResolveOpenLedgerReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, AskToTalkAloneReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
 
 
 /** Tools that are deliberately NOT in the advertised player channel allowlist (out-of-band
@@ -293,6 +293,12 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       guardSyncFields(false); // 0065 Part A — optional expectedBeatSeq
       if (!isStr(args["npcId"])) refuse("npcId", "a houseguest id (string)");
       if (!isStr(args["factId"])) refuse("factId", "a learned fact id (string)");
+      return;
+    case "askToTalkAlone": // ORW-727b
+      guardSyncFields(true); // CAS + at-most-once: it moves two people, so a re-drive of the same ask must not move them twice
+      if (!isStr(args["npcId"])) refuse("npcId", "a houseguest id (string)");
+      if (args["room"] !== undefined && typeof args["room"] !== "string") refuse("room", "a room name (string) when present");
+      if (args["private"] !== undefined && typeof args["private"] !== "boolean") refuse("private", "a boolean when present");
       return;
     case "exposeSecret":
       // 0093 — out a learned secret. EITHER a real `factId` (a string) OR a `bluff` (a boolean) with a
@@ -785,6 +791,9 @@ export class McpServer {
         return this.deps.session.confront(
           args["npcId"] as EntityId, args["factId"] as string, args["expectedBeatSeq"] as number | undefined,
         );
+      case "askToTalkAlone":
+        // ORW-727b - the closed-set private word: the engine picks the room, asks the houseguest's own consent and places both; the model only voices the typed result.
+        return this.deps.session.askToTalkAlone(args as unknown as AskToTalkAloneReq);
       case "exposeSecret":
         // 0093 — out a learned secret: the engine validates ownership + resolves the bounded fallout + records the pathway.
         return this.deps.session.exposeSecret(args as unknown as ExposeSecretReq);

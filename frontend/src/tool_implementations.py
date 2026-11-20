@@ -6367,6 +6367,32 @@ async def do_call_in_favor(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": f"engine error: {e}", "exit_code": 1}
 
 
+async def do_ask_to_talk_alone(content: str, owner: Optional[str] = None) -> Dict:
+    """ORW-727b - the player asks a houseguest for a private word, or to come over. The ENGINE picks the room, asks the houseguest's own
+    consent and places both (null when no game is being played or the houseguest is unknown); we only forward {npcId, room, private}
+    and return its Vault-free {outcome, room, roomName}."""
+    from src import orwell_engine
+    try:
+        args = _parse_tool_args(content)
+    except ValueError:
+        return {"error": "Invalid JSON arguments", "exit_code": 1}
+    npc_id = (args.get("npcId") or args.get("npc_id") or "").strip()
+    room = (args.get("room") or "").strip() or None
+    private = args.get("private")
+    if private is not None and not isinstance(private, bool):
+        return {"error": "private must be true or false when given", "exit_code": 1}
+    if not npc_id:
+        return {"error": "npcId (the houseguest being asked) is required", "exit_code": 1}
+    try:
+        res = await orwell_engine.ask_to_talk_alone(npc_id, room, private, user=owner)
+        if res is None:
+            return {"output": json.dumps({"outcome": None, "note": "no such houseguest in the house, or no game is being played"}), "exit_code": 0}
+        await _refresh_after_model_progression(owner, res)
+        return {"output": json.dumps(res, indent=2), "exit_code": 0}
+    except Exception as e:
+        return {"error": f"engine error: {e}", "exit_code": 1}
+
+
 async def do_accuse_tie(content: str, owner: Optional[str] = None) -> Dict:
     """Feature 0095 — the player accuses two houseguests of a PRE-SHOW tie. The ENGINE checks whether
     a real connection exists — never invented or confirmed here — and a miss must stay

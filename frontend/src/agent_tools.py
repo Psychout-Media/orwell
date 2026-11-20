@@ -69,6 +69,8 @@ TOOL_TAGS = {"bash", "python", "web_search", "web_fetch", "read_file", "write_fi
              "confront", "accuseTie",
              # 0142: call in a favor a houseguest owes the player (engine-decided).
              "callInFavor",
+             # ORW-727b: a private word with a houseguest, or asking one to come over (engine-decided).
+             "askToTalkAlone",
              "premiereIntros", "markHouseguestMet",
              "seasonRecap", "seasonRetrospective", "npcVoice",
              # #1800 / #1793: the player's OWN Diary-Room record (receipts mirror + per-houseguest dossier).
@@ -127,6 +129,8 @@ GAME_TOOL_KEEP = frozenset({
     "confront", "accuseTie",
     # 0142: call in a favor a houseguest owes the player.
     "callInFavor",
+    # ORW-727b: a private word with a houseguest, or asking one to come over (engine-decided).
+    "askToTalkAlone",
     # B64/0049: the Vault-free presence read (lingering play has engine ground truth).
     "whereabouts",
     # L21/L24: the player walks where they choose; the engine never auto-relocates a person.

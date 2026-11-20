@@ -178,6 +178,7 @@ export const args = (name: string, seed: number): Record<string, unknown> => {
     // chose + recorded, blurred/glossed to the tier, and a lie is engine-authored, not a real secret.
     case "confide": return { npcId: npc(1) };
     case "callInFavor": return { npcId: npc(1) };
+    case "askToTalkAlone": return { npcId: npc(1) }; // ORW-727b: an outcome and a room only
     // 0129 slice 3: a juror id (the engine returns null while no jury exists; the per-beat sweep below asks every REAL juror).
     case "askJuror": return { jurorId: npc(1) };
     // 0095: accuse a pair of a prior connection. The sweep plants no seeded tie between npc(1)/npc(2),
