@@ -1,4 +1,4 @@
-import { liveHouseEvent, isCompOrCeremonyKind } from "../../engine/houseEvent";
+import { liveHouseEvent, isCompOrCeremonyKind, eventStagingRoom } from "../../engine/houseEvent";
 import { stallTimer } from "../stallTiming";
 import type {
   GameSession, CreateCharacterReq, GameStateView, HouseMeetingView, MomentPromptReq, MomentPromptView,
@@ -2844,6 +2844,9 @@ export class GameSessionAdapter implements GameSession {
   /** 0148: true only while the orchestrator lives a nap's hours: the sleeping player is not in the awake set (no overhearing, no rumor reaches them). Memory-only; cleared by `endNapTicks`. */
   private napAsleep = false;
   /** A65 (ORWELL_ADVANCE_GATE, default ON, applies ONLY to a played game - `live.playedGame`): an ordinary `advanceGame` before the next milestone is due returns a typed `held` and commits nothing. Engine-internal fast-forwards (admin `advanceToFinale`) bypass it. */
+  /** ORW-740b (ORWELL_EVENT_ROOM_FACT, default ON): the narrator is handed the room the engine stages the next event in (`daySchedule.stagingRoom`) and, while one is in session, the room the house is gathered in. OFF = the old "the living room" wording, byte-identical. */
+  private eventRoomFactEnabled = flagDefaultOn("ORWELL_EVENT_ROOM_FACT");
+  setEventRoomFactEnabled(on: boolean): void { this.eventRoomFactEnabled = on; }
   private advanceGateEnabled = flagDefaultOn("ORWELL_ADVANCE_GATE");
   setAdvanceGateEnabled(on: boolean): void { this.advanceGateEnabled = on; }
   private scheduleGateBypass = false;
@@ -6538,8 +6541,7 @@ export class GameSessionAdapter implements GameSession {
     const meId = this.house?.player.id;
     const seated = meId ? this.presence?.get(meId) : undefined, real = meId ? this.presenceBase?.get(meId) : undefined;
     const held = this.houseEventInSession()?.kind;
-    const heldRoom = held === "nominations" || held === "veto-draw" || held === "veto-ceremony" || held === "eviction" ? "living-room"
-      : (held === "hoh-competition" || held === "veto-competition") && this.live?.playedGame === true ? "backyard" : null; // the same rooms gatherForCeremony seats
+    const heldRoom = eventStagingRoom(held, this.live?.playedGame === true); // the same rooms gatherForCeremony seats (ORW-740b: one function)
     if (seated && real && seated !== real && held && heldRoom && seated === heldRoom) {
       this.ceremonyHeld = held; this.ceremonyBasePlayerRoom = real;
     }
@@ -9058,8 +9060,7 @@ export class GameSessionAdapter implements GameSession {
     const ev = this.houseEventInSession();
     const kind = ev?.kind;
     // ORW-281 slice 6 (Ryne 2026-11-11): ceremonies live in the living room, comps all take place in the backyard. Comps move the house for real in a PLAYED game only (headless sims keep no gather).
-    const room: Room | null = kind === "nominations" || kind === "veto-draw" || kind === "veto-ceremony" || kind === "eviction" ? "living-room"
-      : (kind === "hoh-competition" || kind === "veto-competition") && this.live?.playedGame === true ? "backyard" : null;
+    const room: Room | null = eventStagingRoom(kind, this.live?.playedGame === true); // ORW-740b: the one staging-room function
     if (!room || !this.presence || !this.house) { this.ceremonyHeld = null; return false; }
     if (!force && this.ceremonyHeld === kind) return true;
     if (!this.ceremonyHeld) this.ceremonyBasePlayerRoom = this.presenceBase?.get(this.house.player.id) ?? this.presence.get(this.house.player.id) ?? null;
@@ -9272,7 +9273,7 @@ export class GameSessionAdapter implements GameSession {
         // The player is counted in `room`/`house`: until their own entrance is staged they are not in the room, so publish no headcount then.
         ...(notHere?.has(me) ? {} : { counts: this.headCounts(others.length) }),
         tracked: [],
-        houseEvent: { kind: ev.kind, ...compSplit, ...(compPin ? { comp: compPin } : {}) },
+        houseEvent: { kind: ev.kind, ...(this.eventRoomFactEnabled && isCompOrCeremonyKind(ev.kind) ? { room: room as Room } : {}), ...compSplit, ...(compPin ? { comp: compPin } : {}) }, // ORW-740b: the room the house is gathered in, the same read as `room`
         ...this.themedRoomsView(room as Room),
       };
     }
@@ -22867,7 +22868,7 @@ export class GameSessionAdapter implements GameSession {
     // HUD shows it and `renderGameContext` primes on it so run-up scenes carry the coming interruption.
     const nextM = this.perConversationClockLive() ? nextMilestone(this.live) : null;
     const daySchedule = nextM
-      ? { next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}), ...(dueTomorrow(this.live) ? { tomorrow: true as const } : {}), ...(finalHohPartOf(this.live, this.finalHohThreePartEnabled) ? { finalHohPart: finalHohPartOf(this.live, this.finalHohThreePartEnabled)! } : {}) }
+      ? { next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}), ...(dueTomorrow(this.live) ? { tomorrow: true as const } : {}), ...(this.eventRoomFactEnabled && eventStagingRoom(nextM.beat, this.live?.playedGame === true) ? { stagingRoom: eventStagingRoom(nextM.beat, this.live?.playedGame === true)! } : {}), ...(finalHohPartOf(this.live, this.finalHohThreePartEnabled) ? { finalHohPart: finalHohPartOf(this.live, this.finalHohThreePartEnabled)! } : {}) }
       : undefined;
     // #1411 — the single closed-set lever this beat requires the narrator to CALL (advanceGame at the
     // deterministic comp/ceremony/eviction beats), or null otherwise. The FE forces THIS on the wire
