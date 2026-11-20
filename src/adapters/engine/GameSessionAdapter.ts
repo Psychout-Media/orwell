@@ -1703,21 +1703,37 @@ export class GameSessionAdapter implements GameSession {
 
   /** B4 slice 4 - the eviction-vote shield `voter` owes nominee `n` from a KEPT 'vote'/'safe' assurance (0 when none, a strategic lie, or the voter decides to break it). Half a deal's honor weight. */
   assuranceVoteFor(n: EntityId, voter: EntityId): number {
-    if (!this.assurancesEnabled || !this.live?.assurances) return 0;
+    const r = this.assuranceVoteRead(n, voter);
+    if (!r) return 0;
+    const base = 0.5 * DECISION.vote.dealHonorWeight;
+    return !r.kept ? 0 : r.pull === undefined ? base : base * assuranceTermScale(r.pull);
+  }
+  /** The ONE read of an open vote/safe assurance `voter` made to `n`: `kept` (the keep-or-break verdict) and the `pull` (set only when the pull decides it). Null when none is open. */
+  private assuranceVoteRead(n: EntityId, voter: EntityId): { kept: boolean; pull?: number; pulled: boolean } | null {
+    if (!this.assurancesEnabled || !this.live?.assurances) return null;
     const open = AssuranceLedger.fromJSON(this.live.assurances).openFor(voter).filter((a) => a.to === n && (a.kind === "vote" || a.kind === "safe"));
-    if (open.length === 0) return 0;
+    if (open.length === 0) return null;
     const stats = this.house?.npcs.find((x) => x.id === voter)?.character.stats;
     const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(voter), this.emotionalReadOf(voter))));
     const keepWeight = assuranceKeepWeight({ loyalty, aggression: stats ? Math.max(0, Math.min(1, 1 - stats.social)) : 0.5 });
     const breakBenefit = Math.max(0, Math.min(1, this.rel.edge(voter, n).threat));
     const verdict = (a: Assurance): { plan: boolean | undefined; legacy: boolean } => { const plan = this.ledgerPlanVerdictFor(a, "vote"); return { plan, legacy: plan !== true && decideKeep({ keepWeight, sincerity: plan === false ? 1 : a.sincerity, breakBenefit }) }; }; // ORW-586 slice 5: the plan, as in assuranceProtects
-    const base = 0.5 * DECISION.vote.dealHonorWeight;
-    if (!this.assurancePullEnabled || this.live.playedGame !== true) return open.every((a) => verdict(a).legacy) ? base : 0;
+    if (!this.assurancePullEnabled || this.live.playedGame !== true) return { kept: open.every((a) => verdict(a).legacy), pulled: false };
     // ORW-723: a SINCERE promise is decided by THIS voter's own pull (loyalty, honesty, bond to the nominee, how threatening they read) on the assurance's own keyed roll (stable across reads, never the shared rng); a planned betrayal
     // still breaks and a faked promise keeps the faking model's verdict (`pullVerdict`). A kept one weighs more the stronger the pull.
     const pull = this.assurancePullOf(voter, n);
-    const keeps = open.every((a) => { const v = verdict(a); return pullVerdict({ plan: v.plan, sincerity: a.sincerity, legacyKeep: v.legacy, pull, roll: new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:assurance-keep:${a.id}`)).next() }); });
-    return keeps ? base * assuranceTermScale(pull) : 0;
+    const kept = open.every((a) => { const v = verdict(a); return pullVerdict({ plan: v.plan, sincerity: a.sincerity, legacyKeep: v.legacy, pull, roll: new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:assurance-keep:${a.id}`)).next() }); });
+    return { kept, pull, pulled: true };
+  }
+  /**
+   * ORW-723: a KEPT sincere vote promise BINDS the vote (not just a term). Returns the nominee `voter` must spare, or undefined (not bound). Legality is a veto: only a living NPC with a ballot (never the HOH, never a nominee, never the
+   * player - the engine never votes for the player) and exactly one of the two nominees assured; a faked, broken or planned-betrayal promise never binds. Same keyed verdict as the term (`assuranceVoteRead`).
+   */
+  assuranceBindFor(voter: EntityId, fn: readonly [EntityId, EntityId]): EntityId | undefined {
+    if (!this.assurancePullEnabled || voter === PLAYER || !this.live || this.live.playedGame !== true || voter === this.live.hoh || fn.includes(voter) || !this.livingIds().includes(voter)) return undefined;
+    if (!fn.every((n) => this.livingIds().includes(n))) return undefined;
+    const bound = fn.filter((n) => { const r = this.assuranceVoteRead(n, voter); return !!r && r.pulled && r.kept && (this.live!.assurances?.items ?? []).some((a) => a.status === "open" && a.from === voter && a.to === n && (a.kind === "vote" || a.kind === "safe") && a.sincerity >= ASSURANCE.sincereAt); });
+    return bound.length === 1 ? bound[0] : undefined;
   }
   /**
    * ORW-723 (Ryne 2026-11-19: "Depends on the person. For sure."): a vote promise's pull comes from the voter's own traits and bond, not a fixed weight. Loyal, honest, bonded houseguests usually keep it and
@@ -12291,7 +12307,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** Build the Vault-free season context the pure loop reads (stats + live relationships + mood). */
-  private ctx(): SeasonCtx {
+  ctx(): SeasonCtx {
     return {
       player: PLAYER,
       statsOf: (id) => this.statsOf(id),
@@ -12376,7 +12392,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.endgameTrustEnabled && this.live?.playedGame === true ? { endgameFor: (t: EntityId, d: EntityId) => this.endgameFor(t, d) } : {}), // 0193
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
-      ...(this.assurancesEnabled ? { assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId, among?: readonly EntityId[]) => this.assuranceVotedOut(v, n, among) } : {}),
+      ...(this.assurancesEnabled ? { assuranceBindsVoteFor: (v: EntityId, fn: readonly [EntityId, EntityId]) => this.assuranceBindFor(v, fn), assuranceVoteFor: (n: EntityId, v: EntityId) => this.assuranceVoteFor(n, v), assuranceVotedOut: (v: EntityId, n: EntityId, among?: readonly EntityId[]) => this.assuranceVotedOut(v, n, among) } : {}),
       ...(this.triadsOn() ? { swingAtVote: (v: Parameters<NonNullable<SeasonCtx["swingAtVote"]>>[0]) => this.swingAtVote(v), triadsAtResult: (r: { evictee: EntityId; voteOf: Readonly<Record<EntityId, EntityId>>; hoh: EntityId | undefined }) => this.triadsAtResult(r) } : {}),
       ...(this.favorsOn() ? { favorsAtTally: (fn: readonly EntityId[], v: readonly EntityId[]) => this.favorsAtTally(fn, v), favorShieldFor: (n: EntityId, v: EntityId) => this.favorShieldFor(n, v) } : {}),
       ...(this.liesCaughtWriting ? { evictionCountPublic: (t: PublicTally) => this.evictionCountPublic(t) } : {}),
