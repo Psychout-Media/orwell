@@ -306,6 +306,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_SECRET_PACING',          key: 'secretPacing',           parser: 'defaultOn' },
   { envKey: 'ORWELL_SEEDED_TIE_SURFACING',   key: 'seededTieSurfacing',    parser: 'defaultOn' },
   { envKey: 'ORWELL_SHOWMANCES',             key: 'showmances',             parser: 'defaultOn' }, // 0207 / Theme A
+  // ORW-736 (0207, PO ruling: a showmance is a slow build over weeks, not a switch): each pair's stages need days together and chemistry accrued, can stall or fade, are noticed in steps, and a public couple forms only late. Played games only; `=0` = the old affinity-threshold stages.
+  { envKey: 'ORWELL_SHOWMANCE_PACING',       key: 'showmancePacing',        parser: 'defaultOn' },
   { envKey: 'ORWELL_SHOWRUNNER',             key: 'showrunner',             parser: 'defaultOn' },
   { envKey: 'ORWELL_SHOWRUNNER_REWEIGHT',    key: 'showrunnerReweight',     parser: 'defaultOn' }, // ORW-270: measured fair, default ON
   { envKey: 'ORWELL_SOCIAL_FATIGUE',         key: 'socialFatigue',          parser: 'inverted' },

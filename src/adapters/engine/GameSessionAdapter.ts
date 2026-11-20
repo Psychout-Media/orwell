@@ -424,7 +424,8 @@ import { nameGenderOf, nameGenderStrict, pickGivenNameFor } from "../../engine/d
 import { avoidFromWire, type AvoidSets } from "../../domain/recentSeasons";
 import { dealEraGivenNames, dealSurnames, censusGroupOfHeritage } from "../../engine/data/worldNames";
 import type { Orientation, GenderPresentation } from "../../engine/diversityConstants";
-import { ATTRACTION_LIFE, attractionOf, chemistryFor, drawnTo, readsAsCoupleOwnView, type AttractionIdentity } from "../../engine/attractionLife"; // 0207 A1
+import { ATTRACTION_LIFE, SHOWMANCE_PACE, attractionOf, chemistryFor, daysTogether as daysTogetherOf, drawnTo, readsAsCoupleOwnView, type AttractionIdentity } from "../../engine/attractionLife"; // 0207 A1
+import { freshPace, paceFactor, paceTick, stageOfLevel, type PaceRecord } from "../../engine/showmancePace"; // ORW-736
 import { chemistryKey, readsAsCouple, coupleNomPush } from "../../engine/attraction";
 import { ALL_ETHNICITIES, GENDER_PRESENTATIONS } from "../../engine/diversityConstants";
 import { isGenderPresentation } from "../../domain/gender"; // #1326
@@ -11316,9 +11317,15 @@ export class GameSessionAdapter implements GameSession {
     const evicted = new Set(this.live?.evictionOrder ?? []);
     const nameOf = (id: EntityId): string => this.house!.npcs.find((n) => n.id === id)?.name ?? id;
     const surfaced: Array<{ a: EntityId; b: EntityId; aName: string; bName: string }> = [];
+    const paced = this.showmancePacingOn();
     for (const s of this.seededRels.showmances) {
       if (s.stage === "resolved") continue;
       if (evicted.has(s.a) || evicted.has(s.b)) { s.stage = "resolved"; continue; }
+      if (paced) { // ORW-736: the slow build: the pair's own pace machine decides the stage (time together, chemistry accrued, who has caught it), never the affinity threshold alone
+        const known = this.paceStep(s.a, s.b);
+        if (known) { const to = stageOfLevel(known.level); if (to !== s.stage) { s.stage = to; if (to === "visible") { const sm = { a: s.a, b: s.b, aName: nameOf(s.a), bName: nameOf(s.b) }; surfaced.push(sm); this.onShowmanceSurfaced?.(sm); } } }
+        continue;
+      }
       const mutual = Math.min(this.rel.edge(s.a, s.b).affinity, this.rel.edge(s.b, s.a).affinity);
       const next = nextShowmanceStage(s.stage, mutual);
       if (next !== s.stage) {
@@ -11330,8 +11337,52 @@ export class GameSessionAdapter implements GameSession {
         }
       }
     }
+    if (paced) { // every other romance the record has read as one (an emergent pair, or the player's own): the same machine, the same minimums
+      const seeded = new Set(this.seededRels.showmances.map((x) => romancePairKey(x.a, x.b)));
+      for (const pk of Object.keys(this.live?.romances ?? {}).sort()) {
+        if (seeded.has(pk)) continue;
+        const [a, b] = pk.split("|") as [EntityId, EntityId];
+        if (evicted.has(a) || evicted.has(b) || (this.live?.breakups ?? []).includes(pk)) continue;
+        const before = this.live?.showmancePace?.[pk]?.level ?? 0;
+        const rec = this.paceStep(a, b);
+        // the player's own romance becomes a public couple only through the same late step, and then the house's noticing is a third-person fact the narrator may voice; an emergent NPC pair stays engine-only here
+        if (rec && rec.level === 4 && before < 4 && (a === PLAYER || b === PLAYER)) {
+          const sm = { a, b, aName: a === PLAYER ? (this.house.player.name ?? "").trim() || "the player" : nameOf(a), bName: b === PLAYER ? (this.house.player.name ?? "").trim() || "the player" : nameOf(b) };
+          surfaced.push(sm);
+          this.onShowmanceSurfaced?.(sm);
+        }
+      }
+    }
     return surfaced;
   }
+
+  /**
+   * ORW-736 (`ORWELL_SHOWMANCE_PACING`, default ON; `=0` opts out; played games with the showmance flag only): one tick of ONE pair's pace machine (`showmancePace.ts`), from what the engine already holds: the shared days (A1 `together`),
+   * the pair's chemistry (the player's own side is never modelled, so a pair with the player reads the houseguest's side only: the same rule), whether either is on the block, and who has caught their romance. Writes
+   * `live.showmancePace[pairKey]` (append-only steps). Returns the record (undefined when there is nothing to read yet). Engine-only: nothing here is projected.
+   */
+  private paceStep(a: EntityId, b: EntityId): PaceRecord | undefined {
+    const live = this.live, house = this.house;
+    if (!live || !house || !live.chemistry || !live.together) return undefined;
+    const pk = romancePairKey(a, b);
+    const day = live.dayNumber ?? 1;
+    const tg = live.together;
+    const shared = daysTogetherOf(Math.max(tg[chemistryKey(a, b)] ?? 0, tg[chemistryKey(b, a)] ?? 0));
+    const sides = [chemistryKey(a, b), chemistryKey(b, a)].filter((k) => !k.startsWith(`chem:${PLAYER}>`));
+    const mutual = sides.length ? sides.reduce((t, k) => t + (live.chemistry![k] ?? 0), 0) / sides.length : 0;
+    const store = (live.showmancePace ??= {});
+    const prev = store[pk] ?? freshPace(day, shared);
+    const room = live.active.filter((h) => h !== a && h !== b);
+    const observers = room.filter((h) => this.romanceSeenBy(h, a, b));
+    const close = observers.filter((h) => h !== PLAYER && (this.alliances.shared(h, a).length > 0 || this.alliances.shared(h, b).length > 0 || Math.max(this.rel.edge(h, a).affinity, this.rel.edge(h, b).affinity) >= SHOWMANCE_PACE.closeAffinity));
+    const nominees: readonly EntityId[] = live.nominees ?? [];
+    const next = paceTick(prev, { day, shared, mutualChemistry: mutual, inCrisis: nominees.includes(a) || nominees.includes(b), observers, room: room.length, closeObservers: close.length, factor: paceFactor(this.gameSeed ?? 0, pk) });
+    store[pk] = next;
+    return next;
+  }
+  private showmancePacingEnabled = flagDefaultOn("ORWELL_SHOWMANCE_PACING");
+  setShowmancePacingEnabled(on: boolean): void { this.showmancePacingEnabled = on; }
+  private showmancePacingOn(): boolean { return this.showmancePacingEnabled && this.showmancesEnabled && this.live?.playedGame === true; }
 
   /**
    * 0059 §5 — whether the organic pre-game-TIE surfacing scheduler runs. Default ON since the 2026-11 flip (`=0`/`ORWELL_FLAGS_OFF=1` turn it off) — like
