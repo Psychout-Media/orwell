@@ -575,43 +575,65 @@ def _house_entry_overlay(user: Optional[str], st):
 # (the tile strip, the head count, the cast wall's departure order and mood word); the full public card (biography, archetype, strategy, identity line, voice, orientation, look)
 # is the NARRATOR's material, not the player's, and it covers houseguests who have not walked in yet. The browser gets this closed set and nothing else, so a facet added to the
 # engine's card later cannot ride to the browser by default.
-_BROWSER_HOUSEGUEST_KEYS = ("id", "name", "status", "evictedSeq", "lastSeenMood")
+# ORW-733 (Vault Wall): the browser receives a CLOSED SHAPE of `/api/orwell/state`, walked key by key at EVERY level (top level and nested), never a copy of the engine's read with a few keys
+# removed. A key not named here is dropped by construction, so a field the engine adds later (a facet, a cue, a planned id) never reaches the browser until a screen needs it and it is added
+# here. `T` = keep this key (a scalar only: a dict or list under a `T` key is dropped), `{...}` = a closed object, `[spec]` = a list of that spec. What each key is for (the screen that reads it):
+#   started / beatSeq / finished / week / phase / moment / timeOfDay / earlyMorning / dayNumber / unarrivedCount: the HUD, season progress, the session guard, the new-season gate, the premiere tutorial.
+#   player: id/name/status/spectator/restStatus (the HUD badge, the couch card, the rest cue); evictedSeq with the cast wall. The player's casting card / archetype / style are NOT read by any screen.
+#   house[] (ORW-707): the cast wall's tiles. asleep[] / awake[]: the night widget and the room strip's "turned in" marks. deals[]: the deal tracker (the player's OWN deals only).
+#   premiere: only `met[]`/`remaining[]` (id + name) light the cast-strip tiles; the counts are harmless flags kept for the HUD. The entrance order, `hotReads` and `powerReachable` are narrator material.
+#   daySchedule: the HUD's "next event" line. watching: the couch card. casting: only `missing` (the photo box). castingHouse / enterHouse: this front end's own overlays.
+#   ceremony / eviction / pending: NO screen reads them from /state (the HUD and the decision card read /api/orwell/status), so they are cut to the public board facts a tool or script may still poll
+#   (who holds what; the stage; the card's kind): no vote attribution, no options, no prompt, no round state, no planned ids.
+#   `whereabouts` is NOT sent: the presence strip reads /api/orwell/whereabouts, which serves the per-turn FROZEN view (ADR 0009), and the live read here would hand the browser positions the
+#   player has not been shown (who is where right now, who was seen heading off, the conspicuous pairs).
+_T = True
+_NAMED = {"id": _T, "name": _T}
+_MET_ROW = {"houseguest": _NAMED, "met": _T}
+_DEAL = {"id": _T, "parties": [_NAMED], "kind": _T, "terms": _T, "status": _T, "term": {"expiresWeek": _T, "vague": _T}, "packageId": _T}
+_DEAL["parts"] = [dict(_DEAL)]
+_BROWSER_STATE_SHAPE = {
+    "started": _T, "beatSeq": _T, "finished": _T, "week": _T, "phase": _T, "moment": _T, "timeOfDay": _T, "earlyMorning": _T, "dayNumber": _T, "unarrivedCount": _T,
+    "player": {"id": _T, "name": _T, "status": _T, "evictedSeq": _T, "spectator": _T, "restStatus": _T},
+    "house": [{"id": _T, "name": _T, "status": _T, "evictedSeq": _T, "lastSeenMood": _T}],
+    "asleep": [_NAMED], "awake": [_NAMED], "deals": [_DEAL],
+    "premiere": {"met": [_MET_ROW], "remaining": [_MET_ROW], "complete": _T, "metCount": _T, "total": _T, "champagneCircle": _T},
+    "daySchedule": {"next": _T, "phase": _T, "due": _T, "minutesUntil": _T, "todaysEvent": _T, "tomorrow": _T, "finalHohPart": _T},
+    "watching": {"moments": [_T]},
+    "casting": {"missing": [_T]},
+    "castingHouse": {"state": _T, "authored": _T, "total": _T, "missing": _T},
+    "enterHouse": {"available": _T, "label": _T, "reason": _T},
+    "ceremony": {"hoh": _NAMED, "nominees": [_NAMED], "veto": {"holder": _NAMED, "used": _T, "players": [_NAMED]}},
+    "eviction": {"stage": _T, "evictee": _NAMED, "nominees": [_NAMED]},
+    "pending": {"kind": _T},
+}
+_BROWSER_STATE_KEYS = frozenset(_BROWSER_STATE_SHAPE)
+_BROWSER_HOUSEGUEST_KEYS = tuple(_BROWSER_STATE_SHAPE["house"][0])
+_SCALAR = (str, int, float, bool, type(None))
 
-# ORW-733 (Vault Wall): the closed set of TOP-LEVEL keys the browser may receive from /api/orwell/state: exactly what the panels read, plus the keys the front end's own overlays add
-# (`casting`, `castingHouse`, `enterHouse`). Everything else the engine's state read carries is for the NARRATOR (the public showmances the house knows, the notoriety legend, returners,
-# the Diary-Room/producer cues, an open deal offer, the jury house, ...) and is dropped here BY CONSTRUCTION: a new engine field never reaches the browser until a screen needs it and it is added here.
-_BROWSER_STATE_KEYS = frozenset({
-    "started", "beatSeq", "pending", "eviction", "finished", "ceremony", "whereabouts", "week", "phase", "moment", "player", "house", "deals", "premiere",
-    "unarrivedCount", "timeOfDay", "asleep", "awake", "earlyMorning", "dayNumber", "daySchedule", "watching",
-    "casting", "castingHouse", "enterHouse",
-})
+
+def _cut(value, spec):
+    """Project `value` onto the closed `spec` (see `_BROWSER_STATE_SHAPE`). Anything outside the spec, or of the wrong kind, is dropped (never forwarded)."""
+    if spec is True:
+        return value if isinstance(value, _SCALAR) else None
+    if isinstance(spec, dict):
+        if not isinstance(value, dict):
+            return None
+        return {k: _cut(value[k], sub) for k, sub in spec.items() if k in value}
+    if isinstance(spec, list):
+        if not isinstance(value, list):
+            return None
+        return [_cut(v, spec[0]) for v in value]
+    return None
 
 
 def _browser_state_projection(st):
-    """Project the engine's `getGameState` for the browser: every `house[]` entry and every premiere `met[]` entry is cut to the closed set the panels render. Pure and
-    non-mutating (the engine read cache hands the same dict to every caller). Anything that is not the expected shape passes through untouched (fail-open for the shape,
-    never for the content: an unexpected extra key is dropped, not forwarded)."""
+    """Project the engine's `getGameState` for the browser onto `_BROWSER_STATE_SHAPE`: a closed shape at every nesting level. Pure and non-mutating (the engine read cache hands the same
+    dict to every caller). A non-dict read passes through untouched (the fail-open shape); content never does."""
     if not isinstance(st, dict):
         return st
-    out = {k: v for k, v in st.items() if k in _BROWSER_STATE_KEYS}
-    house = st.get("house")
-    if isinstance(house, list):
-        out["house"] = [
-            {k: hg[k] for k in _BROWSER_HOUSEGUEST_KEYS if k in hg} if isinstance(hg, dict) else hg
-            for hg in house
-        ]
-    prem = st.get("premiere")
-    if isinstance(prem, dict):
-        p2 = dict(prem)
-        for key in ("met", "remaining"):
-            rows = prem.get(key)
-            if isinstance(rows, list):
-                p2[key] = [
-                    {"houseguest": {k: r["houseguest"][k] for k in ("id", "name") if k in r["houseguest"]}, "met": r.get("met")}
-                    if isinstance(r, dict) and isinstance(r.get("houseguest"), dict) else r
-                    for r in rows
-                ]
-        out["premiere"] = p2
+    out = {k: _cut(st[k], sub) for k, sub in _BROWSER_STATE_SHAPE.items() if k in st}
+    # a null where the spec expects an object/list (e.g. `pending: null`, `eviction: null`, `ceremony.veto.holder: null`) stays null; a dropped wrong-kind value never becomes content
     return out
 
 

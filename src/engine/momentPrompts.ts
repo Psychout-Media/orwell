@@ -1570,7 +1570,7 @@ export function renderGameContext(view: GameStateView): string {
     // 0059/L40 — the ONLY romantic pairs the narrator may voice as a showmance: the public (visible)
     // ones the engine has surfaced. Everything else is friendship/strategy (the SHOWMANCES ARE RARE pin).
     ...((view.showmances ?? []).length
-      ? [`- Public showmance${(view.showmances ?? []).length > 1 ? "s" : ""} (the house knows — you MAY voice romance for THESE pairs only): ${(view.showmances ?? []).map((s) => `${s.a} & ${s.b}`).join("; ")}.`]
+      ? [`- Public showmance${(view.showmances ?? []).length > 1 ? "s" : ""} (the player has seen or been told — you MAY voice romance for THESE pairs only): ${(view.showmances ?? []).map((s) => `${s.a} & ${s.b}`).join("; ")}.`]
       : []),
     // #1326: the PLAYER's own pronouns, when they recorded them at casting (updateCasting/
     // genderPresentation) — voiced through the SAME `genderPresentationPhrase`/`pronounsFor` helpers the
