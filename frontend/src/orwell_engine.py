@@ -765,6 +765,7 @@ def creating_in_flight() -> bool:
 
 async def create_character(player_name: str | None = None, *, archetype=None, strategy_style=None,
                            seed=None, confirm_restart: bool = False, keep_character: bool = False,
+                           start: str | None = None, return_as: int | None = None,
                            user: str | None = None,
                            persona_archetype=None, persona_strategy_style=None,
                            backstory=None, motivation=None, private_strategy=None,
@@ -812,6 +813,10 @@ async def create_character(player_name: str | None = None, *, archetype=None, st
         # 0056: on a confirmed restart, carry the prior player's CHARACTER into the new season
         # (the engine re-supplies their authored fields; the same houseguest returns to a new cast).
         args["keepCharacter"] = True
+    if start in ("new", "return"):
+        args["start"] = start  # ORW-739 / 0208: the player's own choice; the engine validates it
+    if return_as is not None:
+        args["returnAs"] = int(return_as)  # ORW-739: the season number of one of the player's own previous characters
     global _CREATING_IN_FLIGHT
     _CREATING_IN_FLIGHT += 1  # G8: /health reports busy="creating" while this runs
     try:
