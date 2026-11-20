@@ -1284,6 +1284,8 @@ export interface SeasonCtx {
   hohReferendumCentre?: () => number;
   /** 0178: the nominee `voter` votes out because their secret plan was to flip on them at this vote (unless something bigger happened since). Absent => no flip. */
   flipVoteFor?: (voter: EntityId, fn: readonly [EntityId, EntityId]) => EntityId | undefined;
+  /** ORW-723: the nominee this voter is BOUND to spare by a kept, sincere vote promise (the pull-keyed verdict said keep, and the voter is legally free to vote it). The vote then goes to the other nominee. Absent => byte-identical. */
+  assuranceBindsVoteFor?: (voter: EntityId, fn: readonly [EntityId, EntityId]) => EntityId | undefined;
   /** 0160 / ORW-330 (Ryne's Q3 ruling: "Low trust in the person would create a low trust deal"): how much a deal with `other` weighs for `holder`, 0..1. Absent => 1, byte-identical. */
   dealTrustFor?: (holder: EntityId, other: EntityId) => number;
   /** B6 slice 2 (ORWELL_LOBBYING): the nomination-score tilt from the pitches other houseguests made to `holder` about `subject`. Absent => byte-identical. */
@@ -2426,6 +2428,13 @@ export function voteChoice(
   if (flipOn !== undefined && fn.includes(flipOn)) {
     if (why) why({ kind: "vote", rule: "flip-plan", options: [{ option: flipOn, role: "chosen", total: 1, terms: [["deal", 1]] }, { option: fn[0] === flipOn ? fn[1] : fn[0], role: "runner-up", total: 0, terms: [] }] });
     return flipOn;
+  }
+  // ORW-723: a KEPT sincere vote promise BINDS the vote: the assured is spared and the other nominee takes it (a broken one, a planned betrayal and a faked one never bind; the adapter checks legality).
+  const spared = ctx.assuranceBindsVoteFor?.(voter, fn);
+  if (spared !== undefined && fn.includes(spared)) {
+    const other = fn[0] === spared ? fn[1] : fn[0];
+    if (why) why({ kind: "vote", rule: "assurance-bound", options: [{ option: other, role: "chosen", total: 1, terms: [["assurance", 1]] }, { option: spared, role: "runner-up", total: 0, terms: [] }] });
+    return other;
   }
   // The REFERENDUM ON THE HOH (PO ruling 2026-11-02): the HOH's target is the nominee the HOH reads
   // as the bigger threat. A voter aligned with the HOH gives it to them; an opposed voter keeps the
