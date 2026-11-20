@@ -74,3 +74,18 @@ export function playerRoles(p: { player: EntityId; hoh?: EntityId | null; nomine
   if (p.evictee === p.player) out.push("the one voted out");
   return out;
 }
+
+/**
+ * ORW-719 - what ONE houseguest saying goodbye to the evicted PLAYER can truthfully say about the player: the player's own public record with them, as plain facts
+ * (a question they put to the player and whether it was answered, the scenes the two shared in the open, the weeks the player put them on the block). Pure; no rng, no
+ * hidden state, no ballot. With no record at all the line says so, so the narrator invents none.
+ */
+export function goodbyeRecordLines(f: { approach?: { week: number; answered: boolean }; playerScenes: number; speakerScenes: number; putOnBlockByPlayerWeeks: readonly number[] }): string[] {
+  const out: string[] = [];
+  if (f.approach) out.push(f.approach.answered ? `put a question to the player in week ${f.approach.week} and the player answered it` : `put a question to the player in week ${f.approach.week} and the player has not answered it`);
+  if (f.playerScenes > 0) out.push(`the player went to them in ${f.playerScenes} scene${f.playerScenes === 1 ? "" : "s"} the house saw`);
+  if (f.speakerScenes > 0) out.push(`they went to the player in ${f.speakerScenes} scene${f.speakerScenes === 1 ? "" : "s"} the house saw`);
+  if (f.putOnBlockByPlayerWeeks.length) out.push(`the player, as Head of Household, put them on the block in week ${f.putOnBlockByPlayerWeeks.join(", ")}`);
+  if (out.length === 0) out.push("no scene, question or act between the two is on record");
+  return out;
+}
