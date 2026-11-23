@@ -115,8 +115,8 @@ persisted by **0030**. Makes "the house changed me / changed them" a real, hidde
 
 **Why this is the linchpin:** the live sandbox's engine core (`src/composition/engineRoot.ts`
 `buildEngineCore`) exposes only `{ events, vault, knowledge, relationships }` — **there is no `SoulStore`**.
-That single gap is why **0038's soul-deepening** and **0040's confessional→voice feedback** are both
-deferred. 0041 puts the soul in the sandbox; once it's there, those two light up.
+That single gap is why **0038's soul-deepening** and **0040's confessional→voice feedback** both waited on it.
+0041 puts the soul in the sandbox; once it's there, those two light up.
 
 ### 8.1 Put the `SoulStore` in the sandbox
 - Add **`soul: SoulProvider`** to `EngineCore` + `buildEngineCore`, constructed as

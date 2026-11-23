@@ -81,7 +81,7 @@ Exposes **0012** (`npcInitiatedApproaches` — bidirectional scenes) and **0013*
 `NO_NPC_PATHWAY`) into the live game, reading the live relationship state (**0023**), under **0002**
 (knowledge pathways), **0001** (Vault Wall), and **0021** (isolation). Pairs with **B21** (the manifest
 must name the new levers). Front-end consumption (approach prompts + a DR affordance) is a small
-follow-up on the **0032** game build.
+piece on the **0032** game build, since built.
 
 ## 7. Front-end UI (C10) — surfacing it to the player
 

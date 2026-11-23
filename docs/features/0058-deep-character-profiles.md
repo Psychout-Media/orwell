@@ -3,7 +3,7 @@
 > **Status:** ✅ **PHASE 1 + PHASE 2 BUILT** — BDD-gated by `0058-deep-character-profiles.feature`.
 > Phase 1 (the engine foundation): the seeded floor spawns the §3-depth profile split across the Vault
 > Wall, persists it byte-stable, seeds & seals story threads, seeds the NPC→player edge from the Day-1
-> read, and recalls authored detail in full. **Phase 2 is now LIVE too** (the items previously deferred):
+> read, and recalls authored detail in full. **Phase 2 is now LIVE too** (the items that had waited):
 > the **LLM-authored** write-back is wired end to end — `recordCastProfile` (commit `852f2db`,
 > `GameSessionAdapter.recordCastProfile`) validates non-player-mirroring, SPLITS PUBLIC↔HIDDEN across
 > the Vault Wall, folds the public facets onto the byte-stable Character, seals the hidden half into the
@@ -159,7 +159,7 @@ fidelity) realized as *generativity*, not authored content.
 
 - **No secret, no thread premise, no stat, no perception number ever reaches the player *or* the admin /
   God Mode.** The split in §3 is structural (engine-only stores; dependency-cruiser forbids outward
-  imports of `VaultStore`/`SoulProvider`). A surface is not done until a sentinel test proves it returns
+  imports of `VaultStore`/`SoulProvider`). A surface counts as done only once a sentinel test proves it returns
   none of it.
 - **The player learns a secret only through an in-game pathway** (0002) — and even then holds it as a
   *belief* with a source/confidence, possibly distorted by gossip drift (0038). Suspicion ≠ knowledge.

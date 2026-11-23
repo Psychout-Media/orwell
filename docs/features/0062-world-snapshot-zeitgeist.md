@@ -19,7 +19,7 @@
 > injected deps — never depends on a live search, §9/§10).
 > Feature file `0062-world-snapshot-zeitgeist.feature` (in `cucumber.cjs`); unit `tests/unit/zeitgeist.test.ts`.
 >
-> *(Original spec status, retained:)* 📝 **SPEC ONLY — not built.** Authored 2026-06-19. Extends the shipped **C32** in-fiction
+> *(Original spec status, retained:)* 📝 **SPEC ONLY at the time.** Authored 2026-06-19. Extends the shipped **C32** in-fiction
 > `web_search` capability (the "THE REAL WORLD." clause in `src/engine/momentPrompts.ts`, the keep-set
 > wiring in `frontend/src/settings.py` / `agent_tools.py` / `builtin_mcp.py`). C32 searches per-reference,
 > voices it, and forgets; 0062 promotes that to **durable, shared, frozen state** — one snapshot of the

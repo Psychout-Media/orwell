@@ -154,7 +154,7 @@ The **live realization of 0014** (jury & endgame), reusing `jury.ts` (`juryLean`
 through the **0034** `advanceGame`/`submitDecision` seam, persisted by **0030**, under **0001** (Vault Wall),
 **0002** (jury leans = relationship signals), and **0021** (isolation). Pairs with **B21/0018** (the lever
 manifest must name the finale decisions). Front-end consumption (render statements/questions/reveal in
-chat) is a small follow-up on the **0032** game build — the agent can already drive it through the tools.
+chat) is a small front-end piece on the **0032** game build (since built: the finale UI) — the agent can already drive it through the tools.
 
 ## 8. Front-end UI (C11) — rendering the finale to the player
 
