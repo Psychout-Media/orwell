@@ -5510,13 +5510,13 @@ async def _auto_alliance(narration, last_user, house, endpoint_url, model, heade
                 logger.info(f"[orwell] auto-join alliance {join_id}: the engine declined - nothing recorded user={owner}")
         form = obj.get("form")
         if not _any and isinstance(form, dict):
-            members = [m for m in (form.get("members") or []) if isinstance(m, str) and m in roster]
-            members = list(dict.fromkeys(members))[:7]
-            if len(members) >= 2:
-                name = form.get("name") if isinstance(form.get("name"), str) else ""
-                res = await _backfill_with_cas(owner, _oe.form_alliance, name.strip()[:60], members, user=owner, defer_fold=True)
+            group_ids = [m for m in (form.get("members") or []) if isinstance(m, str) and m in roster]
+            group_ids = list(dict.fromkeys(group_ids))[:7]
+            if len(group_ids) >= 2:
+                group_label = form.get("name") if isinstance(form.get("name"), str) else ""
+                res = await _backfill_with_cas(owner, _oe.form_alliance, group_label.strip()[:60], group_ids, user=owner, defer_fold=True)
                 if isinstance(res, dict) and res.get("id") and not res.get("error"):
-                    logger.info(f"[orwell] auto-formed alliance with {len(members)} houseguests user={owner}")
+                    logger.info(f"[orwell] auto-formed alliance with {len(group_ids)} houseguests user={owner}")
                     if isinstance(applied_out, list):
                         applied_out.append(res.get("id"))
                     _any = True
