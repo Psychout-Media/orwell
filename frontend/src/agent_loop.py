@@ -6940,8 +6940,10 @@ async def _narrator_stream_with_outage_pause(candidates, messages, owner=None, l
         await asyncio.sleep(delay)
 
 
+# ORW-784: a last-resort line is engine-authored, so it is a plainly system-styled notice (the whole-message `((...))` aside the surface renders outside the fiction), never narrator-voiced prose.
 _BLANK_FALLBACK_MODEL = (
-    "The moment hangs for a beat. The house keeps moving around you — what do you want to do?")
+    "((The narrator's reply did not come through this turn. Send your move again and the scene continues from where the game stands.))")
+_LEGACY_BLANK_FALLBACK_MODEL = "The moment hangs for a beat. The house keeps moving around you — what do you want to do?"  # stored history may still hold it
 _BLANK_FALLBACK_UPSTREAM = (
     "Big Brother cuts to a brief technical interlude — the feed dropped before that scene could air. "
     "Say or do that again in a moment and it will pick up.")
@@ -6959,6 +6961,9 @@ def _fallback_markers() -> "tuple[str, ...]":
     return (
         _SCENE_CUTAWAY_LINE[:70],
         _BLANK_FALLBACK_MODEL[:40],
+        _LEGACY_BLANK_FALLBACK_MODEL[:40],
+        _LEGACY_EMPTY_PRODUCER_LINE[:40],
+        _EMPTY_PRODUCER_LINE[:40],
         _BLANK_FALLBACK_UPSTREAM[:40],
         _NARRATOR_AWAY_LINE[:40],
         _NARRATOR_ACCOUNT_LINE[:40],
@@ -8019,8 +8024,9 @@ async def _run_verifier_subagent(
 # again — paired with a one-tap retry affordance below. NOT the FEPY-2 reasoning-recovery path
 # (that re-emits a real answer routed to the reasoning channel and stays untouched).
 _EMPTY_PRODUCER_LINE = (
-    "Production's feed glitched for a second there — we lost what just came through. Say that again?"
+    "((The narrator's reply did not come through this turn. Send your move again and the scene continues from where the game stands.))"
 )
+_LEGACY_EMPTY_PRODUCER_LINE = "Production's feed glitched for a second there — we lost what just came through. Say that again?"  # stored history may still hold it
 # A2 (2026-07-03): the diegetic circuit-breaker line. When a scene claims a board change the engine
 # never committed (or can't confirm), the FE cuts the fabricated scene and — if the player has seen no
 # real narration yet — shows THIS in its place instead of the lie. In-fiction (a live-feed cutaway),
