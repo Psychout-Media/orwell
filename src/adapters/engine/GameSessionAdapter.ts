@@ -66,7 +66,7 @@ import { planJuryNotes } from "../../engine/juryNotes";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
 import { chooseHourAction, assembleScenes, habitsFor, floorRoutinesFor, routinesFromHabits, actionLine, roomActLine, formPlan, GOAL_PLAN, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction, type PlanStep } from "../../engine/houseLife";
-import { addRoutines, noteSighting, routineKey } from "../../engine/routineLife";
+import { addRoutines, isStressed, noteSighting, routineKey, routineNow } from "../../engine/routineLife";
 import type { Routine } from "../../engine/routines";
 import type { Habit } from "../../engine/houseLifeConstants";
 import { HOUSE_LIFE, ROOM_LIFE } from "../../engine/houseLifeConstants";
@@ -15393,13 +15393,40 @@ export class GameSessionAdapter implements GameSession {
    * (the holder's name, the room, the time of day, the act or the authored words); the numbers and the routine record itself stay engine-side.
    */
   private noteRoutineSighting(p: PlannedAction, day: number, knowledge: KnowledgeService | undefined): void {
-    if (!p.routine || !this.live) return;
-    const { learned } = noteSighting((this.live.routineSightings ??= {}), p.actor, p.routine, day);
+    if (!p.routine) return;
+    this.countRoutineSighting(p.actor, p.routine, p.place, p.kind, day, knowledge);
+  }
+  private countRoutineSighting(actor: EntityId, routine: string, place: string, kind: string, day: number, knowledge: KnowledgeService | undefined): void {
+    if (!this.live) return;
+    const { learned } = noteSighting((this.live.routineSightings ??= {}), actor, routine, day);
     if (!learned || !knowledge) return;
     const me = this.house!.player.id;
-    const r = this.live.routines?.[p.actor]?.find((x) => routineKey(x) === p.routine);
-    const content = `${this.nameOf(p.actor)} is usually in the ${p.place.replace(/-/g, " ")} in the ${p.routine.split(":")[0]!.replace(/-/g, " ")}, ${r?.gist ?? `their usual: ${p.kind.replace(/-/g, " ")}`}`;
-    if (!knowledge.knownTo(me).some((f) => f.content === content)) knowledge.seedBelief(me, { content, factId: `routine:${p.actor}:${p.routine}`, confidence: 1, hops: 0, distortion: 0 }, "witnessed");
+    const r = this.live.routines?.[actor]?.find((x) => routineKey(x) === routine);
+    const content = `${this.nameOf(actor)} is usually in the ${place.replace(/-/g, " ")} in the ${routine.split(":")[0]!.replace(/-/g, " ")}, ${r?.gist ?? `their usual: ${kind.replace(/-/g, " ")}`}`;
+    if (!knowledge.knownTo(me).some((f) => f.content === content)) knowledge.seedBelief(me, { content, factId: `routine:${actor}:${routine}`, confidence: 1, hops: 0, distortion: 0 }, "witnessed");
+  }
+  /**
+   * ORW-799: a sighting was only counted when a routine WALKED someone into the player's room; a houseguest already in that room when their routine pulls (same keyed roll the planner uses, so the same hour) was never
+   * counted, because everyone in the player's room is left out of the walking plans. They are seen keeping it as much as one who walked in. Played games with routines on, the player awake, only; no draw of its own.
+   */
+  private noteRoutinesKeptInPlayersRoom(awakeIds: readonly EntityId[], playerRoom: Room | undefined, stretchIndex: number, knowledge: KnowledgeService | undefined): void {
+    const s = this.live, house = this.house;
+    if (!s || !house || !this.routinesEnabled || s.playedGame !== true || playerRoom === undefined || playerRoom === "diary-room") return;
+    if (!(this.awakeNow()?.has(house.player.id) ?? true)) return; // a player who is asleep sees nothing
+    const day = s.dayNumber ?? s.week, hour = this.inGameHour() ?? stretchIndex;
+    const absNow = this.inGameAbsHour();
+    const repeat = absNow !== undefined && s.lifeHour?.at === absNow ? s.lifeHour.n + 1 : 0; // the count `houseLifeStretch` is about to store for this stretch
+    const hourKey = `d${day}h${hour}${repeat ? `r${repeat}` : ""}`;
+    const seed = this.gameSeed ?? 0;
+    const tod = (s.timeOfDay ?? "afternoon") as LifeTimeOfDay;
+    for (const id of awakeIds) {
+      if (id === house.player.id || this.presence?.get(id) !== playerRoom) continue;
+      const character = this.agendaCharacterOf(id);
+      if (!character) continue;
+      const rs = this.routinesOf(id, character, s.npcMindsAuthored?.traits?.[id]?.habits, seed);
+      const r = routineNow(rs, tod, isStressed(this.soulObj(id)?.emotionalState ?? 0.5, ((s.nominees ?? []) as readonly EntityId[]).includes(id)), (k) => agendaRoll(seed, id, `hour:${hourKey}:routine:${k}`));
+      if (r && r.action !== "nap" && r.place === playerRoom) this.countRoutineSighting(id, routineKey(r), playerRoom, r.action, day, knowledge);
+    }
   }
   setHouseLifeEnabled(on: boolean): void { this.houseLifeEnabled = on; }
   houseLifeActiveNow(): boolean {
@@ -15677,6 +15704,7 @@ export class GameSessionAdapter implements GameSession {
     const roomIds = this.roomLifeOn() && playerRoom !== undefined && playerRoom !== "diary-room" && (this.awakeNow()?.has(house.player.id) ?? true) // a player who is asleep (a nap) sees nothing: no room steps
       ? awakeIds.filter((id) => id !== house.player.id && presence.get(id) === playerRoom).sort()
       : [];
+    this.noteRoutinesKeptInPlayersRoom(awakeIds, playerRoom, stretchIndex, knowledge); // ORW-799: the houseguests already in the player's room keep their routines in front of them too
     if (actors.length === 0 && roomIds.length < 2) return [];
     const where = new Map<EntityId, Room>(actors.map((id) => [id, presence.get(id)!] as const));
     // ORW-340: the player is where the houseguests can see them: in the hour view (so a goal can aim at them) but never an actor and never moved.
