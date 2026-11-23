@@ -21,10 +21,10 @@ describe("ORW-755 REAL PATH: the edit's moments", () => {
         retro = sess.seasonRetrospective();
         onKinds = kindsOf((retro as { yourEdit?: never }).yourEdit);
         shapes = ((retro as { yourStories?: { stories: Array<{ shape: string }> } }).yourStories?.stories ?? []).map((s) => s.shape);
-        sess.setEditMomentsEnabled(false);
+        sess.setEditMomentsEnabled(false); // not as shipped: read the post-season edit with the moments off, then back on
         noMomentsKinds = kindsOf(sess.seasonRetrospective().yourEdit);
         sess.setEditMomentsEnabled(true);
-        sess.setYourEditEnabled(false);
+        sess.setYourEditEnabled(false); // not as shipped: read the post-season view with the edit off (the season is over)
         editOff = sess.seasonRetrospective().yourEdit;
       },
     });
@@ -47,6 +47,7 @@ describe("ORW-755 REAL PATH: the edit's moments", () => {
 
     // the story off for a whole second season (it is a weekly sampler, so it has to be off while the season is played)
     let storiesOff: unknown = "unset";
+    // not as shipped: the flag-off season
     const off = await playSeason({ seed: SEED, setup: (sess) => sess.setYourStoryEnabled(false), after: ({ sess }) => { storiesOff = sess.seasonRetrospective().yourStories; } });
     expect(off.stopped).toBe("finished");
     expect(storiesOff).toBeUndefined();

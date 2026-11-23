@@ -4538,6 +4538,40 @@ async def do_run_competition(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": f"engine error: {e}", "exit_code": 1}
 
 
+_CANON_ENTITY_ID_RE = re.compile(r"(?:player|npc:\d+)")
+
+
+def _resolve_with_ids(raw, house) -> tuple:
+    """ORW-786: bring a model-written `withIds` to the engine's canonical ids (`player` / `npc:<n>`). The model sometimes writes a name-shaped id (`npc:<name>`, a bare name, a bare number); the engine's shape guard refuses the whole call, and the model retries the same ids. Canonical ids pass through untouched (the engine still owns liveness); a bare number or a name that matches exactly one roster entry (full name, first or last name, case/punctuation-insensitive) is resolved; anything else is dropped and returned as rejected, never guessed. Returns (resolved, rejected)."""
+    def key(t):
+        return re.sub(r"[^a-z0-9]+", "", str(t).lower())
+    out, rejected = [], []
+    for entry in raw if isinstance(raw, list) else []:
+        s = str(entry).strip() if isinstance(entry, (str, int)) and not isinstance(entry, bool) else ""
+        if _CANON_ENTITY_ID_RE.fullmatch(s):
+            cand = s
+        else:
+            cand = None
+            body = s[4:] if s.lower().startswith("npc:") else s
+            by_id = [h for h in house if h.get("id") == f"npc:{body}"] if re.fullmatch(r"\d+", body) else []
+            if by_id:
+                cand = by_id[0]["id"]
+            elif key(body):
+                k = key(body)
+                hits = []
+                for h in house:
+                    parts = str(h.get("name") or "").split()
+                    if k in {key(h.get("name")), *(key(x) for x in (parts[:1] + parts[-1:]))}:
+                        hits.append(h["id"])
+                if len(set(hits)) == 1:
+                    cand = hits[0]
+        if cand is None:
+            rejected.append(entry)
+        elif cand not in out:
+            out.append(cand)
+    return out, rejected
+
+
 async def do_record_interaction(content: str, owner: Optional[str] = None) -> Dict:
     from src import orwell_engine
     try:
@@ -4559,7 +4593,20 @@ async def do_record_interaction(content: str, owner: Optional[str] = None) -> Di
     _felt = _felt if isinstance(_felt, (int, float)) and _felt > 0 else None
     # ORW-104: the model-driven path carries the same closed-set casual assurance / heard-about-me descriptors as the belt (validated against the scene's own withIds; no number crosses).
     from src.agent_loop import _validate_actor, _validate_assurance, _validate_heard_about_me
-    _with = [w for w in (args.get("withIds") or []) if isinstance(w, str)] if isinstance(args.get("withIds"), list) else []
+    _raw_with = args.get("withIds") if isinstance(args.get("withIds"), list) else []
+    _rejected_with: list = []
+    if any(not (isinstance(w, str) and _CANON_ENTITY_ID_RE.fullmatch(w)) for w in _raw_with):
+        try:
+            _gs = await orwell_engine.get_game_state(user=owner)
+            _house = [h for h in ((_gs or {}).get("house") or []) if isinstance(h, dict) and h.get("id")]
+        except Exception:
+            _house = []
+        _resolved, _rejected_with = _resolve_with_ids(_raw_with, _house)
+        args = {**args, "withIds": _resolved}
+        _raw_with = _resolved
+        if _rejected_with:
+            logger.info(f"[orwell] recordInteraction withIds: dropped {len(_rejected_with)} unresolvable entr(ies) (ORW-786) user={owner}")
+    _with = [w for w in _raw_with if isinstance(w, str)]
     _assure_raw = args.get("assurance")
     if isinstance(_assure_raw, dict) and "by" not in _assure_raw and isinstance(_assure_raw.get("from"), str):
         _assure_raw = {**_assure_raw, "by": _assure_raw["from"]}
@@ -4580,6 +4627,8 @@ async def do_record_interaction(content: str, owner: Optional[str] = None) -> Di
         # ORW-188: a recorded scene commits (bumps beatSeq) and the engine echoes the post-commit token. Adopt it (the belt path already does) so a later mutating
         # call this turn (advanceGame) does not carry a stale token and 409.
         await _refresh_after_model_progression(owner, res)
+        if _rejected_with and isinstance(res, dict):
+            res = {**res, "note": "Recorded. Some withIds named no houseguest in the house and were left out; name houseguests by their roster id."}
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}
@@ -5760,6 +5809,8 @@ async def do_season_retrospective(content: str, owner: Optional[str] = None) -> 
             res = {k: v for k, v in res.items() if k != "houseYouNeverSaw"}
             res.pop("rumorMill", None)  # ORW-525: the rumor mill is the retrospective WINDOW's too, off the host model's context
             res.pop("houseCulture", None)  # ORW-551: the house culture is the retrospective WINDOW's too, off the host model's context
+            res.pop("territory", None)  # ORW-747 (0176): the crowd words are the retrospective WINDOW's too, off the host model's context
+            res.pop("comingClean", None)  # ORW-747 (0203): the coming-clean record is the WINDOW's too (a measured season held ~85 stories, ~100 KB), off the host model's context
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}

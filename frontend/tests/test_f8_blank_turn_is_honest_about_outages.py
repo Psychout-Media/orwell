@@ -14,7 +14,7 @@ def test_an_upstream_failure_is_not_dressed_up_as_a_quiet_beat():
 
 
 def test_a_model_made_blank_keeps_the_in_character_continuation():
-    assert "hangs for a beat" in agent_loop._blank_turn_fallback_line(upstream_failed=False)
+    assert "did not come through" in agent_loop._blank_turn_fallback_line(upstream_failed=False)
 
 
 def test_neither_line_leaks_machinery():

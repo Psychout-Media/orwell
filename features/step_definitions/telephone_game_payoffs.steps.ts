@@ -7,7 +7,7 @@ import { PLAYER, npc } from "../../src/domain/ids";
 /**
  * Feature 0134 - Telephone-Game Payoffs (ORW-300: wired into the BDD gate). The provenance word on a surfaced gossip fact is derived from its HOP count and shown only with
  * the gossip-drift flag on; a first-hand fact and a flag-off row carry nothing. Driven through the real session path (seed a fact on the player's own knowledge with a known hop
- * count, read the per-turn narrator prompt), exactly as tests/unit/surfacedFactsDelivery.test.ts does. Roles only: the fact text names nobody.
+ * count, read the per-turn narrator prompt), exactly as tests/realpath/surfacedFactsDelivery.test.ts does. Roles only: the fact text names nobody.
  */
 type Sandbox = ReturnType<GameSessionRegistry["sandboxFor"]>;
 interface TelephoneState { sb?: Sandbox; content: string; chainSource: string; learned: string; baseline: string; }

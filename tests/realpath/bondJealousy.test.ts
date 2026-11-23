@@ -43,6 +43,7 @@ describe("0181 REAL PATH: jealousy grows from what the holder watched, in a play
     expect((loaded as unknown as Priv).live.jealousy).toEqual(p.live.jealousy);
     expect((loaded as unknown as Priv).live.jealousySeen).toEqual(p.live.jealousySeen);
 
+    // not as shipped: the control arm, the same seed with this feature off, proves the feature is what makes the difference
     const off = playedGame({ seed: SEED, user: "pj", before: (s) => s.setBondFeelingsEnabled(false) });
     for (let i = 0; i < turns; i++) off.turn();
     expect((off.s as unknown as Priv).live.jealousy).toBeUndefined();

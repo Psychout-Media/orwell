@@ -35,3 +35,6 @@ Card: ORW-666 (Ryne approved all three, 2026-11-18: "I think those are all great
 - No short lists: no question or line lists; the narrator voices everything from facts.
 - The wall: host questions skip hidden facts; Diary Room calls carry no content; pushbacks use only the player's own record.
 - Never shown as numbers.
+
+## Amendment 2026-11-23 (ORW-789)
+- A houseguest called to the Diary Room is still in the house and up: the state's awake list keeps them (only the not-yet-arrived are left out), so awake plus asleep names everyone in the house. Where they are is the narrator's diary-call fact (away), not a third list. The nightly bed/wake probe (rule N7) caught the gap: it went red from the Diary Room calls landing.

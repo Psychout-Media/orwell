@@ -46,6 +46,7 @@ describe("0171 REAL PATH: favors the house banked, called in at real votes", () 
   });
 
   it("favors off: the same seed banks nothing", () => {
+    // not as shipped: the control arm, the same seed with this feature off, proves the feature is what makes the difference
     const off = playedGame({ seed: SEED, user: "favors-real-off", before: (s) => s.setFavorsEnabled(false) });
     off.playUntil(() => (off.s.getGameState() as { week?: number }).week! >= 4, 8000, "week 4");
     expect((off.s as unknown as Priv).favorLedger()).toEqual([]);

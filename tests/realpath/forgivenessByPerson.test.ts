@@ -49,6 +49,7 @@ describe("ORW-130 REAL PATH: who holds a betrayal is read from the holder and th
       expect(r.memoryEntriesSeenBy(p.holder, p.raw, p.subject)).toEqual(applyForgiveness(p.raw, trait, r.live.week));
     }
     expect([...traits].sort(), "the same kind of record is held by some holders and forgiven by others").toEqual(["grudge-keeper", "typical"]);
+    // not as shipped: the control arm, the same seed with this feature off, proves the feature is what makes the difference
     r.setForgivenessEnabled(false);
     for (const p of pairs) expect(r.memoryEntriesSeenBy(p.holder, p.raw, p.subject)).toBe(p.raw);
   });

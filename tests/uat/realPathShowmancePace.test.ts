@@ -54,6 +54,7 @@ describe("ORW-736 REAL PATH: a showmance builds slowly in a played season", () =
 
   it("pacing off: the same seed, played to the moment the first romance began, keeps no pace record", () => {
     expect(firstRomanceTurn).toBeGreaterThan(0);
+    // not as shipped: the control arm, the same seed with this feature off, proves the feature is what makes the difference
     const off = playedGame({ seed: SEED, user: USER, before: (s) => (s as unknown as { setShowmancePacingEnabled(on: boolean): void }).setShowmancePacingEnabled(false) });
     for (let i = 0; i < firstRomanceTurn + 20; i++) off.turn();
     expect((off.s as unknown as Priv).live.showmancePace).toBeUndefined();
