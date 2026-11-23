@@ -18462,6 +18462,7 @@ export class GameSessionAdapter implements GameSession {
         const counter = this.maybeCounterOffer(target, req.kind, refusal);
         if (counter) refusal.counteroffer = counter;
         if (this.closeCounteredOffer(req.countersOffer, target, true)) this.persist(); // a refused counter: the houseguest's temperament decides whether the offer it answered still stands
+        else this.backgroundPersist(); // ORW-731: the refusal wrote its why-record (decisionWhy / statedReasons) and nothing else saved it: save it now, with no beat, no checkpoint and no tick (a restart before the next commit lost it)
         if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, refusal);
         return refusal;
       }
@@ -18543,7 +18544,7 @@ export class GameSessionAdapter implements GameSession {
     if (this.npcDealConsentEnabled) {
       for (const p of parts) {
         const refusal = this.dealConsentRefusal(target, p.kind, undefined, -DEAL_CONSENT.packageDrag);
-        if (refusal) return refusal;
+        if (refusal) { this.backgroundPersist(); return refusal; } // ORW-731: see makeDeal
       }
     }
     const views: DealView[] = [];
