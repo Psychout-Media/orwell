@@ -1795,7 +1795,7 @@ function advanceCompetition(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
     droppedThisRound.push(dropped);
   }
   c.round += 1;
-  // ORW-784: the FINAL batch of drops is told as its own `comp-elimination` beat; the next advance crowns (the top of this function). It used to crown here and the narrator never learned who fell last.
+  if (c.stillIn.length === 1) return crownCompetition(s);
   // #1400: when the model authored + the engine VALIDATED fiction for THIS comp, tell the drop as the
   // model's per-round fiction (looked up by the exact dropped ids) instead of the deterministic 0042
   // template. PRESENTATION ONLY — `droppedThisRound` and its order come straight from the fixed
@@ -1812,8 +1812,9 @@ function advanceCompetition(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
   // C1 (#1788, P1 fixes — PR #1831 review, both leaks): record the reveal into the season-spanning,
   // monotonic history ONLY when the failure-style text actually RIDES the emitted beat below.
   // INVARIANT: wipeoutHistory ⊆ AIRED reel moments. Two paths previously violated it:
-  //   (1) [ORW-784: the final batch now airs as its own `comp-elimination` beat and the NEXT advance crowns,
-  //       so this path no longer exists; the crown beat itself (COMP-13) still carries no drop flavor.]
+  //   (1) the FINAL batch of a comp (narrows `stillIn` to 1) returns via `crownCompetition` above —
+  //       a crown beat, never a `comp-elimination` beat (COMP-13: the crown carries no drop flavor) —
+  //       so its facts never air; recording them is prevented by this append sitting PAST that return;
   //   (2) an AUTHORED-fiction round (#1400) emits the model's own prose INSTEAD of the reel text
   //       (`wipeout` is undefined when `authored` is set), so its facts never air either; recording
   //       them is prevented by gating on `wipeout` — the exact composed text the beat carries.
