@@ -1,6 +1,8 @@
 # 0132 — Full live per-NPC cognition (re-simulate every active houseguest's head each turn; the ambitious version of 0131)
 
-> **Status:** ✅ **Specced** (2026-07-21); awaiting faithful-seam cluster (Theme A/B) landed/in
+> **Status:** ❌ **Superseded by the NPC minds design (spec 0145 and follow-ons)** — retired 2026-11-23 (ORW-747), never built. The per-NPC mind this proposed is covered instead by ORW-253 ("NPC Minds Design Theme 1", approved 2026-11-12): 0145 lasting agendas, 0146 the model's words, 0147 house life, goal moods and memory about others, then the claims and beliefs work (0149-0159). Kept as a record of the design path; ADR 0022 still holds. Do not build from this file.
+>
+> *Original status (2026-07-21):* Specced; awaiting faithful-seam cluster (Theme A/B) landed/in
 > flight before build begins. **Maximal version** of 0131's S1: instead of salience-gating (author
 > only 1–2 NPCs per turn), **re-simulate *every* active houseguest's cognition live, each turn**.
 > Each NPC's want/read/attempt refreshed from a per-NPC scoped call before the beat is narrated.

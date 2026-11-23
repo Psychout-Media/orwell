@@ -462,7 +462,7 @@ import { SHOWRUNNER } from "../../engine/showrunnerConstants";
 import { derivedLoyalty, cohesionOf, mutualBond } from "../../engine/blocs";
 import type { ReserveTwist, TwistKind } from "../../engine/reserveTwists";
 import type { CeremonyState, SessionCore, TrackedSighting } from "../../engine/sessionSnapshot";
-import { cloneSession, fastClone } from "../../engine/sessionSnapshot";
+import { cloneSession, fastClone, retroArmedIntroductions } from "../../engine/sessionSnapshot";
 import { emptyCanonLedger, recordCanon, activeCanon, canonHash, restoreCanon, serializeCanon, type CanonLedger } from "../../engine/canonLedger";
 import type { PersistedCanon } from "../../domain/canon";
 import { diffuseGossip, makeSocialGraph, gossipEdgeAffinity, GOSSIP, GOSSIP_HEARD, legendFrom, legendSeedProbability } from "../../engine/gossip";
@@ -9810,6 +9810,17 @@ export class GameSessionAdapter implements GameSession {
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:premiere-read:${i}`));
     for (const holder of inside) this.rel.applyImpactDirected(holder, id, PREMIERE_FIRST_READ, rng);
     return { id, inside, playerEntrance: id === me };
+  }
+
+  /**
+   * ORW-800: an older save already in the toast with no introduction record (written before the circle armed on the no-tour path) is armed on load, with those who have already spoken introduced (their first
+   * impression folds as it would have). The registry calls this at the END of a resume, after the relationship layer is loaded (the fold would otherwise be overwritten by the load). A no-op for every other save.
+   */
+  armRestoredMeetTheCast(): void {
+    const retro = this.meetTheCastEnabled && this.live?.playedGame === true ? retroArmedIntroductions(this.live.premiereEntrance) : undefined;
+    if (!retro) return;
+    this.armMeetTheCast();
+    for (const id of retro) this.recordIntroduction(id);
   }
 
   /** ORW-653 / ORW-690 / 0205: arm the introductions when the circle is called, on either path into the toast (the tour's call, or the last arrival with no tour). Idempotent: an armed record is never reset. */
