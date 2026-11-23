@@ -16,7 +16,7 @@
 > byte-identical with trajectories alone disabled; (2) recency window 4 folds, momentum building per
 > consistent fold and **spiking on betrayal**, decaying at the 0026 neglect cadence; (3) a tight,
 > momentum-scaled tilt cap (≤60% of a nature's own weight at full momentum) so off-arc beats stay
-> possible (criterion 2); (4) **`NPC→player` trajectories: keyed, but NOT fed today** — the directed `recordTrajectoryFold` keys any `a→b` pair, the player included, but only off-screen NPC↔NPC scenes call it (`src/composition/orchestrator.ts`); player-witnessed scenes do not update trajectories, so an NPC→player arc stays at `steady` until that feed is built (deferred). Engine-computed, behavior-only, never
+> possible (criterion 2); (4) **`NPC→player` trajectories: keyed, but NOT fed today** — the directed `recordTrajectoryFold` keys any `a→b` pair, the player included, but only off-screen NPC↔NPC scenes call it (`src/composition/orchestrator.ts`); player-witnessed scenes do not update trajectories, so an NPC→player arc stays at `steady` until that feed is built (deferred). Engine-computed, behavior-only, never (ORW-336)
 > shown; the player's read
 > of any NPC stays purely human-driven; (5) trajectories do **not** feed 0086 drives yet (a later pass —
 > this feature only exposes the layer).
@@ -249,7 +249,7 @@ deepens over the game, never thins.
    behavior trajectory (an NPC's arc *toward the player* warming/souring over weeks, surfaced only as
    that NPC's tone). Recommended: yes for `NPC→player` (engine-computed, behavior-only, never shown —
    the 0086 rule); the *player's* read of any NPC stays purely human-driven (never engine-modeled).
-   **Resolved at build: keyed but NOT fed; the `NPC→player` feed is deferred** (see the status note at the top).
+   **Resolved at build: keyed but NOT fed; the `NPC→player` feed is deferred** (see the status note at the top). (ORW-336)
 5. **Cross-feature: trajectories feeding drives (0086).** A souring `A→B` trajectory is a natural
    seed for `A`'s `target` drive against `B` (the arc *is* the grudge forming). Recommend: 0087
    exposes the trajectory; a later pass lets 0086 consume it — keep this feature to the trajectory

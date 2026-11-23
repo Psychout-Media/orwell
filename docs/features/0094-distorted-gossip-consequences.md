@@ -261,7 +261,7 @@ Vault read — it is reading the player's own (mis)belief. The Wall is preserved
    testable), enrich to graded later if it reads too sharp.
 3. **Scope of the divergence.** v1 limited to player **closed-set** moves (nominate / vote /
    confront-fold) so the outcome ownership is unambiguous; a chattier "the player just *says* the
-   wrong thing socially" case is open-set and stays purely narrated (no forced misfire) — deferred.
+   wrong thing socially" case is open-set and stays purely narrated (no forced misfire) — deferred. (ORW-824)
 4. **The loudness of the reveal.** v1 surfaces the correction through the existing passive pathways
    (a later true telling flips the belief). A louder, explicit "you realize the rumor was wrong"
    recognition beat (the 0075 open-Q #4 sibling) is a possible enrichment — but it must still come
@@ -269,7 +269,7 @@ Vault read — it is reading the player's own (mis)belief. The Wall is preserved
 5. **NPCs acting on their own distorted beliefs.** The gossip model already folds NPC receipts
    confidence-scaled (`GOSSIP_HEARD`), so NPCs partly already do this. Whether NPC↔NPC moves should
    *also* visibly misfire on distortion (mutual irony the player witnesses) is a natural sequel —
-   deferred to keep v1 to the player's own beliefs.
+   deferred to keep v1 to the player's own beliefs. (ORW-824)
 
 > **Tracks #865.**
 
@@ -280,5 +280,5 @@ Fable's audit (T2-6) found the per-retelling drift (`ORWELL_GOSSIP_DRIFT`) lived
 - The spread (`copresenceSpread.ts`) now takes an optional `drift`. Each transmitted retelling runs `driftRetelling` (`gossip.ts`) on a FORK of the pair's own rng, so no other draw moves: from the second retelling on, a hedge in the teller's public voice replaces the last teller's, and a text that carries a scene nature may move it one rung (voice biases the direction). Free-text facts, which are what the spread carries in a played game, are never reworded: the engine holds no structured claim for them. The fact's distortion rises by `GOSSIP_DRIFT.sameRoomDistortionStep` (0.1, capped at 1). `originalContent` (the Vault truth) never changes.
 - The audience is the other awake houseguests in the pair's room, so a crowded room shares less (the disclosure rule already read it).
 - Gated by `ORWELL_GOSSIP_DRIFT` (default ON) AND a person playing; a headless or calibration game and `=0` are byte-identical. Hidden layer only; the player is never a node, so nothing reaches them except through a later pathway that ends at them.
-- Not done: swapping the subject of a free-text fact (needs a structured claim on the fact).
+- Not done: swapping the subject of a free-text fact (needs a structured claim on the fact). (ORW-824)
 - Tests: `tests/unit/sameRoomDrift.test.ts`.
