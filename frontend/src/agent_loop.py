@@ -2231,6 +2231,25 @@ def _withhold_leading_refusal(owner, round_num: int, round_response: str, clean:
         return round_response, clean, False
 
 
+def _strip_leading_recital(owner, round_num: int, round_response: str, clean: str, round_emitted: str):
+    """ORW-784: drop an instruction fragment ("Keep the answer short and plain", "Verbatim,") that opens a round (nothing shown yet this round). Pre-emission, so nothing is retracted; the
+    raw/stored text drops it too. Success-gated telemetry. Returns (round_response, clean, stripped)."""
+    try:
+        from src import recital_guard as _rc
+        if not clean or round_emitted.strip() or not _rc.enabled():
+            return round_response, clean, False
+        kept, n = _rc.strip_leading_recital(clean)
+        if not n:
+            return round_response, clean, False
+        round_response = _mirror_wall_drop(round_response, clean, kept)
+        _rc.note_stripped()
+        logger.info(f"[orwell] recital fragment stripped round={round_num} chars={n}")
+        _note_belt(owner, "recital-stripped")
+        return round_response, kept, True
+    except Exception:  # failsoft-ok: detector error shows the text as today
+        return round_response, clean, False
+
+
 def _note_forced_choice(owner, tool: str, *, honored: bool) -> None:
     """T0-4 (telemetry + probe arm) — count one forced-``tool_choice`` ATTEMPT, with its
     outcome, in the Vault-free sync ledger (`orwell_sync_ledger.note_forced_choice`). Unlike
@@ -6934,8 +6953,10 @@ async def _narrator_stream_with_outage_pause(candidates, messages, owner=None, l
         await asyncio.sleep(delay)
 
 
+# ORW-784: a last-resort line is engine-authored, so it is a plainly system-styled notice (the whole-message `((...))` aside the surface renders outside the fiction), never narrator-voiced prose.
 _BLANK_FALLBACK_MODEL = (
-    "The moment hangs for a beat. The house keeps moving around you — what do you want to do?")
+    "((The narrator's reply did not come through this turn. Send your move again and the scene continues from where the game stands.))")
+_LEGACY_BLANK_FALLBACK_MODEL = "The moment hangs for a beat. The house keeps moving around you — what do you want to do?"  # stored history may still hold it
 _BLANK_FALLBACK_UPSTREAM = (
     "Big Brother cuts to a brief technical interlude — the feed dropped before that scene could air. "
     "Say or do that again in a moment and it will pick up.")
@@ -6953,6 +6974,9 @@ def _fallback_markers() -> "tuple[str, ...]":
     return (
         _SCENE_CUTAWAY_LINE[:70],
         _BLANK_FALLBACK_MODEL[:40],
+        _LEGACY_BLANK_FALLBACK_MODEL[:40],
+        _LEGACY_EMPTY_PRODUCER_LINE[:40],
+        _EMPTY_PRODUCER_LINE[:40],
         _BLANK_FALLBACK_UPSTREAM[:40],
         _NARRATOR_AWAY_LINE[:40],
         _NARRATOR_ACCOUNT_LINE[:40],
@@ -8013,8 +8037,9 @@ async def _run_verifier_subagent(
 # again — paired with a one-tap retry affordance below. NOT the FEPY-2 reasoning-recovery path
 # (that re-emits a real answer routed to the reasoning channel and stays untouched).
 _EMPTY_PRODUCER_LINE = (
-    "Production's feed glitched for a second there — we lost what just came through. Say that again?"
+    "((The narrator's reply did not come through this turn. Send your move again and the scene continues from where the game stands.))"
 )
+_LEGACY_EMPTY_PRODUCER_LINE = "Production's feed glitched for a second there — we lost what just came through. Say that again?"  # stored history may still hold it
 # A2 (2026-07-03): the diegetic circuit-breaker line. When a scene claims a board change the engine
 # never committed (or can't confirm), the FE cuts the fabricated scene and — if the player has seen no
 # real narration yet — shows THIS in its place instead of the lie. In-fiction (a live-feed cutaway),
@@ -9992,6 +10017,7 @@ async def _stream_agent_loop_impl(
                                 if _clean and not _scene_broken:
                                     round_response, _clean, _rf_hit = _withhold_leading_refusal(owner, round_num, round_response, _clean, _round_emitted_text)
                                     _turn_refusal_withheld = _turn_refusal_withheld or _rf_hit
+                                    round_response, _clean, _ = _strip_leading_recital(owner, round_num, round_response, _clean, _round_emitted_text)
                                 if _clean:
                                     # A2: run the whole-scene circuit-breaker + 0065 Part C per-sentence
                                     # pre-emission outcome guard (see `_emit_guarded_scene`'s docstring for
@@ -10238,6 +10264,7 @@ async def _stream_agent_loop_impl(
             if _clean and not _scene_broken and not _round_replay:
                 round_response, _clean, _rf_hit = _withhold_leading_refusal(owner, round_num, round_response, _clean, _round_emitted_text)
                 _turn_refusal_withheld = _turn_refusal_withheld or _rf_hit
+                round_response, _clean, _ = _strip_leading_recital(owner, round_num, round_response, _clean, _round_emitted_text)
             if _round_replay:
                 pass  # a dropped replay round: nothing to guard or emit (and no cutaway line — it is not a board fabrication)
             elif _clean or _ooc_open:

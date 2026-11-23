@@ -18,7 +18,7 @@ The flag is `ORWELL_GOSSIP_DRIFT` (`gossipDriftEnabledNow()`), also the flag for
 Only `hops` is carried, never source, pathway or original content; it becomes a word before rendering, so neither the raw number nor any chain-member id reaches the player. Presentation only: no outcome, fold or rng is touched.
 
 ## Tests
-`tests/unit/humanize.test.ts`, `tests/unit/surfacedFactsDelivery.test.ts` (flag-OFF byte-identity and Vault assertions); `tests/unit/gossipDriftNeutral.test.ts` was run per the PR (not in its diff).
+`tests/unit/humanize.test.ts`, `tests/realpath/surfacedFactsDelivery.test.ts` (flag-OFF byte-identity and Vault assertions); `tests/unit/gossipDriftNeutral.test.ts` was run per the PR (not in its diff).
 
 ## Known gaps
 Word reflects chain length only, not distortion magnitude. BDD-wired by ORW-300.
