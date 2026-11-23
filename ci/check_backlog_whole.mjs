@@ -37,6 +37,14 @@ export function uncardedLines(text) {
   return out;
 }
 
+/** The PR body without the review bot's generated summary and without HTML comments (blanked, not removed, so line numbers still match the body). */
+export function authorText(body) {
+  const blank = (m) => m.replace(/[^\n]/g, "");
+  return body
+    .replace(/<!--\s*This is an auto-generated description by cubic\.\s*-->[\s\S]*?<!--\s*End of auto-generated description by cubic\.\s*-->/g, blank)
+    .replace(/<!--[\s\S]*?-->/g, blank);
+}
+
 function walk(dir, pred, prefix = dir) {
   const out = [];
   for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -88,8 +96,9 @@ export function checkRepo(root, { prBody, wired, baseBaseline } = {}) {
   }
   for (const k of a1Base) if (!a1Seen.has(k)) errors.push(`A1 ci/backlog_baseline.json: this listed line is no longer in the docs; remove it from the list (the list only shrinks): ${k.slice(0, 160)}`);
 
-  // A1, the PR body.
-  if (prBody) for (const u of uncardedLines(prBody)) errors.push(`A1 PR body line ${u.line}: says work is left but names no ORW card (card it and put the number on the line): ${u.text.slice(0, 160)}`);
+  // A1, the PR body: the author's own words. The review bot's generated summary (between its "auto-generated description by cubic" markers) is not the
+  // author's and is rewritten on every push, so it is not checked; HTML comments are not shown, so they are skipped too.
+  if (prBody) for (const u of uncardedLines(authorText(prBody))) errors.push(`A1 PR body line ${u.line}: says work is left but names no ORW card (card it and put the number on the line): ${u.text.slice(0, 160)}`);
 
   // A2.
   const a2Base = new Set(baseline.a2 ?? []);

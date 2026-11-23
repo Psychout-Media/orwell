@@ -44,6 +44,12 @@ describe("A1: a line that says work is left names its card", () => {
     expect(check(tree(doc, listed), { baseBaseline: listed }).errors).toEqual([]);
     expect(check(tree({}), { baseBaseline: listed }).errors).toEqual([]);
   });
+  it("skips the review bot's generated summary and HTML comments in the PR body, keeping line numbers", () => {
+    const body = "Mine.\n<!-- This is an auto-generated description by cubic. -->\n## Summary by cubic\n- A1: a line saying work is deferred must name a card\n<!-- End of auto-generated description by cubic. -->\n<!-- a note: not built -->\nThe FE half is a follow-up.\n";
+    const errs = check(tree({}), { prBody: body }).errors;
+    expect(errs).toHaveLength(1);
+    expect(errs[0]).toMatch(/PR body line 7/);
+  });
   it("checks the PR body too", () => {
     expect(check(tree({}), { prBody: "Done.\nThe FE half is a follow-up.\n" }).errors.join("\n")).toMatch(/PR body line 2/);
     expect(check(tree({}), { prBody: "The FE half is a follow-up (ORW-77).\n" }).errors).toEqual([]);
