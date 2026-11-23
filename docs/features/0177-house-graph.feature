@@ -1,6 +1,6 @@
 # Feature 0177 - the house graph (Theme 3, core 1; the graph half, built by Overseer B). Design note: 0177-house-graph.md.
-# Engine-only reads derived from the bonds: cliques, hubs, loners, brokers. Never shown, no numbers, no surface. Pure and not yet wired
-# (wiring waits for the bond read API on ORW-552). Roles only.
+# Engine-only reads derived from the bonds: cliques, hubs, loners, brokers. Never shown, no numbers, no surface. Wired engine-side since
+# 0179 and ORW-684 (news spread, status hubs, group life read it once a day); still never shown. Roles only.
 
 Feature: The house graph reads the shape of the house from its bonds, for the engine's eyes only
 
