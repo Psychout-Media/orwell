@@ -1975,6 +1975,13 @@ def setup_orwell_routes() -> APIRouter:
                 _refresh_beat_seq(user, res if isinstance(res, dict) else {})
             if isinstance(res, dict):
                 orwell_engine.remember_pending(res, user=user)
+                try:  # ORW-771: a press through a played eviction vote carries the sealed `eviction.voteBeat`: arm the hidden beat cue the page will send (the server recognizes only an armed one)
+                    if isinstance((res.get("eviction") or {}).get("voteBeat"), dict):
+                        from routes.chat_helpers import arm_vote_beat_cue
+                        arm_vote_beat_cue(user)
+                        res["voteBeatCue"] = True  # the page sends the cue ONLY on this marker: a press the engine refused as stale (the reconcile branch below) committed nothing and has no beat to voice
+                except Exception:  # failsoft-ok: the beat is texture; a press never fails on it
+                    pass
             _publish_game_updated(user)
             return res
         except orwell_engine.EngineToolError as e:

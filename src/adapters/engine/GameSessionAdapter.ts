@@ -5,7 +5,7 @@ import type {
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, NapReq, NapView, NapRefusal, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
-  FinaleView, EvictionView, HostView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, WalkedInView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
+  FinaleView, EvictionView, HostView, VoteBeatView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, WalkedInView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, ProducerVaultView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
   DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
@@ -77,6 +77,7 @@ import { heldApproachReaction, heldSheetOf } from "../../engine/heldApproach";
 import { isPrivateTalk, walkInReaction, walkInLine, WALK_IN_MAX_HOURS, WALK_IN_DONE_CAP, type WalkInReaction } from "../../engine/walkIn";
 import type { OffscreenScene } from "../../engine/offscreen";
 import type { TimeOfDay as LifeTimeOfDay } from "../../engine/timeOfDay";
+import { diaryWalkOrder, walkersForPress } from "../../engine/voteBeat";
 import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } from "../../engine/presenceConstants";
 import { dayOfWeek } from "../../engine/houseEvents";
 import { HOUSE_SIGHTLINE, roomsBetween, areVisible, canWitnessDeparture, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
@@ -21464,6 +21465,37 @@ export class GameSessionAdapter implements GameSession {
       })),
       ...(e.evictee ? { evictee: ref(e.evictee) } : {}),
       ...(this.hostEnabled && this.live?.playedGame === true && !this.live.spectator ? { host: this.hostView(e) } : {}),
+      ...this.voteBeatFor(e),
+    };
+  }
+
+  /** ORW-771 (`ORWELL_VOTE_BEAT`, default ON; `=0` = no beat, the press is a banner only): the sealed beat facts of the press just made through a played eviction vote. Pure read: no rng, no clock, no write. */
+  private voteBeatEnabled = flagDefaultOn("ORWELL_VOTE_BEAT");
+  setVoteBeatEnabled(on: boolean): void { this.voteBeatEnabled = on; }
+  private voteBeatFor(e: EvictionProgress): { voteBeat?: VoteBeatView } {
+    const s = this.live;
+    if (!this.voteBeatEnabled || !s || s.playedGame !== true || s.spectator || !s.ceremony || s.ceremony.kind !== "eviction") return {};
+    const player = this.house!.player.id;
+    const stepId = s.ceremony.steps[s.ceremony.at];
+    const tallyRead = !!e.evictee && stepId === "result";
+    const reading = e.stage === "votes" && e.revealIx >= 1 && stepId === "ballot";
+    if (!reading && !tallyRead) return {};
+    const walkers = diaryWalkOrder(e.revealOrder.filter((id) => id !== player), s.week);
+    const press = tallyRead ? e.revealOrder.length + 1 : e.revealIx;
+    const w = walkersForPress(walkers, press);
+    const ref = (id: EntityId): NamedRef => ({ id, name: this.nameOf(id) });
+    return {
+      voteBeat: {
+        sealed: true,
+        press: Math.min(press, e.revealOrder.length),
+        of: e.revealOrder.length,
+        ...(w.into ? { intoDiaryRoom: ref(w.into) } : {}),
+        ...(w.back ? { backFromDiaryRoom: ref(w.back) } : {}),
+        tallyRead,
+        gathered: s.active.length,
+        ...(s.timeOfDay ? { timeOfDay: TIME_OF_DAY_LABEL[s.timeOfDay] ?? String(s.timeOfDay) } : {}),
+        nominees: e.nominees.map(ref),
+      },
     };
   }
 
