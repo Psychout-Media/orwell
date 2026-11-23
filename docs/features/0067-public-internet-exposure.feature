@@ -1,4 +1,4 @@
-# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
+# spec-only: gated by frontend/tests/test_public_profile_guard.py; this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 # Feature 0067 — Public internet exposure & internet-grade hardening (ADR 0007).
 # Roles only (player, admin, operator) — no houseguest or person names. Executable spec of record;
 # the gate is the FE pytest suite + the deploy-script lints named in the design note's Definition of
