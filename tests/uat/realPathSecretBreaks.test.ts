@@ -27,7 +27,7 @@ describe("ORW-753 REAL PATH: secret breaks", () => {
 
     const off = await playSeason({
       seed: SEED, maxMessages: on.messages + MARGIN,
-      setup: (sess) => sess.setSecretBreaksEnabled(false),
+      setup: (sess) => sess.setSecretBreaksEnabled(false), // not as shipped: the flag-off run proves the break is the feature
       watch: ({ sess }) => (sess.live?.secretBreaks?.length ?? 0) > 0,
     });
     expect(off.stopped, "the off run played past the on run's break without one").toBe("cap");

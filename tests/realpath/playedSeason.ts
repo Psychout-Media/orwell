@@ -19,11 +19,9 @@ export interface Stop {
 /** Play `seed` until `stopWhen` holds (checked after every message); throws if the season never gets there within `maxMessages`. */
 export async function playUntil(seed: number, stopWhen: (s: Stop) => boolean | Promise<boolean>, opts: Omit<Partial<PlayOpts>, "seed" | "watch"> = {}): Promise<Stop> {
   let at: Stop | undefined;
-  // The game that ships: the unit-lane setup file (tests/support/premiereTestDefault.ts) pins the premiere entrances and the bedtime gate OFF for every non-heavy test file; a played season
-  // runs them ON, their deployed default (the entrances are read at createCharacter, so they are switched before it).
+  // The game that ships: the setup file (tests/support/premiereTestDefault.ts) leaves tests/realpath at the deploy defaults (ORW-827), so the premiere entrances and the bedtime gate are on.
   const rec = await playSeason({
     ...opts, seed, maxMessages: opts.maxMessages ?? 1500,
-    beforeCreate: (sess) => { sess.setPremiereEntrancesEnabled(true); sess.setBedtimeGateEnabled(true); opts.beforeCreate?.(sess); },
     watch: async (ctx) => { const s = ctx as unknown as Stop; if (await stopWhen(s)) { at = s; return true; } return false; },
   });
   if (!at) throw new Error(`seed ${seed}: the played season never reached the stop (${rec.stopped} after ${rec.messages} messages)`);
