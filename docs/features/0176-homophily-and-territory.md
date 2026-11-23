@@ -30,8 +30,8 @@ A house sorts itself by where people spend their hours: the kitchen crowd, the b
 - Played games only (`live.playedGame`), so headless calibration is byte-identical. Flag `ORWELL_TERRITORY`, default ON, `=0` opts out.
 - Seam note: a "cliquey" house culture could scale `TERRITORY.*` later; no lean reads it yet.
 
-### TODO (not built)
+### The retrospective words (built, ORW-747)
 
-A words-only line in the post-season retrospective behind the finished gate ("the kitchen crowd", "the backyard set", "a bedroom that became a bloc"). `describeTerritory` (pure, words only, no digits) is ready; surfacing it needs the `RetrospectiveView` type, the front-end tool pass-through (as `houseCulture` has) and the retrospective window.
+After the crown, `seasonRetrospective()` carries `territory: { crowds }` from `describeTerritory` (words only, no digits; a room shows when two or more houseguests made it their top room), for a played game with the flag on. The front end keeps it off the host model's context (as `houseCulture`) and the retrospective window lists it under "Where the house gathered". Gate: `tests/unit/retroLeftovers747.test.ts` (a played season, absent before the crown, present after).
 
 Gate: BDD `0176-homophily-and-territory.feature` + `tests/unit/homophily.test.ts` + `tests/unit/territory.test.ts`.
