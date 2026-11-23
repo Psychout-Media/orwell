@@ -47,7 +47,7 @@ async function baseline(out: string): Promise<void> {
     const r = await playSeason({ seed, maxMessages });
     const { trace, ...rest } = r;
     writeJson(join(out, `season-${seed}.json`), rest); writeJson(join(out, `trace-${seed}.json`), trace);
-    console.log(`[what-fired] seed ${seed}: ${r.stopped} at message ${r.messages}, week ${r.week}, player out ${r.playerOutWeek ?? "never"} (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
+    console.log(`[what-fired] seed ${seed}: ${r.stopped} at message ${r.messages}, week ${r.week}, player out ${r.playerOutWeek ?? "never"}, ${r.scenes.filter((x) => x.week >= 9 && !x.playerOut).length} late-phase (week 9+) player-in scenes of ${r.scenes.filter((x) => x.week >= 9).length} (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
     if (n === 0 && argv.includes("--determinism")) { const again = await playSeason({ seed, maxMessages }); determinism.push({ seed, difference: firstDifference(trace, again.trace) }); }
     const restartSeeds = nums(arg("restart-seeds"), seeds);
     for (const point of restartSeeds.includes(seed) ? restartPoints(seed, restartsPer, r.messages) : []) {
