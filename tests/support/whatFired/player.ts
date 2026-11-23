@@ -30,6 +30,8 @@ export interface PlayOpts {
   saveDir?: string;
   /** ORW-741: called once right after the character is created, with the live session: the flag-off runs switch a feature off here through the session's own setter (the same switch the env var sets). */
   setup?: (sess: any) => void;
+  /** ORW-813: the player's own choice on a pending decision (e.g. how they vote): return a submitDecision request, or undefined to let the script decide as usual. Read-only on the session. */
+  decide?: (pending: any, sess: any) => Record<string, unknown> | undefined;
   /** ORW-810: called once with the live session BEFORE the character is created: the place for a switch read at createCharacter (the premiere entrances). */
   beforeCreate?: (sess: any) => void;
   /** ORW-741: called once when the season ends (finished, capped or watched), with the live session: the place to read a post-season view, or flip a read-only feature and read it again. */
@@ -222,7 +224,7 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
     if (key === lastPendingKey) { repeats++; rec.pendingRepeats[p.kind] = Math.max(rec.pendingRepeats[p.kind] ?? 0, repeats); } else { lastPendingKey = key; repeats = 0; }
     if ((p.kind as string) === "ceremony-step") { await must("advanceGame", {}, msg); return; }
     const veto = p.kind === "veto-decision" || rnd() < 0.4 ? "always-use-veto" : "never-use-veto"; // a player on the block (or holding the veto) uses it // a varied player: sometimes uses the veto
-    try { await call("submitDecision", autoResolve(p, veto)); } catch (e) { crash("submitDecision", msg, e); await must("advanceGame", {}, msg); }
+    try { await call("submitDecision", opts.decide?.(p, sess()) ?? autoResolve(p, veto)); } catch (e) { crash("submitDecision", msg, e); await must("advanceGame", {}, msg); }
   };
 
   const talk = async (t: number): Promise<void> => {
