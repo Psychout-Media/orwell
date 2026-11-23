@@ -8,12 +8,12 @@ import { playedGame } from "../support/playedGame";
  * nothing); whoever the ENGINE lets agree is a partner. When a partner sits on the block and the player votes, the player votes them out (their own ballot,
  * the eviction-vote decision) and the engine's own reconcile marks the deal broken. If that partner survives the night, a second proposal to them is refused
  * for the break's own consequence, while a partner the player did not betray still accepts the same second proposal. No edge, memory or deal is set by hand.
- * Seed 4: the first seed from 1 up where the player's betrayed partner survives the vote (in seeds 1-3 no betrayed partner was left in the house to ask again; searched once, then pinned).
+ * Seed 10: the first seed from 5 up where, with the shipped flags (ORW-827), the betrayed partner survives the vote with the belief store on AND off (seed 4 no longer did once tests/realpath ran as shipped; seeds 5-9 left no betrayed partner in one arm or both; searched once, then pinned).
  * With the belief store off (a flag) there is no belief that the player targets them, so the same break is refused as the remembered grudge.
  * The control: some partners the player kept faith with refuse the second ask for their own reasons, so the claim is that at least one still accepts. Roles only.
  */
 const isRefusal = (r: DealView | DealRefusal | null): r is DealRefusal => !!r && (r as DealRefusal).refused === true;
-const SEED = 4;
+const SEED = 10;
 const req = (npc: string, kind: MakeDealReq["kind"]): MakeDealReq => ({ with: npc, kind, terms: "we look out for each other" });
 
 function chain(seed: number, beliefs = true) {
