@@ -47,7 +47,7 @@ def test_true_empty_live_game_turn_emits_producer_line_and_retry_affordance():
     final, chunk, retry, _fr = agent_loop._empty_response_fallback("", "", [], game_mode=True)
     # In-character recovery — NOT the bare operator dead-end.
     assert final == agent_loop._EMPTY_PRODUCER_LINE
-    assert "say that again" in final.lower()
+    assert "send your move again" in final.lower()
     assert "switch to a different model" not in final.lower()
     assert chunk is not None
     body = _frame(chunk)

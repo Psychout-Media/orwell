@@ -47,8 +47,8 @@ def test_blank_model_turn_on_a_readable_board_states_the_board():
 
 
 def test_blank_fallback_keeps_the_old_lines_when_there_is_nothing_to_state():
-    assert "hangs for a beat" in agent_loop._blank_turn_fallback_for_board(None, upstream_failed=False)
-    assert "hangs for a beat" in agent_loop._blank_turn_fallback_for_board({}, upstream_failed=False)
+    assert "did not come through" in agent_loop._blank_turn_fallback_for_board(None, upstream_failed=False)
+    assert "did not come through" in agent_loop._blank_turn_fallback_for_board({}, upstream_failed=False)
     # an upstream failure is never masked by a board statement
     up = agent_loop._blank_turn_fallback_for_board({"phase": "eviction", "vetoHolderName": "Role V"}, upstream_failed=True)
     assert "Role V" not in up and "technical interlude" in up

@@ -5,7 +5,7 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 import type { BeliefClaim } from "../../src/engine/beliefStore";
 
-/** ORW-594 (Fable T2-13) + ORW-613: vote talk steers, vote lies can be caught by counting, and the player hears how people voted. Roles only: voters (v1..v5), the evictee (e), the survivor (s), a listener (h). */
+/** ORW-594 (Fable T2-13) + ORW-613: vote talk steers, vote lies can be caught by counting, and the player hears how people voted. UNIT checks (ORW-810: the played-season checks are in tests/realpath/voteTalkSteers.test.ts). Roles only: voters (v1..v5), the evictee (e), the survivor (s), a listener (h). */
 const keepClaim = (speaker: string, listener = "h") => ({ id: `c-${speaker}`, speaker, listener, kind: "voted-to-keep", subject: speaker, object: "e" });
 
 describe("catch by counting (caughtLies.ts)", () => {
@@ -36,7 +36,11 @@ describe("vote talk reaches the player and earns credit (voteTalk.ts)", () => {
   });
 });
 
-describe("in the live adapter", () => {
+describe("in the live adapter (unit: the vote record, bonds and tellings are set by hand)", () => {
+  // ORW-810: the player being told, the keep credit and a unanimous count catching a credited keep are proven in a played season (tests/realpath/voteTalkSteers.test.ts). These two catches
+  // were not reached in seven seasons played to the crown (seeds 3, 7, 11, 13, 17, 23, 29), so they stay hand-set here.
+  it.todo("real path: a listener told by more believed voters that they kept the evictee than the count has keep votes catches the excess (counting) - blocked: not reached in seven played seasons (ORW-594)");
+  it.todo("real path: a keep claim told after the count is public, and ruled out by it, is caught at once - blocked: not reached in seven played seasons (ORW-594, 0154)");
   type Seam = {
     live: { playedGame?: boolean; week: number; claims?: { seq: number; items: Array<{ id: string; listener: string; speaker: string; kind: string }> }; beliefs?: Record<string, BeliefClaim[]>; voteRecord?: Array<{ week: number; evictee: string; voteOf: Record<string, string> }> };
     rel: { edge(a: string, b: string): { trust: number; affinity: number } };
@@ -68,34 +72,5 @@ describe("in the live adapter", () => {
     const liar = voters[1]!;
     s.tellClaim({ kind: "voted-to-keep", speaker: liar, listener: h, subject: liar, object: evictee, isTrue: false, intent: "mislead" });
     expect((s.live.beliefs?.[h] ?? []).some((b) => b.kind === "lied-to-me" && b.subject === liar)).toBe(true);
-  });
-  it("through the real vote talk: the player is told in some houses (a scene they were in), and a believed keep's credit is taken back when the lie is caught", () => {
-    let toPlayer = 0, credited = 0, reversed = 0;
-    for (let seed = 1; seed <= 40; seed++) {
-      const sb = new GameSessionRegistry().sandboxFor(`votetalk-live-${seed}`);
-      sb.session.createCharacter({ playerName: "The Player", seed });
-      const s = sb.session as unknown as Seam & { talkAboutTheVote(): Array<{ id: string; listener: string; speaker: string; object?: string }>; catchLie(p: { holder: string; liar: string; claimId: string; confidence: number }): void; events?: unknown };
-      s.live.playedGame = true;
-      const npcs = sb.session.livingIds().filter((id) => id !== PLAYER);
-      const [e, sv] = [npcs[0]!, npcs[1]!];
-      const voters = npcs.slice(2, 9);
-      for (const v of voters) for (const n of [e, sv]) s.rel.edge(n, v).affinity = 0.3;
-      for (const h of npcs) { s.rel.edge(h, e).affinity = 0.9; } // the house liked the evictee: telling them "I kept them" earns credit
-      s.rel.edge(PLAYER, e).affinity = 0.9;
-      s.live.voteRecord = [{ week: s.live.week, evictee: e, voteOf: Object.fromEntries(voters.map((v, i) => [v, i % 3 === 0 ? sv : e])) }];
-      const told = s.talkAboutTheVote();
-      toPlayer += told.filter((c) => c.listener === PLAYER).length;
-      for (const c of told.filter((x) => x.listener !== PLAYER)) {
-        const b = (s.live.beliefs?.[c.listener] ?? []).find((x) => x.id.endsWith(`|${c.id}`));
-        if (!b?.impact?.trust) continue;
-        credited++;
-        const withCredit = s.rel.edge(c.listener, c.speaker).trust;
-        s.catchLie({ holder: c.listener, liar: c.speaker, claimId: c.id, confidence: 0.6 });
-        if (s.rel.edge(c.listener, c.speaker).trust < withCredit) reversed++;
-      }
-    }
-    expect(toPlayer).toBeGreaterThan(0);
-    expect(credited).toBeGreaterThan(0);
-    expect(reversed).toBe(credited);
   });
 });
