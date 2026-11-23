@@ -328,7 +328,7 @@ import { familyForLabel } from "../../domain/styleFamilies";
 import { traitContradictions, repairHeightBuild } from "../../domain/traitConsistency";
 import { PLAYER } from "../../domain/ids";
 import { pairBondMult } from "../../engine/homophily";
-import { bumpTenure, sharedTopRoom, territoryNudge } from "../../engine/territory";
+import { bumpTenure, sharedTopRoom, territoryNudge, describeTerritory } from "../../engine/territory";
 import { isPitchLikeTalk, foldPlayerTalk, playerPitchFrom, deriveStatus, advanceStatus, vacuumSplit, courtPull, thirdPersonImpact, HOH_COURT, type StatusRecord } from "../../engine/hohCourt";
 import type { EntityId } from "../../domain/ids";
 import { EngineRefusal, StaleBeatError } from "../../domain/errors";
@@ -405,7 +405,7 @@ import { isMateriallyDistorted } from "../../engine/beliefReliability";
 import { heardConfidence, isHeardNature, isMisheard, tellerReliability, type HeardNature } from "../../engine/heardAboutMe";
 import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engine/houseSpeech";
 import { sameMoment } from "../../engine/claimMoment";
-import { COMING_CLEAN, confessable, confessionTrustDrop, loopInTrustGain, catchRisk, confessChance, cleanActDone, otherVersionNear } from "../../engine/comingClean";
+import { COMING_CLEAN, confessable, confessionTrustDrop, loopInTrustGain, catchRisk, confessChance, cleanActDone, otherVersionNear, buildComingCleanRetro } from "../../engine/comingClean";
 import { CAUGHT_LIE, caughtLieTrustDrop, contradicts, overclaimedKeeps, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
 import { claimProblem, liesBy, claimsHeardBy, tellClaim, labelOfNature, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
 import { answerFold, decideAsk, namedSources, parseSourceDodge, readAnswer, trueSourceOf, type AnswerRead } from "../../engine/sourceAsk";
@@ -5438,12 +5438,19 @@ export class GameSessionAdapter implements GameSession {
     const events = this.record?.events() ?? [];
     const maxWeek = (s.weekDigests ?? []).reduce((m, d) => Math.max(m, d.week), 1);
     const finale = s.finale;
+    // ORW-747 (0200 deferred: alliances in the edit): the season's alliances as names and weeks (the same rows the group-life retrospective reads; an unstamped end week is left out, never guessed).
+    const alliances = this.allianceRetroRows().map(({ row, endStamped }) => ({
+      name: row.name ?? "", members: row.members, youWere: row.youWere,
+      ...(row.formedWeek !== undefined ? { formedWeek: row.formedWeek } : {}),
+      ...(endStamped && row.endedWeek !== undefined ? { endedWeek: row.endedWeek, ...(row.endedHow ? { endedHow: row.endedHow } : {}) } : !row.endedWeek ? {} : { ...(row.endedHow ? { endedHow: row.endedHow } : {}) }),
+    }));
     return buildYourEdit({
       player: PLAYER, cast: this.house.npcs.map((n) => n.id).sort(), nameOf: (id) => this.nameOf(id),
       digests: s.weekDigests ?? [], voteRecord: s.voteRecord ?? [], calledPawn: (w, e) => this.calledPawn(w, e),
       events: events.map((e) => ({ type: e.type, initiator: e.initiator, witnessSet: e.witnessSet, hidden: e.hidden, content: e.content, ...(e.houseLife?.seenBy ? { seenBy: e.houseLife.seenBy } : {}) })),
       eventWeeks: this.logWeeks(events, maxWeek),
       deals: this.deals.all, winner: s.winner ?? null,
+      ...(alliances.length ? { alliances } : {}),
       ...(this.editMomentsEnabled ? { more: { meetings: (s.houseMeetings ?? []).map((m) => ({ week: m.week, caller: m.caller, accused: m.accused, attendees: m.attendees.length })) } } : {}),
       ...(finale?.votes ? { jury: { finalists: finale.finalists, votes: Object.values(finale.votes).map((votedFor) => ({ votedFor })) } } : {}),
     });
@@ -5516,13 +5523,14 @@ export class GameSessionAdapter implements GameSession {
     return buildYourStories({ finished: true, playerFinalist: finalists.has(PLAYER), nameOf: (id) => this.nameOf(id), winner: s.winner ?? null, guests });
   }
   /** ORW-566 part d (0183): every alliance and close-pair habit the season held, hidden ones included (the retrospective is the sanctioned unsealing; the caller holds the crown gate). Names only. */
-  private buildGroupLifeView(): GroupLifeView | undefined {
+  /** ORW-747: every alliance the season formed, as retrospective rows (names only; hidden ones included: the caller holds the crown gate). Shared by the group-life view (0183) and the edit (0200). `endStamped` = the end week was stamped at the night's settle (not the season-end fallback). */
+  private allianceRetroRows(): Array<{ row: GroupLifeRow; endStamped: boolean }> {
     const s = this.live;
-    if (!this.groupIdentityEnabled || !s?.finished || s.playedGame !== true || !this.house) return undefined;
+    if (!s) return [];
     const store = s.groupIdentity ?? {};
     const scrub = (t: string | undefined): string | undefined => (t ? this.retroScrub(t) : undefined);
     const phrase: Record<string, string> = { betrayal: "a betrayal broke it", cohesion: "it faded", "evicted-out": "evictions emptied it", evicted: "evictions emptied it", "too-few-members": "too few were left", crack: "it cracked apart" };
-    const rows: GroupLifeRow[] = [];
+    const out: Array<{ row: GroupLifeRow; endStamped: boolean }> = [];
     const history = this.alliances.history();
     for (const id of [...new Set(history.map((h) => h.allianceId))]) {
       const mine = history.filter((h) => h.allianceId === id);
@@ -5540,8 +5548,16 @@ export class GameSessionAdapter implements GameSession {
         ...(w?.ritual ? { ritual: scrub(w.ritual)! } : {}), ...(w?.signal ? { signal: scrub(w.signal)! } : {}), ...(w?.insideJoke ? { insideJoke: scrub(w.insideJoke)! } : {}),
         ...(e?.week !== undefined ? { formedWeek: e.week } : {}), ...(!live ? { endedWeek: e?.endedWeek ?? s.week, endedHow: phrase[end?.why ?? ""] ?? "it came to an end" } : {}),
       };
-      rows.push(row);
+      out.push({ row, endStamped: !live && e?.endedWeek !== undefined });
     }
+    return out;
+  }
+  private buildGroupLifeView(): GroupLifeView | undefined {
+    const s = this.live;
+    if (!this.groupIdentityEnabled || !s?.finished || s.playedGame !== true || !this.house) return undefined;
+    const store = s.groupIdentity ?? {};
+    const scrub = (t: string | undefined): string | undefined => (t ? this.retroScrub(t) : undefined);
+    const rows: GroupLifeRow[] = this.allianceRetroRows().map((x) => x.row);
     for (const [id, e] of Object.entries(store)) {
       if (e.kind !== "debrief" || !e.spot) continue;
       const ids = id.split("|");
@@ -5583,7 +5599,9 @@ export class GameSessionAdapter implements GameSession {
     const socialMap = this.socialMapRetro(); // 0184 part 2c: after the crown only
     const reunion = this.buildReunionView(); // 0211 / ORW-649: after the crown only (the same gate); read-only facts
     const yourStories = this.buildYourStoriesView(); // 0211 / ORW-648: after the crown only (the same gate); read-only facts
-    return { ...(reunion ? { reunion } : {}), ...(yourStories ? { yourStories } : {}), ...(socialMap ? { socialMap } : {}), ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(decisionReveal ? { decisionReveal } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}) };
+    const crowds = this.territoryOn() ? describeTerritory(this.live.tenure) : []; // ORW-747 (0176 part 2): crowd words only, same crown gate; a played game only
+    const comingClean = this.comingCleanLive ? buildComingCleanRetro(this.live.claims?.items ?? [], this.live.cleanActs ?? [], (id) => this.nameOf(id), (c) => claimText(c.kind, this.nameOf(c.subject), c.object ? this.nameOf(c.object) : undefined, c.label)) : undefined; // ORW-747 (0203): same gate; read-only
+    return { ...(reunion ? { reunion } : {}), ...(yourStories ? { yourStories } : {}), ...(socialMap ? { socialMap } : {}), ...(americasFavorite ? { americasFavorite } : {}), ...(yourEdit ? { yourEdit } : {}), ...(groupLife ? { groupLife } : {}), ...(decisionReveal ? { decisionReveal } : {}), ...(dealPlans ? { dealPlans } : {}), ...this.buildVaultUnseal(), ...(houseYouNeverSaw.length ? { houseYouNeverSaw } : {}), ...(rumorMill ? { rumorMill } : {}), ...(houseCultureWords.length ? { houseCulture: { leans: houseCultureWords } } : {}), ...(crowds.length ? { territory: { crowds } } : {}), ...(comingClean ? { comingClean } : {}) };
   }
 
   /** ORW-320: every houseguest's real story, rendered from the stored agendas + real-vs-stated reasons. ONLY callable behind the `finished` gate (the two callers check it). */
