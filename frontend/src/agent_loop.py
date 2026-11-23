@@ -5440,6 +5440,94 @@ async def _auto_answer_deal_offer(last_user, narration, owner, endpoint_url, mod
         return False
 
 
+# ── ORW-780 — the ALLIANCE-yes under-call belt (the _auto_answer_deal_offer / _auto_record_deal sibling) ──
+#
+# The player says yes aloud to an alliance (an NPC's pitch, or a group they name together) and the narrator voices
+# the handshake but never calls joinAlliance / formAlliance, so the engine holds no membership: the player is in
+# none of the house's alliances and no betrayal / favor / jury fold ever applies to it. (The ORW-732 pattern for
+# alliances.) The belt error-corrects ONLY that omission: one constrained extraction names WHICH open pitch the
+# player accepted (by id, from the engine's own `alliancePitches`) or WHICH houseguests the player and the group
+# agreed to name an alliance with; the ENGINE then adjudicates (bond-gated consent of the houseguests) and may
+# refuse - the belt never overrules a refusal and never invents a pitch, a member or a roster id. Model-driven
+# joinAlliance / formAlliance always wins (the per-turn counter is set on that call). Fail-closed.
+_ALLIANCE_SIGNAL_RE = re.compile(r"\b(?:alliance|alliances|allies|ally|bloc|crew|squad|final[\s-]?(?:three|four|five|3|4|5))\b", re.I)
+
+
+async def _auto_alliance(narration, last_user, house, endpoint_url, model, headers, owner, applied_out=None) -> bool:
+    """Record an alliance the player agreed to aloud but the model never joined/formed (ORW-780). True only when the
+    engine APPLIED a membership (success-gated telemetry); a refusal, an ambiguous scene or any hiccup is a no-op.
+    `applied_out` receives one entry per applied membership."""
+    try:
+        from src.llm_core import llm_call_async
+        from src import orwell_engine as _oe
+        roster = {h.get("id"): h.get("name") for h in house if h.get("id") and h.get("name")}
+        if not roster:
+            return False
+        state = await _oe.get_game_state(user=owner)
+        raw_pitches = (state or {}).get("alliancePitches") if isinstance(state, dict) else None
+        pitches = {p.get("id"): p for p in (raw_pitches or []) if isinstance(p, dict) and p.get("id")}
+        if not pitches and not _ALLIANCE_SIGNAL_RE.search(last_user or ""):
+            return False  # no open pitch to accept and the player did not speak of an alliance: nothing to extract
+        pitch_lines = "\n".join(
+            f'{pid} = "{p.get("name")}" (members: {", ".join(str(m.get("name")) for m in (p.get("members") or []) if isinstance(m, dict))})'
+            for pid, p in pitches.items()) or "(none)"
+        roster_lines = "\n".join(f"{hid} = {name}" for hid, name in roster.items())
+        msgs = [
+            {"role": "system", "content":
+                _EXTRACTION_UNTRUSTED_FENCE +
+                "Decide whether the PLAYER just AGREED, in this Big Brother scene, to be in an ALLIANCE (a named or "
+                "agreed group of houseguests, more than a one-to-one deal). Reply IMMEDIATELY with ONLY a JSON object, "
+                "no prose, no code fence:\n"
+                '{"join":"<one id from OPEN PITCHES the player clearly accepted, or null>",'
+                '"form":{"name":"<the group name as spoken, or empty>","members":["<houseguest ids from the ROSTER>"]} or null}\n'
+                "join: ONLY when the player clearly said yes to THAT pitched alliance. form: ONLY when the player and "
+                "at least two houseguests explicitly agreed to be an alliance together (list the houseguests, never "
+                "the player). A maybe, a question, a refusal, a one-sided pitch, or a plain two-person deal => both null. "
+                "NEVER invent an id not in the lists."},
+            {"role": "user", "content":
+                f"OPEN PITCHES (id = name):\n{pitch_lines}\n\nROSTER (id = name):\n{roster_lines}\n\n"
+                f"THE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\nWHAT HAPPENED:\n{(narration or '')[:2500]}\n\nJSON:"},
+        ]
+        raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
+                                   temperature=0.1, max_tokens=1200, timeout=45,
+                                   call_class="utility-extraction", user=_meter_user(owner)) or ""
+        obj = _last_json_object_with_key(raw, "join")
+        if obj is None:
+            obj = _last_json_object_with_key(raw, "form")
+        if not isinstance(obj, dict):
+            return False
+        from routes import chat_helpers as _ch_idem  # noqa: F401 (parity with the sibling belts' import seam)
+        _any = False
+        join_id = obj.get("join")
+        if isinstance(join_id, str) and join_id in pitches:
+            res = await _backfill_with_cas(owner, _oe.join_alliance, join_id, user=owner, defer_fold=True)
+            if isinstance(res, dict) and res.get("id") and not res.get("error"):
+                logger.info(f"[orwell] auto-joined alliance {join_id} user={owner}")
+                if isinstance(applied_out, list):
+                    applied_out.append(join_id)
+                _any = True
+            else:
+                logger.info(f"[orwell] auto-join alliance {join_id}: the engine declined - nothing recorded user={owner}")
+        form = obj.get("form")
+        if not _any and isinstance(form, dict):
+            members = [m for m in (form.get("members") or []) if isinstance(m, str) and m in roster]
+            members = list(dict.fromkeys(members))[:7]
+            if len(members) >= 2:
+                name = form.get("name") if isinstance(form.get("name"), str) else ""
+                res = await _backfill_with_cas(owner, _oe.form_alliance, name.strip()[:60], members, user=owner, defer_fold=True)
+                if isinstance(res, dict) and res.get("id") and not res.get("error"):
+                    logger.info(f"[orwell] auto-formed alliance with {len(members)} houseguests user={owner}")
+                    if isinstance(applied_out, list):
+                        applied_out.append(res.get("id"))
+                    _any = True
+                else:
+                    logger.info(f"[orwell] auto-form alliance: the engine declined - nothing recorded user={owner}")
+        return _any
+    except Exception as _e:
+        logger.warning(f"[orwell] auto-alliance failed: {_e}")
+        return False
+
+
 # ── 0075 — the trust-gated CONFIDE under-call belt (the _auto_record_scene / _auto_record_deal sibling) ──
 #
 # The narration model reliably UNDER-calls `confide`: it voices a houseguest opening up — or the player
@@ -9102,6 +9190,7 @@ async def _stream_agent_loop_impl(
     _turn_confide_nudges = 0  # 0075 confide belt: at most one auto-confide per finishing turn
     _turn_expose_nudges = 0  # 0093 expose belt: at most one auto-exposeSecret per finishing turn
     _turn_trade_nudges = 0  # 0099 trade belt: at most one auto-tradeSecret per finishing turn
+    _turn_alliance_nudges = 0  # ORW-780 alliance belt: at most one auto join/form per finishing turn
     _turn_move_nudges = 0  # L21/L24 auto-move belt: at most one auto-move per finishing turn
     _turn_npc_move_nudges = 0  # ADR 0009 NPC auto-move belt: at most one per finishing turn
     _turn_approach_nudges = 0  # 0036/0049: at most one NPC-approach nudge per finishing turn
@@ -10694,6 +10783,11 @@ async def _stream_agent_loop_impl(
                                 and bool(_EXPOSE_SIGNAL_RE.search(_last_user_for_confide)))
                 _want_trade = (_turn_trade_nudges < 1
                                and bool(_TRADE_SIGNAL_RE.search(_last_user_for_confide)))
+                # ORW-780: an alliance the player agreed to aloud but the model never joined/formed. The pre-filter is broad
+                # (an alliance word, or any answer-shaped line, since a yes to a pitch names no alliance); the helper reads
+                # the engine's own open pitches and returns before any model call when there is nothing to extract.
+                _want_alliance = (_turn_alliance_nudges < 1
+                                  and bool(_ALLIANCE_SIGNAL_RE.search(_last_user_for_confide) or _OFFER_ANSWER_RE.search(_last_user_for_confide)))
                 # L21/L24 auto-move belt: the player walked somewhere this turn but the model never
                 # called moveTo, so the engine still has them in the OLD room and next turn's
                 # whereabouts will snap back. Gated on a cheap movement-language pre-filter over the
@@ -10751,7 +10845,7 @@ async def _stream_agent_loop_impl(
                 # state, not a tool gap), so we always need the game state to know if the season is
                 # over — fetch it whenever any nudge MIGHT fire.
                 _want_reapproach = _turn_reapproach_nudges < _MAX_REAPPROACH_NUDGES_PER_TURN
-                if _want_confide or _want_expose or _want_trade or _want_advance or _want_record or _want_deal or _want_move or _want_npc_move or _want_approach or _want_reapproach:
+                if _want_confide or _want_expose or _want_trade or _want_advance or _want_record or _want_deal or _want_alliance or _want_move or _want_npc_move or _want_approach or _want_reapproach:
                     _phase, _house, _moment = None, [], None
                     _beat_key_at_read = None  # F7: the beat we OBSERVED stalled, to detect a race before forcing
                     # L-F3 (#1742): the open player pending's identity AT THIS READ, if any — used
@@ -10998,7 +11092,7 @@ async def _stream_agent_loop_impl(
                         carries the beat counter the previous one left, and a later belt reads what an earlier
                         one banked."""
                         nonlocal _turn_deal_nudges, _turn_record_nudges, _turn_confide_nudges, _turn_offer_nudges
-                        nonlocal _turn_expose_nudges, _turn_trade_nudges
+                        nonlocal _turn_expose_nudges, _turn_trade_nudges, _turn_alliance_nudges
                         _touched = _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])
                         # 0039: a deal the model narrated but never made — back-fill makeDeal so it binds
                         # and shows on the deals surface. Runs first; a struck deal already banks the
@@ -11060,6 +11154,17 @@ async def _stream_agent_loop_impl(
                                                         _house, _belt_endpoint, _belt_model, _belt_headers, owner):
                                 # gap #3 telemetry — only a tradeSecret the belt actually FIRED counts
                                 _note_belt(owner, "auto-trade-secret")
+                        # ORW-780: the player said yes to an alliance aloud but the model never called joinAlliance /
+                        # formAlliance. The ENGINE adjudicates (the houseguests' own consent is bond-gated); only an
+                        # APPLIED membership counts toward telemetry.
+                        if _want_alliance:
+                            _turn_alliance_nudges += 1  # once per turn
+                            _applied_alliances: list = []
+                            if await _auto_alliance(_turn_narration, _last_user_for_confide,
+                                                    _house, _belt_endpoint, _belt_model, _belt_headers, owner,
+                                                    applied_out=_applied_alliances):
+                                for _ in (_applied_alliances or [None]):
+                                    _note_belt(owner, "auto-alliance")
                         if (_want_record and _touched and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN
                                 and not _progress_only_board_advanced(
                                     owner, _extract_last_user_message(messages), _ledger_beat_seq_before)):
@@ -12580,6 +12685,8 @@ async def _stream_agent_loop_impl(
                 _turn_expose_nudges = 1  # model called exposeSecret itself — don't also back-fill one (0093)
             if _is_live_game and block.tool_type == "tradeSecret":
                 _turn_trade_nudges = 1  # model called tradeSecret itself — don't also back-fill one (0099)
+            if _is_live_game and block.tool_type in ("joinAlliance", "formAlliance"):
+                _turn_alliance_nudges = 1  # model joined/formed an alliance itself - don't also back-fill one (ORW-780)
 
             formatted = format_tool_result(desc, result)
             # LIVE-4 (#541): an advanceGame that returned an eviction-STAGE beat gets a focused steer
