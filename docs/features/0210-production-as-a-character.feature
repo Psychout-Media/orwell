@@ -1,4 +1,4 @@
-# spec-only: 0210 (Theme C, ORW-666) - the foundation (src/engine/production.ts) is built and unit-tested; the slices wire these scenarios (A and B).  All three slices are wired.
+# spec-only: 0210 (ORW-666 is Done) umbrella spec; its scenarios run as the slices: superseded by 0210-host-on-eviction-night.feature, 0210-diary-room-calls.feature, 0210-producer-pushback.feature
 # Feature 0210 - production as a character (Ryne approved all three slices 2026-11-18). Design: 0210-production-as-a-character.md. Roles only.
 
 Feature: Production as a character
