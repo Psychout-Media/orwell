@@ -3223,6 +3223,17 @@ def _validate_statement(raw, scene_ids, roster_ids) -> dict | None:
     return out
 
 
+def _player_move_is_only_questions(text) -> bool:
+    """ORW-781: True when every sentence of the player's move ends in a question mark. Such a move asks; it tells nobody anything, so it can never be logged as a claim (or a coming-clean) the player made.
+    A move with any declarative sentence is not matched, so a real statement still counts. Structure only (terminal punctuation), no word list."""
+    import re as _re
+    s = (text or "").strip()
+    if not s:
+        return False
+    parts = [p.strip() for p in _re.findall(r"[^.!?]*[.!?]+|[^.!?]+$", s) if p.strip()]
+    return bool(parts) and all(p.rstrip("\"'”’) ").endswith("?") for p in parts)
+
+
 def _validate_heard_about_me(raw, scene_ids) -> dict | None:
     """ORW-104 (B24): validate the extraction's optional heard-about-me proposal - an NPC in the scene TOLD the others something about the PLAYER. Only the closed `nature` and WHO told (`by`,
     which MUST be an NPC id actually in the scene; the player telling is not this field) come from the model; anything else is dropped, never coerced. No number or free text crosses: the
@@ -4472,6 +4483,8 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
         actor = _validate_actor(obj.get("actor"), ids)  # ORW-609: who acted (a houseguest in the scene), else the player
         promise = _validate_promise(obj.get("promise"), ids, valid)
         statement = _validate_statement(obj.get("statement"), ids, valid)
+        if statement and _player_move_is_only_questions(last_user):
+            statement = None  # ORW-781: a question is not something the player told anyone; the scene still records, no claim is logged
         # 0065 Part A: attach the CAS token + refresh last-seen from the response. A single stale 409
         # (the board moved under us mid-turn) is reconciled-and-RETRIED (#591); a SECOND consecutive one
         # is DEFERRED (CON-11, `defer_fold=True`) rather than dropped — this is frequently the scene's

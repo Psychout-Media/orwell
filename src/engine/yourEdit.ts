@@ -81,10 +81,16 @@ export interface EditEpisode {
   crown?: string;
   /** The top moments by edit-worthiness (the same score the audience reads). */
   moments: EditFact[];
+  /** ORW-747 (0200 deferred: alliances in the edit): the alliances that formed or ended this week, hidden ones included (the post-crown unsealing). Facts only: the group's name, who, and how it ended. Absent when none. */
+  alliances?: EditAllianceBeat[];
   /** The composed offline floor of the title (a live narrator replaces it from the facts). */
   title: string;
 }
 export type EditBand = "hero" | "villain";
+/** ORW-747: an alliance as the edit reads it (names only; the same rows the 0183 group-life retrospective reads). Weeks are absent when the season did not stamp them. */
+export interface EditAlliance { name: string; members: readonly string[]; youWere: boolean; formedWeek?: number; endedWeek?: number; endedHow?: string }
+export interface EditAllianceBeat { name: string; members: string[]; what: "formed" | "ended"; how?: string }
+export interface YourAlliance { name: string; with: string[]; formedWeek?: number; endedWeek?: number; endedHow?: string }
 export interface EditedHouseguest { name: string; edit: EditBand; because: EditFact[]; line: string }
 export interface YourEditView {
   episodes: EditEpisode[];
@@ -98,6 +104,8 @@ export interface YourEditView {
     jury?: { votesForYou: number; jurors: number };
     because: EditFact[];
     line: string;
+    /** ORW-747: the alliances the player was in, as facts (the others' names, the weeks, how it ended). Absent when none. */
+    alliances?: YourAlliance[];
   };
 }
 
@@ -116,6 +124,8 @@ export interface YourEditInput {
   /** ORW-691 (`ORWELL_EDIT_MOMENTS`): when set, the cut also reads replacements, house meetings and schemes (all three were weighted but never emitted). Absent = the old cut, byte-identical. */
   more?: { meetings: readonly EditMeeting[] };
   winner: EntityId | null;
+  /** ORW-747: the season's alliances (absent = the edit without them, byte-identical). */
+  alliances?: readonly EditAlliance[];
   jury?: { finalists: readonly EntityId[]; votes: ReadonlyArray<{ votedFor: EntityId }> };
 }
 
@@ -200,7 +210,8 @@ export function buildYourEdit(inp: YourEditInput): YourEditView {
     const ms = (weekOf.get(d.week) ?? []).map((m, i) => ({ w: editWorthiness(m), i, m })).sort(rank).slice(0, YOUR_EDIT.episodeMoments);
     const close = (weekOf.get(d.week) ?? []).some((m) => (m.kind === "eviction" || m.kind === "blindside") && (m.twist ?? 0) >= YOUR_EDIT.closeAt);
     const moments = ms.map((x) => factOf(x.m));
-    episodes.push({ week: d.week, ...(d.hoh ? { hoh: name(d.hoh) } : {}), evictee: name(d.evictee), ...(close ? { close } : {}), moments, title: episodeTitle(d.week, moments[0], close) });
+    const alliances = allianceBeats(inp.alliances, d.week);
+    episodes.push({ week: d.week, ...(d.hoh ? { hoh: name(d.hoh) } : {}), evictee: name(d.evictee), ...(close ? { close } : {}), moments, ...(alliances.length ? { alliances } : {}), title: episodeTitle(d.week, moments[0], close) });
   }
   if (inp.winner) {
     episodes.push({ week: maxWeek + 1, crown: name(inp.winner), moments: [], title: `The Crown: ${name(inp.winner)}` });
@@ -210,6 +221,11 @@ export function buildYourEdit(inp: YourEditInput): YourEditView {
   const youTop = top(inp.player, 3);
   const count = (kind: EditMomentKind, as: "actor" | "subject"): number => all.filter((m) => m.kind === kind && m[as] === inp.player).length;
   const betrayalsDealt = count("betrayal", "actor") + dealsBroken;
+  const me = name(inp.player);
+  const yours: YourAlliance[] = (inp.alliances ?? []).filter((a) => a.youWere).map((a) => ({
+    name: a.name, with: a.members.filter((m) => m !== me),
+    ...(a.formedWeek !== undefined ? { formedWeek: a.formedWeek } : {}), ...(a.endedWeek !== undefined ? { endedWeek: a.endedWeek } : {}), ...(a.endedHow ? { endedHow: a.endedHow } : {}),
+  }));
   const jury = inp.jury ? { votesForYou: inp.jury.votes.filter((v) => v.votedFor === inp.player).length, jurors: inp.jury.votes.length } : undefined;
   return {
     episodes,
@@ -222,8 +238,18 @@ export function buildYourEdit(inp: YourEditInput): YourEditView {
       ...(jury ? { jury } : {}),
       because: youTop,
       line: youLine(youBand, dealsBroken, betrayalsDealt),
+      ...(yours.length ? { alliances: yours } : {}),
     },
   };
+}
+
+/** ORW-747: the alliances that formed or ended in one week, formed first, each group in name order (deterministic). */
+function allianceBeats(all: readonly EditAlliance[] | undefined, week: number): EditAllianceBeat[] {
+  if (!all?.length) return [];
+  const byName = (a: EditAlliance, b: EditAlliance): number => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  const formed = all.filter((a) => a.formedWeek === week).sort(byName).map((a): EditAllianceBeat => ({ name: a.name, members: [...a.members], what: "formed" }));
+  const ended = all.filter((a) => a.endedWeek === week).sort(byName).map((a): EditAllianceBeat => ({ name: a.name, members: [...a.members], what: "ended", ...(a.endedHow ? { how: a.endedHow } : {}) }));
+  return [...formed, ...ended];
 }
 
 /** The floor title: composed from the week, the top moment's kind and its names (the names carry the variety; the live narrator replaces the whole line). */

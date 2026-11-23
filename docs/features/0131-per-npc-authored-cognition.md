@@ -1,6 +1,8 @@
 # 0131 — Per-NPC authored cognition (scoped, engine-adjudicated; "fan out cognition, funnel narration")
 
-> **Status:** ✅ **Specced** (2026-07-21); awaiting Theme-A (faithful narration seam) landed/in flight
+> **Status:** ❌ **Superseded by the NPC minds design (spec 0145 and follow-ons)** — retired 2026-11-23 (ORW-747), never built. The per-NPC mind this proposed is covered instead by ORW-253 ("NPC Minds Design Theme 1", approved 2026-11-12): 0145 lasting agendas, 0146 the model's words, 0147 house life, goal moods and memory about others, then the claims and beliefs work (0149-0159). Kept as a record of the design path; ADR 0022 still holds. Do not build from this file.
+>
+> *Original status (2026-07-21):* Specced; awaiting Theme-A (faithful narration seam) landed/in flight
 > before build begins. Enhancement to Orwell's engine modeling: richer per-NPC intent/memory
 > authored via cheap scoped calls, but kept inside the engine's closed-set authority (model proposes,
 > engine disposes). Three sub-designs — S1 (salience-gated intent), S2 (subjective memory),
