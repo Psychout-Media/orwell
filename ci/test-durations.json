@@ -139,7 +139,7 @@
  "tests/unit/clamp01NaNGuard.test.ts": 13,
  "tests/unit/clockBringsDueEvents.test.ts": 337,
  "tests/unit/clockGrounding.test.ts": 167,
- "tests/unit/clockPerMessageLoop.test.ts": 1300,
+ "tests/realpath/clockPerMessageLoop.test.ts": 1300,
  "tests/unit/coPresenceReconcile.test.ts": 13,
  "tests/unit/commitBeforeVoice.test.ts": 233,
  "tests/unit/commitEchoesBeatSeq.test.ts": 436,
