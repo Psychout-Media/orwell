@@ -8030,10 +8030,11 @@ export class GameSessionAdapter implements GameSession {
     if (dest === null) return finish({ outcome: "occupied" });
     const theirRoom = this.presence.get(npc)!;
     this.notePairDeparture(priv ? [here, theirRoom] : [theirRoom], npc, dest);
+    // ORW-836: the hold is written BEFORE the walk. The walk persists (the commit funnel runs the movement tick), and a hold written after it meant the tick seated others into the room the two were walking into.
+    live.talkHold = { npc, room: dest, until: now + TALK_ALONE.holdHours, private: priv };
     if (priv && dest !== here) this.movePlayer(dest); // the player walks there too (one move, witnessed along the way like any other)
     if (theirRoom !== dest) { this.presence.set(npc, dest); this.presenceBase?.set(npc, dest); this.presenceTenure?.set(npc, 0); this.presenceZone?.delete(npc); }
     this.sendOccupancy = null; this.sendAwake = null; // they are here now: the scene that follows is theirs, not the roster the player spoke to
-    live.talkHold = { npc, room: dest, until: now + TALK_ALONE.holdHours, private: priv };
     if (live.talkAsk?.npc === npc) delete live.talkAsk;
     this.noteConversationPartners([npc]);
     this.persist();
