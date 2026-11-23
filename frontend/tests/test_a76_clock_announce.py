@@ -15,7 +15,7 @@ def _harness(polls):
     b = SRC.index("  function render(st) {")
     chunk = SRC[a:b]
     return (
-        "const PHASE_LABELS = {}; const phaseLabel = (p) => String(p || '');\n"
+        "const PHASE_LABELS = {}; const phaseLabel = (p) => String(p || ''); const headerPhase = (st) => st.phase;\n"
         "function flashRow() {}\n" + chunk + "\n"
         "const out = []; const a = { textContent: '' };\n"
         "const el = { querySelector: (q) => (q === '#os-announce' ? a : null) };\n"

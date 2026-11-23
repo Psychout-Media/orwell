@@ -7,6 +7,7 @@ import { FEATURE_FLAGS } from "../../src/featureFlags";
 import { discoverFlags, discoverFeatures, commentsByFlag, tagsOf } from "../support/whatFired/discover";
 import { firstDifference, restartPoints, restartVerdict } from "../support/whatFired/compare";
 import { buildSummary, diffSummaries, renderMarkdown, assertClean, GUARD_REFERENCE, LOOP_REPEATS, type Inputs } from "../support/whatFired/report";
+import { phaseTable } from "../support/whatFired/report";
 import { scrub, type SeasonRecord, type TraceRow } from "../support/whatFired/player";
 
 /** ORW-729: the what-fired tool's own machinery under CI (the nightly itself never runs here). */
@@ -112,6 +113,19 @@ describe("the mix by week", () => {
     const g = readFileSync(join(ROOT, "tests/uat/houseMixGuard.test.ts"), "utf8");
     const m = /REFERENCE = \{ bonding: ([\d.]+), strategy: ([\d.]+), gossip: ([\d.]+), conflict: ([\d.]+) \}/.exec(g)!;
     expect(GUARD_REFERENCE).toEqual({ bonding: +m[1]!, strategy: +m[2]!, gossip: +m[3]!, conflict: +m[4]! });
+  });
+});
+
+describe("the mix by phase", () => {
+  it("pools the played scenes per phase and marks each cell in or out of band", () => {
+    const s = buildSummary(inputs());
+    expect(s.mixByPhase.early.n).toBe(4); expect(s.mixPhaseBasis.early).toBe("house-after-player-left"); // too few player-in scenes in this tiny fixture expect(s.mixByPhase.mid.n).toBe(0);
+    const t = phaseTable({ early: { n: 100, bonding: 37, strategy: 28, gossip: 40, conflict: 6 }, mid: { n: 0, bonding: 0, strategy: 0, gossip: 0, conflict: 0 }, late: { n: 50, bonding: 10, strategy: 33, gossip: 29, conflict: 13 } });
+    expect(t).toContain("37.0 ok (32-42)"); expect(t).toContain("40.0 OUT (22-32)"); expect(t).toContain("10.0 OUT (20-30)"); expect(t).toContain("0.0 - (24-34)");
+  });
+  it("the rendered report carries the phase table and stays clean", () => {
+    const md = renderMarkdown(buildSummary(inputs()), diffSummaries(null, buildSummary(inputs())));
+    expect(md).toContain("| phase | scenes |"); expect(() => assertClean(md)).not.toThrow();
   });
 });
 
