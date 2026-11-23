@@ -1,6 +1,6 @@
 # 0148 — The player's nap (a chosen daytime fast-forward that eases sleep debt)
 
-**Status:** spec (2026-11-15). **Rulings:** Ryne, 2026-11-15 (quoted below). **Owner of the design:** BDD Auditor. **Build:** an overseer lane.
+**Status:** built (ORW-417, 2026-11-15; no nap in the early-morning band, ORW-451). Lever `nap`, flag `ORWELL_NAP` (default ON). Gates: `0148-player-nap.feature` (BDD, real runtime) and `tests/unit/playerNap.test.ts`. Spec written 2026-11-15. **Rulings:** Ryne, 2026-11-15 (quoted below). **Owner of the design:** BDD Auditor. **Build:** an overseer lane.
 
 ## Summary
 

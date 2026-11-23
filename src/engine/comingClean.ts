@@ -93,3 +93,27 @@ export function cleanActDone(acts: readonly CleanAct[], a: { kind: CleanAct["kin
 export function otherVersionNear(claims: readonly CleanClaim[], claim: CleanClaim, closeTo: (a: EntityId, b: EntityId) => number, bar: number): boolean {
   return claims.some((c) => c.id !== claim.id && c.speaker === claim.speaker && c.subject === claim.subject && c.listener !== claim.listener && closeTo(c.listener, claim.listener) >= bar);
 }
+
+/**
+ * ORW-747 - the coming-clean record for the post-crown retrospective: `versionsAbout` for every liar and subject where at least one of the liar's versions was
+ * confessed or looped in (the acts that make a story). Pure, deterministic (liar, then subject, then the claim log's order), names only through `nameOf`;
+ * `say` is the engine's own claim wording (the narrator words the scene from it). The caller holds the crown gate.
+ */
+export function buildComingCleanRetro<C extends CleanClaim & { week: number }>(claims: readonly C[], acts: readonly CleanAct[], nameOf: (id: EntityId) => string, say: (c: C) => string): { stories: Array<{ liar: string; about: string; versions: Array<{ to: string; said: string; true: boolean; week: number; confessedTo: string[]; loopedIn: string[] }> }> } | undefined {
+  const touched = new Set(acts.map((a) => a.claimId));
+  const pairs = new Map<string, { speaker: EntityId; subject: EntityId }>();
+  for (const c of claims) if (touched.has(c.id) && !c.isTrue) pairs.set(`${c.speaker}|${c.subject}`, { speaker: c.speaker, subject: c.subject });
+  const keys = [...pairs.keys()].sort();
+  if (!keys.length) return undefined;
+  const byId = new Map(claims.map((c) => [c.id, c]));
+  return {
+    stories: keys.map((k) => {
+      const { speaker, subject } = pairs.get(k)!;
+      const versions = versionsAbout(claims, speaker, subject, acts).map((v) => {
+        const c = byId.get(v.claim.id)!;
+        return { to: nameOf(c.listener), said: say(c), true: c.isTrue, week: c.week, confessedTo: v.confessedTo.map(nameOf), loopedIn: v.loopedIn.map(nameOf) };
+      });
+      return { liar: nameOf(speaker), about: nameOf(subject), versions };
+    }),
+  };
+}

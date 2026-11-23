@@ -8,7 +8,7 @@
 #   0. no internal address / host name / real /home path in a tracked file (ORW-426: the repository is public); every workflow and composite-action file parses as YAML (ORW-413: a colon in a step name made ci.yml unparseable and the PR got no checks)
 #   1. typecheck (tsc --noEmit)
 #   2. the engine guard tests: the CI wiring pins (gate logic, path filter, shard tables, flaky rule), the Vault-Wall dependency test, the
-#      BDD word-scan helpers and the player-projection ratchet
+#      BDD word-scan helpers, the player-projection ratchet and the real-path guard (ORW-758 A5: nothing in tests/realpath/ writes hidden state)
 #   3. the front-end guard tests (pytest): the F-3 window ratchet, no-new-bespoke-menu, the orphan-chrome ratchet, the shard/quarantine/skip guards,
 #      the CI filter test that proves the FE-reads-engine list is complete
 #   4. the Vault word scans that fail on a public string: the 0110 vote-deduction and 0023 consequence features under cucumber (the
@@ -46,7 +46,7 @@ run npx vitest run \
   tests/unit/ciGateLogic.test.ts tests/unit/ciPathFilter.test.ts tests/unit/ciReshardWiring.test.ts tests/unit/ciFlakyRuleWiring.test.ts \
   tests/unit/ciResolveBase.test.ts tests/unit/ciShardAssignment.test.ts tests/unit/ciQuarantineGuard.test.ts tests/unit/ciBddShard.test.ts \
   tests/unit/bddRelationshipLeakChecks.test.ts tests/unit/bddStandaloneModuleAllowlist.test.ts tests/unit/playerProjectionRatchet.test.ts \
-  tests/unit/knowledgeWall.test.ts tests/unit/backlogWhole.test.ts tests/architecture
+  tests/unit/knowledgeWall.test.ts tests/unit/backlogWhole.test.ts tests/unit/realPathGuard.test.ts tests/architecture
 
 step "front-end guard tests (pytest)"
 if "$PY" -c "import pytest" 2>/dev/null; then

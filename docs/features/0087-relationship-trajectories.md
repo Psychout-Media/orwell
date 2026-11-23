@@ -6,7 +6,7 @@
 > the optional `trajectoryOf` dep on `richOffscreenStretch` (`src/engine/offscreen.ts`); the momentum
 > store + per-pair fold ring buffers + persistence on `GameSessionAdapter`; and the off-screen-tick wiring
 > in `src/composition/orchestrator.ts`. Default ON behind the **dedicated `ORWELL_TRAJECTORIES` flag** (`=0` opts out)
-> (default OFF) so neutrality is provable in isolation. Gates: `tests/unit/trajectoryOutcomeNeutral.test.ts`
+> so neutrality is provable in isolation. Gates: `tests/unit/trajectoryOutcomeNeutral.test.ts`
 > (the byte-identity / draw-stream battery), `tests/unit/trajectory0087.test.ts` (the pure derivation +
 > tilt), `tests/unit/trajectoryWiring0087.test.ts` (wiring + persistence + the Vault-wall byte-identity
 > proof), and the `juryReach` / UAT spines (re-verified byte-identical with the flag off). Tracks #863.
@@ -16,7 +16,7 @@
 > byte-identical with trajectories alone disabled; (2) recency window 4 folds, momentum building per
 > consistent fold and **spiking on betrayal**, decaying at the 0026 neglect cadence; (3) a tight,
 > momentum-scaled tilt cap (≤60% of a nature's own weight at full momentum) so off-arc beats stay
-> possible (criterion 2); (4) **`NPC→player` trajectories: keyed, but NOT fed today** — the directed `recordTrajectoryFold` keys any `a→b` pair, the player included, but only off-screen NPC↔NPC scenes call it (`src/composition/orchestrator.ts`); player-witnessed scenes do not update trajectories, so an NPC→player arc stays at `steady` until that feed is built (deferred). Engine-computed, behavior-only, never (ORW-336)
+> possible (criterion 2); (4) **`NPC→player` trajectories: keyed, but NOT fed today** — the directed `recordTrajectoryFold` keys any `a→b` pair, the player included, but only off-screen NPC↔NPC scenes call it (`src/composition/orchestrator.ts`); player-witnessed scenes do not update trajectories, so an NPC→player arc stays at `steady` until that feed is built (deferred; carded as ORW-336). Engine-computed, behavior-only, never
 > shown; the player's read
 > of any NPC stays purely human-driven; (5) trajectories do **not** feed 0086 drives yet (a later pass —
 > this feature only exposes the layer).
