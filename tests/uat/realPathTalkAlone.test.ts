@@ -141,7 +141,8 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
     }
   }, 300_000);
 
-  // ORW-836 (found under ORW-812): the picker chooses an EMPTY private room, and the room is closed from the moment the two arrive - on every seed, not only the one that happened to hold.
+  // ORW-836 (found under ORW-812): the picker chooses an EMPTY private room, and it is closed from the moment the two arrive, on every seed (the player's walk persists, and the movement tick that runs
+  // inside that persist used to seat others in the room because the hold was written after the walk).
   it("real path: the private room holds only the two from the moment they arrive, on seeds 3, 5 and 11", async () => {
     for (const seed of [3, 5, 11]) {
       const { yes: { at, npc, r } } = await untilYes(seed);
