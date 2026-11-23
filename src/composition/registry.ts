@@ -418,6 +418,12 @@ function buildUserSandbox(user = "default"): UserSandbox {
     const fact = engine.knowledge.surfaceInformationTo(PLAYER, { content, subject: npcId, confidence }, `told-by:${npcId}`);
     return fact !== null;
   });
+  // ORW-767 (0207) — a houseguest TELLS the player a pair they believe are a couple. The teller first HOLDS the content (their own belief, already formed by what they saw or were told), then it surfaces
+  // `told-by:<teller>` content-anchored with the pair's lineage id: the player's KNOWLEDGE (a belief with a source and a confidence, never the truth), never Vault content.
+  session.setOnCoupleTold((teller, content, subject, factId, confidence) => {
+    if (!engine.knowledge.knownTo(teller).some((k) => k.factId === factId)) engine.knowledge.seedBelief(teller, { content, originalContent: content, factId, confidence, hops: 0, distortion: 0, source: teller, subject }, "origin");
+    return engine.knowledge.surfaceInformationTo(PLAYER, { content, subject, confidence, factId }, `told-by:${teller}`) !== null;
+  });
   // 0129 slice 3 — a JUROR tells the player something they already hold. The telling is content-anchored: the
   // juror's own fact (looked up by lineage id in THEIR knowledge) surfaces to the player `told-by:<juror>`.
   // A fact the juror does not hold cannot be surfaced (no lookup hit ⇒ null). Never a Vault read.

@@ -2523,7 +2523,7 @@ export interface PresentKnowledgeView {
    */
   /** 0202 (ORW-645): this houseguest is leaning on the player right now with something they hold, in this manner. Third-person fact only: never what they hold, never why. Absent unless an approach is open. */
   leansOnYou?: { manner: "blunt" | "sneaky" };
-  tellsYou?: { kind: "targets-you" | "voted-to-evict-you" | "final-two-with" | "going-after" | "talking-about" | "lying-about" | "voted-against" | "voted-to-keep" | "has-reputation"; subject: string; object?: string; /** 0184 part 2a: a `has-reputation`'s role or name (an engine word the narrator voices as gossip, never shown as a label) */ label?: string; certainty: "sure" | "fairly-sure" | "not-sure" };
+  tellsYou?: { kind: "targets-you" | "voted-to-evict-you" | "couple-with" | "final-two-with" | "going-after" | "talking-about" | "lying-about" | "voted-against" | "voted-to-keep" | "has-reputation"; subject: string; object?: string; /** 0184 part 2a: a `has-reputation`'s role or name (an engine word the narrator voices as gossip, never shown as a label) */ label?: string; certainty: "sure" | "fairly-sure" | "not-sure" };
 }
 
 /**
