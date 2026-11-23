@@ -92,7 +92,7 @@ export function buildSummary(inp: Inputs): Summary {
     for (const c of r.crashes) { const k = `${c.tool}|${c.what}`; const e = crashes.get(k) ?? { tool: c.tool, what: c.what, seeds: [], count: 0 }; e.seeds.push(r.seed); e.count += c.count; crashes.set(k, e); }
     for (const [t, n] of Object.entries(r.tried)) { const e = tools.get(t) ?? { tried: 0, refused: 0, noEffect: 0 }; e.tried += n; e.refused += r.refused[t] ?? 0; e.noEffect += r.noEffect?.[t] ?? 0; tools.set(t, e); }
     for (const [k, n] of Object.entries(r.pendingRepeats)) if (n > LOOP_REPEATS) loops.push({ seed: r.seed, what: `decision "${safe(k)}" re-raised ${n} times after being answered` });
-    if (r.stopped === "stalled") loops.push({ seed: r.seed, what: `no progress for 3000 messages (week ${r.week})` });
+    if (r.stopped === "stalled") loops.push({ seed: r.seed, what: `stalled: ${r.stalledAt ?? `no progress (week ${r.week})`}` });
     if (r.stopped === "cap") loops.push({ seed: r.seed, what: `season did not finish within ${r.messages} messages (week ${r.week}), no crown` });
   }
   const everyScene: MixScene[] = rs.flatMap((r) => r.scenes);

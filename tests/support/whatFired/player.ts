@@ -47,6 +47,8 @@ export interface SeasonRecord {
   week: number;
   /** why the run stopped early, when it did: "stalled" (no progress for a long time), "cap" (message cap, no crown), "diverged" (against a trace) */
   stopped: "finished" | "cap" | "stalled" | "diverged" | "watched";
+  /** ORW-777: when the run stopped as "stalled", the stage it was stuck at (week, phase, day, pending kind and why: the advance refused, or no day change). Counts and kinds only. */
+  stalledAt?: string;
   divergedAt?: number;
   eventTypes: Record<string, number>;
   houseLifeActions: Record<string, number>;
@@ -119,6 +121,25 @@ export function milestonesOf(live: Record<string, unknown>, retro: unknown, know
   return out;
 }
 
+/** ORW-777: how many advances in a row the engine may refuse, and how many messages the game may sit on one (week, phase, day, pending) stage, before the season is called stalled. */
+export const STALL_REFUSED_ADVANCES = 40;
+export const STALL_SAME_STAGE_MESSAGES = 3000;
+/**
+ * ORW-777: the season's progress watchdog. It watches the STAGE (week, phase, day, pending kind), never the event count: a stuck game keeps recording talk, so a counter that moves with every message (the old
+ * test) never fires. It also fires fast when the engine refuses the advance again and again (a refused turn never moves the game). `note` returns the named stage when the season is stalled, else null.
+ */
+export class StallWatch {
+  private stage = ""; private since = 0; private refused = 0;
+  note(msg: number, s: { week?: number; phase?: string; day?: number; pending?: string | null }, advance: "ok" | "refused" | "none"): string | null {
+    const stage = `week ${s.week ?? "?"}, phase ${s.phase ?? "?"}, day ${s.day ?? "?"}, pending ${s.pending ?? "none"}`;
+    if (stage !== this.stage) { this.stage = stage; this.since = msg; }
+    if (advance === "refused") this.refused++; else if (advance === "ok") this.refused = 0;
+    if (this.refused >= STALL_REFUSED_ADVANCES) return `${stage}: the engine refused the last ${this.refused} advances`;
+    if (msg - this.since > STALL_SAME_STAGE_MESSAGES) return `${stage}: no change of stage for ${msg - this.since} messages`;
+    return null;
+  }
+}
+
 const SCENES = ["bonding", "strategy", "gossip", "conflict", "alliance"] as const;
 const DEALS = ["safety", "final-two", "vote"] as const;
 
@@ -164,7 +185,8 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
   await must("createCharacter", { playerName: "The Player", seed, archetype: "floater" }, -1);
   opts.setup?.(sess());
   let msg = 0, nonce = 0, stampedUpTo = 0, week = 1, finished = false, restarted = false;
-  let lastProgress = "", lastProgressAt = 0;
+  const stallWatch = new StallWatch();
+  let advanceOutcome: "ok" | "refused" | "none" = "none";
   let lastPendingKey = "", repeats = 0;
   const stamp: Array<{ msg: number; week: number; out: boolean }> = [];
   const factIds: string[] = [];
@@ -257,6 +279,7 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
     }
     if (msg % advEvery === advEvery - 1) {
       const r = await must("advanceGame", {}, msg); rec.advances++;
+      advanceOutcome = r === null ? "refused" : "ok";
       if (r?.held) await pass(`h${msg}`); else await answer(r);
       if (r?.finished) finished = true;
       await faultsNow();
@@ -276,8 +299,9 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
       if (!b || b.ev !== row.ev || b.last !== row.last || (b.st !== undefined && row.st !== undefined && b.st !== row.st)) { rec.stopped = "diverged"; rec.divergedAt = msg; msg++; break; }
     }
     if (opts.watch && (await opts.watch({ sess: sess(), engine: rt.registry.sandboxFor(user).engine, call, msg }))) { rec.stopped = "watched"; msg++; break; }
-    const prog = `${week}|${gs?.phase}|${gs?.dayNumber}|${evs.length}`;
-    if (prog !== lastProgress) { lastProgress = prog; lastProgressAt = msg; } else if (msg - lastProgressAt > 3000) { rec.stopped = "stalled"; msg++; break; }
+    const stalled = stallWatch.note(msg, { week, phase: gs?.phase, day: gs?.dayNumber, pending: gs?.pending?.kind ?? null }, advanceOutcome);
+    advanceOutcome = "none";
+    if (stalled) { rec.stopped = "stalled"; rec.stalledAt = stalled; msg++; break; }
     if (opts.restartAt !== undefined && msg === opts.restartAt && !restarted && opts.saveDir) {
       restarted = true;
       rt = mk(); ({ call, admin } = bind()); // a fresh runtime over the same durable save: the game resumes from disk
