@@ -386,6 +386,7 @@ def test_every_agent_loop_belt_notes_its_fire_as_a_real_call():
         '"auto-confide"',
         '"auto-expose-secret"',
         '"auto-trade-secret"',
+        '"auto-alliance"',
         '"auto-move-player"',
         '"auto-move-npc"',
         '"premiere-meet-belt"',
@@ -422,6 +423,7 @@ def test_success_gated_belts_fire_only_after_the_helper_applied():
         ("_auto_confide", '"auto-confide"'),
         ("_auto_expose_secret", '"auto-expose-secret"'),
         ("_auto_trade_secret", '"auto-trade-secret"'),
+        ("_auto_alliance", '"auto-alliance"'),
         ("_auto_record_scene", '"auto-record-scene"'),
     ):
         note_at = src.index("_note_belt(owner, " + token)
