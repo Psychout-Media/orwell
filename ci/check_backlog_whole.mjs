@@ -11,6 +11,7 @@
 //   A3  every spec doc (docs/features/NNNN-*.md) has a row in docs/features/README.md, and every row's link points at a file that exists.
 //
 // Usage: node ci/check_backlog_whole.mjs            (the repo checks)
+//        BASELINE_BASE=<file> ...                    (also fails if the baseline GREW against that copy; CI passes the base commit's)
 //        PR_BODY="..." node ci/check_backlog_whole.mjs   (also checks the PR body; CI passes it on pull_request events)
 // Pure file reads, no dependencies: it runs before `npm ci`.
 import { readFileSync, readdirSync, existsSync } from "node:fs";
@@ -60,10 +61,17 @@ export function markerReason(marker) {
  * Run every check over a repo root. Returns { errors, warnings }. `prBody` is optional.
  * `wired` is the set of wired feature paths (repo-relative); passed in so a test can run this on a planted tree.
  */
-export function checkRepo(root, { prBody, wired } = {}) {
+export function checkRepo(root, { prBody, wired, baseBaseline } = {}) {
   const errors = [];
   const warnings = [];
   const baseline = JSON.parse(readFileSync(join(root, "ci", "backlog_baseline.json"), "utf8"));
+  // Shrink-only: the baseline may lose entries, never gain one (`baseBaseline` is the base commit's copy; absent on the commit that adds the file).
+  if (baseBaseline) {
+    for (const k of ["a1", "a2"]) {
+      const before = new Set(baseBaseline[k] ?? []);
+      for (const e of baseline[k] ?? []) if (!before.has(e)) errors.push(`baseline ci/backlog_baseline.json: ${k} gained an entry (the list only shrinks; card the line and put the ORW number on it instead): ${String(e).slice(0, 160)}`);
+    }
+  }
   const snapshot = JSON.parse(readFileSync(join(root, "ci", "board_snapshot.json"), "utf8"));
   const featDir = join(root, "docs", "features");
   const rel = (p) => p.slice(root.length + 1);
@@ -135,7 +143,8 @@ async function wiredSet(root) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const root = process.cwd();
-  const { errors, warnings } = checkRepo(root, { prBody: process.env.PR_BODY, wired: await wiredSet(root) });
+  const baseBaseline = process.env.BASELINE_BASE ? JSON.parse(readFileSync(process.env.BASELINE_BASE, "utf8")) : undefined;
+  const { errors, warnings } = checkRepo(root, { prBody: process.env.PR_BODY, wired: await wiredSet(root), baseBaseline });
   for (const w of warnings) console.log(`::warning::${w}`);
   for (const e of errors) console.log(`::error::${e}`);
   if (errors.length) {

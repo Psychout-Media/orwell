@@ -11,7 +11,7 @@ import { uncardedLines, markerReason, checkRepo } from "../../ci/check_backlog_w
  * Each rule is proven on a planted tree (it fails on the hole and passes once the hole is carded or fixed), and the real repo passes.
  */
 type Result = { errors: string[]; warnings: string[] };
-const check = checkRepo as (root: string, o?: { prBody?: string; wired?: Set<string> }) => Result;
+const check = checkRepo as (root: string, o?: { prBody?: string; wired?: Set<string>; baseBaseline?: { a1?: string[]; a2?: string[] } }) => Result;
 
 function tree(files: Record<string, string>, baseline = { a1: [] as string[], a2: [] as string[] }, states: Record<string, string> = {}): string {
   const root = mkdtempSync(join(tmpdir(), "backlog-"));
@@ -36,6 +36,13 @@ describe("A1: a line that says work is left names its card", () => {
     expect(check(tree(doc)).errors.join("\n")).toMatch(/A1 docs\/features\/0001-one.md:2/);
     expect(check(tree(doc, { a1: ["0001-one.md::The pop-up is not built."], a2: [] })).errors).toEqual([]);
     expect(check(tree({}, { a1: ["0001-one.md::The pop-up is not built."], a2: [] })).errors.join("\n")).toMatch(/no longer in the docs/);
+  });
+  it("the baseline only shrinks: an entry the base commit did not have fails, a removed one is fine", () => {
+    const doc = { "docs/features/0001-one.md": "# One\nThe pop-up is not built.\n" };
+    const listed = { a1: ["0001-one.md::The pop-up is not built."], a2: [] };
+    expect(check(tree(doc, listed), { baseBaseline: { a1: [], a2: [] } }).errors.join("\n")).toMatch(/gained an entry/);
+    expect(check(tree(doc, listed), { baseBaseline: listed }).errors).toEqual([]);
+    expect(check(tree({}), { baseBaseline: listed }).errors).toEqual([]);
   });
   it("checks the PR body too", () => {
     expect(check(tree({}), { prBody: "Done.\nThe FE half is a follow-up.\n" }).errors.join("\n")).toMatch(/PR body line 2/);

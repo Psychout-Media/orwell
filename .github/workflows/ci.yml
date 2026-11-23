@@ -938,6 +938,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 2  # HEAD^1 is the base (main, in the PR merge ref): the baseline may only shrink against it
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -945,7 +946,9 @@ jobs:
       - name: left-over lines carded, spec-only features explained, spec index complete
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
-        run: node ci/check_backlog_whole.mjs
+        run: |
+          if git show HEAD^1:ci/backlog_baseline.json > "$RUNNER_TEMP/baseline-base.json" 2>/dev/null; then export BASELINE_BASE="$RUNNER_TEMP/baseline-base.json"; fi
+          node ci/check_backlog_whole.mjs
 
   # ── Unified required-check gate (deadlock-free on skip) ──────────────────────────
   #

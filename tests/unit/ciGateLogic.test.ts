@@ -54,7 +54,9 @@ describe("ci-gate (two-tier CI)", () => {
     expect(j).not.toMatch(/\n    if: /);
     expect(j).not.toMatch(/\n    needs: /);
     expect(j).toContain("PR_BODY: ${{ github.event.pull_request.body }}");
-    expect(j).toContain("run: node ci/check_backlog_whole.mjs");
+    expect(j).toContain("node ci/check_backlog_whole.mjs");
+    expect(j).toContain("fetch-depth: 2");
+    expect(j).toContain('git show HEAD^1:ci/backlog_baseline.json');
     const gateJob = yml.slice(yml.indexOf("\n  ci-gate:\n"));
     expect(gateJob).toContain("      - backlog-whole\n");
     expect(gateJob).toContain("backlog-whole=${{ needs.backlog-whole.result }}");
