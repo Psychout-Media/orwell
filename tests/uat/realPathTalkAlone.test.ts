@@ -3,14 +3,14 @@ import { PLAYER } from "../../src/domain/ids";
 import { isPrivateRoom, type Room } from "../../src/domain/house";
 import { talkAloneRoom } from "../../src/engine/talkAlone";
 import type { AskToTalkAloneResult } from "../../src/ports/GameSession";
-import { playUntil, type Stop } from "./playedSeason";
+import { playUntil, type Stop } from "../realpath/playedSeason";
 
 /**
  * ORW-727b. The player asks a houseguest for a private word, or to come over - in a PLAYED season (ORW-812: before, every test staged the house by hand: the premiere skipped, the
  * whole house moved into the yard, every bond set high or low). The season is played by the scripted talking player; each test stops at a free moment of a played day (the premiere
  * over, nothing open, nothing due, daytime) with the player in a room among houseguests, then acts only through the player's MCP channel (askToTalkAlone, recordInteraction,
  * makeDeal, moveTo, moveHouseguest, noteMessage). Who says yes is the engine's call from the real bonds. The pure room picker and the old-save load stay in
- * tests/unit/talkAlone727b.test.ts. Roles only.
+ * tests/unit/talkAlone727b.test.ts. HEAVY LANE (tests/uat/**, the `real-path` leg): about a minute of play on the runner. Roles only.
  */
 const presence = (s: Stop): Map<string, string> => s.sess.presence as Map<string, string>;
 const roomOf = (s: Stop, id: string): string | undefined => presence(s).get(id);

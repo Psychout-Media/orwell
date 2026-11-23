@@ -6,7 +6,8 @@ import { playMixGame } from "../support/houseMixDriver";
 /**
  * ORW-709 (B3-3/4/5 and the approach treadmill) - in PLAYED games (ORW-812: before, a get-them-out goal was pushed into a houseguest's agenda, the house moved into the yard, the bond
  * set hostile and the clock stepped by hand). The games are played by the house-mix driver (a quiet player: a message each turn, events advanced and answered on a fixed cadence,
- * held nights lived through); the checks only READ the live session after each message, and the player's own acts go through the channel. Roles only.
+ * held nights lived through); the checks only READ the live session after each message, and the player's own acts go through the channel. HEAVY LANE (tests/uat/**, the
+ * `real-path` leg): over a minute of play on the runner. Roles only.
  */
 type Rec = { id: string; actor: string; hostile: boolean; status: string; eventId?: string; goalId: string; hour: number };
 type Sess = { live: { aimedAtPlayer?: Rec[]; interruption?: { npc: string; desire: string; atHour: number }; approachAsked?: Record<string, { q: string; answered?: true }>; dayNumber?: number; week: number }; presence: Map<string, string>; record?: { events(): Array<{ id: string; type: string; hidden: boolean; initiator: string; witnessSet: string[]; content: string; houseLife?: { about?: string; at?: number } }> }; livingIds(): string[]; desireApproach(ids: string[]): { npc: string } | null };

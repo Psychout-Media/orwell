@@ -8,7 +8,7 @@ import { sessionCoreSupersetViolation } from "../../src/engine/sessionSnapshot";
 
 /**
  * ORW-709 (B3-3/4/5 and the approach treadmill). UNIT checks only: the pure press curve and the save superset guard (on a hand-staged house and hand-made saves). ORW-812: the
- * played checks are in tests/realpath/approachBrake709.test.ts. Roles only.
+ * played checks are in tests/uat/realPathApproachBrake.test.ts. Roles only.
  * B3-3: hidden scheming about the player to a third party is never an open scene. B3-4: only a genuinely hostile approach folds a fight; a kind answer folds none.
  * B3-5 / treadmill: a houseguest asks a question once (answered or awaiting), stays with the player until the answer lands, and the Diary Room is private.
  */

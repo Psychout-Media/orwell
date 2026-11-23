@@ -9,7 +9,7 @@ import type { AskToTalkAloneResult } from "../../src/ports/GameSession";
 
 /**
  * ORW-727b. The player asks a houseguest for a private word, or to come over. UNIT checks: the pure room picker, and an old save (hand-made: the hold field removed) still loading.
- * ORW-812: everything a played game can reach is in tests/realpath/talkAlone727b.test.ts. Roles only.
+ * ORW-812: everything a played game can reach is in tests/uat/realPathTalkAlone.test.ts. Roles only.
  */
 type Seam = {
   livingIds(): EntityId[]; noteMessage(a: object): unknown; createCharacter(a: object): unknown;
