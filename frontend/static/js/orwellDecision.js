@@ -544,6 +544,19 @@
     return cues[kind] || "I've made my decision — let's see how the house takes it.";
   }
 
+  // ORW-771: the hidden cue that asks the narrator to voice the vote beat. The server arms it on the Continue press (routes/orwell_routes.py) and recognizes it by this prefix.
+  const VOTE_BEAT_CUE = "(Production cue \u2014 the player pressed Continue through the eviction vote. Voice the beat the game's facts hand you, short, with no ballot content.)";
+  function _fireVoteBeatCue() {
+    try {
+      const cm = window.chatModule;
+      if (!cm || typeof cm.sendHiddenCue !== "function") return;
+      // A beat already streaming is enough for a fast run of presses: never pile a second cue behind it (the banner still shows every press).
+      const sid = window.sessionModule && window.sessionModule.getCurrentSessionId && window.sessionModule.getCurrentSessionId();
+      if (typeof cm.hasActiveStream === "function" && sid && cm.hasActiveStream(sid)) return;
+      cm.sendHiddenCue(VOTE_BEAT_CUE);
+    } catch (_) { /* a beat is texture: never break the Continue press */ }
+  }
+
   // ORW-281 4b: a staged-ceremony WATCH step. Not a decision - no options, no Confirm, no stakes skin: the
   // engine's one Vault-free line and a Continue that moves the ceremony exactly one step (advanceGame via
   // POST /api/orwell/ceremony-continue). Mounts through the same sheet -> notice -> stream chain as the
@@ -591,6 +604,9 @@
         if (res && Array.isArray(res.announcements) && res.announcements.length) {
           try { window.dispatchEvent(new CustomEvent("orwell:announcements", { detail: { announcements: res.announcements } })); } catch (_) {}
         }
+        // ORW-771: a press through a played eviction vote carries the engine's sealed `eviction.voteBeat` facts; the narrator voices a short beat from them. The beat is a HIDDEN production-cue
+        // turn (no player bubble, no clock: the server skips noteMessage for it), NOT the Continue press itself being a chat turn (ORW-703 keeps the chyron the one source of the board fact).
+        if (res && res.voteBeatCue === true && res.eviction && res.eviction.voteBeat && res.eviction.voteBeat.sealed) _fireVoteBeatCue();
         // The next step (or the next binding decision) arrives on the same view: mount it now.
         const nxt = res && res.pending;
         if (nxt && nxt.kind) window.dispatchEvent(new CustomEvent("orwell:pending", { detail: { pending: nxt } }));

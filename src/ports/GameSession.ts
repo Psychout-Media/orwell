@@ -1877,6 +1877,29 @@ export interface EvictionView {
   evictee?: NamedRef;
   /** ORW-667 (0210 C1, `ORWELL_HOST`): the host's facts for the narrator on a played eviction night. Names and words only; absent for headless games or with the flag off. */
   host?: HostView;
+  /** ORW-771 (`ORWELL_VOTE_BEAT`): the sealed beat facts of the Continue press just made through the vote reading. Absent for headless games or with the flag off. */
+  voteBeat?: VoteBeatView;
+}
+
+/**
+ * ORW-771 - the facts of one Continue press through a played eviction vote, for the narrator to voice a short beat. SEALED (E12): it names no ballot, no voter's choice and no count
+ * until the tally press, and the walk order is independent of the ballot reveal order. The names are public houseguests only.
+ */
+export interface VoteBeatView {
+  /** Always true: the ballots are secret; nobody learns who cast which. */
+  sealed: true;
+  /** The 1-based ballot press this is, and how many ballots the reading has. */
+  press: number;
+  of: number;
+  /** The houseguest who walked into the Diary Room this press, and the one who came back out of it. Either may be absent (the first press has no one returning; the player's own seat is never walked for them). */
+  intoDiaryRoom?: NamedRef;
+  backFromDiaryRoom?: NamedRef;
+  /** True on the result press: the tally is now read with names, as the chyron banner does. */
+  tallyRead: boolean;
+  /** The room: how many houseguests are gathered, the part of the day, and the two on the block (public). */
+  gathered: number;
+  timeOfDay?: string;
+  nominees: NamedRef[];
 }
 
 /**
