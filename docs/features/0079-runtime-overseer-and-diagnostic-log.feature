@@ -1,4 +1,4 @@
-# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
+# spec-only: gated by frontend/tests/test_0079_overseer.py; this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 # Design contract — BUILT (PRs #717, #741) and shipped DEFAULT ACTIVE since the owner ruling 2026-07-13; verified by FE tests, NOT wired into cucumber.cjs. (Header corrected 2026-11-12, ORW-286 item 8: it said "drafted failing-first, not yet implemented".)
 # Feature 0079 — Runtime loop overseer & diagnostic log (diagnose-and-unstick; wide eyes, small hands).
 # HARD rule: roles only (player, NPC, HOH, nominee, admin). No houseguest/player names. "the overseer"
