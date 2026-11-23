@@ -98,7 +98,7 @@ import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness"
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
 import { DEAL_NOMS } from "../../engine/dealNomConstants";
 import { proposeNpcDeals, planAwareDealPush, type PairBondRead } from "../../engine/npcDeals";
-import { decideDodge, type DodgeFact } from "../../engine/dodging";
+import { decideDodge, dodgeStakes, type DodgeFact } from "../../engine/dodging";
 import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosureFull, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { beatShare, endgamePush, endgameFakeLean, isEndgame } from "../../engine/endgameTrust";
 import { heirOf, partnerReaction, debtorRelief } from "../../engine/evictedTake";
@@ -4177,19 +4177,21 @@ export class GameSessionAdapter implements GameSession {
   setDodgingEnabled(on: boolean): void { this.dodgingEnabled = on; }
   private dodgingOn(): boolean { return this.dodgingEnabled && this.disclosureEngineOn(); }
   /** Append-only: one entry per (houseguest, week, phase) press that was turned aside. Saved when non-empty. */
-  private dodgeLog: Array<{ npc: EntityId; week: number; phase: string } & DodgeFact> = [];
-  private recordDodge(npc: { id: EntityId; character: { strategyStyle?: import("../../engine/characterFactory").StrategyStyle } }, signals: ConfidenceSignals): void {
+  private dodgeLog: Array<{ npc: EntityId; week: number; phase: string; stakes?: number } & DodgeFact> = [];
+  private recordDodge(npc: { id: EntityId; character: { strategyStyle?: import("../../engine/characterFactory").StrategyStyle } }, signals: ConfidenceSignals, held?: HiddenElement): void {
     if (!this.dodgingOn()) return;
     const phase = String(this.phase);
     if (this.dodgeLog.some((d) => d.npc === npc.id && d.week === this.week && d.phase === phase)) return;
     const style = npc.character.strategyStyle;
     const vol = this.soulObj(npc.id)?.volatility ?? 0.3;
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:dodge:${npc.id}:${this.week}:${phase}`));
+    // ORW-798: what is on the line for them = the severity of the kind of thing they are keeping + whether they are on the block now (engine state already held; no draw).
+    const stakes = dodgeStakes(severityOf(held?.kind), ((this.live?.nominees as readonly EntityId[] | undefined) ?? []).includes(npc.id));
     const fact = decideDodge({
       cunning: style ? CUNNING[style] ?? 0.3 : 0.3, leakiness: (style ? LEAKY[style] ?? 0.3 : 0.3) + 0.2 * vol, rattled: Math.max(0, vol - 0.5) * 2,
-      trustInAsker: signals.npcTrust, stakes: 0.3,
+      trustInAsker: signals.npcTrust, stakes,
     }, [rng.next(), rng.next(), rng.next()]);
-    this.dodgeLog.push({ npc: npc.id, week: this.week, phase, ...fact });
+    this.dodgeLog.push({ npc: npc.id, week: this.week, phase, stakes, ...fact });
   }
   /** The dodge the engine decided for `npc` in the current week and phase (the voice shows it only while the press is this beat's). */
   private dodgeFor(npc: EntityId): DodgeFact | undefined {
@@ -19128,7 +19130,7 @@ export class GameSessionAdapter implements GameSession {
       if (slanted) disclosureEvent = { ...disclosureEvent, slant: true };
     }
     this.noteDisclosure(npcId, disclosureEvent); // B33: the closed-set record of what the engine just rolled
-    if (!decision.disclosed) { if (this.live.playedGame) this.recordDodge(npc, signals); return none; }
+    if (!decision.disclosed) { if (this.live.playedGame) this.recordDodge(npc, signals, secret); return none; }
 
     // Monotonic: never re-tell a TRUE secret at a LOWER tier than already reached — idempotent, no new
     // fold (the house's memory only deepens; it never thins, 0007/0030). A lie is its own track.
