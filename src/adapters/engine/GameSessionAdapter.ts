@@ -21858,8 +21858,11 @@ export class GameSessionAdapter implements GameSession {
     const meetingNow = this.houseMeetingForNarrator(); // 0156 slice 7b: a meeting the player was in the house and awake to hear (one turn; absent otherwise)
     const view5 = meetingNow ? { ...view4, houseMeeting: meetingNow } : view4;
     const view6 = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
-    const keepers = (req.moment ?? view6.moment) === "eviction" ? this.keepPromisersOfPlayer() : []; // ORW-737: eviction night only
-    const view = keepers.length ? { ...view6, keepPromisers: keepers } : view6;
+    // ORW-794: an alliance an NPC has let the player in on and the player has not taken: the narrator is HANDED it (the same roster gameStatus shows, the one the player was told), instead of having to go and look.
+    const pitchesOpen = this.alliances.pitchesFor(PLAYER);
+    const view6b = pitchesOpen.length ? { ...view6, alliancePitchesOpen: pitchesOpen.map((a) => this.allianceView(a, true)) } : view6;
+    const keepers = (req.moment ?? view6b.moment) === "eviction" ? this.keepPromisersOfPlayer() : []; // ORW-737: eviction night only
+    const view = keepers.length ? { ...view6b, keepPromisers: keepers } : view6b;
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
     const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
       ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)

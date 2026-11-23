@@ -646,6 +646,8 @@ export interface GameStateView {
   houseMeeting?: HouseMeetingView;
   /** ORW-593 (moment prompt only, one turn): the player's call for a house meeting was refused, and why in the world's terms. Never a number or a hidden reason. */
   houseMeetingRefused?: "ceremony" | "asleep" | "nobody" | "spent";
+  /** ORW-794 (moment prompt only): the alliances an NPC has let the player in on and the player has not taken (the same Vault-free view `gameStatus.alliancePitches` shows: id, name, the roster the player was told). Absent when none is open. */
+  alliancePitchesOpen?: AllianceView[];
   /** ORW-737: on eviction night, the houseguests who HAVE a recorded promise to keep the player (an assurance on the ledger, kept or still open). The ONLY people the narrator may say told the player they would keep them. Absent when none. */
   keepPromisers?: NamedRef[];
   /**
