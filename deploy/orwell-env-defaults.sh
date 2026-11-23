@@ -122,6 +122,7 @@
 #   ORWELL_MYTH_MAKING          NPC myth-making (0101) — a rare notable player act becomes house folklore
 #       and diffuses NPC-to-NPC (owner ruling 2026-07-17: on). Hidden-knowledge layer only; own isolated
 #       rng, folds NO relationship edge — the seeded comp/vote spine is byte-identical even while ON.
+#   ORWELL_VOTE_BEAT            Vote beat (ORW-771) - a Continue press through a played eviction vote gets a short narrated beat (sealed: no ballot content).
 #   ORWELL_VOTE_DEDUCTION       Vote deduction (0110) — the jury grudge book reasons about who voted how
 #       (owner ruling 2026-07-17: on). Self-gated: absent/off ⇒ the grudge folds the true votes exactly
 #       as before (no deduction, no sub-rng) — the seeded jury spine is unmoved.
@@ -324,6 +325,7 @@ ORWELL_TRAPS=1
 ORWELL_TRIADS=1
 ORWELL_TRIGGERS=1
 ORWELL_VETO_MEMORY=1
+ORWELL_VOTE_BEAT=1
 ORWELL_VOTE_COUNT=1
 ORWELL_VOTE_DEDUCTION=1
 ORWELL_VOTE_TALK=1

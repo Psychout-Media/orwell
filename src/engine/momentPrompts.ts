@@ -1907,6 +1907,25 @@ export function renderHostBlock(view: GameStateView): string[] {
   return out;
 }
 
+/**
+ * ORW-771 - the VOTE BEAT of the Continue press just made through a played eviction vote: third-person facts for the narrator to voice as a short beat (the narrator authors every word).
+ * SEALED (E12): no ballot, no voter's choice, no count until the result press. Rides the moment's own context, never the base prompt.
+ */
+export function renderVoteBeatBlock(view: GameStateView): string[] {
+  const ev = view.eviction, b = ev?.voteBeat;
+  if (!ev || !b) return [];
+  const nm = (r: { name: string }): string => neutralizeForPrompt(r.name);
+  const out = [`    VOTE BEAT (the player just pressed Continue through the vote; the ballots are SEALED, and nobody in the house or at the table learns who cast which):`];
+  const walk: string[] = [];
+  if (b.backFromDiaryRoom) walk.push(`${nm(b.backFromDiaryRoom)} has come back out of the Diary Room`);
+  if (b.intoDiaryRoom) walk.push(`${nm(b.intoDiaryRoom)} walks into the Diary Room`);
+  if (walk.length) out.push(`      Facts of this moment: ${walk.join("; ")}. ${b.gathered} houseguests are gathered; the part of the day is ${b.timeOfDay ?? "unmarked"}; ${b.nominees.map(nm).join(" and ")} wait on the block.`);
+  else out.push(`      Facts of this moment: nobody is walking to the Diary Room just now. ${b.gathered} houseguests are gathered; the part of the day is ${b.timeOfDay ?? "unmarked"}; ${b.nominees.map(nm).join(" and ")} wait on the block.`);
+  if (b.tallyRead) out.push(`      The tally was just read with names, as the banner shows: voice the room taking it in, from the TALLY and RESULT lines above and nothing else.`);
+  else out.push(`      Voice a short beat of a few sentences: the walk, and the room's mood around it, from these facts. Show nothing of any ballot: no voter's choice, no count, no guess at the result, and no new fact about the board.`);
+  return out;
+}
+
 /** The short engine-committed board recap for the ceremony phases (HOH, nominees, veto, eviction ballots), or undefined. */
 export function renderBoardRecap(view: GameStateView): string[] | undefined {
   const phase = String(view.phase ?? "").toLowerCase();
@@ -1960,6 +1979,7 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
         : "    The result has not been committed yet: read the ballots above in order, but announce no evictee and state no count or tally (the engine hands you none until the result is committed).");
     }
     if (ev?.host) lines.push(...renderHostBlock(view));
+    if (ev?.voteBeat) lines.push(...renderVoteBeatBlock(view));
   }
   return lines;
 }
