@@ -60,7 +60,7 @@ routes that truth to three **player-facing** surfaces while keeping the house de
 
 **Out:** the DR wall logic itself (0013 — reused, unchanged); NPC confessionals (Vault-only, never here);
 letting DR touch NPC knowledge or behavior (**forbidden** — the whole point); a new UI (the 0036 DR panel +
-the recap/retrospective surfaces already render these payloads; any polish is a small FE follow-up).
+the recap/retrospective surfaces already render these payloads; any polish is a small FE follow-up). (ORW-824)
 
 ## 4. Contracts (stack-agnostic)
 

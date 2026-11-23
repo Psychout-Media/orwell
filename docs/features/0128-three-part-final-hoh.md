@@ -115,7 +115,7 @@ dependency), feeds **0045**'s `final-eviction` (unchanged) → **0037** (finale)
 - **Tests:** `tests/unit/finalHohThreePart.test.ts` (pure + live byte-identity guard) + `docs/features/0128-*.feature`
   → `cucumber.cjs`. Assert §6 (three parts / win-two / player agency / engine-decided / calibration-safe).
 
-**Open decision (deferred to build time):** the exact governing stat for Part 2 (pure `mental`, or the
+**Open decision (deferred to build time):** the exact governing stat for Part 2 (pure `mental`, or the (ORW-824)
 `physical`+`mental` hybrid blend as specced here). Spec picks the hybrid to honor "a physical and mental comp";
 revisit if calibration prefers a single stat.
 

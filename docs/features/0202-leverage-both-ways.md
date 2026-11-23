@@ -36,7 +36,7 @@ A houseguest in the room who is pressing the player carries `leansOnYou: { manne
 ## Vault Wall
 A play record holds fact ids and ids of houseguests; the narrator fact holds a manner word. The secret's content is never read into either (`tests/unit/leveragePlay.test.ts` plants a sentinel and checks both).
 
-## Not in this slice (follow-ups)
+## Not in this slice (follow-ups) (ORW-825)
 - A refused or exposed blunt demand does not yet make the holder decide to spread the secret (Theme 4 slice 4.2's last line).
 - `confront` as an explicit way for the player to answer an approach (a deal is the only answer today).
 - Favours that become debts across days (the sneaky debt is a single small fold today, not a tracked owing).
@@ -50,4 +50,4 @@ Every consumer here keys on a held fact's `subject` (who it is about), but the r
 - `surfaceInformationTo` takes an optional `factId` so a record with a subject also has a lineage.
 - An old save is backfilled on load from the record's own fields (a scene rumor's lineage id names its origin and its undrifted text names the pair), append-only, no rng.
 - Flag `ORWELL_RUMOR_SUBJECTS` (default ON, `=0` = subject-less, byte-identical). Played games only. The subject is engine-only (Vault class): only a fact the player was told reaches them, with its source. Test `tests/unit/rumorSubjects.test.ts`; report `tests/calibration/secretSubjectReport.test.ts` (`ORWELL_SECRET_SUBJECT_REPORT=1`).
-- Not done: an overheard fragment (presence) is still subject-less.
+- Not done: an overheard fragment (presence) is still subject-less. (ORW-825)

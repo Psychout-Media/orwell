@@ -206,7 +206,7 @@ optionally surfaced to the admin LLM-I/O trace UI.
 
 ### Problem
 The model is handed a wholesale projection each turn (and the snapshot export is **O(events)** — the
-deferred R3 latency item: late-season turns grow ~20× and can approach the FE timeout). It also gets
+R3 latency item (ORW-820): late-season turns grow ~20× and can approach the FE timeout). It also gets
 no crisp "what changed since your last turn," so staleness isn't self-evident.
 
 ### Design
@@ -219,7 +219,7 @@ re-scan), (2) the model gets a crisp diff that makes drift self-evident.
 
 - Build on the orchestrator's existing append-only / `trustEventPrefix` machinery (the checkpoint
   already trusts the immutable event prefix; the delta export is its read-side dual).
-- Largest, most-deferred part; **may be split** (delta projection first; the R3 incremental-snapshot
+- Largest part, still open (ORW-820); **may be split** (delta projection first; the R3 incremental-snapshot
   rework second). Sequenced last.
 
 ### Tests (Vitest)

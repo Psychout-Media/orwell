@@ -6,7 +6,7 @@
 > (`src/engine/suspicionLedger.ts` + `suspicionConstants.ts`, `tests/unit/suspicionLedger.test.ts`) — logging
 > (verbatim/lossless), the sanctioned-reveal matcher (`resolveAgainstReveal`: a model-proposed verdict COMMITTED,
 > or the deterministic keyword/about/topic floor; frozen-on-resolve; NEVER a live Vault read), and the 0048
-> `scorecard`. GOLDEN-NEUTRAL. **Follow-up lane (not yet built):** the FE-driven write-back wiring
+> `scorecard`. GOLDEN-NEUTRAL. **Follow-up lane (not yet built):** the FE-driven write-back wiring (ORW-823)
 > (`logSuspicion`/`getSuspicionLedger` — the 4-place port/adapter/registry-`INFRA_LEVERS`/McpServer + a `callTool`
 > boundary test), snapshot persistence (field `suspicionLedger`, distinct from `knowledge.suspicions`), the
 > resolution-at-reveal hooks, and the BDD wiring. *(Previously: ❄️ FROZEN — parked 2026-06-27; #878 closed not

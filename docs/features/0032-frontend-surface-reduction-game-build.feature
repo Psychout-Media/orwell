@@ -1,4 +1,4 @@
-# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
+# spec-only: gated by frontend/tests/test_game_build.py; this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 # Executable spec — IMPLEMENTED; validated by frontend pytest (frontend/tests/).
 # Feature 0032 — Front-end surface reduction (the "game build"). Front-end (Python) only; NO engine
 # change. Tested in frontend/tests/ (pytest, like 0029) — NOT added to cucumber.cjs (TS lane).

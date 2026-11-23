@@ -1,4 +1,4 @@
-# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
+# spec-only: gated by frontend/tests/test_0080_active_overseer.py; this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 # Design contract — BUILT and shipped DEFAULT ACTIVE (owner ruling 2026-07-13); verified by FE tests, NOT wired into cucumber.cjs. Reflects the recommended Model D (§3) + the invariants that hold
 # regardless of the §10 owner rulings. (Header corrected 2026-11-12, ORW-286 item 8: it said provisional, off by default.) HARD rule: roles only (player, NPC, HOH, nominee, admin). The overseer's inputs
 # and log are Vault-free BY CONSTRUCTION; seeded fixtures only; a deterministic stub / injected verdict

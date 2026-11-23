@@ -6,7 +6,7 @@
 //       must name its ORW card. The lines that existed when this landed are listed in ci/backlog_baseline.json (shrink-only: a listed line that is gone must be
 //       removed from the list, so the list can only get shorter; the sweep is ORW-805).
 //   A2  a `# spec-only:` feature must say why it does not run: it names the ORW card it waits on (and that card is not Done in ci/board_snapshot.json), or it says
-//       "superseded by <file>.feature" naming wired feature files that exist. The cardless ones that existed when this landed are in the baseline too.
+//       "superseded by <file>.feature" naming wired feature files that exist, or it is built and says "gated by <test path>" naming the test that verifies it. The cardless ones that existed when this landed are in the baseline too.
 //       (Every .feature is wired or marked: tests/unit/featureShelfDrift.test.ts; cucumber.cjs discovers the wired set.)
 //   A3  every spec doc (docs/features/NNNN-*.md) has a row in docs/features/README.md, and every row's link points at a file that exists.
 //
@@ -22,6 +22,7 @@ export const LEFT_RE = /\b(not (?:yet )?built|not (?:yet )?done|deferred|follow[
 export const CARD_RE = /\bORW-\d+\b/;
 const MARKER = "# spec-only:";
 const SUPERSEDED_RE = /superseded by\s+(.+)$/i;
+const GATED_RE = /gated by\s+([\w./-]+)/gi;
 
 export const norm = (line) => line.trim().replace(/\s+/g, " ");
 
@@ -62,7 +63,8 @@ export function markerReason(marker) {
   const cards = [...marker.matchAll(/\bORW-(\d+)\b/g)].map((m) => `ORW-${m[1]}`);
   const sup = marker.match(SUPERSEDED_RE);
   const supersededBy = sup ? [...sup[1].matchAll(/([\w./-]+\.feature)/g)].map((m) => m[1]) : [];
-  return { cards, supersededBy };
+  const gatedBy = [...marker.matchAll(GATED_RE)].map((m) => m[1].replace(/[.;,]+$/, ""));
+  return { cards, supersededBy, gatedBy };
 }
 
 /**
@@ -108,7 +110,12 @@ export function checkRepo(root, { prBody, wired, baseBaseline } = {}) {
     const marker = readFileSync(f, "utf8").split("\n").slice(0, 3).find((l) => l.startsWith(MARKER));
     if (!marker) continue;
     const name = basename(f);
-    const { cards, supersededBy } = markerReason(marker);
+    const { cards, supersededBy, gatedBy } = markerReason(marker);
+    if (gatedBy.length) {
+      // Built and verified outside Cucumber: the marker names the gate, and the gate must exist (a bare "verified elsewhere" is not enough).
+      for (const g of gatedBy) if (!existsSync(join(root, g))) errors.push(`A2 ${rel(f)}: says gated by ${g}, which does not exist`);
+      continue;
+    }
     if (supersededBy.length) {
       for (const s of supersededBy) {
         const target = s.includes("/") ? join(root, s) : join(featDir, s);
@@ -127,7 +134,7 @@ export function checkRepo(root, { prBody, wired, baseBaseline } = {}) {
       continue;
     }
     if (a2Base.has(name)) { a2Seen.add(name); continue; }
-    errors.push(`A2 ${rel(f)}: spec-only but says neither the ORW card it waits on nor "superseded by <file>.feature"`);
+    errors.push(`A2 ${rel(f)}: spec-only but says none of: the ORW card it waits on, "superseded by <file>.feature", or "gated by <test path>"`);
   }
   for (const k of a2Base) if (!a2Seen.has(k)) errors.push(`A2 ci/backlog_baseline.json: ${k} no longer needs listing (it now names a card, is superseded, is wired or is gone); remove it from the list`);
 

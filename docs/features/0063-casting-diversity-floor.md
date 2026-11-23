@@ -16,7 +16,7 @@
 > artificially"*). **Executable spec:** `0063-casting-diversity-floor.feature` (wired into
 > `cucumber.cjs` — it was a skeleton at first and was added once built to green, exactly as 0058 Phase 1's feature was; corrected 2026-11-12, ORW-286 item 8).
 >
-> **AI-driven half — BUILT (issue #544, the deferred second half of the 2026-06-23 ruling).** The cast's
+> **AI-driven half — BUILT (issue #544, the second half of the 2026-06-23 ruling).** The cast's
 > **descriptive** identity facets (heritage/ethnicity, gender presentation, orientation, disclosure, age)
 > are now **LLM-seeded to U.S.-population rates** and written back via the `recordCastIdentity` write-back;
 > the engine **validates + repairs** the whole-cast proposal through `repairDiversityLayer`
@@ -246,7 +246,7 @@ showmance or pre-game tie**:
 ## 10. Out of scope / relationships
 
 - **Out:** portrait *generation* itself (0051/L29 consume the facet); the soul-evolution math (0041);
-  the relationship math (0026); the showmance stage-advancement scheduler (0059 §5 deferred follow-on
+  the relationship math (0026); the showmance stage-advancement scheduler (0059 §5, since built in the core as `advanceShowmances`
   — 0063 makes it orientation-aware, it does not build it); any dating-sim UI or player-facing
   "relationship status."
 - **Extends:** **L28** (variety-via-caps → adds the symmetric floors), **0058** (the
