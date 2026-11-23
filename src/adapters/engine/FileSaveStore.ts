@@ -698,8 +698,8 @@ export class FileSaveStore implements UserSaveStore {
   /**
    * Season restart (audit E1/R1): ROTATE the user's save dir off the live path — `hasSave` goes
    * false, the new season's `v000001` starts clean, and an engine restart resumes season 2 instead
-   * of resurrecting the dead one. The retired dir keeps the old season's record on disk (suffixed,
-   * so `listUsers`' hex filter never resumes it); the factory-reset script scrubs the whole tree.
+   * of resurrecting the dead one. ORW-783: the dead season moves to <dataDir>/save-archive/<hex-user>/<stamp> (dated, capped per user), which keeps its record on disk and sits outside the
+   * hex-named live dirs, so `listUsers` never resumes it; the factory-reset script scrubs the whole tree.
    */
   resetUser(user: string): void {
     const dir = this.userDir(user);
