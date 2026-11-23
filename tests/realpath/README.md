@@ -43,4 +43,9 @@ and fake front-end providers (an LLM or image stub).
 The guard is a line-level text check, so an alias (`const L = s.live; L.week = 1`) or editing a snapshot
 and restoring it escapes it. Reviewers still read the test. There is no escape hatch in the guard.
 
+`playedSeason.ts` holds the shared stop (ORW-810): `playUntil(seed, stopWhen)` plays a season with the scripted talking player
+(`tests/support/whatFired/player.ts`) on the production runtime, with the premiere entrances and the bedtime gate on as they ship, and stops
+at the first message where `stopWhen` (a pure read) holds; the test then acts through the player's MCP channel (`at.call(...)`). A test that
+needs more than about a minute of play goes to the heavy lane (`tests/uat/realPath*.test.ts`) instead.
+
 Roles only in tests (HOH, nominee, NPC, player), never names.
