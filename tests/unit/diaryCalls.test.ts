@@ -111,6 +111,25 @@ describe("0210 C2 - in a played game", () => {
     }
     expect(sawAway).toBe(true);
   });
+  it("ORW-789: a houseguest away in the Diary Room is still in the house and up: the awake and asleep lists together name everyone in the house", () => {
+    const { sb, s } = boot(5);
+    const live = s.live as LiveSeasonState;
+    let checked = false;
+    for (let d = 1; d <= 6 && !checked; d++) for (let h = 9; h <= 22 && !checked; h++) {
+      live.dayNumber = d; live.nightDepth = h;
+      s.houseLifeStretch(sb.engine.events, s.livingIds().filter((x: string) => x !== PLAYER), (d - 1) * 24 + h, sb.engine.knowledge);
+      const away = live.diaryCalls?.away;
+      if (!away) continue;
+      checked = true;
+      const st = s.getGameState();
+      expect(Array.isArray(st.awake)).toBe(true);
+      const listed = new Set<string>([...st.awake.map((x: Any) => x.id), ...(st.asleep ?? []).map((x: Any) => x.id)]);
+      const inHouse = (st.house as Any[]).filter((r) => r.status === "active").map((r) => r.id);
+      expect(inHouse.filter((id) => !listed.has(id))).toEqual([]);
+      expect(st.awake.map((x: Any) => x.id)).toContain(away.who);
+    }
+    expect(checked).toBe(true);
+  });
   it("ORW-695: while away the houseguest takes no part in any house-life stretch (no scene, no event, no witness), and the narrator's away fact names the same person", () => {
     const { sb, s } = boot(5);
     const live = s.live as LiveSeasonState;

@@ -8370,7 +8370,8 @@ export class GameSessionAdapter implements GameSession {
   private awakeNpcs(): NamedRef[] | undefined {
     const awake = this.awakeNow();
     if (!awake) return undefined;
-    const notHere = this.notInHouseNow();
+    // ORW-789: only the not-yet-arrived are left out. A houseguest called to the Diary Room is in the house and up, so awake + asleep still name everyone in it (their whereabouts, away, is the narrator's diaryCall fact).
+    const notHere = this.notYetArrived();
     return this.presenceActive()
       .filter((id) => id !== PLAYER && awake.has(id) && !notHere?.has(id))
       .map((id) => ({ id, name: this.nameOf(id) }));
