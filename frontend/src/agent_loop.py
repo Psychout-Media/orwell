@@ -5466,10 +5466,24 @@ async def _auto_answer_deal_offer(last_user, narration, owner, endpoint_url, mod
 _ALLIANCE_SIGNAL_RE = re.compile(r"\b(?:alliance|alliances|allies|ally|bloc|crew|squad|final[\s-]?(?:three|four|five|3|4|5))\b", re.I)
 
 
-async def _auto_alliance(narration, last_user, house, endpoint_url, model, headers, owner, applied_out=None) -> bool:
+def _alliance_call_landed(result) -> bool:
+    """ORW-793: did the engine TAKE a model-driven joinAlliance / formAlliance? A taken one returns the alliance (an id); a refusal returns nothing (null) or an error."""
+    if not isinstance(result, dict) or result.get("exit_code") not in (None, 0) or result.get("error"):
+        return False
+    try:
+        view = json.loads(result.get("output") or "null")
+    except Exception:
+        return False
+    return isinstance(view, dict) and bool(view.get("id")) and not view.get("error")
+
+
+async def _auto_alliance(narration, last_user, house, endpoint_url, model, headers, owner, applied_out=None, refused=None) -> bool:
     """Record an alliance the player agreed to aloud but the model never joined/formed (ORW-780). True only when the
     engine APPLIED a membership (success-gated telemetry); a refusal, an ambiguous scene or any hiccup is a no-op.
-    `applied_out` receives one entry per applied membership."""
+    `applied_out` receives one entry per applied membership. `refused` (ORW-793) is what the ENGINE already refused the model this turn
+    ({"join": {pitch ids}, "form": [frozenset of ids]}): a refused pitch or a group that asks nothing the engine has not already declined is never re-proposed."""
+    refused_join = set((refused or {}).get("join") or ())
+    refused_forms = list((refused or {}).get("form") or ())
     try:
         from src.llm_core import llm_call_async
         from src import orwell_engine as _oe
@@ -5478,7 +5492,7 @@ async def _auto_alliance(narration, last_user, house, endpoint_url, model, heade
             return False
         state = await _oe.get_game_state(user=owner)
         raw_pitches = (state or {}).get("alliancePitches") if isinstance(state, dict) else None
-        pitches = {p.get("id"): p for p in (raw_pitches or []) if isinstance(p, dict) and p.get("id")}
+        pitches = {p.get("id"): p for p in (raw_pitches or []) if isinstance(p, dict) and p.get("id") and p.get("id") not in refused_join}
         if not pitches and not _ALLIANCE_SIGNAL_RE.search(last_user or ""):
             return False  # no open pitch to accept and the player did not speak of an alliance: nothing to extract
         pitch_lines = "\n".join(
@@ -5525,6 +5539,8 @@ async def _auto_alliance(narration, last_user, house, endpoint_url, model, heade
         if not _any and isinstance(form, dict):
             group_ids = [m for m in (form.get("members") or []) if isinstance(m, str) and m in roster]
             group_ids = list(dict.fromkeys(group_ids))[:7]
+            if any(set(group_ids) <= done for done in refused_forms):
+                group_ids = []  # the engine already declined this group (or a larger one containing it): a refused pair stays refused
             if len(group_ids) >= 2:
                 group_label = form.get("name") if isinstance(form.get("name"), str) else ""
                 res = await _backfill_with_cas(owner, _oe.form_alliance, group_label.strip()[:60], group_ids, user=owner, defer_fold=True)
@@ -9204,6 +9220,7 @@ async def _stream_agent_loop_impl(
     _turn_expose_nudges = 0  # 0093 expose belt: at most one auto-exposeSecret per finishing turn
     _turn_trade_nudges = 0  # 0099 trade belt: at most one auto-tradeSecret per finishing turn
     _turn_alliance_nudges = 0  # ORW-780 alliance belt: at most one auto join/form per finishing turn
+    _turn_alliance_refused: dict = {"join": set(), "form": []}  # ORW-793: what the engine refused the MODEL's own joinAlliance / formAlliance this turn (the belt never re-proposes it)
     _turn_move_nudges = 0  # L21/L24 auto-move belt: at most one auto-move per finishing turn
     _turn_npc_move_nudges = 0  # ADR 0009 NPC auto-move belt: at most one per finishing turn
     _turn_approach_nudges = 0  # 0036/0049: at most one NPC-approach nudge per finishing turn
@@ -11176,7 +11193,7 @@ async def _stream_agent_loop_impl(
                             _applied_alliances: list = []
                             if await _auto_alliance(_turn_narration, _last_user_for_confide,
                                                     _house, _belt_endpoint, _belt_model, _belt_headers, owner,
-                                                    applied_out=_applied_alliances):
+                                                    applied_out=_applied_alliances, refused=_turn_alliance_refused):
                                 for _ in (_applied_alliances or [None]):
                                     _note_belt(owner, "auto-alliance")
                         if (_want_record and _touched and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN
@@ -12700,7 +12717,23 @@ async def _stream_agent_loop_impl(
             if _is_live_game and block.tool_type == "tradeSecret":
                 _turn_trade_nudges = 1  # model called tradeSecret itself — don't also back-fill one (0099)
             if _is_live_game and block.tool_type in ("joinAlliance", "formAlliance"):
-                _turn_alliance_nudges = 1  # model joined/formed an alliance itself - don't also back-fill one (ORW-780)
+                # ORW-780: the model joined/formed an alliance itself - don't also back-fill one. ORW-793: only when the engine TOOK it; a refusal recorded nothing, so the omission remains and the belt
+                # stays armed (once, as ever) - but never for the pitch / group the engine just declined.
+                if _alliance_call_landed(result):
+                    _turn_alliance_nudges = 1
+                else:
+                    try:
+                        _refused_args = json.loads(block.content) or {}
+                        if block.tool_type == "joinAlliance":
+                            _refused_pitch = str(_refused_args.get("allianceId") or _refused_args.get("alliance_id") or "").strip()
+                            if _refused_pitch:
+                                _turn_alliance_refused["join"].add(_refused_pitch)
+                        else:
+                            _refused_group = frozenset(m for m in (_refused_args.get("members") or []) if isinstance(m, str))
+                            if _refused_group:
+                                _turn_alliance_refused["form"].append(_refused_group)
+                    except Exception:
+                        _turn_alliance_nudges = 1  # unreadable call: stand down as before rather than guess
 
             formatted = format_tool_result(desc, result)
             # LIVE-4 (#541): an advanceGame that returned an eviction-STAGE beat gets a focused steer
