@@ -13,7 +13,7 @@ A houseguest the player asks about a third person answers from their own record 
 ## Rules
 The engine never acts or speaks for the player: whether to call the houseguest out is the player's choice, played in conversation like any scene. No rng and no new draw (the record is written from the existing seeded answer); flag off, a headless game, or no lead given leaves everything byte-identical. Nothing hidden (the true room, the misled flag) reaches the narrator or the player.
 
-## Left for follow-up slices
+## Left for follow-up slices (ORW-825)
 An NPC asking another NPC (parity in the other direction); a lever to cite a found-out lead (`confront`) and a standing/credibility cost when the player does call it out; a houseguest's own mood or reputation moving when the player holds a misdirection against them.
 
 ## Gates

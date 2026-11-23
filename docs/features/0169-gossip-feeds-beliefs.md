@@ -19,4 +19,4 @@ Engine-only, hidden layer. Nothing is projected; the live-sentinel sweep now pla
 
 ## Not covered
 
-Thread, legend and barter gossip paths still record nothing new. Follow-up if the owner wants them.
+Thread, legend and barter gossip paths still record nothing new. Follow-up if the owner wants them. (ORW-825)

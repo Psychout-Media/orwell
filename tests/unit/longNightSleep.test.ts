@@ -4,7 +4,8 @@ import { playerNightDeficit } from "../../src/engine/liveSeason";
 import { bootPlayed, playNight } from "../support/longNightDriver";
 
 /**
- * ORW-696 (B2-2 + B2-3): the double-eviction long night, played through the real path (bootPlayed/playNight, no state injection). ADR 0006: nobody can turn in on that night, so
+ * ORW-696 (B2-2 + B2-3): the double-eviction long night. UNIT: the double eviction is re-armed by hand at 12 houseguests (bootPlayed replaces the sealed plan), so it fires in week 4
+ * (ORW-812: the same checks on a season whose own plan arms it are played in tests/uat/realPathLongNight.test.ts, the heavy lane). ADR 0006: nobody can turn in on that night, so
  * (B2-2) nobody in the house goes to bed during it, and (B2-3) the hours it forced awake are charged to no one: the player's bed stamp and every NPC's debt read the same waived night.
  * Roles only. The hidden rest numbers are read from internals here and never cross to a player surface.
  */
@@ -25,7 +26,7 @@ function playLate(seed: number, hour: number, onRow?: (s: Any, row: Any) => void
   return { s, rows: r.rows, fired: r.fired };
 }
 
-describe("ORW-696 the double-eviction long night: nobody turns in, nobody pays for it", () => {
+describe("ORW-696 the double-eviction long night (unit: the twist is armed by hand): nobody turns in, nobody pays for it", () => {
   it("B2-2: no houseguest is asleep at any point while the long night runs (an early sleeper stays up)", () => {
     for (const seed of [5, 11]) { // seed 11 has early sleepers whose bedtime falls inside the night
       let running = 0; const asleep: string[] = [];

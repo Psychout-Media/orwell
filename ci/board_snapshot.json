@@ -1,0 +1,9 @@
+{
+  "_how": "ORW-758 A2: the board state of every ORW card a `# spec-only:` feature marker names. The coordinator refreshes it from the Plane board (a CI job never calls the board). States are the board's names: Backlog, Buildable, In Build, In Review/CI, Done, Needs Ryne, Parked, Discarded.",
+  "refreshed": "2026-11-23",
+  "states": {
+    "ORW-662": "Done",
+    "ORW-666": "Done",
+    "ORW-823": "Discarded"
+  }
+}

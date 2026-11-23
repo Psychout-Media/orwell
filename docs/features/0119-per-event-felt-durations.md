@@ -56,7 +56,7 @@ is deliberately the **per-conversation clock**:
 - `beatFeltHours(beat)` in `src/engine/daySchedule.ts` — the beat→felt-hours read (via `eventSpanHours`).
 - The `advanceGame` per-beat clock site applies it when `perConversationClockLive()`.
 
-**Out (a clean hook, not built):** per-*competition* durations (an endurance comp vs. a quick quiz) — the
+**Out (a clean hook, not built):** per-*competition* durations (an endurance comp vs. a quick quiz) — the (ORW-824)
 `eventSpanHours(beat, overrideHours)` override already accepts a per-comp value, but the 0042 competition
 library does not yet assign one, so all comps share the category default for now. Wiring library durations
 is a future 0042 extension. No change to the seeded spine, the Vault Wall, or NPC logic.

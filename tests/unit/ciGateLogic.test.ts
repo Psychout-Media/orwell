@@ -18,7 +18,7 @@ const lines = yml.slice(start).split("\n");
 const end = lines.findIndex((l) => l.trim() !== "" && !l.startsWith(" ".repeat(10)));
 const script = (end < 0 ? lines : lines.slice(0, end)).map((l) => l.replace(/^ {10}/, "")).join("\n");
 
-const JOBS = ["changes", "fast-checks", "test", "bdd", "test-unit", "coverage", "smoke", "fe-unit", "fe-coverage", "fe-perf-report", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
+const JOBS = ["changes", "backlog-whole", "fast-checks", "test", "bdd", "test-unit", "coverage", "smoke", "fe-unit", "fe-coverage", "fe-perf-report", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
 const HEAVY_TIER = ["bdd", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
 
 function gate(full: boolean, results: Record<string, string>, filters: Record<string, string> = {}): { rc: number; out: string } {
@@ -32,7 +32,8 @@ function gate(full: boolean, results: Record<string, string>, filters: Record<st
   return { rc: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
 }
 const skipHeavy = Object.fromEntries(HEAVY_TIER.map((j) => [j, "skipped"]));
-const skipAll = Object.fromEntries(JOBS.filter((j) => j !== "changes").map((j) => [j, "skipped"]));
+// ORW-758: backlog-whole has no path filter and is never reused, so it is never skipped: it runs (and passes) even on a docs-only PR.
+const skipAll = Object.fromEntries(JOBS.filter((j) => j !== "changes" && j !== "backlog-whole").map((j) => [j, "skipped"]));
 
 describe("ci-gate (two-tier CI)", () => {
   it("passes a full run where everything succeeded", () => expect(gate(true, {}).rc).toBe(0));
@@ -46,6 +47,19 @@ describe("ci-gate (two-tier CI)", () => {
     const r = gate(false, skipHeavy);
     expect(r.rc).toBe(1);
     expect(r.out).toContain("this run was not the full suite");
+  });
+  it("ORW-758: backlog-whole is a required input that always runs (no path filter, never reused: the PR body differs even when the tree does not), and its failure fails the gate", () => {
+    expect(gate(true, { "backlog-whole": "failure" }).rc).toBe(1);
+    const j = yml.slice(yml.indexOf("\n  backlog-whole:\n"), yml.indexOf("\n  ci-gate:\n"));
+    expect(j).not.toMatch(/\n    if: /);
+    expect(j).not.toMatch(/\n    needs: /);
+    expect(j).toContain("PR_BODY: ${{ github.event.pull_request.body }}");
+    expect(j).toContain("node ci/check_backlog_whole.mjs");
+    expect(j).toContain("fetch-depth: 2");
+    expect(j).toContain('git show HEAD^1:ci/backlog_baseline.json');
+    const gateJob = yml.slice(yml.indexOf("\n  ci-gate:\n"));
+    expect(gateJob).toContain("      - backlog-whole\n");
+    expect(gateJob).toContain("backlog-whole=${{ needs.backlog-whole.result }}");
   });
   it("fast-checks is a required input: its failure or an applicable skip fails the gate; with both engine and front-end filters false a skip is fine (docs-only)", () => {
     expect(gate(true, { "fast-checks": "failure" }).rc).toBe(1);

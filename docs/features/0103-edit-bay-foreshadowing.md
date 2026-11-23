@@ -8,7 +8,7 @@
 > `leadTimeFromWeeksOut`) + `src/engine/foreshadowConstants.ts`, `tests/unit/foreshadow.test.ts` (12 cases:
 > in-motion-only, needs-a-public-observation, cadence caps, the Vault-premise sentinel sweep, determinism).
 > GOLDEN-NEUTRAL (the base narrator prompt is untouched — the `editBayHint` context field ships with the
-> adapter wiring). **Follow-up lane (LARGE — not yet built):** the `GameSessionAdapter` off-screen-tick wiring
+> adapter wiring). **Follow-up lane (LARGE — not yet built):** the `GameSessionAdapter` off-screen-tick wiring (ORW-823)
 > on a dedicated side-rng behind `ORWELL_FORESHADOW` (byte-identical when off), the read-only `editBayHint`
 > `momentPrompts` field, persistence of the cadence counters + hint→pathway link, the 0092/0102 coordination
 > (R3), and BDD wiring. *(Previously: ❄️ FROZEN — parked 2026-06-27; #885 closed not planned; a 2026-07-12

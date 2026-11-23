@@ -24,6 +24,6 @@ A keyed roll (`ROOM_LIFE.chance`, 0.4) decides whether anyone steps this stretch
 
 Hidden (never in the event, the prompt or the player's knowledge): the goal, its kind, the truth of what was said, every roll. Observable: who, with whom, the act, the manner. No number crosses.
 
-## Deferred
+## Deferred (ORW-825)
 
 Trajectory folds for room steps (the orchestrator feeds them for hidden scenes only); a room act that makes a houseguest leave because the player walked in; two houseguests whispering as a distinct observable beat.
