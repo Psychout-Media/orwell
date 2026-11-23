@@ -230,6 +230,19 @@ behaviour changed — the feature was already built; R4 added the regression pin
   single-source-of-truth anchor) and FE-side (`frontend/tests/test_fs4f_resume_name_grounding.py`). Any
   residual "Lake Fleming" slip is model stochasticity, not a resume-path defect.
 
+## Amendment 2026-11-20 (ORW-740b; related ORW-705 PT-3, ORW-706) - the room of a competition or ceremony is one engine read
+
+Fable's second playtest saw the house "called to the living room" for a competition the engine stages in the backyard. Diagnosis, from the dev journals and the transcript:
+
+- **(a) the engine's two reads disagreed (root cause of the narrated mismatch).** The per-turn "IT IS TIME" line said "production calls the whole house to the living room" for EVERY event, while `gatherForCeremony` seats a competition in the backyard
+  (ORW-281 slice 6). The room is now one function, `eventStagingRoom` (`src/engine/houseEvent.ts`), read by the gather, the restore rebuild and the briefing: the due line names that room (this season's name for it) and the room the player is in, and
+  while a competition or ceremony is in session the whereabouts `houseEvent.room` plus an "IS IN SESSION" line name the room the house is gathered in. Flag `ORWELL_EVENT_ROOM_FACT`, default ON; `=0` restores the old wording byte for byte.
+- **(c) the report-only briefing audit was a false positive (the `briefing-conflict:player-room` soft-fail).** Of the journal lines that name both sides, 281 of 281 are one pair: the engine's themed "The Hearth Pit" against the audit's own capture "the-hearth-pit"
+  (its "the " matcher was case-sensitive). Fixed in `frontend/routes/briefing_audit.py`; a real disagreement still reports. The 131 lines of the first playtest carry no sides (that journal pre-dates the detail text), so their pair cannot be classified from evidence.
+- **(b) the narrator ignoring a correct fact** cannot be guaranteed away from the engine side. The pre-display check (`frontend/src/predisplay_check.py`) gains an `event-room` fact (count-only, like its siblings; the quiet rewrite stays OFF): a sentence that calls or gathers the house into a room other than `whereabouts.houseEvent.room`.
+
+Not built: a held or rewritten reply for this fact (needs the held-reply slice of ORW-408); a check on the player's own room outside a house event (ORW-705 PT-3's asleep-in-one-room / diary-room cases stay with ORW-408).
+
 ## Key files
 
 `src/domain/house.ts` (floor plan) · `src/adapters/engine/GameSessionAdapter.ts`

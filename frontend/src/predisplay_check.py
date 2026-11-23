@@ -23,12 +23,13 @@ from typing import Any, Iterable, NamedTuple, Optional
 
 logger = logging.getLogger(__name__)
 
-_STATE_FIELDS = ("asleep", "daySchedule", "ceremony", "eviction")  # the only parts of the cached board the checks read
+_STATE_FIELDS = ("asleep", "daySchedule", "ceremony", "eviction", "whereabouts")  # the only parts of the cached board the checks read
 FACT_ASLEEP = "asleep-speaks"
 FACT_CLOCK = "clock-time"
 FACT_SCHEDULE = "schedule-words"
 FACT_VETO = "veto-decision"  # ORW-715
 FACT_EVICTEE = "evictee-named"  # ORW-715
+FACT_EVENT_ROOM = "event-room"  # ORW-740b
 
 # The sleeper is only MENTIONED (asleep, snoring, in bed, dreaming): allowed. Anything else near their name with a voice or a movement is a conflict.
 _SLEEP_OK_RE = re.compile(r"\b(?:asleep|sleep\w*|snor\w+|slumber\w*|dream\w*|turned\s+in|in\s+(?:his|her|their)\s+bed|in\s+bed|under\s+the\s+covers|out\s+cold|fast\s+asleep)\b", re.IGNORECASE)
@@ -274,6 +275,47 @@ def evictee_conflict(text: str, eviction: Any, ceremony: Any) -> "Optional[str]"
     return None
 
 
+# ── ORW-740b: the room a competition or ceremony is called to ───────────────────────────────────────────────────────────────────────
+# While a whole-house event is in session the engine seats everyone in ONE room (`whereabouts.houseEvent.room`, the same read as `whereabouts.room`: ceremonies in the living room, competitions in the
+# backyard). A sentence that CALLS or GATHERS the house into a different room of this house contradicts it. Checked including quoted speech (production's call is spoken). Fail-open: no event in
+# session, no room names, or an unreadable board => no conflict. A sentence that also names the engine's room (a move from one to the other) is never a conflict.
+_EVENT_KINDS = ("hoh-competition", "veto-competition", "nominations", "veto-draw", "veto-ceremony", "eviction")
+_CALL_RE = re.compile(r"\b(?:called|calls|calling|gather\w*|summon\w*|herd\w*|assembl\w*|everyone|everybody|whole\s+house|all\s+of\s+you|houseguests|spill\w*|files?|filed|filing|fills?|filled)\b", re.IGNORECASE)
+
+
+def _room_words(name: Any) -> "list[str]":
+    n = re.sub(r"^\s*the\s+", "", str(name or ""), flags=re.IGNORECASE).strip().lower()
+    return [n] if len(n) >= 4 else []
+
+
+def event_room_conflict(text: str, whereabouts: Any) -> Optional[str]:
+    """The engine's name for the event room when a sentence of `text` calls or gathers the house into a different room of the house; None otherwise."""
+    try:
+        if not text or not isinstance(whereabouts, dict):
+            return None
+        ev = whereabouts.get("houseEvent")
+        if not isinstance(ev, dict) or ev.get("kind") not in _EVENT_KINDS or not isinstance(ev.get("room"), str):
+            return None
+        names = whereabouts.get("roomNames") if isinstance(whereabouts.get("roomNames"), dict) else {}
+        if not names or ev["room"] not in names:
+            return None
+        # a room is called by its themed name or its plain one ("the living room"), so both forms are the room
+        here = _room_words(names[ev["room"]]) + _room_words(str(ev["room"]).replace("-", " "))
+        others = [w for k, v in names.items() if k != ev["room"] for w in _room_words(v) + _room_words(str(k).replace("-", " "))]
+        if not here or not others:
+            return None
+        for sent in _sentences(text):
+            low = sent.lower()
+            if not _CALL_RE.search(sent) or any(h in low for h in here):
+                continue
+            for o in others:
+                if re.search(r"\b(?:to|into|in|inside|toward|towards)\s+(?:the\s+)?" + re.escape(o) + r"\b", low):
+                    return str(names[ev["room"]])
+        return None
+    except Exception:  # failsoft-ok: orw740b-event-room (an unreadable check never holds narration)
+        return None
+
+
 def find_conflicts(text: str, state: Any, *, zero_clocks: bool, in_quote: bool = False) -> "list[str]":
     """The hard-fact conflicts in `text` against the Vault-free `getGameState` dict. Returns fact ids, e.g. ["clock-time"]. Fail-open: any hiccup => [].
     Derived from `conflict_details` (review of #2723) so a hard fact is defined in one place."""
@@ -288,6 +330,7 @@ def correction_for(fact: str) -> str:
         FACT_SCHEDULE: "The next event is on a later day; do not place it today or tonight.",
         FACT_VETO: "The veto decision is stated wrongly or before the game made it; state only the engine's decision, or none if it is not made yet.",
         FACT_EVICTEE: "A houseguest is named as evicted who the game did not evict; name only the engine's evictee.",
+        FACT_EVENT_ROOM: "The house is called to, or gathered in, a room other than the one the game staged the event in; name only the engine's room.",
     }.get(fact, "")
 
 
@@ -364,6 +407,9 @@ def conflict_details(text: str, state: Any, *, zero_clocks: bool, in_quote: bool
             out.append(Conflict(FACT_VETO, _veto_correction_detail(state.get("ceremony"))))
         if evictee_conflict(text, state.get("eviction"), state.get("ceremony")):
             out.append(Conflict(FACT_EVICTEE, str(((state.get("eviction") or {}).get("evictee") or {}).get("name") or "")))
+        room = event_room_conflict(text, state.get("whereabouts"))
+        if room:
+            out.append(Conflict(FACT_EVENT_ROOM, room))
         return out
     except Exception:  # failsoft-ok: orw408-detail-check (fail-open: an unreadable check never holds narration)
         return []
@@ -458,6 +504,8 @@ def _correction_line(c: Conflict) -> str:
         return f"The veto decision is made and it is: {c.detail}. State only that."
     if c.fact == FACT_EVICTEE:
         return f"{c.detail} is the houseguest the game evicted; no one else was evicted."
+    if c.fact == FACT_EVENT_ROOM:
+        return f"The whole house is gathered in {c.detail} for this event; do not call or place it anywhere else."
     return correction_for(c.fact)
 
 

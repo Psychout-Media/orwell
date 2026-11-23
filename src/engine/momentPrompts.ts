@@ -1381,6 +1381,9 @@ export function renderGameContext(view: GameStateView): string {
       ...(wa.roomCard
         ? [`    FIRST VISIT - ROOM CARD (engine truth, once only): the player has just stepped into ${wa.roomCard.name} for the first time. Author a short arrival moment for it live, in your own words, from these facts: its name${wa.roomCard.look ? `; its look: ${wa.roomCard.look}` : ""}; ${wa.roomCard.here.length ? `who is in it: ${wa.roomCard.here.join(", ")}` : "nobody else is in it"}; ${wa.roomCard.opensOnto.length ? `what it opens onto: ${wa.roomCard.opensOnto.join(", ")}` : "it opens onto nothing else"}. Give it a name-and-look moment that the player takes in; never read the facts out as a list, never invent a person who is not listed, and do not repeat the card on later turns.`]
         : []),
+      ...(wa.houseEvent?.room && wa.houseEvent.kind in MILESTONE_LABEL
+        ? [`    THE ${milestoneLabel(wa.houseEvent.kind as keyof typeof MILESTONE_LABEL).toUpperCase()} IS IN SESSION (engine truth): the whole house is gathered in ${roomRefHere(wa.houseEvent.room)}, and that is where it happens.`]
+        : []),
       `    With you: ${here}.`,
       // ORW-249: the engine re-seated the house after the player's message - voice who walked in / out as ONE short beat so the story and the widget change together.
       ...(wa.sinceSend && (wa.sinceSend.arrived.length || wa.sinceSend.departed.length)
@@ -1685,7 +1688,7 @@ export function renderGameContext(view: GameStateView): string {
     ...(view.daySchedule
       ? [
           view.daySchedule.due
-            ? `- IT IS TIME: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is starting NOW — production calls the whole house to the living room; the scheming pauses and everyone gathers for the ceremony.`
+            ? `- IT IS TIME: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is starting NOW — production calls the whole house to ${view.daySchedule.stagingRoom ? roomRefHere(view.daySchedule.stagingRoom) : "the living room"}${view.daySchedule.stagingRoom && wa ? ` (you are in ${roomRefHere(wa.room)})` : ""}; the scheming pauses and everyone gathers for the ceremony.`
             : view.daySchedule.todaysEvent
               // ORW-258: every event gets its own day - while the next one waits behind its night, today belongs to the event just played and the next is TOMORROW
               ? `- COMING UP: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is set for TOMORROW ${view.daySchedule.phase} — today is the ${MILESTONE_LABEL[view.daySchedule.todaysEvent]}'s day, and nothing else is called tonight: the house talks it over and winds down for the night; do not stage the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} today.`

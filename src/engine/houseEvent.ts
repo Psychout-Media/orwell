@@ -7,6 +7,7 @@
 import type { LiveSeasonState } from "./liveSeason";
 import type { EntityId } from "../domain/ids";
 import { tourFree } from "./houseTour";
+import type { Room } from "../domain/house";
 
 export type LiveHouseEventKind =
   | "premiere-entrances" | "champagne-circle" | "hoh-competition" | "veto-competition"
@@ -39,4 +40,15 @@ export function liveHouseEvent(s: LiveSeasonState | undefined | null, opts: { in
 /** A comp or ceremony (not the premiere / champagne toast, which have their own skips). */
 export function isCompOrCeremonyKind(k: LiveHouseEventKind | undefined): boolean {
   return k !== undefined && k !== "premiere-entrances" && k !== "champagne-circle";
+}
+
+/**
+ * ORW-740b (ADR 0009 amended 2026-11-20): the ONE answer to "which room is this whole-house event staged in?" (Ryne 2026-11-11, ORW-281 slice 6: ceremonies live in the living room, competitions
+ * in the backyard). The ceremony gather (`gatherForCeremony`), the restore rebuild of the hold and the per-turn briefing all read it, so the room the engine seats the house in and the
+ * room the narrator is told can never be two reads. Competitions move the house for real in a PLAYED game only (a headless sim keeps no gather): `null` there, and for every kind that has no staging room.
+ */
+export function eventStagingRoom(kind: string | undefined | null, playedGame: boolean): Room | null {
+  if (kind === "nominations" || kind === "veto-draw" || kind === "veto-ceremony" || kind === "eviction") return "living-room";
+  if ((kind === "hoh-competition" || kind === "veto-competition") && playedGame) return "backyard";
+  return null;
 }
