@@ -7,8 +7,9 @@ import { playedSession, sessionWithRoll, warm, cold, setEdge, ledger, gather } f
 import { RelationshipModel } from "../../src/engine/relationships";
 import { GameSessionRegistry } from "../../src/composition/registry";
 
-/** 0171: the wiring through the real adapter. Roles only. */
-describe("called-in favors at a close vote", () => {
+/** 0171: the wiring through the real adapter with ledgers, edges, presence and the vote doubt SET BY HAND through tests/support/favorsSeam (unit tests; the REAL PATH is
+ * tests/uat/realPathFavors.test.ts, ORW-811). Roles only. */
+describe("unit, state set by hand: called-in favors at a close vote", () => {
   it("a warm debtor repays, shielding the holder at that vote; the favor is cleared and calledBeat set", () => {
     const p = sessionWithRoll("honor");
     const [h, d, o] = p.npcs as [string, string, string];
@@ -57,7 +58,7 @@ describe("called-in favors at a close vote", () => {
   });
 });
 
-describe("the vote term", () => {
+describe("unit, state set by hand: the vote term", () => {
   it("is named (after 0180's herd joined the list, no longer last), and an honored favor tips an even call toward keeping the holder; absent, it is byte-identical", () => {
     expect(VOTE_TERM_NAMES).toContain("favor");
     const rel = new RelationshipModel(0.5);
@@ -71,7 +72,7 @@ describe("the vote term", () => {
   });
 });
 
-describe("counters at the swap seam", () => {
+describe("unit, state set by hand: counters at the swap seam", () => {
   const swap = (favors: boolean) => {
     const p = playedSession(6, { favors });
     const [npc, rival] = p.npcs as [string, string];
@@ -143,7 +144,7 @@ describe("counters at the swap seam", () => {
   });
 });
 
-describe("headless seasons are byte-identical with the flag on or off", () => {
+describe("unit, state set by hand: headless seasons are byte-identical with the flag on or off", () => {
   it("the same seed plays the same, snapshot and all", () => {
     const run = (on: boolean) => {
       const sb = new GameSessionRegistry().sandboxFor(`favors-id-${on}`);
@@ -157,7 +158,7 @@ describe("headless seasons are byte-identical with the flag on or off", () => {
   });
 });
 
-describe("one favor bank (the 0142 bank folded into the ledger)", () => {
+describe("unit, state set by hand: one favor bank (the 0142 bank folded into the ledger)", () => {
   it("a legacy owedFavors row is copied into the ledger on restore, losing none, and the lever still works through it", () => {
     const p = playedSession(6);
     const [a, b] = p.npcs as [string, string];
@@ -192,7 +193,7 @@ describe("one favor bank (the 0142 bank folded into the ledger)", () => {
   });
 });
 
-describe("favors both ways", () => {
+describe("unit, state set by hand: favors both ways", () => {
   it("the engine never calls in a favor the player holds", () => {
     const p = sessionWithRoll("honor");
     const [d, o] = p.npcs as [string, string];
@@ -273,7 +274,7 @@ describe("favors both ways", () => {
   });
 });
 
-describe("ORW-617: one honor weight for any holder", () => {
+describe("unit, state set by hand: ORW-617: one honor weight for any holder", () => {
   it("an honored favor weighs the same as a formal deal, whoever the holder is", () => {
     const p = sessionWithRoll("honor");
     const [h, d] = p.npcs as [string, string];

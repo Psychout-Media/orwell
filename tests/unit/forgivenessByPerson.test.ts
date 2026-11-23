@@ -78,7 +78,7 @@ type Rig = {
   soulObj(id: string): { volatility: number } | undefined;
   live: { week: number; npcMemory?: Record<string, Record<string, MemoryEntry[]>> };
 };
-describe("through the real session: the holder's traits and the bond to EACH subject decide the read", () => {
+describe("unit, state set by hand (style, soul and bonds are stubbed; the REAL PATH is tests/realpath/forgivenessByPerson.test.ts, ORW-811): the holder's traits and the bond to EACH subject decide the read", () => {
   function rig(style: string, volatility: number, bonds: { close: number; far: number }) {
     const sb = new GameSessionRegistry().sandboxFor(`forg-person-${style}-${volatility}`);
     sb.session.createCharacter({ playerName: "P", seed: 7 });
