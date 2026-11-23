@@ -157,7 +157,7 @@ The optional roundtable sub-scope touches the finale calibration (juryReach), he
 - **Tests:** `tests/unit/juryHouse.test.ts` (roster, per-juror shareable-knowledge bounding, the Vault canary,
   contradiction-between-jurors, restart-resume) + `docs/features/0129-*.feature` → `cucumber.cjs`.
 
-**Open decision (deferred to build time):** whether to ship the optional NPC-juror-vote roundtable effect at
+**Open decision (deferred to build time):** whether to ship the optional NPC-juror-vote roundtable effect at (ORW-825)
 all, or keep 0129 purely the player's *experience* (perspectives + Q&A + informed own-vote). Spec ships the
 experience as the core; the vote-nudging is flagged and optional.
 

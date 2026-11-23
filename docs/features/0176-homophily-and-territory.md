@@ -30,7 +30,7 @@ A house sorts itself by where people spend their hours: the kitchen crowd, the b
 - Played games only (`live.playedGame`), so headless calibration is byte-identical. Flag `ORWELL_TERRITORY`, default ON, `=0` opts out.
 - Seam note: a "cliquey" house culture could scale `TERRITORY.*` later; no lean reads it yet.
 
-### TODO (not built)
+### TODO (not built) (ORW-825)
 
 A words-only line in the post-season retrospective behind the finished gate ("the kitchen crowd", "the backyard set", "a bedroom that became a bloc"). `describeTerritory` (pure, words only, no digits) is ready; surfacing it needs the `RetrospectiveView` type, the front-end tool pass-through (as `houseCulture` has) and the retrospective window.
 

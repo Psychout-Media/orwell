@@ -29,7 +29,7 @@ The engine hands facts (each episode's top moments with names, the week's head o
 ## Front end
 The retrospective window renders the floor lines under "Your edit" (render-only, textContent, no number). The host model receives `yourEdit` in the `seasonRetrospective` result (the field is not popped). No new FE tool, so no lever wiring.
 
-## Deferred
+## Deferred (ORW-825)
 Writing the narrator's authored titles back to the engine so the window shows them too (a four-place write-back); alliances in the player's edit; the audience's own favorite beside the edit; floater and comic-relief edits.
 
 ## Amendment 2026-11-19 (ORW-691, B1-5): the cut now emits replacements, house meetings and schemes

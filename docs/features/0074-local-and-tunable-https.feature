@@ -1,4 +1,4 @@
-# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
+# spec-only: gated by tests/unit/tlsArtifacts.test.ts; this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 # Feature 0074 — Local & tunable HTTPS (ADR 0014).
 # Roles only (admin, operator, player) — no houseguest or person names. Executable spec of record; the
 # gate is the FE pytest suite + the deploy-artifact test named in the design note's Definition of Done

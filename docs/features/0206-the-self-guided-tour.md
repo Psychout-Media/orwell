@@ -13,7 +13,7 @@ While the tour is open each arrived houseguest stands in the common area (the li
 
 ## The room card
 The first time the player steps into a room (any time in the game, not only the premiere; the entrance room counts at the player's own entrance) the narrator is handed a `roomCard` on the whereabouts for that turn only: the room's id, the season's own name and look for it (the house theme: a library theme or one the writer authored), who is in it and what it opens onto. Third person, number-free, Vault-free. The narrator authors the arrival moment live from these facts, once.
-- **What was chosen:** no new authoring write-back. The season's house theme already carries the authored name and look of every room (a large table, or the writer's own draft accepted per season), so the engine hands the narrator those facts and the rule to author the card; nothing in the tour code is a fixed card per room or a dealt line. A per-room live write-back (a four-place change plus a front-end driver) is a follow-up if the theme look proves too thin.
+- **What was chosen:** no new authoring write-back. The season's house theme already carries the authored name and look of every room (a large table, or the writer's own draft accepted per season), so the engine hands the narrator those facts and the rule to author the card; nothing in the tour code is a fixed card per room or a dealt line. A per-room live write-back (a four-place change plus a front-end driver) is a follow-up if the theme look proves too thin. (ORW-825)
 - **State:** `live.houseTour.seen` (the rooms entered; append-only, saved with the season, checked as a superset by the save check). The turn's card itself is memory only.
 - Only the player ever triggers a card; an NPC walking into a room never does.
 
@@ -25,6 +25,6 @@ While the tour is open and everyone is in, the front end stashes the entrance st
 
 ## Left for later
 - 0205 (the circle as meet-the-cast): the circle is entered from the tour as before; if 0205 changes what the circle is, the "called" edge here (`advancePremiereEntrance`, stage `entrances` with everyone in) is the one place to change.
-- A minimum tour (the engine refusing to call the circle before the player has seen some rooms) is not built; the player or the model's lull call decides.
+- A minimum tour (the engine refusing to call the circle before the player has seen some rooms) is not built; the player or the model's lull call decides. (ORW-825)
 - NPCs walk to the common area in one jump at each step; a per-step walk along the floor plan is not modelled.
 - A per-room authored card (write-back) instead of the theme look.
