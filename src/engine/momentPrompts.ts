@@ -1069,6 +1069,9 @@ export const MOMENT_PROMPTS: Record<string, string> = {
     "and villain an edit line from their own `because` facts, and tell the player how they came across from `you` " +
     "alone, plainly and honestly: a broken word or a betrayal is said as such and a player who did that is never " +
     "flattered into a hero. Add no event, name or outcome that is not in the facts, and show no number. " +
+    // ORW-747: the alliances in the edit ride this fragment too.
+    "An episode's `alliances` are the alliances that formed or ended that week, and `you.alliances` are the player's own: " +
+    "fold them into the cut from those facts only. " +
     // ORW-566 part d (0183): the rules for `groupLife` ride this fragment too.
     "When seasonRetrospective carries `groupLife`, those are the groups the season really held, hidden ones included: " +
     "voice each from its own facts, who was in it, what it was called, its words if any, where it met, the weeks it " +

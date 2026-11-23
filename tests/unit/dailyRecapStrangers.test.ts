@@ -10,7 +10,11 @@ import { PLAYER } from "../../src/domain/ids";
  */
 afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(null));
 
-describe("ORW-707 - the bedtime recap never names a houseguest the player has not met", () => {
+describe("ORW-707 - the bedtime recap never names a houseguest the player has not met (unit: the rumors are set by hand)", () => {
+  // ORW-810: the real path is blocked. Houseguests the player has not met exist only during the premiere entrances, and in a played premiere no houseguest holds any fact yet,
+  // so no in-game pathway (gossip, overhearing, a confidence, the narrator's surfaceInformationTo, which must be anchored in what the teller holds) can bring the player a rumor
+  // about anyone before everyone has walked in. Probed with seeds 3, 5, 7, 11: a talking player, a quiet one, and a player who stays in the premiere for four nights.
+  it.todo("real path: a rumor about a houseguest the player has not met reaches them by bedtime in a played game - blocked: in play nobody holds any fact while anyone is still unmet (ORW-707)");
   for (const seed of [3, 11]) {
     it(`seed ${seed}: a rumor about a stranger stays out of the recap; one about a met houseguest rides`, () => {
       GameSessionAdapter.setTimeOfDayEnabled(true);

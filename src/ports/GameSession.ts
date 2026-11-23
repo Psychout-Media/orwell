@@ -2699,6 +2699,10 @@ export interface RumorMillBelief {
 }
 export interface RumorMill { biggest: RumorMillBelief[]; /** False beliefs whose subject is the player: what the house got wrong about you. */ aboutYou: RumorMillBelief[] }
 
+/** ORW-747 (0203): the coming-clean record after the crown (names, the engine's claim wording, weeks; never an id or a number). */
+export interface ComingCleanRetro {
+  stories: Array<{ liar: string; about: string; versions: Array<{ to: string; said: string; true: boolean; week: number; confessedTo: string[]; loopedIn: string[] }> }>;
+}
 export interface RetrospectiveView {
   /** 0178 (Theme 3 slice 1, Ryne's Q2): every NPC's secret plan for each deal it agreed to and how it went, beside the player's own promise record (deals and promises
    *  they said aloud, each with its status). Present ONLY on the post-season retrospective, and only when the season held a deal or a promise. */
@@ -2724,6 +2728,10 @@ export interface RetrospectiveView {
   rumorMill?: RumorMill;
   /** ORW-551 (spec 0168): the season's house culture in plain texture words (one phrase per lean, heaviest first) - never an id, label, weight or number. Present ONLY on the post-season retrospective, and only when a culture was drawn. */
   houseCulture?: { leans: string[] };
+  /** ORW-747 (spec 0176 part 2): where the house gathered, as crowd words ("the kitchen crowd"), most-held first - never a count, an id or a number. Present ONLY on the post-season retrospective, only for a played game with territory on, and only when a room drew two or more regulars. */
+  territory?: { crowds: string[] };
+  /** ORW-747 (spec 0203): coming clean. Per liar and subject with at least one confession or loop-in, every version they told (to whom, what was said, true or not, the week) and who was told the truth or looped in. Names only and the engine's own claim wording; the retrospective window renders it (kept off the host model's context, like the rumor mill). Present ONLY on the post-season retrospective of a played game. */
+  comingClean?: ComingCleanRetro;
   /**
    * ORW-320 (spec 0146 slice 7): "the house you never saw" - per houseguest, their season aim and why, each goal in order, the real reason beside what they
    * SAID for every big decision (lies marked), their long con if any, and their nightly reflections. Present ONLY on the post-season retrospective
