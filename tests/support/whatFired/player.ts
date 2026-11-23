@@ -30,6 +30,8 @@ export interface PlayOpts {
   saveDir?: string;
   /** ORW-741: called once right after the character is created, with the live session: the flag-off runs switch a feature off here through the session's own setter (the same switch the env var sets). */
   setup?: (sess: any) => void;
+  /** ORW-810: called once with the live session BEFORE the character is created: the place for a switch read at createCharacter (the premiere entrances). */
+  beforeCreate?: (sess: any) => void;
   /** ORW-741: called once when the season ends (finished, capped or watched), with the live session: the place to read a post-season view, or flip a read-only feature and read it again. */
   after?: (ctx: { sess: any; engine: any; call: Call }) => void | Promise<void>;
   /** ORW-741: called after every message with the live session (engine-side, in-process) and the player-channel caller; returning true ends the season early. The real-path tests use it to stop at the first moment the feature under test has fired: nothing is hand-set, the season is played. */
@@ -184,6 +186,7 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
   const events = (): ReadonlyArray<any> => rt.registry.sandboxFor(user).engine.events.queryAll();
   const eventHash = (e: any): string => (e ? hash(stable({ t: e.type, i: e.initiator, w: e.witnessSet, h: e.hidden, c: e.content, a: e.houseLife?.action })) : "-");
 
+  opts.beforeCreate?.(sess());
   await must("createCharacter", { playerName: "The Player", seed, archetype: "floater" }, -1);
   opts.setup?.(sess());
   let msg = 0, nonce = 0, stampedUpTo = 0, week = 1, finished = false, restarted = false;

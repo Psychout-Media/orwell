@@ -1,6 +1,6 @@
 # 0177 - The house graph (Theme 3, core 1: the graph half)
 
-Status: built, engine-only, NOT WIRED. Owner: Overseer B. The bond-per-pair half is the Auditor's (ORW-552).
+Status: built and wired engine-side. Owner: Overseer B. The bond-per-pair half is the Auditor's (ORW-552, spec 0175). The adapter derives the graph at most once per in-game day from the folded bond read (`foldedHouseGraph`, ORW-684), and three engine decisions read it: how news spreads (0179), the status read's hubs (0173) and group life's hubs and brokers (0172). Still never shown. The "no surface imports it" rule below still holds for every view, prompt, admin tool and MCP file.
 
 ## What it is
 `deriveHouseGraph({ members, ties })` in `src/engine/houseGraph.ts` reads the shape of the house: cliques, hubs, loners, brokers. Pure, deterministic, total, Vault-free. It is never shown: the output is four lists of ids, no numbers, and no surface, admin tool or MCP file imports it (pinned in `tests/unit/houseGraph.test.ts` and the BDD feature). It replaces nothing and never reads or writes the relationship model.

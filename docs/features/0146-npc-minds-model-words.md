@@ -1,6 +1,6 @@
 # 0146 - NPC minds: the model's words (ORW-253 slice 5) and "the house you never saw" (slice 7)
 
-> **Status:** spec, approved design (vault "NPC Minds Design Theme 1", Ryne 2026-11-12). Built by the overseers to this spec.
+> **Status:** mostly built (verified 2026-11-23, ORW-809): lanes 1 and 2 (ORW-319) and slice 7 with the post-crown reflections (ORW-320); lane 3 superseded by slice 7; lane 4 (the wording of reachable off-screen scenes) is parked with ORW-319. Approved design (vault "NPC Minds Design Theme 1", Ryne 2026-11-12).
 > **Rules every lane follows:** ADR 0022 (the model proposes SHAPE as structured data; the engine decides), ADR 0019 (each call sees only
 > what THAT houseguest knows), the Vault Wall (every output is engine-side; nothing here writes player-facing text), the leak harness
 > (ORW-307) on every call, the utility model only, and Ryne's answer 2 (2026-11-12): **if a call fails, retry once; if it fails again, skip
