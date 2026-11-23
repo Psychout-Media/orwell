@@ -32,6 +32,6 @@ A house sorts itself by where people spend their hours: the kitchen crowd, the b
 
 ### The retrospective words (built, ORW-747)
 
-After the crown, `seasonRetrospective()` carries `territory: { crowds }` from `describeTerritory` (words only, no digits; a room shows when two or more houseguests made it their top room), for a played game with the flag on. The front end keeps it off the host model's context (as `houseCulture`) and the retrospective window lists it under "Where the house gathered". Gate: `tests/unit/retroLeftovers747.test.ts` (a played season, absent before the crown, present after).
+After the crown, `seasonRetrospective()` carries `territory: { crowds }` from `describeTerritory` (words only, no digits; a room shows when two or more houseguests made it their top room), for a played game with the flag on. The front end keeps it off the host model's context (as `houseCulture`) and the retrospective window lists it under "Where the house gathered". Gate: `tests/uat/realPathRetroLeftovers.test.ts` (heavy `real-path` leg: a played season, absent before the crown, present after).
 
 Gate: BDD `0176-homophily-and-territory.feature` + `tests/unit/homophily.test.ts` + `tests/unit/territory.test.ts`.
