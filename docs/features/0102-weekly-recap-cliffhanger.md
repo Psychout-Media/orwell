@@ -15,7 +15,7 @@
 > serve — no `VaultStore` import); the hook rides a DEDICATED `daily-recap:<day>` side rng (never the
 > season/vote/jury stream) so it perturbs no seeded outcome. Gate: `tests/realpath/dailyRecap0102.test.ts`
 > (13 cases — dormancy, witnessed+surfaced-only, the Vault sweep, the non-committal hook, reproducibility,
-> the MCP boundary dispatch). **Not built:** a literal FE **pop-up window** surface (the "window kit" the
+> the MCP boundary dispatch). **Not built:** a literal FE **pop-up window** surface (the "window kit" the (ORW-824)
 > PO note below imagines) — the digest is delivered as an **in-fiction narrator beat in the chat** per the
 > original design's own R1 recommendation (ADR 0003: augment, never a dashboard the player must dismiss);
 > a dedicated FE window remains optional future follow-on if the owner still wants one. This filename

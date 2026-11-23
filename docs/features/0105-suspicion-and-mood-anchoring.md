@@ -10,7 +10,7 @@
 > subjective threat-read surfaces, framed as a behavioral hunch on their OWN voice channel, never a
 > number, never the campaign, never a stated motive.
 
-## The problem (from the post-0085 diagnostic, deferred into 0086's wake)
+## The problem (from the post-0085 diagnostic, picked up after 0086)
 
 The full-season diagnostic flagged two thin spots that 0086 deliberately left as follow-on, because it
 first needed to build the *anchor*: houseguests read as **generically "on edge" with nothing specific to
@@ -74,7 +74,7 @@ hunch an observer would infer from behavior anyway.
 - **Calibration byte-identical when off:** with `ORWELL_CAMPAIGNS` unset there is no drive, so no
   drive-derived suspicion is surfaced and the seeded game is unchanged (the same guard 0086 holds).
 
-## Out of scope (noted, not built here)
+## Out of scope (noted, not built here) (ORW-824)
 
 - **`mayConfide` never firing (0075)** — a separate trigger-tuning item; not a drive consumer, left to its
   own pass.

@@ -15,7 +15,7 @@ type Pull = { target: string; weight: number; avoid: boolean };
 const intentOf = (s: Stop, id: string): Pull[] | null => s.sess.movementIntentFor(id) as Pull[] | null;
 const w = (arr: Pull[] | null, t: string): number => arr?.find((p) => p.target === t)?.weight ?? 0;
 const offOn = (s: Stop, holder: string): { off: Pull[] | null; on: Pull[] | null } => {
-  s.sess.setCopresenceEnabled(false);
+  s.sess.setCopresenceEnabled(false); // not as shipped: the off arm of the on/off comparison, switched back on below
   const off = intentOf(s, holder);
   s.sess.setCopresenceEnabled(true);
   return { off, on: intentOf(s, holder) };

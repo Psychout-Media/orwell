@@ -1,4 +1,3 @@
-import { toDayTwoMorning } from "../support/dayTwoMorning";
 import { describe, it, expect, afterEach, beforeEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,7 +19,12 @@ import { milestoneDue, nextMilestone } from "../../src/engine/daySchedule";
  */
 let n = 0;
 interface Day { call: (name: string, args?: Record<string, unknown>) => Promise<unknown>; hour: () => number; live: () => ReturnType<GameSessionAdapter["snapshot"]>["live"] }
-async function startedDay(): Promise<Day> {
+/**
+ * ORW-812: a started day reached by PLAYING (before, a test seam wrote Day 2, 8am into the live state). `played` (the default): the player talks through the premiere evening (one
+ * announced message each) until the night falls, goes to bed, and wakes (one message) on Day 2. Not played: the premiere is advanced through (the headless driver) and no message is ever
+ * announced - the headless driver the legacy per-commit billing is for.
+ */
+async function startedDay(played = true): Promise<Day> {
   GameSessionAdapter.setTimeOfDayEnabled(true);
   const rt = composeRuntime({ clock: new FakeClock(), seed: 1 });
   const user = `cpm-${n++}`;
@@ -29,8 +33,22 @@ async function startedDay(): Promise<Day> {
   await call("createCharacter", { playerName: "P", archetype: "floater", seed: 7 });
   const session = rt.registry.sandboxFor(user).session;
   session.setPerConversationClockEnabled(true);
-  // the day-start (three advances: premiere exit -> the first NIGHT -> the first morning at 8am; ORW-116 a), as the other pace tests do
-  toDayTwoMorning(session as GameSessionAdapter); // ORW-116: Day 2, 8am
+  const tod = (): string | undefined => session.snapshot().live?.timeOfDay;
+  if (played) {
+    for (let i = 0; i < 400 && tod() !== "night" && tod() !== "late-night"; i++) await call("noteMessage", { messageId: `pre-${i}` });
+    expect(tod(), "the premiere night fell").toMatch(/night/);
+    await call("turnIn", {});
+    await call("noteMessage", { messageId: "wake" }); // the first step after a bed is the player waking at their own hour (P4d): it moves no time
+    expect(tod(), "the player woke on Day 2").toBe("morning");
+    expect(session.snapshot().live?.dayNumber).toBe(2);
+  } else {
+    // a headless driver: the premiere is advanced through to the first week; no message is ever announced
+    for (let i = 0; i < 400 && (session.getGameState().phase === "premiere" || session.snapshot().live?.nightDepth === undefined); i++) {
+      const v = (await call("advanceGame", {})) as { held?: unknown };
+      if (v.held) { if (/night/.test(tod() ?? "")) await call("turnIn", {}); else await call("hangOut", { untilBandEnd: true }); } // held: the night is slept, the day is lived
+    }
+    expect(session.getGameState().phase, "past the premiere").not.toBe("premiere");
+  }
   return { call, hour: () => session.snapshot().live?.nightDepth ?? 0, live: () => session.snapshot().live };
 }
 
@@ -79,7 +97,7 @@ describe("the clock bills once per PLAYER MESSAGE through the real commit loop",
     const g = await startedDay();
     const ms = nextMilestone(g.live());
     expect(ms?.targetHour).toBe(12);
-    // the day-start leaves the clock one step past 8:00; whole messages remaining until noon
+    // whole messages remaining until noon from wherever the player woke
     const needed = Math.round((12 - g.hour()) * 60 / MINUTES_PER_MESSAGE);
     expect(needed).toBeGreaterThan(MESSAGES_PER_MORNING - 3);
     for (let i = 0; i < needed - 1; i++) await g.call("noteMessage", { messageId: `m-d-${i}` });
@@ -160,12 +178,12 @@ describe("the clock bills once per PLAYER MESSAGE through the real commit loop",
   });
 
   it("P0g: a save with no announcement carries no seenMessageIds key (old saves round-trip byte-identical)", async () => {
-    const g = await startedDay();
+    const g = await startedDay(false);
     expect(JSON.stringify(g.live())).not.toContain("seenMessageIds");
   });
 
   it("without any noteMessage the engine keeps the legacy per-commit billing (BDD / UAT / tests that never announce a message are unchanged)", async () => {
-    const g = await startedDay();
+    const g = await startedDay(false);
     const start = g.hour();
     await g.call("diaryRoom", { entry: "a private thought" });
     expect(g.hour()).toBeGreaterThan(start);

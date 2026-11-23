@@ -4,13 +4,11 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 import { EngineCommandsAdapter } from "../../src/adapters/engine/EngineCommandsAdapter";
 import { McpServer } from "../../src/adapters/mcp/McpServer";
 import { buildSandbox } from "../support/sandbox";
-import type { DeepProfile, StoryThread } from "../../src/engine/deepProfile";
 import type { MomentPromptView } from "../../src/ports/GameSession";
 
 /**
  * The Show Brief v1 skeleton through the real session and the MCP boundary: built ONLY when asked (flag off on the
- * FE ⇒ no request ⇒ byte-identical response), never touching `systemPrompt` (the cached prefix), Vault-free under a
- * planted-sentinel sweep, and reachable through `McpServer.callTool` with its argument guard. Roles only.
+ * FE ⇒ no request ⇒ byte-identical response), never touching `systemPrompt` (the cached prefix), and reachable through `McpServer.callTool` with its argument guard. Roles only.
  */
 
 function liveSession(user: string) {
@@ -64,28 +62,7 @@ describe("getMomentPrompt + brief: opt-in, prefix-neutral", () => {
   });
 });
 
-describe("the brief is Vault-free (planted-sentinel sweep)", () => {
-  it("no hidden premise, trigger, secret, goal or weakness ever reaches the brief", () => {
-    const SENT = "SENTINEL-show-brief-hidden";
-    const sb = liveSession("brief-vault");
-    const core = sb.session.snapshot();
-    for (const t of (core.storyThreads ?? []) as StoryThread[]) {
-      t.premise = `${t.premise} ${SENT}`;
-      t.trigger = `${t.trigger} ${SENT}`;
-    }
-    for (const p of Object.values((core.deepProfiles ?? {}) as Record<string, DeepProfile>)) {
-      p.secrets = p.secrets.map((s) => `${s} ${SENT}`);
-      p.trueGoals = p.trueGoals.map((g) => `${g} ${SENT}`);
-      p.weakness = `${p.weakness} ${SENT}`;
-    }
-    sb.session.restore(core);
-    // Non-vacuous: the sentinel really is in the hidden layer.
-    expect(JSON.stringify(sb.session.snapshot())).toContain(SENT);
-    const first = sb.session.getMomentPrompt({ brief: { askedAbout: ["npc:1", "npc:2"], lastShown: "A quiet line." } });
-    const second = sb.session.getMomentPrompt({ brief: { seen: first.showBrief!.seen } });
-    for (const mp of [first, second]) expect(JSON.stringify(mp.showBrief)).not.toContain(SENT);
-  });
-});
+// ORW-812: "the brief is Vault-free" runs in a played season, on the hidden material the season really holds: tests/realpath/showBriefVault.test.ts.
 
 describe("the brief over the MCP boundary", () => {
   function playerServer(): { server: McpServer; session: GameSessionAdapter } {
