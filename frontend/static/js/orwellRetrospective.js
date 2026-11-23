@@ -449,6 +449,28 @@
         for (const t of _cultWords) ul.appendChild(el("li", "", t));
         vaultWrap.appendChild(ul);
       }
+      // ORW-747 (spec 0203): coming clean. Render-only, textContent, plain sentences from the engine's facts (names, the engine's own claim wording, weeks). Absent => skipped.
+      const _cc = unsealed.comingClean;
+      const _ccRows = ((_cc && _cc.stories) || []).filter((st) => st && st.liar && Array.isArray(st.versions)).map((st) =>
+        `${clean(st.liar)} about ${clean(st.about)}: ` + st.versions.filter((v) => v && v.to).map((v) =>
+          `told ${clean(v.to)} ${clean(v.said || "")} in week ${v.week}${v.true ? "" : " (a lie)"}`
+          + ((v.confessedTo || []).length ? `, then came clean to ${v.confessedTo.map(clean).join(", ")}` : "")
+          + ((v.loopedIn || []).length ? `, and let ${v.loopedIn.map(clean).join(", ")} in on it` : "")).join("; ") + ".");
+      if (_ccRows.length) {
+        vaultWrap.appendChild(el("h3", "display:block;margin:12px 0 2px;font-size:inherit", "Who came clean"));
+        const ul = el("ul", "margin:2px 0;padding-left:18px;opacity:0.9;font-size:12.5px");
+        for (const t of _ccRows) ul.appendChild(el("li", "", t));
+        vaultWrap.appendChild(ul);
+      }
+      // ORW-747 (spec 0176 part 2): where the house gathered, as crowd words (the engine sends words only, never a count). Render-only, textContent. Absent => skipped.
+      const _terr = unsealed.territory;
+      const _crowds = ((_terr && _terr.crowds) || []).filter((t) => typeof t === "string" && t.trim()).map((t) => clean(t));
+      if (_crowds.length) {
+        vaultWrap.appendChild(el("h3", "display:block;margin:12px 0 2px;font-size:inherit", "Where the house gathered"));
+        const ul = el("ul", "margin:2px 0;padding-left:18px;opacity:0.9;font-size:12.5px");
+        for (const t of _crowds) ul.appendChild(el("li", "", t));
+        vaultWrap.appendChild(ul);
+      }
       // ENDGAME-1: the full hidden story, not just the latest 40 — a completed season with off-screen
       // sim, gossip diffusion, confessionals, threads, and seeded ties easily runs to hundreds of rows,
       // and dropping the early/mid season silently guts the "you were blindsided, and it was real all
