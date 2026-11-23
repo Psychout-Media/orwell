@@ -5907,6 +5907,19 @@ export class GameSessionAdapter implements GameSession {
     };
   }
 
+  /**
+   * ORW-832: the three fields the health record reads (started, week, phase), WITHOUT the deep copy of the whole session a `snapshot()` makes. Same values as `snapshot().started/week/phase`.
+   * The integrity spine read a full snapshot after every commit for these three fields alone, a cost that grew with the length of the season.
+   */
+  healthStamp(): { started: boolean; week: number; phase: SessionCore["phase"] } { return { started: this.house !== null, week: this.week, phase: this.phase }; }
+
+  /** ORW-832: how many NPCs are still in the house (the count `snapshot().house.npcs` less `live.evictionOrder` gives), without copying the session. 0 before the game starts. */
+  livingNpcCount(): number {
+    if (this.house === null) return 0;
+    const evicted = new Set(this.live?.evictionOrder ?? []);
+    return this.house.npcs.filter((n) => !evicted.has(n.id)).length;
+  }
+
   /** The durable session core (0030): the live house + week/phase/ceremony + loop, losslessly. */
   snapshot(): SessionCore {
     return {
