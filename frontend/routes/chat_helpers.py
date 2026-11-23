@@ -9187,6 +9187,27 @@ def _deal_offer_directive(offer) -> Optional[str]:
     return line + (f" {how}" if how else "")
 
 
+# ORW-771: the hidden "vote beat" cue. A Continue press through a played eviction vote arms ONE cue for the user (routes/orwell_routes.py); the chat turn that carries the cue is a narrated beat,
+# not a player message: it is not billed to the in-game clock (ORW-262's budget stays; the press is a progress press) and resolves no player move. A cue typed by hand without an armed press is an ordinary message.
+_VOTE_BEAT_CUE_PREFIX = "(Production cue \u2014 the player pressed Continue through the eviction vote"
+_VOTE_BEAT_ARMED: dict = {}
+
+
+def arm_vote_beat_cue(user) -> None:
+    """The Continue press just made carried a sealed vote beat: the next chat turn that is the cue is a beat turn."""
+    _VOTE_BEAT_ARMED[user] = True
+    logger.info("[orwell] vote-beat cue armed for user=%s", user)
+
+
+def consume_vote_beat_cue(message, user) -> bool:
+    """True (once per armed press) when `message` is the vote-beat cue AND a press armed it. Pure bookkeeping."""
+    if isinstance(message, str) and message.startswith(_VOTE_BEAT_CUE_PREFIX):
+        hit = bool(_VOTE_BEAT_ARMED.pop(user, False))
+        logger.info("[orwell] vote-beat cue seen for user=%s armed=%s", user, hit)
+        return hit
+    return False
+
+
 async def note_player_message(client_msg_id, user) -> None:
     """Tell the engine a player message arrived (``noteMessage``): one in-game message-step per
     message id. Best-effort — no engine / no game / any failure ⇒ nothing (the engine keeps its
@@ -10658,7 +10679,8 @@ async def build_chat_context(
 
     # Per-message pacing: announce this player message to the engine clock ONCE, before the model
     # call, keyed by the send's clientMsgId (retry / two-window re-drive is idempotent). Fail-soft.
-    if not incognito:
+    _vote_beat_turn = (not incognito) and consume_vote_beat_cue(message, user)  # ORW-771: a vote-beat turn is not a player message
+    if not incognito and not _vote_beat_turn:
         await note_player_message(client_msg_id, user)
         # ORW-419 (intent-first moves): the engine resolves the player's OWN move from their words BEFORE the narrator's moment
         # prompt is built below, so the briefing already shows the new room + `playerMove`. Fail-soft; unsure parses move nothing.

@@ -116,3 +116,23 @@ spread over its first five steps (ORW-262, `EVENT_SPREAD_STEPS`), 24 minutes a p
 4:00 -> 6:10pm the playtest saw. `tests/unit/orw738EvictionVoteClock.test.ts` pins the spread, the non-empty headline on every ballot and the result, and E12 (no voter named).
 The blank line in the bubble on that build was the role-claim guard dropping a premature Production result line and leaving a lone quote; #3105 closed it and
 `frontend/tests/test_orw738_blank_announcement_line.py` pins the transcript's shape.
+
+## Amendment 2026-11-20 (ORW-771, owner-ruled: a Continue press through the eviction vote gets a short narrated beat)
+
+The ORW-738 diagnosis left one question for the owner: should a press through the vote be silent (banner only)? Ruled: no. Each press is now voiced as a SHORT beat, sealed like the
+real show: a voter walks into the Diary Room and comes back, with the room's mood around them, and no ballot content; the tally press says the tally is read with names, as the chyron
+banner does. Design, in the smallest-correct form:
+- **The engine hands facts** (`ORWELL_VOTE_BEAT`, default ON; `=0` restores the banner-only press byte for byte). `EvictionView.voteBeat` (`src/engine/voteBeat.ts`, rendered per turn by
+  `renderVoteBeatBlock` in `momentPrompts.ts`, never the base prompt) carries `sealed: true`, the press number, who walks into the Diary Room and who comes back out, the houseguests
+  gathered, the part of the day, the two nominees (public), and `tallyRead` on the result press. A pure read: no rng, no clock, no write.
+- **E12 holds.** The walk order is a hash of the week and the voter's id and reads neither the seeded ballot reveal order nor any vote, so naming the walker of a press says nothing about
+  the ballot read on that press. No ballot, voter's choice or count is in the fact; the player is never walked (the engine does not act for them).
+- **The press stays a progress press, not a chat turn (ORW-703).** The chyron `announcements` remain the single source of the board fact. When the press response carries
+  `eviction.voteBeat`, the page sends ONE hidden production cue (`sendHiddenCue`; hidden on every device by the cue envelope) and the narrator voices the beat on the ordinary stream, so the
+  second window gets the bubble through the same mirror. The server arms the cue on the press (`arm_vote_beat_cue`); an armed cue turn skips `noteMessage`, so it adds NO clock (the ORW-262
+  budget of 5 presses at 24 minutes is unchanged; one message-step per player message), and a typed copy of the cue with no press is an ordinary 5-minute message. The cue is never a
+  progress or readiness message, so it cannot advance the ceremony (ORW-297's typed `next` still advances exactly one step and gets its narration as before). A press made while a beat is
+  still streaming sends no second cue (the banner still shows every press).
+- Gates: `tests/unit/orw771VoteBeat.test.ts` (the fact on every ballot press, the tally press, E12 shape, flag off, no extra clock), `frontend/tests/test_orw771_vote_beat_cue.py`,
+  and `test_orw771_vote_beat_card_browser.py`. Not built: a real-stack test (real engine, real chat turn, second window) of a Continue press for a player on the block; the walk found no season
+  that puts the player on the block in week 1 (150 seeds), so it is a follow-up card. A player who votes has no Continue card after their own vote card (the ballots then run on their next message), a gap noted, not changed.

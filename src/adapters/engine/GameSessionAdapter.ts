@@ -5,7 +5,7 @@ import type {
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, NapReq, NapView, NapRefusal, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
-  FinaleView, EvictionView, HostView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, WalkedInView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
+  FinaleView, EvictionView, HostView, VoteBeatView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, WalkedInView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, ProducerVaultView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
   DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
@@ -66,7 +66,7 @@ import { planJuryNotes } from "../../engine/juryNotes";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
 import { chooseHourAction, assembleScenes, habitsFor, floorRoutinesFor, routinesFromHabits, actionLine, roomActLine, formPlan, GOAL_PLAN, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction, type PlanStep } from "../../engine/houseLife";
-import { addRoutines, noteSighting, routineKey } from "../../engine/routineLife";
+import { addRoutines, isStressed, noteSighting, routineKey, routineNow } from "../../engine/routineLife";
 import type { Routine } from "../../engine/routines";
 import type { Habit } from "../../engine/houseLifeConstants";
 import { HOUSE_LIFE, ROOM_LIFE } from "../../engine/houseLifeConstants";
@@ -77,6 +77,7 @@ import { heldApproachReaction, heldSheetOf } from "../../engine/heldApproach";
 import { isPrivateTalk, walkInReaction, walkInLine, WALK_IN_MAX_HOURS, WALK_IN_DONE_CAP, type WalkInReaction } from "../../engine/walkIn";
 import type { OffscreenScene } from "../../engine/offscreen";
 import type { TimeOfDay as LifeTimeOfDay } from "../../engine/timeOfDay";
+import { diaryWalkOrder, walkersForPress } from "../../engine/voteBeat";
 import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } from "../../engine/presenceConstants";
 import { dayOfWeek } from "../../engine/houseEvents";
 import { HOUSE_SIGHTLINE, roomsBetween, areVisible, canWitnessDeparture, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
@@ -97,7 +98,7 @@ import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness"
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
 import { DEAL_NOMS } from "../../engine/dealNomConstants";
 import { proposeNpcDeals, planAwareDealPush, type PairBondRead } from "../../engine/npcDeals";
-import { decideDodge, type DodgeFact } from "../../engine/dodging";
+import { decideDodge, dodgeStakes, type DodgeFact } from "../../engine/dodging";
 import { confideToDisclosure, dripToDisclosure, routeConfide, routeDisclosureFull, type DisclosureEvent } from "../../engine/disclosureRoute";
 import { beatShare, endgamePush, endgameFakeLean, isEndgame } from "../../engine/endgameTrust";
 import { heirOf, partnerReaction, debtorRelief } from "../../engine/evictedTake";
@@ -4176,19 +4177,21 @@ export class GameSessionAdapter implements GameSession {
   setDodgingEnabled(on: boolean): void { this.dodgingEnabled = on; }
   private dodgingOn(): boolean { return this.dodgingEnabled && this.disclosureEngineOn(); }
   /** Append-only: one entry per (houseguest, week, phase) press that was turned aside. Saved when non-empty. */
-  private dodgeLog: Array<{ npc: EntityId; week: number; phase: string } & DodgeFact> = [];
-  private recordDodge(npc: { id: EntityId; character: { strategyStyle?: import("../../engine/characterFactory").StrategyStyle } }, signals: ConfidenceSignals): void {
+  private dodgeLog: Array<{ npc: EntityId; week: number; phase: string; stakes?: number } & DodgeFact> = [];
+  private recordDodge(npc: { id: EntityId; character: { strategyStyle?: import("../../engine/characterFactory").StrategyStyle } }, signals: ConfidenceSignals, held?: HiddenElement): void {
     if (!this.dodgingOn()) return;
     const phase = String(this.phase);
     if (this.dodgeLog.some((d) => d.npc === npc.id && d.week === this.week && d.phase === phase)) return;
     const style = npc.character.strategyStyle;
     const vol = this.soulObj(npc.id)?.volatility ?? 0.3;
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:dodge:${npc.id}:${this.week}:${phase}`));
+    // ORW-798: what is on the line for them = the severity of the kind of thing they are keeping + whether they are on the block now (engine state already held; no draw).
+    const stakes = dodgeStakes(severityOf(held?.kind), ((this.live?.nominees as readonly EntityId[] | undefined) ?? []).includes(npc.id));
     const fact = decideDodge({
       cunning: style ? CUNNING[style] ?? 0.3 : 0.3, leakiness: (style ? LEAKY[style] ?? 0.3 : 0.3) + 0.2 * vol, rattled: Math.max(0, vol - 0.5) * 2,
-      trustInAsker: signals.npcTrust, stakes: 0.3,
+      trustInAsker: signals.npcTrust, stakes,
     }, [rng.next(), rng.next(), rng.next()]);
-    this.dodgeLog.push({ npc: npc.id, week: this.week, phase, ...fact });
+    this.dodgeLog.push({ npc: npc.id, week: this.week, phase, stakes, ...fact });
   }
   /** The dodge the engine decided for `npc` in the current week and phase (the voice shows it only while the press is this beat's). */
   private dodgeFor(npc: EntityId): DodgeFact | undefined {
@@ -15391,13 +15394,40 @@ export class GameSessionAdapter implements GameSession {
    * (the holder's name, the room, the time of day, the act or the authored words); the numbers and the routine record itself stay engine-side.
    */
   private noteRoutineSighting(p: PlannedAction, day: number, knowledge: KnowledgeService | undefined): void {
-    if (!p.routine || !this.live) return;
-    const { learned } = noteSighting((this.live.routineSightings ??= {}), p.actor, p.routine, day);
+    if (!p.routine) return;
+    this.countRoutineSighting(p.actor, p.routine, p.place, p.kind, day, knowledge);
+  }
+  private countRoutineSighting(actor: EntityId, routine: string, place: string, kind: string, day: number, knowledge: KnowledgeService | undefined): void {
+    if (!this.live) return;
+    const { learned } = noteSighting((this.live.routineSightings ??= {}), actor, routine, day);
     if (!learned || !knowledge) return;
     const me = this.house!.player.id;
-    const r = this.live.routines?.[p.actor]?.find((x) => routineKey(x) === p.routine);
-    const content = `${this.nameOf(p.actor)} is usually in the ${p.place.replace(/-/g, " ")} in the ${p.routine.split(":")[0]!.replace(/-/g, " ")}, ${r?.gist ?? `their usual: ${p.kind.replace(/-/g, " ")}`}`;
-    if (!knowledge.knownTo(me).some((f) => f.content === content)) knowledge.seedBelief(me, { content, factId: `routine:${p.actor}:${p.routine}`, confidence: 1, hops: 0, distortion: 0 }, "witnessed");
+    const r = this.live.routines?.[actor]?.find((x) => routineKey(x) === routine);
+    const content = `${this.nameOf(actor)} is usually in the ${place.replace(/-/g, " ")} in the ${routine.split(":")[0]!.replace(/-/g, " ")}, ${r?.gist ?? `their usual: ${kind.replace(/-/g, " ")}`}`;
+    if (!knowledge.knownTo(me).some((f) => f.content === content)) knowledge.seedBelief(me, { content, factId: `routine:${actor}:${routine}`, confidence: 1, hops: 0, distortion: 0 }, "witnessed");
+  }
+  /**
+   * ORW-799: a sighting was only counted when a routine WALKED someone into the player's room; a houseguest already in that room when their routine pulls (same keyed roll the planner uses, so the same hour) was never
+   * counted, because everyone in the player's room is left out of the walking plans. They are seen keeping it as much as one who walked in. Played games with routines on, the player awake, only; no draw of its own.
+   */
+  private noteRoutinesKeptInPlayersRoom(awakeIds: readonly EntityId[], playerRoom: Room | undefined, stretchIndex: number, knowledge: KnowledgeService | undefined): void {
+    const s = this.live, house = this.house;
+    if (!s || !house || !this.routinesEnabled || s.playedGame !== true || playerRoom === undefined || playerRoom === "diary-room") return;
+    if (!(this.awakeNow()?.has(house.player.id) ?? true)) return; // a player who is asleep sees nothing
+    const day = s.dayNumber ?? s.week, hour = this.inGameHour() ?? stretchIndex;
+    const absNow = this.inGameAbsHour();
+    const repeat = absNow !== undefined && s.lifeHour?.at === absNow ? s.lifeHour.n + 1 : 0; // the count `houseLifeStretch` is about to store for this stretch
+    const hourKey = `d${day}h${hour}${repeat ? `r${repeat}` : ""}`;
+    const seed = this.gameSeed ?? 0;
+    const tod = (s.timeOfDay ?? "afternoon") as LifeTimeOfDay;
+    for (const id of awakeIds) {
+      if (id === house.player.id || this.presence?.get(id) !== playerRoom) continue;
+      const character = this.agendaCharacterOf(id);
+      if (!character) continue;
+      const rs = this.routinesOf(id, character, s.npcMindsAuthored?.traits?.[id]?.habits, seed);
+      const r = routineNow(rs, tod, isStressed(this.soulObj(id)?.emotionalState ?? 0.5, ((s.nominees ?? []) as readonly EntityId[]).includes(id)), (k) => agendaRoll(seed, id, `hour:${hourKey}:routine:${k}`));
+      if (r && r.action !== "nap" && r.place === playerRoom) this.countRoutineSighting(id, routineKey(r), playerRoom, r.action, day, knowledge);
+    }
   }
   setHouseLifeEnabled(on: boolean): void { this.houseLifeEnabled = on; }
   houseLifeActiveNow(): boolean {
@@ -15675,6 +15705,7 @@ export class GameSessionAdapter implements GameSession {
     const roomIds = this.roomLifeOn() && playerRoom !== undefined && playerRoom !== "diary-room" && (this.awakeNow()?.has(house.player.id) ?? true) // a player who is asleep (a nap) sees nothing: no room steps
       ? awakeIds.filter((id) => id !== house.player.id && presence.get(id) === playerRoom).sort()
       : [];
+    this.noteRoutinesKeptInPlayersRoom(awakeIds, playerRoom, stretchIndex, knowledge); // ORW-799: the houseguests already in the player's room keep their routines in front of them too
     if (actors.length === 0 && roomIds.length < 2) return [];
     const where = new Map<EntityId, Room>(actors.map((id) => [id, presence.get(id)!] as const));
     // ORW-340: the player is where the houseguests can see them: in the hour view (so a goal can aim at them) but never an actor and never moved.
@@ -19016,11 +19047,13 @@ export class GameSessionAdapter implements GameSession {
         // sealed from themselves).
         if (action.kind === "vote-evict" && action.actor !== PLAYER) {
           this.onPlayerEvent?.(
-            `${this.nameOf(action.actor)} turned on the alliance "${al.name}", moving against ${this.nameOf(target)}`,
+            `${this.nameOf(action.actor)} turned on the alliance "${al.name}", moving against ${this.nameOf(target)} by their sealed ballot`, // ORW-777: distinct wording - the same member may later turn on the same alliance against the same target in PUBLIC (a nomination), and an identical sentence would read as a Vault leak and refuse every later turn
             [action.actor], "betrayal", // no player witness ⇒ Vault-held until the 0048 unseal
           );
+          // ORW-777: the wronged party's copy of an anonymous line is the SAME sentence for every member the same alliance's sealed ballots wrong. When the wronged party is the PLAYER the line is player-visible; an NPC's copy (Vault-held, the player is no witness)
+          // must therefore never be a verbatim twin of it, or the checkpoint's text sweep takes the twin for a leak and refuses every later turn (a season that never ends). The NPC's copy names who was wronged (it never reaches the player).
           this.onPlayerEvent?.(
-            `Someone turned on the alliance "${al.name}"`,
+            target === PLAYER ? `Someone turned on the alliance "${al.name}"` : `Someone turned on the alliance "${al.name}", leaving ${this.nameOf(target)} exposed`,
             [target], "betrayal",
           );
         } else {
@@ -19126,7 +19159,7 @@ export class GameSessionAdapter implements GameSession {
       if (slanted) disclosureEvent = { ...disclosureEvent, slant: true };
     }
     this.noteDisclosure(npcId, disclosureEvent); // B33: the closed-set record of what the engine just rolled
-    if (!decision.disclosed) { if (this.live.playedGame) this.recordDodge(npc, signals); return none; }
+    if (!decision.disclosed) { if (this.live.playedGame) this.recordDodge(npc, signals, secret); return none; }
 
     // Monotonic: never re-tell a TRUE secret at a LOWER tier than already reached — idempotent, no new
     // fold (the house's memory only deepens; it never thins, 0007/0030). A lie is its own track.
@@ -21465,6 +21498,37 @@ export class GameSessionAdapter implements GameSession {
       })),
       ...(e.evictee ? { evictee: ref(e.evictee) } : {}),
       ...(this.hostEnabled && this.live?.playedGame === true && !this.live.spectator ? { host: this.hostView(e) } : {}),
+      ...this.voteBeatFor(e),
+    };
+  }
+
+  /** ORW-771 (`ORWELL_VOTE_BEAT`, default ON; `=0` = no beat, the press is a banner only): the sealed beat facts of the press just made through a played eviction vote. Pure read: no rng, no clock, no write. */
+  private voteBeatEnabled = flagDefaultOn("ORWELL_VOTE_BEAT");
+  setVoteBeatEnabled(on: boolean): void { this.voteBeatEnabled = on; }
+  private voteBeatFor(e: EvictionProgress): { voteBeat?: VoteBeatView } {
+    const s = this.live;
+    if (!this.voteBeatEnabled || !s || s.playedGame !== true || s.spectator || !s.ceremony || s.ceremony.kind !== "eviction") return {};
+    const player = this.house!.player.id;
+    const stepId = s.ceremony.steps[s.ceremony.at];
+    const tallyRead = !!e.evictee && stepId === "result";
+    const reading = e.stage === "votes" && e.revealIx >= 1 && stepId === "ballot";
+    if (!reading && !tallyRead) return {};
+    const walkers = diaryWalkOrder(e.revealOrder.filter((id) => id !== player), s.week);
+    const press = tallyRead ? e.revealOrder.length + 1 : e.revealIx;
+    const w = walkersForPress(walkers, press);
+    const ref = (id: EntityId): NamedRef => ({ id, name: this.nameOf(id) });
+    return {
+      voteBeat: {
+        sealed: true,
+        press: Math.min(press, e.revealOrder.length),
+        of: e.revealOrder.length,
+        ...(w.into ? { intoDiaryRoom: ref(w.into) } : {}),
+        ...(w.back ? { backFromDiaryRoom: ref(w.back) } : {}),
+        tallyRead,
+        gathered: s.active.length,
+        ...(s.timeOfDay ? { timeOfDay: TIME_OF_DAY_LABEL[s.timeOfDay] ?? String(s.timeOfDay) } : {}),
+        nominees: e.nominees.map(ref),
+      },
     };
   }
 

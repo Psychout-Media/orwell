@@ -430,7 +430,7 @@ export interface SessionCore {
   /** B49 (ORWELL_NO_HARD_CAPS) - per NPC, how many confide lies it has told this season (the repetition roll). Absent flag-off / pre-B49 saves. */
   confideLiesBy?: Record<string, number>;
   /** 0196 (ORWELL_DODGING) - the append-only log of presses a houseguest turned aside and how (approach / carriage / pushes back). Absent flag-off / pre-0196 saves. */
-  dodgeLog?: Array<{ npc: string; week: number; phase: string; approach: string; openness: string; pushesBack: boolean }>;
+  dodgeLog?: Array<{ npc: string; week: number; phase: string; approach: string; openness: string; pushesBack: boolean; stakes?: number }>;
   /**
    * Features 0093 + 0099 — secrets as power. `secretUsedAs` maps each learned `factId` the player has
    * WIELDED to how (`leverage` | `exposed` | `traded`), so a spent secret can't be re-wielded; the
