@@ -132,6 +132,9 @@ export function nextMilestone(live: LiveSeasonState | null | undefined): NextMil
 export function milestoneDue(live: LiveSeasonState | null | undefined): boolean {
   const m = nextMilestone(live);
   if (!m || live?.timeOfDay === undefined) return false;
+  // ORW-837: the schedule STARTS a ceremony; it never splits one. An eviction reveal, a staged ceremony or the finale already under way is due until it reaches its result, whatever the clock reads
+  // (an eviction started at 7:35am crossed the 8am wake and the rest was held to 4pm: the house sat eight hours mid-reveal).
+  if (live.eviction || live.ceremony || live.finale) return true;
   const hour = live.nightDepth ?? WAKE_HOUR;
   // ORW-116 (a): the first HOH is the afternoon of the NEXT day after the premiere evening and the social night - never that same night (the clock reads past the afternoon hour at night).
   // ORW-258 (Ryne: every event gets its own day): while the NIGHT between this event and the previous one has not passed, the event is NOT due - it belongs to the next day, whatever the hour reads tonight. Unless the night has run out: then the advance IS the day-break.
