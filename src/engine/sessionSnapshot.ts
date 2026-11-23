@@ -1068,3 +1068,13 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
 export function sessionCoreIsSuperset(later: SessionSnapshot, earlier: SessionSnapshot): boolean {
   return sessionCoreSupersetViolation(later, earlier) === null;
 }
+
+/**
+ * ORW-800: a save written while the meet-the-cast circle was already running but before it was armed (a game with no house tour, written by code that only armed on the tour's branch) has a toast stage and no `introduced` record.
+ * Loading it must arm the circle and keep what the player already saw: everyone who has already spoken in the toast (never the host) is introduced, in the order they spoke. Superset by construction: nothing a save held is
+ * dropped, and an armed record (even an empty one) is never touched. Returns the ids to introduce, or undefined when there is nothing to arm (already armed, not in the toast, no premiere).
+ */
+export function retroArmedIntroductions(pe: { stage: string; spoke: readonly string[]; introduced?: readonly string[] } | undefined): string[] | undefined {
+  if (!pe || pe.stage !== "toast" || pe.introduced !== undefined) return undefined;
+  return pe.spoke.filter((id, i, all) => id !== "host" && all.indexOf(id) === i);
+}
