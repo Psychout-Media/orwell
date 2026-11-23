@@ -53,6 +53,14 @@ const FORBIDDEN: Rule[] = [
   { id: "planting-helper", re: /from\s+["'][^"']*\/support\/(?:liveSentinelPlanting|favorsSeam|triadsSeam|longNightDriver|vaultSentinelAnnouncementsHarness|dayTwoMorning|napWorld)["']/, reason: "imports a test-support module that writes live or hidden state (sentinel planting, the favors/triads seams, the long-night twist arming, the day-two-morning and nap-world clock setters)", strings: true },
 ];
 
+/**
+ * ORW-827: the shipped switches. The setup file (tests/support/premiereTestDefault.ts) leaves tests/realpath at the deploy defaults (the premiere entrances and the bedtime gate on); a file that
+ * turns a switch OFF (a `set...Enabled(false)` setter, or `process.env.ORWELL_* = "0" | "false" | "off" | "no"`) must say why, on that line or the line above: `// not as shipped: <reason>`.
+ * Unsetting a variable (`delete process.env.ORWELL_*`) returns it to its shipped default and is allowed. Turning a default-OFF switch ON is not caught here (the guard does not know each default).
+ */
+const FLAG_OFF: Rule = { id: "flag-off-unstated", re: /\bset[A-Z]\w*Enabled\s*\(\s*false\s*\)|process\.env\.ORWELL_\w+\s*=\s*["'`](?:0|false|off|no)["'`]/, reason: "turns a shipped switch off with no stated reason (`// not as shipped: <why>` on the line or the line above)" };
+const NOT_AS_SHIPPED = /\/\/.*\bnot as shipped:\s*\S/;
+
 /** Blank comments and string contents (keeping line breaks and a bare "live" key), so prose may mention the patterns. */
 function stripComments(src: string, blankStrings = true): string {
   let out = "";
@@ -97,6 +105,9 @@ function scanSource(file: string, src: string): Violation[] {
   const found: Violation[] = [];
   code.forEach((l, ix) => {
     for (const r of FORBIDDEN) if (r.re.test(r.strings ? withStrings[ix]! : l)) found.push({ file, line: ix + 1, rule: r.id, reason: r.reason, text: (raw[ix] ?? "").trim() });
+    // ORW-827: a switch turned OFF is not the game as shipped. Allowed only with a stated reason on the line or the line above (`// not as shipped: <why>`), e.g. the flag-off arm of an on/off comparison.
+    const reasoned = (j: number): boolean => j >= 0 && NOT_AS_SHIPPED.test(raw[j] ?? "");
+    if (FLAG_OFF.re.test(withStrings[ix]!) && !reasoned(ix) && !reasoned(ix - 1)) found.push({ file, line: ix + 1, rule: FLAG_OFF.id, reason: FLAG_OFF.reason, text: (raw[ix] ?? "").trim() });
   });
   return found;
 }
@@ -171,6 +182,16 @@ describe("the guard itself (planted failures)", () => {
       expect(v.find((x) => x.rule === rule)!.line).toBe(2);
     });
   }
+
+  it("flags a shipped switch turned off with no stated reason (ORW-827), and passes one with a reason", () => {
+    for (const line of ["s.setCopresenceEnabled(false);", 'process.env.ORWELL_TIME_OF_DAY = "0";', "setup: (sess) => sess.setLeveragePlaysEnabled( false ),"]) {
+      expect(scanSource("p.test.ts", `a;\n${line}\n`).map((v) => v.rule), line).toEqual(["flag-off-unstated"]);
+    }
+    expect(scanSource("p.test.ts", "a;\ns.setCopresenceEnabled(false); // not as shipped: the off arm of the on/off comparison\n")).toEqual([]);
+    expect(scanSource("p.test.ts", "// not as shipped: the dormancy check\nprocess.env.ORWELL_TIME_OF_DAY = \"0\";\n")).toEqual([]);
+    expect(scanSource("p.test.ts", "// not as shipped:\ns.setCopresenceEnabled(false);\n").map((v) => v.rule), "an empty reason is no reason").toEqual(["flag-off-unstated"]);
+    expect(scanSource("p.test.ts", "delete process.env.ORWELL_TIME_OF_DAY;\ns.setCopresenceEnabled(true);\nGameSessionAdapter.setTimeOfDayEnabled(null);\n")).toEqual([]);
+  });
 
   it("passes a played test: session calls, reads, flags, comparisons, and comments naming the patterns", () => {
     const clean = [
