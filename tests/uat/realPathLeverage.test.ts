@@ -32,7 +32,7 @@ describe("ORW-754 REAL PATH: leverage on a real secret", () => {
 
     const off = await playSeason({
       seed: SEED, maxMessages: on.messages + MARGIN,
-      setup: (sess) => sess.setLeveragePlaysEnabled(false),
+      setup: (sess) => sess.setLeveragePlaysEnabled(false), // not as shipped: the flag-off run proves the play is the feature
       watch: ({ sess }) => (sess.live?.leveragePlays?.length ?? 0) > 0,
     });
     expect(off.stopped, "the off run played past the on run's play without one").toBe("cap");
