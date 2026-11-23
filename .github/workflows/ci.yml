@@ -928,6 +928,25 @@ jobs:
         if: failure()
         run: cat "$RUNNER_TEMP/orwell-a11y-engine.log" || true
 
+  # ── Keep the backlog whole (ORW-758) ────────────────────────────────────────────────
+  # Ryne: "if the backlog has holes, then the code that it's built off of also has holes." Every PR, docs-only included, and never reused (the PR body
+  # differs even when the tree does not): a line that says work is left names its ORW card (feature docs and the PR body), a spec-only feature says
+  # why it does not run, and the spec index is complete. Pure file reads, no npm ci (ci/check_backlog_whole.mjs; proven by tests/unit/backlogWhole.test.ts).
+  backlog-whole:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: left-over lines carded, spec-only features explained, spec index complete
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node ci/check_backlog_whole.mjs
+
   # ── Unified required-check gate (deadlock-free on skip) ──────────────────────────
   #
   # THE single required check — point branch protection HERE, not at the individual gated jobs. It
@@ -943,6 +962,7 @@ jobs:
     timeout-minutes: 5
     needs:
       - changes
+      - backlog-whole
       - fast-checks
       - test
       - bdd
@@ -964,6 +984,7 @@ jobs:
         env:
           RESULTS: >-
             changes=${{ needs.changes.result }}
+            backlog-whole=${{ needs.backlog-whole.result }}
             fast-checks=${{ needs.fast-checks.result }}
             test=${{ needs.test.result }}
             bdd=${{ needs.bdd.result }}
