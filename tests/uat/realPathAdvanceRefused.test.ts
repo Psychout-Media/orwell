@@ -8,7 +8,7 @@ import { playSeason, StallWatch, STALL_REFUSED_ADVANCES, STALL_SAME_STAGE_MESSAG
  */
 describe("ORW-777 REAL PATH: no advance is refused for a text twin of a witnessed line", () => {
   it("the season on the seed that used to stick plays past the old stop with no refused advance", async () => {
-    const r = await playSeason({ seed: 4, maxMessages: 1400 });
+    const r = await playSeason({ user: "wf-4", seed: 4, maxMessages: 1400 });
     expect(r.crashes.filter((c) => c.tool === "advanceGame"), "no advance was refused").toEqual([]);
     expect(r.faults.filter((f) => f.kind === "vault-leak"), "no leak fault").toEqual([]);
     expect(r.stopped).not.toBe("stalled");
@@ -16,7 +16,7 @@ describe("ORW-777 REAL PATH: no advance is refused for a text twin of a witnesse
   }, 900_000);
 
   it("a member's sealed-ballot turn on an alliance and a later public turn against the same target are not twins either (the other seed that used to stick)", async () => {
-    const r = await playSeason({ seed: 8, maxMessages: 1400 });
+    const r = await playSeason({ user: "wf-8", seed: 8, maxMessages: 1400 });
     expect(r.crashes.filter((c) => c.tool === "advanceGame"), "no advance was refused").toEqual([]);
     expect(r.faults.filter((f) => f.kind === "vault-leak"), "no leak fault").toEqual([]);
     expect(r.week, "the game moved on past the old stop (week 4)").toBeGreaterThan(4);

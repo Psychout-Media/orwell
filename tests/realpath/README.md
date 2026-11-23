@@ -53,4 +53,15 @@ and restoring it escapes it. Reviewers still read the test. There is no escape h
 at the first message where `stopWhen` (a pure read) holds; the test then acts through the player's MCP channel (`at.call(...)`). A test that
 needs more than about a minute of play goes to the heavy lane (`tests/uat/realPath*.test.ts`) instead.
 
+## Seeds and sandbox names (ORW-852)
+
+A played game is fixed by its seed AND its sandbox name: the name keys the player-action stream and the off-screen tick, so the same seed under
+another name is another season (ORW-841). Pin both. Every played-season driver takes the name next to the seed (`user:` in `playUntil`, `playSeason`,
+`playedGame` and `playMixGame` options; the third argument of `bootNatural`), and a name is fixed: never random, time-based, or a counter that moves
+with test order. The guard's `sandbox-unpinned` and `sandbox-unfixed` rules enforce it.
+
+The folder decides two shipped flags (the premiere entrances and the bedtime gate; `tests/support/premiereTestDefault.ts`): on in `tests/realpath`,
+`tests/uat`, `tests/property` and `tests/calibration`, off everywhere else. Either one changes the season, so search for a seed from the folder that
+will run the test (or from `tests/realpath`), never from a scratch folder, and pin the sandbox name you searched with.
+
 Roles only in tests (HOH, nominee, NPC, player), never names.

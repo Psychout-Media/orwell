@@ -49,7 +49,7 @@ async function untilYes(seed: number, args: Record<string, unknown> = {}, opts: 
       }
     }
     return false;
-  }, { maxMessages: 1500 });
+  }, { user: `wf-${seed}`, maxMessages: 1500 });
   expect(yes, `seed ${seed}: someone said yes in play`).toBeDefined();
   return { yes: yes!, nos };
 }
@@ -164,7 +164,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
   }, 120_000);
 
   it("an unknown or absent houseguest is null; the player cannot ask themselves", async () => {
-    const at = await playUntil(11, (s) => freeMoment(s));
+    const at = await playUntil(11, (s) => freeMoment(s), { user: "wf-11" });
     expect(await ask(at, { npcId: "npc:nobody" })).toBeNull();
     expect(await ask(at, { npcId: PLAYER })).toBeNull();
   }, 120_000);
@@ -172,7 +172,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
 
 describe("ORW-727b: a houseguest asks the player for a private word (parity), in a played season", () => {
   it("their own ask stands as an open, non-blocking offer the player sees; the player's yes through the same lever is accepted; it then clears", async () => {
-    const at = await playUntil(3, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending, { maxMessages: 3000 });
+    const at = await playUntil(3, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending, { user: "wf-3", maxMessages: 3000 });
     const npc = at.sess.live.talkAsk.npc as string;
     const view = at.sess.getGameState() as { openTalkAsk?: { from: { id: string } } };
     expect(view.openTalkAsk?.from.id).toBe(npc);
@@ -186,7 +186,7 @@ describe("ORW-727b: a houseguest asks the player for a private word (parity), in
 
 describe("ORW-727b: a houseguest's ask lapses, in a played season", () => {
   it("left unanswered, their ask stops showing once its hours have passed", async () => {
-    const at = await playUntil(3, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending, { maxMessages: 3000 });
+    const at = await playUntil(3, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending, { user: "wf-3", maxMessages: 3000 });
     const npc = at.sess.live.talkAsk.npc as string;
     const until = at.sess.live.talkAsk.until as number;
     const abs = () => ((at.sess.live.dayNumber ?? 1) - 1) * 24 + (at.sess.live.nightDepth ?? 8);
