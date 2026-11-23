@@ -10786,6 +10786,7 @@ async def _stream_agent_loop_impl(
                 # ORW-780: an alliance the player agreed to aloud but the model never joined/formed. The pre-filter is broad
                 # (an alliance word, or any answer-shaped line, since a yes to a pitch names no alliance); the helper reads
                 # the engine's own open pitches and returns before any model call when there is nothing to extract.
+                # (No entry in the gate chain below: `_want_reapproach` is true on any turn under its cap, so the chain is always entered and `_house` is always read.)
                 _want_alliance = (_turn_alliance_nudges < 1
                                   and bool(_ALLIANCE_SIGNAL_RE.search(_last_user_for_confide) or _OFFER_ANSWER_RE.search(_last_user_for_confide)))
                 # L21/L24 auto-move belt: the player walked somewhere this turn but the model never
@@ -10845,7 +10846,7 @@ async def _stream_agent_loop_impl(
                 # state, not a tool gap), so we always need the game state to know if the season is
                 # over — fetch it whenever any nudge MIGHT fire.
                 _want_reapproach = _turn_reapproach_nudges < _MAX_REAPPROACH_NUDGES_PER_TURN
-                if _want_confide or _want_expose or _want_trade or _want_advance or _want_record or _want_deal or _want_alliance or _want_move or _want_npc_move or _want_approach or _want_reapproach:
+                if _want_confide or _want_expose or _want_trade or _want_advance or _want_record or _want_deal or _want_move or _want_npc_move or _want_approach or _want_reapproach:
                     _phase, _house, _moment = None, [], None
                     _beat_key_at_read = None  # F7: the beat we OBSERVED stalled, to detect a race before forcing
                     # L-F3 (#1742): the open player pending's identity AT THIS READ, if any — used
