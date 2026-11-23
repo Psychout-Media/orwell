@@ -19015,11 +19015,13 @@ export class GameSessionAdapter implements GameSession {
         // sealed from themselves).
         if (action.kind === "vote-evict" && action.actor !== PLAYER) {
           this.onPlayerEvent?.(
-            `${this.nameOf(action.actor)} turned on the alliance "${al.name}", moving against ${this.nameOf(target)}`,
+            `${this.nameOf(action.actor)} turned on the alliance "${al.name}", moving against ${this.nameOf(target)} by their sealed ballot`, // ORW-777: distinct wording - the same member may later turn on the same alliance against the same target in PUBLIC (a nomination), and an identical sentence would read as a Vault leak and refuse every later turn
             [action.actor], "betrayal", // no player witness ⇒ Vault-held until the 0048 unseal
           );
+          // ORW-777: the wronged party's copy of an anonymous line is the SAME sentence for every member the same alliance's sealed ballots wrong. When the wronged party is the PLAYER the line is player-visible; an NPC's copy (Vault-held, the player is no witness)
+          // must therefore never be a verbatim twin of it, or the checkpoint's text sweep takes the twin for a leak and refuses every later turn (a season that never ends). The NPC's copy names who was wronged (it never reaches the player).
           this.onPlayerEvent?.(
-            `Someone turned on the alliance "${al.name}"`,
+            target === PLAYER ? `Someone turned on the alliance "${al.name}"` : `Someone turned on the alliance "${al.name}", leaving ${this.nameOf(target)} exposed`,
             [target], "betrayal",
           );
         } else {
