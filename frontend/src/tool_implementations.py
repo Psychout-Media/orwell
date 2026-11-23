@@ -5760,6 +5760,8 @@ async def do_season_retrospective(content: str, owner: Optional[str] = None) -> 
             res = {k: v for k, v in res.items() if k != "houseYouNeverSaw"}
             res.pop("rumorMill", None)  # ORW-525: the rumor mill is the retrospective WINDOW's too, off the host model's context
             res.pop("houseCulture", None)  # ORW-551: the house culture is the retrospective WINDOW's too, off the host model's context
+            res.pop("territory", None)  # ORW-747 (0176): the crowd words are the retrospective WINDOW's too, off the host model's context
+            res.pop("comingClean", None)  # ORW-747 (0203): the coming-clean record is the WINDOW's too (a measured season held ~85 stories, ~100 KB), off the host model's context
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}

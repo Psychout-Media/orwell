@@ -579,6 +579,7 @@ function importSnapshot(sb: UserSandbox, snap: SessionSnapshot): void {
   // first delta a resumed session serves (keyed on the resumed token) slices its tail instead of looping
   // on full-refresh. (`restore` clears the ring; events arrive only above, after it.)
   sb.session.seedDeltaBaseline();
+  sb.session.armRestoredMeetTheCast(); // ORW-800: an old save in the toast with no introduction record arms now (after the relationship layer is back)
 }
 
 export class GameSessionRegistry {
