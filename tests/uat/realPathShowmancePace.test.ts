@@ -1,0 +1,66 @@
+import { describe, it, expect, beforeAll } from "vitest";
+import { SHOWMANCE_PACE } from "../../src/engine/attractionLife";
+import { playedGame } from "../support/playedGame";
+
+/**
+ * ORW-736: the showmance slow build, REAL PATH. A whole season is played through the player's levers only, so every romance and every step of its pace is the
+ * house's own, played until some pair has climbed two levels. Each turn the test only READS the stage of every seeded showmance. Checked: every pace record
+ * belongs to a romance the house started; its steps come in
+ * order, never before the day the romance began plus the first minimum, each at least the level's minimum days after the last; a noticing step names who caught it;
+ * no showmance is public before the earliest public day. With pacing off, the same seed played to the moment the first romance began keeps no pace record.
+ * Seed 21 in the sandbox "ps21": of the played seasons measured (seeds 3, 7, 13, 21) it is the one where a pair climbs two levels.
+ * HEAVY LANE (tests/uat/realPath*, the `real-path` leg): most of a played season, twice up to the first romance. Roles only.
+ */
+type Pace = { level: number; since: number; steps: Array<{ day: number; from: number; to: number; seenBy: string[] }> };
+type Priv = { live: { romances?: Record<string, number>; showmancePace?: Record<string, Pace>; dayNumber?: number }; seededRels: { showmances: Array<{ a: string; b: string; stage: string }> } };
+const SEED = 21, USER = "ps21";
+
+describe("ORW-736 REAL PATH: a showmance builds slowly in a played season", () => {
+  let pace: Record<string, Pace> = {};
+  let romances: Record<string, number> = {};
+  let publicBefore: Array<{ day: number; pair: string }> = [];
+  let firstRomanceTurn = -1;
+  beforeAll(() => {
+    const g = playedGame({ seed: SEED, user: USER });
+    const p = g.s as unknown as Priv;
+    const climbedTwo = (): boolean => Object.values(p.live.showmancePace ?? {}).some((r) => r.steps.length >= 2);
+    let finished = false;
+    for (let i = 0; i < 20_000 && !finished && !climbedTwo(); i++) {
+      finished = g.turn().finished === true;
+      if (firstRomanceTurn < 0 && Object.keys(p.live.romances ?? {}).length > 0) firstRomanceTurn = i + 1;
+      const day = p.live.dayNumber ?? 1;
+      for (const sm of p.seededRels.showmances ?? []) if (sm.stage === "visible" && day < SHOWMANCE_PACE.publicNotBeforeDay) publicBefore.push({ day, pair: `${sm.a}|${sm.b}` });
+    }
+    expect(climbedTwo(), "a pair climbed two levels before the crown").toBe(true);
+    pace = p.live.showmancePace ?? {};
+    romances = p.live.romances ?? {};
+  }, 900_000);
+
+  it("pace records belong to romances the house started; steps keep the minimum days; noticing names who caught it; nothing is public early", () => {
+    expect(Object.keys(pace).length).toBeGreaterThan(0);
+    for (const pk of Object.keys(pace)) expect(romances[pk], `${pk} is a romance the house started`).toBeDefined();
+    const min = SHOWMANCE_PACE.minDays.map((m) => m * (1 - SHOWMANCE_PACE.jitter));
+    let climbed = 0;
+    for (const [pk, rec] of Object.entries(pace)) {
+      expect(rec.steps.map((s) => s.to)).toEqual(rec.steps.map((_, i) => i + 1));
+      if (rec.steps[0]) expect(rec.steps[0].day, "the first step waits the first minimum after the romance began").toBeGreaterThanOrEqual(romances[pk]! + min[0]! - 1);
+      for (let i = 1; i < rec.steps.length; i++) expect(rec.steps[i]!.day - rec.steps[i - 1]!.day).toBeGreaterThanOrEqual(min[i]! - 1);
+      if (rec.steps.length >= 2) { climbed++; expect(rec.steps[1]!.seenBy.length, "the noticing step names who caught it").toBeGreaterThan(0); }
+      if (rec.steps.length >= 4) expect(rec.steps[3]!.day).toBeGreaterThanOrEqual(SHOWMANCE_PACE.publicNotBeforeDay);
+    }
+    expect(climbed, "a pair climbed at least two levels").toBeGreaterThan(0);
+    expect(publicBefore).toEqual([]);
+  });
+
+  it("pacing off: the same seed, played to the moment the first romance began, keeps no pace record", () => {
+    expect(firstRomanceTurn).toBeGreaterThan(0);
+    const off = playedGame({ seed: SEED, user: USER, before: (s) => (s as unknown as { setShowmancePacingEnabled(on: boolean): void }).setShowmancePacingEnabled(false) });
+    for (let i = 0; i < firstRomanceTurn + 20; i++) off.turn();
+    expect((off.s as unknown as Priv).live.showmancePace).toBeUndefined();
+  }, 900_000);
+
+  // Blocked, not faked: in four played seasons (seeds 3, 7, 13, 21) no showmance reached the public stage (the furthest climbed two of four levels, from day 41), so the
+  // "public couple late, once" claim and the house's one noticing beat are proven only by the unit test that drives the days by hand (tests/unit/showmancePaceLive.test.ts).
+  it.todo("real path: a showmance reaches the public couple stage late and is noticed once, blocked by no played season reaching level 4 before the season ends (ORW-736)");
+  it.todo("real path: the player's own romance runs the same pace, not attempted: it needs the player's gender facet set in casting and a houseguest drawn to them, which the played driver does not reach (ORW-736)");
+});

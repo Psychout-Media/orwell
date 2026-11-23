@@ -26,7 +26,8 @@ function game() {
   const ledger = (): Ledger => ((sb.session.snapshot().live as { npcMemory?: Ledger }).npcMemory ?? {});
   return { sb, g: sb.session as unknown as G, npcs, ledger, rel: sb.engine.relationships };
 }
-describe("through the real session", () => {
+// ORW-811: these set bonds by hand (unit, state set by hand). The real path is tests/realpath/memoryFriends.test.ts (a played house, the player's own recordInteraction).
+describe("unit, state set by hand: the friends writer", () => {
   it("flag off: only the touched houseguest remembers (today's behaviour)", () => {
     const { g, npcs, ledger, rel } = game();
     g.setMemoryFriendsEnabled(false); // pinned OFF explicitly: the flag now defaults ON
