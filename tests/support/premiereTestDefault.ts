@@ -7,8 +7,9 @@ import { expect } from "vitest";
  * gates (juryReach, gradient, twist windows, full-game UAT): they leave the flag UNSET so they exercise the deployed default. Set explicitly both ways per file because a forked
  * worker reuses its process (and so its env) across test files.
  */
+// ORW-827: tests/realpath runs as shipped too (unpinned, like the heavy lanes): a real-path test plays the game the deploy runs (tests/realpath/shippedDefaults.test.ts pins it).
 const path = String(expect.getState().testPath ?? "");
-if (/[\\/]tests[\\/](property|uat|calibration)[\\/]/.test(path)) delete process.env.ORWELL_PREMIERE_ENTRANCES;
+if (/[\\/]tests[\\/](property|uat|calibration|realpath)[\\/]/.test(path)) delete process.env.ORWELL_PREMIERE_ENTRANCES;
 else process.env.ORWELL_PREMIERE_ENTRANCES = "0";
 // Bedtime gate (turnIn refused in the morning/afternoon): the unit lane drives days by turning in at 8am; the gate has its own test that opts IN through setBedtimeGateEnabled(true).
-if (!/[\\/]tests[\\/](property|uat|calibration)[\\/]/.test(path)) process.env.ORWELL_BEDTIME_GATE = "0"; else delete process.env.ORWELL_BEDTIME_GATE;
+if (!/[\\/]tests[\\/](property|uat|calibration|realpath)[\\/]/.test(path)) process.env.ORWELL_BEDTIME_GATE = "0"; else delete process.env.ORWELL_BEDTIME_GATE;

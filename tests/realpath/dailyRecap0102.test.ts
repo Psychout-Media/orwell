@@ -49,7 +49,7 @@ const QUIET: Omit<Partial<PlayOpts>, "seed" | "watch"> = {
 
 describe("0102 - the daily recap is dormant unless the clock is running", () => {
   it("turnIn carries no dailyRecap, and dailyRecap reads null, when ORWELL_TIME_OF_DAY is off", async () => {
-    process.env.ORWELL_TIME_OF_DAY = "0"; // explicit OFF (default flip 2026-11-03)
+    process.env.ORWELL_TIME_OF_DAY = "0"; // not as shipped: the dormancy check (the recap needs the clock); unset again after each test
     const at = await playUntil(SEED, () => true);
     const v = await turnIn(at);
     expect(v.dailyRecap).toBeUndefined();

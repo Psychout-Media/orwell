@@ -1,4 +1,4 @@
-# spec-only: 0208 (Theme B, ORW-662) - the foundation (src/engine/seasonMemory.ts) is built and unit-tested; the slices wire these scenarios (A and B).
+# spec-only: 0208 (ORW-662 is Done) umbrella spec; its scenarios run as the slices: superseded by 0208-returning-houseguests.feature, 0208-your-reputation-walks-in.feature, 0208-the-hall-of-fame.feature
 # Feature 0208 - seasons that remember (Ryne approved all three slices 2026-11-18). Design: 0208-seasons-that-remember.md. Roles only.
 
 Feature: Seasons that remember
