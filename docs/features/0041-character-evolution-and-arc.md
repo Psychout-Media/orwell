@@ -13,7 +13,7 @@
 > (`chooseNominationsWithMood`) — emotion **never** overrides a hard rule (0005). The static `CHARACTER`
 > stays **byte-stable** (0007); only the soul drifts; the arc **persists across a restart** (0030) and
 > recall is re-derived from it. No emotional number reaches any player surface (the 0001 canary, extended).
-> **This unblocks the deferred soul halves of 0038 and 0040.**
+> **This unblocked the soul halves of 0038 and 0040, which had waited on it.**
 > Was: relationship edges evolved (0023/0026) and `SoulStore`/`emotionalState` existed (0024), but
 > `recordToSoul`/`recall` were unwired from the live loop and a blindside changed nothing.
 > **Executable spec:** [`0041-character-evolution-and-arc.feature`](./0041-character-evolution-and-arc.feature)
@@ -111,7 +111,7 @@ Wires **0024** (`SoulStore` recall) into the **live** loop, driven by **0023** (
 (0011/0014), under **0001** (Vault Wall) and **0007** (the byte-stable `CHARACTER` vs the drifting `SOUL`),
 persisted by **0030**. Makes "the house changed me / changed them" a real, hidden, recall-able mechanic.
 
-## 8. Live wiring (the linchpin — unblocks deferred 0038 & 0040 pieces)
+## 8. Live wiring (the linchpin — unblocked the waiting 0038 & 0040 pieces)
 
 **Why this is the linchpin:** the live sandbox's engine core (`src/composition/engineRoot.ts`
 `buildEngineCore`) exposes only `{ events, vault, knowledge, relationships }` — **there is no `SoulStore`**.

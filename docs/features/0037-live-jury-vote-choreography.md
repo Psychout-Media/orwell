@@ -66,7 +66,7 @@ wired into the live tally via `castJuryVote` / `juryLean` / `finalePerformance` 
 **persist** an in-progress finale so it survives restart (0030); **sentinel-clean** finale surface (0001).
 
 **Out:** the pure jury math (built — 0014; reused, not changed); the front-end UI that renders the
-statements/questions/reveal in chat (a small follow-up on the 0032 game build, like 0036's C10 — the
+statements/questions/reveal in chat (a small front-end piece on the 0032 game build, since built (the finale UI), like 0036's C10 — the
 agent can already drive it through the tools); NPC **confessional** content (Vault-only).
 
 ## 4. Design

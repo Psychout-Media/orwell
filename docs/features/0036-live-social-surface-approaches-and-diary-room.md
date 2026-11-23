@@ -71,7 +71,7 @@ diaryRoom(entry: string): { recorded: true }                   // readsVault:fal
 - [ ] **Vault-free:** both tools are `readsVault: false` and **sentinel-clean** under a populated Vault
       (extend the 0001 canary); `npm run test:arch` green.
 - [ ] **Manifest:** both appear in the base prompt's lever manifest (coordinated with **B21**).
-- [ ] Name-agnostic tests (roles only — player/NPC); `npm test` green. *(A small front-end follow-up
+- [ ] Name-agnostic tests (roles only — player/NPC); `npm test` green. *(The small front-end piece
       surfaces "X wants to talk" and a DR entry point — queued separately; the agent can drive both via the
       tools without UI.)*
 
