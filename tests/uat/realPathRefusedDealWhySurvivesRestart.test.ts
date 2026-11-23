@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, rmSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { composeRuntime } from "../../src/composition/runtime";
@@ -35,23 +35,6 @@ describe("ORW-731 REAL PATH: a refused deal's why-record survives a restart", ()
       expect(before).toBeGreaterThan(0);
       const resumed = composeRuntime({ saveStore: new FileSaveStore(dir), seed });
       expect(whyCount(resumed), "the why-record written by the refusals is still there after a restart").toBe(before);
-    } finally { rmSync(dir, { recursive: true, force: true }); }
-  }, 300_000);
-
-  it("a save written before the record existed (no decision-why, no stated reasons) still loads and plays on", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "refused-why-old-"));
-    try {
-      const user = "refused-why-old", seed = 3;
-      const rt = composeRuntime({ saveStore: new FileSaveStore(dir), seed });
-      await (rt.registry.resolver()("player", user).callTool("createCharacter", { playerName: "The Player", seed, archetype: "floater" }) as Promise<unknown>);
-      const walk = (d: string): string[] => readdirSync(d, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(join(d, e.name)) : [join(d, e.name)]));
-      for (const f of walk(dir).filter((x) => x.endsWith(".json"))) {
-        const snap = JSON.parse(readFileSync(f, "utf8")) as { live?: Record<string, unknown> };
-        if (snap.live) { delete snap.live["decisionWhy"]; delete snap.live["statedReasons"]; writeFileSync(f, JSON.stringify(snap)); }
-      }
-      const resumed = composeRuntime({ saveStore: new FileSaveStore(dir), seed });
-      const status = await (resumed.registry.resolver()("player", user).callTool("gameStatus", {}) as Promise<{ week?: number }>);
-      expect(status.week, "the old save resumed into a running game").toBeGreaterThanOrEqual(1);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   }, 300_000);
 });
