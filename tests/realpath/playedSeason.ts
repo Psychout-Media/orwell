@@ -1,6 +1,7 @@
 import { playSeason, type Call, type PlayOpts } from "../support/whatFired/player";
 import type { KnowledgeFact } from "../../src/domain/knowledge";
 import { PLAYER } from "../../src/domain/ids";
+import { NotReached } from "../support/firstSeedWhere";
 
 /**
  * ORW-810: the shared played-season stop for the real-path tests in this folder. The season is played by the scripted talking player (tests/support/whatFired/player.ts):
@@ -24,7 +25,7 @@ export async function playUntil(seed: number, stopWhen: (s: Stop) => boolean | P
     ...opts, seed, maxMessages: opts.maxMessages ?? 1500,
     watch: async (ctx) => { const s = ctx as unknown as Stop; if (await stopWhen(s)) { at = s; return true; } return false; },
   });
-  if (!at) throw new Error(`seed ${seed}: the played season never reached the stop (${rec.stopped} after ${rec.messages} messages)`);
+  if (!at) throw new NotReached(`seed ${seed}: the played season never reached the stop (${rec.stopped} after ${rec.messages} messages)`);
   return at;
 }
 

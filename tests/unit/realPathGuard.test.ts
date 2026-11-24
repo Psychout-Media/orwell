@@ -104,7 +104,8 @@ type Violation = { file: string; line: number; rule: string; reason: string; tex
  *  - every call to a played-season driver passes it (`user:` in the options of `playedGame` / `playSeason` / `playUntil` / `playMixGame`, the third argument of
  *    `bootNatural`), unless the call forwards a caller's options object (`...opts`) or the file defines a local function of that name;
  *  - every sandbox name the file writes (a `sandboxFor(...)` argument, a `user:` value, or the `const` an identifier there names) is fixed: never random, time-based
- *    or a counter that moves with test order.
+ *    or a counter that moves with test order;
+ *  - ORW-880: a seed chosen by `firstSeedWhere` / `firstSeedWhereSync` counts as pinned when the call names each seed's sandbox (`sandbox: (seed) => ...`), itself fixed.
  */
 const DRIVERS = ["playedGame", "playedSeason", "playSeason", "playUntil", "playMixGame", "bootNatural"];
 const UNFIXED_NAME = /Math\s*\.\s*random|\bDate\b|performance\s*\.\s*now|randomUUID|hrtime|\+\+|--/;
@@ -149,7 +150,14 @@ function scanSandboxNames(file: string, src: string): Violation[] {
       if (!pinned) push(m.index!, "sandbox-unpinned", `${name}(...) plays a seeded season without naming its sandbox; the name is part of the game (pass user: next to the seed)`);
     }
   }
+  // ORW-880: a seed picked by the scan (tests/support/firstSeedWhere.ts) is pinned when the scan names its sandbox for each seed (`sandbox: (s) => \`wf-${s}\``).
+  if (!local.has("firstSeedWhere")) for (const m of code.matchAll(/(?<![\w$.])firstSeedWhere(?:Sync)?\s*\(/g)) {
+    const before = code.slice(Math.max(0, m.index! - 40), m.index!);
+    if (/function\s*$|import\s*\{[^}]*$|\bas\s*$/.test(before)) continue;
+    if (!/\bsandbox\s*:/.test(argsAt(code, m.index! + m[0].length - 1))) push(m.index!, "sandbox-unpinned", "firstSeedWhere(...) picks a seed without naming each seed's sandbox; pass sandbox: (seed) => a fixed name");
+  }
   const exprs: Array<{ at: number; expr: string }> = [];
+  for (const m of code.matchAll(/(?<![\w$])sandbox\s*:\s*/g)) { const rest = code.slice(m.index! + m[0].length); exprs.push({ at: m.index!, expr: topArgs(rest.split(/\n/)[0] ?? "")[0] ?? "" }); }
   for (const m of code.matchAll(/(?<![\w$])sandboxFor\s*\(/g)) exprs.push({ at: m.index!, expr: argsAt(code, m.index! + m[0].length - 1) });
   for (const m of code.matchAll(/(?<![\w$])user\s*:\s*/g)) { const rest = code.slice(m.index! + m[0].length); exprs.push({ at: m.index!, expr: topArgs(rest.split(/[}\n]/)[0] ?? "")[0] ?? "" }); }
   for (const { at, expr } of exprs) {
@@ -298,6 +306,8 @@ describe("the guard itself (planted failures)", () => {
     expect(rules("a;\nconst s = new GameSessionRegistry().sandboxFor(`mh-${Math.random()}`).session;\n")).toEqual(["sandbox-unfixed"]);
     expect(rules('a;\nconst g = playedGame({ seed: 21, user: `p-${Date.now()}` });\n')).toEqual(["sandbox-unfixed"]);
     expect(rules("a;\nconst user = `cpm-${n++}`;\nconst sb = reg.sandboxFor(user);\n")).toEqual(["sandbox-unfixed"]);
+    expect(rules("a;\nconst f = await firstSeedWhere((seed) => playUntil(seed, done, { user: `wf-${seed}` }), { from: 1, to: 9 });\n")).toEqual(["sandbox-unpinned"]);
+    expect(rules("a;\nconst f = firstSeedWhereSync((seed, sandbox) => go(seed, sandbox), { from: 1, to: 9, sandbox: (s) => `x-${Date.now()}-${s}` });\n")).toEqual(["sandbox-unfixed"]);
     const v = scanSandboxNames("p.test.ts", 'a;\nb;\nconst g = playedGame({ seed: 21 });\n');
     expect(v[0]).toMatchObject({ line: 3, rule: "sandbox-unpinned" });
   });
@@ -316,6 +326,11 @@ describe("the guard itself (planted failures)", () => {
       'const NAME = "bj-real-load";',
       "const loaded = new GameSessionRegistry().sandboxFor(NAME).session;",
       "const sb = reg.sandboxFor(`hours-${playing}`);",
+      "const f = await firstSeedWhere((seed, sandbox) => playUntil(seed, done, { user: sandbox }), { from: 1, to: 12, hint: 3, sandbox: (s) => `wf-${s}` });",
+      "const g = firstSeedWhereSync((seed, sandbox) => reach(seed, sandbox), {",
+      "  from: 1, to: 12,",
+      "  sandbox: (s) => `pj-${s}`,",
+      "});",
       "function playUntilQuiet(seed: number) { return 1; }",
       "export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> { return run(opts); }",
     ].join("\n");
