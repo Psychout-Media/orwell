@@ -11,7 +11,7 @@
 >   `test_m<W>_<N>_*.py` or a named source gate).
 > - **PARTIAL** — a surface exists but the DoD is **not** fully met; the missing DoD is named on
 >   the item line.
-> - **OPEN** — not built (no surface and no gate).
+> - **OPEN** — no surface and no gate yet.
 >
 > Per-wave counts below are **derived by counting the item statuses** (they must reconcile with
 > the inline `✅ DONE` / `PARTIAL` / `OPEN` markers on each item):
@@ -76,7 +76,7 @@ of Wave M4. Excluded items are *not* listed below — this is deliberate scope, 
 
 **Done when:**
 - The change ships **with its gate** (house rule: a fix without a test that would have caught it
-  is not done) and weakens no existing gate (no `-k` subsets, no XFAIL additions without an id).
+  is unfinished) and weakens no existing gate (no `-k` subsets, no XFAIL additions without an id).
 - `cd frontend && python3 -m pytest tests/` green (FE items) / `npm test` green (engine items);
   UI items attach before/after screenshots to the PR at 1440×900 **and** 390×844.
 - Player-facing surfaces prove Vault-freedom where they render game data (a test asserting no
