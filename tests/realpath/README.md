@@ -81,10 +81,12 @@ It stays deterministic (the same code picks the same seed every run) and fails l
 qualifies. When the hint stops qualifying, a warning names the seed that does: update the hint.
 
 The rule that keeps it honest: **the precondition is what `reach` checks, the claim is what the test asserts.** Move every "the seed's house has X"
-check into the precondition; never move a claim of the feature there (then a broken feature just picks another seed). The guard counts a scan as
-pinned when it names each seed's sandbox (`sandbox: (seed) => ...`, fixed) or passes `wfScan(...)`.
+check into the precondition. A claim that must hold on the game found stays an assertion: in the precondition, a broken feature would just pick another
+seed. (A "the feature fires at all in a played season" claim may be the precondition: the scan then fails, naming every seed, when no seed in range
+shows it.) The guard counts a scan as pinned when it names each seed's sandbox (`sandbox: (seed) => ...`, fixed) or passes `wfScan(...)`.
 
-Not every seed stays a scan: a regression test for the seed that used to break (`realPathAdvanceRefused`) and a claim checked on a fixed sample of
-seeds with no precondition (`waitUntilClock`, `orw691BadSleep`) keep their seeds.
+Not every seed is a scan: a regression test for the seed that used to break (`realPathAdvanceRefused`), a claim checked on a fixed sample of seeds with
+no precondition (`waitUntilClock`, `orw691BadSleep`, `realPathApproachBrake`'s three games), and the few heavy seasons not yet moved
+(`realPathPlayerEvicted`, `realPathRetroLeftovers`) keep their seeds.
 
 Roles only in tests (HOH, nominee, NPC, player), never names.

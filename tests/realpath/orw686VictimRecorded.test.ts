@@ -11,7 +11,7 @@ import { answerPending } from "../../features/support/answerPending";
  * others, a houseguest tells the room what they believe about the player (the narrator's `recordInteraction` with `heardAboutMe`). A rumor names WHO WAS BETRAYED only when the
  * betrayal is on the public record; a secret-ballot break, and a rumor with no betrayal behind it, name no victim. The public-break case was not reached in play (the todo). Roles only.
  */
-const SEED = 3;
+const HINT = 3; // ORW-880: the seed tried first; each test scans from here (wfScan)
 type Deal = { status: string; brokenBy?: string; parties: string[] };
 const dealsOf = (s: Stop): Deal[] => s.sess.deals.forParty(PLAYER) as Deal[];
 /** Who is in the room with the player, and awake, for a scene recorded now: the engine's own witness roster (the room as it was when the player last spoke). */
@@ -50,7 +50,7 @@ async function tellTheRoom(s: Stop, v: string): Promise<{ o: string; t: string }
 describe("a betrayal rumor records its victim from the real betrayal event (played)", () => {
   it("a deal the player broke at the secret ballot names no victim: the betrayed never learned who broke it, so the rumor stays victim-less, and the told rumor still costs a bystander a small bounded distrust", async () => {
     // seed 3: at the first eviction the player votes against a houseguest they hold a deal with; the break is a secret ballot (the wronged side never learns it by name)
-    const at = await firstStop((s) => quiet(s) && betrayed(s).some((v) => room(s).includes(v)) && room(s).length >= 3, wfScan(SEED), { decide: voteAgainstAPartner });
+    const at = await firstStop((s) => quiet(s) && betrayed(s).some((v) => room(s).includes(v)) && room(s).length >= 3, wfScan(HINT), { decide: voteAgainstAPartner });
     const v = betrayed(at).find((x) => room(at).includes(x))!;
     const deal = dealsOf(at).find((d) => d.status === "broken" && d.brokenBy === PLAYER && d.parties.includes(v)) as Deal & { secretVote?: boolean };
     expect(deal.secretVote, "the break was the player's secret ballot").toBe(true);
@@ -70,7 +70,7 @@ describe("a betrayal rumor records its victim from the real betrayal event (play
   it.todo("real path: a deal the player broke in public names the betrayed on a later betrayal rumor; the betrayed folds 'targets me', a bystander a bounded distrust; it survives a save - not reached: the player never held HOH in 18 played seasons (ORW-686)");
 
   it("a rumor with no recorded betrayal behind it stays victim-less", async () => {
-    const at = await firstStop((s) => quiet(s) && s.sess.getGameState().phase !== "premiere" && dealsOf(s).every((d) => d.status !== "broken") && room(s).length >= 3, wfScan(SEED));
+    const at = await firstStop((s) => quiet(s) && s.sess.getGameState().phase !== "premiere" && dealsOf(s).every((d) => d.status !== "broken") && room(s).length >= 3, wfScan(HINT));
     const [v] = room(at);
     const { o } = await tellTheRoom(at, v!);
     for (const h of [v!, o]) for (const c of rumorsOf(at, h)) expect(c.object).toBeUndefined();
