@@ -64,6 +64,13 @@ const PHRASE_END = /\s+(?:and|to|so|with|then|because|but|for|while|where|now|pl
 const INSIDE_WORDS = new Set(["inside", "in", "indoors", "back inside", "back in", "into the house", "inside the house", "in the house"]);
 const OUTSIDE_WORDS = new Set(["outside", "out", "outdoors", "out back", "outside the house", "out of the house"]);
 
+/** ORW-858 (716a): the part of a cleaned clause that STATES the move, up to the first joiner ("and", "then", "so", "but", a comma). A hedge, a negation or an "if" in what the player says
+ *  AFTER the move ("I head to the bathroom and ask him if we can talk") is not a hedge about the move, so only the head is checked against NOT_A_MOVE. A hedge in the head ("maybe I go ...",
+ *  "I wonder if I should go ...") still means no move. */
+function moveHead(s: string): string {
+  return s.split(/\s+(?:and|then|so|but)\s+|,\s*/)[0] ?? s;
+}
+
 function clean(clause: string): string {
   let s = clause.replace(/[\u2018\u2019\u02BC]/g, "'").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[*_`~]+/g, " ").replace(/[^a-z0-9' -]+/g, " ").replace(/\s+/g, " ").trim();
   s = s.replace(/\b(?:i'?d|i would) like to\b/g, "i want to").replace(/\bwould like to\b/g, "want to");
@@ -89,7 +96,7 @@ function roomFromPhrase(phrase: string, current: Room | null, themed?: Themed): 
 function parseClause(raw: string, current: Room | null, themed?: Themed): Room | null {
   if (/\?\s*$/.test(raw.trim())) return null;
   let s = clean(raw);
-  if (s === "" || QUESTION_START.test(s) || NOT_A_MOVE.test(s)) return null;
+  if (s === "" || QUESTION_START.test(s) || NOT_A_MOVE.test(moveHead(s))) return null;
   s = s.replace(SUBJECT, "");
   s = s.replace(INTENT, "");
 
@@ -149,7 +156,7 @@ const FIND_VERB = /^(?:find|finds|finding|look for|looks for|looking for|seek ou
 function personFromClause(raw: string, current: Room | null, themed?: Themed): string | null {
   if (/\?\s*$/.test(raw.trim())) return null;
   let s = clean(raw);
-  if (s === "" || QUESTION_START.test(s) || NOT_A_MOVE.test(s)) return null;
+  if (s === "" || QUESTION_START.test(s) || NOT_A_MOVE.test(moveHead(s))) return null;
   s = s.replace(SUBJECT, "").replace(INTENT, "");
   let rest: string | null = null;
   const f = FIND_VERB.exec(s);
