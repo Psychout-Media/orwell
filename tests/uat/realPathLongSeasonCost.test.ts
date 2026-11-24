@@ -12,7 +12,7 @@ describe("ORW-832 REAL PATH: the cost of a message follows the size of the seaso
   it("per message and per stored event, a block late in the season costs about what an early block cost", async () => {
     const BLOCK = 250, rows: Array<{ ms: number; events: number }> = [];
     let blockStart = Date.now();
-    const r = await playSeason({ seed: 4, maxMessages: 1000, watch: async ({ engine, msg }) => {
+    const r = await playSeason({ seed: 4, user: "wf-4", maxMessages: 1000, watch: async ({ engine, msg }) => {
       if ((msg + 1) % BLOCK === 0) { const now = Date.now(); rows.push({ ms: (now - blockStart) / BLOCK, events: engine.events.count() }); blockStart = now; }
       return false;
     } });
