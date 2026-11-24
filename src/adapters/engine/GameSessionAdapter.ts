@@ -17270,6 +17270,9 @@ export class GameSessionAdapter implements GameSession {
   private scheduleHoldsAdvance(): boolean {
     const live = this.live;
     if (!live || !this.advanceGateEnabled || this.scheduleGateBypass || live.playedGame !== true || live.spectator || playerHasLeft(live, PLAYER) || !this.perConversationClockLive() || live.pending || live.finished) return false;
+    // ORW-837: the schedule STARTS a ceremony; it never splits one. An eviction reveal, a staged ceremony or the finale already under way is never held, whatever the clock reads (an eviction started at 7:35am
+    // crossed the 8am wake and the rest was held to 4pm: the house sat eight hours mid-reveal). Only the HOLD changes: the public `milestoneDue` read keeps meaning "time to start it".
+    if (live.eviction || live.ceremony || live.finale) return false;
     return !!nextMilestone(live) && !milestoneDueOf(live);
   }
 

@@ -18,7 +18,7 @@ describe("B3-3: a houseguest scheming about the player to a third party stays hi
     let aboutSteps = 0, records = 0;
     for (const seed of [11, 12, 13]) {
       let last: Sess | undefined;
-      await playMixGame(seed, 700, { onStep: (sess) => { last = sess as Sess; } });
+      await playMixGame(seed, 700, { user: `mixdrv-${seed}`, onStep: (sess) => { last = sess as Sess; } });
       const s = last!;
       const about = events(s).filter((e) => e.hidden && e.houseLife?.about === PLAYER);
       aboutSteps += about.length;
@@ -46,7 +46,7 @@ describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer f
   it("a hostile approach answered kindly writes no fight; the same approach ignored does (seed 13, the same game played twice up to the approach)", async () => {
     const run = async (answer: boolean): Promise<{ fights: number; shown: boolean }> => {
       let target: string | undefined; let answered = false; let shown = false; let after = 0; let s: Sess | undefined;
-      await playMixGame(13, 1400, {
+      await playMixGame(13, 1400, { user: "mixdrv-13",
         onStep: (sess) => { s = sess as Sess; if (!target) { const r = (s.live.aimedAtPlayer ?? []).find((x) => x.hostile && x.status === "shown"); if (r) { target = r.actor; shown = true; } } else after++; },
         onMessage: async (call) => { if (answer && target && !answered) { answered = true; await call("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, target], content: "I hear you, let's talk it through", kind: "conversation" }); } },
         stopWhen: () => after > 500,
@@ -67,7 +67,7 @@ describe("B3-5 / the approach treadmill, over a played game", () => {
     for (const seed of [3, 11]) {
       let last: { npc: string; at: string } | undefined; let waiting: { npc: string; room: string | undefined } | undefined;
       let answerNext: string | undefined; let diaryNext = false; let backTo: string | undefined; let steps = 0;
-      await playMixGame(seed, 360, {
+      await playMixGame(seed, 360, { user: `mixdrv-${seed}`,
         onMessage: async (call) => {
           if (answerNext) { await call("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, answerNext], content: "fair question, here is my answer", kind: "conversation" }); answerNext = undefined; }
           if (backTo) { await call("moveTo", { room: backTo.replace(/-/g, " ") }); backTo = undefined; } // a short visit: back to where they were
