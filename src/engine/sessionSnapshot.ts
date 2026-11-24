@@ -658,15 +658,24 @@ function cloneJsonLike(v: unknown): unknown {
   if (Array.isArray(v)) {
     const out = new Array(v.length);
     for (let i = 0; i < v.length; i++) {
-      const c = cloneJsonLike(v[i]);
+      const e = v[i];
+      // ORW-844: strings, booleans and finite numbers (most of a snapshot) are shared without a call
+      const te = typeof e;
+      if (te === "string" || te === "boolean" || (te === "number" && Number.isFinite(e as number))) { out[i] = e; continue; }
+      const c = cloneJsonLike(e);
       out[i] = c === undefined ? null : c; // JSON: undefined/function in an array slot → null
     }
     return out;
   }
   const out: Record<string, unknown> = {};
-  for (const k in v as Record<string, unknown>) {
-    if (!Object.prototype.hasOwnProperty.call(v, k)) continue;
-    const c = cloneJsonLike((v as Record<string, unknown>)[k]);
+  const src = v as Record<string, unknown>;
+  const keys = Object.keys(src); // own enumerable string keys, in the same order `for..in` + hasOwnProperty gives
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i]!;
+    const e = src[k];
+    const te = typeof e;
+    if (te === "string" || te === "boolean" || (te === "number" && Number.isFinite(e as number))) { out[k] = e; continue; }
+    const c = cloneJsonLike(e);
     if (c !== undefined) out[k] = c; // JSON: a property whose value is undefined/function is dropped
   }
   return out;
