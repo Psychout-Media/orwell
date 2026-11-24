@@ -12,7 +12,8 @@ import { watchVoteTalk, beliefOf, overclaims, type Talk } from "./voteTalkPlay";
  *  - from seed 3: the first eviction's vote talk (week 2) tells the player, and credits a believed keep;
  *  - from seed 17: a unanimous eviction (no keep votes), where a credited "I voted to keep them" is caught by the count at once and the credit is taken back.
  * The pure checks stay in tests/unit/voteTalkSteers.test.ts, with the two catches play has not reached (a catch BY COUNTING with keep votes left, and a keep claim told after the
- * count is public): seven seasons played to the crown (seeds 3, 7, 11, 13, 17, 23, 29) never produced either, so those stay hand-set there with a todo. Roles only.
+ * count is public): forty seasons played to the crown (seeds 1-40 in the sandboxes wf-<seed>; ORW-829, 2026-11-24) never produced either, so those stay hand-set there
+ * with a todo. Roles only.
  */
 const firstTalk = async (hint: number | number[], wanted: (s: Stop, t: Talk) => boolean): Promise<{ at: Stop; talk: Talk }> =>
   (await firstSeedWhere(async (seed, sandbox) => {

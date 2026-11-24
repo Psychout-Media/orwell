@@ -20,7 +20,7 @@ const st = (w: BbWorld): MoodState => state.get(w)!;
 
 function stage(w: BbWorld, present: boolean, soul: Partial<Soul>): void {
   GameSessionAdapter.setTimeOfDayEnabled(null);
-  const sess = new GameSessionRegistry().sandboxFor(`vm-${Math.random()}`).session;
+  const sess = new GameSessionRegistry().sandboxFor(`vm-fixed`).session;
   sess.createCharacter({ playerName: "The Player", archetype: "floater", seed: 7 });
   const s = sess as unknown as Internals;
   s.setNpcTellsEnabled(true);

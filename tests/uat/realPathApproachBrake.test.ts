@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { PLAYER } from "../../src/domain/ids";
 import { nextMilestone } from "../../src/engine/daySchedule";
 import { playMixGame } from "../support/houseMixDriver";
+import { firstStop, wfScan, type Stop } from "../realpath/playedSeason";
 
 /**
  * ORW-709 (B3-3/4/5 and the approach treadmill) - in PLAYED games (ORW-812: before, a get-them-out goal was pushed into a houseguest's agenda, the house moved into the yard, the bond
@@ -41,7 +42,38 @@ describe("B3-3: a houseguest scheming about the player to a third party stays hi
 });
 
 describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer folds none (played)", () => {
-  it.todo("real path: a milestone ask by a houseguest who holds an open record of their own leaves it open - not reached: in seeds 11, 12, 13 (700 messages each) no houseguest with an open record made a milestone ask (ORW-709)");
+  it("ORW-839: a milestone ask by a houseguest who holds an open record of their own leaves that record open (the scripted talking player, the first seed that gets there)", async () => {
+    // PRECONDITION (the scan): a houseguest steps up to the player with a milestone question (not their goal's) while holding an open record aimed at the player. The house-mix
+    // games above (seeds 11-13, 700 messages) never got there; with the scripted talking player a 2026-11-24 search found it in 18 of 40 seeds, so the scan finds one in 1..12.
+    type Seen = { npc: string; asked: string; open: string[] };
+    const memo = new WeakMap<object, { last: string; open: Map<string, string[]> }>();
+    let seen: Seen | undefined;
+    const milestoneAskOnOpenRecord = (st: Stop): boolean => {
+      const s = st.sess as Sess;
+      const m = memo.get(s) ?? { last: "", open: new Map<string, string[]>() };
+      memo.set(s, m);
+      let hit = false;
+      const it2 = s.live.interruption;
+      if (it2) {
+        const key = `${it2.npc}:${it2.atHour}`;
+        if (key !== m.last) {
+          m.last = key;
+          const q = s.live.approachAsked?.[it2.npc]?.q;
+          const had = m.open.get(it2.npc) ?? [];
+          if (q && !q.startsWith("goal:") && had.length > 0) { seen = { npc: it2.npc, asked: q, open: had }; hit = true; }
+        }
+      }
+      const open = new Map<string, string[]>();
+      for (const r of s.live.aimedAtPlayer ?? []) if (r.status === "open") (open.get(r.actor) ?? open.set(r.actor, []).get(r.actor)!).push(r.id);
+      m.open = open;
+      return hit;
+    };
+    const at = await firstStop(milestoneAskOnOpenRecord, wfScan(1, "a milestone ask by a houseguest who holds an open record"));
+    expect(seen, "the stop recorded the ask").toBeDefined();
+    const recs = ((at.sess as Sess).live.aimedAtPlayer ?? []).filter((r) => seen!.open.includes(r.id));
+    expect(recs.length).toBe(seen!.open.length);
+    for (const r of recs) expect(r.status, "a milestone ask does not surface the asker's own record (only that record's own goal does)").toBe("open");
+  }, 900_000);
 
   it("a hostile approach answered kindly writes no fight; the same approach ignored does (seed 11, the same game played twice up to the approach; re-pinned from 13 by ORW-791, see ORW-872)", async () => {
     const run = async (answer: boolean): Promise<{ fights: number; shown: boolean }> => {

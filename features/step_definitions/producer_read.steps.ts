@@ -16,7 +16,7 @@ const st = (w: BbWorld): Ctx => state.get(w)!;
 const LINE = /THE EXCHANGE \(voice this in second person[^\n]*/;
 
 function stage(seed: number): Ctx {
-  const sb = new GameSessionRegistry().sandboxFor(`pr-${seed}-${Math.random()}`);
+  const sb = new GameSessionRegistry().sandboxFor(`pr-${seed}-fixed`);
   sb.session.createCharacter({ playerName: "The Player", seed });
   const npc = sb.session.livingIds().find((i) => i !== PLAYER)!;
   return { sb, npc, first: "", second: "", stashCalls: 0, prompt: "" };

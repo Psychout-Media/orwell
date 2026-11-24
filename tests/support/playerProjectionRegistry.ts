@@ -72,6 +72,7 @@ export const PLAYER_PROJECTION_REGISTRY: readonly ProjectionEntry[] = [
   { method: "preSeedNextSeason", coveredBy: "pre-game", note: "next-season warm; liveSentinel sweeps" },
   { method: "noteMessage", coveredBy: "receipt", note: "{accepted, beatSeq} - no text" },
   { method: "recordDaySummary", coveredBy: "write-back", note: "FE write-back; bare status result" },
+  { method: "recordEpisodeTitles", coveredBy: "write-back", note: "ORW-807 FE write-back after the crown; bare status result" },
   { method: "recordWorldSnapshot", coveredBy: "write-back", note: "FE write-back; bare status result" },
   { method: "recordNpcReflections", coveredBy: "write-back", note: "ORW-320 post-crown FE write-back; refused while live; bare {accepted, rejected} counts" },
   { method: "recordNpcTraits", coveredBy: "write-back", note: "ORW-319 FE write-back; bare {accepted, rejected} counts" },

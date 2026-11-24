@@ -14,7 +14,7 @@ const st = (w: BbWorld): ConsentState => state.get(w)!;
 const isRefusal = (r: DealView | DealRefusal | null): r is DealRefusal => !!r && (r as DealRefusal).refused === true;
 
 Given("a houseguest who distrusts the player", function (this: BbWorld) {
-  const s = new GameSessionRegistry().sandboxFor(`dcl-${Math.random()}`).session;
+  const s = new GameSessionRegistry().sandboxFor(`dcl-fixed`).session;
   s.createCharacter({ playerName: "The Player", seed: 5 });
   s.advanceGame(); s.advanceGame();
   const npc = s.livingIds().find((id) => id !== PLAYER)!;
