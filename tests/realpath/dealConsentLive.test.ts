@@ -21,7 +21,7 @@ const realOf = (s: unknown, r: unknown): string | undefined => (s as { refusalRe
 const snapNoWhy = (s: { snapshot(): unknown }): string => JSON.stringify(s.snapshot(), (k, v) => (k === "decisionWhy" || k === "statedReasons" ? undefined : v));
 
 function weekTwo(user: string, consent = true) {
-  const g = playedGame({ seed: SEED, user, before: (s) => (s as unknown as { setNpcDealConsentEnabled(on: boolean): void }).setNpcDealConsentEnabled(consent) });
+  const g = playedGame({ seed: SEED, user: user, before: (s) => (s as unknown as { setNpcDealConsentEnabled(on: boolean): void }).setNpcDealConsentEnabled(consent) });
   g.playUntil(() => (g.s.getGameState() as { week?: number }).week! >= 2 && !g.s.getGameState().pending, 5000, "week 2");
   return g;
 }

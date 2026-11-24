@@ -21,7 +21,7 @@ const planted = (s: Stop, h: string, claimId: string) => beliefs(s, h).find((b) 
 
 /** Play to the moment, then the player tells the first houseguest in the room a false claim about two others. Returns the listener, an ally (also in the room) and the claim to the listener. */
 async function lieTold(): Promise<{ at: Stop; a: string; ally: string; lie: Claim }> {
-  const at = await playUntil(3, quiet);
+  const at = await playUntil(3, quiet, { user: "wf-3" });
   const [a, ally] = roster(at);
   const pair = (at.sess.livingIds() as string[]).filter((x) => x !== PLAYER && x !== a && x !== ally);
   const finalTwo = (x: string, y: string) => (at.sess.deals.all as Array<{ kind: string; status: string; parties: string[] }>).some((d) => d.kind === "final-two" && d.status === "open" && d.parties.includes(x) && d.parties.includes(y));

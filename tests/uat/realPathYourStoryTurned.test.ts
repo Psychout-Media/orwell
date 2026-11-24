@@ -25,7 +25,7 @@ describe("ORW-691 B1-3: a view that goes from warm to cold is told as turned (pl
       if (week === 1) await s.call("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, target], content: "we talked for hours and got close", kind: "bonding", toward: [target] });
       else await s.call("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, target], content: "we had a sharp argument", kind: "conflict", toward: [target] });
       return false;
-    }, { maxMessages: 6000 });
+    }, { user: "wf-3", maxMessages: 6000 });
     expect(target).toBeDefined();
     const retro = (await at.call("seasonRetrospective", {})) as { yourStories?: { stories: Array<{ name: string; shape: string }> } };
     const story = retro.yourStories?.stories.find((x) => x.name === at.sess.nameOf(target!));

@@ -16,7 +16,7 @@ type Priv = { campaigns: Campaign[]; campaignTiltFor(t: string, v: string): numb
 const SEED = 1;
 
 async function pitched(user: string, opts: { on?: boolean; direction?: "more-threatened" | "less-threatened" } = {}) {
-  const g = playedGame({ seed: SEED, user, before: (s) => s.setCampaignsEnabled(opts.on ?? true) });
+  const g = playedGame({ seed: SEED, user: user, before: (s) => s.setCampaignsEnabled(opts.on ?? true) });
   g.playUntil(() => (g.s.getGameState() as { week?: number }).week! >= 2 && !g.s.getGameState().pending, 5000, "week 2");
   const npcs = g.s.livingIds().filter((id) => id !== PLAYER);
   const [recruit, target, bystander] = npcs as [string, string, string];
