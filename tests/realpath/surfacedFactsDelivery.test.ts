@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { PLAYER } from "../../src/domain/ids";
 import { provenanceWord } from "../../src/domain/humanize";
 import type { KnowledgeFact } from "../../src/domain/knowledge";
-import { playUntil, learned, type Stop } from "./playedSeason";
+import { learned, type Stop, firstStop, wfScan } from "./playedSeason";
 
 /**
  * SOC-1/4 - surfaced-fact DELIVERY to the per-turn narrator, and #1789 - the telephone-game provenance word, in a PLAYED season (ORW-810: before, every fact was planted by hand).
@@ -27,7 +27,7 @@ const windowOf = (s: Stop): KnowledgeFact[] => learned(s).slice(-WINDOW);
 
 describe("SOC-1/4 - the player's pathway-surfaced facts reach the per-turn narrator prompt (played season)", () => {
   it("a fact a houseguest told the player reaches the ordinary (non-lifecycle) moment prompt, with every fact of the window", async () => {
-    const at = await playUntil(SEED, (s) => windowOf(s).some((f) => f.pathway.startsWith("told-by:")), { user: `wf-${SEED}` });
+    const at = await firstStop((s) => windowOf(s).some((f) => f.pathway.startsWith("told-by:")), wfScan(SEED));
     const told = windowOf(at).find((f) => f.pathway.startsWith("told-by:"))!;
     const p = prompt(at);
     expect(p).toContain(HEADER);
@@ -37,7 +37,7 @@ describe("SOC-1/4 - the player's pathway-surfaced facts reach the per-turn narra
 
   it("before anything has reached the player the block is absent (the prompt stays tight); the first learned fact brings it", async () => {
     let before: { prompt: string; known: number } | undefined;
-    const at = await playUntil(SEED, (s) => learned(s).length > 0, { user: `wf-${SEED}`,
+    const at = await firstStop((s) => learned(s).length > 0, wfScan(SEED), {
       // right after createCharacter, before the first message: the player has been told nothing yet
       setup: (sess) => { before = { prompt: sess.getMomentPrompt({ moment: "social" }).systemPrompt, known: (sess.playerKnowledgeReader?.() ?? []).length }; },
     });
@@ -57,7 +57,7 @@ describe("SOC-1/4 - the player's pathway-surfaced facts reach the per-turn narra
       ...s.engine.events.queryAll().filter((e) => e.hidden && !e.witnessSet.includes(PLAYER)).map((e) => String(e.content)),
       ...s.engine.vault.readHidden().map((r) => r.content),
     ].filter((c) => c.trim().length > 0);
-    const at = await playUntil(SEED, (s) => learned(s).length > 0 && npcOnly(s).length > 0 && hidden(s).length > 0, { user: `wf-${SEED}` });
+    const at = await firstStop((s) => learned(s).length > 0 && npcOnly(s).length > 0 && hidden(s).length > 0, wfScan(SEED));
     const p = prompt(at);
     const block = playerBlock(p);
     expect(block).toContain(HEADER); // non-vacuous: the block is there, it just does not carry them
@@ -66,7 +66,7 @@ describe("SOC-1/4 - the player's pathway-surfaced facts reach the per-turn narra
   }, 120_000);
 
   it("the player's Diary-Room entry (no NPC pathway) is NOT rendered as 'the house told you'", async () => {
-    const at = await playUntil(SEED, (s) => learned(s).length > 0, { user: `wf-${SEED}` });
+    const at = await firstStop((s) => learned(s).length > 0, wfScan(SEED));
     const DR = "a private diary room note about who I want out next";
     await at.call("diaryRoom", { entry: DR });
     expect(at.engine.knowledge.knownTo(PLAYER).some((f) => f.pathway === "diary-room" && f.content.includes(DR)), "the entry is the player's own knowledge").toBe(true);
@@ -82,7 +82,7 @@ describe("SOC-1/4 - the player's pathway-surfaced facts reach the per-turn narra
       const inWin = new Set(windowOf(s).map((f) => text(s, f)));
       return all.slice(0, -WINDOW).reverse().find((f) => !inWin.has(text(s, f)));
     };
-    const at = await playUntil(SEED, (s) => outside(s) !== undefined, { user: `wf-${SEED}` });
+    const at = await firstStop((s) => outside(s) !== undefined, wfScan(SEED));
     const block = playerBlock(prompt(at));
     for (const f of windowOf(at)) expect(block).toContain(text(at, f));
     expect(block, "an older fact dropped out of the window").not.toContain(text(at, outside(at)!));
@@ -93,7 +93,7 @@ describe("#1789 - telephone-game provenance word on surfaced gossip (hops>=2), p
   const hops2 = (s: Stop) => windowOf(s).find((f) => (f.hops ?? 0) >= 2);
 
   it("drift ON - the provenance word rides a hops>=2 fact, with the guidance line, and no raw hop count leaks", async () => {
-    const at = await playUntil(SEED, (s) => hops2(s) !== undefined, { user: `wf-${SEED}` });
+    const at = await firstStop((s) => hops2(s) !== undefined, wfScan(SEED));
     at.sess.setGossipDriftEnabled(true);
     const f = hops2(at)!;
     const block = playerBlock(prompt(at));
@@ -104,7 +104,7 @@ describe("#1789 - telephone-game provenance word on surfaced gossip (hops>=2), p
   }, 120_000);
 
   it("drift OFF - no provenance word, no guidance line: the fact renders plain", async () => {
-    const at = await playUntil(SEED, (s) => hops2(s) !== undefined, { user: `wf-${SEED}` });
+    const at = await firstStop((s) => hops2(s) !== undefined, wfScan(SEED));
     at.sess.setGossipDriftEnabled(false); // not as shipped: the drift-OFF render is the spec under test (#1789)
     const f = hops2(at)!;
     const block = playerBlock(prompt(at));
@@ -117,14 +117,14 @@ describe("#1789 - telephone-game provenance word on surfaced gossip (hops>=2), p
 
   it("hops=1 with drift ON - no provenance word (below the threshold)", async () => {
     const hop1 = (s: Stop) => windowOf(s).find((f) => f.hops === 1);
-    const at = await playUntil(SEED, (s) => hop1(s) !== undefined, { user: `wf-${SEED}` });
+    const at = await firstStop((s) => hop1(s) !== undefined, wfScan(SEED));
     at.sess.setGossipDriftEnabled(true);
     const block = playerBlock(prompt(at));
     expect(block).toContain(`  - ${text(at, hop1(at)!)}`);
   }, 120_000);
 
   it("the guidance line only appears when at least one fact in the window has hops>=2", async () => {
-    const at = await playUntil(SEED, (s) => windowOf(s).length > 0 && hops2(s) === undefined, { user: `wf-${SEED}` });
+    const at = await firstStop((s) => windowOf(s).length > 0 && hops2(s) === undefined, wfScan(SEED));
     at.sess.setGossipDriftEnabled(true);
     const block = playerBlock(prompt(at));
     expect(block).toContain(HEADER);

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { firstSeedWhere, firstSeedWhereSync, seedOrder, NotReached } from "../support/firstSeedWhere";
+import { firstSeedWhere, firstSeedWhereSync, firstSeedsWhere, firstSeedsWhereSync, seedOrder, NotReached } from "../support/firstSeedWhere";
 
 /** ORW-880: the seed scan the real-path tests use instead of a hard-pinned seed. No game is played here: `reach` is a stand-in. */
 afterEach(() => vi.restoreAllMocks());
@@ -9,6 +9,7 @@ describe("ORW-880 firstSeedWhere", () => {
     expect(seedOrder({ from: 1, to: 5 })).toEqual([1, 2, 3, 4, 5]);
     expect(seedOrder({ from: 1, to: 5, hint: 3 })).toEqual([3, 1, 2, 4, 5]);
     expect(seedOrder({ from: 1, to: 3, hint: 9 })).toEqual([9, 1, 2, 3]);
+    expect(seedOrder({ from: 1, to: 5, hint: [4, 2, 4] })).toEqual([4, 2, 1, 3, 5]);
     expect(() => seedOrder({ from: 5, to: 1 })).toThrow(/bad seed range/);
   });
 
@@ -50,5 +51,17 @@ describe("ORW-880 firstSeedWhere", () => {
     const reach = (seed: number) => { if (seed === 2) throw new NotReached("the season ended before week 2"); return undefined; };
     await expect(firstSeedWhere(reach, scan)).rejects.toThrow(/no seed in 1\.\.3 reached a week-2 house with a close friend \(tried 3: 1: reached, precondition false; 2: the season ended before week 2; 3: reached, precondition false\)/);
     expect(() => firstSeedWhereSync(reach, scan)).toThrow(/no seed in 1\.\.3/);
+  });
+
+  it("several games: the first n distinct qualifying seeds, hints first; a hint that fails is named; too few fails loudly", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const scan = { from: 1, to: 12, hint: [3, 11], sandbox: (s: number) => `wf-${s}`, what: "a seeking holder" };
+    const ok = (seed: number) => (seed === 3 || seed === 11 || seed === 6 ? seed : undefined);
+    expect((await firstSeedsWhere(2, ok, scan)).map((f) => f.seed)).toEqual([3, 11]);
+    expect(warn).not.toHaveBeenCalled();
+    const drift = (seed: number) => (seed === 3 || seed === 6 ? seed : undefined);
+    expect(firstSeedsWhereSync(2, drift, scan).map((f) => [f.seed, f.sandbox])).toEqual([[3, "wf-3"], [6, "wf-6"]]);
+    expect(warn.mock.calls[0]![0]).toMatch(/hint seed 11 no longer reaches a seeking holder; seeds 3, 6 do/);
+    await expect(firstSeedsWhere(3, drift, scan)).rejects.toThrow(/not enough seeds in 1\.\.12 reached a seeking holder \(2 of the 3 needed\)/);
   });
 });

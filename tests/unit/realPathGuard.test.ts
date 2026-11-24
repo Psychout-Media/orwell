@@ -105,7 +105,8 @@ type Violation = { file: string; line: number; rule: string; reason: string; tex
  *    `bootNatural`), unless the call forwards a caller's options object (`...opts`) or the file defines a local function of that name;
  *  - every sandbox name the file writes (a `sandboxFor(...)` argument, a `user:` value, or the `const` an identifier there names) is fixed: never random, time-based
  *    or a counter that moves with test order;
- *  - ORW-880: a seed chosen by `firstSeedWhere` / `firstSeedWhereSync` counts as pinned when the call names each seed's sandbox (`sandbox: (seed) => ...`), itself fixed.
+ *  - ORW-880: a seed chosen by `firstSeedWhere` / `firstSeedWhereSync` / `firstStop` counts as pinned when the call names each seed's sandbox (`sandbox: (seed) => ...`,
+ *    itself fixed), or passes the folder's `wfScan(...)` or a file-level `SCAN` that does, or forwards a caller's `scan` (the folder's own `firstStop`).
  */
 const DRIVERS = ["playedGame", "playedSeason", "playSeason", "playUntil", "playMixGame", "bootNatural"];
 const UNFIXED_NAME = /Math\s*\.\s*random|\bDate\b|performance\s*\.\s*now|randomUUID|hrtime|\+\+|--/;
@@ -151,10 +152,10 @@ function scanSandboxNames(file: string, src: string): Violation[] {
     }
   }
   // ORW-880: a seed picked by the scan (tests/support/firstSeedWhere.ts) is pinned when the scan names its sandbox for each seed (`sandbox: (s) => \`wf-${s}\``).
-  if (!local.has("firstSeedWhere")) for (const m of code.matchAll(/(?<![\w$.])firstSeedWhere(?:Sync)?\s*\(/g)) {
+  if (!local.has("firstSeedWhere")) for (const m of code.matchAll(/(?<![\w$.])(?:firstSeedsWhere(?:Sync)?|firstSeedWhere(?:Sync)?|firstStops?)\s*\(/g)) {
     const before = code.slice(Math.max(0, m.index! - 40), m.index!);
     if (/function\s*$|import\s*\{[^}]*$|\bas\s*$/.test(before)) continue;
-    if (!/\bsandbox\s*:/.test(argsAt(code, m.index! + m[0].length - 1))) push(m.index!, "sandbox-unpinned", "firstSeedWhere(...) picks a seed without naming each seed's sandbox; pass sandbox: (seed) => a fixed name");
+    if (!/\bsandbox\s*:|\bwfScan\s*\(|\bSCAN\b|,\s*scan\s*(?:,|$)/.test(argsAt(code, m.index! + m[0].length - 1))) push(m.index!, "sandbox-unpinned", "firstSeedWhere(...) picks a seed without naming each seed's sandbox; pass sandbox: (seed) => a fixed name");
   }
   const exprs: Array<{ at: number; expr: string }> = [];
   for (const m of code.matchAll(/(?<![\w$])sandbox\s*:\s*/g)) { const rest = code.slice(m.index! + m[0].length); exprs.push({ at: m.index!, expr: topArgs(rest.split(/\n/)[0] ?? "")[0] ?? "" }); }
@@ -308,6 +309,7 @@ describe("the guard itself (planted failures)", () => {
     expect(rules("a;\nconst user = `cpm-${n++}`;\nconst sb = reg.sandboxFor(user);\n")).toEqual(["sandbox-unfixed"]);
     expect(rules("a;\nconst f = await firstSeedWhere((seed) => playUntil(seed, done, { user: `wf-${seed}` }), { from: 1, to: 9 });\n")).toEqual(["sandbox-unpinned"]);
     expect(rules("a;\nconst f = firstSeedWhereSync((seed, sandbox) => go(seed, sandbox), { from: 1, to: 9, sandbox: (s) => `x-${Date.now()}-${s}` });\n")).toEqual(["sandbox-unfixed"]);
+    expect(rules("a;\nconst at = await firstStop(quiet, { from: 1, to: 9, hint: 3 });\n")).toEqual(["sandbox-unpinned"]);
     const v = scanSandboxNames("p.test.ts", 'a;\nb;\nconst g = playedGame({ seed: 21 });\n');
     expect(v[0]).toMatchObject({ line: 3, rule: "sandbox-unpinned" });
   });
@@ -331,6 +333,9 @@ describe("the guard itself (planted failures)", () => {
       "  from: 1, to: 12,",
       "  sandbox: (s) => `pj-${s}`,",
       "});",
+      "const at = await firstStop(quiet, wfScan(3, \"a quiet room\"));",
+      "const at2 = await firstStop(quiet, SCAN, { decide });",
+      "for (const at of await firstStops(2, quiet, wfScan([3, 11]))) use(at);",
       "function playUntilQuiet(seed: number) { return 1; }",
       "export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> { return run(opts); }",
     ].join("\n");

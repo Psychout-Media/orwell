@@ -1,7 +1,7 @@
 import { playSeason, type Call, type PlayOpts } from "../support/whatFired/player";
 import type { KnowledgeFact } from "../../src/domain/knowledge";
 import { PLAYER } from "../../src/domain/ids";
-import { NotReached } from "../support/firstSeedWhere";
+import { NotReached, firstSeedsWhere, type SeedScan } from "../support/firstSeedWhere";
 
 /**
  * ORW-810: the shared played-season stop for the real-path tests in this folder. The season is played by the scripted talking player (tests/support/whatFired/player.ts):
@@ -28,6 +28,23 @@ export async function playUntil(seed: number, stopWhen: (s: Stop) => boolean | P
   if (!at) throw new NotReached(`seed ${seed}: the played season never reached the stop (${rec.stopped} after ${rec.messages} messages)`);
   return at;
 }
+
+/**
+ * ORW-880: play seeds in the scan's fixed order (the hint first) and stop the first season that reaches `stopWhen`; each seed plays in its own fixed sandbox
+ * (`scan.sandbox(seed)`). `stopWhen` is the PRECONDITION (the state the test needs); the test then asserts on what it finds there.
+ */
+export async function firstStop(stopWhen: (s: Stop) => boolean | Promise<boolean>, scan: SeedScan, opts: Omit<Partial<PlayOpts>, "seed" | "watch" | "user"> = {}): Promise<Stop & { seed: number; sandbox: string }> {
+  return (await firstStops(1, stopWhen, scan, opts))[0]!;
+}
+
+/** The first `n` distinct seeds in the scan whose seasons reach `stopWhen`, each stopped there (a claim checked on several different games). */
+export async function firstStops(n: number, stopWhen: (s: Stop) => boolean | Promise<boolean>, scan: SeedScan, opts: Omit<Partial<PlayOpts>, "seed" | "watch" | "user"> = {}): Promise<Array<Stop & { seed: number; sandbox: string }>> {
+  const found = await firstSeedsWhere(n, (seed, sandbox) => playUntil(seed, stopWhen, { ...opts, user: sandbox }), scan);
+  return found.map((f) => Object.assign(f.at, { seed: f.seed, sandbox: f.sandbox }));
+}
+
+/** The usual scan: seeds 1..12, each in the sandbox `wf-<seed>` (the name the folder's tests already used), the old pinned seed tried first. */
+export const wfScan = (hint: number | number[], what?: string): SeedScan => ({ from: 1, to: 12, hint, sandbox: (s) => `wf-${s}`, what });
 
 /** The player's own knowledge that reached them through a houseguest (never the Diary Room, which has no in-game pathway). */
 export const learned = (s: Stop): KnowledgeFact[] => s.engine.knowledge.knownTo(PLAYER).filter((f) => f.pathway !== "diary-room");
