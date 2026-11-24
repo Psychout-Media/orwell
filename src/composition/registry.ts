@@ -281,7 +281,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   //  (a) NPC↔NPC (the common case): diffuse the paraphrase along the affinity graph (0038) — most of
   //      the time it stays among the NPCs; the player catches it only if a chain terminates at them.
   session.setOnThreadGossip((origin, rumor, subject) => {
-    const core = session.snapshot();
+    const core = session.snapshotLite(); // ORW-844: only the house, the week and who has left are read here: no full state copy
     if (!core.house) return;
     const evicted = new Set(core.live?.evictionOrder ?? []);
     // Diffuse NPC↔NPC along the affinity graph — NPC nodes ONLY (the player is never a node here; the
@@ -322,7 +322,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // rng keeps the diffusion's draws off the main season/vote stream (only the intended edge fold lands);
   // the whole seam is unreachable with the flag off ⇒ byte-identical to the calibration spine.
   session.setDealReputationSink((honorer, other) => {
-    const core = session.snapshot();
+    const core = session.snapshotLite(); // ORW-844: only the house, the week and who has left are read here: no full state copy
     if (!core.house) return;
     // Idempotency (seed ONCE): a season-long deal honored at every ceremony must not re-diffuse / re-fold the
     // whisper — if the deal partner already credits the honorer as reliable (a prior honoring, or a diffusion
@@ -375,7 +375,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   //      fact. An unanchored attempt is correctly downgraded to a suspicion by 0002. Returns whether the
   //      player actually came to hold the belief (the scheduler counts it once against the season cap).
   session.setOnThreadSurfaceToPlayer((subject, rumor, confidenceScale) => {
-    const core = session.snapshot();
+    const core = session.snapshotLite(); // ORW-844: only the house, the week and who has left are read here: no full state copy
     if (!core.house) return false;
     const evicted = new Set(core.live?.evictionOrder ?? []);
     // A living NPC confidant who is NOT the subject relays it (someone with a real pathway to the player).
@@ -396,7 +396,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // player came to hold it (the scheduler counts it once against the season cap). `subject` is the pair's
   // `a` (the cap is keyed on it). Same low confidence as a behavioral read, never a confirmed fact.
   session.setOnTieSurfaceToPlayer((subject, observation) => {
-    const core = session.snapshot();
+    const core = session.snapshotLite(); // ORW-844: only the house, the week and who has left are read here: no full state copy
     if (!core.house) return false;
     const evicted = new Set(core.live?.evictionOrder ?? []);
     // #1913 — the relaying confidant must be AWAKE (ADR 0006); clock off ⇒ `awakeAmong` is the identity.
@@ -484,7 +484,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // B58/audit E5: the admin's inspectable state mirrors the LIVE session's public facts (week,
   // phase, roles-only roster) — refreshed on every persisted mutation, never a never-updated stub.
   const syncAdmin = (): void => {
-    const core = session.snapshot();
+    const core = session.snapshotLite(); // ORW-844: only the house, the week and who has left are read here: no full state copy
     const prev = adminState.getAdminVisibleState();
     const seat = (id: string): string => (core.live?.evictionOrder ?? []).includes(id) ? "evicted" : "active";
     adminState.setAdminVisibleState({

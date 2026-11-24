@@ -2,7 +2,7 @@
 // ORW-758: keep the backlog whole. Ryne (2026-11-20): "if the backlog has holes, then the code that it's built off of also has holes."
 // A rule alone did not hold (15 Done cards broke "Done means acceptance met"), so these run by themselves in CI (the `backlog-whole` job, every PR, docs-only included):
 //
-//   A1  a feature doc line (docs/features/NNNN-*.md) or a PR body line that says work is left ("not built", "not done", "deferred", "follow-up", "later slice", ...)
+//   A1  a docs line (docs/**/*.md, but not the records in A1_EXEMPT; ORW-878) or a PR body line that says work is left ("not built", "not done", "deferred", "follow-up", "later slice", ...)
 //       must name its ORW card. The lines that existed when this landed are listed in ci/backlog_baseline.json (shrink-only: a listed line that is gone must be
 //       removed from the list, so the list can only get shorter; the sweep is ORW-805).
 //   A2  a `# spec-only:` feature must say why it does not run: it names the ORW card it waits on (and that card is not Done in ci/board_snapshot.json), or it says
@@ -26,6 +26,16 @@ const GATED_RE = /gated by\s+([\w./-]+)/gi;
 
 export const norm = (line) => line.trim().replace(/\s+/g, " ");
 
+/**
+ * ORW-878: "deferred" is also a plain technical word ("the deferred fold", "a deferred-retry queue", "its deferred listener"). Only its STATUS use says work is left
+ * ("is deferred", "(deferred)", "DEFERRED", "deferred to ..."), so the adjective use after an article or a possessive, and a hyphenated compound, are read past.
+ */
+export function statusText(line) {
+  return line
+    .replace(/\b(?:the|a|an|its|their|this|that|existing|any|each|one|every)\s+(?:\*+)?deferred(?:\*+)?(?=[\s-]+[a-z])/gi, " ")
+    .replace(/\bdeferred-(?=[a-z])/gi, " ");
+}
+
 /** A1: the lines in `text` that say work is left and name no card. */
 export function uncardedLines(text) {
   const out = [];
@@ -33,7 +43,7 @@ export function uncardedLines(text) {
   text.split("\n").forEach((line, i) => {
     if (/^\s*```/.test(line)) { fence = !fence; return; }
     if (fence) return;
-    if (LEFT_RE.test(line) && !CARD_RE.test(line)) out.push({ line: i + 1, text: norm(line) });
+    if (LEFT_RE.test(statusText(line)) && !CARD_RE.test(line)) out.push({ line: i + 1, text: norm(line) });
   });
   return out;
 }
@@ -57,6 +67,29 @@ function walk(dir, pred, prefix = dir) {
 }
 
 const isSpecDoc = (name) => /^\d{4}[a-z]?-.+\.md$/.test(name);
+
+/**
+ * ORW-878: the docs A1 does NOT read, each with why. They are records of a moment (a line in them says what was left THEN, not what is open now), or they are judged
+ * elsewhere. Everything else under docs/ is read: a design note, an ADR, a roadmap or a guide that says work is left must name its card.
+ */
+export const A1_EXEMPT = [
+  { path: "docs/audits/", why: "dated audit records: each describes the code on its date" },
+  { path: "docs/legacy/", why: "the legacy chat-prompt game, reference only" },
+  { path: "docs/IMPLEMENTATION_QUEUE.md", why: "the historical work queue (every batch shipped); open work is on the board" },
+  { path: "docs/decisions/PO-DECISIONS-LOG.md", why: "a dated log of rulings, appended in order" },
+];
+
+/** A1 reads every markdown file under docs/ that is not exempt; inside docs/features only the numbered spec docs (the index is A2/A3's, the review ledger is a dated record). */
+function a1Docs(root) {
+  const docs = join(root, "docs");
+  if (!existsSync(docs)) return [];
+  return walk(docs, (n) => n.endsWith(".md")).filter((f) => {
+    const r = f.slice(root.length + 1);
+    if (A1_EXEMPT.some((e) => (e.path.endsWith("/") ? r.startsWith(e.path) : r === e.path))) return false;
+    if (r.startsWith("docs/features/")) return isSpecDoc(basename(f));
+    return true;
+  });
+}
 
 /** A2: what a spec-only marker says, if anything. */
 export function markerReason(marker) {
@@ -86,12 +119,12 @@ export function checkRepo(root, { prBody, wired, baseBaseline } = {}) {
   const featDir = join(root, "docs", "features");
   const rel = (p) => p.slice(root.length + 1);
 
-  // A1, docs.
+  // A1, docs: every docs/**/*.md (ORW-878 widened it from the numbered feature docs), except the records listed in A1_EXEMPT.
   const a1Base = new Set(baseline.a1 ?? []);
   const a1Seen = new Set();
-  for (const f of walk(featDir, isSpecDoc)) {
+  for (const f of a1Docs(root)) {
     for (const u of uncardedLines(readFileSync(f, "utf8"))) {
-      const key = `${basename(f)}::${u.text}`;
+      const key = `${rel(f)}::${u.text}`;
       if (a1Base.has(key)) { a1Seen.add(key); continue; }
       errors.push(`A1 ${rel(f)}:${u.line}: says work is left but names no ORW card (add the card number, or card it first): ${u.text.slice(0, 160)}`);
     }

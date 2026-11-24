@@ -34,12 +34,12 @@ describe("A1: a line that says work is left names its card", () => {
   it("fails an uncarded doc line, accepts it once listed in the baseline, and fails a baseline entry that is gone", () => {
     const doc = { "docs/features/0001-one.md": "# One\nThe pop-up is not built.\n" };
     expect(check(tree(doc)).errors.join("\n")).toMatch(/A1 docs\/features\/0001-one.md:2/);
-    expect(check(tree(doc, { a1: ["0001-one.md::The pop-up is not built."], a2: [] })).errors).toEqual([]);
-    expect(check(tree({}, { a1: ["0001-one.md::The pop-up is not built."], a2: [] })).errors.join("\n")).toMatch(/no longer in the docs/);
+    expect(check(tree(doc, { a1: ["docs/features/0001-one.md::The pop-up is not built."], a2: [] })).errors).toEqual([]);
+    expect(check(tree({}, { a1: ["docs/features/0001-one.md::The pop-up is not built."], a2: [] })).errors.join("\n")).toMatch(/no longer in the docs/);
   });
   it("the baseline only shrinks: an entry the base commit did not have fails, a removed one is fine", () => {
     const doc = { "docs/features/0001-one.md": "# One\nThe pop-up is not built.\n" };
-    const listed = { a1: ["0001-one.md::The pop-up is not built."], a2: [] };
+    const listed = { a1: ["docs/features/0001-one.md::The pop-up is not built."], a2: [] };
     expect(check(tree(doc, listed), { baseBaseline: { a1: [], a2: [] } }).errors.join("\n")).toMatch(/gained an entry/);
     expect(check(tree(doc, listed), { baseBaseline: listed }).errors).toEqual([]);
     expect(check(tree({}), { baseBaseline: listed }).errors).toEqual([]);
@@ -49,6 +49,20 @@ describe("A1: a line that says work is left names its card", () => {
     const errs = check(tree({}), { prBody: body }).errors;
     expect(errs).toHaveLength(1);
     expect(errs[0]).toMatch(/PR body line 7/);
+  });
+  it("ORW-878: reads every doc under docs/, not only the feature specs, except the dated records it exempts", () => {
+    const files = { "docs/README.md": "# Docs\nThe export is not built yet.\n" };
+    const root = tree(files);
+    mkdirSync(join(root, "docs", "audits"), { recursive: true });
+    writeFileSync(join(root, "docs", "audits", "2026-01-01-audit.md"), "# Audit\nThe export was not built on this date.\n");
+    const errs = check(root).errors.join("\n");
+    expect(errs).toMatch(/A1 docs\/README.md:2/);
+    expect(errs).not.toMatch(/audits/);
+  });
+  it("ORW-878: 'deferred' as a technical adjective is not a left-over; as a status it is", () => {
+    const f = uncardedLines as (t: string) => Array<{ line: number }>;
+    expect(f("the deferred fold lands late\na deferred-retry queue absorbs it\nits deferred listener fires\n")).toEqual([]);
+    expect(f("The mobile sheet is deferred.\n(deferred)\nBROAD COALESCING DEFERRED\ndeferred to the next lane\n").map((x) => x.line)).toEqual([1, 2, 3, 4]);
   });
   it("checks the PR body too", () => {
     expect(check(tree({}), { prBody: "Done.\nThe FE half is a follow-up.\n" }).errors.join("\n")).toMatch(/PR body line 2/);

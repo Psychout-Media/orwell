@@ -5938,6 +5938,22 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** The durable session core (0030): the live house + week/phase/ceremony + loop, losslessly. */
+  /**
+   * ORW-844: the few facts a per-message hook needs (is there a house, the week and phase, the seed, the houseguests and who has left), WITHOUT the full state copy `snapshot()` makes. The commit path
+   * used to take a whole snapshot (about a 1 MB clone of the live loop late in a season) from five hooks and the admin mirror just to read these; the values are exactly the ones `snapshot()` carries.
+   */
+  snapshotLite(): { started: boolean; week: number; phase: string; seed?: number; worldAvoid?: WorldAvoid; house: GameHouse | null; live: { evictionOrder?: EntityId[] } | null } {
+    return {
+      started: this.house !== null,
+      week: this.week,
+      phase: this.phase,
+      ...(this.gameSeed !== null ? { seed: this.gameSeed } : {}),
+      ...(Object.values(this.worldAvoid).some((v) => v && v.length > 0) ? { worldAvoid: this.worldAvoid } : {}),
+      house: this.house ? this.cloneHouse(this.house) : null,
+      live: this.live ? { evictionOrder: this.live.evictionOrder ? [...this.live.evictionOrder] : undefined } : null,
+    };
+  }
+
   snapshot(): SessionCore {
     return {
       started: this.house !== null,

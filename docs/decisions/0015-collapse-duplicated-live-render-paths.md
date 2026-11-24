@@ -254,7 +254,7 @@ gates (ADR 0008's `seq`/reconcile contract, the `_Run` replay-then-tail behaviou
 Live == reload by construction for a regenerated turn: both render the same server-`seq`-ordered,
 id-keyed row list, and superseded rows are gone from that list, not merely hidden client-side.
 
-### B2 — fold integrity: defer-fold-to-settle (chosen primary; compensating-retract documented, not built)
+### B2 — fold integrity: defer-fold-to-settle (chosen primary; compensating-retract documented only, by design)
 
 **The problem this closes.** Even with D1 shipped, the *consequence* layer had its own copy of the
 same defect: the 0055 `_auto_record_scene` belt (`frontend/src/agent_loop.py`) folded a scene's
@@ -392,7 +392,7 @@ entry at the front of the anchored ledger instead — the retry horizon never le
 anchor-aware machinery. **No remaining escape path exists:** `chat_helpers._defer_fold` (the only
 function that ever writes to `_DEFERRED_FOLDS`) has exactly one call site in the whole codebase,
 gated on `defer_fold`, inside `_backfill_with_cas` itself — so `defer_fold=False` structurally and
-completely closes the leak; a belt-and-suspenders "carry session_id/row_anchor into the deferred
+completely closes the leak; a belt-and-suspenders "carry session_id/row_anchor into the deferral
 queue" mechanism was considered and is NOT needed. Every OTHER fold-bearing `_backfill_with_cas`
 call site keeps `defer_fold=True` unchanged (byte-identical CON-11 behavior — proved by the full
 `tests/test_0065_backfill_cas.py` suite staying green) since they have no ledger to fall back on.
@@ -408,7 +408,7 @@ layers: the route now rejects `keep_count < 0` with HTTP 400 before touching any
 `discard_pending_fold` is called only inside `if result:` — covering that case and any other
 False-return path (an internal DB hiccup, etc.) uniformly.
 
-**The compensating-retract fallback — documented, deliberately NOT built (T9 doctrine).** The
+**The compensating-retract fallback — documented, and by design never to be built (T9 doctrine).** The
 issue specs a fallback for a seam where deferral proves infeasible: commit immediately, then issue
 an explicit "un-fold" if the take turns out superseded. No such seam exists on this build's
 surface — staging is a plain in-process dict write that happens strictly before the engine is ever
