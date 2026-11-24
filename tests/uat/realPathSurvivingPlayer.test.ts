@@ -11,7 +11,7 @@ import { playSeason } from "../support/whatFired/player";
 describe("ORW-778 REAL PATH: the scripted player plays on past the early weeks", () => {
   for (const [seed, oldWeek] of [[5, 5], [7, 4]] as const) {
     it(`the player on a seed that voted it out in week ${oldWeek} is still in the house when the game reaches week 7`, async () => {
-      const r = await playSeason({ seed, maxMessages: 4000, survive: true, watch: async ({ sess }) => (sess.live?.week ?? 0) >= 7 || !!sess.live?.evictionOrder?.includes(sess.house.player.id) });
+      const r = await playSeason({ seed, user: `wf-${seed}`, maxMessages: 4000, survive: true, watch: async ({ sess }) => (sess.live?.week ?? 0) >= 7 || !!sess.live?.evictionOrder?.includes(sess.house.player.id) });
       expect(r.crashes, "no crash out of a load-bearing tool").toEqual([]);
       expect(r.playerOutWeek ?? Infinity, "the player was not voted out before week 7").toBeGreaterThanOrEqual(7);
       expect(r.week).toBeGreaterThanOrEqual(7);
