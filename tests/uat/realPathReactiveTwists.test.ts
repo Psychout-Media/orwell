@@ -24,11 +24,10 @@ process.env.ORWELL_REACTIVE_TWISTS = "1";
 const { GameSessionRegistry } = await import("../../src/composition/registry");
 
 interface Plan { doubleEvictionAtActive: number; doubleEvictionArmed: boolean; secretVetoStreak: number; secretVetoArmed: boolean; battleBackAtJury: number; battleBackArmed: boolean }
-let n = 0;
 
 /** A season as the seed deals it: its own sealed twist plan. */
 function newGame(seed: number) {
-  const s = new GameSessionRegistry().sandboxFor(`rp${n++}`).session;
+  const s = new GameSessionRegistry().sandboxFor(`rp-${seed}`).session; // ORW-852: a fixed name per seed (each call builds its own registry)
   s.createCharacter({ playerName: "P", seed });
   return s;
 }

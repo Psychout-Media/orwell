@@ -27,7 +27,7 @@ const offOn = (s: Stop, id: string): { off: Pull[] | null; on: Pull[] | null } =
 
 describe("want-driven movement in a played season", () => {
   it("before the first ceremony the want is never read (flag on = flag off)", async () => {
-    const at = await playUntil(5, () => true);
+    const at = await playUntil(5, () => true, { user: "wf-5" });
     const ids = at.sess.livingIds() as string[];
     const read = (on: boolean) => { at.sess.setWantMovementEnabled(on); return JSON.stringify(ids.map((id) => intentOf(at, id))); };
     // not as shipped: the off read is the comparison arm, switched back on after
@@ -37,7 +37,7 @@ describe("want-driven movement in a played season", () => {
 
   it("flag ON: a non-HOH's pull toward the HOH is scaled up by its want, never lowered; the HOH's own intent is unchanged; most of the house leans toward the HOH (seeds 3, 5, 11)", async () => {
     for (const seed of [3, 5, 11]) {
-      const at = await playUntil(seed, beforeNoms);
+      const at = await playUntil(seed, beforeNoms, { user: `wf-${seed}` });
       const hoh = hohOf(at)!;
       const { off: hohOff, on: hohOn } = offOn(at, hoh);
       expect(JSON.stringify(hohOn), "the HOH has no want to pursue").toBe(JSON.stringify(hohOff));
@@ -57,7 +57,7 @@ describe("want-driven movement in a played season", () => {
       const now = ((s.sess.live?.dayNumber ?? 1) - 1) * 24 + (s.sess.live?.nightDepth ?? 8);
       return others(s).filter((id) => at?.[id] !== undefined && Math.abs(at[id]! - now) < 1e-9);
     };
-    const at = await playUntil(3, (s) => beforeNoms(s) && justApproached(s).length > 0);
+    const at = await playUntil(3, (s) => beforeNoms(s) && justApproached(s).length > 0, { user: "wf-3" });
     const hoh = hohOf(at)!;
     for (const id of justApproached(at)) {
       const { off, on } = offOn(at, id);

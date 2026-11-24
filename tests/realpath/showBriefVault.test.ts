@@ -18,7 +18,7 @@ const hiddenOf = (s: Stop): string[] => {
 
 describe("the brief is Vault-free in a played season", () => {
   it("no hidden premise, trigger, secret, goal or weakness the season holds ever reaches the brief", async () => {
-    const at = await playUntil(7, (s) => (s.sess.live?.week ?? 1) >= 2 && hiddenOf(s).length > 0);
+    const at = await playUntil(7, (s) => (s.sess.live?.week ?? 1) >= 2 && hiddenOf(s).length > 0, { user: "wf-7" });
     const hidden = hiddenOf(at);
     expect(hidden.length, "non-vacuous: the season holds hidden material").toBeGreaterThan(10);
     const everyone = (at.sess.livingIds() as string[]).filter((id) => id !== "player");
