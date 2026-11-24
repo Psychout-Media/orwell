@@ -3182,6 +3182,15 @@ export class GameSessionAdapter implements GameSession {
     this.onPersist = fn;
   }
 
+  /** ORW-731: wire the plain durable-write hook (a save and nothing else: no commit, no baseline re-seed). */
+  setOnSideSave(fn: () => void): void { this.onSideSave = fn; }
+  private onSideSave?: () => void;
+  /**
+   * ORW-731: save the state as it stands NOW without taking part in the turn's commit: no beatSeq, no checkpoint, no off-screen tick, no clock step, no rng, and the orchestrator's baseline is left alone. For a record the
+   * player's own turn wrote that its commit will not carry (a refused deal's why-record). Nothing to save to on a standalone adapter, so nothing happens there.
+   */
+  private sideSave(): void { this.onSideSave?.(); }
+
   /** R-BND (#628): wire the non-committing background-persist hook (durable save, no beatSeq bump). */
   setOnBackgroundPersist(fn: () => void): void {
     this.onBackgroundPersist = fn;
@@ -18479,6 +18488,7 @@ export class GameSessionAdapter implements GameSession {
         const counter = this.maybeCounterOffer(target, req.kind, refusal);
         if (counter) refusal.counteroffer = counter;
         if (this.closeCounteredOffer(req.countersOffer, target, true)) this.persist(); // a refused counter: the houseguest's temperament decides whether the offer it answered still stands
+        else this.sideSave(); // ORW-731: the refusal wrote its why-record (decisionWhy / statedReasons) and nothing else saved it: save it now, with no beat, no checkpoint and no tick (a restart before the next commit lost it)
         if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, refusal);
         return refusal;
       }
@@ -18560,7 +18570,7 @@ export class GameSessionAdapter implements GameSession {
     if (this.npcDealConsentEnabled) {
       for (const p of parts) {
         const refusal = this.dealConsentRefusal(target, p.kind, undefined, -DEAL_CONSENT.packageDrag);
-        if (refusal) return refusal;
+        if (refusal) { this.sideSave(); return refusal; } // ORW-731: see makeDeal
       }
     }
     const views: DealView[] = [];
