@@ -67,7 +67,7 @@ def test_every_house_room_is_accepted(monkeypatch):
     for room in al._HOUSE_ROOMS:
         moves = []
         _wire(monkeypatch, '{"room":"' + room + '"}', moves)
-        out = _run(al._auto_move_player("scene", "move", "url", "m", {}, "owner"))
+        out = _run(al._auto_move_player("scene", "I go to the diary room" if room == "diary-room" else "move", "url", "m", {}, "owner"))  # ORW-734b: the Diary Room needs the player's own word
         assert out is True and moves and moves[0]["room"] == room
 
 
@@ -247,3 +247,21 @@ def test_house_rooms_mirror_the_engine_floor_plan():
         "kitchen", "living-room", "dining-room", "backyard", "hallway", "bedroom-a", "bedroom-b",
         "bedroom-c", "bathroom", "lounge", "hoh-room", "storage-room", "diary-room", "landing",
     }
+
+
+# ORW-734b: the player is invited to the Diary Room, never sent. A narrated invitation or "you are called" line is not the player's move.
+def test_narrated_diary_invitation_never_moves_the_player(monkeypatch):
+    moves = []
+    _wire(monkeypatch, '{"room":"diary-room"}', moves)
+    out = _run(al._auto_move_player('Production\'s voice comes down: "Diary Room, when you\'ve a minute." You are called to the Diary Room.',
+                                    "I wait four hours.", "url", "m", {}, "owner"))
+    assert out is False
+    assert moves == [], "a diary-room invitation the player did not accept must never relocate them"
+
+
+def test_player_who_names_the_diary_room_is_moved(monkeypatch):
+    for said in ("I go to the Diary Room and sit down.", "On the record: I'm voting to keep her.", "I step into the booth."):
+        moves = []
+        _wire(monkeypatch, '{"room":"diary-room"}', moves)
+        out = _run(al._auto_move_player("You sit in the booth.", said, "url", "m", {}, "owner"))
+        assert out is True and moves and moves[0]["room"] == "diary-room", said
