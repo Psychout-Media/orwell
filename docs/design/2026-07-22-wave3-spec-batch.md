@@ -726,7 +726,7 @@ it. The shareable moment is choosing NOT to know.
 - Next season's cast genesis samples carried cold cases as seed material for one NPC's hidden layer plus
   one dormant thread the EXISTING 0060 scheduler surfaces under NORMAL pathway rules — no forced reveal,
   no shortcut; it can take a whole season to resurface, exactly like any other hidden thread.
-- Non-degradation (mandate #4) is satisfied by construction: nothing is lost, only deferred.
+- Non-degradation (mandate #4) is satisfied by construction: nothing is lost, only postponed.
 - **Four-place FE-write-back rule:** N/A — the reveal/seal choice is a plain player-channel decision at
   an existing retrospective surface; the carry-over write happens engine-side through the existing
   season-door hinge, not a new FE write-back tool.
