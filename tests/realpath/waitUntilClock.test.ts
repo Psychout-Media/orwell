@@ -13,7 +13,7 @@ const fmt = (h: number): string => `${Math.floor(h % 24)}:${String(Math.round((h
 /** `quiet`: the approach and observation sources that interrupt a wait are switched off (a flag switch, as tests/unit/hangOutLever.test.ts does), so the wait can run to its stated time. */
 function evening(seed: number, user: string, quiet = false) {
   // not as shipped: the approach and observation sources that interrupt a wait are off so the wait can run to its stated time (the same switches tests/unit/hangOutLever.test.ts turns off)
-  const g = playedGame({ seed, user, before: quiet ? (s) => { s.setDesireClockEnabled(false); s.setWantMovementEnabled(false); s.setMorningApproachEnabled(false); s.setMoodApproachEnabled(false); s.setApproachMemoryEnabled(false); s.setNpcTellsEnabled(false); } : undefined });
+  const g = playedGame({ seed, user: user, before: quiet ? (s) => { s.setDesireClockEnabled(false); s.setWantMovementEnabled(false); s.setMorningApproachEnabled(false); s.setMoodApproachEnabled(false); s.setApproachMemoryEnabled(false); s.setNpcTellsEnabled(false); } : undefined });
   const live = (): Live => (g.s.snapshot() as unknown as { live: Live }).live;
   g.playUntil(() => (live().dayNumber ?? 1) >= 2 && live().timeOfDay === "evening" && (live().nightDepth ?? 0) >= 19 && (live().nightDepth ?? 0) < 20, 4000, "an evening of day 2+");
   return { g, live };
