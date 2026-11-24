@@ -501,6 +501,10 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
     // ORW-625: a goal with a stored plan takes the plan's next step (and waits for its partner if they are not reachable this hour: no re-roll).
     const planned = v.plans?.get(g.id);
     const step = planned ? planStepNow(planned, g, v) : nextStepFor(g, v, roll(`variant:${g.id}`));
+    // ORW-702: a goal step whose own fold is gossip (a fish, a plant, a wedge, a frame...) or strategy takes the hour only with its keep chance; when it does not, the hour goes to ordinary life (the goal loop ends:
+    // a different goal's step would only swap one kind of scheming for another). A keyed roll, no shared draw.
+    const foldKept = step ? (ACTIONS[step.kind].fold === "gossip" ? HOUSE_LIFE.goalGossipKeep : ACTIONS[step.kind].fold === "strategy" ? HOUSE_LIFE.goalStrategyKeep : 1) : 1;
+    if (step && foldKept < 1 && roll(`goalkeep:${g.id}`) >= foldKept) break;
     if (step) return finish(step);
   }
 
