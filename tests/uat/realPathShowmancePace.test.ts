@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { SHOWMANCE_PACE } from "../../src/engine/attractionLife";
 import { playedGame } from "../support/playedGame";
+import { playMixGame } from "../support/houseMixDriver";
 
 /**
  * ORW-736: the showmance slow build, REAL PATH. A whole season is played through the player's levers only, so every romance and every step of its pace is the
@@ -62,6 +63,16 @@ describe("ORW-736 REAL PATH: a showmance builds slowly in a played season", () =
 
   // Blocked, not faked: in four played seasons (seeds 3, 7, 13, 21) no showmance reached the public stage (the furthest climbed two of four levels, from day 41), so the
   // "public couple late, once" claim and the house's one noticing beat are proven only by the unit test that drives the days by hand (tests/unit/showmancePaceLive.test.ts).
-  it.todo("real path: a showmance reaches the public couple stage late and is noticed once, blocked by no played season reaching level 4 before the season ends (ORW-736)");
+  it("ORW-842: in a chat-paced played season a strong pair reaches the public couple stage within about three to five weeks, never before the earliest public day", async () => {
+    const publicPair = (s: unknown): [string, Pace] | undefined => Object.entries((s as Priv).live.showmancePace ?? {}).find(([, r]) => r.steps.length >= 4);
+    let found: [string, Pace] | undefined;
+    await playMixGame(6, 1500, { user: "mixdrv-6", advanceEvery: 6, stopWhen: (s) => publicPair(s) !== undefined, inspect: (s) => { found = publicPair(s); } });
+    expect(found, "a pair reached the public couple stage in a chat-paced played season").toBeDefined();
+    const rec = found![1];
+    expect(rec.steps.map((x) => x.to)).toEqual([1, 2, 3, 4]);
+    expect(rec.steps[3]!.day, "never before the earliest public day").toBeGreaterThanOrEqual(SHOWMANCE_PACE.publicNotBeforeDay);
+    expect(rec.steps[3]!.day, "within about five weeks").toBeLessThanOrEqual(35);
+    expect(rec.steps[3]!.seenBy.length, "the house has caught it").toBeGreaterThan(0);
+  }, 900_000);
   it.todo("real path: the player's own romance runs the same pace, not attempted: it needs the player's gender facet set in casting and a houseguest drawn to them, which the played driver does not reach (ORW-736)");
 });
