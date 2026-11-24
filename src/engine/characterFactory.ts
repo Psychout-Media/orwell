@@ -1024,12 +1024,17 @@ export const VOL_OF: Record<Disposition, number> = { clash: 0.7, bond: 0.3, neut
 export const DEFAULT_ARCHETYPE: Archetype = "floater";
 
 /**
- * The stat profile for a player who authored NO archetype (#529). Perfectly neutral/unbiased —
- * NOT a fabricated archetype bias. Absence ⇒ empty/neutral, never invented. Sits comfortably inside
- * `NPC_STAT_RANGE`, so it never min-maxes and never grants an edge (anti-sycophancy via fallback).
+ * The stat profile for a player who authored NO archetype (#529). It invents no archetype and no persona: it is the cast's own AVERAGE aptitude, the mean of
+ * every archetype's bias per stat (the expected value of what `generateHouse` deals a houseguest, which draws its archetype from this same pool), so the player is
+ * neither a favourite nor a handicap (ORW-868: the old fixed 0.5 sat below the cast's 0.556 and gave the player about a third of a fair share of HOH wins).
+ * Derived from `ARCHETYPES`, never a literal. A player who DID author an archetype keeps that archetype's bias, the same rule the cast follows.
  */
-export const NEUTRAL_PLAYER_STATS: { physical: number; mental: number; social: number } =
-  { physical: 0.5, mental: 0.5, social: 0.5 };
+function castMeanStats(): { physical: number; mental: number; social: number } {
+  const n = ARCHETYPES.length;
+  const sum = (k: "physical" | "mental" | "social"): number => ARCHETYPES.reduce((a, s) => a + s.bias[k], 0) / n;
+  return { physical: sum("physical"), mental: sum("mental"), social: sum("social") };
+}
+export const NEUTRAL_PLAYER_STATS: { physical: number; mental: number; social: number } = castMeanStats();
 
 /**
  * ORW-208 - resolve the stored strategy style for a chosen archetype. The canonical style must be one of the archetype's own `styles`

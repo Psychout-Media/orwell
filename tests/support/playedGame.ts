@@ -4,6 +4,7 @@ import { FakeClock } from "../../src/adapters/time/FakeClock";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import type { AdvanceView, SubmitDecisionReq } from "../../src/ports/GameSession";
 import { answerPending, type AnswerPolicy } from "../../features/support/answerPending";
+import { NotReached } from "./firstSeedWhere";
 
 /**
  * ORW-806 / ORW-811: a PLAYED game driven only through the levers a person and the front end use, for tests/realpath and tests/uat/realPath*. Nothing here writes
@@ -52,10 +53,10 @@ export function playedGame(opts: { seed: number; user?: string; before?: (s: Gam
     playUntil(done, max = 20_000, what = "the condition"): number {
       for (let i = 0; i < max; i++) {
         if (done()) return i;
-        if (finished) throw new Error(`the season ended before ${what}`);
+        if (finished) throw new NotReached(`the season ended before ${what}`);
         g.turn();
       }
-      throw new Error(`${what} was not reached in ${max} turns`);
+      throw new NotReached(`${what} was not reached in ${max} turns`);
     },
     playToCrown(max = 20_000): void { g.playUntil(() => finished, max, "the crown"); },
   };

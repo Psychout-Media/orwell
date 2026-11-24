@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { playSeason } from "../support/whatFired/player";
+import { firstSeedWhere } from "../support/firstSeedWhere";
 
 /**
  * ORW-755 (741c): the edit's TURNED, MEETING and SCHEME moments reached in a PLAYED season. ORW-688 / ORW-691 were closed with hand-set tests (the "turned" test sets week, playedGame and finished by hand;
@@ -9,14 +10,16 @@ import { playSeason } from "../support/whatFired/player";
  * neither the scheme nor the meeting; the edit off (ORWELL_YOUR_EDIT) leaves no edit; and a second season played with the story off (ORWELL_YOUR_STORY: no weekly samples) has no stories.
  * HEAVY LANE (tests/uat/**, the `real-path` leg): a full season is about 2.5 minutes of play on the runner; two seasons.
  */
-const SEED = 3;
 type Moments = Array<{ kind: string }>;
 const kindsOf = (edit: { episodes: Array<{ moments: Moments }> } | undefined): Set<string> => new Set((edit?.episodes ?? []).flatMap((e) => e.moments.map((m) => m.kind)));
 describe("ORW-755 REAL PATH: the edit's moments", () => {
   it("REAL PATH: turned, meeting and scheme moments are in the views of a played season, and gone when their features are off", async () => {
+    // ORW-880: the first seed from 3 whose season is played to the crown with a house meeting called and a houseguest who turned (the precondition: the house's
+    // own doing); the test then asserts what the edit and the stories make of it
     let onKinds = new Set<string>(), noMomentsKinds = new Set<string>(), editOff: unknown = "unset", shapes: string[] = [], retro: unknown;
-    const on = await playSeason({ user: `wf-${SEED}`,
-      seed: SEED,
+    const { seed, sandbox, at: on } = await firstSeedWhere(async (seed, sandbox) => {
+      const on = await playSeason({ user: sandbox,
+      seed,
       after: ({ sess }) => {
         retro = sess.seasonRetrospective();
         onKinds = kindsOf((retro as { yourEdit?: never }).yourEdit);
@@ -28,6 +31,8 @@ describe("ORW-755 REAL PATH: the edit's moments", () => {
         editOff = sess.seasonRetrospective().yourEdit;
       },
     });
+      return on.stopped === "finished" && (on.milestones["state.houseMeetings"] ?? 0) >= 1 && shapes.includes("turned") ? on : undefined;
+    }, { from: 1, to: 12, hint: 3, sandbox: (s) => `wf-${s}`, what: "a season to the crown with a house meeting and a turned houseguest" });
     expect(on.stopped, "the season was played to the crown").toBe("finished");
     // turned: the story of a houseguest who warmed then went cold, reached through the weekly sampler and the real scenes of the season
     expect(shapes).toContain("turned");
@@ -48,7 +53,7 @@ describe("ORW-755 REAL PATH: the edit's moments", () => {
     // the story off for a whole second season (it is a weekly sampler, so it has to be off while the season is played)
     let storiesOff: unknown = "unset";
     // not as shipped: the flag-off season
-    const off = await playSeason({ user: `wf-${SEED}`, seed: SEED, setup: (sess) => sess.setYourStoryEnabled(false), after: ({ sess }) => { storiesOff = sess.seasonRetrospective().yourStories; } });
+    const off = await playSeason({ user: sandbox, seed, setup: (sess) => sess.setYourStoryEnabled(false), after: ({ sess }) => { storiesOff = sess.seasonRetrospective().yourStories; } });
     expect(off.stopped).toBe("finished");
     expect(storiesOff).toBeUndefined();
     expect(off.milestones["view.yourStories.shape:turned"]).toBeUndefined();

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  runPlayerOOBE, startNewGame, generateHouse, ARCHETYPES,
+  runPlayerOOBE, NEUTRAL_PLAYER_STATS, startNewGame, generateHouse, ARCHETYPES,
   NPC_STAT_RANGE, playerAptitudesWithinNpcBounds,
   NAME_CORPORA, isCorpusName, DEFAULT_ARCHETYPE, resolveStrategyStyle,
 } from "../../src/engine/characterFactory";
@@ -87,7 +87,8 @@ describe("0015 — character creation (OOBE)", () => {
     expect(p.archetypeDefaulted).toBe(true);
     // #529: absence ⇒ NEUTRAL/unbiased stats, NOT the fabricated "floater" bias. The engine never
     // deals an archetype's stat profile to a human who never chose one.
-    expect(p.character.stats).toEqual({ physical: 0.5, mental: 0.5, social: 0.5 });
+    // ORW-868: the neutral profile is the cast's own average aptitude (derived from ARCHETYPES), not a fixed 0.5 below it.
+    expect(p.character.stats).toEqual(NEUTRAL_PLAYER_STATS);
     const floaterBias = ARCHETYPES.find((s) => s.archetype === DEFAULT_ARCHETYPE)!.bias;
     expect(p.character.stats).not.toEqual(floaterBias);
     // The default's stats are NOT the global max of any aptitude (anti-sycophancy via fallback is dead).
