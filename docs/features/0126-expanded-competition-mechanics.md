@@ -35,7 +35,7 @@ base 12 and every seeded gate is byte-identical; the deploy turns it on for real
 **In:** `COMPETITION_LIBRARY_PLUS` — 9 HOH + 9 veto new `CompetitionDef`s (stat-mix-matched, distinct
 formats/flavor); a pool-aware draw (`drawCompetition(..., expanded)`) that, when expanded, widens the
 no-repeat window to the whole pool minus one — a **rolling shuffle** so no mechanic repeats until all are
-used; `competitionById` searching both pools (deferred-veto resume); `SeasonCtx.expandedComps` threaded
+used; `competitionById` searching both pools (resuming a held veto); `SeasonCtx.expandedComps` threaded
 from the adapter flag. Now default-**ON** (`ORWELL_COMP_MECHANICS_PLUS`, #1996; `=0` opts out), as in the deploy defaults; pinned off in the
 golden driver.
 

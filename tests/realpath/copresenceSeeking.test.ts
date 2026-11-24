@@ -15,7 +15,7 @@ type Pull = { target: string; weight: number; avoid: boolean };
 const intentOf = (s: Stop, id: string): Pull[] | null => s.sess.movementIntentFor(id) as Pull[] | null;
 const w = (arr: Pull[] | null, t: string): number => arr?.find((p) => p.target === t)?.weight ?? 0;
 const offOn = (s: Stop, holder: string): { off: Pull[] | null; on: Pull[] | null } => {
-  s.sess.setCopresenceEnabled(false);
+  s.sess.setCopresenceEnabled(false); // not as shipped: the off arm of the on/off comparison, switched back on below
   const off = intentOf(s, holder);
   s.sess.setCopresenceEnabled(true);
   return { off, on: intentOf(s, holder) };
@@ -45,7 +45,7 @@ const decided = (s: Stop): Array<{ holder: string; listener: string }> => {
 describe("seeking in a played season", () => {
   it("layer OFF: the holder's intent has no seeking term; ON: the pull toward the listener rises and no pull is lowered (seeds 3 and 11)", async () => {
     for (const seed of [3, 11]) {
-      const at = await playUntil(seed, (s) => quiet(s) && seeking(s).length > 0);
+      const at = await playUntil(seed, (s) => quiet(s) && seeking(s).length > 0, { user: `wf-${seed}` });
       let checked = 0;
       for (const { holder, listener } of seeking(at)) {
         const { off, on } = offOn(at, holder);
@@ -58,7 +58,7 @@ describe("seeking in a played season", () => {
   }, 120_000);
 
   it("a telling the holder has already decided about no longer pulls: the layer adds nothing toward that listener", async () => {
-    const at = await playUntil(3, (s) => quiet(s) && decided(s).length > 0 && seeking(s).length > 0);
+    const at = await playUntil(3, (s) => quiet(s) && decided(s).length > 0 && seeking(s).length > 0, { user: "wf-3" });
     for (const { holder, listener } of decided(at)) {
       expect(seeking(at).some((p) => p.holder === holder && p.listener === listener), "the seeker no longer names a decided listener").toBe(false);
       const { off, on } = offOn(at, holder);
@@ -67,7 +67,7 @@ describe("seeking in a played season", () => {
   }, 120_000);
 
   it("the player is never a seek target (off-screen spreads exclude them)", async () => {
-    const at = await playUntil(3, (s) => quiet(s) && seeking(s).length > 0);
+    const at = await playUntil(3, (s) => quiet(s) && seeking(s).length > 0, { user: "wf-3" });
     for (const holder of new Set(seeking(at).map((p) => p.holder))) {
       const { off, on } = offOn(at, holder);
       expect(w(on, PLAYER)).toBe(w(off, PLAYER));

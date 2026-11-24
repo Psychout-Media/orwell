@@ -15,16 +15,16 @@ const kindsOf = (edit: { episodes: Array<{ moments: Moments }> } | undefined): S
 describe("ORW-755 REAL PATH: the edit's moments", () => {
   it("REAL PATH: turned, meeting and scheme moments are in the views of a played season, and gone when their features are off", async () => {
     let onKinds = new Set<string>(), noMomentsKinds = new Set<string>(), editOff: unknown = "unset", shapes: string[] = [], retro: unknown;
-    const on = await playSeason({
+    const on = await playSeason({ user: `wf-${SEED}`,
       seed: SEED,
       after: ({ sess }) => {
         retro = sess.seasonRetrospective();
         onKinds = kindsOf((retro as { yourEdit?: never }).yourEdit);
         shapes = ((retro as { yourStories?: { stories: Array<{ shape: string }> } }).yourStories?.stories ?? []).map((s) => s.shape);
-        sess.setEditMomentsEnabled(false);
+        sess.setEditMomentsEnabled(false); // not as shipped: read the post-season edit with the moments off, then back on
         noMomentsKinds = kindsOf(sess.seasonRetrospective().yourEdit);
         sess.setEditMomentsEnabled(true);
-        sess.setYourEditEnabled(false);
+        sess.setYourEditEnabled(false); // not as shipped: read the post-season view with the edit off (the season is over)
         editOff = sess.seasonRetrospective().yourEdit;
       },
     });
@@ -47,7 +47,8 @@ describe("ORW-755 REAL PATH: the edit's moments", () => {
 
     // the story off for a whole second season (it is a weekly sampler, so it has to be off while the season is played)
     let storiesOff: unknown = "unset";
-    const off = await playSeason({ seed: SEED, setup: (sess) => sess.setYourStoryEnabled(false), after: ({ sess }) => { storiesOff = sess.seasonRetrospective().yourStories; } });
+    // not as shipped: the flag-off season
+    const off = await playSeason({ user: `wf-${SEED}`, seed: SEED, setup: (sess) => sess.setYourStoryEnabled(false), after: ({ sess }) => { storiesOff = sess.seasonRetrospective().yourStories; } });
     expect(off.stopped).toBe("finished");
     expect(storiesOff).toBeUndefined();
     expect(off.milestones["view.yourStories.shape:turned"]).toBeUndefined();

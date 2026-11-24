@@ -13,7 +13,8 @@ import { plantLiveSentinels } from "../support/liveSentinelPlanting";
 /**
  * ORW-719: the PLAYER is voted out on a played game. (1) The two cards the player owes (their exit interview, then the watch-or-skip choice) each
  * appear exactly once, in that order, survive a save/restore, and the night ends (bounded). (2) The houseguests' goodbyes are voiced from the
- * speaker's REAL public record with the player (handed as facts), never from invented history, and no hidden state rides with them. Roles only.
+ * speaker's REAL public record with the player (handed as facts), never from invented history, and no hidden state rides with them. UNIT: the board is set by hand (the HOH chosen, the
+ * player put on the block) and sentinels are planted (ORW-813: the played version is tests/uat/realPathPlayerEvicted.test.ts, the heavy lane). Roles only.
  */
 type Any = Record<string, any>;
 
@@ -74,7 +75,7 @@ function evictedPlayer(withSentinels = false): { s: Any; sentinels: string[] } {
   throw new Error("no seed in 1..60 voted the player out");
 }
 
-describe("ORW-719 - the evicted player's own cards", () => {
+describe("ORW-719 - the evicted player's own cards (unit: the board set by hand)", () => {
   it("raises the exit interview then the watch-or-skip choice, each exactly once, surviving save/restore, and the night ends", () => {
     const { s } = evictedPlayer();
     const seen: string[] = [];
@@ -101,7 +102,7 @@ describe("ORW-719 - the evicted player's own cards", () => {
   }, 120_000);
 });
 
-describe("ORW-719 - the goodbyes are voiced from the speaker's real record with the player", () => {
+describe("ORW-719 - the goodbyes are voiced from the speaker's real record with the player (unit: the board set by hand, sentinels planted)", () => {
   it("hands each speaker's public record (facts only), the rule rides the eviction moment, and no hidden state is in it", () => {
     const { s, sentinels } = evictedPlayer(true);
     const ev = s.getGameState().eviction;

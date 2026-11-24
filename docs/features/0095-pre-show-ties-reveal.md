@@ -5,7 +5,7 @@
 > `accuseTie` (the `confide` sibling, four-place wired). Note: `ORWELL_SEEDED_TIE_SURFACING` (0059 §5) is
 > a narrower, PRE-EXISTING precursor — ambient "seem close" suspicion only, no confirmed fact, no
 > betrayal fold — and is untouched; 0095 ships as a SEPARATE pathway/flag (`ORWELL_TIE_REVEAL`), never a
-> mode of §5. The "slip" pathway is deferred (no BDD scenario requires it); overhear + the
+> mode of §5. The "slip" pathway is deferred (no BDD scenario requires it); overhear + the (ORW-824)
 > player-reachable `accuseTie` cover the built v1. Wired in `cucumber.cjs`.
 > **Tracks #867.**
 >

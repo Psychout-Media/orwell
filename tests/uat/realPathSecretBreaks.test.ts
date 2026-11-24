@@ -13,7 +13,7 @@ const MARGIN = 200; // the off run plays this many messages PAST where the on ru
 describe("ORW-753 REAL PATH: secret breaks", () => {
   it("REAL PATH: a secret breaks in a played season, comes out as a public house event, and is off when ORWELL_SECRET_BREAKS is off", async () => {
     let viewJson = "", hiddenSeen = true;
-    const on = await playSeason({
+    const on = await playSeason({ user: `wf-${SEED}`,
       seed: SEED, maxMessages: 1500,
       watch: ({ sess }) => (sess.live?.secretBreaks?.length ?? 0) > 0,
       after: async ({ call }) => { const v = await call("getVisibleStateFor", { entity: "player" }); viewJson = JSON.stringify(v); hiddenSeen = (v.visibleEvents as Array<{ hidden: boolean }>).some((e) => e.hidden); },
@@ -25,9 +25,9 @@ describe("ORW-753 REAL PATH: secret breaks", () => {
     expect(hiddenSeen).toBe(false);
     expect(viewJson).not.toContain("secretBreaks");
 
-    const off = await playSeason({
+    const off = await playSeason({ user: `wf-${SEED}`,
       seed: SEED, maxMessages: on.messages + MARGIN,
-      setup: (sess) => sess.setSecretBreaksEnabled(false),
+      setup: (sess) => sess.setSecretBreaksEnabled(false), // not as shipped: the flag-off run proves the break is the feature
       watch: ({ sess }) => (sess.live?.secretBreaks?.length ?? 0) > 0,
     });
     expect(off.stopped, "the off run played past the on run's break without one").toBe("cap");

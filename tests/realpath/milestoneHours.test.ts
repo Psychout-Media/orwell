@@ -14,11 +14,11 @@ import { phaseForHour } from "../../src/engine/timeOfDay";
  *     bdd-audit/design/veto-ceremony-evening-due.md; a ruling is needed on whether `due` should stay false until the day-break).
  * Roles only.
  */
-afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(false));
+afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(null)); // back to the shipped default
 type Row = { next: string; scheduled: string; dueHour: number; dueTod: string; event?: string; afterHour: number };
 function weekOne(played = false): Row[] {
   GameSessionAdapter.setTimeOfDayEnabled(true);
-  const s = new GameSessionRegistry().sandboxFor(`mh-${Math.random()}`).session as GameSessionAdapter;
+  const s = new GameSessionRegistry().sandboxFor(`mh-7-${played ? "played" : "headless"}`).session as GameSessionAdapter;
   s.createCharacter({ playerName: "P", seed: 7 });
   s.setPerConversationClockEnabled(true);
   const live = () => s.snapshot().live as unknown as { nightDepth: number; timeOfDay: string; nightDepthUndefined?: boolean };
@@ -26,10 +26,16 @@ function weekOne(played = false): Row[] {
   if (played) s.noteMessage({ messageId: "mh-0" }); // ORW-258: the event-per-day cadence is for a game a PERSON is playing (a headless driver keeps the pre-258 due-ness, byte-identical)
   const rows: Row[] = [];
   for (let step = 0; step < 2500 && !rows.some((r) => r.next === "eviction" && r.event !== "day-break" && !r.event); step++) {
-    const d = (s.getGameState() as { daySchedule?: { due: boolean; next: string; phase: string } }).daySchedule;
+    const g = s.getGameState() as { daySchedule?: { due: boolean; next: string; phase: string }; pending?: { kind: string } };
+    // ORW-827: with the premiere entrances and bedtime gate on (as shipped), a staged ceremony leaves a `ceremony-step` the player watches through (Continue = advanceGame); a person never sits on it.
+    // The ceremony's own beat lands on that step, so it is credited to the advance that opened the ceremony (the row's due hour is still when the event came due).
+    if (g.pending?.kind === "ceremony-step") { const v = s.advanceGame(); const last = rows[rows.length - 1]; if (last && !last.event && v.event?.beat) last.event = v.event.beat; continue; }
+    const d = g.daySchedule;
     if (d?.due) {
       const before = { h: live().nightDepth, tod: live().timeOfDay };
       const v = s.advanceGame();
+      // ORW-827: an advance the engine HOLDS (the event is not until a later hour) is no advance: time passes, as it does for a person (a night is slept, otherwise the clock runs on).
+      if (v.held) { if (live().timeOfDay === "night" || live().timeOfDay === "late-night") s.turnIn({}); else s.advanceClockPerConversation(); continue; }
       if (v.pending) resolvePending(v.pending, (req) => void s.submitDecision(req));
       rows.push({ next: d.next, scheduled: d.phase, dueHour: before.h, dueTod: phaseForHour(before.h + 1e-6) /* the clock accrues in 5-minute float steps (15.999999999 reads 'due'): label the phase by the hour with the same tolerance milestoneDue uses */, event: v.event?.beat ?? undefined, afterHour: live().nightDepth });
     } else if (live().timeOfDay === "night" || live().timeOfDay === "late-night") { s.turnIn({}); } // ORW-258: the player goes to bed at the NIGHT period (no earlier), and the next event is its own day

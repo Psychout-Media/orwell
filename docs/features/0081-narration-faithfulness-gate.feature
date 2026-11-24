@@ -1,4 +1,4 @@
-# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
+# spec-only: gated by frontend/tests/test_0081_faithfulness_judge.py; this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 # Design contract — BUILT (PR #778) and shipped DEFAULT ACTIVE (owner ruling 2026-07-13); verified by FE tests, NOT wired into cucumber.cjs. Reflects the answered design (full faithfulness; hybrid detection;
 # judge on claim-bearing turns only; folded into the overseer's 3-state mode; correction split on
 # ADR 0005 — adopt the open set, reframe the closed set, backend re-ground the un-reframable) + the

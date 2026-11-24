@@ -46,7 +46,7 @@ bedtime** (never auto-slept). A simple time-of-day graphic surfaces in the HUD.
 - Vault-free `timeOfDay` + player `restStatus` projections; the HUD clock + rest cue.
 - **Flag-gated** via `ORWELL_TIME_OF_DAY`: the engine's code default is off, so the seeded calibration spine stays byte-identical, but the **deploy profile boots it ON** (`deploy/orwell-env-defaults.sh`) and the FE session default is ON, so real play runs with the clock on.
 
-**Out (clean follow-ups):**
+**Out (Phase 2, for Ryne: ORW-821):**
 - NPC fatigue bleeding into **next-day social volatility**; a compounding fatigue meter (ADR 0006
   Phase-2 extensions).
 - Per-social-turn clock advance (today the clock moves on each `advanceGame`).

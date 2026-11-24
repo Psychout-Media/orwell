@@ -1,4 +1,4 @@
-# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
+# spec-only: gated by frontend/tests/test_public_deployment_routes.py; this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 # Feature 0068 — Admin "Public deployment / Connect to the internet" (ADR 0007, drives feature 0067).
 # Roles only (admin, operator) — no person names. Executable spec of record; the gate is the FE pytest
 # suite + the deploy-script lints named in the design note (a recorded deviation, like 0066/0067). The

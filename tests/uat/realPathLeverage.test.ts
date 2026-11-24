@@ -17,7 +17,7 @@ const realPlay = (sess: any, engine: any): Play | undefined =>
 describe("ORW-754 REAL PATH: leverage on a real secret", () => {
   it("REAL PATH: a houseguest presses a real secret in a played season, and does not when ORWELL_LEVERAGE_PLAYS is off", async () => {
     let viewJson = "", hiddenSeen = true, found: Play | undefined;
-    const on = await playSeason({
+    const on = await playSeason({ user: `wf-${SEED}`,
       seed: SEED, maxMessages: 1500,
       watch: ({ sess, engine }) => { found = realPlay(sess, engine); return !!found; },
       after: async ({ call }) => { const v = await call("getVisibleStateFor", { entity: "player" }); viewJson = JSON.stringify(v); hiddenSeen = (v.visibleEvents as Array<{ hidden: boolean }>).some((e) => e.hidden); },
@@ -30,9 +30,9 @@ describe("ORW-754 REAL PATH: leverage on a real secret", () => {
     expect(viewJson).not.toContain(found!.factKey);
     expect(viewJson).not.toContain("leveragePlays");
 
-    const off = await playSeason({
+    const off = await playSeason({ user: `wf-${SEED}`,
       seed: SEED, maxMessages: on.messages + MARGIN,
-      setup: (sess) => sess.setLeveragePlaysEnabled(false),
+      setup: (sess) => sess.setLeveragePlaysEnabled(false), // not as shipped: the flag-off run proves the play is the feature
       watch: ({ sess }) => (sess.live?.leveragePlays?.length ?? 0) > 0,
     });
     expect(off.stopped, "the off run played past the on run's play without one").toBe("cap");

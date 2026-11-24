@@ -2231,6 +2231,25 @@ def _withhold_leading_refusal(owner, round_num: int, round_response: str, clean:
         return round_response, clean, False
 
 
+def _strip_leading_recital(owner, round_num: int, round_response: str, clean: str, round_emitted: str):
+    """ORW-784: drop an instruction fragment ("Keep the answer short and plain", "Verbatim,") that opens a round (nothing shown yet this round). Pre-emission, so nothing is retracted; the
+    raw/stored text drops it too. Success-gated telemetry. Returns (round_response, clean, stripped)."""
+    try:
+        from src import recital_guard as _rc
+        if not clean or round_emitted.strip() or not _rc.enabled():
+            return round_response, clean, False
+        kept, n = _rc.strip_leading_recital(clean)
+        if not n:
+            return round_response, clean, False
+        round_response = _mirror_wall_drop(round_response, clean, kept)
+        _rc.note_stripped()
+        logger.info(f"[orwell] recital fragment stripped round={round_num} chars={n}")
+        _note_belt(owner, "recital-stripped")
+        return round_response, kept, True
+    except Exception:  # failsoft-ok: detector error shows the text as today
+        return round_response, clean, False
+
+
 def _note_forced_choice(owner, tool: str, *, honored: bool) -> None:
     """T0-4 (telemetry + probe arm) — count one forced-``tool_choice`` ATTEMPT, with its
     outcome, in the Vault-free sync ledger (`orwell_sync_ledger.note_forced_choice`). Unlike
@@ -3779,6 +3798,17 @@ async def _merged_turn_extract(narration, last_user, house, endpoint_url, model,
         return none
 
 
+_DIARY_NAMED_RE = re.compile(r"\b(?:diary|booth|confessional|on\s+the\s+record|dr)\b", re.IGNORECASE)
+
+
+def _player_named_diary_room(last_user, room_names=None) -> bool:
+    """ORW-734b: did the PLAYER's own message name the Diary Room (its plain words or this season's themed name)? Pure text check on the player's words."""
+    text = str(last_user or "")
+    if _DIARY_NAMED_RE.search(text):
+        return True
+    return "diary-room" in _themed_rooms_in(text, room_names)
+
+
 async def _auto_move_player(narration, last_user, endpoint_url, model, headers, owner, raw=None) -> bool:
     """GUARANTEE whereabouts cohesion (L21/L24). When the player's turn walked them to a room but the
     model never called moveTo, a constrained extraction proposes the destination room and we call
@@ -3807,6 +3837,11 @@ async def _auto_move_player(narration, last_user, endpoint_url, model, headers, 
         room = _room_id_of(obj.get("room"), _season_room_names(owner))  # ORW-466: a themed-name echo still maps to its id
         if not room:
             return False  # null / no move / unknown room → nothing to do
+        if room == "diary-room" and not _player_named_diary_room(last_user, _season_room_names(owner)):
+            # ORW-734b (ADR 0009, 0210 C2): the player is INVITED to the Diary Room, never sent. A narrated invitation or "you are called" line is not
+            # the player's own move, so only the player's own words can take them in.
+            logger.info(f"[orwell] auto-move: diary-room not named by the player, no move user={owner}")
+            return False
         # 0065 Part A: attach the CAS token + refresh last-seen from the response; a stale 409 (the
         # board moved under us) is reconciled-and-skipped (None) — the move re-derives next turn.
         # Deliberately NOT `defer_fold=True`: a move is a positional/physical belt, not a hidden-impact
@@ -5466,10 +5501,24 @@ async def _auto_answer_deal_offer(last_user, narration, owner, endpoint_url, mod
 _ALLIANCE_SIGNAL_RE = re.compile(r"\b(?:alliance|alliances|allies|ally|bloc|crew|squad|final[\s-]?(?:three|four|five|3|4|5))\b", re.I)
 
 
-async def _auto_alliance(narration, last_user, house, endpoint_url, model, headers, owner, applied_out=None) -> bool:
+def _alliance_call_landed(result) -> bool:
+    """ORW-793: did the engine TAKE a model-driven joinAlliance / formAlliance? A taken one returns the alliance (an id); a refusal returns nothing (null) or an error."""
+    if not isinstance(result, dict) or result.get("exit_code") not in (None, 0) or result.get("error"):
+        return False
+    try:
+        view = json.loads(result.get("output") or "null")
+    except Exception:
+        return False
+    return isinstance(view, dict) and bool(view.get("id")) and not view.get("error")
+
+
+async def _auto_alliance(narration, last_user, house, endpoint_url, model, headers, owner, applied_out=None, refused=None) -> bool:
     """Record an alliance the player agreed to aloud but the model never joined/formed (ORW-780). True only when the
     engine APPLIED a membership (success-gated telemetry); a refusal, an ambiguous scene or any hiccup is a no-op.
-    `applied_out` receives one entry per applied membership."""
+    `applied_out` receives one entry per applied membership. `refused` (ORW-793) is what the ENGINE already refused the model this turn
+    ({"join": {pitch ids}, "form": [frozenset of ids]}): a refused pitch or a group that asks nothing the engine has not already declined is never re-proposed."""
+    refused_join = set((refused or {}).get("join") or ())
+    refused_forms = list((refused or {}).get("form") or ())
     try:
         from src.llm_core import llm_call_async
         from src import orwell_engine as _oe
@@ -5478,7 +5527,7 @@ async def _auto_alliance(narration, last_user, house, endpoint_url, model, heade
             return False
         state = await _oe.get_game_state(user=owner)
         raw_pitches = (state or {}).get("alliancePitches") if isinstance(state, dict) else None
-        pitches = {p.get("id"): p for p in (raw_pitches or []) if isinstance(p, dict) and p.get("id")}
+        pitches = {p.get("id"): p for p in (raw_pitches or []) if isinstance(p, dict) and p.get("id") and p.get("id") not in refused_join}
         if not pitches and not _ALLIANCE_SIGNAL_RE.search(last_user or ""):
             return False  # no open pitch to accept and the player did not speak of an alliance: nothing to extract
         pitch_lines = "\n".join(
@@ -5525,6 +5574,8 @@ async def _auto_alliance(narration, last_user, house, endpoint_url, model, heade
         if not _any and isinstance(form, dict):
             group_ids = [m for m in (form.get("members") or []) if isinstance(m, str) and m in roster]
             group_ids = list(dict.fromkeys(group_ids))[:7]
+            if any(set(group_ids) <= done for done in refused_forms):
+                group_ids = []  # the engine already declined this group (or a larger one containing it): a refused pair stays refused
             if len(group_ids) >= 2:
                 group_label = form.get("name") if isinstance(form.get("name"), str) else ""
                 res = await _backfill_with_cas(owner, _oe.form_alliance, group_label.strip()[:60], group_ids, user=owner, defer_fold=True)
@@ -6934,8 +6985,10 @@ async def _narrator_stream_with_outage_pause(candidates, messages, owner=None, l
         await asyncio.sleep(delay)
 
 
+# ORW-784: a last-resort line is engine-authored, so it is a plainly system-styled notice (the whole-message `((...))` aside the surface renders outside the fiction), never narrator-voiced prose.
 _BLANK_FALLBACK_MODEL = (
-    "The moment hangs for a beat. The house keeps moving around you — what do you want to do?")
+    "((The narrator's reply did not come through this turn. Send your move again and the scene continues from where the game stands.))")
+_LEGACY_BLANK_FALLBACK_MODEL = "The moment hangs for a beat. The house keeps moving around you — what do you want to do?"  # stored history may still hold it
 _BLANK_FALLBACK_UPSTREAM = (
     "Big Brother cuts to a brief technical interlude — the feed dropped before that scene could air. "
     "Say or do that again in a moment and it will pick up.")
@@ -6953,6 +7006,9 @@ def _fallback_markers() -> "tuple[str, ...]":
     return (
         _SCENE_CUTAWAY_LINE[:70],
         _BLANK_FALLBACK_MODEL[:40],
+        _LEGACY_BLANK_FALLBACK_MODEL[:40],
+        _LEGACY_EMPTY_PRODUCER_LINE[:40],
+        _EMPTY_PRODUCER_LINE[:40],
         _BLANK_FALLBACK_UPSTREAM[:40],
         _NARRATOR_AWAY_LINE[:40],
         _NARRATOR_ACCOUNT_LINE[:40],
@@ -8013,8 +8069,9 @@ async def _run_verifier_subagent(
 # again — paired with a one-tap retry affordance below. NOT the FEPY-2 reasoning-recovery path
 # (that re-emits a real answer routed to the reasoning channel and stays untouched).
 _EMPTY_PRODUCER_LINE = (
-    "Production's feed glitched for a second there — we lost what just came through. Say that again?"
+    "((The narrator's reply did not come through this turn. Send your move again and the scene continues from where the game stands.))"
 )
+_LEGACY_EMPTY_PRODUCER_LINE = "Production's feed glitched for a second there — we lost what just came through. Say that again?"  # stored history may still hold it
 # A2 (2026-07-03): the diegetic circuit-breaker line. When a scene claims a board change the engine
 # never committed (or can't confirm), the FE cuts the fabricated scene and — if the player has seen no
 # real narration yet — shows THIS in its place instead of the lie. In-fiction (a live-feed cutaway),
@@ -9204,6 +9261,7 @@ async def _stream_agent_loop_impl(
     _turn_expose_nudges = 0  # 0093 expose belt: at most one auto-exposeSecret per finishing turn
     _turn_trade_nudges = 0  # 0099 trade belt: at most one auto-tradeSecret per finishing turn
     _turn_alliance_nudges = 0  # ORW-780 alliance belt: at most one auto join/form per finishing turn
+    _turn_alliance_refused: dict = {"join": set(), "form": []}  # ORW-793: what the engine refused the MODEL's own joinAlliance / formAlliance this turn (the belt never re-proposes it)
     _turn_move_nudges = 0  # L21/L24 auto-move belt: at most one auto-move per finishing turn
     _turn_npc_move_nudges = 0  # ADR 0009 NPC auto-move belt: at most one per finishing turn
     _turn_approach_nudges = 0  # 0036/0049: at most one NPC-approach nudge per finishing turn
@@ -9992,6 +10050,7 @@ async def _stream_agent_loop_impl(
                                 if _clean and not _scene_broken:
                                     round_response, _clean, _rf_hit = _withhold_leading_refusal(owner, round_num, round_response, _clean, _round_emitted_text)
                                     _turn_refusal_withheld = _turn_refusal_withheld or _rf_hit
+                                    round_response, _clean, _ = _strip_leading_recital(owner, round_num, round_response, _clean, _round_emitted_text)
                                 if _clean:
                                     # A2: run the whole-scene circuit-breaker + 0065 Part C per-sentence
                                     # pre-emission outcome guard (see `_emit_guarded_scene`'s docstring for
@@ -10238,6 +10297,7 @@ async def _stream_agent_loop_impl(
             if _clean and not _scene_broken and not _round_replay:
                 round_response, _clean, _rf_hit = _withhold_leading_refusal(owner, round_num, round_response, _clean, _round_emitted_text)
                 _turn_refusal_withheld = _turn_refusal_withheld or _rf_hit
+                round_response, _clean, _ = _strip_leading_recital(owner, round_num, round_response, _clean, _round_emitted_text)
             if _round_replay:
                 pass  # a dropped replay round: nothing to guard or emit (and no cutaway line — it is not a board fabrication)
             elif _clean or _ooc_open:
@@ -11176,7 +11236,7 @@ async def _stream_agent_loop_impl(
                             _applied_alliances: list = []
                             if await _auto_alliance(_turn_narration, _last_user_for_confide,
                                                     _house, _belt_endpoint, _belt_model, _belt_headers, owner,
-                                                    applied_out=_applied_alliances):
+                                                    applied_out=_applied_alliances, refused=_turn_alliance_refused):
                                 for _ in (_applied_alliances or [None]):
                                     _note_belt(owner, "auto-alliance")
                         if (_want_record and _touched and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN
@@ -12700,7 +12760,23 @@ async def _stream_agent_loop_impl(
             if _is_live_game and block.tool_type == "tradeSecret":
                 _turn_trade_nudges = 1  # model called tradeSecret itself — don't also back-fill one (0099)
             if _is_live_game and block.tool_type in ("joinAlliance", "formAlliance"):
-                _turn_alliance_nudges = 1  # model joined/formed an alliance itself - don't also back-fill one (ORW-780)
+                # ORW-780: the model joined/formed an alliance itself - don't also back-fill one. ORW-793: only when the engine TOOK it; a refusal recorded nothing, so the omission remains and the belt
+                # stays armed (once, as ever) - but never for the pitch / group the engine just declined.
+                if _alliance_call_landed(result):
+                    _turn_alliance_nudges = 1
+                else:
+                    try:
+                        _refused_args = json.loads(block.content) or {}
+                        if block.tool_type == "joinAlliance":
+                            _refused_pitch = str(_refused_args.get("allianceId") or _refused_args.get("alliance_id") or "").strip()
+                            if _refused_pitch:
+                                _turn_alliance_refused["join"].add(_refused_pitch)
+                        else:
+                            _refused_group = frozenset(m for m in (_refused_args.get("members") or []) if isinstance(m, str))
+                            if _refused_group:
+                                _turn_alliance_refused["form"].append(_refused_group)
+                    except Exception:
+                        _turn_alliance_nudges = 1  # unreadable call: stand down as before rather than guess
 
             formatted = format_tool_result(desc, result)
             # LIVE-4 (#541): an advanceGame that returned an eviction-STAGE beat gets a focused steer

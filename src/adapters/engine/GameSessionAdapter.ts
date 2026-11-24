@@ -3182,6 +3182,15 @@ export class GameSessionAdapter implements GameSession {
     this.onPersist = fn;
   }
 
+  /** ORW-731: wire the plain durable-write hook (a save and nothing else: no commit, no baseline re-seed). */
+  setOnSideSave(fn: () => void): void { this.onSideSave = fn; }
+  private onSideSave?: () => void;
+  /**
+   * ORW-731: save the state as it stands NOW without taking part in the turn's commit: no beatSeq, no checkpoint, no off-screen tick, no clock step, no rng, and the orchestrator's baseline is left alone. For a record the
+   * player's own turn wrote that its commit will not carry (a refused deal's why-record). Nothing to save to on a standalone adapter, so nothing happens there.
+   */
+  private sideSave(): void { this.onSideSave?.(); }
+
   /** R-BND (#628): wire the non-committing background-persist hook (durable save, no beatSeq bump). */
   setOnBackgroundPersist(fn: () => void): void {
     this.onBackgroundPersist = fn;
@@ -5907,6 +5916,19 @@ export class GameSessionAdapter implements GameSession {
     };
   }
 
+  /**
+   * ORW-832: the three fields the health record reads (started, week, phase), WITHOUT the deep copy of the whole session a `snapshot()` makes. Same values as `snapshot().started/week/phase`.
+   * The integrity spine read a full snapshot after every commit for these three fields alone, a cost that grew with the length of the season.
+   */
+  healthStamp(): { started: boolean; week: number; phase: SessionCore["phase"] } { return { started: this.house !== null, week: this.week, phase: this.phase }; }
+
+  /** ORW-832: how many NPCs are still in the house (the count `snapshot().house.npcs` less `live.evictionOrder` gives), without copying the session. 0 before the game starts. */
+  livingNpcCount(): number {
+    if (this.house === null) return 0;
+    const evicted = new Set(this.live?.evictionOrder ?? []);
+    return this.house.npcs.filter((n) => !evicted.has(n.id)).length;
+  }
+
   /** The durable session core (0030): the live house + week/phase/ceremony + loop, losslessly. */
   snapshot(): SessionCore {
     return {
@@ -8021,10 +8043,11 @@ export class GameSessionAdapter implements GameSession {
     if (dest === null) return finish({ outcome: "occupied" });
     const theirRoom = this.presence.get(npc)!;
     this.notePairDeparture(priv ? [here, theirRoom] : [theirRoom], npc, dest);
+    // ORW-836: the hold is written BEFORE the walk. The walk persists (the commit funnel runs the movement tick), and a hold written after it meant the tick seated others into the room the two were walking into.
+    live.talkHold = { npc, room: dest, until: now + TALK_ALONE.holdHours, private: priv };
     if (priv && dest !== here) this.movePlayer(dest); // the player walks there too (one move, witnessed along the way like any other)
     if (theirRoom !== dest) { this.presence.set(npc, dest); this.presenceBase?.set(npc, dest); this.presenceTenure?.set(npc, 0); this.presenceZone?.delete(npc); }
     this.sendOccupancy = null; this.sendAwake = null; // they are here now: the scene that follows is theirs, not the roster the player spoke to
-    live.talkHold = { npc, room: dest, until: now + TALK_ALONE.holdHours, private: priv };
     if (live.talkAsk?.npc === npc) delete live.talkAsk;
     this.noteConversationPartners([npc]);
     this.persist();
@@ -17269,6 +17292,9 @@ export class GameSessionAdapter implements GameSession {
   private scheduleHoldsAdvance(): boolean {
     const live = this.live;
     if (!live || !this.advanceGateEnabled || this.scheduleGateBypass || live.playedGame !== true || live.spectator || playerHasLeft(live, PLAYER) || !this.perConversationClockLive() || live.pending || live.finished) return false;
+    // ORW-837: the schedule STARTS a ceremony; it never splits one. An eviction reveal, a staged ceremony or the finale already under way is never held, whatever the clock reads (an eviction started at 7:35am
+    // crossed the 8am wake and the rest was held to 4pm: the house sat eight hours mid-reveal). Only the HOLD changes: the public `milestoneDue` read keeps meaning "time to start it".
+    if (live.eviction || live.ceremony || live.finale) return false;
     return !!nextMilestone(live) && !milestoneDueOf(live);
   }
 
@@ -17783,12 +17809,13 @@ export class GameSessionAdapter implements GameSession {
    * ORW-707 (PT-7): the houseguests the player has NOT met: never introduced (`introducedNames`, the durable name-lock set) and in no scene the player witnessed. Empty when the game ran no introductions at all (a
    * seat that never had a premiere), so a recap is never emptied by a missing marker. Ids and their public names only.
    */
-  private recapStrangers(allEvents: ReadonlyArray<{ hidden: boolean; witnessSet: readonly string[] }>): { ids: Set<EntityId>; names: string[] } {
+  private recapStrangers(allEvents: ReadonlyArray<{ type?: string; hidden: boolean; witnessSet: readonly string[] }>): { ids: Set<EntityId>; names: string[] } {
     const none = { ids: new Set<EntityId>(), names: [] as string[] };
-    if (!this.house || this.introducedNames.size === 0) return none;
+    if (!this.house || (this.introducedNames.size === 0 && this.live?.premiereEntrance === undefined)) return none; // ORW-828: staged entrances running with nobody introduced yet means EVERY houseguest is still a stranger (not "no premiere")
     const known = new Set<string>(this.introducedNames);
     for (const e of allEvents) {
       if (e.hidden || !e.witnessSet.includes(PLAYER)) continue;
+      if (e.type === "pre-show-tie") continue; // ORW-828: the Day-1 house-wide announcement lists the whole cast as "witnesses" though the player has met none of them; it is not a shared scene
       for (const w of e.witnessSet) known.add(w);
     }
     for (const n of this.house.npcs) if (!known.has(n.id)) { none.ids.add(n.id); none.names.push(n.name); }
@@ -17801,17 +17828,20 @@ export class GameSessionAdapter implements GameSession {
     const allEvents = this.record?.events() ?? [];
     const evFrom = Math.min(s.dailyRecapEventCursor ?? 0, allEvents.length);
     const isHighlight = (e: (typeof allEvents)[number]): boolean => !e.hidden && (e.id.startsWith("season:") || e.type === "deal" || e.type === "betrayal");
-    const highlights = allEvents.slice(evFrom).filter(isHighlight).map((e) => e.content);
+    // ORW-828 (PT-7 again): the Day-1 public pre-show tie ("it is known in the house: A and B ...") is witnessed by the whole house, so it rode "your day" on the premiere night naming two houseguests the player had not
+    // met yet. The same stranger rule as the surfaced rumors below applies to every recap line: a line that names a houseguest the player has not met waits (it stays in the record and the journal). Public names only, never prose meaning.
+    const strangers = this.recapStrangers(allEvents);
+    const namesStranger = (content: string): boolean => strangers.names.some((n) => content.includes(n));
+    const highlights = allEvents.slice(evFrom).filter(isHighlight).map((e) => e.content).filter((c) => !namesStranger(c));
     // ORW-382 (Ryne, playtest 11-15: no day-in-review when he went to bed on Day 1): the premiere night and any quiet day have no ceremony/deal, so the review was EMPTY and the narrator rightly skipped it. The scenes the player
     // witnessed themselves (never hidden, in their own witness set) are their own knowledge - the review is built from those too. Capped, trimmed, no rng.
     const yourDay = allEvents.slice(evFrom)
       .filter((e) => !e.hidden && !isHighlight(e) && e.type !== "surfacing" && e.type !== "gossip" && e.type !== "said-aloud" && e.type !== "diary-room" && !(e.type === "diary-call" && e.initiator === PLAYER) && e.witnessSet.includes(PLAYER) && e.content.trim().length > 0 && !e.content.startsWith("surfaced to player via ")) // ORW-385: the player's own Diary Room is out-of-character and never enters "your day" (0013, 0102). review of #2664/#2672: by kind, never by matching text (a separate scene with identical words stays); bookkeeping kinds never ride // the provenance bookkeeping event is not a scene (live check: it reached the model raw)
-      .map((e) => e.content.trim().slice(0, 200)).slice(-5);
+      .map((e) => e.content.trim().slice(0, 200)).filter((c) => !namesStranger(c)).slice(-5);
     const knownAll = this.playerKnowledgeReader?.() ?? [];
     const knFrom = Math.min(s.dailyRecapKnowledgeCursor ?? 0, knownAll.length);
     // ORW-707 (PT-7): a recap line may only name a houseguest the player has actually been introduced to or shared a scene with. A rumor about two houseguests one of whom the player has never met is a
     // hint the player cannot have heard on screen; it stays in the journal but never rides the bedtime recap. Structural: the person sets are ids and public names, never matched on prose meaning.
-    const strangers = this.recapStrangers(allEvents);
     const surfacedRaw = knownAll.slice(knFrom)
       .filter((f) => f.pathway !== NO_NPC_PATHWAY)
       .filter((f) => !(f.subject !== undefined && strangers.ids.has(f.subject as EntityId)) && !strangers.names.some((n) => f.content.includes(n)))
@@ -18458,6 +18488,7 @@ export class GameSessionAdapter implements GameSession {
         const counter = this.maybeCounterOffer(target, req.kind, refusal);
         if (counter) refusal.counteroffer = counter;
         if (this.closeCounteredOffer(req.countersOffer, target, true)) this.persist(); // a refused counter: the houseguest's temperament decides whether the offer it answered still stands
+        else this.sideSave(); // ORW-731: the refusal wrote its why-record (decisionWhy / statedReasons) and nothing else saved it: save it now, with no beat, no checkpoint and no tick (a restart before the next commit lost it)
         if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, refusal);
         return refusal;
       }
@@ -18539,7 +18570,7 @@ export class GameSessionAdapter implements GameSession {
     if (this.npcDealConsentEnabled) {
       for (const p of parts) {
         const refusal = this.dealConsentRefusal(target, p.kind, undefined, -DEAL_CONSENT.packageDrag);
-        if (refusal) return refusal;
+        if (refusal) { this.sideSave(); return refusal; } // ORW-731: see makeDeal
       }
     }
     const views: DealView[] = [];
