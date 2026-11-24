@@ -7,7 +7,7 @@ import type { AdminPort } from "../../surfaces/admin/AdminPort";
 import type { SummaryService } from "../../services/SummaryService";
 import type { EngineCommands, RecordInteractionReq, SurfaceReq, DiaryRoomReq, RecordImageBeatReq } from "../../ports/EngineCommands";
 import type { EntityId } from "../../domain/ids";
-import type { GameSession, ConfideResult, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordGroupIdentityReq, RecordAllianceNameReq, RecordRoomCanonReq, RecordNarrationUseReq, RecordOpenLedgerReq, ResolveOpenLedgerReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, AskToTalkAloneReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
+import type { GameSession, ConfideResult, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordGroupIdentityReq, RecordAllianceNameReq, RecordRoomCanonReq, RecordNarrationUseReq, RecordOpenLedgerReq, ResolveOpenLedgerReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, AskToTalkAloneReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq, RecordEpisodeTitlesReq } from "../../ports/GameSession";
 
 
 /** Tools that are deliberately NOT in the advertised player channel allowlist (out-of-band
@@ -470,6 +470,12 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (cd !== undefined && !(Array.isArray(cd) && cd.length === 2 && cd.every((n) => typeof n === "number" && Number.isFinite(n)))) refuse("coversDays", "a [from,to] number pair when present");
       return;
     }
+    case "recordEpisodeTitles": {
+      // ORW-807: `titles` must be an array of { week: number, title: string }; each title is cleaned and capped inside the adapter.
+      const t = args["titles"];
+      if (!Array.isArray(t) || !t.every((x) => x !== null && typeof x === "object" && typeof (x as { week?: unknown }).week === "number" && Number.isFinite((x as { week: number }).week) && isStr((x as { title?: unknown }).title))) refuse("titles", "an array of { week: number, title: string }");
+      return;
+    }
     case "recordNpcTraits":
       // ORW-319: `traits` must be an array of objects with a string id; each value is validated inside the adapter (closed sets).
       if (!Array.isArray(args["traits"])) refuse("traits", "an array");
@@ -845,6 +851,8 @@ export class McpServer {
         return this.deps.session.seasonRecap();
       case "recordDaySummary":
         return this.deps.session.recordDaySummary(args as unknown as RecordDaySummaryReq);
+      case "recordEpisodeTitles":
+        return this.deps.session.recordEpisodeTitles(args as unknown as RecordEpisodeTitlesReq);
       case "dayLedger":
         return this.deps.session.dayLedger();
       case "dailyRecap":
