@@ -19777,9 +19777,10 @@ export class GameSessionAdapter implements GameSession {
     // E43: week-scoped promises whose week just passed un-broken resolve KEPT at the same boundary.
     if (ev && ev.beat === "eviction-result") {
       this.rel.decay(RELATIONSHIP_CONSTANTS.DECAY_RATE);
+      // ORW-871: what the evictee held leaves with them BEFORE the week's promises are closed: closing them first resolved every week-scoped deal the evictee was in as "kept" (a shield they held, a promise to them), so the evicted take found nothing open and nobody reacted to losing it (0195).
+      this.evictedTakeWithThem(); // 0195: what the evictee held leaves with them, and the house reacts
       this.deals.expireWeekScoped(this.live?.week ?? 0);
       this.talkAboutTheVote(); // 0154 slice 5b: after the eviction the voters may tell each other how they voted (flag-gated, own seeded stream)
-      this.evictedTakeWithThem(); // 0195: what the evictee held leaves with them, and the house reacts
       this.endgameTests(); // 0193: at four left or fewer, old final-two promises get tested out loud
       this.audienceAfterEviction(); // ORW-624: the audience outside - the crowd as the evictee walks out, and a fan reward in its weeks
     }
