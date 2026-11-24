@@ -43,8 +43,8 @@ const decided = (s: Stop): Array<{ holder: string; listener: string }> => {
 };
 
 describe("seeking in a played season", () => {
-  it("layer OFF: the holder's intent has no seeking term; ON: the pull toward the listener rises and no pull is lowered (seeds 3 and 11)", async () => {
-    for (const seed of [3, 11]) {
+  it("layer OFF: the holder's intent has no seeking term; ON: the pull toward the listener rises and no pull is lowered (seeds 3 and 1)", async () => {
+    for (const seed of [3, 1]) { // ORW-853: the per-season player stream moved seed 11; 1 is the next seed from 1 that reaches a seeking holder
       const at = await playUntil(seed, (s) => quiet(s) && seeking(s).length > 0, { user: `wf-${seed}` });
       let checked = 0;
       for (const { holder, listener } of seeking(at)) {

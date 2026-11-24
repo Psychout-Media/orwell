@@ -8,7 +8,7 @@ import { watchVoteTalk, beliefOf, overclaims, type Talk } from "./voteTalkPlay";
  * ORW-594 (Fable T2-13) + ORW-613: vote talk steers, a vote lie can be caught by the public count, and the player hears how people voted - in a PLAYED season (ORW-810: before,
  * the vote record, the bonds and the tellings were all set by hand). Each test stops at the first vote talk that shows what it needs; the seeds are where play first gets there:
  *  - seed 3: the first eviction's vote talk (week 2) tells the player, and credits a believed keep;
- *  - seed 17: a unanimous eviction (no keep votes) in week 6, where a credited "I voted to keep them" is caught by the count at once and the credit is taken back.
+ *  - seed 24 (seed 17 before ORW-853 re-keyed the player stream per season): a unanimous eviction (no keep votes), where a credited "I voted to keep them" is caught by the count at once and the credit is taken back.
  * The pure checks stay in tests/unit/voteTalkSteers.test.ts, with the two catches play has not reached (a catch BY COUNTING with keep votes left, and a keep claim told after the
  * count is public): seven seasons played to the crown (seeds 3, 7, 11, 13, 17, 23, 29) never produced either, so those stay hand-set there with a todo. Roles only.
  */
@@ -53,7 +53,7 @@ describe("vote talk in a played season", () => {
 
   it("a unanimous count catches every believed \"I voted to keep them\" at once, and a credit it earned is taken back", async () => {
     const caughtCredit = (s: Stop, t: Talk) => t.tally.keepVotes === 0 && t.told.some((c) => c.listener !== PLAYER && beliefOf(s, c.listener, c.id)?.refuted && (beliefOf(s, c.listener, c.id)?.impact?.trust ?? 0) > 0);
-    const { at, talk } = await firstTalk(17, caughtCredit);
+    const { at, talk } = await firstTalk(24, caughtCredit); // ORW-853: the per-season player stream moved seed 17; 24 is the first from 1 that reaches a caught credit at a unanimous count
     // the count rules out every keep claim about the evictee from a voter: each one believed is now caught, with a lied-to-me in its listener
     for (const c of talk.told.filter((x) => x.listener !== PLAYER && x.object === talk.tally.evictee && talk.tally.voters.includes(x.subject))) {
       const b = beliefOf(at, c.listener, c.id);
