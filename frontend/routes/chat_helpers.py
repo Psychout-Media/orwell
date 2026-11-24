@@ -8766,9 +8766,25 @@ async def _advance_one_watch_step(user, pending) -> bool:
     return True
 
 
-# ORW-291 pacing: a played eviction reads ONE anonymized ballot per engine step (a 13-voter vote is ~16 steps). A progress-only player message walks the ballot steps in one pass, capped here
-# (the Continue button stays one step at a time). Eviction-specific: comp pacing (_COMP_PAUSE_EVERY = 1) is untouched.
+# ORW-291 pacing, as amended by ORW-846 (coordinator ruling 11-23): a played eviction reads ONE anonymized ballot per engine step (a 13-voter vote is ~16 steps). A bare "next"/"continue" at a
+# ballot step reads exactly ONE ballot, the same step the Continue button takes (play by play: decisions are made in each one; ORW-703 every step is told; ORW-262 keeps the clock budget).
+# Only an EXPLICIT fast-forward request ("skip to the result", "just tell me who's out") walks the remaining ballots in one pass, capped here. Eviction-specific: comp pacing is untouched.
 _EVICTION_BALLOT_HOPS = 20
+
+# ORW-846: a DETECTOR (not a pick) deciding between "one ballot" and "fast-forward the ballots". It fires only on an explicit ask to skip/jump to the outcome, in a short message with no question;
+# anything else (a bare continue, talk, an unclear message) is NOT a fast-forward and fails toward ONE ballot.
+_BALLOT_FASTFORWARD_RE = re.compile(
+    r"\b(?:(?:skip|jump|fast[\s-]?forward|go)\s+(?:ahead\s+)?(?:to\s+)?(?:the\s+)?(?:results?|reveal|outcome|tally|end\s+of\s+the\s+vote)|"
+    r"skip\s+(?:the\s+|all\s+(?:the\s+|of\s+the\s+)?)?(?:votes?|ballots?|voting)|"
+    r"(?:just\s+)?(?:tell|show|give)\s+me\s+(?:who(?:'s|\s+is|\s+got|\s+goes?|\s+was)?\s+(?:out|evicted|going\s+home|gone)|the\s+(?:result|results|outcome)))\b", re.IGNORECASE)
+
+
+def _is_ballot_fast_forward(text) -> bool:
+    """ORW-846: True only for a short, question-free message that explicitly asks to skip the ballots / see the result now. Pure and narrow; unclear => False (one ballot)."""
+    s = str(text or "").strip()
+    if not s or "?" in s or len(re.findall(r"[A-Za-z']+", s)) > 10:
+        return False
+    return bool(_BALLOT_FASTFORWARD_RE.search(s) or _SKIP_AHEAD_RE.search(s))
 
 
 def _is_eviction_ballot_step(pending) -> bool:
@@ -8854,8 +8870,9 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             return game_state
         status = await orwell_engine.game_status(user=user)
         _refresh_beat_seq(user, status)  # 0065: track the freshest token before any progression call
-        if isinstance(status, dict) and _is_eviction_ballot_step(status.get("pending")) and _is_progress_only_message(player_msg):
-            # ORW-291 pacing: a bare "next"/"continue" walks the anonymized ballot steps in ONE pass (the speeches, the player's own card and the result keep their own stops).
+        if isinstance(status, dict) and _is_eviction_ballot_step(status.get("pending")) and _is_ballot_fast_forward(player_msg):
+            # ORW-291/ORW-846: ONLY an explicit fast-forward walks the anonymized ballot steps in one pass (the speeches, the player's own card and the result keep their own stops). A bare "next" falls to the
+            # one-step branch below, the same single advance the Continue press makes (its engine step carries the ORW-771 sealed beat facts to the narrator).
             _walked = await _walk_eviction_ballots(user, status.get("pending"))
             if _walked:
                 try:
