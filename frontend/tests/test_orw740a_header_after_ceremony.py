@@ -16,6 +16,7 @@ from test_m0_3_midgen_join import _stack  # noqa: F401
 from test_a40_due_ceremony_real_loop import _fresh
 from test_p0h_day1_clock_e2e import _engine, _session, _start_day
 from test_orw191_golden_flows import COMPOSER
+import time
 import urllib.request
 
 pytestmark = pytest.mark.browser
@@ -39,6 +40,7 @@ def test_the_reply_stamp_and_the_panel_header_match_the_engine_after_every_cerem
         page.wait_for_function(f"() => {{ const m = document.querySelector('{COMPOSER}'); return !!m && !m.disabled; }}", timeout=20000)
 
         def send(stack, s, text, cid):
+            pre = ch._format_game_moment(_engine(stack, "getGameState"))  # ORW-847: the moment BEFORE the turn (the clock may legitimately cross a time-of-day boundary during it)
             page.click(COMPOSER); page.fill(COMPOSER, text); page.keyboard.press("Enter")
             try:  # settled = my line is in the log, the LAST bubble is an assistant reply after it, and nothing is streaming (a count of bubbles is not proof: a history reconcile can swap rows)
                 page.wait_for_function("""(t) => { const all = Array.from(document.querySelectorAll('#chat-history .msg')).filter(e => e.style.display !== 'none');
@@ -48,12 +50,23 @@ def test_the_reply_stamp_and_the_panel_header_match_the_engine_after_every_cerem
             except Exception:
                 diag = page.evaluate("() => ({ composer: (document.getElementById('message')||{}).disabled, last: Array.from(document.querySelectorAll('#chat-history .msg')).slice(-3).map(e => e.className + ' | ' + (e.textContent||'').replace(/\\s+/g,' ').slice(0,120)) })")
                 raise AssertionError(f"the reply to {text!r} never settled: {diag}")
+            # ORW-847: the panel is poll/event driven and the engine can step once more after the reply (the turn's own background steps), so read the engine and the panel together until they agree
+            # on the time of day (up to 12 s). A persistent disagreement still fails; only a transient lag passes.
+            def _read():
+                gs_ = _engine(stack, "getGameState")
+                panel_ = page.evaluate("() => [ (document.getElementById('os-week')||{}).textContent, (document.getElementById('os-phase')||{}).textContent, (document.getElementById('os-tod')||{}).textContent ].join(' | ')")
+                e_ = ch._format_game_moment(gs_).split(" · ")
+                p_ = [x.strip() for x in panel_.split("|")]
+                ok_ = len(p_) == 3 and len(e_) == 3 and (p_[2].split(",")[0].split()[-1] == e_[2].split()[-1] or e_[2] == "Early morning")
+                return gs_, panel_, ok_
             page.wait_for_timeout(1200)
-            st = _get(stack, "/api/orwell/status")
-            gs = _engine(stack, "getGameState")
+            gs, panel, ok = _read()
+            end = time.time() + 12
+            while not ok and time.time() < end:
+                page.wait_for_timeout(500)
+                gs, panel, ok = _read()
             stamp = page.evaluate("() => { const e = Array.from(document.querySelectorAll('#chat-history .msg-ai .role-timestamp-moment')); return e.length ? e[e.length-1].textContent.trim() : null }")
-            panel = page.evaluate("() => [ (document.getElementById('os-week')||{}).textContent, (document.getElementById('os-phase')||{}).textContent, (document.getElementById('os-tod')||{}).textContent ].join(' | ')")
-            rows.append((gs.get("phase"), (gs.get("daySchedule") or {}).get("todaysEvent"), (gs.get("daySchedule") or {}).get("next"), ch._format_game_moment(gs), stamp, panel))
+            rows.append((gs.get("phase"), (gs.get("daySchedule") or {}).get("todaysEvent"), (gs.get("daySchedule") or {}).get("next"), ch._format_game_moment(gs), stamp, panel, pre))
             return ""
         monkeypatch.setattr(_a64_walk, "_send", send)
         _a64_walk._walk_week_one(_stack, sid)
@@ -65,8 +78,12 @@ def test_the_reply_stamp_and_the_panel_header_match_the_engine_after_every_cerem
     assert {("nominations", "hoh-competition"), ("veto-competition", "nominations"), ("veto-ceremony", "veto-competition")} <= ahead, ahead
     assert any(r[0] == "eviction" for r in rows), "the walk never reached eviction night"
     assert "Eviction night" in rows[-1][3] and rows[-1][5].split("|")[1].strip() == "Eviction night", rows[-1]  # the reply after the eviction still reads Eviction night (ORW-258/713) in the stamp AND the panel
-    for phase, today, nxt, expect, stamp, panel in rows:
-        assert stamp == expect, ("bubble stamp != engine", phase, today, expect, stamp)
+    for phase, today, nxt, expect, stamp, panel, pre in rows:
+        # the stamp is frozen at the reply; the engine read comes after it. Week and phase must match exactly (the ORW-740a bug was the phase one event ahead); the time of day may be the engine's
+        # value from before the turn when the clock crossed a boundary during it.
+        s_week, s_phase, s_tod = (stamp or "").split(" · ") if stamp and stamp.count(" · ") == 2 else (None, None, None)
+        e_week_, e_phase_, e_tod_ = expect.split(" · ")
+        assert (s_week, s_phase) == (e_week_, e_phase_) and s_tod in (e_tod_, pre.split(" · ")[2]), ("bubble stamp != engine", phase, today, expect, stamp, pre)
         e_week, e_phase, e_tod = expect.split(" · ")
         p_week, p_phase, p_tod = [x.strip() for x in panel.split("|")]
         assert (p_week, p_phase) == (e_week, e_phase), ("panel header != engine", phase, today, expect, panel)
