@@ -44,18 +44,22 @@ Feature: Showmances and attraction
     Then no pair climbs more than one step at a time
     And each step up came after the least days that step needs
     And a pair's progress rose only on a day they spent time together
+    And the pace rule itself, run day by day for a pair together every day, climbs one step at a time and never before the least days
 
   Scenario: A public couple forms only late
     Given played seasons with showmances
     Then no pair was known house-wide in the first week
+    And the pace rule itself, run day by day, makes no public couple before the late day
 
   Scenario: A showmance is noticed in steps, and known only late
     Given played seasons with showmances
     Then a pair is sensed before it is noticed and noticed before it is known, and none is known before the late day
+    And the pace rule itself, run day by day, steps sensed, then noticed, then known, in order
 
   Scenario: The history of a pair is never lost
     Given played seasons with showmances
     Then every pair's recorded steps only grew, in order, each naming who had caught it
+    And the pace rule itself, run day by day, only ever adds to a pair's steps
 
   Scenario: The player's own romance builds at the same pace
     Given a played game where the player keeps a romance going over many days
