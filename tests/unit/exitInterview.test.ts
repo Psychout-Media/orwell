@@ -201,7 +201,7 @@ describe("0130 — Vault-safe + deterministic + calibration-neutral", () => {
     const BASELINE: Record<number, string[]> = {
       7: ["npc:7","npc:13","npc:15","npc:3","npc:8","npc:11","npc:5","npc:4","npc:12","npc:9","npc:2","player","npc:6","npc:14"], // re-anchored 2026-11-06 for ORW-132 (pre-show ties are now rare, so the seed-7 cast seeds differently even with every flag off); seeds 42 and 108 are unchanged
       42: ["npc:4","npc:13","npc:1","npc:6","npc:12","npc:8","npc:3","npc:7","npc:2","player","npc:5","npc:15","npc:10","npc:14"], // re-anchored 2026-11-12 for the ORW-19 comp-win threat retune 0.3 -> 0.45 (the exit-interview beat itself draws no rng; see liveSeason.ts)
-      108: ["npc:5","npc:6","npc:3","npc:8","npc:1","npc:12","npc:4","npc:9","npc:10","npc:11","npc:7","npc:2","npc:14","player"], // re-anchored 2026-11-12 for the ORW-19 comp-win threat retune 0.3 -> 0.45
+      108: ["npc:5","npc:6","npc:3","npc:8","npc:1","npc:2","npc:7","npc:12","npc:10","npc:15","player","npc:13","npc:14","npc:9"], // re-anchored 2026-11-24 for ORW-868 (the unauthored player now carries the cast-mean stats, not a fixed 0.5: a stronger default player moves seed 108's comps); seeds 7 and 42 are unchanged
     };
     for (const [seed, expected] of Object.entries(BASELINE)) {
       const sb = new FlagsOffRegistry().sandboxFor(`ei-off${userSeq++}`);

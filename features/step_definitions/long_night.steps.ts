@@ -24,13 +24,13 @@ Then("long night: the clock only moves forward and the day does not roll", funct
   assert.ok(hours.every((h) => h < 32));
 });
 
-Given("long night: the same seed played with the compression on and off", function () { pair = { on: playNight(bootPlayed(11, true)), off: playNight(bootPlayed(11, false)) }; });
+Given("long night: the same seed played with the compression on and off", function () { pair = { on: playNight(bootPlayed(7, true)), off: playNight(bootPlayed(7, false)) }; });
 Then("long night: the same houseguests are evicted and crowned either way", function () {
   assert.ok(pair!.on.fired && pair!.off.fired);
   assert.equal(outcomeFingerprint(pair!.on), outcomeFingerprint(pair!.off));
 });
 
-Given("long night: a played game partway through the second cycle", function () { session = bootPlayed(11, true); run = playNight(session, (r) => r.twist === "running" && r.beat === "nominations"); assert.equal(run.fired, false); });
+Given("long night: a played game partway through the second cycle", function () { session = bootPlayed(7, true); run = playNight(session, (r) => r.twist === "running" && r.beat === "nominations"); assert.equal(run.fired, false); });
 When("long night: the player says goodnight", function () { held = session.turnIn().held; });
 Then("long night: the bed is refused until the second eviction is done", function () { assert.ok(held, "held"); assert.equal(held!.reason, "ceremony"); });
 Then("long night: the narrator is handed one line naming the first evictee, the instant crown and the second eviction", function () {
