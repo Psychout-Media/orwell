@@ -1,12 +1,12 @@
 # Front-end rebuild: scope and the reconciled "deferred" list (ORW-182)
 
-Status: reconciled 2026-11-11 against GitHub (verified with `gh`) and the repo. This file is the written definition the 2026-11-06 audit (report D, section 5 Q1) found missing. The GitHub tracker #1946 ("Deferred to FE rebuild") and #1934 were the sources; both are stale in the ways below and should be edited to point here.
+Status: reconciled 2026-11-11 against GitHub (verified with `gh`) and the repo. This file is the written definition the 2026-11-06 audit (report D, section 5 Q1) found missing. The GitHub tracker #1946 ("Deferred to FE rebuild") and #1934 were the sources; both are stale in the ways below and should be edited to point here. (ORW-182)
 
 ## What the rebuild is
 
 The player-facing tier (`frontend/`, today FastAPI + vanilla JS) is rebuilt as React + TypeScript + Vite (Kevin, 2026-11-06). The engine, the MCP player channel and the Vault Wall do not change. The rebuild consumes only the same Vault-free projections (`frontend/INTEGRATION.md`). In scope: chat rendering and streaming, the gadget rail and windows (0054, the `OrwellWindow` kit), sheets and modals on dvh/transform, the send outbox, two-window mirror (ADR 0008/0012/0015), the gateway adapters (0072). Out of scope: any engine rule, the ports, the store tiers.
 
-## The reconciled list (what #1946 called "Deferred to FE rebuild")
+## The reconciled list (what #1946 called "Deferred to FE rebuild") (ORW-182)
 
 | Item | What it really is | Disposition |
 |---|---|---|
@@ -25,6 +25,6 @@ The player-facing tier (`frontend/`, today FastAPI + vanilla JS) is rebuilt as R
 
 0072 gateway decision/advance support and a real BDD; #1413 single render path; the FE items of #1814; the sheet component on transform with dvh units throughout (ORW-163 follow-up); 0054 gadget rail / window kit as components; the outbox and two-window mirror parity gates (F1-F5, `docs/audits/2026-06-27-ship-gate.md`) carried over as the acceptance bar.
 
-## Follow-ups outside this file (need an issue edit, not a repo change)
+## Follow-ups outside this file (need an issue edit, not a repo change) (ORW-182)
 
-Edit #1946 "Deferred to FE rebuild" to: 0072, #1413, #1814 (FE part). Close #1916 as not reproducing. Drop #1815 and 0130. Edit #1934 line 19 and lines 29-30 to match this file.
+Edit #1946 "Deferred to FE rebuild" to: 0072, #1413, #1814 (FE part). Close #1916 as not reproducing. Drop #1815 and 0130. Edit #1934 line 19 and lines 29-30 to match this file. (ORW-182)

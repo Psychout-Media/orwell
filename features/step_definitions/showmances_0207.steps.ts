@@ -2,7 +2,8 @@ import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { canBeDrawnTo, BREAKUP, ATTRACTION } from "../../src/engine/attraction";
-import { ATTRACTION_LIFE } from "../../src/engine/attractionLife";
+import { ATTRACTION_LIFE, SHOWMANCE_PACE } from "../../src/engine/attractionLife";
+import { paceTick, freshPace, type PaceRecord } from "../../src/engine/showmancePace";
 import { HEART, heartAgainstGame, keepAfterHeart, sentimentOf } from "../../src/engine/heartAgainstGame";
 import { GRUDGES } from "../../src/engine/grudges";
 import { RELATIONSHIP_CONSTANTS } from "../../src/engine/relationshipConstants";
@@ -114,6 +115,7 @@ Then("pairs with chemistry between them had romance scenes at a higher rate than
   const s = one(this);
   const npcIds = s.npcs.map((n) => n.id);
   const withChem = new Set(Object.keys(s.chem).map((k) => { const [f, t] = k.replace(/^chem:/, "").split(">") as [string, string]; return pairKeyOf(f, t); }));
+
   const counts = new Map<string, number>();
   for (const e of s.romanceScenes) { const w = e.witnessSet.filter((x) => npcIds.includes(x)); if (w.length === 2 && !e.witnessSet.includes("player")) counts.set(pairKeyOf(w[0]!, w[1]!), (counts.get(pairKeyOf(w[0]!, w[1]!)) ?? 0) + 1); }
   let nChem = 0, nNone = 0, sChem = 0, sNone = 0;
@@ -132,7 +134,7 @@ Then("no number or label for attraction reaches the player", function () {
 });
 
 // A1 player as the object
-Then("only houseguests whose own orientation includes the player hold chemistry toward the player", function () {
+Then("only houseguests whose own orientation includes the player hold chemistry toward the player", slow, async function () {
   const s = one(this);
   const keys = Object.keys(s.chem).filter((k) => k.endsWith(">player"));
   assert.ok(keys.length > 0, "positive control: some houseguest holds chemistry toward the player");
@@ -142,6 +144,20 @@ Then("only houseguests whose own orientation includes the player hold chemistry 
     assert.ok(n.gender !== undefined && canBeDrawnTo(n.orientation as never, n.gender as never, s.playerGender), `${id} holds chemistry toward the player outside their own orientation`);
   }
   for (const n of s.npcs) if (n.gender !== undefined && !canBeDrawnTo(n.orientation as never, n.gender as never, s.playerGender)) assert.equal(s.chem[`chem:${n.id}>player`], undefined);
+  // ORW-876: one season holds only a handful of houseguests not drawn to the player, and chemistry is a keyed roll most pairs miss, so one season can pass with the rule broken.
+  // The same rule over many real casts (seeds 1-10, every presentation; the engine draws chemistry on the first house-life stretch, so each is played a few messages):
+  let notDrawn = 0, drawnWithChem = 0;
+  for (const pg of PRESENTATIONS) for (let seed = 1; seed <= 10; seed++) {
+    let sess: Any;
+    await playMixGame(seed, 30, { user: `s0207-cast-${pg}-${seed}`, playerGender: pg, onStep: (x: Any) => { sess = x; } });
+    const chem = sess.live?.chemistry ?? {};
+    for (const n of sess.house.npcs) {
+      const o = n.character.outOrientation ?? sess.privateOrientations?.[n.id] ?? "straight";
+      const has = chem[`chem:${n.id}>player`] !== undefined;
+      if (n.character.genderPresentation !== undefined && canBeDrawnTo(o, n.character.genderPresentation, pg)) { if (has) drawnWithChem++; } else { notDrawn++; assert.equal(has, false, `seed ${seed} (${pg}): ${n.id} holds chemistry toward the player outside their own orientation`); }
+    }
+  }
+  assert.ok(notDrawn > 20 && drawnWithChem > 0, `positive control: casts with houseguests not drawn to the player (${notDrawn}) and some drawn ones with chemistry (${drawnWithChem})`);
 });
 Then("no houseguest started a romance scene with the player on their own", function () {
   for (const e of one(this).romanceScenes) if (e.witnessSet.length === 2 && e.witnessSet.includes("player")) assert.equal(e.initiator, "player");
@@ -202,7 +218,7 @@ Then("the engine does not hold the player to be in a showmance", function () {
 Then("the player's own showmance scenes, answered by a houseguest drawn to them, make one", slow, async function () {
   const s = await playSeason(3, "woman", 700, "drawn", true);
   assert.ok(Object.keys(s.romances).some((k) => k.includes("player")));
-  (bag(this) as Any).away = await playSeason(3, "woman", 160, "notDrawn");
+  (bag(this) as Any).away = await playSeason(3, "woman", 700, "notDrawn"); // ORW-876: as long as the drawn season above, which answers in kind; at 160 messages no houseguest answers either way
 });
 Then("a houseguest whose orientation does not include the player does not answer in kind", function () {
   const s = (bag(this) as Any).away as Season;
@@ -291,5 +307,44 @@ Then("the player's pair did not move on a day the player spent no time with them
       prev[k] = { progress: p.progress, shared: p.shared };
     }
   }
+});
+
+// ORW-876: the played seasons above reach the first step or two at most (no played season reaches the public couple before the crown, ORW-736), so the later
+// rules are read on the pace rule itself, run day by day for a pair together every day, fully noticed: the engine's own paceTick, nothing set on a game.
+function paceRun(factor = 1, days = 60): { states: PaceRecord[] } {
+  const states: PaceRecord[] = [];
+  let rec = freshPace(1, 0);
+  const house = Array.from({ length: 12 }, (_, i) => `npc:${i + 1}`);
+  for (let day = 1; day <= days; day++) {
+    rec = paceTick(rec, { day, shared: day, mutualChemistry: 1, inCrisis: false, observers: house, room: house.length, closeObservers: 2, factor });
+    states.push(rec);
+  }
+  return { states };
+}
+const steps = (st: PaceRecord[]) => st.at(-1)!.steps;
+Then("the pace rule itself, run day by day for a pair together every day, climbs one step at a time and never before the least days", function () {
+  for (const factor of [1 - SHOWMANCE_PACE.jitter, 1, 1 + SHOWMANCE_PACE.jitter]) {
+    const all = steps(paceRun(factor).states);
+    assert.ok(all.filter((x) => x.to > x.from).length >= 4, "positive control: the pair climbed all the way");
+    let since = 1;
+    for (const st of all) { assert.equal(Math.abs(st.to - st.from), 1, "one step at a time"); if (st.to > st.from) assert.ok(st.day - since >= (SHOWMANCE_PACE.minDays as readonly number[])[st.from]! * factor - 1e-9, `${st.from}>${st.to} after ${st.day - since} days`); since = st.day; }
+  }
+});
+Then("the pace rule itself, run day by day, makes no public couple before the late day", function () {
+  const known = steps(paceRun().states).find((x) => x.to === 4);
+  assert.ok(known, "positive control: the pair became a public couple");
+  assert.ok(known.day >= SHOWMANCE_PACE.publicNotBeforeDay && known.day >= EARLIEST_PUBLIC_DAY, `public on day ${known.day}`);
+});
+Then("the pace rule itself, run day by day, steps sensed, then noticed, then known, in order", function () {
+  const ups = steps(paceRun().states).filter((x) => x.to > x.from).map((x) => x.to);
+  assert.deepEqual(ups.slice(0, 4), [1, 2, 3, 4]);
+});
+Then("the pace rule itself, run day by day, only ever adds to a pair's steps", function () {
+  const { states } = paceRun();
+  for (let i = 1; i < states.length; i++) {
+    assert.ok(states[i]!.steps.length >= states[i - 1]!.steps.length, `day ${i + 1}: steps went from ${states[i - 1]!.steps.length} to ${states[i]!.steps.length}`);
+    assert.deepEqual(states[i]!.steps.slice(0, states[i - 1]!.steps.length), states[i - 1]!.steps, "earlier steps unchanged");
+  }
+  assert.ok(steps(states).length >= 4, "positive control: steps were recorded");
 });
 void When; void ATTRACTION_LIFE;

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { SHOWMANCE_PACE } from "../../src/engine/attractionLife";
 import { playedGame } from "../support/playedGame";
 import { playMixGame } from "../support/houseMixDriver";
+import { firstSeedWhereSync } from "../support/firstSeedWhere";
 
 /**
  * ORW-736: the showmance slow build, REAL PATH. A whole season is played through the player's levers only, so every romance and every step of its pace is the
@@ -9,32 +10,39 @@ import { playMixGame } from "../support/houseMixDriver";
  * belongs to a romance the house started; its steps come in
  * order, never before the day the romance began plus the first minimum, each at least the level's minimum days after the last; a noticing step names who caught it;
  * no showmance is public before the earliest public day. With pacing off, the same seed played to the moment the first romance began keeps no pace record.
- * Seed 21 in the sandbox "ps21": of the played seasons measured (seeds 3, 7, 13, 21) it is the one where a pair climbs two levels.
+ * The seed is scanned from 21 (ORW-880; seed 21 plays in its old sandbox "ps21"): the first whose season has a pair climb two levels (of seeds 3, 7, 13, 21 measured
+ * once, only 21 did, so the scan is slow if 21 ever stops).
  * HEAVY LANE (tests/uat/realPath*, the `real-path` leg): most of a played season, twice up to the first romance. Roles only.
  */
 type Pace = { level: number; since: number; steps: Array<{ day: number; from: number; to: number; seenBy: string[] }> };
 type Priv = { live: { romances?: Record<string, number>; showmancePace?: Record<string, Pace>; dayNumber?: number }; seededRels: { showmances: Array<{ a: string; b: string; stage: string }> } };
-const SEED = 21, USER = "ps21";
 
 describe("ORW-736 REAL PATH: a showmance builds slowly in a played season", () => {
   let pace: Record<string, Pace> = {};
   let romances: Record<string, number> = {};
   let publicBefore: Array<{ day: number; pair: string }> = [];
   let firstRomanceTurn = -1;
+  let seed = 0, user = "";
   beforeAll(() => {
-    const g = playedGame({ seed: SEED, user: USER });
-    const p = g.s as unknown as Priv;
-    const climbedTwo = (): boolean => Object.values(p.live.showmancePace ?? {}).some((r) => r.steps.length >= 2);
-    let finished = false;
-    for (let i = 0; i < 20_000 && !finished && !climbedTwo(); i++) {
-      finished = g.turn().finished === true;
-      if (firstRomanceTurn < 0 && Object.keys(p.live.romances ?? {}).length > 0) firstRomanceTurn = i + 1;
-      const day = p.live.dayNumber ?? 1;
-      for (const sm of p.seededRels.showmances ?? []) if (sm.stage === "visible" && day < SHOWMANCE_PACE.publicNotBeforeDay) publicBefore.push({ day, pair: `${sm.a}|${sm.b}` });
-    }
-    expect(climbedTwo(), "a pair climbed two levels before the crown").toBe(true);
-    pace = p.live.showmancePace ?? {};
-    romances = p.live.romances ?? {};
+    const found = firstSeedWhereSync((seed, sandbox) => {
+      const g = playedGame({ seed, user: sandbox });
+      const p = g.s as unknown as Priv;
+      const climbedTwo = (): boolean => Object.values(p.live.showmancePace ?? {}).some((r) => r.steps.length >= 2);
+      const early: Array<{ day: number; pair: string }> = [];
+      let finished = false, first = -1;
+      for (let i = 0; i < 20_000 && !finished && !climbedTwo(); i++) {
+        finished = g.turn().finished === true;
+        if (first < 0 && Object.keys(p.live.romances ?? {}).length > 0) first = i + 1;
+        const day = p.live.dayNumber ?? 1;
+        for (const sm of p.seededRels.showmances ?? []) if (sm.stage === "visible" && day < SHOWMANCE_PACE.publicNotBeforeDay) early.push({ day, pair: `${sm.a}|${sm.b}` });
+      }
+      return climbedTwo() ? { p, early, first } : undefined;
+    }, { from: 1, to: 24, hint: 21, sandbox: (s) => (s === 21 ? "ps21" : `ps-${s}`), what: "a pair climbing two levels before the crown" });
+    seed = found.seed; user = found.sandbox;
+    publicBefore = found.at.early;
+    firstRomanceTurn = found.at.first;
+    pace = found.at.p.live.showmancePace ?? {};
+    romances = found.at.p.live.romances ?? {};
   }, 900_000);
 
   it("pace records belong to romances the house started; steps keep the minimum days; noticing names who caught it; nothing is public early", () => {
@@ -56,7 +64,7 @@ describe("ORW-736 REAL PATH: a showmance builds slowly in a played season", () =
   it("pacing off: the same seed, played to the moment the first romance began, keeps no pace record", () => {
     expect(firstRomanceTurn).toBeGreaterThan(0);
     // not as shipped: the control arm, the same seed with this feature off, proves the feature is what makes the difference
-    const off = playedGame({ seed: SEED, user: USER, before: (s) => (s as unknown as { setShowmancePacingEnabled(on: boolean): void }).setShowmancePacingEnabled(false) });
+    const off = playedGame({ seed, user: user, before: (s) => (s as unknown as { setShowmancePacingEnabled(on: boolean): void }).setShowmancePacingEnabled(false) });
     for (let i = 0; i < firstRomanceTurn + 20; i++) off.turn();
     expect((off.s as unknown as Priv).live.showmancePace).toBeUndefined();
   }, 900_000);

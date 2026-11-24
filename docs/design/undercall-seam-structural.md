@@ -30,7 +30,7 @@ its un-forced chance every time. Locations are current as of this doc.
 | Belt | Trigger | What the model skipped | Failure mode if the belt breaks |
 |---|---|---|---|
 | **Progression stall-nudge ladder** (`_ADVANCE_NUDGES`, `frontend/src/agent_loop.py`) | Live advance-phase (`_ADVANCE_PHASES`) + player lull + beat stale ≥ grace (2 turns; 1 in the guided week 1), no progression tool fired, no social runway holding | `advanceGame` | The season freezes at a beat — the #1 playthrough blocker, robust even on strong models |
-| **Preview-commit / decision-deliver nudges** (`_PREVIEW_COMMIT_NUDGE`, `_DECISION_DELIVER_NUDGE`) | Turn's LAST beat-tool was `runCompetition` (previewed, never committed) or `submitDecision` (resolved, never delivered) — bypasses the lull gate | The follow-up `advanceGame` | The model narrates a winner that never became official — chat contradicts the HUD (the #1 desync, audit 2026-06-18 #1/1b) |
+| **Preview-commit / decision-deliver nudges** (`_PREVIEW_COMMIT_NUDGE`, `_DECISION_DELIVER_NUDGE`) | Turn's LAST beat-tool was `runCompetition` (previewed, never committed) or `submitDecision` (resolved, never delivered) — bypasses the lull gate | The next `advanceGame` | The model narrates a winner that never became official — chat contradicts the HUD (the #1 desync, audit 2026-06-18 #1/1b) |
 | **L39b forced `advanceGame`** (`_ADVANCE_FORCE_LEVEL` → `_commit_advance_silently`) | Stall level climbed past all three text rungs (the model ignored every nudge), or the eviction-drain / silent-commit path when a scene was already shown | `advanceGame` | Permanent freeze (the 2026-06-19 God-Mode transcript: "not a single beat advanced") |
 | **Player-eviction drain** (`drain_player_eviction_to_card`, `frontend/routes/chat_helpers.py`, post-turn in `agent_loop.py`; ORW-719) | The engine eviction is the PLAYER's, no player card is open, and the night still owes the house goodbyes / exit interview | `advanceGame` (the model narrates the result and stops; the chain used to drip one beat per later turn) | The voted-out player sees no card and nothing pends. Bounded (`EVICTED_PLAYER_DRAIN_MAX_ADVANCES`), success-gated (`player-eviction-drain` fires only for advances that moved `beatSeq`), idempotent, never answers a card |
 | **Eviction-reveal steer** (LIVE-4 #541, `_eviction_reveal_steer`) | `advanceGame` returned an eviction-stage beat with content | *Voicing* the returned ballot/result | The season's peak beat happens invisibly; the player on the block never sees the votes land |
@@ -155,10 +155,10 @@ When the engine knows a beat REQUIRES a specific lever, the FE **forces that too
     forbids. A `"social"` moment always suppresses.
   * **Provider-dependent:** DeepSeek-V4 400s on `tool_choice` in always-thinking mode — the
     rejecter gate + runtime kill-switch (`force_tool_choice_at_beats`) stay mandatory.
-  * **FE-hardcoded beat→lever map:** today the force set is an FE literal
-    (`_FORCE_COMP_PHASES`/`_FORCE_ADVANCE_PHASES`). The clean end-state is **engine-signaled** — the
-    pending/moment projection carries a `requiredLever` field and the FE forces whatever the engine
-    names. That is deliberately **deferred**: it is a `GameSession`/projection surface change (the
+  * **FE-hardcoded beat→lever map: BUILT since #1411.** The force set used to be an FE literal
+    (`_FORCE_COMP_PHASES`/`_FORCE_ADVANCE_PHASES`); it is now **engine-signaled** — `GameStateView.requiredLever`
+    carries the one lever a closed-set beat needs and the FE forces whatever the engine names
+    (`frontend/src/agent_loop.py`). The original reason it was held back, kept as the record: it is a `GameSession`/projection surface change (the
     four-place wiring rule), it churns the 0108 golden fixture, and every beat where exactly one
     lever is legal today is already expressible as `advanceGame`-or-`createCharacter` from state the
     FE holds. When a third lever class appears, do the engine field then — as its own spec/queue item.

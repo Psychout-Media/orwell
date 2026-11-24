@@ -164,7 +164,7 @@ prompt says about the beat*, never *whether* a beat happens or *how it resolves*
   comment as "the pacing authority," per the Q7 ruling text.
 
 **Cost:** S (a constants module + a pure lookup + a multiplier applied to an existing threshold + one
-prompt line — every consuming pathway already exists and is reused, not built).
+prompt line — every consuming pathway already exists and is reused; nothing new is added).
 
 ---
 

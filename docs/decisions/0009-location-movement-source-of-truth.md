@@ -189,15 +189,15 @@ snapshot skew:
 
 ## Open questions (PO)
 
-1. **Engine double-buffer for occupancy display (deferred 2026-06-21; PO to confirm).** D1 shipped
+1. **Engine double-buffer for occupancy display (deferred 2026-06-21; PO to confirm).** D1 shipped (ORW-883)
    **FE-side** (the per-turn freeze above) with **zero engine/calibration change**. The
-   architecturally cleaner alternative — discussed and **deferred, not rejected** — is to split
+   architecturally cleaner alternative — discussed and **deferred, not rejected** — is to split (ORW-883)
    `presence` *in the engine* into a **displayed** map (the gadget + the moment-prompt grounding read
    this; the D2 belt and player moves write here, visible immediately) and the authoritative **live**
    map (the off-screen `presenceTick` re-seat writes here, promoted to `displayed` at the next scene).
    It would handle **model-driven** relocations natively — no FE fog-of-war reconstruction, and no
    degrade-to-live for the rare turn the model itself moves a houseguest — and would let the gadget and
-   the prose grounding read **one** engine projection. **Why deferred:** it trades shipped, green,
+   the prose grounding read **one** engine projection. **Why deferred:** it trades shipped, green, (ORW-883)
    zero-risk code for calibration-adjacent engine churn — two presence maps threaded through
    snapshot/restore/`whereabouts`/witnessing, in the riskiest part of the engine — to solve a problem
    the FE-freeze already solves. `presenceTick` stays byte-identical by design (the D4 guard pins it),

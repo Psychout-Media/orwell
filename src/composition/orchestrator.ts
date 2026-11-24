@@ -760,7 +760,7 @@ export class Orchestrator {
     if (!isSuperset(gsCand, gsBase, { trustEventPrefix: opts.trustEventPrefix === true })) degradation = "gameState";
     else if (!countsNonDecreasing(counts(gsCand), counts(gsBase))) degradation = `gameState.counts.${firstDropped(counts(gsCand), counts(gsBase)) ?? "?"}`;
     else {
-      const core = sessionCoreSupersetViolation(candidate, baseline);
+      const core = sessionCoreSupersetViolation(candidate, baseline, { trustPrefix: opts.trustEventPrefix === true });
       if (core !== null) degradation = `sessionCore.${core}`;
       else if (!sessionCoreCountsNonDecreasing(sessionCoreCounts(candidate), sessionCoreCounts(baseline))) {
         degradation = `sessionCore.counts.${firstDropped(sessionCoreCounts(candidate), sessionCoreCounts(baseline)) ?? "?"}`;
@@ -873,7 +873,7 @@ export class Orchestrator {
  *  pattern): a test drives this directly with a RECORDING rng to prove the seeded draw stream the
  *  competition/vote/jury spine shares is byte-identical with a default-off feature flag on or off. */
 export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: SeededRandom, clockNow: number, interactions = 3): number {
-  const core = sandbox.session.snapshot();
+  const core = sandbox.session.snapshotLite(); // ORW-844: this step reads the house and who has left only: no full state copy per tick
   // B52/audit D5: evicted houseguests stop living — they leave the off-screen society the moment
   // they go (no more scheming/confessing weeks after eviction). Only the LIVING NPCs of the REAL
   // house, ever: the old no-house synthetic pool (audit E2) fabricated hidden scenes + Vault
