@@ -25,11 +25,14 @@ async function betrayalScene(seed: number, user: string, on: boolean) {
   const ledger = (): Ledger => ((g.s.snapshot().live as { npcMemory?: Ledger }).npcMemory ?? {});
   const before = ledger();
   const touched = inRoom[0] ?? living[0]!;
-  const res = await g.sb.mcp.player.callTool("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, touched], content: "the player turns on them", kind: "betrayal" });
-  expect((res as { eventId?: string }).eventId, "the scene was recorded").toBeTruthy();
   const holders = [touched]; // the houseguests the scene touched: the ones the player named (co-present bystanders are witnesses, not the wronged party)
   const rel = g.sb.engine.relationships;
-  const best = (f: string): number => Math.max(-1, ...holders.map((h) => rel.bondStrength(f, h)));
+  // each friend's bond to the scene, read BEFORE it (the fold reads it at the scene; the turn's off-screen tick may move it after)
+  const bondAtScene = new Map(living.map((f) => [f, Math.max(-1, ...holders.map((h) => rel.bondStrength(f, h)))]));
+  const best = (f: string): number => bondAtScene.get(f) ?? -1;
+  const res = await g.sb.mcp.player.callTool("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, touched], content: "the player turns on them", kind: "betrayal" });
+  expect((res as { eventId?: string }).eventId, "the scene was recorded").toBeTruthy();
+
   const outside = living.filter((f) => !holders.includes(f));
   const count = (L: Ledger, h: string): number => L[h]?.[PLAYER]?.length ?? 0;
   const after = ledger();
