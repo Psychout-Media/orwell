@@ -30,7 +30,7 @@ None reflow to a mobile sheet (#893) except the session-row menu's one bespoke "
 
 The kit collapses all of that into **one** anchoring engine, **one** dismiss seat, **one** roving
 keyboard contract, and **one** a11y contract — exactly as `OrwellWindow` did for windows. (A shared
-mobile bottom-sheet path is designed but **deferred** — per the owner ruling menus stay anchored on
+mobile bottom-sheet path is designed but **deferred** — per the owner ruling menus stay anchored on (ORW-887)
 mobile in Workflow-2; see §2.3.)
 
 ---
@@ -91,7 +91,7 @@ file** `frontend/static/js/orwellMenu.js` exposing **two seams** on `window`:
 
 - **`OrwellPopover`** — the base **anchored-surface** primitive. Owns positioning (flip/shift),
   dismissal (outside-click + Escape via `escMenuStack`), optional focus-trap + focus-return, the
-  z-layer, and teardown (the mobile bottom-sheet handoff is **deferred**, §2.3 — anchored on mobile in
+  z-layer, and teardown (the mobile bottom-sheet handoff is **deferred**, §2.3 — anchored on mobile in (ORW-887)
   W2). Content is arbitrary (Node|string|builder). **Serves the rich pickers** (emoji, color,
   model-picker, provider) and info popovers.
 - **`OrwellMenu`** — built **on** `OrwellPopover`; adds the item model, `role="menu"/"menuitem"`,
@@ -248,7 +248,7 @@ container listens for:
   on the anchor automatically (today only the overflow `+` sets `aria-haspopup`, and **nothing** sets
   `aria-expanded`).
 
-### 2.3 Mobile presentation — ANCHORED (the bottom-sheet handoff is DEFERRED)
+### 2.3 Mobile presentation — ANCHORED (the bottom-sheet handoff is DEFERRED) (ORW-887)
 
 **Owner ruling (below): menus stay ANCHORED on mobile — there is NO bottom-sheet reflow in
 Workflow-2.** On ≤768px the surface presents as the **same anchored `.ow-popover`** as desktop
@@ -256,7 +256,7 @@ Workflow-2.** On ≤768px the surface presents as the **same anchored `.ow-popov
 excluded from this kit entirely (it stays a centered modal).
 
 The rest of this section documents the **deferred** sheet handoff for a *future flagged mode only*
-(it is NOT built in this lane). If it is ever enabled, a menu/popover would
+(it is NOT built in this lane). If it is ever enabled, a menu/popover would (ORW-887)
 **delegate to `OrwellSheetKit.create()`** rather than anchoring — an iOS-style **action sheet**:
 
 - `OrwellMenu` → a **modal** `OrwellSheet` (`anchored:false`) whose body renders the same items as
@@ -359,7 +359,7 @@ dismisses menus before modals. Define a single token:
 ```
 
 This replaces the current spread (adm-provider **100**, msg-overflow **100**, ctx **250**,
-model-picker/search/export **300**, dropdown/overflow **1000**, emoji **10000**). (The *deferred*
+model-picker/search/export **300**, dropdown/overflow **1000**, emoji **10000**). (The *deferred* (ORW-887)
 mobile-sheet path, §2.3, would use the sheet kit's own band — scrim 1200 / sheet 1201,
 `orwellSheet.js` — but W2 anchors on mobile, so `--ow-z-menu` is the operative band.)
 
@@ -466,7 +466,7 @@ Mirrors `test_f_window_kit.py` (source-pin convention checks) + `test_0753_sheet
 A `test_no_new_bespoke_menu` gate: grep all `static/js/*.js` for the ad-hoc menu idiom
 (`createElement('div')` whose `className` contains `menu`/`popover`/`dropdown` **and** a nearby
 `document.body.appendChild` + `getBoundingClientRect`) **outside** `orwellMenu.js`, against a
-shrinking allowlist (slash-autocomplete, ctx-popup if deferred). New menus MUST compose the kit.
+shrinking allowlist (slash-autocomplete, ctx-popup if deferred). New menus MUST compose the kit. (ORW-887)
 
 ### 5.4 Browser assertions (`browser_smoke.py`, the headless keep-set gate)
 
@@ -504,7 +504,7 @@ CSS/JS/class swaps, no prompt / tool-schema / casting-flow change (§WAVE note i
 
 1. **Mobile bottom-sheet for ALL menus — ✅ RESOLVED by the ruling: NO.** Menus stay **anchored** on
    mobile in Workflow-2; there is **no** bottom-sheet reflow. The `sheetOnNarrow` / `OrwellSheet`
-   handoff is deferred (a later flagged mode, §2.3), so the surface presents as the same anchored
+   handoff is deferred (a later flagged mode, §2.3), so the surface presents as the same anchored (ORW-887)
    `.ow-popover` on every viewport.
 
 2. **Ctrl+K search overlay (#14) — ✅ RESOLVED by the ruling: EXCLUDED from this kit.** It stays a

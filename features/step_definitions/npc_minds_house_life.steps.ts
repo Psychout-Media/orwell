@@ -120,7 +120,7 @@ type MoodS = {
 };
 Given("a holder who wants a target gone", async function () {
   const reg = composeRuntime({ clock: new FakeClock(), seed: 11 }).registry;
-  const user = `nm-mood-${Math.random()}`;
+  const user = `nm-mood-fixed`;
   const mcp = reg.resolver()("player", user);
   await mcp.callTool("createCharacter", { playerName: "The Player", seed: 11, archetype: "floater" });
   await mcp.callTool("noteMessage", { messageId: "first" }); // a played game: agendas seed
@@ -162,7 +162,7 @@ type MemS = {
   npcVoice(id: EntityId): { rememberedAboutOthers?: string[]; houseguest: { name: string } } | null;
 };
 Given("a holder who remembers a public thing a houseguest in the room did to them, and a private deal gone wrong", function () {
-  const sb = new GameSessionRegistry().sandboxFor(`nm-mem-${Math.random()}`);
+  const sb = new GameSessionRegistry().sandboxFor(`nm-mem-fixed`);
   sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: 11 });
   const s = sb.session as unknown as MemS;
   const [holder, other, third] = s.livingIds().filter((i) => i !== PLAYER) as [EntityId, EntityId, EntityId];
@@ -226,8 +226,8 @@ async function finalThree(user: string, hohType: { archetype: Archetype; style: 
   return evicted === ally.id ? "ally" : evicted === rival.id ? "rival" : evicted;
 }
 When("a Final 3 where the HOH's ally is beloved by the jury and their rival is disliked is played with a strategist and then a loyalist as the HOH", async function () {
-  nm(this).strategist = await finalThree(`nm-fh-a-${Math.random()}`, { archetype: "mastermind", style: "strategic" });
-  nm(this).loyalist = await finalThree(`nm-fh-b-${Math.random()}`, { archetype: "loyalist", style: "loyal" });
+  nm(this).strategist = await finalThree(`nm-fh-a-fixed`, { archetype: "mastermind", style: "strategic" });
+  nm(this).loyalist = await finalThree(`nm-fh-b-fixed`, { archetype: "loyalist", style: "loyal" });
 });
 Then("the strategist evicts the beloved ally", function () { assert.equal(nm(this).strategist, "ally"); });
 Then("the loyalist evicts the rival", function () { assert.equal(nm(this).loyalist, "rival"); });

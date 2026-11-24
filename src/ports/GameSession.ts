@@ -2593,6 +2593,21 @@ export interface RecordDaySummaryResult {
   reason?: "absent" | "unknown-day" | "empty" | "error-text";
 }
 
+/**
+ * ORW-807 (0200 your edit) — FE-driven write-back: the narrator's authored episode titles for a FINISHED season. Each title belongs to one episode
+ * (its week); the first authored title for a week stands (idempotent, never overwritten). Before the crown nothing is accepted.
+ */
+export interface RecordEpisodeTitlesReq {
+  titles: Array<{ week: number; title: string }>;
+}
+export interface RecordEpisodeTitlesResult {
+  accepted: boolean;
+  /** How many weeks got a new title from this call (0 when every week already had one: an idempotent replay). */
+  recorded: number;
+  /** Why not accepted (absent when accepted). */
+  reason?: "absent" | "not-finished" | "empty";
+}
+
 export interface DailyRecapView {
   /** The 1-based in-game day this recap closes (ADR 0006's clock; not a calendar day). */
   day: number;
@@ -3642,6 +3657,9 @@ export interface GameSession {
    * covering `coversDays` and mark those day entries `merged` (kept, never deleted).
    */
   recordDaySummary(req: RecordDaySummaryReq): RecordDaySummaryResult;
+
+  /** ORW-807 — FE-driven write-back (NOT a model lever): the narrator's authored episode titles for the finished season's edit (0200). Post-crown only; first title per week stands. */
+  recordEpisodeTitles(req: RecordEpisodeTitlesReq): RecordEpisodeTitlesResult;
 
   /**
    * The Vault unsealing (0048 §1): the hidden story of THIS user's FINISHED season. Returns `null`

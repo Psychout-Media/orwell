@@ -299,4 +299,4 @@ Every open item is now decided; the list is kept with pointers (cross-check `CLA
 5. **Non-degradation test strategy** — ✅ resolved: superset + monotonic counts +
    lossless round-trip (feature 0007).
 6. **Tech stack** — ✅ resolved: TypeScript / Node 22 engine; Python/FastAPI front-end;
-   in-memory + file stores today, SQLite→Postgres deferred behind the ports (`CLAUDE.md`).
+   in-memory + file stores today, SQLite→Postgres deferred behind the ports (`CLAUDE.md`). (ORW-62)

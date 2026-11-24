@@ -7,7 +7,7 @@ import type {
   AdvanceView, HangOutReq, HangOutView, NapReq, NapView, NapRefusal, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
   FinaleView, EvictionView, HostView, VoteBeatView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, WalkedInView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, ProducerVaultView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
-  DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
+  DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult, RecordEpisodeTitlesReq, RecordEpisodeTitlesResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
   UpdateCastingReq, CastingStatusView, PortraitPromptEntry, HouseguestCard,
   PreSeedCastReq, PreSeedCastView,
@@ -624,6 +624,8 @@ const DAY_LEDGER_EVENT_CHARS = 240;
 const DAY_LEDGER_KEYS_CHARS = 1000; // the 'Key list:' line is bounded on its own, so a long prose never clips it away (review of #2685)
 const DAY_LEDGER_TEXT_CHARS = 3200; // ORW-402: a whole-day summary (up to ~400 words) plus its key list
 /** ORW-387: transport/provider error text (an SSE frame, an HTTP 4xx/5xx body) is never a day's summary. */
+/** ORW-807: the longest authored episode title kept (a title, not a paragraph). */
+const EPISODE_TITLE_CHARS = 90;
 const DAY_SUMMARY_ERROR_TEXT = /^\s*(event:\s*error\b|data:\s*[{\[])|"status"\s*:\s*[45]\d\d|\breturned HTTP [45]\d\d\b/i;
 function sanitizeFlavor(s: string, max = 160): string {
   return s.replace(/\s+/g, " ").trim().slice(0, max);
@@ -5445,7 +5447,7 @@ export class GameSessionAdapter implements GameSession {
       ...(row.formedWeek !== undefined ? { formedWeek: row.formedWeek } : {}),
       ...(endStamped && row.endedWeek !== undefined ? { endedWeek: row.endedWeek, ...(row.endedHow ? { endedHow: row.endedHow } : {}) } : !row.endedWeek ? {} : { ...(row.endedHow ? { endedHow: row.endedHow } : {}) }),
     }));
-    return buildYourEdit({
+    const view = buildYourEdit({
       player: PLAYER, cast: this.house.npcs.map((n) => n.id).sort(), nameOf: (id) => this.nameOf(id),
       digests: s.weekDigests ?? [], voteRecord: s.voteRecord ?? [], calledPawn: (w, e) => this.calledPawn(w, e),
       events: events.map((e) => ({ type: e.type, initiator: e.initiator, witnessSet: e.witnessSet, hidden: e.hidden, content: e.content, ...(e.houseLife?.seenBy ? { seenBy: e.houseLife.seenBy } : {}) })),
@@ -5455,6 +5457,10 @@ export class GameSessionAdapter implements GameSession {
       ...(this.editMomentsEnabled ? { more: { meetings: (s.houseMeetings ?? []).map((m) => ({ week: m.week, caller: m.caller, accused: m.accused, attendees: m.attendees.length })) } } : {}),
       ...(finale?.votes ? { jury: { finalists: finale.finalists, votes: Object.values(finale.votes).map((votedFor) => ({ votedFor })) } } : {}),
     });
+    // ORW-807: the narrator's authored titles ride on their episodes (written back after the crown; the floor title stays alongside)
+    const authored = s.episodeTitles ?? {};
+    for (const ep of view.episodes) { const t = authored[String(ep.week)]; if (t) ep.authoredTitle = t; }
+    return view;
   }
   /** 0211 / ORW-649: the reunion on finale night (`ORWELL_REUNION`, default ON; `=0` = none). Played, finished games only; the caller holds the crown gate. Read-only: nothing is recorded or folded, no rng. */
   private reunionEnabled = flagDefaultOn("ORWELL_REUNION");
@@ -5930,6 +5936,22 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** The durable session core (0030): the live house + week/phase/ceremony + loop, losslessly. */
+  /**
+   * ORW-844: the few facts a per-message hook needs (is there a house, the week and phase, the seed, the houseguests and who has left), WITHOUT the full state copy `snapshot()` makes. The commit path
+   * used to take a whole snapshot (about a 1 MB clone of the live loop late in a season) from five hooks and the admin mirror just to read these; the values are exactly the ones `snapshot()` carries.
+   */
+  snapshotLite(): { started: boolean; week: number; phase: string; seed?: number; worldAvoid?: WorldAvoid; house: GameHouse | null; live: { evictionOrder?: EntityId[] } | null } {
+    return {
+      started: this.house !== null,
+      week: this.week,
+      phase: this.phase,
+      ...(this.gameSeed !== null ? { seed: this.gameSeed } : {}),
+      ...(Object.values(this.worldAvoid).some((v) => v && v.length > 0) ? { worldAvoid: this.worldAvoid } : {}),
+      house: this.house ? this.cloneHouse(this.house) : null,
+      live: this.live ? { evictionOrder: this.live.evictionOrder ? [...this.live.evictionOrder] : undefined } : null,
+    };
+  }
+
   snapshot(): SessionCore {
     return {
       started: this.house !== null,
@@ -6848,7 +6870,8 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live;
     if (!this.houseNormsEnabled || !s || s.playedGame !== true || !s.beliefs || !this.npcBeliefsEnabled) return;
     const rec = s.voteRecord?.[s.voteRecord.length - 1];
-    if (!rec || rec.week !== s.week) return;
+    // ORW-870: the week rolls as the eviction's result lands, BEFORE the vote is talked about, so the first night after the vote is the record's week + 1 (and the rumors told then carry that week). Reading only `rec.week === s.week` never matched in a played game.
+    if (!rec || (s.week !== rec.week && s.week !== rec.week + 1)) return;
     const ballots = Object.entries(rec.voteOf);
     const survivor = ballots.map(([, t]) => t).find((t) => t !== rec.evictee);
     if (!survivor) return; // a unanimous count: no one dissented
@@ -6858,7 +6881,7 @@ export class GameSessionAdapter implements GameSession {
     const living = new Set(this.livingIds());
     for (const [holder, target] of ballots.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
       if (holder === PLAYER || target !== rec.evictee || !living.has(holder)) continue;
-      for (const d of heardDissenters(s.beliefs[holder] ?? [], holder, rec.evictee, survivor, rec.week)) {
+      for (const d of heardDissenters(s.beliefs[holder] ?? [], holder, rec.evictee, survivor, s.week)) { // the week the rumors were heard (ORW-870)
         const key = `${rec.week}|${holder}|${d}`;
         if (noticed.has(key) || !living.has(d)) continue;
         noticed.add(key);
@@ -17990,6 +18013,35 @@ export class GameSessionAdapter implements GameSession {
     }
     this.backgroundPersist(); // FE enrichment: durable, NOT a board beat (no beatSeq bump)
     return { accepted: true };
+  }
+
+  /**
+   * ORW-807 (0200 your edit) — FE-driven write-back of the narrator's authored episode titles. Post-crown only (the edit itself exists only then), for weeks the
+   * edit has an episode for; each title is cleaned (control characters, whitespace, a length cap) and refused when it is an error payload or carries a raw id. The first
+   * title for a week stands. Durable enrichment, not a board beat (no beatSeq bump).
+   */
+  recordEpisodeTitles(req: RecordEpisodeTitlesReq): RecordEpisodeTitlesResult {
+    const s = this.live;
+    if (!s) return { accepted: false, recorded: 0, reason: "absent" };
+    const edit = this.buildYourEditView();
+    if (!edit) return { accepted: false, recorded: 0, reason: "not-finished" };
+    const weeks = new Set(edit.episodes.map((e) => e.week));
+    const store = (s.episodeTitles ??= {});
+    let valid = 0, recorded = 0;
+    for (const row of Array.isArray(req.titles) ? req.titles : []) {
+      const week = Math.trunc(Number(row?.week));
+      if (!weeks.has(week)) continue;
+      const title = String(row?.title ?? "").replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim().slice(0, EPISODE_TITLE_CHARS).trim();
+      if (!title || DAY_SUMMARY_ERROR_TEXT.test(title) || /\b(?:npc|player):\S/i.test(title)) continue;
+      valid++;
+      if (store[String(week)]) continue; // the first authored title stands
+      store[String(week)] = title;
+      recorded++;
+    }
+    if (Object.keys(store).length === 0) delete s.episodeTitles;
+    if (valid === 0) return { accepted: false, recorded: 0, reason: "empty" };
+    if (recorded > 0) this.backgroundPersist(); // FE enrichment: durable, NOT a board beat (no beatSeq bump)
+    return { accepted: true, recorded };
   }
 
   /**

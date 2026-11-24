@@ -113,7 +113,7 @@ function findBallot(what: string, max: number, pick: (parked: SessionSnapshot, c
 // --- A promise made in a scene is recorded -----------------------------------------------------------------------------
 
 Given("the assurances flag is on and a scene in which the player tells a houseguest \"you're safe with me\"", function (this: BbWorld) {
-  const sb = new GameSessionRegistry().sandboxFor(`asr-rec-${Math.random()}`);
+  const sb = new GameSessionRegistry().sandboxFor(`asr-rec-fixed`);
   sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: 7 });
   sb.session.advanceGame(); sb.session.advanceGame();
   sb.session.setAssurancesEnabled(true);

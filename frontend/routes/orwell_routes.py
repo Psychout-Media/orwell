@@ -1262,6 +1262,12 @@ def setup_orwell_routes() -> APIRouter:
             orwell_house_reflections.kickoff_house_reflections(_current_user(request), retro)
         except Exception as e:  # never let the enrichment break the retrospective route
             logger.info(f"[orwell] house reflections kickoff skipped: {e}")
+        # ORW-807: the narrator's own episode titles for "your edit" (utility model; background, fail-soft). The floor titles stand without them.
+        try:
+            from src import orwell_episode_titles
+            orwell_episode_titles.kickoff_episode_titles(_current_user(request), retro)
+        except Exception as e:  # never let the enrichment break the retrospective route
+            logger.info(f"[orwell] episode titles kickoff skipped: {e}")
         return {"retrospective": retro}
 
     @router.get("/whereabouts")

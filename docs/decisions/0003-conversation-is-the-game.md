@@ -196,12 +196,12 @@ from who *won* the veto competition) flips from **fallible verify-then-correct d
 model's prose **unconditionally, before emission, regardless of whether the claim would have been
 correct** — the chyron is the only source of truth for the fact, so a correct restatement is exactly
 as redundant (and exactly as capable of silently disagreeing with the chyron, F4's failure mode) as a
-wrong one. The remaining 2 (the season winner — finale scope, an explicit follow-up; a player
+wrong one. The remaining 2 (the season winner — finale scope, an explicit follow-up; a player (ORW-886)
 expulsion — no ceremony-fact analogue) keep the pre-existing verify-then-correct behavior unchanged.
 
 **Scope is exact — the open set is untouched.** This amendment governs *only* the closed-set weekly
 loop as defined above. It does **not** extend to: the finale (statements, jury Q&A, the vote reveal,
-the crowned winner) — an explicit, scoped-out follow-up, not yet chyron-covered; twist/battle-back
+the crowned winner) — an explicit, scoped-out follow-up, not yet chyron-covered; twist/battle-back (ORW-886)
 reveals; or — critically — **any** open-set content (the meaning, texture, and social consequence of
 play: how a houseguest reacts to losing, what a betrayal costs a friendship, the jury's private read
 of a blindside). ADR 0005's split stands exactly as written: the engine states the *closed-set fact*,
