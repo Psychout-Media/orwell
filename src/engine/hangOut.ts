@@ -94,6 +94,18 @@ export function runHangOut(p: HangOutProbes, rng: RandomnessSource, opts: { maxB
 }
 
 /**
+ * ORW-734a - "wait until <clock time>": the minutes from the engine's clock `nowDepth` (the 8..32 day scale; an early-morning wake reads 0..8) to the NEXT time the wall clock reads
+ * `clockHour` (0..24, e.g. 22 for 10pm, 22.5 for 10:30pm). Never a day later: a time that already passed within this day is 0, nothing to wait. null = not a usable hour. Pure, no rng.
+ */
+export function minutesUntilClock(nowDepth: number, clockHour: number, wakeHour = 8, dayEnd = 32): number | null {
+  if (!Number.isFinite(nowDepth) || !Number.isFinite(clockHour) || clockHour < 0 || clockHour >= 24) return null;
+  const cur = nowDepth < wakeHour ? nowDepth + 24 : nowDepth;
+  const candidates = clockHour < wakeHour ? [clockHour + 24] : clockHour === wakeHour ? [clockHour, dayEnd] : [clockHour];
+  const next = candidates.find((c) => c > cur + 1e-6 && c <= dayEnd);
+  return next === undefined ? 0 : (next - cur) * 60;
+}
+
+/**
  * Is it "bedtime" for a hang-out? From midnight on, or once the NIGHT block (20:00+) has thinned the house to the player plus at most one awake houseguest. The thin-house rule applies
  * ONLY in the evening/night: at 5am after an early wake (P4d) a sleeping house is not "bedtime" - the hang-out should run on until the house wakes. Pure.
  */
