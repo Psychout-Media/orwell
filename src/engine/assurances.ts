@@ -23,6 +23,8 @@ export interface Assurance {
   status: AssuranceStatus;
   /** B22 (ORWELL_MEMORY_PROMISES): the houseguests who HEARD it (the scene's other named, awake witnesses). They remember its keeping or breaking too, at a lower weight. Absent => no witnesses (byte-identical). */
   heardBy?: EntityId[];
+  /** Set when the assurance was BROKEN at a secret (sealed) eviction ballot: the assured never learned who broke it, so nothing may later name them as its victim (the same rule a secret-ballot deal break follows). Absent => an open break (an old save loads as one). */
+  sealed?: true;
 }
 
 export const ASSURANCE = {
@@ -83,10 +85,11 @@ export class AssuranceLedger {
   openFor(from: EntityId): Assurance[] { return this.items.filter((x) => x.status === "open" && x.from === from); }
   openTo(to: EntityId): Assurance[] { return this.items.filter((x) => x.status === "open" && x.to === to); }
   /** Resolve an OPEN assurance once; a second resolution is refused. */
-  resolve(id: string, status: "kept" | "broken"): boolean {
+  resolve(id: string, status: "kept" | "broken", opts: { sealed?: boolean } = {}): boolean {
     const a = this.items.find((x) => x.id === id);
     if (!a || a.status !== "open") return false;
     a.status = status;
+    if (status === "broken" && opts.sealed) a.sealed = true;
     return true;
   }
   /** ORW-586: the speaker WITHDREW the promise - lapse (never fold) the open rows matching from/to/kind (and the week when given), so a later board event cannot break it. Returns how many lapsed; none => a no-op. */

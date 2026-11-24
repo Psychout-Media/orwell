@@ -1862,7 +1862,7 @@ export class GameSessionAdapter implements GameSession {
     const ledger = AssuranceLedger.fromJSON(this.live.assurances);
     let broke = false;
     const witnesses: EntityId[] = [];
-    for (const a of ledger.openFor(holder).filter((x) => x.to === nominee)) { if (ledger.resolve(a.id, "broken")) { broke = true; witnesses.push(...(a.heardBy ?? [])); } }
+    for (const a of ledger.openFor(holder).filter((x) => x.to === nominee)) { if (ledger.resolve(a.id, "broken", { sealed: !!sealedAmong })) { broke = true; witnesses.push(...(a.heardBy ?? [])); } }
     if (!broke) return;
     this.live.assurances = ledger.toJSON();
     this.foldBrokenPromise({ promiser: holder, assured: nominee, witnesses, ...(sealedAmong ? { sealedAmong } : {}) });
@@ -2540,7 +2540,8 @@ export class GameSessionAdapter implements GameSession {
       const other = d.parties.find((p) => p !== betrayer);
       if (other !== undefined) found.push({ week: d.madeWeek ?? 0, victim: other });
     }
-    if (this.live?.assurances) for (const a of AssuranceLedger.fromJSON(this.live.assurances).all) if (a.status === "broken" && a.from === betrayer && a.to !== betrayer) found.push({ week: a.week, victim: a.to });
+    // a broken assurance counts too, but never one broken at a secret ballot (the assured never learned who broke it: the same rule as a secret-ballot deal break above)
+    if (this.live?.assurances) for (const a of AssuranceLedger.fromJSON(this.live.assurances).all) if (a.status === "broken" && a.sealed !== true && a.from === betrayer && a.to !== betrayer) found.push({ week: a.week, victim: a.to });
     let best: { week: number; victim: EntityId } | undefined;
     for (const f of found) if (best === undefined || f.week >= best.week) best = f; // the latest; a tie goes to the later record
     return best !== undefined && this.livingIds().includes(best.victim) ? best.victim : undefined;
