@@ -11,7 +11,7 @@ import * as multiSubstring from "../../src/composition/multiSubstring";
  */
 describe("ORW-832 REAL PATH: the sweep's work follows the size of the season, not its square", () => {
   it("per message and per stored event, the leak sweep does about the same work late in the season as early", async () => {
-    const BLOCK = 250; const sweeps: Array<{ chars: number; patterns: number }> = [];
+    const BLOCK = 200; const sweeps: Array<{ chars: number; patterns: number }> = [];
     const orig = multiSubstring.patternsFoundIn;
     const spy = vi.spyOn(multiSubstring, "patternsFoundIn").mockImplementation((text: string, patterns: Iterable<string>) => {
       const list = [...patterns]; sweeps.push({ chars: text.length, patterns: list.length }); return orig(text, list);
@@ -19,7 +19,7 @@ describe("ORW-832 REAL PATH: the sweep's work follows the size of the season, no
     const rows: Array<{ work: number; calls: number; events: number }> = [];
     let from = 0;
     try {
-      await playSeason({ seed: 4, user: "wf-4", maxMessages: 1000, watch: async ({ engine, msg }) => {
+      await playSeason({ seed: 4, user: "wf-4", maxMessages: 800, watch: async ({ engine, msg }) => {
         if ((msg + 1) % BLOCK === 0) {
           const slice = sweeps.slice(from); from = sweeps.length;
           rows.push({ work: slice.reduce((a, x) => a + x.chars + x.patterns, 0) / BLOCK, calls: slice.length / BLOCK, events: engine.events.count() });
@@ -32,6 +32,6 @@ describe("ORW-832 REAL PATH: the sweep's work follows the size of the season, no
     const perEvent = (i: number): number => rows[i]!.work / rows[i]!.events;
     const ratio = perEvent(3) / perEvent(1);
     console.log(`SWEEPWORK per message by block: ${rows.map((x) => x.work.toFixed(0)).join("/")}; sweeps per message ${rows.map((x) => x.calls.toFixed(2)).join("/")}; events at block end: ${rows.map((x) => x.events).join("/")}; late-to-early work per event ${ratio.toFixed(2)}`);
-    expect(ratio, "the sweep's work per message per stored event stays about flat").toBeLessThan(1.5); // measured 1.13 on this fixed season (deterministic: counts, not time)
+    expect(ratio, "the sweep's work per message per stored event stays about flat").toBeLessThan(1.5); // measured 1.26 on this fixed season (ORW-791: the season now ends near 834 messages, so four blocks of 200 are played, not four of 250) (deterministic: counts, not time)
   }, 1_500_000);
 });
