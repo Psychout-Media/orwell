@@ -38,9 +38,9 @@ describe("vote talk reaches the player and earns credit (voteTalk.ts)", () => {
 
 describe("in the live adapter (unit: the vote record, bonds and tellings are set by hand)", () => {
   // ORW-810: the player being told, the keep credit and a unanimous count catching a credited keep are proven in a played season (tests/realpath/voteTalkSteers.test.ts). These two catches
-  // were not reached in seven seasons played to the crown (seeds 3, 7, 11, 13, 17, 23, 29), so they stay hand-set here.
-  it.todo("real path: a listener told by more believed voters that they kept the evictee than the count has keep votes catches the excess (counting) - blocked: not reached in seven played seasons (ORW-594)");
-  it.todo("real path: a keep claim told after the count is public, and ruled out by it, is caught at once - blocked: not reached in seven played seasons (ORW-594, 0154)");
+  // were not reached in forty seasons played to the crown (seeds 1-40, sandboxes wf-<seed>, the scripted talking player; ORW-829, 2026-11-24), so they stay hand-set here.
+  it.todo("real path: a listener told by more believed voters that they kept the evictee than the count has keep votes catches the excess (counting) - blocked: not reached in forty played seasons, seeds 1-40 (ORW-829)");
+  it.todo("real path: a keep claim told after the count is public, and ruled out by it, is caught at once - blocked: not reached in forty played seasons, seeds 1-40 (ORW-829, 0154)");
   type Seam = {
     live: { playedGame?: boolean; week: number; claims?: { seq: number; items: Array<{ id: string; listener: string; speaker: string; kind: string }> }; beliefs?: Record<string, BeliefClaim[]>; voteRecord?: Array<{ week: number; evictee: string; voteOf: Record<string, string> }> };
     rel: { edge(a: string, b: string): { trust: number; affinity: number } };
