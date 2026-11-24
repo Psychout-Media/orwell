@@ -386,9 +386,11 @@
       }
       // 0200 / ORW-632: your edit - the season as TV would have cut it. Render-only, textContent, plain sentences from the engine's FACTS and composed floor lines
       // (the narrator voices live titles in the chat; this is the window's own floor). Never a number. Absent => skipped (fail-open).
+      // ORW-807: an episode the narrator titled after the crown shows its authored title (written back to the engine); the floor otherwise.
       const _edit = unsealed.yourEdit;
       if (_edit && typeof _edit === "object") {
-        const _eps = (_edit.episodes || []).filter((e) => e && typeof e.title === "string" && e.title.trim()).map((e) => clean(e.title));
+        const _epTitle = (e) => (e && typeof e.authoredTitle === "string" && e.authoredTitle.trim() ? e.authoredTitle : e && e.title);
+        const _eps = (_edit.episodes || []).filter((e) => typeof _epTitle(e) === "string" && _epTitle(e).trim()).map((e) => clean(_epTitle(e)));
         const _cut = [...(_edit.heroes || []), ...(_edit.villains || [])].filter((h) => h && typeof h.line === "string" && h.line.trim()).map((h) => clean(h.line));
         const _you = _edit.you && typeof _edit.you.line === "string" ? clean(_edit.you.line) : "";
         if (_eps.length || _cut.length || _you) {
