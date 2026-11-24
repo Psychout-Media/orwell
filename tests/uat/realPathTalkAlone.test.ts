@@ -3,7 +3,7 @@ import { PLAYER } from "../../src/domain/ids";
 import { isPrivateRoom, type Room } from "../../src/domain/house";
 import { talkAloneRoom } from "../../src/engine/talkAlone";
 import type { AskToTalkAloneResult } from "../../src/ports/GameSession";
-import { playUntil, type Stop } from "../realpath/playedSeason";
+import { playUntil, type Stop, firstStop, wfScan } from "../realpath/playedSeason";
 
 /**
  * ORW-727b. The player asks a houseguest for a private word, or to come over - in a PLAYED season (ORW-812: before, every test staged the house by hand: the premiere skipped, the
@@ -182,7 +182,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
 
 describe("ORW-727b: a houseguest asks the player for a private word (parity), in a played season", () => {
   it("their own ask stands as an open, non-blocking offer the player sees; the player's yes through the same lever is accepted; it then clears", async () => {
-    const at = await playUntil(3, (s) => !!(s.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk && !s.sess.getGameState().pending && !s.sess.houseEventInSession(), { user: "wf-3", maxMessages: 3000 });
+    const at = await firstStop((s) => !!(s.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk && !s.sess.getGameState().pending && !s.sess.houseEventInSession(), wfScan(3, "an open ask from a houseguest, nothing pending, the house not gathered"), { maxMessages: 3000 });
     // the precondition is what the player sees: an open ask (not lapsed), with nothing pending and the house not gathered (a gathered house answers "gathered")
     const npc = at.sess.live.talkAsk.npc as string;
     const view = at.sess.getGameState() as { openTalkAsk?: { from: { id: string } } };

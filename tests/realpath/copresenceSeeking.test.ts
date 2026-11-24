@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { heldCandidates } from "../../src/engine/heldFacts";
 import { SEEK } from "../../src/engine/copresenceSpread";
 import { PLAYER } from "../../src/domain/ids";
-import { playUntil, type Stop } from "./playedSeason";
+import { type Stop, firstStop, firstStops, wfScan } from "./playedSeason";
 
 /**
  * B35 (seeking, design B10 S4; flag ORWELL_GOSSIP_COPRESENCE) - a houseguest holding a high-motive fact they have not yet decided to tell someone leans their MOVEMENT toward that
@@ -43,9 +43,9 @@ const decided = (s: Stop): Array<{ holder: string; listener: string }> => {
 };
 
 describe("seeking in a played season", () => {
-  it("layer OFF: the holder's intent has no seeking term; ON: the pull toward the listener rises and no pull is lowered (seeds 3 and 1)", async () => {
-    for (const seed of [3, 1]) { // ORW-853: the per-season player stream moved seed 11; 1 is the next seed from 1 that reaches a seeking holder
-      const at = await playUntil(seed, (s) => quiet(s) && seeking(s).length > 0, { user: `wf-${seed}` });
+  it("layer OFF: the holder's intent has no seeking term; ON: the pull toward the listener rises and no pull is lowered (two seeds)", async () => {
+    for (const at of await firstStops(2, (s) => quiet(s) && seeking(s).length > 0, wfScan([3, 1], "a quiet moment with a seeking holder"))) {
+      const seed = at.seed;
       let checked = 0;
       for (const { holder, listener } of seeking(at)) {
         const { off, on } = offOn(at, holder);
@@ -58,7 +58,7 @@ describe("seeking in a played season", () => {
   }, 120_000);
 
   it("a telling the holder has already decided about no longer pulls: the layer adds nothing toward that listener", async () => {
-    const at = await playUntil(3, (s) => quiet(s) && decided(s).length > 0 && seeking(s).length > 0, { user: "wf-3" });
+    const at = await firstStop((s) => quiet(s) && decided(s).length > 0 && seeking(s).length > 0, wfScan(3));
     for (const { holder, listener } of decided(at)) {
       expect(seeking(at).some((p) => p.holder === holder && p.listener === listener), "the seeker no longer names a decided listener").toBe(false);
       const { off, on } = offOn(at, holder);
@@ -67,7 +67,7 @@ describe("seeking in a played season", () => {
   }, 120_000);
 
   it("the player is never a seek target (off-screen spreads exclude them)", async () => {
-    const at = await playUntil(3, (s) => quiet(s) && seeking(s).length > 0, { user: "wf-3" });
+    const at = await firstStop((s) => quiet(s) && seeking(s).length > 0, wfScan(3));
     for (const holder of new Set(seeking(at).map((p) => p.holder))) {
       const { off, on } = offOn(at, holder);
       expect(w(on, PLAYER)).toBe(w(off, PLAYER));
