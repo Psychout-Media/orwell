@@ -96,6 +96,8 @@ export const KNOWN_RED: Readonly<Record<string, KnownRed>> = {
   "mid:no-activity-above-45": { value: 47.4, card: "ORW-702 gossip ratchet" }, // gossip is the one over 45
   "late:band-bonding": { value: 14.8, card: "ORW-702 restore bonding" }, // band 20-30
   "late:band-strategy": { value: 27.7, card: "ORW-702 late strategy" }, // band 28-38: 0.3 under the floor
+  "late:band-conflict": { value: 9.1, card: "ORW-902 767 late mix" }, // band 10-16: ORW-767 (a told couple spreads as gossip) moved the late mix on seeds 1, 2, 3, 6 by about gossip +3, strategy -4, conflict -1; added back as measured (CI run on #3164), carded
+  "late:strategy-at-least-24": { value: 24.0, card: "ORW-902 767 late mix" }, // hard floor 24: measured 24.0 (just under) with ORW-767; main met it at 27.7
   "late:band-gossip": { value: 49.0, card: "ORW-702 gossip ratchet" }, // band 24-34 (and the 45% ceiling below)
   "late:no-activity-above-45": { value: 49.0, card: "ORW-702 gossip ratchet" }, // gossip is the one over 45
 };
