@@ -1225,6 +1225,7 @@ function competitionFloorLines(cer: GameStateView["ceremony"]): string[] {
 export function evictionVoteLines(cer: { hoh: { name: string } | null; nominees: Array<{ name: string }> }, phase: string | undefined): string[] {
   if (!cer.hoh && cer.nominees.length === 0) return [];
   if ((phase ?? "").startsWith("final")) return [];
+  if (phase === "nominations" || phase === "veto-competition") return []; // the block can still change (the veto may pull a nominee off it), so who votes is not settled yet
   const out = [cer.hoh ? `${cer.hoh.name} (the HOH)` : "", ...cer.nominees.map((n) => `${n.name} (on the block)`)].filter(Boolean);
   return [
     `    Eviction vote (engine truth): every other houseguest casts a ballot, the player included unless the player is named here. Those who cast NO ballot: ${out.join(", ")}. The HOH votes only to break a tie. A speaker who is not named here DOES have a vote; a speaker named here has none, so never voiced as voting.`,
