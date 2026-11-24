@@ -1,5 +1,5 @@
 import {
-  mkdirSync, readdirSync, readFileSync, renameSync, existsSync, unlinkSync,
+  mkdirSync, readdirSync, readFileSync, renameSync, existsSync, unlinkSync, statSync, rmSync,
   openSync, writeSync, fsyncSync, closeSync,
 } from "node:fs";
 import { open as openAsync } from "node:fs/promises";
@@ -25,6 +25,10 @@ import { stallTimer } from "../stallTiming";
  * segment (no traversal). ENGINE-ONLY (persists souls + the hidden relationship
  * layer).
  */
+/** ORW-783: where retired seasons are kept, beside the live per-user dirs (not a hex name, so `listUsers` never sees it). */
+const SAVE_ARCHIVE_DIR = "save-archive";
+const SAVE_ARCHIVE_DEFAULT_MB = 512;
+
 /** ORW-404: how a save's fsync is paid. `background` (default) moves it off the request path. */
 export type SaveFsyncMode = "sync" | "background";
 
@@ -187,8 +191,9 @@ export class FileSaveStore implements UserSaveStore {
     return joined;
   }
 
+  private hexOf(user: string): string { return Buffer.from(user, "utf8").toString("hex"); }
   private userDir(user: string): string {
-    return this.resolveWithin(join(this.dataDir, Buffer.from(user, "utf8").toString("hex")));
+    return this.resolveWithin(join(this.dataDir, this.hexOf(user)));
   }
 
   private fileFor(dir: string, version: number): string {
@@ -693,16 +698,47 @@ export class FileSaveStore implements UserSaveStore {
   /**
    * Season restart (audit E1/R1): ROTATE the user's save dir off the live path — `hasSave` goes
    * false, the new season's `v000001` starts clean, and an engine restart resumes season 2 instead
-   * of resurrecting the dead one. The retired dir keeps the old season's record on disk (suffixed,
-   * so `listUsers`' hex filter never resumes it); the factory-reset script scrubs the whole tree.
+   * of resurrecting the dead one. ORW-783: the dead season moves to <dataDir>/save-archive/<hex-user>/<stamp> (dated, capped per user), which keeps its record on disk and sits outside the
+   * hex-named live dirs, so `listUsers` never resumes it; the factory-reset script scrubs the whole tree.
    */
   resetUser(user: string): void {
     const dir = this.userDir(user);
     this.states.delete(dir);
     if (!existsSync(dir)) return;
-    let target = `${dir}.retired-${Date.now()}`;
-    for (let i = 1; existsSync(target); i++) target = `${dir}.retired-${Date.now()}-${i}`;
+    // ORW-783: the dead season moves into this user's own dated archive folder (`<dataDir>/save-archive/<hex-user>/<UTC stamp>`), never deleted and never beside another user's. The archive is engine-side
+    // data on disk only (no read, no tool). It is capped per user (`ORWELL_SAVE_ARCHIVE_MAX_MB`, default 512; 0 = no cap) and pruned oldest-first, always keeping the newest.
+    const base = join(this.dataDir, SAVE_ARCHIVE_DIR, this.hexOf(user));
+    mkdirSync(base, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    let target = join(base, stamp);
+    for (let i = 1; existsSync(target); i++) target = join(base, `${stamp}-${i}`);
     renameSync(dir, target);
+    this.pruneArchive(base);
+  }
+
+  /** ORW-783: the user's archived seasons, oldest first (the stamp sorts by time; a collision suffix sorts after its stamp). */
+  archivedSeasons(user: string): string[] {
+    const base = join(this.dataDir, SAVE_ARCHIVE_DIR, this.hexOf(user));
+    return existsSync(base) ? readdirSync(base).sort() : [];
+  }
+
+  private pruneArchive(base: string): void {
+    const capMb = Number(process.env.ORWELL_SAVE_ARCHIVE_MAX_MB ?? SAVE_ARCHIVE_DEFAULT_MB);
+    if (!Number.isFinite(capMb) || capMb <= 0) return;
+    const cap = capMb * 1024 * 1024;
+    const sizeOf = (p: string): number => {
+      let n = 0;
+      for (const e of readdirSync(p, { withFileTypes: true })) {
+        const q = join(p, e.name);
+        try { n += e.isDirectory() ? sizeOf(q) : statSync(q).size; } catch { /* a file that vanished mid-count */ }
+      }
+      return n;
+    };
+    try {
+      const kept = readdirSync(base).sort().map((name) => ({ name, size: sizeOf(join(base, name)) }));
+      let total = kept.reduce((n, k) => n + k.size, 0);
+      while (kept.length > 1 && total > cap) { const old = kept.shift()!; total -= old.size; rmSync(join(base, old.name), { recursive: true, force: true }); }
+    } catch { /* pruning is housekeeping: never let it wedge a season restart */ }
   }
 
   /**

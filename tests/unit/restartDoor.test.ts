@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtempSync, readdirSync } from "node:fs";
+import { mkdtempSync, readdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { composeRuntime } from "../../src/composition/runtime";
@@ -18,6 +18,8 @@ import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAd
  * restart. Both restart surfaces must now converge on `registry.resetUser`: orchestrator baseline
  * forgotten, saves rotated, a clean sandbox. HARD rule: roles only — no fixture names.
  */
+/** ORW-783: the dead seasons a restart moved into this user's archive folder. */
+const archivedSeasons = (dirOf: string, u: string): string[] => { const p = join(dirOf, "save-archive", Buffer.from(u, "utf8").toString("hex")); return existsSync(p) ? readdirSync(p) : []; };
 const freshDir = (): string => mkdtempSync(join(tmpdir(), "orwell-e1-"));
 
 function resolveLegally(s: GameSessionAdapter, p: NonNullable<AdvanceView["pending"]>): void {
@@ -84,7 +86,8 @@ describe("E1/D1/R1 — the one sanctioned restart door (player channel → regis
     // The latest durable save IS season 2 (the old behavior kept season 1 as the latest save)…
     expect(store.loadLatest(user)?.seed).toBe(6);
     // …and the dead season was ROTATED (kept for inspection), never silently destroyed.
-    expect(readdirSync(dir).some((d) => d.includes(".retired-"))).toBe(true);
+    expect(archivedSeasons(dir, user)).toHaveLength(1); // ORW-783: in the user's dated archive (save-archive/<hex-user>/<stamp>), not beside the live dirs
+    expect(readdirSync(dir).some((d) => d.includes(".retired-"))).toBe(false);
   });
 
   it("without confirmRestart a second createCharacter stays a no-op (B36 intact)", async () => {
@@ -109,7 +112,7 @@ describe("E1/D1/R1 — the one sanctioned restart door (player channel → regis
     playBeats(sb.session, 6);
 
     await sb.mcp.admin.callTool("manageSandbox", { op: "reset" });
-    expect(readdirSync(dir).some((d) => d.includes(".retired-"))).toBe(true); // saves rotated
+    expect(archivedSeasons(dir, user)).toHaveLength(1); // saves rotated into the user's dated archive (ORW-783)
 
     // Season 2 starts and commits clean against a forgotten baseline.
     const fresh = runtime.registry.sandboxFor(user);

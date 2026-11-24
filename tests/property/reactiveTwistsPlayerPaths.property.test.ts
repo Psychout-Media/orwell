@@ -7,7 +7,8 @@ import { PLAYER } from "../../src/domain/ids";
 
 /**
  * Reactive twists ON (PO ruling 2026-11-03) — the PLAYER-PATH e2e for each twist, through the real session seam (advanceGame / submitDecision) under the
- * full deployed profile. Each twist is FORCED early (a sealed-plan override on the snapshot, so it fires deterministically) and played across many seeds
+ * full deployed profile. Each twist is FORCED early (a sealed-plan override on the snapshot, so it fires deterministically: NOT the real path - ORW-813: the same
+ * checks on each season's own plan are in tests/uat/realPathReactiveTwists.test.ts) and played across many seeds
  * with the player involved, and every season must render its cards, resolve, never freeze, and still close at a jury of EXACTLY 9 and a Final 2.
  *  • double eviction: the player is a nominee / a voter in the double-eviction week;
  *  • battle-back: the player is an evicted juror in the recent window — competes, and (when they win) RE-ENTERS and plays on;

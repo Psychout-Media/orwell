@@ -4,7 +4,7 @@ import { PLAYER } from "../../src/domain/ids";
 import type { DealView, DealRefusal, MakeDealReq } from "../../src/ports/GameSession";
 
 /**
- * ORW-82 - the consent CHAIN, through the real adapter and the real break path (no hand-planted grudge): the player makes a deal with a warm NPC (accepted), the engine's own
+ * ORW-82 - the consent CHAIN (unit, state set by hand: the warm edge is assigned; the REAL PATH is tests/realpath/dealConsentChain.test.ts, ORW-811): the player makes a deal with a warm NPC (accepted), the engine's own
  * reconcile path breaks it (the player nominates the protected NPC: `reconcileDeals`, the same call every recorded event goes through), the wronged NPC now remembers the break, and a SECOND
  * proposal to the same NPC is refused. The chain is mutation-checked: dropping the consent check makes the second proposal succeed. Roles only.
  */
@@ -24,7 +24,7 @@ function setup(seed: number): { s: Sess; npc: string; other: string; p: Priv } {
 /** Moderately warm: enough for a cheap ask to be accepted, not so warm that one betrayal is simply forgiven. */
 const warm = (p: Priv, npc: string): void => { Object.assign(p.rel.edge(npc, PLAYER), { trust: 0.5, affinity: 0.45, threat: 0.15 }); };
 
-describe("ORW-82 consent chain: break a deal, then propose to the same NPC", () => {
+describe("unit, state set by hand: ORW-82 consent chain, break a deal, then propose to the same NPC", () => {
   it("a warm NPC accepts; the player breaks the deal through the real reconcile path; the SAME NPC then refuses a new proposal and no second deal is recorded", () => {
     const { s, npc, other, p } = setup(5);
     warm(p, npc);
