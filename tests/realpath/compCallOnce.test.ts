@@ -6,7 +6,7 @@ import { answerPending } from "../../features/support/answerPending";
 /**
  * ORW-859 (716b): a season playtest narrated the HOH competition's call scene three turns running. While the player's approach card was open the narrator's context kept saying
  * "IT IS TIME: the HOH competition is starting NOW - production calls the whole house", so each message the player typed re-staged the call and the competition itself was never reached.
- * The call is voiced once (the turn the event comes due); once the game has opened the event and waits on the player, the context says it has ALREADY been called.
+ * The call is voiced once (the turn the event comes due and stages the card); on every later message while the game waits on the player, the context says it has ALREADY been called.
  * Played through the player channel (a message each turn, every earlier decision answered, advance when due); nothing is set by hand. Roles only.
  */
 const CALL = /IT IS TIME:[^\n]*starting NOW/;
@@ -18,7 +18,7 @@ describe("a called competition is not called again while the player's card is op
     const s = new GameSessionRegistry().sandboxFor("comp-call-once").session as any; // eslint-disable-line @typescript-eslint/no-explicit-any
     s.createCharacter({ playerName: "The Player", seed: 108 });
     const ctx = (): string => String(s.getMomentPrompt({ moment: "hoh-competition" }).systemPrompt);
-    let m = 0, control = false, checked = 0;
+    let m = 0, control = false, checked = 0, called = false;
     for (let i = 0; i < 6000 && checked < 3; i++) {
       s.noteMessage({ messageId: `m${m++}` });
       const live = s.snapshot().live, g = s.getGameState();
@@ -34,6 +34,7 @@ describe("a called competition is not called again while the player's card is op
       if (s.milestoneDue() || g.pending) {
         if (live.week >= 2 && live.beat === "hoh-competition" && !g.pending && CALL.test(ctx())) control = true;
         const v = s.advanceGame();
+        if (live.week >= 2 && s.getGameState().pending?.kind === "comp-round" && !called) { called = true; expect(ctx(), "the turn the event came due and staged the card still gets the call").toMatch(CALL); }
         if (v.held && ["night", "late-night"].includes(live.timeOfDay)) s.turnIn();
         continue;
       }

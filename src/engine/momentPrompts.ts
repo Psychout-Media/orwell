@@ -1690,7 +1690,7 @@ export function renderGameContext(view: GameStateView): string {
     // number). Present only when the per-conversation clock is live (absent in the seeded spine / golden).
     ...(view.daySchedule
       ? [
-          view.daySchedule.due && view.pending
+          view.daySchedule.due && view.pending && (view.daySchedule.heldTurns ?? 0) > 0
             // ORW-859 (716b): the event is due AND the game already opened it and now waits on the player (the approach card, a ballot, a choice). Production's call has been voiced once; saying "starting NOW, production calls the house" again on every later turn made the narrator re-stage the call scene each time the player spoke (three times in a row) and never reach the event itself.
             ? `- THE ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart).toUpperCase()} HAS ALREADY BEEN CALLED and the house is gathered${view.daySchedule.stagingRoom ? ` in ${roomRefHere(view.daySchedule.stagingRoom)}` : ""}: production's call is voiced, so never voice it again and never stage the gathering again. The game is waiting on the player's own ${view.pending.kind === "ceremony-step" ? "Continue" : "decision card"}. Answer whatever the player says or does in the scene, keep the room tense and in motion, and hold there; the event plays out only after the player decides, and its rounds, drops and winner come from the game, never from you.`
             : view.daySchedule.due
