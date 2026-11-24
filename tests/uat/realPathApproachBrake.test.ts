@@ -43,7 +43,7 @@ describe("B3-3: a houseguest scheming about the player to a third party stays hi
 describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer folds none (played)", () => {
   it.todo("real path: a milestone ask by a houseguest who holds an open record of their own leaves it open - not reached: in seeds 11, 12, 13 (700 messages each) no houseguest with an open record made a milestone ask (ORW-709)");
 
-  it("a hostile approach answered kindly writes no fight; the same approach ignored does (seed 11, the same game played twice up to the approach; re-pinned from 13 by ORW-791, see ORW-870)", async () => {
+  it("a hostile approach answered kindly writes no fight; the same approach ignored does (seed 11, the same game played twice up to the approach; re-pinned from 13 by ORW-791, see ORW-872)", async () => {
     const run = async (answer: boolean): Promise<{ fights: number; shown: boolean }> => {
       let target: string | undefined; let answered = false; let shown = false; let after = 0; let s: Sess | undefined;
       await playMixGame(11, 1400, { user: "mixdrv-11",
