@@ -214,7 +214,7 @@ added on top of the known late-season growth.
 
 ## 9. Open questions (for the implementer / a later phase)
 
-- **Player-actionable surfacing (ORW-822).** This phase keeps surfacing *belief-level / atmospheric*. A later
+- **Player-actionable surfacing: superseded** (ORW-822, 11-24: the player acts on what surfaces through 0094 `confront`, 0099 secrets as currency and 0202 leverage). This phase keeps surfacing *belief-level / atmospheric*. A later
   phase could turn a surfaced-to-player thread into a real decision point (a "confront / exploit / sit on it"
   pending), making the player an active participant in a secret's resolution. Held out of scope to keep this
   phase restrained — flag for product before building.
