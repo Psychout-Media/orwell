@@ -201,7 +201,8 @@ When("the player starts a clash with that houseguest", function () {
 });
 Then("the grudge book holds a heartbreak deeper than a broken deal's grudge, once", function () {
   const s = (bag(this) as Any).clash as Season;
-  const rows = s.grudges.filter((g) => g.kind === "heartbreak");
+  // the player's own showmance's heartbreak (the house's own couples may break up in the same season, each with their own row: not this scenario's claim)
+  const rows = s.grudges.filter((g) => g.kind === "heartbreak" && g.key.split("|").includes("player"));
   assert.equal(rows.length, 1, `one heartbreak, once: ${JSON.stringify({ r: s.romances, b: s.breakups, p: s.partner, clashed: s.clashAt, kinds: s.grudges.reduce((m: Record<string, number>, g) => ({ ...m, [g.kind]: (m[g.kind] ?? 0) + 1 }), {}) })}`);
   assert.ok(rows[0]!.severity > GRUDGES.DEAL_BREAK_SEVERITY);
   assert.equal(s.breakups.filter((k) => k.includes("player")).length, 1);

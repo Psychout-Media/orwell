@@ -54,8 +54,12 @@ describe("a betrayal rumor records its victim from the real betrayal event (play
     const v = betrayed(at).find((x) => room(at).includes(x))!;
     const deal = dealsOf(at).find((d) => d.status === "broken" && d.brokenBy === PLAYER && d.parties.includes(v)) as Deal & { secretVote?: boolean };
     expect(deal.secretVote, "the break was the player's secret ballot").toBe(true);
+    const held = new Set([...room(at)].flatMap((h) => rumorsOf(at, h).map((c) => `${h}|${c.id}`)));
     const { o } = await tellTheRoom(at, v);
-    for (const h of [v, o]) for (const c of rumorsOf(at, h)) expect(c.object, "no victim from a ballot the betrayed never saw").toBeUndefined();
+    // the rumors THIS telling planted (about the player): the listeners may already hold other betrayal rumors about other houseguests, each with its own victim
+    const planted = [v, o].flatMap((h) => rumorsOf(at, h).filter((c) => !held.has(`${h}|${c.id}`) && c.subject === PLAYER));
+    expect(planted.length, "non-vacuous: the telling planted a rumor about the player").toBeGreaterThan(0);
+    for (const c of planted) expect(c.object, "no victim from a ballot the betrayed never saw").toBeUndefined();
     expect(rumorsOf(at, v).length + rumorsOf(at, o).length, "non-vacuous: the rumor landed").toBeGreaterThan(0);
     const toO = () => rumorsOf(at, o).find((c) => c.subject === PLAYER);
     expect(toO(), "the bystander heard it about the player (no mishearing on this seed)").toBeDefined();

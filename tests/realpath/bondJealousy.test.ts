@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { PLAYER } from "../../src/domain/ids";
 import { GameSessionRegistry } from "../../src/composition/registry";
-import { jealousyKey } from "../../src/engine/bondJealousy";
+import { jealousyKey, BOND_JEALOUSY } from "../../src/engine/bondJealousy";
 import { playedGame } from "../support/playedGame";
 import { firstSeedWhereSync } from "../support/firstSeedWhere";
 
@@ -32,7 +32,8 @@ describe("0181 REAL PATH: jealousy grows from what the holder watched, in a play
       expect(key).toBe(jealousyKey(holder, rival));
       expect(holder).not.toBe(PLAYER);
       const warmth = (o: string): number => p.bondReader().bond(holder, o).warmth; // the bond record the tick reads (a view: it folds nothing)
-      expect(warmth(row.close), "the holder is warmer to the friend than to the rival").toBeGreaterThan(warmth(rival));
+      // the rule (0181: "a holder close to X, warmth past a bar"): close to the friend. It does not ask the holder to like the friend more than the rival (a warm rival only damps the reading).
+      expect(warmth(row.close), "the holder is close to the friend").toBeGreaterThanOrEqual(BOND_JEALOUSY.closeBar);
       const sawThem = events.some((e) => e.witnessSet.includes(row.close) && e.witnessSet.includes(rival) && !e.witnessSet.includes(holder) && (e.houseLife?.seenBy ?? []).includes(holder));
       expect(sawThem, "the holder watched the friend with the rival").toBe(true);
     }

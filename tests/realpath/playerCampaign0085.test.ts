@@ -25,12 +25,17 @@ async function pitchedAt(seed: number, user: string, opts: PitchOpts) {
   g.playUntil(() => (g.s.getGameState() as { week?: number }).week! >= 2 && !g.s.getGameState().pending, 5000, "week 2");
   const npcs = g.s.livingIds().filter((id) => id !== PLAYER);
   if (npcs.length < 3) return undefined;
-  const [recruit, target, bystander] = npcs as [string, string, string];
+  const [recruit, target] = npcs as [string, string];
   for (let i = 0; i < 4; i++) await g.sb.mcp.player.callTool("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, recruit], content: "the player keeps them company and has their back", kind: "bonding" });
   const res = await g.sb.mcp.player.callTool("recordInteraction", {
     initiator: PLAYER, witnessSet: [PLAYER, recruit], content: "the player pulls them aside and makes the case that the other one is the real threat",
     consequence: { aboutEdges: [{ holder: recruit, about: target, direction: opts.direction ?? "more-threatened", emphasis: "strong" }] },
   });
+  // a bystander nobody pitched about the target, read after the pitch's own turn: in no campaign against them (the house runs its own campaigns, and one of the
+  // bystander's own, or one they were told of, would move their vote too)
+  const campaigns = (g.s as unknown as Priv).campaigns;
+  const bystander = npcs.slice(2).find((x) => !campaigns.some((c) => c.target === target && (c.owners.includes(x) || c.knownTo.includes(x))));
+  if (!bystander) return undefined;
   return { g, recruit, target, bystander, res, p: g.s as unknown as Priv };
 }
 const mine = (p: Priv): Campaign[] => p.campaigns.filter((c) => c.owners[0] === PLAYER);
