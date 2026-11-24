@@ -20,6 +20,8 @@ export interface TraceRow { i: number; ev: number; last: string; st?: string }
 
 export interface PlayOpts {
   seed: number;
+  /** ORW-852: the sandbox name. It is part of the game's identity (with the seed it keys the player-action and off-screen streams), so a real-path test pins it; default `wf-<seed>`. */
+  user?: string;
   maxMessages?: number;
   advanceEvery?: number;
   talkEvery?: number;
@@ -150,7 +152,7 @@ const DEALS = ["safety", "final-two", "vote"] as const;
 export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
   const { seed } = opts;
   const maxMessages = opts.maxMessages ?? 40000, advEvery = opts.advanceEvery ?? 6, talkEvery = opts.talkEvery ?? 2, sampleEvery = opts.sampleEvery ?? 25;
-  const user = `wf-${seed}`;
+  const user = opts.user ?? `wf-${seed}`;
   const rnd = mulberry(seed * 7919 + 13);
   // the production clock (a fixed-epoch logical play-clock) in BOTH the in-memory and the durable run, so the only difference a comparison can see is the save and the restart
   const mk = (): Runtime => composeRuntime(opts.saveDir ? { saveStore: new FileSaveStore(opts.saveDir), seed } : { seed });

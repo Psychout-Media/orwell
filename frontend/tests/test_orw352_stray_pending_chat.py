@@ -24,7 +24,7 @@ from test_orw191_golden_flows import AI_BUBBLE, _count_containing, _launch, _ope
 pytestmark = pytest.mark.browser
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture()  # ORW-864: a stack PER ATTEMPT. It was module-scoped, so a pytest rerun reused the stack whose canonical binding (first-writer-wins) the failed first attempt had already set: the rerun could never bind its own new session and failed "never bound the canonical game chat" by construction, hiding the first attempt's real failure.
 def _casting_stack():
     yield from _boot_stack(create_game=False)
 
