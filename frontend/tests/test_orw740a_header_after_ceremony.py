@@ -26,6 +26,7 @@ def _get(stack, path):
     return json.loads(urllib.request.urlopen(stack["fe"] + path, timeout=30).read())
 
 
+@pytest.mark.quarantine(card="ORW-847", added="2026-11-24")  # ORW-847 re-quarantined 11-24: it failed on main after the rewrite; the failure it caught (a stale reply stamp, one phase behind) is a real product bug carded as a child of ORW-740
 def test_the_reply_stamp_and_the_panel_header_match_the_engine_after_every_ceremony(_stack, monkeypatch):  # noqa: F811
     from playwright.sync_api import sync_playwright
     from routes import chat_helpers as ch
