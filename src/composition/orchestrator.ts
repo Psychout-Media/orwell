@@ -760,7 +760,7 @@ export class Orchestrator {
     if (!isSuperset(gsCand, gsBase, { trustEventPrefix: opts.trustEventPrefix === true })) degradation = "gameState";
     else if (!countsNonDecreasing(counts(gsCand), counts(gsBase))) degradation = `gameState.counts.${firstDropped(counts(gsCand), counts(gsBase)) ?? "?"}`;
     else {
-      const core = sessionCoreSupersetViolation(candidate, baseline);
+      const core = sessionCoreSupersetViolation(candidate, baseline, { trustPrefix: opts.trustEventPrefix === true });
       if (core !== null) degradation = `sessionCore.${core}`;
       else if (!sessionCoreCountsNonDecreasing(sessionCoreCounts(candidate), sessionCoreCounts(baseline))) {
         degradation = `sessionCore.counts.${firstDropped(sessionCoreCounts(candidate), sessionCoreCounts(baseline)) ?? "?"}`;

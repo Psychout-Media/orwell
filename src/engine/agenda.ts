@@ -511,3 +511,15 @@ export function isAgendaSuperset(prev: Agenda, next: Agenda): boolean {
   if (prev.owner !== next.owner || next.history.length < prev.history.length) return false;
   return prev.history.every((g, i) => JSON.stringify(g) === JSON.stringify(next.history[i]));
 }
+
+/**
+ * ORW-844: the same guard on the commit's fast path (the checkpoint's `trustEventPrefix` window, the one the events use): the history is append-only, so between two full checks it is enough that the owner is the
+ * same, the history was not truncated, and the first and last entries of the earlier history are still what they were (a drop, a replacement or a rewrite at either end). An in-place rewrite of an entry in
+ * the middle is caught by the full `isAgendaSuperset` that runs on the first commit and at least every `R3_FULL_CHECK_EVERY` commits, as for events.
+ */
+export function isAgendaSupersetOnTrustedPrefix(prev: Agenda, next: Agenda): boolean {
+  if (prev.owner !== next.owner || next.history.length < prev.history.length) return false;
+  const n = prev.history.length;
+  if (n === 0) return true;
+  return JSON.stringify(prev.history[0]) === JSON.stringify(next.history[0]) && JSON.stringify(prev.history[n - 1]) === JSON.stringify(next.history[n - 1]);
+}
