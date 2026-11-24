@@ -25,11 +25,12 @@ MIN_SCENE_CHARS = 40          # under this a reply is a header or a one-liner, n
 THIN_SCENE_CHARS = 200        # under this it is only a NOTE
 COMP_PHASES = ("hoh-competition", "veto-competition", "final-hoh", "final-competition")
 BAR = {"B1": "T3", "B2": "T3", "B3": "T3", "B5": "T3", "B4": "T7", "B6": "T6"}
-BAR_CATEGORY = {"T2": "contradictions", "T3": "contradictions", "T4": "contradictions", "T7": "wall-leaks", "T9": "contradictions", "T13": "contradictions", "T16": "contradictions",
+BAR_CATEGORY = {"T2": "contradictions", "T3": "contradictions", "T4": "contradictions", "T7": "wall-leaks", "T9": "contradictions", "T13": "contradictions", "T14": "contradictions", "T16": "contradictions",
                 "T1": "stand-in", "T5": "unanswered", "T6": "wall-leaks", "T11": "wall-leaks", "R1": "missing-results", "S1": "stalls", "L1": "stalls"}
 NOT_COVERED = ["T8 choices go through the card (the driver answers every card itself; a choice taken without one is not observable from the chat)",
                "T10 invented confession (needs the engine's disclosure log, which the player channel never shows)",
-               "T12 premiere toasts, T14 early-morning label, T15 awake list, T17 recap per bedtime, T18 naps and T19 the engine moves first: the driver plays a nap and a move but does not judge them",
+               "T14 early-morning label: judged only when the run logs the HUD's day-part label (the played-transcript judge, judge_transcript.py, does; this driver does not)",
+               "T12 premiere toasts, T15 awake list, T17 recap per bedtime, T18 naps and T19 the engine moves first: the driver plays a nap and a move but does not judge them",
                "T20 early sleepers wake alone",
                "two windows (the bar's full-week addition): one window is played",
                "T7 hidden information beyond a sealed ballot named to a voter, and T11 perspective leaks: those need a reader (the narration-fidelity audit), not a regex"]
@@ -97,6 +98,22 @@ def judge_turn(t, table=None):
     return out
 
 
+def early_morning_findings(turns):
+    """T14 (Ryne 11-15, ORW-392): before the house's wake-up the HUD's day part reads "Early morning", the mirror of "Late night", and never otherwise. Judged on a turn only when
+    both the engine's flag (`early_morning`, from the status route) and the label the player saw (`hud_tod`, the HUD's rendered text) were logged; otherwise not judged."""
+    out = []
+    for t in turns:
+        flag, shown = t.get("early_morning"), t.get("hud_tod")
+        if not isinstance(flag, bool) or not isinstance(shown, str) or not shown.strip():
+            continue
+        says = "early morning" in shown.lower()
+        if flag and not says:
+            out.append(_f(t, "T14", "fail", f"the engine says it is before the wake-up, but the HUD shows {shown.strip()!r}, not \"Early morning\"", "T14-not-early"))
+        elif says and not flag:
+            out.append(_f(t, "T14", "fail", f"the HUD shows {shown.strip()!r} while the engine says it is not before the wake-up", "T14-false-early"))
+    return out
+
+
 def phase_known(phase):
     return bool(phase) and phase not in ("setup", "premiere")
 
@@ -108,6 +125,7 @@ def judge_run(turns, table=None):
         findings.append({"id": c["id"], "turn": c["id"].split("[")[1].rstrip("]"), "check": "S1", "category": "stalls", "severity": "fail", "detail": c["detail"]})
     for c in lc.detect_livelock(turns):
         findings.append({"id": c["id"], "turn": c["id"].split("[")[1].rstrip("]"), "check": "L1", "category": "stalls", "severity": "fail", "detail": c["detail"]})
+    findings += early_morning_findings(turns)
     for c in lt.missing_results(turns) + lt.retcons(turns) + lt.time_findings(turns):
         chk = c["id"].split("-")[0]
         findings.append({"id": c["id"], "turn": c["id"].split("[")[1].rstrip("]"), "check": chk, "category": BAR_CATEGORY.get(chk, "contradictions"), "severity": c["severity"], "detail": c["detail"]})
@@ -170,7 +188,7 @@ def build_report(meta, turns, findings, stats, budget, verdict_word, error=None,
     L = [f"# Live run (full-week tier) - {verdict_word}", "",
          f"- Verdict: **{verdict_word}** - {nfail} failing finding(s) over {stats['turns']} turn(s); stall: {'YES' if stats['stall'] else 'no'}; livelock: {'YES' if stats['livelock'] else 'no'}; "
          f"planned end reached: {'yes' if reached_end else 'no'}" + (f"; stopped: {S(error)}" if error else ""),
-         f"- Build: {S(meta.get('build', '?'))}; tier: full week; model: {S(meta.get('model', '?'))}; started (UTC): {S(meta.get('started_utc', '?'))}; Arizona: {S(meta.get('started_az', '?'))}",
+         f"- Build: {S(meta.get('build', '?'))}; tier: {S(meta.get('tier', 'full week'))}; model: {S(meta.get('model', '?'))}; started (UTC): {S(meta.get('started_utc', '?'))}; Arizona: {S(meta.get('started_az', '?'))}",
          f"- Spend: ${budget.get('spent_usd', '?')} of a ${budget.get('max_spend_usd', '?')} cap; turns: {budget.get('turns', '?')} of {budget.get('max_turns', '?')}", ""]
     L += ["## Checks (count of failing turns)", "", "| Check | Failing |", "|---|---|"]
     for c in sorted(set(list(stats["fail_counts"]) + ["T1", "T2", "T3", "T4", "T5", "T6", "T7", "T9", "T11", "T13", "T16", "R1", "S1", "L1"])):
