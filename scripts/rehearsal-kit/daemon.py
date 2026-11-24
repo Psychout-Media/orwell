@@ -18,6 +18,7 @@ def _rig_base(run):
 RUN = sys.argv[1]; BASE = _rig_base(RUN)
 REQ, RESP = f"{RUN}/req.json", f"{RUN}/resp.json"
 turnlog = open(f"{RUN}/turnlog.txt", "a"); transcript = open(f"{RUN}/transcript.txt", "a")
+turns_log = open(f"{RUN}/turns.jsonl", "a")   # ORW-109: one JSON line per turn (judge_transcript.py reads it)
 def log(s): turnlog.write(s + "\n"); turnlog.flush()
 BUB = """() => [...document.querySelectorAll('#chat-history .msg-ai')].map(el => { const c = el.cloneNode(true);
   c.querySelectorAll('.thinking-content,.thinking,[class*=thinking],.msg-footer').forEach(n=>n.remove());
@@ -73,9 +74,21 @@ with sync_playwright() as p:
         st = {}
         try: st = ctx.request.get(BASE + "/api/orwell/status").json()
         except Exception as e: st = {"err": str(e)}
+        # ORW-109: also the board and the presence strip (what the player's screens read), so a played run can be judged afterwards turn by turn
+        # (scripts/live-run/judge_transcript.py). A failed read is left out (unknown), never invented.
+        board = where = None
+        try: board = ctx.request.get(BASE + "/api/orwell/state").json()
+        except Exception: board = None
+        try: where = ctx.request.get(BASE + "/api/orwell/whereabouts").json()
+        except Exception: where = None
+        try: hud_tod = page.evaluate("document.querySelector('#os-tod')?.innerText || null")   # the day part the player SEES on the HUD (T14)
+        except Exception: hud_tod = None
         if req.get("shot", True): page.screenshot(path=f"{RUN}/shots/t{last:03d}.png", full_page=False)
         for x in new: transcript.write(f"--- turn {last} ---\n{x['txt']}\n"); 
         transcript.flush()
         chy = page.evaluate("[...document.querySelectorAll('.ow-chyron')].map(e=>e.innerText.replace(/\\n/g,' | '))"); ann = page.evaluate("window.__ann||[]")
         json.dump({"n": last, "chyron_dom": chy, "ann_events": ann, "bubbles": [x["txt"] for x in new], "thinkSeen": any(x["think"] for x in new), "card": card, "status": st, "secs": round(time.time()-t0,1)}, open(RESP + ".tmp", "w")); os.replace(RESP + ".tmp", RESP)
+        # ORW-109: keep EVERY turn (resp.json holds only the latest): the player's message, the card the player answered, the new public bubbles and the three screen reads.
+        turns_log.write(json.dumps({"n": last, "msg": req.get("text"), "card_req": c, "bubbles": [x["txt"] for x in new], "card": card, "state": board, "status": st,
+                                    "whereabouts": where, "hud_tod": hud_tod, "secs": round(time.time() - t0, 1), "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}) + "\n"); turns_log.flush()
         print("turn", last, "done", round(time.time()-t0), flush=True)
