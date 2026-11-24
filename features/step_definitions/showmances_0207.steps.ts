@@ -100,12 +100,30 @@ const slow = { timeout: 900_000 };
 /** The ruling, written out here on purpose (not read from the engine's constants, so a tuned-away rule goes red): the least days a pair spends in each level before the next, at the fastest per-pair pace (a quarter off), and the earliest day a public couple can form. */
 const LEAST_DAYS_IN_LEVEL = [3 * 0.75, 4 * 0.75, 5 * 0.75, 6 * 0.75] as const;
 const EARLIEST_PUBLIC_DAY = 22;
+/**
+ * ORW-893: the one played season most scenarios read was pinned at seed 3. The orientation draw is realistic now (about a tenth of a cast, not five in six), so a pinned cast can hold too few drawn pairs for the
+ * positive controls these scenarios rely on (chemistry toward the player, seeded showmances, a pair that climbs). The seed is the first from 3 up whose cast, played a short while, holds chemistry toward a
+ * player who presents as a woman, chemistry between houseguests, and a seeded showmance: the scan is bounded, deterministic and read off the real engine.
+ */
+let mainSeedRun: Promise<number> | undefined;
+function mainSeed(): Promise<number> {
+  return (mainSeedRun ??= (async () => {
+    for (let seed = 3; seed <= 30; seed++) {
+      const s = await playSeason(seed, "woman", MAIN); // cached: the scenarios then read the same season
+      const recs = Object.entries(s.paceRecords);
+      if (Object.keys(s.chem).some((k) => k.endsWith(">player")) && recs.some(([, r]) => r.steps.length > 0) && recs.some(([k, r]) => k.includes("player") && r.steps.length > 0)
+        && s.rows.some((r) => Object.values(r.stages).length > 0) && s.rows.some((r) => r.push > 0)) return seed;
+    }
+    return assert.fail("no seed in [3,30] plays a season with chemistry toward the player, a climbing pair, a climbing player pair, a seeded showmance and an HOH weighing a couple");
+  })());
+}
+
 const bag = (w: unknown): { seasons: Season[]; ctl?: Ctl } => ((w as { s0207?: { seasons: Season[]; ctl?: Ctl } }).s0207 ??= { seasons: [] });
 
 // ------------------------------------------------------------------ the played seasons
-Given("a played season in which the player has said how they present", slow, async function () { bag(this).seasons = [await playSeason(3, "woman", MAIN)]; });
-Given("played seasons with showmances", slow, async function () { bag(this).seasons = [await playSeason(3, "woman", MAIN)]; });
-Given("a played game where the player keeps a romance going over many days", slow, async function () { bag(this).seasons = [await playSeason(3, "woman", MAIN)]; });
+Given("a played season in which the player has said how they present", slow, async function () { bag(this).seasons = [await playSeason(await mainSeed(), "woman", MAIN)]; });
+Given("played seasons with showmances", slow, async function () { bag(this).seasons = [await playSeason(await mainSeed(), "woman", MAIN)]; });
+Given("a played game where the player keeps a romance going over many days", slow, async function () { bag(this).seasons = [await playSeason(await mainSeed(), "woman", MAIN)]; });
 
 const one = (w: unknown): Season => bag(w).seasons[0]!;
 const pairKeyOf = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`);

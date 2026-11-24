@@ -450,11 +450,13 @@ describe("0063 — the 0059 showmance eligibility tie (queer showmances are firs
 
   it("across seeds the seeded showmance layer can produce a QUEER (same-gender) showmance, sealed at cast time", () => {
     let queerShowmanceSeeds = 0;
-    for (let seed = 1; seed <= 80; seed++) {
+    // ORW-893: orientation is now a realistic draw (about a tenth of a cast, not five in six), so a same-gender showmance is rarer: scan on until one is found (at least 80 seeds are checked for plausibility).
+    for (let seed = 1; seed <= 800 && !(seed > 80 && queerShowmanceSeeds > 0); seed++) {
       const { sb } = liveGame(`div-show-${seed}`, seed);
       const rels = sb.session.snapshot().seededRelationships;
       if (!rels?.showmances?.length) continue;
-      const ids = showmanceIdentities(generateDiversityLayer(seed, sb.session.snapshot().house!.npcs));
+      // ORW-893: the identities the seeding read are the layer of the cast AS DRAWN (`layerForSeed`); re-deriving from the snapshot's house (names already re-picked to fit the presentation) can disagree on a few seeds (135 on main).
+      const ids = showmanceIdentities(layerForSeed(seed).layer);
       for (const s of rels.showmances) {
         const a = ids[s.a]!; const b = ids[s.b]!;
         // every seeded showmance is plausible (the eligibility gate), and none is visible at cast time
