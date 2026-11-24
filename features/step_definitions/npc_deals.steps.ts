@@ -27,8 +27,9 @@ interface Ctx {
 const state = new WeakMap<object, Ctx>();
 const st = (w: BbWorld): Ctx => { let c = state.get(w); if (!c) { c = { seeds: [], events: [], made: [], runs: [] }; state.set(w, c); } return c; };
 
+// The sandbox key is NOT only an isolation id: the orchestrator seeds the off-screen tick stream from `${seed}:${user}`, so a random key reshuffles the played season (ORW-826). Keys here are fixed.
 function seat(seed: number): { g: G; a: EntityId; b: EntityId; c: EntityId } {
-  const s = new GameSessionRegistry().sandboxFor(`npc-deals-${seed}-${Math.random()}`).session as unknown as G & { createCharacter(a: unknown): void };
+  const s = new GameSessionRegistry().sandboxFor(`npc-deals-${seed}`).session as unknown as G & { createCharacter(a: unknown): void };
   s.createCharacter({ playerName: "The Player", archetype: "floater", seed });
   s.advanceGame(); s.advanceGame();
   const [a, b, c] = s.livingIds().filter((i) => i !== PLAYER) as [EntityId, EntityId, EntityId];
@@ -120,7 +121,7 @@ Then("npc deals: the deal's event names only those two as witnesses", function (
 });
 
 Given("npc deals: a played season where NPCs struck deals and one plans to break it", async function (this: BbWorld) {
-  const c = st(this); c.game = await playDealsGame(3, 900, { until: (x) => x.week() >= 3, user: `bdd-npcdeals-${Math.random()}` });
+  const c = st(this); c.game = await playDealsGame(3, 900, { until: (x) => x.week() >= 3, user: "bdd-npcdeals-view" });
   assert.ok(c.game.session.deals.npcOnly().length > 0);
   (c.game.session as unknown as G).setPlanSource({ planOf: () => ({ kind: "break-at", moment: { week: 1, at: "nominations" } }) });
 });
@@ -145,12 +146,12 @@ When("npc deals: each house proposes its week's deals", function (this: BbWorld)
 Then("npc deals: both hold the same deals and plans in the same order", function (this: BbWorld) { const c = st(this); assert.equal(c.runs[0], c.runs[1]); assert.ok(JSON.parse(c.runs[0]!)[0].length > 0); assert.ok(Object.keys(JSON.parse(c.runs[0]!)[1]).length > 0); });
 
 Given("npc deals: a played season where NPCs struck deals", async function (this: BbWorld) {
-  const c = st(this); c.game = await playDealsGame(3, 900, { until: (x) => x.week() >= 3, user: `bdd-npcdeals-save-${Math.random()}` });
+  const c = st(this); c.game = await playDealsGame(3, 900, { until: (x) => x.week() >= 3, user: "bdd-npcdeals-save" });
   c.first = c.game.session.deals.serialize() as unknown as Deal[]; assert.ok(c.first.length > 0);
 });
 When("npc deals: the season is saved and loaded into a fresh session", function (this: BbWorld) {
   const c = st(this); c.snap1 = JSON.parse(JSON.stringify(c.game!.session.snapshot()));
-  c.copy = new GameSessionRegistry().sandboxFor(`bdd-npcdeals-copy-${Math.random()}`).session as unknown as G; c.copy.restore(c.snap1);
+  c.copy = new GameSessionRegistry().sandboxFor("bdd-npcdeals-copy").session as unknown as G; c.copy.restore(c.snap1);
 });
 Then("npc deals: the loaded session holds every deal the saved one held", function (this: BbWorld) { const c = st(this); assert.equal(JSON.stringify(c.copy!.deals.serialize()), JSON.stringify(c.first)); });
 Then("npc deals: a later save never holds fewer deals", async function (this: BbWorld) {
