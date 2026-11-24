@@ -1105,6 +1105,8 @@ export interface LiveSeasonState {
    * pre-0102 save or whenever the clock has never rolled a day ⇒ no recap, byte-identical to today.
    */
   dayNumber?: number;
+  /** ORW-859: player messages since the due event opened and the engine began holding the player's card (see `noteMessage`); absent when 0. */
+  dueHeldMessages?: number;
   dailyRecapEventCursor?: number;
   dailyRecapKnowledgeCursor?: number;
   lastDailyRecap?: DailyRecapEntry;

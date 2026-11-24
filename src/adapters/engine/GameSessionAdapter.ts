@@ -1385,6 +1385,9 @@ export class GameSessionAdapter implements GameSession {
     this.ensureBeds(); // ORW-466 slice 2: whoever walked in before the game was played claims now, still in entrance order
     if (this.live) this.live.clockInteractive = true; // ORW-116 (b): the player is really talking - from here the night is theirs (see nightHeld)
     this.hangOutSkipStepAt = undefined; // a hang-out's one-shot skip is for the legacy per-commit follow-up; every announced message bills its own step
+    // ORW-859: how many player messages have come since the engine opened the due event and began holding the player's card. Counted BEFORE this message's clock step, so the message the event comes due on (and the
+    // card it stages) reads 0 and still gets the call; each later message while the card is held reads 1, 2 ... and the narrator is told the call was already voiced. Absent otherwise (byte-identical saves).
+    if (this.live) { if (this.live.pending && milestoneDueOf(this.live)) this.live.dueHeldMessages = (this.live.dueHeldMessages ?? 0) + 1; else delete this.live.dueHeldMessages; }
     this.advanceClockPerConversation();
     this.persist(); // the clock moved: one persisted commit (integrity checkpoint + beatSeq), survives a reload
     return { accepted: true, beatSeq: this.beatSeq }; // post-commit token: the FE refreshes its last-seen beatSeq from it (no self-inflicted stale-beat 409)
@@ -23053,7 +23056,7 @@ export class GameSessionAdapter implements GameSession {
     // HUD shows it and `renderGameContext` primes on it so run-up scenes carry the coming interruption.
     const nextM = this.perConversationClockLive() ? nextMilestone(this.live) : null;
     const daySchedule = nextM
-      ? { next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}), ...(dueTomorrow(this.live) ? { tomorrow: true as const } : {}), ...(this.eventRoomFactEnabled && eventStagingRoom(nextM.beat, this.live?.playedGame === true) ? { stagingRoom: eventStagingRoom(nextM.beat, this.live?.playedGame === true)! } : {}), ...(finalHohPartOf(this.live, this.finalHohThreePartEnabled) ? { finalHohPart: finalHohPartOf(this.live, this.finalHohThreePartEnabled)! } : {}) }
+      ? { next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}), ...(dueTomorrow(this.live) ? { tomorrow: true as const } : {}), ...((this.live?.dueHeldMessages ?? 0) > 0 ? { heldTurns: this.live!.dueHeldMessages! } : {}), ...(this.eventRoomFactEnabled && eventStagingRoom(nextM.beat, this.live?.playedGame === true) ? { stagingRoom: eventStagingRoom(nextM.beat, this.live?.playedGame === true)! } : {}), ...(finalHohPartOf(this.live, this.finalHohThreePartEnabled) ? { finalHohPart: finalHohPartOf(this.live, this.finalHohThreePartEnabled)! } : {}) }
       : undefined;
     // #1411 — the single closed-set lever this beat requires the narrator to CALL (advanceGame at the
     // deterministic comp/ceremony/eviction beats), or null otherwise. The FE forces THIS on the wire
