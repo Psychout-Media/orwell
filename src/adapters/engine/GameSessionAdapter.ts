@@ -6848,7 +6848,8 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live;
     if (!this.houseNormsEnabled || !s || s.playedGame !== true || !s.beliefs || !this.npcBeliefsEnabled) return;
     const rec = s.voteRecord?.[s.voteRecord.length - 1];
-    if (!rec || rec.week !== s.week) return;
+    // ORW-870: the week rolls as the eviction's result lands, BEFORE the vote is talked about, so the first night after the vote is the record's week + 1 (and the rumors told then carry that week). Reading only `rec.week === s.week` never matched in a played game.
+    if (!rec || (s.week !== rec.week && s.week !== rec.week + 1)) return;
     const ballots = Object.entries(rec.voteOf);
     const survivor = ballots.map(([, t]) => t).find((t) => t !== rec.evictee);
     if (!survivor) return; // a unanimous count: no one dissented
@@ -6858,7 +6859,7 @@ export class GameSessionAdapter implements GameSession {
     const living = new Set(this.livingIds());
     for (const [holder, target] of ballots.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
       if (holder === PLAYER || target !== rec.evictee || !living.has(holder)) continue;
-      for (const d of heardDissenters(s.beliefs[holder] ?? [], holder, rec.evictee, survivor, rec.week)) {
+      for (const d of heardDissenters(s.beliefs[holder] ?? [], holder, rec.evictee, survivor, s.week)) { // the week the rumors were heard (ORW-870)
         const key = `${rec.week}|${holder}|${d}`;
         if (noticed.has(key) || !living.has(d)) continue;
         noticed.add(key);
