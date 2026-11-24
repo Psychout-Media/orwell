@@ -760,6 +760,9 @@ export class GameSessionRegistry {
     // PROSE only, not the board, and a background bump would trip a phantom single-tab stale-409 (the
     // A-S3 fold-drop). So this mirrors the next-season-warm precedent: syncAdmin + invalidate the R3
     // snapshot cache (the durable mirror changed) + a blind save — never `commit`.
+    // ORW-731: a record the player's own turn wrote without committing (a refused deal's why-record) is saved by a PLAIN durable write: no `commit` (no beat, checkpoint, tick or clock step), no snapshot-cache
+    // invalidation and, unlike the background hook below, NO re-seed of the orchestrator's baseline (re-seeding mid-turn made the turn's own commit read as already settled and changed the tick it earns).
+    sb.session.setOnSideSave((): void => { this.saveUser(user); });
     sb.session.setOnBackgroundPersist((): void => {
       sb.syncAdmin();
       this.invalidateSnapshot(user);
