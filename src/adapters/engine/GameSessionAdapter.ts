@@ -122,7 +122,7 @@ import { buildReunion, buildYourStories, type ReunionView, type StoryGuest, type
 import { claimText } from "../../engine/rumorMill";
 import { buildYourEdit, sceneMoment, weekMoments, weeksOfLog, type YourEditView } from "../../engine/yourEdit";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
-import { runHangOut, hangOutBedtime, hangOutStopLine } from "../../engine/hangOut";
+import { runHangOut, hangOutBedtime, hangOutStopLine, minutesUntilClock, type HangOutResult } from "../../engine/hangOut";
 import { CUNNING, LEAKY, SEEK, SPIN } from "../../engine/copresenceSpread";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, streakHolds, nextStreak, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
@@ -18152,7 +18152,14 @@ export class GameSessionAdapter implements GameSession {
         const edge = [CLOCK.phaseStartsHour.afternoon, CLOCK.phaseStartsHour.evening, CLOCK.phaseStartsHour.night, CLOCK.phaseStartsHour.lateNight].find((e) => e > nowH + 1e-6);
         if (edge !== undefined) { const m = (edge - nowH) * 60; /* exact: a floor or rounding could carry the clock past the edge (review of #2772) */ statedMinutes = statedMinutes === null ? m : Math.min(statedMinutes, m); }
       }
-      const result = runHangOut({
+      // ORW-734a: "wait until <clock time>" - the next such time on the engine's own clock; a time already passed today waits nothing (never a day later).
+      let clockTargetPassed = false;
+      if (typeof req.untilClock === "number") {
+        const m = minutesUntilClock(live.nightDepth ?? WAKE_HOUR, req.untilClock, WAKE_HOUR, DAY_END_HOUR);
+        if (m === 0) clockTargetPassed = true;
+        else if (m !== null) statedMinutes = statedMinutes === null ? m : Math.min(statedMinutes, m);
+      }
+      const result: HangOutResult = clockTargetPassed ? { stopReason: "max-beats", beats: 0, minutes: 0 } : runHangOut({
         advance: (h) => { advanceClockPerConversation(live, h); },
         // ORW-392: the same clock `eventDue` reads - behind a pending night gate the event is tomorrow, so the probe must not read 0 at night (that returned a false "event-due" with 0 beats).
         hoursUntilEvent: () => hoursUntilDue(live), // exact hours: the minute-rounded value could overshoot the event by up to a minute
