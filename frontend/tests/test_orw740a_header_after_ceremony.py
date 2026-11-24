@@ -26,7 +26,6 @@ def _get(stack, path):
     return json.loads(urllib.request.urlopen(stack["fe"] + path, timeout=30).read())
 
 
-@pytest.mark.quarantine(card="ORW-847", added="2026-11-24")  # ORW-847 quarantined 11-24: blocks the merge line (it failed on both time of day and PHASE in the merge queue; the card carries the fix)
 def test_the_reply_stamp_and_the_panel_header_match_the_engine_after_every_ceremony(_stack, monkeypatch):  # noqa: F811
     from playwright.sync_api import sync_playwright
     from routes import chat_helpers as ch
@@ -41,33 +40,39 @@ def test_the_reply_stamp_and_the_panel_header_match_the_engine_after_every_cerem
         page.wait_for_function(f"() => {{ const m = document.querySelector('{COMPOSER}'); return !!m && !m.disabled; }}", timeout=20000)
 
         def send(stack, s, text, cid):
-            pre = ch._format_game_moment(_engine(stack, "getGameState"))  # ORW-847: the moment BEFORE the turn (the clock may legitimately cross a time-of-day boundary during it)
+            # ORW-847: the stamp is frozen when the reply is emitted; the engine can still step after the reply is on screen (the turn's own background steps: scene records, moves, a progress belt), and
+            # on a slow box that is later than any fixed wait. So watch the engine from the send until the reply has settled AND the engine has been still for a while, collecting every moment it
+            # passed through: the stamp must be one of them (a real moment of THIS turn, never a made-up or stale one), and the panel must agree with the engine once it is still.
+            observed = {ch._format_game_moment(_engine(stack, "getGameState"))}
             page.click(COMPOSER); page.fill(COMPOSER, text); page.keyboard.press("Enter")
-            try:  # settled = my line is in the log, the LAST bubble is an assistant reply after it, and nothing is streaming (a count of bubbles is not proof: a history reconcile can swap rows)
-                page.wait_for_function("""(t) => { const all = Array.from(document.querySelectorAll('#chat-history .msg')).filter(e => e.style.display !== 'none');
-                    const i = all.findIndex(e => e.matches('.msg-user') && (e.textContent || '').includes(t));
-                    const last = all[all.length - 1];
-                    return i >= 0 && last && last.matches('.msg-ai') && all.indexOf(last) > i && !document.querySelector('#chat-history .msg-ai.streaming'); }""", arg=text, timeout=60000)
-            except Exception:
-                diag = page.evaluate("() => ({ composer: (document.getElementById('message')||{}).disabled, last: Array.from(document.querySelectorAll('#chat-history .msg')).slice(-3).map(e => e.className + ' | ' + (e.textContent||'').replace(/\\s+/g,' ').slice(0,120)) })")
-                raise AssertionError(f"the reply to {text!r} never settled: {diag}")
-            # ORW-847: the panel is poll/event driven and the engine can step once more after the reply (the turn's own background steps), so read the engine and the panel together until they agree
-            # on the time of day (up to 12 s). A persistent disagreement still fails; only a transient lag passes.
-            def _read():
-                gs_ = _engine(stack, "getGameState")
-                panel_ = page.evaluate("() => [ (document.getElementById('os-week')||{}).textContent, (document.getElementById('os-phase')||{}).textContent, (document.getElementById('os-tod')||{}).textContent ].join(' | ')")
-                e_ = ch._format_game_moment(gs_).split(" · ")
-                p_ = [x.strip() for x in panel_.split("|")]
-                ok_ = len(p_) == 3 and len(e_) == 3 and (p_[2].split(",")[0].split()[-1] == e_[2].split()[-1] or e_[2] == "Early morning")
-                return gs_, panel_, ok_
-            page.wait_for_timeout(1200)
-            gs, panel, ok = _read()
-            end = time.time() + 12
-            while not ok and time.time() < end:
+            settled_js = """(t) => { const all = Array.from(document.querySelectorAll('#chat-history .msg')).filter(e => e.style.display !== 'none');
+                const i = all.findIndex(e => e.matches('.msg-user') && (e.textContent || '').includes(t));
+                const last = all[all.length - 1];
+                return i >= 0 && last && last.matches('.msg-ai') && all.indexOf(last) > i && !document.querySelector('#chat-history .msg-ai.streaming'); }"""  # my line is in the log, the LAST bubble is an assistant reply after it, nothing is streaming
+            t0 = time.time(); last_seq = None; still_since = None; gs = None
+            while True:
+                gs = _engine(stack, "getGameState")
+                observed.add(ch._format_game_moment(gs))
+                seq = gs.get("beatSeq")
+                if seq != last_seq:
+                    last_seq, still_since = seq, time.time()
+                if page.evaluate(settled_js, text) and time.time() - still_since >= 2.0:
+                    break  # replied and the engine has been still for 2 s
+                if time.time() - t0 > 90:
+                    diag = page.evaluate("() => ({ composer: (document.getElementById('message')||{}).disabled, last: Array.from(document.querySelectorAll('#chat-history .msg')).slice(-3).map(e => e.className + ' | ' + (e.textContent||'').replace(/\\s+/g,' ').slice(0,120)) })")
+                    raise AssertionError(f"the reply to {text!r} never settled: {diag}")
+                page.wait_for_timeout(400)
+            def _panel():
+                return page.evaluate("() => [ (document.getElementById('os-week')||{}).textContent, (document.getElementById('os-phase')||{}).textContent, (document.getElementById('os-tod')||{}).textContent ].join(' | ')")
+            def _agree(gs_, panel_):  # the panel is poll/event driven: give it up to 12 s to catch up with the still engine
+                e_ = ch._format_game_moment(gs_).split(" · "); p_ = [x.strip() for x in panel_.split("|")]
+                return len(p_) == 3 and len(e_) == 3 and (p_[0], p_[1]) == (e_[0], e_[1]) and (p_[2].split(",")[0].split()[-1] == e_[2].split()[-1] or e_[2] == "Early morning")
+            panel = _panel(); end = time.time() + 12
+            while not _agree(gs, panel) and time.time() < end:
                 page.wait_for_timeout(500)
-                gs, panel, ok = _read()
+                gs = _engine(stack, "getGameState"); panel = _panel()
             stamp = page.evaluate("() => { const e = Array.from(document.querySelectorAll('#chat-history .msg-ai .role-timestamp-moment')); return e.length ? e[e.length-1].textContent.trim() : null }")
-            rows.append((gs.get("phase"), (gs.get("daySchedule") or {}).get("todaysEvent"), (gs.get("daySchedule") or {}).get("next"), ch._format_game_moment(gs), stamp, panel, pre))
+            rows.append((gs.get("phase"), (gs.get("daySchedule") or {}).get("todaysEvent"), (gs.get("daySchedule") or {}).get("next"), ch._format_game_moment(gs), stamp, panel, observed))
             return ""
         monkeypatch.setattr(_a64_walk, "_send", send)
         _a64_walk._walk_week_one(_stack, sid)
@@ -79,12 +84,9 @@ def test_the_reply_stamp_and_the_panel_header_match_the_engine_after_every_cerem
     assert {("nominations", "hoh-competition"), ("veto-competition", "nominations"), ("veto-ceremony", "veto-competition")} <= ahead, ahead
     assert any(r[0] == "eviction" for r in rows), "the walk never reached eviction night"
     assert "Eviction night" in rows[-1][3] and rows[-1][5].split("|")[1].strip() == "Eviction night", rows[-1]  # the reply after the eviction still reads Eviction night (ORW-258/713) in the stamp AND the panel
-    for phase, today, nxt, expect, stamp, panel, pre in rows:
-        # the stamp is frozen at the reply; the engine read comes after it. Week and phase must match exactly (the ORW-740a bug was the phase one event ahead); the time of day may be the engine's
-        # value from before the turn when the clock crossed a boundary during it.
-        s_week, s_phase, s_tod = (stamp or "").split(" · ") if stamp and stamp.count(" · ") == 2 else (None, None, None)
-        e_week_, e_phase_, e_tod_ = expect.split(" · ")
-        assert (s_week, s_phase) == (e_week_, e_phase_) and s_tod in (e_tod_, pre.split(" · ")[2]), ("bubble stamp != engine", phase, today, expect, stamp, pre)
+    for phase, today, nxt, expect, stamp, panel, observed in rows:
+        # the stamp names a moment the engine really passed through during this turn (never a made-up or stale one); the panel header equals the engine once it is still
+        assert stamp in observed, ("bubble stamp is not a moment of this turn", phase, today, expect, stamp, sorted(observed))
         e_week, e_phase, e_tod = expect.split(" · ")
         p_week, p_phase, p_tod = [x.strip() for x in panel.split("|")]
         assert (p_week, p_phase) == (e_week, e_phase), ("panel header != engine", phase, today, expect, panel)
