@@ -94,7 +94,6 @@ export const KNOWN_RED: Readonly<Record<string, KnownRed>> = {
   "late:band-gossip": { value: 56.6, card: "ORW-702 gossip ratchet" }, // band 24-34 (and the 45% ceiling below)
   "late:band-conflict": { value: 9.9, card: "ORW-702 late conflict" }, // band 10-16: a hair under the floor (borderline; it may flip with no related change: just move it out then)
   "late:no-activity-above-45": { value: 56.6, card: "ORW-702 gossip ratchet" }, // gossip is the one over 45
-  "late:strategy-at-least-24": { value: 12.7, card: "ORW-702 late strategy" },
 };
 export const RATCHET_SLACK = 6; // points of drift past the measured value that is still noise at this many seasons; tighten as the seed set grows
 
