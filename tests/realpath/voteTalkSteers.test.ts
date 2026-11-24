@@ -14,7 +14,7 @@ import { watchVoteTalk, beliefOf, overclaims, type Talk } from "./voteTalkPlay";
  */
 const firstTalk = async (seed: number, wanted: (s: Stop, t: Talk) => boolean): Promise<{ at: Stop; talk: Talk }> => {
   let hit: Talk | undefined;
-  const at = await playUntil(seed, watchVoteTalk((s, t) => { if (wanted(s, t)) { hit = t; return true; } return false; }));
+  const at = await playUntil(seed, watchVoteTalk((s, t) => { if (wanted(s, t)) { hit = t; return true; } return false; }), { user: `wf-${seed}` });
   return { at, talk: hit! };
 };
 

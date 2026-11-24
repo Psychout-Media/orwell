@@ -19,7 +19,7 @@ const hiddenOf = (s: Stop): string[] => [
 describe("ORW-719 - the evicted player's own cards (played)", () => {
   it("raises the exit interview then the watch-or-skip choice, each exactly once, surviving a save/restore at each, and the season then ends with no further card for the player", async () => {
     const seen: string[] = []; let restoredSame = true; let after: string[] = [];
-    const at = await playUntil(SEED_OUT, (s) => !!s.sess.getGameState().finished, {
+    const at = await playUntil(SEED_OUT, (s) => !!s.sess.getGameState().finished, { user: `wf-${SEED_OUT}`,
       maxMessages: 8000,
       decide: (p, sess) => {
         if (seen.includes("spectator-choice")) { after.push(p.kind); return undefined; }
@@ -39,7 +39,7 @@ describe("ORW-719 - the evicted player's own cards (played)", () => {
 
 describe("ORW-719 - the goodbyes are voiced from the speaker's real record with the player (played)", () => {
   it("hands each speaker's public record (facts only), the rule rides the eviction moment, and none of the hidden material the season holds is in it", async () => {
-    const at = await playUntil(SEED_OUT, goodbyeNow, { maxMessages: 8000 });
+    const at = await playUntil(SEED_OUT, goodbyeNow, { user: `wf-${SEED_OUT}`, maxMessages: 8000 });
     const ev = at.sess.getGameState().eviction;
     const goodbyes = ev.host.goodbyes as Array<{ speaker: string; record: string[] }>;
     expect(goodbyes.length).toBeGreaterThan(0);

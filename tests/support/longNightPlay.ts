@@ -34,8 +34,9 @@ const rowOf = (s: Any, i: number, v: Any): NightRow => {
 };
 
 /** A played season as the seed deals it: the double eviction is armed (or not) by the season's own sealed plan. */
-export function bootNatural(seed: number, longNight = true): Any {
-  const s = new GameSessionRegistry().sandboxFor(`ln-natural-${seed}-${longNight ? "on" : "off"}`).session as unknown as Any;
+/** `user`: the sandbox name (ORW-852: part of the game's identity with the seed); default `ln-natural-<seed>-<on|off>`. */
+export function bootNatural(seed: number, longNight = true, user = `ln-natural-${seed}-${longNight ? "on" : "off"}`): Any {
+  const s = new GameSessionRegistry().sandboxFor(user).session as unknown as Any;
   s.setLongNightEnabled(longNight);
   s.createCharacter({ playerName: "P", seed });
   s.noteMessage({ messageId: "m0" });
