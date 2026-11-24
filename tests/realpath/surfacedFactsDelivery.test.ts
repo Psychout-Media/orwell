@@ -105,7 +105,7 @@ describe("#1789 - telephone-game provenance word on surfaced gossip (hops>=2), p
 
   it("drift OFF - no provenance word, no guidance line: the fact renders plain", async () => {
     const at = await playUntil(SEED, (s) => hops2(s) !== undefined);
-    at.sess.setGossipDriftEnabled(false);
+    at.sess.setGossipDriftEnabled(false); // not as shipped: the drift-OFF render is the spec under test (#1789)
     const f = hops2(at)!;
     const block = playerBlock(prompt(at));
     expect(block).not.toContain("(third-hand)");

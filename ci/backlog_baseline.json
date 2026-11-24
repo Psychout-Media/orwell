@@ -1,0 +1,5 @@
+{
+ "_how": "ORW-758: the uncarded left-over lines (a1, file::line text) and cardless spec-only features (a2) that existed when the backlog-whole check landed (2026-11-23). Shrink-only: fix or card a line and remove it here; nothing is ever added. The sweep is ORW-805.",
+ "a1": [],
+ "a2": []
+}

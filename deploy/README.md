@@ -325,6 +325,12 @@ It resolves the engine save dir exactly the way the factory reset does (all thre
 generations), stops the services while it scrubs, and restarts them after. Use the **factory
 reset** instead when you also want accounts/settings gone (full OOBE).
 
+**Saves are archived, not deleted (ORW-783).** The game reset moves each user's saves, and the engine's own
+`<user>.retired-*` rotations, into `<save dir>/save-archive/<user>/<UTC date>`; the engine's season restart (a player's
+new season) does the same through the one restart door. The archive is engine-side files only (no tool or read shows it),
+per user (never across users), and capped per user by `ORWELL_SAVE_ARCHIVE_MAX_MB` (default 512, `0` = no cap), oldest
+pruned first, newest always kept. The OOBE / factory reset still wipes everything, the archive included.
+
 ### Rebuild (destroy + re-provision, keep only the deploy token)
 
 The heaviest "nuke and pave" tier: **destroy the orwell LXC and re-provision a fresh one** (fresh

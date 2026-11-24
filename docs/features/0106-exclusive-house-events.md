@@ -67,7 +67,7 @@ off-screen society, votes, and competition outcomes are **byte-identical** (the 
 ## Out of scope (noted)
 
 - **Spectators forming *real* (seeded) opinion folds from a comp** — e.g. threat ▲ toward a dominant
-  winner — would be a calibration-sensitive sim change; deferred to a separate gated feature. Today
+  winner — would be a calibration-sensitive sim change; deferred to a separate gated feature. Today (ORW-824)
   spectators "form opinions" only in narration (the existing comp-win/comp-loss folds are unchanged).
 - **An ad-hoc "house meeting"** has no engine beat; the narrator may frame one, but only the real
   ceremonies/comps drive the structural gather.

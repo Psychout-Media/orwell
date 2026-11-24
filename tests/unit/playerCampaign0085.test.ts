@@ -122,7 +122,7 @@ describe("Phase 2 — advancePlayerCampaign (pure function)", () => {
   });
 });
 
-describe("Phase 2 — GameSessionAdapter.foldPlayerCampaignMove (the live adapter)", () => {
+describe("unit, state set by hand (edges are assigned; REAL PATH: tests/realpath/playerCampaign0085.test.ts, ORW-811): Phase 2 — GameSessionAdapter.foldPlayerCampaignMove (the live adapter)", () => {
   it("is a no-op (zero campaigns) when the campaign layer is EXPLICITLY OFF", () => {
     const rel = new RelationshipModel(0.5);
     const session = new GameSessionAdapter(rel);
@@ -252,7 +252,7 @@ describe("Phase 2 — GameSessionAdapter.foldPlayerCampaignMove (the live adapte
   });
 });
 
-describe("Phase 2 — EngineCommandsAdapter.recordInteraction wiring (the full player-offense path)", () => {
+describe("unit, state set by hand (edges are assigned; REAL PATH: tests/realpath/playerCampaign0085.test.ts, ORW-811): Phase 2 — EngineCommandsAdapter.recordInteraction wiring (the full player-offense path)", () => {
   function wired() {
     const rel = new RelationshipModel(0.5);
     const events = new InMemoryEventStore();
@@ -350,7 +350,7 @@ describe("Phase 2 — EngineCommandsAdapter.recordInteraction wiring (the full p
   });
 });
 
-describe("Phase 2 boundary — the player's pitch reaches the campaign layer over the MCP boundary", () => {
+describe("unit, state set by hand (edges are assigned; REAL PATH: tests/realpath/playerCampaign0085.test.ts, ORW-811): Phase 2 boundary — the player's pitch reaches the campaign layer over the MCP boundary", () => {
   // The recurring "missing wiring" failure mode (CLAUDE.md): a deeply-nested provider hookup can
   // typecheck and unit-test green while being dead over the REAL tool-call path. This dispatches the
   // real `recordInteraction` tool through the real `McpServer`, exactly like a live MCP client would.
@@ -380,7 +380,7 @@ describe("Phase 2 boundary — the player's pitch reaches the campaign layer ove
   });
 });
 
-describe("Phase 2 calibration — a sustained player campaign raises the target's odds without exceeding the NPC ceiling", () => {
+describe("unit, state set by hand (edges are assigned; REAL PATH: tests/realpath/playerCampaign0085.test.ts, ORW-811): Phase 2 calibration — a sustained player campaign raises the target's odds without exceeding the NPC ceiling", () => {
   /** A voter's baseline stat context (no bloc/deal/jury terms) for the pure `voteChoice` comparison. */
   const ctx = (rel: RelationshipModel, tiltFor?: (t: EntityId, v: EntityId) => number): SeasonCtx => ({
     player: PLAYER, statsOf: () => ({ physical: 0.5, mental: 0.5, social: 0.5 }), rel,

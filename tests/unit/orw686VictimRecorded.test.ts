@@ -8,7 +8,8 @@ import { sessionCoreSupersetViolation } from "../../src/engine/sessionSnapshot";
 /**
  * ORW-686 (the victim recorded from the real event). A betrayal rumor that traces to a recorded betrayal (a broken deal, played through the real
  * binding-action reconcile) carries WHO WAS BETRAYED, so the victim branch fires in play: the betrayed folds 'targets me', everyone else distrusts
- * the betrayer. A rumor with no recorded betrayal behind it stays victim-less. Roles only: the betrayer (the player), the betrayed (v), a bystander (o), a teller (t).
+ * the betrayer. A rumor with no recorded betrayal behind it stays victim-less. UNIT: the deal is made and broken through private seams and the house is seated by hand (ORW-813: the
+ * played checks are in tests/realpath/orw686VictimRecorded.test.ts). Roles only: the betrayer (the player), the betrayed (v), a bystander (o), a teller (t).
  */
 type Seam = {
   live: { playedGame?: boolean; week: number; beliefs?: Record<string, BeliefClaim[]> };
@@ -39,7 +40,7 @@ function played(seed: number, breakIt: boolean) {
 }
 const rumorsOf = (s: Seam, holder: string): BeliefClaim[] => (s.live.beliefs?.[holder] ?? []).filter((c) => c.kind === "heard-rumor" && c.nature === "betrayal" && c.origin === "told");
 
-describe("a betrayal rumor records its victim from the real betrayal event", () => {
+describe("a betrayal rumor records its victim from the real betrayal event (unit: the betrayal set up by hand)", () => {
   it("a real broken deal names the betrayed on the rumor; the betrayed folds 'targets me', a bystander distrusts the betrayer", () => {
     let proved = 0;
     for (let seed = 1; seed <= 12; seed++) {

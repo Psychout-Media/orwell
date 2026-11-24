@@ -21,10 +21,10 @@ Each present houseguest who did not hold it now holds it (pathway `public`). The
 - As a present witness: built; they hear exactly the line.
 - Player detonates their own: **part 2** (a player action, never engine-authored; see the design note below).
 
-## Part 2 (not built): the player blows up their own secret
+## Part 2 (not built): the player blows up their own secret (ORW-825)
 A player action, in the player's own words, never engine-authored. Proposed: an open decision card (the deal-offer / meeting-answer open-state pattern, `submitDecision`) the engine offers only when a fact about the player is closing in (the same `closingShare` test), carrying nothing but "say it yourself or wait"; the player's words are recorded as the public event verbatim, the same consequences apply at the self-detonation share, and the fact is marked broken. It needs no new read: the card is a pending the player channel already carries. A player-initiated version (any time, any own secret) would be a new lever and needs the Auditor's wall call first.
 
-## Deferred
+## Deferred (ORW-825)
 House norms (0180) and a reputation mark (0184) are not touched by a break yet: the bond fold and grudge book carry the consequence today.
 
 ## Amendment 2026-11-19 (ORW-688): the facts houseguests hold now say who they are about
@@ -35,4 +35,4 @@ Every consumer here keys on a held fact's `subject` (who it is about), but the r
 - `surfaceInformationTo` takes an optional `factId` so a record with a subject also has a lineage.
 - An old save is backfilled on load from the record's own fields (a scene rumor's lineage id names its origin and its undrifted text names the pair), append-only, no rng.
 - Flag `ORWELL_RUMOR_SUBJECTS` (default ON, `=0` = subject-less, byte-identical). Played games only. The subject is engine-only (Vault class): only a fact the player was told reaches them, with its source. Test `tests/unit/rumorSubjects.test.ts`; report `tests/calibration/secretSubjectReport.test.ts` (`ORWELL_SECRET_SUBJECT_REPORT=1`).
-- Not done: an overheard fragment (presence) is still subject-less.
+- Not done: an overheard fragment (presence) is still subject-less. (ORW-825)

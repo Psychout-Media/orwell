@@ -1,4 +1,4 @@
-# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
+# spec-only: gated by frontend/tests/test_0112_llm_observability.py; this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 Feature: 0112 — LLM-call observability (Vault-free trace tagging + opt-in external forwarding)
   Every LLM call emits a Vault-free trace record (the token-ledger facts PLUS the 0065 beatSeq/phase
   correlation keys) and, when enabled, tags the provider request with the same keys so OpenRouter Broadcast —

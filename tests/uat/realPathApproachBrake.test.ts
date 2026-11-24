@@ -1,0 +1,102 @@
+import { describe, it, expect } from "vitest";
+import { PLAYER } from "../../src/domain/ids";
+import { nextMilestone } from "../../src/engine/daySchedule";
+import { playMixGame } from "../support/houseMixDriver";
+
+/**
+ * ORW-709 (B3-3/4/5 and the approach treadmill) - in PLAYED games (ORW-812: before, a get-them-out goal was pushed into a houseguest's agenda, the house moved into the yard, the bond
+ * set hostile and the clock stepped by hand). The games are played by the house-mix driver (a quiet player: a message each turn, events advanced and answered on a fixed cadence,
+ * held nights lived through); the checks only READ the live session after each message, and the player's own acts go through the channel. HEAVY LANE (tests/uat/**, the
+ * `real-path` leg): over a minute of play on the runner. Roles only.
+ */
+type Rec = { id: string; actor: string; hostile: boolean; status: string; eventId?: string; goalId: string; hour: number };
+type Sess = { live: { aimedAtPlayer?: Rec[]; interruption?: { npc: string; desire: string; atHour: number }; approachAsked?: Record<string, { q: string; answered?: true }>; dayNumber?: number; week: number }; presence: Map<string, string>; record?: { events(): Array<{ id: string; type: string; hidden: boolean; initiator: string; witnessSet: string[]; content: string; houseLife?: { about?: string; at?: number } }> }; livingIds(): string[]; desireApproach(ids: string[]): { npc: string } | null };
+const events = (s: Sess) => s.record?.events() ?? [];
+
+describe("B3-3: a houseguest scheming about the player to a third party stays hidden, in played games", () => {
+  it("no hidden step about the player becomes an aimed record, an approach or an open scene; every record the player is shown is an open scene they were in", async () => {
+    let aboutSteps = 0, records = 0;
+    for (const seed of [11, 12, 13]) {
+      let last: Sess | undefined;
+      await playMixGame(seed, 700, { onStep: (sess) => { last = sess as Sess; } });
+      const s = last!;
+      const about = events(s).filter((e) => e.hidden && e.houseLife?.about === PLAYER);
+      aboutSteps += about.length;
+      const recs = s.live.aimedAtPlayer ?? [];
+      records += recs.length;
+      for (const e of about) {
+        expect(recs.some((r) => r.actor === e.initiator && Math.abs(r.hour - (e.houseLife!.at ?? -1)) < 1e-9), `seed ${seed}: a hidden step about the player became a record`).toBe(false);
+        expect(e.witnessSet.includes(PLAYER), "the player never witnesses it").toBe(false);
+      }
+      for (const r of recs.filter((x) => x.eventId)) {
+        const scene = events(s).find((e) => e.id === r.eventId);
+        if (!scene) continue; // a record not yet shown has no scene
+        expect(scene.hidden, "a shown record is an open scene").toBe(false);
+        expect(scene.witnessSet.includes(PLAYER), "the player was in it").toBe(true);
+      }
+    }
+    expect(aboutSteps, "the control: houseguests did scheme about the player, off screen").toBeGreaterThan(0);
+    expect(records, "non-vacuous: the player was approached on records of their own").toBeGreaterThan(0);
+  }, 300_000);
+});
+
+describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer folds none (played)", () => {
+  it.todo("real path: a milestone ask by a houseguest who holds an open record of their own leaves it open - not reached: in seeds 11, 12, 13 (700 messages each) no houseguest with an open record made a milestone ask (ORW-709)");
+
+  it("a hostile approach answered kindly writes no fight; the same approach ignored does (seed 13, the same game played twice up to the approach)", async () => {
+    const run = async (answer: boolean): Promise<{ fights: number; shown: boolean }> => {
+      let target: string | undefined; let answered = false; let shown = false; let after = 0; let s: Sess | undefined;
+      await playMixGame(13, 1400, {
+        onStep: (sess) => { s = sess as Sess; if (!target) { const r = (s.live.aimedAtPlayer ?? []).find((x) => x.hostile && x.status === "shown"); if (r) { target = r.actor; shown = true; } } else after++; },
+        onMessage: async (call) => { if (answer && target && !answered) { answered = true; await call("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, target], content: "I hear you, let's talk it through", kind: "conversation" }); } },
+        stopWhen: () => after > 500,
+      });
+      const fights = events(s!).filter((e) => e.type === "conflict" && /steps up to/.test(String(e.content)) && e.initiator === target).length;
+      return { fights, shown };
+    };
+    const kind = await run(true), ignored = await run(false);
+    expect(kind.shown && ignored.shown, "a hostile approach was shown in play").toBe(true);
+    expect(kind.fights, "answered kindly: no fight").toBe(0);
+    expect(ignored.fights, "ignored: the fight folds").toBe(1);
+  }, 600_000);
+});
+
+describe("B3-5 / the approach treadmill, over a played game", () => {
+  it("a question is asked once; the asker is with the player when they ask and stays until it is answered; nobody approaches a player in the Diary Room", async () => {
+    const seen: string[] = []; const perDay: Record<number, number> = {}; let asked = 0, away = 0, waitedAndLeft = 0, inDiary = 0;
+    for (const seed of [3, 11]) {
+      let last: { npc: string; at: string } | undefined; let waiting: { npc: string; room: string | undefined } | undefined;
+      let answerNext: string | undefined; let diaryNext = false; let backTo: string | undefined; let steps = 0;
+      await playMixGame(seed, 360, {
+        onMessage: async (call) => {
+          if (answerNext) { await call("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, answerNext], content: "fair question, here is my answer", kind: "conversation" }); answerNext = undefined; }
+          if (backTo) { await call("moveTo", { room: backTo.replace(/-/g, " ") }); backTo = undefined; } // a short visit: back to where they were
+          else if (diaryNext) { diaryNext = false; await call("moveTo", { room: "diary room" }); }
+        },
+        onStep: (sess) => {
+          const s = sess as Sess;
+          const it = s.live.interruption; const ask = it ? s.live.approachAsked?.[it.npc] : undefined;
+          if (waiting && s.live.approachAsked?.[waiting.npc]?.answered === true) waiting = undefined;
+          if (waiting && s.live.approachAsked?.[waiting.npc]?.answered !== true && s.presence.get(waiting.npc) !== s.presence.get(PLAYER) && s.presence.get(PLAYER) === waiting.room) waitedAndLeft++;
+          const at = it ? `${s.live.dayNumber}:${it.atHour}` : "";
+          if (it && (!last || last.npc !== it.npc || last.at !== at)) {
+            last = { npc: it.npc, at }; asked++;
+            if (s.presence.get(it.npc) !== s.presence.get(PLAYER)) away++; // they step up in the player's room
+            const key = `${seed}|${it.npc}|${ask?.q ?? `${it.desire}:${nextMilestone(s as never)?.beat}:${s.live.week}`}`;
+            expect(seen).not.toContain(key); seen.push(key); // never the same question twice by the same houseguest
+            perDay[seed * 100 + (s.live.dayNumber ?? 0)] = (perDay[seed * 100 + (s.live.dayNumber ?? 0)] ?? 0) + 1;
+            waiting = { npc: it.npc, room: s.presence.get(PLAYER) };
+            if (asked % 2 === 0) answerNext = it.npc; // every other one the player answers (their own act, next message)
+          } else if (!it && !waiting && ++steps % 25 === 0 && s.presence.get(PLAYER) !== "diary-room") diaryNext = true; // now and then, with nobody waiting on them, the player pops into the Diary Room
+          if (s.presence.get(PLAYER) === "diary-room" && !backTo && !diaryNext) backTo = waiting?.room ?? "living-room";
+          if (s.presence.get(PLAYER) === "diary-room") { inDiary++; expect(s.desireApproach(s.livingIds().filter((i) => i !== PLAYER)), "nobody approaches a player in the Diary Room").toBeNull(); }
+        },
+      });
+    }
+    expect(asked).toBeGreaterThan(0);
+    expect(away).toBe(0);
+    expect(waitedAndLeft).toBe(0);
+    expect(inDiary, "non-vacuous: the player was in the Diary Room").toBeGreaterThan(0);
+    expect(Math.max(0, ...Object.values(perDay))).toBeLessThanOrEqual(8);
+  }, 300_000);
+});

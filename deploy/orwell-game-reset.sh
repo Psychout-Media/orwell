@@ -228,9 +228,10 @@ if [[ "$DRY_RUN" -eq 0 && "$ASSUME_YES" -eq 0 ]]; then
     ORWELL_TUI_TITLE="Orwell — game reset"
     wt_confirm_phrase "RESET" "NEW SEASON — game reset.
 
-PERMANENTLY DELETES all game progression (every season, finished or live):
+CLEARS all game progression (every season, finished or live) from play and
+ARCHIVES each user's saves (not deleted; capped, oldest pruned first):
   • ${SANDBOXES} game sandbox(es) under ${ENGINE_SAVE_DIR}/<user>/
-    (saves, souls, the hidden Vault layer)
+    (saves, souls, the hidden Vault layer) -> ${ENGINE_SAVE_DIR}/save-archive/<user>/<date>
 
 PRESERVED (everything else):
   • ${CONFIG_DIR}/${ENV_KEEP} (ports, tokens, LLM keys)
@@ -240,8 +241,8 @@ The next visit starts a brand-new game at the casting interview." \
       || die "aborted — no changes made."
   else
     cat <<EOF
-This PERMANENTLY DELETES all game progression (every season, finished or live):
-  • ${SANDBOXES} game sandbox(es)  under ${ENGINE_SAVE_DIR}/<user>/   (saves, souls, hidden Vault layer)
+This CLEARS all game progression (every season, finished or live) from play and ARCHIVES each user's saves (capped, oldest pruned first):
+  • ${SANDBOXES} game sandbox(es)  under ${ENGINE_SAVE_DIR}/<user>/   (saves, souls, hidden Vault layer) -> save-archive/<user>/<date>
 Preserved (everything else):
   • ${CONFIG_DIR}/${ENV_KEEP}  (ports, tokens, LLM keys)
   • the entire front-end store  (accounts, sessions, settings — incl. LLM endpoint config)
@@ -283,10 +284,47 @@ recheck_data_dir "$ENGINE_SAVE_DIR" "engine SAVE dir"
 # ORW-698: the per-PLAYER archives (finished seasons' houseguests = how returners work, the hall of fame, notoriety)
 # live in their own subtrees beside the per-user saves and are meant to SURVIVE a new season; only the OOBE / factory
 # reset (orwell-oobe-reset.sh) clears them, with the rest of the install.
-PLAYER_KEEP=(! -name season-archive ! -name hall-of-fame ! -name notoriety)
-msg "scrubbing engine saves in ${ENGINE_SAVE_DIR}"
+PLAYER_KEEP=(! -name season-archive ! -name hall-of-fame ! -name notoriety ! -name save-archive)
+# ORW-783: a game reset ARCHIVES each user's saves instead of deleting them: a per-user dir (and the engine's own `<user>.retired-*` rotations) moves into
+# <save dir>/save-archive/<user>/<UTC stamp>, never across users, capped per user (ORWELL_SAVE_ARCHIVE_MAX_MB, default 512, 0 = no cap) and pruned oldest first
+# (the newest is always kept). Engine-side files only: nothing reads the archive. Idempotent and no-clobber (a taken name gets a numeric suffix).
+ARCHIVE_ROOT="${ENGINE_SAVE_DIR%/}/save-archive"
+ARCHIVE_MAX_MB="${ORWELL_SAVE_ARCHIVE_MAX_MB:-$(env_val ORWELL_SAVE_ARCHIVE_MAX_MB || true)}"
+[[ "${ARCHIVE_MAX_MB:-}" =~ ^[0-9]+$ ]] || ARCHIVE_MAX_MB=512
+ARCHIVE_STAMP="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
+ARCHIVED=0
+# $1 = an entry the scrub would remove. A per-user save dir is moved into the archive; anything else is removed as before.
+archive_or_rm() {
+  local entry="$1" name user dest base i
+  name="$(basename -- "$entry")"
+  if [[ -d "$entry" && ! -L "$entry" && "$name" =~ ^(([0-9a-f]{2})+)(\.retired-.+)?$ ]]; then
+    user="${BASH_REMATCH[1]}"
+    dest="${ARCHIVE_ROOT}/${user}/${ARCHIVE_STAMP}"
+    [[ -n "${BASH_REMATCH[3]:-}" ]] && dest="${ARCHIVE_ROOT}/${user}/retired-${BASH_REMATCH[3]#.retired-}"
+    base="$dest"; i=1; while [[ -e "$dest" ]]; do dest="${base}-${i}"; i=$((i + 1)); done
+    if [[ "$DRY_RUN" -eq 1 ]]; then echo "  would archive: $entry -> $dest"; else mkdir -p -- "${ARCHIVE_ROOT}/${user}" && mv -- "$entry" "$dest"; fi
+    ARCHIVED=$((ARCHIVED + 1))
+  else
+    do_rm "$entry"
+  fi
+}
+# Oldest-first prune of one user's archive down to the cap (never the newest).
+prune_archive() {
+  local udir="$1" cap_kb total_kb path kb
+  [[ "$ARCHIVE_MAX_MB" -gt 0 && -d "$udir" ]] || return 0
+  cap_kb=$((ARCHIVE_MAX_MB * 1024))
+  total_kb="$(du -sk -- "$udir" | cut -f1)"
+  while [[ "$total_kb" -gt "$cap_kb" && "$(find "$udir" -mindepth 1 -maxdepth 1 | wc -l)" -gt 1 ]]; do
+    path="$(find "$udir" -mindepth 1 -maxdepth 1 -printf '%T@ %p\n' | sort -n | head -1 | cut -d' ' -f2-)"
+    [[ -n "$path" ]] || break
+    kb="$(du -sk -- "$path" | cut -f1)"
+    rm -rf -- "$path"
+    total_kb=$((total_kb - kb))
+  done
+}
+msg "scrubbing engine saves in ${ENGINE_SAVE_DIR} (user saves are archived to ${ARCHIVE_ROOT}, not deleted)"
 if [[ -d "$ENGINE_SAVE_DIR" ]]; then
-  while IFS= read -r -d '' entry; do do_rm "$entry"; done \
+  while IFS= read -r -d '' entry; do archive_or_rm "$entry"; done \
     < <(find "$ENGINE_SAVE_DIR" -mindepth 1 -maxdepth 1 ! -name "$ENV_KEEP" ! -name models ! -name ops "${PLAYER_KEEP[@]}" -print0)
 else
   warn "engine save dir ${ENGINE_SAVE_DIR} absent — nothing to scrub there"
@@ -298,10 +336,15 @@ fi
 if [[ "$CONFIG_DIR" != "$ENGINE_SAVE_DIR" ]]; then
   msg "scrubbing config dir ${CONFIG_DIR} (keeping ${ENV_KEEP})"
   if [[ -d "$CONFIG_DIR" ]]; then
-    while IFS= read -r -d '' entry; do do_rm "$entry"; done \
+    while IFS= read -r -d '' entry; do archive_or_rm "$entry"; done \
       < <(find "$CONFIG_DIR" -mindepth 1 -maxdepth 1 -type d ! -name models ! -name ops "${PLAYER_KEEP[@]}" -print0)
   fi
 fi
+# ORW-783: keep each user's archive inside its cap now that this season's saves are in it.
+if [[ "$DRY_RUN" -eq 0 && -d "$ARCHIVE_ROOT" ]]; then
+  for udir in "$ARCHIVE_ROOT"/*/; do [[ -d "$udir" ]] && prune_archive "${udir%/}"; done
+fi
+[[ "$ARCHIVED" -eq 0 ]] || msg "archived ${ARCHIVED} save dir(s) under ${ARCHIVE_ROOT}"
 
 # ── 2c. Scrub the cast-portrait dir (feature 0051) — a new season means a new cast, so the ────
 #       generated faces from the old game must go too. The rest of the FE store (accounts,

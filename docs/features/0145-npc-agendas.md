@@ -34,7 +34,7 @@ utility model propose a season aim from the backstory, bounded to the closed goa
 
 ## Ryne's answers this encodes (2026-11-12)
 Goals full strength (slice 2); secrets worth protecting = yes; long cons = yes, strategic or mastermind types only; the house you never
-saw = yes (retrospective, later slice); small wants = later; motives: no hints, actions are the evidence.
+saw = yes (retrospective, later slice); small wants = later; motives: no hints, actions are the evidence. (ORW-825)
 
 ## Slice 2 core: goals move decisions, and reasons are stored (`agendaDecisions.ts`)
 - `goalPull(agenda, candidate, board, mates)`: signed pull on one candidate, FULL STRENGTH (Ryne 2026-11-12: goals count as much as the
