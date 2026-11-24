@@ -41,7 +41,7 @@ import { HOH_ROOM, decideVisit, backstoryFacets, pickBackstoryFact } from "../..
 import { GRUDGES, REPAIR, combineSalience, easeGrudge, easedShareOf, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, repairAmount, wrongWeight, type GrudgeKind } from "../../engine/grudges";
 import { breakDivisor, feelingKeep, feelsGuilt, guiltKey, guiltScale, markFeeling } from "../../engine/bondFeelings";
 import { HEART, heartAgainstGame, keepAfterHeart, romancePairKey, sentimentOf, shakenKey, type HeartOutcome } from "../../engine/heartAgainstGame";
-import { npcDrawnToPlayer, playerInShowmanceWith } from "../../engine/playerShowmance";
+import { npcDrawnToPlayer, playerInShowmanceWith, receptivenessToPlayer } from "../../engine/playerShowmance";
 import { chooseTellReaction, addExploit, decayExploit, TELL_REACTION, moodVetoTerm, moodApproachTerm, moodDealTerm, moodUnsteady } from "../../engine/tellReactions";
 import type { VoiceProfile } from "../../domain/voiceProfile";
 import { NO_NPC_PATHWAY, beatForMoment, producerPrompt, playerDiaryStrategy } from "../../engine/diaryRoom";
@@ -16872,6 +16872,22 @@ export class GameSessionAdapter implements GameSession {
     const answered = strandsOf(store[bondKey(npc, PLAYER)] ?? emptyBond()).romance ?? 0;
     const drawn = npcDrawnToPlayer({ orientation, gender: n.character.genderPresentation }, this.house.player.character.genderPresentation, answered);
     return playerInShowmanceWith(this.record?.events() ?? [], npc, drawn);
+  }
+
+  /**
+   * ORW-900: how this houseguest takes a romantic gesture from the player right now, as the narrator may be handed it: "welcoming" (drawn to the player, with chemistry,
+   * already answering them in kind) or "reserved" (everything else: not drawn, no chemistry, or not there yet - ONE word, so the reply never shows which). The player's
+   * gender is read only when they have said it (unsaid => reserved); nothing about orientation or a number leaves. Read-only, no rng, no flag of its own (the showmance layer's).
+   * null outside a played game with the attraction layer on, or for someone not in the house.
+   */
+  receptivenessOf(npcId: EntityId): "welcoming" | "reserved" | null {
+    const live = this.live;
+    if (!live || !this.house || !this.attractionOn() || npcId === PLAYER || !this.house.npcs.some((n) => n.id === npcId)) return null;
+    const pg = this.playerStatedGender();
+    const drawn = pg !== undefined && drawnTo(this.attractionIdentityOf(npcId), pg);
+    const chemistry = drawn ? (live.chemistry?.[chemistryKey(npcId, PLAYER)] ?? 0) : 0;
+    const answered = strandsOf(live.bonds?.[bondKey(npcId, PLAYER)] ?? emptyBond()).romance ?? 0;
+    return receptivenessToPlayer({ drawn, chemistry, answered }) === "welcoming" ? "welcoming" : "reserved";
   }
 
   /** 0207 A3: remember each pair whose record reads as a showmance (once, with the day), so a later rupture knows it was one. A pair with the player counts only by the player's own acts (A4). */

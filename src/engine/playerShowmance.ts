@@ -37,6 +37,18 @@ export function npcDrawnToPlayer(npc: { orientation: Orientation; gender: Gender
   return canBeDrawnTo(npc.orientation, npc.gender, playerGender) && romanceStrand >= ANSWER_BAR;
 }
 
+/**
+ * ORW-900: how a houseguest takes a romantic gesture from the player right now. Pure, closed set, no number out. "not-that-way": not drawn to the player (their own
+ * orientation, or the player has not said their gender) or no chemistry toward them; "welcoming": drawn, with chemistry, and already answering the player in kind
+ * (`ANSWER_BAR`), and not cold right now; "unsure" otherwise. ENGINE-ONLY: the adapter hands the narrator only "welcoming" or "reserved" (unsure and not-that-way are one
+ * word outside), so the reply never discloses orientation or chemistry.
+ */
+export type Receptiveness = "welcoming" | "unsure" | "not-that-way";
+export function receptivenessToPlayer(r: { drawn: boolean; chemistry: number; answered: number; coldNow?: boolean }): Receptiveness {
+  if (!r.drawn || !(r.chemistry > 0)) return "not-that-way";
+  return r.answered >= ANSWER_BAR && !r.coldNow ? "welcoming" : "unsure";
+}
+
 /** Is the player in a showmance with `npc`: only by the player's own acts, answered by an NPC who is drawn to them (the foundation's `playerShowmance`). */
 export function playerInShowmanceWith(events: readonly SceneLike[], npc: EntityId, drawn: boolean): boolean {
   return playerShowmance(playerStartedShowmanceScenes(events, npc), drawn);
