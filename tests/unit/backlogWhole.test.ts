@@ -59,7 +59,8 @@ describe("A1: a line that says work is left names its card", () => {
 describe("A2: a spec-only feature says why it does not run", () => {
   const spec = (marker: string) => ({ "docs/features/0001-one.feature": `${marker}\nFeature: one\n` });
   it("reads the cards and the superseding files off a marker", () => {
-    expect(markerReason("# spec-only: waits on ORW-5 and ORW-6")).toEqual({ cards: ["ORW-5", "ORW-6"], supersededBy: [] });
+    expect(markerReason("# spec-only: waits on ORW-5 and ORW-6")).toEqual({ cards: ["ORW-5", "ORW-6"], supersededBy: [], gatedBy: [] });
+    expect(markerReason("# spec-only: gated by frontend/tests/test_x.py; verified outside cucumber").gatedBy).toEqual(["frontend/tests/test_x.py"]);
     expect(markerReason("# spec-only: umbrella; superseded by 0001-a.feature, 0001-b.feature").supersededBy).toEqual(["0001-a.feature", "0001-b.feature"]);
   });
   it("fails a marker whose card is Done, passes one whose card is open, and warns on a card missing from the snapshot", () => {
@@ -75,8 +76,14 @@ describe("A2: a spec-only feature says why it does not run", () => {
     expect(check(tree(files), { wired: new Set() }).errors.join("\n")).toMatch(/not wired/);
     expect(check(tree(spec("# spec-only: superseded by 0001-gone.feature"))).errors.join("\n")).toMatch(/does not exist/);
   });
+  it("a built feature verified outside Cucumber names its gate, and the gate must exist", () => {
+    const files = { "docs/features/0001-one.feature": "# spec-only: gated by tests/unit/one.test.ts; verified outside cucumber\nFeature: one\n" };
+    expect(check(tree(files)).errors.join("\n")).toMatch(/gated by tests\/unit\/one.test.ts, which does not exist/);
+    const root = tree(files); mkdirSync(join(root, "tests", "unit"), { recursive: true }); writeFileSync(join(root, "tests", "unit", "one.test.ts"), "");
+    expect(check(root).errors).toEqual([]);
+  });
   it("a marker that says neither fails unless it is in the baseline", () => {
-    expect(check(tree(spec("# spec-only: later"))).errors.join("\n")).toMatch(/says neither/);
+    expect(check(tree(spec("# spec-only: later"))).errors.join("\n")).toMatch(/says none of/);
     expect(check(tree(spec("# spec-only: later"), { a1: [], a2: ["0001-one.feature"] })).errors).toEqual([]);
   });
 });

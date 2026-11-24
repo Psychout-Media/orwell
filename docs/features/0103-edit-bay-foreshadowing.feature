@@ -1,5 +1,5 @@
 # RETIRED 2026-11-11 (owner ruling, "retire and remove"): not planned, code and tests removed (card ORW-267). Kept as history only; not wired.
-# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
+# spec-only: retired, kept as history (ORW-823, discarded; retired by ORW-267); this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 Feature: 0103 — Edit-bay foreshadowing (the show is telling you something)
   Reality TV tells you something is coming before it does — the camera lingers on two
   houseguests in a corner, an aside is cut short, a glance is held — and a week or two later

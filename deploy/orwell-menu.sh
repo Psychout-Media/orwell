@@ -217,7 +217,7 @@ do_reset_game() {
     [[ "${1:-}" == "--yes" ]] || die "reset-game is destructive — pass --yes to run it non-interactively."
     run "Game reset" bash "${DEPLOY_DIR}/orwell-game-reset.sh" --yes; return $?
   fi
-  wt_confirm_phrase "RESET" "NEW SEASON — game reset.\n\nPERMANENTLY DELETES every game sandbox (all saves, souls, and the hidden Vault layer).\n\nPRESERVED: all accounts, sessions, settings, and the LLM configuration.\n\nThe next visit starts a brand-new game at the casting interview." \
+  wt_confirm_phrase "RESET" "NEW SEASON — game reset.\n\nCLEARS every game sandbox from play and ARCHIVES its saves (souls and the hidden Vault layer too) under save-archive/, capped, oldest pruned first.\n\nPRESERVED: all accounts, sessions, settings, and the LLM configuration.\n\nThe next visit starts a brand-new game at the casting interview." \
     || { wt_msgbox "Cancelled — nothing was changed."; return 0; }
   run "Game reset" bash "${DEPLOY_DIR}/orwell-game-reset.sh" --yes
 }

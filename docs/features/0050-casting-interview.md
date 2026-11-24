@@ -178,8 +178,8 @@ opens the interview instead of collecting fields.
 
 This is v1 of an evolving mechanic. Anticipated next steps (none block v1): richer derived
 signals (the engine reading aptitude hints from interview answers rather than archetype alone —
-must keep the §5A bound); NPC pre-game "casting tapes" the player can watch; producer follow-ups
-mid-season that reread the interview ("you said you'd never lie…"). Keep the distillation seam
+must keep the §5A bound); NPC pre-game "casting tapes" the player can watch; producer callbacks
+mid-season that reread the interview (built as the 0210 producer pushback, ORW-666) ("you said you'd never lie…"). Keep the distillation seam
 (`CreateCharacterReq`) the single funnel so evolution stays engine-validated.
 
 ## 10. Definition of Done

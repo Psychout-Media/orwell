@@ -48,7 +48,7 @@ engine before the player could know it, not even to the utility model. `groupsAw
 know about: an alliance whose `knownTo` includes the player (witnessed, told or exposed; never one the player belongs to, the narrator names those), or a pair habit
 the player saw (they were in the room; the entry's `seen` flag). Anything hidden keeps the engine floor (a placeholder nobody sees), is not mentioned by the read at all
 (no ids, no members), and `recordGroupIdentity` refuses it (`unknown-group`). It gets its words the first after-turn read after the player learns of it. The post-crown
-retrospective (a sanctioned unsealing) is part (d). Not built: a pair habit the player only heard about through a claim (no hook yet; the habit is listed once seen).
+retrospective (a sanctioned unsealing) is part (d). Not built: a pair habit the player only heard about through a claim (no hook yet; the habit is listed once seen). (ORW-825)
 
 `recordGroupIdentity {groupId, name?, ritual?, signal?, insideJoke?}` is the FE-driven write-back (both tools are infra levers, not model levers, wired in all four places).
 After a turn the FE driver (`frontend/src/orwell_group_identity.py`) makes one cheap utility call per listed group from the members' PUBLIC cards, the culture and the
