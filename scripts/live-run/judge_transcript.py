@@ -46,10 +46,24 @@ def load_turns(path):
     return entries, bad
 
 
+def _view(w):
+    return w.get("whereabouts") if isinstance(w, dict) and "whereabouts" in w else w
+
+
+def _room(w):
+    v = _view(w)
+    return v.get("room") if isinstance(v, dict) and isinstance(v.get("room"), str) else None
+
+
+def _room_names(w):
+    v = _view(w)
+    return v.get("roomNames") if isinstance(v, dict) and isinstance(v.get("roomNames"), dict) else {}
+
+
 def rows_from_log(entries):
     """The judge's turn records, built as live_full.run builds them. A card answer is not a player turn: it only moves the 'before' screen on (as the live driver's
     decide step does). A turn whose screen reads failed keeps those keys absent (unknown), never invented."""
-    rows, prev = [], None
+    rows, prev, prev_w = [], None, None
     for e in entries:
         st = lt.screen_view(e.get("state"), e.get("status"), e.get("whereabouts"))
         msg = e.get("msg")
@@ -59,8 +73,10 @@ def rows_from_log(entries):
             row = lt.turn_record(f"turn-{e.get('n', len(rows) + 1)}", msg, prev, st, text, e.get("secs"), error)
             row["early_morning"] = st.get("earlyMorning") if isinstance(st.get("earlyMorning"), bool) else None   # T14: the engine's flag...
             row["hud_tod"] = e.get("hud_tod")                                                                     # ...and the label the player saw
+            row["room_before"], row["room_after"] = _room(prev_w), _room(e.get("whereabouts"))                    # T19: the presence strip's room, before and after
+            row["room_names"] = _room_names(e.get("whereabouts"))
             rows.append(row)
-        prev = st
+        prev, prev_w = st, e.get("whereabouts")
     return rows
 
 

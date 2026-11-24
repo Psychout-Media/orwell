@@ -84,3 +84,25 @@ def test_T14_the_hud_must_read_early_morning_before_the_wake_up_and_only_then(tm
     data = json.loads((run / "judge" / "report.json").read_text())
     t14 = [f for group in data["findings"].values() for f in group if f["check"] == "T14"]
     assert sorted(f["turn"] for f in t14) == ["turn-1", "turn-3"]
+
+
+def test_T19_a_clear_move_must_move_the_player_before_the_reply(tmp_path):
+    run = _log(tmp_path, None)
+    lines = [json.loads(x) for x in (run / "turns.jsonl").read_text().splitlines()[:-1]]
+    w = lambda room: {"whereabouts": {"room": room, "present": [], "roomNames": {"backyard": "The Garden"}}}
+    lines[0]["whereabouts"] = w("kitchen")
+    plan = [("I head over to the backyard to get some air.", "kitchen"),          # turn-1: not moved -> FAIL
+            ("I go to the garden.", "backyard"),                                  # turn-2: the themed name, moved -> ok
+            ("I leave the backyard.", "backyard"),                                # turn-3: did not leave -> FAIL
+            ("Can I go to the kitchen?", "backyard"),                             # turn-4: a question: not judged
+            ("I wander back to the bedroom.", "backyard")]                        # turn-5: 'bedroom' names three rooms: not judged
+    for i, (msg, room) in enumerate(plan, start=1):
+        lines[i]["msg"], lines[i]["whereabouts"] = msg, w(room)
+        for k in ("state", "status"):
+            if isinstance(lines[i].get(k), dict) and isinstance(lines[i][k].get("daySchedule"), dict):
+                lines[i][k]["daySchedule"] = dict(lines[i][k]["daySchedule"], due=False)
+    (run / "turns.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines))
+    jt.main(["--run-dir", str(run)])
+    data = json.loads((run / "judge" / "report.json").read_text())
+    t19 = sorted(f["turn"] for group in data["findings"].values() for f in group if f["check"] == "T19")
+    assert t19 == ["turn-1", "turn-3"]

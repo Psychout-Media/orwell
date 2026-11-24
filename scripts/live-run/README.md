@@ -191,6 +191,6 @@ run dir: the player's message, the new public bubbles, the card, the three scree
 
 - Rebuilds each turn exactly as the full-week driver does (`live_truth.screen_view` + `turn_record`) and runs the same judge (`live_full_eval.judge_run`), so the report has the same
   checks, groups and verdicts, anonymised the same way. A card answer is not a player turn (it only moves the "before" screen on); a torn last line is skipped and counted.
-- Adds **T14** (the HUD reads "Early morning" before the wake-up, and only then), judged from the logged HUD label; the live driver does not log it, so there T14 stays "not covered".
+- Adds **T14** (the HUD reads "Early morning" before the wake-up, and only then), from the logged HUD label, and **T19** (a clear move by the player has moved them by the time the reply shows; a named room must match), from the presence strip's room. The live driver logs neither, so there both stay "not covered".
 - Files only: no model call, no game, no network, no key. Exit 0 PASS or NOTE, 1 FAIL, 2 could not run (no `turns.jsonl`).
 - A run played before ORW-109 has no `turns.jsonl` (only the latest `resp.json`), so it cannot be judged turn by turn.
