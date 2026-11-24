@@ -179,3 +179,18 @@ anything that needs the planned or hidden state behind a result. A read that fai
 listed here, never re-read through a route that crosses the wall. `frontend/tests/test_orw768_harness_reads_screens.py` holds the keys read from /state to the wall's shape. The short tier, the week tier and
 `eviction_e1.py` read the rig's own engine (`getGameState` over the engine's player channel), which is not the browser and is unchanged. In the rehearsal kit, `a9drive.py` now reads the premiere entrance
 from the rig's engine (as `a21_sync_drive.py` does) instead of `/api/orwell/state`, and `p0d_read.py` reads only keys still on the shape.
+
+
+## Judging a game someone already played: `judge_transcript.py` (ORW-109)
+
+When a person (or Fable) plays through the real browser with the rehearsal kit's play daemon (`scripts/rehearsal-kit/daemon.py`), the daemon appends EVERY turn to `turns.jsonl` in its
+run dir: the player's message, the new public bubbles, the card, the three screen reads (`/api/orwell/state`, `/status`, `/whereabouts`) and the HUD's day-part label (`#os-tod`).
+`resp.json` and `transcript.txt` are unchanged (resp.json still holds only the latest turn).
+
+    python3 scripts/live-run/judge_transcript.py --run-dir <the daemon's run dir> [--out DIR] [--build SHA] [--model NAME]
+
+- Rebuilds each turn exactly as the full-week driver does (`live_truth.screen_view` + `turn_record`) and runs the same judge (`live_full_eval.judge_run`), so the report has the same
+  checks, groups and verdicts, anonymised the same way. A card answer is not a player turn (it only moves the "before" screen on); a torn last line is skipped and counted.
+- Adds **T14** (the HUD reads "Early morning" before the wake-up, and only then), from the logged HUD label, and **T19** (a clear move by the player has moved them by the time the reply shows; a named room must match), from the presence strip's room. The live driver logs neither, so there both stay "not covered".
+- Files only: no model call, no game, no network, no key. Exit 0 PASS or NOTE, 1 FAIL, 2 could not run (no `turns.jsonl`).
+- A run played before ORW-109 has no `turns.jsonl` (only the latest `resp.json`), so it cannot be judged turn by turn.

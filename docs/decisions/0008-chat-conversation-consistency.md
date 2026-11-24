@@ -45,7 +45,7 @@ during live play:**
 
 The FE chat conversation is a **replicated log with no merge discipline**. It *claims* (in
 `session_events.py`'s own comments) to be "a single authoritative server-ordered log every device renders
-from," but it is not built that way. Three compounding defects:
+from," but it was never built that way. Three compounding defects:
 
 1. **No ordering key.** `ChatMessage` (`core/database.py:161-188`) carries a random `uuid4` id and a
    **non-unique** `timestamp` (`utcnow()`); render/reload order is `ORDER BY timestamp` only

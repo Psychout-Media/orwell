@@ -4,6 +4,7 @@ import { forgivenessTraitFor, applyForgiveness } from "../../src/engine/forgiven
 import { FORGIVENESS } from "../../src/engine/forgivenessConstants";
 import type { MemoryEntry } from "../../src/engine/npcMemory";
 import { playedGame } from "../support/playedGame";
+import { firstSeedWhereSync } from "../support/firstSeedWhere";
 
 /**
  * ORW-130 / ORW-507 - forgiveness by person, REAL PATH. A season is played to week 2 through the player's levers only, then the player turns on each houseguest in
@@ -21,12 +22,15 @@ type Rig = {
   memoryEntriesSeenBy(holder: string, entries: readonly MemoryEntry[] | undefined, subject: string): readonly MemoryEntry[] | undefined;
   setForgivenessEnabled(on: boolean): void;
 };
-const SEED = 7;
 
 describe("ORW-130 REAL PATH: who holds a betrayal is read from the holder and the relationship", () => {
   it("every remembered betrayal is read through the holder's own style, volatility and bond to that subject; some hold, some forgive; off reads the ledger raw", async () => {
-    const g = playedGame({ seed: SEED, user: "forg-real" });
-    g.playUntil(() => (g.s.getGameState() as { week?: number }).week! >= 2 && !g.s.getGameState().pending, 5000, "week 2");
+    // ORW-880: the first seed from 7 that reaches week 2 (the claims below are the feature's own, so the precondition is only the stop)
+    const { at: g } = firstSeedWhereSync((seed, sandbox) => {
+      const g = playedGame({ seed, user: sandbox });
+      g.playUntil(() => (g.s.getGameState() as { week?: number }).week! >= 2 && !g.s.getGameState().pending, 5000, "week 2");
+      return g;
+    }, { from: 1, to: 12, hint: 7, sandbox: (s) => `forg-real-${s}`, what: "week 2" });
     // the player turns on each houseguest in turn (their own recorded scenes); each houseguest's memory of it is the engine's own write
     // half of them first get the player's kindness (a history of favors is part of the rule), then the player turns on every one of them
     const npcs = g.s.livingIds().filter((id) => id !== PLAYER);
@@ -52,5 +56,5 @@ describe("ORW-130 REAL PATH: who holds a betrayal is read from the holder and th
     // not as shipped: the control arm, the same seed with this feature off, proves the feature is what makes the difference
     r.setForgivenessEnabled(false);
     for (const p of pairs) expect(r.memoryEntriesSeenBy(p.holder, p.raw, p.subject)).toBe(p.raw);
-  });
+  }, 300_000);
 });

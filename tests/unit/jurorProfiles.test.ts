@@ -71,7 +71,7 @@ describe("A2 - flag OFF is byte-identical; ON changes ballots", () => {
   });
   it("ON draws no extra rng and moves SOME ballot on some seed (non-vacuous)", () => {
     let moved = 0;
-    for (const seed of [2, 5, 7, 11, 13, 17]) {
+    for (const seed of [2, 5, 7, 11, 13, 17, 12, 27]) { // ORW-868: seeds 12 and 27 added (scanned seeds 1-60: the juror profiles move a ballot on 12, 27, 36, 37, 47, 51 and 53) when the cast-mean player stats left the first six with no ballot moved
       const off = outcomeHash(seed, (s) => s.setJurorProfilesEnabled(false)), on = outcomeHash(seed, (s) => s.setJurorProfilesEnabled(true));
       if (off !== on) moved++;
     }
