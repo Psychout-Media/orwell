@@ -32,6 +32,11 @@ export interface PlayOpts {
   setup?: (sess: any) => void;
   /** ORW-813: the player's own choice on a pending decision (e.g. how they vote): return a submitDecision request, or undefined to let the script decide as usual. Read-only on the session. */
   decide?: (pending: any, sess: any) => Record<string, unknown> | undefined;
+  /**
+   * ORW-778: play to STAY in the game (the survival script below). Off by default: the real-path tests under tests/realpath and tests/uat read states the plain script reaches (a chosen seed's moment), and a player who
+   * lasts longer plays a different season. The nightly what-fired report, the whole-season mix guard and the survival tests turn it on.
+   */
+  survive?: boolean;
   /** ORW-810: called once with the live session BEFORE the character is created: the place for a switch read at createCharacter (the premiere entrances). */
   beforeCreate?: (sess: any) => void;
   /** ORW-741: called once when the season ends (finished, capped or watched), with the live session: the place to read a post-season view, or flip a read-only feature and read it again. */
@@ -239,11 +244,12 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
    * uses the veto on THEMSELF (the old script saved whoever was listed first, which was often the other nominee). Null leaves every other decision to the shared harness.
    */
   const survivalChoice = (p: PendingDecision): Record<string, unknown> | null => {
-    const opts = (p.options ?? []) as Array<{ id: string }>;
-    if (p.kind === "veto-decision" && opts.some((o) => o.id === "player")) return { kind: "veto-decision", use: true, save: "player" };
-    if (p.kind === "nominations" && opts.length >= 2) { const pick = notAllies(opts).slice(0, 2); if (pick.length === 2) return { kind: "nominations", choice: pick }; }
-    if ((p.kind === "eviction-vote" || p.kind === "tie-break") && opts.length >= 1) return { kind: p.kind, vote: notAllies(opts)[0] };
-    if (p.kind === "replacement" && opts.length >= 1) return { kind: "replacement", replacement: notAllies(opts)[0] };
+    if (opts.survive !== true) return null;
+    const choices = (p.options ?? []) as Array<{ id: string }>;
+    if (p.kind === "veto-decision" && choices.some((o) => o.id === "player")) return { kind: "veto-decision", use: true, save: "player" };
+    if (p.kind === "nominations" && choices.length >= 2) { const pick = notAllies(choices).slice(0, 2); if (pick.length === 2) return { kind: "nominations", choice: pick }; }
+    if ((p.kind === "eviction-vote" || p.kind === "tie-break") && choices.length >= 1) return { kind: p.kind, vote: notAllies(choices)[0] };
+    if (p.kind === "replacement" && choices.length >= 1) return { kind: "replacement", replacement: notAllies(choices)[0] };
     return null;
   };
   /**
@@ -286,10 +292,10 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
     const inits = (await read("socialInitiatives", {})) as Array<{ houseguest: { id: string }; motive: string }> | null;
     if (inits?.length) { const a = inits[0]!; await social("recordInteraction", { initiator: a.houseguest.id, witnessSet: ["player", a.houseguest.id], content: a.motive === "bond" ? "they came over to talk and we got along" : "they came over to feel me out and I gave little away", kind: a.motive === "bond" ? "bonding" : "strategy" }); }
     if (present.length === 0) { await social("hangOut", { maxBeats: 2 }); return; }
-    if (await survive(t, present)) return;
+    if (opts.survive === true && await survive(t, present)) return;
     const npc = present[t % present.length]!, other = present[(t + 1) % present.length]!;
     // ORW-778: the hostile moves (a fight, an accusation, a secret used against someone, a confrontation) make enemies and raise the player's threat, so a player who means to last keeps them for the late game
-    const hostile = week >= HOSTILE_FROM_WEEK;
+    const hostile = opts.survive !== true || week >= HOSTILE_FROM_WEEK;
     switch (t % 16) {
       case 0: case 5: case 9: case 13: await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we talk about home and laugh for a while", kind: SCENES[t % SCENES.length] }); break;
       case 1: if (!hostile) await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we get to know each other over a long talk", kind: "bonding" }); else { const d = await social("makeDeal", { with: npc, kind: DEALS[(t >> 4) % DEALS.length], terms: "let's look after each other" }); if (d && !d.refused) dealtWith.add(npc); } break;

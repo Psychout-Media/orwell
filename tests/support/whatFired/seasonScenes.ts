@@ -7,7 +7,7 @@ import { playSeason } from "./player";
 async function main(): Promise<void> {
   const seed = Number(process.argv[2]), maxMessages = Number(process.argv[3] ?? 40000);
   const t0 = Date.now();
-  const r = await playSeason({ seed, maxMessages });
+  const r = await playSeason({ seed, maxMessages, survive: true });
   const out = { seed, stopped: r.stopped, week: r.week, messages: r.messages, playerOutWeek: r.playerOutWeek ?? null, seconds: Math.round((Date.now() - t0) / 1000), scenes: r.scenes.map((s) => [s.type, s.week, s.playerOut ? 1 : 0]) };
   process.stdout.write(`SEASONSCENES ${JSON.stringify(out)}\n`);
 }

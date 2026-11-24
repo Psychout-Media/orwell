@@ -49,10 +49,7 @@ describe("seeking in a played season", () => {
       let checked = 0;
       for (const { holder, listener } of seeking(at)) {
         const { off, on } = offOn(at, holder);
-        // ORW-778: a holder who already AVOIDS the listener at the avoid ceiling (0.64) has no room to rise: the seeking scale multiplies an avoid pull too and the ceiling clamps it, so there the pull may only stay level
-        const avoided = off?.find((p) => p.target === listener)?.avoid === true;
-        if (avoided) expect(w(on, listener), `seed ${seed}: an avoided listener's pull is not lowered`).toBeGreaterThanOrEqual(w(off, listener));
-        else expect(w(on, listener), `seed ${seed}: the pull toward the listener`).toBeGreaterThan(w(off, listener));
+        expect(w(on, listener), `seed ${seed}: the pull toward the listener`).toBeGreaterThan(w(off, listener));
         for (const p of off ?? []) expect(w(on, p.target), "a held fact never lowers a pull").toBeGreaterThanOrEqual(p.weight - 1e-12);
         checked++;
       }
