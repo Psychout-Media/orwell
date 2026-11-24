@@ -287,7 +287,7 @@ the judge is `FaithfulnessJudge`; the projection is the Vault-free `_faith_build
       (`DeterministicFaithfulnessJudge` / no utility model ⇒ the judge never runs) keeps seeded lanes
       **byte-identical**; **no** re-baseline.
 - [x] Name-agnostic tests (roles only); the **full FE pytest gate is green (2670 passed, 2 skipped)**.
-      *(Open, ORW-822: the active path is live-only, so a live-LLM manual run is owed — the headless
+      *(Open, ORW-109: the active path is live-only, so a live-LLM manual run is owed; it is folded into ORW-109's first live full-week run — the headless
       gates stub the model and can't exercise it.)*
 
 ## 7. Anti-sycophancy & the mandate boundary (explicit — read before approving)

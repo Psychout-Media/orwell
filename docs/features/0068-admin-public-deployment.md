@@ -153,7 +153,7 @@ ui:     static/index.html System-panel card + Connect stepper; static/js/admin.j
 - Alternative providers (ngrok, Tailscale Funnel) behind a provider selector — **cloudflared first**.
 - Locally-managed tunnel (interactive `login`) — explicitly **not** pursued; the token path is the UI path.
 - Bundling cloudflared in the image vs apt-install on demand — **apt on demand first**.
-- Shorter session TTL + logout revocation (the 0067 item, ORW-819) is independent of this panel.
+- Shorter session TTL + logout revocation (the 0067 item) is built and proven (`frontend/tests/test_orw819_session_lifetime.py`), independent of this panel.
 
 ## 9. Implementer handoff — open questions
 
