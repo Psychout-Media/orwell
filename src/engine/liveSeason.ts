@@ -1450,6 +1450,11 @@ export interface BeatEvent {
   beat: Beat;
   content: string;
   participants: EntityId[];
+  /**
+   * ORW-830: the LAST batch of a staged comp's drops, told as the same inert `comp-elimination` event the earlier rounds are, carried on the crown beat (the crown is reached on the same advance, so no extra step and
+   * no clock charge). The adapter records it just before the crown. Absent on every other beat and on a non-staged crown (byte-identical there).
+   */
+  lastDrops?: BeatEvent;
 }
 
 export type DecisionInput =
@@ -1795,7 +1800,8 @@ function advanceCompetition(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
     droppedThisRound.push(dropped);
   }
   c.round += 1;
-  if (c.stillIn.length === 1) return crownCompetition(s);
+  // ORW-830: when this batch leaves one player the comp crowns on THIS advance (no extra step): the crown carries the batch as its `lastDrops` event, told exactly like any other round.
+  const crowning = c.stillIn.length === 1;
   // #1400: when the model authored + the engine VALIDATED fiction for THIS comp, tell the drop as the
   // model's per-round fiction (looked up by the exact dropped ids) instead of the deterministic 0042
   // template. PRESENTATION ONLY — `droppedThisRound` and its order come straight from the fixed
@@ -1828,7 +1834,7 @@ function advanceCompetition(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
       if (fact) appendWipeoutHistory((s.wipeoutHistory ??= {}), dropped, { week: s.week, comp: c.comp, text: fact.text });
     }
   }
-  return {
+  const dropEvent: BeatEvent = {
     // A per-round DROP — NOT the crown (which keeps the comp beat key so its consequence still folds).
     // `comp-elimination` falls through every commit side-effect switch (no fold, no soul inflection, no
     // confessional, no rng) — so a reveal is inert to the game state, keeping the trajectory unchanged.
@@ -1836,6 +1842,9 @@ function advanceCompetition(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
     content: authored ?? (wipeout ? `${template}. ${wipeout}` : template),
     participants: [...droppedThisRound, ...c.stillIn],
   };
+  if (!crowning) return dropEvent;
+  const crown = crownCompetition(s);
+  return { ...crown, lastDrops: dropEvent };
 }
 
 /**
