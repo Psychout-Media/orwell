@@ -68,7 +68,7 @@ const st = (w: BbWorld): Ctx => { let c = state.get(w); if (!c) { c = {}; state.
 
 /** A live game two beats in, deal consent + deal depth + NPC offers on, flagged played (or not). */
 function game(played = true, tag = "ddii"): Live {
-  const sb = new GameSessionRegistry().sandboxFor(`${tag}-${Math.random()}`);
+  const sb = new GameSessionRegistry().sandboxFor(`${tag}-fixed`);
   sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: 7 });
   sb.session.advanceGame(); sb.session.advanceGame();
   const g = sb.session as unknown as Internals;
@@ -404,7 +404,7 @@ Then("the wronged party's read of the packaged breaker falls further than of the
 // --- 4. Weighing a break -----------------------------------------------------------------------------------------------------
 
 function weighSetup(o: { trust: number; affinity: number; threat: number; goal?: boolean; played?: boolean; kind?: Deal["kind"] }): Weigh {
-  const sb = new GameSessionRegistry().sandboxFor(`weigh-${Math.random()}`);
+  const sb = new GameSessionRegistry().sandboxFor(`weigh-fixed`);
   sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed: 7 });
   sb.session.advanceGame(); sb.session.advanceGame();
   const s = sb.session;
