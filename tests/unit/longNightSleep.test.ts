@@ -28,7 +28,7 @@ function playLate(seed: number, hour: number, onRow?: (s: Any, row: Any) => void
 
 describe("ORW-696 the double-eviction long night (unit: the twist is armed by hand): nobody turns in, nobody pays for it", () => {
   it("B2-2: no houseguest is asleep at any point while the long night runs (an early sleeper stays up)", () => {
-    for (const seed of [5, 11]) { // seed 11 has early sleepers whose bedtime falls inside the night
+    for (const seed of [5, 7]) { // ORW-868: seed 11 (early sleepers whose bedtime falls inside the night) became a spectator seed with the cast-mean player stats, so seed 7 stands in
       let running = 0; const asleep: string[] = [];
       const { fired } = playLate(seed, 0, (s, row) => {
         if (row.twist !== "running") return;

@@ -11,7 +11,7 @@ async function main(): Promise<void> {
   // ORW-832: the cost curve of the season (milliseconds per message, per block of CURVE_BLOCK messages), so a season that slows as it goes shows in the report before it hits a time limit.
   const curve: number[] = [];
   let blockStart = t0;
-  const r = await playSeason({ seed, maxMessages, watch: async ({ msg }) => { if ((msg + 1) % CURVE_BLOCK === 0) { const now = Date.now(); curve.push(Math.round((now - blockStart) / CURVE_BLOCK)); blockStart = now; } return false; } });
+  const r = await playSeason({ seed, user: `wf-${seed}`, maxMessages, survive: true, watch: async ({ msg }) => { if ((msg + 1) % CURVE_BLOCK === 0) { const now = Date.now(); curve.push(Math.round((now - blockStart) / CURVE_BLOCK)); blockStart = now; } return false; } });
   const out = { seed, stopped: r.stopped, week: r.week, messages: r.messages, playerOutWeek: r.playerOutWeek ?? null, seconds: Math.round((Date.now() - t0) / 1000), msPerMessage: curve, scenes: r.scenes.map((s) => [s.type, s.week, s.playerOut ? 1 : 0]) };
   process.stdout.write(`SEASONSCENES ${JSON.stringify(out)}\n`);
 }
