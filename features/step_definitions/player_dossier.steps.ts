@@ -12,7 +12,7 @@ const state = new WeakMap<object, Ctx>();
 const st = (w: BbWorld): Ctx => state.get(w)!;
 
 function stage(seed: number): Ctx {
-  const sb = new GameSessionRegistry().sandboxFor(`dossier-${seed}-${Math.random()}`);
+  const sb = new GameSessionRegistry().sandboxFor(`dossier-${seed}-fixed`);
   sb.session.createCharacter({ playerName: "The Player", seed });
   sb.session.setPlayerDossierEnabled(true);
   return { sb, a: npc(1), b: npc(2), result: {} };

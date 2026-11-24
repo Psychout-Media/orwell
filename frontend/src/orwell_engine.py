@@ -1023,6 +1023,12 @@ async def record_npc_reflections(req: dict, user: str | None = None) -> dict:
     return await _call("recordNpcReflections", req, user=user)
 
 
+async def record_episode_titles(titles: list, user: str | None = None) -> dict:
+    """ORW-807 (0200 your edit): write the narrator's authored episode titles BACK to the engine (``[{week, title}]``). The engine refuses until the
+    season is finished, cleans and caps each title, and keeps the first title per week. Returns ``{accepted, recorded, reason?}``."""
+    return await _call("recordEpisodeTitles", {"titles": list(titles)}, user=user)
+
+
 async def record_house_culture(req: dict, user: str | None = None) -> dict:
     """ORW-319 (spec 0146 lane 2): write the season's house culture (spots, rituals, a running joke) BACK to the engine (validated,
     write-once). Returns ``{accepted, reason?}``."""
