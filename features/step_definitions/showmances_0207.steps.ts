@@ -211,7 +211,7 @@ Then("their choice follows whichever tie is stronger for them, by their own natu
 });
 
 // A3 breakup, A4: real seasons where the player's own acts are the only writers
-Given("a played game where the player and a houseguest have a showmance from the player's own scenes", slow, async function () { (bag(this) as Any).clash = await playSeason(3, "woman", 700, "drawn", true); });
+Given("a played game where the player and a houseguest have a showmance from the player's own scenes", slow, async function () { (bag(this) as Any).clash = await playSeason(await mainSeed(), "woman", 700, "drawn", true); });
 When("the player starts a clash with that houseguest", function () {
   const s = (bag(this) as Any).clash as Season;
   assert.ok(Object.keys(s.romances).some((k) => k.includes("player")), "positive control: the showmance was on record");
@@ -227,16 +227,16 @@ Then("the grudge book holds a heartbreak deeper than a broken deal's grudge, onc
 });
 
 // A4
-Given("a played game where a houseguest started romance scenes toward the player and the player started none", slow, async function () { (bag(this) as Any).theirs = await playSeason(3, "woman", 100, "none"); });
+Given("a played game where a houseguest started romance scenes toward the player and the player started none", slow, async function () { (bag(this) as Any).theirs = await playSeason(await mainSeed(), "woman", 100, "none"); });
 Then("the engine does not hold the player to be in a showmance", function () {
   const s = (bag(this) as Any).theirs as Season;
   assert.ok(Object.keys(s.chem).some((k) => k.endsWith(">player")), "positive control: someone is drawn to the player");
   assert.equal(Object.keys(s.romances).filter((k) => k.includes("player")).length, 0);
 });
 Then("the player's own showmance scenes, answered by a houseguest drawn to them, make one", slow, async function () {
-  const s = await playSeason(3, "woman", 700, "drawn", true);
+  const s = await playSeason(await mainSeed(), "woman", 700, "drawn", true);
   assert.ok(Object.keys(s.romances).some((k) => k.includes("player")));
-  (bag(this) as Any).away = await playSeason(3, "woman", 700, "notDrawn"); // ORW-876: as long as the drawn season above, which answers in kind; at 160 messages no houseguest answers either way
+  (bag(this) as Any).away = await playSeason(await mainSeed(), "woman", 700, "notDrawn"); // ORW-876: as long as the drawn season above, which answers in kind; at 160 messages no houseguest answers either way
 });
 Then("a houseguest whose orientation does not include the player does not answer in kind", function () {
   const s = (bag(this) as Any).away as Season;

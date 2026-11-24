@@ -6147,7 +6147,9 @@ export class GameSessionAdapter implements GameSession {
       ...(this.tradeCount > 0 ? { secretTradeCount: this.tradeCount } : {}),
       ...(this.playerBluffCount > 0 ? { secretPlayerBluffCount: this.playerBluffCount } : {}),
       ...(Object.keys(this.playerBluffBelief).length ? { secretPlayerBluffBelief: cloneSession(this.playerBluffBelief) } : {}),
-      ...(this.seededRels.ties.length || this.seededRels.showmances.length
+      // ORW-893: kept whenever the cast exists, even with no tie and no showmance seeded (a realistic orientation draw makes an empty layer ordinary): an ABSENT layer on restore means a pre-0059 save and re-seeds, which
+      // could seed what the original season never had.
+      ...(this.house || this.seededRels.ties.length || this.seededRels.showmances.length
         ? { seededRelationships: cloneSession(this.seededRels) } : {}),
       // 0116 — the model-authored world-gen artifact: the seeded season brief (mandate #4 — the committed
       // genesis is the persisted artifact, recalled never regenerated) + the authored-skeleton provenance.

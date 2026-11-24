@@ -115,10 +115,13 @@ describe("#544 — coherent proposals are HONORED (AI drives who the houseguests
     const seed = 13;
     const npcs = NPCS(seed);
     const target = npcs[0]!.id;
+    // ORW-893: a proposed label must fit the houseguest's final presentation ("gay" is a man's, "lesbian" a woman's), so the proposal is the one that fits this houseguest.
+    const presentation = generateDiversityLayer(seed, npcs).public[target]!.genderPresentation;
+    const label = presentation === "man" ? "gay" : presentation === "woman" ? "lesbian" : "queer";
     const layer = repairDiversityLayer(seed, npcs, {
-      [target]: { orientation: "gay", out: false },
+      [target]: { orientation: label, out: false },
     });
-    expect(layer.privateOrientations[target]).toBe("gay");
+    expect(layer.privateOrientations[target]).toBe(label);
     expect(layer.public[target]!.outOrientation).toBeUndefined();
   });
 

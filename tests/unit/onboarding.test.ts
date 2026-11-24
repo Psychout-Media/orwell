@@ -35,8 +35,10 @@ describe("onboarding — createCharacter starts a game (the missing step past ac
 
 describe("onboarding — the Vault-free projection (no hidden houseguest detail crosses the wall)", () => {
   it("house cards carry the curated PUBLIC facets (B61) — and nothing hidden", () => {
-    const s = new GameSessionAdapter();
-    s.createCharacter({ playerName: PLAYER_NAME, seed: 3 });
+    // ORW-893: the first card must belong to a publicly-out houseguest (the card then carries `outOrientation`); the orientation draw is realistic now (about a tenth of a cast), so the seed is scanned for, not pinned.
+    let s = new GameSessionAdapter(), seed = 3;
+    for (seed = 1; seed <= 400; seed++) { s = new GameSessionAdapter(); s.createCharacter({ playerName: PLAYER_NAME, seed }); if (s.getGameState().house[0]!.outOrientation !== undefined) break; }
+    expect(s.getGameState().house[0]!.outOrientation, "a seed whose first houseguest is publicly out").toBeDefined();
     const blob = JSON.stringify(s.getGameState().house);
     // The genuinely hidden layer never crosses: aptitudes, the soul, hidden elements.
     // NB: bare "physical"/"mental"/"social" are NOT banned — they are legitimate PUBLIC words
