@@ -3798,6 +3798,17 @@ async def _merged_turn_extract(narration, last_user, house, endpoint_url, model,
         return none
 
 
+_DIARY_NAMED_RE = re.compile(r"\b(?:diary|booth|confessional|on\s+the\s+record|dr)\b", re.IGNORECASE)
+
+
+def _player_named_diary_room(last_user, room_names=None) -> bool:
+    """ORW-734b: did the PLAYER's own message name the Diary Room (its plain words or this season's themed name)? Pure text check on the player's words."""
+    text = str(last_user or "")
+    if _DIARY_NAMED_RE.search(text):
+        return True
+    return "diary-room" in _themed_rooms_in(text, room_names)
+
+
 async def _auto_move_player(narration, last_user, endpoint_url, model, headers, owner, raw=None) -> bool:
     """GUARANTEE whereabouts cohesion (L21/L24). When the player's turn walked them to a room but the
     model never called moveTo, a constrained extraction proposes the destination room and we call
@@ -3826,6 +3837,11 @@ async def _auto_move_player(narration, last_user, endpoint_url, model, headers, 
         room = _room_id_of(obj.get("room"), _season_room_names(owner))  # ORW-466: a themed-name echo still maps to its id
         if not room:
             return False  # null / no move / unknown room → nothing to do
+        if room == "diary-room" and not _player_named_diary_room(last_user, _season_room_names(owner)):
+            # ORW-734b (ADR 0009, 0210 C2): the player is INVITED to the Diary Room, never sent. A narrated invitation or "you are called" line is not
+            # the player's own move, so only the player's own words can take them in.
+            logger.info(f"[orwell] auto-move: diary-room not named by the player, no move user={owner}")
+            return False
         # 0065 Part A: attach the CAS token + refresh last-seen from the response; a stale 409 (the
         # board moved under us) is reconciled-and-skipped (None) — the move re-derives next turn.
         # Deliberately NOT `defer_fold=True`: a move is a positional/physical belt, not a hidden-impact

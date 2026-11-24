@@ -15,7 +15,7 @@ interface Fact { content: string; pathway: string; subject?: string; confidence?
 describe("ORW-756 REAL PATH: overheard fragments", () => {
   it("REAL PATH: an overheard fragment reaches the player in a played season as a strict, subject-less fragment (the wall call is open)", async () => {
     let fragment: Fact | undefined, viewKnowledge: Array<{ content: string; subject?: string }> = [];
-    const on = await playSeason({
+    const on = await playSeason({ user: `wf-${SEED}`,
       seed: SEED, maxMessages: 1500,
       watch: ({ engine }) => { fragment = (engine.knowledge.knownTo("player") as Fact[]).find((k) => k.pathway.startsWith("overheard")); return !!fragment; },
       after: async ({ call }) => { viewKnowledge = (await call("getVisibleStateFor", { entity: "player" })).knowledge ?? []; },

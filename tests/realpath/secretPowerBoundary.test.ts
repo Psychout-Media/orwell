@@ -14,7 +14,7 @@ import { playUntil, learned, type Stop } from "./playedSeason";
 /** The first moment the player holds a learned fact about a living houseguest; returns the player-channel fact id (the id the front end reads off the player's view). */
 async function secretLearned(seed: number): Promise<{ at: Stop; subject: string; factId: string }> {
   const about = (s: Stop) => learned(s).find((f) => f.subject !== undefined && f.subject !== PLAYER && s.sess.livingIds().includes(f.subject));
-  const at = await playUntil(seed, (s) => about(s) !== undefined);
+  const at = await playUntil(seed, (s) => about(s) !== undefined, { user: `wf-${seed}` });
   const fact = about(at)!;
   const view = await at.call("getVisibleStateFor", { entity: "player" });
   const seen = (view.knowledge as Array<{ id: string }>).find((k) => k.id === fact.id);

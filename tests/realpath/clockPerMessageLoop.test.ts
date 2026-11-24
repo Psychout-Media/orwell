@@ -17,7 +17,6 @@ import { milestoneDue, nextMilestone } from "../../src/engine/daySchedule";
  * The contract: the front-end announces each player message once with the engine lever `noteMessage({ messageId })` (idempotent per id); the engine bills exactly MINUTES_PER_MESSAGE for
  * that id, however many commits the message then makes. This drives the production runtime (`composeRuntime`) through `callTool` - the same path the HTTP edge uses. Roles only.
  */
-let n = 0;
 interface Day { call: (name: string, args?: Record<string, unknown>) => Promise<unknown>; hour: () => number; live: () => ReturnType<GameSessionAdapter["snapshot"]>["live"] }
 /**
  * ORW-812: a started day reached by PLAYING (before, a test seam wrote Day 2, 8am into the live state). `played` (the default): the player talks through the premiere evening (one
@@ -27,7 +26,7 @@ interface Day { call: (name: string, args?: Record<string, unknown>) => Promise<
 async function startedDay(played = true): Promise<Day> {
   GameSessionAdapter.setTimeOfDayEnabled(true);
   const rt = composeRuntime({ clock: new FakeClock(), seed: 1 });
-  const user = `cpm-${n++}`;
+  const user = `cpm-day-${played ? "played" : "headless"}`; // ORW-852: a fixed name (each call builds its own runtime, so two calls never share a sandbox)
   const mcp = rt.registry.resolver()("player", user);
   const call = (name: string, args: Record<string, unknown> = {}): Promise<unknown> => mcp.callTool(name, args);
   await call("createCharacter", { playerName: "P", archetype: "floater", seed: 7 });
@@ -111,7 +110,7 @@ describe("the clock bills once per PLAYER MESSAGE through the real commit loop",
     GameSessionAdapter.setTimeOfDayEnabled(true);
     const dir = mkdtempSync(join(tmpdir(), "cpm-store-"));
     try {
-      const user = `cpm-reload-${n++}`;
+      const user = "cpm-reload";
       const rt1 = composeRuntime({ clock: new FakeClock(), seed: 1, saveStore: new FileSaveStore(dir) });
       const mcp1 = rt1.registry.resolver()("player", user);
       await mcp1.callTool("createCharacter", { playerName: "P", archetype: "floater", seed: 7 });
@@ -150,7 +149,7 @@ describe("the clock bills once per PLAYER MESSAGE through the real commit loop",
     GameSessionAdapter.setTimeOfDayEnabled(true);
     const dir = mkdtempSync(join(tmpdir(), "cpm-ring-"));
     try {
-      const user = `cpm-ring-${n++}`;
+      const user = "cpm-ring";
       const rt1 = composeRuntime({ clock: new FakeClock(), seed: 1, saveStore: new FileSaveStore(dir) });
       const mcp1 = rt1.registry.resolver()("player", user);
       await mcp1.callTool("createCharacter", { playerName: "P", archetype: "floater", seed: 7 });
