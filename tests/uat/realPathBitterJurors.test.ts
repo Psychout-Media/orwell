@@ -3,6 +3,7 @@ import { PLAYER } from "../../src/domain/ids";
 import { JURY_GRUDGE } from "../../src/engine/juryConstants";
 import type { DecisionWhy } from "../../src/engine/decisionWhy";
 import { playedGame } from "../support/playedGame";
+import { firstSeedWhereSync } from "../support/firstSeedWhere";
 
 /**
  * Feature 0182 (ORW-569) BITTER JURORS, REAL PATH. One season is played through the player's levers to the finale, so every grudge a juror holds is one the engine
@@ -11,26 +12,29 @@ import { playedGame } from "../support/playedGame";
  * grudge's whole effect: a juror's grudge against a finalist enters their vote for that finalist as a "grudge" term that leans AWAY (never toward), bounded by the cap;
  * a finalist they hold nothing against gets no such term; with grudges off there is no grudge term, and the relationship, game-respect, finale-performance and
  * finale-swing parts of every vote are the same to the bit (the grudge book also shapes the juror's memory read, ORW-607, so that part may move).
- * Seed 11: its finale jury holds grudges against both finalists. The player is never a grudge holder.
+ * The seed is scanned from 11 (ORW-880): the first whose finale jury holds a grudge against a finalist (the precondition). The player is never a grudge holder.
  * HEAVY LANE (tests/uat/realPath*, the `real-path` leg): one played season, about 1-3 minutes.
  */
-const SEED = 11;
 type Why = DecisionWhy;
 type Run = { why: Why[]; votes: Record<string, string>; grudge: (j: string, f: string) => number; finalists: string[]; book: Record<string, unknown> };
 
 describe("0182 REAL PATH: a juror's grudge leans their finale vote away from that finalist", () => {
   let on: Run, off: Run;
   beforeAll(() => {
-    const g = playedGame({ seed: SEED, user: "bitter-real" });
-    g.playUntil(() => (g.s.getGameState() as { phase?: string }).phase === "finale", 20_000, "the finale");
-    const save = g.s.snapshot();
-    const run = (grudges: boolean): Run => {
-      const h = playedGame({ seed: SEED, user: `bitter-real-${grudges}`, from: save, before: (s) => s.setGrudgesEnabled(grudges) });
+    const run = (seed: number, save: unknown, grudges: boolean): Run => {
+      const h = playedGame({ seed, user: `bitter-real-${grudges}`, from: save, before: (s) => s.setGrudgesEnabled(grudges) });
       h.playToCrown();
       const L = (h.s as unknown as { live: { decisionWhy?: Why[]; finale?: { votes?: Record<string, string>; finalists: string[] }; grudges?: Record<string, unknown> } }).live;
       return { why: (L.decisionWhy ?? []).filter((w) => w.kind === "jury-vote"), votes: L.finale?.votes ?? {}, grudge: (j, f) => h.s.juryGrudgeFor(j, f), finalists: L.finale?.finalists ?? [], book: L.grudges ?? {} };
     };
-    on = run(true); off = run(false);
+    const found = firstSeedWhereSync((seed, sandbox) => {
+      const g = playedGame({ seed, user: sandbox });
+      g.playUntil(() => (g.s.getGameState() as { phase?: string }).phase === "finale", 20_000, "the finale");
+      const save = g.s.snapshot();
+      const r = run(seed, save, true);
+      return r.why.some((w) => r.finalists.some((f) => r.grudge(w.by, f) < 0)) ? { save, on: r } : undefined;
+    }, { from: 1, to: 12, hint: 11, sandbox: (s) => (s === 11 ? "bitter-real" : `bitter-real-${s}`), what: "a finale jury holding a grudge against a finalist" });
+    on = found.at.on; off = run(found.seed, found.at.save, false);
   }, 900_000);
 
   const term = (o: Why["options"][number], name: string): number => o.terms.filter(([n]) => n === name).reduce((a, [, v]) => a + v, 0);

@@ -3,6 +3,7 @@ import { PLAYER } from "../../src/domain/ids";
 import { CAMPAIGN, type Campaign } from "../../src/engine/campaigns";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { playedGame } from "../support/playedGame";
+import { firstSeedWhere } from "../support/firstSeedWhere";
 
 /**
  * Feature 0085 phase 2 (the player's own campaign), REAL PATH. A season is played to its second week through the player's levers, then the player works the house
@@ -13,12 +14,17 @@ import { playedGame } from "../support/playedGame";
  * a save and load. With campaigns off the same pitch creates nothing. Seed 1 (the unit boundary test's seed). Roles only.
  */
 type Priv = { campaigns: Campaign[]; campaignTiltFor(t: string, v: string): number };
-const SEED = 1;
 
-async function pitched(user: string, opts: { on?: boolean; direction?: "more-threatened" | "less-threatened" } = {}) {
-  const g = playedGame({ seed: SEED, user: user, before: (s) => s.setCampaignsEnabled(opts.on ?? true) });
+type PitchOpts = { on?: boolean; direction?: "more-threatened" | "less-threatened" };
+/** ORW-880: the first seed from 1 whose season reaches week 2 with three houseguests to pitch to, about and past (each in the sandbox `<prefix>-<seed>`). */
+async function pitched(prefix: string, opts: PitchOpts = {}) {
+  return (await firstSeedWhere((seed, sandbox) => pitchedAt(seed, sandbox, opts), { from: 1, to: 12, hint: 1, sandbox: (s) => `${prefix}-${s}`, what: "week 2 with three houseguests" })).at;
+}
+async function pitchedAt(seed: number, user: string, opts: PitchOpts) {
+  const g = playedGame({ seed, user: user, before: (s) => s.setCampaignsEnabled(opts.on ?? true) });
   g.playUntil(() => (g.s.getGameState() as { week?: number }).week! >= 2 && !g.s.getGameState().pending, 5000, "week 2");
   const npcs = g.s.livingIds().filter((id) => id !== PLAYER);
+  if (npcs.length < 3) return undefined;
   const [recruit, target, bystander] = npcs as [string, string, string];
   for (let i = 0; i < 4; i++) await g.sb.mcp.player.callTool("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, recruit], content: "the player keeps them company and has their back", kind: "bonding" });
   const res = await g.sb.mcp.player.callTool("recordInteraction", {
@@ -50,7 +56,7 @@ describe("0085 REAL PATH: the player's own campaign, from their own pitch", () =
     const loaded = new GameSessionRegistry().sandboxFor("camp-load").session;
     loaded.restore(JSON.parse(JSON.stringify(g.s.snapshot())));
     expect(mine(loaded as unknown as Priv)).toEqual(mine(p));
-  });
+  }, 300_000);
 
   it("a protect-shaped pitch starts nothing; with campaigns off the same evict pitch starts nothing", async () => {
     const protect = await pitched("camp-protect", { direction: "less-threatened" });
@@ -58,5 +64,5 @@ describe("0085 REAL PATH: the player's own campaign, from their own pitch", () =
     const off = await pitched("camp-off", { on: false });
     expect(mine(off.p)).toHaveLength(0);
     expect(off.p.campaignTiltFor(off.target, off.recruit)).toBe(0);
-  });
+  }, 300_000);
 });
