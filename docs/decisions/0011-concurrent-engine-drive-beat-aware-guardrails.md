@@ -107,14 +107,14 @@ engine change. Any tab may still SEND anytime and turns still serialize (0064 un
 - **A client turn-lock / spectator / take-over (only one tab drives).** *Rejected — forbidden by a prior
   owner ruling* (feature 0064 chose Messenger; `test_0064_salvage.py` pins the lock design *out* of the tree).
   It would also regress the cross-device promise (any device types anytime).
-- **Lower `MAX_AGENT_ROUNDS` / cap total nudges harder (a blunt round budget).** *Deferred, not the root.*
+- **Lower `MAX_AGENT_ROUNDS` / cap total nudges harder (a blunt round budget).** *Deferred, not the root.* (ORW-884)
   It bounds the *symptom* (round count) without fixing the *cause* (the beat-blind signal), and a too-tight cap
-  risks clipping legitimate multi-step play. Tracked as a follow-up (below).
+  risks clipping legitimate multi-step play. Tracked as a follow-up (below). (ORW-884)
 - **Compare `beatSeq` deltas instead of the beat key.** *Rejected* — `beatSeq` bumps on **any** committed
   mutation (including this turn's own `recordInteraction`), so it cannot cleanly isolate a *progression*. The
   `(week, phase, moment)` key changes only on a real beat advance, which is exactly the signal the stall-nudge
   needs.
-- **An engine-side double-buffer / per-turn snapshot** (ADR 0009 Open-Q #1). *Deferred* — the architecturally
+- **An engine-side double-buffer / per-turn snapshot** (ADR 0009 Open-Q #1). *Deferred* — the architecturally (ORW-883)
   cleaner long-term answer (a turn operates on a frozen snapshot; peer mutations apply at turn boundaries), but
   it is calibration-adjacent engine churn. The FE-side beat-aware fix solves the live defect with zero engine
   risk; revisit if the closed-set spine is reworked.
@@ -137,13 +137,13 @@ engine change. Any tab may still SEND anytime and turns still serialize (0064 un
 
 ## Open / to confirm
 
-- **A guardrail-cascade total cap / loop-breaker enhancement (follow-up).** The beat-aware fix removes the
+- **A guardrail-cascade total cap / loop-breaker enhancement (follow-up).** The beat-aware fix removes the (ORW-884)
   *spurious* nudges; a general per-turn cap on total guardrail re-prompts (independent of `_stuck_rounds`'s
   "same call, no text" condition) would harden the loop against any *future* distinct-call-with-text spin
   cause. Larger, touches the lattice (roadmap **R3**); not forced here.
 - **Unmount (not just hide) suppressed round bubbles + tear down their accordions** (audit TRANS-1/2). After
   the root fix turns no longer spin, so the bubble accumulation is bounded to normal round counts; the
-  hide-not-remove cleanup is a polish follow-up.
+  hide-not-remove cleanup is a polish follow-up. (ORW-884)
 - **The cold-start two-session window** (audit, second-order): before a canonical session is bound, two fresh
   tabs can each open a separate chat (two parallel casting interviews). Bind before the first framed run
   starts.

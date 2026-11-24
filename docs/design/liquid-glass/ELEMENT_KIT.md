@@ -277,7 +277,7 @@ no JS needed (a `<label>` wrapping a native checkbox). `:focus-visible` ring on 
 
 Kit-styled `<select>`: glass capsule, neutral monochrome chevron, and **option-list tokens
 pinned to legible dark-on-light** — this is the fix for admin's dark-on-dark native `<select>`
-(the class is provided; admin migration is #775, not done here). `:focus-visible` ring;
+(the class is provided; admin migration is #775, not done here). `:focus-visible` ring; (ORW-891)
 `:disabled`.
 
 ```html

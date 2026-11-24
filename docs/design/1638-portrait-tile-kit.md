@@ -59,7 +59,7 @@ doesn't). `.ow-portrait` **unifies the frame** and standardizes on `face()` as i
 G6 hand-rolls its **own** two-layer reveal (monogram base → decoded-img crossfade) and its own badge
 composite because it predates `face()`'s onerror-heal. It is the richest *frame* consumer — but under
 the **frame-only ruling (§6.1)** G6 keeps this reveal seam and gains only the `.ow-portrait` frame +
-states; the ~80-line `face()` consolidation is **deferred**, not part of this lane.
+states; the ~80-line `face()` consolidation is **deferred**, not part of this lane. (ORW-888)
 
 ### G4 — Headshot studio tiles (`orwellHeadshot.js`) — image thumbnails, own skeleton
 
