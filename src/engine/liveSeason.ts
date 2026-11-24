@@ -1135,6 +1135,8 @@ export interface LiveSeasonState {
    * construction (built only from the already-player-visible recap). Absent until the first turnIn.
    */
   dayLedger?: DaySummaryEntry[];
+  /** ORW-807 (0200): the narrator's authored episode titles, by week, written back after the crown (first title per week stands). Absent until one is written. */
+  episodeTitles?: Record<string, string>;
   /**
    * C1 (#1788) — the season-spanning, MONOTONIC Wipeout Reel history per houseguest (mandate #4:
    * appended only, never trimmed or overwritten). Fed by each REVEALED staged-comp drop's failure-style
