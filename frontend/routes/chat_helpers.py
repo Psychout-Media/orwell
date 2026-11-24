@@ -8518,6 +8518,7 @@ def current_game_day(user) -> Optional[int]:
     return _LAST_FRAMED_GAME_DAY.get(user or "default")
 
 
+_STAMP_REFRESH_RETRY_TIMEOUT = 6.0  # ORW-875: the second, longer try after a missed first read
 _STAMP_REFRESH_TIMEOUT = 2.0  # seconds: the persist-time stamp refresh is best-effort and must stay short
 
 
@@ -8527,7 +8528,11 @@ async def refresh_framed_game_stamps(user) -> None:
     try:
         from src import orwell_engine
         # Review of #2772: bounded, so a stalled engine read can never hold the save for the full framing timeout (the start-of-turn stamp stands).
-        gs = await asyncio.wait_for(orwell_engine.get_game_state(user=user), _STAMP_REFRESH_TIMEOUT)
+        # ORW-875: one retry with a longer bound. A loaded box can miss the first window, and the start-of-turn stamp that then stands is a phase BEHIND the engine (the playtest stamp read "Veto competition" while the turn had crossed to the ceremony).
+        try:
+            gs = await asyncio.wait_for(orwell_engine.get_game_state(user=user), _STAMP_REFRESH_TIMEOUT)
+        except Exception:
+            gs = await asyncio.wait_for(orwell_engine.get_game_state(user=user), _STAMP_REFRESH_RETRY_TIMEOUT)
         if not isinstance(gs, dict) or not gs.get("started"):
             return
         key = user or "default"
