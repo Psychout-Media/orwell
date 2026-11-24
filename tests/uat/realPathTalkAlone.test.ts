@@ -49,7 +49,7 @@ async function untilYes(seed: number, args: Record<string, unknown> = {}, opts: 
       }
     }
     return false;
-  }, { maxMessages: 1500 });
+  }, { user: `wf-${seed}`, maxMessages: 1500 });
   expect(yes, `seed ${seed}: someone said yes in play`).toBeDefined();
   return { yes: yes!, nos };
 }
@@ -141,10 +141,15 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
     }
   }, 300_000);
 
-  // ORW-812 finding (seeds 3 and 5): the picker chooses an EMPTY private room, but other houseguests are in it with the two the moment they arrive (seed 5: the whole house was in the
-  // living room, the bathroom was empty before the ask, and after it the player, the houseguest and two more are in the bathroom). In askToTalkAlone the player's walk (movePlayer)
-  // runs BEFORE the hold is written, so the movement that walk sets off does not yet know the room is closed. Seed 11 holds (above).
-  it.todo("real path: the private room holds only the two from the moment they arrive (seeds 3 and 5) - finding: others are seated into it by the player's own walk there, which runs before the hold exists (ORW-727b, found under ORW-812)");
+  // ORW-836 (found under ORW-812): the picker chooses an EMPTY private room, and it is closed from the moment the two arrive, on every seed (the player's walk persists, and the movement tick that runs
+  // inside that persist used to seat others in the room because the hold was written after the walk).
+  it("real path: the private room holds only the two from the moment they arrive, on seeds 3, 5 and 11", async () => {
+    for (const seed of [3, 5, 11]) {
+      const { yes: { at, npc, r } } = await untilYes(seed);
+      expect(inRoom(at, r.room!), `seed ${seed}: only the two, the moment they arrive`).toEqual([PLAYER, npc].sort());
+      expect(roomOf(at, PLAYER)).toBe(r.room);
+    }
+  }, 600_000);
 
   it("a hold ends when the player leaves the private room", async () => {
     const { yes: { at, r } } = await untilYes(11);
@@ -164,7 +169,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
   }, 120_000);
 
   it("an unknown or absent houseguest is null; the player cannot ask themselves", async () => {
-    const at = await playUntil(11, (s) => freeMoment(s));
+    const at = await playUntil(11, (s) => freeMoment(s), { user: "wf-11" });
     expect(await ask(at, { npcId: "npc:nobody" })).toBeNull();
     expect(await ask(at, { npcId: PLAYER })).toBeNull();
   }, 120_000);
@@ -172,7 +177,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
 
 describe("ORW-727b: a houseguest asks the player for a private word (parity), in a played season", () => {
   it("their own ask stands as an open, non-blocking offer the player sees; the player's yes through the same lever is accepted; it then clears", async () => {
-    const at = await playUntil(3, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending, { maxMessages: 3000 });
+    const at = await playUntil(3, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending, { user: "wf-3", maxMessages: 3000 });
     const npc = at.sess.live.talkAsk.npc as string;
     const view = at.sess.getGameState() as { openTalkAsk?: { from: { id: string } } };
     expect(view.openTalkAsk?.from.id).toBe(npc);
@@ -186,7 +191,7 @@ describe("ORW-727b: a houseguest asks the player for a private word (parity), in
 
 describe("ORW-727b: a houseguest's ask lapses, in a played season", () => {
   it("left unanswered, their ask stops showing once its hours have passed", async () => {
-    const at = await playUntil(3, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending, { maxMessages: 3000 });
+    const at = await playUntil(3, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending, { user: "wf-3", maxMessages: 3000 });
     const npc = at.sess.live.talkAsk.npc as string;
     const until = at.sess.live.talkAsk.until as number;
     const abs = () => ((at.sess.live.dayNumber ?? 1) - 1) * 24 + (at.sess.live.nightDepth ?? 8);

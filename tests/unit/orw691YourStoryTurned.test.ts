@@ -4,7 +4,7 @@ import type { AdvanceView } from "../../src/ports/GameSession";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { PLAYER } from "../../src/domain/ids";
 
-/** ORW-691 B1-3 (0211 / ORW-648): the story's "turned" shape needs a warm-to-cold crossing, but the weekly samples are raw 0..1 edge values (a baseline edge reads +0.5). Reaches it through the real writers: the weekly sampler and real recordInteraction betrayals. Roles only. */
+/** ORW-691 B1-3 (0211 / ORW-648): the story's "turned" shape needs a warm-to-cold crossing, but the weekly samples are raw 0..1 edge values (a baseline edge reads +0.5). UNIT: the season is marked played, the week stepped and the season finished by hand (ORW-813: the played version is tests/uat/realPathYourStoryTurned.test.ts, the heavy lane). Roles only. */
 function resolve(s: GameSessionAdapter, p: NonNullable<AdvanceView["pending"]>): void {
   if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
   else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: false });
@@ -12,7 +12,7 @@ function resolve(s: GameSessionAdapter, p: NonNullable<AdvanceView["pending"]>):
   else if (p.options[0]) s.submitDecision({ kind: p.kind, vote: p.options[0].id, replacement: p.options[0].id } as never);
 }
 type Seam = { live: { playedGame?: boolean; finished?: boolean; week: number }; yourStoryTick(): void; buildYourStoriesView(): { stories: Array<{ name: string; shape: string }> } | undefined; nameOf(id: string): string };
-describe("ORW-691 B1-3: a view that goes from warm to cold is told as turned", () => {
+describe("ORW-691 B1-3: a view that goes from warm to cold is told as turned (unit: the week and the crown set by hand)", () => {
   it("a houseguest warmed by real bonding, then argued with by the player over two beats, reads turned in the story", () => {
     const sb = new GameSessionRegistry().sandboxFor("orw691-turned");
     sb.session.createCharacter({ playerName: "The Player", seed: 3 });

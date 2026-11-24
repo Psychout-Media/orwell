@@ -8021,10 +8021,11 @@ export class GameSessionAdapter implements GameSession {
     if (dest === null) return finish({ outcome: "occupied" });
     const theirRoom = this.presence.get(npc)!;
     this.notePairDeparture(priv ? [here, theirRoom] : [theirRoom], npc, dest);
+    // ORW-836: the hold is written BEFORE the walk. The walk persists (the commit funnel runs the movement tick), and a hold written after it meant the tick seated others into the room the two were walking into.
+    live.talkHold = { npc, room: dest, until: now + TALK_ALONE.holdHours, private: priv };
     if (priv && dest !== here) this.movePlayer(dest); // the player walks there too (one move, witnessed along the way like any other)
     if (theirRoom !== dest) { this.presence.set(npc, dest); this.presenceBase?.set(npc, dest); this.presenceTenure?.set(npc, 0); this.presenceZone?.delete(npc); }
     this.sendOccupancy = null; this.sendAwake = null; // they are here now: the scene that follows is theirs, not the roster the player spoke to
-    live.talkHold = { npc, room: dest, until: now + TALK_ALONE.holdHours, private: priv };
     if (live.talkAsk?.npc === npc) delete live.talkAsk;
     this.noteConversationPartners([npc]);
     this.persist();
@@ -17269,6 +17270,9 @@ export class GameSessionAdapter implements GameSession {
   private scheduleHoldsAdvance(): boolean {
     const live = this.live;
     if (!live || !this.advanceGateEnabled || this.scheduleGateBypass || live.playedGame !== true || live.spectator || playerHasLeft(live, PLAYER) || !this.perConversationClockLive() || live.pending || live.finished) return false;
+    // ORW-837: the schedule STARTS a ceremony; it never splits one. An eviction reveal, a staged ceremony or the finale already under way is never held, whatever the clock reads (an eviction started at 7:35am
+    // crossed the 8am wake and the rest was held to 4pm: the house sat eight hours mid-reveal). Only the HOLD changes: the public `milestoneDue` read keeps meaning "time to start it".
+    if (live.eviction || live.ceremony || live.finale) return false;
     return !!nextMilestone(live) && !milestoneDueOf(live);
   }
 

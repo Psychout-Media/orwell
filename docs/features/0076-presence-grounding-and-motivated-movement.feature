@@ -1,4 +1,4 @@
-# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
+# spec-only: gated by tests/unit/presence.test.ts; this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 # Design contract: 0076 is Built, and its gates are unit + front-end tests, not Gherkin. The behavior below is verified by:
 #   engine:    tests/unit/presence.test.ts (present company holds the scene; no teleports; seeded base-occupancy draw-count unchanged),
 #              tests/unit/locationGrounding0009.test.ts (the closed-set location/roster grounding the narrator is fed);
