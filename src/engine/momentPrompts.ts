@@ -1217,6 +1217,20 @@ function competitionFloorLines(cer: GameStateView["ceremony"]): string[] {
   return [`    Competition floor: still in ${c.stillIn.map((p) => p.name).join(", ") || "no one"}; already out ${c.out.map((p) => p.name).join(", ")} (an eliminated houseguest does not compete again).`];
 }
 
+/**
+ * ORW-863 - who casts the eviction vote is an engine fact the speakers are handed, so a houseguest never says they have no vote when they do (off the block, not the HOH), nor
+ * "before I vote" when they are one of the two on the block. The house minus the HOH and the nominees votes; the HOH votes only to break a tie. Absent before the HOH or any
+ * nominee is set, and at the final eviction (a different, open single vote).
+ */
+export function evictionVoteLines(cer: { hoh: { name: string } | null; nominees: Array<{ name: string }> }, phase: string | undefined): string[] {
+  if (!cer.hoh && cer.nominees.length === 0) return [];
+  if ((phase ?? "").startsWith("final")) return [];
+  const out = [cer.hoh ? `${cer.hoh.name} (the HOH)` : "", ...cer.nominees.map((n) => `${n.name} (on the block)`)].filter(Boolean);
+  return [
+    `    Eviction vote (engine truth): every other houseguest casts a ballot, the player included unless the player is named here. Those who cast NO ballot: ${out.join(", ")}. The HOH votes only to break a tie. A speaker who is not named here DOES have a vote; a speaker named here has none, so never voiced as voting.`,
+  ];
+}
+
 export function renderGameContext(view: GameStateView): string {
   if (!view.started || !view.player) {
     const lines = [
@@ -1337,6 +1351,7 @@ export function renderGameContext(view: GameStateView): string {
     `    Playing the veto: ${vetoPlayers.length ? vetoPlayers.map((p) => p.name).join(", ") : "not yet drawn"}`,
     `    Veto: ${cer.veto.holder ? `held by ${cer.veto.holder.name}${cer.veto.used ? " (already used)" : ""}` : "not yet played"}`,
     ...vetoDecisionLines(cer),
+    ...evictionVoteLines(cer, view.phase),
   ];
   const ceremonyAndFloorLines = [...ceremonyLines, ...competitionFloorLines(cer)];
   // E58: the in-game day index, derived from the ceremony cadence (Day 1 HOH → Day 5 eviction),
