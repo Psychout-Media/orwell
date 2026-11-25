@@ -1988,6 +1988,13 @@ def setup_orwell_routes() -> APIRouter:
                         res["voteBeatCue"] = True  # the page sends the cue ONLY on this marker: a press the engine refused as stale (the reconcile branch below) committed nothing and has no beat to voice
                 except Exception:  # failsoft-ok: the beat is texture; a press never fails on it
                     pass
+                try:  # ORW-924: a press through the veto draw carries the engine's `vetoDrawBeat` facts: arm the same kind of hidden cue for the draw
+                    if isinstance(res.get("vetoDrawBeat"), dict):
+                        from routes.chat_helpers import arm_draw_beat_cue
+                        arm_draw_beat_cue(user)
+                        res["drawBeatCue"] = True
+                except Exception:  # failsoft-ok: the beat is texture; a press never fails on it
+                    pass
             _publish_game_updated(user)
             return res
         except orwell_engine.EngineToolError as e:

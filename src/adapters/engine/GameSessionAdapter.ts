@@ -5,7 +5,7 @@ import type {
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, NapReq, NapView, NapRefusal, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
-  FinaleView, EvictionView, HostView, VoteBeatView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, WalkedInView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
+  FinaleView, EvictionView, HostView, VoteBeatView, VetoDrawBeatView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, WalkedInView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, ProducerVaultView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
   DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult, RecordEpisodeTitlesReq, RecordEpisodeTitlesResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
@@ -21682,6 +21682,7 @@ export class GameSessionAdapter implements GameSession {
       winner: this.named(s?.winner),
       finale: this.finaleView(),
       eviction: this.evictionView(),
+      ...(this.vetoDrawBeatFor(ceremony, !!ceremony && !s?.ceremony) ? { vetoDrawBeat: this.vetoDrawBeatFor(ceremony, !!ceremony && !s?.ceremony)! } : {}), // ORW-924
       ...(announcements ? { announcements } : {}),
     };
   }
@@ -21712,6 +21713,27 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-771 (`ORWELL_VOTE_BEAT`, default ON; `=0` = no beat, the press is a banner only): the sealed beat facts of the press just made through a played eviction vote. Pure read: no rng, no clock, no write. */
   private voteBeatEnabled = flagDefaultOn("ORWELL_VOTE_BEAT");
   setVoteBeatEnabled(on: boolean): void { this.voteBeatEnabled = on; }
+  /**
+   * ORW-924 (same flag): the facts of a Continue press through the veto DRAW, so the press can be voiced as a short beat (the draw's two watch steps were a banner and nothing else: no narrated
+   * beat). Public ceremony facts only (the HOH, the nominees, the open step, the six once the field step has published them); no winner, no result. Pure read: no rng, no clock, no write.
+   */
+  private vetoDrawBeatFor(cer: ReturnType<typeof ceremonyRef>, closed: boolean): VetoDrawBeatView | undefined {
+    const s = this.live;
+    if (!this.voteBeatEnabled || !s || s.playedGame !== true || s.spectator || !cer || cer.kind !== "veto-draw" || !this.house) return undefined;
+    const ref = (id: EntityId): NamedRef => ({ id, name: this.nameOf(id) });
+    const published = cer.stepId === "field" && (s.vetoField?.length ?? 0) > 0;
+    return {
+      step: cer.stepId,
+      stepNumber: cer.step,
+      of: cer.of,
+      closed,
+      hoh: s.hoh ? ref(s.hoh) : null,
+      nominees: (s.nominees ?? []).map(ref),
+      ...(published ? { field: (s.vetoField ?? []).map(ref) } : {}),
+      gathered: s.active.length,
+      ...(s.timeOfDay ? { timeOfDay: TIME_OF_DAY_LABEL[s.timeOfDay] ?? String(s.timeOfDay) } : {}),
+    };
+  }
   private voteBeatFor(e: EvictionProgress): { voteBeat?: VoteBeatView } {
     const s = this.live;
     if (!this.voteBeatEnabled || !s || s.playedGame !== true || s.spectator || !s.ceremony || s.ceremony.kind !== "eviction") return {};
@@ -23178,6 +23200,7 @@ export class GameSessionAdapter implements GameSession {
           used: this.ceremony.vetoUsed,
           players: (this.live?.vetoField ?? []).map((id) => ({ id, name: this.nameOf(id) })), // R9-AGENCY-1: the drawn six
           ...(this.vetoDecisionFact() ? { decision: this.vetoDecisionFact()! } : {}), // ORW-715
+          ...(this.live?.ceremony && this.vetoDrawBeatFor(ceremonyRef(this.live), false) ? { drawBeat: this.vetoDrawBeatFor(ceremonyRef(this.live), false)! } : {}), // ORW-924
         },
         ...(this.competitionFieldFact() ? { competition: this.competitionFieldFact()! } : {}), // ORW-715
       },

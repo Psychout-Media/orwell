@@ -1936,6 +1936,24 @@ export function renderVoteBeatBlock(view: GameStateView): string[] {
   return out;
 }
 
+/**
+ * ORW-924 - the VETO DRAW BEAT of the Continue press just made through the draw: third-person facts for the narrator to voice as a short beat (the narrator authors every word). The draw's two
+ * watch steps were a banner and nothing else; this gives the press a voiced moment. It names NO veto winner and NO result (the competition has not been run), and the six only once the game has published them.
+ */
+export function renderVetoDrawBeatBlock(view: GameStateView): string[] {
+  const b = view.ceremony?.veto?.drawBeat;
+  if (!b) return [];
+  const nm = (r: { name: string }): string => neutralizeForPrompt(r.name);
+  const out = [`    VETO DRAW BEAT (the player just pressed Continue through the Power of Veto draw; the competition has NOT been run, so there is no veto winner and no result):`];
+  const who = `${b.hoh ? `${nm(b.hoh)} is the Head of Household` : "the Head of Household is not marked"}; ${b.nominees.length ? `${b.nominees.map(nm).join(" and ")} wait on the block` : "nobody is named on the block"}; ${b.gathered} houseguests are gathered; the part of the day is ${b.timeOfDay ?? "unmarked"}`;
+  if (b.field && b.field.length) out.push(`      Facts of this moment: the draw has set its six: ${b.field.map(nm).join(", ")}. ${who}.`);
+  else out.push(`      Facts of this moment: the chips are being drawn and the six are not yet shown. ${who}.`);
+  out.push(b.closed
+    ? "      The draw is over; the competition itself has not started and is not voiced here. Voice a short beat of a few sentences: the room taking in who was drawn, from these facts only."
+    : "      Voice a short beat of a few sentences: the room around the draw, from these facts only. Name no one as drawn who is not listed above, no winner, no chip holder's choice and no result; add no new fact about the board.");
+  return out;
+}
+
 /** The short engine-committed board recap for the ceremony phases (HOH, nominees, veto, eviction ballots), or undefined. */
 export function renderBoardRecap(view: GameStateView): string[] | undefined {
   const phase = String(view.phase ?? "").toLowerCase();
@@ -1991,6 +2009,7 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
     if (ev?.host) lines.push(...renderHostBlock(view));
     if (ev?.voteBeat) lines.push(...renderVoteBeatBlock(view));
   }
+  if (cer.veto.drawBeat) lines.push(...renderVetoDrawBeatBlock(view)); // ORW-924
   return lines;
 }
 
