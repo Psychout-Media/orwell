@@ -111,4 +111,10 @@ describe("the KNOWN_RED ratchet", () => {
     expect(ratchet([edge], known).fixed).toEqual([]);
     expect(ratchet([clear], known).fixed.length).toBe(1);
   });
+  it("hysteresis, the other way: an unlisted rule that misses by no more than the margin is noise, one that misses by more is a regression", () => {
+    const near = { id: "mid:band-bonding", what: "w", value: 23.5, pass: false, miss: 0.5, room: 0 } as never;
+    const far = { id: "mid:band-bonding", what: "w", value: 22.5, pass: false, miss: 1.5, room: 0 } as never;
+    expect(ratchet([near], {}).regressions).toEqual([]);
+    expect(ratchet([far], {}).regressions.length).toBe(1);
+  });
 });

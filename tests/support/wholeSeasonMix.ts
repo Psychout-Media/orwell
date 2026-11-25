@@ -98,7 +98,7 @@ export const KNOWN_RED: Readonly<Record<string, KnownRed>> = {
   "late:band-gossip": { value: 49.0, card: "ORW-702 gossip ratchet" }, // band 24-34 (and the 45% ceiling below)
   "late:no-activity-above-45": { value: 49.0, card: "ORW-702 gossip ratchet" }, // gossip is the one over 45
 };
-/** Hysteresis (Coordinator ruling 2026-11-25): a KNOWN_RED line is asked to be deleted only once its rule passes by at least this many points, so a rule that flips at its boundary from run to run does not redden unrelated PRs. Drift of a still-red line is already tolerated up to RATCHET_SLACK. Bands and tolerances are unchanged. */
+/** Hysteresis (Coordinator ruling 2026-11-25): a KNOWN_RED line is asked to be deleted only once its rule passes by at least this many points, so a rule that flips at its boundary from run to run does not redden unrelated PRs. The same margin applies the other way: a rule main meets (not listed) is a regression only when it misses its limit by MORE than this (Coordinator ruling 2026-11-25: 45.3 against a cap of 45 is run-to-run noise). Drift of a still-red line is already tolerated up to RATCHET_SLACK. Bands and tolerances are unchanged. */
 export const RATCHET_FIXED_MARGIN = 1.0;
 export const RATCHET_SLACK = 6; // points of drift past the measured value that is still noise at this many seasons; tighten as the seed set grows
 
@@ -109,7 +109,7 @@ export function ratchet(results: readonly RuleResult[], known: Readonly<Record<s
   const byId = new Map(results.map((r) => [r.id, r]));
   for (const r of results) {
     const k = known[r.id];
-    if (!r.pass && !k) v.regressions.push(`${r.id}: ${r.what}, measured ${r.value}`);
+    if (!r.pass && !k && r.miss > RATCHET_FIXED_MARGIN) v.regressions.push(`${r.id}: ${r.what}, measured ${r.value}`);
     if (!r.pass && k) { v.red.push(r.id); if (r.miss > missOf(r.id, k.value) + slack) v.worse.push(`${r.id}: measured ${r.value}, was ${k.value} when listed (${k.card})`); }
     if (r.pass && k && r.room >= fixedMargin) v.fixed.push(`${r.id} now passes (${r.value}): delete it from KNOWN_RED so it is asserted from now on`);
   }
