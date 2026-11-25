@@ -44,7 +44,7 @@ def test_no_words_change_only_their_place():
     msgs = _msgs("8:10am")
     wire = al._volatile_tail_wire(msgs)
     before = sorted(l for m in msgs for l in str(m["content"]).split("\n") if l.strip())
-    after = sorted(l for m in wire for l in str(m["content"]).split("\n") if l.strip() and not l.startswith("GAME CONTEXT - THIS TURN"))
+    after = sorted(l for m in wire for l in str(m["content"]).split("\n") if l.strip() and not l.startswith(("GAME CONTEXT - THIS TURN", "ANSWER THE PLAYER'S NEWEST MESSAGE")))  # ORW-917: + the newest-message pointer
     assert before == after
 
 

@@ -1214,7 +1214,10 @@ function vetoDecisionLines(cer: GameStateView["ceremony"]): string[] {
 function competitionFloorLines(cer: GameStateView["ceremony"]): string[] {
   const c = cer.competition;
   if (!c || !c.out.length) return [];
-  return [`    Competition floor: still in ${c.stillIn.map((p) => p.name).join(", ") || "no one"}; already out ${c.out.map((p) => p.name).join(", ")} (an eliminated houseguest does not compete again).`];
+  const lines = [`    Competition floor: still in ${c.stillIn.map((p) => p.name).join(", ") || "no one"}; already out ${c.out.map((p) => p.name).join(", ")} (an eliminated houseguest does not compete again).`];
+  // ORW-927: rounds the game ran while the player was choosing their approach were voiced by nobody. Name them so this reply tells each exit (once), instead of jumping from the full field to the last few.
+  if (c.justOut?.length) lines.push(`    NOT YET TOLD: ${c.justOut.map((p) => p.name).join(", ")} went out in the rounds the game ran while the player chose their approach, and no one has voiced those exits. Voice each of them in this reply, in this competition's own manner, before anything later; do not drop anyone else and do not skip them.`);
+  return lines;
 }
 
 export function renderGameContext(view: GameStateView): string {

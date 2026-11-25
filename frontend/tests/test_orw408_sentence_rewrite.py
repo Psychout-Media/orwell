@@ -450,8 +450,8 @@ def test_orw437_a_wall_dropped_final_sentence_is_not_counted(monkeypatch):
 
     real = al._presence_wall_guard
 
-    async def wall(text, owner, alt_state=None):
-        return " ".join(p for p in text.split(". ") if "Walled Role" not in p) if "Walled Role" in text else await real(text, owner, alt_state=alt_state)
+    async def wall(text, owner, alt_state=None, carry=None):  # ORW-917: the guard takes the round's carry
+        return " ".join(p for p in text.split(". ") if "Walled Role" not in p) if "Walled Role" in text else await real(text, owner, alt_state=alt_state, carry=carry)
 
     monkeypatch.setattr(al, "_presence_wall_guard", wall)
     pc.PREDISPLAY_COUNTS.clear()
