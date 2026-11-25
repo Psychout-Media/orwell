@@ -356,6 +356,29 @@ def _ws_owns(user: Optional[str], session_id: str) -> bool:
     return row.owner == user
 
 
+# ORW-941: the turns admitted recently, per user (clientMsgId -> admitted at). Bounded and time-limited: it only has to outlive a client's retry window and an outbox re-send after a reload.
+_ADMITTED_TURNS: "dict[tuple, float]" = {}
+_ADMITTED_TTL_S = 30 * 60
+_ADMITTED_MAX = 4096
+
+
+def _admitted_before(user, client_msg_id: str) -> bool:
+    import time as _t
+    at = _ADMITTED_TURNS.get((user, client_msg_id))
+    return at is not None and _t.time() - at < _ADMITTED_TTL_S
+
+
+def _note_admitted(user, client_msg_id: str) -> None:
+    import time as _t
+    now = _t.time()
+    _ADMITTED_TURNS[(user, client_msg_id)] = now
+    if len(_ADMITTED_TURNS) > _ADMITTED_MAX:
+        for k, v in sorted(_ADMITTED_TURNS.items(), key=lambda kv: kv[1])[: len(_ADMITTED_TURNS) - _ADMITTED_MAX]:
+            _ADMITTED_TURNS.pop(k, None)
+        for k in [k for k, v in _ADMITTED_TURNS.items() if now - v >= _ADMITTED_TTL_S]:
+            _ADMITTED_TURNS.pop(k, None)
+
+
 async def _engine_state(user: Optional[str]) -> dict:
     """The user's Vault-free game state (``started`` + ``beatSeq``), fail-soft to ``{}`` so a
     handshake never crashes on an engine hiccup (it just resolves the pre-game / per-tab branch)."""
@@ -454,6 +477,12 @@ async def ws_session(websocket: WebSocket) -> None:
         send_lock = asyncio.Lock()
 
         async def send(frame: dict) -> None:
+            if isinstance(frame, dict) and frame.get("t") == "error":
+                # ORW-941: never refuse silently. Casting turns were refused `stale-beat` with no log line, so the dev journal showed nothing for 18 minutes. One metadata line per
+                # refusal: the frame being answered, its cid, the code, and expected vs current beatSeq (never any message text).
+                _d = frame.get("d") if isinstance(frame.get("d"), dict) else {}
+                logger.info("[ws] refused frame=%s cid=%s code=%s expectedBeatSeq=%s beatSeq=%s user=%s", sock.get("frame_t"), frame.get("cid"), _d.get("code"),
+                            sock.get("frame_expected"), _d.get("beatSeq", sock.get("beatSeq")), user)
             async with send_lock:
                 await websocket.send_text(json.dumps(frame))
 
@@ -702,8 +731,17 @@ async def ws_session(websocket: WebSocket) -> None:
             if not _ws_owns(user, sock["canonical"]):
                 await send({"t": "error", "ch": "chat", "cid": cid, "d": {"code": "forbidden"}})
                 return
-            if await _cas_stale_beat(cid, d.get("expectedBeatSeq")) is None:
-                return  # stale-beat error already sent, no write
+            # ORW-941: a TURN is never refused for a stale beatSeq (the token is advisory for turns; protocol §3.5 as amended). During casting the background write-backs move the
+            # engine's beatSeq with no edge to the page, so a refusing CAS dropped casting turns (a single client retry lost the race to a write burst). A chat turn is not a closed-set
+            # write: it queues behind any live run, the narrator reads fresh state, and every engine write inside it carries its own CAS. The ack hands the page the current beatSeq.
+            # `decision` frames keep the refusing CAS (`_cas_stale_beat`).
+            _st = await _engine_state(user)
+            _cur = _beat_seq_of(_st)
+            if _cur is not None:
+                sock["beatSeq"] = _cur
+            _exp = d.get("expectedBeatSeq")
+            if isinstance(_exp, int) and not isinstance(_exp, bool) and _cur is not None and _exp != _cur:
+                logger.info("[ws] turn admitted with a stale beatSeq cid=%s expectedBeatSeq=%s beatSeq=%s user=%s", cid, _exp, _cur, user)
             if _turn_stream_factory is None:
                 await send({"t": "error", "ch": "chat", "cid": cid, "d": {"code": "turn-relay-unwired"}})
                 return
@@ -711,6 +749,12 @@ async def ws_session(websocket: WebSocket) -> None:
             # `update-holding`: nothing was written, so the client re-sends the same clientMsgId unchanged once the restart is over (no double send is possible). A turn that passes is
             # counted as in flight from this line (atomically with the check) until its stream registers, so the updater's "0 in flight" can never miss it.
             _tok = d.get("clientMsgId") if isinstance(d.get("clientMsgId"), str) else None
+            # ORW-941: idempotent by clientMsgId. An admitted turn's id is remembered (per user, bounded, TTL), so a client retry or an old client's double send of the SAME turn
+            # is acked again (`duplicate`) and never starts a second run.
+            if _tok and _admitted_before(user, _tok):
+                logger.info("[ws] duplicate turn acked without a run cid=%s clientMsgId=%s user=%s", cid, _tok, user)
+                await send({"t": "ack", "ch": "chat", "cid": cid, "d": {"accepted": True, "duplicate": True, "beatSeq": sock.get("beatSeq")}})
+                return
             _adm_key = _tok or (str(cid) if cid is not None else f"ws-{id(frame)}")
             _held_until = _turn_inflight.check_and_admit(_adm_key)
             if _held_until is not None:
@@ -729,8 +773,10 @@ async def ws_session(websocket: WebSocket) -> None:
                 agent_runs.start(sock["canonical"], producer, queue=True,
                                  on_finish=lambda k=_adm_key, st=_adm_stamp: _turn_inflight.admit_release_pinned(k, st))
                 _run_started = True
+                if _tok:
+                    _note_admitted(user, _tok)
                 session_events.publish(sock["canonical"], "run-started")
-                await send({"t": "ack", "ch": "chat", "cid": cid, "d": {"accepted": True}})
+                await send({"t": "ack", "ch": "chat", "cid": cid, "d": {"accepted": True, "beatSeq": sock.get("beatSeq")}})  # ORW-941: the page catches up to the current beatSeq
             except Exception as e:
                 logger.warning("[ws] turn relay failed: %s", e)
                 if not _run_started:
@@ -802,8 +848,11 @@ async def ws_session(websocket: WebSocket) -> None:
             except orwell_engine.EngineToolError as e:
                 if _is_stale_beat(e):
                     # CON-4: stale-beat CAS refusal — a concurrent window already moved the
-                    # board. Reconcile silently (like the HTTP handler does) and return
+                    # board. Reconcile (like the HTTP handler does) and return
                     # current state via a state edge, NOT an error frame.
+                    # ORW-941: never refuse silently - one metadata line (the frame, its cid, expected vs current beatSeq).
+                    logger.info("[ws] refused frame=decision cid=%s code=stale-beat expectedBeatSeq=%s beatSeq=%s user=%s (reconciled with a state edge)",
+                                cid, expected, getattr(e, "beat_seq", None), user)
                     try:
                         from routes.chat_helpers import _handle_stale_beat
                         await _handle_stale_beat(user, e)
@@ -884,6 +933,9 @@ async def ws_session(websocket: WebSocket) -> None:
                     await send({"t": "error", "d": {"code": "bad-frame"}})
                     continue
                 t = frame.get("t")
+                sock["frame_t"] = t   # ORW-941: what a refusal sent while handling this frame answers (the handlers run inline, one frame at a time)
+                _fd = frame.get("d") if isinstance(frame.get("d"), dict) else {}
+                sock["frame_expected"] = _fd.get("expectedBeatSeq")
                 if t in ("hello", "bind"):
                     keep = await _handle_hello(frame)
                     if not keep:
