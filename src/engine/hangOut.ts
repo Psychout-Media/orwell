@@ -99,7 +99,10 @@ export function runHangOut(p: HangOutProbes, rng: RandomnessSource, opts: { maxB
  */
 export function minutesUntilClock(nowDepth: number, clockHour: number, wakeHour = 8, dayEnd = 32): number | null {
   if (!Number.isFinite(nowDepth) || !Number.isFinite(clockHour) || clockHour < 0 || clockHour >= 24) return null;
-  const cur = nowDepth < wakeHour ? nowDepth + 24 : nowDepth;
+  // ORW-911: an early-morning wake (the player up before the house, the clock reading 0..wakeHour) is the NEW day already: the day scale resumes at the house's wake-up call, so a later clock time (9am, 1pm) is simply
+  // that many hours on: reading it as the small hours of the day before (+24) put every target after the wake-up call past the day's end and waited nothing ("I wait until 9am" moved the clock 0 minutes).
+  if (nowDepth < wakeHour) return clockHour > nowDepth + 1e-6 ? (clockHour - nowDepth) * 60 : 0;
+  const cur = nowDepth;
   const candidates = clockHour < wakeHour ? [clockHour + 24] : clockHour === wakeHour ? [clockHour, dayEnd] : [clockHour];
   const next = candidates.find((c) => c > cur + 1e-6 && c <= dayEnd);
   return next === undefined ? 0 : (next - cur) * 60;
