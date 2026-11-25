@@ -358,6 +358,17 @@ is the single-writer broadcast) plus a `state` reconcile (§4). The `cid` reply 
   advertises no `beatSeq` yet — pre-0065 sandbox — simply omits the CAS; where the `ack` returned a
   `beatSeq`, the up-frame MUST echo it.)
 
+  **Amended 2026-11-25 (ORW-941, Coordinator ruling): for `turn` frames the token is ADVISORY.** A `turn`
+  whose `expectedBeatSeq` is stale is ADMITTED (logged, never refused), and its `ack` carries the current
+  `beatSeq` so the client catches up. Why: during casting the background write-backs (cast authoring,
+  portraits, the photo step) move the engine's `beatSeq` with no edge to the page, so a refusing CAS dropped
+  casting turns whenever a write burst beat the client's single retry (the ORW-909 stall). A chat turn is not
+  a closed-set write: it queues behind any live run, the narrator reads fresh state, and every engine write
+  inside it carries its own server-side CAS (the HTTP turn path never had a turn CAS). An admitted turn is
+  idempotent by `clientMsgId`: a repeat is acked `{accepted:true, duplicate:true}` and never starts a second
+  run. **`decision` frames keep the refusing CAS** (the CON-4 reconcile above). Every refusal the server sends
+  is logged once with metadata only (frame, `cid`, code, expected vs current `beatSeq`).
+
 ### 3.6 `has_run` and the terminal-but-buffered resume
 
 A short turn often **finishes** before a peer's attach arrives. `agent_runs.has_run` (`agent_runs.py:83`)
@@ -540,7 +551,7 @@ and fallback mode.**
 | c | **Multiplex isolation** | Interleave `chat` `event` frames and `hud`/`layout` frames on one socket; assert the client router dispatches each strictly by `ch` — a `hud` frame never reaches the chat renderer, a `chat` delta never reaches the layout store. No cross-channel bleed. |
 | d | **Layout LWW + echo-suppression** | Two tabs on **one device** + one tab on a **second device**. Move a window in tab A: tab B (same device) applies it; the second device does **NOT** (per-device scope); tab A ignores its own `origin` echo. Two rapid conflicting moves → last write wins per field. |
 | e | **Fallback parity** | Force the client into fallback (flag off / simulated upgrade failure). Assert it runs the SSE/poll stack unchanged **and passes the F5 mirror-parity harness** (two-window incremental mirror). |
-| f | **beatSeq CAS over the socket** | A `turn` with a stale `expectedBeatSeq` → `error{cid, code:"stale-beat", d:{beatSeq}}` (the `cid` echoes the `turn` so the client rejects the right promise), no write; client reconciles and retries. Mirrors the HTTP 409 `stale-beat` contract (0065). |
+| f | **beatSeq CAS over the socket** | (ORW-941: a stale `turn` is now ADMITTED and its `ack` carries the current `beatSeq`; the refusal below applies to `decision`.) A `turn` with a stale `expectedBeatSeq` → `error{cid, code:"stale-beat", d:{beatSeq}}` (the `cid` echoes the `turn` so the client rejects the right promise), no write; client reconciles and retries. Mirrors the HTTP 409 `stale-beat` contract (0065). |
 
 **Boundaries unchanged & still green** (ADR 0017): dependency-cruiser Vault-edge test + Vault sentinels
 (no new reader — the socket carries only the projections the SSE/poll surfaces already carry);
