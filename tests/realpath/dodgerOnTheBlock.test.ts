@@ -15,7 +15,7 @@ describe("a dodger on the block reads higher stakes (played)", () => {
     for (const seed of [1, 2, 3, 4, 5, 6]) {
       if (nominated >= 2 && offBlock >= 2) break;
       let at;
-      try { at = await playUntil(seed, (s) => (s.sess.live?.nominees?.length ?? 0) >= 2 && !s.sess.getGameState().pending, { maxMessages: 1200 }); } catch { continue; }
+      try { at = await playUntil(seed, (s) => (s.sess.live?.nominees?.length ?? 0) >= 2 && !s.sess.getGameState().pending, { user: `wf-${seed}`, maxMessages: 1200 }); } catch { continue; }
       const sess = at.sess;
       const block = new Set<string>(sess.live.nominees);
       const rows = () => sess.dodgeLog.length as number;
