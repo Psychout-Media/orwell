@@ -44,16 +44,16 @@ async function baseline(out: string): Promise<void> {
   const restarts: unknown[] = [], determinism: unknown[] = [];
   for (const [n, seed] of seeds.entries()) {
     const t0 = Date.now();
-    const r = await playSeason({ seed, maxMessages });
+    const r = await playSeason({ seed, maxMessages, survive: true });
     const { trace, ...rest } = r;
     writeJson(join(out, `season-${seed}.json`), rest); writeJson(join(out, `trace-${seed}.json`), trace);
-    console.log(`[what-fired] seed ${seed}: ${r.stopped} at message ${r.messages}, week ${r.week}, player out ${r.playerOutWeek ?? "never"} (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
-    if (n === 0 && argv.includes("--determinism")) { const again = await playSeason({ seed, maxMessages }); determinism.push({ seed, difference: firstDifference(trace, again.trace) }); }
+    console.log(`[what-fired] seed ${seed}: ${r.stopped} at message ${r.messages}, week ${r.week}, player out ${r.playerOutWeek ?? "never"}, ${r.scenes.filter((x) => x.week >= 9 && !x.playerOut).length} late-phase (week 9+) player-in scenes of ${r.scenes.filter((x) => x.week >= 9).length} (${((Date.now() - t0) / 1000).toFixed(0)}s)`);
+    if (n === 0 && argv.includes("--determinism")) { const again = await playSeason({ seed, maxMessages, survive: true }); determinism.push({ seed, difference: firstDifference(trace, again.trace) }); }
     const restartSeeds = nums(arg("restart-seeds"), seeds);
     for (const point of restartSeeds.includes(seed) ? restartPoints(seed, restartsPer, r.messages) : []) {
       mkdirSync(scratch, { recursive: true }); // a runner that sweeps its temp folder between jobs must not take the scratch folder from under a run
       const dir = mkdtempSync(join(scratch, "save-"));
-      const run = await playSeason({ seed, maxMessages, restartAt: point, saveDir: dir });
+      const run = await playSeason({ seed, maxMessages, survive: true, restartAt: point, saveDir: dir });
       const difference = firstDifference(trace, run.trace);
       restarts.push({ seed, point, difference, verdict: restartVerdict(point, difference, run.trace), finished: run.finished });
       rmSync(dir, { recursive: true, force: true });
@@ -67,7 +67,7 @@ async function ablateOne(): Promise<void> {
   const { playSeason } = await import("../tests/support/whatFired/player");
   const seed = Number(arg("seed"));
   const against = readJson<import("../tests/support/whatFired/player").TraceRow[]>(join(arg("trace-dir")!, `trace-${seed}.json`));
-  const r = await playSeason({ seed, maxMessages: Number(arg("max-messages", "40000")), against });
+  const r = await playSeason({ seed, maxMessages: Number(arg("max-messages", "40000")), survive: true, against });
   writeJson(arg("result")!, { envKey: arg("flag"), seed, fired: r.stopped === "diverged", divergedAt: r.divergedAt ?? null, stopped: r.stopped, messages: r.messages });
 }
 

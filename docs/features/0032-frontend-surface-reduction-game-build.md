@@ -24,7 +24,7 @@ web search/fetch, YouTube, webhooks, and the front-end's own memory/RAG/skills �
 worse** for a self-contained game. This feature reduces the front-end to the **game keep-set** and
 removes the rest, behind a single, testable **game-build switch**.
 
-This is the **deep prune** `frontend/INTEGRATION.md` defers ("Deferred: the deep code-level prune").
+This is the **deep prune** `frontend/INTEGRATION.md` set aside ("the deep code-level prune"); it now belongs to the front-end rebuild (ORW-146).
 It must be done so it can be **verified against a running instance** for the deletion tier — pure file
 removal can't be proven green in CI alone.
 
@@ -36,8 +36,8 @@ A **partial, two-layer** prune is already in place and is **inconsistent**:
 |---|---|---|
 | CSS hide (entry points only) | `static/css/game-trim.css` | Hides ~14 launchers (Tasks, Notes, Library, Gallery, Deep Research, Cookbook, Compare, Calendar, Brain/memory, Email, Plan, Shell, Web Search). **Cosmetic — routes & JS still ship and stay reachable.** |
 | Server feature flags | `src/settings.py` `DEFAULT_FEATURES` (8 keys) | `web_search`/`deep_research`/`memory`/`gallery` **off**; but `web_fetch`/`document_editor`/`rag` still **on**, and **most verticals have no flag at all**. |
-| JS not shipped | — | ⛔ **not done** — all ~5.4 MB still loads (incl. the ~80-file `static/js/editor/` image editor). |
-| Code removed | — | ⛔ **not done** — every vertical's `routes/` + `services/` + `static/js/` + `app.py` wiring remains. |
+| JS not shipped | — | ⛔ **open, ORW-146 (front-end rebuild)** — all ~5.4 MB still loads (incl. the ~80-file `static/js/editor/` image editor). |
+| Code removed | — | ⛔ **open, ORW-146 (front-end rebuild)** — every vertical's `routes/` + `services/` + `static/js/` + `app.py` wiring remains. |
 
 **Concrete gaps in the half-done state:**
 - **`/api/shell/exec` + `/api/shell/stream` are LIVE** (`routes/shell_routes.py`) — admin-gated but
@@ -155,6 +155,6 @@ Front-end only; **no engine change**. Preserves the surfaces of **0020** (status
 keeps the image-**gen** path), **0027** (the LLM connection), **0029** (accounts/admin), the **0009**
 MCP agent backend, and the **0018** moment-prompt injection (the only context that should reach the
 model). Removes the front-end memory/RAG/skills that would otherwise rival the engine's **0023/0024**
-soul+Vault memory. Realizes the deferred prune in `frontend/INTEGRATION.md` and supersedes the
+soul+Vault memory. Realizes the set-aside prune (now the front-end rebuild, ORW-146) in `frontend/INTEGRATION.md` and supersedes the
 CSS-only `static/css/game-trim.css` first cut with a server-enforced, single-switch reduction.
 Answers the product call: the player-facing app should be **the game and nothing else**.

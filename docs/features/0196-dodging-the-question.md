@@ -20,6 +20,6 @@ to a saved `dodgeLog` (one per houseguest, week and phase).
 
 `dodge` carries no content (never what they hold or why), no number and no hidden state beyond the carriage a tell already shows. The player can read a dodge only by what the houseguest does and says.
 
-## Deferred
+## Deferred (ORW-825)
 
 NPC-to-NPC asks (the same decision for a houseguest pressed by another houseguest), the stakes read from the held fact's own risk (a fixed middling stake for now), and a lie that is also a recorded claim at the dodge seam.

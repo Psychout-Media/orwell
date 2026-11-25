@@ -214,7 +214,7 @@ secret instead of a real one:
 ## Open questions / defaults (resolve at build)
 
 1. **Player-authored confidences (out of scope v1).** The player confiding in an NPC and *that*
-   mattering (the NPC can repeat it / weaponize it) is a natural sequel — deferred to keep v1 to
+   mattering (the NPC can repeat it / weaponize it) is a natural sequel (it came later as 0099 secrets-as-currency and 0202 leverage) — left out to keep v1 to
    NPC→player.
 2. **Default bands:** start `tease ≈ confidantBondThreshold (0.7)`, `partial ≈ 0.8`, `full ≈ 0.9`
    of the combined motive, tuned against the UAT once live.

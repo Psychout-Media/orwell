@@ -55,7 +55,7 @@ carries into their 0037 finale vote. Losing stays engaging, and the vote stops b
 **Out:** the finale vote *mechanic* itself (0037 — unchanged; this feeds the player's read, it doesn't change
 the validated seam); the broadcast knowledge model (0046 — reused, not replaced); NPC-juror **vote formation**
 (the show's roundtable also moves *other* jurors' votes — that is **calibration-sensitive** and is called out
-as an **optional flagged sub-scope / deferred follow-on** in §4, not the core of this feature); changing how
+as an **optional flagged sub-scope / deferred follow-on** in §4, not the core of this feature); changing how (ORW-618)
 NPCs are evicted (0045).
 
 ## 4. Design
@@ -83,7 +83,7 @@ NPCs are evicted (0045).
   construction** (byte-identical seeded spine, like the 0125 projection). The **optional sub-scope** — letting
   the jury-house deliberation **nudge other jurors' finale votes** (a real BB roundtable effect) — *does* move
   the seeded finale, so it ships **default-off** behind `ORWELL_JURY_ROUNDTABLE` with a `juryReach`/finale
-  re-check, or is deferred entirely. The core needs no flag.
+  re-check, or is deferred entirely. The core needs no flag. (ORW-618)
 - **Vault Wall.** Everything a juror can share is broadcast + their own pre-eviction memory + jury gossip — no
   live scheme, no confessional, no number crosses (canary-tested). The player's own jury-house talk has **no
   pathway back into the still-playing house** (the jurors are sequestered; nothing they say to the player
@@ -109,7 +109,7 @@ optional ORWELL_JURY_ROUNDTABLE (default off) = NPC-juror vote nudging (calibrat
 
 ## 6. Definition of Done (when built)
 
-> **Status (AMEND 2026-11-06):** slices 1–4 are built and unit-tested (roster with bearing, jurors voiced from their own knowledge, `askJuror`, the finale juror-vote card). **Slice 4 is an ASSUMED default, pending Ryne.** **Not built (see §9 for the full list):** jurors approaching the player, rolling updates as new evictees arrive, broadcast of ceremony outcomes since eviction, jury gossip, and the roundtable (`ORWELL_JURY_ROUNDTABLE`, does not exist yet). Boxes stay unticked until each item is verified in a live game.
+> **Status (AMEND 2026-11-06):** slices 1–4 are built and unit-tested (roster with bearing, jurors voiced from their own knowledge, `askJuror`, the finale juror-vote card). **Slice 4 is an ASSUMED default, pending Ryne.** **Not built (see §9 for the full list):** jurors approaching the player, rolling updates as new evictees arrive, broadcast of ceremony outcomes since eviction, jury gossip, and the roundtable (`ORWELL_JURY_ROUNDTABLE`, does not exist yet). Boxes stay unticked until each item is verified in a live game. (ORW-745)
 
 - [ ] **The jury is a room:** while a juror, the player sees the other jurors and can talk to any of them;
       jurors also approach the player.
@@ -152,12 +152,12 @@ The optional roundtable sub-scope touches the finale calibration (juryReach), he
   roster; hand off to 0037 at the finale.
 - FE: a jury-house social surface (reuse the live social-approach UI, scoped to jurors) + the Q&A path through
   the existing agent-tool social seam; the `_auto_record_scene` belt covers model under-call.
-- **Optional (deferred, flagged):** `ORWELL_JURY_ROUNDTABLE` — jury-house deliberation nudges NPC jurors'
+- **Optional (deferred, flagged):** `ORWELL_JURY_ROUNDTABLE` — jury-house deliberation nudges NPC jurors' (ORW-618)
   finale votes; default-off, `juryReach`/finale re-check; byte-identical off.
 - **Tests:** `tests/unit/juryHouse.test.ts` (roster, per-juror shareable-knowledge bounding, the Vault canary,
   contradiction-between-jurors, restart-resume) + `docs/features/0129-*.feature` → `cucumber.cjs`.
 
-**Open decision (deferred to build time):** whether to ship the optional NPC-juror-vote roundtable effect at
+**Open decision (deferred to build time):** whether to ship the optional NPC-juror-vote roundtable effect at (ORW-825)
 all, or keep 0129 purely the player's *experience* (perspectives + Q&A + informed own-vote). Spec ships the
 experience as the core; the vote-nudging is flagged and optional.
 
@@ -174,9 +174,9 @@ read-only determinism). The existing 0100 `juryHouse.ts` is the grudge book (a d
 
 **Slice 4 (built, 2026-11-03; ASSUMED, pending Ryne) — the informed `juror-vote` card.** `PendingDecisionView.jurorBrief` (juror-vote only) lists, per finalist, what fellow jurors TOLD the player — the player's own `told-by:<juror>` knowledge, matched to the finalist by subject or name, capped at 4, humanized; absent when nothing was told (the card is then byte-identical). It carries no lean, no number and nothing a juror merely holds. The FE card renders it as a small "What the jurors told you" block (`textContent` only). Gate: `tests/unit/jurorVoteCard0129.test.ts` (3 tests, mutation-checked). Design call for Ryne: whether the card should also show jurors' *regard* (bearing) — default no, it would read as a vote lean.
 
-**Slices still to come (same feature, each its own PR):** jury gossip / the broadcast reaching jurors' own sets (today a juror's set stops growing at eviction). The roundtable (NPC vote nudging) stays deferred behind `ORWELL_JURY_ROUNDTABLE`
+**Slices still to come (same feature, each its own PR):** jury gossip / the broadcast reaching jurors' own sets (today a juror's set stops growing at eviction). The roundtable (NPC vote nudging) stays deferred behind `ORWELL_JURY_ROUNDTABLE` (ORW-618)
 (default off).
 
-**HELD for Ryne (not built, default chosen):** whether a juror-player may skip/watch through the jury house or leave it
+**HELD for Ryne (not built, default chosen):** whether a juror-player may skip/watch through the jury house or leave it (ORW-763)
 early. Default per his rulings: jurors are sequestered through the finale; there is no skip/watch for jurors.
 

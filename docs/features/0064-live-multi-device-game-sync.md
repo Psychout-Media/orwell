@@ -302,7 +302,7 @@ serialization (C) — it can ship in its own slice.
 | `frontend/src/orwell_game_session.py` | **new** FE store | `get/set/clear_game_session(user)`; JSON in `DATA_DIR`; atomic + lock; Vault-free (ids only). |
 | `GET /api/orwell/game-session` | **new** route | `_current_user`-scoped; resolves-or-mints the canonical session; idempotent under concurrency; `{sessionId, created}`. |
 | `/api/orwell/{new-game,next-season,reset-progress}` | **amend** | also `clear_game_session(user)` on reset (rotate the session for the new season). |
-| ~~`frontend/src/game_turn_lock.py`~~ | **not built** | superseded by the Messenger decision (no turn lock / spectator / take-over). |
+| ~~`frontend/src/game_turn_lock.py`~~ | **never built** | superseded by the Messenger decision (no turn lock / spectator / take-over). |
 | `POST /api/chat/stream` (game-framed) | **amend** | **as shipped:** opts into `agent_runs.start(..., queue=True)` via `ctx.framed`, so a second device's game turn **queues** behind the in-flight run instead of stomping it or being refused (no 409). |
 | `POST /api/chat/stop/{id}` | **reuse** | unchanged plain stop; no lock to release. |
 | `GET /api/chat/events/{id}`, `/resume/{id}` | **reuse** | the existing per-session SSE + run-attach; now engaged because devices share `id`. |

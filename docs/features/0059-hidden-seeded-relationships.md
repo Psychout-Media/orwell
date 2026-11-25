@@ -11,8 +11,8 @@
 > organic **stage-advancement surfacing scheduler** (spark→bond→visible via pathways 0002 + the
 > consequence fold 0023) — analogous to 0058 Phase 1's dormant threads. Two halves: the **showmance arc**
 > ships in the core (`GameSessionAdapter.advanceShowmances` → `nextShowmanceStage`, surfacing at `visible`
-> as a PUBLIC house fact via `onShowmanceSurfaced`, wired into the off-screen tick), and the deferred
-> **pre-game-TIE discovery scheduler** is now built (`GameSessionAdapter.advanceSeededTies` + the pure
+> as a PUBLIC house fact via `onShowmanceSurfaced`, wired into the off-screen tick), and the
+> **pre-game-TIE discovery scheduler**, left for later at the time, is now built (`GameSessionAdapter.advanceSeededTies` + the pure
 > `src/engine/seededTieSurfacing.ts` + tunables in `src/engine/seededRelationshipConstants.ts`): as a
 > sealed tie's live edge warms past an observable floor, a positioned observer notices, a Vault-free read
 > ("they seem unusually tight") diffuses NPC↔NPC (0038) and rarely/capped reaches the player (0002, never

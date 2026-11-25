@@ -1,4 +1,4 @@
-# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
+# spec-only: gated by frontend/tests/test_0053_admin_transcripts.py; this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 # BUILT — FE pytest-validated (2026-06-11) by frontend/tests/test_0053_admin_transcripts.py.
 # Feature 0053 — Admin transcript retrieval (ruling #14, 2026-06-10). Front-end (Python) only; NO
 # engine change. Validated by frontend pytest (frontend/tests/), like 0029/0032 — never added to

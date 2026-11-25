@@ -80,7 +80,7 @@ Complementary to the advance-nudge by design:
 - Unit/source-pin: the recording-tool set, the substantive-engagement gate (the inverse of the
   lull gate), the cap + cross-turn escalation, and the reset-on-record.
 - Behavioral (play-through harness): a substantive player↔NPC scene results in a recordInteraction
-  (or makeDeal) call, and a follow-up read of that NPC reflects the moved belief in BEHAVIOR
+  (or makeDeal) call, and a later read of that NPC reflects the moved belief in BEHAVIOR
   (never a number) — e.g. the ally later acts on the bond, the burned bridge later bites.
 - Vault-Wall: the fold stays hidden; no number or secret crosses to the player surface (the
   2026-06-18 Vault-leak audit confirmed the boundary is clean — keep it so).

@@ -128,7 +128,7 @@ The principles are structural assertions wherever possible, joining the richness
   in the existing constants modules (`temperatureConstants.ts` + a small new rest block) — retune
   without code change.
 - **Sequencing (recommended, not binding):** ship the clock + time-driven occupancy + HUD first
-  (visible, low-risk, no outcome change), then the sleep→comp consequence as a fast follow. The
+  (visible, low-risk, no outcome change), then the sleep→comp consequence right after (both shipped as feature 0066). The
   social arm of the trade-off (missing late-night scenes) is delivered by occupancy alone in slice 1.
 
 ## Open / to confirm

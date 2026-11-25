@@ -249,7 +249,7 @@ deepens over the game, never thins.
    behavior trajectory (an NPC's arc *toward the player* warming/souring over weeks, surfaced only as
    that NPC's tone). Recommended: yes for `NPC→player` (engine-computed, behavior-only, never shown —
    the 0086 rule); the *player's* read of any NPC stays purely human-driven (never engine-modeled).
-   **Resolved at build: keyed but NOT fed; the `NPC→player` feed is deferred** (see the status note at the top).
+   **Resolved at build: keyed but NOT fed; the `NPC→player` feed is deferred** (see the status note at the top). (ORW-336)
 5. **Cross-feature: trajectories feeding drives (0086).** A souring `A→B` trajectory is a natural
    seed for `A`'s `target` drive against `B` (the arc *is* the grudge forming). Recommend: 0087
    exposes the trajectory; a later pass lets 0086 consume it — keep this feature to the trajectory

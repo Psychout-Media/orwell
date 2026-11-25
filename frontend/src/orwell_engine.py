@@ -1023,6 +1023,12 @@ async def record_npc_reflections(req: dict, user: str | None = None) -> dict:
     return await _call("recordNpcReflections", req, user=user)
 
 
+async def record_episode_titles(titles: list, user: str | None = None) -> dict:
+    """ORW-807 (0200 your edit): write the narrator's authored episode titles BACK to the engine (``[{week, title}]``). The engine refuses until the
+    season is finished, cleans and caps each title, and keeps the first title per week. Returns ``{accepted, recorded, reason?}``."""
+    return await _call("recordEpisodeTitles", {"titles": list(titles)}, user=user)
+
+
 async def record_house_culture(req: dict, user: str | None = None) -> dict:
     """ORW-319 (spec 0146 lane 2): write the season's house culture (spots, rituals, a running joke) BACK to the engine (validated,
     write-once). Returns ``{accepted, reason?}``."""
@@ -1455,7 +1461,7 @@ async def nap(hours: float | None = None, expected_beat_seq: int | None = None, 
     return await _call("nap", args, user=user)
 
 
-async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None = None, user: str | None = None, max_minutes: float | None = None, until_band_end: bool = False) -> dict:
+async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None = None, user: str | None = None, max_minutes: float | None = None, until_band_end: bool = False, until_clock: float | None = None) -> dict:
     """"Hang out until X" - the player's safe fast-forward. The ENGINE runs up to 8 short (15-30 in-game minute) beats and decides
     the stop reason (``stopReason`` + Vault-free public ``detail``): the scheduled event coming due, the player being pulled,
     an NPC approaching, something observed, or bedtime. ``{"ok": false, "reason": ...}`` (no state change) when the flag/clock
@@ -1469,6 +1475,8 @@ async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None =
         args["maxMinutes"] = max_minutes
     if until_band_end:
         args["untilBandEnd"] = True
+    if until_clock is not None:  # ORW-734a: the player's stated wall-clock time (0..24); the engine resolves it on its own clock
+        args["untilClock"] = until_clock
     return await _call("hangOut", args, user=user)
 
 

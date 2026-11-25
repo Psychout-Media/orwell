@@ -7,7 +7,7 @@ import type { AdminPort } from "../../surfaces/admin/AdminPort";
 import type { SummaryService } from "../../services/SummaryService";
 import type { EngineCommands, RecordInteractionReq, SurfaceReq, DiaryRoomReq, RecordImageBeatReq } from "../../ports/EngineCommands";
 import type { EntityId } from "../../domain/ids";
-import type { GameSession, ConfideResult, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordGroupIdentityReq, RecordAllianceNameReq, RecordRoomCanonReq, RecordNarrationUseReq, RecordOpenLedgerReq, ResolveOpenLedgerReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, AskToTalkAloneReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq } from "../../ports/GameSession";
+import type { GameSession, ConfideResult, CreateCharacterReq, UpdateCastingReq, PreSeedCastReq, PreSeedNextSeasonReq, RecordCastProfileReq, RecordCastIdentityReq, RecordCastGenesisReq, RecordWorldSnapshotReq, RecordNpcTraitsReq, RecordNpcReflectionsReq, RecordHouseCultureReq, RecordGroupIdentityReq, RecordAllianceNameReq, RecordRoomCanonReq, RecordNarrationUseReq, RecordOpenLedgerReq, ResolveOpenLedgerReq, RecordLookExtrasReq, RecordProducerProfileReq, RecordCompetitionFictionReq, MomentPromptReq, RecallSceneMemoriesReq, RunCompetitionReq, SubmitDecisionReq, MakeDealReq, FormAllianceReq, JoinAllianceReq, RecordOffscreenSceneTextureReq, ExposeSecretReq, AskToTalkAloneReq, TradeSecretReq, BehavioralFlags, RecordDaySummaryReq, RecordEpisodeTitlesReq } from "../../ports/GameSession";
 
 
 /** Tools that are deliberately NOT in the advertised player channel allowlist (out-of-band
@@ -228,6 +228,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       }
       if (args["maxMinutes"] !== undefined && (typeof args["maxMinutes"] !== "number" || !Number.isFinite(args["maxMinutes"]) || args["maxMinutes"] <= 0)) refuse("maxMinutes", "a positive number of in-game minutes (capped at 180 by the engine)");
       if (args["untilBandEnd"] !== undefined && typeof args["untilBandEnd"] !== "boolean") refuse("untilBandEnd", "a boolean when present");
+      if (args["untilClock"] !== undefined && (typeof args["untilClock"] !== "number" || !Number.isFinite(args["untilClock"]) || args["untilClock"] < 0 || args["untilClock"] >= 24)) refuse("untilClock", "an hour of the day from 0 up to 24 (22.5 = 10:30pm) when present");
       return;
     case "moveTo":
       guardSyncFields(false); // 0065 Part A — optional expectedBeatSeq
@@ -467,6 +468,12 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (args["tier"] !== undefined && args["tier"] !== "day" && args["tier"] !== "week") refuse("tier", "'day' or 'week' when present");
       const cd = args["coversDays"];
       if (cd !== undefined && !(Array.isArray(cd) && cd.length === 2 && cd.every((n) => typeof n === "number" && Number.isFinite(n)))) refuse("coversDays", "a [from,to] number pair when present");
+      return;
+    }
+    case "recordEpisodeTitles": {
+      // ORW-807: `titles` must be an array of { week: number, title: string }; each title is cleaned and capped inside the adapter.
+      const t = args["titles"];
+      if (!Array.isArray(t) || !t.every((x) => x !== null && typeof x === "object" && typeof (x as { week?: unknown }).week === "number" && Number.isFinite((x as { week: number }).week) && isStr((x as { title?: unknown }).title))) refuse("titles", "an array of { week: number, title: string }");
       return;
     }
     case "recordNpcTraits":
@@ -749,7 +756,7 @@ export class McpServer {
       case "nap":
         return this.deps.session.nap(args as { hours?: number; expectedBeatSeq?: number; idempotencyKey?: string });
       case "hangOut":
-        return this.deps.session.hangOut(args as { expectedBeatSeq?: number; maxBeats?: number; maxMinutes?: number; untilBandEnd?: boolean });
+        return this.deps.session.hangOut(args as { expectedBeatSeq?: number; maxBeats?: number; maxMinutes?: number; untilBandEnd?: boolean; untilClock?: number });
       case "noteMessage":
         // Clock-per-message (Coordinator 2026-11-05): the FE announces each PLAYER MESSAGE once (idempotent per messageId); the announcement steps the in-game clock one message-step.
         return this.deps.session.noteMessage({ messageId: String(args["messageId"]) });
@@ -844,6 +851,8 @@ export class McpServer {
         return this.deps.session.seasonRecap();
       case "recordDaySummary":
         return this.deps.session.recordDaySummary(args as unknown as RecordDaySummaryReq);
+      case "recordEpisodeTitles":
+        return this.deps.session.recordEpisodeTitles(args as unknown as RecordEpisodeTitlesReq);
       case "dayLedger":
         return this.deps.session.dayLedger();
       case "dailyRecap":

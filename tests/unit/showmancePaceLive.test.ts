@@ -7,7 +7,7 @@ import { ATTRACTION_LIFE, SHOWMANCE_PACE } from "../../src/engine/attractionLife
 import { sessionCoreSupersetViolation } from "../../src/engine/sessionSnapshot";
 import { romancePairKey } from "../../src/engine/heartAgainstGame";
 
-/** ORW-736: the slow build through the real played session. Roles only: a pair, a player, bystanders. */
+/** ORW-736: the slow build through the session with the days, chemistry and time together SET BY HAND (unit tests; the REAL PATH is tests/uat/realPathShowmancePace.test.ts, ORW-811). Roles only: a pair, a player, bystanders. */
 type Live = Record<string, any> & { playedGame?: boolean; active: string[]; dayNumber?: number; nominees?: string[] }; // eslint-disable-line @typescript-eslint/no-explicit-any
 type Seam = {
   live: Live;
@@ -48,7 +48,7 @@ const watched = (events: GameEvent[], a: string, b: string, by: string[]): void 
   events.push({ id: `r${events.length}`, ts: events.length, type: "showmance", initiator: a, witnessSet: [a, b], hidden: true, content: "x", baseContent: "x", houseLife: { action: "flirt", seenBy: by } } as never);
 };
 
-describe("the slow build, through the played session", () => {
+describe("unit, state set by hand: the slow build, through the played session", () => {
   it("flag off: today's affinity-threshold stages, no pace record (byte-identical path)", () => {
     const { s, ids } = played(false);
     const [a, b] = ids as [string, string];
@@ -152,7 +152,7 @@ describe("the slow build, through the played session", () => {
   });
 });
 
-describe("persistence: the pace record is history", () => {
+describe("unit, state set by hand: persistence: the pace record is history", () => {
   it("round-trips through a snapshot, and a save that lost a pair's steps is refused", () => {
     const { s, sb, ids } = played(true);
     const [a, b] = ids as [string, string];
@@ -168,7 +168,7 @@ describe("persistence: the pace record is history", () => {
   });
 });
 
-describe("the wall: no pace stage, level, progress or step reaches any outward surface", () => {
+describe("unit, state set by hand: the wall: no pace stage, level, progress or step reaches any outward surface", () => {
   it("player projections, the moment prompt and the admin view carry none (positive control: the live state does)", async () => {
     const sb = new GameSessionRegistry().sandboxFor(`pace-wall-${n++}`);
     sb.session.createCharacter({ playerName: "The Player", seed: 21 } as never);

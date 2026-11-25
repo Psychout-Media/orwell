@@ -101,7 +101,7 @@ the Vault Wall still holds inside every sandbox.
 ## 8. Open decisions (flagged; drafted to your answer)
 
 - **New game = replace vs archive.** Default: **replace** the user's current game (start fresh).
-  Optional archival of the prior game is deferred to **0007** (could keep a per-user history).
+  Optional archival of the prior game was left to **0007**; the per-user history was built later as the season archive and hall of fame (0208, ORW-662).
 - **Identity hardening.** Default: trust the front-end's asserted user over loopback. A signed
   token / shared secret between front-end and engine is a later option if the engine is ever
   exposed beyond loopback.

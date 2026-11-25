@@ -67,7 +67,7 @@ the player's own game, so whatever terminates TLS can only see narrated gameplay
 - Standing up the actual VPS / Cloudflare account, DNS records, and certificates — runbook, not code.
 - The **exposure-layer pick** itself (ADR 0007 Open item) — the floor is built regardless; the
   front-specific wiring is finished once the owner confirms.
-- Shorter session TTL + server-side revocation on logout (clean fast-follow; noted, not blocking).
+- Shorter session TTL + server-side revocation on logout: built (#581: a 24h default, `ORWELL_SESSION_TTL_HOURS` clamped to 1h..30d; logout revokes the token on the server), proven by `frontend/tests/test_orw819_session_lifetime.py`.
 - Any DDoS/WAF beyond what the chosen front provides (Cloudflare free tier; or `caddy-ratelimit`/Coraza).
 
 ## 4. Design
@@ -129,9 +129,9 @@ deploy:   deploy/expose/{cloudflared/config.yml, pangolin/newt.compose.yml, cadd
 - Builds on: the E1/B34 engine edge guardrails (`src/main.ts`), the FE auth tier (0021/0029), the E85
   systemd hardening, `orwell-backup.sh`/`restore.sh`.
 - Followed by: `docs/INSTALL.md` public section (shipped); **0010** host smoke of the exposed path
-  during the private-repo flip (the owed follow-on); session-TTL/revocation fast-follow.
+  during the private-repo flip (owed: ORW-819); session TTL and revocation are built (see above).
 
-## 8. Decisions & remaining follow-ups
+## 8. Decisions & remaining items (ORW-819)
 
 1. ✅ **Exposure layer (ADR 0007):** **Cloudflare Tunnel + Access** (owner, 2026-06-20) — the
    `deploy/expose/cloudflared/` kit + the INSTALL runbook ship it as the default; Pangolin (`pangolin/`)
@@ -142,5 +142,5 @@ deploy:   deploy/expose/{cloudflared/config.yml, pangolin/newt.compose.yml, cadd
 3. ✅ **`ORWELL_PUBLIC` ergonomics:** a single profile flag — keeps the default/dev path byte-identical
    and the guard explicit (built).
 4. **Session hardening (split follow-on):** shorter session TTL + server-side revocation on logout —
-   independent of exposure; tracked as a fast-follow, not built here.
+   independent of exposure; tracked as ORW-819, not part of this feature.
 5. **Owed:** the real-host smoke of the exposed path (folds into 0010, during the private-repo flip).

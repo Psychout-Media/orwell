@@ -71,7 +71,7 @@ diaryRoom(entry: string): { recorded: true }                   // readsVault:fal
 - [ ] **Vault-free:** both tools are `readsVault: false` and **sentinel-clean** under a populated Vault
       (extend the 0001 canary); `npm run test:arch` green.
 - [ ] **Manifest:** both appear in the base prompt's lever manifest (coordinated with **B21**).
-- [ ] Name-agnostic tests (roles only — player/NPC); `npm test` green. *(A small front-end follow-up
+- [ ] Name-agnostic tests (roles only — player/NPC); `npm test` green. *(The small front-end piece
       surfaces "X wants to talk" and a DR entry point — queued separately; the agent can drive both via the
       tools without UI.)*
 
@@ -81,7 +81,7 @@ Exposes **0012** (`npcInitiatedApproaches` — bidirectional scenes) and **0013*
 `NO_NPC_PATHWAY`) into the live game, reading the live relationship state (**0023**), under **0002**
 (knowledge pathways), **0001** (Vault Wall), and **0021** (isolation). Pairs with **B21** (the manifest
 must name the new levers). Front-end consumption (approach prompts + a DR affordance) is a small
-follow-up on the **0032** game build.
+piece on the **0032** game build, since built.
 
 ## 7. Front-end UI (C10) — surfacing it to the player
 

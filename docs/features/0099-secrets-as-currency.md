@@ -366,7 +366,7 @@ Every consumer here keys on a held fact's `subject` (who it is about), but the r
 - `surfaceInformationTo` takes an optional `factId` so a record with a subject also has a lineage.
 - An old save is backfilled on load from the record's own fields (a scene rumor's lineage id names its origin and its undrifted text names the pair), append-only, no rng.
 - Flag `ORWELL_RUMOR_SUBJECTS` (default ON, `=0` = subject-less, byte-identical). Played games only. The subject is engine-only (Vault class): only a fact the player was told reaches them, with its source. Test `tests/unit/rumorSubjects.test.ts`; report `tests/calibration/secretSubjectReport.test.ts` (`ORWELL_SECRET_SUBJECT_REPORT=1`).
-- Not done: an overheard fragment (presence) is still subject-less.
+- Not done: an overheard fragment (presence) is still subject-less. (ORW-824)
 
 ## Amendment 2026-11-19 (ORW-688, part 2): a houseguest's own brake on trading
 

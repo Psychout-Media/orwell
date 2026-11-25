@@ -18,7 +18,7 @@ afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(null)); // back to the sh
 type Row = { next: string; scheduled: string; dueHour: number; dueTod: string; event?: string; afterHour: number };
 function weekOne(played = false): Row[] {
   GameSessionAdapter.setTimeOfDayEnabled(true);
-  const s = new GameSessionRegistry().sandboxFor(`mh-${Math.random()}`).session as GameSessionAdapter;
+  const s = new GameSessionRegistry().sandboxFor(`mh-7-${played ? "played" : "headless"}`).session as GameSessionAdapter;
   s.createCharacter({ playerName: "P", seed: 7 });
   s.setPerConversationClockEnabled(true);
   const live = () => s.snapshot().live as unknown as { nightDepth: number; timeOfDay: string; nightDepthUndefined?: boolean };

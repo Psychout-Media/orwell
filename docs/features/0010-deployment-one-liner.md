@@ -101,7 +101,7 @@ The scripts are **designed now**; they go **functional** once the app is runnabl
 - **#7** persistence: a stable `data/` save path.
 
 So the **MVP-1 critical path** is: build 0009 → engine `start` entrypoint + front-end wiring →
-finalize + smoke-test these scripts. MVP 1 is **not done until these are green**.
+finalize + smoke-test these scripts. MVP 1 counted as done only once these were green (they are: CI's `smoke` job runs `deploy/smoke.sh`).
 
 ## 8. Traceability
 

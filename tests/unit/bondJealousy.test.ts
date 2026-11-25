@@ -118,7 +118,7 @@ const triangle = (s: Internals, scenesXY = 4, seen = true): [string, string, str
   return [H, X, Y];
 };
 
-describe("the nightly tick, in a played game", () => {
+describe("unit, state set by hand (bonds and scenes are planted; REAL PATH: tests/realpath/bondJealousy.test.ts, ORW-811): the nightly tick, in a played game", () => {
   it("a holder close to X who watches X favour a rival grows jealous, and the closeness slips", () => {
     const s = start(3);
     const [H, X, Y] = triangle(s);
@@ -221,7 +221,7 @@ describe("the nightly tick, in a played game", () => {
   });
 });
 
-describe("divided loyalty, decision level through the real adapter", () => {
+describe("unit, state set by hand (bonds and scenes are planted; REAL PATH: tests/realpath/bondJealousy.test.ts, ORW-811): divided loyalty, decision level through the real adapter", () => {
   /** The same voters, all close to A; `alsoB` makes them close to B too, and A and B have fallen out. Returns how many vote A out against C. */
   const votesAgainstA = (alsoB: boolean, on = true): number => {
     const s = start(3, on);

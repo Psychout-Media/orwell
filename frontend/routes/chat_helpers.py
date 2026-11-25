@@ -695,6 +695,20 @@ _STATED_WAIT_RE = re.compile(
 _WAIT_FOR_EVENT_RE = re.compile(
     r"\b(?:wait(?:\s+around)?|sit\s+tight|stay\s+put)\b[^.?!\n]{0,60}?\bfor\s+(?:the\s+)?(?:[A-Za-z']+\s+){0,2}?(?:ceremony|competition|comp)\b",
     re.IGNORECASE)
+# D (ORW-734a): the player's own stated span for any quiet act, with no wait verb ("I stay at the table listening and laughing for three hours", "I rest in bed for four hours", "I warm up alone
+# for three hours"): the same wait, so the ENGINE moves the clock by the time they said (a plain chat line only moves it one 5-minute message step while the narrator writes hours). It starts at
+# the player's own "I", must carry a stated duration, and is NOT a wait when the span is sleep (own levers: nap / turnIn) or talk with somebody (a conversation runs on its own clock).
+_SPAN_STATED_RE = re.compile(
+    r"\b(?:I|we)\b(?:'ll|'m(?:\s+going\s+to)?|\s+will|\s+am\s+going\s+to)?\s+(?:[^.?!\n,;]{0,70}?\s)?for\s+(?:" + _STATED_DURATION_PAT + r")\b",
+    re.IGNORECASE)
+_SPAN_NOT_A_WAIT_RE = re.compile(
+    r"\b(?:not|never|without)\b|n['\u2019]t\b|\b(?:want|need|get|have|make|let)s?\s+[A-Za-z']+\s+to\b|\b(?:I|we)\s+(?:(?!need\b)\w+ed|was|were|had|did|sat|lay|stood|went|spent|got)\b|\b(?:sleep(?:ing)?|asleep|nap(?:ping)?|doze|dozing|snooze|slumber|goodnight|turn(?:ing)?\s+in|go(?:ing)?\s+to\s+(?:bed|sleep)|head(?:ing)?\s+to\s+bed|"
+    r"talk(?:ing)?|chat(?:ting)?|speak(?:ing)?|ask(?:ing)?|tell(?:ing)?|say(?:ing)?|whisper(?:ing)?|argue|arguing|convince|persuade|plead|confront|negotiate|pitch|interview|lecture|question(?:ing)?)\b",
+    re.IGNORECASE)
+# ORW-734a: a wall-clock target in the player's own wait sentence ("until 10pm", "till 9:15 p.m.", "until noon"). am/pm, noon or midnight is required: a bare "until 8" is not read as a time.
+_CLOCK_TARGET_RE = re.compile(
+    r"\b(?:until|till|'til|til)\s+(?:about\s+|around\s+)?(?:(1[0-2]|0?[1-9])(?::([0-5]\d))?\s*([ap])\.?m\b\.?|(noon|midnight)\b)", re.IGNORECASE)
+
 # ORW-477: sentences that are NOT the player's own wait: reported or past speech, a question, a negation, somebody else's wait. Read on the clause before the verb and the sentence after it.
 _NOT_MINE_BEFORE_RE = re.compile(
     r"\b(?:been|said|says|saying|told|tells|asked|asks|thought|heard|wondered|if|whether|because|had|was|were|he|she|they|someone|somebody|nobody|not|never|without|tell|ask|say|order|you|your)\b|n['’]t\b|"
@@ -742,11 +756,30 @@ def _is_not_the_players_wait(text: str, m) -> bool:
 
 def _wait_intent_match(text: str):
     """The first wait phrase (shape A or B) that is the player's own, else None."""
-    for rx in (_HANGOUT_INTENT_RE, _STATED_WAIT_RE, _WAIT_FOR_EVENT_RE):
+    for rx in (_HANGOUT_INTENT_RE, _STATED_WAIT_RE, _WAIT_FOR_EVENT_RE, _SPAN_STATED_RE):
         for m in rx.finditer(text):
+            if rx is _SPAN_STATED_RE and _SPAN_NOT_A_WAIT_RE.search(m.group(0)):
+                continue
             if not _is_not_the_players_wait(text, m):
                 return m
     return None
+
+
+def parse_wait_until_clock(player_msg):
+    """ORW-734a: the wall-clock hour (0..24, 22.5 = 10:30pm) the player's own wait runs until ("wait until 10pm"), else None. Read only from the wait's own sentence; the ENGINE turns it into minutes on its own clock."""
+    text = re.sub(r"\b([ap])\.\s?m\b\.?", r"\1m", str(player_msg or ""), flags=re.IGNORECASE)  # "p.m." would end the sentence at its first dot
+    m = _wait_intent_match(text)
+    if not m:
+        return None
+    _tail = text[m.start():]
+    _end = [i for i in (_tail.find(c) for c in ".?!\n") if i >= 0]
+    c = _CLOCK_TARGET_RE.search(_tail[:min(_end) + 1] if _end else _tail)
+    if not c:
+        return None
+    if c.group(4):
+        return 12.0 if c.group(4).lower() == "noon" else 0.0
+    hour = int(c.group(1)) % 12 + (12 if c.group(3).lower() == "p" else 0)
+    return hour + (int(c.group(2)) / 60 if c.group(2) else 0.0)
 
 
 _HANGOUT_STOP_LINES = {
@@ -796,7 +829,10 @@ def _hang_out_steer(res: dict, asked_minutes=None) -> str:
     cut = ""
     if isinstance(asked_minutes, (int, float)) and asked_minutes > 0 and reason != "max-beats" and mins < asked_minutes:
         cut = ("The wait was CUT SHORT: the player asked to wait about %d minutes but only about %d passed. Say plainly that the wait was interrupted; do NOT claim the full time went by. " % (asked_minutes, mins))
-    return ("HANG OUT (engine-decided, not yours to change): the player chose to pass time socializing in the house. About %d in-game minutes passed. " % mins
+    span = ""
+    if mins >= 60:  # ORW-734a: the elapsed time as the engine's own fact, in hours too, so the narration cannot shrink or stretch it
+        span = " (%d hour%s%s)" % (mins // 60, "" if mins // 60 == 1 else "s", " %d minutes" % (mins % 60) if mins % 60 else "")
+    return ("HANG OUT (engine-decided, not yours to change): the player chose to pass time socializing in the house. About %d in-game minutes passed%s. " % (mins, span)
             + cut + "STOP: %s Voice the passage of time in a brief paragraph, then open the scene on that stop. Invent no ceremony, vote, or outcome beyond it." % line)
 
 
@@ -813,6 +849,9 @@ async def maybe_hang_out(user, game_state: dict, player_msg) -> bool:
             _kw["max_minutes"] = _mins
         if _band:
             _kw["until_band_end"] = True
+        _clock = parse_wait_until_clock(player_msg)  # ORW-734a: "until 10pm" - the engine resolves it on its own clock (the next such time, never a day later)
+        if _clock is not None:
+            _kw["until_clock"] = _clock
         res = await orwell_engine.hang_out(expected_beat_seq=last_beat_seq(user), user=user, **_kw)
         _refresh_beat_seq(user, res)
         if not isinstance(res, dict) or not res.get("ok"):
@@ -8479,6 +8518,7 @@ def current_game_day(user) -> Optional[int]:
     return _LAST_FRAMED_GAME_DAY.get(user or "default")
 
 
+_STAMP_REFRESH_RETRY_TIMEOUT = 6.0  # ORW-875: the second, longer try after a missed first read
 _STAMP_REFRESH_TIMEOUT = 2.0  # seconds: the persist-time stamp refresh is best-effort and must stay short
 
 
@@ -8488,7 +8528,11 @@ async def refresh_framed_game_stamps(user) -> None:
     try:
         from src import orwell_engine
         # Review of #2772: bounded, so a stalled engine read can never hold the save for the full framing timeout (the start-of-turn stamp stands).
-        gs = await asyncio.wait_for(orwell_engine.get_game_state(user=user), _STAMP_REFRESH_TIMEOUT)
+        # ORW-875: one retry with a longer bound. A loaded box can miss the first window, and the start-of-turn stamp that then stands is a phase BEHIND the engine (the playtest stamp read "Veto competition" while the turn had crossed to the ceremony).
+        try:
+            gs = await asyncio.wait_for(orwell_engine.get_game_state(user=user), _STAMP_REFRESH_TIMEOUT)
+        except Exception:
+            gs = await asyncio.wait_for(orwell_engine.get_game_state(user=user), _STAMP_REFRESH_RETRY_TIMEOUT)
         if not isinstance(gs, dict) or not gs.get("started"):
             return
         key = user or "default"

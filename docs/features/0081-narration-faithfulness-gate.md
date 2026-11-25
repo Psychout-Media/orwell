@@ -6,7 +6,7 @@
 > `_faith_check` post-turn hook + casting seam (`frontend/src/agent_loop.py`); 61 gates in
 > `frontend/tests/test_0081_*.py`. Default **active** since the owner ruling 2026-07-13 (`faithfulness_mode` resolver default, `frontend/src/faithfulness.py`; an explicit `off` still disables), so, when a judge model resolves (live mode), it costs one judge call on each turn that is claim-bearing **or** an engaged player-NPC scene (plus a bounded retro-judge catch-up for any turn queued while the judge was down); deterministic/keyless lanes and an unresolved judge model make no judge call and the seeded floor stands. It keeps its own dial under **Settings → AI** (Runtime overseer card, "Faithfulness gate"); `/admin/status` only reports the resolved mode and judge health, it is not a control. *(As first built it was default off, opt-in.)* The
 > **second overseer role** that
-> [0079](./0079-runtime-overseer-and-diagnostic-log.feature) deliberately deferred ("the narration
+> [0079](./0079-runtime-overseer-and-diagnostic-log.feature) deliberately left out ("the narration
 > **faithfulness gate** … a *separate, future* role, deliberately not in this feature"). Where 0079/0080
 > watch **pacing & gap-repair** (the model *under*-calls — a scene folds zero impact, the game freezes),
 > this role watches **faithfulness** (the model *mis*-narrates — the prose contradicts the board, drifts
@@ -66,7 +66,7 @@ never adopted.** That single guard is the anti-sycophancy wall for this feature.
 | Reasoning scrub (operator-aside / raw `npc:<id>`) | `markdown.js` `processWithThinking` (game build) | **lexical** scrub of known leak tokens; not a semantic "does this prose assert something the player can't know" check |
 | Reasoning/body channel split | `chat.js` (reasoning never reaches the public bubble) | keeps *reasoning tokens* out by construction — does not check the *body's* faithfulness to the board |
 | `expressiveNonCollapse` gates | TS + FE | protect open-set **richness** from being flattened — the dual concern; nothing checks open-set **invention** for adoptability vs. contradiction |
-| Pacing/gap-repair overseer (0079/0080) | `agent_loop.py` + `OverseerPort` | the **under-call** half: triggers a *missed* call; has **no** faithfulness role (0079 §3 deferred it explicitly) |
+| Pacing/gap-repair overseer (0079/0080) | `agent_loop.py` + `OverseerPort` | the **under-call** half: triggers a *missed* call; has **no** faithfulness role (0079 §3 left it out explicitly) |
 | A judge that reads narration vs. engine truth and recovers a slip diegetically | — | ⛔ **does not exist** |
 
 Net today: closed-set board claims are guarded *lexically and pre-stream*; **semantic** contradiction,
@@ -287,7 +287,7 @@ the judge is `FaithfulnessJudge`; the projection is the Vault-free `_faith_build
       (`DeterministicFaithfulnessJudge` / no utility model ⇒ the judge never runs) keeps seeded lanes
       **byte-identical**; **no** re-baseline.
 - [x] Name-agnostic tests (roles only); the **full FE pytest gate is green (2670 passed, 2 skipped)**.
-      *(Open follow-up: the active path is live-only, so a live-LLM manual run is owed — the headless
+      *(Open, ORW-109: the active path is live-only, so a live-LLM manual run is owed; it is folded into ORW-109's first live full-week run — the headless
       gates stub the model and can't exercise it.)*
 
 ## 7. Anti-sycophancy & the mandate boundary (explicit — read before approving)

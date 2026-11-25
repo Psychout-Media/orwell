@@ -98,6 +98,80 @@ function stripComments(src: string, blankStrings = true): string {
 
 type Violation = { file: string; line: number; rule: string; reason: string; text: string };
 
+/**
+ * ORW-852: the SANDBOX NAME is part of a played game's identity (with the seed it keys the player-action stream and the off-screen tick: the same seed under another
+ * name is another game). So a real-path test pins it next to its seed:
+ *  - every call to a played-season driver passes it (`user:` in the options of `playedGame` / `playSeason` / `playUntil` / `playMixGame`, the third argument of
+ *    `bootNatural`), unless the call forwards a caller's options object (`...opts`) or the file defines a local function of that name;
+ *  - every sandbox name the file writes (a `sandboxFor(...)` argument, a `user:` value, or the `const` an identifier there names) is fixed: never random, time-based
+ *    or a counter that moves with test order;
+ *  - ORW-880: a seed chosen by `firstSeedWhere` / `firstSeedWhereSync` / `firstStop` counts as pinned when the call names each seed's sandbox (`sandbox: (seed) => ...`,
+ *    itself fixed), or passes the folder's `wfScan(...)` or a file-level `SCAN` that does, or forwards a caller's `scan` (the folder's own `firstStop`).
+ */
+const DRIVERS = ["playedGame", "playedSeason", "playSeason", "playUntil", "playMixGame", "bootNatural"];
+const UNFIXED_NAME = /Math\s*\.\s*random|\bDate\b|performance\s*\.\s*now|randomUUID|hrtime|\+\+|--/;
+
+/** The text between the parenthesis at `open` and its match (strings and comments already handled by the caller's stripping). */
+function argsAt(src: string, open: number): string {
+  let d = 0;
+  for (let j = open; j < src.length; j++) {
+    const c = src[j];
+    if (c === "(" || c === "[" || c === "{") d++;
+    else if (c === ")" || c === "]" || c === "}") { d--; if (d === 0) return src.slice(open + 1, j); }
+  }
+  return src.slice(open + 1);
+}
+/** The top-level arguments of an argument list. */
+function topArgs(a: string): string[] {
+  const out: string[] = []; let d = 0, cur = "";
+  for (const c of a) {
+    if (c === "(" || c === "[" || c === "{") d++;
+    else if (c === ")" || c === "]" || c === "}") d--;
+    if (c === "," && d === 0) { out.push(cur); cur = ""; } else cur += c;
+  }
+  if (cur.trim()) out.push(cur);
+  return out;
+}
+const lineOf = (src: string, at: number): number => src.slice(0, at).split("\n").length;
+
+function scanSandboxNames(file: string, src: string): Violation[] {
+  const raw = src.split("\n");
+  const code = stripComments(src, false); // strings kept: a name is a string
+  const found: Violation[] = [];
+  const push = (at: number, rule: string, reason: string): void => { const line = lineOf(code, at); found.push({ file, line, rule, reason, text: (raw[line - 1] ?? "").trim() }); };
+  const local = new Set([...code.matchAll(/function\s+([\w$]+)\s*\(/g)].map((m) => m[1]!));
+  for (const name of DRIVERS) {
+    if (local.has(name)) continue;
+    for (const m of code.matchAll(new RegExp(String.raw`(?<![\w$.])${name}\s*\(`, "g"))) {
+      const before = code.slice(Math.max(0, m.index! - 40), m.index!);
+      if (/function\s*$|import\s*\{[^}]*$|\bas\s*$/.test(before)) continue;
+      const open = m.index! + m[0].length - 1;
+      const args = argsAt(code, open);
+      const pinned = name === "bootNatural" ? topArgs(args).length >= 3 : /\buser\s*:/.test(args) || /\.\.\.\s*opts\b/.test(args);
+      if (!pinned) push(m.index!, "sandbox-unpinned", `${name}(...) plays a seeded season without naming its sandbox; the name is part of the game (pass user: next to the seed)`);
+    }
+  }
+  // ORW-880: a seed picked by the scan (tests/support/firstSeedWhere.ts) is pinned when the scan names its sandbox for each seed (`sandbox: (s) => \`wf-${s}\``).
+  if (!local.has("firstSeedWhere")) for (const m of code.matchAll(/(?<![\w$.])(?:firstSeedsWhere(?:Sync)?|firstSeedWhere(?:Sync)?|firstStops?)\s*\(/g)) {
+    const before = code.slice(Math.max(0, m.index! - 40), m.index!);
+    if (/function\s*$|import\s*\{[^}]*$|\bas\s*$/.test(before)) continue;
+    if (!/\bsandbox\s*:|\bwfScan\s*\(|\bSCAN\b|,\s*scan\s*(?:,|$)/.test(argsAt(code, m.index! + m[0].length - 1))) push(m.index!, "sandbox-unpinned", "firstSeedWhere(...) picks a seed without naming each seed's sandbox; pass sandbox: (seed) => a fixed name");
+  }
+  const exprs: Array<{ at: number; expr: string }> = [];
+  for (const m of code.matchAll(/(?<![\w$])sandbox\s*:\s*/g)) { const rest = code.slice(m.index! + m[0].length); exprs.push({ at: m.index!, expr: topArgs(rest.split(/\n/)[0] ?? "")[0] ?? "" }); }
+  for (const m of code.matchAll(/(?<![\w$])sandboxFor\s*\(/g)) exprs.push({ at: m.index!, expr: argsAt(code, m.index! + m[0].length - 1) });
+  for (const m of code.matchAll(/(?<![\w$])user\s*:\s*/g)) { const rest = code.slice(m.index! + m[0].length); exprs.push({ at: m.index!, expr: topArgs(rest.split(/[}\n]/)[0] ?? "")[0] ?? "" }); }
+  for (const { at, expr } of exprs) {
+    const e = expr.trim();
+    const id = /^[\w$]+$/.test(e) ? e : undefined;
+    const decl = id ? new RegExp(String.raw`(?:const|let|var)\s+${id}\s*=\s*([^;\n]+)`).exec(code)?.[1] : undefined;
+    if (UNFIXED_NAME.test(e) || (decl !== undefined && UNFIXED_NAME.test(decl))) push(at, "sandbox-unfixed", "a sandbox name that is random, time-based or a counter: the same seed then plays a different game from run to run or with test order");
+  }
+  return found;
+}
+
+
+
 function scanSource(file: string, src: string): Violation[] {
   const raw = src.split("\n");
   const code = stripComments(src).split("\n");
@@ -134,6 +208,12 @@ describe("ORW-758 A5: real-path tests never write hidden game state", () => {
   it("tests/realpath/ exists with its README and holds at least one test", () => {
     expect(existsSync(join(REALPATH_DIR, "README.md"))).toBe(true);
     expect(walk(REALPATH_DIR).filter((f) => f.endsWith(".test.ts")).length).toBeGreaterThan(0);
+  });
+
+  it("ORW-852: every guarded file that plays a seeded season names its sandbox, with a fixed name", () => {
+    const violations = guardedFiles().flatMap((f) => scanSandboxNames(rel(f), readFileSync(f, "utf8")));
+    const report = violations.map((v) => `${v.file}:${v.line} [${v.rule}] ${v.reason}\n    ${v.text}`).join("\n");
+    expect(violations, `pin the sandbox name with the seed (tests/realpath/README.md):\n${report}`).toEqual([]);
   });
 
   it("no guarded file writes live, relationship, knowledge, Vault, event or soul state directly", () => {
@@ -215,6 +295,53 @@ describe("the guard itself (planted failures)", () => {
       "const liveSeason = 1; liveSeason; isLive(s);",
     ].join("\n");
     expect(scanSource("clean.test.ts", clean)).toEqual([]);
+  });
+
+  it("ORW-852: flags a played-season driver called without a sandbox name, and a random, time-based or counter name", () => {
+    const rules = (src: string): string[] => scanSandboxNames("p.test.ts", src).map((v) => v.rule);
+    expect(rules('a;\nconst g = playedGame({ seed: 21 });\n')).toEqual(["sandbox-unpinned"]);
+    expect(rules('a;\nconst at = await playUntil(SEED, (s) => s.msg > 3);\n')).toEqual(["sandbox-unpinned"]);
+    expect(rules('a;\nconst at = await playUntil(SEED, (s) => s.msg > 3, { maxMessages: 900 });\n')).toEqual(["sandbox-unpinned"]);
+    expect(rules('a;\nconst r = await playSeason({\n  seed: 4,\n  maxMessages: 1400,\n});\n')).toEqual(["sandbox-unpinned"]);
+    expect(rules("a;\nconst s = bootNatural(seed, true);\n")).toEqual(["sandbox-unpinned"]);
+    expect(rules("a;\nconst s = new GameSessionRegistry().sandboxFor(`mh-${Math.random()}`).session;\n")).toEqual(["sandbox-unfixed"]);
+    expect(rules('a;\nconst g = playedGame({ seed: 21, user: `p-${Date.now()}` });\n')).toEqual(["sandbox-unfixed"]);
+    expect(rules("a;\nconst user = `cpm-${n++}`;\nconst sb = reg.sandboxFor(user);\n")).toEqual(["sandbox-unfixed"]);
+    expect(rules("a;\nconst f = await firstSeedWhere((seed) => playUntil(seed, done, { user: `wf-${seed}` }), { from: 1, to: 9 });\n")).toEqual(["sandbox-unpinned"]);
+    expect(rules("a;\nconst f = firstSeedWhereSync((seed, sandbox) => go(seed, sandbox), { from: 1, to: 9, sandbox: (s) => `x-${Date.now()}-${s}` });\n")).toEqual(["sandbox-unfixed"]);
+    expect(rules("a;\nconst at = await firstStop(quiet, { from: 1, to: 9, hint: 3 });\n")).toEqual(["sandbox-unpinned"]);
+    const v = scanSandboxNames("p.test.ts", 'a;\nb;\nconst g = playedGame({ seed: 21 });\n');
+    expect(v[0]).toMatchObject({ line: 3, rule: "sandbox-unpinned" });
+  });
+
+  it("ORW-852: passes pinned names, forwarded options, a local helper and the drivers' own definitions", () => {
+    const clean = [
+      'import { playUntil } from "./playedSeason";',
+      'import { playMixGame } from "../support/houseMixDriver";',
+      'const g = playedGame({ seed: 21, user: "ps21" });',
+      'const at = await playUntil(SEED, (s) => s.msg > 3, { user: `wf-${SEED}` });',
+      'const q = await playUntil(SEED, done, { ...QUIET, user: "wf-3" });',
+      "const r = await playSeason({ user: `wf-${seed}`, seed, maxMessages: 1400 });",
+      'await playMixGame(13, 1400, { user: "mixdrv-13" });',
+      "const s = bootNatural(seed, true, `ln-natural-${seed}-on`);",
+      "const rec = await playSeason({ ...opts, seed, maxMessages: 1500 });",
+      'const NAME = "bj-real-load";',
+      "const loaded = new GameSessionRegistry().sandboxFor(NAME).session;",
+      "const sb = reg.sandboxFor(`hours-${playing}`);",
+      "const f = await firstSeedWhere((seed, sandbox) => playUntil(seed, done, { user: sandbox }), { from: 1, to: 12, hint: 3, sandbox: (s) => `wf-${s}` });",
+      "const g = firstSeedWhereSync((seed, sandbox) => reach(seed, sandbox), {",
+      "  from: 1, to: 12,",
+      "  sandbox: (s) => `pj-${s}`,",
+      "});",
+      "const at = await firstStop(quiet, wfScan(3, \"a quiet room\"));",
+      "const at2 = await firstStop(quiet, SCAN, { decide });",
+      "for (const at of await firstStops(2, quiet, wfScan([3, 11]))) use(at);",
+      "function playUntilQuiet(seed: number) { return 1; }",
+      "export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> { return run(opts); }",
+    ].join("\n");
+    expect(scanSandboxNames("clean.test.ts", clean)).toEqual([]);
+    const local = "function playSeason(seed: number) { const s = reg.sandboxFor(\"orw747\").session; s.createCharacter({ seed }); }\nplaySeason(SEED);\n";
+    expect(scanSandboxNames("local.test.ts", local), "a file's own helper of that name is checked by the name it builds instead").toEqual([]);
   });
 
   it("names the file and line of a violation", () => {

@@ -86,15 +86,19 @@ export interface KnownRed { value: number; card: string }
 export const KNOWN_RED: Readonly<Record<string, KnownRed>> = {
   // Measured on main at 130ef2949 (4 seasons, seeds 1, 2, 3, 6; early n5579 and mid n1401 are the player-in scenes, late n221 is the house after the player left: the player is out by week 2-5).
   // Card ORW-702 (whole-season mix); the slices that fix them: desire-clock ratchets (gossip), restore bonding, the rumor effect.
-  "early:band-bonding": { value: 22.7, card: "ORW-702 restore bonding" }, // band 32-42
-  "early:band-gossip": { value: 41.4, card: "ORW-702 gossip ratchet" }, // band 22-32
-  "mid:band-bonding": { value: 17.7, card: "ORW-702 restore bonding" }, // band 24-34
-  "mid:band-gossip": { value: 42.5, card: "ORW-702 gossip ratchet" }, // band 26-36
-  "late:band-strategy": { value: 12.7, card: "ORW-702 late strategy" }, // band 28-38 (and the 24% floor below)
-  "late:band-gossip": { value: 56.6, card: "ORW-702 gossip ratchet" }, // band 24-34 (and the 45% ceiling below)
-  "late:band-conflict": { value: 9.9, card: "ORW-702 late conflict" }, // band 10-16: a hair under the floor (borderline; it may flip with no related change: just move it out then)
-  "late:no-activity-above-45": { value: 56.6, card: "ORW-702 gossip ratchet" }, // gossip is the one over 45
-  "late:strategy-at-least-24": { value: 12.7, card: "ORW-702 late strategy" },
+  // ORW-778 / owner ORW-702: re-measured WITH the surviving player (seeds 1, 2, 3, 6 on the GitHub runner, 2026-11-24; the player is in for the whole read now: early n6480, mid n5505, late n812). Pooled:
+  // early 22.4/28.3/42.0/7.4, mid 16.1/28.9/47.4/7.6, late 14.8/27.7/49.0/8.5 (bonding/strategy/gossip/conflict). The values below are those measurements; ORW-702 brings them down. Two lines are new
+  // (mid:no-activity-above-45 and late:band-bonding: main met them while the late weeks were read from a house without the player); late:strategy-at-least-24 is gone (it reads 27.7 now).
+  "early:band-bonding": { value: 22.4, card: "ORW-702 restore bonding" }, // band 32-42
+  "early:band-gossip": { value: 42.0, card: "ORW-702 gossip ratchet" }, // band 22-32
+  "mid:band-bonding": { value: 16.1, card: "ORW-702 restore bonding" }, // band 24-34
+  "mid:band-gossip": { value: 47.4, card: "ORW-702 gossip ratchet" }, // band 26-36
+  "mid:no-activity-above-45": { value: 47.4, card: "ORW-702 gossip ratchet" }, // gossip is the one over 45
+  "late:band-bonding": { value: 14.8, card: "ORW-702 restore bonding" }, // band 20-30
+  "late:band-strategy": { value: 27.7, card: "ORW-702 late strategy" }, // band 28-38: 0.3 under the floor
+  "late:band-conflict": { value: 9.1, card: "ORW-902 767 late mix" }, // band 10-16: ORW-767 (a told couple spreads as gossip) moved the late mix on seeds 1, 2, 3, 6 by about gossip +3, strategy -4, conflict -1; added back as measured (CI run on #3164), carded
+  "late:band-gossip": { value: 49.0, card: "ORW-702 gossip ratchet" }, // band 24-34 (and the 45% ceiling below)
+  "late:no-activity-above-45": { value: 49.0, card: "ORW-702 gossip ratchet" }, // gossip is the one over 45
 };
 export const RATCHET_SLACK = 6; // points of drift past the measured value that is still noise at this many seasons; tighten as the seed set grows
 

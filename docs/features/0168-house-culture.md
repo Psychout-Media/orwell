@@ -63,7 +63,7 @@ Not wired, on purpose:
 - comp focus: there is no single constant, and a competition's outcome is the engine's alone (mandate 3). The dial stays unconsumed and no lean may ever bend a comp.
 - the trust baseline (`RELATIONSHIP_CONSTANTS.baseline.trust`): it is read in many places (move-in seeding, decay and overnight-drift targets, bond-above-neutral
   comparisons) with no single seam, and the move-in seeding happens before the culture is drawn. Shifting only some of them would make drift read as a bond. Bond speed
-  above covers the intent; a shifted baseline is left for a later slice if the owner still wants it.
+  above covers the intent; a shifted baseline is left for a later slice if the owner still wants it. (ORW-825)
 
 ## The wall
 
@@ -79,5 +79,5 @@ unchanged. The front-end retrospective window renders it as plain text; the host
 
 ## Later slices (not this spec)
 
-2: the house-life dials (built). 3: paranoia, loyalty, bond speed, alliance size, meeting frequency (built, above; the trust baseline deferred). 4: the house-mix guard rework (an across-seed average
+2: the house-life dials (built). 3: paranoia, loyalty, bond speed, alliance size, meeting frequency (built, above; the trust baseline deferred). 4: the house-mix guard rework (an across-seed average (ORW-825)
 within a band plus a minimum between-season spread; numbers go to the owner). 5: credulity (built, above).

@@ -1,4 +1,4 @@
-# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
+# spec-only: gated by frontend/tests/test_orwell_portraits.py; this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 # DRAFT executable spec — SPECCED, NOT BUILT (author: feature-maker; implementer makes it pass).
 # Feature 0051 — In-character images: the model PRODUCES images as part of play (a houseguest's
 # sketch, the memory-wall portrait), inline in the chat. (Scene "camera stills" were cut 2026-11-12, ORW-286 item 4, Ryne: "I don't want pictures of scenes.") Pairs with E94 (attach =

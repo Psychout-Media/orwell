@@ -16,7 +16,7 @@ When a houseguest is crowned HOH, their room is opened to the WHOLE house, the p
   event with its direction (resentment or fear), never the strength, the mask or the true feeling; the HOH then thinks a little less of them (small, bounded).
 - Photos and letter: for a player who came up, one true fact about the HOH is revealed, a keyed pick over the facets that character itself carries (its vocation, hometown, background and biography sentences; never a draft biography, never a repeat). Nothing is
   authored by the engine beyond the stored fact; the narrator voices it.
-- The player as HOH: their room is opened too; NPC snubs and slips are observable facts the narrator voices. The player's own choice of whether to go up has no lever yet (deferred).
+- The player as HOH: their room is opened too; NPC snubs and slips are observable facts the narrator voices. The player's own choice of whether to go up has no lever yet (deferred). (ORW-825)
 
 ## Wall
 

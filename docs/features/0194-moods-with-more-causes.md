@@ -16,7 +16,7 @@ The cause reaches the narrator only through `npcVoice.moodCause`, only for an ac
 ## Rules
 No rng anywhere (all deterministic); the player's own mood is theirs (no cause recorded for the player, though the player as a liar or evictee is the subject of others' causes); a cause is written once per holder, source, subject and day; flag off or a headless game records nothing.
 
-## Left for follow-up slices
+## Left for follow-up slices (ORW-825)
 One mood source for the word, tells and decisions (ORW-576, not yet built on main); causes that move a mood a second time (a bad night does not move the word); a cause that decays across weeks; a betrayal learned through a told scene (only the broken deal is wired); the FE cast card showing a witnessed public cause.
 
 ## Gates
@@ -26,7 +26,7 @@ BDD `0194-moods-with-more-causes.feature`, `tests/unit/moodCauses.test.ts` (pure
 - **A bad night moves the mood word.** When a genuine night-end writes a `bad-sleep` cause (once per holder per day), the existing "scheme" mood step (low-grade agitation) lands at `MOOD_CAUSES.badSleepMoodScale` through `catchMood`. Bounded, keyed, no rng. A repeat read the same day writes nothing and steps nothing.
 - **Causes carry and fade.** A cause stays speakable for `MOOD_CAUSES.carryDays` in-game days after the day it landed, its weight falling by an equal step each day (`carryFactor`, `strongestLiveCause`), across the week roll. Keyed on `dayNumber`, never wall-clock; with no day recorded the same week counts as today and another week does not. The append-only log is never trimmed; only the read applies the age. A fresh light cause can outrank a stale heavy one.
 - **A betrayal learned later.** `DealLedger.learnOfBreak` now calls an optional `learned` sink once; the adapter writes a `betrayed` cause for the wronged party the day they learn of the quiet break (through the caught-lie gate or the breaker's public act). A told claim of a lie already lands as `lied-to` through `payForCaughtLie`.
-- **Cast-card line: not done.** A cause line on the roster card would either reveal who counted on whom (the friend-evicted bond is hidden) or need a new public-cause projection with its own boundary test; that is more than a small additive field, so it stays for its own slice.
+- **Cast-card line: not done.** A cause line on the roster card would either reveal who counted on whom (the friend-evicted bond is hidden) or need a new public-cause projection with its own boundary test; that is more than a small additive field, so it stays for its own slice. (ORW-825)
 
 Left: one mood source for word, tells and decisions (ORW-576); the public-cause cast-card line.
 

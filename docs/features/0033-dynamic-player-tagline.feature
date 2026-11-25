@@ -1,4 +1,4 @@
-# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
+# spec-only: gated by tests/unit/playerTagline.test.ts; this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 # Executable spec — IMPLEMENTED; shipped UNIT-GATED (tests/unit/playerTagline.test.ts) + the FE
 # render in frontend/tests/ — never added to cucumber.cjs (recorded deviation, audit E87a).
 # Feature 0033 — Dynamic player tagline (the snarky, state-aware homepage hero line).

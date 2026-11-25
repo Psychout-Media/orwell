@@ -15,6 +15,7 @@ import { confessionalFor, recordConfessional, selectRecentForConfessional } from
 import { nextHouseEvent, dayOfWeek } from "../engine/houseEvents";
 import { SOCIETY_TICK_HOURS } from "../engine/sleepConstants";
 import { loopFingerprint } from "./chatProgress";
+import { patternsFoundIn } from "./multiSubstring";
 import { SeededRandom } from "../adapters/random/SeededRandom";
 import { hashSeed } from "../engine/characterFactory";
 import { milestoneDue } from "../engine/daySchedule";
@@ -139,6 +140,9 @@ export interface OrchestratorConfig {
    */
   auxTicksNever?: boolean;
 }
+
+/** ORW-832: the loop fingerprint of a snapshot's `live` capture, by object (see `maybeTurnDrivenTick`). */
+const fingerprints = new WeakMap<object, { mode: boolean; fp: string }>();
 
 export class Orchestrator {
   /** Consecutive STATE-INTEGRITY faults that OPEN the circuit (off-screen ticks skip the sandbox).
@@ -351,10 +355,7 @@ export class Orchestrator {
    *  off-screen tick before move-in would fabricate hidden history with houseguests that don't
    *  exist yet (and non-degradation would forbid ever deleting it). */
   private offscreenPoolSize(user: string): number {
-    const core = this.registry.sandboxFor(user).session.snapshot();
-    if (!core.started || !core.house) return 0;
-    const evicted = new Set(core.live?.evictionOrder ?? []);
-    return core.house.npcs.filter((n) => !evicted.has(n.id)).length;
+    return this.registry.sandboxFor(user).session.livingNpcCount(); // ORW-832: no deep copy of the session for a count
   }
 
   /** Surface a fault where an operator can see it (B58/E6) — stderr, with user + kinds. */
@@ -605,7 +606,16 @@ export class Orchestrator {
     }
     // Once the FE announces player messages (`noteMessage`), the announcement itself steps the in-game clock INSIDE the tool - so a clock-only change must not make this commit look like a
     // beat commit (which would earn an un-debounced society tick every message). Strip ONLY the clock fields from the comparison in that mode.
-    const clockFree = (l: SessionSnapshot["live"] | undefined): string => loopFingerprint(l, session.messageModeNow()); // ORW-323: see chatProgress.ts
+    // ORW-323: see chatProgress.ts. ORW-832: a snapshot's `live` is an immutable capture and last commit's candidate is this commit's baseline, so its fingerprint (a stringify of the whole live loop) is kept per object and per mode instead of redone.
+    const mode = session.messageModeNow();
+    const clockFree = (l: SessionSnapshot["live"] | undefined): string => {
+      if (!l) return loopFingerprint(l, mode);
+      const hit = fingerprints.get(l);
+      if (hit && hit.mode === mode) return hit.fp;
+      const fp = loopFingerprint(l, mode);
+      fingerprints.set(l, { mode, fp });
+      return fp;
+    };
     const progressed = !baseline || !baseline.started
       || baseline.week !== candidate.week
       || baseline.phase !== candidate.phase
@@ -750,7 +760,7 @@ export class Orchestrator {
     if (!isSuperset(gsCand, gsBase, { trustEventPrefix: opts.trustEventPrefix === true })) degradation = "gameState";
     else if (!countsNonDecreasing(counts(gsCand), counts(gsBase))) degradation = `gameState.counts.${firstDropped(counts(gsCand), counts(gsBase)) ?? "?"}`;
     else {
-      const core = sessionCoreSupersetViolation(candidate, baseline);
+      const core = sessionCoreSupersetViolation(candidate, baseline, { trustPrefix: opts.trustEventPrefix === true });
       if (core !== null) degradation = `sessionCore.${core}`;
       else if (!sessionCoreCountsNonDecreasing(sessionCoreCounts(candidate), sessionCoreCounts(baseline))) {
         degradation = `sessionCore.counts.${firstDropped(sessionCoreCounts(candidate), sessionCoreCounts(baseline)) ?? "?"}`;
@@ -791,7 +801,8 @@ export class Orchestrator {
         .filter((f) => /^(told-by:|overheard:|gossip|surfaced)/.test(f.pathway))
         .map((f) => f.content);
       const sanctioned = (c: string): boolean => playerFacts.some((f) => f.includes(c));
-      if (hidden.some((c) => c && view.includes(c) && !sanctioned(c))) faults.push({ when, kind: "vault-leak" });
+      // ORW-832: one pass over the view for every hidden line at once (was one `view.includes` scan per line: hidden x view, both growing with the season); the same verdict.
+      if ((hidden.length <= 12 ? hidden.filter((c) => c && view.includes(c)) : [...patternsFoundIn(view, hidden)]).some((c) => !sanctioned(c))) faults.push({ when, kind: "vault-leak" });
     }
     return faults;
   }
@@ -811,7 +822,7 @@ export class Orchestrator {
      */
     faults?: Fault[],
   ): void {
-    const core = sandbox.session.snapshot();
+    const core = sandbox.session.healthStamp(); // ORW-832: three fields, not a deep copy of the session
     this.health.set(user, {
       user,
       started: core.started,
@@ -841,7 +852,7 @@ export class Orchestrator {
   }
 
   private freshHealth(user: string): HealthRecord {
-    const core = this.registry.sandboxFor(user).session.snapshot();
+    const core = this.registry.sandboxFor(user).session.healthStamp(); // ORW-832
     return {
       user,
       started: core.started,
@@ -862,7 +873,7 @@ export class Orchestrator {
  *  pattern): a test drives this directly with a RECORDING rng to prove the seeded draw stream the
  *  competition/vote/jury spine shares is byte-identical with a default-off feature flag on or off. */
 export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: SeededRandom, clockNow: number, interactions = 3): number {
-  const core = sandbox.session.snapshot();
+  const core = sandbox.session.snapshotLite(); // ORW-844: this step reads the house and who has left only: no full state copy per tick
   // B52/audit D5: evicted houseguests stop living — they leave the off-screen society the moment
   // they go (no more scheming/confessing weeks after eviction). Only the LIVING NPCs of the REAL
   // house, ever: the old no-house synthetic pool (audit E2) fabricated hidden scenes + Vault

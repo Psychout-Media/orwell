@@ -320,7 +320,7 @@ no off-screen scene crosses.** The dead season's *full* record stays sealed on d
 summary is the bounded recall. This keeps the Vault Wall absolute (the summary is derived *alongside* the
 sealed Vault, never *from* it) and is what the carry-over object should be — small, monotonic, open-set.
 *(If the owner wants even tighter scope, a defensible v1 floor is placement + the four reputation facets,
-deferring `legendBeats` to a fast-follow.)*
+leaving `legendBeats` for a later pass, since built.)*
 
 ### R2 — HOW it influences a new cast's day-one reads (without breaking the calibration floor or seeded fairness)
 

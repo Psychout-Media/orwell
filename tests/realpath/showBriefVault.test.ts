@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { DeepProfile, StoryThread } from "../../src/engine/deepProfile";
-import { playUntil, type Stop } from "./playedSeason";
+import { type Stop, firstStop, wfScan } from "./playedSeason";
 
 /**
  * The Show Brief is Vault-free - in a PLAYED season (ORW-812: before, sentinels were written into a snapshot and restored). The season is played by the scripted talking player
@@ -18,7 +18,7 @@ const hiddenOf = (s: Stop): string[] => {
 
 describe("the brief is Vault-free in a played season", () => {
   it("no hidden premise, trigger, secret, goal or weakness the season holds ever reaches the brief", async () => {
-    const at = await playUntil(7, (s) => (s.sess.live?.week ?? 1) >= 2 && hiddenOf(s).length > 0);
+    const at = await firstStop((s) => (s.sess.live?.week ?? 1) >= 2 && hiddenOf(s).length > 0, wfScan(7));
     const hidden = hiddenOf(at);
     expect(hidden.length, "non-vacuous: the season holds hidden material").toBeGreaterThan(10);
     const everyone = (at.sess.livingIds() as string[]).filter((id) => id !== "player");

@@ -261,7 +261,7 @@ rivalry the engine has already biased into being — the open-set narration of a
 5. **Mutual rivalry (out of scope v1).** The player reciprocating — *their* sustained targeting of the
    nemesis becoming a tracked two-way feud — is a natural sequel; v1 is the NPC→player arc only (the
    player's side stays player-knowledge, as 0085/0086 keep player drives/campaigns).
-6. **Multiple simultaneous antagonists (deferred).** v1 caps at one nemesis for legibility; a secondary
+6. **Multiple simultaneous antagonists (deferred).** v1 caps at one nemesis for legibility; a secondary (ORW-824)
    "rising rival" beneath the primary is a possible enrichment, not v1.
 
 — Tracks #881.

@@ -20,6 +20,8 @@ export interface TraceRow { i: number; ev: number; last: string; st?: string }
 
 export interface PlayOpts {
   seed: number;
+  /** ORW-852: the sandbox name. It is part of the game's identity (with the seed it keys the player-action and off-screen streams), so a real-path test pins it; default `wf-<seed>`. */
+  user?: string;
   maxMessages?: number;
   advanceEvery?: number;
   talkEvery?: number;
@@ -30,6 +32,13 @@ export interface PlayOpts {
   saveDir?: string;
   /** ORW-741: called once right after the character is created, with the live session: the flag-off runs switch a feature off here through the session's own setter (the same switch the env var sets). */
   setup?: (sess: any) => void;
+  /** ORW-813: the player's own choice on a pending decision (e.g. how they vote): return a submitDecision request, or undefined to let the script decide as usual. Read-only on the session. */
+  decide?: (pending: any, sess: any) => Record<string, unknown> | undefined;
+  /**
+   * ORW-778: play to STAY in the game (the survival script below). Off by default: the real-path tests under tests/realpath and tests/uat read states the plain script reaches (a chosen seed's moment), and a player who
+   * lasts longer plays a different season. The nightly what-fired report, the whole-season mix guard and the survival tests turn it on.
+   */
+  survive?: boolean;
   /** ORW-810: called once with the live session BEFORE the character is created: the place for a switch read at createCharacter (the premiere entrances). */
   beforeCreate?: (sess: any) => void;
   /** ORW-741: called once when the season ends (finished, capped or watched), with the live session: the place to read a post-season view, or flip a read-only feature and read it again. */
@@ -144,11 +153,13 @@ export class StallWatch {
 
 const SCENES = ["bonding", "strategy", "gossip", "conflict", "alliance"] as const;
 const DEALS = ["safety", "final-two", "vote"] as const;
+/** ORW-778: the game week from which the scripted player plays its hostile and risky moves (fights, accusations, exposing, confronting, and making deals: a houseguest may take a deal with a plan to break it, and the first scripted seasons showed a player with many deals flipped on by most of the house). Before it the player is a pleasant floater building a base. */
+export const HOSTILE_FROM_WEEK = 9;
 
 export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
   const { seed } = opts;
   const maxMessages = opts.maxMessages ?? 40000, advEvery = opts.advanceEvery ?? 6, talkEvery = opts.talkEvery ?? 2, sampleEvery = opts.sampleEvery ?? 25;
-  const user = `wf-${seed}`;
+  const user = opts.user ?? `wf-${seed}`;
   const rnd = mulberry(seed * 7919 + 13);
   // the production clock (a fixed-epoch logical play-clock) in BOTH the in-memory and the durable run, so the only difference a comparison can see is the save and the restart
   const mk = (): Runtime => composeRuntime(opts.saveDir ? { saveStore: new FileSaveStore(opts.saveDir), seed } : { seed });
@@ -222,7 +233,58 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
     if (key === lastPendingKey) { repeats++; rec.pendingRepeats[p.kind] = Math.max(rec.pendingRepeats[p.kind] ?? 0, repeats); } else { lastPendingKey = key; repeats = 0; }
     if ((p.kind as string) === "ceremony-step") { await must("advanceGame", {}, msg); return; }
     const veto = p.kind === "veto-decision" || rnd() < 0.4 ? "always-use-veto" : "never-use-veto"; // a player on the block (or holding the veto) uses it // a varied player: sometimes uses the veto
-    try { await call("submitDecision", autoResolve(p, veto)); } catch (e) { crash("submitDecision", msg, e); await must("advanceGame", {}, msg); }
+    try { await call("submitDecision", opts.decide?.(p, sess()) ?? survivalChoice(p) ?? autoResolve(p, veto)); } catch (e) { crash("submitDecision", msg, e); await must("advanceGame", {}, msg); }
+  };
+
+  /** ORW-778: the houseguests the player stands with (any alliance they are in), refreshed whenever the player reads the board. */
+  let allies = new Set<string>();
+  const joinTried = new Set<string>(); // a pitch is answered once
+  const dealtWith = new Set<string>(); // anyone the player holds a deal with: a vote against them breaks it, so the vote goes elsewhere
+  const notAllies = (opts: ReadonlyArray<{ id: string }>): string[] => { const free = opts.filter((o) => !allies.has(o.id) && !dealtWith.has(o.id)).map((o) => o.id); return free.length ? free : opts.map((o) => o.id); };
+  /**
+   * ORW-778: a player who wants to stay answers the board the way a person does: a nomination goes on someone outside the player's alliances, a vote goes against someone outside them, and a player on the block
+   * uses the veto on THEMSELF (the old script saved whoever was listed first, which was often the other nominee). Null leaves every other decision to the shared harness.
+   */
+  const survivalChoice = (p: PendingDecision): Record<string, unknown> | null => {
+    if (opts.survive !== true) return null;
+    const choices = (p.options ?? []) as Array<{ id: string }>;
+    if (p.kind === "veto-decision" && choices.some((o) => o.id === "player")) return { kind: "veto-decision", use: true, save: "player" };
+    if (p.kind === "nominations" && choices.length >= 2) { const pick = notAllies(choices).slice(0, 2); if (pick.length === 2) return { kind: "nominations", choice: pick }; }
+    if ((p.kind === "eviction-vote" || p.kind === "tie-break") && choices.length >= 1) return { kind: p.kind, vote: notAllies(choices)[0] };
+    if (p.kind === "replacement" && choices.length >= 1) return { kind: "replacement", replacement: notAllies(choices)[0] };
+    return null;
+  };
+  /**
+   * ORW-778: the play-to-stay moves, all through the player channel a person has: take the offers made to them (a deal, an alliance pitch), make the case to the sitting HOH in the short window before nominations
+   * (a private word, a strategy talk, a safety deal), and when on the block lobby the veto holder, then the HOH, then the voters (a vote deal, a favour called in). Returns true when it used the turn.
+   */
+  const survive = async (t: number, present: readonly string[]): Promise<boolean> => {
+    const st = await read("gameStatus", {});
+    if (!st) return false;
+    const mine = new Set<string>();
+    for (const a of (st.alliances ?? []) as Array<{ members?: Array<{ id: string }> }>) for (const m of a.members ?? []) if (m.id !== "player") mine.add(m.id);
+    allies = mine;
+    if (st.openDealOffer) await social("submitDecision", { kind: "deal-offer", vote: "accept" });
+    for (const a of (st.alliancePitches ?? []) as Array<{ id: string }>) if (!joinTried.has(a.id)) { joinTried.add(a.id); await social("joinAlliance", { allianceId: a.id }); break; }
+    const hoh: string | undefined = st.hoh?.id, noms: string[] = (st.nominees ?? []).map((n: { id: string }) => n.id), vetoHolder: string | undefined = st.veto?.holder?.id ?? (typeof st.veto?.holder === "string" ? st.veto.holder : undefined);
+    const lobby = async (npcId: string, deal: (typeof DEALS)[number] | null): Promise<void> => {
+      if (!present.includes(npcId)) await social("askToTalkAlone", { npcId });
+      await social("recordInteraction", { initiator: "player", witnessSet: ["player", npcId], content: "I make my case for staying and ask what they need from me", kind: "strategy" });
+      if (deal && week >= HOSTILE_FROM_WEEK) { const d = await social("makeDeal", { with: npcId, kind: deal, terms: "keep me off the block" }); if (d && !d.refused) dealtWith.add(npcId); }
+    };
+    if (hoh && hoh !== "player" && noms.length === 0) { await lobby(hoh, t % 3 === 0 ? "safety" : null); return true; } // the window before nominations is short: every talk goes to the HOH
+    if (noms.includes("player")) {
+      const voters = present.filter((id) => id !== "player" && !noms.includes(id) && id !== hoh);
+      const target = t % 4 === 0 && vetoHolder && vetoHolder !== "player" ? vetoHolder : t % 4 === 1 && hoh && hoh !== "player" ? hoh : voters[t % Math.max(1, voters.length)];
+      if (!target) return false;
+      await lobby(target, "vote");
+      if (t % 3 === 2) await social("callInFavor", { npcId: target });
+      return true;
+    }
+    // off the block but not safe: the veto holder may name a replacement and the HOH decides who is next, so every other talk keeps the sitting power on side
+    const power = [vetoHolder, hoh].filter((id): id is string => !!id && id !== "player" && !noms.includes(id));
+    if (hoh !== "player" && power.length && t % 2 === 0) { await lobby(power[(t >> 1) % power.length]!, t % 6 === 0 ? "safety" : null); return true; }
+    return false;
   };
 
   const talk = async (t: number): Promise<void> => {
@@ -232,21 +294,24 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
     const inits = (await read("socialInitiatives", {})) as Array<{ houseguest: { id: string }; motive: string }> | null;
     if (inits?.length) { const a = inits[0]!; await social("recordInteraction", { initiator: a.houseguest.id, witnessSet: ["player", a.houseguest.id], content: a.motive === "bond" ? "they came over to talk and we got along" : "they came over to feel me out and I gave little away", kind: a.motive === "bond" ? "bonding" : "strategy" }); }
     if (present.length === 0) { await social("hangOut", { maxBeats: 2 }); return; }
+    if (opts.survive === true && await survive(t, present)) return;
     const npc = present[t % present.length]!, other = present[(t + 1) % present.length]!;
+    // ORW-778: the hostile moves (a fight, an accusation, a secret used against someone, a confrontation) make enemies and raise the player's threat, so a player who means to last keeps them for the late game
+    const hostile = opts.survive !== true || week >= HOSTILE_FROM_WEEK;
     switch (t % 16) {
       case 0: case 5: case 9: case 13: await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we talk about home and laugh for a while", kind: SCENES[t % SCENES.length] }); break;
-      case 1: await social("makeDeal", { with: npc, kind: DEALS[(t >> 4) % DEALS.length], terms: "let's look after each other" }); break;
+      case 1: if (!hostile) await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we get to know each other over a long talk", kind: "bonding" }); else { const d = await social("makeDeal", { with: npc, kind: DEALS[(t >> 4) % DEALS.length], terms: "let's look after each other" }); if (d && !d.refused) dealtWith.add(npc); } break;
       case 2: await social("confide", { npcId: npc }); break;
       case 3: await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "I tell them they are safe with me this week", kind: "alliance", assurance: { kind: "safe" } }); break;
       case 4: await social("recordInteraction", { initiator: npc, witnessSet: ["player", npc], content: "they tell me I am safe with them this week", kind: "alliance", assurance: { kind: "vote" } }); break;
       case 6: if (present.length >= 2) { const r = await social("formAlliance", { name: `Alliance ${t}`, members: [npc, other] }); allianceId = r?.id ?? r?.allianceId ?? allianceId; } break;
       case 7: if (allianceId) await social("joinAlliance", { allianceId }); break;
-      case 8: if (t % 64 === 8) await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we argue about the last vote", kind: "conflict" }); else await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we plan the week together", kind: "strategy" }); break;
-      case 10: if (present.length >= 2 && t % 48 === 10) await social("accuseTie", { aId: npc, bId: other }); break;
+      case 8: if (hostile && t % 64 === 8) await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we argue about the last vote", kind: "conflict" }); else await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we plan the week together", kind: "strategy" }); break;
+      case 10: if (hostile && present.length >= 2 && t % 48 === 10) await social("accuseTie", { aId: npc, bId: other }); break;
       case 11: await social("callInFavor", { npcId: npc }); break;
       case 12: await social("diaryRoom", { entry: "I think I am in a decent spot this week." }); break;
-      case 14: { const f = factIds[t % Math.max(1, factIds.length)]; if (f) await social("tradeSecret", { toNpcId: npc, factId: f }); else await social("tradeSecret", { toNpcId: npc, bluff: true, subject: other }); break; }
-      default: { const f = factIds[0]; if (f) await social(t % 32 === 15 ? "confront" : "exposeSecret", t % 32 === 15 ? { npcId: npc, factId: f } : { factId: f }); else await social("moveTo", { room: "kitchen" }); }
+      case 14: { const f = factIds[t % Math.max(1, factIds.length)]; if (!hostile) await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we trade stories and laugh", kind: "bonding" }); else if (f) await social("tradeSecret", { toNpcId: npc, factId: f }); else await social("tradeSecret", { toNpcId: npc, bluff: true, subject: other }); break; }
+      default: { const f = factIds[0]; if (!hostile) await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we sit together and talk about the week", kind: "bonding" }); else if (f) await social(t % 32 === 15 ? "confront" : "exposeSecret", t % 32 === 15 ? { npcId: npc, factId: f } : { factId: f }); else await social("moveTo", { room: "kitchen" }); }
     }
   };
 

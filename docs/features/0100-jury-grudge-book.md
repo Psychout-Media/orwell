@@ -309,7 +309,7 @@ sycophancy, and without flattening the open set.
 3. **Does the finale "mend" appeal reach a jury-house-hardened grudge?** v1: the finale appeal stays
    exactly as bounded as today (0037) — a strong "mend" can still tip a *close* juror, but a jury house
    that hardened a *lead* is (correctly) hard to undo. A louder "the room turned on you in there" beat
-   at the finale is a possible enrichment (deferred).
+   at the finale is a possible enrichment (deferred). (ORW-824)
 4. **Player-as-juror (0037/0046).** When the **player** is on the jury, they are in the jury house too
    — but the engine never models the player's *own* grudge (the player forms their own read, ADR 0003 /
    0086 ruling #3). v1: the player-juror still casts their **own** vote (0037); the jury house computes
@@ -318,7 +318,7 @@ sycophancy, and without flattening the open set.
 5. **Show the grudge book at 0048 unsealing?** The retrospective is the sanctioned place to reveal,
    post-game, *who soured and why* (secret ballots are unsealed there anyway). v1 scopes 0100 to the
    hidden mechanic + behavior-only finale surfacing; an 0048 "jury-house grudge book" view is a natural
-   sequel (deferred).
+   sequel (deferred). (ORW-824)
 6. **Pre-jury evictees.** The first five evictees are pre-jury (0014 §3) and do not vote — they are
    **not** in the jury house and get no grudge society (no vote to color). Confirmed by the existing
    `slice(-9)` jury definition; no change.

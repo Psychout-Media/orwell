@@ -1,4 +1,4 @@
-# spec-only: this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
+# spec-only: gated by frontend/tests/test_app_admin.py; this .feature is a design contract, NOT wired into the BDD gate (absent from cucumber.cjs paths; no step definitions). Its behavior is verified elsewhere — see the per-feature status index in docs/features/README.md. (TEST-3, #628)
 # Executable spec — IMPLEMENTED; these are acceptance criteria VALIDATED BY FRONTEND PYTEST
 # (frontend/tests/), not the unit/BDD harness — never added to cucumber.cjs (like 0010/0032).
 # Feature 0029 — App administrator role & user management. App/account tier (NOT the game's God Mode).

@@ -23,7 +23,7 @@ is enforced **in code** (the finished-season state), exactly like the rest of th
 ## 2. What exists today (the gap this closes)
 
 - **No finished-season state.** The loop crowns a winner but there's no explicit **terminal** state or a
-  clean "start a new season" path (0021 deferred the archive lifecycle).
+  clean "start a new season" path (0021 left the archive lifecycle out of scope).
 - **The hidden story dies with the season.** Off-screen scheming (0038), NPC confessionals (0040), and any
   reserve twist that never fired (0025) are Vault-only and **never surfaced** — even after the game ends.
 - **No recap.** There is no end-of-season summary of the player's arc built from the **event record** (the

@@ -64,7 +64,7 @@ so long games degrade in *cost*, not *memory*.
   window**) **before** `context_compactor` runs — opt-in behind a setting (default lean) so the seeded
   spine and the bill are both unchanged unless turned on.
 
-**Out (clean follow-ups):**
+**Out (Phase 2: ORW-822):**
 - Per-game **hard** budget caps / a soft-stop that *interrupts* a game — Phase-2. *(The admin-only soft
   **alert** is in scope — slice A.)*
 - **Unconditional** provider pinning for every call — out; the **tiered** routing (stickiness everywhere
@@ -202,7 +202,7 @@ flag:     token tiering (D) opt-in (default lean ⇒ byte-identical); meter (A) 
 
 - **Build order A→D.** A is independent, zero-behavior-change, and unblocks tuning B/C/D against real
   numbers — ship it first and observe a few real games before sizing the rest.
-- **Slice A is the "watch the context window" ask** — it's worth shipping alone even if B–D are deferred.
+- **Slice A is the "watch the context window" ask** — it's worth shipping alone even without B–D.
 - **Keep the Thinking accordion fed.** Narration must keep emitting a (lighter) reasoning trace; B dials
   effort to **medium**, never off, for the `narration` class (the FE renders it via `roundReasoningText`).
 - **Admin-editable reasoning (owner req. 2026-06-21).** The per-class reasoning budget lands as an admin

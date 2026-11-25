@@ -266,7 +266,7 @@ owner deviation needed — recorded here for traceability:
 2. **Seed rate + per-season cap.** The per-tick legend seed probability and the season cap (start: a cap in
    the spirit of `THREAD.maxSurfacedPerSeason` / 0059's "≤2" sparseness, so folklore stays scarce and
    legible). Tune felt, never deterministic.
-3. **Should a legend ever move NPC→player reads? (deferred — v1: no.)** Whether a *spreading legend* should
+3. **Should a legend ever move NPC→player reads? (deferred — v1: no.)** Whether a *spreading legend* should (ORW-824)
    raise the house's threat/affinity read of the player (the way NPC↔NPC rumors fold `GOSSIP_HEARD` toward
    their subjects). v1 keeps it **belief-only** (no fold ⇒ calibration byte-identical, and it never lets the
    engine turn the cast on the player over a rumor it minted). If ever added: a small, confidence-scaled,

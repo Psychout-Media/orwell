@@ -199,7 +199,7 @@ Three independent, low-risk fixes to the FE↔engine sync spine (audit A-S5 / A-
   non-fenced per-user localStorage keying site migrated onto it and null-guarded: `orwellGadget`,
   `orwellGadgetRail`, `orwellNotice`, `orwellChatHint`, `orwellPremiereTutorial`, `orwellSlots`
   (also fixes a latent module-load stale-`_user` cache), `orwellStatusPanel`. Per-tab `sessionStorage`
-  (send-outbox, composer draft) is out of scope by ADR 0008/0012. Fenced files left as follow-ups:
+  (send-outbox, composer draft) is out of scope by ADR 0008/0012. Fenced files left as follow-ups: (ORW-885)
   `orwellWindow.js` (3 sites: `orwell-win-parked:`, `orwell-*-docked:`, `orwell-slot-offset:` removal)
   and `orwellCastPin.js` (`orwell-cast-pinned:`). *Verify:* `frontend/tests/test_r5_user_storage_guard.py`
   (structural + a Node proof that an absent `data-user` writes NO shared-namespace key).
@@ -227,7 +227,7 @@ Contained, independent, mostly one-file (full list + evidence in `AUDIT-LOG.md`)
 (2026-07-12, FE-safe-subset delegate):** the non-fenced FE subset was executed; the fenced/engine-
 adjacent items are handed off. **2nd pass (2026-07-12, safe-remainder delegate):** the cast fast-poll
 gate was confirmed + PINNED (`test_1418_r7_poll_gating.py`), the broad poller-coalescing recorded as
-superseded by WS-default-on + g15, and F-S1-I/J/S4-A/S1-K re-verified as gated/resolved/deferred with
+superseded by WS-default-on + g15, and F-S1-I/J/S4-A/S1-K re-verified as gated/resolved/deferred with (ORW-885)
 no product change. Status per sub-item below.
 
 - ✅ **F-S1-H — DONE (#1418).** `theme.js`'s two cross-device prefs fetches (`GET /api/prefs/theme`,
@@ -262,7 +262,7 @@ no product change. Status per sub-item below.
   with the box unmounted each tick is an inert DOM read (no network). The new source-pinned gate
   **`frontend/tests/test_1418_r7_poll_gating.py`** (5 tests) locks both so a regression that lifts the
   fast cadence out of its mount/pre-game guard fails loudly. The 20s gate poll is fixed-cadence, not fast.
-  **BROAD COALESCING DEFERRED — and now largely SUPERSEDED, not merely churny.** With **WS transport
+  **BROAD COALESCING DEFERRED — and now largely SUPERSEDED, not merely churny.** With **WS transport (ORW-885)
   default-ON (#1357)** every `/state` poller cancels its periodic TIMER on `orwell:ws-active` and refreshes
   from the server `state`/`hud` push, and off-WS the **g15 `orwell:gamechanged`** seam (one debounced
   dispatcher, `platform.js`) drives an immediate refresh on every mutation — so on the real deploy the
@@ -279,7 +279,7 @@ no product change. Status per sub-item below.
   `min-height: 24px`, a visible `<label>` + custom checkbox) — the username field now has only its
   `<label>` and no overlaying glyph. Confirmed: no residual unlabelled dot near the username/header to
   label. No change.
-- ⏸️ **F-S1-I — DEFERRED, gating RE-VERIFIED (#1418; 2nd pass 2026-07-12).** Stripping the
+- ⏸️ **F-S1-I — DEFERRED, gating RE-VERIFIED (#1418; 2nd pass 2026-07-12).** Stripping the (ORW-885)
   inherited-workspace DOM from the template is the **deep code-level prune that `game-trim.css`
   explicitly defers** ("a deeper code-level prune is a separate pass, to be verified against a running
   instance"). The *visible* workspace surface is **already game-build-gated, not merely dormant**:
@@ -300,7 +300,7 @@ no product change. Status per sub-item below.
   picker is `display:none` by design). **Verified (headless before→after, origin/main vs branch): desktop
   picker height 21px → 24px; touch 44px; composer textarea + send x/y/w unchanged (≤1px).** FE non-browser
   suite 5048 passed; `browser_smoke` EXIT 0.
-- ⏸️ **F-S1-K — DEFERRED / FLAG (#1418).** The two homes are both off-limits or risky: `LEAK_RE` lives in
+- ⏸️ **F-S1-K — DEFERRED / FLAG (#1418).** The two homes are both off-limits or risky: `LEAK_RE` lives in (ORW-885)
   the **fenced `scripts/browser_smoke.py`**, and the ancestor-descendant overlap classifier
   (`frontend/src/visual_geometry.py`) is now a **CI-gated harness** for 0113/0114
   (`visual_regression.py` / `theme_consistency.py`, with pinned `test_0113_*`/`test_0114_*`) — the

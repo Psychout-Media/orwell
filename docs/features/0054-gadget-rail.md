@@ -5,7 +5,7 @@ status / "wants a word" / "where you are" gadgets now mount into `#gadget-rail-b
 fallback preserved), with a collapse→icon-strip toggle, a **side-swap** toggle (flex `order`),
 a **mobile slide-over drawer** (768px token) with a floating opener, game-build + game-active
 gating, and persisted collapse/side state (`orwellGadgetRail.js`). Browser-verified desktop +
-mobile. **Deferred to Phase 2:** docking the finale / cast / retrospective windows INTO the rail
+mobile. **Phase 2 (built since; see the index row):** docking the finale / cast / retrospective windows INTO the rail
 (they still float via the Lane-F kit), and per-gadget icons in the collapsed strip.
 **Owner ruling:** product owner, 2026-06-18 (described twice in session). Built as its own
 low-blast-radius PR.

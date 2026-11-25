@@ -7,7 +7,7 @@ import { bootPlayed, playNight, nightRows, outcomeFingerprint } from "../support
  * evictees and HOHs with the compression on or off (the clock never touches an outcome); a save mid-night resumes identically; the narrator is told the night's shape.
  */
 type Any = Record<string, any>;
-const SEEDS = [5, 11]; // played to the end by the player
+const SEEDS = [5, 7]; // played to the end by the player (seed 11 became a spectator seed when ORW-868 gave the unauthored player the cast-mean stats)
 const SPECTATOR_SEED = 23; // the player is voted out in the first eviction and watches the night
 
 describe("ORW-652 the double eviction is one long night", () => {
@@ -55,7 +55,7 @@ describe("ORW-652 the double eviction is one long night", () => {
   });
 
   it("a save taken mid-night resumes identically and keeps the long-night marker", () => {
-    const seed = 11;
+    const seed = 7; // ORW-868: was 11, which became a spectator seed with the cast-mean player stats
     const whole = playNight(bootPlayed(seed, true));
     const s = bootPlayed(seed, true);
     const mid = playNight(s, (row) => row.twist === "running" && row.beat === "veto-competition");
@@ -73,7 +73,7 @@ describe("ORW-652 the double eviction is one long night", () => {
   });
 
   it("nobody turns in during the night, and the narrator is handed its shape from public facts", () => {
-    const s = bootPlayed(11, true);
+    const s = bootPlayed(7, true);
     const r = playNight(s, (row) => row.twist === "running" && row.beat === "nominations");
     expect(r.fired).toBe(false);
     const held = s.turnIn();
@@ -87,10 +87,10 @@ describe("ORW-652 the double eviction is one long night", () => {
   });
 
   it("the line is absent outside the night and with the flag off", () => {
-    const off = bootPlayed(11, false);
+    const off = bootPlayed(7, false);
     playNight(off, (row) => row.twist === "running" && row.beat === "nominations");
     expect(off.getMomentPrompt({}).systemPrompt).not.toContain("LONG NIGHT");
-    const on = bootPlayed(11, true);
+    const on = bootPlayed(7, true);
     expect(on.getMomentPrompt({}).systemPrompt).not.toContain("LONG NIGHT");
   });
 

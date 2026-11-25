@@ -34,12 +34,12 @@ describe("A1: a line that says work is left names its card", () => {
   it("fails an uncarded doc line, accepts it once listed in the baseline, and fails a baseline entry that is gone", () => {
     const doc = { "docs/features/0001-one.md": "# One\nThe pop-up is not built.\n" };
     expect(check(tree(doc)).errors.join("\n")).toMatch(/A1 docs\/features\/0001-one.md:2/);
-    expect(check(tree(doc, { a1: ["0001-one.md::The pop-up is not built."], a2: [] })).errors).toEqual([]);
-    expect(check(tree({}, { a1: ["0001-one.md::The pop-up is not built."], a2: [] })).errors.join("\n")).toMatch(/no longer in the docs/);
+    expect(check(tree(doc, { a1: ["docs/features/0001-one.md::The pop-up is not built."], a2: [] })).errors).toEqual([]);
+    expect(check(tree({}, { a1: ["docs/features/0001-one.md::The pop-up is not built."], a2: [] })).errors.join("\n")).toMatch(/no longer in the docs/);
   });
   it("the baseline only shrinks: an entry the base commit did not have fails, a removed one is fine", () => {
     const doc = { "docs/features/0001-one.md": "# One\nThe pop-up is not built.\n" };
-    const listed = { a1: ["0001-one.md::The pop-up is not built."], a2: [] };
+    const listed = { a1: ["docs/features/0001-one.md::The pop-up is not built."], a2: [] };
     expect(check(tree(doc, listed), { baseBaseline: { a1: [], a2: [] } }).errors.join("\n")).toMatch(/gained an entry/);
     expect(check(tree(doc, listed), { baseBaseline: listed }).errors).toEqual([]);
     expect(check(tree({}), { baseBaseline: listed }).errors).toEqual([]);
@@ -50,6 +50,20 @@ describe("A1: a line that says work is left names its card", () => {
     expect(errs).toHaveLength(1);
     expect(errs[0]).toMatch(/PR body line 7/);
   });
+  it("ORW-878: reads every doc under docs/, not only the feature specs, except the dated records it exempts", () => {
+    const files = { "docs/README.md": "# Docs\nThe export is not built yet.\n" };
+    const root = tree(files);
+    mkdirSync(join(root, "docs", "audits"), { recursive: true });
+    writeFileSync(join(root, "docs", "audits", "2026-01-01-audit.md"), "# Audit\nThe export was not built on this date.\n");
+    const errs = check(root).errors.join("\n");
+    expect(errs).toMatch(/A1 docs\/README.md:2/);
+    expect(errs).not.toMatch(/audits/);
+  });
+  it("ORW-878: 'deferred' as a technical adjective is not a left-over; as a status it is", () => {
+    const f = uncardedLines as (t: string) => Array<{ line: number }>;
+    expect(f("the deferred fold lands late\na deferred-retry queue absorbs it\nits deferred listener fires\n")).toEqual([]);
+    expect(f("The mobile sheet is deferred.\n(deferred)\nBROAD COALESCING DEFERRED\ndeferred to the next lane\n").map((x) => x.line)).toEqual([1, 2, 3, 4]);
+  });
   it("checks the PR body too", () => {
     expect(check(tree({}), { prBody: "Done.\nThe FE half is a follow-up.\n" }).errors.join("\n")).toMatch(/PR body line 2/);
     expect(check(tree({}), { prBody: "The FE half is a follow-up (ORW-77).\n" }).errors).toEqual([]);
@@ -59,7 +73,8 @@ describe("A1: a line that says work is left names its card", () => {
 describe("A2: a spec-only feature says why it does not run", () => {
   const spec = (marker: string) => ({ "docs/features/0001-one.feature": `${marker}\nFeature: one\n` });
   it("reads the cards and the superseding files off a marker", () => {
-    expect(markerReason("# spec-only: waits on ORW-5 and ORW-6")).toEqual({ cards: ["ORW-5", "ORW-6"], supersededBy: [] });
+    expect(markerReason("# spec-only: waits on ORW-5 and ORW-6")).toEqual({ cards: ["ORW-5", "ORW-6"], supersededBy: [], gatedBy: [] });
+    expect(markerReason("# spec-only: gated by frontend/tests/test_x.py; verified outside cucumber").gatedBy).toEqual(["frontend/tests/test_x.py"]);
     expect(markerReason("# spec-only: umbrella; superseded by 0001-a.feature, 0001-b.feature").supersededBy).toEqual(["0001-a.feature", "0001-b.feature"]);
   });
   it("fails a marker whose card is Done, passes one whose card is open, and warns on a card missing from the snapshot", () => {
@@ -75,8 +90,14 @@ describe("A2: a spec-only feature says why it does not run", () => {
     expect(check(tree(files), { wired: new Set() }).errors.join("\n")).toMatch(/not wired/);
     expect(check(tree(spec("# spec-only: superseded by 0001-gone.feature"))).errors.join("\n")).toMatch(/does not exist/);
   });
+  it("a built feature verified outside Cucumber names its gate, and the gate must exist", () => {
+    const files = { "docs/features/0001-one.feature": "# spec-only: gated by tests/unit/one.test.ts; verified outside cucumber\nFeature: one\n" };
+    expect(check(tree(files)).errors.join("\n")).toMatch(/gated by tests\/unit\/one.test.ts, which does not exist/);
+    const root = tree(files); mkdirSync(join(root, "tests", "unit"), { recursive: true }); writeFileSync(join(root, "tests", "unit", "one.test.ts"), "");
+    expect(check(root).errors).toEqual([]);
+  });
   it("a marker that says neither fails unless it is in the baseline", () => {
-    expect(check(tree(spec("# spec-only: later"))).errors.join("\n")).toMatch(/says neither/);
+    expect(check(tree(spec("# spec-only: later"))).errors.join("\n")).toMatch(/says none of/);
     expect(check(tree(spec("# spec-only: later"), { a1: [], a2: ["0001-one.feature"] })).errors).toEqual([]);
   });
 });

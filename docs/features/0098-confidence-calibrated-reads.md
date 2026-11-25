@@ -344,7 +344,7 @@ calls, not implementer calls:
   **player-authored strategic moves** keyed to a belief (noms/votes the player drives — the seeded part
   only, never the direction or legality); **(c)** anything broader. **Ruling needed:** v1 = **(a) only**,
   **(a)+(b)**, or wider? *(Recommendation: ship **(a)** first — smallest calibration surface, clearest
-  player intent — and gate **(b)** behind the same flag as a fast-follow once the heavy sims confirm
+  player intent — and gate **(b)** behind the same flag as a fast-follow once the heavy sims confirm (ORW-823)
   the mean holds.)*
 
 - **R4 — The load-bearing calibration guarantee (this one touches calibration — flag it).** The whole
@@ -373,7 +373,7 @@ calls, not implementer calls:
    it can corroborate.
 4. **The 0044 strategic-decision band (R3-(b)).** Exactly which seeded sub-terms of a player-authored
    strategic decision the band applies to (the outcome jitter only, never the direction/legality) —
-   deferred to the build behind the flag, pending R3.
+   deferred to the build behind the flag, pending R3. (ORW-823)
 5. **Player-confidence visibility (firmly out of scope).** Ever showing the player a conviction cue
    (even a vague "you're not sure about this") is **out of scope and likely a Vault/anti-sycophancy
    violation** — the certainty is the human's to feel. Listed only to mark it explicitly closed.

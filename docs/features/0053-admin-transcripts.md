@@ -88,7 +88,7 @@ and this feature touches neither).
 ## 6. Definition of Done
 
 Every behavior above proven by frontend pytest; no engine change; no player-visible surface;
-read-only verified; the README index row flipped from "Specced — not built" to Done.
+read-only verified; the README index row flipped from spec-only to Done.
 
 ## 7. As built (2026-06-11)
 

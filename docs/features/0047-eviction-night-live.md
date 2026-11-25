@@ -6,7 +6,7 @@
 > via a `EvictionProgress` sub-state machine, an **evictee goodbye** beat, and **goodbye messages** from a
 > seeded selection of houseguests — recorded as events whose **relationship-derived tone** folds into the
 > evictee's **manner** (0037 §4.2) and thus their **jury lean** (0014). The reveal order is engine-decided +
-> seeded; the week-roll is deferred past the goodbyes; the `EvictionView` projection on `AdvanceView` is
+> seeded; the week-roll waits until after the goodbyes; the `EvictionView` projection on `AdvanceView` is
 > Vault-free (names + the votes read so far only). Adds **no new pending decision kind** (the player's
 > eviction vote / tie-break are unchanged) — so no front-end relay mirror is needed.
 > **Executable spec:** [`0047-eviction-night-live.feature`](./0047-eviction-night-live.feature)
@@ -134,5 +134,5 @@ banner does. Design, in the smallest-correct form:
   progress or readiness message, so it cannot advance the ceremony (ORW-297's typed `next` still advances exactly one step and gets its narration as before). A press made while a beat is
   still streaming sends no second cue (the banner still shows every press).
 - Gates: `tests/unit/orw771VoteBeat.test.ts` (the fact on every ballot press, the tally press, E12 shape, flag off, no extra clock), `frontend/tests/test_orw771_vote_beat_cue.py`,
-  and `test_orw771_vote_beat_card_browser.py`. Not built: a real-stack test (real engine, real chat turn, second window) of a Continue press for a player on the block; the walk found no season
-  that puts the player on the block in week 1 (150 seeds), so it is a follow-up card. A player who votes has no Continue card after their own vote card (the ballots then run on their next message), a gap noted, not changed.
+  and `test_orw771_vote_beat_card_browser.py`. Open (ORW-816): a real-stack test (real engine, real chat turn, second window) of a Continue press for a player on the block; the walk found no season
+  that puts the player on the block in week 1 (150 seeds), so it is carded as ORW-816. A player who votes has no Continue card after their own vote card (the ballots then run on their next message), also ORW-816.

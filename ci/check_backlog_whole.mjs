@@ -2,11 +2,11 @@
 // ORW-758: keep the backlog whole. Ryne (2026-11-20): "if the backlog has holes, then the code that it's built off of also has holes."
 // A rule alone did not hold (15 Done cards broke "Done means acceptance met"), so these run by themselves in CI (the `backlog-whole` job, every PR, docs-only included):
 //
-//   A1  a feature doc line (docs/features/NNNN-*.md) or a PR body line that says work is left ("not built", "not done", "deferred", "follow-up", "later slice", ...)
+//   A1  a docs line (docs/**/*.md, but not the records in A1_EXEMPT; ORW-878) or a PR body line that says work is left ("not built", "not done", "deferred", "follow-up", "later slice", ...)
 //       must name its ORW card. The lines that existed when this landed are listed in ci/backlog_baseline.json (shrink-only: a listed line that is gone must be
 //       removed from the list, so the list can only get shorter; the sweep is ORW-805).
 //   A2  a `# spec-only:` feature must say why it does not run: it names the ORW card it waits on (and that card is not Done in ci/board_snapshot.json), or it says
-//       "superseded by <file>.feature" naming wired feature files that exist. The cardless ones that existed when this landed are in the baseline too.
+//       "superseded by <file>.feature" naming wired feature files that exist, or it is built and says "gated by <test path>" naming the test that verifies it. The cardless ones that existed when this landed are in the baseline too.
 //       (Every .feature is wired or marked: tests/unit/featureShelfDrift.test.ts; cucumber.cjs discovers the wired set.)
 //   A3  every spec doc (docs/features/NNNN-*.md) has a row in docs/features/README.md, and every row's link points at a file that exists.
 //
@@ -22,8 +22,19 @@ export const LEFT_RE = /\b(not (?:yet )?built|not (?:yet )?done|deferred|follow[
 export const CARD_RE = /\bORW-\d+\b/;
 const MARKER = "# spec-only:";
 const SUPERSEDED_RE = /superseded by\s+(.+)$/i;
+const GATED_RE = /gated by\s+([\w./-]+)/gi;
 
 export const norm = (line) => line.trim().replace(/\s+/g, " ");
+
+/**
+ * ORW-878: "deferred" is also a plain technical word ("the deferred fold", "a deferred-retry queue", "its deferred listener"). Only its STATUS use says work is left
+ * ("is deferred", "(deferred)", "DEFERRED", "deferred to ..."), so the adjective use after an article or a possessive, and a hyphenated compound, are read past.
+ */
+export function statusText(line) {
+  return line
+    .replace(/\b(?:the|a|an|its|their|this|that|existing|any|each|one|every)\s+(?:\*+)?deferred(?:\*+)?(?=[\s-]+[a-z])/gi, " ")
+    .replace(/\bdeferred-(?=[a-z])/gi, " ");
+}
 
 /** A1: the lines in `text` that say work is left and name no card. */
 export function uncardedLines(text) {
@@ -32,7 +43,7 @@ export function uncardedLines(text) {
   text.split("\n").forEach((line, i) => {
     if (/^\s*```/.test(line)) { fence = !fence; return; }
     if (fence) return;
-    if (LEFT_RE.test(line) && !CARD_RE.test(line)) out.push({ line: i + 1, text: norm(line) });
+    if (LEFT_RE.test(statusText(line)) && !CARD_RE.test(line)) out.push({ line: i + 1, text: norm(line) });
   });
   return out;
 }
@@ -57,12 +68,36 @@ function walk(dir, pred, prefix = dir) {
 
 const isSpecDoc = (name) => /^\d{4}[a-z]?-.+\.md$/.test(name);
 
+/**
+ * ORW-878: the docs A1 does NOT read, each with why. They are records of a moment (a line in them says what was left THEN, not what is open now), or they are judged
+ * elsewhere. Everything else under docs/ is read: a design note, an ADR, a roadmap or a guide that says work is left must name its card.
+ */
+export const A1_EXEMPT = [
+  { path: "docs/audits/", why: "dated audit records: each describes the code on its date" },
+  { path: "docs/legacy/", why: "the legacy chat-prompt game, reference only" },
+  { path: "docs/IMPLEMENTATION_QUEUE.md", why: "the historical work queue (every batch shipped); open work is on the board" },
+  { path: "docs/decisions/PO-DECISIONS-LOG.md", why: "a dated log of rulings, appended in order" },
+];
+
+/** A1 reads every markdown file under docs/ that is not exempt; inside docs/features only the numbered spec docs (the index is A2/A3's, the review ledger is a dated record). */
+function a1Docs(root) {
+  const docs = join(root, "docs");
+  if (!existsSync(docs)) return [];
+  return walk(docs, (n) => n.endsWith(".md")).filter((f) => {
+    const r = f.slice(root.length + 1);
+    if (A1_EXEMPT.some((e) => (e.path.endsWith("/") ? r.startsWith(e.path) : r === e.path))) return false;
+    if (r.startsWith("docs/features/")) return isSpecDoc(basename(f));
+    return true;
+  });
+}
+
 /** A2: what a spec-only marker says, if anything. */
 export function markerReason(marker) {
   const cards = [...marker.matchAll(/\bORW-(\d+)\b/g)].map((m) => `ORW-${m[1]}`);
   const sup = marker.match(SUPERSEDED_RE);
   const supersededBy = sup ? [...sup[1].matchAll(/([\w./-]+\.feature)/g)].map((m) => m[1]) : [];
-  return { cards, supersededBy };
+  const gatedBy = [...marker.matchAll(GATED_RE)].map((m) => m[1].replace(/[.;,]+$/, ""));
+  return { cards, supersededBy, gatedBy };
 }
 
 /**
@@ -84,12 +119,12 @@ export function checkRepo(root, { prBody, wired, baseBaseline } = {}) {
   const featDir = join(root, "docs", "features");
   const rel = (p) => p.slice(root.length + 1);
 
-  // A1, docs.
+  // A1, docs: every docs/**/*.md (ORW-878 widened it from the numbered feature docs), except the records listed in A1_EXEMPT.
   const a1Base = new Set(baseline.a1 ?? []);
   const a1Seen = new Set();
-  for (const f of walk(featDir, isSpecDoc)) {
+  for (const f of a1Docs(root)) {
     for (const u of uncardedLines(readFileSync(f, "utf8"))) {
-      const key = `${basename(f)}::${u.text}`;
+      const key = `${rel(f)}::${u.text}`;
       if (a1Base.has(key)) { a1Seen.add(key); continue; }
       errors.push(`A1 ${rel(f)}:${u.line}: says work is left but names no ORW card (add the card number, or card it first): ${u.text.slice(0, 160)}`);
     }
@@ -108,7 +143,12 @@ export function checkRepo(root, { prBody, wired, baseBaseline } = {}) {
     const marker = readFileSync(f, "utf8").split("\n").slice(0, 3).find((l) => l.startsWith(MARKER));
     if (!marker) continue;
     const name = basename(f);
-    const { cards, supersededBy } = markerReason(marker);
+    const { cards, supersededBy, gatedBy } = markerReason(marker);
+    if (gatedBy.length) {
+      // Built and verified outside Cucumber: the marker names the gate, and the gate must exist (a bare "verified elsewhere" is not enough).
+      for (const g of gatedBy) if (!existsSync(join(root, g))) errors.push(`A2 ${rel(f)}: says gated by ${g}, which does not exist`);
+      continue;
+    }
     if (supersededBy.length) {
       for (const s of supersededBy) {
         const target = s.includes("/") ? join(root, s) : join(featDir, s);
@@ -127,7 +167,7 @@ export function checkRepo(root, { prBody, wired, baseBaseline } = {}) {
       continue;
     }
     if (a2Base.has(name)) { a2Seen.add(name); continue; }
-    errors.push(`A2 ${rel(f)}: spec-only but says neither the ORW card it waits on nor "superseded by <file>.feature"`);
+    errors.push(`A2 ${rel(f)}: spec-only but says none of: the ORW card it waits on, "superseded by <file>.feature", or "gated by <test path>"`);
   }
   for (const k of a2Base) if (!a2Seen.has(k)) errors.push(`A2 ci/backlog_baseline.json: ${k} no longer needs listing (it now names a card, is superseded, is wired or is gone); remove it from the list`);
 

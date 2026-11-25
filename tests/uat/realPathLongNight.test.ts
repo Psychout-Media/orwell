@@ -10,7 +10,7 @@ import { bootNatural, playNight, type Any } from "../support/longNightPlay";
  * HEAVY LANE (tests/uat/**, the `real-path` leg): about 45 seconds of play per season on the runner, four seasons. Roles only.
  */
 function playLate(seed: number, hour: number, onRow?: (s: Any, row: Any) => void): { s: Any; fired: boolean } {
-  const s = bootNatural(seed, true);
+  const s = bootNatural(seed, true, `ln-natural-${seed}-on`);
   let k = 0, started = false;
   const r = playNight(s, (row) => {
     if (row.twist !== "running" && row.beat === "eviction" && !started && hour > 0 && s.live.active.length <= s.live.twistPlan.doubleEvictionAtActive + 1) {
