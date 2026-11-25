@@ -8799,6 +8799,16 @@ export class GameSessionAdapter implements GameSession {
   }
   /** ORW-593: why this turn's call for a house meeting was refused (memory-only, replaced by the next `resolvePlayerMove`); the narrator voices it, the engine writes no line. */
   private playerMeetingRefusal: MeetingRefusal | null = null;
+  /** ORW-920: the message epoch in which `turnIn` last answered `held: bedtime` (memory-only, never saved). */
+  private bedtimeHeldEpoch: number | null = null;
+  /** ORW-920: for the narrator's moment prompt, this turn and the next, while it is still before the night: the minutes until bed opens, read fresh from the clock. */
+  private bedtimeHeldForNarrator(): { minutesUntil: number } | undefined {
+    const live = this.live;
+    if (this.bedtimeHeldEpoch === null || !live || this.disclosureEpoch > this.bedtimeHeldEpoch + 1) return undefined;
+    if (live.timeOfDay !== "morning" && live.timeOfDay !== "afternoon" && live.timeOfDay !== "evening") return undefined;
+    const hour = live.nightDepth ?? WAKE_HOUR;
+    return { minutesUntil: Math.max(0, Math.round((CLOCK.phaseStartsHour.night - hour) * 60)) };
+  }
   /** ORW-913: the last alliance the player proposed that did not form (not close enough yet), for the narrator's next prompts (memory-only; never saved). */
   private allianceRefusal: { name: string; names: string[]; epoch: number } | null = null;
 
@@ -18191,6 +18201,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-258 (Ryne 2026-11-11: "I don't think you should be able to go to sleep before the night time period"): the evening is not bedtime either - the evening ceremonies happen then.
     if (this.bedtimeGateEnabled && (this.live.timeOfDay === "morning" || this.live.timeOfDay === "afternoon" || (this.live.timeOfDay === "evening" && this.messageMode))) {
       const hour = this.live.nightDepth ?? WAKE_HOUR;
+      this.bedtimeHeldEpoch = this.disclosureEpoch; // ORW-920: the narrator's next prompts say bed is not open yet (memory-only; this turn and the next)
       return remember({ ...this.advanceView(null), held: { next: "bedtime", minutesUntil: Math.max(0, Math.round((CLOCK.phaseStartsHour.night - hour) * 60)) } });
     }
     // ORW-446 (BDD Auditor, ORW-433 probe): a goodnight while a staged ceremony is open (the eviction reveal, one ballot per advance) went through, the day rolled and the reveal resumed the next evening
@@ -22032,7 +22043,9 @@ export class GameSessionAdapter implements GameSession {
     const meetingNow = this.houseMeetingForNarrator(); // 0156 slice 7b: a meeting the player was in the house and awake to hear (one turn; absent otherwise)
     const view5 = meetingNow ? { ...view4, houseMeeting: meetingNow } : view4;
     const view6a = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
-    const view6 = this.allianceRefusal ? { ...view6a, allianceNotFormed: { name: this.allianceRefusal.name, with: this.allianceRefusal.names } } : view6a; // ORW-913: a proposed alliance that did not form, for two turns
+    const bedHeld = this.bedtimeHeldForNarrator(); // ORW-920: a bed the engine held, told to the narrator (this turn and the next, only before the night)
+    const view6b = bedHeld ? { ...view6a, bedtimeHeld: bedHeld } : view6a;
+    const view6 = this.allianceRefusal ? { ...view6b, allianceNotFormed: { name: this.allianceRefusal.name, with: this.allianceRefusal.names } } : view6b; // ORW-913: a proposed alliance that did not form, for two turns
     const keepers = (req.moment ?? view6.moment) === "eviction" ? this.keepPromisersOfPlayer() : []; // ORW-737: eviction night only
     const view = keepers.length ? { ...view6, keepPromisers: keepers } : view6;
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).

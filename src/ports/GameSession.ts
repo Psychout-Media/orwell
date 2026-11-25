@@ -646,6 +646,8 @@ export interface GameStateView {
   houseMeeting?: HouseMeetingView;
   /** ORW-593 (moment prompt only, one turn): the player's call for a house meeting was refused, and why in the world's terms. Never a number or a hidden reason. */
   houseMeetingRefused?: "ceremony" | "asleep" | "nobody" | "spent";
+  /** ORW-920 (moment prompt only, this turn and the next): the player tried to go to bed before the night and `turnIn` answered `held`. Whole minutes until the night period opens, read fresh from the clock (never shown to the player as a number: the prompt phrases it). Absent otherwise. */
+  bedtimeHeld?: { minutesUntil: number };
   /** ORW-913 (moment prompt only, two turns): the alliance the player proposed did not form (the houseguests are not close enough to the player yet): its name (the player's own words) and the houseguests it was proposed to. Never a number or a hidden reason. */
   allianceNotFormed?: { name: string; with: string[] };
   /** ORW-737: on eviction night, the houseguests who HAVE a recorded promise to keep the player (an assurance on the ledger, kept or still open). The ONLY people the narrator may say told the player they would keep them. Absent when none. */
