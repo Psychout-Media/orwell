@@ -2009,6 +2009,8 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
     }
     if (ev?.host) lines.push(...renderHostBlock(view));
     if (ev?.voteBeat) lines.push(...renderVoteBeatBlock(view));
+    // ORW-928: the result was committed on an earlier turn and the reveal, the host's words and the evictee's exit were voiced then. Staging them again made the evictee leave twice (a second exit speech).
+    if (ev?.evictee && (ev.voicedTurns ?? 0) > 0) lines.push(`    THE REVEAL AND ${ev.evictee.name.toUpperCase()}'S EXIT HAVE ALREADY BEEN VOICED on an earlier turn: the host has spoken, ${ev.evictee.name} has said goodbye and left the room. Never read the result again, never give the host's send-off again and never have ${ev.evictee.name} leave again. Play only what the player says or does now, and the game's own next step (the player's goodbye card, the house reacting) when it comes.`);
   }
   if (cer.veto.drawBeat) lines.push(...renderVetoDrawBeatBlock(view)); // ORW-924
   return lines;
