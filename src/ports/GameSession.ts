@@ -1688,6 +1688,8 @@ export interface BeatAnnouncementView {
     saved?: NamedRef;
     /** `eviction-result` only: the HOH broke a tied vote (never implies an extra "HOH ballot", E12). */
     tieBroken?: boolean;
+    /** `eviction-result` only (ORW-919): the public count as the host states it - totals only, never a voter (E12). */
+    votes?: { evict: number; keep: number };
     /** `comp-round-result` only: houseguests still in the competition after this round's drops (a public count). */
     remaining?: number;
     /** `final-hoh-part` only (0128): which part of the three-part Final HOH the subject just won (1 or 2). */

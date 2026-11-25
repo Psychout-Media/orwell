@@ -523,31 +523,15 @@
     return "Make your selection above to enable Confirm.";
   }
 
-  // F-NEW-5: a kind-specific (never auto-sent) prefill cue so the dramatic context
-  // of the locked-in decision carries into the player's next conversational turn —
-  // a single generic line lost the moment. Falls back to the generic cue.
-  function prefillCueFor(kind) {
-    const cues = {
-      nominations: "I've named my nominees — let's see the room when I say it out loud.",
-      "veto-decision": "I've decided on the veto — time to make it official at the ceremony.",
-      "finale-statement": "I've made my final case to the jury — let's see how it lands.",
-      "juror-question": "I've decided what to ask — let's hear their answer.",
-      "finale-answer": "I've cast my jury vote — let's see who takes it.",
-      "goodbye-message": "I've recorded my goodbye message — let's see how the house reacts.",
-      "exit-interview": "I've given my exit interview — that's my side of it.",
-      "spectator-choice": "I've decided how to follow the rest of the season.",
-      "finale-interview": "I've given my finale-night interview — that's my side of it.",
-      "comp-intent": "I've set my approach for this competition — let's compete.",
-      "comp-round": "I'm committing to this round — let's push on.",
-      "self-evict": "I've made my choice to walk — let's see how the house takes it.",
-    };
-    return cues[kind] || "I've made my decision — let's see how the house takes it.";
-  }
-
   // ORW-771: the hidden cue that asks the narrator to voice the vote beat. The server arms it on the Continue press (routes/orwell_routes.py) and recognizes it by this prefix.
   const VOTE_BEAT_CUE = "(Production cue \u2014 the player pressed Continue through the eviction vote. Voice the beat the game's facts hand you, short, with no ballot content.)";
   // ORW-924: the same hidden cue for a Continue press through the veto draw (the server arms it when the press carried the engine's `vetoDrawBeat`).
   const DRAW_BEAT_CUE = "(Production cue \u2014 the player pressed Continue through the veto draw. Voice the beat the game's facts hand you, short, and name no veto winner and no result.)";
+  // ORW-919: the same hidden cue for a Continue press that committed the veto ceremony (the veto's use, the replacement nominee: they showed only on the card and were narrated a turn late),
+  // and for a successful decision-card submit (F-NEW-5 amended: the card used to PRE-FILL the message box and nothing happened until Send; a hidden cue sends no player words and a
+  // failed cue leaves the box empty). The server arms each; an unarmed copy is an ordinary message.
+  const CEREMONY_RESULT_BEAT_CUE = "(Production cue \u2014 the player pressed Continue through a ceremony result. Voice the beat the game's facts hand you, short: the result exactly as the game states it, with any count it gives.)";
+  const DECISION_BEAT_CUE = "(Production cue \u2014 the player locked in their decision on the card. Voice what the game's facts now show, short; never speak for the player and add no outcome the facts do not show.)";
   function _fireBeatCue(text) {
     try {
       const cm = window.chatModule;
@@ -620,6 +604,8 @@
         if (res && res.voteBeatCue === true && res.eviction && res.eviction.voteBeat && res.eviction.voteBeat.sealed) _fireVoteBeatCue();
         // ORW-924: the same for a press through the veto draw
         if (res && res.drawBeatCue === true && res.vetoDrawBeat) _fireBeatCue(DRAW_BEAT_CUE);
+        // ORW-919: the same for a press that committed a ceremony result (the veto's use, the replacement, the eviction result)
+        if (res && res.ceremonyResultBeatCue === true) _fireBeatCue(CEREMONY_RESULT_BEAT_CUE);
         // The next step (or the next binding decision) arrives on the same view: mount it now.
         const nxt = res && res.pending;
         if (nxt && nxt.kind) window.dispatchEvent(new CustomEvent("orwell:pending", { detail: { pending: nxt } }));
@@ -1206,16 +1192,12 @@
         if (window.orwellGameChanged) window.orwellGameChanged("decision:" + kind, _beat);
         card.classList.add("odec-done");
         card.innerHTML = `<div class="odec-head"><span class="odec-title">✓ Locked in.</span></div>`;
-        // The play continues in conversation: prefill (never auto-send) so the model
-        // narrates the ceremony from FRESH engine state on the player's next turn.
-        // F-NEW-5: branch the prefill cue on the decision kind so the dramatic context
-        // carries over — a generic "I've made my decision" loses the moment.
+        // ORW-919 (F-NEW-5 amended): the play continues at once - a HIDDEN production cue (armed server-side by this successful submit, HTTP and WS alike) has the narrator voice
+        // the locked-in beat from fresh engine state. No player bubble, no clock charge, no words sent for the player; the message box is left as it is (never pre-filled), so a
+        // cue that cannot go out leaves it empty rather than speaking for them.
+        _fireBeatCue(DECISION_BEAT_CUE);
         const box = document.getElementById("message");
-        if (box && !box.value.trim()) {
-          box.value = prefillCueFor(kind);
-          box.dispatchEvent(new Event("input", { bubbles: true }));
-          box.focus();
-        }
+        if (box) box.focus();
         _doneTimer = setTimeout(() => {
           // J5-06: only remove if THIS card is still the lingering done-card — never a card that
           // re-armed into the same id within the 4s window (removeCard() also clears this timer).
