@@ -187,6 +187,9 @@ export function parsePlayerMoveIntent(text: string, current: Room | null, themed
 // extracts the phrase; the engine resolves it against who the player can legitimately see (never a hidden whereabouts).
 const FIND_VERB = /^(?:find|finds|finding|look for|looks for|looking for|seek out|seeking out|search for|searching for|track down|tracking down|locate|go find|go look for|go see|go and find)\b\s*/;
 
+const FOLLOW_VERB = /^(?:follow|follows|following|trail|trails|trailing)\b\s*/;
+const FOLLOW_TAIL = /\s+(?:inside|outside|indoors|back|in|out|into|to|and|then|wherever|where|so|with|through)\b.*$/;
+
 function personFromClause(raw: string, current: Room | null, themed?: Themed): string | null {
   if (/\?\s*$/.test(raw.trim())) return null;
   let s = clean(raw);
@@ -194,7 +197,9 @@ function personFromClause(raw: string, current: Room | null, themed?: Themed): s
   s = s.replace(SUBJECT, "").replace(INTENT, "");
   let rest: string | null = null;
   const f = FIND_VERB.exec(s);
+  const fo = FOLLOW_VERB.exec(s); // ORW-926: "I follow <X> inside to wherever they went": walking after a person is a move to where that person is (when the player can see them)
   if (f) rest = s.slice(f[0].length);
+  else if (fo) rest = s.slice(fo[0].length).replace(FOLLOW_TAIL, "");
   else {
     const g = GO_VERB.exec(s);
     if (g) {
