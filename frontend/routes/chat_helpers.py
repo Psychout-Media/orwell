@@ -3095,7 +3095,13 @@ _CLAIM_NOMINATED_RE = re.compile(
     r"(?:turns?|turned|hands?|handed|handing|gives?|gave|giving|passes?|passed)\s+(?:out\s+)?(?:a|the|each|every|one)?\s*(?:\w+\s+){0,4}?keys?\b(?!\s+(?:in|into|to|of|from|on)\s+(?:\w+\s+){0,3}?(?:doors?|locks?|ignition|rooms?|cars?|drawers?|cabinets?|padlocks?|chests?|gates?)\b)|"
     r"(?:without|with no)\s+(?:a\s+)?key|(?:two|2|both)\s+(?:\w+\s+){0,3}?(?:are\s+)?left\s+without(?=\s*[.,;!?]|\s+(?:a\s+)?(?:key|safe))|walks?\s+the\s+line\s+(?:with|holding)\s+(?:\w+\s+){0,2}?keys?|"
     r"(?:the\s+)?nominations?\s+ceremony\s+(?:begins?|begun|starts?|started|is\s+(?:starting|beginning|about\s+to)|kicks?\s+off)|"
-    r"(?:the\s+)?(?:last|final|remaining)\s+two\s+(?:houseguests\s+)?(?:are\s+)?(?:left\s+)?(?:without|standing)\b)",
+    r"(?:the\s+)?(?:last|final|remaining)\s+two\s+(?:houseguests\s+)?(?:are\s+)?(?:left\s+)?(?:without|standing)\b|"
+    # ORW-915 (Fable's week-1 run, turn 125): the ritual voiced as a LIST - "a key for X, a key for Y, ..." with no verb in front of "key" - the two with "nothing in front of them", "the two keys in her hand", "about to name the
+    # nominees". The engine had no nominee yet and the two it later named were among those keyed (handed safety). Each cue still needs the ritual's own wording, so a door key or a drink is untouched.
+    r"\ba\s+key\s+for\s+(?:(?-i:[A-Z][\w'-]*)|each\s+\w+|every\s+\w+)|"
+    r"(?:two|2|both)\s+(?:\w+\s+){0,2}?(?:people|houseguests|players)\s+(?:\w+\s+){0,6}?(?:with\s+)?nothing\s+(?:in\s+front\s+of|before)\s+them|"
+    r"\b(?:holds?|holding|clutch(?:es|ing)?|with)\s+(?:the\s+)?(?:two|2)\s+keys\s+in\s+(?:her|his|their|one)\s+hands?\b|"
+    r"\babout\s+to\s+name\s+(?:the\s+|her\s+|his\s+|their\s+)?(?:two\s+)?nominees\b)",
     re.IGNORECASE,
 )
 # A nomination narrated as happening NOW ("the HOH nominates two houseguests") while nominees are already committed is a re-enacted ceremony, not a recap.
