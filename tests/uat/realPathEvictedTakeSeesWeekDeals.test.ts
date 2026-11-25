@@ -25,7 +25,12 @@ describe("ORW-871 REAL PATH: the evicted take sees the week's deals before they 
     });
     const expire = vi.spyOn(DealLedger.prototype, "expireWeekScoped").mockImplementation(function (this: DealLedger, week: number) { order.push("expire"); return expireOrig.call(this, week); });
     try {
-      for (const seed of (process.env.ORW871_SEEDS ?? "6,7").split(",").map(Number)) await playSeason({ user: `wf-${seed}`, seed, maxMessages: 900 });
+      // ORW-905: the precondition (an eviction that met an open week-scoped deal of the evictee) is SCANNED, not pinned to two seeds: seasons are played in a fixed order (the old pair first) until one
+      // has met such a deal; the order assertions below hold over every season played.
+      for (const seed of (process.env.ORW871_SEEDS ?? "6,7,1,2,3,4,5,8,9,10,11,12").split(",").map(Number)) {
+        await playSeason({ user: `wf-${seed}`, seed, maxMessages: 900 });
+        if (met.some((n) => n > 0)) break;
+      }
     } finally { take.mockRestore(); expire.mockRestore(); }
     expect(order.length, "evictions were played").toBeGreaterThan(0);
     for (let i = 0; i < order.length; i++) if (order[i] === "expire") expect(order[i - 1], `step ${i}: the evicted take runs first`).toBe("take");

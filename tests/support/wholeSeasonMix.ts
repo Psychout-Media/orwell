@@ -93,9 +93,7 @@ export const KNOWN_RED: Readonly<Record<string, KnownRed>> = {
   "early:band-gossip": { value: 42.0, card: "ORW-702 gossip ratchet" }, // band 22-32
   "mid:band-bonding": { value: 16.1, card: "ORW-702 restore bonding" }, // band 24-34
   "mid:band-gossip": { value: 47.4, card: "ORW-702 gossip ratchet" }, // band 26-36
-  "mid:no-activity-above-45": { value: 47.4, card: "ORW-702 gossip ratchet" }, // gossip is the one over 45
   "late:band-bonding": { value: 14.8, card: "ORW-702 restore bonding" }, // band 20-30
-  "late:band-strategy": { value: 27.7, card: "ORW-702 late strategy" }, // band 28-38: 0.3 under the floor
   "late:band-gossip": { value: 49.0, card: "ORW-702 gossip ratchet" }, // band 24-34 (and the 45% ceiling below)
   "late:band-conflict": { value: 8.5, card: "ORW-702 late conflict" }, // band 10-16
   "late:no-activity-above-45": { value: 49.0, card: "ORW-702 gossip ratchet" }, // gossip is the one over 45
