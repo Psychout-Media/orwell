@@ -3,7 +3,8 @@ import { PLAYER } from "../../src/domain/ids";
 import { isPrivateRoom, type Room } from "../../src/domain/house";
 import { talkAloneRoom } from "../../src/engine/talkAlone";
 import type { AskToTalkAloneResult } from "../../src/ports/GameSession";
-import { playUntil, type Stop } from "../realpath/playedSeason";
+import { playUntil, wfScan, type Stop } from "../realpath/playedSeason";
+import { NotReached, firstSeedWhere, firstSeedsWhere } from "../support/firstSeedWhere";
 
 /**
  * ORW-727b. The player asks a houseguest for a private word, or to come over - in a PLAYED season (ORW-812: before, every test staged the house by hand: the premiere skipped, the
@@ -26,11 +27,12 @@ const ask = async (s: Stop, args: Record<string, unknown>) => (await s.call("ask
 type Yes = { at: Stop; npc: string; r: AskToTalkAloneResult; witnesses: string[]; from: string; expectedRoom: Room | null; key?: string };
 type No = { bond: number; keys: string[]; moved: boolean; held: boolean; again: string | undefined };
 /**
+ * ORW-894: the seed is PICKED, not pinned: `untilYes(hint, ...)` scans seeds 1..12 (the hint first) for a played season where someone says yes, then asserts on what happened there. `playOne` is the single-seed drive.
  * Play `seed`; at every free moment the player asks the houseguests `who` picks (by default those in their room), one by one, for a private word (`args`), until one says yes.
  * Every no is recorded with what it changed (nothing, it must be) and the answer to the same ask again that hour. The room the engine's own picker would choose for the live house is
  * read just before each ask. The player asking around is the player's own act through the channel; nothing is set.
  */
-async function untilYes(seed: number, args: Record<string, unknown> = {}, opts: { who?: (s: Stop) => string[]; when?: (s: Stop) => boolean; minCompany?: number; keyed?: boolean } = {}): Promise<{ yes: Yes; nos: No[] }> {
+async function playOne(seed: number, args: Record<string, unknown> = {}, opts: { who?: (s: Stop) => string[]; when?: (s: Stop) => boolean; minCompany?: number; keyed?: boolean } = {}): Promise<{ yes: Yes; nos: No[] }> {
   const nos: No[] = [];
   let yes: Yes | undefined;
   await playUntil(seed, async (s) => {
@@ -50,9 +52,14 @@ async function untilYes(seed: number, args: Record<string, unknown> = {}, opts: 
     }
     return false;
   }, { user: `wf-${seed}`, maxMessages: 1500 });
-  expect(yes, `seed ${seed}: someone said yes in play`).toBeDefined();
-  return { yes: yes!, nos };
+  if (!yes) throw new NotReached(`seed ${seed}: nobody said yes in play`);
+  return { yes, nos };
 }
+type UntilOpts = Parameters<typeof playOne>[2];
+const untilYes = async (hint: number, args: Record<string, unknown> = {}, opts: UntilOpts = {}): Promise<{ yes: Yes; nos: No[]; seed: number }> => {
+  const f = await firstSeedWhere((seed) => playOne(seed, args, opts), wfScan(hint, "a free moment where a houseguest says yes to the ask"));
+  return { ...f.at, seed: f.seed };
+};
 
 describe("ORW-727b: asking for a private word, in a played season", () => {
   it("an accepting houseguest and the player end up alone in a private room; the scene and a deal there are witnessed by exactly the two; the others saw them leave together", async () => {
@@ -77,8 +84,8 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
   }, 120_000);
 
   it("the room is the engine's own choice for the live house: private, empty, never the diary room or the landing; a named public room (the kitchen) falls back to it", async () => {
-    for (const seed of [3, 11]) {
-      const { yes } = await untilYes(seed, { room: "kitchen" }, { when: (s) => roomOf(s, PLAYER) !== "kitchen" });
+    const when = (s: Stop) => roomOf(s, PLAYER) !== "kitchen";
+    for (const { seed, at: { yes } } of await firstSeedsWhere(2, (s) => playOne(s, { room: "kitchen" }, { when }), wfScan([3, 11], "a free moment where a houseguest says yes to a named-room ask"))) {
       expect(yes.r.room, `seed ${seed}`).toBe(yes.expectedRoom);
       expect(isPrivateRoom(yes.r.room as Room)).toBe(true);
       expect(["diary-room", "landing", "hoh-room"]).not.toContain(yes.r.room);
@@ -87,8 +94,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
 
   it("a houseguest who says no: nobody moves, no hold, the answer is typed with nothing else, and the same hour gives the same answer; yes comes from a stronger bond than no", async () => {
     const all: No[] = []; const yesBonds: number[] = [];
-    for (const seed of [3, 5, 11]) {
-      const { yes, nos } = await untilYes(seed);
+    for (const { at: { yes, nos } } of await firstSeedsWhere(3, (s) => playOne(s, {}, {}), wfScan([3, 5, 11], "a free moment where a houseguest says yes to the ask"))) {
       all.push(...nos);
       yesBonds.push(yes.at.sess.rel.edge(yes.npc, PLAYER).trust + yes.at.sess.rel.edge(yes.npc, PLAYER).affinity);
     }
