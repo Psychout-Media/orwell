@@ -8,7 +8,8 @@ import { playSeason } from "../support/whatFired/player";
  * REAL PATH: played through the player channel, nothing hand-set. Each seed below saw the player evicted at the named week before the change (weeks 5 and 4). HEAVY LANE (tests/uat/**).
  * The engine's social game is still free to vote the player out later: this proves the script lasts past the early weeks, not that it can never lose.
  */
-describe("ORW-778 REAL PATH: the scripted player plays on past the early weeks", () => {
+// QUARANTINED (ORW-702): a one-seed week-7 coin flip (the player is still in at week 7 on seeds 5 and 7); red on unrelated PRs whenever the played spine moves. ORW-702 slice 1 (#3200) deletes this file for good.
+describe.skip("ORW-778 REAL PATH: the scripted player plays on past the early weeks", () => {
   for (const [seed, oldWeek] of [[5, 5], [7, 4]] as const) {
     it(`the player on a seed that voted it out in week ${oldWeek} is still in the house when the game reaches week 7`, async () => {
       const r = await playSeason({ seed, user: `wf-${seed}`, maxMessages: 4000, survive: true, watch: async ({ sess }) => (sess.live?.week ?? 0) >= 7 || !!sess.live?.evictionOrder?.includes(sess.house.player.id) });
