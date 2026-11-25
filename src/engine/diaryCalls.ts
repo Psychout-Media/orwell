@@ -18,6 +18,8 @@ export const DIARY_CALLS = {
   /** At most this many NPC calls per in-game day, and only one away at a time. */
   perDay: 1,
   /** A stay is between these many minutes (a keyed roll); the houseguest is away for the in-game hours it spans. */
+  /** ORW-914: the producer's invitation to the player stays quiet this many in-game hours after the player's own visit to the Diary Room. */
+  inviteQuietHours: 6,
   minMinutes: 15,
   maxMinutes: 90,
 } as const;

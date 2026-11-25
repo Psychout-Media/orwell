@@ -145,7 +145,7 @@ import { agendaDumpRows } from "../../engine/agendaDump";
 import { hostRegister, registerWords, hostQuestionTexts, playerRoles, goodbyeRecordLines, type HostLine } from "../../engine/productionHost";
 import { pushbackFacts, type PushbackView } from "../../engine/producerPushback";
 import type { PlayerSaid, PlayerDid } from "../../engine/production";
-import { decideDiaryCall, awayHours, seenOf, callEventText, backEventText, playerVisitText, producerRegisterWords, type DiaryCallsState, type DiaryCallView } from "../../engine/diaryCalls";
+import { DIARY_CALLS, decideDiaryCall, awayHours, seenOf, callEventText, backEventText, playerVisitText, producerRegisterWords, type DiaryCallsState, type DiaryCallView } from "../../engine/diaryCalls";
 import { buildHouseStories } from "../../engine/houseStory";
 import type { StatedReasonView } from "../../ports/GameSession";
 import type { AskToTalkAloneReq, AskToTalkAloneResult } from "../../ports/GameSession";
@@ -15760,6 +15760,16 @@ export class GameSessionAdapter implements GameSession {
     return facts.length ? { register: producerRegisterWords(this.gameSeed ?? 0), facts } : undefined;
   }
   /** The Diary Room calls as facts for the narrator, or undefined. */
+  /** ORW-914: the Diary Room invitation is offered once per (week, dramatic beat), on the turn it first comes up (every read in that turn sees it), and not within `DIARY_CALLS.inviteQuietHours` of the player's own last visit. */
+  private diaryInviteShown: { key: string; epoch: number } | null = null;
+  private diaryInviteNow(beat: string): boolean {
+    const key = `${this.week}:${beat}`;
+    if (this.diaryInviteShown?.key === key) return this.diaryInviteShown.epoch === this.disclosureEpoch;
+    const abs = this.inGameAbsHour(), last = this.live?.diaryCalls?.playerLast;
+    if (abs !== undefined && last !== undefined && abs - last < DIARY_CALLS.inviteQuietHours) return false; // just visited: not now (a later turn of the beat may offer it)
+    this.diaryInviteShown = { key, epoch: this.disclosureEpoch };
+    return true;
+  }
   private diaryCallView(invited: boolean): DiaryCallView | undefined {
     if (!this.diaryCallsLive()) return undefined;
     const s = this.live!, abs = this.inGameAbsHour()!;
@@ -23105,7 +23115,11 @@ export class GameSessionAdapter implements GameSession {
     // (no field ⇒ the FE sees nothing, byte-identical to before this fix); present only at the
     // dramatic beats `beatForMoment` recognizes (nomination/veto-ceremony/eviction). An INVITATION
     // only — it changes no game state and is never forced.
-    const drPrompt = producerPrompt(beatForMoment(moment));
+    // ORW-914: a dramatic beat spans many turns (the nominations week), and the invitation was offered on EVERY one of them: the Diary Room called the player about ten times a week, straight after a visit too.
+    // Now once per beat per week (the rest of that turn re-reads it), and never within a few in-game hours of the player's own visit. Memory-only: a restart offers it once more.
+    const drBeat = beatForMoment(moment);
+    const drRaw = producerPrompt(drBeat);
+    const drPrompt = drRaw.invite && !this.diaryInviteNow(drBeat) ? { invite: false } : drRaw;
     // 0115 — the player's Diary-Room STRATEGY, projected as a PRIVATE steer for the narrator (their
     // real read, in their own words). Vault-free by construction: reads ONLY the player's own
     // `NO_NPC_PATHWAY` knowledge (never a Vault read, never any NPC's knowledge), and never feeds any
