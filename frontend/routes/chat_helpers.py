@@ -3095,7 +3095,13 @@ _CLAIM_NOMINATED_RE = re.compile(
     r"(?:turns?|turned|hands?|handed|handing|gives?|gave|giving|passes?|passed)\s+(?:out\s+)?(?:a|the|each|every|one)?\s*(?:\w+\s+){0,4}?keys?\b(?!\s+(?:in|into|to|of|from|on)\s+(?:\w+\s+){0,3}?(?:doors?|locks?|ignition|rooms?|cars?|drawers?|cabinets?|padlocks?|chests?|gates?)\b)|"
     r"(?:without|with no)\s+(?:a\s+)?key|(?:two|2|both)\s+(?:\w+\s+){0,3}?(?:are\s+)?left\s+without(?=\s*[.,;!?]|\s+(?:a\s+)?(?:key|safe))|walks?\s+the\s+line\s+(?:with|holding)\s+(?:\w+\s+){0,2}?keys?|"
     r"(?:the\s+)?nominations?\s+ceremony\s+(?:begins?|begun|starts?|started|is\s+(?:starting|beginning|about\s+to)|kicks?\s+off)|"
-    r"(?:the\s+)?(?:last|final|remaining)\s+two\s+(?:houseguests\s+)?(?:are\s+)?(?:left\s+)?(?:without|standing)\b)",
+    r"(?:the\s+)?(?:last|final|remaining)\s+two\s+(?:houseguests\s+)?(?:are\s+)?(?:left\s+)?(?:without|standing)\b|"
+    # ORW-915 (Fable's week-1 run, turn 125): the ritual voiced as a LIST - "a key for X, a key for Y, ..." with no verb in front of "key" - the two with "nothing in front of them", "the two keys in her hand", "about to name the
+    # nominees". The engine had no nominee yet and the two it later named were among those keyed (handed safety). Each cue still needs the ritual's own wording, so a door key or a drink is untouched.
+    r"\ba\s+key\s+for\s+(?:(?-i:[A-Z][\w'-]*)|each\s+\w+|every\s+\w+)|"
+    r"(?:two|2|both)\s+(?:\w+\s+){0,2}?(?:people|houseguests|players)\s+(?:\w+\s+){0,6}?(?:with\s+)?nothing\s+(?:in\s+front\s+of|before)\s+them|"
+    r"\b(?:holds?|holding|clutch(?:es|ing)?|with)\s+(?:the\s+)?(?:two|2)\s+keys\s+in\s+(?:her|his|their|one)\s+hands?\b|"
+    r"\babout\s+to\s+name\s+(?:the\s+|her\s+|his\s+|their\s+)?(?:two\s+)?nominees\b)",
     re.IGNORECASE,
 )
 # A nomination narrated as happening NOW ("the HOH nominates two houseguests") while nominees are already committed is a re-enacted ceremony, not a recap.
@@ -9252,6 +9258,27 @@ def consume_vote_beat_cue(message, user) -> bool:
     return False
 
 
+# ORW-924: the same hidden beat cue for a Continue press through the veto DRAW (the draw's watch steps were a banner and no narrated beat). Armed by the press that carried the engine's `vetoDrawBeat`
+# (routes/orwell_routes.py); the chat turn that carries the cue is a narrated beat, not a player message: no clock charge, no player-move parse. A hand-typed copy with no armed press is an ordinary message.
+_DRAW_BEAT_CUE_PREFIX = "(Production cue \u2014 the player pressed Continue through the veto draw"
+_DRAW_BEAT_ARMED: dict = {}
+
+
+def arm_draw_beat_cue(user) -> None:
+    """The Continue press just made carried a veto-draw beat: the next chat turn that is the cue is a beat turn."""
+    _DRAW_BEAT_ARMED[user] = True
+    logger.info("[orwell] draw-beat cue armed for user=%s", user)
+
+
+def consume_draw_beat_cue(message, user) -> bool:
+    """True (once per armed press) when `message` is the draw-beat cue AND a press armed it. Pure bookkeeping."""
+    if isinstance(message, str) and message.startswith(_DRAW_BEAT_CUE_PREFIX):
+        hit = bool(_DRAW_BEAT_ARMED.pop(user, False))
+        logger.info("[orwell] draw-beat cue seen for user=%s armed=%s", user, hit)
+        return hit
+    return False
+
+
 async def note_player_message(client_msg_id, user) -> None:
     """Tell the engine a player message arrived (``noteMessage``): one in-game message-step per
     message id. Best-effort — no engine / no game / any failure ⇒ nothing (the engine keeps its
@@ -10723,7 +10750,7 @@ async def build_chat_context(
 
     # Per-message pacing: announce this player message to the engine clock ONCE, before the model
     # call, keyed by the send's clientMsgId (retry / two-window re-drive is idempotent). Fail-soft.
-    _vote_beat_turn = (not incognito) and consume_vote_beat_cue(message, user)  # ORW-771: a vote-beat turn is not a player message
+    _vote_beat_turn = (not incognito) and (consume_vote_beat_cue(message, user) or consume_draw_beat_cue(message, user))  # ORW-771: a vote-beat turn is not a player message
     if not incognito and not _vote_beat_turn:
         await note_player_message(client_msg_id, user)
         # ORW-419 (intent-first moves): the engine resolves the player's OWN move from their words BEFORE the narrator's moment
