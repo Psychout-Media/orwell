@@ -143,3 +143,22 @@ export function whisperHabitSighting(deps: HouseSuspicionDeps, s: HabitSighting)
   if (!spreadSuspicion(deps, origin, `word in the house: ${deps.nameOf(s.pair[0])} and ${deps.nameOf(s.pair[1])} keep ending up in ${where} together after the ceremonies`)) return undefined;
   return { pair: [s.pair[0], s.pair[1]], room: s.room, origin };
 }
+
+/** ORW-694 / B1-11 (spec 0210 C2, "both ways"): a LONG Diary Room stay the house saw - an NPC back after a long call, or the player's own stay into a second in-game hour. */
+export interface DiaryStaySighting { who: EntityId; onlookers: readonly EntityId[] }
+
+/**
+ * A long Diary Room stay starts a whisper: the onlooker most drawn to the one who was in there tells the house they were in the Diary Room a long while - a POSITION fact, never what
+ * was said (nothing said in there is read, passed on or stored). Occasional (the same gate as every house whisper), on the caller's DEDICATED rng, no relationship fold (texture,
+ * calibration-neutral). The player's own stay spreads among the houseguests only: the player is never told about themselves. Returns the whisper or undefined.
+ */
+export function whisperLongDiaryStay(deps: HouseSuspicionDeps, s: DiaryStaySighting): { who: EntityId; origin: EntityId } | undefined {
+  const npcSet = new Set(deps.npcs);
+  const onlookers = s.onlookers.filter((id) => npcSet.has(id) && id !== s.who);
+  if (onlookers.length === 0) return undefined;
+  if (deps.rng.next() >= PRIVACY.whisperProb) return undefined;
+  const origin = onlookers.reduce((best, id) => (deps.affinity(id, s.who) > deps.affinity(best, s.who) ? id : best));
+  const own = s.who === deps.player;
+  if (!spreadSuspicion(own ? { ...deps, playerAsleep: true } : deps, origin, `word in the house: ${deps.nameOf(s.who)} was in the Diary Room a long while`)) return undefined;
+  return { who: s.who, origin };
+}
