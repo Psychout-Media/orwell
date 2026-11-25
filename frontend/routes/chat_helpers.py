@@ -823,9 +823,11 @@ def _hang_out_steer(res: dict, asked_minutes=None) -> str:
     obs = {"overheard-whisper": "two housemates whispering (%s)", "argument": "two housemates arguing (%s)", "someone-moved": "%s on the move"}.get(str(d.get("kind") or ""), "something happening (%s)") % " and ".join(d.get("who") or []) if reason == "observed" else ""
     line = _HANGOUT_STOP_LINES.get(reason, _HANGOUT_STOP_LINES["max-beats"]).format(by=by, npc=d.get("npc") or "A housemate", obs=obs)
     mins = int(res.get("minutes") or 0)
-    shown = str(res.get("stopLine") or "").strip()  # ORW-22: the engine's own player-facing line for this stop - the reply must put it on screen
+    shown = str(res.get("stopLine") or "").strip()  # ORW-22: the engine has a player-facing line for this stop - the reply must put the stop on screen
     if shown:
-        line += " Make sure the reply shows the player this, in your own words: \"%s\"" % shown
+        # ORW-917: the engine's stock sentence is NOT quoted: a quoted line was copied into the reply word for word ("A and B are in a tense exchange.") on ~60 playtest turns.
+        # The stop's facts (who, what kind) are already in `line` above.
+        line += " Make sure the reply shows the player this stop, told in fresh prose of your own (never a stock sentence)."
     cut = ""
     if isinstance(asked_minutes, (int, float)) and asked_minutes > 0 and reason != "max-beats" and mins < asked_minutes:
         cut = ("The wait was CUT SHORT: the player asked to wait about %d minutes but only about %d passed. Say plainly that the wait was interrupted; do NOT claim the full time went by. " % (asked_minutes, mins))
