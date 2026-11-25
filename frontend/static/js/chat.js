@@ -676,6 +676,9 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
   /**
    * Handle chat form submission
    */
+  // ORW-909: reconcile the session from history after a turn whose ack never came (its own function so the send path's catch keeps one shape).
+  function _reconcileAfterAckTimeout(sessionId) { return softReloadHistory(sessionId); }
+
   export async function handleChatSubmit(e, overrideMsg = null, overrideOpts = null) {
     if (e && e.preventDefault) e.preventDefault();
     // Headless / programmatic send. Callers (auto-continue, stream-drop recovery, a choice-card
@@ -1759,6 +1762,16 @@ const _RICH_RUN_EVENT_TYPES = new Set(['tool_start', 'tool_output', 'tool_progre
           if (clearResponseTimeout) clearResponseTimeout();
           return;
         } catch (err) {
+          // ── ORW-909: the turn's ack never came (and no run ended to settle it). The frame may well have landed, so nothing is re-sent, the composer text is NOT restored (that would
+          // double the message) and the in-flight outbox record stays (the pre-send history check keeps any re-send at-most-once). Reconcile from history; the finally frees the composer.
+          if (err && err.code === "ws-ack-timeout") {
+            if (clearResponseTimeout) clearResponseTimeout();
+            try { if (spinner) spinner.destroy(); } catch (_) {}
+            _wsResetRound();
+            if (chatState._streamSessionId === streamSessionId) chatState._streamSessionId = null;
+            try { await _reconcileAfterAckTimeout(streamSessionId); } catch (_) {}
+            return;
+          }
           // ── #1878: stale-beat auto-retry once ──
           if (err && err.code === "stale-beat") {
             // err.detail.beatSeq was already adopted by orwellWs.js _adoptBeat, so

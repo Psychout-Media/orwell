@@ -83,10 +83,10 @@ describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer f
     }
   }, 900_000);
 
-  it("a hostile approach answered kindly writes no fight; the same approach ignored does (seed 13, the same game played twice up to the approach)", async () => {
+  it("a hostile approach answered kindly writes no fight; the same approach ignored does (seed 11, the same game played twice up to the approach; re-pinned from 13 by ORW-791, see ORW-872)", async () => {
     const run = async (answer: boolean): Promise<{ fights: number; shown: boolean }> => {
       let target: string | undefined; let answered = false; let shown = false; let after = 0; let s: Sess | undefined;
-      await playMixGame(13, 1400, { user: "mixdrv-13",
+      await playMixGame(11, 1400, { user: "mixdrv-11",
         onStep: (sess) => { s = sess as Sess; if (!target) { const r = (s.live.aimedAtPlayer ?? []).find((x) => x.hostile && x.status === "shown"); if (r) { target = r.actor; shown = true; } } else after++; },
         onMessage: async (call) => { if (answer && target && !answered) { answered = true; await call("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, target], content: "I hear you, let's talk it through", kind: "conversation" }); } },
         stopWhen: () => after > 500,
