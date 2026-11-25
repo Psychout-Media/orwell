@@ -68,3 +68,32 @@ def test_the_page_never_prefills_the_message_box_and_fires_the_cue_after_a_succe
     assert "box.value = " not in JS and "prefillCueFor" not in JS and "committing to this round" not in JS
     i = JS.index("_fireBeatCue(DECISION_BEAT_CUE)")
     assert JS.rindex('card.classList.add("odec-done")', 0, i) > JS.rindex("/api/orwell/decision", 0, i), "fired only after the submit succeeded"
+
+
+def test_a_beat_cue_turn_is_recognised_so_the_advance_belts_stand_down():
+    """The finale walk found it: the decision cue's turn ran the stall belt, which silently committed advanceGame past the next step card. Every beat cue is recognised and the
+    agent loop's want-advance gate stands down for it (source pin on the gate; the cue texts are the page's own)."""
+    for name in ("DECISION_BEAT_CUE", "CEREMONY_RESULT_BEAT_CUE", "VOTE_BEAT_CUE", "DRAW_BEAT_CUE"):
+        text = json.loads('"' + re.search(r'const ' + name + r' = "(.*)";', JS).group(1) + '"')
+        assert agent_loop._is_beat_cue(text) is True, name
+    assert agent_loop._is_beat_cue("next") is False and agent_loop._is_beat_cue("(Production cue — continue the casting interview.)") is False
+    src = (pathlib.Path(agent_loop.__file__)).read_text()
+    assert "if _want_advance and _is_beat_cue(_extract_last_user_message(messages)" in src
+
+
+def test_a_beat_cue_turn_never_runs_the_pre_resolve():
+    """The second seam the finale walk hit: the framing's pre-resolve advanced the finale on the decision cue's turn. A beat cue returns the board untouched, before any engine call."""
+    import asyncio
+    calls = []
+
+    async def boom(*a, **k):
+        calls.append(1)
+        raise AssertionError("no engine call on a beat-cue turn")
+    orig = orwell_engine.game_status
+    orwell_engine.game_status = boom
+    try:
+        board = {"phase": "finale", "started": True}
+        out = asyncio.new_event_loop().run_until_complete(chat_helpers._pre_resolve_npc_ceremony(None, board, retry=False, player_msg=_cue()))
+    finally:
+        orwell_engine.game_status = orig
+    assert out is board and calls == []

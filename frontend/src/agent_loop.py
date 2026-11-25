@@ -2995,6 +2995,16 @@ def _player_signals_casting_ready(messages) -> bool:
 _PRODUCTION_CUE_PREFIX = "(Production cue"
 
 
+def _is_beat_cue(text: str) -> bool:
+    """ORW-919: a hidden BEAT cue (ORW-771 vote, ORW-924 draw, ORW-919 ceremony result / decision): the narrator voices a beat the engine ALREADY committed. Such a turn must never
+    progress the game itself: the advance belts stand down (in a finale walk the decision cue's turn silently advanced past the next step card)."""
+    try:
+        from routes import chat_helpers as _ch
+        return _ch.is_beat_cue_message(text)
+    except Exception:
+        return False
+
+
 def _is_production_cue(text: str) -> bool:
     """True when the message is an engine/FE hidden production cue, not the player."""
     return (text or "").lstrip().startswith(_PRODUCTION_CUE_PREFIX)
@@ -10865,6 +10875,10 @@ async def _stream_agent_loop_impl(
                     turn_advance_nudges=_turn_advance_nudges, max_advance_nudges=_MAX_ADVANCE_NUDGES_PER_TURN, previewed_uncommitted=_previewed_uncommitted,
                     decision_undelivered=_decision_undelivered, want_drain_eviction=_want_drain_eviction, milestone_due=_milestone_due, progressed=_progressed,
                     runway_holding=_runway_holding, loop_stalled=_loop_stalled, is_lull=_is_lull, stale=_stale)
+                # ORW-919: a hidden BEAT cue voices a beat the engine already committed; that turn never advances the game (no stall nudge, no silent commit).
+                if _want_advance and _is_beat_cue(_extract_last_user_message(messages) or ""):
+                    _want_advance = False
+                    logger.info(f"[orwell] advance belts stand down: a beat-cue turn voices a committed beat (user={owner})")
                 # ORW-321: a recent integrity-checkpoint REFUSAL is not a model stall - the engine would refuse the advance again, so the stall nudge / forced advance / anti-stale ladder stand down
                 # (they only add noise, and climbed to level 40 on the live freeze). The refusal itself is already RED for the operator and voiced to the player via the tool error.
                 try:

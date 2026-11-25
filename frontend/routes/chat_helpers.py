@@ -8843,6 +8843,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
     if _comp_hops == 0 and _comp_log is None and not _after_day_break:
         event_pause_clear(user)  # a new framed turn: last turn's pause no longer holds the model's tools
         _VETO_DRAW_HOLDS.pop(_runway_key(user or None), None)
+    if is_beat_cue_message(player_msg):
+        return game_state  # ORW-919: a hidden beat cue voices a beat the engine ALREADY committed; its turn never moves the board (a finale walk advanced past a step card here)
     try:
         phase = (game_state.get("phase") or "").lower()
         # ORW-116: no phase advance moves the clock, so the premiere is exited only when the player's night is over - it is Day 2's morning, the premiere still "open", and the FIRST HOH is not due until the
@@ -9288,6 +9290,12 @@ _CEREMONY_RESULT_BEAT_ARMED: dict = {}
 _CEREMONY_RESULT_KINDS = frozenset({"veto-decision", "replacement-nominee", "eviction-result"})  # the veto's use, the replacement, the eviction result (with its count)
 _DECISION_BEAT_CUE_PREFIX = "(Production cue \u2014 the player locked in their decision on the card"
 _DECISION_BEAT_ARMED: dict = {}
+
+
+def is_beat_cue_message(message) -> bool:
+    """ORW-919: True for a hidden BEAT cue (vote / draw / ceremony result / decision): the engine already committed the beat it voices, so its turn moves nothing."""
+    t = message.lstrip() if isinstance(message, str) else ""
+    return bool(t) and t.startswith((_VOTE_BEAT_CUE_PREFIX, _DRAW_BEAT_CUE_PREFIX, _CEREMONY_RESULT_BEAT_CUE_PREFIX, _DECISION_BEAT_CUE_PREFIX))
 
 
 def carries_ceremony_result_fact(res) -> bool:
