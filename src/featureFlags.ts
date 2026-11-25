@@ -100,6 +100,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_CONFESSIONAL_DEPTH',     key: 'confessionalDepth',      parser: 'defaultOn' },
   // ORW-650 (0133): watching from the couch, richer - an evicted player who keeps watching gets the season's real public moments (ceremonies, competition results), never anything hidden. ON by default; `=0` keeps the skeleton digests only.
   { envKey: 'ORWELL_COUCH_WATCH', key: 'couchWatch', parser: 'defaultOn' },
+  // ORW-767 (0207): a showmance reaches the player by being TOLD. A houseguest who saw a romance scene (or was told of one) may pass the pair to the player in their own words, hedged by how sure they are; the player then knows the pair as a belief with a source (never as the truth), and the narrator's showmance list and the pace record's seen-by read it. `=0` opts out (byte-identical).
+  { envKey: 'ORWELL_COUPLE_TOLD', key: 'coupleTold', parser: 'defaultOn' },
   // ORW-685 / 0152 (T2-14; ORW-687 adds the mirror: a houseguest may ask the PLAYER "who told you that?" about a claim the player passed on, and reads the player's own answer against the engine's record of who really told them): a liar asked "who told you that?" about a lie they planted may play it off (say they saw it, or refuse to say) or let the cover slip, a visible stumble scaled by how good an actor they are (their cunning and how rattled they are), decided on a keyed side stream and recorded once. Played games only. ON by default; `=0` turns it off.
   { envKey: 'ORWELL_COVER_SLIPS', key: 'coverSlips', parser: 'defaultOn' },
   // B48-credibility layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
