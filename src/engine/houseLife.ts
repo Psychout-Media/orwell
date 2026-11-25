@@ -518,10 +518,16 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   if (v.attract && !v.showmance) {
     const drawn = [...v.attract.entries()].filter(([p, a]) => a > 0 && pool.includes(p) && !avoid.has(p)).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     const top = drawn[0];
+    // ORW-892: someone they are drawn to is ALREADY in the room, a flirt may start with them and the attraction is real (at least `flirtAtLeast`): the chance of a flirt or a cuddle is the romance chance scaled by the attraction up to `flirtFullAt` (a keyed
+    // roll, no shared draw). It used to be reached only through the seek roll below (seekChance x attraction, about 6% at 0.2) AND then a second roll, so outside the seeded showmances no flirt was ever played (0 in an
+    // 800-message season); the attraction the house felt never showed. The seek below still sends them toward a person who is not here.
+    const here = drawn.find(([p, a]) => v.flirtable?.has(p) === true && a >= ATTRACTION_LIFE.flirtAtLeast && p !== PLAYER && roomOf(v, p) === v.room); // the person they are most drawn to among those in the room
+    if (here && roll("attract-flirt") < HOUSE_LIFE.romanceChance * cFlirt * Math.min(1, here[1] / ATTRACTION_LIFE.flirtFullAt)) {
+      return { ...finish({ kind: roll("attract-kind") < 0.5 ? "flirt" : "cuddle", with: [here[0]] }), drawn: true };
+    }
     if (top && roll("attract-seek") < ATTRACTION_LIFE.seekChance * top[1]) {
-      const [who, level] = top;
-      const flirt = v.flirtable?.has(who) === true && level >= ATTRACTION_LIFE.flirtAtLeast && who !== PLAYER && roomOf(v, who) === v.room && roll("attract-flirt") < HOUSE_LIFE.romanceChance * cFlirt;
-      return { ...finish({ kind: flirt ? (roll("attract-kind") < 0.5 ? "flirt" : "cuddle") : "check-in", with: [who] }), drawn: true };
+      const [who] = top;
+      return { ...finish({ kind: "check-in", with: [who] }), drawn: true };
     }
   }
 
