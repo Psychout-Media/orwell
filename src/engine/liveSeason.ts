@@ -1107,6 +1107,9 @@ export interface LiveSeasonState {
   dayNumber?: number;
   /** ORW-859: player messages since the due event opened and the engine began holding the player's card (see `noteMessage`); absent when 0. */
   dueHeldMessages?: number;
+  /** ORW-927: houseguests a comp-round approach press eliminated with no narrator turn in between (not yet voiced); cleared one player message after the first framing that told it. Played games only. */
+  compSilentOut?: string[];
+  compSilentSeen?: boolean;
   dailyRecapEventCursor?: number;
   dailyRecapKnowledgeCursor?: number;
   lastDailyRecap?: DailyRecapEntry;

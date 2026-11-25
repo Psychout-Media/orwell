@@ -1389,6 +1389,7 @@ export class GameSessionAdapter implements GameSession {
     this.hangOutSkipStepAt = undefined; // a hang-out's one-shot skip is for the legacy per-commit follow-up; every announced message bills its own step
     // ORW-859: how many player messages have come since the engine opened the due event and began holding the player's card. Counted BEFORE this message's clock step, so the message the event comes due on (and the
     // card it stages) reads 0 and still gets the call; each later message while the card is held reads 1, 2 ... and the narrator is told the call was already voiced. Absent otherwise (byte-identical saves).
+    if (this.live?.compSilentOut) { if (this.live.compSilentSeen) { delete this.live.compSilentOut; delete this.live.compSilentSeen; } else this.live.compSilentSeen = true; } // ORW-927: the silent drops are told to the narrator on exactly ONE player message (this one's framing), and cleared at the next
     if (this.live) { if (this.live.pending && milestoneDueOf(this.live)) this.live.dueHeldMessages = (this.live.dueHeldMessages ?? 0) + 1; else delete this.live.dueHeldMessages; }
     // ORW-928: after the engine committed the eviction result (the evictee is named) the reveal and the evictee's exit were voiced on the turn that committed it. Count each later player message, counted BEFORE its own step, so the committing turn reads 0 and voices the night once.
     this.evictionVoicedMsgs = this.live && this.live.playedGame === true && this.live.eviction?.evictee ? this.evictionVoicedMsgs + 1 : 0; // memory-only (like the ceremony beat): a restart mid-night forgets it, never a persisted live field
@@ -6695,10 +6696,11 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** ORW-715: the staged competition's floor - who is still in and who has already gone out (the drops the game has announced). Undefined unless a staged competition is live. */
-  private competitionFieldFact(): { stillIn: Array<{ id: EntityId; name: string }>; out: Array<{ id: EntityId; name: string }> } | undefined {
+  private competitionFieldFact(): { stillIn: Array<{ id: EntityId; name: string }>; out: Array<{ id: EntityId; name: string }>; justOut?: Array<{ id: EntityId; name: string }> } | undefined {
     const c = this.live?.competition;
     if (!this.ceremonyFactsEnabled || !c || !this.playedGameNow() || !c.eliminated?.length) return undefined;
-    return { stillIn: c.stillIn.map((id) => ({ id, name: this.nameOf(id) })), out: c.eliminated.map((id) => ({ id, name: this.nameOf(id) })) };
+    const silent = (this.live?.compSilentOut ?? []).filter((id) => c.eliminated.includes(id));
+    return { stillIn: c.stillIn.map((id) => ({ id, name: this.nameOf(id) })), out: c.eliminated.map((id) => ({ id, name: this.nameOf(id) })), ...(silent.length ? { justOut: silent.map((id) => ({ id, name: this.nameOf(id) })) } : {}) };
   }
 
   private card(id?: EntityId): { id: EntityId; name: string } | null {
@@ -17781,6 +17783,7 @@ export class GameSessionAdapter implements GameSession {
     return remember(this.inOneCommit(() => {
       // The beat-deterministic rng lets the Houseguest's-Choice resume run the veto comp reproducibly (B45).
       const cerBefore = ceremonyRef(this.live!);
+      const outBefore = compApproach(pendingKind!) ? (this.live!.competition?.eliminated.length ?? 0) : -1; // ORW-927: the drops the player's own approach press resolves are not voiced by anyone
       this.syncTargetsMeClaims(); // ORW-581: as before a beat
       const ev = applyDecision(this.live!, this.toDecisionInput(req), this.ctx(), this.beatRng());
       if (cerBefore) { // ORW-281 4a: the binding choice is a ceremony step - it charges its share of the clock
@@ -17817,6 +17820,8 @@ export class GameSessionAdapter implements GameSession {
       if (AUTO_ADVANCE_PENDING_KINDS.has(pendingKind!) && this.live!.pending?.kind !== "ceremony-step") { // ORW-281 4a: a ceremony watch step waits for the player's own Continue
         if (this.scheduleHoldsAdvance()) chainHeld = true; else this.advanceOneBeat();
       }
+      // ORW-927: a comp-round approach press resolves the first elimination round(s) itself, with no narrator turn in between (the card posts, nobody is asked to voice it). Those exits are written down here so the player's next message is told they have NOT been voiced yet (see `competitionFieldFact`); otherwise the reel jumps from the field to "five left" with the early drops never told.
+      if (outBefore >= 0) { const comp = this.live!.competition; if (comp && comp.eliminated.length > outBefore) { this.live!.compSilentOut = comp.eliminated.slice(outBefore); delete this.live!.compSilentSeen; } }
       const m = chainHeld ? nextMilestone(this.live!) : null;
       // the schedule held the chained advance: say so exactly as advanceGame does (typed `held`), so the caller does not read the quiet as a stall
       return m ? { ...this.advanceView(ev), held: { next: m.beat, minutesUntil: minutesUntilDue(this.live!) ?? 0, reason: "schedule" as const } } : this.advanceView(ev);
