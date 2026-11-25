@@ -18,6 +18,9 @@ from test_m0_3_midgen_join import STUB, _boot_stack
 from test_p0h_day1_clock_e2e import _session
 from _ws_turn_driver import _ws_url, _await_reply, _recv, WsTurnError
 
+# Real engine + FE: the lane that builds the engine bundle (fe-browser-tests), like the other real-stack pins (test_b15_retry_e2e, test_p0h_day1_clock_e2e). In fe-unit it would only skip.
+pytestmark = pytest.mark.browser
+
 
 @pytest.fixture()
 def _casting_stack():
