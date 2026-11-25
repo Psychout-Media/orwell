@@ -16,6 +16,8 @@ export const ATTRACTION_LIFE = {
   seekChance: 0.3,
   /** The attraction at which a flirt or a cuddle can start without a seeded showmance behind it. */
   flirtAtLeast: 0.2,
+  /** ORW-892: the attraction at and above which a drawn person who is in the room gets the full romance chance for a flirt or a cuddle (below it the chance scales up from zero in proportion). Measured: attraction reaches 0.2 for about a dozen pairs by day 15 and 0.5 for a few. */
+  flirtFullAt: 0.3,
   /** A seeded showmance pair starts with chemistry at least this high, and with this many shared days already behind them. */
   seededChemistry: 0.7,
   seededDays: 5,
