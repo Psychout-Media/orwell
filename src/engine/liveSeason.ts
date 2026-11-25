@@ -3257,7 +3257,12 @@ function advanceEviction(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
         const from = e.revealIx;
         const to = Math.min(from + batch, e.revealOrder.length);
         e.revealIx = to;
-        if (s.ceremony?.kind === "eviction") s.ceremony.at = s.ceremony.steps.indexOf("ballot") + to - 1; // the open step is the ballot just read
+        if (s.ceremony?.kind === "eviction") {
+          s.ceremony.at = s.ceremony.steps.indexOf("ballot") + to - 1; // the open step is the ballot just read
+          // ORW-791: every ballot step is a WATCH step the player presses Continue on, like the speeches - including after the player's own vote card (which reads the first ballot). A press (or a typed
+          // "next") is one engine step; a typed message that is not a press drives none (ORW-703). Played staged ceremonies only (this branch never runs for a headless sim).
+          s.pending = { kind: "ceremony-step", by: s.hoh ?? ctx.player, binding: false };
+        }
         // E12: eviction votes are SECRET BALLOTS — the reveal reads the ballot(s), never the voter
         // ("a vote to evict X…" / "N votes to evict X"). `voteOf` stays engine-internal (manner/deal
         // reconciliation); attributions unseal only in the 0048 post-season retrospective. Anonymized
@@ -3666,6 +3671,10 @@ function advanceFinale(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource
  * blocked on a player decision (`state.pending` is set) or already complete.
  */
 export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent | null {
+  if (s.pending?.kind === "ceremony-step" && s.ceremony?.kind === "eviction" && s.eviction) { // ORW-791: a Continue on a BALLOT step reads the next ballot (or, past the last, decides the vote)
+    s.pending = undefined;
+    return advanceEviction(s, ctx, rng);
+  }
   if (s.pending?.kind === "ceremony-step" && s.ceremony?.kind === "eviction") { // ORW-281 4d: the speeches step's Continue opens the vote (the secret-veto check already ran before the speeches)
     s.pending = undefined; s.ceremony.at = 1;
     return startEvictionVote(s, ctx, rng);
