@@ -118,7 +118,8 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
     let m = 0;
     while (at.sess.live.talkHold && m < 200) { await at.call("noteMessage", { messageId: `hold-${m++}` }); if (at.sess.live.talkHold) expect(roomOf(at, npc), "held while it lasts").toBe(from); }
     expect(at.sess.live.talkHold, "the hold is bounded").toBeUndefined();
-    let moved = false; for (let i = 0; i < 1500 && !moved; i++) { await at.call("noteMessage", { messageId: `free-${i}` }); moved = roomOf(at, npc) !== from; }
+    // the hours pass the way a person lets them: messages, and bed at night (the player owns their bedtime; without it the house waits at late night, where nobody wanders)
+    let moved = false; for (let i = 0; i < 1500 && !moved; i++) { await at.call("noteMessage", { messageId: `free-${i}` }); if (/night/.test(at.sess.gameStatus().timeOfDay ?? "")) await at.call("turnIn", {}); moved = roomOf(at, npc) !== from; }
     expect(moved, "released: they wander again (once they are up: a hold that lapses at night leaves them asleep where they are until morning)").toBe(true);
   }, 300_000);
 
