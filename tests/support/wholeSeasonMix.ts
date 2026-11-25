@@ -84,16 +84,9 @@ export function evaluate(shares: PhaseShares): RuleResult[] {
  */
 export interface KnownRed { value: number; card: string }
 export const KNOWN_RED: Readonly<Record<string, KnownRed>> = {
-  // ORW-702 slice 1: one line left. The ten lines the surviving player's reading left red (early bonding and gossip, mid bonding, gossip and the 45 % ceiling, late bonding, strategy, gossip, conflict and the
-  // 45 % ceiling) all pass now, with the friction ramp (drama builds over the season) and the gossip/strategy keep chances. Measured on the GitHub runner, 2026-11-25 (seeds 1, 2, 3, 6, player in, head f218288bb), pooled
-  // bonding/strategy/gossip/conflict: early 32.4/30.9/29.3/7.5, mid 25.3/35.8/29.6/9.4, late 23.2/37.9/28.4/10.5. Mid strategy is 1.8 over its cap of 34 (Coordinator ruling 2026-11-25: land with exactly this one line);
-  // the slice that removes it is ORW-702 slice 2 (the combined retune on the new casts of ORW-893 and the attraction flirts of ORW-892).
-  "mid:band-strategy": { value: 35.8, card: "ORW-702 slice 2 retune" }, // band 26-34 (35.8 measured at f218288bb; 34.9 on the head that added the two lines below)
-  // 2026-11-25, head 55a146399 (GitHub runner, seeds 1, 2, 3, 6, player in): pooled early 32.7/30.9/29.1/7.3, mid 26.8/34.9/28.7/9.6, late 20.6/42.4/27.8/9.3. The scripted player now plays on to the END on seeds 2 and 3 (out "never";
-  // before it was out in weeks 10 and 6), so the late phase reads the endgame (finale, jury votes), which is strategy-heavy (45-47 % on those seeds): a different reading, not the rebalance misfiring (Coordinator ruling 2026-11-25).
-  // ORW-702 slice 2 re-tunes on the new casts (ORW-893) and attraction flirts (ORW-892), and notes that the late band may itself need re-agreeing for a player-in endgame.
-  "late:band-strategy": { value: 42.4, card: "ORW-702 slice 2 retune" }, // band 28-38
-  "late:band-conflict": { value: 9.3, card: "ORW-702 slice 2 retune" }, // band 10-16
+  // ORW-702 slice 2: empty. The combined retune on the new casts (ORW-893) and the attraction flirts (ORW-892) clears the three lines slice 1 left (mid strategy 35.8, late strategy 42.4, late conflict 9.3). Pooled over seeds
+  // 1, 2, 3, 6 (player in; bonding/strategy/gossip/conflict): early 33.2/28.2/30.1/8.5, mid 27.7/31.8/30.6/9.9, late 21.2/35.2/31.1/12.5; the same retune over six seasons (adding 12 and 13): early 32.9/27.8/30.9/8.4,
+  // mid 26.7/32.1/31.6/9.6, late 21.1/33.7/31.8/13.5. A rule that fails again is a regression; bands, hard rules and tolerances are untouched.
 };
 export const RATCHET_SLACK = 6; // points of drift past the measured value that is still noise at this many seasons; tighten as the seed set grows
 
