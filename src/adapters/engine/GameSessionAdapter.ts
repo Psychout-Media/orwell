@@ -2631,6 +2631,31 @@ export class GameSessionAdapter implements GameSession {
     return ids.filter((id) => this.livingIds().includes(id)).map((id) => ({ id, name: this.nameOf(id) }));
   }
 
+  /**
+   * ORW-750 (2): the vote promises ON THE RECORD for each nominee, for the narrator's moment prompt in the week of a nomination. A houseguest voiced saying they would keep a nominee and nothing was recorded, so the vow
+   * bound nothing (ORW-723) and the player was told otherwise; the narrator is now handed what the engine actually holds. Only what the player was told or heard: an open-ledger promise not to vote a nominee out (the player
+   * is a witness of every ledger entry) and, when the player is the nominee, a standing vote/safe assurance to them (`keepPromisersOfPlayer`). Names only: no ballot, no sincerity, no status. Played games, while someone is on the block.
+   */
+  votePromisesForNarrator(): Array<{ nominee: NamedRef; keepers: NamedRef[] }> | undefined {
+    const s = this.live;
+    if (!s || s.playedGame !== true || s.finished) return undefined;
+    const block = ((s.finalNominees ?? s.nominees) as readonly EntityId[] | undefined) ?? [];
+    if (block.length === 0) return undefined;
+    const living = new Set(this.livingIds());
+    const out: Array<{ nominee: NamedRef; keepers: NamedRef[] }> = [];
+    for (const nom of block) {
+      const ids = new Set<string>();
+      for (const e of this.openLedger.entries) {
+        if (e.status !== "open" || !e.term || e.term.what !== "no-evict-vote" || e.term.week !== s.week) continue;
+        if (termSubject(e.term) === nom && e.term.by !== OPEN_LEDGER_PLAYER) ids.add(e.term.by);
+      }
+      if (nom === PLAYER) for (const k of this.keepPromisersOfPlayer()) ids.add(k.id);
+      const keepers = [...ids].filter((id) => living.has(id as EntityId) && id !== nom && !block.includes(id as EntityId)).sort().map((id) => ({ id, name: this.nameOf(id as EntityId) }));
+      out.push({ nominee: { id: nom, name: this.nameOf(nom) }, keepers });
+    }
+    return out;
+  }
+
   /** B4 - append one recorded assurance to the live ledger (persisted with the season). */
   recordAssurance(a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc"; heardBy?: EntityId[] }): void {
     if (!this.assurancesEnabled || !this.live) return;
@@ -22034,7 +22059,9 @@ export class GameSessionAdapter implements GameSession {
     const view6a = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
     const view6 = this.allianceRefusal ? { ...view6a, allianceNotFormed: { name: this.allianceRefusal.name, with: this.allianceRefusal.names } } : view6a; // ORW-913: a proposed alliance that did not form, for two turns
     const keepers = (req.moment ?? view6.moment) === "eviction" ? this.keepPromisersOfPlayer() : []; // ORW-737: eviction night only
-    const view = keepers.length ? { ...view6, keepPromisers: keepers } : view6;
+    const view7 = keepers.length ? { ...view6, keepPromisers: keepers } : view6;
+    const votePromises = this.votePromisesForNarrator(); // ORW-750: the vote promises on the record, for each nominee (the week of a nomination only)
+    const view = votePromises ? { ...view7, votePromises } : view7;
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
     const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
       ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)
