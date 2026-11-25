@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { PLAYER_TOOLS, PLAYER_AGENT_LEVERS } from "../../src/surfaces/tools/registry";
 import { PLAYER } from "../../src/domain/ids";
 import type { DailyRecapView } from "../../src/ports/GameSession";
-import { playUntil, learned, bedtimeNow, type Stop } from "./playedSeason";
+import { playUntil, learned, bedtimeNow, type Stop, firstStop, wfScan } from "./playedSeason";
 import type { PlayOpts } from "../support/whatFired/player";
 
 /**
@@ -38,7 +38,7 @@ async function recapsUntil(seed: number, done: (recaps: DailyRecapView[]) => boo
     const r = s.sess.dailyRecap() as DailyRecapView | null;
     if (r && r.day !== recaps[recaps.length - 1]?.day) recaps.push(r);
     return done(recaps);
-  });
+  }, { user: `wf-${seed}` });
   return recaps;
 }
 /** A player who only sends messages through the premiere (no advance, no talk): the premiere night falls before anyone has told them anything. */
@@ -50,7 +50,7 @@ const QUIET: Omit<Partial<PlayOpts>, "seed" | "watch"> = {
 describe("0102 - the daily recap is dormant unless the clock is running", () => {
   it("turnIn carries no dailyRecap, and dailyRecap reads null, when ORWELL_TIME_OF_DAY is off", async () => {
     process.env.ORWELL_TIME_OF_DAY = "0"; // not as shipped: the dormancy check (the recap needs the clock); unset again after each test
-    const at = await playUntil(SEED, () => true);
+    const at = await playUntil(SEED, () => true, { user: `wf-${SEED}` });
     const v = await turnIn(at);
     expect(v.dailyRecap).toBeUndefined();
     expect(await at.call("dailyRecap", {})).toBeNull();
@@ -64,13 +64,13 @@ describe("0102 - dailyRecap is advertised and dispatches through the player chan
   });
 
   it("returns null before any day has closed", async () => {
-    const at = await playUntil(SEED, () => true);
+    const at = await playUntil(SEED, () => true, { user: `wf-${SEED}` });
     expect(at.sess.gameStatus().dayNumber ?? 1).toBe(1);
     expect(await at.call("dailyRecap", {})).toBeNull();
   }, 120_000);
 
   it("returns the just-materialized recap after the player's own turnIn", async () => {
-    const at = await playUntil(SEED, bedtimeNow);
+    const at = await firstStop(bedtimeNow, wfScan(SEED));
     const v = await turnIn(at);
     expect(v.dailyRecap).toBeDefined();
     expect(await at.call("dailyRecap", {})).toEqual(v.dailyRecap);
@@ -85,7 +85,7 @@ describe("0102 - the recap is stitched from witnessed + already-surfaced materia
   }, 120_000);
 
   it("gossip the player was told today appears; what only the houseguests hold, hidden scenes and the Vault never do", async () => {
-    const at = await playUntil(SEED, (s) => bedtimeNow(s) && sinceLastRecap(s).length > 0 && unsurfaced(s).length > 0);
+    const at = await firstStop((s) => bedtimeNow(s) && sinceLastRecap(s).length > 0 && unsurfaced(s).length > 0, wfScan(SEED));
     const today = sinceLastRecap(at).map((f) => tidy(at, f.content));
     const hidden = unsurfaced(at);
     const v = await turnIn(at);
@@ -97,7 +97,7 @@ describe("0102 - the recap is stitched from witnessed + already-surfaced materia
   }, 120_000);
 
   it("excludes the player's own out-of-character Diary Room (no in-game pathway to any houseguest)", async () => {
-    const at = await playUntil(SEED, bedtimeNow);
+    const at = await firstStop(bedtimeNow, wfScan(SEED));
     const DR = "a private diary room confession about my plan for the week";
     await at.call("diaryRoom", { entry: DR });
     const v = await turnIn(at);
@@ -108,7 +108,7 @@ describe("0102 - the recap is stitched from witnessed + already-surfaced materia
 describe("0102 - the cliffhanger teases an in-motion thread but commits to no outcome", () => {
   it("a quiet day (nothing learned, no deal) closes with no fabricated hook", async () => {
     // The premiere night of a player who has only been talking among the arrivals (QUIET): nobody has told them anything and they hold no deal.
-    const at = await playUntil(SEED, (s) => bedtimeNow(s) && learned(s).length === 0, QUIET);
+    const at = await firstStop((s) => bedtimeNow(s) && learned(s).length === 0, wfScan(SEED), { ...QUIET });
     expect(at.sess.deals.forParty(PLAYER)).toEqual([]);
     const r = (await turnIn(at)).dailyRecap!;
     expect(r).toBeDefined();
@@ -145,7 +145,7 @@ describe("0102 - the cliffhanger teases an in-motion thread but commits to no ou
 
 describe("0102 - the recap augments play and is reproducible", () => {
   it("materializing the recap progresses no game state: week, HOH and nominees are unchanged by the turnIn", async () => {
-    const at = await playUntil(SEED, bedtimeNow);
+    const at = await firstStop(bedtimeNow, wfScan(SEED));
     const before = at.sess.gameStatus();
     await turnIn(at);
     const after = at.sess.gameStatus();
@@ -155,7 +155,7 @@ describe("0102 - the recap augments play and is reproducible", () => {
   }, 120_000);
 
   it("re-reading dailyRecap after turnIn reproduces the exact same materialized digest", async () => {
-    const at = await playUntil(SEED, (s) => bedtimeNow(s) && sinceLastRecap(s).length > 0);
+    const at = await firstStop((s) => bedtimeNow(s) && sinceLastRecap(s).length > 0, wfScan(SEED));
     const v = await turnIn(at);
     const reread = await at.call("dailyRecap", {});
     expect(reread).toEqual(v.dailyRecap);

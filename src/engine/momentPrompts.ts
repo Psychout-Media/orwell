@@ -1650,6 +1650,7 @@ export function renderGameContext(view: GameStateView): string {
     ...(view.houseMeeting ? [`- HOUSE MEETING (engine truth; the player is in the room and heard it): ${houseMeetingLine(view.houseMeeting)}.${view.houseMeeting.answer === undefined ? "" : " Voice the accusation and the answer as the speakers' own words; do not say whether either is true, why the caller called it, or how anyone took it."}`] : []),
     ...(view.keepPromisers?.length ? [`- WHO TOLD THE PLAYER THEY WOULD KEEP THEM (engine truth; the only people who may be said to have promised it; ballots stay anonymous, so never say how any of them voted): ${view.keepPromisers.map((h) => neutralizeForPrompt(h.name)).join(", ")}.`] : []),
     ...(view.houseMeetingRefused ? [`- HOUSE MEETING REFUSED (engine truth): ${houseMeetingRefusedLine(view.houseMeetingRefused)}.`] : []),
+    ...(view.allianceNotFormed ? [`- ALLIANCE NOT FORMED (engine truth): the player proposed "${view.allianceNotFormed.name}" to ${view.allianceNotFormed.with.join(", ")} and it did NOT form: they are not close enough to the player yet. Nobody is sworn in and none of them is in an alliance with the player: do not narrate it as formed or as agreed, and take back any "I'm in" you already wrote by voicing them as warm toward the idea but holding back; it can only come once they have grown closer.`] : []),
     ...(view.longNight ? [`- LONG NIGHT (engine truth; play it hurried and breathless in your own words, and never write a morning, a sleep or a day passing until this line is gone): ${view.longNight}.`] : []),
     ...(view.beds ? [`- BEDS (engine truth; the player claims or swaps a bed in their own words and the engine records it before you write, so never claim, swap or assign one for them): ${view.beds}`] : []),
     ...(view.sourceNote ? [`- WHO TOLD THEM (engine truth; the engine decided this answer before you write, so voice it as the houseguest's own words; tone, hedging and colour are yours, but never change who they name, or that they name no one): ${view.sourceNote}`] : []),
@@ -1690,7 +1691,10 @@ export function renderGameContext(view: GameStateView): string {
     // number). Present only when the per-conversation clock is live (absent in the seeded spine / golden).
     ...(view.daySchedule
       ? [
-          view.daySchedule.due
+          view.daySchedule.due && view.pending && (view.daySchedule.heldTurns ?? 0) > 0
+            // ORW-859 (716b): the event is due AND the game already opened it and now waits on the player (the approach card, a ballot, a choice). Production's call has been voiced once; saying "starting NOW, production calls the house" again on every later turn made the narrator re-stage the call scene each time the player spoke (three times in a row) and never reach the event itself.
+            ? `- THE ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart).toUpperCase()} HAS ALREADY BEEN CALLED and the house is gathered${view.daySchedule.stagingRoom ? ` in ${roomRefHere(view.daySchedule.stagingRoom)}` : ""}: production's call is voiced, so never voice it again and never stage the gathering again. The game is waiting on the player's own ${view.pending.kind === "ceremony-step" ? "Continue" : "decision card"}. Answer whatever the player says or does in the scene, keep the room tense and in motion, and hold there; the event plays out only after the player decides, and its rounds, drops and winner come from the game, never from you.`
+            : view.daySchedule.due
             ? `- IT IS TIME: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is starting NOW — production calls the whole house to ${view.daySchedule.stagingRoom ? roomRefHere(view.daySchedule.stagingRoom) : "the living room"}${view.daySchedule.stagingRoom && wa ? ` (you are in ${roomRefHere(wa.room)})` : ""}; the scheming pauses and everyone gathers for the ceremony.`
             : view.daySchedule.todaysEvent
               // ORW-258: every event gets its own day - while the next one waits behind its night, today belongs to the event just played and the next is TOMORROW
@@ -1723,7 +1727,7 @@ export const STATED_REASON_GLOSS: Readonly<Record<string, string>> = {
 const TELLS_YOU_VERB: Record<string, string> = {
   "targets-you": "is targeting the player,", "voted-to-evict-you": "voted to evict the player,", "final-two-with": "has a final two with",
   "going-after": "is going after", "talking-about": "has been talking behind the back of", "lying-about": "is lying to",
-  "has-reputation": "has a name around the house as",
+  "has-reputation": "has a name around the house as", "couple-with": "is seeing",
 };
 const STATED_ACT: Readonly<Record<string, string>> = { nominate: "naming", replacement: "naming as the replacement", veto: "using the veto to save", "veto-hold": "not using the veto, leaving the nominations of", "hc-pick": "picking to play in the veto", vote: "breaking the tie against", "final-hoh-evict": "evicting" };
 

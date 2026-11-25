@@ -518,7 +518,7 @@ Given("the jury house is enabled", function (this: BbWorld) {
 When("the same seed and the same player choices are played twice", function (this: BbWorld) {
   // Two independent jury-house runs from the same seed produce identical scenes + grudges.
   const hash = (): string => {
-    startJuryPhase(this, `jh-det-${Math.random()}`, 21, true, juryPhaseLive({ grievanceAgainst: FINALIST }), juryEdges());
+    startJuryPhase(this, `jh-det-fixed`, 21, true, juryPhaseLive({ grievanceAgainst: FINALIST }), juryEdges());
     tickJuryHouse(this, 12);
     const live = this.jh!.sandbox!.session.snapshot().live as LiveSeasonState;
     const events = this.jh!.sandbox!.engine.events.queryAll().filter((e) => e.hidden).map((e) => `${e.type}|${[...e.witnessSet].sort().join(",")}`);

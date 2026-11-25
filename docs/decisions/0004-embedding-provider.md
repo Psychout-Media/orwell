@@ -78,7 +78,7 @@ only in the opt-in `ORWELL_TEST_FASTEMBED=1` integration test).
 
 The original honest-record text is kept below for history.
 
-**Original record (superseded): Not built.** As of this amendment the engine's only `EmbeddingProvider` adapter is the
+**Original record (superseded): no adapter existed yet.** As of this amendment the engine's only `EmbeddingProvider` adapter is the
 deterministic hash-vector fake (`src/adapters/embedding/DeterministicEmbedding.ts`), and it
 is what **production** composes — there is no `fastembed` dependency in `package.json`, no
 pinned model, and no deploy-time model fetch. Live "semantic" recall (0024/0041) therefore

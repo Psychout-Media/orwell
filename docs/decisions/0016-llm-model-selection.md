@@ -113,7 +113,7 @@ OpenRouter has **frozen** the `/chat/completions` image path the current Gemini 
 models live behind a separate `/api/v1/images` endpoint). So it uses a **fal.ai provider client**
 (`fal-ai/bytedance/seedream/v5/lite/edit`; references via `image_urls`; ~$0.035/img), now built as an optional provider (#1156), used only when explicitly configured; the OOB `image_model` is `openai/gpt-image-2.6-sunburst` (see the ORW-362 amendment below), with `google/gemini-3.1-flash-image` as the per-portrait fallback.
 
-### D. `tool_choice` force-call at critical beats · *follow-up build*
+### D. `tool_choice` force-call at critical beats · *built (the forced tool_choice rung; the lever is engine-signaled since #1411)*
 
 GLM-4.7 honoring `tool_choice` unlocks a capability DeepSeek V4 blocked: at the closed-set beats where a
 missed engine call is catastrophic (HOH result, nominations, veto, eviction), the FE can send
@@ -137,7 +137,7 @@ never sent* (2026-06-21 OpenRouter conformance audit); this build adds it, scope
   cannot disable thinking and leaks reasoning into the body, and scores ~15 % on multi-turn tool calls. Both
   fail this harness's hard gates regardless of price.
 
-## Consequences / follow-ups
+## Consequences and later builds
 
 - **Built with this ADR:** the narrator reasoning posture (`low`), the utility default (originally
   `z-ai/glm-4.7-flash`; **now `qwen/qwen3.6-27b`** per Decision B, corrected 2026-07-21), the
@@ -145,7 +145,7 @@ never sent* (2026-06-21 OpenRouter conformance audit); this build adds it, scope
   (`frontend/tests/test_adr0010_settings_ui.py`, `test_default_model_resolution.py`,
   `test_adr0010_admin_token_economy.py`). The narrator default-string swap (`deepseek/deepseek-v4-pro` →
   `z-ai/glm-4.7`) lands alongside (parallel work).
-- **Follow-up PRs:** (C) the fal.ai Seedream v5 Lite provider (**built**, #1156: `frontend/src/orwell_fal_image.py`, `orwell_portraits.py`; opt-in, alongside the OpenRouter default) + the per-houseguest reference-persistence
+- **Later PRs (both built):** (C) the fal.ai Seedream v5 Lite provider (**built**, #1156: `frontend/src/orwell_fal_image.py`, `orwell_portraits.py`; opt-in, alongside the OpenRouter default) + the per-houseguest reference-persistence
   pipeline; (D) the `tool_choice` force-call at critical beats.
 - **Owed live verification** (features 0107/0108, real-model golden path): GLM reasoning never reaches the
   public bubble; `tool_choice` + thinking interop on the pinned provider; and an A/B of narration quality +

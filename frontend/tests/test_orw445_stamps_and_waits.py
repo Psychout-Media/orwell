@@ -33,6 +33,22 @@ def test_hiccup_keeps_the_start_of_turn_stamp(monkeypatch):
     assert ch.current_game_moment("u2") == "Week 1 · Nominations · Morning"
 
 
+def test_orw875_a_missed_first_read_is_retried_so_the_stamp_is_not_a_phase_behind(monkeypatch):
+    ch._LAST_FRAMED_GAME_MOMENT["u4"] = "Week 1 · Veto competition · Afternoon"  # the start-of-turn stamp
+    calls = []
+
+    async def slow_then_ok(user=None):
+        calls.append(1)
+        if len(calls) == 1:
+            await asyncio.sleep(10)  # the first read misses its window
+        return {"started": True, "week": 1, "dayNumber": 4, "phase": "veto-ceremony", "timeOfDay": "morning"}
+    monkeypatch.setattr(orwell_engine, "get_game_state", slow_then_ok)
+    monkeypatch.setattr(ch, "_STAMP_REFRESH_TIMEOUT", 0.05)
+    asyncio.run(ch.refresh_framed_game_stamps("u4"))
+    assert len(calls) == 2
+    assert ch.current_game_moment("u4").endswith("Veto ceremony · Morning"), ch.current_game_moment("u4")
+
+
 def test_pregame_stays_none(monkeypatch):
     ch._LAST_FRAMED_GAME_MOMENT.pop("u3", None)
 
@@ -107,6 +123,7 @@ def test_stamp_refresh_is_bounded_and_keeps_the_start_of_turn_stamp(monkeypatch)
         await asyncio.sleep(30)
     monkeypatch.setattr(orwell_engine, "get_game_state", hang)
     monkeypatch.setattr(ch, "_STAMP_REFRESH_TIMEOUT", 0.05)
+    monkeypatch.setattr(ch, "_STAMP_REFRESH_RETRY_TIMEOUT", 0.05)  # ORW-875: the retry is bounded too
     import time
     t0 = time.monotonic()
     asyncio.run(ch.refresh_framed_game_stamps("u-slow"))

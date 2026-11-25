@@ -281,7 +281,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   //  (a) NPC↔NPC (the common case): diffuse the paraphrase along the affinity graph (0038) — most of
   //      the time it stays among the NPCs; the player catches it only if a chain terminates at them.
   session.setOnThreadGossip((origin, rumor, subject) => {
-    const core = session.snapshot();
+    const core = session.snapshotLite(); // ORW-844: only the house, the week and who has left are read here: no full state copy
     if (!core.house) return;
     const evicted = new Set(core.live?.evictionOrder ?? []);
     // Diffuse NPC↔NPC along the affinity graph — NPC nodes ONLY (the player is never a node here; the
@@ -322,7 +322,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // rng keeps the diffusion's draws off the main season/vote stream (only the intended edge fold lands);
   // the whole seam is unreachable with the flag off ⇒ byte-identical to the calibration spine.
   session.setDealReputationSink((honorer, other) => {
-    const core = session.snapshot();
+    const core = session.snapshotLite(); // ORW-844: only the house, the week and who has left are read here: no full state copy
     if (!core.house) return;
     // Idempotency (seed ONCE): a season-long deal honored at every ceremony must not re-diffuse / re-fold the
     // whisper — if the deal partner already credits the honorer as reliable (a prior honoring, or a diffusion
@@ -375,7 +375,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   //      fact. An unanchored attempt is correctly downgraded to a suspicion by 0002. Returns whether the
   //      player actually came to hold the belief (the scheduler counts it once against the season cap).
   session.setOnThreadSurfaceToPlayer((subject, rumor, confidenceScale) => {
-    const core = session.snapshot();
+    const core = session.snapshotLite(); // ORW-844: only the house, the week and who has left are read here: no full state copy
     if (!core.house) return false;
     const evicted = new Set(core.live?.evictionOrder ?? []);
     // A living NPC confidant who is NOT the subject relays it (someone with a real pathway to the player).
@@ -396,7 +396,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // player came to hold it (the scheduler counts it once against the season cap). `subject` is the pair's
   // `a` (the cap is keyed on it). Same low confidence as a behavioral read, never a confirmed fact.
   session.setOnTieSurfaceToPlayer((subject, observation) => {
-    const core = session.snapshot();
+    const core = session.snapshotLite(); // ORW-844: only the house, the week and who has left are read here: no full state copy
     if (!core.house) return false;
     const evicted = new Set(core.live?.evictionOrder ?? []);
     // #1913 — the relaying confidant must be AWAKE (ADR 0006); clock off ⇒ `awakeAmong` is the identity.
@@ -417,6 +417,12 @@ function buildUserSandbox(user = "default"): UserSandbox {
     engine.knowledge.seedBelief(npcId, { content, originalContent: content, factId, confidence: 0.9, hops: 0, distortion: 0, source: npcId, ...(session.rumorSubjectsEnabledNow() ? { subject: npcId } : {}) }, "origin");
     const fact = engine.knowledge.surfaceInformationTo(PLAYER, { content, subject: npcId, confidence }, `told-by:${npcId}`);
     return fact !== null;
+  });
+  // ORW-767 (0207) — a houseguest TELLS the player a pair they believe are a couple. The teller first HOLDS the content (their own belief, already formed by what they saw or were told), then it surfaces
+  // `told-by:<teller>` content-anchored with the pair's lineage id: the player's KNOWLEDGE (a belief with a source and a confidence, never the truth), never Vault content.
+  session.setOnCoupleTold((teller, content, subject, factId, confidence) => {
+    if (!engine.knowledge.knownTo(teller).some((k) => k.factId === factId)) engine.knowledge.seedBelief(teller, { content, originalContent: content, factId, confidence, hops: 0, distortion: 0, source: teller, subject }, "origin");
+    return engine.knowledge.surfaceInformationTo(PLAYER, { content, subject, confidence, factId }, `told-by:${teller}`) !== null;
   });
   // 0129 slice 3 — a JUROR tells the player something they already hold. The telling is content-anchored: the
   // juror's own fact (looked up by lineage id in THEIR knowledge) surfaces to the player `told-by:<juror>`.
@@ -478,7 +484,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
   // B58/audit E5: the admin's inspectable state mirrors the LIVE session's public facts (week,
   // phase, roles-only roster) — refreshed on every persisted mutation, never a never-updated stub.
   const syncAdmin = (): void => {
-    const core = session.snapshot();
+    const core = session.snapshotLite(); // ORW-844: only the house, the week and who has left are read here: no full state copy
     const prev = adminState.getAdminVisibleState();
     const seat = (id: string): string => (core.live?.evictionOrder ?? []).includes(id) ? "evicted" : "active";
     adminState.setAdminVisibleState({
@@ -760,6 +766,9 @@ export class GameSessionRegistry {
     // PROSE only, not the board, and a background bump would trip a phantom single-tab stale-409 (the
     // A-S3 fold-drop). So this mirrors the next-season-warm precedent: syncAdmin + invalidate the R3
     // snapshot cache (the durable mirror changed) + a blind save — never `commit`.
+    // ORW-731: a record the player's own turn wrote without committing (a refused deal's why-record) is saved by a PLAIN durable write: no `commit` (no beat, checkpoint, tick or clock step), no snapshot-cache
+    // invalidation and, unlike the background hook below, NO re-seed of the orchestrator's baseline (re-seeding mid-turn made the turn's own commit read as already settled and changed the tick it earns).
+    sb.session.setOnSideSave((): void => { this.saveUser(user); });
     sb.session.setOnBackgroundPersist((): void => {
       sb.syncAdmin();
       this.invalidateSnapshot(user);

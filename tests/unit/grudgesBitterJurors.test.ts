@@ -12,7 +12,8 @@ import { JURY_HOUSE } from "../../src/engine/juryHouseConstants";
 
 /**
  * Feature 0182 (Theme 3 slice 5, ORW-569) PR 3: BITTER JURORS. A juror who holds a grudge against a finalist leans away from them at the finale, more when it is fresh, less when repaired
- * (never zero), and never twice for a wrong the manner / memory terms already count. Real Final-2 games driven through the live seam; roles only.
+ * (never zero), and never twice for a wrong the manner / memory terms already count. Final-2 games with the grudges SET BY HAND, driven through the live seam (unit tests; the
+ * REAL PATH is tests/uat/realPathBitterJurors.test.ts, ORW-811); roles only.
  */
 const RIVAL = npc(10);
 const EVEN = { trust: 0.5, affinity: 0.5, threat: 0.3 };
@@ -68,7 +69,7 @@ describe("the pure overlap rule", () => {
   });
 });
 
-describe("the provider (real adapter)", () => {
+describe("unit, state set by hand (grudges, edges and the finale are planted; REAL PATH: tests/uat/realPathBitterJurors.test.ts, ORW-811): the provider (real adapter)", () => {
   it("fresh > stale, repaired < fresh but never zero, bounded, the player never holds one", async () => {
     const fresh = (await game(3, { grudge: "grudge", severity: 0.9 })).adapter;
     const stale = (await game(3, { grudge: "grudge", severity: 0.9, weekNow: 60, grudgeWeek: 1 })).adapter;
@@ -90,7 +91,7 @@ describe("the provider (real adapter)", () => {
   });
 });
 
-describe("it moves real finale votes", () => {
+describe("unit, state set by hand (grudges, edges and the finale are planted; REAL PATH: tests/uat/realPathBitterJurors.test.ts, ORW-811): it moves real finale votes", () => {
   it("jurors holding a fresh grudge vote against that finalist more than the control (decision level)", async () => {
     const none = await sum({ grudge: "none" });
     const g = await sum({ grudge: "grudge", severity: 1 });
@@ -186,7 +187,7 @@ const startSess = (seed: number, n: string): Sess => {
 };
 const two = (s: Sess): [string, string] => { const n = s.live.active.filter((x) => x.startsWith("npc:")); return [n[0]!, n[1]!]; };
 
-describe("Fable review: the real played path, and the four fixes", () => {
+describe("unit, state set by hand (grudges, edges and the finale are planted; REAL PATH: tests/uat/realPathBitterJurors.test.ts, ORW-811): Fable review: the real played path, and the four fixes", () => {
   it("(2) a smaller newer slight does not reset an older, larger grudge's clock", () => {
     const big: Record<string, never> = {}; void big;
     const book: import("../../src/engine/grudges").GrudgeBook = {};
@@ -225,7 +226,7 @@ describe("Fable review: the real played path, and the four fixes", () => {
     expect(s.juryGrudgeFor(n[2]!, n[3]!)).toBe(0);
     expect(atCommit(s).grudgeOf(n[1]!, n[0]!)).toBeNull(); // the one who broke it holds nothing
   });
-  it("(4) the real path: a broken deal folds a real grudge, and the juror's final vote differs from the same juror without it (identical relationships)", async () => {
+  it("(4) a hand-made broken deal folds a real grudge, and the juror's final vote differs from the same juror without it (identical relationships)", async () => {
     const run = async (seed: number, broken: boolean): Promise<{ votes: number; against: boolean }> => {
       const user = `bj-real-${seed}-${broken}`;
       const { reg } = await liveFinale(user, seed, { finalists: [PLAYER, RIVAL], jury: JURY9, edgeTo: () => EVEN });

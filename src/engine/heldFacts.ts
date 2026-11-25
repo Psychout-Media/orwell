@@ -53,6 +53,16 @@ export interface ToldSnapshot { entries: Array<[holder: EntityId, factId: string
 
 export class ToldLedger {
   private m = new Map<string, Told>();
+  // ORW-832: the ledger only grows with the season, and `count` / `countTo` / `snapshot` each walked (and `snapshot` also sorted and split) the whole map on every call. The per-holder and per-holder-listener tallies are kept
+  // as entries change, and the sorted snapshot is kept until an entry changes: the same answers as the walks, at a cost that no longer grows with the ledger.
+  private byHolder = new Map<string, number>();
+  private byPair = new Map<string, number>();
+  private cache: ToldSnapshot["entries"] | null = null;
+  private tally(holder: EntityId, listener: EntityId, told: Told, by: 1 | -1): void {
+    const h = `${holder}\u0001${told}`, p = `${holder}\u0001${listener}\u0001${told}`;
+    this.byHolder.set(h, (this.byHolder.get(h) ?? 0) + by);
+    this.byPair.set(p, (this.byPair.get(p) ?? 0) + by);
+  }
   private static key(h: EntityId, f: string, l: EntityId): string { return `${h}\u0001${f}\u0001${l}`; }
 
   /** Has `holder` already decided about telling `listener` this fact? */
@@ -63,12 +73,14 @@ export class ToldLedger {
     const k = ToldLedger.key(holder, factId, listener);
     if (this.m.has(k)) return false;
     this.m.set(k, told);
+    this.tally(holder, listener, told, 1); this.cache = null;
     return true;
   }
   /** A superseded fact may be decided again for everyone (never deletes other facts). Returns how many were reopened. */
   reopen(holder: EntityId, factId: string): number {
     let n = 0;
-    for (const k of [...this.m.keys()]) if (k.startsWith(`${holder}\u0001${factId}\u0001`)) { this.m.delete(k); n++; }
+    for (const [k, t] of [...this.m.entries()]) if (k.startsWith(`${holder}\u0001${factId}\u0001`)) { this.m.delete(k); this.tally(holder, k.split("\u0001")[2] as EntityId, t, -1); n++; }
+    if (n > 0) this.cache = null;
     return n;
   }
   /** Facts to decide this scene: candidates the holder has not yet decided for THIS listener. */
@@ -78,27 +90,26 @@ export class ToldLedger {
   get size(): number { return this.m.size; }
   /** How many decisions of `outcome` this holder has recorded (the per-holder lie budget counts "lied"). */
   count(holder: EntityId, outcome: Told): number {
-    let n = 0;
-    for (const [k, t] of this.m) if (t === outcome && k.startsWith(`${holder}\u0001`)) n++;
-    return n;
+    return this.byHolder.get(`${holder}\u0001${outcome}`) ?? 0;
   }
   /** How many decisions of `outcome` this holder has recorded toward ONE listener (the repetition-to-the-same-ear term of a lie's cost). */
   countTo(holder: EntityId, listener: EntityId, outcome: Told): number {
-    let n = 0;
-    for (const [k, t] of this.m) if (t === outcome && k.startsWith(`${holder}\u0001`) && k.endsWith(`\u0001${listener}`)) n++;
-    return n;
+    return this.byPair.get(`${holder}\u0001${listener}\u0001${outcome}`) ?? 0;
   }
   snapshot(): ToldSnapshot {
-    const entries: ToldSnapshot["entries"] = [];
-    for (const [k, t] of [...this.m.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
-      const [h, f, l] = k.split("\u0001") as [EntityId, string, EntityId];
-      entries.push([h, f, l, t]);
+    if (!this.cache) {
+      const entries: ToldSnapshot["entries"] = [];
+      for (const [k, t] of [...this.m.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
+        const [h, f, l] = k.split("\u0001") as [EntityId, string, EntityId];
+        entries.push([h, f, l, t]);
+      }
+      this.cache = entries;
     }
-    return { entries };
+    return { entries: this.cache.map((e) => [e[0], e[1], e[2], e[3]] as ToldSnapshot["entries"][number]) };
   }
   static restore(s: ToldSnapshot | undefined): ToldLedger {
     const l = new ToldLedger();
-    for (const [h, f, li, t] of s?.entries ?? []) l.m.set(ToldLedger.key(h, f, li), t);
+    for (const [h, f, li, t] of s?.entries ?? []) { const k = ToldLedger.key(h, f, li); if (l.m.has(k)) l.tally(h, li, l.m.get(k)!, -1); l.m.set(k, t); l.tally(h, li, t, 1); }
     return l;
   }
 }

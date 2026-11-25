@@ -133,7 +133,7 @@ describe("0203 the NPC decision", () => {
   });
 });
 
-describe("0203 the player, both directions", () => {
+describe("0203 the player, both directions (unit: the lie is told through the engine seam by hand; ORW-808 plays it in tests/realpath/comingCleanPlayer.test.ts)", () => {
   it("the player owns their own lie in their own words: the listener's trust moves by the confession cost; only the player's own open lie counts", () => {
     const t = season("player");
     const c = t.lie(t.a, "going-after", PLAYER);
@@ -164,7 +164,7 @@ describe("0203 the player, both directions", () => {
   });
 });
 
-describe("0203 the statement door: retracts / tellsAbout", () => {
+describe("0203 the statement door: retracts / tellsAbout (unit; played in tests/realpath/comingCleanPlayer.test.ts)", () => {
   it("applies a valid retraction once, and drops a false, not-own, wrong-listener or flag-off one", () => {
     const t = season("door");
     const own = t.lie(t.a, "going-after", PLAYER);

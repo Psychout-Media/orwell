@@ -64,6 +64,13 @@ const PHRASE_END = /\s+(?:and|to|so|with|then|because|but|for|while|where|now|pl
 const INSIDE_WORDS = new Set(["inside", "in", "indoors", "back inside", "back in", "into the house", "inside the house", "in the house"]);
 const OUTSIDE_WORDS = new Set(["outside", "out", "outdoors", "out back", "outside the house", "out of the house"]);
 
+/** ORW-858 (716a): the part of a cleaned clause that STATES the move, up to the first joiner ("and", "then", "so", "but", a comma). A hedge, a negation or an "if" in what the player says
+ *  AFTER the move ("I head to the bathroom and ask him if we can talk") is not a hedge about the move, so only the head is checked against NOT_A_MOVE. A hedge in the head ("maybe I go ...",
+ *  "I wonder if I should go ...") still means no move. */
+function moveHead(s: string): string {
+  return s.split(/\s+(?:and|then|so|but)\s+|,\s*/)[0] ?? s;
+}
+
 function clean(clause: string): string {
   let s = clause.replace(/[\u2018\u2019\u02BC]/g, "'").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[*_`~]+/g, " ").replace(/[^a-z0-9' -]+/g, " ").replace(/\s+/g, " ").trim();
   s = s.replace(/\b(?:i'?d|i would) like to\b/g, "i want to").replace(/\bwould like to\b/g, "want to");
@@ -86,12 +93,39 @@ function roomFromPhrase(phrase: string, current: Room | null, themed?: Themed): 
   return res.room;
 }
 
+// ORW-858 (716a remainder): the player's own move to a named room stated WITH a person: "I go find <X> in the backyard", "I take <X> to the bathroom", "I walk with <X> to the lounge", "let's go to the kitchen".
+// The player's own present-tense act; the move is to the ROOM named. Whether the other person agrees to a private word stays with the talk-alone lever (askToTalkAlone), which this never calls or replaces.
+const LETS = /^(?:let'?s|lets|let us)\s+(?:(?:just|now|quickly|all|go ahead and)\s+)*/;
+const TAKE_PERSON = /^(?:take|bring|lead|walk|guide|escort)\s+([a-z][a-z' -]{0,28}?)\s+(?:back\s+|over\s+)?(?:in\s*to|into|to|toward|towards)\s+(.+)$/;
+const WITH_PERSON = /^with\s+([a-z][a-z' -]{0,28}?)\s+(?:back\s+|over\s+)?(?:in\s*to|into|to|toward|towards)\s+(.+)$/;
+const FIND_IN_ROOM = /^(?:(?:and\s+)?(?:find|look for|see|get)|to|over to)\s+([a-z][a-z' -]{0,28}?)\s+(?:in|inside|at)\s+(.+)$/;
+
+/** A person phrase the move grammar accepts beside a room: 1-3 plain words, and not itself a room word. */
+function personPhrase(p: string, current: Room | null, themed?: Themed, loose = false): boolean {
+  const t = p.trim();
+  return /^[a-z][a-z' -]*$/.test(t) && t.split(" ").length <= 3 && (loose || roomFromPhrase(t, current, themed) === null);
+}
+
 function parseClause(raw: string, current: Room | null, themed?: Themed): Room | null {
   if (/\?\s*$/.test(raw.trim())) return null;
   let s = clean(raw);
-  if (s === "" || QUESTION_START.test(s) || NOT_A_MOVE.test(s)) return null;
-  s = s.replace(SUBJECT, "");
-  s = s.replace(INTENT, "");
+  if (s === "" || QUESTION_START.test(s) || NOT_A_MOVE.test(moveHead(s))) return null;
+  const lets = LETS.exec(s);
+  if (lets) { // an invitation to go together: the player's own walk is the move ("let's go to the kitchen"); only a go-verb counts
+    s = s.slice(lets[0].length);
+    if (!GO_VERB.test(s)) return null;
+  } else {
+    s = s.replace(SUBJECT, "");
+    s = s.replace(INTENT, "");
+  }
+
+  // 0. the player walks WITH someone: "take her to the bathroom", "walk with her to the lounge" - the player's move to the room named.
+  const gv = GO_VERB.exec(s);
+  const tp = TAKE_PERSON.exec(s) ?? (gv ? WITH_PERSON.exec(s.slice(gv[0].length)) : null);
+  if (tp && tp[1] !== "me" && personPhrase(tp[1]!, current, themed)) {
+    const to = roomFromPhrase(tp[2]!, current, themed);
+    if (to !== null) return to;
+  }
 
   // 1. "leave the backyard" / "leave" + here: through the door the floor plan gives.
   let m = LEAVE_VERB.exec(s);
@@ -117,6 +151,8 @@ function parseClause(raw: string, current: Room | null, themed?: Themed): Room |
     const bare = afterVerb.replace(PHRASE_END, "").trim();
     if (INSIDE_WORDS.has(bare)) return current === "backyard" ? exitRoomFrom(current) : null;
     if (OUTSIDE_WORDS.has(bare)) return current === "backyard" ? null : "backyard";
+    const fr = FIND_IN_ROOM.exec(afterVerb.replace(/^(?:(?:back|right|straight|over)\s+)+/, ""));
+    if (fr && personPhrase(fr[1]!, current, themed, /^(?:and\s+)?(?:find|look for|see|get)\b/.test(afterVerb.replace(/^(?:(?:back|right|straight|over)\s+)+/, "")))) { const to = roomFromPhrase(fr[2]!, current, themed); if (to !== null) return to; } // "go find <X> in the backyard": the room named
     const rest = afterVerb.replace(PREP, "");
     return roomFromPhrase(rest, current, themed);
   }
@@ -149,7 +185,7 @@ const FIND_VERB = /^(?:find|finds|finding|look for|looks for|looking for|seek ou
 function personFromClause(raw: string, current: Room | null, themed?: Themed): string | null {
   if (/\?\s*$/.test(raw.trim())) return null;
   let s = clean(raw);
-  if (s === "" || QUESTION_START.test(s) || NOT_A_MOVE.test(s)) return null;
+  if (s === "" || QUESTION_START.test(s) || NOT_A_MOVE.test(moveHead(s))) return null;
   s = s.replace(SUBJECT, "").replace(INTENT, "");
   let rest: string | null = null;
   const f = FIND_VERB.exec(s);

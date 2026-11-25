@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { PLAYER } from "../../src/domain/ids";
-import { playUntil, type Stop } from "./playedSeason";
+import { type Stop, playUntil, firstStop, firstStops, wfScan } from "./playedSeason";
 
 /**
  * A10: NPC movement from one internal WANT (flag ORWELL_WANT_MOVEMENT) - in a PLAYED season (ORW-812: before, the house was played by a headless driver with every newer layer pinned
@@ -27,7 +27,7 @@ const offOn = (s: Stop, id: string): { off: Pull[] | null; on: Pull[] | null } =
 
 describe("want-driven movement in a played season", () => {
   it("before the first ceremony the want is never read (flag on = flag off)", async () => {
-    const at = await playUntil(5, () => true);
+    const at = await playUntil(5, () => true, { user: "wf-5" });
     const ids = at.sess.livingIds() as string[];
     const read = (on: boolean) => { at.sess.setWantMovementEnabled(on); return JSON.stringify(ids.map((id) => intentOf(at, id))); };
     // not as shipped: the off read is the comparison arm, switched back on after
@@ -35,9 +35,9 @@ describe("want-driven movement in a played season", () => {
     at.sess.setWantMovementEnabled(true);
   }, 120_000);
 
-  it("flag ON: a non-HOH's pull toward the HOH is scaled up by its want, never lowered; the HOH's own intent is unchanged; most of the house leans toward the HOH (seeds 3, 5, 11)", async () => {
-    for (const seed of [3, 5, 11]) {
-      const at = await playUntil(seed, beforeNoms);
+  it("flag ON: a non-HOH's pull toward the HOH is scaled up by its want, never lowered; the HOH's own intent is unchanged; most of the house leans toward the HOH (three seeds)", async () => {
+    for (const at of await firstStops(3, beforeNoms, wfScan([3, 5, 11], "the moment before nominations"))) {
+      const seed = at.seed;
       const hoh = hohOf(at)!;
       const { off: hohOff, on: hohOn } = offOn(at, hoh);
       expect(JSON.stringify(hohOn), "the HOH has no want to pursue").toBe(JSON.stringify(hohOff));
@@ -57,7 +57,7 @@ describe("want-driven movement in a played season", () => {
       const now = ((s.sess.live?.dayNumber ?? 1) - 1) * 24 + (s.sess.live?.nightDepth ?? 8);
       return others(s).filter((id) => at?.[id] !== undefined && Math.abs(at[id]! - now) < 1e-9);
     };
-    const at = await playUntil(3, (s) => beforeNoms(s) && justApproached(s).length > 0);
+    const at = await firstStop((s) => beforeNoms(s) && justApproached(s).length > 0, wfScan(3));
     const hoh = hohOf(at)!;
     for (const id of justApproached(at)) {
       const { off, on } = offOn(at, id);

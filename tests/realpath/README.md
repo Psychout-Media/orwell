@@ -53,4 +53,40 @@ and restoring it escapes it. Reviewers still read the test. There is no escape h
 at the first message where `stopWhen` (a pure read) holds; the test then acts through the player's MCP channel (`at.call(...)`). A test that
 needs more than about a minute of play goes to the heavy lane (`tests/uat/realPath*.test.ts`) instead.
 
+## Seeds and sandbox names (ORW-852)
+
+A played game is fixed by its seed AND its sandbox name: the name keys the player-action stream and the off-screen tick, so the same seed under
+another name is another season (ORW-841). Pin both. Every played-season driver takes the name next to the seed (`user:` in `playUntil`, `playSeason`,
+`playedGame` and `playMixGame` options; the third argument of `bootNatural`), and a name is fixed: never random, time-based, or a counter that moves
+with test order. The guard's `sandbox-unpinned` and `sandbox-unfixed` rules enforce it.
+
+The folder decides two shipped flags (the premiere entrances and the bedtime gate; `tests/support/premiereTestDefault.ts`): on in `tests/realpath`,
+`tests/uat`, `tests/property` and `tests/calibration`, off everywhere else. Either one changes the season, so search for a seed from the folder that
+will run the test (or from `tests/realpath`), never from a scratch folder, and pin the sandbox name you searched with.
+
+## Pick the seed, don't pin it (ORW-880)
+
+A test that needs the game to reach some state (a jealous night, a week-2 house with a close and a distant friend, a refused deal) does not hard-pin the
+seed that happened to get there: every gameplay change moved those, and each move meant a hand search and a re-pin. It scans instead, with
+`tests/support/firstSeedWhere.ts`:
+
+- `firstStop(stopWhen, wfScan(hint))` (async, in `playedSeason.ts`): play seeds in a fixed order (the hint first, then 1..12, each in the sandbox
+  `wf-<seed>`) and stop the first season that reaches `stopWhen`. `firstStops(n, ...)` returns the first `n` different seeds, for a claim checked on
+  several games.
+- `firstSeedWhere(reach, { from, to, hint, sandbox })` / `firstSeedWhereSync` for any driver: `reach(seed, sandbox)` plays the seed in that sandbox and
+  returns the stopped game, or `undefined` when the precondition is false there. A driver whose season never gets there throws `NotReached`, which
+  also moves on; any other error fails the test.
+
+It stays deterministic (the same code picks the same seed every run) and fails loudly, naming the range and why each seed missed, when no seed in range
+qualifies. When the hint stops qualifying, a warning names the seed that does: update the hint.
+
+The rule that keeps it honest: **the precondition is what `reach` checks, the claim is what the test asserts.** Move every "the seed's house has X"
+check into the precondition. A claim that must hold on the game found stays an assertion: in the precondition, a broken feature would just pick another
+seed. (A "the feature fires at all in a played season" claim may be the precondition: the scan then fails, naming every seed, when no seed in range
+shows it.) The guard counts a scan as pinned when it names each seed's sandbox (`sandbox: (seed) => ...`, fixed) or passes `wfScan(...)`.
+
+Not every seed is a scan: a regression test for the seed that used to break (`realPathAdvanceRefused`), a claim checked on a fixed sample of seeds with
+no precondition (`waitUntilClock`, `orw691BadSleep`, `realPathApproachBrake`'s three games), and the few heavy seasons not yet moved
+(`realPathPlayerEvicted`, `realPathRetroLeftovers`) keep their seeds.
+
 Roles only in tests (HOH, nominee, NPC, player), never names.

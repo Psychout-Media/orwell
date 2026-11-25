@@ -10,7 +10,7 @@ import { PLAYER } from "../../src/domain/ids";
 import { FileSaveStore } from "../../src/adapters/engine/FileSaveStore";
 import { playSeasonOutcome } from "../support/seasonOutcome";
 import { answerPending } from "../support/answerPending";
-import { mkdtempSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, statSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -164,11 +164,13 @@ Then("the prior season's full durable record still remains on disk", function ()
   store.saveFor("the-player-durable", reg.snapshot("the-player-durable"));
   const liveBefore = store.loadLatest("the-player-durable")!;
   sb.session.createCharacter({ playerName: "The Player", seed: 7, confirmRestart: true });
-  const retired = readdirSync(dir).filter((n) => n.includes(".retired-"));
+  // ORW-783: the rotated season sits in the user's dated archive folder (save-archive/<hex-user>/<stamp>), off the live path and not deleted
+  const archiveDir = join(dir, "save-archive", Buffer.from("the-player-durable", "utf8").toString("hex"));
+  const retired = existsSync(archiveDir) ? readdirSync(archiveDir) : [];
   assert.equal(retired.length, 1, "the dead season's dir is rotated, not deleted");
-  const files = readdirSync(join(dir, retired[0]!)).filter((n) => /^v\d+\.json$/.test(n)).sort((a, b) => parseInt(a.slice(1), 10) - parseInt(b.slice(1), 10));
-  assert.ok(files.length > 0 && statSync(join(dir, retired[0]!, files[0]!)).size > 0, "the dead season's save is still on disk");
-  const kept = JSON.parse(readFileSync(join(dir, retired[0]!, files[files.length - 1]!), "utf8")) as unknown;
+  const files = readdirSync(join(archiveDir, retired[0]!)).filter((n) => /^v\d+\.json$/.test(n)).sort((a, b) => parseInt(a.slice(1), 10) - parseInt(b.slice(1), 10));
+  assert.ok(files.length > 0 && statSync(join(archiveDir, retired[0]!, files[0]!)).size > 0, "the dead season's save is still on disk");
+  const kept = JSON.parse(readFileSync(join(archiveDir, retired[0]!, files[files.length - 1]!), "utf8")) as unknown;
   assert.deepStrictEqual(kept, liveBefore, "the retired save is the finished season, byte-for-byte");
 });
 

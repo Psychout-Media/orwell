@@ -9,7 +9,8 @@ const realOf = (session: unknown, r: unknown): string | undefined => (session as
 
 
 /**
- * Engine-side NPC deal consent, through the real adapter (`ORWELL_NPC_DEAL_CONSENT`, default ON). The NPC's agreement is decided by the ENGINE from their own
+ * Engine-side NPC deal consent, through the real adapter with edges, memories and beliefs SET BY HAND (unit tests; the REAL PATH is tests/realpath/dealConsentLive.test.ts and
+ * tests/realpath/dealConsentChain.test.ts, ORW-811) (`ORWELL_NPC_DEAL_CONSENT`, default ON). The NPC's agreement is decided by the ENGINE from their own
  * read of the player (trust / warmth / threat / remembered grudges + favors / belief that the player targets them) and the ask's cost — never the narrator.
  * A refusal records no deal and folds nothing. Flag OFF is today's behaviour exactly. Roles only.
  */
@@ -32,7 +33,7 @@ const req = (npc: string, kind: MakeDealReq["kind"] = "safety"): MakeDealReq => 
 // ORW-305: the hidden decision-WHY record is metadata about a decision (a refusal is a decision), not game state: compare snapshots without it.
 const snapNoWhy = (s: { snapshot(): unknown }): string => JSON.stringify(s.snapshot(), (k, v) => (k === "decisionWhy" ? undefined : v));
 
-describe("makeDeal — the NPC decides whether they agree", () => {
+describe("unit, state set by hand: makeDeal — the NPC decides whether they agree", () => {
   it("the flag defaults ON", () => {
     expect(setup().p.npcDealConsentEnabledNow()).toBe(true);
   });
@@ -146,7 +147,7 @@ describe("makeDeal — the NPC decides whether they agree", () => {
   });
 });
 
-describe("ORWELL_NPC_DEAL_CONSENT off — byte-identical to today", () => {
+describe("unit, state set by hand: ORWELL_NPC_DEAL_CONSENT off — byte-identical to today", () => {
   it("OFF: a hostile NPC still 'agrees' (the deal is recorded exactly as before)", () => {
     const { s, npc, p } = setup();
     p.setNpcDealConsentEnabled(false);
@@ -171,7 +172,7 @@ describe("ORWELL_NPC_DEAL_CONSENT off — byte-identical to today", () => {
   });
 });
 
-describe("the MCP boundary: a refusal reaches the tool caller as a refusal, never as a deal", () => {
+describe("unit, state set by hand: the MCP boundary: a refusal reaches the tool caller as a refusal, never as a deal", () => {
   it("McpServer.callTool('makeDeal') returns { refused, reason } for a declined deal and a DealView for an agreed one; the tool description tells the narrator the engine decides", async () => {
     const { McpServer } = await import("../../src/adapters/mcp/McpServer");
     const { EngineCommandsAdapter } = await import("../../src/adapters/engine/EngineCommandsAdapter");
@@ -199,7 +200,7 @@ describe("the MCP boundary: a refusal reaches the tool caller as a refusal, neve
   });
 });
 
-describe("ORW-608: a refused deal gives a stated reason; the real one never crosses", () => {
+describe("unit, state set by hand: ORW-608: a refused deal gives a stated reason; the real one never crosses", () => {
   it("a houseguest scheming against the player, or who believes the player is coming after them, never says so - across many houses only covers come out", async () => {
     const { GameSessionRegistry } = await import("../../src/composition/registry");
     const seen = new Set<string>();

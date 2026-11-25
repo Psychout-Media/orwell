@@ -519,3 +519,44 @@ def _portrait_photo_check_off(monkeypatch) -> None:
     so the check is OFF by default here; test_orw384_photo_check.py puts the real one back."""
     from src import orwell_portrait_check as _c
     monkeypatch.setattr(_c, "check_enabled", lambda user: False)
+
+
+# ── ORW-867: a rerun of a browser test gets a FRESH stack, and the first attempt's failure is not hidden ──────────────────────────────────────────────────────────────────────────────
+# The browser lane runs with `--reruns 1`. A module-scoped stack fixture (`_stack`, `_casting_stack`: a real engine + FE + stub narrator, see test_m0_3_midgen_join._boot_stack) survives between a
+# failed first attempt and its rerun, so any state the first attempt consumed (the first-writer-wins canonical game chat, an ended season) is still there: the rerun failed BY CONSTRUCTION and
+# only that second failure was printed (CI showed `R.F`). Fix: when a test that uses one of these stack fixtures fails and a rerun is coming, finish the stack before the rerun so its setup boots a
+# new one; CI also prints the rerun tracebacks (`-rR --rerun-show-tracebacks`), so the first attempt's own failure is in the log whether or not the rerun passes.
+_RERUN_FRESH_FIXTURES = ("_stack", "_casting_stack")
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    rep = outcome.get_result()
+    if rep.when == "call" and rep.failed:
+        item._orw_call_failed = True
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_teardown(item, nextitem):
+    if not getattr(item, "_orw_call_failed", False):
+        return
+    item._orw_call_failed = False
+    try:
+        reruns = int(item.config.getoption("reruns", 0) or 0)
+    except Exception:
+        reruns = 0
+    marker = item.get_closest_marker("flaky")
+    if marker is not None and marker.kwargs.get("reruns") is not None:
+        reruns = int(marker.kwargs["reruns"])
+    # pytest-rerunfailures numbers the attempts from 1 (`execution_count`); a rerun follows only while attempts <= reruns
+    if getattr(item, "execution_count", 1) > reruns:
+        return
+    request = item._request
+    for name in _RERUN_FRESH_FIXTURES:
+        for fd in item._fixtureinfo.name2fixturedefs.get(name, ()):
+            if fd.scope in ("module", "class") and fd.cached_result is not None:
+                try:
+                    fd.finish(request)  # runs the fixture's teardown (stops the stack) and clears its cached result: the rerun's setup boots a new one
+                except Exception:  # a stack that will not stop cleanly must not hide the test's own failure
+                    pass

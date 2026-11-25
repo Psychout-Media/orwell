@@ -18,6 +18,7 @@ const read = (rel: string): string => readFileSync(join(ROOT, rel), "utf8");
 export const OPERATIONAL_ENV: Readonly<Record<string, string>> = {
   ORWELL_DATA_DIR: "per-user save directory",
   ORWELL_STORE: "save-store backend selector (file | sqlite)",
+  ORWELL_SAVE_ARCHIVE_MAX_MB: "ORW-783 per-user cap in MB on the archive of retired seasons' saves (default 512; 0 = no cap; oldest pruned first, newest always kept); disk housekeeping only, never read by the game",
   ORWELL_STALL_LOG_MS: "ORW-404 stall-timing log threshold in ms (default 500; measurement only, a stderr line when a save/embed/rebuild step exceeds it)",
   ORWELL_ENGINE_PORT: "HTTP edge port",
   ORWELL_ENGINE_HOST: "HTTP edge bind host",
