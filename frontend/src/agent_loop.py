@@ -5695,6 +5695,114 @@ async def _auto_alliance(narration, last_user, house, endpoint_url, model, heade
         return False
 
 
+# ── ORW-750 (2) — the VOICED-PROMISE under-call belt (the _auto_alliance / _auto_record_deal sibling) ──
+#
+# The narrator voices a houseguest promising their vote (or that they will not put someone on the block) to the player,
+# or in the player's hearing, and never records it: the engine's ledger holds no assurance, so ORW-723 ("a kept promise
+# binds the vote by the voter's loyalty, honesty and bond") has nothing to act on, and six voiced vows to keep a nominee
+# folded nothing. The belt error-corrects ONLY that omission: one constrained extraction names WHO promised (a roster id),
+# ABOUT whom (a roster id, or the player) and which closed kind (vote / loyal), plus the promiser's words as spoken; the
+# FE records it through the EXISTING typed-promise path on recordInteraction (`promise`, ORW-586). The ENGINE validates
+# (ids, presence, the week) and rolls the promiser's sincerity itself (some are faked by design: the belt never authors
+# sincerity); a refusal records nothing. A promise the engine already holds (an open ledger promise by that speaker about
+# that person) and a houseguest the model already recorded a promise for this turn are never re-recorded. Telemetry is
+# success-gated: a belt fire counts ONLY when the open ledger gained that promise.
+_PROMISE_SIGNAL_RE = re.compile(
+    r"\b(?:promis\w*|swear\w*|swore|my word|word of honou?r|you have my vote|my vote|vote (?:to keep|with you|for you)|"
+    r"keep (?:you|her|him|them|\w+)\b[^.]{0,40}\b(?:vote|safe|here)|got your back|you'?re safe|i'?m with you|"
+    r"i (?:won'?t|will not|would never) (?:vote|put|nominate|evict|backdoor)|not (?:going to|gonna) (?:vote|put|nominate)|"
+    r"(?:you'?re|she'?s|he'?s|they'?re) not going (?:up|home)|on my life)\b", re.I)
+
+# What the promise term means to the engine (the closed kinds `_PROMISE_WHATS` the engine judges from the board).
+_VOICED_PROMISE_WHAT = {"vote": "no-evict-vote", "loyal": "no-nominate"}
+
+
+def _validate_voiced_promises(raw_items, roster_ids, standing, skip_by) -> list:
+    """ORW-750: the extraction's proposals, trimmed to what the engine could take: `by` a roster houseguest (never the player), `about` a roster
+    houseguest other than `by` or the player (None = the player), `kind` one of the closed two, and a non-empty spoken line. Anything else is dropped,
+    never coerced. `standing` ({(speaker, about-or-"")}) is what the open ledger already holds; `skip_by` the houseguests the model already recorded this turn."""
+    out: list = []
+    seen: set = set()
+    for it in (raw_items if isinstance(raw_items, list) else [])[:6]:
+        if not isinstance(it, dict):
+            continue
+        by, about, kind = it.get("by"), it.get("about"), it.get("kind")
+        line = it.get("line") if isinstance(it.get("line"), str) else ""
+        if not (isinstance(by, str) and by in roster_ids) or kind not in _VOICED_PROMISE_WHAT or not line.strip():
+            continue
+        if about in (None, "", "player"):
+            about = None
+        elif not (isinstance(about, str) and about in roster_ids and about != by):
+            continue
+        key = (by, about or "")
+        if key in seen or key in standing or by in (skip_by or ()):
+            continue
+        seen.add(key)
+        out.append({"by": by, "about": about, "kind": kind, "line": line.strip()[:240]})
+        if len(out) >= 3:
+            break
+    return out
+
+
+async def _auto_promise(narration, last_user, house, endpoint_url, model, headers, owner, applied_out=None, skip_by=None) -> bool:
+    """Record a promise the narrator voiced but the model never recorded (ORW-750 part 2). True only when the open ledger GAINED a promise from it
+    (success-gated telemetry); a refusal, nothing voiced or any hiccup is a no-op. `applied_out` receives one entry per applied promise."""
+    try:
+        from src.llm_core import llm_call_async
+        from src import orwell_engine as _oe
+        roster = {h.get("id"): h.get("name") for h in house if h.get("id") and h.get("name")}
+        if not roster:
+            return False
+        before = await _oe.open_ledger_here(user=owner)
+        standing = {(e.get("speaker"), e.get("about") or "") for e in (before or [])
+                    if isinstance(e, dict) and e.get("kind") == "promise"}
+        roster_lines = "\n".join(f"{hid} = {name}" for hid, name in roster.items())
+        msgs = [
+            {"role": "system", "content":
+                _EXTRACTION_UNTRUSTED_FENCE +
+                "Find every promise a HOUSEGUEST (never the player) voiced in this Big Brother scene about how they will vote on who goes home, or "
+                "that they will not put someone on the block. Reply IMMEDIATELY with ONLY a JSON object, no prose, no code fence:\n"
+                '{"promises":[{"by":"<the promiser, an id from the ROSTER>","about":"<the houseguest they promised to keep, an id from the ROSTER, or player when it is the player>",'
+                '"kind":"<vote|loyal>","line":"<their promise in the words spoken>"}]}\n'
+                "vote = they said how they will vote at eviction; loyal = they said they will not nominate someone. Include ONLY a clear, first-person "
+                "promise that was actually voiced; a hope, a question, a threat, a hedge or a promise by the player => leave it out. No promise voiced => "
+                '{"promises":[]}. NEVER invent an id not in the ROSTER.'},
+            {"role": "user", "content":
+                f"ROSTER (id = name):\n{roster_lines}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:600]}\n\nWHAT HAPPENED:\n{(narration or '')[:3000]}\n\nJSON:"},
+        ]
+        raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
+                                   temperature=0.1, max_tokens=1200, timeout=45,
+                                   call_class="utility-extraction", user=_meter_user(owner)) or ""
+        obj = _last_json_object_with_key(raw, "promises")
+        if not isinstance(obj, dict):
+            return False
+        items = _validate_voiced_promises(obj.get("promises"), set(roster), standing, skip_by)
+        if not items:
+            return False
+        from routes import chat_helpers as _ch_idem
+        _any = False
+        for it in items:
+            promise = {"what": _VOICED_PROMISE_WHAT[it["kind"]], "from": it["by"], **({"subject": it["about"]} if it["about"] else {})}
+            res = await _backfill_with_cas(owner, _oe.record_interaction, it["line"], with_ids=[it["by"]], user=owner, defer_fold=True,
+                                           idempotency_key=_ch_idem._mint_idempotency_key(), promise=promise)
+            if res is None:
+                continue
+            after = await _oe.open_ledger_here(user=owner)
+            gained = any(isinstance(e, dict) and e.get("kind") == "promise" and e.get("speaker") == it["by"] and (e.get("about") or "") == (it["about"] or "")
+                         and (e.get("speaker"), e.get("about") or "") not in standing for e in (after or []))
+            if gained:
+                logger.info(f"[orwell] auto-promise recorded ({it['kind']}) user={owner}")
+                if isinstance(applied_out, list):
+                    applied_out.append(it["by"])
+                _any = True
+            else:
+                logger.info(f"[orwell] auto-promise ({it['kind']}): the engine took nothing user={owner}")
+        return _any
+    except Exception as _e:
+        logger.warning(f"[orwell] auto-promise failed: {_e}")
+        return False
+
+
 # ── 0075 — the trust-gated CONFIDE under-call belt (the _auto_record_scene / _auto_record_deal sibling) ──
 #
 # The narration model reliably UNDER-calls `confide`: it voices a houseguest opening up — or the player
@@ -9369,6 +9477,8 @@ async def _stream_agent_loop_impl(
     _turn_expose_nudges = 0  # 0093 expose belt: at most one auto-exposeSecret per finishing turn
     _turn_trade_nudges = 0  # 0099 trade belt: at most one auto-tradeSecret per finishing turn
     _turn_alliance_nudges = 0  # ORW-780 alliance belt: at most one auto join/form per finishing turn
+    _turn_promise_nudges = 0  # ORW-750 voiced-promise belt: at most one run per finishing turn
+    _turn_promise_by: set = set()  # ORW-750: the houseguests the MODEL recorded a promise or assurance for this turn (the belt never re-records them)
     _turn_alliance_refused: dict = {"join": set(), "form": []}  # ORW-793: what the engine refused the MODEL's own joinAlliance / formAlliance this turn (the belt never re-proposes it)
     _turn_move_nudges = 0  # L21/L24 auto-move belt: at most one auto-move per finishing turn
     _turn_npc_move_nudges = 0  # ADR 0009 NPC auto-move belt: at most one per finishing turn
@@ -10975,6 +11085,9 @@ async def _stream_agent_loop_impl(
                 # (No entry in the gate chain below: `_want_reapproach` is true on any turn under its cap, so the chain is always entered and `_house` is always read.)
                 _want_alliance = (_turn_alliance_nudges < 1
                                   and bool(_ALLIANCE_SIGNAL_RE.search(_last_user_for_confide) or _OFFER_ANSWER_RE.search(_last_user_for_confide)))
+                # ORW-750: a promise the narrator voiced (a vote, or not putting someone up) that the model never recorded. The pre-filter is a cheap signal over the turn's narration;
+                # the helper reads the engine's own open ledger and the constrained extraction names who/about/kind, the engine validates.
+                _want_promise = (_turn_promise_nudges < 1 and bool(_PROMISE_SIGNAL_RE.search(_turn_narration_visible or "")))
                 # L21/L24 auto-move belt: the player walked somewhere this turn but the model never
                 # called moveTo, so the engine still has them in the OLD room and next turn's
                 # whereabouts will snap back. Gated on a cheap movement-language pre-filter over the
@@ -11279,7 +11392,7 @@ async def _stream_agent_loop_impl(
                         carries the beat counter the previous one left, and a later belt reads what an earlier
                         one banked."""
                         nonlocal _turn_deal_nudges, _turn_record_nudges, _turn_confide_nudges, _turn_offer_nudges
-                        nonlocal _turn_expose_nudges, _turn_trade_nudges, _turn_alliance_nudges
+                        nonlocal _turn_expose_nudges, _turn_trade_nudges, _turn_alliance_nudges, _turn_promise_nudges
                         _touched = _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])
                         # 0039: a deal the model narrated but never made — back-fill makeDeal so it binds
                         # and shows on the deals surface. Runs first; a struck deal already banks the
@@ -11324,7 +11437,7 @@ async def _stream_agent_loop_impl(
                     async def _bank_belt_chain_ordered(_touched, _touched_deal) -> None:
                         """The ordered belt chain (unchanged by ORW-910 but for the prefetch above): see `_bank_belt_chain`."""
                         nonlocal _turn_deal_nudges, _turn_record_nudges, _turn_confide_nudges, _turn_offer_nudges
-                        nonlocal _turn_expose_nudges, _turn_trade_nudges, _turn_alliance_nudges
+                        nonlocal _turn_expose_nudges, _turn_trade_nudges, _turn_alliance_nudges, _turn_promise_nudges
                         if _want_deal and _touched_deal:
                             _turn_deal_nudges += 1  # once per turn
                             _applied_deals: list = []
@@ -11390,6 +11503,15 @@ async def _stream_agent_loop_impl(
                                                     applied_out=_applied_alliances, refused=_turn_alliance_refused):
                                 for _ in (_applied_alliances or [None]):
                                     _note_belt(owner, "auto-alliance")
+                        # ORW-750: a voiced promise the model never recorded. Only a promise the ledger actually GAINED counts toward telemetry.
+                        if _want_promise:
+                            _turn_promise_nudges += 1  # once per turn
+                            _applied_promises: list = []
+                            if await _auto_promise(_turn_narration_visible, _last_user_for_confide,
+                                                   _house, _belt_endpoint, _belt_model, _belt_headers, owner,
+                                                   applied_out=_applied_promises, skip_by=_turn_promise_by):
+                                for _ in (_applied_promises or [None]):
+                                    _note_belt(owner, "auto-promise")
                         if (_want_record and _touched and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN
                                 and not _progress_only_board_advanced(
                                     owner, _extract_last_user_message(messages), _ledger_beat_seq_before)):
@@ -12910,6 +13032,18 @@ async def _stream_agent_loop_impl(
                 _turn_expose_nudges = 1  # model called exposeSecret itself — don't also back-fill one (0093)
             if _is_live_game and block.tool_type == "tradeSecret":
                 _turn_trade_nudges = 1  # model called tradeSecret itself — don't also back-fill one (0099)
+            if _is_live_game and block.tool_type == "recordInteraction":
+                # ORW-750: a model-driven record that carried a promise or assurance stands the voiced-promise belt down for that houseguest.
+                try:
+                    _ri_args = json.loads(block.content) or {}
+                    for _k in ("promise", "assurance"):
+                        _v = _ri_args.get(_k)
+                        if isinstance(_v, dict):
+                            _by = _v.get("from") or _v.get("by")
+                            if isinstance(_by, str) and _by and _by != "player":
+                                _turn_promise_by.add(_by)
+                except Exception:
+                    pass
             if _is_live_game and block.tool_type in ("joinAlliance", "formAlliance"):
                 # ORW-780: the model joined/formed an alliance itself - don't also back-fill one. ORW-793: only when the engine TOOK it; a refusal recorded nothing, so the omission remains and the belt
                 # stays armed (once, as ever) - but never for the pitch / group the engine just declined.
