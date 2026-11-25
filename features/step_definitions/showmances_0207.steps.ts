@@ -241,8 +241,12 @@ Then("the player's own showmance scenes, answered by a houseguest drawn to them,
 });
 Then("a houseguest whose orientation does not include the player does not answer in kind", function () {
   const s = (bag(this) as Any).away as Season;
-  assert.equal(Object.keys(s.romances).filter((k) => k.includes("player")).length, 0);
-  assert.ok(s.partner !== undefined, "positive control: the player did start scenes with a houseguest not drawn to them");
+  // a romance with the player is fine when the other party IS drawn to them (a drawn houseguest may start one herself); the claim is that none forms with a houseguest the player's gender is outside of
+  const drawnTo = (id: string): boolean => { const n = s.npcs.find((x) => x.id === id); return !!n && n.gender !== undefined && canBeDrawnTo(n.orientation as never, n.gender as never, s.playerGender as never); };
+  const withNotDrawn = Object.keys(s.romances).filter((k) => k.includes("player")).map((k) => k.split("|").find((x) => x !== "player")!).filter((id) => !drawnTo(id));
+  assert.deepEqual(withNotDrawn, [], "a houseguest whose orientation does not include the player answered in kind");
+  assert.ok(s.partner !== undefined && !drawnTo(s.partner), "positive control: the player did start scenes with a houseguest not drawn to them");
+  assert.ok(!Object.keys(s.romances).some((k) => k.includes("player") && k.includes(s.partner!)), "no romance with the one the player courted");
 });
 
 // ORW-736: the slow build, read off real seasons

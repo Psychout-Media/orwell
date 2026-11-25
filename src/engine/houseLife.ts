@@ -442,13 +442,22 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
  * when the holder's drive to pursue it beats the pull of ordinary life (habit, time of day, mood, a showmance); otherwise house life.
  * Purposeful actions go where the partner is (they walk there on purpose); house life happens in its usual room or where they are.
  */
+/**
+ * ORW-702: how readily the house falls out by the in-game day: `dramaFrom` of the base chance on day 1, rising linearly to `dramaTo` by `dramaOverDays` and staying there. The agreed whole-season mix has conflict rising with
+ * the phase (early 4-9 %, mid 7-13 %, late 10-16 %), where it used to fall (strangers rub on day one; a settled house had little left to fight about). One continuous curve, no table. Pure.
+ */
+export function dramaScale(day: number): number {
+  const t = Math.max(0, Math.min(1, (day - 1) / Math.max(1, HOUSE_LIFE.dramaOverDays)));
+  return HOUSE_LIFE.dramaFrom + (HOUSE_LIFE.dramaTo - HOUSE_LIFE.dramaFrom) * t;
+}
+
 export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   const hourKey = `d${v.day}h${v.hour}${v.repeat ? `r${v.repeat}` : ""}`; // ORW-581: the first stretch of an hour keys exactly as before; a repeat gets its own dice
   const roll = (salt: string): number => agendaRoll(seed, v.owner, `hour:${hourKey}:${salt}`);
   const pool = others(v);
   const cul = v.culture;
   const cGossip = cul?.gossip ?? 1, cFlirt = cul?.flirting ?? 1, cLie = cul?.lying ?? 1;
-  const cConflict = 1 / (cul?.conflict ?? 1); // a threshold: a lean that says "more conflict" is below 1, so it RAISES the chance
+  const cConflict = dramaScale(v.day) / (cul?.conflict ?? 1); // ORW-702: friction builds over the season (strangers are polite, a tight house is not); a threshold: a lean that says "more conflict" is below 1, so it RAISES the chance
   const avoid = new Set(v.avoid ?? []);
   const here = pool.filter((p) => roomOf(v, p) === v.room && !avoid.has(p));
   const finish = (a: Omit<PlannedAction, "actor" | "manner" | "truthful" | "place"> & { place?: Room }): PlannedAction => {

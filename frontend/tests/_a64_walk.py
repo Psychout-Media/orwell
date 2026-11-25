@@ -32,8 +32,14 @@ from _a64_decisions import answer_for
 # the engine keeps earlier seasons' houseguest names out of the new cast (NAME-1, which shifts the seeded draws) and the FE's per-user loop state (e.g. the silent-advance streak) outlives a
 # /new-game. So a rerun, a -k selection or an engine change can still move a seed onto another path. Each test walks its list in order and takes the first seed whose season keeps to its path,
 # dropping a seed as soon as the engine reports that path ruled out (a dropped walk is still held to the clock). Only when NO seed takes the path does the test fail - re-pick the list then.
-NOMINEE_SEEDS = (5, 27, 32)   # an NPC HOH nominates the player: no eviction-vote card is theirs. Re-picked for ORW-711 (the new floor plan shifts the seeded week-1 path: 16 and 31 no longer reach the block; a 40-seed scan found 5, 27, 32 and 36 that do). Earlier, ORW-705 re-picked (16, 31, 32): the one-step premiere pacing shifts the seeded week-1 path (seeds 5 and 17 no longer reach the block; seeds 1-15 and 17-30 do not either). Earlier re-pick: ORW-656.
-VOTER_SEEDS = (30012, 2, 4)      # an NPC HOH, the player is not on the block: week 1 ends on the player's own eviction-vote card
+def _scan(hints, upto=40):
+    """ORW-880 on the Python side (pick the seed, don't pin it): the hint seeds first, in order, then 1..upto, each once. A fixed order, so the pick is still deterministic; a
+    gameplay change moves the pick instead of breaking the test, and the walk names the seed it took when the first hint no longer qualifies (update the hint then)."""
+    return tuple(dict.fromkeys([*hints, *range(1, upto + 1)]))
+
+
+NOMINEE_SEEDS = _scan((30, 5, 27, 32))   # ORW-702: on the rebalanced house (less early scheming) only seed 30 of 1-30 takes this path when walked FIRST on a fresh stack (a season depends on what ran before it in the stack: ORW-921), so it leads. an NPC HOH nominates the player: no eviction-vote card is theirs. Re-picked for ORW-711 (the new floor plan shifts the seeded week-1 path: 16 and 31 no longer reach the block; a 40-seed scan found 5, 27, 32 and 36 that do). Earlier, ORW-705 re-picked (16, 31, 32): the one-step premiere pacing shifts the seeded week-1 path (seeds 5 and 17 no longer reach the block; seeds 1-15 and 17-30 do not either). Earlier re-pick: ORW-656.
+VOTER_SEEDS = _scan((30012, 2, 4))      # an NPC HOH, the player is not on the block: week 1 ends on the player's own eviction-vote card
 
 
 def _decide(stack, p):
@@ -212,8 +218,10 @@ def _walk_seeded_week(stack, seeds, want, label):
         obs = _walk_week_one(stack, sid, want=want)
         path = _path(obs)
         if path in _PATHS[want]:
+            if seed != seeds[0]:
+                print(f"[a64-walk] the hint seed {seeds[0]} no longer takes the {want!r} path; seed {seed} does (update the hint)")
             return sid, obs
         assert path != "voter-without-card", \
             f"(6) the eviction ran with no vote card for the player, yet the player was neither the HOH nor on the block (seed {seed}): {obs[-1]}"
         _assert_steps_honour_the_clock(obs)
-    raise AssertionError(f"none of the seeds {seeds} takes the {want!r} path any more (the last walked {path!r}) - re-pick seeds that do")
+    raise AssertionError(f"none of the seeds {seeds[:3]}... (then 1..{max(s for s in seeds if s < 10000)}) takes the {want!r} path any more (the last walked {path!r}) - the scan ran out: look at why")

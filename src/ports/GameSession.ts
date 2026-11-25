@@ -646,6 +646,8 @@ export interface GameStateView {
   houseMeeting?: HouseMeetingView;
   /** ORW-593 (moment prompt only, one turn): the player's call for a house meeting was refused, and why in the world's terms. Never a number or a hidden reason. */
   houseMeetingRefused?: "ceremony" | "asleep" | "nobody" | "spent";
+  /** ORW-913 (moment prompt only, two turns): the alliance the player proposed did not form (the houseguests are not close enough to the player yet): its name (the player's own words) and the houseguests it was proposed to. Never a number or a hidden reason. */
+  allianceNotFormed?: { name: string; with: string[] };
   /** ORW-737: on eviction night, the houseguests who HAVE a recorded promise to keep the player (an assurance on the ledger, kept or still open). The ONLY people the narrator may say told the player they would keep them. Absent when none. */
   keepPromisers?: NamedRef[];
   /**
@@ -2523,7 +2525,7 @@ export interface PresentKnowledgeView {
    */
   /** 0202 (ORW-645): this houseguest is leaning on the player right now with something they hold, in this manner. Third-person fact only: never what they hold, never why. Absent unless an approach is open. */
   leansOnYou?: { manner: "blunt" | "sneaky" };
-  tellsYou?: { kind: "targets-you" | "voted-to-evict-you" | "final-two-with" | "going-after" | "talking-about" | "lying-about" | "voted-against" | "voted-to-keep" | "has-reputation"; subject: string; object?: string; /** 0184 part 2a: a `has-reputation`'s role or name (an engine word the narrator voices as gossip, never shown as a label) */ label?: string; certainty: "sure" | "fairly-sure" | "not-sure" };
+  tellsYou?: { kind: "targets-you" | "voted-to-evict-you" | "couple-with" | "final-two-with" | "going-after" | "talking-about" | "lying-about" | "voted-against" | "voted-to-keep" | "has-reputation"; subject: string; object?: string; /** 0184 part 2a: a `has-reputation`'s role or name (an engine word the narrator voices as gossip, never shown as a label) */ label?: string; certainty: "sure" | "fairly-sure" | "not-sure" };
 }
 
 /**

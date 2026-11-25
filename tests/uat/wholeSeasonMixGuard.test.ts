@@ -68,5 +68,9 @@ describe("whole-season house-life mix guard", () => {
     expect(v.regressions, "rules main met that now fail").toEqual([]);
     expect(v.fixed, "KNOWN_RED lines that now pass: move them out").toEqual([]);
     expect(v.worse, "KNOWN_RED lines that got worse").toEqual([]);
+    // ORW-778 (moved here from realPathSurvivingPlayer, which pinned three seeds and read one coin flip): the scripted player plays to stay, so on most of the seasons played above it is still in the house when the game reaches
+    // week 7 (the plain script was voted out by week 5 on every one of them). Eight CI heads read 3 of 4 each time (out weeks 2-13 across heads: the house's own social game moves it); the plain script reads 0 of 4.
+    const inAt7 = per.filter((r) => (r.playerOutWeek ?? Infinity) >= 7).length;
+    expect(inAt7, `the scripted player was still in at week 7 in ${inAt7} of ${per.length} seasons (out weeks: ${per.map((r) => `${r.seed}:${r.playerOutWeek ?? "never"}`).join(" ")})`).toBeGreaterThanOrEqual(Math.ceil(per.length * 0.75));
   }, 1_200_000);
 });

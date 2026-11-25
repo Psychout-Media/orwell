@@ -166,11 +166,6 @@ export function voteTalkLate(this: unknown): void {
   assert.ok(on.late.gossip <= 60 && on.late.bonding >= 10 && on.late.strategy <= 75 && on.late.conflict <= 30, `late mix ${JSON.stringify(on.late)}`);
   for (const k of KINDS) {
     const gap = Math.abs(on.late[k] - off.late[k]);
-    // ORW-903 (Coordinator ruling 2026-11-24): the one KNOWN-RED reading, at its measured value, never a changed bound. After ORW-702 slice 1 thinned the house's goal gossip, a vote-talk telling (a gossip scene added on top of the
-    // teller's hour) moves late gossip 8.3 points (on 35.9 / off 27.6; main 2.1). It may only come down: ORW-903 makes a telling consume the hour; when the gap is back inside the bound of 6 this line must be deleted.
-    const known = LATE_GAP_KNOWN_RED[k];
-    if (known !== undefined) { assert.ok(gap <= known, `late ${k}: ${on.late[k].toFixed(1)} on against ${off.late[k].toFixed(1)} off (known red ${known}, ORW-903: it may only come down)`); assert.ok(gap > 6, `late ${k} is back inside the bound of 6 (${gap.toFixed(1)}): delete its LATE_GAP_KNOWN_RED line (ORW-903)`); }
-    else assert.ok(gap <= 6, `late ${k}: ${on.late[k].toFixed(1)} on against ${off.late[k].toFixed(1)} off`);
+    assert.ok(gap <= 6, `late ${k}: ${on.late[k].toFixed(1)} on against ${off.late[k].toFixed(1)} off`);
   }
 }
-const LATE_GAP_KNOWN_RED: Partial<Record<(typeof KINDS)[number], number>> = { gossip: 8.4 };

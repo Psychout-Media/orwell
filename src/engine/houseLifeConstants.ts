@@ -8,6 +8,10 @@ import type { TimeOfDay } from "./timeOfDay";
 export type Habit = "early-riser" | "night-owl" | "gym-rat" | "house-cook" | "neat-freak" | "napper" | "devout" | "camera-talker" | "storyteller" | "card-shark" | "sun-seeker";
 
 export const HOUSE_LIFE = {
+  /** ORW-702: friction scales from `dramaFrom` on day 1 to `dramaTo` after `dramaOverDays` days (see `dramaScale`): drama builds over the season. */
+  dramaFrom: 0.8,
+  dramaTo: 1.8,
+  dramaOverDays: 70,
   /** How strongly a goal pulls its holder into acting on it this hour (x commitment), against the pull of ordinary life. */
   goalDrive: 1.0,
   /** ORW-350: the most hours (share) a houseguest spends on their goals; the rest are ordinary life whatever their goals are. A pressing goal's commitment climbs toward 0.85+ as the weeks go (get-them-out 0.54 in the first days, 0.85-0.88 by
