@@ -7964,6 +7964,7 @@ export class GameSessionAdapter implements GameSession {
     const dest = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) ?? (claimedBed ? roomOfBed(claimedBed) : null) ?? this.roomOfSightedHouseguest(String(req.text ?? ""), here);
     const hadMove = this.playerMove !== null;
     this.playerMove = null; // a new player message: last turn's move is over
+    this.holdNamedHouseguest(String(req.text ?? ""), dest); // ORW-933: the houseguest the message turns to is held in the room (below)
     let result: ResolvePlayerMoveResult;
     if (dest === null || here === null || dest === here) {
       if (hadMove) this.persist();
@@ -8087,6 +8088,24 @@ export class GameSessionAdapter implements GameSession {
     this.noteConversationPartners([npc]);
     this.persist();
     return finish({ outcome: "accepted", room: dest, roomName: this.roomName(dest) });
+  }
+
+  /**
+   * ORW-933 (Fable's week-2 run, turns 278-279): the player turned to a houseguest by name ("I find <X> ... Deal?"), they spoke, and the next turn the engine had them in another room. The conversation hold (ORW-212) keeps the
+   * player's partners in the room for a few ticks, but it started only once a scene was recorded AFTER the reply, so a houseguest the message itself named was free to walk out meanwhile. A houseguest the message names who is in the
+   * room the player is in (or the room the message takes them to) is a conversation partner from the moment of the message. Memory-only (the same hold), player-facing view only, no rng, nothing persisted, never a move of the houseguest.
+   */
+  private holdNamedHouseguest(text: string, dest: Room | null): void {
+    if (!this.house || !this.presence) return;
+    const me = this.house.player.id;
+    const here = this.presence.get(me);
+    if (!here) return;
+    const phrase = parsePlayerPersonIntent(text, here, this.themedAliases());
+    if (phrase === null) return;
+    const room = dest ?? here; // a "go find X" move lands the player where X is; the hold is read for the ticks after the move
+    const there = [...this.presence].filter(([id, where]) => id !== me && where === room).map(([id]) => ({ id, name: this.nameOf(id) }));
+    const hit = matchHouseguestName(phrase, there);
+    if (hit) this.noteConversationPartners([hit.id]);
   }
 
   /**
