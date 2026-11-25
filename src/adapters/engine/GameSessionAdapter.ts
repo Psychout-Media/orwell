@@ -1390,6 +1390,8 @@ export class GameSessionAdapter implements GameSession {
     // ORW-859: how many player messages have come since the engine opened the due event and began holding the player's card. Counted BEFORE this message's clock step, so the message the event comes due on (and the
     // card it stages) reads 0 and still gets the call; each later message while the card is held reads 1, 2 ... and the narrator is told the call was already voiced. Absent otherwise (byte-identical saves).
     if (this.live) { if (this.live.pending && milestoneDueOf(this.live)) this.live.dueHeldMessages = (this.live.dueHeldMessages ?? 0) + 1; else delete this.live.dueHeldMessages; }
+    // ORW-928: after the engine committed the eviction result (the evictee is named) the reveal and the evictee's exit were voiced on the turn that committed it. Count each later player message, counted BEFORE its own step, so the committing turn reads 0 and voices the night once.
+    if (this.live) { if (this.live.playedGame === true && this.live.eviction?.evictee) this.live.evictionVoicedMessages = (this.live.evictionVoicedMessages ?? 0) + 1; else delete this.live.evictionVoicedMessages; }
     this.advanceClockPerConversation();
     this.persist(); // the clock moved: one persisted commit (integrity checkpoint + beatSeq), survives a reload
     return { accepted: true, beatSeq: this.beatSeq }; // post-commit token: the FE refreshes its last-seen beatSeq from it (no self-inflicted stale-beat 409)
@@ -21706,6 +21708,7 @@ export class GameSessionAdapter implements GameSession {
       ...(e.evictee ? { evictee: ref(e.evictee) } : {}),
       ...(this.hostEnabled && this.live?.playedGame === true && !this.live.spectator ? { host: this.hostView(e) } : {}),
       ...this.voteBeatFor(e),
+      ...(e.evictee && (this.live?.evictionVoicedMessages ?? 0) > 0 ? { voicedTurns: this.live!.evictionVoicedMessages! } : {}),
     };
   }
 

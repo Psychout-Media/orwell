@@ -1881,6 +1881,8 @@ export interface EvictionView {
   host?: HostView;
   /** ORW-771 (`ORWELL_VOTE_BEAT`): the sealed beat facts of the Continue press just made through the vote reading. Absent for headless games or with the flag off. */
   voteBeat?: VoteBeatView;
+  /** ORW-928: how many player messages have come since the result was committed (the reveal, the exit speech and the walk were voiced on the turn that committed it). Absent when 0. */
+  voicedTurns?: number;
 }
 
 /**
