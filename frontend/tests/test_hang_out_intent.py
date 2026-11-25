@@ -56,13 +56,13 @@ def test_steer_voices_each_engine_stop_without_inventing():
 
 
 def test_steer_carries_the_engine_stop_line_for_every_stop_kind():
-    """ORW-22: the engine's player-facing line rides the steer so the reply must put the stop on screen; absent line => unchanged steer."""
+    """ORW-22: an engine stop line makes the steer require the stop on screen; absent line => unchanged steer. ORW-917: the line itself is never quoted (it was copied verbatim)."""
     for reason in ("event-due", "pulled", "npc-approach", "observed", "bedtime", "max-beats"):
         res = {"stopReason": reason, "minutes": 40, "detail": {"npc": "Role", "by": "production", "kind": "someone-moved", "who": ["A"]}}
         assert "shows the player this" not in ch._hang_out_steer(res)
         res["stopLine"] = f"LINE for {reason}."
         steer = ch._hang_out_steer(res)
-        assert f'"LINE for {reason}."' in steer and "Invent no ceremony" in steer
+        assert "shows the player this stop" in steer and f"LINE for {reason}." not in steer and "Invent no ceremony" in steer  # ORW-917: never quoted
 
 
 def _run(coro):
