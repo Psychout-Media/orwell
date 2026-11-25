@@ -136,3 +136,11 @@ banner does. Design, in the smallest-correct form:
 - Gates: `tests/unit/orw771VoteBeat.test.ts` (the fact on every ballot press, the tally press, E12 shape, flag off, no extra clock), `frontend/tests/test_orw771_vote_beat_cue.py`,
   and `test_orw771_vote_beat_card_browser.py`. Open (ORW-816): a real-stack test (real engine, real chat turn, second window) of a Continue press for a player on the block; the walk found no season
   that puts the player on the block in week 1 (150 seeds), so it is carded as ORW-816. A player who votes has no Continue card after their own vote card (the ballots then run on their next message), also ORW-816.
+
+## Amendment 2026-11-23 (ORW-791: the player who voted gets the same Continue step)
+
+The gap the ORW-771 note named is closed. Every ballot of a played, staged eviction leaves a ceremony WATCH step open (`pending` kind `ceremony-step`, step id `ballot`), including the first ballot
+that the player's own vote card reads. A Continue press (a bare `advanceGame`) reads exactly one more ballot; the press past the last ballot decides the vote. A typed message that is not a
+progress ask moves nothing (a real-stack run had shown one message after the vote drive nine ballots through the front end's one-turn reveal hops; that path is only reachable with no open step).
+`advance` answers the ballot step with the next ballot (`liveSeason.ts`); the clock is unchanged (ORW-262, the same per-step spread). Gates: `tests/unit/orw791VoteContinue.test.ts` and the
+real-stack `frontend/tests/test_orw791_vote_then_message.py`. A bare typed "next" at a ballot step still walks the ballots in one pass (the ORW-291 pacing ruling, `test_orw291p_ballot_pacing.py`).

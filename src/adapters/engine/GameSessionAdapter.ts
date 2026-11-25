@@ -145,7 +145,7 @@ import { agendaDumpRows } from "../../engine/agendaDump";
 import { hostRegister, registerWords, hostQuestionTexts, playerRoles, goodbyeRecordLines, type HostLine } from "../../engine/productionHost";
 import { pushbackFacts, type PushbackView } from "../../engine/producerPushback";
 import type { PlayerSaid, PlayerDid } from "../../engine/production";
-import { decideDiaryCall, awayHours, seenOf, callEventText, backEventText, playerVisitText, producerRegisterWords, type DiaryCallsState, type DiaryCallView } from "../../engine/diaryCalls";
+import { DIARY_CALLS, decideDiaryCall, awayHours, seenOf, callEventText, backEventText, playerVisitText, producerRegisterWords, type DiaryCallsState, type DiaryCallView } from "../../engine/diaryCalls";
 import { buildHouseStories } from "../../engine/houseStory";
 import type { StatedReasonView } from "../../ports/GameSession";
 import type { AskToTalkAloneReq, AskToTalkAloneResult } from "../../ports/GameSession";
@@ -1365,6 +1365,7 @@ export class GameSessionAdapter implements GameSession {
     this.seenMessageIds.push(id);
     if (this.seenMessageIds.length > 256) this.seenMessageIds.shift();
     this.disclosureEpoch++; // a new player turn: last turn's disclosure events are over
+    if (this.allianceRefusal && this.disclosureEpoch > this.allianceRefusal.epoch + 1) this.allianceRefusal = null; // ORW-913: told for the rest of that turn and the next one, then over
     this.ceremonyBeat = null; // ORW-247b: the player spoke - the ceremony scene is over, the house disperses on the calm tick
     // PLAYTEST BUG: freeze WHO IS IN THE ROOM at the moment the player sends - the turn-driven tick that follows this very commit re-seats the house, and a scene recorded later in the reply must
     // not treat a houseguest who walked in AFTER the player spoke as a witness. A frozen copy; cleared if the player changes rooms; replaced by the next send.
@@ -8799,6 +8800,8 @@ export class GameSessionAdapter implements GameSession {
   }
   /** ORW-593: why this turn's call for a house meeting was refused (memory-only, replaced by the next `resolvePlayerMove`); the narrator voices it, the engine writes no line. */
   private playerMeetingRefusal: MeetingRefusal | null = null;
+  /** ORW-913: the last alliance the player proposed that did not form (not close enough yet), for the narrator's next prompts (memory-only; never saved). */
+  private allianceRefusal: { name: string; names: string[]; epoch: number } | null = null;
 
   /**
    * 0156 slice 7b: the meeting the player heard, for the narrator: only when the player is awake and still in the game (a meeting held while they slept or were out is never handed over; the
@@ -15761,6 +15764,16 @@ export class GameSessionAdapter implements GameSession {
     return facts.length ? { register: producerRegisterWords(this.gameSeed ?? 0), facts } : undefined;
   }
   /** The Diary Room calls as facts for the narrator, or undefined. */
+  /** ORW-914: the Diary Room invitation is offered once per (week, dramatic beat), on the turn it first comes up (every read in that turn sees it), and not within `DIARY_CALLS.inviteQuietHours` of the player's own last visit. */
+  private diaryInviteShown: { key: string; epoch: number } | null = null;
+  private diaryInviteNow(beat: string): boolean {
+    const key = `${this.week}:${beat}`;
+    if (this.diaryInviteShown?.key === key) return this.diaryInviteShown.epoch === this.disclosureEpoch;
+    const abs = this.inGameAbsHour(), last = this.live?.diaryCalls?.playerLast;
+    if (abs !== undefined && last !== undefined && abs - last < DIARY_CALLS.inviteQuietHours) return false; // just visited: not now (a later turn of the beat may offer it)
+    this.diaryInviteShown = { key, epoch: this.disclosureEpoch };
+    return true;
+  }
   private diaryCallView(invited: boolean): DiaryCallView | undefined {
     if (!this.diaryCallsLive()) return undefined;
     const s = this.live!, abs = this.inGameAbsHour()!;
@@ -19125,7 +19138,12 @@ export class GameSessionAdapter implements GameSession {
     );
     const bondOf = (a: EntityId, b: EntityId): number => (this.rel.edge(a, b).trust + this.rel.edge(a, b).affinity) / 2;
     const willing = willingMembers(PLAYER, proposed, (m) => Math.min(bondOf(PLAYER, m), bondOf(m, PLAYER)));
-    if (willing.length < 2) return null; // nobody close enough bought in — no alliance of one
+    if (willing.length < 2) { // nobody close enough bought in — no alliance of one
+      // ORW-913: the narrator may already have voiced everyone swearing in (the call comes after the scene): tell it next turn, in the world's terms, that the group did not form. Memory-only, two turns.
+      if (this.live.playedGame === true && proposed.length >= 2) this.allianceRefusal = { name: (req.name ?? "").slice(0, 60).trim() || "an alliance", names: proposed.map((m) => this.nameOf(m)), epoch: this.disclosureEpoch };
+      return null;
+    }
+    this.allianceRefusal = null;
     const name = (req.name ?? "").slice(0, 60).trim() || "our alliance";
     const others = willing.filter((m) => m !== PLAYER);
     this.onPlayerEvent?.(
@@ -22014,7 +22032,8 @@ export class GameSessionAdapter implements GameSession {
     const view4 = this.claimSourceNote ? { ...view3b, sourceNote: this.claimSourceNote } : view3b; // 0152: the answer to "who told you that?", this turn only
     const meetingNow = this.houseMeetingForNarrator(); // 0156 slice 7b: a meeting the player was in the house and awake to hear (one turn; absent otherwise)
     const view5 = meetingNow ? { ...view4, houseMeeting: meetingNow } : view4;
-    const view6 = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
+    const view6a = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
+    const view6 = this.allianceRefusal ? { ...view6a, allianceNotFormed: { name: this.allianceRefusal.name, with: this.allianceRefusal.names } } : view6a; // ORW-913: a proposed alliance that did not form, for two turns
     const keepers = (req.moment ?? view6.moment) === "eviction" ? this.keepPromisersOfPlayer() : []; // ORW-737: eviction night only
     const view = keepers.length ? { ...view6, keepPromisers: keepers } : view6;
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
@@ -23106,7 +23125,11 @@ export class GameSessionAdapter implements GameSession {
     // (no field ⇒ the FE sees nothing, byte-identical to before this fix); present only at the
     // dramatic beats `beatForMoment` recognizes (nomination/veto-ceremony/eviction). An INVITATION
     // only — it changes no game state and is never forced.
-    const drPrompt = producerPrompt(beatForMoment(moment));
+    // ORW-914: a dramatic beat spans many turns (the nominations week), and the invitation was offered on EVERY one of them: the Diary Room called the player about ten times a week, straight after a visit too.
+    // Now once per beat per week (the rest of that turn re-reads it), and never within a few in-game hours of the player's own visit. Memory-only: a restart offers it once more.
+    const drBeat = beatForMoment(moment);
+    const drRaw = producerPrompt(drBeat);
+    const drPrompt = drRaw.invite && !this.diaryInviteNow(drBeat) ? { invite: false } : drRaw;
     // 0115 — the player's Diary-Room STRATEGY, projected as a PRIVATE steer for the narrator (their
     // real read, in their own words). Vault-free by construction: reads ONLY the player's own
     // `NO_NPC_PATHWAY` knowledge (never a Vault read, never any NPC's knowledge), and never feeds any
