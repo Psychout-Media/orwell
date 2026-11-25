@@ -11,7 +11,7 @@ import {
   AGE_BANDS, AGE_ELIGIBILITY_FLOOR, ageBandOf,
   BIPOC_ETHNICITIES, NON_BIPOC_ETHNICITIES, ALL_ETHNICITIES, MAX_PER_ETHNICITY,
   GENDER_PRESENTATIONS, MAX_NONBINARY,
-  ORIENTATIONS, QUEER_ORIENTATIONS, PUBLICLY_OUT_PROB,
+  ORIENTATIONS, ORIENTATION_DRAW, PUBLICLY_OUT_PROB,
 } from "./diversityConstants";
 import type { EthnicityIdentity, GenderPresentation, Orientation } from "./diversityConstants";
 
@@ -119,6 +119,10 @@ interface Draft {
   ethnicity: EthnicityIdentity;
   genderPresentation: GenderPresentation;
   orientation: Orientation;
+  /** ORW-893: the independent continuous draws the orientation is read from once the gender presentation is final. */
+  axes: OrientationAxes;
+  /** ORW-893: a recognized PROPOSED orientation (cast authoring), used only if it fits the final gender presentation. */
+  proposedOrientation?: Orientation;
   /** True when the orientation is public (out); false when held privately (Vault-sealed). */
   out: boolean;
   /** True when the balance repair had to flip a clearly-gendered name (a bounded, documented exception). */
@@ -126,6 +130,29 @@ interface Draft {
   /** #1140 — the RE-PICKED display name when the drawn name disagreed with the final gender presentation
    * (given-name token swapped to the target gender, surname kept). Absent ⇒ the drawn name already cohered. */
   renamed?: string;
+}
+
+/** ORW-893: the independent attraction draws behind an orientation (see `ORIENTATION_DRAW`). All in [0, 1). */
+interface OrientationAxes { same: number; other: number; genderBlind: number; selfLabel: number }
+
+/** Does an orientation LABEL fit a gender presentation? "gay" is a man's, "lesbian" a woman's; every other label fits anyone. */
+export function orientationFits(o: Orientation, g: GenderPresentation): boolean {
+  if (o === "gay") return g === "man";
+  if (o === "lesbian") return g === "woman";
+  return true;
+}
+
+/**
+ * ORW-893: read the orientation LABEL off the continuous attractions and the houseguest's own presentation (an orientation is a relation to one's own presentation). `forceSame` is the floor's repair: the
+ * same-gender attraction is taken as present (everything else as drawn). Pure.
+ */
+export function orientationFromAxes(a: OrientationAxes, g: GenderPresentation, forceSame = false): Orientation {
+  const D = ORIENTATION_DRAW;
+  const same = forceSame || a.same >= D.attractionThreshold;
+  const other = a.other >= D.attractionThreshold;
+  if (same && other) return a.selfLabel >= D.queerLabelFrom ? "queer" : a.genderBlind >= D.pansexualFrom ? "pansexual" : "bisexual";
+  if (same) return a.selfLabel >= D.queerLabelFrom || g === "nonbinary" ? "queer" : g === "man" ? "gay" : "lesbian";
+  return "straight";
 }
 
 const orientationSpec = (o: Orientation) => ORIENTATIONS.find((s) => s.orientation === o)!;
@@ -241,15 +268,21 @@ export function generateDiversityLayer(
       ethUses.set(dealtEthnicity.heritage, Math.max(0, (ethUses.get(dealtEthnicity.heritage) ?? 1) - 1));
       ethUses.set(ethnicity.heritage, (ethUses.get(ethnicity.heritage) ?? 0) + 1);
     }
-    // Orientation: a recognized proposed orientation overrides the seeded pick (still drawn for isolation).
-    const dealtOrientation = ORIENTATIONS[orRng.int(ORIENTATIONS.length)]!.orientation;
-    const orientation = want && isKnownOrientation(want.orientation) ? want.orientation : dealtOrientation;
+    // Orientation (ORW-893): four independent continuous draws per houseguest off the orientation sub-stream (always drawn, so a proposal never shifts the stream); the label is read off them AFTER the gender
+    // presentation is final (below), so it always fits it. A recognized proposed orientation is kept only if it fits the final presentation.
+    const axes: OrientationAxes = {
+      same: Math.pow(orRng.next(), ORIENTATION_DRAW.sameExponent),
+      other: 1 - Math.pow(orRng.next(), ORIENTATION_DRAW.otherExponent),
+      genderBlind: orRng.next(),
+      selfLabel: orRng.next(),
+    };
+    const orientation = orientationFromAxes(axes, genderPresentation);
     // Age: a proposed age at/above the eligibility floor overrides the seeded age (descriptive only — age
     // is NOT a competition/vote input, so this never perturbs the outcome stream; the age-band repair below
     // still guarantees the spread). Below the floor / absent ⇒ the seed-stable Character age stands.
     const age = want && typeof want.age === "number" && want.age >= AGE_ELIGIBILITY_FLOOR
       ? Math.floor(want.age) : n.character.age;
-    return { id: n.id, name: n.name, nameGender, age, ethnicity, genderPresentation, orientation, out: true };
+    return { id: n.id, name: n.name, nameGender, age, ethnicity, genderPresentation, orientation, axes, ...(want && isKnownOrientation(want.orientation) ? { proposedOrientation: want.orientation } : {}), out: true };
   });
 
   // ── 2. Repair — BIPOC floor (swap non-BIPOC drafts up to BIPOC heritages, respecting the cap) ────
@@ -342,6 +375,12 @@ export function generateDiversityLayer(
     }
   }
 
+  // ── 5.5 ORW-893: the orientation LABEL, now that every gender repair is final: read off the drawn attractions against the final presentation (a proposal that fits is kept) ──────────────────
+  for (const d of drafts) {
+    d.orientation = d.proposedOrientation !== undefined && orientationFits(d.proposedOrientation, d.genderPresentation)
+      ? d.proposedOrientation : orientationFromAxes(d.axes, d.genderPresentation);
+  }
+
   // ── 6. Repair — LGBTQ+ floor (queer orientations / nonbinary), counted across the cast ───────────
   const queerCount = () => drafts.filter((d) => countsQueer(d)).length;
   if (queerCount() < MIN_QUEER) {
@@ -349,7 +388,7 @@ export function generateDiversityLayer(
       if (queerCount() >= MIN_QUEER) break;
       if (countsQueer(d)) continue;
       // Assign a seeded queer orientation (never nonbinary here — that's gender, repaired above).
-      d.orientation = QUEER_ORIENTATIONS[orRng.int(QUEER_ORIENTATIONS.length)]!.orientation;
+      d.orientation = orientationFromAxes(d.axes, d.genderPresentation, true); // ORW-893: same-gender attraction present, the rest as drawn: always fits the presentation
     }
   }
 

@@ -185,6 +185,22 @@ export const ORIENTATIONS: readonly OrientationSpec[] = [
   { orientation: "pansexual", queer: true },
 ];
 
+/**
+ * ORW-893: how an orientation is DRAWN. The labels above are only the closed set the result is validated against; nobody is dealt a label. Each houseguest gets independent, continuous attractions, and the
+ * label is read off them against the houseguest's own gender presentation (an orientation is a relation to one's own presentation: "lesbian" is a woman attracted to women, "gay" a man attracted to men):
+ *  - `sameAttraction` u^`sameExponent` (a share of attraction directed at the same gender: most of the mass near 0, a thin tail up to 1) and `otherAttraction` 1 - u^`otherExponent` (most near 1),
+ *    so about a tenth of a cast has a meaningful same-gender attraction, the realistic young-cast figure (the LGBTQ+ floor of MIN_QUEER still repairs an unlucky small cast up);
+ *  - attraction counts at `attractionThreshold`; both present = open to both (bisexual, or pansexual when the independent `genderBlind` draw reaches `pansexualFrom`, or the self-label "queer" when the
+ *    independent `selfLabel` draw reaches `queerLabelFrom`); same only = gay (men) / lesbian (women) / queer (nonbinary or the self-label); other only or neither = straight.
+ */
+export const ORIENTATION_DRAW = {
+  sameExponent: 10,
+  otherExponent: 5,
+  attractionThreshold: 0.35,
+  pansexualFrom: 0.7,
+  queerLabelFrom: 0.85,
+} as const;
+
 /** The queer (non-straight) orientations the floor draws from when it must repair UP to MIN_QUEER. */
 export const QUEER_ORIENTATIONS: readonly OrientationSpec[] = ORIENTATIONS.filter((o) => o.queer);
 
