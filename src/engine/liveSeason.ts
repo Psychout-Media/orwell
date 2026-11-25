@@ -1107,8 +1107,6 @@ export interface LiveSeasonState {
   dayNumber?: number;
   /** ORW-859: player messages since the due event opened and the engine began holding the player's card (see `noteMessage`); absent when 0. */
   dueHeldMessages?: number;
-  /** ORW-928: player messages that came after the engine committed the eviction result (the evictee is named): the reveal and the walk were voiced on the turn that committed it, so a later turn must not stage them again. Absent when 0. */
-  evictionVoicedMessages?: number;
   dailyRecapEventCursor?: number;
   dailyRecapKnowledgeCursor?: number;
   lastDailyRecap?: DailyRecapEntry;
