@@ -3715,6 +3715,8 @@ def _player_move_instructions(room_names=None) -> str:
         f"Room ids: {rooms}.\n"
         "Pick the room the player ENDED UP IN if they clearly moved there themselves "
         "(\"I head to the kitchen\", \"let's go out back\", \"I wander into the living room\"). "
+        "WHAT HAPPENED decides it (ORW-918): if the player said they were going somewhere but WHAT HAPPENED still shows them where they were, "
+        "never answer the room they named; answer the room WHAT HAPPENED shows them in, or null if that is unclear. "
         'If the player did NOT move (they stayed put, only spoke, or only an NPC moved), reply '
         '{"room":null}. Map loose names to the closest id (\"out back\"/\"yard\" → backyard, '
         "\"couch\" → living-room, \"games room\" → lounge, \"hall\" → hallway, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room)."
@@ -3866,6 +3868,14 @@ def _player_named_diary_room(last_user, room_names=None) -> bool:
     return "diary-room" in _themed_rooms_in(text, room_names)
 
 
+def _narration_places_player_elsewhere(narration, room, room_names=None) -> bool:
+    """ORW-918: True when the narration names rooms and none of them can be `room`: what the player was shown keeps them away from the room the extraction answered.
+    A narration that names no room is no evidence either way (False: the L21/L24 belt moves as before). Deterministic, no model."""
+    from src.house_rooms import rooms_named_in
+    named = rooms_named_in(narration, room_names)
+    return bool(named) and not any(room in rooms for rooms in named)
+
+
 async def _auto_move_player(narration, last_user, endpoint_url, model, headers, owner, raw=None) -> bool:
     """GUARANTEE whereabouts cohesion (L21/L24). When the player's turn walked them to a room but the
     model never called moveTo, a constrained extraction proposes the destination room and we call
@@ -3891,9 +3901,15 @@ async def _auto_move_player(narration, last_user, endpoint_url, model, headers, 
         if obj is None:
             logger.info(f"[orwell] auto-move: no parseable JSON (len={len(raw)})")
             return False
-        room = _room_id_of(obj.get("room"), _season_room_names(owner))  # ORW-466: a themed-name echo still maps to its id
+        _names = _season_room_names(owner)
+        room = _room_id_of(obj.get("room"), _names)  # ORW-466: a themed-name echo still maps to its id
         if not room:
             return False  # null / no move / unknown room → nothing to do
+        if _narration_places_player_elsewhere(narration, room, _names):
+            # ORW-918: the narration the player saw keeps them somewhere else (it names rooms, never this one), so the engine must not move them here: the engine would
+            # put them alone in a room they were never shown in, and the house's scenes there would be recorded as witnessed by them. Next turn grounds to where they are.
+            logger.info(f"[orwell] auto-move: narration keeps the player elsewhere, no move to {room} user={owner}")
+            return False
         if room == "diary-room" and not _player_named_diary_room(last_user, _season_room_names(owner)):
             # ORW-734b (ADR 0009, 0210 C2): the player is INVITED to the Diary Room, never sent. A narrated invitation or "you are called" line is not
             # the player's own move, so only the player's own words can take them in.
