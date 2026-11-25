@@ -22121,7 +22121,10 @@ export class GameSessionAdapter implements GameSession {
     const view6a = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
     const bedHeld = this.bedtimeHeldForNarrator(); // ORW-920: a bed the engine held, told to the narrator (this turn and the next, only before the night)
     const view6b = bedHeld ? { ...view6a, bedtimeHeld: bedHeld } : view6a;
-    const view6 = this.allianceRefusal ? { ...view6b, allianceNotFormed: { name: this.allianceRefusal.name, with: this.allianceRefusal.names } } : view6b; // ORW-913: a proposed alliance that did not form, for two turns
+    const view6c = this.allianceRefusal ? { ...view6b, allianceNotFormed: { name: this.allianceRefusal.name, with: this.allianceRefusal.names } } : view6b; // ORW-913: a proposed alliance that did not form, for two turns
+    // ORW-794: an alliance an NPC has let the player in on and the player has not taken: the narrator is HANDED it (the same roster gameStatus shows, the one the player was told), instead of having to go and look.
+    const pitchesOpen = this.alliances.pitchesFor(PLAYER);
+    const view6 = pitchesOpen.length ? { ...view6c, alliancePitchesOpen: pitchesOpen.map((a) => this.allianceView(a, true)) } : view6c;
     const keepers = (req.moment ?? view6.moment) === "eviction" ? this.keepPromisersOfPlayer() : []; // ORW-737: eviction night only
     const view7 = keepers.length ? { ...view6, keepPromisers: keepers } : view6;
     const votePromises = this.votePromisesForNarrator(); // ORW-750: the vote promises on the record, for each nominee (the week of a nomination only)

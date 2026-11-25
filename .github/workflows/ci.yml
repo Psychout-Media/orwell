@@ -394,8 +394,11 @@ jobs:
           - leg: season-mix
             scripts: "season-mix"
           # ORW-741: the real-path tests (a feature reached in a PLAYED season, no hand-set state, and gone when switched off). A few minutes of play in all.
-          - leg: real-path
-            scripts: "real-path"
+          # Two shards (ORW-702, CI unblock): the one leg ran 13-20 min against its 25-min cap and capped on a slow runner. A is an explicit file list balanced on main's timings; B is every other realPath file, so a new file lands in B.
+          - leg: real-path-a
+            scripts: "real-path-a"
+          - leg: real-path-b
+            scripts: "real-path-b"
     name: heavy-sims (${{ matrix.leg }})
     steps:
       - uses: actions/checkout@v4
