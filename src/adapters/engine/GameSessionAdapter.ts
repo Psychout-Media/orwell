@@ -1365,6 +1365,7 @@ export class GameSessionAdapter implements GameSession {
     this.seenMessageIds.push(id);
     if (this.seenMessageIds.length > 256) this.seenMessageIds.shift();
     this.disclosureEpoch++; // a new player turn: last turn's disclosure events are over
+    if (this.allianceRefusal && this.disclosureEpoch > this.allianceRefusal.epoch + 1) this.allianceRefusal = null; // ORW-913: told for the rest of that turn and the next one, then over
     this.ceremonyBeat = null; // ORW-247b: the player spoke - the ceremony scene is over, the house disperses on the calm tick
     // PLAYTEST BUG: freeze WHO IS IN THE ROOM at the moment the player sends - the turn-driven tick that follows this very commit re-seats the house, and a scene recorded later in the reply must
     // not treat a houseguest who walked in AFTER the player spoke as a witness. A frozen copy; cleared if the player changes rooms; replaced by the next send.
@@ -8798,6 +8799,8 @@ export class GameSessionAdapter implements GameSession {
   }
   /** ORW-593: why this turn's call for a house meeting was refused (memory-only, replaced by the next `resolvePlayerMove`); the narrator voices it, the engine writes no line. */
   private playerMeetingRefusal: MeetingRefusal | null = null;
+  /** ORW-913: the last alliance the player proposed that did not form (not close enough yet), for the narrator's next prompts (memory-only; never saved). */
+  private allianceRefusal: { name: string; names: string[]; epoch: number } | null = null;
 
   /**
    * 0156 slice 7b: the meeting the player heard, for the narrator: only when the player is awake and still in the game (a meeting held while they slept or were out is never handed over; the
@@ -19124,7 +19127,12 @@ export class GameSessionAdapter implements GameSession {
     );
     const bondOf = (a: EntityId, b: EntityId): number => (this.rel.edge(a, b).trust + this.rel.edge(a, b).affinity) / 2;
     const willing = willingMembers(PLAYER, proposed, (m) => Math.min(bondOf(PLAYER, m), bondOf(m, PLAYER)));
-    if (willing.length < 2) return null; // nobody close enough bought in — no alliance of one
+    if (willing.length < 2) { // nobody close enough bought in — no alliance of one
+      // ORW-913: the narrator may already have voiced everyone swearing in (the call comes after the scene): tell it next turn, in the world's terms, that the group did not form. Memory-only, two turns.
+      if (this.live.playedGame === true && proposed.length >= 2) this.allianceRefusal = { name: (req.name ?? "").slice(0, 60).trim() || "an alliance", names: proposed.map((m) => this.nameOf(m)), epoch: this.disclosureEpoch };
+      return null;
+    }
+    this.allianceRefusal = null;
     const name = (req.name ?? "").slice(0, 60).trim() || "our alliance";
     const others = willing.filter((m) => m !== PLAYER);
     this.onPlayerEvent?.(
@@ -22013,7 +22021,8 @@ export class GameSessionAdapter implements GameSession {
     const view4 = this.claimSourceNote ? { ...view3b, sourceNote: this.claimSourceNote } : view3b; // 0152: the answer to "who told you that?", this turn only
     const meetingNow = this.houseMeetingForNarrator(); // 0156 slice 7b: a meeting the player was in the house and awake to hear (one turn; absent otherwise)
     const view5 = meetingNow ? { ...view4, houseMeeting: meetingNow } : view4;
-    const view6 = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
+    const view6a = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
+    const view6 = this.allianceRefusal ? { ...view6a, allianceNotFormed: { name: this.allianceRefusal.name, with: this.allianceRefusal.names } } : view6a; // ORW-913: a proposed alliance that did not form, for two turns
     const keepers = (req.moment ?? view6.moment) === "eviction" ? this.keepPromisersOfPlayer() : []; // ORW-737: eviction night only
     const view = keepers.length ? { ...view6, keepPromisers: keepers } : view6;
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
