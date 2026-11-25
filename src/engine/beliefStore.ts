@@ -13,7 +13,12 @@ import { clamp01Raw } from "../domain/num";
  * created at all (byte-identical season state). ENGINE-ONLY: never projected to any outward surface, never placed in a narrator context —
  * a holder's false belief may only ever be voiced BY that holder, and never the truth it contradicts.
  */
-export type ClaimKind = "heard-rumor" | "voted-against-me" | "targets-me" | "allied-with" | "holds-power" | "will-vote" | "assured-me" | "lied-to-me";
+/**
+ * ORW-767 (the ONE authorised additive edit here, for the Auditor's review): `"couple"` is a new closed-set kind - the holder believes `subject` and `object` are a couple (the pair, ordered by id).
+ * It is ONLY a new member of this union: no existing kind, field, order, function or default changes, and no store reads it unless it already filters on its own kinds (each reader switches/filters on
+ * named kinds, so a belief of the new kind is inert to all of them). Written by `coupleTold.ts`'s writers only, behind `ORWELL_COUPLE_TOLD`; flag off => never written.
+ */
+export type ClaimKind = "heard-rumor" | "voted-against-me" | "targets-me" | "allied-with" | "holds-power" | "will-vote" | "assured-me" | "lied-to-me" | "couple";
 export type ClaimOrigin = "witnessed" | "told" | "overheard" | "gossip" | "deduced" | "assured";
 
 /** The signed move a claim caused on the holder's own edge toward the subject (what the edge update ABSORBED). */
