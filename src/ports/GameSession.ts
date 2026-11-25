@@ -572,6 +572,8 @@ export interface GameStateView {
        * committed it; once made, `used` says which way it went, and `saved` / `replacement` name who came off the block and who went up (public ceremony facts).
        */
       decision?: { made: boolean; used?: boolean; saved?: { id: EntityId; name: string }; replacement?: { id: EntityId; name: string } };
+      /** ORW-924 (`ORWELL_VOTE_BEAT`): the facts of the veto DRAW's open watch step, so a Continue press through the draw can be voiced as a short beat. Present only while the draw ceremony is open in a played game. */
+      drawBeat?: VetoDrawBeatView;
     };
     /**
      * ORW-715: while a staged competition is under way, who is still on the floor and who is already out (public ceremony facts, the drops the game has already announced).
@@ -1728,6 +1730,26 @@ export interface OpenDealOfferView {
   howToVoice: string;
 }
 
+/**
+ * ORW-924 - the facts of one Continue press through the veto DRAW, for the narrator to voice a short beat (the narrator authors every word). Public ceremony facts only: the HOH, the
+ * nominees, which step is open, and the six ONLY once the draw's field step has published them. It names no veto winner and no result: the competition has not been run.
+ */
+export interface VetoDrawBeatView {
+  /** The draw's step now open (or just closed on the closing Continue): `chips` (the chips are being drawn) or `field` (the six are set). */
+  step: string;
+  /** 1-based step number and the ceremony's length. */
+  stepNumber: number;
+  of: number | null;
+  /** True on the closing Continue (the draw ceremony is over; the competition is not yet run). */
+  closed: boolean;
+  hoh: NamedRef | null;
+  nominees: NamedRef[];
+  /** The six drawn to play, present only once the field step has published them. */
+  field?: NamedRef[];
+  gathered: number;
+  timeOfDay?: string;
+}
+
 /** ORW-281 slice 4a: the staged-ceremony step handle (`step` is 1-based; `of` is null when a ceremony's length is open-ended). */
 export interface CeremonyStepView {
   kind: "nominations" | "veto-draw" | "veto-ceremony" | "eviction" | "final-eviction";
@@ -1955,6 +1977,8 @@ export interface AdvanceView {
   finale?: FinaleView | null;
   /** The in-progress eviction projection (0047); present only while a weekly eviction is staging. */
   eviction?: EvictionView | null;
+  /** ORW-924 (`ORWELL_VOTE_BEAT`): the facts of the veto-draw Continue press just made (the step this result opened, or the one a closing Continue just closed). Absent outside a played veto draw. */
+  vetoDrawBeat?: VetoDrawBeatView;
   /**
    * 0102 (PO review 2026-06-27 redesign, #884) — present ONLY on the `turnIn` result that closes an
    * in-game day: the Vault-free "day in review" digest + its optional non-committal cliffhanger. Absent
