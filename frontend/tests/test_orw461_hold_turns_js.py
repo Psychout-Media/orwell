@@ -52,7 +52,7 @@ function turnsOn(s) { return s.sent.filter((f) => f.t === "turn"); }
 # A fake clock: every timer fires on the next macrotask and advances `now` by its delay, so a bound of minutes runs in milliseconds.
 _FAKE = r"""
 let now = 1000000; Date.now = () => now;
-global.setTimeout = (fn, ms) => { setImmediate(() => { now += (ms || 0); fn(); }); return 0; };
+global.setTimeout = (fn, ms) => { if (ms === 60000) return 0; /* ORW-909: the turn-ack watchdog is a real-time bound, not part of the hold-wait model under test */ setImmediate(() => { now += (ms || 0); fn(); }); return 0; };
 global.clearTimeout = () => {};
 """
 _HOLD_BOUNDED = _PRE.replace("let lastSock = null;", _FAKE + "let lastSock = null;", 1) + r"""
