@@ -9,7 +9,7 @@ export type Habit = "early-riser" | "night-owl" | "gym-rat" | "house-cook" | "ne
 
 export const HOUSE_LIFE = {
   /** ORW-702: friction scales from `dramaFrom` on day 1 to `dramaTo` after `dramaOverDays` days (see `dramaScale`): drama builds over the season. */
-  dramaFrom: 0.6,
+  dramaFrom: 0.8,
   dramaTo: 1.8,
   dramaOverDays: 70,
   /** How strongly a goal pulls its holder into acting on it this hour (x commitment), against the pull of ordinary life. */
@@ -20,7 +20,7 @@ export const HOUSE_LIFE = {
   /** ORW-702: the chance a goal step that folds as gossip (fish, plant, wedge, frame, leak, test-a-rumor) actually takes the hour; otherwise the hour goes to ordinary life. Gossip was 42 to 49 % of a whole season's scenes (band 22-36). */
   goalGossipKeep: 0.5,
   /** ORW-702: the same for a goal step that folds as strategy (check-in, count-votes, flip-a-vote...): strategy rose as gossip fell. Measured on the guard seeds with the surviving player (ORW-702). */
-  goalStrategyKeep: 0.85,
+  goalStrategyKeep: 0.9,
   /** ORW-353 (A's live week: 16 of 588 off-screen scenes were conflict and ALL were chore fights, none from a goal, though 64 get-them-out goals existed): a HOT get-them-out goal (commitment above `hotGoal`) sharing a room with its target adds
    *  up to this much to the chance of a direct confrontation, whatever the holder's temper. */
   hotConfront: 0.22,
