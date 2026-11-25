@@ -15169,8 +15169,8 @@ export class GameSessionAdapter implements GameSession {
   private answerAimedFrom(npc: EntityId): void {
     const ask = this.live?.approachAsked?.[npc]; if (ask && ask.answered !== true) ask.answered = true; // ORW-709: the player's answer is recorded: the question is closed and stays so
     if (!this.playerAimedEnabled) return;
-    // ORW-905: the answer closes only a record that SURFACED (shown). An open one the player never saw (a hostile fight that never surfaced) is not something they responded to: it stays, so its fight is not silently defused.
-    for (const r of this.live?.aimedAtPlayer ?? []) if (r.actor === npc && r.status === "shown") r.status = "answered";
+    // ORW-905: the answer closes a record that SURFACED (shown) and an unseen non-hostile one (as before). An open HOSTILE one the player never saw is not something they responded to: it stays, so its fight is not silently defused.
+    for (const r of this.live?.aimedAtPlayer ?? []) if (r.actor === npc && (r.status === "shown" || (r.status === "open" && !r.hostile))) r.status = "answered";
   }
   /**
    * 0172 / ORW-611: once a day. A step that surfaced as an approach is written down as a scene the player was present for (a witnessed event, never hidden); a step the player never answered closes: a hostile one costs that houseguest's
