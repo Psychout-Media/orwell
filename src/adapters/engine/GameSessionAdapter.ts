@@ -5,7 +5,7 @@ import type {
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, NapReq, NapView, NapRefusal, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
-  FinaleView, EvictionView, HostView, VoteBeatView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, WalkedInView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
+  FinaleView, EvictionView, HostView, VoteBeatView, VetoDrawBeatView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, WalkedInView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, ProducerVaultView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
   DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult, RecordEpisodeTitlesReq, RecordEpisodeTitlesResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
@@ -1389,7 +1389,10 @@ export class GameSessionAdapter implements GameSession {
     this.hangOutSkipStepAt = undefined; // a hang-out's one-shot skip is for the legacy per-commit follow-up; every announced message bills its own step
     // ORW-859: how many player messages have come since the engine opened the due event and began holding the player's card. Counted BEFORE this message's clock step, so the message the event comes due on (and the
     // card it stages) reads 0 and still gets the call; each later message while the card is held reads 1, 2 ... and the narrator is told the call was already voiced. Absent otherwise (byte-identical saves).
+    if (this.live?.compSilentOut) { if (this.live.compSilentSeen) { delete this.live.compSilentOut; delete this.live.compSilentSeen; } else this.live.compSilentSeen = true; } // ORW-927: the silent drops are told to the narrator on exactly ONE player message (this one's framing), and cleared at the next
     if (this.live) { if (this.live.pending && milestoneDueOf(this.live)) this.live.dueHeldMessages = (this.live.dueHeldMessages ?? 0) + 1; else delete this.live.dueHeldMessages; }
+    // ORW-928: after the engine committed the eviction result (the evictee is named) the reveal and the evictee's exit were voiced on the turn that committed it. Count each later player message, counted BEFORE its own step, so the committing turn reads 0 and voices the night once.
+    this.evictionVoicedMsgs = this.live && this.live.playedGame === true && this.live.eviction?.evictee ? this.evictionVoicedMsgs + 1 : 0; // memory-only (like the ceremony beat): a restart mid-night forgets it, never a persisted live field
     this.advanceClockPerConversation();
     this.persist(); // the clock moved: one persisted commit (integrity checkpoint + beatSeq), survives a reload
     return { accepted: true, beatSeq: this.beatSeq }; // post-commit token: the FE refreshes its last-seen beatSeq from it (no self-inflicted stale-beat 409)
@@ -6696,10 +6699,11 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** ORW-715: the staged competition's floor - who is still in and who has already gone out (the drops the game has announced). Undefined unless a staged competition is live. */
-  private competitionFieldFact(): { stillIn: Array<{ id: EntityId; name: string }>; out: Array<{ id: EntityId; name: string }> } | undefined {
+  private competitionFieldFact(): { stillIn: Array<{ id: EntityId; name: string }>; out: Array<{ id: EntityId; name: string }>; justOut?: Array<{ id: EntityId; name: string }> } | undefined {
     const c = this.live?.competition;
     if (!this.ceremonyFactsEnabled || !c || !this.playedGameNow() || !c.eliminated?.length) return undefined;
-    return { stillIn: c.stillIn.map((id) => ({ id, name: this.nameOf(id) })), out: c.eliminated.map((id) => ({ id, name: this.nameOf(id) })) };
+    const silent = (this.live?.compSilentOut ?? []).filter((id) => c.eliminated.includes(id));
+    return { stillIn: c.stillIn.map((id) => ({ id, name: this.nameOf(id) })), out: c.eliminated.map((id) => ({ id, name: this.nameOf(id) })), ...(silent.length ? { justOut: silent.map((id) => ({ id, name: this.nameOf(id) })) } : {}) };
   }
 
   private card(id?: EntityId): { id: EntityId; name: string } | null {
@@ -7967,6 +7971,7 @@ export class GameSessionAdapter implements GameSession {
     const dest = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) ?? (claimedBed ? roomOfBed(claimedBed) : null) ?? this.roomOfSightedHouseguest(String(req.text ?? ""), here);
     const hadMove = this.playerMove !== null;
     this.playerMove = null; // a new player message: last turn's move is over
+    this.holdNamedHouseguest(String(req.text ?? ""), dest); // ORW-933: the houseguest the message turns to is held in the room (below)
     let result: ResolvePlayerMoveResult;
     if (dest === null || here === null || dest === here) {
       if (hadMove) this.persist();
@@ -8090,6 +8095,24 @@ export class GameSessionAdapter implements GameSession {
     this.noteConversationPartners([npc]);
     this.persist();
     return finish({ outcome: "accepted", room: dest, roomName: this.roomName(dest) });
+  }
+
+  /**
+   * ORW-933 (Fable's week-2 run, turns 278-279): the player turned to a houseguest by name ("I find <X> ... Deal?"), they spoke, and the next turn the engine had them in another room. The conversation hold (ORW-212) keeps the
+   * player's partners in the room for a few ticks, but it started only once a scene was recorded AFTER the reply, so a houseguest the message itself named was free to walk out meanwhile. A houseguest the message names who is in the
+   * room the player is in (or the room the message takes them to) is a conversation partner from the moment of the message. Memory-only (the same hold), player-facing view only, no rng, nothing persisted, never a move of the houseguest.
+   */
+  private holdNamedHouseguest(text: string, dest: Room | null): void {
+    if (!this.house || !this.presence) return;
+    const me = this.house.player.id;
+    const here = this.presence.get(me);
+    if (!here) return;
+    const phrase = parsePlayerPersonIntent(text, here, this.themedAliases());
+    if (phrase === null) return;
+    const room = dest ?? here; // a "go find X" move lands the player where X is; the hold is read for the ticks after the move
+    const there = [...this.presence].filter(([id, where]) => id !== me && where === room).map(([id]) => ({ id, name: this.nameOf(id) }));
+    const hit = matchHouseguestName(phrase, there);
+    if (hit) this.noteConversationPartners([hit.id]);
   }
 
   /**
@@ -8802,6 +8825,16 @@ export class GameSessionAdapter implements GameSession {
   }
   /** ORW-593: why this turn's call for a house meeting was refused (memory-only, replaced by the next `resolvePlayerMove`); the narrator voices it, the engine writes no line. */
   private playerMeetingRefusal: MeetingRefusal | null = null;
+  /** ORW-920: the message epoch in which `turnIn` last answered `held: bedtime` (memory-only, never saved). */
+  private bedtimeHeldEpoch: number | null = null;
+  /** ORW-920: for the narrator's moment prompt, this turn and the next, while it is still before the night: the minutes until bed opens, read fresh from the clock. */
+  private bedtimeHeldForNarrator(): { minutesUntil: number } | undefined {
+    const live = this.live;
+    if (this.bedtimeHeldEpoch === null || !live || this.disclosureEpoch > this.bedtimeHeldEpoch + 1) return undefined;
+    if (live.timeOfDay !== "morning" && live.timeOfDay !== "afternoon" && live.timeOfDay !== "evening") return undefined;
+    const hour = live.nightDepth ?? WAKE_HOUR;
+    return { minutesUntil: Math.max(0, Math.round((CLOCK.phaseStartsHour.night - hour) * 60)) };
+  }
   /** ORW-913: the last alliance the player proposed that did not form (not close enough yet), for the narrator's next prompts (memory-only; never saved). */
   private allianceRefusal: { name: string; names: string[]; epoch: number } | null = null;
 
@@ -9131,6 +9164,8 @@ export class GameSessionAdapter implements GameSession {
    * are untouched, only the player-facing map is overwritten) and ends with it; afterwards the ordinary calm tick (capped movers per tick) disperses them on their own timing. The calibration base map
    * is never touched. Idempotent per ceremony kind; `force` re-pins after a tick. Returns true while a ceremony holds the house.
    */
+  /** ORW-928: player messages since the engine committed the eviction result (memory-only). */
+  private evictionVoicedMsgs = 0;
   private ceremonyBeat: "nominations" | "veto-draw" | "veto-ceremony" | "eviction" | null = null; // memory-only
   private ceremonyHeld: string | null = null;
   /** ORW-281: the narrator is on the veto DRAW (its own moment) from the schedule's draw stage until the player speaks after the draw was voiced; the competition's moment takes over afterwards. */
@@ -17770,6 +17805,7 @@ export class GameSessionAdapter implements GameSession {
     return remember(this.inOneCommit(() => {
       // The beat-deterministic rng lets the Houseguest's-Choice resume run the veto comp reproducibly (B45).
       const cerBefore = ceremonyRef(this.live!);
+      const outBefore = compApproach(pendingKind!) ? (this.live!.competition?.eliminated.length ?? 0) : -1; // ORW-927: the drops the player's own approach press resolves are not voiced by anyone
       this.syncTargetsMeClaims(); // ORW-581: as before a beat
       const ev = applyDecision(this.live!, this.toDecisionInput(req), this.ctx(), this.beatRng());
       if (cerBefore) { // ORW-281 4a: the binding choice is a ceremony step - it charges its share of the clock
@@ -17806,6 +17842,8 @@ export class GameSessionAdapter implements GameSession {
       if (AUTO_ADVANCE_PENDING_KINDS.has(pendingKind!) && this.live!.pending?.kind !== "ceremony-step") { // ORW-281 4a: a ceremony watch step waits for the player's own Continue
         if (this.scheduleHoldsAdvance()) chainHeld = true; else this.advanceOneBeat();
       }
+      // ORW-927: a comp-round approach press resolves the first elimination round(s) itself, with no narrator turn in between (the card posts, nobody is asked to voice it). Those exits are written down here so the player's next message is told they have NOT been voiced yet (see `competitionFieldFact`); otherwise the reel jumps from the field to "five left" with the early drops never told.
+      if (outBefore >= 0) { const comp = this.live!.competition; if (comp && comp.eliminated.length > outBefore) { this.live!.compSilentOut = comp.eliminated.slice(outBefore); delete this.live!.compSilentSeen; } }
       const m = chainHeld ? nextMilestone(this.live!) : null;
       // the schedule held the chained advance: say so exactly as advanceGame does (typed `held`), so the caller does not read the quiet as a stall
       return m ? { ...this.advanceView(ev), held: { next: m.beat, minutesUntil: minutesUntilDue(this.live!) ?? 0, reason: "schedule" as const } } : this.advanceView(ev);
@@ -18194,6 +18232,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-258 (Ryne 2026-11-11: "I don't think you should be able to go to sleep before the night time period"): the evening is not bedtime either - the evening ceremonies happen then.
     if (this.bedtimeGateEnabled && (this.live.timeOfDay === "morning" || this.live.timeOfDay === "afternoon" || (this.live.timeOfDay === "evening" && this.messageMode))) {
       const hour = this.live.nightDepth ?? WAKE_HOUR;
+      this.bedtimeHeldEpoch = this.disclosureEpoch; // ORW-920: the narrator's next prompts say bed is not open yet (memory-only; this turn and the next)
       return remember({ ...this.advanceView(null), held: { next: "bedtime", minutesUntil: Math.max(0, Math.round((CLOCK.phaseStartsHour.night - hour) * 60)) } });
     }
     // ORW-446 (BDD Auditor, ORW-433 probe): a goodnight while a staged ceremony is open (the eviction reveal, one ballot per advance) went through, the day rolled and the reveal resumed the next evening
@@ -21685,6 +21724,7 @@ export class GameSessionAdapter implements GameSession {
       winner: this.named(s?.winner),
       finale: this.finaleView(),
       eviction: this.evictionView(),
+      ...(this.vetoDrawBeatFor(ceremony, !!ceremony && !s?.ceremony) ? { vetoDrawBeat: this.vetoDrawBeatFor(ceremony, !!ceremony && !s?.ceremony)! } : {}), // ORW-924
       ...(announcements ? { announcements } : {}),
     };
   }
@@ -21709,12 +21749,34 @@ export class GameSessionAdapter implements GameSession {
       ...(e.evictee ? { evictee: ref(e.evictee) } : {}),
       ...(this.hostEnabled && this.live?.playedGame === true && !this.live.spectator ? { host: this.hostView(e) } : {}),
       ...this.voteBeatFor(e),
+      ...(e.evictee && this.evictionVoicedMsgs > 0 ? { voicedTurns: this.evictionVoicedMsgs } : {}),
     };
   }
 
   /** ORW-771 (`ORWELL_VOTE_BEAT`, default ON; `=0` = no beat, the press is a banner only): the sealed beat facts of the press just made through a played eviction vote. Pure read: no rng, no clock, no write. */
   private voteBeatEnabled = flagDefaultOn("ORWELL_VOTE_BEAT");
   setVoteBeatEnabled(on: boolean): void { this.voteBeatEnabled = on; }
+  /**
+   * ORW-924 (same flag): the facts of a Continue press through the veto DRAW, so the press can be voiced as a short beat (the draw's two watch steps were a banner and nothing else: no narrated
+   * beat). Public ceremony facts only (the HOH, the nominees, the open step, the six once the field step has published them); no winner, no result. Pure read: no rng, no clock, no write.
+   */
+  private vetoDrawBeatFor(cer: ReturnType<typeof ceremonyRef>, closed: boolean): VetoDrawBeatView | undefined {
+    const s = this.live;
+    if (!this.voteBeatEnabled || !s || s.playedGame !== true || s.spectator || !cer || cer.kind !== "veto-draw" || !this.house) return undefined;
+    const ref = (id: EntityId): NamedRef => ({ id, name: this.nameOf(id) });
+    const published = cer.stepId === "field" && (s.vetoField?.length ?? 0) > 0;
+    return {
+      step: cer.stepId,
+      stepNumber: cer.step,
+      of: cer.of,
+      closed,
+      hoh: s.hoh ? ref(s.hoh) : null,
+      nominees: (s.nominees ?? []).map(ref),
+      ...(published ? { field: (s.vetoField ?? []).map(ref) } : {}),
+      gathered: s.active.length,
+      ...(s.timeOfDay ? { timeOfDay: TIME_OF_DAY_LABEL[s.timeOfDay] ?? String(s.timeOfDay) } : {}),
+    };
+  }
   private voteBeatFor(e: EvictionProgress): { voteBeat?: VoteBeatView } {
     const s = this.live;
     if (!this.voteBeatEnabled || !s || s.playedGame !== true || s.spectator || !s.ceremony || s.ceremony.kind !== "eviction") return {};
@@ -22035,7 +22097,9 @@ export class GameSessionAdapter implements GameSession {
     const meetingNow = this.houseMeetingForNarrator(); // 0156 slice 7b: a meeting the player was in the house and awake to hear (one turn; absent otherwise)
     const view5 = meetingNow ? { ...view4, houseMeeting: meetingNow } : view4;
     const view6a = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
-    const view6 = this.allianceRefusal ? { ...view6a, allianceNotFormed: { name: this.allianceRefusal.name, with: this.allianceRefusal.names } } : view6a; // ORW-913: a proposed alliance that did not form, for two turns
+    const bedHeld = this.bedtimeHeldForNarrator(); // ORW-920: a bed the engine held, told to the narrator (this turn and the next, only before the night)
+    const view6b = bedHeld ? { ...view6a, bedtimeHeld: bedHeld } : view6a;
+    const view6 = this.allianceRefusal ? { ...view6b, allianceNotFormed: { name: this.allianceRefusal.name, with: this.allianceRefusal.names } } : view6b; // ORW-913: a proposed alliance that did not form, for two turns
     const keepers = (req.moment ?? view6.moment) === "eviction" ? this.keepPromisersOfPlayer() : []; // ORW-737: eviction night only
     const view = keepers.length ? { ...view6, keepPromisers: keepers } : view6;
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
@@ -23181,6 +23245,7 @@ export class GameSessionAdapter implements GameSession {
           used: this.ceremony.vetoUsed,
           players: (this.live?.vetoField ?? []).map((id) => ({ id, name: this.nameOf(id) })), // R9-AGENCY-1: the drawn six
           ...(this.vetoDecisionFact() ? { decision: this.vetoDecisionFact()! } : {}), // ORW-715
+          ...(this.live?.ceremony && this.vetoDrawBeatFor(ceremonyRef(this.live), false) ? { drawBeat: this.vetoDrawBeatFor(ceremonyRef(this.live), false)! } : {}), // ORW-924
         },
         ...(this.competitionFieldFact() ? { competition: this.competitionFieldFact()! } : {}), // ORW-715
       },

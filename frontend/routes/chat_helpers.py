@@ -823,9 +823,11 @@ def _hang_out_steer(res: dict, asked_minutes=None) -> str:
     obs = {"overheard-whisper": "two housemates whispering (%s)", "argument": "two housemates arguing (%s)", "someone-moved": "%s on the move"}.get(str(d.get("kind") or ""), "something happening (%s)") % " and ".join(d.get("who") or []) if reason == "observed" else ""
     line = _HANGOUT_STOP_LINES.get(reason, _HANGOUT_STOP_LINES["max-beats"]).format(by=by, npc=d.get("npc") or "A housemate", obs=obs)
     mins = int(res.get("minutes") or 0)
-    shown = str(res.get("stopLine") or "").strip()  # ORW-22: the engine's own player-facing line for this stop - the reply must put it on screen
+    shown = str(res.get("stopLine") or "").strip()  # ORW-22: the engine has a player-facing line for this stop - the reply must put the stop on screen
     if shown:
-        line += " Make sure the reply shows the player this, in your own words: \"%s\"" % shown
+        # ORW-917: the engine's stock sentence is NOT quoted: a quoted line was copied into the reply word for word ("A and B are in a tense exchange.") on ~60 playtest turns.
+        # The stop's facts (who, what kind) are already in `line` above.
+        line += " Make sure the reply shows the player this stop, told in fresh prose of your own (never a stock sentence)."
     cut = ""
     if isinstance(asked_minutes, (int, float)) and asked_minutes > 0 and reason != "max-beats" and mins < asked_minutes:
         cut = ("The wait was CUT SHORT: the player asked to wait about %d minutes but only about %d passed. Say plainly that the wait was interrupted; do NOT claim the full time went by. " % (asked_minutes, mins))
@@ -3095,7 +3097,13 @@ _CLAIM_NOMINATED_RE = re.compile(
     r"(?:turns?|turned|hands?|handed|handing|gives?|gave|giving|passes?|passed)\s+(?:out\s+)?(?:a|the|each|every|one)?\s*(?:\w+\s+){0,4}?keys?\b(?!\s+(?:in|into|to|of|from|on)\s+(?:\w+\s+){0,3}?(?:doors?|locks?|ignition|rooms?|cars?|drawers?|cabinets?|padlocks?|chests?|gates?)\b)|"
     r"(?:without|with no)\s+(?:a\s+)?key|(?:two|2|both)\s+(?:\w+\s+){0,3}?(?:are\s+)?left\s+without(?=\s*[.,;!?]|\s+(?:a\s+)?(?:key|safe))|walks?\s+the\s+line\s+(?:with|holding)\s+(?:\w+\s+){0,2}?keys?|"
     r"(?:the\s+)?nominations?\s+ceremony\s+(?:begins?|begun|starts?|started|is\s+(?:starting|beginning|about\s+to)|kicks?\s+off)|"
-    r"(?:the\s+)?(?:last|final|remaining)\s+two\s+(?:houseguests\s+)?(?:are\s+)?(?:left\s+)?(?:without|standing)\b)",
+    r"(?:the\s+)?(?:last|final|remaining)\s+two\s+(?:houseguests\s+)?(?:are\s+)?(?:left\s+)?(?:without|standing)\b|"
+    # ORW-915 (Fable's week-1 run, turn 125): the ritual voiced as a LIST - "a key for X, a key for Y, ..." with no verb in front of "key" - the two with "nothing in front of them", "the two keys in her hand", "about to name the
+    # nominees". The engine had no nominee yet and the two it later named were among those keyed (handed safety). Each cue still needs the ritual's own wording, so a door key or a drink is untouched.
+    r"\ba\s+key\s+for\s+(?:(?-i:[A-Z][\w'-]*)|each\s+\w+|every\s+\w+)|"
+    r"(?:two|2|both)\s+(?:\w+\s+){0,2}?(?:people|houseguests|players)\s+(?:\w+\s+){0,6}?(?:with\s+)?nothing\s+(?:in\s+front\s+of|before)\s+them|"
+    r"\b(?:holds?|holding|clutch(?:es|ing)?|with)\s+(?:the\s+)?(?:two|2)\s+keys\s+in\s+(?:her|his|their|one)\s+hands?\b|"
+    r"\babout\s+to\s+name\s+(?:the\s+|her\s+|his\s+|their\s+)?(?:two\s+)?nominees\b)",
     re.IGNORECASE,
 )
 # A nomination narrated as happening NOW ("the HOH nominates two houseguests") while nominees are already committed is a re-enacted ceremony, not a recap.
@@ -4534,7 +4542,7 @@ def _scan_quote_state(part: str, quote):
     return quote, first_close
 
 
-async def screen_presence_wall(user, text: str, alt_state=None) -> str:
+async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[dict] = None) -> str:
     """A2 (#1726) — the STRUCTURAL, SAME-TURN presence guard. Returns `text` with any sentence that
     stages an off-scene or already-evicted houseguest as present/acting in the player's scene DROPPED
     (delimiters preserved for the rest) — the empirically load-bearing half: the terminal whereabouts
@@ -4548,8 +4556,16 @@ async def screen_presence_wall(user, text: str, alt_state=None) -> str:
 
     ORW-395: `alt_state` is the board snapshot taken BEFORE the FE ran the player's own `turnIn` this
     turn. The reply voices the goodnight in the evening room, but live presence is already the morning
-    board; a sentence is a phantom only if it is absent under BOTH boards."""
+    board; a sentence is a phantom only if it is absent under BOTH boards.
+
+    ORW-917: `carry` is the ROUND's quote state across streamed chunks ({"quote", "drop_quote"}; the caller keeps one dict per round). The wall runs per chunk, and it used to
+    start every chunk outside any quote: a dropped speaker line split at a chunk boundary left the rest of its quote on screen ("Moss." / " Town, State.\" She comes in...").
+    None => one-shot (a whole text), as before."""
+    if carry is None:
+        carry = {}
     if not text or not text.strip():
+        if text:
+            carry["quote"], _ = _scan_quote_state(text, carry.get("quote"))
         return text
     try:
         from src import orwell_engine
@@ -4559,8 +4575,13 @@ async def screen_presence_wall(user, text: str, alt_state=None) -> str:
         return text  # engine unreachable this turn — never hold narration on a read hiccup
     facts = _presence_facts(state if isinstance(state, dict) else {})
     if not facts or (not facts.get("evicted") and not facts.get("active_offscene") and not facts.get("adjacent")):
-        return text  # nothing off-scene/evicted/next-door this turn — the overwhelmingly common path
-    roster = set(facts["in_view"]) | set(facts["active_offscene"]) | set(facts["evicted"])
+        if carry.get("drop_quote") or carry.get("quote"):
+            pass  # ORW-917: a quote still open (or a drop still running) from an earlier chunk: scan below so the state stays true
+        else:
+            carry["quote"], _ = _scan_quote_state(text, None)
+            return text  # nothing off-scene/evicted/next-door this turn — the overwhelmingly common path
+    facts = facts or {}
+    roster = set(facts.get("in_view") or ()) | set(facts.get("active_offscene") or ()) | set(facts.get("evicted") or ())
     first_counts = _first_name_counts(roster)
     alt_facts = _presence_facts(alt_state) if isinstance(alt_state, dict) else None
     if alt_facts:
@@ -4569,8 +4590,8 @@ async def screen_presence_wall(user, text: str, alt_state=None) -> str:
     parts = re.split(r"(?<=[.!?\n])", text)
     out = []
     dropped: set = set()
-    quote = None  # ORW-481: the quote mark open across the WHOLE reply (kept sentences count too), so a dropped line's close is not read as an open
-    drop_quote = False  # a dropped line that left a quote open drops the rest of that quote too
+    quote = carry.get("quote")  # ORW-481: the quote mark open across the WHOLE reply (kept sentences count too), so a dropped line's close is not read as an open; ORW-917: across chunks
+    drop_quote = bool(carry.get("drop_quote"))  # a dropped line that left a quote open drops the rest of that quote too (ORW-917: even into the next chunk)
     for part in parts:
         quote, close_end = _scan_quote_state(part, quote)
         if drop_quote:
@@ -4580,6 +4601,9 @@ async def screen_presence_wall(user, text: str, alt_state=None) -> str:
             part = part[close_end:]  # the closing mark ends the quote; the rest is judged on its own
             if not part.strip():
                 continue
+        if not facts or not (facts.get("evicted") or facts.get("active_offscene") or facts.get("adjacent")):
+            out.append(part)  # ORW-917: only finishing a carried drop this chunk; nothing to screen
+            continue
         try:
             hit = _sentence_stages_absent_npc(part, facts, first_counts)
             if hit and alt_facts and not _sentence_stages_absent_npc(part, alt_facts, _alt_counts):
@@ -4591,6 +4615,7 @@ async def screen_presence_wall(user, text: str, alt_state=None) -> str:
         except Exception:
             pass  # any hiccup falls through to emit (conservatism), except a proven hit above
         out.append(part)
+    carry["quote"], carry["drop_quote"] = quote, drop_quote
     if dropped:
         try:
             _dkey = _desync_key(user)
@@ -9252,6 +9277,27 @@ def consume_vote_beat_cue(message, user) -> bool:
     return False
 
 
+# ORW-924: the same hidden beat cue for a Continue press through the veto DRAW (the draw's watch steps were a banner and no narrated beat). Armed by the press that carried the engine's `vetoDrawBeat`
+# (routes/orwell_routes.py); the chat turn that carries the cue is a narrated beat, not a player message: no clock charge, no player-move parse. A hand-typed copy with no armed press is an ordinary message.
+_DRAW_BEAT_CUE_PREFIX = "(Production cue \u2014 the player pressed Continue through the veto draw"
+_DRAW_BEAT_ARMED: dict = {}
+
+
+def arm_draw_beat_cue(user) -> None:
+    """The Continue press just made carried a veto-draw beat: the next chat turn that is the cue is a beat turn."""
+    _DRAW_BEAT_ARMED[user] = True
+    logger.info("[orwell] draw-beat cue armed for user=%s", user)
+
+
+def consume_draw_beat_cue(message, user) -> bool:
+    """True (once per armed press) when `message` is the draw-beat cue AND a press armed it. Pure bookkeeping."""
+    if isinstance(message, str) and message.startswith(_DRAW_BEAT_CUE_PREFIX):
+        hit = bool(_DRAW_BEAT_ARMED.pop(user, False))
+        logger.info("[orwell] draw-beat cue seen for user=%s armed=%s", user, hit)
+        return hit
+    return False
+
+
 async def note_player_message(client_msg_id, user) -> None:
     """Tell the engine a player message arrived (``noteMessage``): one in-game message-step per
     message id. Best-effort — no engine / no game / any failure ⇒ nothing (the engine keeps its
@@ -10723,7 +10769,7 @@ async def build_chat_context(
 
     # Per-message pacing: announce this player message to the engine clock ONCE, before the model
     # call, keyed by the send's clientMsgId (retry / two-window re-drive is idempotent). Fail-soft.
-    _vote_beat_turn = (not incognito) and consume_vote_beat_cue(message, user)  # ORW-771: a vote-beat turn is not a player message
+    _vote_beat_turn = (not incognito) and (consume_vote_beat_cue(message, user) or consume_draw_beat_cue(message, user))  # ORW-771: a vote-beat turn is not a player message
     if not incognito and not _vote_beat_turn:
         await note_player_message(client_msg_id, user)
         # ORW-419 (intent-first moves): the engine resolves the player's OWN move from their words BEFORE the narrator's moment
