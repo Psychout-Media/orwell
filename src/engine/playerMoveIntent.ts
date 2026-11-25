@@ -149,6 +149,11 @@ function parseClause(raw: string, current: Room | null, themed?: Themed): Room |
   if (m) {
     const afterVerb = s.slice(m[0].length);
     const bare = afterVerb.replace(PHRASE_END, "").trim();
+    // ORW-926: "go back inside TO THE LIVING ROOM", "go out TO THE HALLWAY": the player NAMED where they are going, so that room is the move; the bare in/out shortcut below is only for "go inside" / "go outside" with no destination.
+    if (INSIDE_WORDS.has(bare) || OUTSIDE_WORDS.has(bare)) {
+      const named = roomFromPhrase(afterVerb.replace(PREP, ""), current, themed);
+      if (named !== null) return named;
+    }
     if (INSIDE_WORDS.has(bare)) return current === "backyard" ? exitRoomFrom(current) : null;
     if (OUTSIDE_WORDS.has(bare)) return current === "backyard" ? null : "backyard";
     const fr = FIND_IN_ROOM.exec(afterVerb.replace(/^(?:(?:back|right|straight|over)\s+)+/, ""));
