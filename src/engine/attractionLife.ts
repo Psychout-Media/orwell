@@ -61,10 +61,10 @@ export function attractionOf(chemistry: Readonly<Record<string, number>> | undef
  * chemistry and a keyed per-pair factor set the speed). Engine-only; nothing here is ever shown.
  */
 export const SHOWMANCE_PACE = {
-  /** Chemistry-days needed to reach level 1..4 (cumulative). A seeded pair holds chemistry 0.7+, measured: a pair shares about a quarter of a day per day, so the last bar is about eight shared days, over five weeks: the public couple is a late thing by construction. */
-  bars: [1.5, 3, 4.5, 6.5],
+  /** Chemistry-days needed to reach level 1..4 (cumulative). A seeded pair holds chemistry 0.7+, measured: a pair shares about a quarter of a day per day. ORW-842 (measured over 12 played seasons, 1500 messages each): the first bars [1.5, 3, 4.5, 6.5] left every pair at level 3 or below (level 1 on days 7-12, level 2 on days 15-23, one pair at level 3 on day 20, none public); scaled to about two thirds they give level 1 on days 4-23, level 2 on days 10-17, level 3 on days 15-23 and a public couple in 2 of the pairs (days 21-27 measured with the earliest public day at 21; it stays 22, the 0207 pin), the rest fading or stalling: a strong pair goes public within about 3 to 5 weeks, most do not (the PO ruling, 2026-11-20). */
+  bars: [1, 2, 3, 4.3],
   /** The least in-game days a pair must spend in level 0..3 before it can step up (time, not just a threshold crossing). */
-  minDays: [3, 4, 5, 6],
+  minDays: [2, 3, 3, 4],
   /** The earliest in-game day a public couple can form (a normal season is roughly 9-11 weeks of about five days, so this is about week 5). Derived from days, not a week number. */
   publicNotBeforeDay: 22,
   /** A level needs this share of the houseguests (the pair excluded) to have caught the romance before the room "has noticed" it, and this share before the whole house knows. Sensed needs one close ally. */

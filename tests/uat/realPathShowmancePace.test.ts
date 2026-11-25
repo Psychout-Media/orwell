@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { SHOWMANCE_PACE } from "../../src/engine/attractionLife";
 import { playedGame } from "../support/playedGame";
-import { firstSeedWhereSync } from "../support/firstSeedWhere";
+import { playMixGame } from "../support/houseMixDriver";
+import { firstSeedWhere, firstSeedWhereSync } from "../support/firstSeedWhere";
 
 /**
  * ORW-736: the showmance slow build, REAL PATH. A whole season is played through the player's levers only, so every romance and every step of its pace is the
@@ -70,6 +71,19 @@ describe("ORW-736 REAL PATH: a showmance builds slowly in a played season", () =
 
   // Blocked, not faked: in four played seasons (seeds 3, 7, 13, 21) no showmance reached the public stage (the furthest climbed two of four levels, from day 41), so the
   // "public couple late, once" claim and the house's one noticing beat are proven only by the unit test that drives the days by hand (tests/unit/showmancePaceLive.test.ts).
-  it.todo("real path: a showmance reaches the public couple stage late and is noticed once, blocked by no played season reaching level 4 before the season ends (ORW-736)");
+  it("ORW-842: in a chat-paced played season a strong pair reaches the public couple stage within about five weeks, never before the earliest public day", async () => {
+    // The precondition (a season where some pair reaches the public couple stage) is SCANNED apart from the pace assertions (ORW-880): any change to the played season may pick another seed, never make the assertions pass with nothing to check.
+    const publicPair = (s: unknown): [string, Pace] | undefined => Object.entries((s as Priv).live.showmancePace ?? {}).find(([, r]) => r.steps.length >= 4);
+    const found = await firstSeedWhere<[string, Pace]>(async (seed, sandbox) => {
+      let got: [string, Pace] | undefined;
+      await playMixGame(seed, 1500, { user: sandbox, advanceEvery: 6, stopWhen: (s) => publicPair(s) !== undefined, inspect: (s) => { got = publicPair(s); } });
+      return got;
+    }, { from: 1, to: 16, hint: [6, 5], sandbox: (seed) => `mixdrv-${seed}`, what: "a pair reaching the public couple stage in a chat-paced played season" });
+    const rec = found.at[1];
+    expect(rec.steps.map((x) => x.to)).toEqual([1, 2, 3, 4]);
+    expect(rec.steps[3]!.day, "never before the earliest public day").toBeGreaterThanOrEqual(SHOWMANCE_PACE.publicNotBeforeDay);
+    expect(rec.steps[3]!.day, "within about five weeks").toBeLessThanOrEqual(35);
+    expect(rec.steps[3]!.seenBy.length, "the house has caught it").toBeGreaterThan(0);
+  }, 1_800_000);
   it.todo("real path: the player's own romance runs the same pace, not attempted: it needs the player's gender facet set in casting and a houseguest drawn to them, which the played driver does not reach (ORW-736)");
 });

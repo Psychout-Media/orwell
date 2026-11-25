@@ -17,7 +17,7 @@ const SUMMARY: NotorietySummary = {
   legendBeats: LEGEND,
 };
 function returning(seed: number): Sb {
-  const sb = new GameSessionRegistry().sandboxFor(`legend-${seed}-${Math.random()}`);
+  const sb = new GameSessionRegistry().sandboxFor(`legend-${seed}-fixed`);
   sb.session.setNotoriety(SUMMARY);
   sb.session.createCharacter({ playerName: "The Player", seed });
   return sb;

@@ -475,7 +475,7 @@ Then("the true count was still in doubt", function (this: BbWorld) {
 
 type PitchInternals = { rel: { edge(a: EntityId, b: EntityId): { threat: number; trust: number } }; setLobbyingEnabled(on: boolean): void; recordLobbyPitches(h: EntityId): void };
 Given("a new Head of Household who faces pitches from trusted houseguests", function (this: BbWorld) {
-  const sb = new GameSessionRegistry().sandboxFor(`bdd-b38-${Math.random()}`);
+  const sb = new GameSessionRegistry().sandboxFor(`bdd-b38-fixed`);
   sb.session.createCharacter({ playerName: "P", archetype: "floater", seed: 7 });
   const s = sb.session as unknown as PitchInternals;
   s.setLobbyingEnabled(true);

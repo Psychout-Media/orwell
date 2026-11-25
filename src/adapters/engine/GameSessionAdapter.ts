@@ -7,7 +7,7 @@ import type {
   AdvanceView, HangOutReq, HangOutView, NapReq, NapView, NapRefusal, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
   FinaleView, EvictionView, HostView, VoteBeatView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, WalkedInView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, ProducerVaultView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
-  DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult,
+  DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult, RecordEpisodeTitlesReq, RecordEpisodeTitlesResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
   UpdateCastingReq, CastingStatusView, PortraitPromptEntry, HouseguestCard,
   PreSeedCastReq, PreSeedCastView,
@@ -624,6 +624,8 @@ const DAY_LEDGER_EVENT_CHARS = 240;
 const DAY_LEDGER_KEYS_CHARS = 1000; // the 'Key list:' line is bounded on its own, so a long prose never clips it away (review of #2685)
 const DAY_LEDGER_TEXT_CHARS = 3200; // ORW-402: a whole-day summary (up to ~400 words) plus its key list
 /** ORW-387: transport/provider error text (an SSE frame, an HTTP 4xx/5xx body) is never a day's summary. */
+/** ORW-807: the longest authored episode title kept (a title, not a paragraph). */
+const EPISODE_TITLE_CHARS = 90;
 const DAY_SUMMARY_ERROR_TEXT = /^\s*(event:\s*error\b|data:\s*[{\[])|"status"\s*:\s*[45]\d\d|\breturned HTTP [45]\d\d\b/i;
 function sanitizeFlavor(s: string, max = 160): string {
   return s.replace(/\s+/g, " ").trim().slice(0, max);
@@ -1383,6 +1385,9 @@ export class GameSessionAdapter implements GameSession {
     this.ensureBeds(); // ORW-466 slice 2: whoever walked in before the game was played claims now, still in entrance order
     if (this.live) this.live.clockInteractive = true; // ORW-116 (b): the player is really talking - from here the night is theirs (see nightHeld)
     this.hangOutSkipStepAt = undefined; // a hang-out's one-shot skip is for the legacy per-commit follow-up; every announced message bills its own step
+    // ORW-859: how many player messages have come since the engine opened the due event and began holding the player's card. Counted BEFORE this message's clock step, so the message the event comes due on (and the
+    // card it stages) reads 0 and still gets the call; each later message while the card is held reads 1, 2 ... and the narrator is told the call was already voiced. Absent otherwise (byte-identical saves).
+    if (this.live) { if (this.live.pending && milestoneDueOf(this.live)) this.live.dueHeldMessages = (this.live.dueHeldMessages ?? 0) + 1; else delete this.live.dueHeldMessages; }
     this.advanceClockPerConversation();
     this.persist(); // the clock moved: one persisted commit (integrity checkpoint + beatSeq), survives a reload
     return { accepted: true, beatSeq: this.beatSeq }; // post-commit token: the FE refreshes its last-seen beatSeq from it (no self-inflicted stale-beat 409)
@@ -5445,7 +5450,7 @@ export class GameSessionAdapter implements GameSession {
       ...(row.formedWeek !== undefined ? { formedWeek: row.formedWeek } : {}),
       ...(endStamped && row.endedWeek !== undefined ? { endedWeek: row.endedWeek, ...(row.endedHow ? { endedHow: row.endedHow } : {}) } : !row.endedWeek ? {} : { ...(row.endedHow ? { endedHow: row.endedHow } : {}) }),
     }));
-    return buildYourEdit({
+    const view = buildYourEdit({
       player: PLAYER, cast: this.house.npcs.map((n) => n.id).sort(), nameOf: (id) => this.nameOf(id),
       digests: s.weekDigests ?? [], voteRecord: s.voteRecord ?? [], calledPawn: (w, e) => this.calledPawn(w, e),
       events: events.map((e) => ({ type: e.type, initiator: e.initiator, witnessSet: e.witnessSet, hidden: e.hidden, content: e.content, ...(e.houseLife?.seenBy ? { seenBy: e.houseLife.seenBy } : {}) })),
@@ -5455,6 +5460,10 @@ export class GameSessionAdapter implements GameSession {
       ...(this.editMomentsEnabled ? { more: { meetings: (s.houseMeetings ?? []).map((m) => ({ week: m.week, caller: m.caller, accused: m.accused, attendees: m.attendees.length })) } } : {}),
       ...(finale?.votes ? { jury: { finalists: finale.finalists, votes: Object.values(finale.votes).map((votedFor) => ({ votedFor })) } } : {}),
     });
+    // ORW-807: the narrator's authored titles ride on their episodes (written back after the crown; the floor title stays alongside)
+    const authored = s.episodeTitles ?? {};
+    for (const ep of view.episodes) { const t = authored[String(ep.week)]; if (t) ep.authoredTitle = t; }
+    return view;
   }
   /** 0211 / ORW-649: the reunion on finale night (`ORWELL_REUNION`, default ON; `=0` = none). Played, finished games only; the caller holds the crown gate. Read-only: nothing is recorded or folded, no rng. */
   private reunionEnabled = flagDefaultOn("ORWELL_REUNION");
@@ -18021,6 +18030,35 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * ORW-807 (0200 your edit) — FE-driven write-back of the narrator's authored episode titles. Post-crown only (the edit itself exists only then), for weeks the
+   * edit has an episode for; each title is cleaned (control characters, whitespace, a length cap) and refused when it is an error payload or carries a raw id. The first
+   * title for a week stands. Durable enrichment, not a board beat (no beatSeq bump).
+   */
+  recordEpisodeTitles(req: RecordEpisodeTitlesReq): RecordEpisodeTitlesResult {
+    const s = this.live;
+    if (!s) return { accepted: false, recorded: 0, reason: "absent" };
+    const edit = this.buildYourEditView();
+    if (!edit) return { accepted: false, recorded: 0, reason: "not-finished" };
+    const weeks = new Set(edit.episodes.map((e) => e.week));
+    const store = (s.episodeTitles ??= {});
+    let valid = 0, recorded = 0;
+    for (const row of Array.isArray(req.titles) ? req.titles : []) {
+      const week = Math.trunc(Number(row?.week));
+      if (!weeks.has(week)) continue;
+      const title = String(row?.title ?? "").replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ").replace(/\s+/g, " ").trim().slice(0, EPISODE_TITLE_CHARS).trim();
+      if (!title || DAY_SUMMARY_ERROR_TEXT.test(title) || /\b(?:npc|player):\S/i.test(title)) continue;
+      valid++;
+      if (store[String(week)]) continue; // the first authored title stands
+      store[String(week)] = title;
+      recorded++;
+    }
+    if (Object.keys(store).length === 0) delete s.episodeTitles;
+    if (valid === 0) return { accepted: false, recorded: 0, reason: "empty" };
+    if (recorded > 0) this.backgroundPersist(); // FE enrichment: durable, NOT a board beat (no beatSeq bump)
+    return { accepted: true, recorded };
+  }
+
+  /**
    * The player's bedtime lever (ADR 0006 §Principle 6): the player CHOOSES to turn in for the night.
    * Ends their night where it stands (an early night ⇒ rested for tomorrow; outlasting the house into
    * late-night ⇒ running on empty) and rolls the house to the next morning. Never auto-called — only
@@ -23034,7 +23072,7 @@ export class GameSessionAdapter implements GameSession {
     // HUD shows it and `renderGameContext` primes on it so run-up scenes carry the coming interruption.
     const nextM = this.perConversationClockLive() ? nextMilestone(this.live) : null;
     const daySchedule = nextM
-      ? { next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}), ...(dueTomorrow(this.live) ? { tomorrow: true as const } : {}), ...(this.eventRoomFactEnabled && eventStagingRoom(nextM.beat, this.live?.playedGame === true) ? { stagingRoom: eventStagingRoom(nextM.beat, this.live?.playedGame === true)! } : {}), ...(finalHohPartOf(this.live, this.finalHohThreePartEnabled) ? { finalHohPart: finalHohPartOf(this.live, this.finalHohThreePartEnabled)! } : {}) }
+      ? { next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}), ...(dueTomorrow(this.live) ? { tomorrow: true as const } : {}), ...((this.live?.dueHeldMessages ?? 0) > 0 ? { heldTurns: this.live!.dueHeldMessages! } : {}), ...(this.eventRoomFactEnabled && eventStagingRoom(nextM.beat, this.live?.playedGame === true) ? { stagingRoom: eventStagingRoom(nextM.beat, this.live?.playedGame === true)! } : {}), ...(finalHohPartOf(this.live, this.finalHohThreePartEnabled) ? { finalHohPart: finalHohPartOf(this.live, this.finalHohThreePartEnabled)! } : {}) }
       : undefined;
     // #1411 — the single closed-set lever this beat requires the narrator to CALL (advanceGame at the
     // deterministic comp/ceremony/eviction beats), or null otherwise. The FE forces THIS on the wire
