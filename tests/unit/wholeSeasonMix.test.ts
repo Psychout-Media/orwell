@@ -104,4 +104,17 @@ describe("the KNOWN_RED ratchet", () => {
     const ids = new Set(evaluate(centre).map((r) => r.id));
     for (const id of Object.keys(KNOWN_RED)) expect(ids.has(id), id).toBe(true);
   });
+  it("hysteresis: a listed rule that passes by less than RATCHET_FIXED_MARGIN is not yet asked to leave KNOWN_RED, one that clears it by the margin is", () => {
+    const edge = { id: "mid:band-bonding", what: "w", value: 24.4, pass: true, miss: 0, room: 0.4 } as never;
+    const clear = { id: "mid:band-bonding", what: "w", value: 25.5, pass: true, miss: 0, room: 1.5 } as never;
+    const known = { "mid:band-bonding": { value: 14, card: "X" } };
+    expect(ratchet([edge], known).fixed).toEqual([]);
+    expect(ratchet([clear], known).fixed.length).toBe(1);
+  });
+  it("hysteresis, the other way: an unlisted rule that misses by no more than the margin is noise, one that misses by more is a regression", () => {
+    const near = { id: "mid:band-bonding", what: "w", value: 23.5, pass: false, miss: 0.5, room: 0 } as never;
+    const far = { id: "mid:band-bonding", what: "w", value: 22.5, pass: false, miss: 1.5, room: 0 } as never;
+    expect(ratchet([near], {}).regressions).toEqual([]);
+    expect(ratchet([far], {}).regressions.length).toBe(1);
+  });
 });

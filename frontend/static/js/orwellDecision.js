@@ -546,6 +546,17 @@
 
   // ORW-771: the hidden cue that asks the narrator to voice the vote beat. The server arms it on the Continue press (routes/orwell_routes.py) and recognizes it by this prefix.
   const VOTE_BEAT_CUE = "(Production cue \u2014 the player pressed Continue through the eviction vote. Voice the beat the game's facts hand you, short, with no ballot content.)";
+  // ORW-924: the same hidden cue for a Continue press through the veto draw (the server arms it when the press carried the engine's `vetoDrawBeat`).
+  const DRAW_BEAT_CUE = "(Production cue \u2014 the player pressed Continue through the veto draw. Voice the beat the game's facts hand you, short, and name no veto winner and no result.)";
+  function _fireBeatCue(text) {
+    try {
+      const cm = window.chatModule;
+      if (!cm || typeof cm.sendHiddenCue !== "function") return;
+      const sid = window.sessionModule && window.sessionModule.getCurrentSessionId && window.sessionModule.getCurrentSessionId();
+      if (typeof cm.hasActiveStream === "function" && sid && cm.hasActiveStream(sid)) return;
+      cm.sendHiddenCue(text);
+    } catch (_) { /* a beat is texture: never break the Continue press */ }
+  }
   function _fireVoteBeatCue() {
     try {
       const cm = window.chatModule;
@@ -607,6 +618,8 @@
         // ORW-771: a press through a played eviction vote carries the engine's sealed `eviction.voteBeat` facts; the narrator voices a short beat from them. The beat is a HIDDEN production-cue
         // turn (no player bubble, no clock: the server skips noteMessage for it), NOT the Continue press itself being a chat turn (ORW-703 keeps the chyron the one source of the board fact).
         if (res && res.voteBeatCue === true && res.eviction && res.eviction.voteBeat && res.eviction.voteBeat.sealed) _fireVoteBeatCue();
+        // ORW-924: the same for a press through the veto draw
+        if (res && res.drawBeatCue === true && res.vetoDrawBeat) _fireBeatCue(DRAW_BEAT_CUE);
         // The next step (or the next binding decision) arrives on the same view: mount it now.
         const nxt = res && res.pending;
         if (nxt && nxt.kind) window.dispatchEvent(new CustomEvent("orwell:pending", { detail: { pending: nxt } }));
