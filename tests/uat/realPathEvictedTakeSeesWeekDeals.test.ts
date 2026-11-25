@@ -58,7 +58,7 @@ describe("ORW-871 REAL PATH: the evicted take sees the week's deals before they 
         if (ids.length === 0) return undefined;
         const closed = (lastSess.deals.all as Deal[]).filter((d) => ids.includes(d.id));
         return { order: [...order], met: [...met], closed };
-      }, { from: 1, to: 16, hint: [5], sandbox: (s) => `wf-${s}`, what: "an eviction whose evictee holds an open week-scoped deal at the take" })).at;
+      }, { from: 1, to: 16, hint: [7], sandbox: (s) => `wf-${s}`, what: "an eviction whose evictee holds an open week-scoped deal at the take" })).at;
     } finally { take.mockRestore(); expire.mockRestore(); }
     ({ order, met } = found);
     expect(order.length, "evictions were played").toBeGreaterThan(0);
