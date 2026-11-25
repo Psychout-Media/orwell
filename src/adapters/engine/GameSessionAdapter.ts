@@ -19911,7 +19911,8 @@ export class GameSessionAdapter implements GameSession {
   private commit(ev: BeatEvent | null): void {
     // ORW-650: the watching player's feed starts after everything recorded up to (and including) this beat. Stamped once.
     if (this.couchWatchEnabled && this.live?.spectator && this.live.couchFromEvent === undefined) this.live.couchFromEvent = (this.record?.events().length ?? 0) + (ev && this.onEvent ? 1 : 0);
-    if (ev) this.onEvent?.({ ...ev, content: this.humanize(ev.content) });
+    if (ev?.lastDrops) this.onEvent?.({ ...ev.lastDrops, content: this.humanize(ev.lastDrops.content) }); // ORW-830: a staged comp's last batch of drops, told just before the crown (inert, no step)
+    if (ev) this.onEvent?.({ beat: ev.beat, content: this.humanize(ev.content), participants: ev.participants });
     // 0039/E42: a binding ceremony beat may honor or break open deals — the engine adjudicates
     // EVERY binding actor's action (NPC votes and tie-breaks included), never only the player's.
     if (ev) for (const action of this.bindingActionsFor(ev)) { this.reconcileDeals(action); this.reconcileAllianceBetrayals(action); }
