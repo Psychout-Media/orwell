@@ -123,3 +123,7 @@ The hidden `decisionWhy` record (ORW-305; engine-only, Vault-class, append-only,
 ## Amendment — 2026-11-19 (ORW-314 follow-up): the stated-reason gloss is a third-person fact
 
 `STATED_REASON_GLOSS` used to hold first-person lines ("I had to protect my people"), which the narrator recited verbatim as dialogue (the same class as ORW-717). Each entry is now a short third-person fact about what the reason is ("they are protecting their own side"). The `said aloud` line tells the narrator this is the reason they give, to voice in their own words and never in stock phrasing. Keys, the kind-and-subject-only crossing, and the candor/goal/terms wall are unchanged. `agendaDrivesDecisions.test.ts` pins that no gloss uses first- or second-person words.
+
+## Amendment 2026-11-25 (ORW-702): drama builds over the season
+
+Played games only. In the hour planner the chance of a direct falling-out (every friction step: chore fights, confrontations) is scaled by the in-game day: `dramaScale(day)` rises linearly from `HOUSE_LIFE.dramaFrom` (0.6) on day 1 to `HOUSE_LIFE.dramaTo` (1.8) at `dramaOverDays` (70) and stays there. One continuous ramp, no table. It makes the agreed whole-season mix reachable (conflict at or below 9 % early, 7-13 % mid, 10-16 % late); the bands, hard rules and tolerances are unchanged. A headless game never reaches the house-life stretch, so it is byte-identical. Goal steps that fold as gossip keep the hour with chance 0.5 and strategy steps with chance 0.85 (`goalGossipKeep`, `goalStrategyKeep`), the rest going to ordinary life.
