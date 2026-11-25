@@ -414,7 +414,8 @@ import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
 import { drawHouseLeans, describeHouseLeans, dialMult, type DialId } from "../../engine/houseLeans";
 import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, meetingClaimFor, meetingWeekSpent, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingAnswer, type MeetingCaller, type MeetingRefusal } from "../../engine/houseMeeting";
-import { decideTellToPlayer, presentedBand, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
+import { decideTellToPlayer, presentedBand, tellChance, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
+import { COUPLE_TOLD, coupleContent, coupleFactId, couplePair, passableCouples, retold, writeCouple } from "../../engine/coupleTold"; // ORW-767
 import { HIDE, HIDDEN_TYPES, hideChance } from "../../engine/fakedDistance";
 import { TRAP, OVERHEAR_PLANT, canaryReturned, canarySubject, claimWords, doubtsDiscretionOf, overhearers, type Trap } from "../../engine/trap";
 import { decidePlantToPlayer, toldTodayBy } from "../../engine/plantToPlayer";
@@ -2462,6 +2463,7 @@ export class GameSessionAdapter implements GameSession {
       if (claim) tells = { kind: b.kind, subject: b.subject === PLAYER ? "the player" : this.nameOf(b.subject), ...(b.object !== undefined ? { object: this.nameOf(b.object) } : {}), ...(b.label !== undefined ? { label: b.label } : {}), certainty: decided.band };
     }
     if (!tells && !jury) tells = this.plantOnPlayer(id, day, toldTodayBy(told, live.week, day));
+    if (!tells && !jury && !toldTodayBy(told, live.week, day)) tells = this.tellCoupleToPlayer(id, attemptKey); // ORW-767: a pair they saw or were told, passed on
     this.claimsToPlayerDecided.set(id, { epoch: this.disclosureEpoch, ...(tells ? { tells } : {}) });
     return tells;
   }
@@ -3820,6 +3822,12 @@ export class GameSessionAdapter implements GameSession {
   setOnConfide(fn: (npcId: EntityId, content: string, confidence: number) => boolean): void {
     this.onConfide = fn;
   }
+
+  /** ORW-767 — wire the pathway that records a told couple as the PLAYER's knowledge (the teller holds it, then it surfaces `told-by:<teller>` with the pair's lineage id). */
+  setOnCoupleTold(fn: (teller: EntityId, content: string, subject: EntityId, factId: string, confidence: number) => boolean): void {
+    this.onCoupleTold = fn;
+  }
+  private onCoupleTold?: (teller: EntityId, content: string, subject: EntityId, factId: string, confidence: number) => boolean;
 
   /** 0129 slice 3 — wire the juror-telling pathway (the composition root owns the KnowledgeService). */
   setOnJurorTell(fn: (jurorId: EntityId, factId: string, confidence: number) => string | null): void {
@@ -15937,6 +15945,7 @@ export class GameSessionAdapter implements GameSession {
             ...(() => { const seen = this.onlookers([...presence.entries()].filter(([id, room]) => room === p.place && !people.includes(id) && id !== house.player.id).map(([id]) => id).sort(), type, people, `${seed}:hide-catch:${day}:${hour}:${p.actor}:${p.kind}`); return seen.length ? { seenBy: seen } : {}; })() }, // ORW-539: who could see it; 0184 part 2b: a hiding pair's time together is caught only on a roll
         };
         events.record(event);
+        if (type === "showmance") this.noteCoupleSeen(people, event.houseLife?.seenBy ?? []); // ORW-767: the houseguests who saw it hold the pair
         this.playerCatchesHiddenPair(type, people, p.place, presence, `${seed}:hide-catch:${day}:${hour}:${p.actor}:${p.kind}`); // 0184 part 2b
         out.push({ event, type, initiator: p.actor, partner });
         if (p.habit) this.noteHabitScene(p, event);
@@ -15946,6 +15955,7 @@ export class GameSessionAdapter implements GameSession {
         // 0188 part 2 / ORW-627: a story planted in a room can be overheard by anyone else there, awake (the player included)
         if (said && speechActionOf(p.kind) === "plant") this.overhearPlant(said, p.place, presence, `${seed}:overhear-plant:${day}:${hour}${repeat > 0 ? `r${repeat}` : ""}`);
         this.noteHeardCampaign(p, partner, presence, `${seed}:herd-voice:${day}:${hour}${repeat > 0 ? `r${repeat}` : ""}`); // ORW-692 (B1-8)
+        this.noteCoupleTalk(p, partner, `${day}:${hour}${repeat > 0 ? `r${repeat}` : ""}`); // ORW-767
         this.noteNomineeAssured(p, partner); // ORW-692 (B1-10)
       }
     }
@@ -16815,6 +16825,9 @@ export class GameSessionAdapter implements GameSession {
   /** 0207 A2: the romance scenes `holder` registered (they were in it, or watched it from the room), as unordered pair keys; cached by the record's length. A hiding pair's scenes are caught only on a roll (0184 2b), so this is only what they caught. */
   private seenRomanceCache = new Map<EntityId, { n: number; pairs: Set<string> }>();
   private romanceSeenBy(holder: EntityId, a: EntityId, b: EntityId): boolean {
+    return this.romanceSeenByScene(holder, a, b) || (holder === PLAYER && this.playerToldCouple(a, b));
+  }
+  private romanceSeenByScene(holder: EntityId, a: EntityId, b: EntityId): boolean {
     const events = this.record?.events() ?? [];
     let c = this.seenRomanceCache.get(holder);
     if (!c || c.n !== events.length) {
@@ -16829,6 +16842,59 @@ export class GameSessionAdapter implements GameSession {
       this.seenRomanceCache.set(holder, c);
     }
     return c.pairs.has([a, b].sort().join("|"));
+  }
+  /**
+   * ORW-767 (0207, `ORWELL_COUPLE_TOLD`, default ON; `=0` opts out, byte-identical; played games only) - A SHOWMANCE REACHES THE PLAYER BY BEING TOLD (`coupleTold.ts` holds the rules and the why). Three writers, all in
+   * the existing belief layer, none on the shared stream: (1) a houseguest who SAW a romance scene (in the room, or noticed from it) holds the pair; (2) a houseguest in a speech scene may pass ONE couple they hold
+   * to the other person (a little less sure, and now and then the wrong partner is heard: a misheard pair); (3) a houseguest with the player may tell the player one (the claims-to-player gates), which becomes the
+   * PLAYER's knowledge fact `told-by:<teller>` with the lineage `couple:<a>|<b>`. The read (`playerToldCouple`) is what `romanceSeenBy` adds for the player: it opens the narrator's showmance gate and counts as
+   * the player having caught the pair in the 0207 pace record, only for a REAL pair at the stage the house knows; a misheard pair is a belief the player holds and nothing more.
+   */
+  private coupleToldEnabled = flagDefaultOn("ORWELL_COUPLE_TOLD");
+  setCoupleToldEnabled(on: boolean): void { this.coupleToldEnabled = on; }
+  private coupleToldOn(): boolean { return this.coupleToldEnabled && this.live?.playedGame === true; }
+  /** Does the PLAYER hold this pair as something they were told (a knowledge fact on the pair's lineage through a `told-by:` pathway)? */
+  private playerToldCouple(a: EntityId, b: EntityId): boolean {
+    if (!this.coupleToldOn()) return false;
+    const lineage = coupleFactId(a, b);
+    return (this.playerKnowledgeReader?.() ?? []).some((f) => f.factId === lineage && (f.pathway ?? "").startsWith("told-by:"));
+  }
+  /** (1) The houseguests who saw a romance scene hold the pair, first-hand. The pair themselves and the player are never holders here. */
+  private noteCoupleSeen(people: readonly EntityId[], seenBy: readonly EntityId[]): void {
+    const s = this.live;
+    if (!this.coupleToldOn() || !s || !this.npcBeliefsEnabled || people.length !== 2) return;
+    const store = (s.beliefs ??= {});
+    for (const holder of seenBy) {
+      if (holder === PLAYER || people.includes(holder)) continue;
+      writeCouple(store, holder, people[0]!, people[1]!, { origin: "witnessed", confidence: COUPLE_TOLD.seenConfidence, week: s.week });
+    }
+  }
+  /** (2) A houseguest in a speech scene may pass ONE couple they hold to the other person (their own keyed roll; the retelling may mishear the pair). */
+  private noteCoupleTalk(p: PlannedAction, partner: EntityId, salt: string): void {
+    const s = this.live;
+    if (!this.coupleToldOn() || !s || !this.npcBeliefsEnabled || p.actor === PLAYER || partner === PLAYER || !HOUSE_LIFE_ACTIONS[p.kind].speech) return;
+    const mine = passableCouples(s.beliefs?.[p.actor], p.actor).filter((b) => b.subject !== partner && b.object !== partner);
+    if (mine.length === 0) return;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:couple-told:talk:${salt}:${p.actor}:${partner}`));
+    if (!(rng.next() < COUPLE_TOLD.talkChance)) return;
+    const b = mine[0]!;
+    const [x, y] = retold([b.subject, b.object!], rng.next(), rng.next(), this.livingIds().filter((id) => id !== PLAYER));
+    writeCouple((s.beliefs ??= {}), partner, x, y, { origin: "told", source: p.actor, confidence: b.confidence * COUPLE_TOLD.retoldFactor, week: s.week });
+  }
+  /** (3) A houseguest with the player may tell them ONE couple they hold, through the same gates a confidence takes. Returns what the narrator voices (the teller's words, a band); never the truth. */
+  private tellCoupleToPlayer(id: EntityId, attemptKey: string): NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined {
+    const s = this.live;
+    if (!this.coupleToldOn() || !s || !this.npcBeliefsEnabled || !this.onCoupleTold || id === PLAYER) return undefined;
+    const living = new Set(this.livingIds());
+    const known = new Set((this.playerKnowledgeReader?.() ?? []).map((f) => f.factId));
+    const pool = passableCouples(s.beliefs?.[id], id).filter((b) => b.subject !== PLAYER && b.object !== PLAYER && living.has(b.subject) && living.has(b.object!) && !known.has(coupleFactId(b.subject, b.object!)));
+    if (pool.length === 0) return undefined;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:couple-told:tell:${attemptKey}`));
+    if (!(rng.next() < tellChance({ trustInPlayer: this.rel.edge(id, PLAYER).trust, audience: this.audienceAround(id), candor: this.candorOf(id) }))) return undefined;
+    const b = pool[0]!;
+    const [x, y] = couplePair(b.subject, b.object!);
+    if (!this.onCoupleTold(id, coupleContent(this.nameOf(x), this.nameOf(y)), x, coupleFactId(x, y), b.confidence)) return undefined;
+    return { kind: "couple-with", subject: this.nameOf(x), object: this.nameOf(y), certainty: presentedBand(b.confidence, 0) };
   }
   /**
    * 0207 A2 (ORW-659): the couple is a target. An NPC HOH outside a pair they READ as a couple (their own view of the pair's bond at the foundation's bar, plus a romance scene they were in or watched) puts
