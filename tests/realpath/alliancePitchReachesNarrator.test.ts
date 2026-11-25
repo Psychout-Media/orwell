@@ -9,7 +9,7 @@ import { GameSessionRegistry } from "../../src/composition/registry";
  */
 describe("an open alliance pitch is in the narrator's moment prompt (played)", () => {
   it("while a pitch is open the prompt names it, its id and the lever", async () => {
-    const at = await playUntil(1, (s) => (s.sess.gameStatus().alliancePitches?.length ?? 0) > 0, { maxMessages: 1500 });
+    const at = await playUntil(1, (s) => (s.sess.gameStatus().alliancePitches?.length ?? 0) > 0, { user: "wf-1", maxMessages: 1500 });
     const pitch = at.sess.gameStatus().alliancePitches![0]!;
     const prompt = at.sess.getMomentPrompt({}).systemPrompt as string;
     const line = prompt.split("\n").find((l: string) => l.startsWith("- ALLIANCE PITCH")) ?? "";
