@@ -1649,6 +1649,7 @@ export function renderGameContext(view: GameStateView): string {
     ...(view.napOpen ? ["- NAP (open now): if the player naps or lies down, call nap {hours} (0.5-3 from their words, else 1). An event wakes them; if refused, voice the `why`. On waking, voice only the WHILE YOU SLEPT line."] : []),
     ...(view.houseMeeting ? [`- HOUSE MEETING (engine truth; the player is in the room and heard it): ${houseMeetingLine(view.houseMeeting)}.${view.houseMeeting.answer === undefined ? "" : " Voice the accusation and the answer as the speakers' own words; do not say whether either is true, why the caller called it, or how anyone took it."}`] : []),
     ...(view.keepPromisers?.length ? [`- WHO TOLD THE PLAYER THEY WOULD KEEP THEM (engine truth; the only people who may be said to have promised it; ballots stay anonymous, so never say how any of them voted): ${view.keepPromisers.map((h) => neutralizeForPrompt(h.name)).join(", ")}.`] : []),
+    ...(view.bedtimeHeld ? [`- BEDTIME NOT YET (engine truth): ${bedtimeHeldLine(view.bedtimeHeld.minutesUntil)}.`] : []),
     ...(view.houseMeetingRefused ? [`- HOUSE MEETING REFUSED (engine truth): ${houseMeetingRefusedLine(view.houseMeetingRefused)}.`] : []),
     ...(view.allianceNotFormed ? [`- ALLIANCE NOT FORMED (engine truth): the player proposed "${view.allianceNotFormed.name}" to ${view.allianceNotFormed.with.join(", ")} and it did NOT form: they are not close enough to the player yet. Nobody is sworn in and none of them is in an alliance with the player: do not narrate it as formed or as agreed, and take back any "I'm in" you already wrote by voicing them as warm toward the idea but holding back; it can only come once they have grown closer.`] : []),
     ...(view.longNight ? [`- LONG NIGHT (engine truth; play it hurried and breathless in your own words, and never write a morning, a sleep or a day passing until this line is gone): ${view.longNight}.`] : []),
@@ -2442,6 +2443,21 @@ export function houseMeetingLine(m: { caller: string; accused: string; claim: { 
     : m.answer === "redirect" ? `the accused DEFLECTS: they neither confirm nor deny, and must not admit or flatly deny it, now or in later turns`
     : `the accused DENIES it: they must not admit, confess or concede it, now or in later turns`;
   return `${m.caller} called the house together and said: ${said}. ${reply}. The answer is FIXED, ${fixed}`;
+}
+
+/**
+ * ORW-920: the player tried to turn in before the night period and the engine held the bed. Said in the world's terms (a part of the evening, never minutes as data) so the narrator does not write the
+ * sleep the engine refused. Pure.
+ */
+export function bedtimeOpensPhrase(minutesUntil: number): string {
+  if (minutesUntil <= 75) return "within the hour or so";
+  const hours = Math.round(minutesUntil / 60);
+  const words = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]; // the world's terms: never a digit
+  return hours <= 1 ? "within the hour or so" : `in about ${words[hours] ?? "several"} hours`;
+}
+export function bedtimeHeldLine(minutesUntil: number): string {
+  return `the player tried to go to bed and it is not bedtime yet: the house is still up and bed opens ${bedtimeOpensPhrase(minutesUntil)}. They are NOT asleep: do not write a lamp going out, closed eyes, a night passing or a morning, and do not call turnIn again until the night. `
+    + "Say plainly, in the scene's own voice, that it is too early to sleep, and offer one or two things to do until then (time with a houseguest, a quiet stretch, or waiting for the night)";
 }
 
 /** ORW-593: a call for a house meeting the engine refused, said in the world's terms for the narrator to voice. No meeting is held, so none may be improvised. */
