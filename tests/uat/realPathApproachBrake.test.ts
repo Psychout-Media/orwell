@@ -60,7 +60,9 @@ describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer f
           m.last = key;
           const q = s.live.approachAsked?.[it2.npc]?.q;
           const had = m.open.get(it2.npc) ?? [];
-          if (q && !q.startsWith("goal:") && had.length > 0) { seen = { npc: it2.npc, asked: q, open: had }; hit = true; }
+          // a PURE milestone ask: not the goal's own question, and carrying no goal's words (a houseguest with a goal approach pending voices that goal whatever they step up
+          // for, and that goal's record surfaces by design: ORW-709's "only that record's own goal does")
+          if (q && !q.startsWith("goal:") && !(it2 as { say?: unknown }).say && had.length > 0) { seen = { npc: it2.npc, asked: q, open: had }; hit = true; }
         }
       }
       const open = new Map<string, string[]>();
@@ -72,7 +74,13 @@ describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer f
     expect(seen, "the stop recorded the ask").toBeDefined();
     const recs = ((at.sess as Sess).live.aimedAtPlayer ?? []).filter((r) => seen!.open.includes(r.id));
     expect(recs.length).toBe(seen!.open.length);
-    for (const r of recs) expect(r.status, "a milestone ask does not surface the asker's own record (only that record's own goal does)").toBe("open");
+    // the claim is that the ask does not SURFACE the record (only that record's own goal does): never "shown". A record can still close as "answered" in the same message when the
+    // player answered an earlier question from that houseguest (answerAimedFrom closes the asker's records): that is the player's answer, recorded, not the ask surfacing it.
+    const answeredByPlayer = (at.sess as Sess).live.approachAsked?.[seen!.npc]?.answered === true;
+    for (const r of recs) {
+      expect(r.status, "a milestone ask does not surface the asker's own record (only that record's own goal does)").not.toBe("shown");
+      if (r.status !== "open") expect({ status: r.status, answeredByPlayer }, "closed only by the player's own answer").toEqual({ status: "answered", answeredByPlayer: true });
+    }
   }, 900_000);
 
   it("a hostile approach answered kindly writes no fight; the same approach ignored does (seed 11, the same game played twice up to the approach; re-pinned from 13 by ORW-791, see ORW-872)", async () => {
