@@ -50,24 +50,32 @@ async function tellTheRoom(s: Stop, v: string): Promise<{ o: string; t: string }
 describe("a betrayal rumor records its victim from the real betrayal event (played)", () => {
   it("a deal the player broke at the secret ballot names no victim: the betrayed never learned who broke it, so the rumor stays victim-less, and the told rumor still costs a bystander a small bounded distrust", async () => {
     // seed 3: at the first eviction the player votes against a houseguest they hold a deal with; the break is a secret ballot (the wronged side never learns it by name)
-    const at = await firstStop((s) => quiet(s) && betrayed(s).some((v) => room(s).includes(v)) && room(s).length >= 3, wfScan(HINT), { decide: voteAgainstAPartner });
-    const v = betrayed(at).find((x) => room(at).includes(x))!;
-    const deal = dealsOf(at).find((d) => d.status === "broken" && d.brokenBy === PLAYER && d.parties.includes(v)) as Deal & { secretVote?: boolean };
-    expect(deal.secretVote, "the break was the player's secret ballot").toBe(true);
-    const held = new Set([...room(at)].flatMap((h) => rumorsOf(at, h).map((c) => `${h}|${c.id}`)));
-    const { o } = await tellTheRoom(at, v);
-    // the rumors THIS telling planted (about the player): the listeners may already hold other betrayal rumors about other houseguests, each with its own victim
-    const planted = [v, o].flatMap((h) => rumorsOf(at, h).filter((c) => !held.has(`${h}|${c.id}`) && c.subject === PLAYER));
-    expect(planted.length, "non-vacuous: the telling planted a rumor about the player").toBeGreaterThan(0);
-    for (const c of planted) expect(c.object, "no victim from a ballot the betrayed never saw").toBeUndefined();
-    expect(rumorsOf(at, v).length + rumorsOf(at, o).length, "non-vacuous: the rumor landed").toBeGreaterThan(0);
-    const toO = () => rumorsOf(at, o).find((c) => c.subject === PLAYER);
-    expect(toO(), "the bystander heard it about the player (no mishearing on this seed)").toBeDefined();
-    await playOnToTheNextBeat(at); // the week's claims are folded at commit time, before a beat
-    const drop = -(toO()!.impact?.trust ?? 0);
-    expect(drop, "a bystander distrusts the betrayer").toBeGreaterThan(0);
-    expect(drop).toBeLessThan(0.1);
-  }, 120_000);
+    // ORW-880: the scan picks the games that reach the secret-ballot break; whether a bystander HEARS the told rumor is a seeded chance (a mishearing), so it is a precondition too: the claims are checked on the first of
+    // those games where the bystander heard it about the player (the rest are other seeds' luck, not claims).
+    let checked = 0;
+    for (const seed of [HINT, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12].filter((x, i, all) => all.indexOf(x) === i)) {
+      // one game at a time (lazily): most runs stop at the first
+      const at = await firstStop((s) => quiet(s) && betrayed(s).some((v) => room(s).includes(v)) && room(s).length >= 3, { from: seed, to: seed, sandbox: (x) => `wf-${x}`, what: "a secret-ballot break with a room of three" }, { decide: voteAgainstAPartner }).catch(() => undefined);
+      if (!at) continue;
+      const v = betrayed(at).find((x) => room(at).includes(x))!;
+      const deal = dealsOf(at).find((d) => d.status === "broken" && d.brokenBy === PLAYER && d.parties.includes(v)) as Deal & { secretVote?: boolean };
+      expect(deal.secretVote, "the break was the player's secret ballot").toBe(true);
+      const held = new Set([...room(at)].flatMap((h) => rumorsOf(at, h).map((c) => `${h}|${c.id}`)));
+      const { o } = await tellTheRoom(at, v);
+      // the rumors THIS telling planted (about the player): the listeners may already hold other betrayal rumors about other houseguests, each with its own victim
+      const planted = [v, o].flatMap((h) => rumorsOf(at, h).filter((c) => !held.has(`${h}|${c.id}`) && c.subject === PLAYER));
+      for (const c of planted) expect(c.object, "no victim from a ballot the betrayed never saw").toBeUndefined();
+      const toO = () => rumorsOf(at, o).find((c) => c.subject === PLAYER);
+      if (planted.length === 0 || !toO()) continue; // a mishearing on this seed: not the game this claim is about
+      await playOnToTheNextBeat(at); // the week's claims are folded at commit time, before a beat
+      const drop = -(toO()!.impact?.trust ?? 0);
+      expect(drop, "a bystander distrusts the betrayer").toBeGreaterThan(0);
+      expect(drop).toBeLessThan(0.1);
+      checked++;
+      break;
+    }
+    expect(checked, "non-vacuous: in one of the scanned games the telling planted a rumor about the player and the bystander heard it").toBeGreaterThan(0);
+  }, 600_000);
 
   // ORW-813: not reached in play. A victim is named only for a PUBLIC break (a nomination or a replacement by the player as HOH; a ballot break stays sealed). In 18 played seasons
   // (seeds 1-18, the scripted talking player nominating any houseguest it holds a safety deal with) the player was never HOH before week 8 or their eviction, so no public break happened.
