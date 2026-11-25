@@ -9258,6 +9258,27 @@ def consume_vote_beat_cue(message, user) -> bool:
     return False
 
 
+# ORW-924: the same hidden beat cue for a Continue press through the veto DRAW (the draw's watch steps were a banner and no narrated beat). Armed by the press that carried the engine's `vetoDrawBeat`
+# (routes/orwell_routes.py); the chat turn that carries the cue is a narrated beat, not a player message: no clock charge, no player-move parse. A hand-typed copy with no armed press is an ordinary message.
+_DRAW_BEAT_CUE_PREFIX = "(Production cue \u2014 the player pressed Continue through the veto draw"
+_DRAW_BEAT_ARMED: dict = {}
+
+
+def arm_draw_beat_cue(user) -> None:
+    """The Continue press just made carried a veto-draw beat: the next chat turn that is the cue is a beat turn."""
+    _DRAW_BEAT_ARMED[user] = True
+    logger.info("[orwell] draw-beat cue armed for user=%s", user)
+
+
+def consume_draw_beat_cue(message, user) -> bool:
+    """True (once per armed press) when `message` is the draw-beat cue AND a press armed it. Pure bookkeeping."""
+    if isinstance(message, str) and message.startswith(_DRAW_BEAT_CUE_PREFIX):
+        hit = bool(_DRAW_BEAT_ARMED.pop(user, False))
+        logger.info("[orwell] draw-beat cue seen for user=%s armed=%s", user, hit)
+        return hit
+    return False
+
+
 async def note_player_message(client_msg_id, user) -> None:
     """Tell the engine a player message arrived (``noteMessage``): one in-game message-step per
     message id. Best-effort — no engine / no game / any failure ⇒ nothing (the engine keeps its
@@ -10729,7 +10750,7 @@ async def build_chat_context(
 
     # Per-message pacing: announce this player message to the engine clock ONCE, before the model
     # call, keyed by the send's clientMsgId (retry / two-window re-drive is idempotent). Fail-soft.
-    _vote_beat_turn = (not incognito) and consume_vote_beat_cue(message, user)  # ORW-771: a vote-beat turn is not a player message
+    _vote_beat_turn = (not incognito) and (consume_vote_beat_cue(message, user) or consume_draw_beat_cue(message, user))  # ORW-771: a vote-beat turn is not a player message
     if not incognito and not _vote_beat_turn:
         await note_player_message(client_msg_id, user)
         # ORW-419 (intent-first moves): the engine resolves the player's OWN move from their words BEFORE the narrator's moment

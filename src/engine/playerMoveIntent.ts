@@ -149,6 +149,11 @@ function parseClause(raw: string, current: Room | null, themed?: Themed): Room |
   if (m) {
     const afterVerb = s.slice(m[0].length);
     const bare = afterVerb.replace(PHRASE_END, "").trim();
+    // ORW-926: "go back inside TO THE LIVING ROOM", "go out TO THE HALLWAY": the player NAMED where they are going, so that room is the move; the bare in/out shortcut below is only for "go inside" / "go outside" with no destination.
+    if (INSIDE_WORDS.has(bare) || OUTSIDE_WORDS.has(bare)) {
+      const named = roomFromPhrase(afterVerb.replace(PREP, ""), current, themed);
+      if (named !== null) return named;
+    }
     if (INSIDE_WORDS.has(bare)) return current === "backyard" ? exitRoomFrom(current) : null;
     if (OUTSIDE_WORDS.has(bare)) return current === "backyard" ? null : "backyard";
     const fr = FIND_IN_ROOM.exec(afterVerb.replace(/^(?:(?:back|right|straight|over)\s+)+/, ""));
@@ -182,6 +187,9 @@ export function parsePlayerMoveIntent(text: string, current: Room | null, themed
 // extracts the phrase; the engine resolves it against who the player can legitimately see (never a hidden whereabouts).
 const FIND_VERB = /^(?:find|finds|finding|look for|looks for|looking for|seek out|seeking out|search for|searching for|track down|tracking down|locate|go find|go look for|go see|go and find)\b\s*/;
 
+const FOLLOW_VERB = /^(?:follow|follows|following|trail|trails|trailing)\b\s*/;
+const FOLLOW_TAIL = /\s+(?:inside|outside|indoors|back|in|out|into|to|and|then|wherever|where|so|with|through)\b.*$/;
+
 function personFromClause(raw: string, current: Room | null, themed?: Themed): string | null {
   if (/\?\s*$/.test(raw.trim())) return null;
   let s = clean(raw);
@@ -189,7 +197,9 @@ function personFromClause(raw: string, current: Room | null, themed?: Themed): s
   s = s.replace(SUBJECT, "").replace(INTENT, "");
   let rest: string | null = null;
   const f = FIND_VERB.exec(s);
+  const fo = FOLLOW_VERB.exec(s); // ORW-926: "I follow <X> inside to wherever they went": walking after a person is a move to where that person is (when the player can see them)
   if (f) rest = s.slice(f[0].length);
+  else if (fo) rest = s.slice(fo[0].length).replace(FOLLOW_TAIL, "");
   else {
     const g = GO_VERB.exec(s);
     if (g) {

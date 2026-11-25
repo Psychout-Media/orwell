@@ -7,6 +7,7 @@ The LLM decides when to use tools by writing fenced code blocks.
 """
 
 import asyncio
+import contextvars
 import collections
 import collections.abc
 import json
@@ -2297,6 +2298,62 @@ def _post_turn_parallel_enabled() -> bool:
     return str(os.environ.get("ORWELL_POST_TURN_PARALLEL", "")).strip().lower() not in ("0", "false", "no", "off")
 
 
+def _belt_prefetch_enabled() -> bool:
+    """ORW-910: the consequence belts' extraction model calls run CONCURRENTLY up front (their engine writes still run strictly in order).
+    The belt chain used to make one ~1-2 s utility call after another before the turn could finish. `ORWELL_BELT_PREFETCH=0` restores it (default ON)."""
+    if str(os.environ.get("ORWELL_FLAGS_OFF", "")).strip().lower() in ("1", "true", "yes", "on"):
+        return False
+    return str(os.environ.get("ORWELL_BELT_PREFETCH", "")).strip().lower() not in ("0", "false", "no", "off")
+
+
+class _ExtractOnly(BaseException):
+    """ORW-910: ends a belt run in extract-only mode right after its model call, before any engine write. A BaseException, so the belts'
+    own fail-soft `except Exception` handlers neither swallow it nor log it as a failure."""
+
+
+_BELT_PREFETCH_CACHE: "contextvars.ContextVar" = contextvars.ContextVar("orwell_belt_prefetch_cache", default=None)
+_BELT_EXTRACT_ONLY: "contextvars.ContextVar" = contextvars.ContextVar("orwell_belt_extract_only", default=False)
+_NO_PREFETCH = object()
+
+
+def _belt_prefetch_key(kw: dict) -> str:
+    """The exact request a belt makes: the same prompt, model and limits reuse a prefetched answer; anything else calls live."""
+    import hashlib
+    blob = json.dumps({k: kw.get(k) for k in ("model", "messages", "temperature", "max_tokens", "call_class")}, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+async def _belt_llm(**kw):
+    """ORW-910: a consequence belt's extraction call. In extract-only mode (the prefetch) it makes the call, keeps the answer for the turn and
+    stops the belt before it writes. In the ordered chain it answers from the turn's prefetch when the request is identical, else calls live."""
+    from src.llm_core import llm_call_async
+    cache = _BELT_PREFETCH_CACHE.get()
+    key = _belt_prefetch_key(kw) if cache is not None else None
+    if _BELT_EXTRACT_ONLY.get():
+        raw = await llm_call_async(**kw)
+        if cache is not None:
+            cache[key] = raw
+        raise _ExtractOnly()
+    if cache is not None:
+        hit = cache.pop(key, _NO_PREFETCH)
+        if hit is not _NO_PREFETCH:
+            return hit
+    return await llm_call_async(**kw)
+
+
+async def _belt_prefetch_one(fn, *args, **kwargs) -> None:
+    """Run one belt in extract-only mode (its own task, so the flag never leaks into the caller); any failure just means no prefetch."""
+    tok = _BELT_EXTRACT_ONLY.set(True)
+    try:
+        await fn(*args, **kwargs)
+    except _ExtractOnly:
+        pass
+    except Exception:  # failsoft-ok: handled-by-caller (the ordered chain then calls live)
+        pass
+    finally:
+        _BELT_EXTRACT_ONLY.reset(tok)   # never leaks, even when awaited directly rather than as its own task
+
+
 def _volatile_tail_wire(messages):
     """The request messages with the per-turn volatile block moved to a trailing system message; `messages` itself is never mutated. Returns the SAME list when the shape is not the game narrator's
     (no GAME CONTEXT / markers), so a non-game or odd prompt is untouched."""
@@ -4400,7 +4457,7 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
         # reads the `reasoning`/`thinking` field, so the answer is recoverable even when the model
         # routes everything there.)
         if raw is None:  # ORW-294: a prefetched scene section (the merged extraction) skips the call
-            raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
+            raw = await _belt_llm(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                        temperature=0.2, max_tokens=1500, timeout=45,
                                        call_class="utility-extraction", user=_meter_user(owner))
         raw = raw or ""
@@ -5368,7 +5425,7 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
                 f"WHAT HAPPENED:\n{scene}\n\nJSON:"},
         ]
         # Room for a reasoning model to think THEN emit the deal JSON (see _auto_record_scene).
-        raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
+        raw = await _belt_llm(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1600, timeout=45,
                                    call_class="utility-extraction", user=_meter_user(owner)) or ""
         obj = None
@@ -5481,7 +5538,7 @@ async def _auto_answer_deal_offer(last_user, narration, owner, endpoint_url, mod
                 f"THE OFFER (from {who}): {str(offer.get('terms') or '')[:300]}\n\n"
                 f"THE PLAYER'S MESSAGE:\n{(last_user or '')[:800]}\n\nJSON:"},
         ]
-        raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
+        raw = await _belt_llm(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=600, timeout=45,
                                    call_class="utility-extraction", user=_meter_user(owner)) or ""
         ans = None
@@ -5566,7 +5623,7 @@ async def _auto_alliance(narration, last_user, house, endpoint_url, model, heade
                 f"OPEN PITCHES (id = name):\n{pitch_lines}\n\nROSTER (id = name):\n{roster_lines}\n\n"
                 f"THE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\nWHAT HAPPENED:\n{(narration or '')[:2500]}\n\nJSON:"},
         ]
-        raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
+        raw = await _belt_llm(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
                                    call_class="utility-extraction", user=_meter_user(owner)) or ""
         obj = _last_json_object_with_key(raw, "join")
@@ -5686,7 +5743,7 @@ async def _auto_confide(narration, last_user, house, endpoint_url, model, header
                 f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
         ]
         # Room for a reasoning model to think THEN emit the tiny npcId JSON (see _auto_record_scene).
-        raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
+        raw = await _belt_llm(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
                                    call_class="utility-extraction", user=_meter_user(owner)) or ""
         # The JSON may sit after a reasoning block — take the LAST object carrying an "npcId" key.
@@ -5834,7 +5891,7 @@ async def _auto_expose_secret(narration, last_user, house, endpoint_url, model, 
                 f"THE PLAYER'S KNOWN SECRETS (factId = content):\n{fact_lines}\n\n"
                 f"THE PLAYER'S MOVE:\n{press}\n\nWHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
         ]
-        raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
+        raw = await _belt_llm(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
                                    call_class="utility-extraction", user=_meter_user(owner)) or ""
         obj = _last_json_object_with_key(raw, "factId")
@@ -5917,7 +5974,7 @@ async def _auto_trade_secret(narration, last_user, house, endpoint_url, model, h
                 f"ROSTER (id = name):\n{roster_lines}\n\n"
                 f"THE PLAYER'S MOVE:\n{press}\n\nWHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
         ]
-        raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
+        raw = await _belt_llm(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
                                    call_class="utility-extraction", user=_meter_user(owner)) or ""
         obj = _last_json_object_with_key(raw, "factId")
@@ -6078,6 +6135,10 @@ _GAME_LEAK_START_RE = re.compile(
     re.IGNORECASE,
 )
 
+
+
+# ORW-910: the belts the chain may prefetch. Only these originals: a stand-in (a test double, a wrapper) may write before its extraction, so it is never run extract-only.
+_BELT_PREFETCHABLE = frozenset({_auto_record_scene, _auto_record_deal, _auto_answer_deal_offer, _auto_alliance, _auto_confide, _auto_expose_secret, _auto_trade_secret})
 
 def _split_complete_sentences(buf: str, release_number_dot: bool = False):
     """Split a streaming buffer into (complete_prefix, remainder) at the LAST sentence boundary —
@@ -11190,6 +11251,44 @@ async def _stream_agent_loop_impl(
                         # satisfies the generic scene-record below (no double fold). HIGH-bar extraction —
                         # struck=false (loose talk) creates nothing.
                         _touched_deal = _scene_touched_houseguest(_turn_narration, messages, [h.get("name") for h in _house])
+                        # ORW-910: make every extraction this chain will need AT ONCE (same gates as below, extract-only: no engine write), then run the chain in
+                        # order as before; each belt's identical request is answered from the prefetch, a changed one (an earlier belt moved the state it reads) calls live.
+                        _pf_token = None
+                        if _belt_prefetch_enabled():
+                            _pf_jobs = []
+                            _pf_user = _extract_last_user_message(messages)
+                            if _want_deal and _touched_deal:
+                                _pf_jobs.append((_auto_record_deal, (_turn_narration, _pf_user, _house, _belt_endpoint, _belt_model, _belt_headers, owner),
+                                                 {"skip_ids": _turn_model_deal_partners, "applied_out": []}))
+                            if _want_offer_answer:
+                                _pf_jobs.append((_auto_answer_deal_offer, (_last_user_for_confide, _turn_narration, owner, _belt_endpoint, _belt_model, _belt_headers), {}))
+                            if _want_confide and _touched_deal:
+                                _pf_jobs.append((_auto_confide, (_turn_narration, _last_user_for_confide, _house, _belt_endpoint, _belt_model, _belt_headers, owner), {}))
+                            if _want_expose and _touched_deal:
+                                _pf_jobs.append((_auto_expose_secret, (_turn_narration, _last_user_for_confide, _house, _belt_endpoint, _belt_model, _belt_headers, owner), {}))
+                            if _want_trade and _touched_deal:
+                                _pf_jobs.append((_auto_trade_secret, (_turn_narration, _last_user_for_confide, _house, _belt_endpoint, _belt_model, _belt_headers, owner), {}))
+                            if _want_alliance:
+                                _pf_jobs.append((_auto_alliance, (_turn_narration, _last_user_for_confide, _house, _belt_endpoint, _belt_model, _belt_headers, owner),
+                                                 {"applied_out": [], "refused": set(_turn_alliance_refused)}))
+                            if (_want_record and _touched and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN
+                                    and _merged_scene.get("narration") != cleaned_round):
+                                _pf_jobs.append((_auto_record_scene, (cleaned_round, _pf_user, _house, _belt_endpoint, _belt_model, _belt_headers, owner),
+                                                 {"session_id": session_id, "raw": None}))
+                            _pf_jobs = [j for j in _pf_jobs if j[0] in _BELT_PREFETCHABLE]
+                            if len(_pf_jobs) > 1:   # one belt alone gains nothing from a prefetch
+                                _pf_token = _BELT_PREFETCH_CACHE.set({})
+                                await asyncio.gather(*(asyncio.ensure_future(_belt_prefetch_one(fn, *fa, **fk)) for fn, fa, fk in _pf_jobs), return_exceptions=True)
+                        try:
+                            await _bank_belt_chain_ordered(_touched, _touched_deal)
+                        finally:
+                            if _pf_token is not None:
+                                _BELT_PREFETCH_CACHE.reset(_pf_token)
+
+                    async def _bank_belt_chain_ordered(_touched, _touched_deal) -> None:
+                        """The ordered belt chain (unchanged by ORW-910 but for the prefetch above): see `_bank_belt_chain`."""
+                        nonlocal _turn_deal_nudges, _turn_record_nudges, _turn_confide_nudges, _turn_offer_nudges
+                        nonlocal _turn_expose_nudges, _turn_trade_nudges, _turn_alliance_nudges
                         if _want_deal and _touched_deal:
                             _turn_deal_nudges += 1  # once per turn
                             _applied_deals: list = []

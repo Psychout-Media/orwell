@@ -1214,7 +1214,10 @@ function vetoDecisionLines(cer: GameStateView["ceremony"]): string[] {
 function competitionFloorLines(cer: GameStateView["ceremony"]): string[] {
   const c = cer.competition;
   if (!c || !c.out.length) return [];
-  return [`    Competition floor: still in ${c.stillIn.map((p) => p.name).join(", ") || "no one"}; already out ${c.out.map((p) => p.name).join(", ")} (an eliminated houseguest does not compete again).`];
+  const lines = [`    Competition floor: still in ${c.stillIn.map((p) => p.name).join(", ") || "no one"}; already out ${c.out.map((p) => p.name).join(", ")} (an eliminated houseguest does not compete again).`];
+  // ORW-927: rounds the game ran while the player was choosing their approach were voiced by nobody. Name them so this reply tells each exit (once), instead of jumping from the full field to the last few.
+  if (c.justOut?.length) lines.push(`    NOT YET TOLD: ${c.justOut.map((p) => p.name).join(", ")} went out in the rounds the game ran while the player chose their approach, and no one has voiced those exits. Voice each of them in this reply, in this competition's own manner, before anything later; do not drop anyone else and do not skip them.`);
+  return lines;
 }
 
 export function renderGameContext(view: GameStateView): string {
@@ -1937,6 +1940,24 @@ export function renderVoteBeatBlock(view: GameStateView): string[] {
   return out;
 }
 
+/**
+ * ORW-924 - the VETO DRAW BEAT of the Continue press just made through the draw: third-person facts for the narrator to voice as a short beat (the narrator authors every word). The draw's two
+ * watch steps were a banner and nothing else; this gives the press a voiced moment. It names NO veto winner and NO result (the competition has not been run), and the six only once the game has published them.
+ */
+export function renderVetoDrawBeatBlock(view: GameStateView): string[] {
+  const b = view.ceremony?.veto?.drawBeat;
+  if (!b) return [];
+  const nm = (r: { name: string }): string => neutralizeForPrompt(r.name);
+  const out = [`    VETO DRAW BEAT (the player just pressed Continue through the Power of Veto draw; the competition has NOT been run, so there is no veto winner and no result):`];
+  const who = `${b.hoh ? `${nm(b.hoh)} is the Head of Household` : "the Head of Household is not marked"}; ${b.nominees.length ? `${b.nominees.map(nm).join(" and ")} wait on the block` : "nobody is named on the block"}; ${b.gathered} houseguests are gathered; the part of the day is ${b.timeOfDay ?? "unmarked"}`;
+  if (b.field && b.field.length) out.push(`      Facts of this moment: the draw has set its six: ${b.field.map(nm).join(", ")}. ${who}.`);
+  else out.push(`      Facts of this moment: the chips are being drawn and the six are not yet shown. ${who}.`);
+  out.push(b.closed
+    ? "      The draw is over; the competition itself has not started and is not voiced here. Voice a short beat of a few sentences: the room taking in who was drawn, from these facts only."
+    : "      Voice a short beat of a few sentences: the room around the draw, from these facts only. Name no one as drawn who is not listed above, no winner, no chip holder's choice and no result; add no new fact about the board.");
+  return out;
+}
+
 /** The short engine-committed board recap for the ceremony phases (HOH, nominees, veto, eviction ballots), or undefined. */
 export function renderBoardRecap(view: GameStateView): string[] | undefined {
   const phase = String(view.phase ?? "").toLowerCase();
@@ -1991,7 +2012,10 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
     }
     if (ev?.host) lines.push(...renderHostBlock(view));
     if (ev?.voteBeat) lines.push(...renderVoteBeatBlock(view));
+    // ORW-928: the result was committed on an earlier turn and the reveal, the host's words and the evictee's exit were voiced then. Staging them again made the evictee leave twice (a second exit speech).
+    if (ev?.evictee && (ev.voicedTurns ?? 0) > 0) lines.push(`    THE REVEAL AND ${ev.evictee.name.toUpperCase()}'S EXIT HAVE ALREADY BEEN VOICED on an earlier turn: the host has spoken, ${ev.evictee.name} has said goodbye and left the room. Never read the result again, never give the host's send-off again and never have ${ev.evictee.name} leave again. Play only what the player says or does now, and the game's own next step (the player's goodbye card, the house reacting) when it comes.`);
   }
+  if (cer.veto.drawBeat) lines.push(...renderVetoDrawBeatBlock(view)); // ORW-924
   return lines;
 }
 
