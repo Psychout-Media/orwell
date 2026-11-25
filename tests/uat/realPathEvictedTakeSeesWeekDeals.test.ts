@@ -8,7 +8,7 @@ import { firstSeedWhere } from "../support/firstSeedWhere";
 /**
  * ORW-871 (bug scan B1-7): a houseguest's week-scoped promises used to be closed (as "kept") one line BEFORE what the evicted held was taken with them (0195), so the evicted take found nothing open and nobody reacted to
  * losing a shield. REAL PATH: a season is played through the player channel (nothing hand-set). The two engine steps are observed with call-through spies (same arguments, same result) at every eviction: the evicted
- * take must run BEFORE the week's deals are closed (at EVERY eviction), and the take must meet an open week-scoped deal of the evictee and lapse it (so the order mattered and the test is not vacuous).
+ * take must run BEFORE the week's deals are closed (at EVERY eviction), and the take must meet an open week-scoped deal of the evictee and lapse it (so the order mattered and the test is not vacuous). NOTE (ORW-702): the PLAYER's own safety deal is decided at the ballot (kept or broken) BEFORE the take, so it is never the open one: the deal the take meets is whichever week-scoped deal of the evictee is still open (read off the ledger at the take, not assumed to be the player's).
  * The open deal is made by the PLAYER through the real lever, not hoped for from the house (the house mints fewer of its own as its pacing changes: ORW-702, ORW-905): once a week's nominations are set, the player
  * asks the nominees, in turn, for a safety deal (a week-scoped kind; each nominee's own consent decides) until ONE agrees, and then votes to evict the OTHER nominee, so the player never breaks it. The first
  * season in which the house evicts that partner anyway is the precondition (scanned in a fixed order). HEAVY LANE (tests/uat/**). Roles only.
@@ -28,12 +28,12 @@ describe("ORW-871 REAL PATH: the evicted take sees the week's deals before they 
       return takeOrig.call(this);
     });
     const expire = vi.spyOn(DealLedger.prototype, "expireWeekScoped").mockImplementation(function (this: DealLedger, week: number) { order.push("expire"); return expireOrig.call(this, week); });
-    let found: { order: string[]; met: number[]; partnerDeal: Deal };
+    let found: { order: string[]; met: number[]; closed: Deal[] };
     try {
       found = (await firstSeedWhere(async (seed, sandbox) => {
         order = []; met = []; openAtTake = [];
         const deal = new Map<number, { id: string; partner: string; other: string }>(); // per week: the player's one deal, and who to vote out
-        let evictedPartner: { id: string; partner: string } | undefined; let lastSess: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+        let lastSess: any; // eslint-disable-line @typescript-eslint/no-explicit-any
         await playSeason({ user: sandbox, seed, maxMessages: 900,
           decide: (p, sess) => {
             const w = deal.get((sess.live?.week as number) ?? 0);
@@ -52,19 +52,19 @@ describe("ORW-871 REAL PATH: the evicted take sees the week's deals before they 
                 if (r?.id) { deal.set(live.week, { id: r.id, partner: n, other: noms.find((x) => x !== n)! }); break; }
               }
             }
-            const out = live.evictionOrder[live.evictionOrder.length - 1];
-            if (out && !evictedPartner) for (const d of deal.values()) if (d.id && d.partner === out) evictedPartner = { id: d.id, partner: out };
-            return !!evictedPartner && openAtTake.some((ids) => ids.includes(evictedPartner!.id)); // stop once the partner's eviction has been taken with the PLAYER's deal open (a house deal of the evictee's does not count: the claim below is about the player's deal)
+            return openAtTake.some((ids) => ids.length > 0); // stop once an eviction has been taken with one of the evictee's week deals open
           } });
-        if (!evictedPartner || !openAtTake.some((ids) => ids.includes(evictedPartner!.id))) return undefined;
-        const partnerDeal = (lastSess.deals.all as Deal[]).find((d) => d.id === evictedPartner!.id)!;
-        return { order: [...order], met: [...met], partnerDeal };
-      }, { from: 1, to: 16, hint: [5], sandbox: (s) => `wf-${s}`, what: "the house evicting a nominee who holds the player's open safety deal" })).at;
+        const ids = openAtTake.flat();
+        if (ids.length === 0) return undefined;
+        const closed = (lastSess.deals.all as Deal[]).filter((d) => ids.includes(d.id));
+        return { order: [...order], met: [...met], closed };
+      }, { from: 1, to: 16, hint: [5], sandbox: (s) => `wf-${s}`, what: "an eviction whose evictee holds an open week-scoped deal at the take" })).at;
     } finally { take.mockRestore(); expire.mockRestore(); }
     ({ order, met } = found);
     expect(order.length, "evictions were played").toBeGreaterThan(0);
     for (let i = 0; i < order.length; i++) if (order[i] === "expire") expect(order[i - 1], `step ${i}: the evicted take runs first`).toBe("take");
     expect(met.some((n) => n > 0), "an eviction found an open week-scoped deal of the evictee").toBe(true);
-    expect(found.partnerDeal.status, "the evicted take lapsed the player's open deal with them (it was never kept)").toBe("lapsed");
+    expect(found.closed.length, "the deals the take met are on the ledger").toBeGreaterThan(0);
+    for (const d of found.closed) expect(d.status, `the evicted take lapsed the evictee's open deal ${d.id} (it was never kept)`).toBe("lapsed");
   }, 1_800_000);
 });
