@@ -322,6 +322,13 @@ async def _post_decision_tail(
         orwell_engine.remember_pending(res, user=user)
     _publish_game_updated(user)  # 0064: instant cross-device HUD reconcile
     _clear_decision_failure(user, decision)  # DB1/DB2: a success retires any prior refusal
+    try:  # ORW-919: a successful submit arms ONE hidden decision-beat cue (the page sends it right after; HTTP and WS share this tail)
+        from routes.chat_helpers import arm_decision_beat_cue
+        arm_decision_beat_cue(user)
+        if isinstance(res, dict):
+            res["decisionBeatCue"] = True
+    except Exception:  # failsoft-ok: the beat is texture; a submit never fails on it
+        pass
     return res
 
 
@@ -1993,6 +2000,13 @@ def setup_orwell_routes() -> APIRouter:
                         from routes.chat_helpers import arm_draw_beat_cue
                         arm_draw_beat_cue(user)
                         res["drawBeatCue"] = True
+                except Exception:  # failsoft-ok: the beat is texture; a press never fails on it
+                    pass
+                try:  # ORW-919: a press that committed a ceremony's public result (the veto's use, the replacement, the eviction result) arms the same kind of hidden cue - not when this press already armed the vote beat (one beat per press)
+                    from routes.chat_helpers import carries_ceremony_result_fact, arm_ceremony_result_beat_cue
+                    if carries_ceremony_result_fact(res) and not res.get("voteBeatCue"):
+                        arm_ceremony_result_beat_cue(user)
+                        res["ceremonyResultBeatCue"] = True
                 except Exception:  # failsoft-ok: the beat is texture; a press never fails on it
                     pass
             _publish_game_updated(user)

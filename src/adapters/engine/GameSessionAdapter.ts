@@ -20009,6 +20009,7 @@ export class GameSessionAdapter implements GameSession {
         ...(d.used !== undefined ? { used: d.used } : {}),
         ...(d.saved !== undefined ? { saved: named(d.saved) } : {}),
         ...(d.tieBroken !== undefined ? { tieBroken: d.tieBroken } : {}),
+        ...(d.votes !== undefined ? { votes: { ...d.votes } } : {}), // ORW-919: the public count (totals only)
         ...(d.remaining !== undefined ? { remaining: d.remaining } : {}),
         ...(d.part !== undefined ? { part: d.part } : {}),
       };
