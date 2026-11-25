@@ -84,8 +84,11 @@ export function evaluate(shares: PhaseShares): RuleResult[] {
  */
 export interface KnownRed { value: number; card: string }
 export const KNOWN_RED: Readonly<Record<string, KnownRed>> = {
-  // ORW-702 slice 1: empty. The ten lines the surviving player's reading left red (early bonding and gossip, mid bonding, gossip and the 45 % ceiling, late bonding, strategy, gossip, conflict and the
-  // 45 % ceiling) all pass now (pooled over seeds 1, 2, 3, 6: early 33.1/29.7/29.4/7.9, mid 26.4/33.2/32.2/8.3, late 21.8/34.9/31.7/11.6, bonding/strategy/gossip/conflict). A rule that fails again is a regression.
+  // ORW-702 slice 1: one line left. The ten lines the surviving player's reading left red (early bonding and gossip, mid bonding, gossip and the 45 % ceiling, late bonding, strategy, gossip, conflict and the
+  // 45 % ceiling) all pass now, with the friction ramp (drama builds over the season) and the gossip/strategy keep chances. Measured on the GitHub runner, 2026-11-25 (seeds 1, 2, 3, 6, player in, head f218288bb), pooled
+  // bonding/strategy/gossip/conflict: early 32.4/30.9/29.3/7.5, mid 25.3/35.8/29.6/9.4, late 23.2/37.9/28.4/10.5. Mid strategy is 1.8 over its cap of 34 (Coordinator ruling 2026-11-25: land with exactly this one line);
+  // the slice that removes it is ORW-702 slice 2 (the combined retune on the new casts of ORW-893 and the attraction flirts of ORW-892).
+  "mid:band-strategy": { value: 35.8, card: "ORW-702 slice 2 retune" }, // band 26-34
 };
 export const RATCHET_SLACK = 6; // points of drift past the measured value that is still noise at this many seasons; tighten as the seed set grows
 
