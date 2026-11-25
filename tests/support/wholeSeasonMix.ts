@@ -88,7 +88,12 @@ export const KNOWN_RED: Readonly<Record<string, KnownRed>> = {
   // 45 % ceiling) all pass now, with the friction ramp (drama builds over the season) and the gossip/strategy keep chances. Measured on the GitHub runner, 2026-11-25 (seeds 1, 2, 3, 6, player in, head f218288bb), pooled
   // bonding/strategy/gossip/conflict: early 32.4/30.9/29.3/7.5, mid 25.3/35.8/29.6/9.4, late 23.2/37.9/28.4/10.5. Mid strategy is 1.8 over its cap of 34 (Coordinator ruling 2026-11-25: land with exactly this one line);
   // the slice that removes it is ORW-702 slice 2 (the combined retune on the new casts of ORW-893 and the attraction flirts of ORW-892).
-  "mid:band-strategy": { value: 35.8, card: "ORW-702 slice 2 retune" }, // band 26-34
+  "mid:band-strategy": { value: 35.8, card: "ORW-702 slice 2 retune" }, // band 26-34 (35.8 measured at f218288bb; 34.9 on the head that added the two lines below)
+  // 2026-11-25, head 55a146399 (GitHub runner, seeds 1, 2, 3, 6, player in): pooled early 32.7/30.9/29.1/7.3, mid 26.8/34.9/28.7/9.6, late 20.6/42.4/27.8/9.3. The scripted player now plays on to the END on seeds 2 and 3 (out "never";
+  // before it was out in weeks 10 and 6), so the late phase reads the endgame (finale, jury votes), which is strategy-heavy (45-47 % on those seeds): a different reading, not the rebalance misfiring (Coordinator ruling 2026-11-25).
+  // ORW-702 slice 2 re-tunes on the new casts (ORW-893) and attraction flirts (ORW-892), and notes that the late band may itself need re-agreeing for a player-in endgame.
+  "late:band-strategy": { value: 42.4, card: "ORW-702 slice 2 retune" }, // band 28-38
+  "late:band-conflict": { value: 9.3, card: "ORW-702 slice 2 retune" }, // band 10-16
 };
 export const RATCHET_SLACK = 6; // points of drift past the measured value that is still noise at this many seasons; tighten as the seed set grows
 
