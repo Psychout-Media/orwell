@@ -109,9 +109,27 @@ def wait_beat_after(stack, before, what):
 _N = [0]
 
 
+def _wait_idle(page, quiet_s=1.0, timeout_s=40):
+    """ORW-919: a decision card now fires a hidden beat cue whose narrator turn runs on its own. Before a typed message, wait until no reply is streaming and the stub has seen no
+    new request for `quiet_s`: a message typed while the cue turn streams is queued, and `_send` would read the delay as a lost send and send it again (two advances for one)."""
+    import time
+    end = time.time() + timeout_s
+    seen, since = len(STUB.requests), time.time()
+    while time.time() < end:
+        busy = page.evaluate("() => { try { const cm = window.chatModule, sm = window.sessionModule; const sid = sm && sm.getCurrentSessionId && sm.getCurrentSessionId();"
+                             " return !!(cm && cm.hasActiveStream && sid && cm.hasActiveStream(sid)); } catch (_) { return false; } }")
+        n = len(STUB.requests)
+        if busy or n != seen:
+            seen, since = n, time.time()
+        elif time.time() - since >= quiet_s:
+            return
+        time.sleep(0.15)
+
+
 def typed_next(page, stack):
     """A typed 'next' through the real composer; returns the unique stub reply text. The narrator is a scripted plain reply (no tool call), so whatever moved the board was the FE's own pre-resolve / progress seam."""
     from test_orw191_golden_flows import _wait_settled
+    _wait_idle(page)
     _N[0] += 1
     reply = f"The house breathes, line {_N[0]:03d}."
     STUB.script.append({"deltas": [reply], "delay": 0})
