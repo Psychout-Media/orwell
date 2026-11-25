@@ -356,7 +356,9 @@ def _ws_owns(user: Optional[str], session_id: str) -> bool:
     return row.owner == user
 
 
-# ORW-941: the turns admitted recently, per user (clientMsgId -> admitted at). Bounded and time-limited: it only has to outlive a client's retry window and an outbox re-send after a reload.
+# ORW-941: the turns admitted and still RUNNING, per user (clientMsgId -> admitted at), so a double send of the same turn never starts a second run alongside it. The entry is dropped
+# when that run ends: a re-send AFTER the run finished keeps the existing contract (B15 / p0h: it runs again, and the data layer already keeps it idempotent by clientMsgId - the line
+# is recorded once and the clock bills once). Bounded, with a TTL as a safety net.
 _ADMITTED_TURNS: "dict[tuple, float]" = {}
 _ADMITTED_TTL_S = 30 * 60
 _ADMITTED_MAX = 4096
@@ -366,6 +368,10 @@ def _admitted_before(user, client_msg_id: str) -> bool:
     import time as _t
     at = _ADMITTED_TURNS.get((user, client_msg_id))
     return at is not None and _t.time() - at < _ADMITTED_TTL_S
+
+
+def _forget_admitted(user, client_msg_id: str) -> None:
+    _ADMITTED_TURNS.pop((user, client_msg_id), None)
 
 
 def _note_admitted(user, client_msg_id: str) -> None:
@@ -749,8 +755,8 @@ async def ws_session(websocket: WebSocket) -> None:
             # `update-holding`: nothing was written, so the client re-sends the same clientMsgId unchanged once the restart is over (no double send is possible). A turn that passes is
             # counted as in flight from this line (atomically with the check) until its stream registers, so the updater's "0 in flight" can never miss it.
             _tok = d.get("clientMsgId") if isinstance(d.get("clientMsgId"), str) else None
-            # ORW-941: idempotent by clientMsgId. An admitted turn's id is remembered (per user, bounded, TTL), so a client retry or an old client's double send of the SAME turn
-            # is acked again (`duplicate`) and never starts a second run.
+            # ORW-941: idempotent by clientMsgId. While an admitted turn's run is live, a client retry or an old client's double send of the SAME turn is acked again
+            # (`duplicate`, the sender tails the run already going) and never starts a second run.
             if _tok and _admitted_before(user, _tok):
                 logger.info("[ws] duplicate turn acked without a run cid=%s clientMsgId=%s user=%s", cid, _tok, user)
                 await send({"t": "ack", "ch": "chat", "cid": cid, "d": {"accepted": True, "duplicate": True, "beatSeq": sock.get("beatSeq")}})
@@ -770,17 +776,23 @@ async def ws_session(websocket: WebSocket) -> None:
                 producer = _turn_stream_factory(d, sock["canonical"], user)
                 # queue-don't-cancel for GAME turns (ADR 0012 / 0064-C) — two windows serialize behind
                 # one canonical run; the result fans out as chat ``event`` frames (not inline on cid).
-                agent_runs.start(sock["canonical"], producer, queue=True,
-                                 on_finish=lambda k=_adm_key, st=_adm_stamp: _turn_inflight.admit_release_pinned(k, st))
-                _run_started = True
                 if _tok:
-                    _note_admitted(user, _tok)
+                    _note_admitted(user, _tok)   # before the start: a run that ends at once still forgets it
+
+                def _on_finish(k=_adm_key, st=_adm_stamp, tok=_tok):
+                    _turn_inflight.admit_release_pinned(k, st)
+                    if tok:
+                        _forget_admitted(user, tok)   # ORW-941: the run is over; a later re-send runs again (data-layer idempotent)
+                agent_runs.start(sock["canonical"], producer, queue=True, on_finish=_on_finish)
+                _run_started = True
                 session_events.publish(sock["canonical"], "run-started")
                 await send({"t": "ack", "ch": "chat", "cid": cid, "d": {"accepted": True, "beatSeq": sock.get("beatSeq")}})  # ORW-941: the page catches up to the current beatSeq
             except Exception as e:
                 logger.warning("[ws] turn relay failed: %s", e)
                 if not _run_started:
                     _turn_inflight.admit_release_pinned(_adm_key, _adm_stamp)   # never became a run: release it now (a started run releases itself)
+                    if _tok:
+                        _forget_admitted(user, _tok)
                 await send({"t": "error", "ch": "chat", "cid": cid, "d": {"code": "turn-failed"}})
 
         async def _handle_decision(frame: dict) -> None:
