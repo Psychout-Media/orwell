@@ -85,6 +85,8 @@ export interface EditEpisode {
   alliances?: EditAllianceBeat[];
   /** The composed offline floor of the title (a live narrator replaces it from the facts). */
   title: string;
+  /** ORW-807: the narrator's own title for this episode, written back after the crown (absent until written; the window shows it in place of the floor). */
+  authoredTitle?: string;
 }
 export type EditBand = "hero" | "villain";
 /** ORW-747: an alliance as the edit reads it (names only; the same rows the 0183 group-life retrospective reads). Weeks are absent when the season did not stamp them. */

@@ -47,7 +47,7 @@ function gain(witnessCount: number, flags: { dealsWitnesses?: boolean; dealDepth
 // --- Scenario: witnesses present at formation are recorded ---
 Given("a deal made with other houseguests present", function (this: BbWorld) {
   GameSessionAdapter.setTimeOfDayEnabled(null);
-  const sb = new GameSessionRegistry().sandboxFor(`pub-${Math.random()}`);
+  const sb = new GameSessionRegistry().sandboxFor(`pub-fixed`);
   const s = sb.session;
   s.createCharacter({ playerName: "The Player", seed: 7 });
   for (let i = 0; i < 3; i++) s.advanceGame();
