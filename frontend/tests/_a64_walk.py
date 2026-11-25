@@ -38,7 +38,7 @@ def _scan(hints, upto=40):
     return tuple(dict.fromkeys([*hints, *range(1, upto + 1)]))
 
 
-NOMINEE_SEEDS = _scan((5, 27, 32))   # an NPC HOH nominates the player: no eviction-vote card is theirs. Re-picked for ORW-711 (the new floor plan shifts the seeded week-1 path: 16 and 31 no longer reach the block; a 40-seed scan found 5, 27, 32 and 36 that do). Earlier, ORW-705 re-picked (16, 31, 32): the one-step premiere pacing shifts the seeded week-1 path (seeds 5 and 17 no longer reach the block; seeds 1-15 and 17-30 do not either). Earlier re-pick: ORW-656.
+NOMINEE_SEEDS = _scan((30, 5, 27, 32))   # ORW-702: on the rebalanced house (less early scheming) only seed 30 of 1-30 takes this path when walked FIRST on a fresh stack (a season depends on what ran before it in the stack: ORW-921), so it leads. an NPC HOH nominates the player: no eviction-vote card is theirs. Re-picked for ORW-711 (the new floor plan shifts the seeded week-1 path: 16 and 31 no longer reach the block; a 40-seed scan found 5, 27, 32 and 36 that do). Earlier, ORW-705 re-picked (16, 31, 32): the one-step premiere pacing shifts the seeded week-1 path (seeds 5 and 17 no longer reach the block; seeds 1-15 and 17-30 do not either). Earlier re-pick: ORW-656.
 VOTER_SEEDS = _scan((30012, 2, 4))      # an NPC HOH, the player is not on the block: week 1 ends on the player's own eviction-vote card
 
 
