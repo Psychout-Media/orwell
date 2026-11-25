@@ -244,7 +244,7 @@ Given("a triads season where a swing vote was courted and cast", function () {
 When("triads: the season is saved and loaded into a fresh session", function () {
   const b = bag(this); const { p } = b.one!;
   b.saved = JSON.parse(JSON.stringify(p.session.snapshot()));
-  const fresh = new GameSessionRegistry().sandboxFor(`bdd-triads-${Math.random()}`);
+  const fresh = new GameSessionRegistry().sandboxFor(`bdd-triads-fixed`);
   fresh.session.restore(b.saved as never);
   (fresh.session as unknown as { rel: { load(e: unknown): void } }).rel.load(JSON.parse(JSON.stringify((p.seam as unknown as { rel: { serialize(): { edges: unknown } } }).rel.serialize().edges))); // the edges ride the relationship store's own save, as every fold's do
   b.loaded = { sb: fresh, session: fresh.session, seam: fresh.session as never, npcs: p.npcs, seed: p.seed };

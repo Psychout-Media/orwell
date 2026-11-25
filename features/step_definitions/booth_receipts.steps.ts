@@ -25,7 +25,7 @@ function resolve(s: GameSession, p: NonNullable<AdvanceView["pending"]>, evictVo
   else s.submitDecision({ kind: p.kind, vote: p.options?.[0]?.id } as never);
 }
 function fresh(seed: number): Ctx {
-  const sb = new GameSessionRegistry().sandboxFor(`booth-${seed}-${Math.random()}`);
+  const sb = new GameSessionRegistry().sandboxFor(`booth-${seed}-fixed`);
   const s = sb.session as GameSessionAdapter;
   s.createCharacter({ playerName: "The Player", seed });
   s.setBoothReceiptsEnabled(true);
