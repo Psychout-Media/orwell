@@ -2914,6 +2914,69 @@
    "owner": "ORW-480",
    "reason": "closed camera-manner taxonomy: each trait is scored against the character sheet and keys its expression, posture and hand tables",
    "decision": "traits are chosen by scoring the sheet, not dealt; the only deal is the fallback when no sheet line matches. Follow-up (ORW-480): replace that fallback with the writer naming the manner from the biography"
+  },
+  {
+   "path": "src/engine/lookVariants.ts",
+   "kind": "list",
+   "name": "AGE_LOOK_TAILS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "second axis of a composed look field: the field is the base value times this tail (hundreds of combinations, measured in src/domain/poolRecurrence.json), so the tail is a part, not the pool; the cast writer authors the look live where it runs",
+   "decision": "composed part, not a menu: the dealt value is base x tail (120 to 593 distinct values measured per field); the writer authors the look line per person live and this is the offline floor"
+  },
+  {
+   "path": "src/engine/lookVariants.ts",
+   "kind": "list",
+   "name": "AGE_LOOK_TAILS_2",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "second axis of a composed look field: the field is the base value times this tail (hundreds of combinations, measured in src/domain/poolRecurrence.json), so the tail is a part, not the pool; the cast writer authors the look live where it runs",
+   "decision": "composed part, not a menu: the dealt value is base x tail (120 to 593 distinct values measured per field); the writer authors the look line per person live and this is the offline floor"
+  },
+  {
+   "path": "src/engine/lookVariants.ts",
+   "kind": "list",
+   "name": "BUILD_TAILS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "second axis of a composed look field: the field is the base value times this tail (hundreds of combinations, measured in src/domain/poolRecurrence.json), so the tail is a part, not the pool; the cast writer authors the look live where it runs",
+   "decision": "composed part, not a menu: the dealt value is base x tail (120 to 593 distinct values measured per field); the writer authors the look line per person live and this is the offline floor"
+  },
+  {
+   "path": "src/engine/lookVariants.ts",
+   "kind": "list",
+   "name": "FACIAL_TAILS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "second axis of a composed look field: the field is the base value times this tail (hundreds of combinations, measured in src/domain/poolRecurrence.json), so the tail is a part, not the pool; the cast writer authors the look live where it runs",
+   "decision": "composed part, not a menu: the dealt value is base x tail (120 to 593 distinct values measured per field); the writer authors the look line per person live and this is the offline floor"
+  },
+  {
+   "path": "src/engine/lookVariants.ts",
+   "kind": "list",
+   "name": "HAIR_TAILS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "second axis of a composed look field: the field is the base value times this tail (hundreds of combinations, measured in src/domain/poolRecurrence.json), so the tail is a part, not the pool; the cast writer authors the look live where it runs",
+   "decision": "composed part, not a menu: the dealt value is base x tail (120 to 593 distinct values measured per field); the writer authors the look line per person live and this is the offline floor"
+  },
+  {
+   "path": "src/engine/lookVariants.ts",
+   "kind": "list",
+   "name": "SKIN_TAILS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "second axis of a composed look field: the field is the base value times this tail (hundreds of combinations, measured in src/domain/poolRecurrence.json), so the tail is a part, not the pool; the cast writer authors the look live where it runs",
+   "decision": "composed part, not a menu: the dealt value is base x tail (120 to 593 distinct values measured per field); the writer authors the look line per person live and this is the offline floor"
+  },
+  {
+   "path": "src/engine/lookVariants.ts",
+   "kind": "list",
+   "name": "STYLE_ACCENTS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "second axis of a composed look field: the field is the base value times this tail (hundreds of combinations, measured in src/domain/poolRecurrence.json), so the tail is a part, not the pool; the cast writer authors the look live where it runs",
+   "decision": "composed part, not a menu: the dealt value is base x tail (120 to 593 distinct values measured per field); the writer authors the look line per person live and this is the offline floor"
   }
  ]
 }
