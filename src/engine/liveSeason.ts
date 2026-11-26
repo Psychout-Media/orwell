@@ -81,7 +81,7 @@ import type { RelationshipDisposition } from "./relationshipConstants";
 import type { RelationshipModel } from "./relationships";
 import {
   runFinale as buildFinaleScript, castJuryVote, juryLean, appealEffect, bestAppeal, gameRespectTerm, JURY_WEIGHTS,
-  FINALE_APPEALS, bitterJurorExtra, mannerLeanOf, type EvictionManner, type FinaleAppeal, type FinaleScript, type JuryRel,
+  FINALE_APPEALS, bitterJurorExtra, bitterByPersonality, mannerLeanOf, type EvictionManner, type FinaleAppeal, type FinaleScript, type JuryRel,
 } from "./jury";
 import { MANNER_THRESHOLDS, MANNER_GRADING, MEND_TRACE } from "./juryConstants";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
@@ -3557,7 +3557,7 @@ function precomputeVotes(s: LiveSeasonState, ctx: SeasonCtx, f: FinaleProgress, 
     const prof = ctx.jurorProfiles ? (fromCharacter ? profileOfArchetype(fromCharacter) : jurorProfile(juror, ctx.jurorProfileSalt ?? 0)) : undefined; // A2: this juror's OWN profile (flag-gated; no rng)
     // 0182 PR 3: the grudge adds only what the manner term and the memory term do not already count (`bitterJurorExtra`). No provider => exactly 0.
     const bitterTerm = (fin: EntityId, mannerW: number): number => {
-      const raw = ctx.juryGrudgeFor?.(juror, fin) ?? 0;
+      const raw = bitterByPersonality(ctx.juryGrudgeFor?.(juror, fin) ?? 0, prof?.archetype); // ORW-943: the grudge weighs by who the juror is (no profile => unchanged)
       if (raw === 0) return 0;
       const covered = mannerW * Math.max(0, -mannerLeanOf(mannerForVote(s, ctx, f, juror, fin))) + Math.max(0, -(ctx.juryMemoryFor?.(juror, fin) ?? 0));
       return bitterJurorExtra(raw, covered);
