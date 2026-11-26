@@ -143,4 +143,8 @@ The gap the ORW-771 note named is closed. Every ballot of a played, staged evict
 that the player's own vote card reads. A Continue press (a bare `advanceGame`) reads exactly one more ballot; the press past the last ballot decides the vote. A typed message that is not a
 progress ask moves nothing (a real-stack run had shown one message after the vote drive nine ballots through the front end's one-turn reveal hops; that path is only reachable with no open step).
 `advance` answers the ballot step with the next ballot (`liveSeason.ts`); the clock is unchanged (ORW-262, the same per-step spread). Gates: `tests/unit/orw791VoteContinue.test.ts` and the
-real-stack `frontend/tests/test_orw791_vote_then_message.py`. A bare typed "next" at a ballot step still walks the ballots in one pass (the ORW-291 pacing ruling, `test_orw291p_ballot_pacing.py`).
+real-stack `frontend/tests/test_orw791_vote_then_message.py`. (Superseded by ORW-846 below: a bare typed "next" reads one ballot too.)
+
+## Amendment 2026-11-24 (ORW-846: a bare "next" at a ballot step reads ONE ballot)
+
+A bare typed "next" or "continue" at an eviction ballot step is now the same single step a Continue press takes (ORW-297 one-step branch; the ORW-771 beat rides the engine moment prompt). Only an explicit, short, non-question fast-forward ("skip to the result", "just tell me who is out", "fast forward", "skip the votes") walks every remaining ballot (still capped, sealed lines only); anything longer or mixed with other talk fails toward one ballot. Amends the ORW-291 pacing note (play by play: ORW-281, every step told: ORW-703). Pinned by `test_orw291p_ballot_pacing.py` and, once ORW-791 is on main, the real-stack `test_orw846_bare_next_one_ballot.py`.
