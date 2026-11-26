@@ -4093,6 +4093,9 @@ _HOUSE_READY_INLINE_S = _env_float("ORWELL_HOUSE_READY_INLINE_S", 10.0)
 # After a REFUSED entry the background gate-clear watch keeps polling this much longer, so the season
 # still opens (and the skipped post-start kicks still run) the moment authoring finally lands.
 _HOUSE_READY_WATCH_TIMEOUT_S = _env_float("ORWELL_HOUSE_READY_WATCH_TIMEOUT_S", 1800.0)
+# ORW-949: after the long window expires the watch keeps re-checking at this slow interval, so a cast that
+# lands late still releases the player without a process restart.
+_HOUSE_READY_RECHECK_S = _env_float("ORWELL_HOUSE_READY_RECHECK_S", 60.0)
 
 # The HOLDING/refused marker: which users currently have house entry held (or refused) because the
 # cast isn't authored yet. While a user's marker is set, the FE status/state projections OVERLAY
@@ -4236,7 +4239,8 @@ def house_ready_watch_active(user: Optional[str]) -> bool:
 def kickoff_house_ready_watch(owner: Optional[str],
                               on_ready: Optional[Callable[[], None]] = None,
                               *, timeout: Optional[float] = None,
-                              poll_interval: Optional[float] = None) -> bool:
+                              poll_interval: Optional[float] = None,
+                              recheck_interval: Optional[float] = None) -> bool:
     """After a REFUSED house entry: keep watching authoring in the background and, the moment the
     cast reaches the threshold, CLEAR the holding marker, run the post-start kicks the early holding
     return skipped (`on_ready` — e.g. the 0062 zeitgeist capture) EXACTLY ONCE, and push a server-side
@@ -4248,6 +4252,24 @@ def kickoff_house_ready_watch(owner: Optional[str],
     if existing is not None and not existing.done():
         return False
 
+    def _release(ready: dict) -> None:
+        clear_house_entry_gate_block(owner)
+        logger.info(
+            "[house-entry-gate] gate CLEARED for %s — cast authored %s/%s; opening the "
+            "season and running the deferred post-start kicks", k,
+            ready.get("authored"), ready.get("total"))
+        if on_ready is not None:
+            try:
+                on_ready()
+            except Exception as e:
+                logger.warning(
+                    "[house-entry-gate] deferred post-start kick failed for %s: %s", k, e)
+        try:
+            from src import orwell_game_session
+            orwell_game_session.publish_game_updated(owner)
+        except Exception:
+            pass
+
     async def _watch():
         try:
             ready = await await_house_ready(
@@ -4255,22 +4277,7 @@ def kickoff_house_ready_watch(owner: Optional[str],
                 timeout=(_HOUSE_READY_WATCH_TIMEOUT_S if timeout is None else timeout),
                 poll_interval=poll_interval)
             if ready.get("ready"):
-                clear_house_entry_gate_block(owner)
-                logger.info(
-                    "[house-entry-gate] gate CLEARED for %s — cast authored %s/%s; opening the "
-                    "season and running the deferred post-start kicks", k,
-                    ready.get("authored"), ready.get("total"))
-                if on_ready is not None:
-                    try:
-                        on_ready()
-                    except Exception as e:
-                        logger.warning(
-                            "[house-entry-gate] deferred post-start kick failed for %s: %s", k, e)
-                try:
-                    from src import orwell_game_session
-                    orwell_game_session.publish_game_updated(owner)
-                except Exception:
-                    pass
+                _release(ready)
             else:
                 # Still below the threshold after the long watch window — stay LOUD (the marker
                 # stays, the overlay keeps reporting the holding state, the operator sees it).
@@ -4293,6 +4300,19 @@ def kickoff_house_ready_watch(owner: Optional[str],
                             f"{ready.get('total')} authored after the readiness window")
                 except Exception:
                     pass
+                # ORW-949: an expired watch used to keep the hold until a restart. Keep re-checking slowly
+                # (one poll per round) until the cast is ready or someone else clears the marker.
+                gap = _HOUSE_READY_RECHECK_S if recheck_interval is None else recheck_interval
+                while house_entry_gate_status(owner) is not None:
+                    await asyncio.sleep(max(0.0, float(gap)))
+                    if house_entry_gate_status(owner) is None:
+                        break
+                    ready = await await_house_ready(owner, timeout=0, poll_interval=poll_interval)
+                    if ready.get("ready"):
+                        _release(ready)
+                        break
+        except Exception as e:  # noqa: BLE001 - background helper never raises
+            logger.warning("[house-entry-gate] watch failed for %s: %s", k, e)
         finally:
             if _HOUSE_READY_WATCHES.get(k) is task_ref[0]:
                 _HOUSE_READY_WATCHES.pop(k, None)
