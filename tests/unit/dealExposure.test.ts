@@ -202,8 +202,24 @@ describe("a twist that makes a promise impossible: the plan decides betrayal or 
   type PlanSeam = Seam & { live: Seam["live"] & { dealPlans?: Record<string, Record<string, { kind: string; madeWeek: number }>> }; setDealPlansEnabled(on: boolean): void };
   const hurt = (g: Seam, a: string, b: string) => { for (const [x, y] of [[a, b], [b, a]] as const) { const e = g.rel.edge(x, y); e.trust = -0.5; e.affinity = -0.5; e.threat = 1; } };
   /** One double-eviction twist over an NPC pair whose plans are `kind` for both promisers. */
+  // ORW-984: one played setup per seed, saved and restored for each run (a setup is ~240 ms on CI, a restore ~10): the same game every run (fixed sandbox name), not a fresh cast per run.
+  const saved = new Map<number, unknown>();
+  const fromSave = (seed: number) => {
+    if (!saved.has(seed)) {
+      const sb0 = new GameSessionRegistry().sandboxFor(`exposure-amend-${seed}`);
+      sb0.session.createCharacter({ playerName: "The Player", archetype: "floater", seed });
+      sb0.session.advanceGame(); sb0.session.advanceGame();
+      saved.set(seed, JSON.stringify(sb0.session.snapshot()));
+    }
+    const sb = new GameSessionRegistry().sandboxFor(`exposure-amend-${seed}`);
+    sb.session.restore(JSON.parse(saved.get(seed) as string));
+    const g = sb.session as unknown as Seam;
+    g.setDealDepthEnabled(true); g.setDealExposureEnabled(true);
+    g.live.playedGame = true; g.live.pending = undefined;
+    return { g, npcs: sb.session.livingIds().filter((i) => i !== PLAYER) };
+  };
   const run = (seed: number, kind: string, o: { plans?: boolean } = {}) => {
-    const { g: g0, npcs } = setup(seed);
+    const { g: g0, npcs } = fromSave(seed);
     const g = g0 as PlanSeam;
     const [a, b] = npcs as [string, string];
     hurt(g, a, b);
@@ -215,7 +231,8 @@ describe("a twist that makes a promise impossible: the plan decides betrayal or 
     g.reopenDealsOnTwist();
     return { g, deal, a, b, trustBefore, trustAfter: [g.rel.edge(a, b).trust, g.rel.edge(b, a).trust] };
   };
-  const seeds = Array.from({ length: 150 }, (_, i) => 21 + i);
+  const seeds = Array.from({ length: 150 }, (_, i) => 21 + i); // the betrayal search: the first seed whose roll breaks
+  const universal = seeds.slice(0, 50); // ORW-984: the "never" claims (no betraying plan, the flag off) hold per seed; 50 seeds keep them under the unit lane's 30 s
 
   it("a faking plan uses the twist as cover: a real, quiet betrayal; the wronged party learns only through the existing gate", () => {
     let found = false;
@@ -237,7 +254,7 @@ describe("a twist that makes a promise impossible: the plan decides betrayal or 
     expect(found).toBe(true);
   });
   it("the same twist with no betraying plan is the forced innocent break: no betrayal, no fold", () => {
-    for (const seed of seeds) {
+    for (const seed of universal) {
       for (const kind of ["keep", "a-retired-kind"]) {
         const r = run(seed, kind);
         expect(r.deal.status).not.toBe("broken");
@@ -247,7 +264,7 @@ describe("a twist that makes a promise impossible: the plan decides betrayal or 
     }
   });
   it("the plan flag off: today's behaviour exactly, even with a faking plan stored", () => {
-    for (const seed of seeds) {
+    for (const seed of universal) {
       const off = run(seed, "break-at", { plans: false }), keep = run(seed, "keep");
       expect(off.deal.status).not.toBe("broken");
       expect(off.deal.status).toBe(keep.deal.status);

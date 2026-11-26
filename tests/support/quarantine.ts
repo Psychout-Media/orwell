@@ -21,8 +21,9 @@ export const RUN_QUARANTINED = process.env.ORWELL_RUN_QUARANTINED === "1";
 export const MAX_QUARANTINE_DAYS = 7;
 export const PLANE_CARD = /^[A-Z][A-Z0-9]*-\d+$/;
 
-type TestFn = Parameters<typeof it>[1];
-type TestOpts = Parameters<typeof it>[2];
+// The test body and its timeout, as a test file writes them (`Parameters<typeof it>` picks vitest's options-first overload, which rejects a plain body).
+type TestFn = () => unknown;
+type TestOpts = number;
 
 export function quarantine(q: Quarantine): {
   it: (name: string, fn?: TestFn, options?: TestOpts) => void;
