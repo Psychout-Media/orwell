@@ -21,6 +21,7 @@ describe("ORW-736 REAL PATH: a showmance builds slowly in a played season", () =
   let pace: Record<string, Pace> = {};
   let romances: Record<string, number> = {};
   let publicBefore: Array<{ day: number; pair: string }> = [];
+  let seededPairs = new Set<string>(); // pre-game showmances are paced too, without a `live.romances` entry (the record has not read them as one)
   let firstRomanceTurn = -1;
   let seed = 0, user = "";
   beforeAll(() => {
@@ -43,16 +44,17 @@ describe("ORW-736 REAL PATH: a showmance builds slowly in a played season", () =
     firstRomanceTurn = found.at.first;
     pace = found.at.p.live.showmancePace ?? {};
     romances = found.at.p.live.romances ?? {};
+    seededPairs = new Set((found.at.p.seededRels.showmances ?? []).map((x) => [x.a, x.b].sort().join("|")));
   }, 900_000);
 
   it("pace records belong to romances the house started; steps keep the minimum days; noticing names who caught it; nothing is public early", () => {
     expect(Object.keys(pace).length).toBeGreaterThan(0);
-    for (const pk of Object.keys(pace)) expect(romances[pk], `${pk} is a romance the house started`).toBeDefined();
+    for (const pk of Object.keys(pace)) if (!seededPairs.has(pk.split("|").sort().join("|"))) expect(romances[pk], `${pk} is a romance the house started`).toBeDefined();
     const min = SHOWMANCE_PACE.minDays.map((m) => m * (1 - SHOWMANCE_PACE.jitter));
     let climbed = 0;
     for (const [pk, rec] of Object.entries(pace)) {
       expect(rec.steps.map((s) => s.to)).toEqual(rec.steps.map((_, i) => i + 1));
-      if (rec.steps[0]) expect(rec.steps[0].day, "the first step waits the first minimum after the romance began").toBeGreaterThanOrEqual(romances[pk]! + min[0]! - 1);
+      if (rec.steps[0] && romances[pk] !== undefined) expect(rec.steps[0].day, "the first step waits the first minimum after the romance began").toBeGreaterThanOrEqual(romances[pk]! + min[0]! - 1);
       for (let i = 1; i < rec.steps.length; i++) expect(rec.steps[i]!.day - rec.steps[i - 1]!.day).toBeGreaterThanOrEqual(min[i]! - 1);
       if (rec.steps.length >= 2) { climbed++; expect(rec.steps[1]!.seenBy.length, "the noticing step names who caught it").toBeGreaterThan(0); }
       if (rec.steps.length >= 4) expect(rec.steps[3]!.day).toBeGreaterThanOrEqual(SHOWMANCE_PACE.publicNotBeforeDay);

@@ -29,7 +29,8 @@ describe("0171 REAL PATH: favors the house banked, called in at real votes", () 
         const before = new Map(p.favorLedger().map((f) => [f.id, f.state]));
         const trust = new Map(p.favorLedger().filter((f) => f.state === "owed").map((f) => [f.id, rel.edge(f.holder, f.owedBy).trust]));
         finished = g.turn().finished === true;
-        for (const f of p.favorLedger()) if (f.state === "refused" && before.get(f.id) === "owed") refused.push({ before: trust.get(f.id)!, after: rel.edge(f.holder, f.owedBy).trust });
+        // ORW-892: a refusal can only cost trust that is there to lose (a holder already at the floor is not a case of this claim)
+        for (const f of p.favorLedger()) if (f.state === "refused" && before.get(f.id) === "owed" && trust.get(f.id)! > 0) refused.push({ before: trust.get(f.id)!, after: rel.edge(f.holder, f.owedBy).trust });
       }
       return enough() ? { p, refused } : undefined;
     }, { from: 1, to: 12, hint: [1, 5], sandbox: (s) => (s === 5 ? "pf5" : `pf-${s}`), what: "a season that calls in a favor that is repaid and one that is refused" });

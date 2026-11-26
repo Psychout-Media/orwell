@@ -10,10 +10,11 @@ import { firstSeedWhere } from "../support/firstSeedWhere";
  * watch-or-skip choice) each appear exactly once, in that order, survive a save/restore, and the season then ends. (2) The houseguests' goodbyes are voiced from the speaker's REAL
  * public record with the player, and none of the hidden material the season holds rides with them. HEAVY LANE (tests/uat/**, the `real-path` leg). Roles only.
  */
-const HINT_OUT = 16; // last seed known to vote the player out at the first eviction (the scan tries it first)
+const HINT_OUT = 1; // last seed known to vote the player out at the first eviction (the scan tries it first)
 /** The first seed whose played season reaches the player's own goodbye night (the house voted the player out), with the game stopped there. */
 const evictedSeason = () => firstSeedWhere((seed) => playUntil(seed, goodbyeNow, { user: `wf-${seed}`, maxMessages: 8000 }), wfScan(HINT_OUT, "a season where the house votes the player out"));
-const goodbyeNow = (s: Stop): boolean => { const ev = s.sess.getGameState().eviction; return ev?.stage === "goodbye" && ev.evictee?.id === PLAYER; };
+// ORW-892: the player is voted out at the FIRST eviction (the claims are the first-eviction cards: the exit interview, then watch-or-skip, and the goodbyes)
+const goodbyeNow = (s: Stop): boolean => { const ev = s.sess.getGameState().eviction; return ev?.stage === "goodbye" && ev.evictee?.id === PLAYER && (s.sess.getGameState().week ?? 1) === 1; };
 const hiddenOf = (s: Stop): string[] => [
   ...s.engine.events.queryAll().filter((e) => e.hidden && !e.witnessSet.includes(PLAYER)).map((e) => String(e.content)),
   ...s.engine.vault.readHidden().map((r) => r.content),
