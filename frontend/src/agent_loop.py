@@ -12228,6 +12228,13 @@ async def _stream_agent_loop_impl(
                         if _emitted_visible:
                             await _bank_scene_consequences()
                         if _emitted_visible:
+                            from routes import chat_helpers as _ch_defer
+                            if (not _previewed_uncommitted and not _decision_undelivered and _premiere_staged(owner)
+                                    and _ch_defer.defer_postreply_arrival_commit(owner)):
+                                # ORW-1029: a staged arrival/toast batch committed AFTER the reply is never in that reply; the next turn's pre-reply release commits it where the narrator writes it.
+                                _note_belt(owner, "premiere-arrival-postreply-deferred")
+                                logger.info(f"[orwell] premiere arrival commit deferred to the next turn's pre-reply release round {round_num} user={owner}")
+                                break
                             if await _commit_advance_silently(
                                     "preview-commit" if _previewed_uncommitted
                                     else "decision-deliver" if _decision_undelivered
