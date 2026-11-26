@@ -747,20 +747,29 @@ def classify_gap(info: dict, beat_log: Any) -> dict | None:
             counted_bumps += n
             # Per tool, not only in total: a counted write of THIS FE that landed without bumping must not lend its count to
             # a different counted tool that someone else sent (e.g. one noteMessage counted, a foreign moveTo in the gap).
-            if n > calls:
-                problems.append(f"{t} x{n}, this FE called it {calls} time(s) in the window")
+            # ORW-1009: one dispatch may commit twice - the commit it earns, then the in-game-clock society tick that same commit
+            # fires (the engine attributes both to the dispatching tool). So a counted tool may bump up to MAX_BUMPS_PER_DISPATCH per call.
+            if n > calls * MAX_BUMPS_PER_DISPATCH:
+                problems.append(f"{t} x{n}, this FE called it {calls} time(s) in the window (more than {MAX_BUMPS_PER_DISPATCH} per call)")
         elif t == _OUTSIDE_A_TOOL_CALL or calls <= 0:
             problems.append(f"{t} x{n} (not dispatched by this FE in the window)")
         elif n > calls * MAX_BUMPS_PER_DISPATCH:
             problems.append(f"{t} x{n} from {calls} call(s) (more than {MAX_BUMPS_PER_DISPATCH} per call)")
         else:
             explained += n
-    if counted_bumps > _clean_int(info.get("counted_writes")):
+    # ORW-1009: the bumps beyond what the ledger counted, from tools this FE dispatched, are the same-call tick commits: explained.
+    same_call_extra = max(0, counted_bumps - _clean_int(info.get("counted_writes")))
+    # An allowance that already covers the gap (a stale count) cannot also vouch for an extra bump: counted + extra must fit in the gap.
+    if same_call_extra > _clean_int(info.get("counted_writes")) * (MAX_BUMPS_PER_DISPATCH - 1) or (same_call_extra and _clean_int(info.get("counted")) + same_call_extra > before - since):
         problems.append(f"counted tool(s) bumped {counted_bumps}, the ledger counted {_clean_int(info.get('counted_writes'))}")
+    else:
+        explained += same_call_extra
     if _clean_int(info.get("counted")) + explained < before - since:
         problems.append("the bumps the ledger counted plus the explained ones do not cover the gap")
     if complete and bumps and not problems:
         kind, note = "counting-miss", ""
+        if same_call_extra and not any(t not in BUMPING_WRITES for t in tools):
+            kind = "same-call-tick"  # ORW-1009: only counted tools, each committing again with its own society tick: nothing missed
     else:
         kind = "unexplained"
         note = ("the engine's log does not reach back that far" if beat_log.get("truncated") is not False
@@ -768,7 +777,7 @@ def classify_gap(info: dict, beat_log: Any) -> dict | None:
                 else "not explained by this FE's own calls: " + "; ".join(problems))
     tools_out = {t: n for t, n in tools.items() if t not in BUMPING_WRITES}
     calls_out = {t: _clean_int(dispatched.get(t)) for t in tools_out}
-    return {"kind": kind, "bumps": bumps[:_MAX_GAP_BUMPS], "tools": tools_out if kind == "counting-miss" else tools,
+    return {"kind": kind, "bumps": bumps[:_MAX_GAP_BUMPS], "tools": tools_out if kind in ("counting-miss", "same-call-tick") else tools,
             "calls": calls_out, "note": note, **({"more": True} if len(bumps) > _MAX_GAP_BUMPS else {})}  # review of #2757: say when the list was cut
 
 
@@ -779,7 +788,7 @@ def _describe_causes(expl: dict) -> str:
 
 def _clean_gap_explanation(v: Any) -> dict | None:
     """Coerce a gap explanation to its bounded stored shape (kind + names + ints only), or None."""
-    if not isinstance(v, dict) or v.get("kind") not in ("counting-miss", "unexplained"):
+    if not isinstance(v, dict) or v.get("kind") not in ("counting-miss", "same-call-tick", "unexplained"):
         return None
     bumps = []
     for b in (v.get("bumps") or [])[:_MAX_GAP_BUMPS]:
@@ -887,7 +896,12 @@ def record_turn(
             reason = ("an unaccounted beatSeq gap between turns — the board moved "
                       "without this FE recording the write or reconciling a cross-window "
                       "advance")
-            if expl is not None and expl["kind"] == "counting-miss":
+            if expl is not None and expl["kind"] == "same-call-tick":
+                # ORW-1009: a counted write committed again with the in-game-clock society tick it fires - the extra beat is deliberate
+                # and recorded on the entry, never a lost fold. No alarm, no warning.
+                entry["gapExplanation"] = expl
+                logger.info("[orwell] sync-ledger: beatSeq moved %d between turns; %s", gap, _describe_causes(expl))
+            elif expl is not None and expl["kind"] == "counting-miss":
                 # ORW-439: the engine says every bump in the gap came from a tool this FE dispatched in the window - a counting miss
                 # (a wrong list, a tool that bumps more than once, a commit after the call returned), not a lost change. Not RED;
                 # one WARNING names the tool(s) and how many bumps each, and the entry carries it so a developer sees which list to fix.
