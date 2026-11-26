@@ -2193,12 +2193,53 @@ _PLAYER_INTENT_PREFIX_RE = re.compile(_PI_SUBJECT + _PI_VERB + _PI_PATH, re.IGNO
 _PLAYER_FOLLOW_RE = re.compile(r"\b(?:i(?:'ll|\u2019ll)?|let(?:'s|\u2019s))\s+(?:follow|go\s+with|come\s+with|tag\s+along\s+with|join)\s+(?:her|him|them|you|the\s+others)\b|\bi\s+(?:get\s+up\s+and\s+)?leave\s+the\s+room\b|\bi(?:'ll|’ll|\s+want\s+to|\s+wanna|'m\s+going\s+to|’m\s+going\s+to|'m\s+gonna|’m\s+gonna)?\s+(?:get\s+up\s+and\s+)?(?:leave\b(?!\s+(?:it|that|him|her|them|you|the\s+(?:deal|alliance|vote)))|(?:head|go|step|walk|wander)\s+(?:over(?:\s+there)?|out)\b)", re.IGNORECASE)
 
 
+_PI_NOT_A_MOVE_RE = re.compile(
+    r"\b(?:will|i'?ll|ill|later|maybe|perhaps|might|may|could|would|should|shall|if|when|whenever|once|after|before|until|unless|tomorrow|tonight|eventually|someday|soon|don'?t|do not|not|never|won'?t|can'?t|cannot|wouldn'?t|shouldn'?t|"
+    r"gonna|plan|planning|thinking|think|wonder|supposed|rather|instead|about to|how about|what about|why don'?t|every|each|sometimes|usually|always|all the time|"
+    r"in (?:an|a|one|two|few|\d+) (?:hour|hours|minute|minutes|min|mins|hr|hrs|day|days|while|bit)|at (?:\d+|noon|midnight|dinner|lunch|breakfast)(?:\s*(?:am|pm))?|on (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b")
+_PI_TAKES_IT_BACK_RE = re.compile(r"\bbut (?:i )?(?:can'?t|won'?t|cannot|don'?t|stop|then stop)\b|\bnever ?mind\b|\bnvm\b|\bnot really\b|\bjust kidding\b|\bwhichever\b|\bor (?:to )?the\b|\bbut stop\b|,\s*(?:but\s+)?(?:only\s+)?(?:if|unless)\b")
+_PI_EXTRA_VERB_RE = re.compile(
+    r"(?:^|[.!?;,]\s*|\b(?:and|then|so)\s+)(?:(?:ok(?:ay)?|so|now|alright|then)\b[,\s]*)*(?:(?:i|we)(?:'?m|\s+am|\s+are)?\s+|let'?s\s+|lets\s+|together,?\s+we\s+|me and \w+\s+)(?:just\s+|now\s+|quickly\s+|quietly\s+|all\s+|want to\s+|need to\s+|choose to\s+|decide to\s+)?"
+    r"(?:go|going|goes|head|heading|walk|walking|step|stepping|move|moving|run|running|enter|entering|stroll|strolling|sneak|tiptoe|creep|hurry|rush|race|jog|bolt|sprint|dash|storm|stomp|pop|swing|slip|wander|drift|come|arrive|reach|get)\s+"
+    r"(?:(?:back|over|right|straight|up|down)\s+)*(?:(?:in\s*to|into|to|toward|towards|by|at|through|inside)\s+)?(?:the\s+|my\s+|our\s+)?(?:[a-z'-]+\s+){0,3}?"
+    r"(?:kitchen|living\s*room|lounge|back\s*yard|yard|hallway|hall|bathroom|dining\s*room|storage|pantry|diary\s*room|hoh|landing|bedroom|bunk|garden|patio|pool|outside|inside|downstairs|upstairs)\b", re.IGNORECASE)
+_PI_NOW_FORMS_RE = re.compile(r"\b(?:(?:i(?:'?m| am)?\s+)?(?:gonna|going to)|i'?ll|i will|let me|(?:it'?s\s+)?time to)\s+(?=(?:just\s+|now\s+)?(?:go|head|walk|leave|move|step|wander|find|follow|make my way)\b)")
+_PI_STARTS_WITH_SUBJECT_RE = re.compile(r"^(?:(?:ok(?:ay)?|so|now|alright|then)\\b[,\\s]*)*(?:i|we|let'?s|lets|me)\\b")
+_PI_QUOTE_RE = re.compile(r'\(\([\s\S]*?\)\)|\[[^\]]*ooc[^\]]*\][^.!?\n]*|\(ooc\)[^.!?\n]*|\booc:[^\n]*|"[^"]*"|\u201c[^\u201d]*\u201d|(?<![\w])[\u2018\'](?:[^\'\u2018\u2019\n]|[\u2019\'](?=[A-Za-z])){2,}?[\u2019\'](?=$|[\s.,!?;:)])', re.IGNORECASE)
+
+
 def _player_asked_to_move(text: str, room_names) -> bool:
-    """Did the player's own message say they are going somewhere? Pure. A room merely named, asked about or discussed never counts; narration never counts."""
-    msg = str(text or "")
-    if _PLAYER_INTENT_RE.search(msg) or _PLAYER_FOLLOW_RE.search(msg):
+    """Did the player's own message say they are going somewhere? Pure. A room merely named, asked about or discussed never counts; narration never counts.
+    ORW-1038 (audit A3): quoted speech and ((out-of-character)) asides are not the player's act; a hedge, a negation, a later time, a habit, a question or a move the player takes back ("but I can't", "never mind",
+    "if Dana is there") is no move; the verbs the engine's own parser (src/engine/playerMoveIntent.ts) reads count here too, so the two agree on what a move is."""
+    msg = _PI_QUOTE_RE.sub(" ", str(text or "")).replace("\u2019", "'")
+    moved = False
+    for clause in re.split(r"(?<=[.!?;])\s+|\n", msg):
+        c = clause.strip()
+        if not c or c.endswith("?"):
+            continue
+        if re.match(r"^(?:actually[,\s]+)?(?:(?:no\s+)?wait\b|never ?mind\b|nvm\b|forget (?:it|that)\b|scratch that\b)", c.lower()):
+            moved = False  # "I head to the kitchen; actually never mind": the move is taken back
+            continue
+        low = _PI_NOW_FORMS_RE.sub("i ", c.lower())  # as the engine's parser: "I'll go", "I'm going to head", "let me go" are a wish to go now; a later-time word still blocks below
+        if _PI_TAKES_IT_BACK_RE.search(low):
+            continue
+        if re.match(r"^(?:can|could|would|should|shall|may|do|does|did|is|are|am|will|what|where|why|how|who|which)\b", low):
+            continue
+        # the hedge has to sit in the piece that holds the move ("I tell Dana I will keep it quiet and walk out to the yard" moves; "maybe I go to the kitchen" does not)
+        pieces = re.split(r"\s+(?:and then|then|and|so|but)\s+|,\s*", low)
+        if any(not _PI_NOT_A_MOVE_RE.search(piece) and _player_clause_goes(piece if k == 0 or _PI_STARTS_WITH_SUBJECT_RE.match(piece) else "i " + piece, room_names) for k, piece in enumerate(pieces)):
+            moved = True
+    return moved
+
+
+def _player_clause_goes(msg: str, room_names) -> bool:
+    if _PLAYER_INTENT_RE.search(msg) or _PLAYER_FOLLOW_RE.search(msg) or _PI_EXTRA_VERB_RE.search(msg):
         return True
-    return any(_themed_rooms_in(msg[m.end():m.end() + 60], room_names) for m in _PLAYER_INTENT_PREFIX_RE.finditer(msg))
+    if any(_themed_rooms_in(msg[m.end():m.end() + 60], room_names) for m in _PLAYER_INTENT_PREFIX_RE.finditer(msg)):
+        return True
+    low = msg.lower()
+    return bool(_PI_EXTRA_VERB_RE.search(low)) or bool(_themed_rooms_in(msg, room_names) and re.search(r"(?:^|[.!?;,]\s*|\b(?:and|then|so)\s+)(?:(?:i|we)(?:'?m|\s+am)?\s+|let'?s\s+|lets\s+)(?:go|going|head|heading|walk|walking|step|move|run|enter)\b", low))
 
 
 def _turn_in_applied(result) -> bool:
@@ -4072,6 +4113,45 @@ def _narration_places_player_elsewhere(narration, room, room_names=None) -> bool
     return bool(named) and not any(room in rooms for rooms in named)
 
 
+_PLAYER_GO_RE = re.compile(
+    r"(?:^|[.!?;,]\s*)(?:(?:ok(?:ay)?|so|and|now|alright|then)\b[,\s]*)*"
+    r"(?:i(?:'?m|\s+am)?\s+(?:just\s+|now\s+|quickly\s+|want\s+to\s+|going\s+to\s+)?|let'?s\s+(?:all\s+|just\s+|now\s+)?|lets\s+|we\s+(?:go\s+)?|take\s+me\s+)"
+    r"(?:go|going|head|heading|walk|walking|step|stepping|come|move|moving|run|running|wander|take)\b")
+_PLAYER_HEDGE_RE = re.compile(r"\b(?:will|i'll|later|maybe|perhaps|might|may|could|would|should|if|when|once|after|before|until|unless|tomorrow|tonight|don'?t|do not|not|never|won'?t|can'?t|cannot|gonna|plan|planning|thinking|wonder)\b")
+_PLAYER_ANY_MOVE_RE = re.compile(r"\b(?:go|goes|going|head|heading|walk|walking|step|stepping|come|move|moving|run|running|enter|leave|follow|wander|take me|bring me|let'?s|lets)\b")
+_PLAYER_AFFILIATION_RE = re.compile(r"\b(?:my|our)\s+(?:own\s+)?(?:bed|bunk|room|bedroom)\b|\bi(?:'?m|\s+am)\s+in\b|\bi\s+(?:sleep|live|stay)\s+in\b")
+
+
+def _player_unquoted_clauses(last_user):
+    text = re.sub(r'"[^"]*"|\u201c[^\u201d]*\u201d', " ", str(last_user or ""))
+    text = text.replace("\u2019", "'").replace("\u2018", "'")
+    return [c.strip().lower() for c in re.split(r"(?<=[.!?;])\s+|\n", text) if c.strip()]
+
+
+def _player_explicitly_asked_to_move(last_user, room, room_names=None) -> bool:
+    """ORW-1008: the PLAYER's own present-tense request to go to `room` ("let's go to the Palmetto room", "I head to the kitchen"): a first-person go-verb at a clause start, the room named in that
+    clause, no hedge, negation or quote. The engine already committed such a move before the reply (the ORW-419 seam); the post-reply belt must not veto it with the narration's wording. Deterministic."""
+    from src.house_rooms import rooms_named_in
+    for c in _player_unquoted_clauses(last_user):
+        m = _PLAYER_GO_RE.search(c)
+        if not m or c.endswith("?"):
+            continue
+        tail = c[m.start():]
+        if _PLAYER_HEDGE_RE.search(tail.replace("let's", "lets")):
+            continue
+        tail = re.sub(r"\b(?:my|our)\s+(?:own\s+)?(?:bed|bunk|room|bedroom)\b", " ", tail)  # "my bunk" names the player's own bed, not a room by name: the engine resolves that one, the narration may still veto it
+        if any(room in rooms for rooms in rooms_named_in(tail, room_names)):
+            return True
+    return False
+
+
+def _player_words_are_affiliation_only(last_user) -> bool:
+    """ORW-1008: "my bed is in the Palmetto room", "I'm in my room": which room is the player's (or where they are) with no verb of movement anywhere. Such words never move the player,
+    so the post-reply belt must not turn a narrated walk the player never asked for into the engine's truth. Deterministic."""
+    cl = _player_unquoted_clauses(last_user)
+    return bool(cl) and any(_PLAYER_AFFILIATION_RE.search(c) for c in cl) and not any(_PLAYER_ANY_MOVE_RE.search(c) for c in cl)
+
+
 async def _auto_move_player(narration, last_user, endpoint_url, model, headers, owner, raw=None) -> bool:
     """GUARANTEE whereabouts cohesion (L21/L24). When the player's turn walked them to a room but the
     model never called moveTo, a constrained extraction proposes the destination room and we call
@@ -4101,7 +4181,11 @@ async def _auto_move_player(narration, last_user, endpoint_url, model, headers, 
         room = _room_id_of(obj.get("room"), _names)  # ORW-466: a themed-name echo still maps to its id
         if not room:
             return False  # null / no move / unknown room → nothing to do
-        if _narration_places_player_elsewhere(narration, room, _names):
+        if _player_words_are_affiliation_only(last_user):
+            # ORW-1008: "my bed is in the X room" is affiliation, not a request to go: a narrated walk the player never asked for is not the engine's truth.
+            logger.info(f"[orwell] auto-move: the player's words are affiliation only, no move to {room} user={owner}")
+            return False
+        if not _player_explicitly_asked_to_move(last_user, room, _names) and _narration_places_player_elsewhere(narration, room, _names):
             # ORW-918: the narration the player saw keeps them somewhere else (it names rooms, never this one), so the engine must not move them here: the engine would
             # put them alone in a room they were never shown in, and the house's scenes there would be recorded as witnessed by them. Next turn grounds to where they are.
             logger.info(f"[orwell] auto-move: narration keeps the player elsewhere, no move to {room} user={owner}")
@@ -6154,7 +6238,10 @@ async def _auto_confide(narration, last_user, house, endpoint_url, model, header
                 'trust me", "talk to me", "what\'s really going on with you?"). They must be in a '
                 "one-on-one-ish moment with that single houseguest. If the player is NOT pressing anyone "
                 "to open up (small talk, strategy, a group scene, only listening), reply "
-                '{"npcId":null}. Never invent — the id MUST be one from the roster.'},
+                '{"npcId":null}. A demand for an answer, an accusation or an interrogation about a vote, a '
+                "nomination or a lie is not an invitation to open up: reply "
+                '{"npcId":null}. A line that is not aimed at one houseguest is not a press either. '
+                'Never invent — the id MUST be one from the roster.'},
             {"role": "user", "content":
                 f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S MOVE:\n{press}\n\n"
                 f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
@@ -6267,6 +6354,16 @@ def _known_player_fact_index(vis: dict) -> dict:
     return out
 
 
+async def _present_ids_safe(_oe, owner):
+    """Ids of the houseguests in the player's room, or None when the engine's presence is unavailable
+    (a missing read never blocks the belt; the extractor and the engine still gate it)."""
+    try:
+        from src import secret_belt_gates as _sbg
+        return _sbg.present_ids(await asyncio.wait_for(_oe.whereabouts(user=owner), 5))
+    except Exception:
+        return None
+
+
 async def _auto_expose_secret(narration, last_user, house, endpoint_url, model, headers, owner) -> bool:
     """GUARANTEE an outed secret FIRES (0093 FE follow-on — the 0055/0075 sibling). When the player's
     turn clearly OUTS a secret they already know but the model skipped `exposeSecret`, a constrained
@@ -6301,8 +6398,13 @@ async def _auto_expose_secret(narration, last_user, house, endpoint_url, model, 
                 "secrets the player currently knows. Reply IMMEDIATELY with ONLY a JSON object — no "
                 'analysis, no prose, no code fence:\n{"factId":"<one id from the list below, or null>"}\n'
                 "Pick an id ONLY when the player's own words clearly declare or reveal THAT SPECIFIC "
-                "known fact to hurt/undermine its subject. If the player is not exposing anything, or "
-                "none of the listed known facts match what they're revealing, reply "
+                "known fact to hurt/undermine its subject. Exposing is an act that has HAPPENED in the player's "
+                "line, said aloud to the whole room. These are NOT acts, reply "
+                '{"factId":null}: a threat or an ultimatum about what the player will tell later; a '
+                "private aside or a whisper to one listener, or a request to keep it quiet; a question "
+                "about a secret; a promise not to tell; an accusation with no listed known fact behind it; "
+                "an empty line, small talk, or a line where nobody else hears. If the player is not "
+                "exposing anything, or none of the listed known facts match what they're revealing, reply "
                 '{"factId":null}. NEVER invent a factId that is not in the list.'},
             {"role": "user", "content":
                 f"THE PLAYER'S KNOWN SECRETS (factId = content):\n{fact_lines}\n\n"
@@ -6320,6 +6422,14 @@ async def _auto_expose_secret(narration, last_user, house, endpoint_url, model, 
             return False  # null / nothing exposed
         if fact_id not in facts:
             logger.info(f"[orwell] auto-expose: factId {fact_id!r} not a known fact — skipped user={owner}")
+            return False
+        # ORW-1070: engine-fact check before the one-shot secret is spent (the speaker holds the fact: it is in
+        # the player's own knowledge list; an outing needs an audience in the room).
+        from src import secret_belt_gates as _sbg
+        _why = _sbg.expose_refusal(facts[fact_id], roster, await _present_ids_safe(_oe, owner))
+        if _why:
+            _sbg.note_refusal("expose", _why)
+            logger.info(f"[orwell] auto-expose: {_why} — skipped user={owner}")
             return False
         # CON-11: defer (never drop) a double-stale-409 -- exposing a secret is a one-shot, consequence-
         # bearing action (mandate #4). A10 / #591 / R1c: one stable at-most-once key threads through
@@ -6383,7 +6493,12 @@ async def _auto_trade_secret(narration, last_user, house, endpoint_url, model, h
                 '"toNpcId":"<the recipient houseguest id from the ROSTER, or null>",'
                 '"askKind":"<a short label for what was asked in return, or empty string>"}\n'
                 "Pick a factId+toNpcId ONLY when the player clearly hands over THAT SPECIFIC known "
-                "secret to THAT SPECIFIC houseguest in exchange for something. If the player is not "
+                "secret to THAT SPECIFIC houseguest in exchange for something. A trade needs all three: a "
+                "listed known secret that is actually handed over in this scene, a named recipient who "
+                "is present and not a party to that secret, and a stated ask in return. These are NOT "
+                "trades, reply with both null: an offer the listener walks away from or never hears out; "
+                "a secret given away for nothing; an ask with no secret named; a threat; a promise; a "
+                "line where the recipient refuses or the handover does not happen. If the player is not "
                 "trading anything, or nothing in the lists matches, reply with both null. NEVER "
                 "invent a factId or houseguest id not in the lists provided."},
             {"role": "user", "content":
@@ -6408,9 +6523,13 @@ async def _auto_trade_secret(narration, last_user, house, endpoint_url, model, h
         if to_npc_id not in roster:
             logger.info(f"[orwell] auto-trade: toNpcId {to_npc_id!r} not on roster — skipped user={owner}")
             return False
-        if facts[fact_id].get("subject") == to_npc_id:
-            # Defense-in-depth mirror of the engine's own rule: can't trade a secret TO its own subject.
-            logger.info(f"[orwell] auto-trade: factId {fact_id!r} is ABOUT the recipient — skipped user={owner}")
+        # Defense-in-depth mirror of the engine's own rule (no trading a secret TO its own subject), widened to
+        # every party the fact names (ORW-1070), and the recipient must be in the room.
+        from src import secret_belt_gates as _sbg
+        _why = _sbg.trade_refusal(facts[fact_id], to_npc_id, roster, await _present_ids_safe(_oe, owner))
+        if _why:
+            _sbg.note_refusal("trade", _why)
+            logger.info(f"[orwell] auto-trade: {_why} (factId {fact_id!r}) — skipped user={owner}")
             return False
         ask_kind = obj.get("askKind")
         ask_kind = ask_kind.strip()[:80] if isinstance(ask_kind, str) and ask_kind.strip() else None
@@ -11838,6 +11957,7 @@ async def _stream_agent_loop_impl(
                         one banked."""
                         nonlocal _turn_deal_nudges, _turn_record_nudges, _turn_confide_nudges, _turn_offer_nudges
                         nonlocal _turn_expose_nudges, _turn_trade_nudges, _turn_alliance_nudges, _turn_promise_nudges
+                        nonlocal _want_confide, _want_expose, _want_trade
                         _touched = _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])
                         # 0039: a deal the model narrated but never made — back-fill makeDeal so it binds
                         # and shows on the deals surface. Runs first; a struck deal already banks the
@@ -11845,6 +11965,12 @@ async def _stream_agent_loop_impl(
                         # satisfies the generic scene-record below (no double fold). HIGH-bar extraction —
                         # struck=false (loose talk) creates nothing.
                         _touched_deal = _scene_touched_houseguest(_turn_narration, messages, [h.get("name") for h in _house])
+                        # ORW-1071: widen the regex gates with a structural signal (a roster name in the player's line) and
+                        # count the turns neither signal admits; the extractor and the engine stay the gatekeepers.
+                        from src import secret_belt_gates as _sbg_gate
+                        _want_confide = _want_confide or _sbg_gate.gate("confide", False, _turn_confide_nudges, _last_user_for_confide, _house, owner)
+                        _want_expose = _want_expose or _sbg_gate.gate("expose", False, _turn_expose_nudges, _last_user_for_confide, _house, owner)
+                        _want_trade = _want_trade or _sbg_gate.gate("trade", False, _turn_trade_nudges, _last_user_for_confide, _house, owner)
                         # ORW-910: make every extraction this chain will need AT ONCE (same gates as below, extract-only: no engine write), then run the chain in
                         # order as before; each belt's identical request is answered from the prefetch, a changed one (an earlier belt moved the state it reads) calls live.
                         _pf_token = None
@@ -12273,6 +12399,13 @@ async def _stream_agent_loop_impl(
                         if _emitted_visible:
                             await _bank_scene_consequences()
                         if _emitted_visible:
+                            from routes import chat_helpers as _ch_defer
+                            if (not _previewed_uncommitted and not _decision_undelivered and _premiere_staged(owner)
+                                    and _ch_defer.defer_postreply_arrival_commit(owner)):
+                                # ORW-1029: a staged arrival/toast batch committed AFTER the reply is never in that reply; the next turn's pre-reply release commits it where the narrator writes it.
+                                _note_belt(owner, "premiere-arrival-postreply-deferred")
+                                logger.info(f"[orwell] premiere arrival commit deferred to the next turn's pre-reply release round {round_num} user={owner}")
+                                break
                             if await _commit_advance_silently(
                                     "preview-commit" if _previewed_uncommitted
                                     else "decision-deliver" if _decision_undelivered

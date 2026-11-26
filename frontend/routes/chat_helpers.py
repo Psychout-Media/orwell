@@ -974,6 +974,26 @@ _ARRIVALS_NAMED: dict = {}      # runway key -> set of arrival names a reply has
 _ARRIVALS_FRAMED: dict = {}     # runway key -> names the narrator was framed with this turn (the latest, plus any owed from before)
 _ARRIVAL_VOICE_HOLDS: dict = {}  # runway key -> consecutive turns the next release was held for an unnamed arrival
 _ARRIVAL_VOICE_HOLD_CAP = 2
+_ARRIVAL_POSTREPLY_DEFERS: dict = {}  # ORW-1029: runway key -> consecutive turns the end-of-turn silent arrival commit was left for the next turn's pre-reply release
+
+
+def defer_postreply_arrival_commit(user) -> bool:
+    """ORW-1029: a staged premiere arrival (or toast batch) committed silently AFTER the reply is never in that reply, so the next turn must voice it from framing and the narrator often does not
+    (the 11-26 prod run: entrances 11, 12 and 14 committed and never narrated). `maybe_release_premiere_arrival` already commits the due arrival BEFORE the reply; so when the end-of-turn stall belt
+    would commit one after the reply, leave it: the staleness clock is untouched, so the next turn's pre-release finds it due. Bounded (one deferral in a row) so a pre-release that cannot run
+    (held, exception, a pre-resolve already used the turn) still gets the end-of-turn net. True = skip the post-reply commit. Never raises."""
+    try:
+        key = _runway_key(user)
+        if not premiere_entrance_active(user) or _PREMIERE_ENTRANCE_STAGE.get(key) not in ("entrances", "toast"):
+            _ARRIVAL_POSTREPLY_DEFERS.pop(key, None)
+            return False
+        if _ARRIVAL_POSTREPLY_DEFERS.get(key, 0) >= 1:
+            _ARRIVAL_POSTREPLY_DEFERS.pop(key, None)
+            return False
+        _ARRIVAL_POSTREPLY_DEFERS[key] = 1
+        return True
+    except Exception:
+        return False
 _TOAST_FLOW_BATCHES = 4  # ORW-997: an explicit next / continue plays up to this many toast batches (two speakers each) in one turn
 _TOAST_BATCH_NAMED: dict = {}   # runway key -> tuple of the toast batch a reply already voiced
 # ORW-997: the latest staged release (an arrival or a toast batch) and how many framed turns have handed it to the narrator. A release handed once and named in the reply (or handed twice) is VOICED: the next
@@ -1891,6 +1911,11 @@ _DESYNC_REGROUND: dict = {}
 # is unchanged; the segments ARE the multi-slot queue.
 _REGROUND_SEP = "\n\n"
 _REGROUND_QUEUE_CAP = 8  # generous — a turn rarely queues >1–2; the cap only guards a runaway.
+_REGROUND_DROPPED = {"overflow": 0}  # ORW-1068: queued corrections dropped at the cap, counted (the warning alone was invisible)
+
+
+def reground_dropped_count() -> int:
+    return _REGROUND_DROPPED["overflow"]
 
 
 def _reground_segments(key):
@@ -1921,7 +1946,11 @@ def _reground_enqueue(key, directive) -> bool:
         # NOTE: `key` MAY be None — under a userless single-tenant path with no resolvable game session
         # `_desync_key` returns None, and the store's readers pop/consume that same None key. Preserving
         # None-keying keeps the degenerate single-tenant fallback working (it was the prior behaviour).
-        directive = str(directive)
+        # ORW-1068: a blank line inside a directive would split it into two queue segments (defeating the exact-match
+        # de-duplication and `_reground_remove`), so one directive is always one segment.
+        directive = re.sub(r"\n\s*\n", "\n", str(directive)).strip()
+        if not directive:
+            return False
         segs = _reground_segments(key)
         if directive in segs:
             _DESYNC_REGROUND[key] = _REGROUND_SEP.join(segs)  # normalise (legacy value → canonical)
@@ -1929,6 +1958,7 @@ def _reground_enqueue(key, directive) -> bool:
         segs.append(directive)
         while len(segs) > _REGROUND_QUEUE_CAP:
             dropped = segs.pop(0)
+            _REGROUND_DROPPED["overflow"] += 1
             logger.warning(
                 "[orwell] _DESYNC_REGROUND queue at cap=%d for key=%s — dropped the OLDEST queued "
                 "correction (no silent truncation): %.120s", _REGROUND_QUEUE_CAP, key, dropped)
@@ -1945,7 +1975,7 @@ def _reground_remove(key, directive) -> None:
         if not directive:
             return
         segs = _reground_segments(key)
-        directive = str(directive)
+        directive = re.sub(r"\n\s*\n", "\n", str(directive)).strip()  # same normalisation as _reground_enqueue (ORW-1068)
         if directive in segs:
             segs.remove(directive)
         if segs:
@@ -6717,7 +6747,7 @@ async def guard_emptied_cutaway(user) -> str:
             label = _MOMENT_PHASE_LABELS.get(str(live.get("phase") or "")) or str(live.get("phase") or "the event").replace("-", " ")
             directive += (f" Production has NOT called the {label} yet: it is later today. Do not announce positions, a start or a result; "
                           "if your earlier replies said it was starting, that was wrong - say so in a line and play a normal social scene.")
-        _DESYNC_REGROUND[dkey] = directive
+        _reground_enqueue(dkey, directive)  # ORW-1068: append to the bounded queue, never replace it
         logger.warning("[orwell] sentence-guard emptied %d consecutive turns for user=%s - engine-true line + neutral directive", streak, user)
         return engine_true_line(user)
     except Exception:
@@ -6802,7 +6832,7 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
         _removed = _unbacked_player_removal(text, live)
         if _removed:
             _dir = _overclaim_directive(_removed, live)
-            _DESYNC_REGROUND[_dkey] = _dir
+            _reground_enqueue(_dkey, _dir)  # ORW-1068: append, never replace the queue
             logger.warning("[orwell] scene circuit-breaker HELD a phantom player removal for user=%s — "
                            "cutting the whole scene (still active on the board)", user)
             return _dir
@@ -6842,8 +6872,9 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
             if _streak >= _CUT_STREAK_NEUTRAL_AT:
                 # ORW-10 item 2: consecutive cut TURNS must never strand the player in fragments - from the second one on, stop accusing (the accusation re-ground is what taught the narrator to answer in
                 # one-line asides) and queue a neutral engine-true board directive INSTEAD of appending another correction; the cutaway line also becomes the engine-true board line (`engine_true_line`).
+                _reground_remove(_dkey, directive)  # ORW-1068: drop only the accusation this cut would re-queue (the neutral line replaces it), never the rest of the queue
                 directive = _neutral_board_directive(live)
-                _DESYNC_REGROUND[_dkey] = directive
+                _reground_enqueue(_dkey, directive)
                 logger.warning("[orwell] scene circuit-breaker cut streak=%d for user=%s - queueing the neutral engine-true board directive instead of another accusation", _streak, user)
             else:
                 _reground_enqueue(_dkey, directive)  # BL-004: bounded append
@@ -9355,6 +9386,7 @@ async def maybe_release_premiere_arrival(user, game_state, *, retry: bool, playe
             logger.info("[orwell] premiere arrival release held for user=%s: the last arrival is not yet voiced (hold %d/%d)", user, _ARRIVAL_VOICE_HOLDS[key], _ARRIVAL_VOICE_HOLD_CAP)
             return game_state
         _ARRIVAL_VOICE_HOLDS.pop(key, None)
+        _ARRIVAL_POSTREPLY_DEFERS.pop(key, None)  # ORW-1029: the pre-reply release ran; the next post-reply deferral starts fresh
         from src import orwell_engine
         idem = _mint_idempotency_key()
         _toast = _entrance_stage_of(game_state) == "toast"

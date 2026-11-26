@@ -83,3 +83,24 @@ def test_engine_wrapper_dispatches_the_registered_tool(monkeypatch):
     monkeypatch.setattr(oe, "_call", fake_call)
     assert run(oe.record_room_canon("kitchen", "a chipped mug", user="u")) == {"accepted": True}
     assert seen == {"tool": "recordRoomCanon", "args": {"roomId": "kitchen", "feature": "a chipped mug"}, "user": "u"}
+
+
+def test_orw1066_the_tail_of_a_long_narration_is_read_and_refusals_are_counted(monkeypatch):
+    from src import log_rings
+    seen_fail, prompts = [], []
+    monkeypatch.setattr(log_rings, "record_soft_failure", lambda cls, exc, **kw: seen_fail.append(cls))
+    long_narr = ("The house hums. " * 200) + "At the end a chipped mug sits on the ledge of the bedroom window."
+
+    async def llm(m):
+        prompts.append(m[1]["content"])
+        return '{"features":["a chipped mug on the ledge"]}'
+
+    async def write(_p):
+        return {"accepted": False, "reason": "locked"}
+
+    before = rc.discard_counts().get("refused-locked", 0)
+    assert run(rc.capture_room_canon(long_narr, "bedroom", llm, write)) == 0
+    assert "chipped mug sits on the ledge" in prompts[0]  # the tail reaches the extractor (1500 head chars missed it)
+    assert "room where the scene ENDS" in rc._SYSTEM.replace("ONLY of the", "ONLY of the")
+    assert rc.discard_counts().get("refused-locked", 0) == before + 1
+    assert seen_fail == ["room-canon:refused-locked"]
