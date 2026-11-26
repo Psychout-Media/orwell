@@ -238,6 +238,9 @@ answer that is voiced but never recorded does not exist.
 step — never re-ask what is recorded, never invent or assume answers.
 - Start the season with createCharacter only once a name is on file; the engine refuses otherwise.
 - No season is running yet: do not improvise houseguests, scenes, or game events.
+- ORW-1056 (the casting read-back): once createCharacter returns, announce the player's casting card exactly ONCE, with the archetype and description the createCharacter result shows (the engine's recorded \
+archetype). Never state a second card, a second archetype, or a correction of the first; if you misspoke, say nothing more about it.
+- Address the player by the pronouns they gave in the interview; if they gave none, use their name or "you". Never assume a gender from a name, an age or a city.
 """
 
 # Orwell #872 (item C): the MINIMAL tool surface a casting turn needs. The interview is a tight
@@ -2308,15 +2311,36 @@ def _withhold_leading_refusal(owner, round_num: int, round_response: str, clean:
     Returns (round_response, clean, withheld)."""
     try:
         from src import refusal_guard as _rg
-        if not clean or round_emitted.strip() or not _rg.enabled():
+        if not clean or not _rg.enabled():  # ORW-1055: every chunk of the round is screened, not only the first one (a refusal can sit mid-reply)
             return round_response, clean, False
-        kept, n = _rg.strip_leading_refusal(clean)
+        kept, n = _rg.strip_refusals(clean)
         if not n:
             return round_response, clean, False
         round_response = _mirror_wall_drop(round_response, clean, kept)
         _rg.note_withheld()
         logger.info(f"[orwell] refusal-only round withheld round={round_num} chars={n}")
         _note_belt(owner, "refusal-withheld")
+        return round_response, kept, True
+    except Exception:  # failsoft-ok: detector error shows the text as today
+        return round_response, clean, False
+
+
+def _strip_fourth_wall(owner, round_num: int, round_response: str, clean: str):
+    """ORW-1055: drop sentences that name the game as a scene, script or take (a houseguest's goodbye, the narrator's own voice), in any chunk of the round, quoted speech included. Pre-emission, so nothing is
+    retracted; the raw/stored text drops it too (shown == stored). Success-gated telemetry. Returns (round_response, clean, stripped)."""
+    try:
+        from src import fourth_wall_guard as _fw
+        if not clean or not _fw.enabled():
+            return round_response, clean, False
+        kept, n = _fw.strip_fourth_wall(clean)
+        if not n:
+            return round_response, clean, False
+        idx = round_response.rfind(clean)  # the guard may close a quote it cut into, so the raw text takes the same EDIT (never the whole-sentence walk)
+        if idx >= 0:
+            round_response = round_response[:idx] + kept + round_response[idx + len(clean):]
+        _fw.note_withheld()
+        logger.info(f"[orwell] fourth-wall sentence dropped round={round_num} chars={n}")
+        _note_belt(owner, "fourth-wall-dropped")
         return round_response, kept, True
     except Exception:  # failsoft-ok: detector error shows the text as today
         return round_response, clean, False
@@ -2784,14 +2808,15 @@ _CASTING_NUDGES = [
     "(Production note, not for the player.) Casting is COMPLETE — every required answer is on file "
     "and the player just signalled they're ready. Do not keep interviewing or wait on a photo: your "
     "very next action is the createCharacter function call to finalize and start the season. After it "
-    "returns, read back their casting card in your producer voice and move into the premiere.",
+    "returns, read back their casting card ONCE in your producer voice, with the archetype the result shows, and move into the premiere. Use only the pronouns the player gave (none given: their name or you).",
     "STOP interviewing. The player is ready and casting is on file, but the season has NOT started "
     "because createCharacter was never called. Call createCharacter NOW — nothing else.",
 ]
 _CASTING_FORCE_LEVEL = len(_CASTING_NUDGES)  # past the last text rung
 _CASTING_FORCED_NOTE = (
     "(Production note, not for the player.) Casting has been finalized and the season has begun. Read "
-    "back the player's casting card in your producer voice, then walk them through the front door into "
+    "back the player's casting card ONCE in your producer voice, with the archetype the createCharacter result shows (never a second card or a different archetype), "
+    "using only the pronouns the player gave (none given: their name or you), then walk them through the front door into "
     "the house for the premiere. Voice ONLY what the game now shows — never invent it.")
 
 
@@ -10600,6 +10625,7 @@ async def _stream_agent_loop_impl(
                                 if _clean and not _scene_broken:
                                     round_response, _clean, _rf_hit = _withhold_leading_refusal(owner, round_num, round_response, _clean, _round_emitted_text)
                                     _turn_refusal_withheld = _turn_refusal_withheld or _rf_hit
+                                    round_response, _clean, _ = _strip_fourth_wall(owner, round_num, round_response, _clean)  # ORW-1055
                                     round_response, _clean, _ = _strip_leading_recital(owner, round_num, round_response, _clean, _round_emitted_text)
                                 if _clean:
                                     # A2: run the whole-scene circuit-breaker + 0065 Part C per-sentence
@@ -10861,6 +10887,7 @@ async def _stream_agent_loop_impl(
             if _clean and not _scene_broken and not _round_replay:
                 round_response, _clean, _rf_hit = _withhold_leading_refusal(owner, round_num, round_response, _clean, _round_emitted_text)
                 _turn_refusal_withheld = _turn_refusal_withheld or _rf_hit
+                round_response, _clean, _ = _strip_fourth_wall(owner, round_num, round_response, _clean)  # ORW-1055
                 round_response, _clean, _ = _strip_leading_recital(owner, round_num, round_response, _clean, _round_emitted_text)
             if _round_replay:
                 pass  # a dropped replay round: nothing to guard or emit (and no cutaway line — it is not a board fabrication)

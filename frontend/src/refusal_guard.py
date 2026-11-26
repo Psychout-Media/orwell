@@ -59,6 +59,19 @@ def strip_leading_refusal(text: str) -> "tuple[str, int]":
         return text, 0
 
 
+def strip_refusals(text: str) -> "tuple[str, int]":
+    """ORW-1055: drop EVERY refusal sentence of `text`, not only the leading ones (a refusal can open a later chunk or sit mid-reply). Whole sentences only; fail-open."""
+    try:
+        parts = re.split(r"(?<=[.!?\n])", text or "")
+        kept = [x for x in parts if not is_refusal_sentence(x)]
+        dropped = len(text or "") - sum(len(x) for x in kept)
+        if dropped <= 0:
+            return text, 0
+        return "".join(kept), dropped
+    except Exception:  # failsoft-ok: a detector error never withholds text
+        return text, 0
+
+
 def note_withheld() -> None:
     global _withheld
     _withheld += 1
