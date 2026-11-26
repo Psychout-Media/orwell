@@ -11584,6 +11584,9 @@ async def _stream_agent_loop_impl(
                     signal_in_narration=bool(_MOVE_SIGNAL_RE.search(_turn_narration_visible)) or _themed_move_signal(_turn_narration_visible, owner))
                 if _want_move and not _player_asked_to_move(_last_user_for_move, _season_room_names(owner)):
                     _want_move = False  # the narration walking the player somewhere is not the player's move: only their own words move them
+                from src.orwell_player_move import engine_decided_this_message as _engine_moved_already
+                if _want_move and _engine_moved_already(owner):
+                    _want_move = False  # ORW-1038: the engine already moved (or refused) the player's own words before the narrator; the belt never writes a second move over it
                 if _turn_slept and not _asked_to_go_somewhere(_last_user_for_move, _season_room_names(owner)):
                     _want_move = False  # ORW-940: the player went to bed: the narration's walking about is not their move
                 # ADR 0009 NPC auto-move belt: the turn's NARRATION walked one or more houseguests to a
