@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { measureTics } from "../../scripts/probes/narrationRepetition";
-import { MOMENT_PROMPTS, BASE_GAME_MASTER_PROMPT } from "../../src/engine/momentPrompts";
 
 /** ORW-1032: the live repetition measure also counts delivery tags, stock body habits, a question asked again, a long line told again and counted-hours relative times. Roles only. */
 describe("narration tic and repeat measures (ORW-1032)", () => {
@@ -31,9 +30,13 @@ describe("narration tic and repeat measures (ORW-1032)", () => {
     const other = 'Role B says: "The garden crew moved the chairs this morning so the lawn could be cut before the afternoon heat sets in for good."';
     expect(measureTics([story, other, again]).retoldLines).toBe(1);
   });
-  it("the narrator prompt states the delivery-tag, second-telling and elapsed-time rules, with no quoted example lines", () => {
-    const text = [BASE_GAME_MASTER_PROMPT, ...Object.values(MOMENT_PROMPTS)].join("\n");
-    expect(text).toContain("DELIVERY TAGS (ORW-1032)");
-    expect(text).toContain("NO SECOND TELLING (ORW-1032)");
+  it("the ALREADY USED section carries the delivery-tag, retold-story and stock-habit rules, and stays within its cap", async () => {
+    const { narrationUsageSection, emptyNarrationUse, recordNarration, NU_SECTION_MAX_CHARS } = await import("../../src/engine/narrationUsage");
+    const roster = [{ id: "npc:1", name: "Role A" }];
+    const rec = recordNarration(emptyNarrationUse(), "Role A says it flat. Role A looks at the door and waits for an answer from the player.", roster).record;
+    const text = narrationUsageSection(rec, ["npc:1"], (id) => id) ?? "";
+    expect(text).toContain("never tag a line as said flatly, evenly or plainly");
+    expect(text).toContain("no retold story");
+    expect(text.length).toBeLessThanOrEqual(NU_SECTION_MAX_CHARS);
   });
 });

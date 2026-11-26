@@ -363,7 +363,7 @@ export function narrationUsageSection(rec: NarrationUse, hereIds: readonly strin
   }
   const anchorLine = anchor && anchor.length ? `- This turn open your first sentences on words starting ${anchor.join(", ")}.` : undefined;
   const build = (): string => {
-    const lines: string[] = ["7. ALREADY USED (vary it; a repeat reads as a tic; never reuse a habit for these people)"];
+    const lines: string[] = ["7. ALREADY USED (vary it; a repeat reads as a tic; never reuse a habit for these people; no retold story, no unanswered question asked twice; never tag a line as said flatly, evenly or plainly; raised eyebrows and folded arms once per person)"];
     if (openers.length) lines.push(`- Openings used: ${openers.map((o) => `"${o}"`).join(", ")} ({n} is a name).`);
     if (closers.length) lines.push(`- Scenes ended: ${closers.map((o) => `"${o}"`).join(", ")}.`);
     if (anchorLine) lines.push(anchorLine);
