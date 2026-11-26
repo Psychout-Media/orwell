@@ -106,6 +106,19 @@ describe("#2617 the 'voice only what they know' rule is not applied in the jury 
 });
 
 
+/** True when `name` is on the call stack. ORW-985: reads the frames' function names instead of building `new Error().stack` (source-mapped on every call: most of the test's time). Same frame limit. */
+function calledFrom(name: string): boolean {
+  const prepare = Error.prepareStackTrace;
+  Error.prepareStackTrace = (_err, frames) => frames.some((f) => f.getFunctionName()?.includes(name) === true);
+  try {
+    const probe: { stack?: unknown } = {};
+    Error.captureStackTrace(probe);
+    return probe.stack === true; // the trace is built on first read, so read it while the hook is in place
+  } finally {
+    Error.prepareStackTrace = prepare;
+  }
+}
+
 describe("#2614 the vote questions follow the FINAL eviction block, one per holder per week", () => {
   it("a replacement nominee who survives with votes against them is left with a question; refs are unique", () => {
     type L = { playedGame?: boolean; voteRecord?: unknown[]; voteQuestions?: Array<{ holder: string; ref: string; week: number }>; eviction?: { nominees: string[]; evictee?: string; voteOf: Record<string, string> } };
@@ -115,7 +128,7 @@ describe("#2614 the vote questions follow the FINAL eviction block, one per hold
       sb.session.createCharacter({ playerName: "P", seed });
       const live = (sb.session as unknown as { live: L }).live;
       // played-game-only fold: report it on only while an eviction is being committed, so the headless driver can still advance freely
-      Object.defineProperty(live, "playedGame", { configurable: true, get: () => new Error().stack!.includes("commitStagedEviction") });
+      Object.defineProperty(live, "playedGame", { configurable: true, get: () => calledFrom("commitStagedEviction") });
       let seen = 0;
       for (let i = 0; i < 4000 && seen < 2; i++) {
         const v = sb.session.advanceGame();

@@ -46,21 +46,29 @@ describe("confide refuses outside a live scene with that houseguest", () => {
 // ORW-38 mutation sweep (#2130): the refusal tests above pass even with the presence gate removed, because a default houseguest does not disclose anyway. This one has a POSITIVE CONTROL:
 // the same seeded game, with the bond maxed, DOES disclose in the same room - and is refused from another room.
 describe("the presence gate is what refuses (positive control)", () => {
-  function game(seed: number, room: string) {
-    const sb = new GameSessionRegistry().sandboxFor(`confide-ctl-${seed}`); // the sandbox NAME seeds outcomes: both arms share it
-    sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed });
-    sb.session.advanceGame(); sb.session.advanceGame();
+  // ORW-985: each seed is cast once, saved, and restored for every arm (a cast per arm took most of this test's time).
+  const saved = new Map<number, string>();
+  function game(seed: number) {
+    const user = `confide-ctl-${seed}`; // the sandbox NAME seeds outcomes: both arms share it
+    if (!saved.has(seed)) {
+      const reg = new GameSessionRegistry();
+      const sb0 = reg.sandboxFor(user);
+      sb0.session.createCharacter({ playerName: "The Player", archetype: "floater", seed });
+      sb0.session.advanceGame(); sb0.session.advanceGame();
+      saved.set(seed, JSON.stringify(reg.snapshot(user)));
+    }
+    const sb = new GameSessionRegistry().restore(user, JSON.parse(saved.get(seed)!));
     const house = (sb.session as unknown as { house: { npcs: Array<{ id: string; character: { hiddenElements?: unknown[] } }> } }).house;
     const rel = (sb.session as unknown as { rel: { edge(a: string, b: string): { trust: number; affinity: number; threat: number } } }).rel;
-    return { sb, rel, npcs: house.npcs.filter((n) => (n.character.hiddenElements ?? []).length > 0).map((n) => n.id), room };
+    return { sb, rel, npcs: house.npcs.filter((n) => (n.character.hiddenElements ?? []).length > 0).map((n) => n.id) };
   }
   it("a houseguest who discloses in the player's room discloses nothing from another room", () => {
     let controls = 0;
     for (const seed of [1, 2, 3, 4, 5, 6]) {
-      const probe = game(seed, "kitchen");
+      const probe = game(seed);
       for (const id of probe.npcs) {
         const arm = (room: string) => {
-          const g = game(seed, room);
+          const g = game(seed);
           for (const [a, b] of [[id, PLAYER], [PLAYER, id]] as const) { const e = g.rel.edge(a, b); e.trust = 1; e.affinity = 1; e.threat = 0; }
           seat(g.sb.session, [[PLAYER, "kitchen"], [id, room]]);
           return g.sb.session.confide(id);

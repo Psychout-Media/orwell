@@ -14,7 +14,7 @@ import { PLAYER } from "../../src/domain/ids";
  * the orchestrator off-screen tick (the same path the live society/gossip/overhear loop runs on).
  */
 describe("PV2 (#997) — a surfacing row never renders an empty source, and confidence reads graded", () => {
-  it("no player-facing overhear/surfacing row is a sourceless `(, …)`, and >1 distinct confidence word appears", () => {
+  it("no player-facing overhear/surfacing row is a sourceless `(, …)`, and >1 distinct confidence word appears", { timeout: 120_000 }, () => { // ORW-985: 8 games x 60 off-screen ticks: an explicit budget, not the 30 s default
     const confidenceWords = new Set<string>();
     let surfacingRows = 0;
     let emptySourceRows = 0;

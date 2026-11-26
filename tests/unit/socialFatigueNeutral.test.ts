@@ -88,7 +88,7 @@ const hash = (o: Outcome): string =>
   createHash("sha256").update(JSON.stringify({ c: o.ceremonies, e: o.evictionOrder, w: o.winner })).digest("hex");
 
 describe("0066 Phase-2 Ext 2 — NPC social fatigue is calibration-neutral", () => {
-  it("CALIBRATION SPINE (master clock OFF): the extension flag ON-vs-OFF is byte-identical", () => {
+  it("CALIBRATION SPINE (master clock OFF): the extension flag ON-vs-OFF is byte-identical", { timeout: 120_000 }, () => { // ORW-985: two full games: an explicit budget, not the 30 s default
     const off = play({ clockOn: false, extensionOn: false });
     const on = play({ clockOn: false, extensionOn: true });
     expect(off.winner, "the game reaches a real ending").toBeDefined();
@@ -96,7 +96,7 @@ describe("0066 Phase-2 Ext 2 — NPC social fatigue is calibration-neutral", () 
     expect(hash(on), "master clock OFF ⇒ the extension is fully inert ⇒ byte-identical outcomes").toBe(hash(off));
   });
 
-  it("master clock ON, extension OFF: a deterministic fixed point (byte-identical when off)", () => {
+  it("master clock ON, extension OFF: a deterministic fixed point (byte-identical when off)", { timeout: 120_000 }, () => { // ORW-985: two full games: an explicit budget, not the 30 s default
     // NB: with the master clock ON, the Phase-1 single-night comp rest term is legitimately active (a
     // houseguest who ran late competes worse) — that is NOT Extension 2 and the clock-on run is expected
     // to differ from the clock-off baseline. The Extension-2 claim is that with ITS flag off the outcome
