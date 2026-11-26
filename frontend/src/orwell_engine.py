@@ -1883,6 +1883,19 @@ async def move_to(room: str, expected_beat_seq: int | None = None, user: str | N
     return await _call("moveTo", args, user=user)
 
 
+async def search_for_houseguest(name: str, max_legs: int | None = None, expected_beat_seq: int | None = None, idempotency_key: str | None = None, user: str | None = None):
+    """ORW-934: the player is looking for a named houseguest. The engine walks the search leg by leg (one real step into a neighbouring room each, billing the clock, the house moving meanwhile) and returns
+    ``{search: {target, outcome, reason, legs, minutes}, whereabouts, beatSeq}``. Nobody is teleported. Optional args are sent only when given."""
+    args: dict = {"name": str(name)}
+    if max_legs is not None:
+        args["maxLegs"] = int(max_legs)
+    if expected_beat_seq is not None:
+        args["expectedBeatSeq"] = expected_beat_seq
+    if idempotency_key:
+        args["idempotencyKey"] = str(idempotency_key)
+    return await _call("searchForHouseguest", args, user=user)
+
+
 async def move_houseguest(houseguest_id: str, room: str, user: str | None = None):
     """ADR 0009 — RECORD a NARRATED NPC relocation: the engine moves houseguest ``houseguest_id`` into
     ``room`` in the OPEN occupancy (so the board agrees with the prose — no visible historic conflict),
@@ -2307,13 +2320,15 @@ def last_pending(user=None):
     return _LAST_PENDING.get(user or "")
 
 
-async def resolve_player_move(text: str, idempotency_key: str | None = None, user: str | None = None) -> dict:
+async def resolve_player_move(text: str, idempotency_key: str | None = None, user: str | None = None, previous_reply: str | None = None) -> dict:
     """ORW-419 (intent-first moves): ask the engine to resolve the PLAYER'S OWN move from their message text, BEFORE the
     narrator runs. The engine parses the words, moves the player through the same code as ``moveTo`` (a comp/ceremony pin
     refuses it in fiction) and records the Vault-free ``playerMove`` ``{from, to}`` / ``{refused, reason}`` on the turn
     state. Returns ``{playerMove, whereabouts, beatSeq}``; ``playerMove`` is null when the words held no clear move (the
     post-reply move belt stays the fallback). The key is sent only when given, so a retry re-drive de-dups."""
     args: dict = {"text": str(text)}
+    if previous_reply:
+        args["previousReply"] = str(previous_reply)[-6000:]  # ORW-1003: for "head over there" / "I follow her"
     if idempotency_key:
         args["idempotencyKey"] = str(idempotency_key)
     return await _call("resolvePlayerMove", args, user=user)

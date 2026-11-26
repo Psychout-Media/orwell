@@ -16,7 +16,7 @@
  *   node dist/embedWorker.js --prefetch [--cache-dir <dir>] [--model <name>]
  */
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 
@@ -130,6 +130,39 @@ async function boundOnnxThreads(): Promise<void> {
   }
 }
 
+/**
+ * ORW-1018: fastembed 2.1.0 pads EVERY input to its max length (512 tokens), so a 40-char memory ran a 512-token
+ * forward pass: about 85 ms of pure compute on a fast box and 500+ ms on the prod CT, billed to the event loop on
+ * every synchronous embed.call. The pooled output is the CLS vector with an attention mask, so padding to the longest
+ * sequence in the batch (the one sequence, here) gives the SAME vector (measured bit-identical on the pinned model,
+ * 5 inputs from 1 to 1500 chars) at a fraction of the cost. Replace the fixed-length padding with batch-longest padding.
+ * FAIL-SOFT: a fastembed whose tokenizer exposes no setPadding keeps the slow, correct behaviour.
+ */
+export function useDynamicPadding(
+  embedder: unknown,
+  pad: { padId: number; padToken: string },
+): boolean {
+  try {
+    const tk = (embedder as { tokenizer?: { setPadding?: (o: { padId: number; padToken: string }) => unknown } }).tokenizer;
+    if (!tk || typeof tk.setPadding !== "function") return false;
+    tk.setPadding({ padId: pad.padId, padToken: pad.padToken }); // no maxLength: pad to the longest in the batch
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readPadding(modelDir: string): { padId: number; padToken: string } | null {
+  try {
+    const cfg = JSON.parse(readFileSync(join(modelDir, "config.json"), "utf8")) as { pad_token_id?: unknown };
+    const tc = JSON.parse(readFileSync(join(modelDir, "tokenizer_config.json"), "utf8")) as { pad_token?: unknown };
+    if (typeof cfg.pad_token_id !== "number" || typeof tc.pad_token !== "string") return null;
+    return { padId: cfg.pad_token_id, padToken: tc.pad_token };
+  } catch {
+    return null;
+  }
+}
+
 type Embedder = { passageEmbed(texts: string[], batchSize?: number): AsyncGenerator<number[][], void, unknown> };
 
 async function initEmbedder(cacheDir: string, model: string): Promise<Embedder> {
@@ -141,7 +174,7 @@ async function initEmbedder(cacheDir: string, model: string): Promise<Embedder> 
   // concrete non-custom member, not the enum type).
   const entry = Object.entries(EmbeddingModel).find(([, v]) => v === model && v !== EmbeddingModel.CUSTOM);
   if (!entry) throw new Error(`unknown fastembed model "${model}" (pinned: ${PINNED_MODEL})`);
-  return FlagEmbedding.init({
+  const embedder = await FlagEmbedding.init({
     model: EmbeddingModel[entry[0] as keyof typeof EmbeddingModel] as Exclude<
       (typeof EmbeddingModel)[keyof typeof EmbeddingModel],
       typeof EmbeddingModel.CUSTOM
@@ -149,6 +182,9 @@ async function initEmbedder(cacheDir: string, model: string): Promise<Embedder> 
     cacheDir,
     showDownloadProgress: false,
   });
+  const pad = readPadding(join(cacheDir, model));
+  if (pad) useDynamicPadding(embedder, pad);
+  return embedder;
 }
 
 async function embedOne(embedder: Embedder, text: string): Promise<number[]> {
