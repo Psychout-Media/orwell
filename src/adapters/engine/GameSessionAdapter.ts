@@ -4294,7 +4294,7 @@ export class GameSessionAdapter implements GameSession {
     const vol = this.soulObj(npc.id)?.volatility ?? 0.3;
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:dodge:${npc.id}:${this.week}:${phase}`));
     // ORW-798: what is on the line for them = the severity of the kind of thing they are keeping + whether they are on the block now (engine state already held; no draw).
-    const stakes = dodgeStakes(severityOf(held?.kind), ((this.live?.nominees as readonly EntityId[] | undefined) ?? []).includes(npc.id));
+    const stakes = dodgeStakes(severityOf(held?.kind), ((this.live?.nominees as readonly EntityId[] | undefined) ?? []).includes(npc.id), this.live?.hoh === npc.id || this.live?.vetoHolder === npc.id); // ORW-802: a power holder is watched more
     const fact = decideDodge({
       cunning: style ? CUNNING[style] ?? 0.3 : 0.3, leakiness: (style ? LEAKY[style] ?? 0.3 : 0.3) + 0.2 * vol, rattled: Math.max(0, vol - 0.5) * 2,
       trustInAsker: signals.npcTrust, stakes,
