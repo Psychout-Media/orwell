@@ -61,11 +61,11 @@ export function assertPartition(files: readonly string[], legs: readonly (readon
 }
 
 export default class DurationShardSequencer extends BaseSequencer {
-  // vitest 2.x hands over `[project, absoluteFile]` pairs.
+  // vitest 4 hands over `TestSpecification` objects (vitest 2 handed `[project, absoluteFile]` pairs); `moduleId` is the absolute file path.
   async shard(specs: Parameters<BaseSequencer["shard"]>[0]): ReturnType<BaseSequencer["shard"]> {
     const { index, count } = this.ctx.config.shard!;
     const root = this.ctx.config.root;
-    const rel = (spec: (typeof specs)[number]): string => relative(root, spec[1]).split(sep).join("/");
+    const rel = (spec: (typeof specs)[number]): string => relative(root, spec.moduleId).split(sep).join("/");
     const byRel = new Map(specs.map((s) => [rel(s), s] as const));
     const durations = loadDurations(resolve(root, DURATIONS_RELATIVE_PATH));
     const legs = assignShards([...byRel.keys()], durations, count);

@@ -94,7 +94,8 @@ describe("ORW-652 the double eviction is one long night", () => {
     expect(on.getMomentPrompt({}).systemPrompt).not.toContain("LONG NIGHT");
   });
 
-  it("the player is part of the night in every seat (instant HOH, nominee, evicted in either eviction) and the night still closes in one day", () => {
+  // ORW-955: vitest 2 never enforced the 30 s limit on synchronous tests; this keeps that behaviour explicit
+  it("the player is part of the night in every seat (instant HOH, nominee, evicted in either eviction) and the night still closes in one day", { timeout: 120_000 }, () => {
     const seen = new Set<string>();
     for (let seed = 1; seed <= 10; seed++) {
       const r = playNight(bootPlayed(seed, true));

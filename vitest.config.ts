@@ -1,5 +1,5 @@
 import { defineConfig } from "vitest/config";
-import DurationShardSequencer from "./vitest.sequencer";
+import DurationShardSequencer from "./vitest.sequencer.ts";
 
 /**
  * The heavy, end-to-end SIMULATION files — full live seasons played to completion.
