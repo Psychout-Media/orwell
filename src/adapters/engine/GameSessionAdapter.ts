@@ -355,7 +355,7 @@ import { floaterRead, type Stats } from "../../engine/season";
 import { ROLES, EVERYONE, roleEvidence, roleRead, isRoleLabel, type RoleLabel, type RoleScene } from "../../engine/socialRoles";
 import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
-  firstCeremonyBeatResolved,
+  firstCeremonyBeatResolved, competitionDefFor,
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
   advanceClock, longNightRunning, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, playerNightDeficit, napFactor, npcRestDeficit, isInertBeat, eventBeatHours, spreadClockHours, ceremonyRef, CEREMONY_STEP_TEXT,
   honorWeight, recordWhy, preJuryEvictionCount, nightBreakPending, markNightGateCrossed, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
@@ -6719,6 +6719,22 @@ export class GameSessionAdapter implements GameSession {
     if (!made) return { made: false };
     if (!s.vetoUsed) return { made: true, used: false };
     return { made: true, used: true, ...(s.saved ? { saved: { id: s.saved, name: this.nameOf(s.saved) } } : {}), ...(s.replacement ? { replacement: { id: s.replacement, name: this.nameOf(s.replacement) } } : {}) };
+  }
+
+  /**
+   * ORW-938 (evidence only, no behaviour): one log line per staged comp, on its first drop round, saying where the drop wording came from, so a comp whose announced premise disagrees with how people go out
+   * (Fable week 2: a bucking-bull premise, exits told as quiz questions) can be read off the dev journal. Ids, flags and the drawn format only: no names, no wording, nothing hidden. Memory-only.
+   */
+  private compDropLogged = "";
+  private noteCompDropSource(content: string): void {
+    const c = this.live?.competition, f = this.live?.competitionFiction;
+    if (!c) return;
+    const key = `${this.live!.week}:${c.comp}`;
+    if (this.compDropLogged === key) return;
+    this.compDropLogged = key;
+    const def = competitionDefFor(this.live!, c);
+    const fromFiction = !!f && f.eliminations.some((e) => content.includes(e.fiction));
+    console.warn(`[orwell] comp-drops ${c.comp} week=${this.live!.week} libraryFormat=${def?.format ?? "unknown"} type=${c.type} fictionStored=${!!f} dropsFromFiction=${fromFiction} themeAuthored=${c.themeAuthored === true} field=${c.field.length}`);
   }
 
   /** ORW-715: the staged competition's floor - who is still in and who has already gone out (the drops the game has announced). Undefined unless a staged competition is live. */
@@ -17660,6 +17676,7 @@ export class GameSessionAdapter implements GameSession {
     // only initializes (returns early), so the bookkeeping below is a harmless no-op there: rest
     // deficit is 0 (no night ran) and the conflict tally is still empty.
     // ORW-232 slice 3 (only for a game a person is PLAYING - `messageMode`, set once the FE announces messages; a headless calibration/UAT driver keeps its long-standing cadence byte-for-byte): a staged competition's per-round beat charges its share of the comp's hours (see `competitionRoundHours`), so a competition spans many messages AND hours, never one jump at the crown.
+    if (ev !== null && ev.beat === "comp-elimination") this.noteCompDropSource(ev.content);
     const compRoundHours = this.timeOfDayEnabled && this.playedGameNow() && ev !== null && ev.beat === "comp-elimination" && this.perConversationClockLive() && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
       ? competitionRoundHours(this.live!, this.live!.beat as never, beatFeltHours(this.live!.beat as never) ?? 0)
       : null;
