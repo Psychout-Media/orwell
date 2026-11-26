@@ -373,3 +373,37 @@ def test_the_cause_text_adds_an_ellipsis_only_when_bumps_were_really_cut(_led):
     over = _classify(["recordRoomCanon"] * (n + 1), {"recordRoomCanon": n + 1})
     assert over["more"] is True and len(over["bumps"]) == n
     assert ledger._describe_causes(ledger._clean_gap_explanation(over)).endswith("; ...")
+
+
+# ---- ORW-1009 / ORW-1017: a counted write that commits twice (its commit, then the in-game-clock society tick) is not a dropped fold ----
+
+def test_prod_shape_note_message_then_one_fold_that_committed_twice_is_not_red(_led):
+    # prod 11-26: seq noteMessage, recordInteraction, recordInteraction; the FE sent one of each and counted both
+    out = _classify(["noteMessage", "recordInteraction", "recordInteraction"], {"noteMessage": 1, "recordInteraction": 1}, counted=2, counted_writes=2)
+    assert out["kind"] == "same-call-tick"
+
+
+def test_prod_shape_intent_first_move_that_committed_twice_is_not_red(_led):
+    out = _classify(["noteMessage", "resolvePlayerMove", "resolvePlayerMove", "recordInteraction"],
+                    {"noteMessage": 1, "resolvePlayerMove": 1, "recordInteraction": 1}, counted=3, counted_writes=3)
+    assert out["kind"] == "same-call-tick"
+
+
+def test_every_counted_writer_in_the_dev_counts_may_double_commit(_led):
+    for tool in ("advanceGame", "hangOut", "submitDecision", "recordImageBeat"):
+        out = _classify([tool, tool], {tool: 1}, counted=1, counted_writes=1)
+        assert out["kind"] == "same-call-tick", tool
+
+
+def test_a_third_commit_per_dispatch_or_a_foreign_writer_stays_red(_led):
+    assert _classify(["recordInteraction"] * 3, {"recordInteraction": 1}, counted=1, counted_writes=1)["kind"] == "unexplained"
+    assert _classify(["noteMessage", "resolvePlayerMove", "resolvePlayerMove"], {"noteMessage": 1}, counted=1, counted_writes=1)["kind"] == "unexplained"
+
+
+def test_a_same_call_tick_is_recorded_on_the_entry_with_no_red_event(_led, monkeypatch):
+    _engine(monkeypatch, _bumps("noteMessage", "recordInteraction", "recordInteraction", start=11))
+    _dispatch("noteMessage"); _dispatch("recordInteraction")
+    expl, entry = _finish_turn(before=13, last_after=10)
+    assert expl["kind"] == "same-call-tick"
+    assert _reds() == []
+    assert entry["gapExplanation"]["kind"] == "same-call-tick"
