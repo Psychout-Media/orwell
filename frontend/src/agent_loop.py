@@ -2179,6 +2179,27 @@ def _asked_to_go_somewhere(text: str, room_names) -> bool:
     return bool(themed) and bool(re.search(r"\b" + _GO_VERB + r"\b", msg, re.IGNORECASE))
 
 
+# Live hotfix (Ryne: "I shouldn't be able to just poof there by speaking the name of it"): the auto-move belt moved an engaged player alone into a bedroom because a room was NAMED in the talk. Only an INTENT TO GO in the
+# player's own words moves them: "I go / head / walk to <room>", "let's go to <room>", an imperative at the start of a sentence, or following someone out. Mentioning, asking about or discussing a room moves nobody.
+_PI_SUBJECT = (r"(?:(?:^|(?<=[.!?;\n\"\u201c\u2014]))\s*|\b(?:and\s+then|then|so|and)\s+|\blet(?:'s|\u2019s|\s+us|\s+me)\s+|"
+               r"\b(?:i|we)(?:(?:'ll|\u2019ll|\s+will|'m\s+going\s+to|\u2019m\s+going\s+to|'m\s+gonna|\u2019m\s+gonna|\s+am\s+going\s+to|\s+want\s+to|\s+wanna|\s+decide\s+to)\s+|\s+)(?:just\s+|now\s+|quietly\s+|all\s+)?)")
+_PI_VERB = r"(?:go|head|walk|move|wander|step|slip|drift|stroll|climb|run|get\s+up\s+and\s+(?:go|head|walk)|come|heading|going|walking)"
+_PI_PATH = r"(?:\s+(?:back|over|up|down|out|on|straight|on\s+over)){0,2}\s*(?:\b(?:to|into|toward|towards|in|inside)\b\s+)"
+_PI_ROOM = (r"(?:the\s+|my\s+|our\s+)?(?:kitchen|living\s+room|lounge|backyard|back\s+yard|yard|hallway|hall|bathroom|shower|dining\s+room|storage(?:\s+room)?|pantry|diary\s+room|hoh(?:\s+room)?|landing|bedroom|bunk(?:\s+room)?|bed\s*room|outside|inside|downstairs|upstairs)\b")
+_PI_BARE = r"\s+(?:outside|inside|downstairs|upstairs)\b"
+_PLAYER_INTENT_RE = re.compile(_PI_SUBJECT + _PI_VERB + r"(?:" + _PI_PATH + _PI_ROOM + r"|" + _PI_BARE + r")", re.IGNORECASE)
+_PLAYER_INTENT_PREFIX_RE = re.compile(_PI_SUBJECT + _PI_VERB + _PI_PATH, re.IGNORECASE)
+_PLAYER_FOLLOW_RE = re.compile(r"\b(?:i(?:'ll|\u2019ll)?|let(?:'s|\u2019s))\s+(?:follow|go\s+with|come\s+with|tag\s+along\s+with|join)\s+(?:her|him|them|you|the\s+others)\b|\bi\s+(?:get\s+up\s+and\s+)?leave\s+the\s+room\b", re.IGNORECASE)
+
+
+def _player_asked_to_move(text: str, room_names) -> bool:
+    """Did the player's own message say they are going somewhere? Pure. A room merely named, asked about or discussed never counts; narration never counts."""
+    msg = str(text or "")
+    if _PLAYER_INTENT_RE.search(msg) or _PLAYER_FOLLOW_RE.search(msg):
+        return True
+    return any(_themed_rooms_in(msg[m.end():m.end() + 60], room_names) for m in _PLAYER_INTENT_PREFIX_RE.finditer(msg))
+
+
 def _turn_in_applied(result) -> bool:
     """ORW-310 — did a `turnIn` tool result APPLY (the night ended)? False for an error, an engine `held`
     refusal (bedtime gate) or a no-op that left the clock where it was. Telemetry counts only True."""
@@ -11279,6 +11300,8 @@ async def _stream_agent_loop_impl(
                     moved=_moved, turn_move_nudges=_turn_move_nudges, max_move_nudges=_MAX_MOVE_NUDGES_PER_TURN,
                     signal_in_user_message=bool(_MOVE_SIGNAL_RE.search(_last_user_for_move)) or _themed_move_signal(_last_user_for_move, owner),
                     signal_in_narration=bool(_MOVE_SIGNAL_RE.search(_turn_narration_visible)) or _themed_move_signal(_turn_narration_visible, owner))
+                if _want_move and not _player_asked_to_move(_last_user_for_move, _season_room_names(owner)):
+                    _want_move = False  # the narration walking the player somewhere is not the player's move: only their own words move them
                 if _turn_slept and not _asked_to_go_somewhere(_last_user_for_move, _season_room_names(owner)):
                     _want_move = False  # ORW-940: the player went to bed: the narration's walking about is not their move
                 # ADR 0009 NPC auto-move belt: the turn's NARRATION walked one or more houseguests to a
