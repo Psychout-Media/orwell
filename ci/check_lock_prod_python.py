@@ -2,7 +2,7 @@
 """ORW-955: every pin in frontend/requirements.lock.txt must install on the Python that PRODUCTION runs, not only on CI's.
 
 Why: deploy (deploy/orwell-install.sh, deploy/orwell-update.sh) builds the venv from the box's system `python3` (Debian
-bookworm: 3.11.2), while CI tests on 3.12. On 2026-11-26 the lock pinned soupsieve 4.0.0 (Requires-Python >=3.11.5): CI
+bookworm 3.11.2 until 2026-11-26, Debian 13 3.13.5 since), while CI tests on 3.12. On 2026-11-26 the lock pinned soupsieve 4.0.0 (Requires-Python >=3.11.5): CI
 was green, and the prod update failed at the dependency install and rolled itself back.
 
 How: for each `name==version` line (with its environment marker, evaluated for the prod version) this reads the release's

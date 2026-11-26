@@ -1537,6 +1537,10 @@ export function renderGameContext(view: GameStateView): string {
         ...((view.presentKnowledge ?? []).some((e) => e.declaredStance)
           ? ["  (a `declaredStance` is the ONLY commitment that houseguest may make about a future vote, nomination or veto: `will-keep` they say they will keep the player; `wont-commit` they decline to promise either way, in their own manner. Never promise, swear, shake on, deny or hint at what anyone WILL do beyond it, never refuse a deal the player has accepted, and the HOH never says whether the player will go up unless it says will-keep)"]
           : []),
+        // ORW-749: a `dealConsent` is what the ENGINE has already decided this houseguest does with a deal the player pitches now. Present only when decided => byte-identical otherwise.
+        ...((view.presentKnowledge ?? []).some((e) => e.dealConsent)
+          ? ["  (a `dealConsent` is decided before you speak: when the player pitches this houseguest a deal, `will-accept` they agree, `will-decline` they say no and give their own reason, `undecided` you voice neither yes nor no until the deal tool answers. Never voice a deal as made, shaken on or agreed against a will-decline, and never leave a will-accept unanswered; the deal exists only when the engine records it)"]
+          : []),
         // 0151: a `tellsYou` is something the engine decided this houseguest tells the player now. Present only when one does => byte-identical otherwise.
         ...((view.presentKnowledge ?? []).some((e) => e.tellsYou)
           ? ["  (a `tellsYou` is a belief this houseguest passes to the player now: voice it as THEIR OWN words, hedged by their certainty; do not say whether it is true or why they tell it)"]
@@ -1560,6 +1564,7 @@ export function renderGameContext(view: GameStateView): string {
           // govern them), never to state. Emitted only when set ⇒ byte-identical otherwise.
           const cues = presentCues(e);
           if (cues) lines.push(`        now (play as conduct, never state): ${cues}`);
+          if (e.dealConsent) lines.push(`        dealConsent (what they do with a deal the player pitches now): ${e.dealConsent}`);
           if (e.declaredStance) lines.push(`        declaredStance (what they tell the player about keeping them): ${e.declaredStance}`);
           // ORW-314: the reason this houseguest GAVE ALOUD for a public act on the board. Closed set; the kind and the subject only. Voice it; never add or swap another.
           for (const r of e.statedReasons ?? []) lines.push(`        said aloud (${STATED_ACT[r.decision] ?? "deciding on"} ${neutralizeForPrompt(r.about.name)}): the reason they give - ${STATED_REASON_GLOSS[r.kind] ?? "they call it purely strategic"}; voice THIS reason in their own words, never stock phrasing, and no other`);

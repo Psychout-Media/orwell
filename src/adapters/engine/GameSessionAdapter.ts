@@ -67,7 +67,7 @@ import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
 import { chooseHourAction, assembleScenes, habitsFor, floorRoutinesFor, routinesFromHabits, actionLine, roomActLine, formPlan, GOAL_PLAN, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction, type PlanStep } from "../../engine/houseLife";
 import { addRoutines, isStressed, mergeAuthoredRoutines, noteSighting, routineKey, routineNow } from "../../engine/routineLife";
-import type { Routine } from "../../engine/routines";
+import { ROUTINES, knowsRoutine, type Routine } from "../../engine/routines";
 import type { Habit } from "../../engine/houseLifeConstants";
 import { HOUSE_LIFE, ROOM_LIFE } from "../../engine/houseLifeConstants";
 import { REASONS } from "../../engine/agendaConstants";
@@ -4521,6 +4521,8 @@ export class GameSessionAdapter implements GameSession {
       ...(isActive ? (() => { const r = this.statedReasonsFor(id); return r.length ? { statedReasons: r } : {}; })() : {}),
       // ORW-737: what they DECLARE to the player about keeping them (the engine's call; the private vote never crosses). Absent when nothing is at stake.
       ...(isActive ? (() => { const d = this.declaredStanceFor(id); return d ? { declaredStance: d } : {}; })() : {}),
+      // ORW-749: what their own consent roll will do with a player pitch, told BEFORE the narrator speaks so it never voices a yes or a no the engine then contradicts.
+      ...(isActive && this.tellsVisibleFor(id) ? (() => { const c = this.dealConsentStanceFor(id); return c ? { dealConsent: c } : {}; })() : {}),
       whereabouts: room ? { room, present } : null,
       // ORW-349: the same fact held twice (a retold rumour, the same overhear) is listed once, newest kept; the cap then counts DISTINCT facts. Deduped over the whole list BEFORE the cap, so repeats in the recent tail never crowd out distinct older facts.
       knows: dedupeKeepNewest(this.voiceKnownFacts(id).map((f) => this.humanizeTidy(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP),
@@ -7644,7 +7646,33 @@ export class GameSessionAdapter implements GameSession {
     if (this.copresenceEnabled && this.heldSeeker) this.applyHeldFactsToPulls(id, pulls);
     if (this.live?.playedGame === true && this.npcMemoryEnabled) this.applyMemoryToPulls(id, pulls);
     if (this.live?.playedGame === true && this.tellReactionsEnabled) this.applyTellAvoidToPulls(id, pulls);
+    if (this.live?.playedGame === true && this.routineHauntsEnabled) this.applyPlayerHauntToPulls(id, pulls, neutralBond);
     return pulls.length ? pulls : null;
+  }
+
+  /**
+   * ORW-981 / spec 0209 (`ORWELL_ROUTINE_HAUNTS`, default ON; `=0` opts out): a routine brings a houseguest to whoever keeps it, the same for every onlooker and every holder. A houseguest who has seen where someone usually
+   * is at this time of day on enough separate days (`knowsRoutine`; the player's usual room counted as a haunt, a houseguest's own routine counted by `noteRoutinesSeenByHouse`) leans toward them when it is that time again.
+   * Only toward someone they do not keep away from (no avoid, a bond at or above neutral when there was no pull already); never lowers a pull; engine-only, no rng, nothing shown. Played games only (the caller gates).
+   */
+  private routineHauntsEnabled = flagDefaultOn("ORWELL_ROUTINE_HAUNTS");
+  setRoutineHauntsEnabled(on: boolean): void { this.routineHauntsEnabled = on; }
+  private applyPlayerHauntToPulls(id: EntityId, pulls: MovementPull[], neutralBond: number): void {
+    const s = this.live;
+    if (!s || !s.timeOfDay) return;
+    const seen: Record<string, Record<string, number[]>> = { ...(s.npcRoutineSightings?.[id] ?? {}) };
+    if (this.house && s.playerHaunts?.[id]) seen[this.house.player.id] = s.playerHaunts[id]!; // the player's usual rooms (their own store: the player has no routine rows)
+    if (!Object.keys(seen).length) return;
+    const active = new Set(this.presenceActive());
+    for (const [holder, byKey] of Object.entries(seen)) {
+      if (holder === id || !active.has(holder)) continue;
+      const usual = Object.entries(byKey).some(([key, days]) => key.startsWith(`${s.timeOfDay}:`) && knowsRoutine(days.length));
+      if (!usual) continue;
+      const existing = pulls.find((p) => p.target === holder);
+      if (existing) { if (!existing.avoid) existing.weight *= 1 + ROUTINES.playerHauntGain; continue; }
+      if (this.rel.bondStrength(id, holder) < neutralBond) continue;
+      pulls.push({ target: holder, weight: MOVEMENT_INTENT.minCharge * (1 + ROUTINES.playerHauntGain), avoid: false });
+    }
   }
 
   /**
@@ -15633,8 +15661,11 @@ export class GameSessionAdapter implements GameSession {
    */
   private routinesOf(id: EntityId, character: AgendaCharacter, authoredHabits: readonly Habit[] | undefined, seed: number): Routine[] {
     const store = (this.live!.routines ??= {});
-    if (store[id] && authoredHabits?.length) return mergeAuthoredRoutines(store, id, routinesFromHabits(authoredHabits, id, seed));
-    return store[id] ?? addRoutines(store, id, authoredHabits?.length ? routinesFromHabits(authoredHabits, id, seed) : floorRoutinesFor(character, id, seed));
+    // ORW-978: the free-form routines the model wrote from the whole profile (validated when recorded) lead the ones mapped from the closed habit set; both are "authored" and both land when the traits do.
+    const written = this.live!.npcMindsAuthored?.traits?.[id]?.routines ?? [];
+    const authored = written.length || authoredHabits?.length ? [...written, ...(authoredHabits?.length ? routinesFromHabits(authoredHabits, id, seed) : [])] : [];
+    if (store[id] && authored.length) return mergeAuthoredRoutines(store, id, authored);
+    return store[id] ?? addRoutines(store, id, authored.length ? authored : floorRoutinesFor(character, id, seed));
   }
   /**
    * ORW-651: the player is where a routine puts its holder, awake, on this day: count it. On the third separate day the player knows the routine, as a third-person fact the narrator may voice
@@ -15687,6 +15718,9 @@ export class GameSessionAdapter implements GameSession {
     const tod = (s.timeOfDay ?? "afternoon") as LifeTimeOfDay;
     for (const id of awakeIds) {
       if (id === house.player.id || this.presence?.get(id) !== playerRoom) continue;
+      // ORW-981 (spec 0209, the other half): a houseguest awake in the room with the player on separate days at the same time of day has SEEN where the player usually is then. Engine-only, counted like any routine sighting
+      // (`npcRoutineSightings[onlooker][player]`); monotonic; no draw.
+      if (this.routineHauntsEnabled) { const d = (((s.playerHaunts ??= {})[id] ??= {})[`${tod}:${playerRoom}`] ??= []); if (!d.includes(day)) d.push(day); }
       const character = this.agendaCharacterOf(id);
       if (!character) continue;
       const rs = this.routinesOf(id, character, s.npcMindsAuthored?.traits?.[id]?.habits, seed);
@@ -19090,6 +19124,15 @@ export class GameSessionAdapter implements GameSession {
   private dealConsentRefusal(npcId: EntityId, kind: DealReqKind, direction?: "offer" | "ask", bonus = 0): DealRefusal | null {
     const live = this.live;
     if (!live) return null;
+    const d = this.dealConsentDecision(npcId, kind, direction, bonus, (w) => recordWhy(live, npcId, w)); // ORW-305: record WHY (a record only)
+    return d.accept || !d.reason ? null : this.statedRefusal(npcId, d.reason);
+  }
+  /**
+   * ORW-749: the ENGINE's consent roll for one ask, with no side effect unless a `why` sink is passed. `makeDeal` (through `dealConsentRefusal`) and the narrator's per-turn read (`dealConsentStanceFor`) both use it,
+   * so what the narrator is told before it speaks is the same decision `makeDeal` will make (the jitter is keyed on the week and phase, not on the call).
+   */
+  private dealConsentDecision(npcId: EntityId, kind: DealReqKind, direction?: "offer" | "ask", bonus = 0, why?: Parameters<typeof decideDealConsent>[1]): ReturnType<typeof decideDealConsent> {
+    const live = this.live!;
     const e = this.rel.edge(npcId, PLAYER);
     const entries = this.npcMemoryEnabled ? this.memoryEntriesSeenBy(npcId, live.npcMemory?.[npcId]?.[PLAYER], PLAYER) : undefined;
     // standalone memory reads the ledger on its own; otherwise the residual floor (what the edge no longer carries) - the same split `memoryTiltFor` makes
@@ -19110,8 +19153,16 @@ export class GameSessionAdapter implements GameSession {
         return bonus || rep ? { mood: bonus + rep } : {};
       })(),
       ...(live.playedGame === true ? { opposed: this.ownPushAgainstPlayer(npcId) } : {}),
-    }, (w) => recordWhy(live, npcId, w)); // ORW-305: record WHY (a record only)
-    return d.accept || !d.reason ? null : this.statedRefusal(npcId, d.reason);
+    }, why);
+    return d;
+  }
+  /** ORW-749: what a present houseguest's own consent roll says to a player pitch NOW, over the asks a player makes: `will-accept` (every ask), `will-decline` (every ask), else `undecided` (it depends on the ask). Played games, consent on; a closed word, never a number or a reason. */
+  dealConsentStanceFor(id: EntityId): "will-accept" | "will-decline" | "undecided" | undefined {
+    const s = this.live;
+    if (!this.declaredStanceEnabled || !this.npcDealConsentEnabled || !s || s.playedGame !== true || id === PLAYER || !this.livingIds().includes(id)) return undefined;
+    const kinds: DealReqKind[] = ["safety", "vote", "target-other", "final-two", "comp-throw", "veto-save"];
+    const accepts = kinds.map((k) => this.dealConsentDecision(id, k, isPositiveObligation(k) ? "ask" : undefined).accept);
+    return accepts.every(Boolean) ? "will-accept" : accepts.some(Boolean) ? "undecided" : "will-decline";
   }
   /**
    * ORW-608 (Ryne 2026-11-17, (a)): the houseguest gives a reason in their own words - honest, softened or a cover story, as `explainDecision` decides from their candor.
@@ -22275,6 +22326,7 @@ export class GameSessionAdapter implements GameSession {
           ...(v.rivalry ? { rivalry: v.rivalry } : {}),
           ...(v.statedReasons ? { statedReasons: v.statedReasons } : {}),
           ...(v.declaredStance ? { declaredStance: v.declaredStance } : {}),
+          ...(v.dealConsent ? { dealConsent: v.dealConsent } : {}),
           // ORW-338: the two ORW-317 lines `npcVoice` already gated (flags, public kinds, this week, trust + candor); pushed, never recomputed here.
           ...(v.moodCause ? { moodCause: v.moodCause } : {}),
           ...(v.rememberedAboutOthers?.length ? { rememberedAboutOthers: v.rememberedAboutOthers } : {}),
@@ -22286,7 +22338,7 @@ export class GameSessionAdapter implements GameSession {
       .filter(
         (e): e is NonNullable<typeof e> =>
           e !== null &&
-          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined || e.declaredStance !== undefined || e.moodCause !== undefined || e.rememberedAboutOthers !== undefined || e.tellsYou !== undefined || e.leansOnYou !== undefined),
+          (e.knows.length > 0 || e.suspects.length > 0 || e.dealConsent !== undefined || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined || e.declaredStance !== undefined || e.moodCause !== undefined || e.rememberedAboutOthers !== undefined || e.tellsYou !== undefined || e.leansOnYou !== undefined),
       );
   }
 

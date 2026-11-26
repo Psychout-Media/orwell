@@ -1062,6 +1062,8 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
   if (!sightKept) return "routineSightings";
   const npcSightKept = Object.entries(ev?.npcRoutineSightings ?? {}).every(([o, byHolder]) => Object.entries(byHolder).every(([who, byKey]) => Object.entries(byKey).every(([key, days]) => days.every((d) => (lv?.npcRoutineSightings?.[o]?.[who]?.[key] ?? []).includes(d)))));
   if (!npcSightKept) return "npcRoutineSightings";
+  const hauntsKept = Object.entries(ev?.playerHaunts ?? {}).every(([o, byKey]) => Object.entries(byKey).every(([key, days]) => days.every((d) => (lv?.playerHaunts?.[o]?.[key] ?? []).includes(d)))); // ORW-981
+  if (!hauntsKept) return "playerHaunts";
   if (!numsKept(ev?.chemistry, lv?.chemistry)) return "chemistry";
   if (!numsKept(ev?.together, lv?.together)) return "together";
   if (!numsKept(ev?.romances, lv?.romances)) return "romances";

@@ -2163,6 +2163,22 @@ def _bedtime_held_note(turn_tool_names, *, player_text, status):
             "and do not call turnIn.")
 
 
+# ORW-940: "go back to sleep" and the narrator then moved the player out of bed in the same turn. A player who turned in this turn stays in bed unless their OWN words asked to go somewhere else.
+_GO_VERB = r"(?:go|goes|going|head|heads|heading|walk|walks|walking|move|moves|moving|wander|wanders|wandering|step|steps|stepping|slip|slips|slipping|come|coming|join|joining)"
+_ASKED_ELSEWHERE_RE = re.compile(
+    r"\b" + _GO_VERB + r"\b[^.!?;]*?\b(?:kitchen|living\s+room|lounge|backyard|back\s+yard|yard|hallway|bathroom|shower|dining\s+room|storage|pantry|diary\s+room|hoh|landing|outside|downstairs|upstairs)\b",
+    re.IGNORECASE)
+
+
+def _asked_to_go_somewhere(text: str, room_names) -> bool:
+    """ORW-940: did the player's own message ask to go somewhere that is not their bed? A house room word after a go-verb, or a themed non-bedroom name after one."""
+    msg = str(text or "")
+    if _ASKED_ELSEWHERE_RE.search(msg):
+        return True
+    themed = [r for r in _themed_rooms_in(msg, room_names) if not str(r).startswith("bedroom")]
+    return bool(themed) and bool(re.search(r"\b" + _GO_VERB + r"\b", msg, re.IGNORECASE))
+
+
 def _turn_in_applied(result) -> bool:
     """ORW-310 — did a `turnIn` tool result APPLY (the night ended)? False for an error, an engine `held`
     refusal (bedtime gate) or a no-op that left the clock where it was. Telemetry counts only True."""
@@ -5453,7 +5469,9 @@ _DEAL_SIGNAL_RE = re.compile(
     r"shakes? (?:on it|hands|your hand|her hand|his hand)|shook (?:on it|hands|your hand|her hand|his hand)|"
     r"(?:sticks?|stuck|extends?|extended|offers?|holds?|held|puts?|put) (?:out )?(?:a|her|his|your|the) hand|"
     r"handshake|swear|vote (?:with you|together|as a bloc)|bloc|"
-    r"we have a deal|i'?m with you|stick together|lock(?:ed)? (?:it )?in)\b", re.I)
+    r"we have a deal|i'?m with you|stick together|lock(?:ed)? (?:it )?in|"
+    # ORW-987: a RENEWAL of a deal that ran out ("we're still good", "same deal next week", "our deal still stands", "re-up") is a deal struck again, and the model leaves it unrecorded
+    r"still (?:good|on|with you|you and me|us)|same (?:deal|terms|arrangement|as (?:last week|before))|renew(?:s|ed|ing|al)?|(?:our|the) (?:deal|arrangement|thing) (?:still )?(?:stands|holds)|re-?up(?:ping)?)\b", re.I)
 
 
 async def _auto_record_deal(narration, last_user, house, endpoint_url, model, headers, owner,
@@ -5501,7 +5519,7 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
                 '"termWeeks":<integer weeks it runs counting this week, ONLY if a duration was explicitly named, else null>}]}\n'
                 "List a deal ONLY when BOTH sides explicitly AGREED to a concrete commitment, with the kind that matches "
                 "the words actually spoken; if no listed kind matches what was spoken, leave that deal out. If it was loose talk, a one-sided pitch, a 'maybe', or a refusal, leave it "
-                "out; no deal at all => an empty list. kind: " + _kind_desc + "."},
+                "out; no deal at all => an empty list. A RENEWAL that both sides agree to ('we are still good', 'same deal again this week') IS a deal struck now, with the kind of the thing renewed. kind: " + _kind_desc + "."},
             {"role": "user", "content":
                 f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
                 f"WHAT HAPPENED:\n{scene}\n\nJSON:"},
@@ -9533,6 +9551,7 @@ async def _stream_agent_loop_impl(
     _turn_promise_by: set = set()  # ORW-750: the houseguests the MODEL recorded a promise or assurance for this turn (the belt never re-records them)
     _turn_alliance_refused: dict = {"join": set(), "form": []}  # ORW-793: what the engine refused the MODEL's own joinAlliance / formAlliance this turn (the belt never re-proposes it)
     _turn_move_nudges = 0  # L21/L24 auto-move belt: at most one auto-move per finishing turn
+    _turn_slept = False  # ORW-940: a turnIn applied this turn (the bed or a doze): no move for the player unless their own words asked to go somewhere
     _turn_npc_move_nudges = 0  # ADR 0009 NPC auto-move belt: at most one per finishing turn
     _turn_approach_nudges = 0  # 0036/0049: at most one NPC-approach nudge per finishing turn
     _emitted_visible = False  # did the player see ANY narration this turn? (scrub can empty a
@@ -10021,6 +10040,7 @@ async def _stream_agent_loop_impl(
                             yield f'data: {json.dumps({"type": "tool_output", "tool": "turnIn", "command": "{}", "output": "", "exit_code": _bt_result.get("exit_code") if isinstance(_bt_result, dict) else None})}\n\n'
                             tool_events.append({"round": round_num, "tool": "turnIn", "command": "{}", "output": "", "exit_code": (_bt_result or {}).get("exit_code")})
                             _direct_applied = _turn_in_applied(_bt_result)
+                            _turn_slept = _turn_slept or _direct_applied
                             _belt_own_round = True  # ORW-395: the chip is drawn with ITS round's text; close this round so it sits ABOVE the morning narration
                             if _direct_applied:
                                 _bt_call_id = f"call_{round_num}_bedtime"
@@ -11162,6 +11182,8 @@ async def _stream_agent_loop_impl(
                     moved=_moved, turn_move_nudges=_turn_move_nudges, max_move_nudges=_MAX_MOVE_NUDGES_PER_TURN,
                     signal_in_user_message=bool(_MOVE_SIGNAL_RE.search(_last_user_for_move)) or _themed_move_signal(_last_user_for_move, owner),
                     signal_in_narration=bool(_MOVE_SIGNAL_RE.search(_turn_narration_visible)) or _themed_move_signal(_turn_narration_visible, owner))
+                if _turn_slept and not _asked_to_go_somewhere(_last_user_for_move, _season_room_names(owner)):
+                    _want_move = False  # ORW-940: the player went to bed: the narration's walking about is not their move
                 # ADR 0009 NPC auto-move belt: the turn's NARRATION walked one or more houseguests to a
                 # room but the model never called moveHouseguest, so the engine's open presence still has
                 # them in their seeded room and the whereabouts gadget snaps them back. Gated on a cheap
@@ -12788,6 +12810,10 @@ async def _stream_agent_loop_impl(
                     "blocked": True,
                 }
                 logger.info("Tool blocked before start by policy: %s", block.tool_type)
+            elif block.tool_type == "moveTo" and _turn_slept and not _asked_to_go_somewhere(_extract_last_user_message(messages) or "", _season_room_names(owner)):
+                desc = "moveTo: BLOCKED"
+                result = {"error": "The player went to bed this turn and did not ask to go anywhere: they stay in bed. Do not move them; narrate the sleep only.", "exit_code": 1, "blocked": True}
+                logger.info("[orwell] ORW-940 moveTo refused after turnIn in the same turn user=%s", owner)
             else:
                 yield (
                     f'data: {json.dumps({"type": "tool_start", "tool": block.tool_type, "command": cmd_display, "round": round_num})}\n\n'
@@ -13018,6 +13044,8 @@ async def _stream_agent_loop_impl(
                 "output": _persisted_output,
                 "exit_code": result.get("exit_code"),
             }
+            if block.tool_type == "turnIn" and _turn_in_applied(result):
+                _turn_slept = True
             _engine_result = _engine_result_for_transcript(block.tool_type, result)
             if _engine_result is not None:
                 tool_event["engine_result"] = _engine_result  # ORW-187: admin-only full result (stripped from the player's history payload)

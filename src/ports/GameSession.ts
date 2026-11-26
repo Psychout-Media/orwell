@@ -2408,6 +2408,8 @@ export interface NpcVoiceView {
   statedReasons?: StatedReasonView[];
   /** ORW-737: what this houseguest DECLARES to the player about keeping them (a vote, a nomination, a veto): the ENGINE's call, never the houseguest's private vote. `will-keep` = they say they will (a recorded assurance, or one the engine decided they give); `wont-commit` = they decline to promise either way. Voice only this about the future; absent when nothing is at stake this turn. */
   declaredStance?: "will-keep" | "wont-commit";
+  /** ORW-749: what this houseguest's own consent roll will do with a deal the player pitches now (the ENGINE's call): `will-accept`, `will-decline`, or `undecided` (depends on the ask). Voice nothing that contradicts it. Absent when no deal could be decided. */
+  dealConsent?: "will-accept" | "will-decline" | "undecided";
   /** A49 (#2017 E1a, flag ORWELL_NPC_TELLS, default ON): the houseguest's observable carriage right now - at most 2 closed-vocabulary tells (kind, band, channel), words only, never a number or a cause. Present only for a houseguest who is PRESENT in the player's room and awake. Absent flag-off => byte-identical. */
   tells?: ReadonlyArray<{ kind: string; band: string; channel: string }>;
   /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default ON): up to 3 plain facts this houseguest holds about the PLAYER (words + a recency word; never a kind slug, severity or number). Absent flag-off or when they hold none. */
@@ -2563,6 +2565,8 @@ export interface PresentKnowledgeView {
   statedReasons?: StatedReasonView[];
   /** ORW-737: the same `declaredStance` `npcVoice` carries, pushed so the narrator voices the engine's stance without the under-called tool. */
   declaredStance?: "will-keep" | "wont-commit";
+  /** ORW-749: what this houseguest's own consent roll will do with a deal the player pitches now (the ENGINE's call): `will-accept`, `will-decline`, or `undecided` (depends on the ask). Voice nothing that contradicts it. Absent when no deal could be decided. */
+  dealConsent?: "will-accept" | "will-decline" | "undecided";
   /** ORW-338: the same `moodCause` `npcVoice` carries (this week's, only when they would tell the player), pushed so the narrator can voice it without the under-called tool. Same gates as `npcVoice`. */
   moodCause?: string;
   /** ORW-338: the same `rememberedAboutOthers` `npcVoice` carries (public-fact memories about people in the room, memory speech flag), pushed for the same reason. */

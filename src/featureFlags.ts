@@ -133,6 +133,7 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // ORW-705 PT-10 (PO ruling 2026-11-19): a player who woke at their own early hour (bed + 8h, before the house's wake-up call) can `turnIn` to doze back to bed - the clock moves to the wake-up call and no later; a still-tired early-waking houseguest (the hidden rest meter) dozes back too and is out of the awake set until the call. A played game only. ON by default; `=0` restores the refusal.
   { envKey: 'ORWELL_DOZE_BACK_TO_BED', key: 'dozeBackToBed', parser: 'defaultOn' },
   { envKey: 'ORWELL_DAYBREAK_FATIGUE',      key: 'dayBreakFatigue',        parser: 'defaultOn' },
+  { envKey: 'ORWELL_ROUTINE_HAUNTS',         key: 'routineHaunts',           parser: 'defaultOn' },
   { envKey: 'ORWELL_DRIFT_FIX', key: 'driftFix', parser: 'defaultOn' },
   // B51 / AMEND 3b: the HOH's / veto holder's own drive (target adds, build protects) feeds its nomination and veto-save scores. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_DRIVE_DECISIONS', key: 'driveDecisions', parser: 'defaultOn' },

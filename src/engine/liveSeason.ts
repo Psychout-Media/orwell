@@ -1044,6 +1044,8 @@ export interface LiveSeasonState {
   routineSightings?: import("./routineLife").RoutineSightings;
   /** ORW-960 (B2-8): each NPC onlooker's own routine sightings (engine-only; monotone like the player's). */
   npcRoutineSightings?: Record<EntityId, import("./routineLife").RoutineSightings>;
+  /** ORW-981: the days each houseguest was in the room with the PLAYER at a time of day (`slot:room` -> distinct in-game days). Hidden, engine-only, monotonic; kept apart from `npcRoutineSightings` (those are a houseguest's sightings of someone's ROUTINE and each one becomes a learned fact; the player has no routine row). */
+  playerHaunts?: Record<EntityId, Record<string, number[]>>;
   /** 0208 / ORW-663 (B1, engine-only): the houseguest seats that carry a RETURNER from a season this player played, by seat id: which archived season, how many seasons ago, and the public finish (placement, juror). Fixed at casting; never thinned. The feelings and claims they carried live only in the hidden layer. */
   returners?: Record<EntityId, { season: number; seasonsAgo: number; placement: number; juror: boolean }>;
   interruption?: { npc: string; desire: string; atHour: number; /** ORW-261: a VOLUNTEERED (nobody asked) private-orientation disclosure the houseguest chose to make as they step in (the engine-authored sentence; also recorded as a told-by fact). */ tells?: string; /** ORW-611 follow-up: a speech step aimed at the player, told once this framing's view is built. */ say?: AimedSay };
