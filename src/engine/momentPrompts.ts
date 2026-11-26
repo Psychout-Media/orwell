@@ -2465,6 +2465,9 @@ export function buildSystemPrompt(
   const gate = uncommittedCeremonyGate(moment, view);
   return [
     base,
+    // ORW-555 (prompt prefix cache): the world block is frozen for the whole season, so it rides right after the base, BEFORE the moment fragment (which changes with every beat,
+    // about a quarter of the turns); after it, the whole world block was re-billed uncached at every beat change. A pure reorder: the same blocks, the same text.
+    ...(worldContext ? [worldContext] : []),
     moment === "premiere" && view.premiere && premiereEntranceOf(view.premiere)
       ? premiereEntrancesFragment()
       : gate
@@ -2473,9 +2476,6 @@ export function buildSystemPrompt(
     // The producer persona (the casting-interview voice) rides right after its moment fragment, so the
     // model voices THIS specific, seeded producer consistently. Present only on the pre-game casting beat.
     ...(producerVoice ? [producerVoice] : []),
-    // ORW-296 (prompt prefix cache): the world block is FROZEN for the whole season, so it rides BEFORE the game context (whose per-turn tail changes every round); after it, its ~1.5k chars were
-    // re-billed uncached on every round. A pure reorder: the same blocks, the same text.
-    ...(worldContext ? [worldContext] : []),
     renderGameContext(view),
     ...(storyFacts ? [storyFacts] : []),
     // SOC-1/4: the player's own freshly-surfaced knowledge, EVERY moment (unlike `storyFacts`, which

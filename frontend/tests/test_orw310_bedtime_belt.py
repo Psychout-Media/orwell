@@ -303,7 +303,7 @@ def test_rejecter_model_has_the_players_turn_in_run_directly_before_narration(mo
     rounds, belts, _, executed = _drive(monkeypatch, text=text, model=DEEPSEEK, turn_in_result=_res("morning"))
     assert executed == ["turnIn"]                      # exactly once, via the dispatcher
     assert rounds[0]["tool_choice"] is None            # never a wire force for a rejecter
-    assert rounds[0]["n_system"] == 2                  # the original system prompt + the production note that voices the result
+    assert rounds[0]["n_system"] == 3                  # the original system prompt + the production note that voices the result + the per-turn block (ORW-555: the datetime and per-turn tail ride after the history)
     assert belts.get("bedtime-turn-in") == 1 and belts.get("bedtime-turn-in-direct") == 1
     assert "forced-tool-fallback-line:turnIn" not in belts
 
@@ -543,15 +543,15 @@ def test_loop_adds_the_held_note_once_for_an_evening_goodnight(monkeypatch):
         scripts=[{"deltas": ["Too wired to sleep."], "calls": [{"name": "advanceGame", "arguments": "{}"}]}, {"deltas": ["Still awake."]}])
     assert rounds[0]["tool_choice"] is None and executed == ["advanceGame"]
     assert len(rounds) == 2  # a SECOND model round ran (review of #2730), so "once per turn" is really tested
-    assert rounds[0]["n_system"] == 2  # narrator + the ORW-421 note
-    assert rounds[1]["n_system"] == 2  # still the one note: not added again
+    assert rounds[0]["n_system"] == 3  # narrator + the ORW-421 note + the per-turn block (ORW-555)
+    assert rounds[1]["n_system"] == 3  # still the one note: not added again (+ the ORW-555 per-turn block)
     assert belts == {"bedtime-held-note": 1}
 
 
 def test_loop_no_held_note_at_night(monkeypatch):
     rounds, belts, _, _ = _drive(monkeypatch, text="I sleep.", scripts=[{"deltas": ["ok"]}])
     assert "bedtime-held-note" not in belts
-    assert rounds[0]["n_system"] == 1  # the narrator context is unchanged: no held note was injected (review of #2730)
+    assert rounds[0]["n_system"] == 2  # the narrator context is unchanged: no held note was injected (review of #2730); the 2nd is the ORW-555 per-turn block
 
 
 # ── ORW-437 (reviews of #2683 and #2664): the rejecter-model direct turnIn, driven through the loop, hands the NARRATOR the morning board and the recap ──

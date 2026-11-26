@@ -2318,6 +2318,10 @@ def pop_framed_hard_constraints(session_id) -> Optional[str]:
 _LAST_FRAMED_REQUIRED_LEVER: dict = {}
 # ORW-405: the per-turn volatile slice ("\n- Week: ..." to the end) of the engine moment prompt this turn was framed on, keyed like the stores above, so a mid-turn rebuild (the direct turnIn) can swap it for a fresh one.
 _LAST_FRAMED_MOMENT_VOLATILE: dict = {}
+# ORW-555 (prompt prefix cache): this turn's WHOLE per-turn tail of the framing prompt (the engine's game context from "- Week: " on, plus every per-turn
+# directive the framing appended after it), keyed like the volatile slice. The agent loop lifts exactly this text out of the leading system message and sends it
+# after the history, so the static head, the agent preamble and the whole history are a stable prefix the provider's cache can match. Absent = nothing is moved.
+_LAST_FRAMED_GM_TAIL: dict = {}
 
 # 0118 (in-game-time pivot, Phase 2) — whether the engine reports the scheduled ceremony time has ARRIVED
 # (the Vault-free day-schedule `due` flag), cached at framing so the agent loop's advance-nudge can fire the
@@ -10422,6 +10426,14 @@ async def apply_game_framing(
         # P8: prompt minimalism on framed game-build turns (one datetime, slim policy).
         if game_build:
             _slim_framed_preface(preface)
+        try:  # ORW-555: remember this turn's whole per-turn tail (the agent loop sends it after the history)
+            _ti = gm_prompt.find("\n- Week: ")
+            if _ti >= 0:
+                _LAST_FRAMED_GM_TAIL[user or "default"] = gm_prompt[_ti:]
+            else:
+                _LAST_FRAMED_GM_TAIL.pop(user or "default", None)
+        except Exception:
+            _LAST_FRAMED_GM_TAIL.pop(user or "default", None)
         if preface and isinstance(preface[0], dict) and preface[0].get("role") == "system":
             preface[0]["content"] = gm_prompt + "\n\n" + preface[0]["content"]
         else:

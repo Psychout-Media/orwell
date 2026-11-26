@@ -831,6 +831,34 @@ def _recent_context_for_retrieval(messages: List[Dict], max_user: int = 3, max_c
             break
     return "\n".join(collected)[:max_chars]
 
+def prompt_cache_order_enabled() -> bool:
+    """ORW-555: send a live-season turn's per-turn tail after the history (the provider's prefix cache then matches the static head, the preamble and the history). ON unless `ORWELL_PROMPT_CACHE_ORDER=0`."""
+    return os.getenv("ORWELL_PROMPT_CACHE_ORDER", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _send_per_turn_tail_last(merged: List[Dict], owner, dt_text: str) -> List[Dict]:
+    """ORW-555: lift this turn's per-turn tail (the framing's game context and directives, recorded by apply_game_framing) out of the leading system message and send it,
+    with the datetime, as one system message just before the player's message. The model receives the same text; only its place moves. The static head, the agent
+    preamble and the history before it no longer change from turn to turn, so a provider's prompt-prefix cache (DeepSeek's misses cost about 50 times a hit) can
+    match them. Nothing found to move: the messages as they were (plus the datetime, so it is never lost)."""
+    try:
+        from routes import chat_helpers as _ch
+        tail = _ch._LAST_FRAMED_GM_TAIL.get(owner or "default") or ""
+    except Exception:
+        tail = ""
+    out = list(merged)
+    moved = ""
+    if out and out[0].get("role") == "system" and isinstance(out[0].get("content"), str) and tail and tail in out[0]["content"]:
+        out[0] = {**out[0], "content": out[0]["content"].replace(tail, "", 1)}
+        moved = tail.strip("\n")
+    block = "\n\n".join(x for x in (moved, (dt_text or "").strip()) if x)
+    if not block:
+        return out
+    last_user = next((i for i in range(len(out) - 1, -1, -1) if out[i].get("role") == "user"), len(out))
+    out.insert(last_user, {"role": "system", "content": block})
+    return out
+
+
 def _build_system_prompt(
     messages: List[Dict],
     model: str,
@@ -908,9 +936,15 @@ def _build_system_prompt(
 
     # Current date/time for every agent request. This is user-local when the
     # browser provided timezone headers, with a server-local fallback.
+    # ORW-555 (prompt prefix cache): on a live-season turn the datetime (it changes every minute) rides at the END with the per-turn tail instead of the start of the
+    # agent preamble, so the preamble stays a stable prefix. Off (ORWELL_PROMPT_CACHE_ORDER=0), casting or a non-game turn: exactly as before.
+    _cache_order = prompt_cache_order_enabled() and bool(game_mode) and game_mode != "casting"
+    _dt_text = ""
     try:
         from src.user_time import current_datetime_prompt
-        agent_prompt = current_datetime_prompt() + agent_prompt
+        _dt_text = current_datetime_prompt()
+        if not _cache_order:
+            agent_prompt = _dt_text + agent_prompt
     except Exception:
         pass
 
@@ -1232,6 +1266,9 @@ def _build_system_prompt(
             }
         else:
             merged.append(msg)
+
+    if _cache_order:
+        merged = _send_per_turn_tail_last(merged, owner, _dt_text)
 
     # Insert the document message right before the last user message so it's
     # close to the user's request and survives context trimming independently.
