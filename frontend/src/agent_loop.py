@@ -6153,7 +6153,10 @@ async def _auto_confide(narration, last_user, house, endpoint_url, model, header
                 'trust me", "talk to me", "what\'s really going on with you?"). They must be in a '
                 "one-on-one-ish moment with that single houseguest. If the player is NOT pressing anyone "
                 "to open up (small talk, strategy, a group scene, only listening), reply "
-                '{"npcId":null}. Never invent — the id MUST be one from the roster.'},
+                '{"npcId":null}. A demand for an answer, an accusation or an interrogation about a vote, a '
+                "nomination or a lie is not an invitation to open up: reply "
+                '{"npcId":null}. A line that is not aimed at one houseguest is not a press either. '
+                'Never invent — the id MUST be one from the roster.'},
             {"role": "user", "content":
                 f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S MOVE:\n{press}\n\n"
                 f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
@@ -6266,6 +6269,16 @@ def _known_player_fact_index(vis: dict) -> dict:
     return out
 
 
+async def _present_ids_safe(_oe, owner):
+    """Ids of the houseguests in the player's room, or None when the engine's presence is unavailable
+    (a missing read never blocks the belt; the extractor and the engine still gate it)."""
+    try:
+        from src import secret_belt_gates as _sbg
+        return _sbg.present_ids(await asyncio.wait_for(_oe.whereabouts(user=owner), 5))
+    except Exception:
+        return None
+
+
 async def _auto_expose_secret(narration, last_user, house, endpoint_url, model, headers, owner) -> bool:
     """GUARANTEE an outed secret FIRES (0093 FE follow-on — the 0055/0075 sibling). When the player's
     turn clearly OUTS a secret they already know but the model skipped `exposeSecret`, a constrained
@@ -6300,8 +6313,13 @@ async def _auto_expose_secret(narration, last_user, house, endpoint_url, model, 
                 "secrets the player currently knows. Reply IMMEDIATELY with ONLY a JSON object — no "
                 'analysis, no prose, no code fence:\n{"factId":"<one id from the list below, or null>"}\n'
                 "Pick an id ONLY when the player's own words clearly declare or reveal THAT SPECIFIC "
-                "known fact to hurt/undermine its subject. If the player is not exposing anything, or "
-                "none of the listed known facts match what they're revealing, reply "
+                "known fact to hurt/undermine its subject. Exposing is an act that has HAPPENED in the player's "
+                "line, said aloud to the whole room. These are NOT acts, reply "
+                '{"factId":null}: a threat or an ultimatum about what the player will tell later; a '
+                "private aside or a whisper to one listener, or a request to keep it quiet; a question "
+                "about a secret; a promise not to tell; an accusation with no listed known fact behind it; "
+                "an empty line, small talk, or a line where nobody else hears. If the player is not "
+                "exposing anything, or none of the listed known facts match what they're revealing, reply "
                 '{"factId":null}. NEVER invent a factId that is not in the list.'},
             {"role": "user", "content":
                 f"THE PLAYER'S KNOWN SECRETS (factId = content):\n{fact_lines}\n\n"
@@ -6319,6 +6337,14 @@ async def _auto_expose_secret(narration, last_user, house, endpoint_url, model, 
             return False  # null / nothing exposed
         if fact_id not in facts:
             logger.info(f"[orwell] auto-expose: factId {fact_id!r} not a known fact — skipped user={owner}")
+            return False
+        # ORW-1070: engine-fact check before the one-shot secret is spent (the speaker holds the fact: it is in
+        # the player's own knowledge list; an outing needs an audience in the room).
+        from src import secret_belt_gates as _sbg
+        _why = _sbg.expose_refusal(facts[fact_id], roster, await _present_ids_safe(_oe, owner))
+        if _why:
+            _sbg.note_refusal("expose", _why)
+            logger.info(f"[orwell] auto-expose: {_why} — skipped user={owner}")
             return False
         # CON-11: defer (never drop) a double-stale-409 -- exposing a secret is a one-shot, consequence-
         # bearing action (mandate #4). A10 / #591 / R1c: one stable at-most-once key threads through
@@ -6382,7 +6408,12 @@ async def _auto_trade_secret(narration, last_user, house, endpoint_url, model, h
                 '"toNpcId":"<the recipient houseguest id from the ROSTER, or null>",'
                 '"askKind":"<a short label for what was asked in return, or empty string>"}\n'
                 "Pick a factId+toNpcId ONLY when the player clearly hands over THAT SPECIFIC known "
-                "secret to THAT SPECIFIC houseguest in exchange for something. If the player is not "
+                "secret to THAT SPECIFIC houseguest in exchange for something. A trade needs all three: a "
+                "listed known secret that is actually handed over in this scene, a named recipient who "
+                "is present and not a party to that secret, and a stated ask in return. These are NOT "
+                "trades, reply with both null: an offer the listener walks away from or never hears out; "
+                "a secret given away for nothing; an ask with no secret named; a threat; a promise; a "
+                "line where the recipient refuses or the handover does not happen. If the player is not "
                 "trading anything, or nothing in the lists matches, reply with both null. NEVER "
                 "invent a factId or houseguest id not in the lists provided."},
             {"role": "user", "content":
@@ -6407,9 +6438,13 @@ async def _auto_trade_secret(narration, last_user, house, endpoint_url, model, h
         if to_npc_id not in roster:
             logger.info(f"[orwell] auto-trade: toNpcId {to_npc_id!r} not on roster — skipped user={owner}")
             return False
-        if facts[fact_id].get("subject") == to_npc_id:
-            # Defense-in-depth mirror of the engine's own rule: can't trade a secret TO its own subject.
-            logger.info(f"[orwell] auto-trade: factId {fact_id!r} is ABOUT the recipient — skipped user={owner}")
+        # Defense-in-depth mirror of the engine's own rule (no trading a secret TO its own subject), widened to
+        # every party the fact names (ORW-1070), and the recipient must be in the room.
+        from src import secret_belt_gates as _sbg
+        _why = _sbg.trade_refusal(facts[fact_id], to_npc_id, roster, await _present_ids_safe(_oe, owner))
+        if _why:
+            _sbg.note_refusal("trade", _why)
+            logger.info(f"[orwell] auto-trade: {_why} (factId {fact_id!r}) — skipped user={owner}")
             return False
         ask_kind = obj.get("askKind")
         ask_kind = ask_kind.strip()[:80] if isinstance(ask_kind, str) and ask_kind.strip() else None
@@ -11751,6 +11786,7 @@ async def _stream_agent_loop_impl(
                         one banked."""
                         nonlocal _turn_deal_nudges, _turn_record_nudges, _turn_confide_nudges, _turn_offer_nudges
                         nonlocal _turn_expose_nudges, _turn_trade_nudges, _turn_alliance_nudges, _turn_promise_nudges
+                        nonlocal _want_confide, _want_expose, _want_trade
                         _touched = _scene_touched_houseguest(cleaned_round, messages, [h.get("name") for h in _house])
                         # 0039: a deal the model narrated but never made — back-fill makeDeal so it binds
                         # and shows on the deals surface. Runs first; a struck deal already banks the
@@ -11758,6 +11794,12 @@ async def _stream_agent_loop_impl(
                         # satisfies the generic scene-record below (no double fold). HIGH-bar extraction —
                         # struck=false (loose talk) creates nothing.
                         _touched_deal = _scene_touched_houseguest(_turn_narration, messages, [h.get("name") for h in _house])
+                        # ORW-1071: widen the regex gates with a structural signal (a roster name in the player's line) and
+                        # count the turns neither signal admits; the extractor and the engine stay the gatekeepers.
+                        from src import secret_belt_gates as _sbg_gate
+                        _want_confide = _want_confide or _sbg_gate.gate("confide", False, _turn_confide_nudges, _last_user_for_confide, _house, owner)
+                        _want_expose = _want_expose or _sbg_gate.gate("expose", False, _turn_expose_nudges, _last_user_for_confide, _house, owner)
+                        _want_trade = _want_trade or _sbg_gate.gate("trade", False, _turn_trade_nudges, _last_user_for_confide, _house, owner)
                         # ORW-910: make every extraction this chain will need AT ONCE (same gates as below, extract-only: no engine write), then run the chain in
                         # order as before; each belt's identical request is answered from the prefetch, a changed one (an earlier belt moved the state it reads) calls live.
                         _pf_token = None
