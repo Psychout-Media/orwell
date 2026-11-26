@@ -4674,6 +4674,43 @@ def _absent_holds_floor(narration: str, facts: dict, first_counts: dict) -> Opti
     return None
 
 
+# ORW-1003: the narration writes the player into a room they did not go to (the engine keeps their real room), so the player reads the wrong room. A sentence that PLACES the player ("you drift into...",
+# "you're in...") somewhere the engine does not have them is dropped, the same posture as an absent houseguest. Modals, conditionals and questions ("you could go...", "if you step...?") place nobody.
+_PLAYER_PLACED_RE = re.compile(
+    r"\byou(?:'re|\u2019re|\s+are|\s+find\s+yourself)?\s+(?:\w+ly\s+)?(?:now\s+)?(?:walk|walking|step|stepping|head|heading|drift|drifting|slip|slipping|wander|wandering|stroll|strolling|settle|settling|sit|sitting|stand|standing|"
+    r"arrive|arriving|follow|following|move|moving|duck|ducking|climb|climbing|drop|sink|sinking|lie|lying|stretch|stretching|perch|perched|in\b|back\b|alone\b)[^.!?]*?\b(?:in|into|onto|inside|to|on)\b",
+    re.IGNORECASE)
+_PLAYER_NOT_PLACED_RE = re.compile(r"\b(?:could|would|might|can|should|may|if|whether|want|wanna|do\s+you|will\s+you)\b|\?", re.IGNORECASE)
+
+
+def _drop_misplacing_player(text: str, player_room: str, room_names=None, quote=None) -> str:
+    """`text` without the sentences whose NARRATION (never quoted speech, even a quote split across sentences) puts the player in another room."""
+    out = []
+    for part in re.split(r"(?<=[.!?\n])", text):
+        was = quote
+        quote, close_end = _scan_quote_state(part, quote)
+        narr = part if was is None else (part[close_end:] if close_end is not None else "")
+        if quote is not None:  # a quote opens in this part: only what precedes the opening mark is narration
+            narr = re.split(r'["\u201c]', narr, maxsplit=1)[0]
+        if was is None and _sentence_misplaces_player(narr, player_room, room_names):
+            continue
+        out.append(part)
+    return "".join(out)
+
+
+def _sentence_misplaces_player(sentence: str, player_room: str, room_names=None) -> bool:
+    """True when the narration (quoted words blanked) states the player is in or moving into a room, and no room it names there can be the engine's room for them."""
+    from src.house_rooms import rooms_named_in
+    narr = _QUOTED_SPEECH_RE.sub(" ", sentence or "")
+    if not player_room or _PLAYER_NOT_PLACED_RE.search(narr):
+        return False
+    m = _PLAYER_PLACED_RE.search(narr)
+    if not m:
+        return False
+    named = rooms_named_in(narr[m.start():], room_names)
+    return bool(named) and not any(player_room in rooms for rooms in named)
+
+
 async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[dict] = None) -> str:
     """A2 (#1726) — the STRUCTURAL, SAME-TURN presence guard. Returns `text` with any sentence that
     stages an off-scene or already-evicted houseguest as present/acting in the player's scene DROPPED
@@ -4706,6 +4743,13 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
         logger.warning("[orwell] presence-wall: game-state read skipped for user=%s: %s", user, _exc_detail(e))
         return text  # engine unreachable this turn — never hold narration on a read hiccup
     facts = _presence_facts(state if isinstance(state, dict) else {})
+    if facts and not (isinstance(alt_state, dict)):  # ORW-1003: a turn with a pre-sleep board keeps the evening room's goodnight; otherwise the player is where the engine has them
+        _kept = _drop_misplacing_player(text, facts.get("room"), facts.get("room_names"), carry.get("quote"))
+        if _kept != text:
+            logger.warning("[orwell] presence-wall: dropped a sentence placing the player outside their room for user=%s", user)
+            text = _kept
+            if not text.strip():
+                return text
     if not facts or (not facts.get("evicted") and not facts.get("active_offscene") and not facts.get("adjacent")):
         if carry.get("drop_quote") or carry.get("quote"):
             pass  # ORW-917: a quote still open (or a drop still running) from an earlier chunk: scan below so the state stays true
