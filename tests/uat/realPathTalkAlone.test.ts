@@ -111,7 +111,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
 
   it("'come here': the houseguest comes to the player's room and the player does not move; the hold keeps them there, then lapses as the hours pass and they wander again", async () => {
     const away = (s: Stop) => (s.sess.livingIds() as string[]).filter((id) => id !== PLAYER && roomOf(s, id) !== roomOf(s, PLAYER) && roomOf(s, id) !== "diary-room");
-    const { yes: { at, npc, r, from } } = await untilYes(11, { private: false }, { who: away, minCompany: 0 });
+    const { yes: { at, npc, r, from } } = await untilYes(11, { private: false }, { who: away, minCompany: 0, when: (s) => !isPrivateRoom(roomOf(s, PLAYER) as Room) /* the player is in a public room: in a bedroom a houseguest who is called stays with the player (and sleeps there) */ });
     expect(r.room).toBe(from);
     expect(roomOf(at, PLAYER)).toBe(from);
     expect(roomOf(at, npc)).toBe(from);
