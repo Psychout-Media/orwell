@@ -357,6 +357,20 @@ def _isolate_recent_seasons_store(tmp_path, monkeypatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_season_checklist_store(tmp_path, monkeypatch) -> None:
+    """ORW-970: the season-start checklist (`orwell_season_checklist.CHECKLIST_PATH`, under `DATA_DIR`) is written when a season starts, so redirect it per
+    test like the stores above (a test that fakes `createCharacter` must not write the real data dir or share a file across xdist workers). In-process
+    task state is cleared too."""
+    try:
+        import src.orwell_season_checklist as _sc
+    except Exception:
+        return
+    monkeypatch.setattr(_sc, "CHECKLIST_PATH", tmp_path / "orwell_season_checklist.json")
+    _sc._ACTIVE.clear()
+    _sc._RETRY_TASKS.clear()
+
+
+@pytest.fixture(autouse=True)
 def _reset_cast_authoring_ledger() -> None:
     mod = sys.modules.get("src.orwell_cast_authoring")
     if mod is not None:
