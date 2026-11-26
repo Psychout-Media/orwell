@@ -704,6 +704,14 @@ _BROWSER_ADVANCE_SHAPE = {
 #     card keys above: `finished` + `winner.name` and `event.beat` / `event.content` (the beat chip's outcome line and the ceremony slate's headline), `event.participants[]` ({id, name}: the slate's faces),
 #     `status.week` and `status.veto.holder` (the slate's kicker and the veto winner), `eviction.votesRevealed[].votedFor` (the ANONYMIZED ballot count, never a voter), and `correction` (the control-room card).
 #     NOT read: the engine's own result fields (a vote's tally, a voter, a planned outcome, the event's consequences, the status's other fields).
+#   Every OTHER game tool's output (ORW-975: makeDeal, confide, confront, recordInteraction, runCompetition, createCharacter and the rest of the non-silent game keep-set): the page reads `beatSeq` and `correction` off any
+#     mutating tool (the G15 dispatcher), `started` / `createRefused` off createCharacter, and the beat chip's outcome line (`finished`, `winner.name`, `event.beat` / `content`, and the anonymized ballot
+#     count `eviction.votesRevealed[].votedFor`) for the beat tools. Nothing else of a tool's result is read, so nothing else is kept (the expandable raw-output block a non-beat tool used to show is now empty).
+_BROWSER_GAME_TOOL_SHAPE = {
+    "beatSeq": _T, "correction": _T, "started": _T, "createRefused": _T, "finished": _T, "winner": _NAMED,
+    "event": {"beat": _T, "content": _T, "participants": [_NAMED]},
+    "eviction": {"votesRevealed": [{"votedFor": _NAMED}]},
+}
 _BROWSER_TOOL_ADVANCE_SHAPE = {
     **_BROWSER_ADVANCE_SHAPE,
     "finished": _T, "winner": _NAMED, "correction": _T,
