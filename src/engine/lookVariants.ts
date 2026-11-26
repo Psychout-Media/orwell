@@ -10,51 +10,30 @@ import { SeededRandom } from "../adapters/random/SeededRandom";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { hashSeed, spreadFacet } from "./characterFactory";
 
-export const SKIN_TAILS: readonly string[] = [
-  "with a warm undertone", "with a cool undertone", "with a golden undertone", "with a healthy glow", "with a smooth matte finish", "with a slight sheen",
-  "that photographs well", "that shows every blush", "with a flush that comes and goes", "that looks different in every light", "that has seen some sun", "with an even finish",
-];
-export const BUILD_TAILS: readonly string[] = [
-  "who carries it lightly", "with a loose easy stride", "with a slight forward lean", "who stands very straight", "who takes up space easily",
-  "who moves without hurry", "who looks quicker than they seem", "with a rolling easygoing walk", "who fills a doorway quietly", "with the carriage of someone used to being looked at",
-];
-export const HAIR_TAILS: readonly string[] = [
-  "freshly cut", "a week past a trim", "kept the same for years", "recently changed", "styled with care", "left to do its own thing", "worn practical", "catching the light",
-];
-export const FACIAL_TAILS: readonly string[] = [
-  "and an expression that gives little away", "and a face that is easy to read", "and eyes that crinkle when amused", "and a jaw that tightens when thinking",
-  "and a brow that furrows easily", "and a mouth that rests in a half-smile", "and a gaze that holds a beat too long", "and a face that lights up mid-sentence",
-  "and a calm unreadable look", "and a look of constant mild curiosity",
-];
+// The narrator prompt carries the build, skin, hair, face and age-look lines of all 16 cards and has a hard character budget
+// (tests/unit/promptBudget.test.ts), so the tails on those lines are ONE short word each. The style line is not in that prompt, so its accent can be a phrase.
+export const SKIN_TAILS: readonly string[] = ["warm", "cool", "soft", "even", "clear", "matte", "dewy", "rosy", "bright", "smooth"];
+export const HAIR_TAILS: readonly string[] = ["tidy", "fresh", "neat", "soft", "shiny", "clean", "easy", "sleek", "styled", "brushed"];
+export const FACIAL_TAILS: readonly string[] = ["calm", "wry", "open", "alert", "earnest", "guarded", "amused", "bright"];
 export const STYLE_ACCENTS: readonly string[] = [
   "scuffed everyday shoes", "a watch worn on the wrong wrist", "a well-used tote", "a belt with a plain buckle", "a thin scarf", "a canvas cap",
   "clean white sneakers", "a pair of worn boots", "a loop of keys on a lanyard", "a single bracelet", "a faded backpack", "a collar that never quite sits flat",
 ];
-export const AGE_LOOK_TAILS: readonly string[] = [
-  "a loose easy stance", "a steady direct gaze", "a ready half-smile", "a slight tilt of the head", "a brisk walk", "a relaxed jaw",
-  "a measured way of looking around", "hands that are never still", "a habit of leaning in to listen", "a straight-backed bearing",
-  "a quick glance at every exit", "an unhurried way of taking a room in",
-];
-export const AGE_LOOK_TAILS_2: readonly string[] = [
-  "a taste for the last word", "a laugh that arrives early", "a habit of going quiet first", "an easy way with strangers", "a guarded kind of charm",
-  "a patient way of waiting", "a sideways look when amused", "a nod that means more than yes", "a way of standing near the door", "a voice that carries without trying",
-  "a knack for being underestimated", "a slow, careful blink",
-];
+export const AGE_LOOK_TAILS: readonly string[] = ["brisk", "poised", "relaxed", "upright", "easygoing", "watchful", "alert", "graceful", "steady", "lively", "composed", "restless"];
 
-export interface LookTails { skin: string; build: string; hair: string; facial: string; style: string; ageLook: string }
+export interface LookTails { skin: string; hair: string; facial: string; style: string; ageLook: string; ageLookPick: number }
 
-/** One tail per houseguest per axis, each used at most once per cast while the axis has enough tails. */
+/** One tail per houseguest per axis, each used at most about once per cast while the axis has enough tails. The build has no tail (see above). */
 export function dealLookTails(rng: RandomnessSource, count: number): LookTails[] {
   const vr = new SeededRandom(hashSeed(`look-tails:${rng.int(1_000_000_000)}`));
   const cap = (n: number): number => Math.max(1, Math.ceil(count / n));
   const skin = spreadFacet(vr, SKIN_TAILS, count, cap(SKIN_TAILS.length));
-  const build = spreadFacet(vr, BUILD_TAILS, count, cap(BUILD_TAILS.length));
   const hair = spreadFacet(vr, HAIR_TAILS, count, cap(HAIR_TAILS.length));
   const facial = spreadFacet(vr, FACIAL_TAILS, count, cap(FACIAL_TAILS.length));
   const style = spreadFacet(vr, STYLE_ACCENTS, count, cap(STYLE_ACCENTS.length));
   const ageLook = spreadFacet(vr, AGE_LOOK_TAILS, count, cap(AGE_LOOK_TAILS.length));
-  const ageLook2 = spreadFacet(vr, AGE_LOOK_TAILS_2, count, cap(AGE_LOOK_TAILS_2.length));
-  return Array.from({ length: count }, (_, i) => ({ skin: skin[i]!, build: build[i]!, hair: hair[i]!, facial: facial[i]!, style: style[i]!, ageLook: `and ${ageLook[i]!} and ${ageLook2[i]!}` }));
+  // the wording of the age look is picked per person; within a cast neighbours in the same band get different wordings through the shared index stream
+  return Array.from({ length: count }, (_, i) => ({ skin: skin[i]!, hair: hair[i]!, facial: facial[i]!, style: style[i]!, ageLook: ageLook[i]!, ageLookPick: vr.int(1_000_000) }));
 }
 
 // ── Marks: composed from kind templates, so the named pool is in the hundreds (was 43) ──
@@ -89,4 +68,26 @@ export function composedMarks(): string[] {
   for (const s of TATTOO_SIZES) for (const p of TATTOO_SPOTS) out.push(`a ${s} ${p.replace(/-/g, " ")} tattoo`);
   out.push("a half-sleeve tattoo");
   return out;
+}
+
+/**
+ * Age-look wordings per age band (same length as the single line they sit beside, so the prompt budget does not move). Index 0 of each band is the
+ * wording `ageLookFor` always returned; every wording names the decade the band covers, so the look still agrees with the age.
+ */
+export const AGE_LOOK_BANDS: readonly (readonly string[])[] = [
+  ["fresh, early-twenties energy", "bright-eyed, early-twenties and quick to grin", "early-twenties, restless and eager", "young early-twenties glow, a little scrappy",
+    "scrappy, early-twenties hunger in the eyes", "early-twenties, bouncy and open-faced", "early-twenties and newly confident", "easy early-twenties charm, still growing into it"],
+  ["bright, late-twenties look", "late-twenties and sharp-eyed", "late-twenties, relaxed and camera-ready", "settled late-twenties polish",
+    "late-twenties, quick and self-assured", "late-twenties with a ready smile", "late-twenties, a little driven", "put-together late-twenties, easy on the eyes"],
+  ["polished, thirties poise", "thirties, composed and watchful", "thirties ease, comfortable in their skin", "sharp, well-rested thirties look",
+    "thirties, confident with a tired smile", "thirties, polished with a hint of mischief", "grounded thirties presence", "thirties, practiced calm and a direct look"],
+  ["fit and well-kept, forties ease, a few laugh lines", "forties, steady and self-possessed", "forties, lived-in in a good way", "well-kept forties, easy authority",
+    "forties, sharp eyes and a few laugh lines", "forties, relaxed and quietly commanding", "fit forties, lived-in charm", "forties, calm and a little knowing"],
+  ["distinguished, fit fifties, laugh lines and presence", "fifties, silver-touched and self-assured", "fifties, easy charm and poise", "fit fifties, steady and unhurried",
+    "fifties, a face that has seen things", "distinguished fifties, warm and commanding", "fifties, lined and lively", "fifties, composed with a sly grin"],
+];
+export function ageLookVariant(age: number, pick: number): string {
+  const band = age < 25 ? 0 : age < 32 ? 1 : age < 40 ? 2 : age < 50 ? 3 : 4;
+  const list = AGE_LOOK_BANDS[band]!;
+  return list[pick % list.length]!;
 }

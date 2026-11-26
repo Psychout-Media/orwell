@@ -191,7 +191,7 @@ describe("ORW-432 what moved and what did not", () => {
         const { npcs } = generateHouse(new SeededRandom(seed));
         const l = generateCastDeepLayer(seed, npcs);
         // Blank ONLY what ORW-432 changes: the voice object on each character and the casting type.
-        // ORW-508 also blanks what its acceptance re-deal and world hometown change (vocation, hometown, the background built from the vocation, and the secrets, goals, weakness and thread premises conditioned on it); ORW-480 blanks the presentation, style line, mark and face line; ORW-508 (composed look axes) also blanks the build, skin tone, hair and age look.
+        // ORW-508 also blanks what its acceptance re-deal and world hometown change (vocation, hometown, the background built from the vocation, and the secrets, goals, weakness and thread premises conditioned on it); ORW-480 blanks the presentation, style line, mark and face line; ORW-508 (composed look axes) also blanks the skin tone, hair and age look (the build is blanked too, harmlessly).
         const blanked = npcs.map((n) => ({ ...n, character: { ...n.character, voice: 0, ...(blankText ? { background: 0, presentation: 0, vocation: 0, hometown: 0 } : {}) } }));
         const hid = blankText ? Object.fromEntries(Object.entries(l.hidden).map(([k, v]) => [k, { ...v, secrets: 0, trueGoals: 0, weakness: 0 }])) : l.hidden;
         const thr = blankText ? l.threads.map((t) => ({ ...t, premise: 0 })) : l.threads;
@@ -201,7 +201,7 @@ describe("ORW-432 what moved and what did not", () => {
       return createHash("sha256").update(all).digest("hex");
     };
     expect(run(true)).toBe("09f83e1decf4a25d50a3450376fad5f6acd5badbb0617a061ada2fdb9e428c80"); // identical on main and on the ORW-508 branch (re-taken on main with the build, skin tone, hair and age look also blanked) with ORW-508 and ORW-480 changed fields blanked: no other random draw moved
-    expect(run(false)).toBe("252e56d3b28c548cb78e3d72d866ef939dfd5d7738a9ccaba3be9a24c44d8186"); // re-pinned on purpose by ORW-508 (composed look axes: build, skin tone, hair, face, style, age look and the mark pool; the blanked hash above is unchanged) and by ORW-508 earlier (hometown from the world table, a job the age rules out re-dealt, and the text built from the job) on top of ORW-458 and ORW-480 (mark pool, face lines, style family weighted by job sector, hometown and age)
+    expect(run(false)).toBe("31694e92e31474d167959942b0cf9e7c47c03aa0c057cf653991b921b8583a5a"); // re-pinned on purpose by ORW-508 (composed look axes: build, skin tone, hair, face, style, age look and the mark pool; the blanked hash above is unchanged) and by ORW-508 earlier (hometown from the world table, a job the age rules out re-dealt, and the text built from the job) on top of ORW-458 and ORW-480 (mark pool, face lines, style family weighted by job sector, hometown and age)
   });
 });
 

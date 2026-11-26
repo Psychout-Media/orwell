@@ -454,10 +454,10 @@
   },
   "phys.skinTone": {
    "measured": {
-    "distinct": 120,
-    "topShare": 0.0113,
-    "castPresenceMax": 0.17,
-    "sharedConsecutive": 1.57
+    "distinct": 100,
+    "topShare": 0.0143,
+    "castPresenceMax": 0.205,
+    "sharedConsecutive": 2.13
    },
    "before": {
     "distinct": 10,
@@ -465,10 +465,10 @@
     "castPresenceMax": 0.92,
     "sharedConsecutive": 8.11
    },
-   "floorDistinct": 120,
-   "maxTopShare": 0.0123,
-   "maxCastPresence": 0.175,
-   "maxSharedConsecutive": 1.62,
+   "floorDistinct": 100,
+   "maxTopShare": 0.0153,
+   "maxCastPresence": 0.21,
+   "maxSharedConsecutive": 2.18,
    "target": {
     "distinct": 300,
     "topShare": 0.02,
@@ -478,10 +478,11 @@
   },
   "phys.heightBuild": {
    "measured": {
-    "distinct": 160,
-    "topShare": 0.0117,
-    "castPresenceMax": 0.175,
-    "sharedConsecutive": 1.53
+    "distinct": 16,
+    "topShare": 0.091,
+    "castPresenceMax": 0.87,
+    "castPresenceMean": 0.65,
+    "sharedConsecutive": 7.11
    },
    "before": {
     "distinct": 16,
@@ -489,10 +490,10 @@
     "castPresenceMax": 0.87,
     "sharedConsecutive": 7.11
    },
-   "floorDistinct": 160,
-   "maxTopShare": 0.0127,
-   "maxCastPresence": 0.18,
-   "maxSharedConsecutive": 1.58,
+   "floorDistinct": 16,
+   "maxTopShare": 0.092,
+   "maxCastPresence": 0.875,
+   "maxSharedConsecutive": 7.16,
    "target": {
     "distinct": 300,
     "topShare": 0.02,
@@ -502,10 +503,10 @@
   },
   "phys.hair": {
    "measured": {
-    "distinct": 237,
-    "topShare": 0.008,
-    "castPresenceMax": 0.12,
-    "sharedConsecutive": 1.06
+    "distinct": 297,
+    "topShare": 0.0073,
+    "castPresenceMax": 0.11,
+    "sharedConsecutive": 0.86
    },
    "before": {
     "distinct": 30,
@@ -513,10 +514,10 @@
     "castPresenceMax": 0.645,
     "sharedConsecutive": 8.25
    },
-   "floorDistinct": 237,
-   "maxTopShare": 0.009,
-   "maxCastPresence": 0.125,
-   "maxSharedConsecutive": 1.11,
+   "floorDistinct": 297,
+   "maxTopShare": 0.0083,
+   "maxCastPresence": 0.115,
+   "maxSharedConsecutive": 0.91,
    "target": {
     "distinct": 300,
     "topShare": 0.02,
@@ -526,10 +527,10 @@
   },
   "phys.ageLook": {
    "measured": {
-    "distinct": 593,
-    "topShare": 0.0053,
-    "castPresenceMax": 0.08,
-    "sharedConsecutive": 0.42
+    "distinct": 407,
+    "topShare": 0.006,
+    "castPresenceMax": 0.09,
+    "sharedConsecutive": 0.61
    },
    "before": {
     "distinct": 5,
@@ -537,10 +538,10 @@
     "castPresenceMax": 1,
     "sharedConsecutive": 3.77
    },
-   "floorDistinct": 593,
-   "maxTopShare": 0.0063,
-   "maxCastPresence": 0.085,
-   "maxSharedConsecutive": 0.47,
+   "floorDistinct": 407,
+   "maxTopShare": 0.007,
+   "maxCastPresence": 0.095,
+   "maxSharedConsecutive": 0.66,
    "target": {
     "distinct": 593,
     "topShare": 0.02,
@@ -650,10 +651,10 @@
   },
   "phys.facialFeatures": {
    "measured": {
-    "distinct": 400,
-    "topShare": 0.006,
-    "castPresenceMax": 0.09,
-    "sharedConsecutive": 0.63
+    "distinct": 320,
+    "topShare": 0.0063,
+    "castPresenceMax": 0.095,
+    "sharedConsecutive": 0.66
    },
    "before": {
     "distinct": 40,
@@ -661,10 +662,10 @@
     "castPresenceMax": 0.46,
     "sharedConsecutive": 5.58
    },
-   "floorDistinct": 400,
-   "maxTopShare": 0.007,
-   "maxCastPresence": 0.095,
-   "maxSharedConsecutive": 0.68,
+   "floorDistinct": 320,
+   "maxTopShare": 0.0073,
+   "maxCastPresence": 0.1,
+   "maxSharedConsecutive": 0.71,
    "target": {
     "distinct": 400,
     "topShare": 0.02,
@@ -674,10 +675,10 @@
   },
   "phys.style": {
    "measured": {
-    "distinct": 357,
-    "topShare": 0.0067,
-    "castPresenceMax": 0.1,
-    "sharedConsecutive": 0.75
+    "distinct": 360,
+    "topShare": 0.007,
+    "castPresenceMax": 0.105,
+    "sharedConsecutive": 0.59
    },
    "before": {
     "distinct": 30,
@@ -685,12 +686,12 @@
     "castPresenceMax": 0.74,
     "sharedConsecutive": 8.13
    },
-   "floorDistinct": 357,
-   "maxTopShare": 0.0077,
-   "maxCastPresence": 0.105,
-   "maxSharedConsecutive": 0.8,
+   "floorDistinct": 360,
+   "maxTopShare": 0.008,
+   "maxCastPresence": 0.11,
+   "maxSharedConsecutive": 0.64,
    "target": {
-    "distinct": 357,
+    "distinct": 360,
     "topShare": 0.02,
     "castPresenceMax": 0.25,
     "sharedConsecutive": 1.0

@@ -8,7 +8,7 @@ import { STYLE_FAMILIES, familyForLabel } from "../domain/styleFamilies";
 import { dealCastingTypes, type CastingType } from "../domain/castingTypes";
 import type { Archetype, Character, Houseguest } from "./characterFactory";
 import { THREAD } from "./threadConstants";
-import { dealLookTails, composedMarks } from "./lookVariants";
+import { dealLookTails, composedMarks, ageLookVariant } from "./lookVariants";
 
 export type { PhysicalCharacteristics };
 
@@ -445,8 +445,8 @@ export function dealCastPhysicalSpread(
   // ORW-508: drawn LAST off this same dedicated rng, so every base value above is exactly what it was.
   const tails = dealLookTails(rng, count);
   return Array.from({ length: count }, (_, i) => ({
-    heightBuild: `${heightBuild[i]!} ${tails[i]!.build}`, skinTone: `${skinTone[i]!} ${tails[i]!.skin}`, hair: `${hair[i]!}, ${tails[i]!.hair}`,
-    facial: `${facial[i]!} ${tails[i]!.facial}`, style: `${style[i]!}, ${tails[i]!.style}`, mark: mark[i]!, tails: tails[i]!,
+    heightBuild: heightBuild[i]!, skinTone: `${tails[i]!.skin} ${skinTone[i]!}`, hair: `${hair[i]!}, ${tails[i]!.hair}`,
+    facial: `${facial[i]!}, ${tails[i]!.facial}`, style: `${style[i]!}, ${tails[i]!.style}`, mark: mark[i]!, tails: tails[i]!,
   }));
 }
 
@@ -472,7 +472,7 @@ export function generatePhysicalCharacteristics(
     // 2026-07-21 prompt audit: the mark rides the cast-wide capped deal when a spread is supplied (the
     // live path) — a lone regeneration without cast context keeps the per-NPC pick over the same pool.
     distinguishingMark: spread ? spread.mark : rng.pick(MARKS),
-    ageLook: spread?.tails ? `${ageLookFor(age)} ${spread.tails.ageLook}` : ageLookFor(age),
+    ageLook: spread?.tails ? `${ageLookVariant(age, spread.tails.ageLookPick)}, ${spread.tails.ageLook}` : ageLookFor(age),
     style: spread ? spread.style : rng.pick(STYLE_FAMILIES).sample,
   };
 }
