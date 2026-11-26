@@ -1626,6 +1626,7 @@ export class GameSessionAdapter implements GameSession {
   secretBreakTick(knowledge: KnowledgeService): void {
     const s = this.live;
     if (!this.secretBreaksEnabled || !s || s.playedGame !== true || !this.npcBeliefsEnabled || !this.house || !this.onPlayerEvent) return;
+    this.flushSayItFirstSeeds(knowledge); // ORW-743: the room learns what the player told it themselves (every tick, not once a day)
     const day = s.dayNumber ?? s.week;
     if (s.secretBreakDay === day) return; // ORW-698: kept on the live season (persisted, monotone), so a restart on the same night does not run the pass twice
     s.secretBreakDay = day;
@@ -1650,6 +1651,11 @@ export class GameSessionAdapter implements GameSession {
     }
     const nominated = new Set<EntityId>((s.nominees as readonly EntityId[] | undefined) ?? []);
     const order = [...byFact.entries()].sort((a, b) => b[1].held.length - a[1].held.length || (a[0] < b[0] ? -1 : 1));
+    // ORW-743 (0204 part 2): the open card for the player - the most-spread fact about them that is closing in (the same `closingShare` test an NPC's self-detonation uses). One at a time; no timer:
+    // it closes when the room breaks it, when the player speaks, or when the share drops.
+    const closing = this.sayItFirstEnabled ? order.find(([, row]) => row.subject === PLAYER && npcs.length > 0 && row.held.filter((x) => npcs.includes(x.holder)).length / npcs.length >= SECRET_BREAK.closingShare)?.[0] : undefined;
+    if (closing) s.sayItFirst = s.sayItFirst?.factId === closing ? s.sayItFirst : { factId: closing, since: day };
+    else delete s.sayItFirst;
     for (const [factId, row] of order) {
       const subject = row.subject;
       if (!room.includes(subject)) continue; // they are not in the room tonight
@@ -1666,8 +1672,53 @@ export class GameSessionAdapter implements GameSession {
       if (!spoken) continue;
       this.stageSecretBreak(knowledge, { factId, subject, kind, spoken, holders: holders.map((x) => x.holder), room });
       (s.secretBreaks ??= []).push(factId);
+      if (s.sayItFirst?.factId === factId) delete s.sayItFirst; // ORW-743: the room said it first
       break; // one a night
     }
+  }
+  /** ORW-743 (0204 part 2; Coordinator rulings 2026-11-26). Default ON; `ORWELL_SAY_IT_FIRST=0` = no card (byte-identical). */
+  private sayItFirstEnabled = flagDefaultOn("ORWELL_SAY_IT_FIRST");
+  setSayItFirstEnabled(on: boolean): void { this.sayItFirstEnabled = on; }
+  /** The one bit the narrator gets: people are talking about the player (a card is open). */
+  private talkedAboutPlayer(): boolean { return this.sayItFirstEnabled && this.secretBreaksEnabled && this.live?.playedGame === true && !!this.live.sayItFirst && !(this.live.secretBreaks ?? []).includes(this.live.sayItFirst.factId); }
+  /**
+   * ORW-743 - the player tells the room the thing it is talking about, first, in their own words. The words are the public line verbatim (the engine frames who said it, never what); the fact is
+   * marked broken and the self-detonation consequences apply (coming clean costs less than being caught). Blank words are not coming clean: nothing happens and the card stays open. No card = no-op.
+   * The houseguests in the room who did not hold it learn it as the player said it at the next tick (the knowledge layer is the tick's).
+   */
+  private resolveSayItFirst(statement: string | undefined): AdvanceView {
+    const s = this.live;
+    const words = typeof statement === "string" ? statement.replace(/\s+/g, " ").trim().slice(0, 600) : "";
+    if (!s || !this.house || !this.onPlayerEvent || !this.talkedAboutPlayer() || !words) return this.advanceView(null);
+    const awake = this.awakeNow();
+    if (awake && !awake.has(PLAYER)) return this.advanceView(null); // the player is asleep: nobody to say it to (the card stays open)
+    const factId = s.sayItFirst!.factId;
+    return this.inOneCommit(() => {
+      const living = this.livingIds();
+      const room = living.filter((id) => !awake || awake.has(id));
+      this.onPlayerEvent!(`${this.nameOf(PLAYER)} got ahead of it and told the house themselves (week ${weekWords(s.week)}): ${words}`, room, "secret-break");
+      this.secretUsedAs[factId] = "exposed";
+      const hit = standingMove(severityOf(undefined), "detonated");
+      const seed = this.gameSeed ?? 0;
+      for (const id of room) if (id !== PLAYER) this.rel.applyImpactDirected(id, PLAYER, hit, new SeededRandom(hashSeed(`${seed}:secret-break:${factId}:${id}`)));
+      (s.sayItFirstSeeds ??= []).push({ factId, spoken: words, ids: room.filter((id) => id !== PLAYER) });
+      (s.secretBreaks ??= []).push(factId);
+      delete s.sayItFirst;
+      this.persist();
+      return this.advanceView(null);
+    });
+  }
+  /** ORW-743: each houseguest who was in the room when the player said it, and did not already hold the fact, now holds it as the player put it (pathway `public`). */
+  private flushSayItFirstSeeds(knowledge: KnowledgeService): void {
+    const s = this.live;
+    if (!s?.sayItFirstSeeds?.length) return;
+    for (const q of s.sayItFirstSeeds) {
+      for (const id of q.ids) {
+        if (knowledge.knownTo(id).some((k) => (k.factId ?? k.id) === q.factId)) continue;
+        knowledge.seedBelief(id, { content: q.spoken, originalContent: q.spoken, factId: q.factId, subject: PLAYER, confidence: 0.9, hops: 0, distortion: 0 }, "public");
+      }
+    }
+    delete s.sayItFirstSeeds;
   }
   private stageSecretBreak(knowledge: KnowledgeService, b: { factId: string; subject: EntityId; kind: "exposed" | "detonated"; spoken: string; holders: EntityId[]; room: EntityId[] }): void {
     const s = this.live!;
@@ -17933,6 +17984,10 @@ export class GameSessionAdapter implements GameSession {
       return remember(this.advanceView(null));
     }
     // ORW-596 - the player's own answer to an NPC's public accusation: open state (`live.houseMeetings`, not a pending card), answered like a deal offer. A missing/garbled stance is a safe no-op.
+    if (req.kind === "say-it-first") { // ORW-743: open state, answered in the player's own words; nothing to say or nothing open = a safe no-op
+      if (this.live.finished) return remember(this.advanceView(null));
+      return remember(this.resolveSayItFirst(req.statement));
+    }
     if (req.kind === "meeting-answer") {
       if (this.live.finished) return remember(this.advanceView(null));
       if (req.vote === "deny" || req.vote === "admit" || req.vote === "redirect") return remember(this.resolveMeetingAnswer(req.vote, req.statement));
@@ -21726,6 +21781,7 @@ export class GameSessionAdapter implements GameSession {
       case "deal-offer": // 0123: intercepted in `submitDecision` BEFORE this map (its own path) — never here.
         throw new Error("deal-offer resolves through resolveDealOffer, not the ceremony-decision map");
       case "meeting-answer": // ORW-596: intercepted in `submitDecision` BEFORE this map (open state, not a pending) - never here.
+      case "say-it-first": // ORW-743: likewise intercepted in `submitDecision` (open state) - never here.
         throw new Error("meeting-answer resolves through resolveMeetingAnswer, not the ceremony-decision map");
     }
   }
@@ -22296,7 +22352,8 @@ export class GameSessionAdapter implements GameSession {
     const view5 = meetingNow ? { ...view4, houseMeeting: meetingNow } : view4;
     const view6a = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
     const bedHeld = this.bedtimeHeldForNarrator(); // ORW-920: a bed the engine held, told to the narrator (this turn and the next, only before the night)
-    const view6b = bedHeld ? { ...view6a, bedtimeHeld: bedHeld } : view6a;
+    const view6a2 = this.talkedAboutPlayer() ? { ...view6a, talkedAboutYou: true as const } : view6a; // ORW-743: one bit
+    const view6b = bedHeld ? { ...view6a2, bedtimeHeld: bedHeld } : view6a2;
     const view6c = this.allianceRefusal ? { ...view6b, allianceNotFormed: { name: this.allianceRefusal.name, with: this.allianceRefusal.names } } : view6b; // ORW-913: a proposed alliance that did not form, for two turns
     // ORW-794: an alliance an NPC has let the player in on and the player has not taken: the narrator is HANDED it (the same roster gameStatus shows, the one the player was told), instead of having to go and look.
     const pitchesOpen = this.alliances.pitchesFor(PLAYER);

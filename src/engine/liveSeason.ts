@@ -867,6 +867,13 @@ export interface LiveSeasonState {
   /** ORW-698: the last in-game day the nightly secret-break pass ran (monotone), so a restart on the same night does not run it again. Absent in an old save (loads as not run). Engine-only, never projected. */
   secretBreakDay?: number;
   /**
+   * ORW-743 (0204 part 2): the open "say it yourself first" card - a fact about the PLAYER that enough of the house holds (closing in). Engine-only (Vault class: it names a fact id); the player and
+   * the narrator are told one bit only ("people are talking about you"). Absent = no card.
+   */
+  sayItFirst?: { factId: string; since: number };
+  /** ORW-743: who learns a fact the player told the room themselves, waiting for the next tick that has the knowledge layer (engine-only; emptied as it is seeded). */
+  sayItFirstSeeds?: Array<{ factId: string; spoken: string; ids: string[] }>;
+  /**
    * 0130 — each evictee's exit interview, week by week: their public posture on the way out (a `stance`
    * DERIVED from their manner for an NPC, or the PLAYER's own chosen stance + words). Recorded as the
    * exit-interview beat resolves; resurfaced in the 0048 retrospective as first-person exit accounts.

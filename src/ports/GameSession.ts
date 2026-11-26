@@ -658,6 +658,8 @@ export interface GameStateView {
   sourceNote?: string;
   /** 0156 (theme 2, slice 7b): the house meeting the player was in the house and awake to hear, as the speakers' words (moment prompt only, one turn). Names only; never whether anything said is true, why it was called, ids, or how any houseguest took it. Absent otherwise. */
   houseMeeting?: HouseMeetingView;
+  /** ORW-743 (0204 part 2, moment prompt only): people in the house are talking about the player - ONE bit, never what, who or how many. The player may get ahead of it in their own words. */
+  talkedAboutYou?: true;
   /** ORW-593 (moment prompt only, one turn): the player's call for a house meeting was refused, and why in the world's terms. Never a number or a hidden reason. */
   houseMeetingRefused?: "ceremony" | "asleep" | "nobody" | "spent";
   /** ORW-794 (moment prompt only): the alliances an NPC has let the player in on and the player has not taken (the same Vault-free view `gameStatus.alliancePitches` shows: id, name, the roster the player was told). Absent when none is open. */
@@ -1798,7 +1800,9 @@ export interface PendingDecisionView {
     // player-witnessed approach, resolved via submitDecision({ kind:"deal-offer", vote:"accept"|"decline" }). ---
     | "deal-offer"
     // --- ORW-596: the player's answer to an NPC's public accusation is open state like a deal offer (never raised as a pending card); listed so the kind master list matches the request union. ---
-    | "meeting-answer";
+    | "meeting-answer"
+    // --- ORW-743: the player says the thing the house is talking about themselves, first (open state, never a card). ---
+    | "say-it-first";
   by: NamedRef;
   /** A human-readable instruction for the moment (what the player must choose). */
   prompt: string;
@@ -2929,7 +2933,9 @@ export interface SubmitDecisionReq {
     // ("accept" | "decline") rides the shared `vote` field (a string, like a tone/appeal value). ---
     | "deal-offer"
     // --- ORW-596: the player's own answer to an NPC's public accusation at a house meeting. The stance ("deny" | "admit" | "redirect") rides `vote`; the player's own words ride `statement`. ---
-    | "meeting-answer";
+    | "meeting-answer"
+    // --- ORW-743: the player tells the room the thing it is talking about, first, in their own words (`statement`, kept verbatim; blank = not said). ---
+    | "say-it-first";
   /**
    * self-evict (0061): the EXPLICIT confirmation. ONLY `confirmed:true` executes the irreversible
    * walk-out (record the event + fold its impact + flip status through the 0046 door). Anything else
