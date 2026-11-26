@@ -1711,6 +1711,11 @@ async def execute_tool_block(
     # ORW-706: a refused game-engine call said nothing about WHY in the journal (six refused recordInteraction calls left no reason). Log the engine's own refusal text, capped; it is Vault-free by construction.
     if isinstance(result, dict) and result.get("exit_code") not in (None, 0, "n/a") and isinstance(result.get("error"), str) and str(tool) in ("recordInteraction", "makeDeal", "surfaceInformationTo"):
         logger.warning("[orwell] %s refused: %s", tool, result["error"][:300])
+        try:  # ORW-1022: every engine refusal of a front-end write is a counted, visible class (never a silent loss)
+            from src import log_rings
+            log_rings.record_soft_failure(f"engine-refusal:{tool}", result["error"][:200], corrected="write-skipped")
+        except Exception:  # failsoft-ok: the health record must never break the tool result
+            pass
     return desc, result
 
 
