@@ -11,12 +11,34 @@ import { WORLD_PLACES, type WorldPlace } from "./worldPlaces";
 import { buildTable, drawConstrained } from "./worldSampler";
 import { implausibleBecause, countRejection, type AcceptanceReport } from "./worldPlausibility";
 
-/** 1 = the world's own frequency. Slightly below 1 so the five largest cities do not take a third of all draws. */
-export const HOMETOWN_FLATTEN = 0.85;
-/** No more than this many of one state in a cast. */
+/**
+ * ORW-995: 1 = the world's own frequency (a draw is a resident of the table). It was 0.85, which moved about 10
+ * points of draws from big cities to towns (towns 33.6% of draws against 24.0% of residents). Within a cast a
+ * city is never drawn twice, so a big city cannot take a run of slots; the caps below stop clustering.
+ */
+export const HOMETOWN_FLATTEN = 1;
+/** Floor of the per-state cap: a small state never takes more than this many of one cast. */
 export const MAX_PER_STATE = 2;
-/** No more than this many of one place size class in a cast. */
+/** Floor of the per-size-class cap. */
 export const MAX_PER_SIZE_CLASS = 6;
+/**
+ * ORW-995: the caps follow population, not a flat number. A cast of `count` may hold up to ceil(count x share)
+ * plus slack of one from a state and two from a size class, never less than the floors above, so a
+ * state with 12% of residents can take 3 of 15 where a flat 2 held California to 10.8% of draws.
+ */
+export const CAP_SLACK_STATE = 1;
+export const CAP_SLACK_SIZE = 2;
+
+const totalPop = WORLD_PLACES.reduce((a, p) => a + p.popK, 0);
+function shareBy(key: (p: WorldPlace) => string): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const p of WORLD_PLACES) m.set(key(p), (m.get(key(p)) ?? 0) + p.popK / totalPop);
+  return m;
+}
+const STATE_SHARE = shareBy((p) => p.state);
+const SIZE_SHARE = shareBy((p) => p.size);
+export function stateCap(state: string, count: number): number { return Math.max(MAX_PER_STATE, Math.ceil(count * (STATE_SHARE.get(state) ?? 0)) + CAP_SLACK_STATE); }
+export function sizeCap(size: string, count: number): number { return Math.max(MAX_PER_SIZE_CLASS, Math.ceil(count * (SIZE_SHARE.get(size) ?? 0)) + CAP_SLACK_SIZE); }
 
 const TABLE = buildTable(WORLD_PLACES, (p) => p.popK, HOMETOWN_FLATTEN);
 
@@ -29,7 +51,10 @@ export function dealWorldHometowns(
   const state = new Map<string, number>();
   const region = new Map<string, number>();
   const size = new Map<string, number>();
-  const avoided = (p: WorldPlace): boolean => !!avoid && avoid.hometowns.has(p.city.toLowerCase());
+  // ORW-995: the memory never blocks a big city. There are only 37 of them and they hold a fifth of all residents,
+  // so six seasons of ordinary draws had already used about half, and avoiding those took big cities from the
+  // census 21.6% to 13.8% of draws. A repeat of Chicago is real life; a repeat of a town of 3,000 is the thing to avoid.
+  const avoided = (p: WorldPlace): boolean => !!avoid && p.size !== "big-city" && avoid.hometowns.has(p.city.toLowerCase());
   const out: string[] = [];
   for (let i = 0; i < count; i++) {
     const fresh = (p: WorldPlace): boolean => !used.has(p.city);
@@ -42,7 +67,7 @@ export function dealWorldHometowns(
       return why === null;
     };
     const levels: Array<(p: WorldPlace) => boolean> = [
-      (p) => fresh(p) && plausible(p) && !avoided(p) && (state.get(p.state) ?? 0) < MAX_PER_STATE && regionOk(p) && (size.get(p.size) ?? 0) < MAX_PER_SIZE_CLASS,
+      (p) => fresh(p) && plausible(p) && !avoided(p) && (state.get(p.state) ?? 0) < stateCap(p.state, count) && regionOk(p) && (size.get(p.size) ?? 0) < sizeCap(p.size, count),
       (p) => fresh(p) && plausible(p) && !avoided(p) && regionOk(p),
       (p) => fresh(p) && plausible(p) && regionOk(p),
       (p) => fresh(p) && plausible(p),

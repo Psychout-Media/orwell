@@ -346,6 +346,6 @@ describe("ORW-480 no other dealt value moves", () => {
       return createHash("sha256").update(all).digest("hex");
     };
     expect(run(true)).toBe("986d0ffe76a90b933b5ad2520d0214ff3a800463f4a78fd67258fdf628f76bbd")   // equal to the creationLooks381 blanked pin on main
-    expect(run(false)).toBe("9b5a713eae590692df378acc885884d0ba11b81d1a2c745e7d9bb5ad205f6390")   // equal to the creationLooks381 full pin on main
+    expect(run(false)).toBe("315c28f2c5c2b682d22d74334dbd7d4c483afeab8e4da0d35d0a345717554d3a")   // equal to the creationLooks381 full pin (re-pinned by ORW-995; the blanked pin above is unchanged)
   });
 });

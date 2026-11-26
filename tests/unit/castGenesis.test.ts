@@ -412,32 +412,34 @@ describe("0116 — hidden game weights are never proposable (§3 last row)", () 
 });
 
 describe("0116 — post-hoc near-duplicate nudge (§2)", () => {
-  it("an NPC mirroring the player's vocation + hometown re-rolls the vocation, keeps the rest", () => {
-    const ctx = mkCtx(15, { playerVocation: "ER nurse", playerHometown: "Austin, TX" });
+  it("an NPC mirroring the player's vocation + the dealt hometown re-rolls the vocation, keeps the rest", () => {
+    const base = mkCtx(15, { playerVocation: "ER nurse", playerHometown: "Austin, TX" });
+    const ctx = { ...base, npcs: base.npcs.map((n, i) => (i === 0 ? { ...n, floorHometown: "Austin, TX" } : n)) };
     const proposal = mkProposal(ctx, (i, id) => (id === npc(1)
-      ? { vocation: "ER nurse", hometown: "Austin, TX", identity: "a warm floor-nurse", biography: "a real bio" }
+      ? { vocation: "ER nurse", identity: "a warm floor-nurse", biography: "a real bio" }
       : {}));
     const res = validateCastGenesis(proposal, ctx);
-    expect(res.npcs[0]!.vocation).toBeUndefined(); // colliding facet re-rolled ⇒ floor vocation stands
-    expect(res.npcs[0]!.hometown).toBe("Austin, TX"); // the rest of the identity preserved
+    expect(res.npcs[0]!.vocation).toBeUndefined(); // colliding facet re-rolled => floor vocation stands
     expect(res.npcs[0]!.identityConcept).toBe("a warm floor-nurse");
     expect(res.violations.some((v) => v.npcId === npc(1) && v.field === "vocation" && v.action === "re-roll")).toBe(true);
   });
 });
 
-describe("2026-07-21 prompt audit — cross-cast facet dedupe backstop (the 'San Diego ×2' defect)", () => {
-  it("a duplicate hometown CITY is dropped (state-spelling variants collide); the first stands", () => {
+describe("ORW-995 — the dealt hometown is the one the card shows", () => {
+  it("a hometown the writer proposes is never accepted, whether or not it is in the census table", () => {
     const ctx = mkCtx(15);
     const proposal = mkProposal(ctx, (i, id) => {
-      if (id === npc(1)) return { hometown: "San Diego, CA" };
-      if (id === npc(2)) return { hometown: "San Diego, California" }; // same city, different spelling
+      if (id === npc(1)) return { hometown: "Hilo, Hawaii", biography: "a real bio" }; // a census-designated place, not in the table
+      if (id === npc(2)) return { hometown: "Chicago, IL" }; // a real table town: still the floor's deal that stands
       return { hometown: `Distinct Town ${i}, TX` };
     });
     const res = validateCastGenesis(proposal, ctx);
-    expect(res.npcs[0]!.hometown).toBe("San Diego, CA");
-    expect(res.npcs[1]!.hometown).toBeUndefined(); // dropped ⇒ the floor's unique dealt hometown stands
-    expect(res.violations.some((v) => v.npcId === npc(2) && v.field === "hometown" && v.action === "dropped")).toBe(true);
+    for (const n of res.npcs) expect(n.hometown).toBeUndefined(); // the floor's dealt hometown stands for every slot
+    expect(res.npcs[0]!.biography).toBe("a real bio"); // the writer still describes
   });
+});
+
+describe("2026-07-21 prompt audit — cross-cast facet dedupe backstop (vocations)", () => {
   it("a vocation already used twice is dropped for the third houseguest (mirrors MAX_PER_VOCATION)", () => {
     const ctx = mkCtx(15);
     const proposal = mkProposal(ctx, (i, id) => {

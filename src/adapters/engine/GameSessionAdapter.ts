@@ -5343,7 +5343,7 @@ export class GameSessionAdapter implements GameSession {
     const gctx: GenesisContext = {
       npcs: cast.npcs.map((n) => ({
         id: n.id, floorArchetype: n.character.archetype,
-        floorStats: { ...n.character.stats }, floorName: n.name,
+        floorStats: { ...n.character.stats }, floorName: n.name, ...(n.character.hometown ? { floorHometown: n.character.hometown } : {}),
       })),
       playerId: PLAYER,
       ...(this.intake.playerName && this.intake.playerName.trim() ? { playerName: this.intake.playerName.trim() } : {}),
