@@ -18685,6 +18685,21 @@ export class GameSessionAdapter implements GameSession {
         return refusal;
       }
     }
+    // ORW-930: the player's makeDeal to the houseguest who made them a standing offer (same kind, no counter terms) IS accepting that offer. The houseguest asked for this deal: re-rolling their consent
+    // on it refused the very thing they proposed ("take the favor and don't ask me to sign for it" after the player said the HOH's own terms back). Same spine as an explicit accept.
+    if (this.live.playedGame === true && !req.countersOffer) {
+      const slot: "deal" | "pitch" | undefined = this.live.dealOffer?.from === target && this.live.dealOffer.kind === req.kind ? "deal" : this.live.votePitch?.from === target && this.live.votePitch.kind === req.kind ? "pitch" : undefined;
+      const o = slot === "deal" ? this.live.dealOffer : slot === "pitch" ? this.live.votePitch : undefined;
+      if (slot && o && !this.dealOfferPartyGone(o.from) && !this.offeredDealBlocked(o.kind, o.from, PLAYER, o.replacesDealId)) {
+        this.resolveDealOffer(true, slot);
+        const made = [...this.deals.all].reverse().find((d) => d.status === "open" && d.kind === req.kind && d.parties.includes(PLAYER) && d.parties.includes(target));
+        if (made) {
+          const view = this.dealView(made);
+          if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, view);
+          return view;
+        }
+      }
+    }
     // NPC CONSENT (anti-sycophancy): the ENGINE decides whether the NPC agrees, BEFORE anything is recorded or folded. A refusal returns here - no event, no deal, no
     // leverage/trade fold, no persist - and (when keyed) is remembered so a re-driven duplicate replays the same refusal. Flag OFF => this block does not exist.
     if (this.npcDealConsentEnabled) {
