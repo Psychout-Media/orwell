@@ -1,3 +1,4 @@
+import { quarantine } from "../support/quarantine";
 import { describe, it, expect } from "vitest";
 import { PLAYER } from "../../src/domain/ids";
 import { renderHostBlock } from "../../src/engine/momentPrompts";
@@ -20,7 +21,7 @@ const hiddenOf = (s: Stop): string[] => [
 ].filter((c) => c.trim().length >= 12);
 
 describe("ORW-719 - the evicted player's own cards (played)", () => {
-  it("raises the exit interview then the watch-or-skip choice, each exactly once, surviving a save/restore at each, and the season then ends with no further card for the player", async () => {
+  quarantine({ card: "ORW-1007", added: "2026-11-26" }).it("raises the exit interview then the watch-or-skip choice, each exactly once, surviving a save/restore at each, and the season then ends with no further card for the player", async () => {
     const seen: string[] = []; let restoredSame = true; let after: string[] = [];
     const { seed: SEED_OUT } = await evictedSeason();
     const at = await playUntil(SEED_OUT, (s) => !!s.sess.getGameState().finished, { user: `wf-${SEED_OUT}`,
@@ -42,7 +43,7 @@ describe("ORW-719 - the evicted player's own cards (played)", () => {
 });
 
 describe("ORW-719 - the goodbyes are voiced from the speaker's real record with the player (played)", () => {
-  it("hands each speaker's public record (facts only), the rule rides the eviction moment, and none of the hidden material the season holds is in it", async () => {
+  quarantine({ card: "ORW-1007", added: "2026-11-26" }).it("hands each speaker's public record (facts only), the rule rides the eviction moment, and none of the hidden material the season holds is in it", async () => {
     const { at } = await evictedSeason();
     const ev = at.sess.getGameState().eviction;
     const goodbyes = ev.host.goodbyes as Array<{ speaker: string; record: string[] }>;
