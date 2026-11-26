@@ -1,4 +1,3 @@
-import { quarantine } from "../support/quarantine";
 import { describe, it, expect } from "vitest";
 import { playSeason } from "../support/whatFired/player";
 import { firstSeedWhere } from "../support/firstSeedWhere";
@@ -14,7 +13,7 @@ import { firstSeedWhere } from "../support/firstSeedWhere";
 type Moments = Array<{ kind: string }>;
 const kindsOf = (edit: { episodes: Array<{ moments: Moments }> } | undefined): Set<string> => new Set((edit?.episodes ?? []).flatMap((e) => e.moments.map((m) => m.kind)));
 describe("ORW-755 REAL PATH: the edit's moments", () => {
-  quarantine({ card: "ORW-1007", added: "2026-11-26" }).it("REAL PATH: turned, meeting and scheme moments are in the views of a played season, and gone when their features are off", async () => {
+  it("REAL PATH: turned, meeting and scheme moments are in the views of a played season, and gone when their features are off", async () => {
     // ORW-880: the first seed from 3 whose season is played to the crown with a house meeting called and a houseguest who turned, with the player's own strategy scenes read as a scheme (the precondition: the house's
     // own doing); the test then asserts what the edit and the stories make of it
     let onKinds = new Set<string>(), noMomentsKinds = new Set<string>(), editOff: unknown = "unset", shapes: string[] = [], retro: unknown;
@@ -33,7 +32,7 @@ describe("ORW-755 REAL PATH: the edit's moments", () => {
       },
     });
       return on.stopped === "finished" && (on.milestones["state.houseMeetings"] ?? 0) >= 1 && shapes.includes("turned") && onKinds.has("house-meeting") && onKinds.has("scheme") ? on : undefined;
-    }, { from: 1, to: 12, hint: [1, 4], sandbox: (s) => `wf-${s}`, what: "a season to the crown with a house meeting, a turned houseguest, and a house-meeting and a scheme moment in the edit" });
+    }, { from: 1, to: 12, hint: [3, 1, 4], sandbox: (s) => `wf-${s}`, what: "a season to the crown with a house meeting, a turned houseguest, and a house-meeting and a scheme moment in the edit" });
     expect(on.stopped, "the season was played to the crown").toBe("finished");
     // turned: the story of a houseguest who warmed then went cold, reached through the weekly sampler and the real scenes of the season
     expect(shapes).toContain("turned");

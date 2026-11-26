@@ -1,4 +1,3 @@
-import { quarantine } from "../support/quarantine";
 import { describe, it, expect, vi } from "vitest";
 import { playSeason } from "../support/whatFired/player";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
@@ -16,7 +15,7 @@ import { firstSeedWhere } from "../support/firstSeedWhere";
  */
 type Deal = { id: string; kind: string; status: string; parties: string[] };
 describe("ORW-871 REAL PATH: the evicted take sees the week's deals before they are closed", () => {
-  quarantine({ card: "ORW-1007", added: "2026-11-26" }).it("at every eviction the evicted take runs before the week's deals expire; the take meets the player's open week deal with the evictee and lapses it", async () => {
+  it("at every eviction the evicted take runs before the week's deals expire; the take meets the player's open week deal with the evictee and lapses it", async () => {
     let order: string[] = [], met: number[] = [], openAtTake: string[][] = [];
     const takeOrig = GameSessionAdapter.prototype.evictedTakeWithThem; const expireOrig = DealLedger.prototype.expireWeekScoped;
     const take = vi.spyOn(GameSessionAdapter.prototype, "evictedTakeWithThem").mockImplementation(function (this: GameSessionAdapter) {
@@ -60,12 +59,12 @@ describe("ORW-871 REAL PATH: the evicted take sees the week's deals before they 
         if (!evictedPartner || !openAtTake.some((ids) => ids.includes(evictedPartner!.id))) return undefined;
         const partnerDeal = (lastSess.deals.all as Deal[]).find((d) => d.id === evictedPartner!.id)!;
         return { order: [...order], met: [...met], partnerDeal };
-      }, { from: 1, to: 16, hint: [5], sandbox: (s) => `wf-${s}`, what: "the house evicting a nominee who holds the player's open safety deal" })).at;
+      }, { from: 1, to: 60, hint: [5], sandbox: (s) => `wf-${s}`, what: "the house evicting a nominee who holds the player's open safety deal", wide: { maxSeasons: 60, budgetMs: 3_300_000, reason: "ORW-1007: the house evicting the nominee the player made a safety deal with is a rare event; the faster bed rush moved every season, and none of seeds 1..16 reaches it, so the scan is wide" } })).at;
     } finally { take.mockRestore(); expire.mockRestore(); }
     ({ order, met } = found);
     expect(order.length, "evictions were played").toBeGreaterThan(0);
     for (let i = 0; i < order.length; i++) if (order[i] === "expire") expect(order[i - 1], `step ${i}: the evicted take runs first`).toBe("take");
     expect(met.some((n) => n > 0), "an eviction found an open week-scoped deal of the evictee").toBe(true);
     expect(found.partnerDeal.status, "the evicted take lapsed the player's open deal with them (it was never kept)").toBe("lapsed");
-  }, 1_800_000);
+  }, 3_600_000);
 });
