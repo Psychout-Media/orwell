@@ -34,7 +34,7 @@ import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "..
 import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/voice";
 import { tellsOf, narratedTellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
-import { MOOD_CAUSES, causeLine, isBadNight, isCloseFriend, mayShareEventCause, strongestLiveCause, type MoodCauseSource } from "../../engine/moodCauses";
+import { MOOD_CAUSES, causeLine, isBadNight, isCloseFriend, carryFactor, mayShareEventCause, strongestLiveCause, type MoodCauseSource } from "../../engine/moodCauses";
 import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sceneSeenBy, sharedScenes, type SeenScene } from "../../engine/bondJealousy";
 import { SECRET_BREAK, breakDecision, breakLine, keptOutGrudge, pickSpoken, standingMove } from "../../engine/secretBreak";
 import { HOH_ROOM, decideVisit, backstoryFacets, pickBackstoryFact } from "../../engine/hohRoom";
@@ -16526,7 +16526,7 @@ export class GameSessionAdapter implements GameSession {
     for (const g of after.history.slice(before.history.length)) {
       const a = appraiseGoal(g);
       if (a.event) this.inflect(id, a.event);
-      if (a.cause) (this.live.moodCauses ??= {})[id] = { ...a.cause, week: this.live.week };
+      if (a.cause) (this.live.moodCauses ??= {})[id] = { ...a.cause, week: this.live.week, ...(this.live.dayNumber !== undefined ? { day: this.live.dayNumber } : {}) }; // ORW-735: the day it settled, so it ages like every other cause
     }
   }
   /**
@@ -16545,7 +16545,10 @@ export class GameSessionAdapter implements GameSession {
     const say = (line: string, about?: EntityId): string => (about ? fillSubject(line, this.nameOf(about)) : line.split("{subject}").join("them"));
     let best: { weight: number; text: string } | undefined;
     const c = live.moodCauses?.[id];
-    if (goalOn && c && c.week === live.week && mayShareCause(c, affinity, candor)) best = { weight: MOOD_CAUSES.goalWeight, text: say(c.line, c.about) };
+    // ORW-735 (Season 2 W2-7): a goal cause was handed to the narrator on every look at the houseguest for the whole week, so one houseguest said "X would not come over to my side" a dozen times. With its day known it now ages like every other
+    // cause: full weight the day it settled, falling to nothing after `carryDays` in-game days (a cause saved without its day keeps the old same-week rule).
+    const goalCarry = c && c.day !== undefined && live.dayNumber !== undefined ? carryFactor(live.dayNumber - c.day) : 1;
+    if (goalOn && c && c.week === live.week && goalCarry > 0 && mayShareCause(c, affinity, candor)) best = { weight: MOOD_CAUSES.goalWeight * goalCarry, text: say(c.line, c.about) };
     if (eventsOn) {
       const aged = strongestLiveCause(live.moodCauseLog, id, live.week, live.dayNumber); // follow-up: a cause carries a few in-game days with a falling weight
       if (aged && mayShareEventCause(aged.entry.source, affinity, candor) && (!best || aged.weight > best.weight)) best = { weight: aged.weight, text: say(aged.entry.line, aged.entry.about) };

@@ -52,7 +52,7 @@ if (SHARDS >= 1) {
   describe(`calibration gradient — shard ${SHARD}/${SHARDS} (plays seeds ${slice}, no band assertion)`, () => {
     it(
       `plays passive+active sweeps for seeds ${slice} and emits results for the aggregate`,
-      { timeout: 600_000 }, // a shard plays a SLICE of the 6 passive+active pairs; generous for loaded CI hosts
+      { timeout: 1_200_000 }, // a shard plays a SLICE of the SEEDS passive+active pairs; generous for loaded CI hosts
       async () => {
         const results = await playSeeds(from, to);
         const path = writeShardResults(SHARD, results);
@@ -69,7 +69,7 @@ if (SHARDS >= 1) {
   describe("calibration gradient — minimal-active play reaches/wins at least as often as passive play (unsharded)", () => {
     it(
       `across ${SEEDS} seeded live seasons, active jury-reach ≥ passive and active wins ≥ passive`,
-      { timeout: 600_000 }, // two full-season sweeps × SEEDS; generous for loaded CI hosts
+      { timeout: 3_600_000 }, // two full-season sweeps × SEEDS (60 since ORW-982, about 15 min on a runner); generous for loaded hosts
       async () => {
         const results = await playSeeds(1, SEEDS + 1);
         // Local/unsharded: play all SEEDS and run THE aggregate band inline — identical to the

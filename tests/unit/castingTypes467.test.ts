@@ -11,7 +11,13 @@ import { CASTING_TYPE_FIT, traitContradictions } from "../../src/domain/traitCon
 // ORW-467: the old names are back, the list is wide, each type leans (never rules) and wears a label for the person.
 
 const PRESENTATIONS: CastingPresentation[] = ["man", "woman", "nonbinary"];
+// ORW-985: the three seed sweeps below read the same casts, so each seed's house is generated once (the tests only read it).
+const casts = new Map<number, ReturnType<typeof generateCast>>();
 const castOf = (seed: number) => {
+  if (!casts.has(seed)) casts.set(seed, generateCast(seed));
+  return casts.get(seed)!;
+};
+const generateCast = (seed: number) => {
   const { npcs } = generateHouse(new SeededRandom(seed));
   const div = generateDiversityLayer(seed, npcs); // the same fold the game does before the deep layer
   for (const n of npcs) { n.character.genderPresentation = div.public[n.id]!.genderPresentation; n.character.age = div.public[n.id]!.age; }
@@ -99,7 +105,7 @@ describe("ORW-467 the list", () => {
 });
 
 describe("ORW-467 the deal", () => {
-  it("over 500 seeded casts: the lean shows (diva about 8 in 10 women) and no pairing is out of reach", () => {
+  it("over 500 seeded casts: the lean shows (diva about 8 in 10 women) and no pairing is out of reach", { timeout: 120_000 }, () => { // ORW-985: 500 casts: an explicit budget, not the 30 s default
     const seen = new Map<string, Record<CastingPresentation, number>>();
     for (const seed of SEEDS500) {
       const c = castOf(seed);
@@ -176,12 +182,8 @@ describe("ORW-467 the deal", () => {
 
   it("zero trait contradictions over 200 seeded houses", () => {
     for (const seed of SEEDS500.slice(0, 200)) {
-      const { npcs } = generateHouse(new SeededRandom(seed));
-      const div = generateDiversityLayer(seed, npcs);
-      for (const n of npcs) { n.character.genderPresentation = div.public[n.id]!.genderPresentation; n.character.age = div.public[n.id]!.age; }
-      const layer = generateCastDeepLayer(seed, npcs);
-      for (const n of npcs) {
-        expect(traitContradictions({ archetype: n.character.archetype, strategyStyle: n.character.strategyStyle, demeanor: n.character.demeanor, castingType: layer.public[n.id]!.castingType }), `${seed} ${n.name}`).not.toContain("trait-casting-type");
+      for (const { n, t } of castOf(seed)) {
+        expect(traitContradictions({ archetype: n.character.archetype, strategyStyle: n.character.strategyStyle, demeanor: n.character.demeanor, castingType: t }), `${seed} ${n.name}`).not.toContain("trait-casting-type");
       }
     }
   });

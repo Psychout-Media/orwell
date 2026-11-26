@@ -26,8 +26,7 @@ function start(seed: number, opts: { flag?: boolean; culture?: HouseCulture } = 
   return { sb, s: sb.session as GameSessionAdapter, p, events: sb.engine.events as unknown as InMemoryEventStore };
 }
 /** Two allied NPCs, one already at their habit spot, the other elsewhere (not in the player's room); a window opened `ago` hours back. */
-function stage(seed: number, ago: number | undefined, opts: { flag?: boolean; culture?: HouseCulture } = {}) {
-  const g = start(seed, opts);
+function stage(seed: number, ago: number | undefined, opts: { flag?: boolean; culture?: HouseCulture } = {}, g = start(seed, opts)) {
   const ids = g.p.house.npcs.map((x) => x.id);
   const [a, b] = [ids[0]!, ids[1]!];
   g.p.alliances.add("Pair", a, [a, b], 1);
@@ -39,6 +38,20 @@ function stage(seed: number, ago: number | undefined, opts: { flag?: boolean; cu
   if (ago !== undefined && now !== undefined) g.p.live.lastCeremonyAbsHour = now - ago;
   return { ...g, a, b, spot, now };
 }
+// ORW-985: the window sweep stages each seed four ways; it casts the seed once, saves it, and restores it per variant. Same start as `start`, flag applied after the restore.
+const castSaves = new Map<number, string>();
+function startFromSave(seed: number, flag: boolean): ReturnType<typeof start> {
+  const user = `gi566-sweep-${seed}`;
+  if (!castSaves.has(seed)) {
+    const reg = new GameSessionRegistry();
+    reg.sandboxFor(user).session.createCharacter({ playerName: "The Player", seed });
+    castSaves.set(seed, JSON.stringify(reg.snapshot(user)));
+  }
+  const sb = new GameSessionRegistry().restore(user, JSON.parse(castSaves.get(seed)!));
+  sb.session.setGroupIdentityEnabled(flag);
+  sb.session.noteMessage({ messageId: "m1" });
+  return { sb, s: sb.session as GameSessionAdapter, p: sb.session as unknown as Priv, events: sb.engine.events as unknown as InMemoryEventStore };
+}
 const debriefsOf = (r: ReturnType<Priv["houseLifeStretch"]>) => r.filter((x) => x.event.houseLife?.action === "debrief");
 
 describe("a close pair's habit in a played game", () => {
@@ -46,7 +59,7 @@ describe("a close pair's habit in a played game", () => {
     const hits = { inside: 0, outside: 0, off: 0, noCeremony: 0 };
     for (let seed = 1; seed <= 40; seed++) {
       const run = (ago: number | undefined, flag = true) => {
-        const g = stage(seed, ago, { flag });
+        const g = stage(seed, ago, { flag }, startFromSave(seed, flag));
         if (g.now === undefined) return [];
         return debriefsOf(g.p.houseLifeStretch(g.events, g.p.house.npcs.map((x) => x.id), 1));
       };
