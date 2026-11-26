@@ -7640,17 +7640,17 @@ export class GameSessionAdapter implements GameSession {
     if (this.copresenceEnabled && this.heldSeeker) this.applyHeldFactsToPulls(id, pulls);
     if (this.live?.playedGame === true && this.npcMemoryEnabled) this.applyMemoryToPulls(id, pulls);
     if (this.live?.playedGame === true && this.tellReactionsEnabled) this.applyTellAvoidToPulls(id, pulls);
-    if (this.live?.playedGame === true && this.playerHauntsEnabled) this.applyPlayerHauntToPulls(id, pulls, neutralBond);
+    if (this.live?.playedGame === true && this.routineHauntsEnabled) this.applyPlayerHauntToPulls(id, pulls, neutralBond);
     return pulls.length ? pulls : null;
   }
 
   /**
-   * ORW-981 / spec 0209 (`ORWELL_PLAYER_HAUNTS`, default ON; `=0` opts out): a routine brings a houseguest to whoever keeps it, the same for every onlooker and every holder. A houseguest who has seen where someone usually
+   * ORW-981 / spec 0209 (`ORWELL_ROUTINE_HAUNTS`, default ON; `=0` opts out): a routine brings a houseguest to whoever keeps it, the same for every onlooker and every holder. A houseguest who has seen where someone usually
    * is at this time of day on enough separate days (`knowsRoutine`; the player's usual room counted as a haunt, a houseguest's own routine counted by `noteRoutinesSeenByHouse`) leans toward them when it is that time again.
    * Only toward someone they do not keep away from (no avoid, a bond at or above neutral when there was no pull already); never lowers a pull; engine-only, no rng, nothing shown. Played games only (the caller gates).
    */
-  private playerHauntsEnabled = flagDefaultOn("ORWELL_PLAYER_HAUNTS");
-  setPlayerHauntsEnabled(on: boolean): void { this.playerHauntsEnabled = on; }
+  private routineHauntsEnabled = flagDefaultOn("ORWELL_ROUTINE_HAUNTS");
+  setRoutineHauntsEnabled(on: boolean): void { this.routineHauntsEnabled = on; }
   private applyPlayerHauntToPulls(id: EntityId, pulls: MovementPull[], neutralBond: number): void {
     const s = this.live;
     if (!s || !s.timeOfDay) return;
@@ -15710,7 +15710,7 @@ export class GameSessionAdapter implements GameSession {
       if (id === house.player.id || this.presence?.get(id) !== playerRoom) continue;
       // ORW-981 (spec 0209, the other half): a houseguest awake in the room with the player on separate days at the same time of day has SEEN where the player usually is then. Engine-only, counted like any routine sighting
       // (`npcRoutineSightings[onlooker][player]`); monotonic; no draw.
-      if (this.playerHauntsEnabled) noteSighting(((s.npcRoutineSightings ??= {})[id] ??= {}), house.player.id, `${tod}:${playerRoom}`, day);
+      if (this.routineHauntsEnabled) noteSighting(((s.npcRoutineSightings ??= {})[id] ??= {}), house.player.id, `${tod}:${playerRoom}`, day);
       const character = this.agendaCharacterOf(id);
       if (!character) continue;
       const rs = this.routinesOf(id, character, s.npcMindsAuthored?.traits?.[id]?.habits, seed);

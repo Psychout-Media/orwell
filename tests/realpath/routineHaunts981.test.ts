@@ -18,9 +18,9 @@ const learnedNow = (s: Stop): string[] => {
 
 /** The stop's precondition: the layer changes someone's movement intent right now (a learned houseguest with no avoid and a bond that lets them lean in). */
 const leansNow = (s: Stop): boolean => learnedNow(s).some((id) => {
-  s.sess.setPlayerHauntsEnabled(false);
+  s.sess.setRoutineHauntsEnabled(false);
   const off = JSON.stringify(s.sess.movementIntentFor(id));
-  s.sess.setPlayerHauntsEnabled(true);
+  s.sess.setRoutineHauntsEnabled(true);
   return JSON.stringify(s.sess.movementIntentFor(id)) !== off;
 });
 
@@ -32,9 +32,9 @@ describe("a houseguest who knows where the player usually is leans toward them",
     const others = (s.livingIds() as string[]).filter((id) => id !== PLAYER && !learned.includes(id));
     let stronger = 0;
     for (const id of learned) {
-      s.setPlayerHauntsEnabled(false);
+      s.setRoutineHauntsEnabled(false);
       const off = pullOf(at, id);
-      s.setPlayerHauntsEnabled(true);
+      s.setRoutineHauntsEnabled(true);
       const on = pullOf(at, id);
       if (off?.avoid) { expect(on?.avoid, "an avoid stays an avoid").toBe(true); expect(on?.weight).toBe(off.weight); continue; }
       if (on && (!off || on.weight > off.weight)) stronger++;
@@ -42,9 +42,9 @@ describe("a houseguest who knows where the player usually is leans toward them",
     }
     expect(stronger, "positive control: someone leans toward the player").toBeGreaterThan(0);
     for (const id of others) {
-      s.setPlayerHauntsEnabled(false);
+      s.setRoutineHauntsEnabled(false);
       const off = JSON.stringify(pullOf(at, id) ?? null);
-      s.setPlayerHauntsEnabled(true);
+      s.setRoutineHauntsEnabled(true);
       expect(JSON.stringify(pullOf(at, id) ?? null), "a houseguest who has not learned the player's haunt has the same pull toward the player").toBe(off);
     }
   }, 900_000);
@@ -61,9 +61,9 @@ const learnedNpcHolder = (s: Stop): Array<[string, string]> => {
   return out;
 };
 const leansToNpcNow = (s: Stop): boolean => learnedNpcHolder(s).some(([id, holder]) => {
-  s.sess.setPlayerHauntsEnabled(false);
+  s.sess.setRoutineHauntsEnabled(false);
   const off = ((s.sess.movementIntentFor(id) as Pull[] | null) ?? []).find((p) => p.target === holder);
-  s.sess.setPlayerHauntsEnabled(true);
+  s.sess.setRoutineHauntsEnabled(true);
   const on = ((s.sess.movementIntentFor(id) as Pull[] | null) ?? []).find((p) => p.target === holder);
   return !!on && (!off || on.weight > off.weight);
 });
@@ -74,9 +74,9 @@ describe("the same holds between houseguests (parity with the player's haunts)",
     const s = at.sess;
     let stronger = 0;
     for (const [id, holder] of learnedNpcHolder(at)) {
-      s.setPlayerHauntsEnabled(false);
+      s.setRoutineHauntsEnabled(false);
       const off = ((s.movementIntentFor(id) as Pull[] | null) ?? []).find((p) => p.target === holder);
-      s.setPlayerHauntsEnabled(true);
+      s.setRoutineHauntsEnabled(true);
       const on = ((s.movementIntentFor(id) as Pull[] | null) ?? []).find((p) => p.target === holder);
       if (off?.avoid) { expect(on?.avoid).toBe(true); expect(on?.weight).toBe(off.weight); continue; }
       if (off) expect(on!.weight).toBeGreaterThanOrEqual(off.weight);
