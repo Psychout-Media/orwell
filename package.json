@@ -40,7 +40,7 @@
     "test:cov": "vitest run --coverage --coverage.provider=v8 --coverage.include='src/**' --coverage.exclude='src/ports/**' --coverage.exclude='src/main.ts' --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**'",
     "ci:fast": "bash ci/fast-checks.sh",
     "what-fired": "tsx scripts/what-fired.ts run --seeds 1,2 --restarts 1 --ablate-max 4",
-    "ci:refresh-durations": "vitest run --config vitest.shard.config.ts --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**' --reporter=json --outputFile=.vitest-durations/report.json --retry=1 --maxWorkers=4 --minWorkers=1 && node ci/refresh-test-durations.mjs --json .vitest-durations/report.json --replace",
+    "ci:refresh-durations": "vitest run --config vitest.shard.config.ts --exclude 'tests/uat/**' --exclude 'tests/property/juryReach.property.test.ts' --exclude 'tests/property/juryReachAggregate.property.test.ts' --exclude 'tests/property/juryReachShowrunnerReweight.property.test.ts' --exclude 'tests/property/calibrationGradient.property.test.ts' --exclude 'tests/property/calibrationGradientAggregate.property.test.ts' --exclude 'tests/property/calibrationGradientShowrunnerReweight.property.test.ts' --exclude 'tests/calibration/**' --reporter=json --outputFile=.vitest-durations/report.json --retry=1 --maxWorkers=4 && node ci/refresh-test-durations.mjs --json .vitest-durations/report.json --replace",
     "test": "npm run typecheck && npm run build && npm run test:unit && npm run test:bdd",
     "test:ci": "npm run typecheck && npm run build && npm run test:unit:fast && npm run test:bdd",
     "postinstall": "patch-package"
@@ -49,13 +49,13 @@
     "@cucumber/cucumber": "^11.3.0",
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "^22.10.0",
-    "@vitest/coverage-v8": "^2.1.9",
+    "@vitest/coverage-v8": "^4.1.12",
     "dependency-cruiser": "^16.10.0",
-    "esbuild": "^0.24.2",
+    "esbuild": "^0.28.2",
     "fast-check": "^3.23.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
-    "vitest": "^2.1.0"
+    "vitest": "^4.1.12"
   },
   "dependencies": {
     "better-sqlite3": "12.11.1",

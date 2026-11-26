@@ -58,6 +58,7 @@ if (SHARDS >= 1) {
   describe(`D4/E33 — jury-reach shard ${SHARD}/${SHARDS} (plays seeds ${slice}, no band assertion)`, () => {
     it(
       `plays passive seasons for seeds ${slice} and emits results for the aggregate`,
+      { timeout: 600_000 }, // a shard plays a SLICE of the ~20 full seasons; generous for loaded CI hosts
       async () => {
         const results = await playSeeds(from, to);
         const path = writeShardResults(SHARD, results);
@@ -68,20 +69,19 @@ if (SHARDS >= 1) {
           Array.from({ length: to - from }, (_, i) => from + i),
         );
       },
-      { timeout: 600_000 }, // a shard plays a SLICE of the ~20 full seasons; generous for loaded CI hosts
     );
   });
 } else {
   describe("D4/E33 — a passive player's structural reach of the jury (calibration gate, unsharded)", () => {
     it(
       `across ${SEEDS} passive seeded live seasons, the player reaches the jury within the calibration band`,
+      { timeout: 600_000 }, // ~20 full live seasons; generous for loaded CI hosts (same family as the UAT)
       async () => {
         const results = await playSeeds(1, SEEDS + 1);
         // Local/unsharded: play all 20 and run THE aggregate band inline — identical to the
         // pre-shard single-file gate.
         assertBand(results, expect as never);
       },
-      { timeout: 600_000 }, // ~20 full live seasons; generous for loaded CI hosts (same family as the UAT)
     );
   });
 }

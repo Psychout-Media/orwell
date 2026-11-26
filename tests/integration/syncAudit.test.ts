@@ -227,6 +227,7 @@ describe("chat↔engine sync audit — engine projection + beat-signature invari
   for (const seed of SEEDS) {
     it(
       `seed ${seed}: projections stay consistent + well-formed every beat, and the season reaches a winner`,
+      { timeout: 60_000 },
       () => {
         const { finished, weeks, beats } = runSeasonWithSyncAudit(seed);
 
@@ -235,7 +236,6 @@ describe("chat↔engine sync audit — engine projection + beat-signature invari
         expect(weeks, `seed ${seed}: season played < 1 week`).toBeGreaterThanOrEqual(1);
         expect(beats, `seed ${seed}: implausibly few beats for a full season`).toBeGreaterThan(5);
       },
-      { timeout: 60_000 },
     );
   }
 });
