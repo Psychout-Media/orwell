@@ -47,6 +47,7 @@ describe(`full-game UAT — 12 seeds (never-use-veto) — ${SHARD_LABEL}`, () =>
 
   it(
     `plays ${SEEDS.length} seeds to completion (never-use-veto) — no anomalies detected — ${SHARD_LABEL}`,
+    { timeout: 120_000 },
     async () => {
       const seeds = SEEDS;
       // Uses direct callTool (no HTTP) for reliability: the transport layer added
@@ -86,6 +87,5 @@ describe(`full-game UAT — 12 seeds (never-use-veto) — ${SHARD_LABEL}`, () =>
       const decisionsTotal = runs.reduce((n, r) => n + Object.values(r.decisionCounts).reduce((a, b) => a + b, 0), 0);
       expect(decisionsTotal, "total player decisions across this shard's runs").toBeGreaterThan(0);
     },
-    { timeout: 120_000 },
   );
 });

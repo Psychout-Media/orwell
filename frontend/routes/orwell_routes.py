@@ -688,6 +688,14 @@ _BROWSER_DOSSIER_SHAPE = {
     "alliances": [{"id": _T, "name": _T, "members": [_NAMED], "youAreFounder": _T}],
 }
 _BROWSER_SEASON_SHAPE = {"season": _T}
+#   ORW-965 (wall audit 3c): the three small routes outside the ORW-768 audit.
+#   /cast-progress (orwellOnboarding `_castCueText`): reads `phase`, `total`, `faces` and `facesRetrying`; NOT read: `authored` and `attempts` (the warm's own bookkeeping).
+#   /hall-of-fame (orwellHallOfFame): each season's season, placement, result, castSize, winnerName, runnerUpName, compWins and the bestMove / worstBetrayal facts (kind, actor, subject names).
+#   /knowledge (orwellMemoryWall): started, and each item's content, its qualitative source (kind, who, firsthand) and the houseguest it is about; never a number or the undistorted origin of a belief.
+_BROWSER_CAST_PROGRESS_SHAPE = {"phase": _T, "total": _T, "faces": _T, "facesRetrying": _T}
+_HALL_FACT = {"kind": _T, "actor": _T, "subject": _T}
+_BROWSER_HALL_SHAPE = {"seasons": [{"season": _T, "placement": _T, "result": _T, "castSize": _T, "winnerName": _T, "runnerUpName": _T, "compWins": _T, "bestMove": _HALL_FACT, "worstBetrayal": _HALL_FACT}]}
+_BROWSER_KNOWLEDGE_SHAPE = {"started": _T, "items": [{"content": _T, "source": {"kind": _T, "who": _T, "firsthand": _T}, "subject": _NAMED}]}
 #   POST /decision and POST /ceremony-continue (ORW-769): the response the card's own script reads. orwellDecision.js reads, off a Continue press: `beatSeq` (the panels' freshness token), `announcements` (the chyron renders
 #     only `id`, `kind` and `headline` of each), the three hidden-cue markers `voteBeatCue` / `drawBeatCue` / `ceremonyResultBeatCue`, `eviction.voteBeat.sealed`, a truthy `vetoDrawBeat`, and `pending` (the next card: the
 #     same `_CARD` /status serves); off a decision POST: `beatSeq` only. A stale-beat reconcile answers with the current state, so the /state shape is the base. NOT read by any script: the engine's own result
@@ -704,6 +712,14 @@ _BROWSER_ADVANCE_SHAPE = {
 #     card keys above: `finished` + `winner.name` and `event.beat` / `event.content` (the beat chip's outcome line and the ceremony slate's headline), `event.participants[]` ({id, name}: the slate's faces),
 #     `status.week` and `status.veto.holder` (the slate's kicker and the veto winner), `eviction.votesRevealed[].votedFor` (the ANONYMIZED ballot count, never a voter), and `correction` (the control-room card).
 #     NOT read: the engine's own result fields (a vote's tally, a voter, a planned outcome, the event's consequences, the status's other fields).
+#   Every OTHER game tool's output (ORW-975: makeDeal, confide, confront, recordInteraction, runCompetition, createCharacter and the rest of the non-silent game keep-set): the page reads `beatSeq` and `correction` off any
+#     mutating tool (the G15 dispatcher), `started` / `createRefused` off createCharacter, and the beat chip's outcome line (`finished`, `winner.name`, `event.beat` / `content`, and the anonymized ballot
+#     count `eviction.votesRevealed[].votedFor`) for the beat tools. Nothing else of a tool's result is read, so nothing else is kept (the expandable raw-output block a non-beat tool used to show is now empty).
+_BROWSER_GAME_TOOL_SHAPE = {
+    "beatSeq": _T, "correction": _T, "started": _T, "createRefused": _T, "finished": _T, "winner": _NAMED,
+    "event": {"beat": _T, "content": _T, "participants": [_NAMED]},
+    "eviction": {"votesRevealed": [{"votedFor": _NAMED}]},
+}
 _BROWSER_TOOL_ADVANCE_SHAPE = {
     **_BROWSER_ADVANCE_SHAPE,
     "finished": _T, "winner": _NAMED, "correction": _T,
@@ -1448,7 +1464,7 @@ def setup_orwell_routes() -> APIRouter:
             logger.info(f"[orwell] knowledge name-map read skipped: {_err_detail(e)}")
         items = _sanitize_knowledge(visible, state)
         _clear_warn("knowledge")
-        return {"started": True, "items": items}
+        return _project_for_browser({"started": True, "items": items}, _BROWSER_KNOWLEDGE_SHAPE)  # ORW-965: the sanitizer's whitelist, held to a closed shape
 
     @router.get("/hall-of-fame")
     async def orwell_hall_of_fame(request: Request):
@@ -1463,7 +1479,7 @@ def setup_orwell_routes() -> APIRouter:
                 _warn_throttled("hall-of-fame", f"[orwell] hall of fame failed: {_err_detail(e)}")
             return {"seasons": []}
         _clear_warn("hall-of-fame")
-        return _sanitize_hall(view)
+        return _project_for_browser(_sanitize_hall(view), _BROWSER_HALL_SHAPE)  # ORW-965: the sanitizer's whitelist, held to a closed shape
 
     @router.get("/dossier/{houseguest_id}")
     async def orwell_dossier(houseguest_id: str, request: Request):
@@ -1601,7 +1617,7 @@ def setup_orwell_routes() -> APIRouter:
         user = _current_user(request)
         try:
             from src import orwell_prewarm
-            return orwell_prewarm.cast_progress(user)
+            return _project_for_browser(orwell_prewarm.cast_progress(user), _BROWSER_CAST_PROGRESS_SHAPE)  # ORW-965
         except Exception as e:
             logger.info(f"[orwell] cast-progress failed: {e}")
             return {"phase": "none"}

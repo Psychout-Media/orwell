@@ -68,19 +68,19 @@ if (AGG) {
   const from = Number.parseInt(process.env.ORWELL_PO_FROM ?? "1", 10);
   const to = Number.parseInt(process.env.ORWELL_PO_TO ?? String(SEEDS + 1), 10);
   describe(`PO-target calibration gate — shard ${ARM} [${from}, ${to})`, () => {
-    it("plays its slice and writes the shard file", async () => {
+    it("plays its slice and writes the shard file", { timeout: 3_600_000 }, async () => {
       const rows = await playArm(ARM, from, to);
       const out = process.env.ORWELL_PO_OUT ?? join("tmp", "po-shards");
       mkdirSync(out, { recursive: true });
       writeFileSync(join(out, `po-${ARM}-${from}-${to}.json`), JSON.stringify({ arm: ARM, rows }));
       expect(rows.map((r) => r.seed)).toEqual(Array.from({ length: to - from }, (_, i) => from + i));
-    }, { timeout: 3_600_000 });
+    });
   });
 } else {
   describe("PO-target calibration gate (default profile, all arms, inline)", () => {
-    it(`passive/solid/reckless over ${SEEDS} seeds hold Ryne's bands`, async () => {
+    it(`passive/solid/reckless over ${SEEDS} seeds hold Ryne's bands`, { timeout: 4 * 3_600_000 }, async () => {
       const rows = { passive: await playArm("passive", 1, SEEDS + 1), solid: await playArm("solid", 1, SEEDS + 1), reckless: await playArm("reckless", 1, SEEDS + 1) };
       assertBands(rows);
-    }, { timeout: 4 * 3_600_000 }); // the serial all-in-one path is ~80 CPU-minutes; CI/nightly shard it (see the file header)
+    }); // the serial all-in-one path is ~80 CPU-minutes; CI/nightly shard it (see the file header)
   });
 }

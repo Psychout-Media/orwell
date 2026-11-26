@@ -90,4 +90,5 @@ def test_orw968_the_writer_is_asked_for_names_that_say_what_the_room_is():
     ha = importlib.import_module("src.orwell_house_authoring")
     src = open(ha.__file__).read()
     assert "SAY what the room is" in src and "plain word" in src and "The theme lives in the LOOK" in src
+    assert "at most ONE lowercase themed word" in src and "more than one word comes before the plain word" in src  # the light form, stated as a rule (the short-list guard refuses sample names in prompt text)
     assert "none may be just the plain room word" not in src
