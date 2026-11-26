@@ -178,7 +178,6 @@ def test_kickoff_is_a_noop_with_the_engine_flag_off(monkeypatch):
     assert ran == []
 
 
-@pytest.mark.quarantine(card="ORW-983", added="2026-11-26")
 def test_kickoff_runs_once_in_background_and_releases_the_guard(monkeypatch):
     # ORW-983: this was red on main twice (ran == [] with "Event loop is closed"). Two causes, both in the TEST: the module's single-flight set is process-wide, so a key a
     # kickoff in an earlier test left in flight (its loop closed before the runner finished) made every kickoff here return at once; and the 10 ms sleeps decided whether the
