@@ -4053,6 +4053,9 @@ def note_ceremony_beat_for_voicing(user, label: str, names) -> None:
         pass
 
 
+_COUNT_WORDS = {0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen", 14: "fourteen", 15: "fifteen", 16: "sixteen"}
+
+
 def _ceremony_beat_unvoiced(narration: str, note: dict) -> bool:
     text = (narration or "").lower()
     for n in note.get("names", []):
@@ -4060,6 +4063,37 @@ def _ceremony_beat_unvoiced(narration: str, note: dict) -> bool:
         if n.lower() in text or any(p in text for p in parts):
             return False
     return True
+
+
+def _ceremony_count_unvoiced(narration: str, note: dict) -> bool:
+    """ORW-815: a beat that carries a public vote count (the eviction result) is unvoiced when the reply states none of its numbers, as digits or as words."""
+    counts = [c for c in (note.get("counts") or []) if isinstance(c, int)]
+    if not counts:
+        return False
+    text = (narration or "").lower()
+    return not any(re.search(r"\b%d\b" % c, text) or (c in _COUNT_WORDS and re.search(r"\b%s\b" % _COUNT_WORDS[c], text)) for c in counts)
+
+
+def note_eviction_result_for_voicing(user, adv) -> None:
+    """ORW-815 (remainder of ORW-784 item 3): the eviction result beat (who left, and the house's count) was committed in the pre-resolve pass but, unlike nominations / the veto draw / comp winners,
+    never registered for the unvoiced-ceremony belt, so a reply that skipped it went unchecked. Register the evictee and the engine's public count (totals only, E12). Never raises."""
+    try:
+        evt = (adv or {}).get("event") if isinstance(adv, dict) else None
+        if not isinstance(evt, dict) or evt.get("beat") != "eviction-result":
+            return
+        names = [(p.get("name") if isinstance(p, dict) else p) for p in (evt.get("participants") or [])]
+        counts: list = []
+        for a in (adv.get("announcements") or []):
+            if isinstance(a, dict) and a.get("kind") == "eviction-result":
+                m = re.search(r"\b(\d+)\s+to\s+(\d+)\b", str(a.get("headline") or ""))
+                if m:
+                    counts = [int(m.group(1)), int(m.group(2))]
+        note_ceremony_beat_for_voicing(user, str(evt.get("content") or "the eviction result"), names)
+        k = _desync_key(user)
+        if k in _CEREMONY_UNVOICED and counts:
+            _CEREMONY_UNVOICED[k]["counts"] = counts
+    except Exception:
+        pass
 
 
 async def record_post_turn_desync_check(user, narration: str, this_turn_progressed: bool = True) -> None:
@@ -4079,7 +4113,12 @@ async def record_post_turn_desync_check(user, narration: str, this_turn_progress
         _dkey = _desync_key(user)  # #1045: stable key — functions single-tenant (user=None) too.
         note_premiere_narration(user, narration)  # ORW-704: which arrivals / toast batch this reply named
         _cnote = _CEREMONY_UNVOICED.pop(_dkey, None)
-        if _cnote and narration and _ceremony_beat_unvoiced(narration, _cnote):
+        if _cnote and narration and _ceremony_count_unvoiced(narration, _cnote) and not _ceremony_beat_unvoiced(narration, _cnote):
+            _c = _cnote["counts"]
+            _reground_enqueue(_dkey, "RE-GROUND ON THE CEREMONY: the engine committed the eviction result - " + _cnote["label"] + " - and your last turn named who left but never gave the house's count. Open your next turn by "
+                              "having the host state the count, " + str(_c[0]) + " to " + str(_c[1]) + " (totals only, never who voted which way).")
+            _note_belt(user, "ceremony-unvoiced-reground")
+        elif _cnote and narration and _ceremony_beat_unvoiced(narration, _cnote):
             _reground_enqueue(_dkey, "RE-GROUND ON THE CEREMONY: the engine just committed this beat - " + _cnote["label"] + " - but your last turn never voiced it, so the player has not been told. Open your next turn by "
                               "playing it for real (who is named, the room's reaction), using ONLY the names given here; do not invent anyone else.")
             _note_belt(user, "ceremony-unvoiced-reground")
@@ -9197,6 +9236,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             mark_comp_walked(user)  # ORW-273
             _prior = _COMP_STEER_BASE.get(_runway_key(user), "")  # any production cue already armed this turn (e.g. 'production calls everyone') rides first, then the competition record
             _SCHEDULE_STEER[_runway_key(user)] = (_prior + "\n\n" if _prior else "") + _competition_scene_steer(_comp_log, continuing=_COMP_CONT.get(_runway_key(user), False))
+        if _beat_kind == "eviction-result":
+            note_eviction_result_for_voicing(user, adv)  # ORW-815: the result and its count must be voiced, or the belt re-grounds the next turn
         if phase == "nominations" and _beat:
             try:  # the ceremony must be voiced: remember the nominees so a reply that never mentions them is re-grounded next turn
                 note_ceremony_beat_for_voicing(user, str(_beat), [n.get("name") for n in ((((_adv_event or {}) if isinstance(_adv_event, dict) else {}).get("nominees")) or [])]
