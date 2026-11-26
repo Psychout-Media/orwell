@@ -121,8 +121,8 @@ def test_a_turn_neither_signal_admits_is_counted_and_sampled():
     assert sbg.gate("expose", False, 0, "Nice weather today, huh.", house) is False
     st = sbg.stats()
     assert st["skips"]["expose"] == 1 and st["ring"]["expose"]
-    assert sbg.gate("expose", False, 0, "Maeve is hiding a thing in her bag today.", house) is True
-    assert sbg.gate("expose", True, 1, "Maeve is hiding a thing in her bag today.", house) is False  # per-turn cap
+    assert sbg.gate("expose", False, 0, "Everyone, Maeve is hiding a thing in her bag today.", house) is True
+    assert sbg.gate("expose", True, 1, "Everyone, Maeve is hiding a thing in her bag today.", house) is False  # per-turn cap
 
 
 def test_a_fresh_recording_meets_the_end_to_end_floors(monkeypatch):

@@ -25,7 +25,17 @@ _seen: dict = collections.defaultdict(int)
 _ring: dict = collections.defaultdict(lambda: collections.deque(maxlen=_RING_MAX))
 _refusals: dict = collections.defaultdict(int)
 
-_SECOND_PERSON_RE = re.compile(r"\b(?:you|your|you're|you've|you'll|u)\b|\?", re.I)
+# Words that make a line with a roster name worth an extraction call. Broad stems, not phrasings: the regexes in
+# agent_loop name phrasings, these only say "this line is about opening up / airing / exchanging".
+_CONFIDE_WORDS_RE = re.compile(
+    r"\b(?:listening|okay|ok|wrong|weigh\w*|upset|quiet|worr\w*|notice\w*|feel\w*|struggl\w*|hurt\w*|open\w*|"
+    r"talk\w*|tell|trust|honest|truth|really|bother\w*|hiding|alone|here for)\b", re.I)
+_EXPOSE_WORDS_RE = re.compile(
+    r"\b(?:everyone|everybody|everyone's|house|y'?all|all of you|blast|out|reveal\w*|spill\w*|announc\w*|listen up|expos\w*|"
+    r"whole|public\w*|broadcast\w*)\b", re.I)
+_TRADE_WORDS_RE = re.compile(
+    r"\b(?:secret|intel|dirt|info|trade\w*|swap\w*|barter\w*|owe|exchange|return|favou?r|for a|for your|for my|"
+    r"hand over|name for)\b", re.I)
 _MIN_WORDS = 4
 
 
@@ -57,18 +67,15 @@ def names_in_line(line: str, house: Iterable[dict]) -> list:
 
 
 def structural_signal(belt: str, line: str, house: Iterable[dict]) -> bool:
-    """True when the player's line is shaped like a move at a named houseguest. confide additionally needs
-    a second-person word or a question (it is something said TO someone); expose and trade only a name."""
+    """True when the player's line names a houseguest and carries a word of the move's kind (opening up, airing
+    something to the room, exchanging something). Cheap and wide on purpose: the extractor and the engine decide."""
     if not enabled():
         return False
     line = line or ""
-    if len(line.split()) < _MIN_WORDS:
+    if len(line.split()) < _MIN_WORDS or not names_in_line(line, house):
         return False
-    if not names_in_line(line, house):
-        return False
-    if belt == "confide":
-        return bool(_SECOND_PERSON_RE.search(line))
-    return True
+    rx = {"confide": _CONFIDE_WORDS_RE, "expose": _EXPOSE_WORDS_RE, "trade": _TRADE_WORDS_RE}.get(belt)
+    return bool(rx and rx.search(line))
 
 
 def gate(belt: str, regex_hit: bool, nudges: int, line: str, house, owner=None) -> bool:
