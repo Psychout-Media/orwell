@@ -928,7 +928,8 @@ def _sync_ledger_section(user: str | None) -> dict:
     from src import orwell_sync_ledger as _sl
     recent = _sl.get_recent(user, limit=200)
     return {"meta": {"count": len(recent)}, "recent": recent,
-            "beltTotals": _sl.get_belt_totals(user)}
+            "beltTotals": _sl.get_belt_totals(user),
+            "driverTotals": _sl.get_driver_totals(user)}
 
 
 def _enrichment_section(user: str | None) -> dict:
@@ -1819,6 +1820,23 @@ async def _rollup_and_alarms(user: str | None, engine: dict,
     return rollup, alarms
 
 
+def _turn_drivers_section(user: str | None) -> dict | None:
+    """ORW-1014: the narrator-tool-call vs belt counters over the sync ledger's retained turns. Numbers only; a broken read answers None."""
+    try:
+        from src import orwell_sync_ledger as _sl
+        return _sl.get_driver_totals(user)
+    except Exception:
+        return None
+
+
+def _steer_counts_section() -> dict | None:
+    try:
+        from src import orwell_sync_ledger as _sl
+        return _sl.get_steer_counts()
+    except Exception:
+        return None
+
+
 async def _health_snapshot(user: str | None) -> dict:
     """The aggregated health view both routes share."""
     detail = await orwell_engine.engine_health_detail()  # FE's view: ok + error + lastError
@@ -1919,6 +1937,10 @@ async def _health_snapshot(user: str | None) -> dict:
         # alarms (WI3). Vault-free: counts / class tokens / booleans only.
         "healthRollup": health_rollup,
         "alarms": alarms,
+        # ORW-1014: who made the turns' engine changes - narrator tool calls vs belts (turns, narratorToolTurns, beltDrivenTurns, the rates).
+        "turnDrivers": _turn_drivers_section(user),
+        # ORW-1042: how many times each steer / re-ground directive was produced (process-wide since start; names and counts only).
+        "steerCounts": _steer_counts_section(),
         # ORW-408: the pre-display hard-fact check's counters (chunks checked, skipped by reason, conflicts by fact). Numbers and fact ids only.
         "predisplay": _predisplay_section(),
         # Build + version (PR) for one-glance triage on the status page. version is the
