@@ -567,7 +567,7 @@ function bannerInset() {
 }
 
 // ORW-993: a custom property, never inline max-height (the `[style*="height"]` rule would match it).
-function capH(el, px) { el.style.setProperty('--ow-cap-h', px + 'px'); }
+function capH(el, px) { const st = el.style; if (st.setProperty) st.setProperty('--ow-cap-h', px + 'px'); }
 
 // Explicit viewport clamp (audit note on norm c: never rely on cursor physics).
 function clampPos(left, top, w, h) {
