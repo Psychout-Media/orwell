@@ -120,3 +120,16 @@ def test_the_agent_loop_still_applies_it_to_the_emitted_and_the_stored_copy():
     src = inspect.getsource(agent_loop)
     i = src.index("_closed_output = _browser_tool_output(block.tool_type, result)")
     assert "output_text = _closed_output" in src[i:i + 200]
+
+
+def test_admins_keep_the_raw_result_in_the_admin_only_ledger_and_non_admin_readers_never_see_it():
+    """What an admin reading the transcript used to see as a game tool's `output` is now the admin-only `engine_result` (ORW-187's key): present for every non-silent engine game tool, stripped by the public whitelist."""
+    models = importlib.import_module("core.models")
+    for tool in ("makeDeal", "confide", "advanceGame", "submitDecision", "seasonRetrospective"):
+        raw = _raw()
+        text = agent_loop._engine_result_for_transcript(tool, {"output": json.dumps(raw)})
+        assert text and S in text, f"{tool}: the admin ledger carries the raw result"
+        event = {"round": 1, "tool": tool, "command": "x", "output": _out(tool, raw), "engine_result": text}
+        pub = models.public_tool_events([event])[0]
+        assert "engine_result" not in pub and S not in json.dumps(pub), f"{tool}: a non-admin reader never sees it"
+    assert agent_loop._engine_result_for_transcript("npcVoice", {"output": json.dumps(_raw())}) is None  # the other silent read tools stay out, as ORW-187 decided

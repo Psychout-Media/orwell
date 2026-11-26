@@ -77,9 +77,19 @@ _ENGINE_RESULT_CAP = 30000
 _ENGINE_RESULT_ERROR_CLASS = "[engine error - details withheld]"
 
 
+def _engine_result_ledger_tools() -> frozenset:
+    """ORW-187's four read tools, plus (ORW-975) every non-silent engine game tool: the page now gets a closed copy of those tools' output, so the full raw result (what an admin reading the transcript used to see as the
+    tool event's `output`) moves to this admin-only key. The other silent read tools (npcVoice, socialRead ...) stay out, as ORW-187 decided; a tool that is not an engine game tool stays out."""
+    try:
+        from src.tool_schemas import ORWELL_GAME_TOOLS
+        return _ENGINE_RESULT_LEDGER_TOOLS | (frozenset(ORWELL_GAME_TOOLS) - _ORWELL_SILENT_TOOLS) | _BROWSER_PROJECTED_TOOLS
+    except Exception:  # failsoft-ok: the four ORW-187 tools still stand
+        return _ENGINE_RESULT_LEDGER_TOOLS
+
+
 def _engine_result_for_transcript(tool_type: str, result: Any) -> Optional[str]:
     """ORW-187 — the full (capped) engine result text for the admin transcript, or None when this tool is not in the ledger set / carries no text."""
-    if tool_type not in _ENGINE_RESULT_LEDGER_TOOLS or not isinstance(result, dict):
+    if tool_type not in _engine_result_ledger_tools() or not isinstance(result, dict):
         return None
     raw = result.get("output")
     if not isinstance(raw, str) or not raw:
