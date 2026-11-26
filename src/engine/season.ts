@@ -60,9 +60,9 @@ export function nominationBaseVals(hoh: EntityId, target: EntityId, rel: Relatio
 }
 
 /** ORW-305: the term names of the strategic nomination score, in the exact order the score adds them. */
-export const NOMINATION_TERM_NAMES = ["threat", "paranoia", "bloc", "floater", "duo", "campaign", "memory", "mood", "drive", "belief", "deals", "lobbying", "agenda", "feeling", "endgame", "couple"] as const;
+export const NOMINATION_TERM_NAMES = ["threat", "paranoia", "bloc", "floater", "duo", "campaign", "memory", "mood", "drive", "belief", "deals", "lobbying", "agenda", "feeling", "endgame", "couple", "standing"] as const;
 /** The target-oriented read (no pawn-seat floater / duo pull): the same terms minus those two. */
-export const NOMINATION_TARGET_TERM_NAMES = ["threat", "paranoia", "bloc", "campaign", "memory", "mood", "drive", "belief", "deals", "lobbying", "agenda", "feeling", "endgame", "couple"] as const;
+export const NOMINATION_TARGET_TERM_NAMES = ["threat", "paranoia", "bloc", "campaign", "memory", "mood", "drive", "belief", "deals", "lobbying", "agenda", "feeling", "endgame", "couple", "standing"] as const;
 
 /**
  * ORW-305: the named terms of a candidate's strategic nomination score, in score order. `shape` carries the (already
@@ -75,7 +75,7 @@ export function nominationTermVals(
   const [threat, paranoia] = nominationBaseVals(hoh, t, rel, mood, read.paranoiaMult);
   const out = [threat, paranoia, blocTerm(blocs, hoh, t)];
   if (shape) out.push(shape.floaterWeight * floaterRead(t, shape.active, rel, read.bondOf), shape.duoWeight * duoRead(t, hoh, shape.active, rel, read.bondOf));
-  out.push(read.campaignPush?.(t) ?? 0, read.memoryPush?.(t) ?? 0, read.moodPush?.(t) ?? 0, read.drivePush?.(t) ?? 0, read.beliefPush?.(t) ?? 0, read.dealPush?.(t) ?? 0, read.pitchPush?.(t) ?? 0, read.agendaPush?.(t) ?? 0, read.feelingPush?.(t) ?? 0, read.endgamePush?.(t) ?? 0, read.couplePush?.(t) ?? 0);
+  out.push(read.campaignPush?.(t) ?? 0, read.memoryPush?.(t) ?? 0, read.moodPush?.(t) ?? 0, read.drivePush?.(t) ?? 0, read.beliefPush?.(t) ?? 0, read.dealPush?.(t) ?? 0, read.pitchPush?.(t) ?? 0, read.agendaPush?.(t) ?? 0, read.feelingPush?.(t) ?? 0, read.endgamePush?.(t) ?? 0, read.couplePush?.(t) ?? 0, read.standingPush?.(t) ?? 0);
   return out;
 }
 
@@ -203,6 +203,8 @@ export interface NominationRead {
   endgamePush?: (target: EntityId) => number;
   /** 0207 A2 (ORW-659, ORWELL_SHOWMANCES): an HOH outside a pair it READS as a couple (from what it saw or was told, never the truth) wants one of them on the block: the push on that one (+). Played games only; absent => 0 => byte-identical. */
   couplePush?: (target: EntityId) => number;
+  /** ORW-694 / B1-9 (0173 status): the house's informal leader is a bigger target (+). Played games with the court on only; absent => 0 => byte-identical. */
+  standingPush?: (target: EntityId) => number;
   /** B4 slice 3 (ORWELL_ASSURANCES): the HOH holds a KEPT casual assurance toward `target` ("you're safe with me") - kept off the block while two legal others remain. Absent => byte-identical. */
   protectedByAssurance?: (target: EntityId) => boolean;
   /** ORW-305: receives the decision's WHY breakdown (a record only; absent => nothing built, the decision is byte-identical either way). */

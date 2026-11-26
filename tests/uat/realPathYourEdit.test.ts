@@ -32,7 +32,7 @@ describe("ORW-755 REAL PATH: the edit's moments", () => {
       },
     });
       return on.stopped === "finished" && (on.milestones["state.houseMeetings"] ?? 0) >= 1 && shapes.includes("turned") && onKinds.has("house-meeting") && onKinds.has("scheme") ? on : undefined;
-    }, { from: 1, to: 12, hint: 4, sandbox: (s) => `wf-${s}`, what: "a season to the crown with a house meeting, a turned houseguest, and a house-meeting and a scheme moment in the edit" });
+    }, { from: 1, to: 12, hint: [1, 4], sandbox: (s) => `wf-${s}`, what: "a season to the crown with a house meeting, a turned houseguest, and a house-meeting and a scheme moment in the edit" });
     expect(on.stopped, "the season was played to the crown").toBe("finished");
     // turned: the story of a houseguest who warmed then went cold, reached through the weekly sampler and the real scenes of the season
     expect(shapes).toContain("turned");

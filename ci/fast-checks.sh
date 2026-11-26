@@ -38,6 +38,9 @@ run python3 ci/check_no_internal_details.py
 step "short-list guard (ORW-511: no new short dealt list, no new example line or closed menu in prompt text, unless allowlisted with a reason)"
 run python3 ci/check_short_lists.py
 
+step "every pinned front-end dependency installs on the Python production runs (ORW-955, ci/prod_python_version)"
+run python3 ci/check_lock_prod_python.py
+
 step "typecheck"
 run npx tsc --noEmit
 
