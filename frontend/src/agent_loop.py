@@ -8972,6 +8972,11 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
                 _forget_season_pacing(kwargs.get("owner"), _bump=False)
         except Exception as _e:  # failsoft-ok: the reset already cleared the stores once
             logger.debug("ORW-499: stale-turn pacing clear failed: %s", _e)
+        try:  # ORW-408: one INFO line per turn (pre-display chunks checked / skipped by reason / conflicts by fact)
+            from src import predisplay_check as _pd_turn
+            _pd_turn.end_turn(kwargs.get("owner"))
+        except Exception as _e:  # failsoft-ok: counter only
+            logger.debug("ORW-408: end_turn failed: %s", _e)
         _ANN_HELD.pop(kwargs.get("owner"), None)  # ORW-479: a held announcement's tail window never outlives its turn
         for _tok in _ledger_tokens:  # ORW-435: a turn that raised / was cancelled / never reached record_turn still closes its window (idempotent)
             try:

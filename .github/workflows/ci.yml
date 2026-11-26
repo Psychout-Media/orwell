@@ -389,7 +389,7 @@ jobs:
           # ORW-551 slice 4: the 12-season house-mix guard (replaces the 2-seed unit guard). About two minutes of play in one process.
           - leg: house-mix
             scripts: "house-mix"
-          # ORW-702: the whole-season house-mix guard: 4 played seasons (one scripted talking player), judged per season phase against the agreed bands (a ratchet while main is off target).
+          # ORW-702: the whole-season house-mix guard: 4 played seasons (one scripted talking player), ORW-991: fails only on a broken mix (tests/support/brokenBounds.ts); the agreed bands print as a report.
           # The seasons play at the same time in child processes inside the one leg (the longest is about 5 minutes), so the pooled numbers are judged in one place.
           - leg: season-mix
             scripts: "season-mix"
