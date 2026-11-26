@@ -22,7 +22,7 @@ def _rewrite_on(monkeypatch):
     """The rewrite ships OFF by default; these tests exercise it, so turn it on (a test that needs it off sets the flag itself)."""
     monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", "1")
 
-def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None, flag=None, owner="orw408", extra=None, status=None):
+def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None, flag=None, owner="orw408", extra=None, status=None, engine_state=None):
     """Returns (emitted_text, continuation_calls, stored_round_texts, n_rounds). `extra` (a dict) is filled with: runs (tool blocks executed), chunks (every raw SSE chunk), cont_kwargs,
     and may carry `redo_delay_s` (the stubbed continuation takes that long)."""
     extra = extra if extra is not None else {}
@@ -40,7 +40,14 @@ def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None
     if flag is not None:
         monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", flag)
     monkeypatch.setattr(ti, "get_tool_index", lambda: None)
-    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0, fields=None: state)
+    if engine_state is None:
+        monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0, fields=None: state)
+    else:  # ORW-408: the REAL cache, empty at the start (as after a narrator turn's engine writes); the engine answers the one bounded read with `engine_state`
+        erc.clear()
+
+        async def fake_get_game_state(user=None, timeout=None):
+            return dict(engine_state)
+        monkeypatch.setattr(oe, "get_game_state", fake_get_game_state)
     monkeypatch.setattr(oe, "_RETRY_ATTEMPTS", 0)
 
     async def fake_status(user=None):

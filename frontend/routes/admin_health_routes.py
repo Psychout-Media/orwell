@@ -1744,6 +1744,15 @@ def _compute_alarms(rollup: dict, *, embeddings=None, sync_recent=None, belt_tot
     return alarms
 
 
+def _predisplay_section() -> dict | None:
+    """ORW-408: the pre-display check's counters since the process started (statuses and numbers only). Best-effort."""
+    try:
+        from src import predisplay_check as _pd
+        return _pd.stats_snapshot()
+    except Exception:
+        return None
+
+
 def _faithfulness_section(user: str | None) -> dict | None:
     """F10 / BL-019 — the faithfulness-judge health posture for the status page. Best-effort +
     Vault-free (mode / config-presence / resolvability booleans — never a secret). A DARK judge
@@ -1891,6 +1900,8 @@ async def _health_snapshot(user: str | None) -> dict:
         # alarms (WI3). Vault-free: counts / class tokens / booleans only.
         "healthRollup": health_rollup,
         "alarms": alarms,
+        # ORW-408: the pre-display hard-fact check's counters (chunks checked, skipped by reason, conflicts by fact). Numbers and fact ids only.
+        "predisplay": _predisplay_section(),
         # Build + version (PR) for one-glance triage on the status page. version is the
         # PR-derived "vX.XX"; build is the deployed checkout's short commit SHA.
         "versions": _versions(),
@@ -2601,6 +2612,14 @@ function render(d) {
     ["Embeddings", emb ? esc(emb.provider || "?") + " " + B(!emb.degraded, emb.degraded ? "DEGRADED" : "OK") : B(false, "UNKNOWN")],
     ["Image generation", (img.available ? B(true, "AVAILABLE") : B(false, img.enabled ? "NO USABLE MODEL" : "DISABLED")) + (img.model ? " · " + esc(img.model) : "") + (img.portraits && img.portraits.total ? " · portraits " + (img.portraits.missing ? '<span class="warn">' : '<span class="ok">') + esc(img.portraits.present) + "/" + esc(img.portraits.total) + "</span>" : "") + (img.lastRun && img.lastRun.failing ? ' · <span class="warn">last run FAILED (0/' + esc(img.lastRun.attempted) + ' — provider not producing images)</span>' : "")],
     ["Cast authoring", (ca && ca.total ? (ca.missing ? '<span class="warn">' : '<span class="ok">') + esc(ca.authored) + "/" + esc(ca.total) + "</span> deep-authored" + (ca.missing ? " · " + esc(ca.missing) + " on floor" : "") : '<span class="sub">—</span>')],
+    ["Pre-display check", (function (p) {
+      if (!p) return '<span class="sub">—</span>';
+      const sk = Object.entries(p.skipped || {}).map(kv => esc(kv[0]) + " " + esc(kv[1])).join(", ") || "none";
+      const cf = Object.entries(p.conflicts || {}).map(kv => esc(kv[0]) + " " + esc(kv[1])).join(", ") || "none";
+      return (p.enabled ? B(true, "ON") : B(false, "OFF")) + " · rewrite " + (p.rewriteEnabled ? B(true, "ON") : B(false, "OFF")) +
+        " · checked " + esc(p.checked) + " · skipped " + esc(p.skippedTotal) + " (" + sk + ") · conflicts " + esc(p.conflictsTotal) + " (" + cf + ")" +
+        " · state from cache " + esc((p.stateFrom || {}).cache) + " / read " + esc((p.stateFrom || {}).read) + " · " + esc(p.turns) + " turn(s)";
+    })(d.predisplay)],
     ["Tool calls", esc(tc.total ?? 0) + " total · " + esc(tc.failed ?? 0) + " failed"],
     ["Front-end store", (st.degraded ? B(false, "DEGRADED") + " · " : "") + esc(st.sessions ?? "?") + " session(s) · " + esc(st.messages ?? "?") + " message(s)" + (st.database_size_mb != null ? " · " + esc(st.database_size_mb) + " MB" : "")],
   ];
