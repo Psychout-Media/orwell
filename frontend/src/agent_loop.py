@@ -5673,7 +5673,7 @@ _DEAL_SIGNAL_RE = re.compile(
 
 
 async def _auto_record_deal(narration, last_user, house, endpoint_url, model, headers, owner,
-                            skip_ids=None, applied_out=None) -> bool:
+                            skip_ids=None, applied_out=None, renewed_out=None) -> bool:
     """GUARANTEE every struck deal is RECORDED (0039 back-fill). When an engaged turn's narration seals a
     deal but the model skipped makeDeal, a constrained extraction proposes the deals {withId, kind, terms}
     and we call makeDeal ourselves for EACH - so the promise is real, reconciles against later play, and shows
@@ -5683,7 +5683,7 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
     the engine), never re-driven. HIGH BAR: a deal is created ONLY for a clear, explicit, MUTUAL agreement
     (both sides committed to concrete terms); loose talk / a one-sided pitch / a maybe yields no deal. Model-driven makeDeal always takes precedence. Fail-closed: any hiccup just skips. Each deal is
     player<->ONE houseguest (the engine's deal shape). Returns True iff at least one deal was APPLIED;
-    `applied_out` (a list) receives one entry per applied deal, for success-gated telemetry."""
+    `applied_out` (a list) receives one entry per applied deal, for success-gated telemetry. ORW-987: `renewed_out` receives the partner id of each APPLIED deal the extraction flagged as the renewal of a deal that ran out (telemetry only; the flag never changes what is recorded)."""
     try:
         from src.llm_core import llm_call_async
         from src import orwell_engine as _oe
@@ -5714,7 +5714,8 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
                 '{"deals":[{"withId":"<the houseguest id from the roster>",'
                 '"kind":"<one of: ' + _kinds_csv + '>",'
                 '"terms":"<one short clause of what was promised, as spoken>",'
-                '"termWeeks":<integer weeks it runs counting this week, ONLY if a duration was explicitly named, else null>}]}\n'
+                '"termWeeks":<integer weeks it runs counting this week, ONLY if a duration was explicitly named, else null>,'
+                '"renewal":<true ONLY if this deal is both sides renewing a deal that ran out, else false>}]}\n'
                 "List a deal ONLY when BOTH sides explicitly AGREED to a concrete commitment, with the kind that matches "
                 "the words actually spoken; if no listed kind matches what was spoken, leave that deal out. If it was loose talk, a one-sided pitch, a 'maybe', or a refusal, leave it "
                 "out; no deal at all => an empty list. A RENEWAL that both sides agree to ('we are still good', 'same deal again this week') IS a deal struck now, with the kind of the thing renewed. kind: " + _kind_desc + "."},
@@ -5795,6 +5796,8 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
             logger.info(f"[orwell] auto-recorded deal (kind={kind}, with={with_id}) user={owner}")
             if isinstance(applied_out, list):
                 applied_out.append(with_id)
+            if prop.get("renewal") is True and isinstance(renewed_out, list):
+                renewed_out.append(with_id)
             _any = True
         return _any
     except Exception as _e:
@@ -11799,14 +11802,19 @@ async def _stream_agent_loop_impl(
                         if _want_deal and _touched_deal:
                             _turn_deal_nudges += 1  # once per turn
                             _applied_deals: list = []
+                            _renewed_deals: list = []
                             if await _auto_record_deal(_turn_narration, _extract_last_user_message(messages),
                                                        _house, _belt_endpoint, _belt_model, _belt_headers, owner,
-                                                       skip_ids=_turn_model_deal_partners, applied_out=_applied_deals):
+                                                       skip_ids=_turn_model_deal_partners, applied_out=_applied_deals,
+                                                       renewed_out=_renewed_deals):
                                 _turn_record_nudges = max(_turn_record_nudges, 1)  # deal banked the fold
                                 # gap #3 telemetry - only a genuinely APPLIED deal counts (no deal / a failed
                                 # extraction / an engine refusal is a no-op, not a correction): one fire per applied deal
                                 for _ in (_applied_deals or [None]):  # a True return always counts at least once
                                     _note_belt(owner, "auto-record-deal")
+                                # ORW-987: the renewals among them are counted on their own too (a renewal the model never recorded, applied by the engine)
+                                for _ in _renewed_deals:
+                                    _note_belt(owner, "auto-record-deal-renewal")
                         # 0123: a standing houseguest deal offer the player answered in chat but the model never
                         # submitted - record the answer (the engine adjudicates). Only an APPLIED submit counts.
                         if _want_offer_answer:

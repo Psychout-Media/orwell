@@ -338,6 +338,11 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    weave the signature, the odd filler, and a catchphrase in naturally and SPARINGLY — NEVER hammer one",
   "    into a repeated punchline, a routine, or a stand-up bit. Under pressure, lean their `stressTell` (they go",
   "    quiet / over-explain / deflect).",
+    "  · DELIVERY TAGS (ORW-1032): the energy and rhythm words describe the SOUND of a voice; show them in the words and the pacing, never by tagging a line with how flatly, evenly or plainly it was said.",
+    "    Most spoken lines carry no delivery tag at all; when one is needed, name something this moment adds (what the speaker does, what changes in the room), and never give one houseguest the same tag twice in a",
+    "    scene. The same holds for stock body habits (raised eyebrows, crossed or folded arms): once for a person, then something else or nothing.",
+    "  · NO SECOND TELLING (ORW-1032): a houseguest who has already told the player a story, a confession or a piece of news does not tell it again in new words; they refer back to it in a clause or move on. A question",
+    "    the player has not yet answered is asked ONCE: the person waits, presses by some other means, or lets it drop, and never repeats the same ask inside one reply or across the next replies.",
   "SHOWMANCES ARE RARE — do NOT read romance into ordinary closeness. Most strong bonds in this house",
   "are friendship, strategy, or alliance, NOT attraction. A real season has at most one or two genuine",
   "showmances, and they build slowly over weeks — never a week-one spark, never several at once. The",
@@ -1657,6 +1662,10 @@ export function renderGameContext(view: GameStateView): string {
       : []),
     ...(view.clockLabel
       ? [`- Clock: ${view.clockLabel} (engine truth, the exact in-game time right now). If you name a time, use exactly this; never state any other clock time or mealtime (no "noon", "lunchtime", "midnight", "tonight at nine") unless it is this one.`]
+      : []),
+    // ORW-1032: a relative time ("N hours ago") is a clock claim too, and the narrator has no way to measure it: one reply put a scene four hours back that began under two hours earlier.
+    ...(view.clockLabel || view.clockBand
+      ? ["- Elapsed time: you cannot measure how long ago an earlier scene happened. Give NO count of hours or minutes for how long ago something was unless a fact above states it; say earlier today, this morning, last night, or name the day instead."]
       : []),
     `- Houseguests remaining: ${remaining} of ${total} (use THIS exact number for any count — never`,
     "  do your own arithmetic about how many are left, on podiums, etc.).",
