@@ -5685,6 +5685,33 @@ def _alliance_call_landed(result) -> bool:
     return isinstance(view, dict) and bool(view.get("id")) and not view.get("error")
 
 
+def _secret_call_refusal(tool_type: str, result):
+    """ORW-835: why the engine REFUSED a model-driven confide / exposeSecret / tradeSecret, or None when it TOOK the call.
+    Taken: confide's `{disclosed:false}` (the engine rolled and kept the secret: a normal, seeded result), an expose that went out (even a bluff the house did not buy), a trade the recipient
+    `declined` (the engine adjudicated it). Refused: an error / non-zero exit, a null result (an unknown or departed houseguest, no live game), or the engine's typed `refused`
+    (expose: not-learned / already-spent / capped / no-subject; trade: not-learned / already-spent / capped / no-recipient). An unreadable output counts as taken (stand down, as before)."""
+    if not isinstance(result, dict):
+        return "error"
+    if result.get("exit_code") not in (None, 0) or result.get("error"):
+        return "error"
+    try:
+        view = json.loads(result.get("output") or "null")
+    except Exception:
+        return None
+    if view is None:
+        return "null"
+    if not isinstance(view, dict):
+        return None
+    if view.get("error"):
+        return "error"
+    reason = view.get("refused")
+    if tool_type == "tradeSecret" and reason == "declined":
+        return None
+    if tool_type in ("exposeSecret", "tradeSecret") and isinstance(reason, str) and reason:
+        return reason
+    return None
+
+
 async def _auto_alliance(narration, last_user, house, endpoint_url, model, headers, owner, applied_out=None, refused=None) -> bool:
     """Record an alliance the player agreed to aloud but the model never joined/formed (ORW-780). True only when the
     engine APPLIED a membership (success-gated telemetry); a refusal, an ambiguous scene or any hiccup is a no-op.
@@ -5911,7 +5938,7 @@ _CONFIDE_PRESS_RE = re.compile(
     r")", re.I)
 
 
-async def _auto_confide(narration, last_user, house, endpoint_url, model, headers, owner) -> bool:
+async def _auto_confide(narration, last_user, house, endpoint_url, model, headers, owner, refused=None) -> bool:
     """GUARANTEE an earned confidence FIRES (0075 FE follow-on — the 0055 `_auto_record_scene` sibling).
     When the player's turn clearly PRESSES an ally to open up but the model skipped `confide`, a
     constrained extraction names the houseguest the player is in a 1:1-ish scene with and we call
@@ -5925,8 +5952,9 @@ async def _auto_confide(narration, last_user, house, endpoint_url, model, header
     try:
         from src.llm_core import llm_call_async
         from src import orwell_engine as _oe
+        refused_ids = set(refused or ())  # ORW-835: houseguests the engine already refused the model's own confide this turn: never pressed again
         roster = "\n".join(f'{h.get("id")} = {h.get("name")}'
-                           for h in house if h.get("id") and h.get("name"))
+                           for h in house if h.get("id") and h.get("name") and h.get("id") not in refused_ids)
         if not roster:
             return False
         # Center the extraction on the press moment: in a multi-round turn the "you can tell me" beat may
@@ -5962,7 +5990,7 @@ async def _auto_confide(narration, last_user, house, endpoint_url, model, header
         npc_id = obj.get("npcId")
         if not isinstance(npc_id, str):
             return False  # null / not pressing anyone → nothing to do
-        valid = {h.get("id") for h in house}
+        valid = {h.get("id") for h in house} - refused_ids
         if npc_id not in valid:
             logger.info(f"[orwell] auto-confide: npcId {npc_id!r} not on roster — skipped user={owner}")
             return False
@@ -6058,7 +6086,7 @@ def _known_player_fact_index(vis: dict) -> dict:
     return out
 
 
-async def _auto_expose_secret(narration, last_user, house, endpoint_url, model, headers, owner) -> bool:
+async def _auto_expose_secret(narration, last_user, house, endpoint_url, model, headers, owner, refused=None) -> bool:
     """GUARANTEE an outed secret FIRES (0093 FE follow-on — the 0055/0075 sibling). When the player's
     turn clearly OUTS a secret they already know but the model skipped `exposeSecret`, a constrained
     extraction picks WHICH of the player's own known facts is being exposed — never invents one — and
@@ -6076,6 +6104,7 @@ async def _auto_expose_secret(narration, last_user, house, endpoint_url, model, 
             return False
         vis = await _oe.get_visible_state(user=owner)
         facts = _known_player_fact_index(vis if isinstance(vis, dict) else {})
+        facts = {k: v for k, v in facts.items() if k not in set(refused or ())}  # ORW-835: a fact the engine already refused the model's own expose this turn is never sent again
         if not facts:
             return False  # nothing the player legitimately knows — never invent a secret to expose
         fact_lines = "\n".join(
@@ -6123,6 +6152,9 @@ async def _auto_expose_secret(narration, last_user, house, endpoint_url, model, 
         if res is None:
             return False
         _exposed = bool(res.get("exposed")) if isinstance(res, dict) else False
+        if isinstance(res, dict) and res.get("refused"):
+            logger.info(f"[orwell] auto-expose {fact_id}: the engine refused ({res.get('refused')}) - nothing recorded user={owner}")
+            return False  # success-gated (ORW-835): a typed refusal recorded nothing, so it is never a fired belt
         logger.info(f"[orwell] auto-exposed secret (factId={fact_id}, exposed={_exposed}) user={owner}")
         try:  # 0079: surface this gap-repair on the overseer diagnostic log
             from src import log_rings as _lr
@@ -6139,7 +6171,7 @@ async def _auto_expose_secret(narration, last_user, house, endpoint_url, model, 
         return False
 
 
-async def _auto_trade_secret(narration, last_user, house, endpoint_url, model, headers, owner) -> bool:
+async def _auto_trade_secret(narration, last_user, house, endpoint_url, model, headers, owner, refused=None) -> bool:
     """GUARANTEE a bartered secret FIRES (0099 FE follow-on — the `_auto_expose_secret` sibling). When
     the player's turn clearly TRADES a known secret about a THIRD party to a specific houseguest for a
     concession but the model skipped `tradeSecret`, a constrained extraction picks WHICH known fact and
@@ -6199,6 +6231,9 @@ async def _auto_trade_secret(narration, last_user, house, endpoint_url, model, h
         if to_npc_id not in roster:
             logger.info(f"[orwell] auto-trade: toNpcId {to_npc_id!r} not on roster — skipped user={owner}")
             return False
+        if (fact_id, to_npc_id) in set(refused or ()):
+            logger.info(f"[orwell] auto-trade: ({fact_id!r}, {to_npc_id!r}) was refused the model this turn - not re-proposed user={owner}")
+            return False  # ORW-835: the engine's refusal of THIS fact to THIS recipient stands
         if facts[fact_id].get("subject") == to_npc_id:
             # Defense-in-depth mirror of the engine's own rule: can't trade a secret TO its own subject.
             logger.info(f"[orwell] auto-trade: factId {fact_id!r} is ABOUT the recipient — skipped user={owner}")
@@ -6216,6 +6251,9 @@ async def _auto_trade_secret(narration, last_user, house, endpoint_url, model, h
         if res is None:
             return False
         _accepted = bool(res.get("accepted")) if isinstance(res, dict) else False
+        if isinstance(res, dict) and res.get("refused") and res.get("refused") != "declined":
+            logger.info(f"[orwell] auto-trade {fact_id}: the engine refused ({res.get('refused')}) - nothing recorded user={owner}")
+            return False  # success-gated (ORW-835): only a typed refusal that recorded nothing; a recipient who `declined` was adjudicated
         logger.info(f"[orwell] auto-traded secret (factId={fact_id}, to={to_npc_id}, "
                     f"accepted={_accepted}) user={owner}")
         try:  # 0079: surface this gap-repair on the overseer diagnostic log
@@ -9549,6 +9587,7 @@ async def _stream_agent_loop_impl(
     _turn_alliance_nudges = 0  # ORW-780 alliance belt: at most one auto join/form per finishing turn
     _turn_promise_nudges = 0  # ORW-750 voiced-promise belt: at most one run per finishing turn
     _turn_promise_by: set = set()  # ORW-750: the houseguests the MODEL recorded a promise or assurance for this turn (the belt never re-records them)
+    _turn_secret_refused: dict = {"confide": set(), "expose": set(), "trade": set()}  # ORW-835: what the engine refused the MODEL's own confide (npcId) / exposeSecret (factId) / tradeSecret ((factId, toNpcId)) this turn: the belts never re-issue it
     _turn_alliance_refused: dict = {"join": set(), "form": []}  # ORW-793: what the engine refused the MODEL's own joinAlliance / formAlliance this turn (the belt never re-proposes it)
     _turn_move_nudges = 0  # L21/L24 auto-move belt: at most one auto-move per finishing turn
     _turn_slept = False  # ORW-940: a turnIn applied this turn (the bed or a doze): no move for the player unless their own words asked to go somewhere
@@ -11487,11 +11526,11 @@ async def _stream_agent_loop_impl(
                             if _want_offer_answer:
                                 _pf_jobs.append((_auto_answer_deal_offer, (_last_user_for_confide, _turn_narration, owner, _belt_endpoint, _belt_model, _belt_headers), {}))
                             if _want_confide and _touched_deal:
-                                _pf_jobs.append((_auto_confide, (_turn_narration, _last_user_for_confide, _house, _belt_endpoint, _belt_model, _belt_headers, owner), {}))
+                                _pf_jobs.append((_auto_confide, (_turn_narration, _last_user_for_confide, _house, _belt_endpoint, _belt_model, _belt_headers, owner), {"refused": set(_turn_secret_refused["confide"])}))
                             if _want_expose and _touched_deal:
-                                _pf_jobs.append((_auto_expose_secret, (_turn_narration, _last_user_for_confide, _house, _belt_endpoint, _belt_model, _belt_headers, owner), {}))
+                                _pf_jobs.append((_auto_expose_secret, (_turn_narration, _last_user_for_confide, _house, _belt_endpoint, _belt_model, _belt_headers, owner), {"refused": set(_turn_secret_refused["expose"])}))
                             if _want_trade and _touched_deal:
-                                _pf_jobs.append((_auto_trade_secret, (_turn_narration, _last_user_for_confide, _house, _belt_endpoint, _belt_model, _belt_headers, owner), {}))
+                                _pf_jobs.append((_auto_trade_secret, (_turn_narration, _last_user_for_confide, _house, _belt_endpoint, _belt_model, _belt_headers, owner), {"refused": set(_turn_secret_refused["trade"])}))
                             if _want_alliance:
                                 _pf_jobs.append((_auto_alliance, (_turn_narration, _last_user_for_confide, _house, _belt_endpoint, _belt_model, _belt_headers, owner),
                                                  {"applied_out": [], "refused": set(_turn_alliance_refused)}))
@@ -11542,7 +11581,8 @@ async def _stream_agent_loop_impl(
                         if _want_confide and _touched_deal:
                             _turn_confide_nudges += 1  # once per turn
                             if await _auto_confide(_turn_narration, _last_user_for_confide,
-                                                   _house, _belt_endpoint, _belt_model, _belt_headers, owner):
+                                                   _house, _belt_endpoint, _belt_model, _belt_headers, owner,
+                                                   refused=_turn_secret_refused["confide"]):
                                 # gap #3 telemetry — only a confide the belt actually FIRED counts
                                 # (npcId:null / off-roster / failed extraction is a no-op)
                                 _note_belt(owner, "auto-confide")
@@ -11554,7 +11594,8 @@ async def _stream_agent_loop_impl(
                         if _want_expose and _touched_deal:
                             _turn_expose_nudges += 1  # once per turn
                             if await _auto_expose_secret(_turn_narration, _last_user_for_confide,
-                                                         _house, _belt_endpoint, _belt_model, _belt_headers, owner):
+                                                         _house, _belt_endpoint, _belt_model, _belt_headers, owner,
+                                                         refused=_turn_secret_refused["expose"]):
                                 # gap #3 telemetry — only an exposeSecret the belt actually FIRED counts
                                 _note_belt(owner, "auto-expose-secret")
                         # 0099: the player traded a secret they already know to a specific houseguest but the
@@ -11564,7 +11605,8 @@ async def _stream_agent_loop_impl(
                         if _want_trade and _touched_deal:
                             _turn_trade_nudges += 1  # once per turn
                             if await _auto_trade_secret(_turn_narration, _last_user_for_confide,
-                                                        _house, _belt_endpoint, _belt_model, _belt_headers, owner):
+                                                        _house, _belt_endpoint, _belt_model, _belt_headers, owner,
+                                                        refused=_turn_secret_refused["trade"]):
                                 # gap #3 telemetry — only a tradeSecret the belt actually FIRED counts
                                 _note_belt(owner, "auto-trade-secret")
                         # ORW-780: the player said yes to an alliance aloud but the model never called joinAlliance /
@@ -13114,12 +13156,35 @@ async def _stream_agent_loop_impl(
                     pass
             if _is_live_game and block.tool_type == "submitDecision":
                 _turn_offer_nudges = 1  # model submitted a decision itself - don't also auto-answer a deal offer (0123)
-            if _is_live_game and block.tool_type == "confide":
-                _turn_confide_nudges = 1  # model called confide itself — don't also back-fill one (0075)
-            if _is_live_game and block.tool_type == "exposeSecret":
-                _turn_expose_nudges = 1  # model called exposeSecret itself — don't also back-fill one (0093)
-            if _is_live_game and block.tool_type == "tradeSecret":
-                _turn_trade_nudges = 1  # model called tradeSecret itself — don't also back-fill one (0099)
+            if _is_live_game and block.tool_type in ("confide", "exposeSecret", "tradeSecret"):
+                # 0075 / 0093 / 0099: the model called the lever itself - don't also back-fill one. ORW-835: only when the engine TOOK the call (confide's {disclosed:false} is a taken, normal result);
+                # a refusal recorded nothing, so the omission remains and the belt stays armed (once, as ever) - but never for the houseguest / fact / pair the engine just refused,
+                # and not at all when the engine refused the lever itself (`capped`).
+                _secret_key = {"confide": "confide", "exposeSecret": "expose", "tradeSecret": "trade"}[block.tool_type]
+                _secret_why = _secret_call_refusal(block.tool_type, result)
+                _secret_stand_down = _secret_why is None or _secret_why == "capped"
+                if not _secret_stand_down:
+                    try:
+                        _sargs = json.loads(block.content) or {}
+                        if block.tool_type == "confide":
+                            _sid = str(_sargs.get("npcId") or _sargs.get("npc_id") or _sargs.get("with") or "").strip()
+                        elif block.tool_type == "exposeSecret":
+                            _sid = str(_sargs.get("factId") or _sargs.get("fact_id") or "").strip()
+                        else:
+                            _sfact = str(_sargs.get("factId") or _sargs.get("fact_id") or "").strip()
+                            _sto = str(_sargs.get("toNpcId") or _sargs.get("to_npc_id") or "").strip()
+                            _sid = (_sfact, _sto) if (_sfact and _sto) else None
+                        if _sid:
+                            _turn_secret_refused[_secret_key].add(_sid)
+                    except Exception:
+                        _secret_stand_down = True  # unreadable call: stand down as before rather than guess
+                if _secret_stand_down:
+                    if block.tool_type == "confide":
+                        _turn_confide_nudges = 1
+                    elif block.tool_type == "exposeSecret":
+                        _turn_expose_nudges = 1
+                    elif block.tool_type == "tradeSecret":
+                        _turn_trade_nudges = 1
             if _is_live_game and block.tool_type == "recordInteraction":
                 # ORW-750: a model-driven record that carried a promise or assurance stands the voiced-promise belt down for that houseguest.
                 try:
