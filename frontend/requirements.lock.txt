@@ -4,7 +4,7 @@
 # requirements.txt only when it is absent), so every box runs exactly what was
 # tested — never a blind re-resolution of unpinned ranges on update.
 #
-# Regenerate (Python 3.11, matching the Debian 12 deploy target):
+# Regenerate (pins must install on the Debian 13 deploy target, Python 3.13.5; ci/prod_python_version):
 #   pip install pip-tools
 #   pip-compile --no-header --output-file requirements.lock.txt requirements.txt
 #
@@ -297,8 +297,8 @@ shellingham==1.5.4
 six==1.17.0
     # via python-dateutil
 soupsieve==4.0.0 ; python_full_version >= "3.11.5"
-    # ORW-955: prod runs Debian bookworm's Python 3.11.2 and soupsieve 3.0.2+ needs >=3.11.5, so prod gets
-    # the newest 2.x it can install until prod moves to a newer Python (3 soupsieve alerts stay open there)
+    # ORW-955: prod ran Debian bookworm's Python 3.11.2 until 2026-11-26 (now Debian 13, 3.13.5, which takes 4.0.0); soupsieve 3.0.2+ needs >=3.11.5, so a 3.11.2 box gets
+    # the newest 2.x it can install (3 soupsieve alerts apply to such a box)
 soupsieve==2.10 ; python_full_version < "3.11.5"
     # via beautifulsoup4
 sqlalchemy==2.0.50
