@@ -937,6 +937,13 @@ def _deepseek_cost_estimate(model: str, prompt_tokens: int, cached_tokens: int, 
     return round(mult * (hit * price[0] + miss * price[1] + int(output_tokens or 0) * price[2]) / 1_000_000, 8)
 
 
+def deepseek_thinking_disabled(url: str, model: str) -> bool:
+    """ORW-1014: THE one predicate for "this request goes to DeepSeek's own API with thinking disabled" - `_apply_deepseek_thinking_off` sends
+    `thinking: disabled` exactly when it is True, and the agent loop's forced-tool_choice gate asks the same function, so the gate follows the
+    request's real thinking state and cannot drift from it. The thinking-only deepseek-reasoner is never disabled."""
+    return _host_match(url, "deepseek.com") and "reasoner" not in (model or "").lower()
+
+
 def _apply_deepseek_thinking_off(payload: Dict, url: str, model: str) -> None:
     """DeepSeek's OWN API (api.deepseek.com) defaults thinking ON, and with ``tools`` on the wire a
     thinking turn 400s unless ``reasoning_content`` is echoed back on every later request. The agent
@@ -944,9 +951,7 @@ def _apply_deepseek_thinking_off(payload: Dict, url: str, model: str) -> None:
     the OpenRouter-style ``reasoning`` fields (DeepSeek uses ``thinking``/``reasoning_effort``, not the
     unified map). The legacy ``deepseek-reasoner`` is thinking-only, so it is left untouched. Host-gated
     so every other provider (incl. DeepSeek served via OpenRouter) stays byte-identical."""
-    if not _host_match(url, "deepseek.com"):
-        return
-    if "reasoner" in (model or "").lower():
+    if not deepseek_thinking_disabled(url, model):
         return
     payload.pop("reasoning", None)
     payload.pop("reasoning_effort", None)

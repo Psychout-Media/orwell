@@ -206,6 +206,7 @@ export const args = (name: string, seed: number): Record<string, unknown> => {
     // ADR 0009: record a narrated NPC relocation — a houseguest id + a room name. The result is a
     // Vault-free HouseguestMoveResult ({status, whereabouts}); no hidden state may cross.
     case "moveHouseguest": return { id: npc(1), room: "kitchen" };
+    case "searchForHouseguest": return { name: npc(1), maxLegs: 2 }; // ORW-934: a bounded walk; the legs carry room names and who stood there only
     case "resolvePlayerMove": return { text: "I go to the kitchen" }; // ORW-419
     case "recordImageBeat": return { houseguestId: npc(1), imageRef: "img-ref" };
     // 0065: the FE authoring write-back (live house — the season is already running here) + the pre-warm
