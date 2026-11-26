@@ -202,6 +202,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       return;
     case "advanceGame":
       guardSyncFields(true); // 0065 Parts A+B — optional expectedBeatSeq + idempotencyKey
+      if (args["toastBatches"] !== undefined && (typeof args["toastBatches"] !== "number" || !Number.isInteger(args["toastBatches"]) || args["toastBatches"] < 1 || args["toastBatches"] > 4)) refuse("toastBatches", "an integer from 1 to 4 when present"); // ORW-997
       return;
     case "submitDecision":
       guardSyncFields(true); // 0065 Parts A+B — optional expectedBeatSeq + idempotencyKey
@@ -743,7 +744,7 @@ export class McpServer {
         return this.deps.session.runCompetition(args as unknown as RunCompetitionReq);
       case "advanceGame":
         // 0065 — optional expectedBeatSeq (CAS) + idempotencyKey (at-most-once) ride the args.
-        return this.deps.session.advanceGame(args as { expectedBeatSeq?: number; idempotencyKey?: string });
+        return this.deps.session.advanceGame(args as { expectedBeatSeq?: number; idempotencyKey?: string; toastBatches?: number });
       case "submitDecision":
         return this.deps.session.submitDecision(args as unknown as SubmitDecisionReq);
       case "requestSelfEviction":

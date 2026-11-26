@@ -10,28 +10,41 @@ al = importlib.import_module("src.agent_loop")
 oe = importlib.import_module("src.orwell_engine")
 
 USER = "u-orw997"
-BATCHES = [["host", "Alpha Role"], ["Bravo Role", "Charlie Role"], ["Delta Role", "player"], ["Echo Role", "Foxtrot Role"]]
-ALL_PEOPLE = [x for b in BATCHES for x in b if x not in ("host", "player")]
+NAMES = [f"Guest{chr(65 + i)} Role{chr(65 + i)}" for i in range(15)]
+ITEMS = ["host"] + NAMES[:7] + ["player"] + NAMES[7:]  # the engine's toast list: two per batch, the player's slot among them
+BATCH = 2
 
 
 class Board:
-    """The engine's toast: `idx` batches released; one more advance closes the circle."""
+    """The engine's toast: `spoke` items released so far; one more advance after the last closes the circle."""
 
     def __init__(self):
-        self.idx = 0
+        self.spoke = 0
+        self.last = 0
         self.advances = 0
+        self.closed = False
+
+    def advance(self, k=1):
+        self.advances += 1
+        if self.spoke >= len(ITEMS):
+            self.closed = True
+            return
+        n = min(len(ITEMS) - self.spoke, BATCH * max(1, k))
+        self.spoke += n
+        self.last = n
 
     def state(self):
-        if self.idx > len(BATCHES):
-            return {"phase": "premiere", "pending": None, "premiere": {"entrance": {"stage": "done", "index": 16, "total": 16, "arrivedNames": ALL_PEOPLE}}}
-        ent = {"stage": "toast", "index": 16, "total": 16, "playerPosition": 4, "arrivedNames": ALL_PEOPLE}
-        if self.idx:
-            ent["speakers"] = [{"name": "The host", "host": True} if x == "host" else ({"id": "me", "name": "Player", "isPlayer": True} if x == "player" else {"id": x, "name": x}) for x in BATCHES[self.idx - 1]]
-            ent["toastRemaining"] = len([x for b in BATCHES[self.idx:] for x in b if x != "host"])
+        if self.closed:
+            return {"phase": "premiere", "pending": None, "premiere": {"entrance": {"stage": "done", "index": 16, "total": 16, "arrivedNames": NAMES}}}
+        ent = {"stage": "toast", "index": 16, "total": 16, "playerPosition": 4, "arrivedNames": NAMES}
+        if self.spoke:
+            rel = ITEMS[self.spoke - self.last:self.spoke]
+            ent["speakers"] = [{"name": "The host", "host": True} if x == "host" else ({"id": "me", "name": "Player", "isPlayer": True} if x == "player" else {"id": x, "name": x}) for x in rel]
+            ent["toastRemaining"] = len([x for x in ITEMS[self.spoke:] if x != "host"])
         return {"phase": "premiere", "pending": None, "premiere": {"entrance": ent}}
 
     def released(self):
-        return {x for b in BATCHES[:self.idx] for x in b if x not in ("host", "player")}
+        return {x for x in ITEMS[:self.spoke] if x not in ("host", "player")}
 
 
 @pytest.fixture(autouse=True)
@@ -47,8 +60,7 @@ def _clean(monkeypatch):
 
 def _wire(monkeypatch, board):
     async def advance_game(**kw):
-        board.idx += 1
-        board.advances += 1
+        board.advance(kw.get("toast_batches") or 1)
         return {"event": {"beat": "premiere-toast"}}
 
     async def fetch(user, retry=False):
@@ -72,44 +84,60 @@ def _turn(board, msg, narrate=True):
     return handed, voiced
 
 
-def test_one_next_per_batch_plays_every_toast_once_in_order_and_nothing_is_voiced_before_its_commit(monkeypatch):
+def test_one_next_plays_several_batches_and_the_whole_circle_in_a_few_turns_each_toast_once_in_order(monkeypatch):
     board = Board()
     _wire(monkeypatch, board)
     heard = []
-    for _ in range(len(BATCHES)):
+    turns = 0
+    while not board.closed and turns < 10:
         before = board.released()
         handed, voiced = _turn(board, "next")
+        turns += 1
         assert not voiced
         assert set(handed) <= board.released(), "only committed speakers are ever handed over"
         assert not (set(handed) & before), "a speaker already voiced is never handed over again"
         heard += handed
-    assert heard == ALL_PEOPLE, "every houseguest toasts exactly once, in order"
-    assert board.advances == len(BATCHES), "one committed batch per turn, before the reply"
-    _turn(board, "next")  # the closing advance
-    assert board.state()["premiere"]["entrance"]["stage"] == "done"
+    assert board.closed
+    assert heard == NAMES, "every houseguest toasts exactly once, in order"
+    assert turns <= 4, "a Continue plays several batches, not one speaker per message"
+    assert board.advances == turns, "one commit per turn, before the reply"
 
 
 def test_a_no_advance_turn_hands_the_narrator_nothing_to_re_voice(monkeypatch):
     board = Board()
     _wire(monkeypatch, board)
     _turn(board, "next")
-    _turn(board, "next")
     adv = board.advances
     for msg in ("what is she like", "is that everyone", "tell me more"):
-        handed, voiced = _turn(board, msg)
-        assert voiced and handed == [], "the batch on the board was voiced: it is marked so, and no speaker is handed over"
-    assert board.advances == adv, "a non-cue turn commits nothing"
-    assert board.released() == {"Alpha Role", "Bravo Role", "Charlie Role"}
+        ch.mark_pre_resolved_advance(USER)  # something else already advanced this turn: the release stands down
+        s = board.state()
+        ch.note_premiere_turn(USER, s)
+        asyncio.run(ch.maybe_release_premiere_arrival(USER, s, retry=False, player_msg=msg))
+        assert oe._ENTRANCE_VOICED.get(USER) is True, "the batch on the board was voiced: the prompt is told so, and no speaker is handed over"
+    assert board.advances == adv, "a turn that does not advance commits nothing"
+
+
+def test_the_players_own_message_gets_one_batch_and_the_order_to_act_in_the_same_reply(monkeypatch):
+    board = Board()
+    _wire(monkeypatch, board)
+    handed, voiced = _turn(board, "let us look around the rooms")
+    assert board.spoke == BATCH and not voiced and handed == NAMES[:1]  # the host plus one houseguest: one batch, the circle keeps flowing
+    steer = ch._SCHEDULE_STEER.get(ch._runway_key(USER)) or ""
+    assert "OWN MESSAGE COMES FIRST" in steer and "never repeat it" in steer
+    ch._SCHEDULE_STEER.clear()
+    _turn(board, "next")
+    assert "OWN MESSAGE COMES FIRST" not in (ch._SCHEDULE_STEER.get(ch._runway_key(USER)) or ""), "an explicit next carries no player action"
 
 
 def test_a_batch_the_reply_never_named_is_handed_again_once_then_given_up(monkeypatch):
     board = Board()
     _wire(monkeypatch, board)
-    _turn(board, "next", narrate=False)  # batch 1 released, the reply never names it
-    handed, voiced = _turn(board, "next", narrate=False)  # batch 1 not named: not resolved, no release
-    assert board.idx == 1 and not voiced and handed == ["Alpha Role"], "an unvoiced batch is owed again"
-    handed, voiced = _turn(board, "next", narrate=False)  # handed twice: given up, so the next one is released
-    assert board.idx == 2 and not voiced
+    _turn(board, "next", narrate=False)  # a release, the reply never names it
+    first = board.spoke
+    handed, voiced = _turn(board, "next", narrate=False)  # not named: not resolved, no release, handed again
+    assert board.spoke == first and not voiced and handed, "an unvoiced release is owed again"
+    handed, voiced = _turn(board, "next", narrate=False)  # handed twice: given up, so the next release goes out
+    assert board.spoke > first and not voiced
 
 
 def test_the_moment_prompt_call_carries_the_flag(monkeypatch):

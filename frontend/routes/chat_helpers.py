@@ -948,6 +948,7 @@ _ARRIVALS_NAMED: dict = {}      # runway key -> set of arrival names a reply has
 _ARRIVALS_FRAMED: dict = {}     # runway key -> names the narrator was framed with this turn (the latest, plus any owed from before)
 _ARRIVAL_VOICE_HOLDS: dict = {}  # runway key -> consecutive turns the next release was held for an unnamed arrival
 _ARRIVAL_VOICE_HOLD_CAP = 2
+_TOAST_FLOW_BATCHES = 4  # ORW-997: an explicit next / continue plays up to this many toast batches (two speakers each) in one turn
 _TOAST_BATCH_NAMED: dict = {}   # runway key -> tuple of the toast batch a reply already voiced
 # ORW-997: the latest staged release (an arrival or a toast batch) and how many framed turns have handed it to the narrator. A release handed once and named in the reply (or handed twice) is VOICED: the next
 # framing of the same release says so (the engine marks the entrance `voiced`), so a no-advance turn never plays it again. A new release (a new signature) starts again at zero.
@@ -4650,6 +4651,29 @@ def _scan_quote_state(part: str, quote):
     return quote, first_close
 
 
+# ORW-999: an absent houseguest's SPEECH must never reach the player. The sentence drop alone left their quoted line standing when the line came in a following sentence ("Name drops onto the bed. "...""), after
+# a pronoun ("He shrugs. "...""), or with the name after the quote ("..." says Name). An absent houseguest named acting or speaking in the NARRATION holds the floor until a paragraph break or a present one is
+# named; while they hold it, quoted speech is theirs and is dropped.
+_SPEECH_ACT_ALT = (r"says|say|asks|ask|adds|add|replies|reply|mutters|mutter|murmurs|murmur|whispers|whisper|calls|tells|"
+                   r"grins|shrugs|laughs|drops|folds|snorts|sighs|nods")  # present tense only: a past-tense recollection ("told you yesterday") is not someone speaking now
+
+
+def _absent_holds_floor(narration: str, facts: dict, first_counts: dict) -> Optional[str]:
+    """The absent houseguest the narration (quotes already blanked) shows acting or speaking, or None."""
+    for n in list(facts.get("evicted") or ()) + list(facts.get("active_offscene") or ()):
+        if n in (facts.get("exempt") or ()):
+            continue
+        forms = [n]
+        first = n.split()[0]
+        if first != n and first_counts.get(first.lower(), 0) == 1:
+            forms.append(first)
+        for f in forms:
+            nm = re.escape(f)
+            if _stages_in_scene(narration, f) or re.search(rf"\b{nm}\b(?:\s+\w+){{0,2}}\s+(?:{_SPEECH_ACT_ALT})\b|\b(?:{_SPEECH_ACT_ALT})\s+{nm}\b", narration, re.IGNORECASE):
+                return n
+    return None
+
+
 async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[dict] = None) -> str:
     """A2 (#1726) — the STRUCTURAL, SAME-TURN presence guard. Returns `text` with any sentence that
     stages an off-scene or already-evicted houseguest as present/acting in the player's scene DROPPED
@@ -4713,6 +4737,21 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
             out.append(part)  # ORW-917: only finishing a carried drop this chunk; nothing to screen
             continue
         try:
+            # ORW-999: whose floor is it? quoted words are blanked, so only what the narration itself says decides
+            _narr = _QUOTED_SPEECH_RE.sub(" ", part)
+            _narr = re.sub(r'["\u201c\u201d].*', " ", _narr) if _scan_quote_state(_narr, None)[0] is not None else _narr
+            if part.startswith("\n"):
+                carry["floor"] = None  # a paragraph break hands the floor back
+            if any(_mentioned_anywhere(_narr, n, first_counts) for n in (facts.get("room_present") or ())):
+                carry["floor"] = None
+            elif not _sentence_frames_elsewhere(part, facts):
+                _holder = _absent_holds_floor(_narr, facts, first_counts)
+                if _holder and not (alt_facts and _holder not in (alt_facts.get("active_offscene") or ()) and _holder not in (alt_facts.get("evicted") or ())):
+                    carry["floor"] = _holder
+            if carry.get("floor") and (re.search(r'["\u201c\u201d]', part) or quote is not None):
+                dropped.add(carry["floor"])
+                drop_quote = quote is not None
+                continue  # DROP: their quoted speech
             hit = _sentence_stages_absent_npc(part, facts, first_counts)
             if hit and alt_facts and not _sentence_stages_absent_npc(part, alt_facts, _alt_counts):
                 hit = None  # present on the pre-sleep board: a goodnight in the evening room, not a phantom
@@ -8977,8 +9016,7 @@ def _premiere_arrival_due(user, game_state, player_msg) -> bool:
             # ORW-997: the toast batch is committed BEFORE the reply too, once the batch on the board has been voiced (or none is out yet) and the player asked for the next one.
             if not _entrance_release_resolved(user, game_state):
                 return False
-            due, _ = _al._entrance_pacing(0, player_msg or "", False, False, stage="toast")
-            return bool(due)
+            return True  # ORW-997: a watch-only circle flows - any player message brings the next batch once the one on the board is voiced; the player's own words ride the same reply
         if ent.get("playerEntrance") or not ent.get("total") or int(ent.get("index") or 0) >= int(ent.get("total") or 0):
             return False  # the player's own entrance is the narrator's to voice; nobody left to release
         turns = _al._TURNS_SINCE_PROGRESS.get(_al._belt_key(user), 0) + 1
@@ -9009,13 +9047,21 @@ async def maybe_release_premiere_arrival(user, game_state, *, retry: bool, playe
         _ARRIVAL_VOICE_HOLDS.pop(key, None)
         from src import orwell_engine
         idem = _mint_idempotency_key()
+        _toast = _entrance_stage_of(game_state) == "toast"
+        _cue = False
+        _kw = {}
+        if _toast:
+            from src import agent_loop as _al_cue
+            _cue = bool(_al_cue._entrance_pacing(0, player_msg or "", False, False, stage="toast")[0])
+            if _cue:
+                _kw["toast_batches"] = _TOAST_FLOW_BATCHES  # ORW-997: an explicit "next" plays several batches in this one turn
         try:
-            adv = await orwell_engine.advance_game(expected_beat_seq=last_beat_seq(user), idempotency_key=idem, user=user)
+            adv = await orwell_engine.advance_game(expected_beat_seq=last_beat_seq(user), idempotency_key=idem, user=user, **_kw)
         except Exception as _e:
             if not _is_stale_beat_error(_e):
                 raise
             await _handle_stale_beat(user, _e)
-            adv = await orwell_engine.advance_game(expected_beat_seq=last_beat_seq(user), idempotency_key=idem, user=user)  # SAME key: the engine dedupes
+            adv = await orwell_engine.advance_game(expected_beat_seq=last_beat_seq(user), idempotency_key=idem, user=user, **_kw)  # SAME key: the engine dedupes
         if not isinstance(adv, dict) or (adv.get("held") and not adv.get("event")):
             return game_state  # nothing committed: the end-of-turn belt remains the net
         _refresh_beat_seq(user, adv)
@@ -9039,6 +9085,11 @@ async def maybe_release_premiere_arrival(user, game_state, *, retry: bool, playe
                 _SCHEDULE_STEER.pop(key, None)
         note_premiere_turn(user, fresh)  # re-stamp justArrived / owed arrivals / the voicing check on the board the narrator now sees (clears the release mark, so:)
         mark_premiere_release(user)  # this turn's one release is spent: the narrator's own advanceGame is answered `held`
+        if _toast and not _cue:
+            # ORW-997 (the player's own request must not lose to the ceremony): the committed toast step is voiced in a short passage, then what the player asked happens in this same reply.
+            _SCHEDULE_STEER[key] = (_SCHEDULE_STEER.get(key, "") + "\n\n" if _SCHEDULE_STEER.get(key) else "") + (
+                "THE PLAYER'S OWN MESSAGE COMES FIRST AFTER THIS STEP (engine truth): the circle moved on this turn. Voice the committed toast step briefly, one or two lines for each speaker listed, in the order given, then do what the player's message asks in this same reply. "
+                "The host's call is voiced once; never repeat it and never hold the player's own action back for another step.")
         return fresh
     except Exception as _e:  # failsoft-ok: the end-of-turn silent advance stays the net
         logger.warning("[orwell] premiere arrival pre-release failed for user=%s: %s: %s", user, type(_e).__name__, _e)
