@@ -67,7 +67,7 @@ import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
 import { chooseHourAction, assembleScenes, habitsFor, floorRoutinesFor, routinesFromHabits, actionLine, roomActLine, formPlan, GOAL_PLAN, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction, type PlanStep } from "../../engine/houseLife";
 import { addRoutines, isStressed, mergeAuthoredRoutines, noteSighting, routineKey, routineNow } from "../../engine/routineLife";
-import type { Routine } from "../../engine/routines";
+import { ROUTINES, upBeforeTheCall, type Routine } from "../../engine/routines";
 import type { Habit } from "../../engine/houseLifeConstants";
 import { HOUSE_LIFE, ROOM_LIFE } from "../../engine/houseLifeConstants";
 import { REASONS } from "../../engine/agendaConstants";
@@ -8357,8 +8357,25 @@ export class GameSessionAdapter implements GameSession {
       bedtimeOf: (id) => this.effectiveBedDepth(id), // chronotype bedtime HOUR, conflict-drained (0066 Phase-2)
     });
     // ORW-705 PT-10: before the house's wake-up call, a houseguest who woke early and is still tired (their own hidden rest deficit) dozes back off and stays out of the awake set until the call.
-    if (!this.dozeWindowOpen(live)) return new Set(up);
-    return new Set(up.filter((id) => id === house.player.id || !dozesBackToBed(hour, this.restDeficitOf(id))));
+    const settled = this.dozeWindowOpen(live) ? up.filter((id) => id === house.player.id || !dozesBackToBed(hour, this.restDeficitOf(id))) : up;
+    return new Set(this.withMorningAnchors(live, hour, settled));
+  }
+
+  /**
+   * ORW-979 / spec 0209 slice 7.1 (`ORWELL_MORNING_ANCHOR`, default ON; `=0` opts out): the morning anchor. A houseguest whose own routines put them up before the 8am call (a strong morning routine,
+   * `upBeforeTheCall`) is awake in the last two hours before it, wherever their bed hour would have left them. Measured before this: in the played seasons the house had 0-3 houseguests awake in those hours (mean
+   * about one), so an early player found almost nobody about and no routine to see. Played games only, no rng, nothing is added after the call; a houseguest the doze rule already put back to sleep stays asleep.
+   */
+  private morningAnchorEnabled = flagDefaultOn("ORWELL_MORNING_ANCHOR");
+  setMorningAnchorEnabled(on: boolean): void { this.morningAnchorEnabled = on; }
+  private withMorningAnchors(live: LiveSeasonState, hour: number, up: readonly EntityId[]): EntityId[] {
+    if (!this.morningAnchorEnabled || live.playedGame !== true || live.finished) return [...up];
+    const h = hour >= 24 ? hour - 24 : hour; // the clock-hour of the day: 24..32 is the small hours of the next morning
+    if (hour >= WAKE_HOUR && hour < 24) return [...up]; // the day itself
+    if (h < WAKE_HOUR - ROUTINES.morningAnchorHours || h >= WAKE_HOUR) return [...up];
+    const have = new Set(up);
+    const extra = this.presenceActive().filter((id) => !have.has(id) && id !== this.house?.player.id && upBeforeTheCall(live.routines?.[id] ?? []) && !dozesBackToBed(h, this.restDeficitOf(id)));
+    return extra.length ? [...up, ...extra] : [...up];
   }
 
   private dozeBackEnabled = flagDefaultOn("ORWELL_DOZE_BACK_TO_BED"); // ORW-705 PT-10

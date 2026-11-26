@@ -27,6 +27,8 @@ export const ROUTINES = {
   learnAfterDays: 3,
   /** The morning (8am, the whole house's wake-up per Ryne 11-06): a morning routine at or above this strength means up and about before the call. */
   earlyRiserStrength: 0.6,
+  /** ORW-979: how many hours before the call an early riser is up (the morning anchor). */
+  morningAnchorHours: 2,
 } as const;
 
 /** Who usually shares the routine: nobody, one regular (a named houseguest the build resolves), or whoever is around. */
