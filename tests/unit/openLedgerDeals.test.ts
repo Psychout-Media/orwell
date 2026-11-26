@@ -249,7 +249,8 @@ describe("pure: recordDealEntry, the deal link and old saves", () => {
 });
 
 describe("a simulated season of deals: the open bound is never reached", () => {
-  it("striking deals every day with whoever is here, weekly evictions, no model: open lines stay under the bound; each deal has at most one line", () => {
+  // ORW-955: vitest 2 never enforced the 30 s limit on synchronous tests; this keeps that behaviour explicit
+  it("striking deals every day with whoever is here, weekly evictions, no model: open lines stay under the bound; each deal has at most one line", { timeout: 120_000 }, () => {
     const { g, view: v0 } = startAtNominations(4002);
     (g as unknown as { setOwnViewEnabled(on: boolean): void }).setOwnViewEnabled(false); // ORW-574: the own view changes who strikes how many deals; this checks the ledger's bound, not the decisions
     (g as unknown as { setRoutinesEnabled(on: boolean): void }).setRoutinesEnabled(false); // ORW-651: routines move who is where, and so how many deals a season strikes; this checks the ledger's bound, not behaviour
