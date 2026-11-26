@@ -2639,14 +2639,7 @@ function render(d) {
     ["Embeddings", emb ? esc(emb.provider || "?") + " " + B(!emb.degraded, emb.degraded ? "DEGRADED" : "OK") : B(false, "UNKNOWN")],
     ["Provider credit", (function (c) {
       if (!c) return '<span class="sub">—</span>';
-      const sp = c.dailySpendUsd || {}, ks = Object.keys(sp), last = ks.length ? ks[ks.length - 1] : null;
-      const bal = (c.balances || []).map(function (b) {
-        const when = b.checkedAt ? new Date(b.checkedAt * 1000).toISOString().slice(0, 16).replace("T", " ") + "Z" : "?";
-        if (b.status === "unknown") return esc(b.provider) + ' <span class="sub">balance unknown (' + (b.balanceUsd != null ? "last $" + esc(b.balanceUsd) + ", " : "") + "checked " + when + ")</span>";
-        return esc(b.provider) + " " + (b.status === "low" ? '<span class="warn">$' + esc(b.balanceUsd) + " LOW (under $" + esc(b.warnUsd) + ")</span>" : '<span class="ok">$' + esc(b.balanceUsd) + "</span>") + ' <span class="sub">(checked ' + when + ")</span>";
-      }).join(" · ");
-      return (c.degraded ? B(false, "OUT OF CREDIT") + " · " + esc((c.tripped || []).map(function (t) { return t.host; }).join(", ")) : B(true, "OK")) +
-        (bal ? " · " + bal : "") + (last ? " · spend " + esc(last) + " $" + esc(sp[last]) : "");
+      return (c.degraded ? B(false, "OUT OF CREDIT") : (c.lowBalance ? B(false, "LOW BALANCE") : B(true, "OK"))) + " " + esc(c.summary || "");
     })(d.providerCredit)],
     ["Image generation", (img.available ? B(true, "AVAILABLE") : B(false, img.enabled ? "NO USABLE MODEL" : "DISABLED")) + (img.model ? " · " + esc(img.model) : "") + (img.portraits && img.portraits.total ? " · portraits " + (img.portraits.missing ? '<span class="warn">' : '<span class="ok">') + esc(img.portraits.present) + "/" + esc(img.portraits.total) + "</span>" : "") + (img.lastRun && img.lastRun.failing ? ' · <span class="warn">last run FAILED (0/' + esc(img.lastRun.attempted) + ' — provider not producing images)</span>' : "")],
     ["Cast authoring", (ca && ca.total ? (ca.missing ? '<span class="warn">' : '<span class="ok">') + esc(ca.authored) + "/" + esc(ca.total) + "</span> deep-authored" + (ca.missing ? " · " + esc(ca.missing) + " on floor" : "") : '<span class="sub">—</span>')],

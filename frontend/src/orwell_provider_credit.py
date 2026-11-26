@@ -139,5 +139,20 @@ def snapshot() -> dict:
         balances = orwell_provider_balance.snapshot()
     except Exception:
         balances = []
-    return {"tripped": tripped, "degraded": bool(tripped), "dailySpendUsd": daily_spend(), "balances": balances,
-            "lowBalance": any(b.get("status") == "low" for b in balances)}
+    spend = daily_spend()
+    parts = []
+    if tripped:
+        parts.append("out of credit: " + ", ".join(t["host"] for t in tripped))
+    for b in balances:
+        when = time.strftime("%Y-%m-%d %H:%MZ", time.gmtime(b["checkedAt"]))
+        if b["status"] == "unknown":
+            last = f", last ${b['balanceUsd']}" if b.get("balanceUsd") is not None else ""
+            parts.append(f"{b['provider']} balance unknown{last} (checked {when})")
+        else:
+            flag = f" LOW, under ${b['warnUsd']}" if b["status"] == "low" else ""
+            parts.append(f"{b['provider']} ${b['balanceUsd']}{flag} (checked {when})")
+    if spend:
+        d = sorted(spend)[-1]
+        parts.append(f"spend {d} ${spend[d]}")
+    return {"tripped": tripped, "degraded": bool(tripped), "dailySpendUsd": spend, "balances": balances,
+            "lowBalance": any(b.get("status") == "low" for b in balances), "summary": " | ".join(parts)}

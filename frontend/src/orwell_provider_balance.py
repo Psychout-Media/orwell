@@ -121,7 +121,7 @@ async def check_once(now: Optional[float] = None, *, get=None, keys: Optional[di
             status, data = await get(_URLS[provider], key)
             if status == 200:
                 bal = parse_balance(provider, data)
-        except Exception:
+        except Exception:  # failsoft-ok: a failed balance check reads unknown, logs once and backs off (below)
             bal = None
         with _LOCK:
             st["checkedAt"] = t
