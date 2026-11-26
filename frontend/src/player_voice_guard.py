@@ -43,7 +43,27 @@ _FP_ACT = (r"(?:lean(?:ed)?|settle[sd]?|pour(?:ed)?|nod(?:ded)?|shrug(?:ged)?|gl
 _FP_RE = re.compile(r"^\s*(?:\*+|_+)?I\s+" + _FP_ACT + r"\b")
 _DECISION_RE = re.compile(r"\byou\s+(?:(?:decide|agree|accept|choose|vote|promise|resolve)|(?:decided|agreed|accepted|chose|voted|promised|resolved))\b", re.IGNORECASE)
 _YOU_SAY_RE = re.compile(r"(?:^|[.!?\n]\s*|,\s*|\b(?:and|then)\s+)you\s+(?:say|said|reply|replied|answer|answered|tell|told|whisper|whispered|ask|asked|add|added)\b[^\"\u201c\n]{0,40}[:,]?\s*[\"\u201c]", re.IGNORECASE)
-_DECISION_STEMS = ("decid", "agre", "accept", "chos", "choos", "vot", "promis", "resolv")
+# ORW-1062: whole-word verb forms (a stem substring let "devote" excuse "you vote" and "agreement" excuse "you agreed")
+_DECISION_FORMS = {
+    "decide": {"decide", "decides", "decided", "deciding"}, "agree": {"agree", "agrees", "agreed", "agreeing"}, "accept": {"accept", "accepts", "accepted", "accepting"},
+    "choose": {"choose", "chooses", "chose", "chosen", "choosing"}, "vote": {"vote", "votes", "voted", "voting"}, "promise": {"promise", "promises", "promised", "promising"},
+    "resolve": {"resolve", "resolves", "resolved", "resolving"},
+}
+_DECISION_VERB_OF = {f: k for k, forms in _DECISION_FORMS.items() for f in forms}
+# a conditional, a modal or a future fact is not a decision the narrator made for the player ("Whatever you decide, ...", "You vote tomorrow.")
+_COND_BEFORE_RE = re.compile(r"\b(?:whatever|whichever|whoever|however|whenever|if|when|once|unless|before|until|whether|should|would|could|might|may|can|will|won't|shall|going\s+to|about\s+to|have\s+to|need\s+to|must)\b[^.!?]*$", re.IGNORECASE)
+_FUTURE_AFTER_RE = re.compile(r"^[^.!?]*\b(?:tomorrow|later|soon|eventually|next\s+\w+|in\s+the\s+morning|at\s+the\s+(?:next|upcoming))\b", re.IGNORECASE)
+_ECHO_RE = re.compile(r"\b(?:repeat(?:s|ed|ing)?|echo(?:es|ed|ing)?|parrot(?:s|ed|ing)?|mimic(?:s|ked|king)?|asks?\s+it\s+back|throws?\s+it\s+back|hands?\s+it\s+back|back\s+at\s+you)\b", re.IGNORECASE)
+
+
+def _decision_is_a_fact(outside: str, m: "re.Match[str]", pm_words: List[str]) -> bool:
+    """True when the unquoted text states a decision the narrator made for the player: a main-clause, unconditional, not-future `you <decision verb>` the player's own message does not hold as a whole word."""
+    if _COND_BEFORE_RE.search(outside[:m.start()]) or _FUTURE_AFTER_RE.match(outside[m.end():]):
+        return False
+    verb = _DECISION_VERB_OF.get(m.group(0).split()[-1].lower())
+    return not (verb and any(w in _DECISION_FORMS[verb] for w in pm_words))
+
+
 _ATTRIB_RE = re.compile(r"\byou(?:'ve|\s+have)?\s+(?:said|told|asked|wrote|typed|say|mentioned|put\s+it|called|promised)\b", re.IGNORECASE)
 _LABELLED_QUOTE_RE = re.compile(r"[\w'’.\- ]{2,40}[—–-]\s*[\"“]")  # `Name — "` the speaker label in front of a houseguest line
 
@@ -132,11 +152,11 @@ def screen(text: str, player_msg: Any, state: Optional[PlayerVoiceState] = None,
                         st.dropping_quote = bool(q_after)
             if fact is None and not q_open and "?" not in outside and not _HEDGE_RE.search(outside):
                 m = _DECISION_RE.search(outside)
-                if m and not any(stem in pm_norm for stem in _DECISION_STEMS if stem in m.group(0).lower()):
+                if m and _decision_is_a_fact(outside, m, pm_words):
                     fact = FACT_DECISION
             if fact is None and (q_open or '"' in part or "\u201c" in part or "\u201d" in part):
                 qw = _norm_words(" ".join(_quoted_spans(part, q_open)))
-                if qw and pm_q and "?" in part and not _ATTRIB_RE.search(part):
+                if qw and pm_q and "?" in part and not _ATTRIB_RE.search(part) and not _ECHO_RE.search(text):  # ORW-1062: a houseguest echoing a question back is normal speech
                     opening = bool(_LABELLED_QUOTE_RE.search(part)) and len(qw) >= _OPEN_RUN and _has_run(qw[:_OPEN_RUN], pm_q, _OPEN_RUN)
                     cross = _has_run(st.recent_words + qw, pm_q, _CROSS_RUN, must_touch_from=len(st.recent_words))
                     if opening or cross:
