@@ -605,7 +605,7 @@ _BROWSER_STATE_SHAPE = {
     "house": [{"id": _T, "name": _T, "status": _T, "evictedSeq": _T, "lastSeenMood": _T}],
     "asleep": [_NAMED], "awake": [_NAMED], "deals": [_DEAL],
     "premiere": {"met": [_MET_ROW], "remaining": [_MET_ROW], "complete": _T, "metCount": _T, "total": _T, "champagneCircle": _T},
-    "daySchedule": {"next": _T, "phase": _T, "due": _T, "minutesUntil": _T, "todaysEvent": _T, "tomorrow": _T, "finalHohPart": _T},
+    "daySchedule": {"headerPhase": _T, "next": _T, "phase": _T, "due": _T, "minutesUntil": _T, "todaysEvent": _T, "tomorrow": _T, "finalHohPart": _T},
     "watching": {"moments": [_T]},
     "casting": {"missing": [_T]},
     "castingHouse": {"state": _T, "authored": _T, "total": _T, "missing": _T},

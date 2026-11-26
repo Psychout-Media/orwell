@@ -9,6 +9,7 @@ def _state(phase, tod, today=None):
     ds = {"next": phase, "phase": "evening", "due": False, "minutesUntil": 700}
     if today:
         ds["todaysEvent"] = today
+        ds["headerPhase"] = today  # ORW-775: the engine applies the rule and sends the header's phase
     return {"started": True, "week": 1, "phase": phase, "timeOfDay": tod, "daySchedule": ds}
 
 
@@ -40,6 +41,7 @@ def test_orw705_day_two_before_the_first_hoh_names_the_hoh_not_the_premiere():
     s = _state("premiere", "morning")
     s["dayNumber"] = 2
     s["daySchedule"]["next"] = "hoh-competition"
+    s["daySchedule"]["headerPhase"] = "hoh-competition"  # ORW-775: the engine applies the PT-11 rule (tests/unit/headerPhase775.test.ts)
     assert ch._format_game_moment(s) == "Week 1 · HOH competition · Morning"
 
 
