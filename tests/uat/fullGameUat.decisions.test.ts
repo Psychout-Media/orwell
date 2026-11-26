@@ -48,6 +48,7 @@ describe("full-game UAT — decision-type coverage (real HTTP)", () => {
 
   it(
     "all 4 player decision types are exercised across the 12-seed run set",
+    { timeout: TEST_TIMEOUT_MS },
     async () => {
       // Re-run a representative subset (seeds 1-5) to verify coverage without
       // re-running the full 12-seed suite (which runs in the uat-12seed lane). The player only gets a
@@ -77,15 +78,6 @@ describe("full-game UAT — decision-type coverage (real HTTP)", () => {
       expect(merged["nominations"] ?? 0, `nominations decisions hit (${tried})`).toBeGreaterThan(0);
       expect(merged["eviction-vote"] ?? 0, `eviction-vote decisions hit (${tried})`).toBeGreaterThan(0);
     },
-    // Five full seasons over real HTTP: slow CI/sandbox hosts need the same headroom as the
-    // 12-seed lane (measured at ~62s on an unmodified main in a shared-CPU environment — the
-    // old 60s budget was a hair-trigger env flake; and the E42–E55 consequence folds added real
-    // per-beat work on top of the transport cost; assertions unchanged, only the wall-clock
-    // budget breathes). UAT_TIMEOUT_SCALE (default 1) lets the deployed-profile CI lane widen the budget:
-    // that profile simulates several times slower (#1922), and only the budget moves, never an assertion.
-    // Capped at 40 minutes: the deployed lane scales the budget by 10, and an uncapped ~100 min would outlive
-    // the 45-minute job timeout (the runner would kill the job with no diagnostic).
-    { timeout: TEST_TIMEOUT_MS },
   );
 
   // ── Health endpoint reachable (sanity) ────────────────────────────────────

@@ -1,5 +1,6 @@
 import { appendFileSync } from "node:fs";
-import type { File, Reporter, Task } from "vitest";
+import type { RunnerTask as Task, RunnerTestFile as File } from "vitest";
+import { experimental_getRunnerTask, type Reporter, type TestModule } from "vitest/node";
 
 /**
  * ORW-229 flaky-test rule (docs/CI.md): CI retries a failed engine test once (`--retry=1`). A test that passes only on that retry is a FLAKE, and a
@@ -27,7 +28,7 @@ function fullName(task: Task, file: File): string {
 }
 
 function walk(task: Task, out: Task[]): void {
-  if (task.type === "test" || task.type === "custom") out.push(task);
+  if (task.type === "test") out.push(task);
   if ("tasks" in task) for (const child of task.tasks) walk(child, out);
 }
 
@@ -68,8 +69,9 @@ export function summaryMarkdown(r: FlakeReport, lane: string): string {
 }
 
 export default class FlakyReporter implements Reporter {
-  onFinished(files: File[] = []): void {
-    const r = collectFlakes(files);
+  // vitest 4 removed `onFinished(files)`; `onTestRunEnd` hands over the reported modules, and the runner task tree (what collectFlakes reads) is behind getRunnerTask.
+  onTestRunEnd(testModules: ReadonlyArray<TestModule> = []): void {
+    const r = collectFlakes(testModules.map((m) => experimental_getRunnerTask(m)));
     const lane = process.env.ORWELL_FLAKE_LANE ?? "";
     console.log(`[flaky-report] ${r.flaky.length} passed only on a retry, ${r.stillRed.length} still red after a retry, ${r.quarantined.length} quarantined and skipped`);
     for (const x of r.flaky) console.log(`::warning title=Flaky test (passed on retry)::${x.file} > ${x.test}`);

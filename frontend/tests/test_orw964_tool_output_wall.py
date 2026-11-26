@@ -97,8 +97,8 @@ def test_every_dict_level_of_the_tool_shape_is_closed():
     assert S not in json.dumps(out) and "zzUnknown" not in json.dumps(out)
 
 
-def test_only_the_two_advance_tools_are_projected_and_a_bad_output_fails_closed():
-    assert agent_loop._browser_tool_output("makeDeal", {"output": json.dumps({"x": S})}) is None
+def test_only_engine_game_tools_are_projected_and_a_bad_output_fails_closed():
+    assert agent_loop._browser_tool_output("bash", {"output": json.dumps({"x": S})}) is None  # not an engine game tool: its own text stands (ORW-975 closed every engine game tool, not only these two)
     assert agent_loop._browser_tool_output("advanceGame", {"output": "not json " + S}) == ""
     assert agent_loop._browser_tool_output("submitDecision", {"output": json.dumps([S])}) == ""
     assert agent_loop._browser_tool_output("advanceGame", {"error": "engine refused: " + S}) == ""

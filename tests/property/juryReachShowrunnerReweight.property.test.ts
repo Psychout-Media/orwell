@@ -35,6 +35,7 @@ describe("0101/#1401 Phase-2 — jury-reach band holds with the showrunner rewei
 
   it(
     `across ${SEEDS} passive seeded live seasons WITH the reweight ON, the jury-reach band still holds`,
+    { timeout: 600_000 },
     async () => {
       const results = await playSeeds(1, SEEDS + 1);
       // Report the distribution (the acceptance evidence) before the assertion, so a CI log shows ON numbers.
@@ -44,6 +45,5 @@ describe("0101/#1401 Phase-2 — jury-reach band holds with the showrunner rewei
       console.log(`[reweight-ON] jury-reach: reached=${reachedJury}/${SEEDS}, F2 wins=${f2Wins}, seats=${results.map((r) => r.status).join(",")}`);
       assertBand(results, expect as never);
     },
-    { timeout: 600_000 },
   );
 });

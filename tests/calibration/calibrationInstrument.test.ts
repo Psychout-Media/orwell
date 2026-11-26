@@ -54,6 +54,7 @@ const pct = (k: number, n: number): string => (n ? `${((100 * k) / n).toFixed(0)
 describe("calibration instrument — passive vs active reach/win data (no tuning changes)", () => {
   it(
     `plays ${SEEDS} seeded seasons per strategy and emits the calibration data artifact`,
+    { timeout: Number(process.env.ORWELL_CALIB_TIMEOUT_MS ?? 1_200_000) }, // 3 × SEEDS full live seasons; generous for loaded hosts
     async () => {
       const runtime = composeRuntime({
         clock: new FakeClock(),
@@ -132,6 +133,5 @@ describe("calibration instrument — passive vs active reach/win data (no tuning
       // eslint-disable-next-line no-console
       console.log(`\n=== CALIBRATION DATA (${SEEDS} seeds/arm) ===\n${line(passiveSummary)}\n${line(solidSummary)}\n${line(recklessSummary)}\n${WRITE_ARTIFACTS ? `json: ${outPath}\nmd:   ${mdPath}` : "(artifacts not written — set ORWELL_CALIB_WRITE=1 or ORWELL_CALIB_OUT to persist)"}\n`);
     },
-    { timeout: Number(process.env.ORWELL_CALIB_TIMEOUT_MS ?? 1_200_000) }, // 3 × SEEDS full live seasons; generous for loaded hosts
   );
 });

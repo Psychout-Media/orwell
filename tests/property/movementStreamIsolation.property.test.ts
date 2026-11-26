@@ -148,6 +148,7 @@ async function withMovement(over: Partial<typeof MOVEMENT_PERSONALITY>, fn: () =
 describe("L21/L24 — movement-RNG isolation: the competition/vote stream is unaffected", () => {
   it(
     "extreme personality movement weighting leaves every public competition/vote outcome byte-identical",
+    { timeout: 600_000 },
     async () => {
       // AMEND 0078 #2 (Ryne: location SHOULD matter). What this test claims is NARROW and true: weighted movement rides its OWN dedicated stream, so it never perturbs the SEEDED
       // competition/vote random stream. It does NOT claim location never changes outcomes - co-presence legitimately shapes who talks to whom, and therefore (through recorded events and
@@ -180,6 +181,5 @@ describe("L21/L24 — movement-RNG isolation: the competition/vote stream is una
         expect(baseline.length).toBeGreaterThan(10);
       }
     },
-    { timeout: 600_000 },
   );
 });

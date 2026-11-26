@@ -52,7 +52,8 @@ function playLiveStretch(seed: number) {
 }
 
 describe("behavioral fidelity on the PRODUCTION path (B54)", () => {
-  it("offscreen share, type diversity, alliance life, and bounded reveals hold across 20 seeds", () => {
+  // ORW-955: vitest 2 never enforced the 30 s limit on synchronous tests; this keeps that behaviour explicit
+  it("offscreen share, type diversity, alliance life, and bounded reveals hold across 20 seeds", { timeout: 120_000 }, () => {
     let revealsAcrossSeeds = 0;
     for (const seed of SEEDS) {
       const { sb, edgesBefore } = playLiveStretch(seed);

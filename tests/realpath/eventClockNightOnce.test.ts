@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, vi, type MockInstance } from "vitest";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { answerPending } from "../../features/support/answerPending";
@@ -29,7 +29,7 @@ describe("a night is counted once, even when an event's later steps sit at 8am (
       if (["night", "late-night"].includes(live.timeOfDay)) s.turnIn();
     }
     expect(stayedUp, "the player reached 7:30am with the eviction still due").toBe(true);
-    const accrue = vi.spyOn(GameSessionAdapter.prototype as never, "accrueNightFatigue" as never);
+    const accrue = vi.spyOn(GameSessionAdapter.prototype as never, "accrueNightFatigue" as never) as unknown as MockInstance;
     try {
       let result = false;
       for (let i = 0; i < 2000 && !result; i++) {
