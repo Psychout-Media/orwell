@@ -1783,7 +1783,8 @@ export class GameSessionAdapter implements GameSession {
     for (const e of this.openLedger.entries) {
       const term = e.term;
       if (e.status !== "open" || !term || term.by !== holder || term.what !== what) continue;
-      if ((term.window ?? "week") === "week" && term.week !== undefined && term.week !== week) continue;
+      // ORW-693 (B1-6): a final-two promise is the one season-long term (0187; the judge reads it at the final two whatever its week): it is read at the final three however long ago it was made
+      if (what !== "final-two" && (term.window ?? "week") === "week" && term.week !== undefined && term.week !== week) continue;
       const subject = termSubject(term) as EntityId;
       const stats = this.house?.npcs.find((n) => n.id === holder)?.character.stats;
       const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(holder), this.emotionalReadOf(holder))));
