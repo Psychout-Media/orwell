@@ -171,15 +171,10 @@ def _response_format_for(messages) -> Optional[dict]:
     """ORW-391: JSON mode only for a prompt that asks for JSON. DeepSeek (the OOB utility model) answers 400 "Prompt must contain the word 'json'" to a json_object request whose prompt does not, and the shared utility fn
     is also used for PROSE calls (the ORW-271 day condense): that call failed after every bedtime and the day was never condensed. Any message mentioning "json" (any case) keeps the format exactly as before."""
     try:
-        for m in messages or []:
-            c = m.get("content") if isinstance(m, dict) else None
-            if isinstance(c, str) and "json" in c.lower():
-                return _RESPONSE_FORMAT
-            if isinstance(c, list) and any(isinstance(b, dict) and "json" in str(b.get("text", "")).lower() for b in c):
-                return _RESPONSE_FORMAT
+        from src.llm_core import messages_mention_json
+        return _RESPONSE_FORMAT if messages_mention_json(messages) else None
     except Exception:
         return _RESPONSE_FORMAT
-    return None
 
 # #1044: the SHARED background-utility sampling temperature. This module's `_resolve_llm_fn` is the
 # common resolver for several background lanes (zeitgeist / off-screen texture / identity / the gateway
@@ -3245,6 +3240,14 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             _dropped = parse_dropped(text, npc)  # ORW-956: the biography / identityConcept the parse floors deleted from the first draft
             if problems:
                 logger.info(f"[cast-authoring] look check failed for {hid} ({', '.join(problems)}) — retrying once")
+                try:  # ORW-1025: counted per look-check failure
+                    from src import log_rings
+                    log_rings.record_soft_failure(
+                        "cast-authoring:look-check-failed",
+                        f"look check failed for {hid} ({', '.join(problems)})",
+                        corrected="strict-retry", user=user, houseguest=hid)
+                except Exception:  # pragma: no cover - the health record must never break authoring
+                    pass
                 _spend_attempt(ukey, hid)
                 try:
                     look_messages = build_authoring_messages(npc, taken=_taken_for(hid), hand=hand_by_id.get(hid))
@@ -3274,6 +3277,14 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                     logger.warning(
                         f"[cast-authoring] look fell back to the seeded brief for {hid} after the retry "
                         f"({', '.join(applied)}) — look-fallback")
+                    try:  # ORW-1025: a counted, visible degrade (the photo may not match the written face)
+                        from src import log_rings
+                        log_rings.record_soft_failure(
+                            "cast-authoring:look-fallback",
+                            f"look for {hid} fell back to the seeded brief after the retry ({', '.join(applied)})",
+                            corrected="seeded-brief", user=user, houseguest=hid)
+                    except Exception:  # pragma: no cover - the health record must never break authoring
+                        pass
             elif _dropped and not _given_up(ukey, hid):
                 # ORW-956: nothing failed a look check, but a parse floor deleted the biography or identity line: ask for it once
                 _spend_attempt(ukey, hid)
@@ -3746,6 +3757,13 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
             messages = [{"role": "user", "content": messages}]
         elif not isinstance(messages, list):
             messages = [{"role": "user", "content": str(messages)}]
+        try:  # ORW-1024: name the caller class so a provider 400 says who sent it (labels only)
+            import sys as _sys
+            from src.llm_core import LLM_CALLER
+            _f = _sys._getframe(1)
+            LLM_CALLER.set(f"{_f.f_globals.get('__name__', '?')}.{_f.f_code.co_name}")
+        except Exception:  # pragma: no cover - a log label only
+            pass
         text, finish, reasoning = await _once(messages, _max_tokens)
         if finish == "error":
             # ORW-437: a failed stream RAISES (never returns the frame as text): every consumer already wraps the call in a
@@ -3761,6 +3779,14 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
             logger.warning(
                 f"[cast-authoring] completion hit the output cap (finish_reason=length at "
                 f"max_tokens={_max_tokens}) — retrying ONCE at a doubled cap {retry_cap}")
+            try:  # ORW-1025: a counted, visible degrade (every cast paying two calls shows on /admin/status)
+                from src import log_rings
+                log_rings.record_soft_failure(
+                    "cast-authoring:output-cap-hit",
+                    f"completion hit the output cap at max_tokens={_max_tokens}",
+                    corrected="doubled-cap-retry", user=owner)
+            except Exception:  # pragma: no cover - the health record must never break authoring
+                pass
             retry_text, _retry_finish, retry_reasoning = await _once(messages, retry_cap)
             if _retry_finish == "error":
                 # ORW-437: the doubled-cap retry ended in an error frame: raise, never hand the frame back as a completion.

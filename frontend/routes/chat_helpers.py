@@ -974,6 +974,26 @@ _ARRIVALS_NAMED: dict = {}      # runway key -> set of arrival names a reply has
 _ARRIVALS_FRAMED: dict = {}     # runway key -> names the narrator was framed with this turn (the latest, plus any owed from before)
 _ARRIVAL_VOICE_HOLDS: dict = {}  # runway key -> consecutive turns the next release was held for an unnamed arrival
 _ARRIVAL_VOICE_HOLD_CAP = 2
+_ARRIVAL_POSTREPLY_DEFERS: dict = {}  # ORW-1029: runway key -> consecutive turns the end-of-turn silent arrival commit was left for the next turn's pre-reply release
+
+
+def defer_postreply_arrival_commit(user) -> bool:
+    """ORW-1029: a staged premiere arrival (or toast batch) committed silently AFTER the reply is never in that reply, so the next turn must voice it from framing and the narrator often does not
+    (the 11-26 prod run: entrances 11, 12 and 14 committed and never narrated). `maybe_release_premiere_arrival` already commits the due arrival BEFORE the reply; so when the end-of-turn stall belt
+    would commit one after the reply, leave it: the staleness clock is untouched, so the next turn's pre-release finds it due. Bounded (one deferral in a row) so a pre-release that cannot run
+    (held, exception, a pre-resolve already used the turn) still gets the end-of-turn net. True = skip the post-reply commit. Never raises."""
+    try:
+        key = _runway_key(user)
+        if not premiere_entrance_active(user) or _PREMIERE_ENTRANCE_STAGE.get(key) not in ("entrances", "toast"):
+            _ARRIVAL_POSTREPLY_DEFERS.pop(key, None)
+            return False
+        if _ARRIVAL_POSTREPLY_DEFERS.get(key, 0) >= 1:
+            _ARRIVAL_POSTREPLY_DEFERS.pop(key, None)
+            return False
+        _ARRIVAL_POSTREPLY_DEFERS[key] = 1
+        return True
+    except Exception:
+        return False
 _TOAST_FLOW_BATCHES = 4  # ORW-997: an explicit next / continue plays up to this many toast batches (two speakers each) in one turn
 _TOAST_BATCH_NAMED: dict = {}   # runway key -> tuple of the toast batch a reply already voiced
 # ORW-997: the latest staged release (an arrival or a toast batch) and how many framed turns have handed it to the narrator. A release handed once and named in the reply (or handed twice) is VOICED: the next
@@ -5349,6 +5369,11 @@ def _forget_season_pacing(user) -> None:
         dkey = _desync_key(user)
         _CUT_STREAK.pop(dkey, None)
         _DESYNC_REGROUND.pop(dkey, None)
+        try:
+            from src import orwell_companions as _oc_reset
+            _oc_reset.clear(user)  # ORW-1030: last season's companions do not walk into the new one
+        except Exception:
+            pass
         _CEREMONY_UNVOICED.pop(dkey, None)  # review of #2287: last season's unvoiced ceremony must not be re-grounded into the new one
         rkey = _runway_key(user)
         _PREMIERE_ENTRANCE_STAGE.pop(rkey, None)
@@ -9366,6 +9391,7 @@ async def maybe_release_premiere_arrival(user, game_state, *, retry: bool, playe
             logger.info("[orwell] premiere arrival release held for user=%s: the last arrival is not yet voiced (hold %d/%d)", user, _ARRIVAL_VOICE_HOLDS[key], _ARRIVAL_VOICE_HOLD_CAP)
             return game_state
         _ARRIVAL_VOICE_HOLDS.pop(key, None)
+        _ARRIVAL_POSTREPLY_DEFERS.pop(key, None)  # ORW-1029: the pre-reply release ran; the next post-reply deferral starts fresh
         from src import orwell_engine
         idem = _mint_idempotency_key()
         _toast = _entrance_stage_of(game_state) == "toast"
@@ -10057,6 +10083,16 @@ async def apply_game_framing(
         game_state = await _pre_resolve_npc_ceremony(
             user, game_state, retry=game_build, player_msg=player_msg)
         game_state = await maybe_release_premiere_arrival(user, game_state, retry=game_build, player_msg=player_msg)  # ORW-954
+        try:  # ORW-1030: an agreed companion is an engine fact: undo any presence drift before the narrator reads the room, and tell the narrator who walks with the player
+            from src import orwell_companions as _oc
+            if await _oc.enforce(user):
+                game_state = (await orwell_engine.get_game_state(user=user)) or game_state
+            _cl = _oc.steer_line(user)
+            if _cl:
+                _ck = _runway_key(user)
+                _SCHEDULE_STEER[_ck] = (_SCHEDULE_STEER.get(_ck, "") + "\n\n" if _SCHEDULE_STEER.get(_ck) else "") + _cl
+        except Exception:  # failsoft-ok: companions are an aid; the engine board stays the authority
+            pass
         # P2: a session this process has never framed is a FRESH CONTEXT — request the
         # re-entry moment so the engine's prompt carries THE RECORD (ADR 0003 §6: long-term
         # memory is the store recalled, never the chat remembered). Subsequent turns in the

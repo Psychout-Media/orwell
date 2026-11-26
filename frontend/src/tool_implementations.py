@@ -4593,6 +4593,8 @@ async def do_record_interaction(content: str, owner: Optional[str] = None) -> Di
     _felt = _felt if isinstance(_felt, (int, float)) and _felt > 0 else None
     # ORW-104: the model-driven path carries the same closed-set casual assurance / heard-about-me descriptors as the belt (validated against the scene's own withIds; no number crosses).
     from src.agent_loop import _validate_actor, _validate_assurance, _validate_heard_about_me
+    if isinstance(args.get("withIds"), (str, int)) and not isinstance(args.get("withIds"), bool):
+        args = {**args, "withIds": [args["withIds"]]}  # ORW-1022: a lone id is a one-entry list (a string iterated per character)
     _raw_with = args.get("withIds") if isinstance(args.get("withIds"), list) else []
     _rejected_with: list = []
     if any(not (isinstance(w, str) and _CANON_ENTITY_ID_RE.fullmatch(w)) for w in _raw_with):

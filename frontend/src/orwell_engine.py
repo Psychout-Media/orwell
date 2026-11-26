@@ -7,6 +7,7 @@ engine side, not here). Endpoint comes from ``ORWELL_ENGINE_MCP_URL``.
 import asyncio
 import logging
 import os
+import re
 import time
 
 import httpx
@@ -1248,6 +1249,31 @@ async def run_competition(comp_type: str | None = None, participant_ids: list | 
     return await _call("runCompetition", args, user=user)
 
 
+_WITNESS_ID_RE = re.compile(r"(?:player|npc:\d+)")
+
+
+def witness_set_for(initiator, with_ids) -> tuple:
+    """ORW-1022: the engine refuses a whole recordInteraction when witnessSet is not an array of houseguest ids
+    ('player' or 'npc:<n>'). A bare string or single id is coerced to a one-entry list (iterating it char by char
+    produced the refused shape), entries that are not ids are dropped. Returns (witness_list, dropped_count)."""
+    if isinstance(with_ids, (str, int)) and not isinstance(with_ids, bool):
+        with_ids = [with_ids]
+    elif not isinstance(with_ids, (list, tuple, set)):
+        with_ids = []
+    init = initiator if isinstance(initiator, str) and _WITNESS_ID_RE.fullmatch(initiator) else "player"
+    dropped = 0
+    witness = [init]
+    for w in with_ids:
+        if isinstance(w, str) and _WITNESS_ID_RE.fullmatch(w.strip()):
+            if w.strip() not in witness:
+                witness.append(w.strip())
+        else:
+            dropped += 1
+    if "player" not in witness:
+        witness.append("player")
+    return witness, dropped
+
+
 async def record_interaction(content: str, with_ids: list | None = None, initiator: str = "player", kind: str | None = None, consequence: dict | None = None, expected_beat_seq: int | None = None, idempotency_key: str | None = None, felt_minutes: int | None = None, assurance: dict | None = None, heard_about_me: dict | None = None, promise: dict | None = None, statement: dict | None = None, user: str | None = None) -> dict:
     """Record a player-present scene as an engine event (player-witnessed → the player's
     knowledge, never the Vault). An optional `kind` folds the hidden relationship impact (0023);
@@ -1266,9 +1292,16 @@ async def record_interaction(content: str, with_ids: list | None = None, initiat
     AT-MOST-ONCE: under sustained two-window concurrency two turns can drain the same deferred fold and
     re-drive it, and the key is what stops that from double-folding the hidden layer (CAS alone can't —
     both re-drives carry a valid reconciled token). Absent ⇒ byte-identical to the pre-key path."""
-    witness = [initiator] + [w for w in (with_ids or []) if w != initiator]
-    if "player" not in witness:
-        witness.append("player")
+    witness, _dropped_w = witness_set_for(initiator, with_ids)
+    if _dropped_w:
+        try:  # ORW-1022: a counted, visible degrade: ids the engine would have refused the whole write over
+            from src import log_rings
+            log_rings.record_soft_failure(
+                "engine-write:witness-ids-dropped",
+                f"recordInteraction: dropped {_dropped_w} witness entr(ies) that are not houseguest ids",
+                corrected="invalid-ids-dropped")
+        except Exception:  # failsoft-ok: the health record must never break the write
+            pass
     req: dict = {"initiator": initiator, "witnessSet": witness, "content": content}
     if kind:
         req["kind"] = kind

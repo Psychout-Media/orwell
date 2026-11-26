@@ -42,8 +42,11 @@ async function betrayalScene(seed: number, user: string, on: boolean) {
 const closeOf = (t: Awaited<ReturnType<typeof betrayalScene>>): string[] => t.outside.filter((f) => t.best(f) >= FRIEND_MEMORY.minBond);
 const farOf = (t: Awaited<ReturnType<typeof betrayalScene>>): string[] => t.outside.filter((f) => t.best(f) < FRIEND_MEMORY.minBond);
 /** The first seed from 11 whose scene has a close friend and a distant houseguest outside it (flag on). */
-const sceneWithBoth = () => firstSeedWhere(async (seed, sandbox) => { const t = await betrayalScene(seed, sandbox, true); return closeOf(t).length > 0 && farOf(t).length > 0 ? t : undefined; },
+// ORW-1043: both tests want the same flag-on scene (same scan, same sandboxes): it is played once. The first reads it; the second reads only its seed.
+let found: ReturnType<typeof findScene> | undefined;
+const findScene = () => firstSeedWhere(async (seed, sandbox) => { const t = await betrayalScene(seed, sandbox, true); return closeOf(t).length > 0 && farOf(t).length > 0 ? t : undefined; },
   { from: 1, to: 12, hint: 11, sandbox: (s) => `friends-true-${s}`, what: "a scene with a close friend and a distant houseguest outside it" });
+const sceneWithBoth = () => (found ??= findScene());
 
 describe("B25 REAL PATH: a betrayal the player records reaches the touched houseguests' close friends", () => {
   it("on: full weight for the people in the scene, smaller for close friends outside it, nothing below the bar", async () => {

@@ -590,7 +590,7 @@ rag_available = rag_manager is not None
 if rag_available:
     logger.info("Vector document RAG initialized")
 else:
-    logger.info(
+    logger.debug(  # ORW-1027: expected on the game build (no ChromaDB); the one startup summary line below says so
         "Vector document RAG not available at startup "
         "(ChromaDB may not be reachable yet — routes will retry lazily)"
     )
@@ -1311,7 +1311,9 @@ async def _startup_event():
     else:
         logger.info(
             "Game build: RAG ToolIndex not wired (fixed permissioned allowlist + "
-            "keyword-fallback tool selection; set CHROMADB_HOST to enable RAG)."
+            "keyword-fallback tool selection; set CHROMADB_HOST to enable RAG). "
+            "Startup summary: vector document RAG off and python-magic fallback are expected here; "
+            "their detail lines are DEBUG or once-per-process INFO, so any WARNING in a clean start is real."
         )
     # Warmup: ping all known LLM endpoints to prime connections
     async def _warmup_endpoints():

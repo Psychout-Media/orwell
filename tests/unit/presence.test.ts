@@ -496,9 +496,12 @@ describe("whereabouts (0049) — the Vault-free presence read", () => {
     expect(sb.session.movePlayer("backyard")!.room).toBe("backyard");
     expect(sb.session.movePlayer("HOH")!.room).toBe("hoh-room");
     expect(sb.session.movePlayer("pantry")!.room).toBe("storage-room");
-    // A bare "bedroom" (the exact real-log failure) resolves to a real bedroom rather than no-op.
-    const afterBedroom = sb.session.movePlayer("bedroom")!;
-    expect(["bedroom-a", "bedroom-b"]).toContain(afterBedroom.room);
+    // ORW-1064: a bare "bedroom" from a room that is not next to one is AMBIGUOUS: an explicit refusal with the candidates (never the first one, never a silent no-op), then a named bedroom moves.
+    const refused = sb.session.movePlayer("bedroom")!;
+    expect(refused.moveRefused?.reason).toBe("ambiguous-room");
+    expect(refused.moveRefused?.candidates?.length).toBeGreaterThan(1);
+    const afterBedroom = sb.session.movePlayer(refused.moveRefused!.candidates![0]!)!;
+    expect(["bedroom-a", "bedroom-b", "bedroom-c"]).toContain(afterBedroom.room);
     // Standing in a bedroom, "bedroom" keeps them put (idempotent, not unknown).
     const stay = sb.session.movePlayer("bedroom")!;
     expect(stay.room).toBe(afterBedroom.room);

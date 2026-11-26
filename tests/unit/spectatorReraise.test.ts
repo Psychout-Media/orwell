@@ -27,14 +27,28 @@ function resolve(s: GameSessionAdapter, p: NonNullable<AdvanceView["pending"]>):
 }
 
 let seq = 0;
-/** A season paused ON the spectator-choice card of a pre-jury-evicted player (seed-searched, never pinned). */
+/**
+ * A season paused ON the spectator-choice card of a pre-jury-evicted player (seed-searched, never pinned).
+ * ORW-1043: the season is the same game under every sandbox name used here (the whole saved state is identical at the card), so the search runs once and each
+ * test restores that save into its own fresh sandbox.
+ */
+let cardSave: string | undefined;
 function pausedOnCard(): GameSessionAdapter {
+  const user = `sr${seq++}`;
+  if (cardSave === undefined) cardSave = searchForCard(user);
+  const reg = new GameSessionRegistry();
+  reg.sandboxFor(user);
+  reg.restore(user, JSON.parse(cardSave));
+  return reg.sandboxFor(user).session;
+}
+function searchForCard(user: string): string {
   for (let seed = 1; seed <= 60; seed++) {
-    const s = new GameSessionRegistry().sandboxFor(`sr${seq++}`).session;
+    const reg = new GameSessionRegistry();
+    const s = reg.sandboxFor(user).session;
     s.createCharacter({ playerName: "P", seed });
     for (let i = 0; i < 8000; i++) {
       const v = s.advanceGame();
-      if (v.pending?.kind === "spectator-choice") return s;
+      if (v.pending?.kind === "spectator-choice") return JSON.stringify(reg.snapshot(user));
       if (v.pending) resolve(s, v.pending);
       if (v.finished) break;
     }
