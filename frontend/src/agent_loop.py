@@ -8331,7 +8331,7 @@ _REAPPROACH_LEVEL: Dict[str, int] = {}
 # empty at module level is listed here, so a new one cannot dodge the reset.
 _SEASON_PACING_STORES = (
     _FIRST_WEEK_HINT, _CASTING_STALL_LEVEL, _CASTING_SUBSTANCE_LEVEL, _TOAST_VOICE_HOLDS,
-    _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS,
+    _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS, _ESC_INELIGIBLE_ROUNDS,
     _SILENT_FORCE_ADVANCE_STREAK, _ANTI_STALE_CAP_HOLDS, _LOOP_LAST_FRAMED_KEY, _LOOP_STREAK,
     _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED, _GENDER_HEAL_DONE, _ANN_HELD,
 )
@@ -10132,14 +10132,15 @@ async def _stream_agent_loop_impl(
                                 logger.debug(f"[orwell] S1b overseer-log skipped: {_lr_esc_err}")
                     elif "advanceGame" in _tool_names_sent:
                         # ORW-1041: the route rejects tool_choice. The flag stays armed for a later eligible round, but only for 3 ineligible rounds: then it is cleared and counted, never armed forever.
-                        _esc_inel = _ESC_INELIGIBLE_ROUNDS.get(_force_owner, 0) + 1
+                        _esc_key = _belt_key(owner)
+                        _esc_inel = _ESC_INELIGIBLE_ROUNDS.get(_esc_key, 0) + 1
                         _note_belt(owner, "force-ineligible:advanceGame")
                         if _esc_inel >= 3:
-                            _ESC_INELIGIBLE_ROUNDS.pop(_force_owner, None)
+                            _ESC_INELIGIBLE_ROUNDS.pop(_esc_key, None)
                             _ch_esc.clear_advance_escalation(owner)
                             _note_belt(owner, "force-ineligible:advanceGame-cleared")
                         else:
-                            _ESC_INELIGIBLE_ROUNDS[_force_owner] = _esc_inel
+                            _ESC_INELIGIBLE_ROUNDS[_esc_key] = _esc_inel
             except Exception as _esc_err:
                 logger.warning(f"[orwell] S1b escalation force skipped: {_esc_err}")
 
@@ -10299,6 +10300,7 @@ async def _stream_agent_loop_impl(
                             "required_lever": _ch_af._LAST_FRAMED_REQUIRED_LEVER.get(_force_owner),
                             "social_hold": bool(_ch_af.veto_draw_holds_force(owner or "") or _ch_af.event_pause_holds(owner)),
                             # sleep cannot be undone: the loop's own strict bedtime gate (words AND board) must pass, and the tool must be on the wire
+                            "room_names": _season_room_names(owner),
                             "sleep_ok": "turnIn" in _af_sent and _player_means_going_to_bed(_af_text) and _bedtime_board_allows(_af_status),
                         }
                         _af_res = await _af.decide(

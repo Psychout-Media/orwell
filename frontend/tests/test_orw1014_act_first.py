@@ -71,8 +71,15 @@ def test_non_acts_never_reach_the_model_and_a_fooled_model_commits_nothing(text)
     assert af.validate_calls([mv("kitchen")], text=text, rooms=ROOMS, ctx={}) == []
 
 
-def test_speech_with_a_real_move_outside_the_quotes_still_moves():
-    assert run('"Back in a sec," I say, and walk to the backyard', [mv("backyard")])["acts"] == [("moveTo", {"room": "backyard"})]
+def test_precision_first_guards():
+    # a speech verb, a future/time word, sarcasm, an object or a person moved, passing by, and an ungrounded room all leave the move to the narrator
+    for t in ['"Back in a sec," I say, and walk to the backyard', "I'll head to the kitchen later", "I'm gonna head to the backyard",
+              "oh sure, I'll just go to the kitchen, because that's helpful", "I move the chair to the kitchen", "I walk by the kitchen",
+              "I go crazy in the kitchen", "I go to Kit", "I head over to Lou's room", "I go to the kichen"]:
+        assert run(t, [mv("kitchen")])["acts"] == [], t
+    assert run("I go to the kitchen", [mv("living-room")])["acts"] == []  # the model chose a room the words do not name
+    assert run("I head out back", [mv("backyard")])["acts"] == [("moveTo", {"room": "backyard"})]  # a plain alias is grounded
+    assert af.grounded("bedroom-b", "I go to the Palmetto room", {"bedroom-b": "the Palmetto Room"})
 
 
 def test_multi_action_ordered_each_present_and_capped():
