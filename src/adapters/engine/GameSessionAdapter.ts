@@ -359,7 +359,7 @@ import {
   firstCeremonyBeatResolved, competitionDefFor,
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
   advanceClock, longNightRunning, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, playerNightDeficit, napFactor, npcRestDeficit, isInertBeat, eventBeatHours, spreadClockHours, ceremonyRef, CEREMONY_STEP_TEXT,
-  honorWeight, recordWhy, preJuryEvictionCount, nightBreakPending, markNightGateCrossed, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
+  honorWeight, recordWhy, preJuryEvictionCount, jurorsOf, nightBreakPending, markNightGateCrossed, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type WeekDigest, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
 } from "../../engine/liveSeason";
@@ -1286,7 +1286,7 @@ export class GameSessionAdapter implements GameSession {
     const runnerUp = s.finalTwo?.find((id) => id !== s.winner);
     const you = this.buildYourEditView()?.you;
     return buildHallRecord({
-      season, placement: out.placement, juror: order.slice(-9).includes(PLAYER), castSize: out.castSize,
+      season, placement: out.placement, juror: this.jurorsNow().slice(-9).includes(PLAYER), castSize: out.castSize,
       playerName: this.nameOf(PLAYER),
       ...(s.winner ? { winnerName: this.nameOf(s.winner) } : {}), ...(runnerUp ? { runnerUpName: this.nameOf(runnerUp) } : {}),
       ...(you ? { you } : {}),
@@ -6976,7 +6976,7 @@ export class GameSessionAdapter implements GameSession {
   /** 0193: `me`'s OWN read of their jury odds against `rival` at a final two - the jurors' bonds as `me` can see them (their own warmth to `me` they know), and the public comp record. */
   private beatShareOf(me: EntityId, rival: EntityId): number {
     const s = this.live!;
-    const jurors = s.evictionOrder.slice(preJuryEvictionCount(s));
+    const jurors = this.jurorsNow();
     const bond = (j: EntityId, f: EntityId): number => (this.perceivedBondsEnabled ? this.perceivedBond(me, j, f) : this.rel.bondStrength(j, f));
     return beatShare(me, rival, jurors, bond, (id) => s.resume?.[id] ?? 0);
   }
@@ -7305,7 +7305,7 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-582 (flag `ORWELL_JURY_HOUSE`): the NPC jurors, each with their jury-house personality read toward a subject; undefined when the jury house is off or empty. Engine-only. */
   private juryPersonalityOf(): Map<EntityId, (subject: EntityId) => JuryPersonality> | undefined {
     if (!this.juryHouseEnabled || !this.house || !this.live) return undefined;
-    const ids = (this.live.evictionOrder ?? []).slice(this.juryStartIndex()).filter((id) => id !== this.house!.player.id).slice(-9);
+    const ids = this.jurorsNow().filter((id) => id !== this.house!.player.id).slice(-9);
     if (ids.length === 0) return undefined;
     const seed = hashSeed(`jury-fade:${this.gameSeed ?? ""}`);
     return new Map(ids.map((id) => [id, (subject: EntityId): JuryPersonality => ({
@@ -13885,7 +13885,7 @@ export class GameSessionAdapter implements GameSession {
     if (!this.seasonMemoryEnabled || !this.house || !this.live || this.live.playedGame !== true || (!this.live.finished && !abandoned)) return null;
     const order = this.live.evictionOrder ?? [];
     const castSize = 1 + this.house.npcs.length;
-    const jurors = new Set(order.slice(-9));
+    const jurors = new Set(this.jurorsNow().slice(-9));
     const records: SeasonNpcRecord[] = this.house.npcs.map((n) => {
       const idx = order.indexOf(n.id);
       const placement = this.live!.winner === n.id ? 1 : this.live!.finalTwo?.includes(n.id) ? 2 : idx >= 0 ? castSize - idx : castSize - (this.live!.finished ? 0 : order.length); // an unfinished season: those still in the house outlast everyone already out
@@ -14022,7 +14022,7 @@ export class GameSessionAdapter implements GameSession {
     }
     const reachedFinalTwo = this.live.finalTwo?.includes(me) ?? false;
     // Reached the jury = a juror seat (one of the last 9 evictees) OR a finalist (a deeper run still counts).
-    const jurors = new Set(order.slice(-9));
+    const jurors = new Set(this.jurorsNow().slice(-9));
     const reachedJury = reachedFinalTwo || jurors.has(me);
     // The finale jury-vote share the player won (open-set ceremony fact) — only meaningful as a finalist.
     let juryVoteShare = 0;
@@ -15076,7 +15076,7 @@ export class GameSessionAdapter implements GameSession {
     // point" (the same rule as `seatOf`), not `slice(-9)` over time — which, while fewer than nine had been
     // evicted, swept the early (pre-jury) evictees in. At the finale the juror set is identical (the last nine).
     const evicted = this.live.evictionOrder ?? [];
-    const juryEvictees = evicted.slice(this.juryStartIndex()).filter((id) => id !== this.house!.player.id);
+    const juryEvictees = this.jurorsNow().filter((id) => id !== this.house!.player.id);
     const jurors = juryEvictees.slice(-9);
     if (jurors.length < 2) return; // sequester hasn't produced a society yet (pre-jury / first juror only)
     // Whom a grudge can matter against: the still-in-the-game houseguests (the potential finalists),
@@ -18053,11 +18053,11 @@ export class GameSessionAdapter implements GameSession {
   private juryHouseView(): JuryHouseView | undefined {
     const live = this.live;
     if (!live || this.playerStatus() !== "jury") return undefined;
-    const start = this.juryStartIndex();
+    const juryIds = new Set(this.jurorsNow());
     const manner = live.mannerByEvictee ?? {};
     const jurors: JuryHouseJurorView[] = [];
-    live.evictionOrder.forEach((id, i) => {
-      if (i < start || id === PLAYER) return;
+    live.evictionOrder.forEach((id) => {
+      if (!juryIds.has(id) || id === PLAYER) return;
       const m = manner[id]?.[PLAYER];
       const bearing: JurorBearing = !m ? "even"
         : (m.betrayed || m.blindsided) ? "sour"
@@ -23764,10 +23764,16 @@ export class GameSessionAdapter implements GameSession {
     return this.seatOf(PLAYER);
   }
 
-  /** The eviction-order index at which the last-9 jury forms: evictions before it are pre-jury (they go home). */
-  private juryStartIndex(): number {
+  /**
+   * ORW-1087: the jurors seated so far, in eviction order, from the stable `jurorIds` fact the engine sets at each eviction. A state without it (a save from before the fact existed)
+   * falls back to the old position rule over the fixed cast size, until its next eviction writes the fact.
+   */
+  private jurorsNow(): EntityId[] {
+    const live = this.live;
+    if (!live) return [];
+    if (live.jurorIds) return jurorsOf(live);
     const cast = this.house ? this.house.npcs.length + 1 : 16;
-    return Math.max(0, cast - 2 - 9);
+    return (live.evictionOrder ?? []).slice(Math.max(0, cast - 2 - 9));
   }
 
   /** 0025 reactive: the twists the season's sealed plan ARMED that never fired (engine-only; only ever read by the post-crown retrospective unseal). */
@@ -23788,10 +23794,9 @@ export class GameSessionAdapter implements GameSession {
 
   /** Any houseguest's public seat (B61): still playing, on the last-9 jury, or out pre-jury. */
   private seatOf(id: EntityId): "active" | "jury" | "evicted" {
-    const order = this.live?.evictionOrder ?? [];
-    const idx = order.indexOf(id);
-    if (idx < 0) return "active";
-    return idx >= this.juryStartIndex() ? "jury" : "evicted";
+    const live = this.live;
+    if (!live || !live.evictionOrder.includes(id)) return "active";
+    return this.jurorsNow().includes(id) ? "jury" : "evicted";
   }
 
   /** The Vault-free projection. Player card = authored persona (no numeric stats); NPCs = name + status only. */
