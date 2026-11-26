@@ -64,8 +64,8 @@ def test_no_event_in_session_or_no_names_fails_open():
     assert pd.find_conflicts(txt, None, zero_clocks=False) == []
 
 
-def test_the_correction_names_the_engines_room_and_the_rewrite_is_still_off_by_default(monkeypatch):
+def test_the_correction_names_the_engines_room_and_the_rewrite_is_on_by_default(monkeypatch):
     c = pd.Conflict(pd.FACT_EVENT_ROOM, "The Dry Wash Deck")
     assert "The Dry Wash Deck" in pd._correction_line(c)
     monkeypatch.delenv("ORWELL_PREDISPLAY_REWRITE", raising=False)
-    assert pd.predisplay_rewrite_enabled() is False
+    assert pd.predisplay_rewrite_enabled() is True
