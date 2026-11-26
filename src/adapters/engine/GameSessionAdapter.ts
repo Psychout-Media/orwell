@@ -1,7 +1,7 @@
 import { liveHouseEvent, isCompOrCeremonyKind, eventStagingRoom } from "../../engine/houseEvent";
 import { stallTimer } from "../stallTiming";
 import type {
-  GameSession, CreateCharacterReq, GameStateView, HouseMeetingView, MomentPromptReq, MomentPromptView,
+  GameSession, CreateCharacterReq, GameStateView, PipelineCastView, HouseMeetingView, MomentPromptReq, MomentPromptView,
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, NapReq, NapView, NapRefusal, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
@@ -1496,7 +1496,7 @@ export class GameSessionAdapter implements GameSession {
    */
   pitchTiltFor(subject: EntityId, holder: EntityId): number {
     if (!this.lobbyingEnabled || !this.house || holder === PLAYER) return 0;
-    return pitchTilt(subject, this.derivePitches(holder), (p) => Math.max(0, Math.min(1, this.rel.edge(holder, p).trust)));
+    return pitchTilt(subject, this.derivePitches(holder), (p) => Math.max(0, Math.min(1, this.rel.edge(holder, p).trust)), this.standingPitchWeight()); // ORW-694 B1-9: standing weighs the pitch
   }
   /** B6/B38 - the pitches `holder` (the HOH) faces, derived deterministically from the live edges (no rng, no stored state). Shared by the nomination tilt and the pitch-event recorder, so what is RECORDED is exactly what is WEIGHED. */
   private derivePitches(holder: EntityId): Pitch[] {
@@ -4722,7 +4722,7 @@ export class GameSessionAdapter implements GameSession {
    * shot from a stale captured prompt is exactly the identity-mismatch ADR 0013 forbids). Returns
    * null when neither a live house nor a warmed cast holds the id.
    */
-  getPortraitPrompt(id: EntityId): { houseguestId: string; name: string; prompt: string } | null {
+  getPortraitPrompt(id: EntityId): { houseguestId: string; name: string; prompt: string; lookKey?: string } | null {
     if (this.house && this.portraitStyleAnchor) {
       const npc = this.house.npcs.find((n) => n.id === id);
       const subject = id === this.house.player.id ? this.house.player : npc;
@@ -4751,7 +4751,7 @@ export class GameSessionAdapter implements GameSession {
     subject: { id: EntityId; name: string; character: GameHouse["npcs"][number]["character"] },
     styleAnchor: string,
     roster: ReadonlyArray<{ id: EntityId; name: string; character: GameHouse["npcs"][number]["character"] }>,
-  ): { houseguestId: string; name: string; prompt: string } {
+  ): { houseguestId: string; name: string; prompt: string; lookKey?: string } {
     // ORW-480: the shot and face cards are dealt across the WHOLE cast, so one person's prompt is the cast build's entry for them
     // (the same text `castPortraitPrompts` serves). A subject the cast build skips (an incomplete facet) is dealt alone.
     const own = buildCastPortraitPrompts(roster.map((h) => this.portraitFacetsOf(h)), styleAnchor).find((p) => p.houseguestId === subject.id);
@@ -8474,6 +8474,13 @@ export class GameSessionAdapter implements GameSession {
   statusRead(): { tiers: Readonly<Record<EntityId, number>>; leader?: EntityId; lieutenants: readonly EntityId[]; vacuumSince?: number; count: number; history: StatusRecord["history"] } | undefined {
     const st = this.live?.status;
     return st ? { tiers: st.tiers, ...(st.leader ? { leader: st.leader } : {}), lieutenants: st.lieutenants, ...(st.vacuumSince !== undefined ? { vacuumSince: st.vacuumSince } : {}), count: st.count, history: st.history } : undefined;
+  }
+  /** ORW-694 / B1-9: a pitch weighed by the pitcher's standing (the informal leader's and lieutenants' carry more). Undefined when the court is off or no status exists: byte-identical. */
+  private standingPitchWeight(): ((pitcher: EntityId) => number) | undefined {
+    const st = this.hohCourtOn() ? this.live?.status : undefined;
+    if (!st || (!st.leader && st.lieutenants.length === 0)) return undefined;
+    const w = HOH_COURT.standing.pitchWeight;
+    return (p) => (p === st.leader ? w.leader : st.lieutenants.includes(p) ? w.lieutenant : 1);
   }
   /** Test seam: derive today's status now (the off-screen tick does it once a day). */
   statusTickNow(): void { this.statusTick(); }
@@ -12817,7 +12824,8 @@ export class GameSessionAdapter implements GameSession {
       // ORW-568 / 0181: the voter's (or HOH's) real feeling for the person keeps them. Played games with the bond record only, so a headless sim carries no hook (+0, byte-identical).
       ...(this.bondFeelingsOn() ? { feelingKeepFor: (n: EntityId, v: EntityId) => this.feelingKeepOf(n, v) } : {}),
       ...(this.houseNormsEnabled && this.live?.playedGame === true && this.npcBeliefsEnabled ? { herdFor: (n: EntityId, v: EntityId, fn: readonly [EntityId, EntityId]) => this.herdFor(n, v, fn) } : {}), // 0180 part 2
-      ...(this.showmancesEnabled && this.live?.playedGame === true ? { couplePushFor: (t: EntityId, h: EntityId) => this.couplePushFor(t, h) } : {}), // 0207 A2: a pair the HOH reads as a couple is a target
+      ...(this.showmancesEnabled && this.live?.playedGame === true ? { couplePushFor: (t: EntityId, h: EntityId) => this.couplePushFor(t, h) } : {}),
+      ...(this.hohCourtOn() ? { standingPushFor: (t: EntityId, h: EntityId) => (t !== h && this.live?.status?.leader === t ? HOH_COURT.standing.leaderTargetPush : 0) } : {}), // ORW-694 B1-9: the house's informal leader is a bigger target // 0207 A2: a pair the HOH reads as a couple is a target
       ...(this.endgameTrustEnabled && this.live?.playedGame === true ? { endgameFor: (t: EntityId, d: EntityId) => this.endgameFor(t, d) } : {}), // 0193
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
@@ -22082,6 +22090,20 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * ORW-969: the FULL cast for the front end's server-side casting jobs (the house-entry gate, the habits step, the backfills). `getGameState` withholds the houseguests who have
+   * not walked in yet (ORW-710) - right for the browser and the narrator, blind for a job that must check every card. This is the same `house` projection with that one filter off
+   * (the entries are the PUBLIC facets only, exactly what `getGameState` shows once everyone is in), plus how many of them are still outside. It is an unadvertised infra read
+   * (`INFRA_TOOL_NAMES`): not in any tool list the narrator sees and never forwarded to the browser by the front end.
+   */
+  pipelineCast(): PipelineCastView {
+    const v = this.view({ fullRoster: true });
+    if (!this.house || v.started === false) return { started: false, total: 0, unarrivedCount: 0, house: [] };
+    const away = this.notYetArrived();
+    const unarrivedCount = away ? away.size - (away.has(this.house.player.id) ? 1 : 0) : 0;
+    return { started: true, total: v.house.length, unarrivedCount, house: v.house };
+  }
+
+  /**
    * 0065 Part E — the `beatSeq`-keyed delta state feed. Given the caller's last-seen `beatSeq`, return
    * exactly WHAT CHANGED since: the player-visible events appended, the ceremony field transitions, and
    * any finished/winner flip — plus the freshest board to re-anchor on. A pure READ (no mutation).
@@ -23314,7 +23336,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** The Vault-free projection. Player card = authored persona (no numeric stats); NPCs = name + status only. */
-  private view(): GameStateView {
+  private view(opts?: { fullRoster?: boolean }): GameStateView {
     if (!this.house) {
       // Pre-game, the view carries the interview's status (0050): the engine — not the model —
       // says which building blocks are in and what the next step is.
@@ -23326,7 +23348,7 @@ export class GameSessionAdapter implements GameSession {
         pending: null,
       };
     }
-    const unarrivedHidden = this.metOnlyRosterEnabled && this.inPremiere() ? (this.notYetArrived() ?? undefined) : undefined; // ORW-710
+    const unarrivedHidden = this.metOnlyRosterEnabled && !opts?.fullRoster && this.inPremiere() ? (this.notYetArrived() ?? undefined) : undefined; // ORW-710
     const p = this.house.player;
     const status = this.playerStatus();
     // Once the player is out, the moment frames their new seat (closure / the jury spectator box, 0046)

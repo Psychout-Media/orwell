@@ -16,8 +16,8 @@ function rel(): RelationshipModel {
 }
 
 describe("the couple term is a real, named, bounded nomination term", () => {
-  it("is the last named term; absent it is exactly zero and the plan is unchanged", () => {
-    expect(NOMINATION_TERM_NAMES[NOMINATION_TERM_NAMES.length - 1]).toBe("couple");
+  it("is a named term; absent it is exactly zero and the plan is unchanged", () => {
+    expect(NOMINATION_TERM_NAMES).toContain("couple"); // ORW-694: "standing" is now appended after it
     const r = rel();
     const vals = nominationTermVals(HOH, X, r, 0.5, [], {});
     expect(vals.length, "the target read: every named term but the two pawn-seat ones").toBe(NOMINATION_TERM_NAMES.length - 2);

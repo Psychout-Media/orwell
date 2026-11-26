@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { HOUSE_ROOMS } from "../../src/domain/house";
 import { HOUSE_THEMES } from "../../src/engine/data/houseThemes";
-import { roomLabel, themedRoomAliases, drawHouseTheme } from "../../src/engine/roomLabels";
+import { roomLabel, themedRoomAliases, plainRoomName, drawHouseTheme } from "../../src/engine/roomLabels";
 
 /** ORW-466 (Ryne 2026-11-15: "all rooms in the house to be themed"; "Themes should be random"): the season house themes. */
 describe("season house themes", () => {
@@ -21,7 +21,7 @@ describe("season house themes", () => {
     expect(alias.get("the coral reef room")).toBe("bedroom-a");
     expect(alias.get("coral reef")).toBe("bedroom-a");
     expect(alias.get("captain's quarters")).toBe("hoh-room");
-    expect(roomLabel("bedroom-a", ocean.id)).toBe("the Coral Reef Room");
+    expect(roomLabel("bedroom-a", ocean.id)).toBe("the Coral Reef bedroom");
     expect(roomLabel("bedroom-a")).not.toMatch(/Coral/); // no theme: the plain label
     // the Diary Room is never shortened to a bare themed word, so "lighthouse" alone names no room
     expect(alias.get("lighthouse")).toBeUndefined();
@@ -38,8 +38,14 @@ describe("season house themes", () => {
       const full = flat(name), bare = full.replace(/^the\s+/, ""), short = bare.replace(/\s+(room|cabin|pod|cave|chamber|suite|quarters)$/, "");
       return new Set([full, bare, ...(isDiary ? [] : [short, `the ${short}`])]);
     };
+    // ORW-968: a room's phrases are the forms of the name as written AND of the name said with its plain word ("the Galley kitchen") and the themed head on its own ("the galley")
+    const forms968 = (room: string, name: string): Set<string> => {
+      const composed = plainRoomName(room as never, name), plain = composed.toLowerCase().replace(/^the\s+/, "");
+      const head = plain.replace(/\s+(kitchen|living room|dining room|backyard|hallway|bedroom|bathroom|lounge|hoh room|landing|storage room)$/, "");
+      return new Set([...formsOf(name, room === "diary-room"), ...formsOf(composed, room === "diary-room"), head, `the ${head}`]);
+    };
     for (const t of HOUSE_THEMES) {
-      const rooms = Object.entries(t.rooms).map(([r, v]) => [r, formsOf(v.name, r === "diary-room")] as const);
+      const rooms = Object.entries(t.rooms).map(([r, v]) => [r, forms968(r, v.name)] as const);
       for (const [a] of themedRoomAliases(t.id)) expect(rooms.filter(([, f]) => f.has(flat(a))).length, `${t.id}: "${a}" names exactly one room`).toBe(1);
     }
   });

@@ -237,6 +237,8 @@ export interface PortraitPromptEntry {
   houseguestId: string;
   name: string;
   prompt: string;
+  /** ORW-953: the canonical text of the inputs that change how this person looks; the face's staleness fingerprint is hashed from it. */
+  lookKey?: string;
 }
 
 /** The shared, frozen real-world slices the cast moved in with (0062) — public flavor only. */
@@ -462,6 +464,16 @@ export interface HouseMeetingView {
   /** ORW-596: set while the accusation of the player stands unanswered; the player answers in their own words via `submitDecision({ kind: "meeting-answer", vote, statement })`. */
   awaitingAnswer?: true;
   redirectTo?: string;
+}
+
+/** ORW-969: the result of `pipelineCast`. */
+export interface PipelineCastView {
+  started: boolean;
+  /** Houseguests in `house` (the player is not one). */
+  total: number;
+  /** How many of them have not walked in yet; `getGameState` hides exactly these. */
+  unarrivedCount: number;
+  house: HouseguestCard[];
 }
 
 export interface GameStateView {
@@ -3389,6 +3401,11 @@ export interface GameSession {
   /** The current Vault-free game state (phase, the player's card, the house roster). */
   getGameState(): GameStateView;
   /**
+   * ORW-969: the FULL cast (every houseguest, arrived or not) for trusted server-side casting jobs. Same public `house` entries as `getGameState`, without the ORW-710 met-only
+   * filter, and the count still outside. Never sent to the browser or listed for the narrator (an infra read). `{ started: false, total: 0, unarrivedCount: 0, house: [] }` pre-game.
+   */
+  pipelineCast(): PipelineCastView;
+  /**
    * The `beatSeq`-keyed delta state feed (0065 Part E): given the caller's last-seen `beatSeq`, return
    * exactly WHAT CHANGED since (player-visible events appended, ceremony field diffs, finished/winner
    * flip). Vault-free by construction (reuses the player's witness-filtered visible projection) and
@@ -3750,7 +3767,7 @@ export interface GameSession {
    * cast (0065/ADR 0013 — the per-NPC authored shoot fetches the store as it stands at shoot time).
    * Null when neither holds the id.
    */
-  getPortraitPrompt(id: EntityId): { houseguestId: string; name: string; prompt: string } | null;
+  getPortraitPrompt(id: EntityId): { houseguestId: string; name: string; prompt: string; lookKey?: string } | null;
 
   /**
    * The Vault-free projection of the move-in zeitgeist snapshot (feature 0062) — the FROZEN, shared
