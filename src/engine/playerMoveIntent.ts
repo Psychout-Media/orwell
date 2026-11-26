@@ -50,7 +50,7 @@ const NOT_A_MOVE =
 const QUESTION_START = /^(?:can|could|would|should|shall|may|do|does|did|is|are|am|will|what|where|why|how|who|which)\b/;
 
 const LEAD_IN = /^(?:(?:ok|okay|alright|all right|so|then|and|now|well|first|next|hey|um|uh|anyway|ok then)\b[,\s]*)+/;
-const SUBJECT = /^(?:i(?:'m| am)?\s+|me\s+)/;
+const SUBJECT = /^(?:i(?:'?m| am)?\s+|me\s+)/; // "im" typed without the apostrophe too
 const INTENT = /^(?:(?:just|now|quickly|slowly|quietly|also|really|finally|then)\s+)*(?:(?:want to|wanna|need to|decide to|choose to|am)\s+)?(?:(?:just|now|quickly|slowly|quietly|then)\s+)*/;
 const GO_VERB = /^(?:go|goes|head|heads|walk|walks|step|steps|move|moves|wander|wanders|stroll|strolls|run|runs|slip|slips|duck|ducks|retreat|retreats|going|heading|walking|stepping|moving|wandering|strolling|running|make my way|making my way)\b\s*/;
 const TAKE_VERB = /^(?:take|bring|lead|walk|carry|guide)\s+me\b\s*/;
@@ -59,7 +59,7 @@ const LEAVE_VERB = /^(?:leave|leaves|leaving|exit|exits|exiting|get out of|getti
 const PREP = /^(?:(?:back|right|straight|over|down|up|out|on)\s+)*(?:(?:in\s*to|into|to|toward|towards|through|in|inside)\b\s*)?(?:(?:back|right|straight|over|down|up)\s+)*(?:(?:to|into)\s+)?/;
 const ARTICLE = /^(?:the|my|our|your|this|that|a|an)\s+/;
 // The destination phrase ends at the first of these joiners ("to the kitchen and say hi", "... to talk to X").
-const PHRASE_END = /\s+(?:and|to|so|with|then|because|but|for|while|where|now|please|again|real quick|quickly|first|next|just)\b.*$/;
+const PHRASE_END = /\s+(?:and|to|so|with|then|because|but|for|while|where|now|please|again|real quick|quickly|slowly|quietly|carefully|silently|alone|together|too|also|first|next|just)\b.*$/;
 
 const INSIDE_WORDS = new Set(["inside", "in", "indoors", "back inside", "back in", "into the house", "inside the house", "in the house"]);
 const OUTSIDE_WORDS = new Set(["outside", "out", "outdoors", "out back", "outside the house", "out of the house"]);
@@ -111,7 +111,14 @@ function personPhrase(p: string, current: Room | null, themed?: Themed, loose = 
   return /^[a-z][a-z' -]*$/.test(t) && t.split(" ").length <= 3 && (loose || roomFromPhrase(t, current, themed) === null);
 }
 
+/** ORW-1008: a comma ends the move ("I want to go to the deep bedroom, come with me"): the part before the first comma is tried first, and only when it states no move is the whole clause read (commas dropped, as before). */
 function parseClause(raw: string, current: Room | null, themed?: Themed): Room | null {
+  const at = raw.indexOf(",");
+  if (at > 0) { const head = parseClauseText(raw.slice(0, at), current, themed); if (head !== null) return head; }
+  return parseClauseText(raw, current, themed);
+}
+
+function parseClauseText(raw: string, current: Room | null, themed?: Themed): Room | null {
   if (/\?\s*$/.test(raw.trim())) return null;
   let s = clean(raw);
   if (s === "" || QUESTION_START.test(s) || NOT_A_MOVE.test(moveHead(s))) return null;
@@ -167,6 +174,29 @@ function parseClause(raw: string, current: Room | null, themed?: Themed): Room |
     return roomFromPhrase(rest, current, themed);
   }
   return null;
+}
+
+/** ORW-1008: "my bed" / "my room" is the player's own bed's room only as the DESTINATION of a go-verb ("go back to my bed"). A bare mention ("my bed is in the Palmetto room", "I'm in my room") is affiliation and never a move. */
+const OWN_BED_DEST = /^(?:my|our) (?:own )?(?:bed|room|bedroom)$/;
+function ownBedClause(raw: string): boolean {
+  if (/\?\s*$/.test(raw.trim())) return false;
+  let s = clean(raw);
+  if (s === "" || QUESTION_START.test(s) || NOT_A_MOVE.test(moveHead(s))) return false;
+  const lets = LETS.exec(s);
+  if (lets) { s = s.slice(lets[0].length); if (!GO_VERB.test(s)) return false; }
+  else s = s.replace(SUBJECT, "").replace(INTENT, "");
+  const m = GO_VERB.exec(s) ?? TAKE_VERB.exec(s);
+  if (!m) return false;
+  const rest = s.slice(m[0].length).replace(PREP, "").replace(PHRASE_END, "").trim();
+  return OWN_BED_DEST.test(rest);
+}
+
+/** ORW-1008: does the player's message go (now, in their own words, outside quotes) to their own bed or room? The engine then moves them to the bedroom they own a bed in. */
+export function parsePlayerOwnBedMove(text: string): boolean {
+  if (typeof text !== "string" || text.trim() === "") return false;
+  const unquoted = text.replace(/"[^"]*"/g, " ").replace(/\u201c[^\u201d]*\u201d/g, " ");
+  const clauses = unquoted.match(/[^.!?;\n]+[.!?;\n]*/g) ?? [];
+  return clauses.some((c) => c.trim() !== "" && ownBedClause(c));
 }
 
 /**

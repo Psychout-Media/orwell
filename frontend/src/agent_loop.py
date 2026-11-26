@@ -3995,6 +3995,45 @@ def _narration_places_player_elsewhere(narration, room, room_names=None) -> bool
     return bool(named) and not any(room in rooms for rooms in named)
 
 
+_PLAYER_GO_RE = re.compile(
+    r"(?:^|[.!?;,]\s*)(?:(?:ok(?:ay)?|so|and|now|alright|then)\b[,\s]*)*"
+    r"(?:i(?:'?m|\s+am)?\s+(?:just\s+|now\s+|quickly\s+|want\s+to\s+|going\s+to\s+)?|let'?s\s+(?:all\s+|just\s+|now\s+)?|lets\s+|we\s+(?:go\s+)?|take\s+me\s+)"
+    r"(?:go|going|head|heading|walk|walking|step|stepping|come|move|moving|run|running|wander|take)\b")
+_PLAYER_HEDGE_RE = re.compile(r"\b(?:will|i'll|later|maybe|perhaps|might|may|could|would|should|if|when|once|after|before|until|unless|tomorrow|tonight|don'?t|do not|not|never|won'?t|can'?t|cannot|gonna|plan|planning|thinking|wonder)\b")
+_PLAYER_ANY_MOVE_RE = re.compile(r"\b(?:go|goes|going|head|heading|walk|walking|step|stepping|come|move|moving|run|running|enter|leave|follow|wander|take me|bring me|let'?s|lets)\b")
+_PLAYER_AFFILIATION_RE = re.compile(r"\b(?:my|our)\s+(?:own\s+)?(?:bed|bunk|room|bedroom)\b|\bi(?:'?m|\s+am)\s+in\b|\bi\s+(?:sleep|live|stay)\s+in\b")
+
+
+def _player_unquoted_clauses(last_user):
+    text = re.sub(r'"[^"]*"|\u201c[^\u201d]*\u201d', " ", str(last_user or ""))
+    text = text.replace("\u2019", "'").replace("\u2018", "'")
+    return [c.strip().lower() for c in re.split(r"(?<=[.!?;])\s+|\n", text) if c.strip()]
+
+
+def _player_explicitly_asked_to_move(last_user, room, room_names=None) -> bool:
+    """ORW-1008: the PLAYER's own present-tense request to go to `room` ("let's go to the Palmetto room", "I head to the kitchen"): a first-person go-verb at a clause start, the room named in that
+    clause, no hedge, negation or quote. The engine already committed such a move before the reply (the ORW-419 seam); the post-reply belt must not veto it with the narration's wording. Deterministic."""
+    from src.house_rooms import rooms_named_in
+    for c in _player_unquoted_clauses(last_user):
+        m = _PLAYER_GO_RE.search(c)
+        if not m or c.endswith("?"):
+            continue
+        tail = c[m.start():]
+        if _PLAYER_HEDGE_RE.search(tail.replace("let's", "lets")):
+            continue
+        tail = re.sub(r"\b(?:my|our)\s+(?:own\s+)?(?:bed|bunk|room|bedroom)\b", " ", tail)  # "my bunk" names the player's own bed, not a room by name: the engine resolves that one, the narration may still veto it
+        if any(room in rooms for rooms in rooms_named_in(tail, room_names)):
+            return True
+    return False
+
+
+def _player_words_are_affiliation_only(last_user) -> bool:
+    """ORW-1008: "my bed is in the Palmetto room", "I'm in my room": which room is the player's (or where they are) with no verb of movement anywhere. Such words never move the player,
+    so the post-reply belt must not turn a narrated walk the player never asked for into the engine's truth. Deterministic."""
+    cl = _player_unquoted_clauses(last_user)
+    return bool(cl) and any(_PLAYER_AFFILIATION_RE.search(c) for c in cl) and not any(_PLAYER_ANY_MOVE_RE.search(c) for c in cl)
+
+
 async def _auto_move_player(narration, last_user, endpoint_url, model, headers, owner, raw=None) -> bool:
     """GUARANTEE whereabouts cohesion (L21/L24). When the player's turn walked them to a room but the
     model never called moveTo, a constrained extraction proposes the destination room and we call
@@ -4024,7 +4063,11 @@ async def _auto_move_player(narration, last_user, endpoint_url, model, headers, 
         room = _room_id_of(obj.get("room"), _names)  # ORW-466: a themed-name echo still maps to its id
         if not room:
             return False  # null / no move / unknown room → nothing to do
-        if _narration_places_player_elsewhere(narration, room, _names):
+        if _player_words_are_affiliation_only(last_user):
+            # ORW-1008: "my bed is in the X room" is affiliation, not a request to go: a narrated walk the player never asked for is not the engine's truth.
+            logger.info(f"[orwell] auto-move: the player's words are affiliation only, no move to {room} user={owner}")
+            return False
+        if not _player_explicitly_asked_to_move(last_user, room, _names) and _narration_places_player_elsewhere(narration, room, _names):
             # ORW-918: the narration the player saw keeps them somewhere else (it names rooms, never this one), so the engine must not move them here: the engine would
             # put them alone in a room they were never shown in, and the house's scenes there would be recorded as witnessed by them. Next turn grounds to where they are.
             logger.info(f"[orwell] auto-move: narration keeps the player elsewhere, no move to {room} user={owner}")
