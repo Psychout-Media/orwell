@@ -18,7 +18,7 @@ import type { GameSession, ConfideResult, CreateCharacterReq, UpdateCastingReq, 
  * not debug Vault readers.
  * @see registry.ts INFRA_LEVERS — the same tools are excluded from `PLAYER_AGENT_LEVERS`.
  */
-export const INFRA_TOOL_NAMES: ReadonlySet<string> = new Set(["sealedFromHouse", "knowledgeScopeManifest", "beatLog"]);
+export const INFRA_TOOL_NAMES: ReadonlySet<string> = new Set(["sealedFromHouse", "knowledgeScopeManifest", "beatLog", "pipelineCast"]);
 /**
  * The engine's permissioned outward MCP API (0009). It mounts ONLY the
  * allowlisted tools for its channel, sources read/narrate tools from the visible
@@ -539,6 +539,9 @@ function requireShape(name: string, args: Record<string, unknown>): void {
     case "competitionStagingView":
       // #1400: read-only projection with no required args — no shape guard needed.
       return;
+    case "pipelineCast":
+      // ORW-969: read-only, no args.
+      return;
     case "getOffscreenSceneSkeletons":
       // 0070: read-only call with no required args — no shape guard needed.
       return;
@@ -711,6 +714,9 @@ export class McpServer {
         return this.deps.session.recordOffscreenSceneTexture(args as unknown as RecordOffscreenSceneTextureReq);
       case "getGameState":
         return this.deps.session.getGameState();
+      case "pipelineCast":
+        // ORW-969: the full cast for server-side casting jobs (unadvertised infra read: INFRA_TOOL_NAMES).
+        return this.deps.session.pipelineCast();
       case "gameStatus":
         return this.deps.session.gameStatus();
       case "stateDelta":
