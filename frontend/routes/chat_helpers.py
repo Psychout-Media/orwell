@@ -803,6 +803,30 @@ _ENGINE_EVENT_NOT_DUE_STOP_LINE = "The house has not been called together yet: n
 _HANGOUT_NOT_DUE_LINE = "the house is still waiting - production hasn't called the scheduled event yet, so it is NOT on now (nobody is gathered)."
 
 
+def _counted_steer(fn=None, *, always: bool = False):
+    """ORW-1042: every steer / re-ground builder writes ONE INFO line (name only, no content) and ONE counter when it produces something, so a directive that
+    changes the next narration is never invisible. The counter is process-wide (`orwell_sync_ledger.get_steer_counts`, on the admin health snapshot as
+    `steerCounts`); a stash that is never drained still shows here, and the drain sites keep their own belt counts. The result is returned unchanged."""
+    import functools
+    if fn is None:  # @_counted_steer(always=True): a STASH function that returns nothing - every call is one stash
+        return lambda f: _counted_steer(f, always=True)
+
+    @functools.wraps(fn)
+    def _w(*a, **k):
+        out = fn(*a, **k)
+        try:
+            if out or always:
+                from src import orwell_sync_ledger as _led
+                _led.note_steer(fn.__name__)
+                logger.info("[orwell] steer %s", fn.__name__)
+        except Exception:  # failsoft-ok: telemetry must never hurt the turn
+            pass
+        return out
+    return _w
+
+
+
+@_counted_steer
 def _reconcile_hang_out_steer(steer: str, game_state, briefing=None) -> str:
     """ORW-409: the engine's hang-out may report `event-due` while the board the turn is framed on says the event is not due (`daySchedule.due` False). The not-due steer
     owns the prompt then; swap the stop line so the narrator is never told the event is on now AND not called yet. No schedule on the board => unchanged."""
@@ -814,6 +838,7 @@ def _reconcile_hang_out_steer(steer: str, game_state, briefing=None) -> str:
     return steer
 
 
+@_counted_steer
 def _hang_out_steer(res: dict, asked_minutes=None) -> str:
     """The one-turn narrator steer for an engine-decided hang-out: the elapsed time and the STOP, both engine facts (invent nothing beyond them).
     ORW-477: `asked_minutes` is the length the player stated; when the engine stopped earlier on an interruption, the steer says the wait was cut short (the engine's own minutes, never the stated span)."""
@@ -874,6 +899,7 @@ _PREMIERE_SOCIAL_MESSAGES = 48
 _PREMIERE_MSGS: dict = {}  # runway key -> premiere messages seen
 
 
+@_counted_steer
 def _premiere_not_yet_steer(ds: Optional[dict] = None, briefing=None) -> str:
     """The one-turn narration cue for the premiere -> first-HOH hold: the first Head of Household competition is production's to call - never on demand.
     ORW-394: with the engine clock live (`ds` = the board's daySchedule) the when comes from the schedule (never "this afternoon" when it is not today); without it, the premiere morning's "this afternoon"."""
@@ -1311,6 +1337,7 @@ def pop_pending_chyron(user) -> list:
     return _PENDING_CHYRON.pop(_runway_key(user), [])
 
 
+@_counted_steer
 def _aired_fact_steer(user) -> Optional[str]:
     """One short framing line grounding the scene on an engine-committed beat the chyron has aired."""
     key = _runway_key(user)
@@ -1327,6 +1354,7 @@ def _aired_fact_steer(user) -> Optional[str]:
 _DAY_BREAK_SOCIAL_TURNS = 1  # held social turns after a consumed day-break (the new day's morning)
 
 
+@_counted_steer
 def _day_break_narration_steer(content: str) -> str:
     """The focused production note that makes the model VOICE the engine's `day-break` beat (the
     night→morning crossing) instead of silently skipping to the next ceremony. Never authors the
@@ -1935,6 +1963,7 @@ _ANTI_STALE_NARRATION_REGROUND = (
 )
 
 
+@_counted_steer
 def stash_anti_stale_reground(user) -> bool:
     """F1 anti-stale guard: OBLIGATE the next narration turn to voice the engine's CURRENT moment after a
     silent forced-advance moved the board past what the chat last voiced. Appends the closed-set directive
@@ -5498,6 +5527,7 @@ def _paraphrase_suspect(sentence: str, facts: list, active_names: list) -> bool:
     return False
 
 
+@_counted_steer(always=True)
 def stash_knowledge_wall_reground(user) -> None:
     """Stash a next-turn re-ground after a sealed-content leak was stripped — reminding the model the
     Diary Room is OOC and no houseguest can EVER voice it. Combines with (never clobbers) any re-ground
@@ -6529,6 +6559,7 @@ def _neutral_board_directive(live) -> str:
 _DAY_ROLL_BEAT_RE = re.compile(r"\b(?:turns? in|turned in|morning breaks?|a new day|new day (?:arrives|dawns)|dawns?)\b", re.IGNORECASE)
 
 
+@_counted_steer
 def day_roll_reground(phase: str, beat) -> Optional[str]:
     """ORW-10 (b): when the pre-resolved beat of a scheduled phase is the OVERNIGHT ROLL ("the house turns in, and morning breaks on the day of the Power of Veto comp"), the event the narrator may just have announced as
     starting/called did NOT happen: the clock jumped to the next morning and production will call it later that day. Returns a one-line re-ground for the next turn, or None when the beat is not a day roll."""
@@ -6933,6 +6964,7 @@ async def _detect_ungrounded_overclaim(user, text: str, tools: set) -> tuple:
         return (None, None)
 
 
+@_counted_steer(always=True)
 def _stash_overclaim_reground(user, directive: str) -> None:
     """Stash the corrective directive as the NEXT-turn `_DESYNC_REGROUND` backstop (combine, never
     clobber an existing one). Fail-open."""
@@ -8636,6 +8668,7 @@ def _arm_marker(ds, game_state) -> dict:
     return {"event": str((ds or {}).get("next") or ""), "day": None if dn is None else dn + (1 if (ds or {}).get("tomorrow") else 0), "resolved": False}
 
 
+@_counted_steer(always=True)
 def _arm_schedule_steer(key, text: str, ds, game_state) -> None:
     _SCHEDULE_STEER[key] = text
     _SCHEDULE_ARM[key] = _arm_marker(ds, game_state)
@@ -8660,6 +8693,7 @@ def _same_occurrence(arm: dict, b) -> bool:
     return arm.get("day") is None or b_day is None or arm.get("day") == b_day
 
 
+@_counted_steer
 def _reconcile_schedule_steer(steer: str, b, arm=None, after_turn_in: bool = False) -> str:
     """ORW-409: the production warning ("about to be called") and call ("production calls everyone") cues were armed from the board BEFORE the turn's later writes. `arm` is the structured marker stored with the
     cue (`_arm_marker`): the event id, the day it falls on and whether the engine resolved it this turn. A cue whose event the engine resolved this turn is NEVER swapped. A cue is swapped for the not-due line only
@@ -8689,6 +8723,7 @@ def _runway_sig(game_state: dict) -> str:
     return f"{game_state.get('week')}:{(game_state.get('phase') or '').lower()}"
 
 
+@_counted_steer
 def _schedule_not_due_steer(phase: str, scheduled_phase: str, next_beat: str = "", tomorrow: bool = False, briefing=None) -> str:
     """The one-turn narration cue when the player asks for (or drifts toward) an event production has not called yet. In-fiction, closed-set only.
     ORW-394: the event is labelled from the engine's schedule (`daySchedule.next`) when given - not the game phase, which can still be the previous event's - and says "tomorrow" when the schedule does."""
@@ -8710,6 +8745,7 @@ _DESIRE_LINES = {
 }
 
 
+@_counted_steer
 def _interruption_steer(game_state) -> str:
     """A8: an NPC whose own desire clock crossed its threshold is cutting into the conversation. The engine decided WHO and the coarse WHY; the narrator voices the entrance, nothing more."""
     i = game_state.get("interruption") if isinstance(game_state, dict) else None
@@ -8724,6 +8760,7 @@ def _interruption_steer(game_state) -> str:
             "invent no outcome, vote or secret beyond that.")
 
 
+@_counted_steer
 def _approach_held_steer(game_state) -> str:
     """ORW-443: the engine's approach cap withheld a houseguest this turn (`approachHeld`). One-turn, closed-set: the room settles; no new request goes to the player. Never a count, never a time."""
     if not isinstance(game_state, dict) or game_state.get("approachHeld") is not True:
@@ -8736,6 +8773,7 @@ def _approach_held_steer(game_state) -> str:
 _PRODUCTION_WARN_MINUTES = 30
 
 
+@_counted_steer
 def _production_warning_steer(phase: str, minutes: int, briefing=None) -> str:
     """The optional one-turn cue when a scheduled event is <= `_PRODUCTION_WARN_MINUTES` away: production gives notice and the house starts to gather. In-fiction, closed-set only.
     ORW-409: the event and the minutes come from the briefing's schedule facts when it has them (`phase` / `minutes` only without one)."""
@@ -8749,6 +8787,7 @@ def _production_warning_steer(phase: str, minutes: int, briefing=None) -> str:
             "houseguests starting to drift toward the gathering spot. The player may keep talking; do NOT start the event, narrate a result, or call anyone to it yet.")
 
 
+@_counted_steer
 def _production_call_steer(phase: str, briefing=None) -> str:
     """The one-turn cue when a scheduled event comes due WHILE the player is mid-conversation: production calls everyone, the person they were talking to turns toward the call.
     ORW-409: the event is the briefing's next event when it has one (`phase` only without one)."""
@@ -8996,6 +9035,7 @@ def comp_pause_holds(user) -> bool:
 
 
 
+@_counted_steer
 def _veto_draw_steer(content: str) -> str:
     """ORW-250 (Ryne: "the veto player draw was seemingly skipped ... it was expressed as a call from production at the beginning of the comp instead"): the draw is its OWN small ceremony on the morning of the
     veto day. The engine has already committed it; this hands the narrator the draw as FACTS to voice as a short scene in the room, and says the competition is later, so the draw is never folded into the comp."""
@@ -9007,6 +9047,7 @@ def _veto_draw_steer(content: str) -> str:
     )
 
 
+@_counted_steer
 def _competition_scene_steer(log, continuing: bool = False, paused: bool = False) -> str:
     """ORW-232 slice 1 (Ryne: the first HOH felt awkward - transitions in and out not role-played, a few boxes of who was eliminated and who won): the competition the engine walked this turn, in ENGINE
     ORDER, as FACTS for the narrator to voice as ONE continuous scene in the same chat - the lead-in from the house, every round as its own beat (never released as a list or a recap), the winner by name,

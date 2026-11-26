@@ -1,0 +1,6 @@
+{
+  "_note": "Recorded 2026-11-26 (ORW-1014 probe): api.deepseek.com, deepseek-flash, thinking disabled, tools [recordMove, noAction], message 'let's go to the kitchen'. Same shape for tool_choice auto / required / a named function. No key, no body beyond the tool call.",
+  "ok_named": {"status": 200, "body": {"choices": [{"finish_reason": "tool_calls", "message": {"role": "assistant", "content": "", "tool_calls": [{"type": "function", "function": {"name": "recordMove", "arguments": "{\"room\": \"kitchen\"}"}}]}}]}},
+  "rejected_400": {"status": 400, "body": {"error": {"message": "tool_choice is not supported in thinking mode"}}},
+  "prose_only": {"status": 200, "body": {"choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "Sure, heading to the kitchen."}}]}}
+}

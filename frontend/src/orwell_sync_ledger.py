@@ -179,6 +179,29 @@ NON_BUMPING_WRITES = frozenset({
     "inspectNonVaultState", "getBehavioralFlags", "playerTagline", "worldSnapshotView", "endOfSessionSummary", "askProducers",
 })
 
+# ── ORW-1014: who made the turn's engine change - the narrator's tool call, or a belt? ──
+# Prod 2026-11-26 (47 turns): the narrator called a game tool on 5, belts did the rest. A per-turn driver makes that rate a health number, not a feeling.
+#: Belts that COMMIT an engine change the narrator did not make (the FE called the tool for it). Advisory belts (nudges, notes, steers, re-grounds,
+#: strips) change no engine state and are not listed. `forced-tool-choice:*` is NOT here: the narrator made that call, the wire only demanded it.
+ENGINE_CHANGE_BELT_PREFIXES = ("auto-", "forced-advance", "player-move-intent", "bedtime-turn-in-direct", "nap-direct", "casting-record-belt",
+                               "pre-resolve-npc-ceremony")
+#: A direct belt run is also logged as a tool event; it is the belt's call, not the narrator's. belt prefix -> the tool it runs.
+_BELT_RUN_TOOLS = {"bedtime-turn-in-direct": "turnIn", "nap-direct": "nap"}
+#: FE bookkeeping writes that are never the narrator's game act.
+_NOT_A_NARRATOR_ACT = frozenset({"noteMessage"})
+
+
+def classify_driver(tools_called: Any, belts_fired: Any) -> str:
+    """'narrator' (a game tool call only), 'belt' (a belt-committed change only), 'both', or 'none' (no engine change this turn)."""
+    belts = {str(n): c for n, c in (belts_fired or {}).items()} if isinstance(belts_fired, dict) else {}
+    belt_names = [n for n in belts if n.startswith(ENGINE_CHANGE_BELT_PREFIXES)]
+    belt_ran = {t for b, t in _BELT_RUN_TOOLS.items() if any(n.startswith(b) for n in belt_names)}
+    tools = [t for t in (tools_called or []) if isinstance(t, str)]
+    narrator = any(t in BUMPING_WRITES and t not in _NOT_A_NARRATOR_ACT and t not in belt_ran for t in tools)
+    belt = bool(belt_names)
+    return "both" if narrator and belt else "narrator" if narrator else "belt" if belt else "none"
+
+
 _UNKNOWN_LOGGED: dict[str, float] = {}
 _UNKNOWN_LOG_EVERY_S = 300.0
 
@@ -342,6 +365,8 @@ def _entry(
         "beltsFired": _clean_belt_map(belts_fired),
         # T0-4: attempt-counted forced-tool_choice outcomes, sibling to beltsFired above.
         "forcedChoice": _clean_forced_map(forced_choice),
+        # ORW-1014: who made this turn's engine change (narrator tool call / belt / both / none).
+        "drivenBy": classify_driver(_clean_names(tools_called), _clean_belt_map(belts_fired)),
     }
 
 
@@ -648,6 +673,47 @@ def get_forced_choice_totals(user: str | None) -> dict[str, dict[str, int]]:
     for counts in totals.values():
         counts["attempted"] = counts["honored"] + counts["ignored"]
     return totals
+
+
+_STEER_COUNTS: dict[str, int] = {}
+_MAX_STEER_NAMES = 64
+
+
+def note_steer(name: Any) -> None:
+    """ORW-1042: count one steer / re-ground directive produced (name + count only, process-wide, bounded). Never raises."""
+    try:
+        n = str(name).strip()[:_MAX_NAME_LEN]
+        with _LOCK:
+            if n and (n in _STEER_COUNTS or len(_STEER_COUNTS) < _MAX_STEER_NAMES):
+                _STEER_COUNTS[n] = _STEER_COUNTS.get(n, 0) + 1
+    except Exception:  # pragma: no cover
+        pass
+
+
+def get_steer_counts() -> dict[str, int]:
+    with _LOCK:
+        return dict(_STEER_COUNTS)
+
+
+def get_driver_totals(user: str | None) -> dict[str, Any]:
+    """ORW-1014 - who drove the engine changes, over the retained ring: ``turns``, ``narratorToolTurns`` (a narrator game-tool call this turn),
+    ``beltDrivenTurns`` (a belt committed a change this turn), the split ``narratorOnly`` / ``beltOnly`` / ``both`` / ``none``, and the two rates
+    (0..1, None with no turns). Recomputed from each row's tools and belts, so rows written before the field existed count too."""
+    k = _key(user)
+    with _LOCK:
+        bucket = _load().get(k)
+    split = {"narrator": 0, "belt": 0, "both": 0, "none": 0}
+    n = 0
+    if isinstance(bucket, list):
+        for e in bucket:
+            if isinstance(e, dict):
+                n += 1
+                split[classify_driver(e.get("toolsCalled"), e.get("beltsFired"))] += 1
+    nt = split["narrator"] + split["both"]
+    bt = split["belt"] + split["both"]
+    return {"turns": n, "narratorToolTurns": nt, "beltDrivenTurns": bt,
+            "narratorOnly": split["narrator"], "beltOnly": split["belt"], "both": split["both"], "none": split["none"],
+            "narratorToolRate": round(nt / n, 3) if n else None, "beltDrivenRate": round(bt / n, 3) if n else None}
 
 
 def _drain_pending_belts(user_key: str) -> dict[str, int]:
@@ -1011,7 +1077,7 @@ def _log_line(user_key: str, entry: dict) -> None:
         ) or "-"
         logger.info(
             "[orwell] sync-ledger turn user=%s session=%s turn=%s beat=%s→%s "
-            "tools=[%s] nudges=%s backfills=%s desync=%s stale=%s idem=%s belts=[%s] forced=[%s]",
+            "tools=[%s] nudges=%s backfills=%s desync=%s stale=%s idem=%s belts=[%s] forced=[%s] driver=%s",
             user_key,
             entry.get("session") or "-",
             entry.get("turnId") or "-",
@@ -1025,6 +1091,7 @@ def _log_line(user_key: str, entry: dict) -> None:
             entry.get("idempotencyHits"),
             belts,
             forced,
+            entry.get("drivenBy") or "-",
         )
     except Exception:  # pragma: no cover
         pass
