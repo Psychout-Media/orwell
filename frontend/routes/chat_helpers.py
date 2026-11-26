@@ -3683,10 +3683,10 @@ _BALLOT_PHRASE_RE = re.compile(
     r"([A-Z][\w'’\-]+(?:\s+[A-Z][\w'’\-]+)?)", re.IGNORECASE)
 
 
-# PO ruling 2026-11-04 (one-turn vote reveal): the narrator reads the WHOLE ballot list and may group it - "nine votes to evict X". Sanctioned only when N is
+# PO ruling 2026-11-04 (one-turn vote reveal): the narrator reads the WHOLE ballot list and may group it - "nine votes to evict X" (ORW-946: or "nine to evict X", the engine's own TALLY wording, noun optional). Sanctioned only when N is
 # one of the engine's own revealed per-nominee ballot counts (`ballotCounts`); any other N stays a fabrication and trips the tally guard.
 _BALLOT_COUNT_RE = re.compile(
-    r"\b(" + r"\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen" + r")\s+(?:votes?|ballots?)\s+(?:to|for)\s+evict\s+"
+    r"\b(" + r"\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen" + r")\s+(?:(?:votes?|ballots?)\s+)?(?:to|for)\s+evict\s+"
     r"([A-Z][\w'’\-]+(?:\s+[A-Z][\w'’\-]+)?)", re.IGNORECASE)
 
 
