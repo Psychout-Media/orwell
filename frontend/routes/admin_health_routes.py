@@ -2620,7 +2620,7 @@ function render(d) {
   const sc = d.seasonChecklist || null, scEl = document.getElementById("seasonwrap");
   if (scEl) {
     scEl.innerHTML = !sc || !sc.present ? "<div class='sub'>No season-start record for this account (a season that began before this was recorded, or none started).</div>" :
-      "<div class='sub' style='margin:6px 0'>Season " + esc(sc.season) + " &middot; started " + esc(sc.startedAt || "?") + (sc.closed ? " &middot; closed: " + esc(sc.closed) : "") + "</div>" +
+      "<div class='sub' style='margin:6px 0'>" + ["Season " + esc(sc.season), "started " + esc(sc.startedAt || "?"), sc.closed && ("closed: " + esc(sc.closed))].filter(Boolean).join(" &middot; ") + "</div>" +
       "<table><thead><tr><th>Step</th><th>Status</th><th>Time (UTC)</th><th>Attempts</th><th>Reason</th><th>Next try</th></tr></thead><tbody>" +
       (sc.steps || []).map(s => "<tr><td>" + esc(s.step) + "</td><td>" +
         (s.status === "done" ? '<span class="ok">done</span>' : s.status === "failed" ? '<span class="bad">failed</span>' : '<span class="warn">' + esc(s.status) + "</span>") +
