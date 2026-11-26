@@ -39,6 +39,8 @@ except Exception:  # pragma: no cover
         def debug(self, *a, **k): pass
     logger = _L()
 
+from src.orwell_cast_gate import BIO_ASK_CHARS  # ORW-952: the prompt states the length the gate checks
+
 
 # ── ORW-380: the PHOTO SHEET instruction, shared by every writer ──────────────────────────────
 #
@@ -60,6 +62,8 @@ PHOTO_SHEET_RULES = (
     "shoot. They are public and describe only what a camera sees. Use the houseguest's name and "
     "genderPresentation from the input: pronouns in every line must match it (man: he/him; woman: "
     "she/her; nonbinary: they/them), and the clothes fit how this person presents. "
+    # ORW-952: the pronoun-mismatch check rejects any other pronoun in these three lines, so the prompt says so.
+    "In the onCamera line, the photoHair line and the wardrobe, use no pronoun other than this person's own, never \"they\" or \"their\" for a man or a woman, and do not refer to anyone else. "
     "(1) wardrobe: an array of 2-3 pieces, each under 60 characters, in camera-ready condition, with no "
     "visible words, logos, band names or brand names, and each a real garment or accessory a shop sells, chosen from this person's job, hometown, age, money and personality (the style family is only a lean). Test every piece with one question: would this person, with this job, age, income and the weather of their hometown, really wear it on an ordinary day, at work or off it (not another trade's work gear, not the wrong season for the job, not above their money, not a costume)? The FIRST piece is the MAIN piece (the jacket, "
     "shirt, dress or top). It must not repeat a main piece already listed in taken.mainPieces (compare "
@@ -125,7 +129,7 @@ _SYSTEM = (
     '  "identityConcept": ONE sentence (under 250 characters) naming who this exact person is, written about the '
     "name, gender, age and occupation on the card (the skeleton's identityConcept, if any, is a rough draft: rewrite it for THIS card; "
     "do not open it with \"A\" and the age, the age is already printed beside it, and open it the way an OPENING PATTERN line in the prompt says, if there is one; do not put the person's name in it, and make it one complete phrase that reads as a sentence),\n"
-    '  "biography": a 2-3 sentence presentable backstory (life outside the house),\n'
+    '  "biography": a 2-3 sentence presentable backstory (life outside the house), under ' + str(BIO_ASK_CHARS) + ' characters,\n'
     '  "vocation": echo the skeleton\'s occupation EXACTLY — it is already cast and IMMUTABLE; do NOT '
     "change it, and do NOT adopt a different job from the biography. The biography and the secrets must "
     "name the SAME job as the committed occupation (the engine keys the hidden stakes off vocation),\n"
