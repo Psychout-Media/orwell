@@ -480,27 +480,36 @@
         return;
       }
 
+      // ORW-950: a reference photo already on the server (before a reload) counts as chosen.
+      const haveRef = !st.file && !!status.present && status.mode === "reference";
+      const chosen = !!st.file || haveRef;
       const previewBg = st.fileUrl ? `style="background-image:url('${st.fileUrl}')"` : "";
       body.innerHTML = lib + `
         <div class="hs-msg" style="margin-bottom:8px">${st.library.length ? "…or make a new one from a photo of yourself." : "Make your houseguest's portrait — and your profile pic — from a photo of yourself."}</div>
         <div class="hs-row">
-          <div class="hs-preview ow-portrait" ${previewBg}>${st.fileUrl ? "" : "👤"}</div>
+          <div class="hs-preview ow-portrait" ${previewBg}>${st.fileUrl ? "" : (haveRef ? "✓" : "👤")}</div>
           <div class="hs-opts">
-            <label class="hs-filebtn ow-btn ow-btn-secondary" for="hs-file">${st.file ? "Choose a different photo" : "Choose a photo of yourself"}</label>
+            <label class="hs-filebtn ow-btn ow-btn-secondary" for="hs-file">${chosen ? "Choose a different photo" : "Choose a photo of yourself"}</label>
             <input type="file" id="hs-file" class="hs-file-native" accept="image/*" aria-label="Choose a photo of yourself">
             <div class="hs-actions">
-              <button type="button" class="ow-btn ow-btn-prominent" id="hs-studio" ${st.file ? "" : "disabled"} aria-describedby="hs-hint">Make AI studio portraits</button>
+              <button type="button" class="ow-btn ow-btn-prominent" id="hs-studio" ${chosen ? "" : "disabled"} aria-describedby="hs-hint">Make AI studio portraits</button>
               <button type="button" class="ow-btn ow-btn-secondary" id="hs-exact" ${st.file ? "" : "disabled"} aria-describedby="hs-hint">Use photo as-is</button>
               ${canSkip ? `<button type="button" class="ow-btn ow-btn-plain" id="hs-skip">Skip for now</button>` : ""}
-              <div class="hs-hint" id="hs-hint" ${st.file ? "hidden" : ""}>Choose a photo above to enable these.</div>
+              <div class="hs-hint" id="hs-hint" ${chosen ? "hidden" : ""}>Choose a photo above to enable these.</div>
             </div>
-            <div class="hs-msg" id="hs-msg2">${esc(_msg)}</div>
+            <div class="hs-msg" id="hs-msg2">${esc(_msg || (haveRef ? "Your photo is already uploaded." : ""))}</div>
           </div></div>`;
       const fi = body.querySelector("#hs-file");
-      fi.addEventListener("change", () => {
-        st.file = fi.files && fi.files[0];
+      fi.addEventListener("change", async () => {
+        const picked = fi.files && fi.files[0];
+        if (!picked) return;
+        // ORW-950: shrink on the device first; the preview and the upload both use the small copy.
+        // A decode failure keeps the original file.
+        let small = picked;
+        try { const m = await import("/static/js/photoShrink.js"); small = await m.shrinkPhoto(picked); } catch (_) { small = picked; }
+        st.file = small;
         if (st.fileUrl) { try { URL.revokeObjectURL(st.fileUrl); } catch (_) {} }
-        st.fileUrl = st.file ? URL.createObjectURL(st.file) : null;
+        st.fileUrl = URL.createObjectURL(st.file);
         render();
       });
       body.querySelector("#hs-studio").addEventListener("click", studioGenerate);
@@ -753,6 +762,18 @@
     const p = document.getElementById(PILL_ID); if (p) p.remove();
   }
 
+  // ORW-950: after a reload mid-step (iOS drops a backgrounded tab while the photo picker is open), reopen
+  // the studio on the server's state (a run in progress, waiting options, an uploaded photo) instead of the pill.
+  async function resumeStudioFromServer() {
+    if (_win || document.getElementById(ID) || document.getElementById(PILL_ID)) return false;
+    const ik = await jget("/api/orwell/portrait/intake");
+    if (ik && !ik.finalized && (ik.generating || (ik.candidates || 0) > 0 || (ik.present && ik.mode === "reference"))) {
+      mount();
+      return true;
+    }
+    return false;
+  }
+
   async function route() {
     const gameBuild = document.body && document.body.hasAttribute("data-game-build");
     if (!gameBuild) { _maybePregame = false; return; }
@@ -794,6 +815,7 @@
       unmount();
       return;
     }
+    if (await resumeStudioFromServer()) return;
     // Thing 2: surface the "Choose Your Character" pill (the box opens on click), NOT the box.
     showPill();
   }
