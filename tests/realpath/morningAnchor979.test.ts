@@ -35,7 +35,7 @@ describe("the morning anchor in a played season", () => {
     s.setMorningAnchorEnabled(true);
     const on = new Set(s.awakeAmong(ids) as string[]);
     const added = [...on].filter((id) => !off.has(id));
-    expect(added.length, "positive control: the anchor brought someone up").toBeGreaterThan(0);
+    expect(added.length, "positive control: the anchor brought someone up, and only one").toBe(1);
     for (const id of added) expect(upBeforeTheCall(routines[id] ?? []), "only an early riser is added").toBe(true);
     for (const id of off) expect(on.has(id), "nobody who was up is put to sleep").toBe(true);
   }, 900_000);

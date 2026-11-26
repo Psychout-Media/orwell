@@ -8366,7 +8366,7 @@ export class GameSessionAdapter implements GameSession {
 
   /**
    * ORW-979 / spec 0209 slice 7.1 (`ORWELL_MORNING_ANCHOR`, default ON; `=0` opts out): the morning anchor. A houseguest whose own routines put them up before the 8am call (a strong morning routine,
-   * `upBeforeTheCall`) is awake in the last two hours before it, wherever their bed hour would have left them. Measured before this: in the played seasons the house had 0-3 houseguests awake in those hours (mean
+   * `upBeforeTheCall`) is awake in the last two hours before it, wherever their bed hour would have left them (one at a time: the strongest). Measured before this: in the played seasons the house had 0-3 houseguests awake in those hours (mean
    * about one), so an early player found almost nobody about and no routine to see. Played games only, no rng, nothing is added after the call; a houseguest the doze rule already put back to sleep stays asleep.
    */
   private morningAnchorEnabled = flagDefaultOn("ORWELL_MORNING_ANCHOR");
@@ -8377,8 +8377,13 @@ export class GameSessionAdapter implements GameSession {
     if (hour >= WAKE_HOUR && hour < 24) return [...up]; // the day itself
     if (h < WAKE_HOUR - ROUTINES.morningAnchorHours || h >= WAKE_HOUR) return [...up];
     const have = new Set(up);
-    const extra = this.presenceActive().filter((id) => !have.has(id) && id !== this.house?.player.id && upBeforeTheCall(live.routines?.[id] ?? []) && !dozesBackToBed(h, this.restDeficitOf(id)));
-    return extra.length ? [...up, ...extra] : [...up];
+    // ONE anchor at a time (the strongest morning routine, then the id): a first version brought every early riser up and moved the whole-season mix out of band (bonding 22 / gossip 42 early in the season), because a
+    // houseguest who is up also has a free hour to spend on gossip. One person up and about is what an early player finds; the rest of the house is asleep.
+    const risers = this.presenceActive()
+      .filter((id) => !have.has(id) && id !== this.house?.player.id && upBeforeTheCall(live.routines?.[id] ?? []) && !dozesBackToBed(h, this.restDeficitOf(id)))
+      .map((id) => ({ id, strength: Math.max(...(live.routines?.[id] ?? []).filter((r) => r.slot === "morning").map((r) => r.strength)) }))
+      .sort((a, b) => b.strength - a.strength || a.id.localeCompare(b.id));
+    return risers.length ? [...up, risers[0]!.id] : [...up];
   }
 
   private dozeBackEnabled = flagDefaultOn("ORWELL_DOZE_BACK_TO_BED"); // ORW-705 PT-10
