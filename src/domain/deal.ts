@@ -47,6 +47,8 @@ export type DealStatus = "open" | "kept" | "broken" | "lapsed";
 export interface DealCondition {
   protect: EntityId;
   promisors: readonly EntityId[];
+  /** ORW-1053: further houseguests the same promise covers ("if Valentina or Robert goes up, vote to keep them"). Absent on every older deal. */
+  alsoProtect?: readonly EntityId[];
 }
 
 export interface Deal {
@@ -169,8 +171,14 @@ const ADVERSE = new Set(["nominate", "replace", "vote-evict"]);
  * Build the condition for a freshly-made deal. `safety` / `vote` / `final-two` bind BOTH parties not
  * to move against the other; `target-other` binds only the promisor (`parties[0]`) to spare `parties[1]`.
  */
-export function conditionFor(kind: DealKind, parties: [EntityId, EntityId], third?: EntityId): DealCondition {
+export function conditionFor(kind: DealKind, parties: [EntityId, EntityId], third?: EntityId, moreThirds?: readonly EntityId[]): DealCondition {
   const [a, b] = parties;
+  // ORW-1053: a mutual vote / safety / conditional promise whose terms name houseguests outside the pair protects THEM (the named thirds), and still binds both parties. Without this the promise
+  // was filed against the partner and a promiser's ballot against the named houseguest broke nothing (the deal stayed open and was graded kept).
+  if (third !== undefined && (kind === "vote" || kind === "safety" || kind === "conditional")) {
+    const more = (moreThirds ?? []).filter((t) => t !== third && !parties.includes(t));
+    return { protect: third, promisors: [a, b], ...(more.length > 0 ? { alsoProtect: more } : {}) };
+  }
   // 0142 idea 3: `protect-third` - the promisor (`a`) swears not to move against a THIRD houseguest (`third`); `b` is who asked. Same one-way break rule as target-other, protecting `third`.
   if (kind === "protect-third" && third !== undefined) return { protect: third, promisors: [a] };
   // One-way bindings: `target-other` + the 0121 active kinds bind only the promisor (`a`) toward `b`.
@@ -213,6 +221,7 @@ export function actionBreaks(deal: Deal, action: BindingAction): boolean {
   if (!c.promisors.includes(action.actor)) return false;
   // The protected party was targeted — OR, for a mutual deal, either party was targeted by the other.
   if (action.targets.includes(c.protect) && action.actor !== c.protect) return true;
+  if ((c.alsoProtect ?? []).some((t) => action.targets.includes(t) && action.actor !== t)) return true;
   if (c.promisors.length > 1) {
     // Mutual: the actor (a promisor) moving against the OTHER party also breaks it.
     return action.targets.some((t) => deal.parties.includes(t) && t !== action.actor);

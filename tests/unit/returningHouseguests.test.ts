@@ -88,12 +88,34 @@ describe("B1: the carried feeling softens with the seasons and never exceeds the
 
 /** Play and finish a season for a user, then return; scan seeds until a returner is cast. */
 type Internals = { house: { npcs: Array<{ id: string; name: string; character: Record<string, unknown> & { hiddenElements: Array<{ detail: string }> } }> } | null; live: { returners?: Record<string, unknown>; beliefs?: Record<string, unknown[]> } | null };
-function twoSeasons(user: string, firstSeed: number, returnSeed: number, archive = new InMemoryUserSeasonArchive()) {
-  const reg = new GameSessionRegistry(undefined, { seasonArchive: archive });
+
+/** The first season every restart below follows: seed 7, played (one message), to the finale. */
+function playFirstSeason(reg: GameSessionRegistry, user: string) {
   const sb = reg.sandboxFor(user);
-  sb.session.createCharacter({ playerName: "The Player", seed: firstSeed });
+  sb.session.createCharacter({ playerName: "The Player", seed: 7 });
   sb.session.noteMessage({ messageId: "m1" });
   expect(sb.session.advanceToFinale().finished).toBe(true);
+  return sb;
+}
+/**
+ * ORW-1043: that season is the same game under every user name here (the whole saved state is identical), so it is played once and restored into each
+ * test's own registry and user. "is deterministic per seed" plays it fresh both times: there the play itself is the claim.
+ */
+let firstSeasonSave: string | undefined;
+function finishedFirstSeason(reg: GameSessionRegistry, user: string) {
+  if (firstSeasonSave === undefined) {
+    const source = new GameSessionRegistry(undefined, { seasonArchive: new InMemoryUserSeasonArchive() });
+    playFirstSeason(source, "u-first-season");
+    firstSeasonSave = JSON.stringify(source.snapshot("u-first-season"));
+  }
+  reg.sandboxFor(user);
+  reg.restore(user, JSON.parse(firstSeasonSave));
+  return reg.sandboxFor(user);
+}
+
+function twoSeasons(user: string, returnSeed: number, season1 = finishedFirstSeason, archive = new InMemoryUserSeasonArchive()) {
+  const reg = new GameSessionRegistry(undefined, { seasonArchive: archive });
+  const sb = season1(reg, user);
   for (const n of (sb.session as never as Internals).house!.npcs) n.character.hiddenElements[0]!.detail = SENTINEL; // a marker in every prior-season hidden layer
   const firstCast = sb.session.getGameState().house.map((h) => h.name);
   sb.session.createCharacter({ playerName: "The Player", seed: returnSeed, confirmRestart: true, keepCharacter: true });
@@ -104,7 +126,7 @@ describe("B1: a two-season player gets a real past houseguest back, with the wal
   it("a finished played season is archived (hidden layer excluded); a return may cast one of them", () => {
     let found: ReturnType<typeof twoSeasons> | undefined;
     for (let seed = 100; seed < 130 && !found; seed++) {
-      const r = twoSeasons("u-ret", 7, seed);
+      const r = twoSeasons("u-ret", seed);
       if (r.after.session.getGameState().house.some((h) => r.firstCast.includes(h.name)) && (r.after.session as never as { live: { returners?: object } }).live?.returners) found = r;
     }
     expect(found, "some return seed casts a returner").toBeTruthy();
@@ -161,7 +183,7 @@ describe("B1: a two-season player gets a real past houseguest back, with the wal
 
   it("is deterministic per seed", () => {
     const run = (): string => {
-      const r = twoSeasons("u-det", 7, 111);
+      const r = twoSeasons("u-det", 111, playFirstSeason);
       return JSON.stringify(r.after.session.getGameState().house.map((h) => h.name));
     };
     expect(run()).toBe(run());
@@ -172,10 +194,7 @@ describe("B1: a two-season player gets a real past houseguest back, with the wal
 async function restartVia(user: string, seed: number, args: Record<string, unknown>) {
   const archive = new InMemoryUserSeasonArchive();
   const reg = new GameSessionRegistry(undefined, { seasonArchive: archive });
-  const sb = reg.sandboxFor(user);
-  sb.session.createCharacter({ playerName: "The Player", seed: 7 });
-  sb.session.noteMessage({ messageId: "m1" });
-  expect(sb.session.advanceToFinale().finished).toBe(true);
+  const sb = finishedFirstSeason(reg, user);
   const firstCast = (sb.session as never as Internals).house!.npcs.map((n) => n.name);
   await sb.mcp.player.callTool("createCharacter", { playerName: "The Player", seed, confirmRestart: true, ...args });
   const after = reg.sandboxFor(user);
@@ -221,7 +240,7 @@ describe("B1: a returner keeps who they are and gets fresh season state", () => 
   it("identity, personality, backstory and voice facets match the archive; secrets in play are fresh", () => {
     let done = false;
     for (let seed = 100; seed < 140 && !done; seed++) {
-      const r = twoSeasons(`u-id-${seed}`, 7, seed);
+      const r = twoSeasons(`u-id-${seed}`, seed);
       const inner = r.after.session as never as Internals;
       if (!inner.live?.returners) continue;
       done = true;

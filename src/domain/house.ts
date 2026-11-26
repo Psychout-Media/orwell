@@ -271,6 +271,8 @@ const ROOM_ALIASES: ReadonlyMap<string, Room> = new Map<string, Room>([
   ["dining", "dining-room"],
   ["dining-area", "dining-room"],
   ["dinner", "dining-room"],
+  ["dinner-table", "dining-room"],
+  ["dining-table", "dining-room"],
   ["backyard", "backyard"],
   ["yard", "backyard"],
   ["outside", "backyard"],

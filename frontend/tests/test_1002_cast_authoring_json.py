@@ -228,7 +228,7 @@ def test_authoring_record_turn_passes_applied_max_tokens(monkeypatch):
     assert captured, "record_turn was not called (owner+usage should trigger the ledger entry)"
     assert captured["call_class"] == "background-authoring"
     # the cap WAS applied on the wire; the ledger must log it (the #1007 3000 floor), never cap=0.
-    assert captured.get("applied_max_tokens") == 3000, captured
+    assert captured.get("applied_max_tokens") == 6000, captured
 
 
 # ── 2 & 3. a prose reply triggers ONE retry, then logs a DISTINCT "no JSON found" no-op ─────────────

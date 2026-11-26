@@ -91,9 +91,13 @@ describe("SOC-1/4 - the player's pathway-surfaced facts reach the per-turn narra
 
 describe("#1789 - telephone-game provenance word on surfaced gossip (hops>=2), played season", () => {
   const hops2 = (s: Stop) => windowOf(s).find((f) => (f.hops ?? 0) >= 2);
+  // ORW-1043: the drift ON and drift OFF tests read the SAME stopped season (same seed, same scan, same stop), so it is played once. Each sets the flag it reads,
+  // and building the prompt writes nothing to the game.
+  let hops2At: Promise<Stop> | undefined;
+  const hops2Stop = (): Promise<Stop> => (hops2At ??= firstStop((s) => hops2(s) !== undefined, wfScan(HINT)));
 
   it("drift ON - the provenance word rides a hops>=2 fact, with the guidance line, and no raw hop count leaks", async () => {
-    const at = await firstStop((s) => hops2(s) !== undefined, wfScan(HINT));
+    const at = await hops2Stop();
     at.sess.setGossipDriftEnabled(true);
     const f = hops2(at)!;
     const block = playerBlock(prompt(at));
@@ -104,7 +108,7 @@ describe("#1789 - telephone-game provenance word on surfaced gossip (hops>=2), p
   }, 120_000);
 
   it("drift OFF - no provenance word, no guidance line: the fact renders plain", async () => {
-    const at = await firstStop((s) => hops2(s) !== undefined, wfScan(HINT));
+    const at = await hops2Stop();
     at.sess.setGossipDriftEnabled(false); // not as shipped: the drift-OFF render is the spec under test (#1789)
     const f = hops2(at)!;
     const block = playerBlock(prompt(at));
