@@ -13,6 +13,11 @@
 (function () {
   "use strict";
 
+  // ORW-950: set when the page is going away, so the aborted fetch isn't reported as a failure.
+  let pageLeaving = false;
+  window.addEventListener("pagehide", () => { pageLeaving = true; });
+  window.addEventListener("beforeunload", () => { pageLeaving = true; });
+
   const ID = "orwell-headshot";
   const ready = (fn) =>
     document.readyState === "loading"
@@ -320,6 +325,8 @@
         if (d && d.generated > 0) { st.candidates = d.candidates; st.selected = null; msg("Pick your favorite — or generate 3 more."); ensureOpen(); }
         else { msg((d && d.reason) || "Couldn't generate options — the photo service may be offline (check Settings)."); }
       } catch (e) {
+        // ORW-950: a reload aborts the fetch; that is the page leaving, not a photo-service failure.
+        if (pageLeaving) return;
         if (window.OrwellReport) window.OrwellReport.fail("headshot", "studio", e);
         st.busy = false; msg("The photo service is offline right now.");
       }
@@ -356,7 +363,12 @@
       // G32: a generated-but-unpicked photoset must survive a refresh/new session. The
       // candidate images persist server-side (intake reports the count) — rebuild the picker
       // from that count so the options reappear, instead of dropping to the upload chooser.
-      if (!status.finalized && (status.candidates || 0) > 0 && !st.candidates.length) {
+      if (st.pollBusy && !status.generating) { st.busy = false; st.pollBusy = false; }
+      if (status.generating && !status.finalized) {
+        // ORW-950: a run is still in flight; don't build a picker from its half-written files, re-check shortly.
+        st.busy = true; st.pollBusy = true; msg("Generating 3 studio options…");
+        if (!st.pollTimer) st.pollTimer = setTimeout(() => { st.pollTimer = null; refreshStatus(); }, 4000); // one re-check chain, however many callers
+      } else if (!status.finalized && (status.candidates || 0) > 0 && !st.candidates.length) {
         st.candidates = Array.from({ length: status.candidates },
           (_, i) => ({ index: i, ref: "/api/orwell/portrait/studio/candidate/" + i }));
         ensureOpen(); // L3: restored options reappear expanded, never tucked away
