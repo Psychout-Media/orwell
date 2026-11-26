@@ -1,0 +1,87 @@
+name: seed-catalog-nightly
+
+# ORW-1013 (Ryne: "why testing takes so long... speed it up without lowering standards"). Every night, on main, every played-season seed scan (firstSeedWhere: each test's
+# precondition) records the first few seeds that reach it (ORWELL_SEED_CATALOG_RECORD), across the scan's own range, unbounded by the default cap. The lines merge into ONE
+# catalog artifact (`seed-catalog`, keyed by the precondition's words and the sandbox naming). CI's test-unit and heavy-sims legs fetch the latest one
+# (.github/actions/seed-catalog) and each scan tries main's current qualifiers first, then its own hints, then its range: a fix that shifts seasons usually finds a
+# seed at once instead of costing a re-hint round. Same preconditions, same assertions, same bound (ORW-967). A missing catalog changes nothing.
+# A test that fails here still records what it found (the catalog is about seeds, not verdicts); this job is never a required check.
+on:
+  schedule:
+    - cron: "41 3 * * *" # 03:41 UTC nightly
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: seed-catalog-nightly
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120 # record mode is about 3x a plain run (measured: 6 scanning files 2056 s vs about 460 s plain); a leg of about 10 files is about 60 min
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: [0, 1, 2, 3]
+    name: record leg ${{ matrix.leg }}/4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: play this leg's scanning test files in record mode
+        env:
+          ORWELL_SEED_CATALOG_RECORD: ${{ github.workspace }}/catalog-lines
+          LEG: ${{ matrix.leg }}
+        run: |
+          set -u
+          files=$(grep -rlE "firstSeedWhere|firstSeedsWhere|firstStops?\(|wfScan" tests --include='*.test.ts' | grep -v "tests/unit/firstSeedWhere.test.ts" | sort | awk -v leg="$LEG" 'NR % 4 == leg')
+          echo "$files"
+          for f in $files; do npx vitest run "$f" --testTimeout=3600000 > /dev/null 2>&1 || echo "::notice::$f did not pass on main tonight (its seeds are still recorded)"; done
+          ls catalog-lines 2>/dev/null | wc -l
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: catalog-lines-${{ matrix.leg }}
+          path: catalog-lines/
+          if-no-files-found: ignore
+
+  merge:
+    needs: record
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: catalog-lines-*
+          path: catalog-lines
+          merge-multiple: true
+      - name: merge into one catalog
+        env:
+          COMMIT: ${{ github.sha }}
+        run: |
+          mkdir -p out
+          node -e '
+            const fs = require("fs"), path = require("path"), dir = "catalog-lines", scans = {};
+            for (const f of (fs.existsSync(dir) ? fs.readdirSync(dir) : []).filter((n) => n.endsWith(".jsonl"))) {
+              for (const line of fs.readFileSync(path.join(dir, f), "utf8").split("\n").filter(Boolean)) {
+                const { key, seeds } = JSON.parse(line);
+                const have = (scans[key] ??= []);
+                for (const s of seeds) if (!have.includes(s)) have.push(s);
+              }
+            }
+            fs.writeFileSync("out/seed-catalog.json", JSON.stringify({ generatedAt: new Date().toISOString(), commit: process.env.COMMIT, scans }, null, 1));
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Seed catalog\n\n${Object.keys(scans).length} scans recorded at ${process.env.COMMIT.slice(0, 9)}.\n`);'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: seed-catalog
+          path: out/seed-catalog.json
+          retention-days: 30
