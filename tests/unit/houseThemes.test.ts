@@ -16,19 +16,20 @@ describe("season house themes", () => {
   });
 
   it("a themed name resolves back to its room, without 'the' and without a generic last word", () => {
-    const ocean = HOUSE_THEMES.find((t) => t.rooms["bedroom-a"].name === "the Coral Reef Room")!;
+    const ocean = HOUSE_THEMES.find((t) => t.id === "ocean-depths")!;
     const alias = new Map(themedRoomAliases(ocean.id));
-    expect(alias.get("the coral reef room")).toBe("bedroom-a");
-    expect(alias.get("coral reef")).toBe("bedroom-a");
-    expect(alias.get("captain's quarters")).toBe("hoh-room");
-    expect(roomLabel("bedroom-a", ocean.id)).toBe("the Coral Reef bedroom");
+    expect(alias.get("the coral bedroom")).toBe("bedroom-a");
+    expect(alias.get("coral bedroom")).toBe("bedroom-a");
+    expect(alias.get("coral")).toBe("bedroom-a"); // the themed word on its own still finds the room
+    expect(alias.get("the hoh room")).toBe("hoh-room");
+    expect(roomLabel("bedroom-a", ocean.id)).toBe("the coral bedroom");
     expect(roomLabel("bedroom-a")).not.toMatch(/Coral/); // no theme: the plain label
     // the Diary Room is never shortened to a bare themed word, so "lighthouse" alone names no room
     expect(alias.get("lighthouse")).toBeUndefined();
-    expect(alias.get("lighthouse diary room")).toBe("diary-room");
+    expect(alias.get("the diary room")).toBe("diary-room");
     // an accented name also answers to its plain spelling
-    const manor = HOUSE_THEMES.find((t) => Object.values(t.rooms).some((r) => r.name.includes("Séance")))!;
-    expect(new Map(themedRoomAliases(manor.id)).get("seance room")).toBe("bedroom-c");
+    const manor = HOUSE_THEMES.find((t) => t.id === "midnight-manor")!;
+    expect(new Map(themedRoomAliases(manor.id)).get("the seance bedroom")).toBe("bedroom-c");
   });
 
   it("a phrase that would point at two rooms in one theme is dropped, never guessed", () => {

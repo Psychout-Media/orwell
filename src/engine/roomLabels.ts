@@ -38,20 +38,30 @@ const HEAD_TAIL = /(^|\s+)(room|cabin|pod|cave|chamber|suite|quarters)$/i;
 const ROLE_TAIL: Partial<Record<Room, RegExp>> = { "bathroom": /(^|\s+)(bath|baths|washroom|restroom)$/i };
 const hasWord = (text: string, word: string): boolean => new RegExp(`(^|[^a-z0-9])${word.toLowerCase().replace(/\s+/g, "\\s+")}s?($|[^a-z0-9])`, "i").test(text);  // "Kitchens" counts
 
+/** Rooms whose name is the plain word alone: the HOH room, the landing, the storage room and the Diary Room read the same in every season (the look carries the theme). */
+const PLAIN_ONLY: ReadonlySet<Room> = new Set<Room>(["hoh-room", "landing", "storage-room", "diary-room"]);
+/** The longest modifier that still reads as a light touch. */
+const MAX_MODIFIER = 14;
+
 /**
- * The themed `name` of `room`, said with the room's plain word: kept as written when it already contains the word ("the Fudge Kitchen", "the Lighthouse Diary Room"); otherwise the themed head and the plain word
- * ("the Galley" -> "the Galley kitchen", "the Coral Reef Room" -> "the Coral Reef bedroom"). Pure, composed from whatever name the season has (the library or the writer's own), no list of names.
+ * The themed `name` of `room` as the player reads it (Ryne 2026-11-26: "don't overdo the theming, just cohesive"): the plain word with AT MOST ONE lowercase word of the theme in front ("the copper kitchen", "the reef
+ * bedroom"), or the plain word alone ("the HOH room", "the Diary Room"). The modifier is the first plain word of the themed head (the name without its article, the plain word and a generic last word), so a name
+ * the writer made long ("the Copper Kettle Galley") comes out as "the copper kitchen", a possessive or a number is never a modifier, and a house already in this form is returned as it is. Pure, composed from whatever
+ * name the season carries (the library or the writer's), no list of names.
  */
 export function plainRoomName(room: Room, name: string): string {
   const word = FUNCTION_WORD[room];
   const raw = name.trim();
   if (!word || !raw) return raw;
-  if (hasWord(raw, word)) return raw;
-  let head = raw.replace(/^the\s+/i, "").trim();
+  if (PLAIN_ONLY.has(room)) return `the ${word}`;
+  let head = raw.replace(/^the\s+/i, "");
+  head = head.replace(new RegExp(`(^|[^a-z0-9])${word.toLowerCase().replace(/\s+/g, "\\s+")}s?(?=$|[^a-z0-9])`, "ig"), " ");
   head = head.replace(HEAD_TAIL, "").trim();
   const role = ROLE_TAIL[room];
   if (role) head = head.replace(role, "").trim();
-  return head ? `the ${head} ${word}` : `the ${word}`;
+  const first = head.split(/\s+/).find((w) => /^[A-Za-z][A-Za-z-]*$/.test(w) && !/^(the|a|an|of|and|room)$/i.test(w));
+  const mod = first && first.length <= MAX_MODIFIER ? first.toLowerCase() : "";
+  return mod ? `the ${mod} ${word}` : `the ${word}`;
 }
 
 /** A library or authored theme with every room name said with its plain word (memoized by object: the lookup is hot). The look, the pitch and the id are untouched. */

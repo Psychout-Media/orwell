@@ -44,18 +44,38 @@ describe("every library house says what each room is", () => {
 
 describe("the composition itself (any name the season may carry)", () => {
   const cases: Array<[Room, string, string]> = [
-    ["kitchen", "the Galley", "the Galley kitchen"], ["kitchen", "the Fudge Kitchen", "the Fudge Kitchen"], ["kitchen", "the Palace Kitchens", "the Palace Kitchens"],
-    ["bedroom-a", "the Coral Reef Room", "the Coral Reef bedroom"], ["hoh-room", "the Captain's Quarters", "the Captain's HOH room"], ["bathroom", "the Bubblegum Bath", "the Bubblegum bathroom"],
-    ["bathroom", "the Baths", "the bathroom"], ["diary-room", "the Lighthouse Diary Room", "the Lighthouse Diary Room"], ["diary-room", "the Magic Mirror", "the Magic Mirror Diary Room"],
-    ["landing", "Quarterdeck", "the Quarterdeck landing"], ["storage-room", "the Hold", "the Hold storage room"],
+    ["kitchen", "the Galley", "the galley kitchen"], ["kitchen", "the Fudge Kitchen", "the fudge kitchen"], ["kitchen", "the Palace Kitchens", "the palace kitchen"],
+    ["kitchen", "the Copper Kettle Galley", "the copper kitchen"], ["dining-room", "the Long Table Hall", "the long dining room"], ["lounge", "Ember Court", "the ember lounge"],
+    ["bedroom-a", "the Coral Reef Room", "the coral bedroom"], ["bathroom", "the Bubblegum Bath", "the bubblegum bathroom"], ["bathroom", "the Baths", "the bathroom"],
+    ["hoh-room", "the Captain's Quarters", "the HOH room"], ["diary-room", "the Lighthouse Diary Room", "the Diary Room"], ["landing", "Quarterdeck", "the landing"], ["storage-room", "the Hold", "the storage room"],
+    ["lounge", "the Room", "the lounge"], ["kitchen", "the 12th Street Kitchen", "the street kitchen"], ["kitchen", "the O'Brien's", "the kitchen"],
   ];
   for (const [room, raw, want] of cases) it(`${room}: "${raw}" -> "${want}"`, () => expect(plainRoomName(room, raw)).toBe(want));
-  it("never leaves a room unnamed, and an empty or word-only name is just the plain word", () => {
-    expect(plainRoomName("kitchen", "")).toBe("");
-    expect(plainRoomName("lounge", "the Room")).toBe("the lounge");
-  });
+  it("an empty name stays empty", () => expect(plainRoomName("kitchen", "")).toBe(""));
   it("is idempotent: a composed name is kept as it is", () => {
     for (const t of HOUSE_THEMES) for (const r of HOUSE_ROOMS) { const once = plainRoomName(r, t.rooms[r].name); expect(plainRoomName(r, once)).toBe(once); }
+  });
+});
+
+// The form Ryne asked for ("don't overdo the theming, just cohesive"): the plain word with at most one lowercase themed word in front, or the plain word alone. Nothing else is a shown name: a proper noun or a
+// run of words never stands directly in front of the function word.
+const FORM = new RegExp(`^the (?:[a-z][a-z-]{1,13} )?(?:${[...new Set(Object.values(PLAIN))].map((w) => w.replace(/\s+/g, "\\s")).join("|")})$`);
+describe("the shown names are in the light form, in every house", () => {
+  for (const t of HOUSE_THEMES) {
+    it(`${t.id}: every library name is already in the form (nothing for the funnel to change), and the HOH room, landing, storage room and Diary Room are the plain word alone`, () => {
+      for (const r of HOUSE_ROOMS) {
+        const raw = t.rooms[r].name;
+        expect(raw, `${t.id}/${r}`).toMatch(FORM);
+        expect(plainRoomName(r, raw), `${t.id}/${r}: the library is written in the shown form`).toBe(raw);
+      }
+      for (const r of ["hoh-room", "landing", "storage-room", "diary-room"] as Room[]) expect(t.rooms[r].name).toBe(`the ${PLAIN[r]}`);
+    });
+  }
+  it("no shown name, library or authored, stacks a capitalised word in front of a function word", () => {
+    const names: string[] = [];
+    for (const t of HOUSE_THEMES) for (const r of HOUSE_ROOMS) names.push(roomLabel(r, t.id));
+    for (const x of names) expect(x, x).not.toMatch(/\b[A-Z][a-z']+ (kitchen|living room|dining room|backyard|hallway|bedroom|bathroom|lounge)\b/);
+    expect(names.length).toBe(HOUSE_THEMES.length * HOUSE_ROOMS.length);
   });
 });
 
@@ -76,7 +96,7 @@ describe("a house the writer authors reads the same way", () => {
       registerHouseTheme(verdict.theme!);
       const id = verdict.theme!.id;
       const names = roomNamesFor(id)!;
-      for (const r of HOUSE_ROOMS) expect(says(names[r]!, PLAIN[r]!), `authored ${seed}/${r}: "${names[r]}"`).toBe(true);
+      for (const r of HOUSE_ROOMS) { expect(says(names[r]!, PLAIN[r]!), `authored ${seed}/${r}: "${names[r]}"`).toBe(true); expect(names[r], `authored ${seed}/${r}`).toMatch(FORM); }
       const aliases = themedRoomAliases(id);
       for (const r of WALKABLE_ROOMS) {
         const plain = resolveRoom(`the ${PLAIN[r]!.toLowerCase()}`, null, aliases);
