@@ -2192,12 +2192,53 @@ _PLAYER_INTENT_PREFIX_RE = re.compile(_PI_SUBJECT + _PI_VERB + _PI_PATH, re.IGNO
 _PLAYER_FOLLOW_RE = re.compile(r"\b(?:i(?:'ll|\u2019ll)?|let(?:'s|\u2019s))\s+(?:follow|go\s+with|come\s+with|tag\s+along\s+with|join)\s+(?:her|him|them|you|the\s+others)\b|\bi\s+(?:get\s+up\s+and\s+)?leave\s+the\s+room\b|\bi(?:'ll|’ll|\s+want\s+to|\s+wanna|'m\s+going\s+to|’m\s+going\s+to|'m\s+gonna|’m\s+gonna)?\s+(?:get\s+up\s+and\s+)?(?:leave\b(?!\s+(?:it|that|him|her|them|you|the\s+(?:deal|alliance|vote)))|(?:head|go|step|walk|wander)\s+(?:over(?:\s+there)?|out)\b)", re.IGNORECASE)
 
 
+_PI_NOT_A_MOVE_RE = re.compile(
+    r"\b(?:will|i'?ll|ill|later|maybe|perhaps|might|may|could|would|should|shall|if|when|whenever|once|after|before|until|unless|tomorrow|tonight|eventually|someday|soon|don'?t|do not|not|never|won'?t|can'?t|cannot|wouldn'?t|shouldn'?t|"
+    r"gonna|plan|planning|thinking|think|wonder|supposed|rather|instead|about to|how about|what about|why don'?t|every|each|sometimes|usually|always|all the time|"
+    r"in (?:an|a|one|two|few|\d+) (?:hour|hours|minute|minutes|min|mins|hr|hrs|day|days|while|bit)|at (?:\d+|noon|midnight|dinner|lunch|breakfast)(?:\s*(?:am|pm))?|on (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b")
+_PI_TAKES_IT_BACK_RE = re.compile(r"\bbut (?:i )?(?:can'?t|won'?t|cannot|don'?t|stop|then stop)\b|\bnever ?mind\b|\bnvm\b|\bnot really\b|\bjust kidding\b|\bwhichever\b|\bor (?:to )?the\b|\bbut stop\b|,\s*(?:but\s+)?(?:only\s+)?(?:if|unless)\b")
+_PI_EXTRA_VERB_RE = re.compile(
+    r"(?:^|[.!?;,]\s*|\b(?:and|then|so)\s+)(?:(?:ok(?:ay)?|so|now|alright|then)\b[,\s]*)*(?:(?:i|we)(?:'?m|\s+am|\s+are)?\s+|let'?s\s+|lets\s+|together,?\s+we\s+|me and \w+\s+)(?:just\s+|now\s+|quickly\s+|quietly\s+|all\s+|want to\s+|need to\s+|choose to\s+|decide to\s+)?"
+    r"(?:go|going|goes|head|heading|walk|walking|step|stepping|move|moving|run|running|enter|entering|stroll|strolling|sneak|tiptoe|creep|hurry|rush|race|jog|bolt|sprint|dash|storm|stomp|pop|swing|slip|wander|drift|come|arrive|reach|get)\s+"
+    r"(?:(?:back|over|right|straight|up|down)\s+)*(?:(?:in\s*to|into|to|toward|towards|by|at|through|inside)\s+)?(?:the\s+|my\s+|our\s+)?(?:[a-z'-]+\s+){0,3}?"
+    r"(?:kitchen|living\s*room|lounge|back\s*yard|yard|hallway|hall|bathroom|dining\s*room|storage|pantry|diary\s*room|hoh|landing|bedroom|bunk|garden|patio|pool|outside|inside|downstairs|upstairs)\b", re.IGNORECASE)
+_PI_NOW_FORMS_RE = re.compile(r"\b(?:(?:i(?:'?m| am)?\s+)?(?:gonna|going to)|i'?ll|i will|let me|(?:it'?s\s+)?time to)\s+(?=(?:just\s+|now\s+)?(?:go|head|walk|leave|move|step|wander|find|follow|make my way)\b)")
+_PI_STARTS_WITH_SUBJECT_RE = re.compile(r"^(?:(?:ok(?:ay)?|so|now|alright|then)\\b[,\\s]*)*(?:i|we|let'?s|lets|me)\\b")
+_PI_QUOTE_RE = re.compile(r'\(\([\s\S]*?\)\)|\[[^\]]*ooc[^\]]*\][^.!?\n]*|\(ooc\)[^.!?\n]*|\booc:[^\n]*|"[^"]*"|\u201c[^\u201d]*\u201d|(?<![\w])[\u2018\'](?:[^\'\u2018\u2019\n]|[\u2019\'](?=[A-Za-z])){2,}?[\u2019\'](?=$|[\s.,!?;:)])', re.IGNORECASE)
+
+
 def _player_asked_to_move(text: str, room_names) -> bool:
-    """Did the player's own message say they are going somewhere? Pure. A room merely named, asked about or discussed never counts; narration never counts."""
-    msg = str(text or "")
-    if _PLAYER_INTENT_RE.search(msg) or _PLAYER_FOLLOW_RE.search(msg):
+    """Did the player's own message say they are going somewhere? Pure. A room merely named, asked about or discussed never counts; narration never counts.
+    ORW-1038 (audit A3): quoted speech and ((out-of-character)) asides are not the player's act; a hedge, a negation, a later time, a habit, a question or a move the player takes back ("but I can't", "never mind",
+    "if Dana is there") is no move; the verbs the engine's own parser (src/engine/playerMoveIntent.ts) reads count here too, so the two agree on what a move is."""
+    msg = _PI_QUOTE_RE.sub(" ", str(text or "")).replace("\u2019", "'")
+    moved = False
+    for clause in re.split(r"(?<=[.!?;])\s+|\n", msg):
+        c = clause.strip()
+        if not c or c.endswith("?"):
+            continue
+        if re.match(r"^(?:actually[,\s]+)?(?:(?:no\s+)?wait\b|never ?mind\b|nvm\b|forget (?:it|that)\b|scratch that\b)", c.lower()):
+            moved = False  # "I head to the kitchen; actually never mind": the move is taken back
+            continue
+        low = _PI_NOW_FORMS_RE.sub("i ", c.lower())  # as the engine's parser: "I'll go", "I'm going to head", "let me go" are a wish to go now; a later-time word still blocks below
+        if _PI_TAKES_IT_BACK_RE.search(low):
+            continue
+        if re.match(r"^(?:can|could|would|should|shall|may|do|does|did|is|are|am|will|what|where|why|how|who|which)\b", low):
+            continue
+        # the hedge has to sit in the piece that holds the move ("I tell Dana I will keep it quiet and walk out to the yard" moves; "maybe I go to the kitchen" does not)
+        pieces = re.split(r"\s+(?:and then|then|and|so|but)\s+|,\s*", low)
+        if any(not _PI_NOT_A_MOVE_RE.search(piece) and _player_clause_goes(piece if k == 0 or _PI_STARTS_WITH_SUBJECT_RE.match(piece) else "i " + piece, room_names) for k, piece in enumerate(pieces)):
+            moved = True
+    return moved
+
+
+def _player_clause_goes(msg: str, room_names) -> bool:
+    if _PLAYER_INTENT_RE.search(msg) or _PLAYER_FOLLOW_RE.search(msg) or _PI_EXTRA_VERB_RE.search(msg):
         return True
-    return any(_themed_rooms_in(msg[m.end():m.end() + 60], room_names) for m in _PLAYER_INTENT_PREFIX_RE.finditer(msg))
+    if any(_themed_rooms_in(msg[m.end():m.end() + 60], room_names) for m in _PLAYER_INTENT_PREFIX_RE.finditer(msg)):
+        return True
+    low = msg.lower()
+    return bool(_PI_EXTRA_VERB_RE.search(low)) or bool(_themed_rooms_in(msg, room_names) and re.search(r"(?:^|[.!?;,]\s*|\b(?:and|then|so)\s+)(?:(?:i|we)(?:'?m|\s+am)?\s+|let'?s\s+|lets\s+)(?:go|going|head|heading|walk|walking|step|move|run|enter)\b", low))
 
 
 def _turn_in_applied(result) -> bool:
