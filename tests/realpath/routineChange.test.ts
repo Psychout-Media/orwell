@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import type { Routine } from "../../src/engine/routines";
-import { routineKey } from "../../src/engine/routineLife";
+import { routineKey, routineNow } from "../../src/engine/routineLife";
+import { sessionCoreSupersetViolation, type SessionSnapshot } from "../../src/engine/sessionSnapshot";
+import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { firstStop, playUntil, wfScan, type Stop } from "./playedSeason";
 
 /**
@@ -41,5 +43,29 @@ describe("routines change as the houseguest changes", () => {
     });
     expect(changed(off), "flag off: no routine is ever set aside").toEqual([]);
     expect(live(off).routines![id]!.some((r) => r.sinceWeek !== undefined)).toBe(false);
+  }, 1_200_000);
+
+  it("a save and reload keeps a set-aside routine set aside (retiredWeek), the new one's sinceWeek, every row in order; the snapshot guard accepts it and faults an un-set routine", async () => {
+    const at = await firstStop((s) => changed(s).length > 0, wfScan(1, "a houseguest whose routines changed"));
+    const id = changed(at)[0]!;
+    const rowsOf = (snap: SessionSnapshot): Routine[] => (snap.live as unknown as Live).routines![id]!;
+    const saved = JSON.parse(JSON.stringify(at.sess.snapshot())) as SessionSnapshot; // what the save store writes
+    const reloaded = new GameSessionAdapter();
+    reloaded.restore(JSON.parse(JSON.stringify(saved)) as SessionSnapshot);
+    const back = JSON.parse(JSON.stringify(reloaded.snapshot())) as SessionSnapshot;
+    const before = rowsOf(saved), after = rowsOf(back);
+    expect(after.map(routineKey), "no row lost or reordered").toEqual(before.map(routineKey));
+    expect(after.map((r) => r.retiredWeek)).toEqual(before.map((r) => r.retiredWeek));
+    expect(after.map((r) => r.sinceWeek)).toEqual(before.map((r) => r.sinceWeek));
+    const gone = after.find((r) => r.retiredWeek !== undefined)!;
+    expect(gone).toBeDefined();
+    expect(after.some((r) => r.sinceWeek !== undefined), "the added routine keeps sinceWeek").toBe(true);
+    expect(routineNow([gone], gone.slot, false, () => 0), "a set-aside routine no longer pulls after the reload").toBeUndefined();
+    expect(sessionCoreSupersetViolation(back, saved), "the monotonic guard accepts the round trip").toBeNull();
+    // negative control: the same save with that routine un-set is refused (a copy of the saved snapshot is edited, never the game)
+    const unset = JSON.parse(JSON.stringify(saved)) as SessionSnapshot;
+    const liveCopy = unset.live as unknown as Live;
+    liveCopy.routines = { ...liveCopy.routines, [id]: liveCopy.routines![id]!.map((r) => { const { retiredWeek: _w, ...rest } = r; return rest as Routine; }) };
+    expect(sessionCoreSupersetViolation(unset, saved)).toBe("routines");
   }, 1_200_000);
 });
