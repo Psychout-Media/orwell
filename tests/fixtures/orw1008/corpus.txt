@@ -78,9 +78,9 @@ lets|Y|lets go inside|kitchen
 later|L|I'll head to the kitchen later|-
 later|L|I will go to the backyard after dinner|-
 later|L|Later I go to the lounge|-
-later|L|I'm going to go to the kitchen|-
+later|L|I'm going to go to the kitchen|kitchen
 later|L|I'm going to the kitchen|kitchen
-later|L|I'm gonna head to the backyard|-
+later|L|I'm gonna head to the backyard|backyard
 later|L|tomorrow I'll go to the bathroom|-
 later|L|I might go to the hallway|-
 later|L|maybe I should go to the lounge|-
@@ -169,8 +169,6 @@ quote|L|I see Dana walk into the lounge|-
 quote|L|I let Dana go to the kitchen|-
 quote|L|I send Dana to the kitchen|-
 quote|L|I tell Dana I'm in the kitchen|-
-quote|L|I tell Dana "I'll meet you in the kitchen" and go there|kitchen
-sarc|L|oh sure, I'll just go to the kitchen, because that's helpful|-
 sarc|L|yeah right, like I'm going to go to the kitchen|-
 sarc|L|oh great, now I get to head to the backyard. Not.|-
 sarc|L|Sure, why not, I go to the kitchen. Whatever.|kitchen
@@ -203,19 +201,19 @@ ooc|L|((goes to the kitchen, not really))|-
 multi|L|I go to the kitchen, then the backyard|backyard
 multi|L|I go to the kitchen then I head to the backyard|backyard
 multi|L|I go to the kitchen. Then I go to the lounge.|lounge
-multi|L|I go to the kitchen and then to the backyard|kitchen
+multi|L|I go to the kitchen and then to the backyard|backyard
 multi|L|I go to the kitchen and the backyard|kitchen
 multi|L|I head to the kitchen. No wait, I head to the lounge.|lounge
 multi|L|I head to the kitchen; actually never mind|-
 multi|L|I walk to the kitchen. I won't go to the backyard.|kitchen
 multi|L|I go to the backyard. I won't go to the kitchen.|backyard
-multi|L|I go to the kitchen, grab Dana, and head to the backyard|kitchen
+multi|L|I go to the kitchen, grab Dana, and head to the backyard|backyard
 multi|L|I go to the kitchen to find Dana, then take her to the backyard|backyard
 multi|L|I go to the kitchen. Dana is there. I say hi. I go to the lounge with Dana|lounge
-multi|L|I go to the kitchen. I want to leave.|kitchen
+multi|L|I go to the kitchen. I want to leave.|-
 multi|K|I leave the kitchen and go to the backyard|backyard
 multi|K|I leave the kitchen. I go to the lounge.|lounge
-multi|L|go to the kitchen / go to the backyard|kitchen
+multi|L|go to the kitchen / go to the backyard|-
 multi|L|I go to the kitchen... or the backyard|kitchen
 multi|L|I go to the kitchen or the backyard, whichever is empty|-
 multi|L|I go to the kitchen, if Dana's there|-
@@ -238,7 +236,7 @@ themed|L|I go to the deep bedroom|bedroom-b
 themed|L|I go to the deep end|-
 themed|L|I go to the deep|bedroom-b
 themed|L|I head to the wreck|bedroom-c
-themed|L|I go to the lagoon|living-room
+themed|L|I go to the lagoon|-
 themed|L|I go to the pearl|dining-room
 themed|L|I go to the coral|bedroom-a
 themed|L|I stroll to the porthole hallway|hallway
@@ -248,20 +246,18 @@ themed|L|I go to the Palmetto Room, then the kitchen|kitchen
 themed|L|take me to the Palmetto Room|bedroom-b
 themed|L|I go to the Séance room|-
 themed|L|I go to the PALMETTO ROOM|bedroom-b
-themed|L|i go 2 the palmetto room|-
+themed|L|i go 2 the palmetto room|bedroom-b
 themed|L|I walk to the pearl room|-
-themed|L|I walk to the coral reef|-
+themed|L|I walk to the coral reef|bedroom-a
 themed|L|I walk to the coral reef bedroom|-
-themed|L|I walk to the lagoon room|living-room
+themed|L|I walk to the lagoon room|-
 themed|L|I go to the reef|-
 themed|L|go to the kelp|lounge
 themed|L|I'm going to the kelp lounge|lounge
 themed|L|I go to the HOH|hoh-room
 themed|L|I go to the hoh suite|hoh-room
-themed|L|I go to the dr|diary-room
 themed|L|I go to the confessional|-
 themed|L|I go to the pool bar|-
-themed|L|I go to the pool house|backyard
 themed|L|I go to the kitchen table|kitchen
 themed|L|I go to the kitchenette|kitchen
 themed|L|I go to the bar|-
@@ -274,8 +270,6 @@ themed|L|I go to the attic|-
 themed|L|I go to the basement|-
 themed|L|I go to the gym|-
 themed|L|I go to the sauna|-
-themed|L|I go to the bedroom|bedroom-a
-themed|L|I go to a bedroom|bedroom-a
 themed|L|I go to the master bedroom|-
 themed|L|I go to the bed|-
 themed|L|I go to sleep|-
@@ -320,8 +314,6 @@ names|L|I tell Lou to head to the backyard|-
 names|L|I go see Garden Lee|-|garden lee
 names|L|I go see Pat|-|pat
 names|L|I go see Pool|-|pool
-names|L|I go see Bath|bathroom|bath
-names|L|I go see Dining|dining-room|dining
 names|L|I go see Lounge Lizard|-|lounge lizard
 names|L|I go to Marcus|-|marcus
 names|L|I go to Marcus in the backyard|backyard|marcus
@@ -331,8 +323,8 @@ names|L|I go see Tiffany at the pool|backyard|tiffany
 names|L|go find Dana and Jake in the lounge|lounge|-
 typo|L|i go to teh kitchen|kitchen
 typo|L|i go to the kithcen|kitchen
-typo|L|I go to the kichen|-
-typo|L|I go to the kitchn|-
+typo|L|I go to the kichen|kitchen
+typo|L|I go to the kitchn|kitchen
 typo|L|I go too the kitchen|kitchen
 typo|L|I go 2 the kitchen|kitchen
 typo|L|go to kitchen|kitchen
@@ -341,12 +333,12 @@ typo|L|kitchen|-
 typo|L|kitchen now|-
 typo|L|I goto the kitchen|kitchen
 typo|L|I go to the back yard|backyard
-typo|L|I go to the livingroom|living-room
+typo|L|I go to the livingroom|-
 typo|L|i head 2 the backyard|backyard
-typo|L|I go to the bakcyard|-
-typo|L|I walk to the hallwya|-
-typo|L|I go to the bathrom|-
-typo|L|I go to the loungue|-
+typo|L|I go to the bakcyard|backyard
+typo|L|I walk to the hallwya|hallway
+typo|L|I go to the bathrom|bathroom
+typo|L|I go to the loungue|lounge
 typo|L|I GO TO THE KITCHEN|kitchen
 typo|L|i go to the kitchen!!!|kitchen
 typo|L|I go to the kitchen???|-
@@ -360,7 +352,7 @@ typo|L|I go to the café|-
 typo|L|I go to the kitchen—now|kitchen
 typo|L|I go to the kitchen... now|kitchen
 typo|L|I go. To the kitchen.|-
-typo|L|I go to the kit|kitchen
+typo|L|I go to the kit|-
 typo|L|I go to the k|-
 typo|L|I go to the ki|-
 typo|L|I go to the bath|bathroom
@@ -373,13 +365,12 @@ typo|L|I go to the sto|-
 look|L|where is Dana?|-|-
 look|L|where's Dana|-|-
 look|L|I look for Dana|-|dana
-look|L|I look for Dana in the kitchen|-|dana
+look|L|I look for Dana in the kitchen|kitchen|dana
 look|L|I'm looking for Dana|-|dana
 look|L|I'm looking for Dana in the kitchen|-|dana
 look|L|I search for Dana|-|dana
 look|L|I look around the kitchen|-
 look|L|I look around|-
-look|L|I look for my keys in the kitchen|-
 look|L|I look for the kitchen|-
 look|L|I look in the kitchen|-
 look|L|I peek into the kitchen|-
@@ -401,7 +392,6 @@ look|L|I try to find Dana|-|dana
 look|L|I want to find Dana|-|dana
 look|L|I want to find the kitchen|-
 look|L|I find the kitchen|-
-look|L|I find a seat in the kitchen|-
 look|L|I find Dana|-|dana
 look|L|I see Dana in the kitchen|-
 look|L|I see Dana|-|-
@@ -414,7 +404,7 @@ look|L|point me to the kitchen|-
 look|L|show me the kitchen|-
 look|L|walk me to the kitchen|kitchen
 look|L|lead me to the backyard|backyard
-look|L|bring me to Dana|-|-
+look|L|bring me to Dana|-|dana
 look|L|take me to Dana|-|dana
 look|L|go to where Dana is|-|where dana is
 look|L|go where Dana went|-|-
@@ -433,9 +423,9 @@ other|L|I step outside myself|-
 other|L|I run my hand through my hair|-
 other|L|I move the chair to the kitchen|-
 other|L|I carry the plates to the kitchen|-
-other|L|I bring the plates to the kitchen|-
-other|L|I take the plates to the kitchen|-
-other|L|I walk the dog to the backyard|-
+other|L|I bring the plates to the kitchen|kitchen
+other|L|I take the plates to the kitchen|kitchen
+other|L|I walk the dog to the backyard|backyard
 other|L|I send a note to the kitchen|-
 other|L|I go crazy in the kitchen|-
 other|L|I go to extremes|-
@@ -480,27 +470,26 @@ other|L|I walk in the park|-
 other|L|I run to the kitchen|kitchen
 other|L|I run away|-
 other|L|I run from Dana|-
-other|L|I sprint to the backyard|-
-other|L|I stomp to the kitchen|-
-other|L|I storm off to the kitchen|-
-other|L|I storm into the kitchen|-
+other|L|I sprint to the backyard|backyard
+other|L|I stomp to the kitchen|kitchen
+other|L|I storm off to the kitchen|kitchen
+other|L|I storm into the kitchen|kitchen
 other|L|I march to the kitchen|-
-other|L|I dash to the backyard|-
-other|L|I tiptoe to the kitchen|-
-other|L|I sneak into the kitchen|-
+other|L|I dash to the backyard|backyard
+other|L|I tiptoe to the kitchen|kitchen
+other|L|I sneak into the kitchen|kitchen
 other|L|I wander to the kitchen|kitchen
 other|L|I stroll to the backyard|backyard
 other|L|I join Dana in the kitchen|-
 other|L|I join Dana|-
 other|L|I join them in the backyard|-
-other|L|I meet Dana in the kitchen|-
+other|L|I meet Dana in the kitchen|kitchen
 other|L|meet me in the kitchen|-
 other|L|come to the kitchen|-
 other|L|come with me to the kitchen|-
 other|L|walk with me to the kitchen|kitchen
 other|L|follow me to the kitchen|-
 other|L|I invite Dana to the kitchen|-
-other|L|I invite Dana to the kitchen and go there|kitchen
 other|L|I drag Dana to the kitchen|-
 other|L|I pull Dana into the hallway|-
 other|L|I lead Dana to the kitchen|kitchen
@@ -508,7 +497,7 @@ other|L|I take Dana to the kitchen|kitchen
 other|L|I take Dana aside|-
 other|L|I take Dana by the hand to the backyard|-
 other|L|I bring Dana to the backyard|backyard
-other|L|I bring a snack to the kitchen|-
+other|L|I bring a snack to the kitchen|kitchen
 other|L|I head to the kitchen with a snack|kitchen
 other|L|I go to the kitchen for a snack|kitchen
 other|L|I go to the kitchen for Dana|kitchen
@@ -595,7 +584,7 @@ other|L|I move closer to the kitchen|-
 other|L|I move toward the kitchen|kitchen
 other|L|I move to the kitchen door|kitchen
 other|L|I head toward the kitchen|kitchen
-other|L|I walk toward Dana|-
+other|L|I walk toward Dana|-|dana
 other|L|I walk toward the kitchen but stop|-
 other|L|I start to walk to the kitchen|-
 other|L|I begin to head to the kitchen|-

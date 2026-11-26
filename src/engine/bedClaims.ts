@@ -278,6 +278,10 @@ export function parsePlayerBedIntent(
   let out: PlayerBedIntent | null = null;
   for (const raw of clauses) {
     const c = ` ${fold(raw).replace(/[’]/g, "'").replace(/[^a-z0-9' -]+/g, " ").replace(/\bbed ?room\b/g, "bedroom").replace(/\s+/g, " ").trim()} `;
+    if (out?.kind === "claim" && /^ (?:actually|no|i mean|wait)\b/.test(c) && !BED_WORD.test(c)) { // "I take a bed in bedroom A. Actually bedroom B.": the correction replaces the room
+      const fixed = rooms.find((r) => r.names.some((n) => findName(c, fold(n)) >= 0));
+      if (fixed) { out = { kind: "claim", room: fixed.room, ...(out.prefer ? { prefer: out.prefer } : {}) }; continue; }
+    }
     const subjectOther = people.some((p) => p.names.some((n) => new RegExp(`^${esc(fold(n))} (?:took|takes|taking|claimed|claims|grabbed|grabs|picked|picks|has|got|gets|snagged)\\b`).test(c.trim())));
     if (!BED_WORD.test(c) || HEDGE.test(c) || subjectOther) continue;
     if (/\b(?:tell|told|telling)\s+\S+(?:\s+\S+)?\s+(?:to|she|he|they|that)\b/.test(c) && !SWAP_VERB.test(c)) continue;

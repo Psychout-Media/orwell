@@ -53,10 +53,10 @@ const TAKES_IT_BACK = /\b(?:but (?:i )?(?:can'?t|won'?t|cannot|don'?t|stop|then 
 const IF_TAIL = /,\s*(?:but\s+)?(?:only\s+)?(?:if|unless)\b/;
 const QUESTION_START = /^(?:can|could|would|should|shall|may|do|does|did|is|are|am|will|what|where|why|how|who|which)\b/;
 
-const LEAD_IN = /^(?:(?:ok|okay|alright|all right|so|then|and|now|well|first|next|hey|um|uh|anyway|ok then|after that|with an? [a-z]+|right then|then)\b[,\s]*|hey [a-z]+\b[,\s]*)+/;
-const SUBJECT = /^(?:together,?\s+)?(?:(?:i|we)(?:'?m| am| are)?\s+|(?:me|i)\s+and\s+[a-z]+\s+|me\s+)/; // "im" typed without the apostrophe too
+const LEAD_IN = /^(?:hey [a-z]+\b[,\s]*|(?:lol|lmao|haha|heh|oh|yeah|yep|sure|ok|okay|alright|all right|so|then|and|now|well|first|next|hey|um|uh|anyway|ok then|after that|with an? [a-z]+|right then|then)\b[,\s]*)+/;
+const SUBJECT = /^(?:together,?\s+)?(?:(?:me|i)\s+and\s+[a-z]+\s+|(?:i|we)(?:'?m| am| are)?\s+|me\s+)/; // "im" typed without the apostrophe too
 const INTENT = /^(?:(?:just|now|quickly|slowly|quietly|also|really|finally|then)\s+)*(?:(?:want to|wanna|need to|decide to|choose to|am)\s+)?(?:(?:just|now|quickly|slowly|quietly|then)\s+)*/;
-const GO_VERB = /^(?:arrive at|get to|reach|pop (?:into|over to|in to)|swing by|come|comes|coming|drift|sneak|tiptoe|creep|stomp off|stomp|hurry|rush|race|jog|bolt|sprint|dash|storm|lead the way|exit|exits|exiting|enter|enters|entering|go|goes|head|heads|walk|walks|step|steps|move|moves|wander|wanders|stroll|strolls|run|runs|slip|slips|duck|ducks|retreat|retreats|going|heading|walking|stepping|moving|wandering|strolling|running|make my way|making my way)\b\s*/;
+const GO_VERB = /^(?:arrive at|get to|reach|pop (?:into|over to|in to)|swing by|come|comes|coming|drift|sneak|tiptoe|creep|stomp off|stomp|hurry|rush|race|jog|bolt|sprint|dash|storm off|storm|lead the way|exit|exits|exiting|enter|enters|entering|go|goes|head|heads|walk|walks|step|steps|move|moves|wander|wanders|stroll|strolls|run|runs|slip|slips|duck|ducks|retreat|retreats|going|heading|walking|stepping|moving|wandering|strolling|running|make my way|making my way)\b\s*/;
 const TAKE_VERB = /^(?:take|bring|lead|walk|carry|guide)\s+me\b\s*/;
 const LEAVE_VERB = /^(?:leave|leaves|leaving|exit|exits|exiting|get out of|getting out of|walk out of|walking out of|step out of|stepping out of|head out of|heading out of|go out of|going out of|go out from|walk out from)\b\s*/;
 // Prepositions (and a few adverbs) between the verb and the destination.
@@ -119,7 +119,8 @@ function roomFromPhrase(phrase: string, current: Room | null, themed?: Themed): 
   if (p === "" || /^(?:bed|beds|room|sleep)$/.test(p)) return null; // "go to bed" is sleep; a bare "room" is no place
   if (/^(?:back|out|up|down|over|away|off|there|here|around|home|in|on|forward|ahead)$/.test(p)) return null; // ORW-1035: a direction word is no room ("step back", "go back", "walk out")
   if (STUBS.test(p)) return null; // ORW-1039: a houseguest's first name or a stub is no room ("Kit", "Hal", "Dia", "Liv", "Lou"): only a real room word counts as a destination
-  if (/^(?:(?:down\s+)?(?:the\s+)?stairs?|downstairs|down\s+the\s+stairs)$/.test(p)) return current === "landing" ? "living-room" : current === "hoh-room" ? "landing" : null; // ORW-1035
+  if (/^(?:down\s*stairs|down\s+(?:the\s+)?stairs?)$/.test(p)) return current === "landing" ? "living-room" : current === "hoh-room" ? "landing" : null; // ORW-1035: down is a way out of the upper rooms only
+  if (/^(?:up\s+(?:the\s+)?stairs?|(?:the\s+)?stairs?)$/.test(p)) return current === "landing" || current === "hoh-room" ? null : "landing";
   const res = resolveRoom(p, current, themed); // ORW-466: the season's themed room names resolve too
   if (res.kind !== "ok") return null;
   // resolveRoom is deliberately loose ("kit" -> kitchen); for a stated move require a real word, not a stub.
@@ -166,13 +167,15 @@ const SEG_SPLIT = /(\s*[,;]\s*(?:and\s+)?(?:then\s+)?|\s+(?:and then|then|and)\s
  */
 function parseClause(raw: string, current: Room | null, themed?: Themed): Room | null {
   const low = raw.toLowerCase();
-  if (IF_TAIL.test(low)) return null; // "I go to the kitchen, if Dana's there": a condition, not a move
+  if (/\s\/\s|\w\/\w/.test(low)) return null; // "the kitchen / lounge": two rooms, no choice made
+  if (IF_TAIL.test(low) || /,\s*but (?:i )?(?:can'?t|won'?t|cannot|don'?t)\b/.test(low)) return null; // "I go to the kitchen, if Dana's there" / "..., but I won't": a condition or a take-back, not a move
   const parts = raw.split(SEG_SPLIT);
   let result = parseClauseHead(raw, current, themed);
   if (parts.length > 1) {
     let lastVerb = "";
     let delim = "";
     let moved: Room | null = null;
+    let cancelled = false;
     for (let i = 0; i < parts.length; i++) {
       const piece = parts[i]!;
       if (i % 2 === 1) { delim = piece; continue; }
@@ -180,8 +183,9 @@ function parseClause(raw: string, current: Room | null, themed?: Themed): Room |
       if (t === "") continue;
       const fix: Room | null = result !== null ? correctionRoom(t, moved ?? current, themed) : null;
       if (fix !== null) { moved = fix; result = fix; continue; }
-      if (CANCEL_SEG.test(clean(t))) { result = null; moved = null; continue; }
+      if (CANCEL_SEG.test(clean(t))) { result = null; moved = null; cancelled = true; continue; }
       let r = parseClauseText(t, moved ?? current, themed);
+      if (r === null && cancelled) { const bareRoom = roomFromPhrase(clean(t).replace(/^(?:to|into|the)\s+/, ""), current, themed); if (bareRoom !== null) r = bareRoom; } // "actually no, the backyard" / "scratch that, lounge"
       if (r === null && /then/.test(delim) && lastVerb !== "") {
         const c = clean(t).replace(/^(?:to|into|in to|back to|over to)\s+/, "");
         const room = roomFromPhrase(c, moved ?? current, themed);
@@ -197,16 +201,19 @@ function parseClauseText(raw: string, current: Room | null, themed?: Themed): Ro
   if (/\?\s*$/.test(raw.trim())) return null;
   let s = clean(raw);
   if (s === "" || QUESTION_START.test(s) || NOT_A_MOVE.test(moveHead(s)) || TAKES_IT_BACK.test(s)) return null;
+  let subjected = true;
   const lets = LETS.exec(s);
   if (lets) { // an invitation to go together: the player's own walk is the move ("let's go to the kitchen"); only a go-verb counts
     s = s.slice(lets[0].length);
     if (!GO_VERB.test(s)) return null;
   } else {
+    subjected = SUBJECT.test(s);
     s = s.replace(SUBJECT, "");
     s = s.replace(INTENT, "");
   }
 
   // 0. the player walks WITH someone: "take her to the bathroom", "walk with her to the lounge" - the player's move to the room named.
+  if (/^(?:come|comes|coming)\b/.test(s) && !subjected) return null; // "come to the kitchen" is said to somebody else
   const gv = GO_VERB.exec(s);
   const tp = TAKE_PERSON.exec(s) ?? (gv ? WITH_PERSON.exec(s.slice(gv[0].length)) : null);
   if (tp && tp[1] !== "me" && personPhrase(tp[1]!, current, themed)) {
@@ -215,16 +222,18 @@ function parseClauseText(raw: string, current: Room | null, themed?: Themed): Ro
   }
 
   // 0b. "I find Dana in the backyard" / "I see Kit in the kitchen": the player's own act of going to where they are, the room named.
-  const fi = /^(?:find|finds|finding|see|visit|meet|look for)\s+([a-z][a-z' -]{0,28}?)\s+(?:in|inside|at)\s+(.+)$/.exec(s);
-  if (fi && !/^(?:her|him|them|it|you|everyone|someone|somebody|anyone)$/.test(fi[1]!) && personPhrase(fi[1]!, current, themed, true)) { const to = roomFromPhrase(fi[2]!, current, themed); if (to !== null) return to; }
+  const fi = /^(?:find|finds|finding|visit|meet|look for)\s+([a-z][a-z' -]{0,28}?)\s+(?:in|inside|at)\s+(.+)$/.exec(s);
+  if (fi && !/^(?:her|him|them|it|you|me|us|everyone|someone|somebody|anyone|(?:a|an|the|my|our|some)\s.*)$/.test(fi[1]!) && personPhrase(fi[1]!, current, themed, true)) { const to = roomFromPhrase(fi[2]!, current, themed); if (to !== null) return to; }
 
   // 0c. "I follow Dana to the kitchen" / "I follow her into the lounge": the player's own walk to the room named.
-  const fo = /^(?:follow|follows|following)\s+[a-z][a-z' -]{0,28}?\s+(?:back\s+)?(?:in\s*to|into|to|toward|towards)\s+(.+)$/.exec(s);
+  const fo = /^(?:follow|follows|following)\s+(?!me\b|us\b)[a-z][a-z' -]{0,28}?\s+(?:back\s+)?(?:in\s*to|into|to|toward|towards)\s+(.+)$/.exec(s);
   if (fo) { const to = roomFromPhrase(fo[1]!, current, themed); if (to !== null) return to; }
 
   // 1. "leave the backyard" / "leave" + here: through the door the floor plan gives.
   let m = LEAVE_VERB.exec(s);
   if (m) {
+    const via = /\s+(?:in\s*to|into|to|for|toward|towards)\s+(.+)$/.exec(s.slice(m[0].length)); // "I leave the kitchen for the backyard": the room named after the door is the move
+    if (via) { const to = roomFromPhrase(via[1]!, current, themed); if (to !== null) return to; }
     const rest = s.slice(m[0].length).replace(PHRASE_END, "").trim().replace(ARTICLE, "").trim();
     if (rest === "" || /^(?:here|room|the room|this room)$/.test(rest)) return exitRoomFrom(current);
     const named = roomFromPhrase(rest, current, themed);
@@ -251,8 +260,9 @@ function parseClauseText(raw: string, current: Room | null, themed?: Themed): Ro
     }
     if (INSIDE_WORDS.has(bare)) return current === "backyard" ? exitRoomFrom(current) : null;
     if (OUTSIDE_WORDS.has(bare)) return current === "backyard" ? null : "backyard";
-    const fr = FIND_IN_ROOM.exec(afterVerb.replace(/^(?:(?:back|right|straight|over)\s+)+/, ""));
-    if (fr && personPhrase(fr[1]!, current, themed, /^(?:and\s+)?(?:find|look for|see|get)\b/.test(afterVerb.replace(/^(?:(?:back|right|straight|over)\s+)+/, "")))) { const to = roomFromPhrase(fr[2]!, current, themed); if (to !== null) return to; } // "go find <X> in the backyard": the room named
+    const fr = FIND_IN_ROOM.exec(afterVerb.replace(/^(?:(?:back|right|straight|over|up)\s+)+/, ""));
+    if (fr && personPhrase(fr[1]!, current, themed, /^(?:and\s+)?(?:find|look for|see|get)\b/.test(afterVerb.replace(/^(?:(?:back|right|straight|over|up)\s+)+/, "")))) { const to = roomFromPhrase(fr[2]!, current, themed); if (to !== null) return to; } // "go find <X> in the backyard": the room named
+    if (/^down\s*stairs$|^down\s+(?:the\s+)?stairs?$/.test(bare)) return roomFromPhrase(bare, current, themed); // ORW-1035
     const rest = afterVerb.replace(PREP, "");
     return roomFromPhrase(rest, current, themed);
   }
@@ -295,8 +305,16 @@ export function parsePlayerMoveIntent(text: string, current: Room | null, themed
   let at = current;
   for (const c of clauses) {
     if (c.trim() === "") continue;
-    const fix: Room | null = dest !== null ? correctionRoom(c, at, themed) : null; // "No, the backyard." after a move
-    const room: Room | null = fix ?? parseClause(c, at, themed);
+    let cText = c;
+    const fix: Room | null = dest !== null ? correctionRoom(c, at, themed) : null; // "No, the backyard." / "wait, no, the lounge" after a move
+    const cm = fix === null ? CANCEL_SEG.exec(clean(c)) : null;
+    if (dest !== null && cm) { // "actually never mind" after a move takes it back; "no wait, I head to the lounge" takes it back and says the new one
+      dest = null; at = current;
+      const rest = clean(c).slice(cm[0].length).replace(/^[,\s]+/, "");
+      if (rest === "") continue;
+      cText = rest;
+    }
+    const room: Room | null = fix ?? parseClause(cText, at, themed);
     if (room !== null) { dest = room; at = room; }
   }
   return dest === current ? null : dest;
@@ -304,7 +322,7 @@ export function parsePlayerMoveIntent(text: string, current: Room | null, themed
 
 // ORW-559 - "go to <houseguest>": the same present-tense self-move grammar, but the destination phrase is a PERSON. The parser only
 // extracts the phrase; the engine resolves it against who the player can legitimately see (never a hidden whereabouts).
-const FIND_VERB = /^(?:find|finds|finding|look for|looks for|looking for|seek out|seeking out|search for|searching for|track down|tracking down|locate|go find|go look for|go see|go and find)\b\s*/;
+const FIND_VERB = /^(?:try to find|trying to find|find|finds|finding|look for|looks for|looking for|seek out|seeking out|search for|searching for|track down|tracking down|locate|go find|go look for|go see|go and find)\b\s*/;
 
 const FOLLOW_VERB = /^(?:follow|follows|following|trail|trails|trailing)\b\s*/;
 const FOLLOW_TAIL = /\s+(?:inside|outside|indoors|back|in|out|into|to|and|then|wherever|where|so|with|through)\b.*$/;
@@ -313,11 +331,16 @@ function personFromClause(raw: string, current: Room | null, themed?: Themed): s
   if (/\?\s*$/.test(raw.trim())) return null;
   let s = clean(raw);
   if (s === "" || QUESTION_START.test(s) || NOT_A_MOVE.test(moveHead(s))) return null;
-  s = s.replace(SUBJECT, "").replace(INTENT, "");
+  const letsP = LETS.exec(s);
+  if (letsP) s = s.slice(letsP[0].length);
+  else s = s.replace(SUBJECT, "").replace(INTENT, "");
+  s = s.replace(/^(?:try to|trying to)\s+(?=find\b)/, "try to ");
   let rest: string | null = null;
   const f = FIND_VERB.exec(s);
   const fo = FOLLOW_VERB.exec(s); // ORW-926: "I follow <X> inside to wherever they went": walking after a person is a move to where that person is (when the player can see them)
+  const tk = /^(?:take|bring|lead|walk|guide)\s+me\s+(?:over\s+)?to\s+(.+)$/.exec(s);
   if (f) rest = s.slice(f[0].length);
+  else if (tk) rest = tk[1]!;
   else if (fo) rest = s.slice(fo[0].length).replace(FOLLOW_TAIL, "");
   else {
     const g = GO_VERB.exec(s);
@@ -327,7 +350,11 @@ function personFromClause(raw: string, current: Room | null, themed?: Themed): s
     }
   }
   if (rest === null) return null;
-  const p = rest.replace(PHRASE_END, "").trim();
+  rest = rest.replace(/^(?:me\s+)?(?:to\s+)?/, "");
+  const p = rest.replace(PHRASE_END, "").replace(/\s+(?:in|inside|at)\b.*$/, "").replace(/'s$/, "").trim(); // "go find Dana in the backyard": the person is Dana; "Dana's" is Dana
+  const pre = rest.replace(/\s+(?:in|inside|at)\b.*$/, "");
+  const andAt = /^(.+?)\s+and\s+([a-z' -]+)$/.exec(pre);
+  if (andAt && andAt[2]!.trim().split(" ").length <= 2 && !/\b(?:put|offer|give|propose|pitch|show|let|invite|confront|apologi[sz]e|ask|tell|talk|say|see|find|look|grab|get|have|make|take|bring|go|head|walk|then|chat|check)\b/.test(andAt[2]!)) return null; // two people ("Dana and Jake"): no one to go to
   if (p === "" || !/^[a-z][a-z' -]*$/.test(p) || p.split(" ").length > 3) return null;
   if (roomFromPhrase(p, current, themed) !== null) return null; // a room word is a room, not a person
   return p;

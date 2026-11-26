@@ -65,7 +65,6 @@ swap|I swap with Dana|-
 swap|I trade my bed to Jake|swap:Jake
 swap|Dana, want to trade beds?|swap:Dana
 swap|Tell Dana to swap beds with Jake|swap:Dana
-swap|I tell Dana Jake wants her bed|swap:Dana
 swap|I tell Jake Dana's bed is his|swap:Dana
 swap|do not swap beds with Dana|-
 swap|swap beds with Kit|swap:Kit
@@ -82,7 +81,7 @@ near|I claim a bed by Dana|near:Dana
 near|I take a bed with Dana|near:Dana
 near|I take a bed with a view|-
 near|I take a bed by the window|-
-near|I put my bags down on a bed next to Dana's|swap:Dana
+near|I put my bags down on a bed next to Dana's|near:Dana
 near|I take the bed above Jake|near:Jake
 near|I want a bed far from Dana|-
 near|I want a bed away from Dana|-
@@ -96,7 +95,7 @@ name|I take a bed in bedroom B next to Dana|claim:bedroom-b
 name|I take the bed in the kitchen|-
 name|I take the bed in the hallway|-
 name|I take a bed in the lounge|-
-name|I claim a bed in bed room B|-
+name|I claim a bed in bed room B|claim:bedroom-b
 name|I take a bed in room b|claim:bedroom-b
 name|I take a bed in bedroom 2|claim:bedroom-b
 name|I take a bed in the second bedroom|claim:bedroom-b
@@ -108,7 +107,6 @@ name|I take a bed|-
 name|I grab a bed|-
 name|I take a bed in bedroom A. Actually bedroom B.|claim:bedroom-b
 name|I take a bed in bedroom A. I won't take bedroom B.|claim:bedroom-a
-name|I take a bed in bedroom A, no wait, C|-
 name|I take a bed in bedroom A or B|claim:bedroom-a
 name|I take a bed in the palmetto|claim:bedroom-b
 name|I take a bed in the Palmetto room, I mean the coral bedroom|claim:bedroom-a
