@@ -18853,6 +18853,16 @@ export class GameSessionAdapter implements GameSession {
         if (m === 0) clockTargetPassed = true;
         else if (m !== null) statedMinutes = statedMinutes === null ? m : Math.min(statedMinutes, m);
       }
+      // ORW-1054: "hang out until production calls": the target is the next scheduled event itself (the clock is clamped to it, so it fires once, never skipped); nothing scheduled => the open-ended hang-out as before.
+      let untilEventCap: number | undefined;
+      if (req.untilEvent === true && statedMinutes === null) { // a player-stated length, band or clock time keeps its own (3 h) bound
+        const hrs = hoursUntilDue(live);
+        if (hrs !== null && hrs > 1e-6) {
+          const m = Math.min(hrs * 60 + 2, HANGOUT.maxUntilEventMinutes); // two minutes of slack: every beat is clamped to the event, so the wait ends ON it, never a float remainder short of it
+          statedMinutes = statedMinutes === null ? m : Math.min(statedMinutes, m);
+          untilEventCap = HANGOUT.maxUntilEventMinutes;
+        }
+      }
       // ORW-920 (Ryne's ruling): a STATED wait ("until 9am", "for an hour", "the rest of the afternoon") is interrupted ONLY by something actually due - a ceremony/comp call (event-due), bedtime, or a houseguest whose own
       // desire clock has crossed its threshold (a real reason to approach). No per-beat dice (a random production pull, a random sighting, the flat approach roll) and no rate knob. An open-ended hang-out keeps them.
       const statedWait = statedMinutes !== null;
@@ -18910,6 +18920,7 @@ export class GameSessionAdapter implements GameSession {
       }, rng, {
         ...(req.maxBeats !== undefined ? { maxBeats: req.maxBeats } : {}),
         ...(statedMinutes !== null ? { maxMinutes: statedMinutes } : {}),
+        ...(untilEventCap !== undefined ? { capMinutes: untilEventCap } : {}),
       });
       const hour = live.nightDepth ?? WAKE_HOUR;
       const stopLine = hangOutStopLine(result);
