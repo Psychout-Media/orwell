@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { PLAYER } from "../../src/domain/ids";
-import { JURY_GRUDGE } from "../../src/engine/juryConstants";
+import { JURY_GRUDGE_PERSONALITY } from "../../src/engine/juryConstants";
 import type { DecisionWhy } from "../../src/engine/decisionWhy";
 import { playedGame } from "../support/playedGame";
 import { firstSeedWhereSync } from "../support/firstSeedWhere";
@@ -51,7 +51,7 @@ describe("0182 REAL PATH: a juror's grudge leans their finale vote away from tha
     for (const w of on.why) for (const o of w.options) {
       const g = term(o, "grudge");
       expect(g).toBeLessThanOrEqual(0);
-      expect(g).toBeGreaterThanOrEqual(-JURY_GRUDGE.max);
+      expect(g).toBeGreaterThanOrEqual(-JURY_GRUDGE_PERSONALITY.ceiling); // ORW-943: a juror's personality scales the grudge, held to the ceiling (under the manner term)
       if (on.grudge(w.by, o.option) === 0) expect(g).toBe(0);
       if (g < 0) leaned++;
     }
