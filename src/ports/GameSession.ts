@@ -579,7 +579,7 @@ export interface GameStateView {
      * ORW-715: while a staged competition is under way, who is still on the floor and who is already out (public ceremony facts, the drops the game has already announced).
      * Without it a narrator who watches a multi-round competition has to remember the field and put an eliminated houseguest back into the final round. Absent otherwise.
      */
-    competition?: { stillIn: Array<{ id: EntityId; name: string }>; out: Array<{ id: EntityId; name: string }>; /** ORW-927: the drops a comp-round approach press resolved with no narrator turn (not yet voiced); present for one player message. */ justOut?: Array<{ id: EntityId; name: string }> };
+    competition?: { stillIn: Array<{ id: EntityId; name: string }>; out: Array<{ id: EntityId; name: string }>; /** ORW-927: the drops a comp-round approach press resolved with no narrator turn (not yet voiced); present for one player message. */ justOut?: Array<{ id: EntityId; name: string }>; /** ORW-937: the houseguests already out when the previous player message was framed, so an earlier reply has voiced their exit; the narrator is told not to stage it again. Absent when none. */ told?: Array<{ id: EntityId; name: string }> };
   };
   /**
    * WHERE THE PLAYER IS — their room, who is with them, and each ADJACENT room with its occupants

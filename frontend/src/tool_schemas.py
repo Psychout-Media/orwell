@@ -30,6 +30,30 @@ _SET_THEME_PRESETS_STR = ", ".join(known_theme_names_ordered())
 # ---------------------------------------------------------------------------
 # OpenAI-compatible function tool schemas
 # ---------------------------------------------------------------------------
+# ORW-951: the engine keeps a strategy style only if it is one of the archetype's two
+# (ARCHETYPES in src/engine/characterFactory.ts, drift-tested); the model must see the pairs.
+ARCHETYPE_STYLE_PAIRS = {
+    "comp-beast": ("aggressive", "strategic"),
+    "mastermind": ("strategic", "under-the-radar"),
+    "social-butterfly": ("social", "emotional"),
+    "floater": ("under-the-radar", "social"),
+    "villain": ("aggressive", "strategic"),
+    "underdog": ("emotional", "loyal"),
+    "flirt": ("social", "emotional"),
+    "loyalist": ("loyal", "social"),
+    "wildcard": ("emotional", "aggressive"),
+    "analyst": ("strategic", "under-the-radar"),
+    "hothead": ("aggressive", "emotional"),
+    "peacemaker": ("loyal", "social"),
+}
+_ARCHETYPE_STYLE_PAIRS_STR = "; ".join(f"{a}: {x}/{y}" for a, (x, y) in ARCHETYPE_STYLE_PAIRS.items())
+# Carried once per schema (on strategyStyle only): these schemas ride every turn's prefix, so the text stays short.
+_STYLE_PAIRING_RULE = (
+    "MUST be one of the chosen archetype's two styles, or the engine replaces it. Pairs: "
+    + _ARCHETYPE_STYLE_PAIRS_STR
+    + ". If the player's way of playing is not in their archetype's pair, pick the archetype that offers it."
+)
+
 FUNCTION_TOOL_SCHEMAS = [
     {
         "type": "function",
@@ -1873,7 +1897,7 @@ FUNCTION_TOOL_SCHEMAS = [
                     "strategyStyle": {
                         "type": "string",
                         "enum": ["aggressive", "social", "strategic", "under-the-radar", "emotional", "loyal"],
-                        "description": "Your canonical mapping of how they plan to play.",
+                        "description": "Your canonical mapping of how they plan to play. " + _STYLE_PAIRING_RULE,
                     },
                     "personaArchetype": {"type": "string", "description": "The player's OWN words for who they are / how they'll come across."},
                     "personaStrategyStyle": {"type": "string", "description": "The player's OWN words for how they'll play."},
@@ -1974,7 +1998,7 @@ FUNCTION_TOOL_SCHEMAS = [
                     "strategyStyle": {
                         "type": "string",
                         "enum": ["aggressive", "social", "strategic", "under-the-radar", "emotional", "loyal"],
-                        "description": "Your canonical mapping of how they plan to play.",
+                        "description": "Your canonical mapping of how they plan to play. " + _STYLE_PAIRING_RULE,
                     },
                     "genderPresentation": {
                         "type": "string",

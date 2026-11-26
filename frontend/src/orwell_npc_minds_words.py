@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from typing import Awaitable, Callable, Optional
 
 logger = logging.getLogger(__name__)
@@ -180,6 +181,18 @@ def _alert(owner: Optional[str], key: str, what) -> None:
         pass
 
 
+def _env_num(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, "") or default)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _unarrived(state) -> int:
+    n = state.get("unarrivedCount") if isinstance(state, dict) else 0
+    return n if isinstance(n, int) and not isinstance(n, bool) and n > 0 else 0
+
+
 async def run_words(owner: Optional[str]) -> dict:
     """Resolve the utility model and the PUBLIC cast cards, run lanes 1 and 2, alert on anything skipped. No model ⇒ alert once and
     return (the engine's own habits and leanings stand). Never raises."""
@@ -198,6 +211,20 @@ async def run_words(owner: Optional[str]) -> dict:
     except Exception as e:  # noqa: BLE001 - failsoft-ok: handled-by-terminal (_alert -> log_rings.record_soft_failure, RED)
         _alert(owner, "npc-minds:state-failed", e)
         return {"traits": None, "culture": None, "reason": "state-failed"}
+    # ORW-949: during the premiere `house` lists only houseguests who have walked in (the rest are `unarrivedCount`); wait
+    # for the whole cast so habits and the frozen house culture are not computed from a partial one.
+    waited, interval, budget = 0.0, max(0.01, _env_num("ORWELL_NPC_MINDS_CAST_WAIT_S", 30.0)), _env_num("ORWELL_NPC_MINDS_CAST_BUDGET_S", 10800.0)
+    while _unarrived(state):
+        if waited >= budget:
+            _alert(owner, "npc-minds:partial-cast", f"{_unarrived(state)} houseguest(s) still unarrived after {budget:.0f}s")
+            break
+        await asyncio.sleep(interval)
+        waited += interval
+        try:
+            state = await orwell_engine.get_game_state(user=owner)
+        except Exception as e:  # noqa: BLE001 - failsoft-ok: handled-by-terminal (_alert -> log_rings.record_soft_failure, RED)
+            _alert(owner, "npc-minds:state-failed", e)
+            return {"traits": None, "culture": None, "reason": "state-failed"}
     house = [hg for hg in (state or {}).get("house") or [] if isinstance(hg, dict) and hg.get("id") and not hg.get("isPlayer")]
 
     async def _write_traits(req: dict) -> dict:
