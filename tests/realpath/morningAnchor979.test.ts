@@ -18,7 +18,7 @@ const earlyHours = (s: Stop): boolean => {
   if (!(hh >= 6 && hh < 8)) return false;
   // the stop is only interesting when someone is an early riser who would otherwise be out of the awake set
   const routines = (s.sess.live?.routines ?? {}) as Record<string, any[]>;
-  s.sess.setMorningAnchorEnabled(false);
+  s.sess.setMorningAnchorEnabled(false); // not as shipped: the off arm of the on/off read, switched back on right after
   const off = new Set(s.sess.awakeAmong(s.sess.livingIds()) as string[]);
   s.sess.setMorningAnchorEnabled(true);
   return (s.sess.livingIds() as string[]).some((id) => id !== PLAYER && !off.has(id) && upBeforeTheCall(routines[id] ?? []));
@@ -30,7 +30,7 @@ describe("the morning anchor in a played season", () => {
     const s = at.sess;
     const routines = (s.live?.routines ?? {}) as Record<string, any[]>;
     const ids = s.livingIds() as string[];
-    s.setMorningAnchorEnabled(false);
+    s.setMorningAnchorEnabled(false); // not as shipped: the off arm of the on/off read, switched back on right after
     const off = new Set(s.awakeAmong(ids) as string[]);
     s.setMorningAnchorEnabled(true);
     const on = new Set(s.awakeAmong(ids) as string[]);
@@ -43,7 +43,7 @@ describe("the morning anchor in a played season", () => {
   it("after the call the awake set is the old one (the anchor adds nothing in the day)", async () => {
     const at = await firstStop((s: Stop) => { const h = s.sess.snapshot().live?.nightDepth; return h !== undefined && h >= 9 && h < 20 && (s.sess.snapshot().live?.dayNumber ?? 0) >= 3; }, wfScan([3, 5], "a day hour"), { maxMessages: 900 });
     const ids = at.sess.livingIds() as string[];
-    at.sess.setMorningAnchorEnabled(false);
+    at.sess.setMorningAnchorEnabled(false); // not as shipped: the off arm of the on/off read, switched back on right after
     const off = [...(at.sess.awakeAmong(ids) as string[])].sort();
     at.sess.setMorningAnchorEnabled(true);
     expect([...(at.sess.awakeAmong(ids) as string[])].sort()).toEqual(off);
