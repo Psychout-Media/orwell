@@ -80,7 +80,7 @@ export const HOUSE_THEMES: readonly HouseTheme[] = [
     rooms: {
       "kitchen": { name: "the popcorn kitchen", look: "A popcorn machine, candy-apple red counters, and a hand-painted menu board under bare yellow bulbs." },
       "living-room": { name: "the tent living room", look: "A red-and-white striped tent ceiling, circus-ring carpet, and sofas around a sawdust-gold center ring." },
-      "dining-room": { name: "the midway dining room", look: "Long trestle tables under a scalloped canvas canopy, checkered cloths, and strings of colored bulbs." },
+      "dining-room": { name: "the concession dining room", look: "Long trestle tables under a scalloped canvas canopy, checkered cloths, and strings of colored bulbs." },
       "backyard": { name: "the fairground backyard", look: "Game booths, a high striker, a pool ringed with festoon lights, and a sawdust competition arena." },
       "hallway": { name: "the sideshow hallway", look: "Faded hand-painted sideshow banners lining both walls, lit by a string of bare bulbs." },
       "bedroom-a": { name: "the carousel bedroom", look: "Beds for six beneath a gilded carousel canopy, painted horses on brass poles, and pastel mirrored panels." },
@@ -487,7 +487,7 @@ export const HOUSE_THEMES: readonly HouseTheme[] = [
       "bedroom-b": { name: "the sunflower bedroom", look: "Bright yellow walls, sunflower headboards, golden linens, and a skylight full of sun." },
       "bedroom-c": { name: "the lavender bedroom", look: "Soft purple walls, lavender bundles over each bed, gray-violet linens, and a calm, sleepy scent." },
       "bathroom": { name: "the petal bathroom", look: "Moss-green tiles, a watering-can showerhead, a stone birdbath sink, and potted ferns." },
-      "lounge": { name: "the orangery lounge", look: "Cushioned crates, seed packets pinned to the walls, a little stove, and terracotta pots everywhere." },
+      "lounge": { name: "the potting lounge", look: "Cushioned crates, seed packets pinned to the walls, a little stove, and terracotta pots everywhere." },
       "hoh-room": { name: "the HOH room", look: "A glass-walled suite with an orange tree, a white canopy bed, and a private terrace for tea." },
       "landing": { name: "the landing", look: "A wrought-iron landing wound with climbing roses, a white wicker settee, and a small table with a croquet set." },
       "storage-room": { name: "the storage room", look: "Jars of jam and honey, baskets of vegetables, sacks of seed, and a pot of slop." },

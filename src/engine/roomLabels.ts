@@ -7,6 +7,7 @@
  */
 import { roomDisplayName, HOUSE_ROOMS, type Room } from "../domain/house";
 import { HOUSE_THEMES, type HouseTheme } from "./data/houseThemes";
+import { LEGACY_ROOM_NAMES } from "./data/legacyRoomNames";
 import { hashSeed } from "./characterFactory";
 
 /**
@@ -166,6 +167,12 @@ export function themedRoomAliases(themeId?: string): ReadonlyArray<readonly [ali
     if (a.length < 3) return;
     for (const form of new Set([a, a.normalize("NFD").replace(/[\u0300-\u036f]/g, "")])) (byAlias.get(form) ?? byAlias.set(form, new Set()).get(form)!).add(room); // "séance" and "seance" both
   };
+  for (const [room, old] of Object.entries(themeId ? (LEGACY_ROOM_NAMES[themeId] ?? {}) : {}) as Array<[Room, string]>) {
+    // ORW-968: a season in progress when the names changed (its narrator and player said "the Galley") still finds its rooms by the names the library carried before; never shown, aliases only
+    const lf = old.toLowerCase(); const lb = lf.replace(/^the\s+/, "");
+    add(lf, room); add(lb, room);
+    if (room !== "diary-room") { const ls = lb.replace(GENERIC_TAIL, ""); if (ls !== lb) { add(ls, room); add(`the ${ls}`, room); } }
+  }
   for (const [room, { name }] of Object.entries(t.rooms) as Array<[Room, { name: string }]>) {
     if (raw && raw.rooms[room] && raw.rooms[room].name !== name) {
       const rf = raw.rooms[room].name.toLowerCase(); const rb = rf.replace(/^the\s+/, "");

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { HOUSE_ROOMS } from "../../src/domain/house";
 import { HOUSE_THEMES } from "../../src/engine/data/houseThemes";
+import { LEGACY_ROOM_NAMES } from "../../src/engine/data/legacyRoomNames";
 import { roomLabel, themedRoomAliases, plainRoomName, drawHouseTheme } from "../../src/engine/roomLabels";
 
 /** ORW-466 (Ryne 2026-11-15: "all rooms in the house to be themed"; "Themes should be random"): the season house themes. */
@@ -45,8 +46,12 @@ describe("season house themes", () => {
       const head = plain.replace(/\s+(kitchen|living room|dining room|backyard|hallway|bedroom|bathroom|lounge|hoh room|landing|storage room)$/, "");
       return new Set([...formsOf(name, room === "diary-room"), ...formsOf(composed, room === "diary-room"), head, `the ${head}`]);
     };
+    const legacyForms = (themeId: string, room: string): Set<string> => {  // the names the library carried before the light-form pass stay aliases (a season in progress)
+      const old = (LEGACY_ROOM_NAMES[themeId] as Record<string, string> | undefined)?.[room];
+      return old ? formsOf(old, room === "diary-room") : new Set();
+    };
     for (const t of HOUSE_THEMES) {
-      const rooms = Object.entries(t.rooms).map(([r, v]) => [r, forms968(r, v.name)] as const);
+      const rooms = Object.entries(t.rooms).map(([r, v]) => [r, new Set([...forms968(r, v.name), ...legacyForms(t.id, r)])] as const);
       for (const [a] of themedRoomAliases(t.id)) expect(rooms.filter(([, f]) => f.has(flat(a))).length, `${t.id}: "${a}" names exactly one room`).toBe(1);
     }
   });

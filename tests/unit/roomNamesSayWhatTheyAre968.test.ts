@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { HOUSE_ROOMS, WALKABLE_ROOMS, resolveRoom, roomDisplayName, type Room } from "../../src/domain/house";
 import { HOUSE_THEMES } from "../../src/engine/data/houseThemes";
+import { LEGACY_ROOM_NAMES } from "../../src/engine/data/legacyRoomNames";
+import { parsePlayerMoveIntent } from "../../src/engine/playerMoveIntent";
 import { acceptHouseThemeDraft, plainRoomName, registerHouseTheme, roomLabel, roomNamesFor, roomRef, themedRoomAliases } from "../../src/engine/roomLabels";
 
 /**
@@ -108,5 +110,41 @@ describe("a house the writer authors reads the same way", () => {
   });
   it("the plain label is still what an un-themed season says", () => {
     for (const r of HOUSE_ROOMS) expect(roomLabel(r, undefined)).toBe(roomDisplayName(r));
+  });
+});
+
+// A season in progress when the names changed (Ryne's live save: the narrator and the player said "the Galley", "the Captain's Quarters") must still find its rooms by the names it knew.
+describe("a season in progress still finds its rooms by the names the library carried before", () => {
+  const TAIL = /\s+(room|cabin|pod|cave|chamber|suite|quarters)$/;
+  const flat = (x: string) => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  it("the library's old names are all in the legacy table (24 houses x 14 rooms)", () => {
+    for (const t of HOUSE_THEMES) expect(Object.keys(LEGACY_ROOM_NAMES[t.id] ?? {}).sort(), t.id).toEqual([...HOUSE_ROOMS].sort());
+  });
+  for (const t of HOUSE_THEMES) {
+    it(`${t.id}: every phrase that named a room before (the name, without "the", without a generic last word) still names that room`, () => {
+      const aliases = themedRoomAliases(t.id);
+      const before = new Map<string, Set<Room>>();  // the old alias rule: a phrase that named two rooms was dropped
+      for (const r of HOUSE_ROOMS) {
+        const full = flat(LEGACY_ROOM_NAMES[t.id]![r]!), bare = full.replace(/^the\s+/, ""), short = r === "diary-room" ? bare : bare.replace(TAIL, "");
+        for (const f of new Set([full, bare, ...(short !== bare ? [short, `the ${short}`] : [])])) (before.get(f) ?? before.set(f, new Set()).get(f)!).add(r);
+      }
+      let checked = 0;
+      for (const [phrase, rooms] of before) {
+        if (rooms.size !== 1) continue;
+        const room = [...rooms][0]!;
+        const plainOfOther = Object.entries(PLAIN).some(([o, w]) => o !== room && !(room.startsWith("bedroom") && o.startsWith("bedroom")) && w.toLowerCase() === phrase.replace(/^the\s+/, ""));
+        if (plainOfOther) continue;  // a phrase that is another room's plain word ("the lounge") now means that room, by design
+        expect(resolveRoom(phrase, null, aliases), `${t.id}: "${phrase}" named ${room} before`).toEqual({ kind: "ok", room });
+        checked++;
+      }
+      expect(checked).toBeGreaterThan(20);
+    });
+  }
+  it("a player's typed move by an old name still moves them, curly apostrophe or not", () => {
+    const ocean = themedRoomAliases("ocean-depths");
+    expect(parsePlayerMoveIntent("I head to the Captain\u2019s Quarters", "kitchen", ocean)).toBe("hoh-room");
+    expect(parsePlayerMoveIntent("let's go to the coral reef", "kitchen", ocean)).toBe("bedroom-a");
+    expect(parsePlayerMoveIntent("I go to the Oyster Bar", "kitchen", ocean)).toBe("dining-room");
+    expect(resolveRoom("the galley", null, ocean)).toEqual({ kind: "ok", room: "kitchen" });
   });
 });
