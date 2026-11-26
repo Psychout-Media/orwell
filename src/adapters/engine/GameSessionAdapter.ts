@@ -65,8 +65,8 @@ import { juryFadeRate, juryEaseFactor, juryPersonalityMult, type JuryPersonality
 import { planJuryNotes } from "../../engine/juryNotes";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
-import { chooseHourAction, assembleScenes, habitsFor, floorRoutinesFor, routinesFromHabits, actionLine, roomActLine, formPlan, GOAL_PLAN, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction, type PlanStep } from "../../engine/houseLife";
-import { addRoutines, isStressed, mergeAuthoredRoutines, noteSighting, routineKey, routineNow } from "../../engine/routineLife";
+import { chooseHourAction, assembleScenes, habitsFor, floorRoutinesFor, floorChangeRoutine, routinesFromHabits, actionLine, roomActLine, formPlan, GOAL_PLAN, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction, type PlanStep } from "../../engine/houseLife";
+import { addRoutines, changeRoutines, isStressed, mergeAuthoredRoutines, noteSighting, routineKey, routineNow } from "../../engine/routineLife";
 import type { Routine } from "../../engine/routines";
 import type { Habit } from "../../engine/houseLifeConstants";
 import { HOUSE_LIFE, ROOM_LIFE } from "../../engine/houseLifeConstants";
@@ -15629,9 +15629,16 @@ export class GameSessionAdapter implements GameSession {
    */
   private routinesOf(id: EntityId, character: AgendaCharacter, authoredHabits: readonly Habit[] | undefined, seed: number): Routine[] {
     const store = (this.live!.routines ??= {});
-    if (store[id] && authoredHabits?.length) return mergeAuthoredRoutines(store, id, routinesFromHabits(authoredHabits, id, seed));
-    return store[id] ?? addRoutines(store, id, authoredHabits?.length ? routinesFromHabits(authoredHabits, id, seed) : floorRoutinesFor(character, id, seed));
+    const rs = store[id] && authoredHabits?.length ? mergeAuthoredRoutines(store, id, routinesFromHabits(authoredHabits, id, seed))
+      : store[id] ?? addRoutines(store, id, authoredHabits?.length ? routinesFromHabits(authoredHabits, id, seed) : floorRoutinesFor(character, id, seed));
+    // ORW-980: a houseguest put on the block changes (once a week, at most twice a season): one routine set aside, one taken up. Additive; the same keyed rolls give the same change.
+    const week = this.live!.week;
+    if (this.routineChangeEnabled && ((this.live!.nominees ?? []) as readonly EntityId[]).includes(id)) changeRoutines(rs, week, (k) => agendaRoll(seed, id, k), (taken) => floorChangeRoutine(character, id, seed, week, taken));
+    return rs;
   }
+  /** ORW-980: routines change as the houseguest changes (on the block). ON unless `ORWELL_ROUTINE_CHANGE=0`. Played games with routines on only; OFF => no routine is ever set aside. */
+  private routineChangeEnabled = flagDefaultOn("ORWELL_ROUTINE_CHANGE");
+  setRoutineChangeEnabled(on: boolean): void { this.routineChangeEnabled = on; }
   /**
    * ORW-651: the player is where a routine puts its holder, awake, on this day: count it. On the third separate day the player knows the routine, as a third-person fact the narrator may voice
    * (the holder's name, the room, the time of day, the act or the authored words); the numbers and the routine record itself stay engine-side.

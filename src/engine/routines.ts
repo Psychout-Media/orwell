@@ -43,6 +43,10 @@ export interface Routine {
   source: "authored" | "floor";
   /** The authored words for it (the model's, from the backstory; absent on the floor, where the narrator words it from the action and place). Engine-held, voiced by the narrator. */
   gist?: string;
+  /** ORW-980: the week this routine was set aside (the houseguest changed). The row stays (never thinned); a set-aside routine no longer pulls, and what onlookers learned of it stays true. */
+  retiredWeek?: number;
+  /** ORW-980: the week this routine began, when it was added by a change (absent on the routines a houseguest came in with). */
+  sinceWeek?: number;
 }
 
 /** Does the routine pull its holder now? One keyed roll against the strength, scaled down under stress. */

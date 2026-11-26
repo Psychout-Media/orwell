@@ -1058,6 +1058,7 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
   const keysKept = (a: Record<string, unknown> | undefined, b: Record<string, unknown> | undefined): boolean => Object.keys(a ?? {}).every((k) => (b ?? {})[k] !== undefined);
   const numsKept = (a: Record<string, number> | undefined, b: Record<string, number> | undefined): boolean => Object.entries(a ?? {}).every(([k, v]) => (b ?? {})[k] !== undefined && (b ?? {})[k]! >= v);
   if (!keysKept(ev?.routines, lv?.routines) || Object.entries(ev?.routines ?? {}).some(([k, rs]) => (lv?.routines?.[k]?.length ?? 0) < rs.length)) return "routines";
+  if (Object.entries(ev?.routines ?? {}).some(([k, rs]) => rs.some((r, i) => r.retiredWeek !== undefined && lv?.routines?.[k]?.[i]?.retiredWeek === undefined))) return "routines"; // ORW-980: a set-aside routine is history; never un-set
   const sightKept = Object.entries(ev?.routineSightings ?? {}).every(([who, byKey]) => Object.entries(byKey).every(([key, days]) => days.every((d) => (lv?.routineSightings?.[who]?.[key] ?? []).includes(d))));
   if (!sightKept) return "routineSightings";
   const npcSightKept = Object.entries(ev?.npcRoutineSightings ?? {}).every(([o, byHolder]) => Object.entries(byHolder).every(([who, byKey]) => Object.entries(byKey).every(([key, days]) => days.every((d) => (lv?.npcRoutineSightings?.[o]?.[who]?.[key] ?? []).includes(d)))));

@@ -23,7 +23,7 @@ export const routineKey = (r: Pick<Routine, "slot" | "place" | "action">): strin
  */
 export function routineNow(rs: readonly Routine[], now: TimeOfDay, stressed: boolean, roll: (key: string) => number): Routine | undefined {
   const authored = (r: Routine): number => (r.source === "authored" ? 1 : 0);
-  return rs.filter((r) => r.slot === now).sort((a, b) => authored(b) - authored(a) || b.strength - a.strength || routineKey(a).localeCompare(routineKey(b))).find((r) => followsRoutine(r, now, stressed, roll(routineKey(r))));
+  return rs.filter((r) => r.slot === now && r.retiredWeek === undefined).sort((a, b) => authored(b) - authored(a) || b.strength - a.strength || routineKey(a).localeCompare(routineKey(b))).find((r) => followsRoutine(r, now, stressed, roll(routineKey(r))));
 }
 
 /** Days an onlooker has seen each houseguest keep each routine (hidden, engine-only): the PLAYER's in `live.routineSightings`, each NPC's in `live.npcRoutineSightings[onlooker]`. Monotonic: days are only ever added. */
@@ -54,4 +54,33 @@ export function mergeAuthoredRoutines(store: Record<EntityId, Routine[]>, id: En
   if (have.some((r) => r.source === "authored")) return have;
   for (const r of authored) if (r.source === "authored" && !have.some((x) => routineKey(x) === routineKey(r))) have.push(r);
   return have;
+}
+
+/** ORW-980: routines change as the houseguest changes. The smallest engine fact: a houseguest put on the block sets one routine aside and takes up another (additive: the old row stays, flagged). */
+export const ROUTINE_CHANGE = {
+  /** A houseguest changes at most this many times in a season (a stable person, not a weathervane). */
+  perSeason: 2,
+  /** They keep at least this many routines going after a change. */
+  keepActive: 2,
+} as const;
+
+/** The routines that still pull. */
+export const activeRoutines = (rs: readonly Routine[]): Routine[] => rs.filter((r) => r.retiredWeek === undefined);
+
+/**
+ * Apply one change for a houseguest who is on the block in `week`: set one active routine aside (the keyed roll `roll(key)` ranks them; the highest goes) and add one composed by
+ * `compose(takenActs)` (a new act, never one they already have or had). Returns true when a change was made. No-op if they already changed this week, have used the season's
+ * changes, have too few routines to spare, or `compose` has nothing new. Never removes a row, never rewrites one beyond the retired flag.
+ */
+export function changeRoutines(rs: Routine[], week: number, roll: (key: string) => number, compose: (taken: ReadonlySet<string>) => Routine | undefined): boolean {
+  const changed = new Set(rs.filter((r) => r.retiredWeek !== undefined).map((r) => r.retiredWeek));
+  if (changed.has(week) || changed.size >= ROUTINE_CHANGE.perSeason) return false;
+  const live = activeRoutines(rs);
+  if (live.length < ROUTINE_CHANGE.keepActive) return false;
+  const fresh = compose(new Set(rs.map((r) => r.action)));
+  if (!fresh) return false;
+  const gone = [...live].sort((a, b) => roll(`routine-retire:w${week}:${routineKey(b)}`) - roll(`routine-retire:w${week}:${routineKey(a)}`) || routineKey(a).localeCompare(routineKey(b)))[0]!;
+  gone.retiredWeek = week;
+  rs.push({ ...fresh, sinceWeek: week });
+  return true;
 }

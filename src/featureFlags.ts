@@ -296,6 +296,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_ROOM_LIFE', key: 'roomLife', parser: 'defaultOn' },
   // 0209 / ORW-651 (Ryne approved 2026-11-17): each houseguest's routines (a time, a place, an act, composed from the character) shape where they are and what they do in a free hour, replacing the named-habit pull; the player learns one by seeing it on three separate days. Played games only; `=0` = the old habit branch.
   { envKey: 'ORWELL_ROUTINES', key: 'routines', parser: 'defaultOn' },
+  // 0209 / ORW-980: routines change as the houseguest changes: one on the block sets a routine aside and takes up another (additive: the row stays, flagged). Played games with routines on only; `=0` = no routine is ever set aside.
+  { envKey: 'ORWELL_ROUTINE_CHANGE', key: 'routineChange', parser: 'defaultOn' },
   // ORW-688: a scene or thread rumor carries who it is ABOUT, so barter (0099), leverage (0202) and the night it all comes out (0204) can match it; an old save's rumors are backfilled from their own fields. Played games only. ON by default; `=0` leaves rumors subject-less (byte-identical).
   { envKey: 'ORWELL_RUMOR_SUBJECTS', key: 'rumorSubjects', parser: 'defaultOn' },
   // ORW-578 (b): a reason an NPC gave aloud at a public act is kept as a witnessed event (the said kind in words only; never the real reason). ON by default; `=0` turns it off.

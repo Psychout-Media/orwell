@@ -185,6 +185,24 @@ export function floorRoutinesFor(c: AgendaCharacter, owner: EntityId, seed: numb
   });
 }
 
+/**
+ * ORW-980: the routine a houseguest takes up when they change: an act they have not kept before (each act's own keyed roll for the week, the archetype's lean adding the same bonus as the first draw),
+ * at a time the act belongs to, in its usual place or a rolled shared room. Undefined when they have kept every act.
+ */
+export function floorChangeRoutine(c: AgendaCharacter, owner: EntityId, seed: number, week: number, taken: ReadonlySet<string>): Routine | undefined {
+  const lean = (HOUSE_LIFE.habitLean[c.archetype] ?? []).map((h) => HABIT_ACTION[h].action);
+  const k = ROUTINE_ACTIONS.filter((a) => !taken.has(a)).map((a) => ({ a, w: (lean.includes(a) ? HOUSE_LIFE.habitLeanBonus : 0) + agendaRoll(seed, owner, `routine-change-act:w${week}:${a}`) }))
+    .sort((x, y) => y.w - x.w || x.a.localeCompare(y.a))[0]?.a;
+  if (!k) return undefined;
+  const natural = [...new Set(Object.values(HABIT_ACTION).filter((h) => h.action === k).flatMap((h) => h.when))];
+  const slots = natural.length ? natural : TIME_OF_DAY_ORDER.filter((t) => t !== "late-night");
+  const r = composeFloorRoutine({ slots, rooms: ROUTINE_ROOMS, actions: [k] }, {
+    slot: agendaRoll(seed, owner, `routine-change-slot:w${week}`), place: agendaRoll(seed, owner, `routine-change-place:w${week}`), action: 0,
+    company: agendaRoll(seed, owner, `routine-change-company:w${week}`), strength: 0,
+  });
+  return { ...r, place: ACTIONS[k].place ?? r.place, company: ACTIONS[k].partners.max > 0 && r.company === "alone" ? "whoever" : r.company, strength: 0.9 + 0.1 * agendaRoll(seed, owner, `routine-change-strength:w${week}`) };
+}
+
 /** ORW-651 (0209): a save (or a cast-authoring pass) that wrote the old named habits keeps them: each becomes a routine at one of its own times, doing its own act, so no authored habit thins. */
 export function routinesFromHabits(habits: readonly Habit[], owner: EntityId, seed: number): Routine[] {
   return habits.map((h, i) => {
