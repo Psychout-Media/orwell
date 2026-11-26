@@ -5369,6 +5369,11 @@ def _forget_season_pacing(user) -> None:
         dkey = _desync_key(user)
         _CUT_STREAK.pop(dkey, None)
         _DESYNC_REGROUND.pop(dkey, None)
+        try:
+            from src import orwell_companions as _oc_reset
+            _oc_reset.clear(user)  # ORW-1030: last season's companions do not walk into the new one
+        except Exception:
+            pass
         _CEREMONY_UNVOICED.pop(dkey, None)  # review of #2287: last season's unvoiced ceremony must not be re-grounded into the new one
         rkey = _runway_key(user)
         _PREMIERE_ENTRANCE_STAGE.pop(rkey, None)
@@ -10078,6 +10083,16 @@ async def apply_game_framing(
         game_state = await _pre_resolve_npc_ceremony(
             user, game_state, retry=game_build, player_msg=player_msg)
         game_state = await maybe_release_premiere_arrival(user, game_state, retry=game_build, player_msg=player_msg)  # ORW-954
+        try:  # ORW-1030: an agreed companion is an engine fact: undo any presence drift before the narrator reads the room, and tell the narrator who walks with the player
+            from src import orwell_companions as _oc
+            if await _oc.enforce(user):
+                game_state = (await orwell_engine.get_game_state(user=user)) or game_state
+            _cl = _oc.steer_line(user)
+            if _cl:
+                _ck = _runway_key(user)
+                _SCHEDULE_STEER[_ck] = (_SCHEDULE_STEER.get(_ck, "") + "\n\n" if _SCHEDULE_STEER.get(_ck) else "") + _cl
+        except Exception:  # failsoft-ok: companions are an aid; the engine board stays the authority
+            pass
         # P2: a session this process has never framed is a FRESH CONTEXT — request the
         # re-entry moment so the engine's prompt carries THE RECORD (ADR 0003 §6: long-term
         # memory is the store recalled, never the chat remembered). Subsequent turns in the

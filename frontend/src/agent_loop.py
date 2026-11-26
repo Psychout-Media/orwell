@@ -4240,6 +4240,15 @@ _SUMMON_RE = re.compile(
     r"pull\s+\w+\s+aside|ask|asks|tell|tells|wave|waves|beckon)\b", re.I)
 
 
+def _companion_ids(owner) -> set:
+    """ORW-1030: the houseguests who agreed to walk with the player (engine-fact store); empty on any hiccup."""
+    try:
+        from src import orwell_companions as _oc
+        return set(_oc.companions_of(owner))
+    except Exception:
+        return set()
+
+
 def _player_summoned(last_user, name) -> bool:
     """ORW-210: did the PLAYER's message ask this houseguest to come over (their name + a summoning verb)?
     Only then may the FE turn a narrated arrival into a real move. Merely naming them is not enough.
@@ -4355,7 +4364,7 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
             if _proom:
                 _kept = []
                 for hid, room in picks:
-                    if room == _proom and not _player_summoned(last_user, _roster_names.get(hid)):
+                    if room == _proom and not _player_summoned(last_user, _roster_names.get(hid)) and hid not in _companion_ids(owner):  # ORW-1030: an agreed companion walking with the player is no unrequested arrival
                         logger.info(f"[orwell] auto-move-npc: dropped unrequested arrival of {hid} into the player's room")
                         continue
                     _kept.append((hid, room))
@@ -13718,6 +13727,12 @@ async def _stream_agent_loop_impl(
             await record_post_turn_presence_check(owner, _turn_narration_full)
         except Exception as _pres_err:
             logger.warning(f"[orwell] post-turn presence check failed: {_pres_err}")
+        try:  # ORW-1030: register/end the player's agreed companions and re-seat them in the player's room through the engine
+            from src import orwell_companions as _oc
+            if await _oc.update(owner, _extract_last_user_message(messages) or "", _turn_narration_full):
+                _note_belt(owner, "companion-reseat")
+        except Exception as _comp_err:  # failsoft-ok: companions are an aid; the next turn re-checks
+            logger.warning(f"[orwell] companions update failed: {_comp_err}")
 
         # ── S2a / S7 (2026-07-16) — the IN-TURN closed-set overclaim REALIGNMENT belt. ────────────────
         # The post-turn desync/presence checks above only QUEUE a next-turn re-ground; the owner's ruling
