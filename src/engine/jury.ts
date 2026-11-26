@@ -2,7 +2,6 @@ import type { EntityId } from "../domain/ids";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { tallyJury } from "./season";
 import { JURY_WEIGHTS, MANNER_LEAN, MANNER_GRADING, APPEAL, JURY_GRUDGE_PERSONALITY, type JuryWeights } from "./juryConstants";
-import type { JurorArchetype } from "./jurorProfile";
 import { clamp01Raw as clamp01 } from "../domain/num";
 
 // Re-export the tunables so existing importers keep reading them from `jury` (the math lives here).
@@ -121,7 +120,7 @@ export function mannerLeanOf(manner: EvictionManner): number {
 /**
  * ORW-943 - the grudge's signed lean (`raw`, <= 0) scaled by the juror's personality (`JURY_GRUDGE_PERSONALITY`), held to the ceiling. No archetype (a save or a run with no juror profile) => `raw` unchanged. Pure, no rng.
  */
-export function bitterByPersonality(raw: number, archetype: JurorArchetype | undefined): number {
+export function bitterByPersonality(raw: number, archetype: keyof typeof JURY_GRUDGE_PERSONALITY.byArchetype | undefined): number {
   const r = Number.isFinite(raw) ? Math.min(0, raw) : 0;
   if (r === 0 || !archetype) return r;
   return Math.max(-JURY_GRUDGE_PERSONALITY.ceiling, r * JURY_GRUDGE_PERSONALITY.byArchetype[archetype]);
