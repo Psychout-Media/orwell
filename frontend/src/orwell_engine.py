@@ -1169,6 +1169,21 @@ async def get_game_state(user: str | None = None, timeout: float | None = None) 
         raise
 
 
+async def pipeline_cast(user: str | None = None, timeout: float | None = None) -> dict:
+    """ORW-969: the FULL cast (every houseguest, arrived or not) for SERVER-SIDE casting jobs only: the house-entry gate, the habits step, the authoring backfills.
+
+    ``get_game_state`` withholds the houseguests who have not walked in yet during the premiere (ORW-710), which is right for the browser and the narrator and blind for a job that
+    must check every card. This read is the engine's unadvertised ``pipelineCast``: ``{started, total, unarrivedCount, house: [...]}`` with the same public house entries. It must
+    never be returned by a route or handed to the narrator. A no-game user reads as ``{"started": False}`` (as ``get_game_state``); an engine without the tool raises, and
+    ``orwell_cast_authoring.pipeline_cast_for`` turns that into "unavailable" so the callers fall back to the met-only read."""
+    try:
+        return await _call("pipelineCast", {}, user=user, timeout=timeout if timeout is not None else _FRAMING_TIMEOUT)
+    except EngineToolError as e:
+        if e.no_game:
+            return {"started": False}
+        raise
+
+
 async def get_moment_prompt(moment: str | None = None, user: str | None = None, timeout: float | None = None,
                             brief: dict | None = None) -> dict:
     """The managed system prompt to inject for this user's current (or given) moment.

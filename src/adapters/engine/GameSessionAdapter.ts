@@ -1,7 +1,7 @@
 import { liveHouseEvent, isCompOrCeremonyKind, eventStagingRoom } from "../../engine/houseEvent";
 import { stallTimer } from "../stallTiming";
 import type {
-  GameSession, CreateCharacterReq, GameStateView, HouseMeetingView, MomentPromptReq, MomentPromptView,
+  GameSession, CreateCharacterReq, GameStateView, PipelineCastView, HouseMeetingView, MomentPromptReq, MomentPromptView,
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, NapReq, NapView, NapRefusal, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
@@ -22034,6 +22034,20 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * ORW-969: the FULL cast for the front end's server-side casting jobs (the house-entry gate, the habits step, the backfills). `getGameState` withholds the houseguests who have
+   * not walked in yet (ORW-710) - right for the browser and the narrator, blind for a job that must check every card. This is the same `house` projection with that one filter off
+   * (the entries are the PUBLIC facets only, exactly what `getGameState` shows once everyone is in), plus how many of them are still outside. It is an unadvertised infra read
+   * (`INFRA_TOOL_NAMES`): not in any tool list the narrator sees and never forwarded to the browser by the front end.
+   */
+  pipelineCast(): PipelineCastView {
+    const v = this.view({ fullRoster: true });
+    if (!this.house || v.started === false) return { started: false, total: 0, unarrivedCount: 0, house: [] };
+    const away = this.notYetArrived();
+    const unarrivedCount = away ? away.size - (away.has(this.house.player.id) ? 1 : 0) : 0;
+    return { started: true, total: v.house.length, unarrivedCount, house: v.house };
+  }
+
+  /**
    * 0065 Part E — the `beatSeq`-keyed delta state feed. Given the caller's last-seen `beatSeq`, return
    * exactly WHAT CHANGED since: the player-visible events appended, the ceremony field transitions, and
    * any finished/winner flip — plus the freshest board to re-anchor on. A pure READ (no mutation).
@@ -23265,7 +23279,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** The Vault-free projection. Player card = authored persona (no numeric stats); NPCs = name + status only. */
-  private view(): GameStateView {
+  private view(opts?: { fullRoster?: boolean }): GameStateView {
     if (!this.house) {
       // Pre-game, the view carries the interview's status (0050): the engine — not the model —
       // says which building blocks are in and what the next step is.
@@ -23277,7 +23291,7 @@ export class GameSessionAdapter implements GameSession {
         pending: null,
       };
     }
-    const unarrivedHidden = this.metOnlyRosterEnabled && this.inPremiere() ? (this.notYetArrived() ?? undefined) : undefined; // ORW-710
+    const unarrivedHidden = this.metOnlyRosterEnabled && !opts?.fullRoster && this.inPremiere() ? (this.notYetArrived() ?? undefined) : undefined; // ORW-710
     const p = this.house.player;
     const status = this.playerStatus();
     // Once the player is out, the moment frames their new seat (closure / the jury spectator box, 0046)
