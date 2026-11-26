@@ -64,6 +64,10 @@ def _themed_forms(room_names):
         short = bare if rid == "diary-room" else _GENERIC_TAIL.sub("", bare)
         if short != bare:
             forms += [(short, False), (f"the {short}", not short.endswith("'s"))]  # "the captain's" reads as a person, not a room, in prose
+        if rid.startswith("bedroom") and bare.endswith(" bedroom"):  # ORW-1008: "the Palmetto room" for "the Palmetto Bedroom" (the engine's themedRoomAliases takes it too)
+            head = bare[: -len(" bedroom")].strip()
+            if head:
+                forms += [(f"{head} room", False), (f"the {head} room", True)]
         for form, prose in forms:
             if len(form) >= 3:
                 rooms, was_prose = by.get(form, (set(), False))

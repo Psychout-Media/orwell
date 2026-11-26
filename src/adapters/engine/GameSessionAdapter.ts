@@ -82,7 +82,7 @@ import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } fr
 import { dayOfWeek } from "../../engine/houseEvents";
 import { HOUSE_SIGHTLINE, roomsBetween, areVisible, canWitnessDeparture, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
 import type { Room, Zone, Occupancy } from "../../domain/house";
-import { parsePlayerMoveIntent, parsePlayerPersonIntent, parseSearchIntent, parseVagueGo, matchHouseguestName } from "../../engine/playerMoveIntent";
+import { parsePlayerMoveIntent, parsePlayerOwnBedMove, parsePlayerPersonIntent, parseSearchIntent, parseVagueGo, matchHouseguestName } from "../../engine/playerMoveIntent";
 import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
@@ -275,7 +275,7 @@ import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearanc
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ, MEET_FIRST_IMPRESSION, firstImpressionLean, meetMannerOf } from "../../engine/premiereEntrances";
 import type { Houseguest } from "../../engine/characterFactory";
-import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, ARCHETYPES, VOL_OF, articleFor } from "../../engine/characterFactory";
+import { startNewGame, resolveStrategyStyle, repairPlayerStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, ARCHETYPES, VOL_OF, articleFor } from "../../engine/characterFactory";
 import type { Disposition } from "../../engine/characterFactory";
 import type { GameHouse, StrategyStyle, Soul, HiddenElement, Character } from "../../engine/characterFactory";
 import { evolveEmotion, arcNote, offscreenEmotion, composedEmotion, effectiveDisposition, settleScaleOf } from "../../engine/emotionalArc";
@@ -6416,6 +6416,8 @@ export class GameSessionAdapter implements GameSession {
     // refreshes rather than slicing against a window that no longer holds its checkpoint.
     this.beatCheckpoints.clear();
     this.house = core.house ? cloneSession(core.house) : null;
+    // ORW-1075: an older save can store a player style that is not the chosen one; repair it once, idempotently, on every load.
+    if (this.house) repairPlayerStrategyStyle(this.house.player);
     // #1326 — legacy-save backfill for NPCs ONLY: an NPC's `genderPresentation` is always dealt by the
     // 0063 diversity floor at cast time, so an unset facet on a resumed NPC means a save that predates
     // that floor (or a non-standard creation path that skipped it) — a genuine gap worth repairing.
@@ -8084,6 +8086,23 @@ export class GameSessionAdapter implements GameSession {
     this.onPlayerEvent(`The player went through the ${roomDisplayName(last)} into the ${roomDisplayName(dest)}, in plain sight of ${seers.map((id) => this.nameOf(id)).join(", ")}`, [me, ...seers], "house-event");
   }
 
+  /** ORW-1064: how many moves/asks named an ambiguous or unknown room and were refused, by lever and kind (memory only). */
+  private moveRefusalTally: Record<string, number> = {};
+  moveRefusalCounts(): Record<string, number> { return { ...this.moveRefusalTally }; }
+  private refuseRoom(lever: string, asked: string, resolved: { kind: "ambiguous"; candidates: readonly Room[] } | { kind: "unknown" } | { kind: "ok" }): WhereaboutsView | null {
+    const reason = this.noteRoomRefusal(lever, resolved);
+    const w = this.whereabouts();
+    if (!w) return w;
+    return { ...w, moveRefused: { reason, asked: String(asked).slice(0, 80), ...(resolved.kind === "ambiguous" ? { candidates: [...resolved.candidates] } : {}) } };
+  }
+  private noteRoomRefusal(lever: string, resolved: { kind: string }): "ambiguous-room" | "unknown-room" {
+    const reason = resolved.kind === "ambiguous" ? "ambiguous-room" : "unknown-room";
+    const key = `${lever}:${reason}`;
+    this.moveRefusalTally[key] = (this.moveRefusalTally[key] ?? 0) + 1;
+    console.warn(`[orwell] ${lever}: ${reason} (nothing moved) n=${this.moveRefusalTally[key]}`); // no content: the lever and the kind only
+    return reason;
+  }
+
   movePlayer(room: string, expectedBeatSeq?: number): WhereaboutsView | null {
     // 0065 Part A — refuse a move computed against a superseded board BEFORE any mutation.
     this.guardBeatSeq(expectedBeatSeq);
@@ -8096,12 +8115,10 @@ export class GameSessionAdapter implements GameSession {
     // Forgiving resolution (Vault-free, deterministic): natural names → a canonical room id; the
     // player's current room sharpens an ambiguous "bedroom". An ambiguous result still moves (we take
     // the best-guess first candidate) rather than no-op — never a silent failure into a retry loop.
+    // ORW-1064: an ambiguous or unknown room is an explicit refusal (nothing moves, the candidates come back, a counter records it), never the first candidate and never a result that reads as "already there".
     const resolved = resolveRoom(room, here, this.themedAliases());
-    const dest =
-      resolved.kind === "ok" ? resolved.room
-      : resolved.kind === "ambiguous" ? resolved.candidates[0]!
-      : null;
-    if (dest === null) return this.whereabouts(); // truly unknown — stay put, report where they are
+    if (resolved.kind !== "ok") return this.refuseRoom("movePlayer", room, resolved);
+    const dest = resolved.room;
     if (here === dest) return this.whereabouts(); // already there — nothing to move
     this.relocatePlayer(here, dest);
     this.persist();
@@ -8148,7 +8165,7 @@ export class GameSessionAdapter implements GameSession {
     const claimedBed = bedChanged ? this.live?.beds?.owner[PLAYER] : undefined;
     // ORW-728 (W1-11): "my bed" with no room named is the bedroom of the bed the player OWNS (only a fresh claim moved them before, so "I go back to my bed" left the room to the narrator, which picked the wrong one).
     const ownBed = this.live?.beds?.owner[PLAYER];
-    const ownBedRoom = ownBed && /\bmy (?:own )?bed\b/i.test(String(req.text ?? "")) ? roomOfBed(ownBed) : null;
+    const ownBedRoom = ownBed && parsePlayerOwnBedMove(String(req.text ?? "")) ? roomOfBed(ownBed) : null; // ORW-1008: only a go-verb to "my bed"/"my room" moves; "my bed is in X" is affiliation
     const searchPhrase = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) === null && !claimedBed && !ownBedRoom && parseVagueGo(String(req.text ?? "")) === null ? parseSearchIntent(String(req.text ?? ""), here, this.themedAliases()) : null;
     const searchTarget = searchPhrase !== null && here !== null ? this.searchTargetOf(searchPhrase) : null;
     if (searchTarget !== null && here !== null && this.presence.get(searchTarget.id) !== here) {
@@ -8397,7 +8414,11 @@ export class GameSessionAdapter implements GameSession {
     const awake = this.awakeNow();
     if (!theirAsk && ((awake && !awake.has(npc)) || !this.talkAloneConsent(npc))) return finish({ outcome: "declined" });
     const resolved = typeof req.room === "string" && req.room.trim() !== "" ? resolveRoom(req.room, here, this.themedAliases()) : null;
-    const named: Room | null = resolved === null ? null : resolved.kind === "ok" ? resolved.room : resolved.kind === "ambiguous" ? resolved.candidates[0]! : null;
+    if (resolved !== null && resolved.kind !== "ok") { // ORW-1064: a room that is not ONE room is no room: no walk, no "accepted" in another room; the narrator voices that the player must say which
+      const reason = this.noteRoomRefusal("askToTalkAlone", resolved);
+      return finish({ outcome: reason, ...(resolved.kind === "ambiguous" ? { candidates: [...resolved.candidates] } : {}) });
+    }
+    const named: Room | null = resolved === null ? null : resolved.room;
     const priv = req.private !== false;
     const hoh = this.ceremony.hoh;
     const dest: Room | null = priv
@@ -8531,11 +8552,12 @@ export class GameSessionAdapter implements GameSession {
     // Forgiving resolution, then reject the unknown AND the non-walkable so the open occupancy stays
     // coherent (no one "hangs out" in the diary room — assignRooms/WALKABLE_ROOMS exclude it).
     const resolved = resolveRoom(room, here, this.themedAliases());
-    const dest =
-      resolved.kind === "ok" ? resolved.room
-      : resolved.kind === "ambiguous" ? resolved.candidates[0]!
-      : null;
-    if (dest === null || !WALKABLE_ROOMS.includes(dest)) return { status: "illegal", whereabouts: this.whereabouts() };
+    if (resolved.kind !== "ok") { // ORW-1064: never the first candidate: nothing moves, the surface is told why and which rooms it could mean
+      const reason = this.noteRoomRefusal("recordHouseguestMove", resolved);
+      return { status: "illegal", reason, ...(resolved.kind === "ambiguous" ? { candidates: [...resolved.candidates] } : {}), whereabouts: this.whereabouts() };
+    }
+    const dest = resolved.room;
+    if (!WALKABLE_ROOMS.includes(dest)) return { status: "illegal", whereabouts: this.whereabouts() };
     const held = this.talkHoldNow(); // ORW-727b: a narrated move cannot take the held houseguest out of the room they agreed to, or put anyone into a closed private room
     if (held && (id === held.npc ? dest !== held.room : held.private && dest === held.room)) return { status: "illegal", whereabouts: this.whereabouts() };
     if (here === dest) return { status: "noop", whereabouts: this.whereabouts() };
