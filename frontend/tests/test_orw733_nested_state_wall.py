@@ -30,7 +30,7 @@ ALLOWED_PATHS = {
     "deals[].parts[].term.expiresWeek", "deals[].parts[].term.vague", "deals[].parts[].packageId",
     "premiere.met[].houseguest.id", "premiere.met[].houseguest.name", "premiere.met[].met", "premiere.remaining[].houseguest.id", "premiere.remaining[].houseguest.name", "premiere.remaining[].met",
     "premiere.complete", "premiere.metCount", "premiere.total", "premiere.champagneCircle",
-    "daySchedule.next", "daySchedule.phase", "daySchedule.due", "daySchedule.minutesUntil", "daySchedule.todaysEvent", "daySchedule.tomorrow", "daySchedule.finalHohPart",
+    "daySchedule.headerPhase", "daySchedule.next", "daySchedule.phase", "daySchedule.due", "daySchedule.minutesUntil", "daySchedule.todaysEvent", "daySchedule.tomorrow", "daySchedule.finalHohPart",
     "watching.moments[]", "casting.missing[]",
     "castingHouse.state", "castingHouse.authored", "castingHouse.total", "castingHouse.missing", "enterHouse.available", "enterHouse.label", "enterHouse.reason",
     "ceremony.hoh.id", "ceremony.hoh.name", "ceremony.nominees[].id", "ceremony.nominees[].name", "ceremony.veto.holder.id", "ceremony.veto.holder.name", "ceremony.veto.used",

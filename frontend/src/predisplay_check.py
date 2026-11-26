@@ -40,26 +40,51 @@ _ACT_RE = re.compile(
 _ACT_SRC = _ACT_RE.pattern[len(r"\b(?:"):-len(r")\b")]
 
 
+_MAX_CARRIED_QUOTE = 600  # a quote carried this many characters without a closing mark is a stray mark, not speech: stop exempting
+
+
 def _scan_quotes(text: str, open_at_start: bool) -> "tuple[str, bool]":
     """(the text with every quoted span blanked, whether a quote is still open at the end). A straight quote toggles; a curly open/close sets the state. Only double quotes count
-    (an apostrophe is never a quote). `open_at_start` carries an open quote in from the earlier chunks of the same round (ORW-408 review: a multi-sentence quoted line streams as
-    several chunks, and every chunk after the first arrives without its opening quote). A dangling open quote runs to the end of the text (fail-open: nothing in it can conflict)."""
+    (an apostrophe is never a quote, and a straight quote right after a digit is an inch mark, never an opening quote). `open_at_start` carries an open quote in from the earlier chunks of
+    the same round (ORW-408 review: a multi-sentence quoted line streams as several chunks, and every chunk after the first arrives without its opening quote). The carry is BOUNDED so one
+    stray mark cannot exempt the rest of the round: an open quote ends at a paragraph break (a blank line) and after `_MAX_CARRIED_QUOTE` characters without a closing mark."""
     out: "list[str]" = []
     open_q = bool(open_at_start)
+    run = 0  # characters spent inside the current open quote
+    blank_pending = False  # a newline has been seen since the last non-space character
+    prev = ""
     for ch in text:
+        if ch == "\n":
+            if blank_pending and open_q:
+                open_q, run = False, 0  # a blank line ends any quote
+            blank_pending = True
+            out.append(" " if open_q else ch)
+            prev = ch
+            continue
+        if ch not in " \t\r":
+            blank_pending = False
         if ch == '"':
-            out.append(" " if open_q else "")
-            open_q = not open_q
-            if open_q:
-                out.append(" ")
+            if not open_q and prev.isdigit():
+                out.append(ch)  # an inch mark (5'10"), not a quote
+            else:
+                out.append(" " if open_q else "")
+                open_q = not open_q
+                run = 0
+                if open_q:
+                    out.append(" ")
         elif ch == "\u201c":
-            open_q = True
+            open_q, run = True, 0
             out.append(" ")
         elif ch == "\u201d":
-            open_q = False
+            open_q, run = False, 0
             out.append(" ")
         else:
             out.append(" " if open_q else ch)
+        if open_q:
+            run += 1
+            if run > _MAX_CARRIED_QUOTE:
+                open_q, run = False, 0
+        prev = ch
     return "".join(out), open_q
 
 
@@ -552,6 +577,9 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[\s\"'*_]+$|^[\s\"'*_]+", "", s)).strip().lower()
 
 
+_MIN_REPEAT_CHARS = 12
+
+
 def drop_repeated_prefix(redo: str, shown: str) -> str:
     """Drop LEADING sentences of the redo that repeat (exact, after whitespace/quote/case normalisation) the tail of what was already shown: a model that restarts the scene instead of
     continuing it must not narrate the same lines twice. Stops at the first sentence that is new. Lossless otherwise (the rest keeps its spacing)."""
@@ -568,7 +596,7 @@ def drop_repeated_prefix(redo: str, shown: str) -> str:
             if not n:
                 i += 1
                 continue
-            if n in recent or (len(n) >= 12 and n in tail_norm):
+            if len(n) >= _MIN_REPEAT_CHARS and (n in recent or n in tail_norm):  # a short line ("Okay.", "Fine.") that merely equals a shown one is legitimate
                 i += 1
                 continue
             break
