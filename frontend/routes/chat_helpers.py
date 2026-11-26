@@ -570,7 +570,7 @@ def clear_social_runway(user) -> None:
     _PREMIERE_CLOCK_HOLD.pop(key, None)
     _PREMIERE_CLOCK_STARTED.discard(key)
     _PREMIERE_TOAST_SPEAKERS.pop(key, None)
-    for _d in (_ARRIVALS_NAMED, _ARRIVALS_FRAMED, _ARRIVAL_VOICE_HOLDS, _TOAST_BATCH_NAMED):  # ORW-704
+    for _d in (_ARRIVALS_NAMED, _ARRIVALS_FRAMED, _ARRIVAL_VOICE_HOLDS, _TOAST_BATCH_NAMED, _ENTRANCE_FRAMES):  # ORW-704 / ORW-997
         _d.pop(key, None)
     for _d in (_COMP_PAUSED, _COMP_CONT, _COMP_STEER_BASE):  # review of ORW-232: a restart mid-pause must not leak the old pause / steer into the new season
         _d.pop(key, None)
@@ -949,6 +949,63 @@ _ARRIVALS_FRAMED: dict = {}     # runway key -> names the narrator was framed wi
 _ARRIVAL_VOICE_HOLDS: dict = {}  # runway key -> consecutive turns the next release was held for an unnamed arrival
 _ARRIVAL_VOICE_HOLD_CAP = 2
 _TOAST_BATCH_NAMED: dict = {}   # runway key -> tuple of the toast batch a reply already voiced
+# ORW-997: the latest staged release (an arrival or a toast batch) and how many framed turns have handed it to the narrator. A release handed once and named in the reply (or handed twice) is VOICED: the next
+# framing of the same release says so (the engine marks the entrance `voiced`), so a no-advance turn never plays it again. A new release (a new signature) starts again at zero.
+_ENTRANCE_FRAMES: dict = {}     # runway key -> (release signature, framed turns so far, whether the latest framing found it voiced)
+
+
+def _entrance_release_sig(stage, ent):
+    """ORW-997: what identifies the latest staged release on the board. Pure; None when the board names no release yet."""
+    try:
+        if stage == "toast":
+            sp = [("host" if x.get("host") else ("player" if x.get("isPlayer") else str(x.get("name") or ""))) for x in (ent.get("speakers") or []) if isinstance(x, dict)]
+            return ("toast", tuple(sp), ent.get("toastRemaining")) if sp else None
+        ja = ent.get("justArrived")
+        jn = str((ja or {}).get("name") or "") if isinstance(ja, dict) else ""
+        return ("entrances", ent.get("index"), jn) if (jn or ent.get("playerJustEntered") or ent.get("playerEntrance")) else None
+    except Exception:
+        return None
+
+
+def _note_entrance_frame(user, key, stage, ent) -> bool:
+    """ORW-997: count this framed turn against the latest release; True when an earlier reply already voiced it (named it, or it was handed over twice). Stashes the answer for `getMomentPrompt`. Never raises."""
+    voiced = False
+    try:
+        sig = _entrance_release_sig(stage, ent) if stage in ("entrances", "toast") else None
+        prev = _ENTRANCE_FRAMES.get(key)
+        n = prev[1] if prev and sig is not None and prev[0] == sig else 0
+        if sig is None:
+            _ENTRANCE_FRAMES.pop(key, None)
+        else:
+            if stage == "toast":
+                people = tuple(x for x in sig[1] if x not in ("host", "player"))
+                named = bool(people) and _TOAST_BATCH_NAMED.get(key) == people
+            else:
+                named = bool(sig[2]) and sig[2] in _ARRIVALS_NAMED.get(key, set())
+            voiced = n >= 1 and (named or n >= 2)
+            _ENTRANCE_FRAMES[key] = (sig, n + 1, voiced)
+    except Exception:
+        voiced = False
+    try:
+        from src import orwell_engine as _oe
+        _oe.set_entrance_voiced(user, voiced)
+    except Exception:
+        pass
+    return voiced
+
+
+def _entrance_release_resolved(user, game_state) -> bool:
+    """ORW-997: True when the latest staged release on the board needs nothing more from the narrator (none yet, or this turn's framing found it already voiced), so the next one may be committed before the reply. Pure read of the stash."""
+    try:
+        stage = _entrance_stage_of(game_state)
+        ent = ((game_state.get("premiere") or {}).get("entrance")) or {}
+        sig = _entrance_release_sig(stage, ent)
+        if sig is None:
+            return True
+        prev = _ENTRANCE_FRAMES.get(_runway_key(user))
+        return bool(prev and prev[0] == sig and prev[2])
+    except Exception:
+        return True
 
 
 def _name_voiced_in(text: str, name: str) -> bool:
@@ -1047,19 +1104,28 @@ def note_premiere_turn(user, game_state) -> None:
                         sp.append("host" if x.get("host") else str(x.get("name") or ""))
             except Exception:
                 sp = []
+            try:
+                _note_entrance_frame(user, key, stage, ((game_state or {}).get("premiere") or {}).get("entrance") or {})
+            except Exception:  # failsoft-ok: the voiced mark is a prompt aid; a miss leaves the old behaviour
+                pass
             if stage == "toast" and sp:
                 _PREMIERE_TOAST_SPEAKERS[key] = sp
                 _people = tuple(x for x in sp if x != "host")
                 if _people and _TOAST_BATCH_NAMED.get(key) == _people:
                     _SCHEDULE_STEER[key] = (_SCHEDULE_STEER.get(key, "") + "\n\n" if _SCHEDULE_STEER.get(key) else "") + (
                         "THE TOAST BATCH HAS ALREADY BEEN VOICED (engine truth): " + ", ".join(_people)
-                        + " have already given their toasts and introduced themselves to the house. Do not introduce them again; play the circle with them as part of the room, and bring the next batch with advanceGame when the player lulls.")
+                        + " have already given their toasts and introduced themselves to the house. Do not introduce them again; play the circle with them as part of the room. The next batch is not committed yet: never voice or name a further speaker.")
             else:
                 _PREMIERE_TOAST_SPEAKERS.pop(key, None)
             return
         _PREMIERE_ENTRANCE_STAGE.pop(key, None)
-        for _d in (_ARRIVALS_NAMED, _ARRIVALS_FRAMED, _ARRIVAL_VOICE_HOLDS, _TOAST_BATCH_NAMED):
+        for _d in (_ARRIVALS_NAMED, _ARRIVALS_FRAMED, _ARRIVAL_VOICE_HOLDS, _TOAST_BATCH_NAMED, _ENTRANCE_FRAMES):
             _d.pop(key, None)  # ORW-704: the staged premiere is over (or a new game): nothing is owed
+        try:
+            from src import orwell_engine as _oe_clear
+            _oe_clear.set_entrance_voiced(user, False)
+        except Exception:
+            pass
         if stage == "done":
             # Live finding (A9 rerun #2): with the entrances ON, the entrances + toast ARE the premiere. Stacking the 48-message premiere hold on top of them froze the engine at
             # phase=premiere for 25+ messages (the stall-nudge was suppressed) while the narrator kept the house "in the morning" - and the clock-driven 48-message Day-1 morning
@@ -8895,7 +8961,8 @@ def _premiere_arrival_due(user, game_state, player_msg) -> bool:
     try:
         if not isinstance(game_state, dict) or str(game_state.get("phase") or "").lower() != "premiere":
             return False
-        if _entrance_stage_of(game_state) != "entrances" or _PREMIERE_ENTRANCE_STAGE.get(_runway_key(user)) != "entrances":
+        stage = _entrance_stage_of(game_state)
+        if stage not in ("entrances", "toast") or _PREMIERE_ENTRANCE_STAGE.get(_runway_key(user)) != stage:
             return False
         if game_state.get("pending") is not None or event_pause_holds(user) or is_beat_cue_message(player_msg):
             return False
@@ -8903,6 +8970,12 @@ def _premiere_arrival_due(user, game_state, player_msg) -> bool:
         if _al._is_production_cue(player_msg or ""):
             return False
         ent = ((game_state.get("premiere") or {}).get("entrance")) or {}
+        if stage == "toast":
+            # ORW-997: the toast batch is committed BEFORE the reply too, once the batch on the board has been voiced (or none is out yet) and the player asked for the next one.
+            if not _entrance_release_resolved(user, game_state):
+                return False
+            due, _ = _al._entrance_pacing(0, player_msg or "", False, False, stage="toast")
+            return bool(due)
         if ent.get("playerEntrance") or not ent.get("total") or int(ent.get("index") or 0) >= int(ent.get("total") or 0):
             return False  # the player's own entrance is the narrator's to voice; nobody left to release
         turns = _al._TURNS_SINCE_PROGRESS.get(_al._belt_key(user), 0) + 1
@@ -8925,7 +8998,7 @@ async def maybe_release_premiere_arrival(user, game_state, *, retry: bool, playe
         key = _runway_key(user)
         # ORW-704 twin: the previous arrival is still unnamed in any reply -> hold this release (bounded), the narrator owes it first.
         ent = ((game_state.get("premiere") or {}).get("entrance")) or {}
-        owed_last = [n for n in _post_player_arrivals(ent)[-1:] if n not in _ARRIVALS_NAMED.get(key, set())]
+        owed_last = [n for n in _post_player_arrivals(ent)[-1:] if n not in _ARRIVALS_NAMED.get(key, set())] if _entrance_stage_of(game_state) == "entrances" else []
         if owed_last and _ARRIVAL_VOICE_HOLDS.get(key, 0) < _ARRIVAL_VOICE_HOLD_CAP:
             _ARRIVAL_VOICE_HOLDS[key] = _ARRIVAL_VOICE_HOLDS.get(key, 0) + 1
             logger.info("[orwell] premiere arrival release held for user=%s: the last arrival is not yet voiced (hold %d/%d)", user, _ARRIVAL_VOICE_HOLDS[key], _ARRIVAL_VOICE_HOLD_CAP)
