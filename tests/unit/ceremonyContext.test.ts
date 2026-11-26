@@ -78,6 +78,21 @@ describe("C8-04 — the ceremony state is in the model's persistent context", ()
     for (const p of field) expect(prompt).toContain(p.name); // every drawn player, by name
   });
 
+  it("ORW-923/925: everyone the chip draw did not pick is named as watching the veto, never a player (Fable week 1: 'all sixteen of you', non-players 'out early')", () => {
+    const s = new GameSessionAdapter();
+    s.createCharacter({ playerName: "P", archetype: "social", seed: 81000 });
+    const gs = driveToVetoField(s);
+    const field = new Set(gs.ceremony.veto.players.map((p) => p.id));
+    const prompt = s.getMomentPrompt({}).systemPrompt;
+    const line = prompt.split("\n").find((l) => l.includes("Watching the veto")) ?? "";
+    expect(line, "the sidelines are named").not.toBe("");
+    const watching = gs.house.filter((h) => !field.has(h.id));
+    expect(watching.length, "the field is the six, not the house").toBeGreaterThan(0);
+    const named = line.slice(line.indexOf("): ") + 3).split(", ");
+    expect(named.sort(), "exactly the houseguests outside the six").toEqual(watching.map((h) => h.name).sort());
+    for (const p of gs.ceremony.veto.players) expect(named, "a drawn player is not on the sidelines").not.toContain(p.name);
+  });
+
   it("renders WHERE YOU ARE from the engine whereabouts so the model never invents positions (L21/L24)", () => {
     const s = new GameSessionAdapter();
     s.createCharacter({ playerName: "P", seed: 81000 });

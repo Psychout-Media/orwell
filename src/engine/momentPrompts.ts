@@ -1330,6 +1330,8 @@ export function renderGameContext(view: GameStateView): string {
   // The ceremony status block — engine truth for the HOH / nominations / veto this week. Present only
   // once something has been set (premiere/pre-ceremony has none), so the model never invents these.
   const vetoPlayers = cer.veto.players ?? [];
+  const vetoPlayerNames = new Set(vetoPlayers.map((p) => p.id));
+  const watchingVeto = view.house.filter((h) => !vetoPlayerNames.has(h.id)).map((h) => h.name);
   const hasCeremony = !!(cer.hoh || cer.nominees.length || cer.veto.holder || vetoPlayers.length);
   const ceremonyLines = !hasCeremony ? [] : [
     "- THIS WEEK'S CEREMONY (engine truth — voice EXACTLY this; never name a different HOH, nominee, or",
@@ -1340,6 +1342,8 @@ export function renderGameContext(view: GameStateView): string {
     // R9-AGENCY-1: the engine draws the six who play the veto (HOH, both noms, three by chip) — surface
     // the field so the model never tells a drawn houseguest (the player included) they aren't playing.
     `    Playing the veto: ${vetoPlayers.length ? vetoPlayers.map((p) => p.name).join(", ") : "not yet drawn"}`,
+    // ORW-923/925: everyone the chip draw did NOT pick is on the sidelines. Named, so a houseguest outside the six is never staged as competing, falling or going out early, and the field is never "all of you" (Fable week 1: "All sixteen of you are out here", non-players "out early").
+    ...(vetoPlayers.length && watchingVeto.length ? [`    Watching the veto, not playing (they cannot fall, drop or go out in it): ${watchingVeto.join(", ")}`] : []),
     `    Veto: ${cer.veto.holder ? `held by ${cer.veto.holder.name}${cer.veto.used ? " (already used)" : ""}` : "not yet played"}`,
     ...vetoDecisionLines(cer),
   ];

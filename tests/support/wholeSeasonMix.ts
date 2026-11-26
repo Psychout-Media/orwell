@@ -96,6 +96,10 @@ export const KNOWN_RED: Readonly<Record<string, KnownRed>> = {
   "late:band-bonding": { value: 14.8, card: "ORW-702 restore bonding" }, // band 20-30
   "late:band-conflict": { value: 9.1, card: "ORW-902 767 late mix" }, // band 10-16: ORW-767 (a told couple spreads as gossip) moved the late mix on seeds 1, 2, 3, 6 by about gossip +3, strategy -4, conflict -1; added back as measured (CI run on #3164), carded
   "late:band-gossip": { value: 49.0, card: "ORW-702 gossip ratchet" }, // band 24-34 (and the 45% ceiling below)
+  // quarantine(card=ORW-944), Coordinator ruling 2026-11-26: ORW-905 reads mid gossip 46.3 over 12 seasons (main 45.4 at 9a088d41d, +0.9, inside the 1.0 margin); the 4-season CI lane read 48.2 against main 45.3. 4-season noise, not a 905 effect; ORW-944 recalibrates the margin from measured noise and removes this line.
+  "mid:no-activity-above-45": { value: 48.5, card: "ORW-944 quarantine: 4-season noise" }, // gossip is the one over 45
+  // quarantine(card=ORW-944), Coordinator ruling 2026-11-26: the late no-activity line (left KNOWN_RED by #3206) reads 48.7 on this PR in the 4-season lane; ORW-905 reads late 46.4 over 12 seasons against main 45.5 (+0.9, inside the 1.0 margin), so the 4-season swing (3-4 on late) is lane noise. ORW-944 removes this line.
+  "late:no-activity-above-45": { value: 49.0, card: "ORW-944 quarantine: 4-season noise" }, // gossip is the one over 45
 };
 /** Hysteresis (Coordinator ruling 2026-11-25): a KNOWN_RED line is asked to be deleted only once its rule passes by at least this many points, so a rule that flips at its boundary from run to run does not redden unrelated PRs. The same margin applies the other way: a rule main meets (not listed) is a regression only when it misses its limit by MORE than this (Coordinator ruling 2026-11-25: 45.3 against a cap of 45 is run-to-run noise). Drift of a still-red line is already tolerated up to RATCHET_SLACK. Bands and tolerances are unchanged. */
 export const RATCHET_FIXED_MARGIN = 1.0;

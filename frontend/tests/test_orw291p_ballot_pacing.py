@@ -1,5 +1,7 @@
-"""ORW-291 pacing: a played eviction reads ONE anonymized ballot per engine step (13 voters => ~16 steps). A bare "next"/"continue" player message must walk the
-BALLOT steps in one pass (stopping at the result, which keeps its own stop); a message that carries real talk gets a normal turn and walks nothing. Fakes only, no model. Roles only."""
+"""ORW-291 pacing, AMENDED by ORW-846 (coordinator ruling 11-23): a played eviction reads ONE anonymized ballot per engine step (13 voters => ~16 steps). A bare "next"/"continue" at a
+BALLOT step now advances exactly ONE ballot, the same step the Continue press takes (play by play; every step is told; the clock budget stays). Only an explicit fast-forward ("skip to the result",
+"just tell me who's out") walks all the remaining ballots in one pass, stopping at the result (which keeps its own stop); a message that carries real talk gets a normal turn and walks nothing.
+The old ORW-291 tests that pinned "a bare next walks the ballots" were rewritten to the new ruling. Fakes only, no model. Roles only."""
 import asyncio
 import importlib
 
@@ -76,11 +78,26 @@ def _messages_to_result(f, msg="next", cap=60):
     return n
 
 
-def test_measure_messages_for_a_full_ballot_run(eng):
+def test_bare_next_reads_exactly_one_ballot(eng):
+    _run(ch._pre_resolve_npc_ceremony("u", eng.view(), retry=False, player_msg="next"))
+    assert eng.advances == 1 and eng.pending()["ceremony"]["stepId"] == "ballot" and eng.at == 2
+
+
+def test_each_bare_next_is_one_ballot_all_the_way_to_the_result(eng):
     n = _messages_to_result(eng)
-    print(f"MEASURED: {n} bare-'next' messages from ballot 1 of {VOTERS} to the result stop ({eng.advances} engine advances)")
-    assert n <= 1 and eng.pending()["ceremony"]["stepId"] == "result"
-    assert eng.advances == VOTERS  # ballot 1 was open; 12 more ballots + the result step opened
+    assert n == VOTERS and eng.advances == VOTERS and eng.pending()["ceremony"]["stepId"] == "result"  # one message per ballot, none skipped
+
+
+@pytest.mark.parametrize("msg", ["skip to the result", "just tell me who's out", "fast forward", "skip the votes"])
+def test_explicit_fast_forward_walks_all_remaining_ballots(eng, msg):
+    n = _messages_to_result(eng, msg=msg)
+    assert n == 1 and eng.advances == VOTERS and eng.pending()["ceremony"]["stepId"] == "result"
+
+
+@pytest.mark.parametrize("msg", ["next", "continue", "ok, go on", "who is going to be out?", "I want to skip to the result, but first let me whisper to Sam about it all tonight",
+                                 "just tell me who's out?"])
+def test_non_fast_forward_phrasings_are_not_classified_as_fast_forward(msg):
+    assert not ch._is_ballot_fast_forward(msg)
 
 
 def test_result_keeps_its_own_stop(eng):
@@ -104,7 +121,7 @@ def test_talk_does_not_skip_steps(eng, msg):
 
 def test_walk_is_bounded_and_steer_is_anonymous(eng):
     eng.steps = ["speeches"] + ["ballot"] * 40 + ["result"]
-    _run(ch._pre_resolve_npc_ceremony("u", eng.view(), retry=False, player_msg="continue"))
+    _run(ch._pre_resolve_npc_ceremony("u", eng.view(), retry=False, player_msg="skip to the result"))
     assert eng.advances == ch._EVICTION_BALLOT_HOPS  # capped, the rest waits for the next message
     steer = ch._SCHEDULE_STEER.get(ch._runway_key("u"), "")
     assert "a vote to evict the nominee" in steer
