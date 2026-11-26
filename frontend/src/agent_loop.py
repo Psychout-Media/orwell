@@ -2494,7 +2494,7 @@ def _volatile_tail_wire(messages):
 #:   beat      - the framed ceremony beat's engine-named required lever (comp / advance); an OPEN player pending suppresses it.   ENABLED
 #:   casting   - the casting-finalize createCharacter once the player signalled ready and the intake is finalizable.             ENABLED
 #:   stall     - S1b: advanceGame after a lost progression beat / repeated stall signals; never with a pending open.            ENABLED
-#:   actfirst  - the ORW-1014 act-first round (flag ORWELL_ACT_FIRST): a closed toolset, forced, never a binding pick.         ENABLED (flag OFF)
+#:   actfirst  - the ORW-1014 act-first round (flag ORWELL_ACT_FIRST, default off): a closed toolset, forced; submitDecision only for comp-intent/comp-round/deal-offer.   ENABLED (flag OFF)
 #:   bedtime   - turnIn when the player went to bed: the FE already runs it directly before narration (ORW-310b, proven live).  OFF (direct path kept)
 #:   whereabouts - BL-007: forced on every premiere/group free-play turn; not owed by the engine and costs a round each turn.    OFF
 _ESC_INELIGIBLE_ROUNDS: dict = {}  # ORW-1041: owner -> consecutive rounds the S1b escalation stayed armed on a route that rejects tool_choice
@@ -2512,16 +2512,16 @@ def _deepseek_direct_thinking_off(model: str, url) -> bool:
         return False
 
 
-def _model_honors_forced_tool_choice(model: str, url=None, *, site: str | None = None) -> bool:
+def _model_honors_forced_tool_choice(model: str, route=None, *, site: str | None = None) -> bool:
     """True unless the (model, route) is a KNOWN `tool_choice` rejecter. Mode-aware (ORW-1014): a DeepSeek-V4/flash model on api.deepseek.com
     with thinking disabled honors forcing, but only at a `_DEEPSEEK_FORCE_SITES` site (pass `site`; no site means "not enabled"). Called with
-    the model alone (no url) it keeps the old, conservative answer. Kill switch: ORWELL_DEEPSEEK_FORCE=0."""
+    the model alone (no route) it keeps the old, conservative answer. Kill switch: ORWELL_DEEPSEEK_FORCE=0."""
     m = (model or "").lower()
     if not any(bad in m for bad in _TOOL_CHOICE_REJECTERS):
         return True
     if os.environ.get("ORWELL_DEEPSEEK_FORCE", "1").strip().lower() in ("0", "false", "off", "no"):
         return False
-    return site in _DEEPSEEK_FORCE_SITES and _deepseek_direct_thinking_off(model, url)
+    return site in _DEEPSEEK_FORCE_SITES and _deepseek_direct_thinking_off(model, route)
 
 
 # P2-16 (prompt audit) — the REJECTER FALLBACK. On a `_TOOL_CHOICE_REJECTERS` model the wire force
@@ -9853,6 +9853,7 @@ async def _stream_agent_loop_impl(
     _first_stream_round = 1  # ORW-395: the belt's own round shifts the first narration round to 2
     _belt_own_round = False
     _act_first_done = False  # ORW-1014: the act-first round runs at most once per turn
+    _act_first_outcome = None  # ORW-1014: its outcome this turn (None = it did not run); an after-reply move belt that fires on a noAction counts as a miss
     for round_num in range(1, max_rounds + 1):
         _round_finish_reason = None
         round_response = ""
@@ -10016,7 +10017,7 @@ async def _stream_agent_loop_impl(
                     from routes import chat_helpers as _ch_draw
                     if _candidate_choice is not None and _ch_draw.veto_draw_holds_force(owner or ""):
                         _candidate_choice = None  # ORW-505: the draw was voiced this turn; the competition waits for a later turn
-                    if _candidate_choice is not None and _model_honors_forced_tool_choice(model, url=endpoint_url, site="beat"):
+                    if _candidate_choice is not None and _model_honors_forced_tool_choice(model, route=endpoint_url, site="beat"):
                         _forced_tool_choice = _candidate_choice
                         # Belt note DEFERRED until the forced call lands (Greptile P1 — see
                         # _forced_belt_tool above); stash the required tool's name only.
@@ -10067,7 +10068,7 @@ async def _stream_agent_loop_impl(
                         finalizable=bool(_cast_view and _cast_view.get("finalizable")),
                         started=bool((_cast_state or {}).get("started")),
                         player_signalled=True)
-                    if _forced_tool_choice is not None and not _model_honors_forced_tool_choice(model, url=endpoint_url, site="casting"):
+                    if _forced_tool_choice is not None and not _model_honors_forced_tool_choice(model, route=endpoint_url, site="casting"):
                         # ORW-1041: a route that rejects tool_choice gets the textual twin and a count, never silence (the reactive casting-finalize-force belt stays the net).
                         _forced_tool_choice = None
                         if _CASTING_FINALIZE_TOOL not in _rejecter_fallback_sent:
@@ -10101,7 +10102,7 @@ async def _stream_agent_loop_impl(
             try:
                 from routes import chat_helpers as _ch_esc
                 if _ch_esc.advance_escalation_armed(owner) and not _ch_esc.veto_draw_holds_force(owner or ""):  # ORW-505: a draw voiced this turn holds EVERY advance force
-                    if "advanceGame" in _tool_names_sent and _model_honors_forced_tool_choice(model, url=endpoint_url, site="stall"):
+                    if "advanceGame" in _tool_names_sent and _model_honors_forced_tool_choice(model, route=endpoint_url, site="stall"):
                         from src import orwell_engine as _oe_esc
                         _esc_status = await _oe_esc.game_status(user=_force_owner)
                         _esc_pending = bool(
@@ -10145,7 +10146,7 @@ async def _stream_agent_loop_impl(
         # ── BL-007: force whereabouts on premiere/group free-play turns ───────────────────────────────
         if _forced_tool_choice is None and _is_live_game and all_tool_schemas\
                 and bool(get_setting("force_tool_choice_at_beats", True))\
-                and _model_honors_forced_tool_choice(model, url=endpoint_url, site="whereabouts"):
+                and _model_honors_forced_tool_choice(model, route=endpoint_url, site="whereabouts"):
             try:
                 from routes import chat_helpers as _ch_wa
                 _wa_frozen = _ch_wa._TURN_WHEREABOUTS.get(_force_owner)
@@ -10195,7 +10196,7 @@ async def _stream_agent_loop_impl(
                             _rejecter_fallback_sent.add("bedtime-held")
                             messages.append({"role": "system", "content": _bt_held})
                             _note_belt(owner, "bedtime-held-note")
-                    if _bt_choice is not None and _model_honors_forced_tool_choice(model, url=endpoint_url, site="bedtime"):
+                    if _bt_choice is not None and _model_honors_forced_tool_choice(model, route=endpoint_url, site="bedtime"):
                         _forced_tool_choice = _bt_choice
                         _forced_belt_tool = "turnIn"
                         logger.info(f"[orwell] ORW-310 forcing turnIn (player went to bed) round={round_num} user={_force_owner}")
@@ -10285,21 +10286,37 @@ async def _stream_agent_loop_impl(
                         and not _turn_had_error):
                     _act_first_done = True
                     _af_text = _extract_last_user_message(messages) or ""
-                    if (_af_text and "moveTo" in set(_tool_names_sent)
-                            and _model_honors_forced_tool_choice(model, url=endpoint_url, site="actfirst")):
+                    if _af_text and _model_honors_forced_tool_choice(model, route=endpoint_url, site="actfirst"):
                         from src import orwell_engine as _oe_af
+                        from routes import chat_helpers as _ch_af
                         from src.llm_core import llm_tool_call_async as _af_call
                         _af_status = await _oe_af.game_status(user=_force_owner)
                         _af_pend = ((_af_status or {}).get("pending") or {}) if isinstance(_af_status, dict) else {}
                         _af_kind = (_af_pend.get("kind") or "").strip() if isinstance(_af_pend, dict) else ""
-                        _af_names = _season_room_names(owner)
+                        _af_sent = set(_tool_names_sent)
+                        _af_ctx = {
+                            "pending_kind": _af_kind or None,
+                            "required_lever": _ch_af._LAST_FRAMED_REQUIRED_LEVER.get(_force_owner),
+                            "social_hold": bool(_ch_af.veto_draw_holds_force(owner or "") or _ch_af.event_pause_holds(owner)),
+                            # sleep cannot be undone: the loop's own strict bedtime gate (words AND board) must pass, and the tool must be on the wire
+                            "sleep_ok": "turnIn" in _af_sent and _player_means_going_to_bed(_af_text) and _bedtime_board_allows(_af_status),
+                        }
                         _af_res = await _af.decide(
-                            _af_text, _HOUSE_ROOMS, pending_kind=_af_kind or None, fence=_EXTRACTION_UNTRUSTED_FENCE,
-                            room_note=_themed_rooms_note(_af_names), call=_af_call,
+                            _af_text, _HOUSE_ROOMS, ctx=_af_ctx, fence=_EXTRACTION_UNTRUSTED_FENCE,
+                            room_note=_themed_rooms_note(_season_room_names(owner)), call=_af_call,
                             url=endpoint_url, model=model, headers=headers)
+                        _act_first_outcome = _af_res["outcome"].split(":")[0]
+                        logger.info(f"[orwell] act-first outcome={_af_res['outcome']} ms={_af_res['latencyMs']:.0f} user={_force_owner}")
                         if _af_res["outcome"] != "acted":
-                            _note_belt(owner, "act-first-" + _af_res["outcome"].split(":")[0].lower())
-                        for _af_tool, _af_args in _af_res["acts"]:
+                            _note_belt(owner, "act-first-" + _act_first_outcome.lower())
+                        _af_acts, _af_done = _af_res["acts"], []
+                        _af_notes = []
+                        while len(_af_done) < len(_af_acts):
+                            _af_tool, _af_args = _af_acts[len(_af_done)]
+                            if _af_tool == "turnIn" and any(a[0] == "moveTo" and not ok for a, ok in zip(_af_acts, _af_done)):
+                                _af_done.append(False)  # the bed was in the room the blocked move was going to
+                                _af_notes.append("The player's sleep was NOT run: the move before it was blocked, so they are not at the bed.")
+                                continue
                             _af_json = json.dumps(_af_args)
                             yield f'data: {json.dumps({"type": "tool_start", "tool": _af_tool, "command": _af_json, "round": round_num})}\n\n'
                             _af_desc, _af_result = await execute_tool_block(
@@ -10308,14 +10325,36 @@ async def _stream_agent_loop_impl(
                             _af_out = str((_af_result.get("output") or _af_result.get("error") or "") if isinstance(_af_result, dict) else "")
                             yield f'data: {json.dumps({"type": "tool_output", "tool": _af_tool, "command": _af_json, "output": "", "exit_code": _af_result.get("exit_code") if isinstance(_af_result, dict) else None})}\n\n'
                             tool_events.append({"round": round_num, "tool": _af_tool, "command": _af_json, "output": "", "exit_code": (_af_result or {}).get("exit_code")})
-                            _af_id = f"call_{round_num}_actfirst_{_af_tool}"
+                            if _af_tool == "turnIn":
+                                _af_ok = _turn_in_applied(_af_result)
+                            else:
+                                _af_ok = (isinstance(_af_result, dict) and not _af_result.get("error") and _af_result.get("exit_code") in (0, None)
+                                          and not re.search(r'"(?:refused|illegal|held|error)"\s*:\s*(?!false|null)', _af_out))
+                            _af_done.append(_af_ok)
+                            _af_id = f"call_{round_num}_actfirst_{len(_af_done)}"
                             messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": _af_id, "type": "function", "function": {"name": _af_tool, "arguments": _af_json}}]})
                             messages.append({"role": "tool", "tool_call_id": _af_id, "content": f"### {_af_tool}\n```\n{_af_out[:4000]}\n```"})
-                            _note_belt(owner, "act-first:" + _af_tool)
+                            if _af_ok:
+                                _note_belt(owner, "act-first:" + _af_tool)
+                                if _af_tool == "turnIn":
+                                    _turn_slept = True
+                                    try:
+                                        await _refresh_context_after_turn_in(messages, _force_owner, _af_out)
+                                    except Exception:
+                                        pass
+                                elif _af_tool == "moveTo":
+                                    _af_notes.append(f"The player is NOW in {_af_args.get('room')}: the briefing above predates their move.")
+                            else:
+                                _note_belt(owner, "act-first-blocked:" + _af_tool)
+                                _af_notes.append(f"The {_af_tool} the player asked for was BLOCKED by the game: voice that in the fiction.")
+                                if _af_tool == "turnIn":
+                                    _af_held = _bedtime_held_note(set(), player_text=_af_text, status=_af_status)
+                                    if _af_held:
+                                        messages.append({"role": "system", "content": _af_held})
                             _belt_own_round = True
                             _direct_applied = False
                         if _belt_own_round:
-                            messages.append({"role": "system", "content": "(Production note, not for the player.) The game ALREADY committed the player's own act(s) above, in order, before this reply: voice them from the results, and do not call those tools again for them. If a result shows a refusal, voice that in the fiction."})
+                            messages.append({"role": "system", "content": "(Production note, not for the player.) The game ALREADY ran the player's own act(s) above, in order, before this reply: voice what happened from the results, do not call those tools again, and do the rest of what the player did. " + " ".join(_af_notes)})
             except Exception as _af_err:  # failsoft-ok: act-first-fail-soft - the ordinary narration round runs exactly as before
                 logger.warning(f"[orwell] act-first round skipped: {_af_err}")
             if _belt_own_round:
@@ -11599,6 +11638,13 @@ async def _stream_agent_loop_impl(
                             # gap #3 telemetry — count only a REAL applied move (a room:null
                             # extraction / failed call is a no-op, not a correction)
                             _note_belt(owner, "auto-move-player")
+                            if _act_first_outcome in ("noaction", "noAction", "skipped", "error", "timeout"):
+                                _note_belt(owner, "act-first-miss:auto-move-player")  # ORW-1014: act-first stood down and the after-reply belt still had to move the player
+                                try:
+                                    from src import act_first as _af_m
+                                    _af_m.bump("misses")
+                                except Exception:
+                                    pass
                     # ── ADR 0009 NPC auto-move belt (also a pure persist side effect, never a re-prompt).
                     # The narration walked one or more houseguests to a room but the model never called
                     # moveHouseguest, so the engine's open presence would snap them back. A constrained

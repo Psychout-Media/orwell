@@ -1811,18 +1811,18 @@ def _turn_drivers_section(user: str | None) -> dict | None:
         return None
 
 
-def _steer_counts_section() -> dict | None:
-    try:
-        from src import orwell_sync_ledger as _sl
-        return _sl.get_steer_counts()
-    except Exception:
-        return None
-
-
 def _act_first_section() -> dict | None:
     try:
         from src import act_first as _af
         return _af.stats()
+    except Exception:
+        return None
+
+
+def _steer_counts_section() -> dict | None:
+    try:
+        from src import orwell_sync_ledger as _sl
+        return _sl.get_steer_counts()
     except Exception:
         return None
 
@@ -1928,10 +1928,10 @@ async def _health_snapshot(user: str | None) -> dict:
         "alarms": alarms,
         # ORW-1014: who made the turns' engine changes - narrator tool calls vs belts (turns, narratorToolTurns, beltDrivenTurns, the rates).
         "turnDrivers": _turn_drivers_section(user),
-        # ORW-1014 PR 2: the act-first round's flag state, outcome counts and latency p50/p95 (ms).
-        "actFirst": _act_first_section(),
         # ORW-1042: how many times each steer / re-ground directive was produced (process-wide since start; names and counts only).
         "steerCounts": _steer_counts_section(),
+        # ORW-1014 PR 2: the act-first round's flag state, outcome counts, misses and latency p50/p95 (ms).
+        "actFirst": _act_first_section(),
         # ORW-408: the pre-display hard-fact check's counters (chunks checked, skipped by reason, conflicts by fact). Numbers and fact ids only.
         "predisplay": _predisplay_section(),
         # Build + version (PR) for one-glance triage on the status page. version is the

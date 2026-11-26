@@ -709,7 +709,7 @@ def get_driver_totals(user: str | None) -> dict[str, Any]:
             if isinstance(e, dict):
                 n += 1
                 if any(str(b).startswith("act-first:") for b in (e.get("beltsFired") or {})):
-                    af += 1  # ORW-1014 PR 2: the act-first round committed this turn's act (counted as a tool call: the model made it)
+                    af += 1  # ORW-1014 PR 2: the act-first round committed an act this turn (counted as a tool call: the model made it)
                 split[classify_driver(e.get("toolsCalled"), e.get("beltsFired"))] += 1
     nt = split["narrator"] + split["both"]
     bt = split["belt"] + split["both"]
