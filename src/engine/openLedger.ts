@@ -431,6 +431,7 @@ export function syncOpenLedger(
       out = closeOpenEntry(out, e.id, end, openLedgerDealNote(end), ctx.turn);
       continue;
     }
+    if (e.term?.what === "final-two") continue; // ORW-693: a final-two promise lasts the season (0187): it is judged at the final two, never lapsed for being quiet
     if (ctx.day === undefined) continue;
     const last = lastTouchedDay(out, e);
     if (last === undefined) out = touchEntry(out, e, ctx.day);
