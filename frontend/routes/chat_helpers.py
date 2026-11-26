@@ -1296,7 +1296,10 @@ def _day_break_narration_steer(content: str) -> str:
 _PENDING_KIND_HINTS = {
     "ceremony-step": (
         "This is a WATCH step of a staged ceremony, not a choice. The engine supplies the one line that "
-        "just happened (quoted above); voice THAT moment in the fiction, in the room, and stop. Do NOT call "
+        "just happened (quoted above); voice THAT moment in the fiction, in the room, and stop. State the step ONCE: "
+        "when the player types something at a step you have already voiced (their own plea, remark or question), "
+        "answer what they said in the room and do NOT announce the step again or hand them the floor a second time. "
+        "Do NOT call "
         "advanceGame or submitDecision and do NOT narrate the next step: the player moves the ceremony on "
         "with the Continue button, one step at a time, and the engine then supplies the next line. Never "
         "reveal a result, a vote or a name the engine has not yet supplied."
@@ -9025,7 +9028,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                     from src import log_rings as _lr_walk
                     _lr_walk.record_soft_failure("progression:ballot-walk-refetch", _fe, corrected="input-snapshot", user=user)
             return game_state
-        if isinstance(status, dict) and _is_watch_step(status.get("pending")) and _is_progress_only_message(player_msg):
+        if isinstance(status, dict) and _is_watch_step(status.get("pending")) and _is_watch_continue_message(player_msg):
             # ORW-297: a typed "next" on ANY open ceremony WATCH step moves it exactly ONE step - the same advance the Continue button (/api/orwell/ceremony-continue) makes.
             if await _advance_one_watch_step(user, status.get("pending")):
                 try:
@@ -10148,6 +10151,17 @@ def _is_progress_only_message(text) -> bool:
     except Exception:  # failsoft-ok: expected-empty (the classifier is an optimisation; on any error the guard keeps its old behaviour and records the fallback)
         return False
     return False
+
+
+# ORW-772 (3): the player's own closing remark at a staged watch step ("That's all.", "I'm done.", "That's it.") is a lull cue for the stall-nudge but NOT a press of Continue: it ended their own speech or plea, and the
+# step must not silently advance on it. A watch step moves on the explicit continue words and readiness cues only.
+_FINISH_STATEMENT_RE = re.compile(r"\b(that'?s? (it|all)|nothing else|no more|i'?m (done|good)|enough( of)? (this|that)|wrap (it )?up)\b", re.IGNORECASE)
+
+
+def _is_watch_continue_message(text) -> bool:
+    """ORW-772 (3): `_is_progress_only_message` minus the player's own finishing statements (see `_FINISH_STATEMENT_RE`). Used where a typed message may press Continue on an open ceremony watch step."""
+    s = str(text or "")
+    return _is_progress_only_message(s) and not _FINISH_STATEMENT_RE.search(s)
 
 
 async def ensure_turn_recorded(user, player_message, narration, tools_called, beat_seq_before=None, session_id=None, failed_tools=None) -> bool:
