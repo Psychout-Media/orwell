@@ -6120,6 +6120,41 @@ def _validate_voiced_promises(raw_items, roster_ids, standing, skip_by) -> list:
     return out
 
 
+# ORW-750 part 1: the player asks a houseguest for a private word, the narrator voices them agreeing, and the model never calls askToTalkAlone, so nothing moves. The belt runs the lever; the ENGINE asks their consent and moves.
+_TALK_ALONE_RE = re.compile(
+    r"\b(?:talk|chat|speak)\b[^.!?]{0,30}\b(?:alone|in private|privately|one[\s-]on[\s-]one)\b|\b(?:a|have a) (?:private )?word\b|\bcome (?:here|with me|talk)\b|\bjust (?:us|the two of us)\b|\bsomewhere (?:quiet|private)\b|\bfind me (?:in|at)\b",
+    re.IGNORECASE)
+
+
+async def _auto_talk_alone(narration, last_user, house, endpoint_url, model, headers, owner) -> bool:
+    """Call askToTalkAlone when the player asked for a private word and the scene shows the houseguest agreeing but the model never called it. True only when the ENGINE accepted (success-gated)."""
+    try:
+        from src import orwell_engine as _oe
+        roster = {h.get("id"): h.get("name") for h in house if h.get("id") and h.get("name")}
+        if not roster:
+            return False
+        msgs = [
+            {"role": "system", "content":
+                _EXTRACTION_UNTRUSTED_FENCE +
+                "The player asked a houseguest for a private word or to come over. Reply IMMEDIATELY with ONLY a JSON object, no prose, no code fence:\n"
+                '{"agreed":<true only if the houseguest visibly agrees in WHAT HAPPENED>,"npc":"<their id from the ROSTER, or null>","private":<false if the player asked them to come to where the player is, else true>}\n'
+                'A refusal, a hesitation, or no clear houseguest => {"agreed":false,"npc":null}. NEVER invent an id not in the ROSTER.'},
+            {"role": "user", "content":
+                "ROSTER (id = name):\n" + "\n".join(f"{i} = {n}" for i, n in roster.items())
+                + f"\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:600]}\n\nWHAT HAPPENED:\n{(narration or '')[:3000]}\n\nJSON:"},
+        ]
+        raw = await _belt_llm(url=endpoint_url, model=model, messages=msgs, headers=headers, temperature=0.1, max_tokens=800, timeout=45,
+                              call_class="utility-extraction", user=_meter_user(owner)) or ""
+        obj = _last_json_object_with_key(raw, "agreed")
+        if not isinstance(obj, dict) or obj.get("agreed") is not True or obj.get("npc") not in roster:
+            return False
+        res = await _backfill_with_cas(owner, _oe.ask_to_talk_alone, obj["npc"], None, obj.get("private") is not False, user=owner)
+        return isinstance(res, dict) and res.get("outcome") == "accepted"
+    except Exception as _e:
+        logger.warning(f"[orwell] auto-talk-alone failed: {_e}")
+        return False
+
+
 async def _auto_promise(narration, last_user, house, endpoint_url, model, headers, owner, applied_out=None, skip_by=None) -> bool:
     """Record a promise the narrator voiced but the model never recorded (ORW-750 part 2). True only when the open ledger GAINED a promise from it
     (success-gated telemetry); a refusal, nothing voiced or any hiccup is a no-op. `applied_out` receives one entry per applied promise."""
@@ -9918,6 +9953,7 @@ async def _stream_agent_loop_impl(
     _turn_trade_nudges = 0  # 0099 trade belt: at most one auto-tradeSecret per finishing turn
     _turn_alliance_nudges = 0  # ORW-780 alliance belt: at most one auto join/form per finishing turn
     _turn_promise_nudges = 0  # ORW-750 voiced-promise belt: at most one run per finishing turn
+    _turn_talk_nudges = 0  # ORW-750 part 1 askToTalkAlone belt: at most one run per turn; 1 once the model calls the lever itself
     _turn_promise_by: set = set()  # ORW-750: the houseguests the MODEL recorded a promise or assurance for this turn (the belt never re-records them)
     _turn_alliance_refused: dict = {"join": set(), "form": []}  # ORW-793: what the engine refused the MODEL's own joinAlliance / formAlliance this turn (the belt never re-proposes it)
     _turn_move_nudges = 0  # L21/L24 auto-move belt: at most one auto-move per finishing turn
@@ -11575,6 +11611,7 @@ async def _stream_agent_loop_impl(
                 # ORW-750: a promise the narrator voiced (a vote, or not putting someone up) that the model never recorded. The pre-filter is a cheap signal over the turn's narration;
                 # the helper reads the engine's own open ledger and the constrained extraction names who/about/kind, the engine validates.
                 _want_promise = (_turn_promise_nudges < 1 and bool(_PROMISE_SIGNAL_RE.search(_turn_narration_visible or "")))
+                _want_talk = (_turn_talk_nudges < 1 and bool(_TALK_ALONE_RE.search(_extract_last_user_message(messages) or "")))
                 # L21/L24 auto-move belt: the player walked somewhere this turn but the model never
                 # called moveTo, so the engine still has them in the OLD room and next turn's
                 # whereabouts will snap back. Gated on a cheap movement-language pre-filter over the
@@ -11636,7 +11673,7 @@ async def _stream_agent_loop_impl(
                 # state, not a tool gap), so we always need the game state to know if the season is
                 # over — fetch it whenever any nudge MIGHT fire.
                 _want_reapproach = _turn_reapproach_nudges < _MAX_REAPPROACH_NUDGES_PER_TURN
-                if _want_confide or _want_expose or _want_trade or _want_advance or _want_record or _want_deal or _want_move or _want_npc_move or _want_approach or _want_reapproach:
+                if _want_confide or _want_expose or _want_trade or _want_advance or _want_record or _want_deal or _want_move or _want_npc_move or _want_talk or _want_approach or _want_reapproach:
                     _phase, _house, _moment = None, [], None
                     _beat_key_at_read = None  # F7: the beat we OBSERVED stalled, to detect a race before forcing
                     # L-F3 (#1742): the open player pending's identity AT THIS READ, if any — used
@@ -11935,7 +11972,7 @@ async def _stream_agent_loop_impl(
                     async def _bank_belt_chain_ordered(_touched, _touched_deal) -> None:
                         """The ordered belt chain (unchanged by ORW-910 but for the prefetch above): see `_bank_belt_chain`."""
                         nonlocal _turn_deal_nudges, _turn_record_nudges, _turn_confide_nudges, _turn_offer_nudges
-                        nonlocal _turn_expose_nudges, _turn_trade_nudges, _turn_alliance_nudges, _turn_promise_nudges, _turn_promise_backfills
+                        nonlocal _turn_expose_nudges, _turn_trade_nudges, _turn_alliance_nudges, _turn_promise_nudges, _turn_promise_backfills, _turn_talk_nudges
                         if _want_deal and _touched_deal:
                             _turn_deal_nudges += 1  # once per turn
                             _applied_deals: list = []
@@ -12002,6 +12039,10 @@ async def _stream_agent_loop_impl(
                                 for _ in (_applied_alliances or [None]):
                                     _note_belt(owner, "auto-alliance")
                         # ORW-750: a voiced promise the model never recorded. Only a promise the ledger actually GAINED counts toward telemetry.
+                        if _want_talk:
+                            _turn_talk_nudges += 1  # once per turn
+                            if await _auto_talk_alone(_turn_narration_visible, _extract_last_user_message(messages), _house, _belt_endpoint, _belt_model, _belt_headers, owner):
+                                _note_belt(owner, "auto-talk-alone")
                         if _want_promise:
                             _turn_promise_nudges += 1  # once per turn
                             _applied_promises: list = []
@@ -13481,6 +13522,8 @@ async def _stream_agent_loop_impl(
                 "output": _persisted_output,
                 "exit_code": result.get("exit_code"),
             }
+            if block.tool_type == "askToTalkAlone":
+                _turn_talk_nudges = 1  # the model asked itself: nothing to back-fill
             if block.tool_type == "turnIn" and _turn_in_applied(result):
                 _turn_slept = True
             _engine_result = _engine_result_for_transcript(block.tool_type, result)
