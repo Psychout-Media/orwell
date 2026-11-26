@@ -4237,6 +4237,29 @@ async def house_entry_gate_active(owner: Optional[str]) -> bool:
     return await _utility_model_available(owner)
 
 
+def _hold_since(user: Optional[str]) -> float:
+    """ORW-971: when this hold began. A re-stamp of a live marker (the readiness result, the expired watch) keeps the first time, so the hold's age never resets."""
+    prev = _HOUSE_ENTRY_GATE_BLOCKS.get(_safe_user(user)) or {}
+    since = prev.get("since")
+    return float(since) if isinstance(since, (int, float)) and not isinstance(since, bool) else time.time()
+
+
+def house_entry_holds() -> list:
+    """ORW-971: every active house-entry hold, for the health snapshot and the doctor. One row per owner: ``{owner, ageS, authored, total, missing, windowS, overdue}``.
+    ``overdue`` = held longer than the watch window (`ORWELL_HOUSE_READY_WATCH_TIMEOUT_S`, 1800 s): the cast should have landed by then. Counts and ids only; never cast text."""
+    now = time.time()
+    rows = []
+    for owner, hold in list(_HOUSE_ENTRY_GATE_BLOCKS.items()):
+        if not isinstance(hold, dict):
+            continue
+        began = hold.get("since") if isinstance(hold.get("since"), (int, float)) else hold.get("at")
+        age = max(0, int(now - began)) if isinstance(began, (int, float)) else 0
+        rows.append({"owner": str(owner), "ageS": age, "authored": hold.get("authored"), "total": hold.get("total"),
+                     "missing": hold.get("missing"), "windowS": int(_HOUSE_READY_WATCH_TIMEOUT_S),
+                     "overdue": age > _HOUSE_READY_WATCH_TIMEOUT_S})
+    return sorted(rows, key=lambda r: -r["ageS"])
+
+
 def begin_house_entry_hold(user: Optional[str], info: Optional[dict] = None) -> None:
     """Mark that house entry is being HELD for `user` (the gate is awaiting authoring). Set BEFORE
     the readiness wait begins so a concurrent /status or /state poll during the hold reports the
@@ -4244,7 +4267,7 @@ def begin_house_entry_hold(user: Optional[str], info: Optional[dict] = None) -> 
     the instant createCharacter commits)."""
     try:
         _HOUSE_ENTRY_GATE_BLOCKS[_safe_user(user)] = {
-            "state": "authoring", **(info or {}), "at": time.time()}
+            "state": "authoring", **(info or {}), "at": time.time(), "since": _hold_since(user)}
         _checklist_hold(user, True)
     except Exception:
         pass
@@ -4256,7 +4279,7 @@ def record_house_entry_gate_block(user: Optional[str], info: dict) -> None:
     keeps the status/state overlay reporting the holding state until the gate-clear watch releases."""
     try:
         _HOUSE_ENTRY_GATE_BLOCKS[_safe_user(user)] = {
-            "state": "authoring", **(info or {}), "at": time.time()}
+            "state": "authoring", **(info or {}), "at": time.time(), "since": _hold_since(user)}
         _checklist_hold(user, True)
     except Exception:
         pass
@@ -4334,6 +4357,14 @@ def kickoff_house_ready_watch(owner: Optional[str],
                     "entry remains held (set ORWELL_ALLOW_FLOOR_START=1 to override).", k,
                     ready.get("authored"), ready.get("total"))
                 record_house_entry_gate_block(owner, ready)
+                try:  # ORW-971: the expired watch is the stuck-hold alert (RED on /admin/status, a FAIL in the doctor)
+                    from src import log_rings
+                    log_rings.record_soft_failure(
+                        "season-start:hold-expired",
+                        "house entry still held after the watch window: cast %s/%s authored" % (ready.get("authored"), ready.get("total")),
+                        user=owner)
+                except Exception:  # failsoft-ok: the alert is bookkeeping, the marker and the error log above stand
+                    pass
                 # STRICT enrichment policy: the exhausted watch is the REAL "house entry refused"
                 # failure (2026-07-13 — it moved here from the createCharacter turn, whose short
                 # inline wait now returns the holding card as the NORMAL path, not a failure).

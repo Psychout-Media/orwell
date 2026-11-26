@@ -219,6 +219,9 @@ if AUTH_ENABLED:
         # Engine-reachability probe (doctor script, monitoring, the engine-status banner pre-login).
         # Vault-free and user-free: engine up/down + a connection-error string — no game state.
         "/api/orwell/health",
+        # ORW-971: held seasons and owed season-start steps, for deploy/orwell-doctor.sh (no login there). The handler answers a DIRECT loopback connection only and
+        # sends every other caller to require_admin; owner ids, ages, counts and machine words, never game or cast content.
+        "/api/admin/season-holds",
         # ORW-396: the client failure beacon (POST) promises "always 204": it must work logged-out (login page / expired session).
         # Already per-client rate-limited and field-capped in the handler; it logs three clipped strings and touches no game data.
         "/api/orwell/fe-report",
