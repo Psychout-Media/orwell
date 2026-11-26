@@ -10751,12 +10751,15 @@ export class GameSessionAdapter implements GameSession {
     // NAME-1 (#547): on ANY confirmed restart capture the dead season's cast names so the next season's
     // corpus-sampled cast avoids them (cross-season diversity). This is the only point the prior cast
     // still exists, before the reset; it rides `effReq` through `onRestart` into the fresh sandbox.
-    const priorCastNames = (this.house && req.confirmRestart)
+    // ORW-921: `isolateSeason` (a seeded test or replay, set by the front end's new-game door for an explicit seed) carries NOTHING across the restart: the same seed then deals the same season first on a stack
+    // and after other seasons. A player's own restart never sets it.
+    const isolate = req.isolateSeason === true;
+    const priorCastNames = (this.house && req.confirmRestart && !isolate)
       ? this.priorSeasonNames(req.priorCastNames)
       : req.priorCastNames;
-    const worldCarried = (this.house && req.confirmRestart && !req.avoidWorld) ? this.carriedWorldAvoid() : undefined; // ORW-509: the dead season's world picks, read BEFORE the reset
+    const worldCarried = (this.house && req.confirmRestart && !isolate && !req.avoidWorld) ? this.carriedWorldAvoid() : undefined; // ORW-509: the dead season's world picks, read BEFORE the reset
     // ORW-466: this season's house theme joins the player's recent themes, so the next season draws a different one (bounded; most recent first).
-    const priorHouseThemes = (this.house && req.confirmRestart)
+    const priorHouseThemes = (this.house && req.confirmRestart && !isolate)
       ? [...new Set([...(this.live?.houseTheme ? [this.live.houseTheme] : []), ...(req.priorHouseThemes ?? [])])].slice(0, MAX_PRIOR_HOUSE_THEMES)
       : req.priorHouseThemes;
     const effReq: CreateCharacterReq = {

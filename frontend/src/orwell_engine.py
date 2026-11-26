@@ -807,6 +807,7 @@ async def create_character(player_name: str | None = None, *, archetype=None, st
         args["interviewNotes"] = [str(n) for n in interview_notes if str(n).strip()]
     if seed is not None:
         args["seed"] = seed
+        args["isolateSeason"] = True  # ORW-921: an explicit seed is a test or a replay; a restart carries nothing of the dead season, so the seed deals the same season on any stack
     args.update(_avoid_args(user, seed))
     if confirm_restart:
         args["confirmRestart"] = True
