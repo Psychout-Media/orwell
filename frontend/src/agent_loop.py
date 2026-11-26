@@ -9313,7 +9313,7 @@ async def _stream_agent_loop_impl(
                 _relevant_tools.update(tools)
         # Always include core document/memory tools
         _relevant_tools.update({"create_document", "manage_memory", "manage_notes"})
-        logger.info(f"[tool-rag] Keyword fallback selected: {sorted(_relevant_tools - ALWAYS_AVAILABLE)}")
+        logger.debug(f"[tool-rag] Keyword fallback selected: {sorted(_relevant_tools - ALWAYS_AVAILABLE)}")
 
     # If a document is open the model needs the editing tools available
     # regardless of which selection path (RAG, keyword, caller-provided) ran
@@ -9406,7 +9406,7 @@ async def _stream_agent_loop_impl(
                         f"falling back to keep-set: {sorted(_relevant_tools)}"
                     )
                 if _dropped:
-                    logger.info(
+                    logger.debug(  # ORW-1027: per turn and expected
                         f"[tool-rag] game-build wall: dropped non-keep tools from selection: {_dropped}"
                     )
                 logger.info(f"[tool-rag] game-build wall: post-filter selection: {sorted(_relevant_tools)}")
