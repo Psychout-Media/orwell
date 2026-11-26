@@ -3362,24 +3362,70 @@ def _validate_assurance(raw, scene_ids) -> dict | None:
 _PROMISE_WHATS = ("no-nominate", "no-evict-vote", "use-veto-on", "not-use-veto-on", "final-two")
 
 
+_VALIDATOR_DROPS = collections.Counter()  # a process-wide tally of drops (names only, not per owner)
+
+
+def _note_validator_drop(validator: str, reason: str) -> None:
+    """ORW-1072: every extraction proposal a validator drops is counted (names and counts only, no content) and logged, so a lost promise leaves a trace."""
+    key = f"{validator}:{reason}"
+    _VALIDATOR_DROPS[key] += 1
+    logger.info(f"[orwell] extraction validator dropped a proposal ({key}) total={_VALIDATOR_DROPS[key]}")
+
+
 def _validate_promise(raw, scene_ids, roster_ids) -> dict | None:
     """ORW-586: validate the extraction's optional TYPED promise. `what` must be a promise kind the engine judges (closed set); WHO promised is "player" (the default) or an NPC id actually in the scene (`scene_ids`);
     `subject` (optional, who it concerns when not the person spoken to) must be a roster id. Anything else is dropped, never coerced. No number or free text crosses: the engine validates ids and presence again,
-    judges kept or broken from the board itself, and ignores the whole field unless ORWELL_PROMISE_TERMS is on."""
+    judges kept or broken from the board itself, and ignores the whole field unless ORWELL_PROMISE_TERMS is on.
+    ORW-1072: a subject of "player" is the player; for a houseguest's promise it is the person spoken to, so it is read as no subject (it was dropped, and the promise with it); for the player's own promise it names the promiser and is dropped.
+    Every drop is counted."""
     if not isinstance(raw, dict) or raw.get("what") not in _PROMISE_WHATS:
+        if isinstance(raw, dict):
+            _note_validator_drop("promise", "bad-what")
         return None
     out: dict = {"what": raw["what"]}
     by = raw.get("by")
     if by not in (None, "", "player"):
         if not (isinstance(by, str) and by in (scene_ids or [])):
+            _note_validator_drop("promise", "promiser-not-in-scene")
             return None
         out["from"] = by
     subject = raw.get("subject")
+    if subject == "player":
+        if "from" not in out:
+            _note_validator_drop("promise", "player-promise-about-self")
+            return None
+        subject = None  # a houseguest's promise about the player: the player is who it was made to
     if subject not in (None, ""):
         if not (isinstance(subject, str) and subject in (roster_ids or [])):
+            _note_validator_drop("promise", "subject-not-on-roster")
+            return None
+        if subject == out.get("from"):
+            _note_validator_drop("promise", "subject-is-promiser")
             return None
         out["subject"] = subject
     return out
+
+
+# ORW-1069: words the promise belts must not record. A spoken promise is recorded only when it is unconditional, firm, and its polarity is a promise to KEEP (not to vote out).
+_PROMISE_CONDITIONAL_RE = re.compile(r"\b(?:if|unless|as long as|so long as|provided|in case|on (?:the )?condition|only when|once you|depends?)\b", re.I)
+_PROMISE_HEDGE_RE = re.compile(
+    r"\b(?:try(?:ing)?(?: to)?|maybe|perhaps|might|probably|hope|hoping|can'?t say|cannot say|not sure|no promises|we'?ll see|i guess|i think i|i suppose|likely|ish)\b", re.I)
+_PROMISE_NEGATED_VOTE_RE = re.compile(r"\b(?:won'?t|will not|not|never|don'?t|do not|wouldn'?t|would not|refuse to|shan'?t)\b[^.!?]{0,30}\b(?:vote|evict|send)", re.I)
+_PROMISE_VOTE_OUT_RE = re.compile(
+    r"\b(?:vot(?:e|es|ed|ing)\b[^.!?]{0,40}?\b(?:out|off|against|to evict|evict|home)\b|evict(?:ing)?\b|send(?:ing)?\b[^.!?]{0,20}\bhome\b|(?:she|he|they|you)(?:'re| are)? goes? home\b)", re.I)
+
+
+def _promise_words_unfit(text, kind: str = "vote") -> str | None:
+    """ORW-1069: the reason a spoken promise must NOT be recorded, or None. 'conditional' (an if / unless promise is not a promise), 'hedged' (an attempt or a maybe), or 'vote-out' (the speaker promised
+    to vote someone OUT; recording it as a promise to keep them would be its opposite). A negated vote line ('I will not vote you out') is a promise to keep and passes. Only `vote`-shaped promises get the polarity read."""
+    t = text if isinstance(text, str) else ""
+    if _PROMISE_CONDITIONAL_RE.search(t):
+        return "conditional"
+    if _PROMISE_HEDGE_RE.search(t):
+        return "hedged"
+    if kind == "vote" and _PROMISE_VOTE_OUT_RE.search(t) and not _PROMISE_NEGATED_VOTE_RE.search(t):
+        return "vote-out"
+    return None
 
 
 # ORW-612 part C: the claim kinds the engine can check against its own records (the closed `SPOKEN_CLAIM_KINDS` in src/engine/spokenClaims.ts). Anything else makes no claim, by design.
@@ -4819,7 +4865,7 @@ _PROMISE_EXTRACT_INSTRUCTIONS = (
     '{"withIds":["<roster id of each houseguest the promise was made to>"],'
     '"assurance":{"kind":"<safe|vote|loyal>"},'
     '"promise":{"what":"<the promise kind>","subject":"<houseguest id it concerns>"}}. '
-    "Use `assurance` for a cheap, explicit promise: 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal). "
+    "Use `assurance` for a cheap, explicit promise: 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal). A promise to vote someone OUT is never an assurance or a promise: leave it out, and leave out anything conditional ('if'), hedged or an attempt ('I will try'). "
     "Use `promise` for an explicit promise about what the player will or will not do on the board; `what` must be exactly one of: no-nominate (will not nominate them), no-evict-vote (will not vote them out), "
     "use-veto-on (will use the veto on them), not-use-veto-on (will not use the veto on them), final-two (will take them to the final two). `subject` is left out when it concerns the one spoken to. "
     "Give at most one of the two, whichever fits the words better. Never for a hint, a hope, a threat, a joke, a question or a mere wish, and never about anything the player did not say. "
@@ -4860,6 +4906,11 @@ async def _auto_record_promise(last_user, house, endpoint_url, model, headers, o
         promise = _validate_promise({"what": p_raw.get("what"), "subject": p_raw.get("subject")}, ids, valid) if isinstance(p_raw, dict) else None
         if assurance and promise:
             assurance = None  # one proposal per scene, and the typed promise writes the matching assurance row itself
+        if assurance or promise:
+            _unfit = _promise_words_unfit(last_user, "vote" if (assurance and assurance.get("kind") == "vote") or (promise and promise.get("what") == "no-evict-vote") else "loyal")
+            if _unfit:  # ORW-1069: the player's own words are checked for polarity and firmness before anything is staged
+                _note_validator_drop("player-promise", _unfit)
+                return False
         if not assurance and not promise:
             return False
         content = (last_user or "").strip()[:400]
@@ -5716,7 +5767,11 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
                 # deal with terms other than the spoken ones, so an off-enum kind records NOTHING (no deal, no belt fire).
                 logger.info(f"[orwell] deal back-fill: kind {kind!r} is not in the closed deal-kind set - skipped, no deal recorded user={owner}")
                 continue
-            terms = (prop.get("terms") or "").strip()[:200] or "a mutual protection deal"
+            terms = (prop.get("terms") or "").strip()[:200]
+            if not terms:
+                # ORW-1072: no spoken terms means no deal the engine could judge; the belt never invents a default clause (it used to file final-two and target-other deals under a made-up protection clause).
+                _note_validator_drop("deal", "no-terms")
+                continue
             # 0109 - a duration the scene explicitly named rides along (shape-filtered; the ENGINE bounds it).
             _tw = prop.get("termWeeks")
             _term_kw = {"term": {"weeks": _tw}} if isinstance(_tw, int) and not isinstance(_tw, bool) and _tw >= 1 else {}
@@ -5946,10 +6001,16 @@ def _validate_voiced_promises(raw_items, roster_ids, standing, skip_by) -> list:
         by, about, kind = it.get("by"), it.get("about"), it.get("kind")
         line = it.get("line") if isinstance(it.get("line"), str) else ""
         if not (isinstance(by, str) and by in roster_ids) or kind not in _VOICED_PROMISE_WHAT or not line.strip():
+            _note_validator_drop("voiced-promise", "malformed")
+            continue
+        _unfit = _promise_words_unfit(line, "vote" if kind == "vote" else "loyal")  # ORW-1069: the promiser's own words decide polarity and firmness, never the extraction's label alone
+        if _unfit:
+            _note_validator_drop("voiced-promise", _unfit)
             continue
         if about in (None, "", "player"):
             about = None
         elif not (isinstance(about, str) and about in roster_ids and about != by):
+            _note_validator_drop("voiced-promise", "about-not-on-roster")
             continue
         key = (by, about or "")
         if key in seen or key in standing or by in (skip_by or ()):
@@ -5981,8 +6042,8 @@ async def _auto_promise(narration, last_user, house, endpoint_url, model, header
                 "that they will not put someone on the block. Reply IMMEDIATELY with ONLY a JSON object, no prose, no code fence:\n"
                 '{"promises":[{"by":"<the promiser, an id from the ROSTER>","about":"<the houseguest they promised to keep, an id from the ROSTER, or player when it is the player>",'
                 '"kind":"<vote|loyal>","line":"<their promise in the words spoken>"}]}\n'
-                "vote = they said how they will vote at eviction; loyal = they said they will not nominate someone. Include ONLY a clear, first-person "
-                "promise that was actually voiced; a hope, a question, a threat, a hedge or a promise by the player => leave it out. No promise voiced => "
+                "vote = they promised to vote to KEEP someone (never a promise to vote someone out: a vow to vote a person out is NOT recorded); loyal = they said they will not nominate someone. Include ONLY a clear, first-person "
+                "promise that was actually voiced and is firm and unconditional; a hope, a question, a threat, a hedge, an attempt ('I will try'), an 'if' promise or a promise by the player => leave it out. No promise voiced => "
                 '{"promises":[]}. NEVER invent an id not in the ROSTER.'},
             {"role": "user", "content":
                 f"ROSTER (id = name):\n{roster_lines}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:600]}\n\nWHAT HAPPENED:\n{(narration or '')[:3000]}\n\nJSON:"},
