@@ -87,6 +87,7 @@ import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
+import { horizonOf } from "../../domain/deal";
 import { brokenDealClaimId, brokenDealLieConfidence, DEAL_BREAK_CREDIBILITY } from "../../engine/dealCredibility";
 import { FavorLedger, type FavorEntry } from "../../engine/favors";
 import { FAVOR } from "../../engine/favorConstants";
@@ -1782,7 +1783,8 @@ export class GameSessionAdapter implements GameSession {
     for (const e of this.openLedger.entries) {
       const term = e.term;
       if (e.status !== "open" || !term || term.by !== holder || term.what !== what) continue;
-      if ((term.window ?? "week") === "week" && term.week !== undefined && term.week !== week) continue;
+      // ORW-693 (B1-6): a final-two promise is the one season-long term (0187; the judge reads it at the final two whatever its week): it is read at the final three however long ago it was made
+      if (what !== "final-two" && (term.window ?? "week") === "week" && term.week !== undefined && term.week !== week) continue;
       const subject = termSubject(term) as EntityId;
       const stats = this.house?.npcs.find((n) => n.id === holder)?.character.stats;
       const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(holder), this.emotionalReadOf(holder))));
@@ -18906,6 +18908,24 @@ export class GameSessionAdapter implements GameSession {
     return view;
   }
 
+  /** ORW-930: the player's own week-long deals that ran out at the last week roll (a houseguest still in the house, nothing open between the two since), for the new week's HOH competition and nominations. Read only, Vault-free: the
+   *  player was a party. A deal that was broken is not listed here (its fallout has its own surfaces), and nothing says anyone voted any way. */
+  private dealsClosedForNarrator(): Array<{ with: { id: EntityId; name: string }; kind: string }> {
+    const s = this.live;
+    if (!s || s.playedGame !== true || s.finished || (s.beat !== "hoh-competition" && s.beat !== "nominations")) return [];
+    const living = new Set(this.livingIds());
+    const open = new Set(this.deals.all.filter((d) => d.status === "open" && d.parties.includes(PLAYER)).map((d) => d.parties.find((p) => p !== PLAYER)!));
+    const out = new Map<EntityId, { with: { id: EntityId; name: string }; kind: string }>();
+    for (const d of this.deals.all) {
+      if (d.status !== "kept" || !d.parties.includes(PLAYER)) continue;
+      const other = d.parties.find((p) => p !== PLAYER)!;
+      const ranOut = d.expiresWeek !== undefined ? d.expiresWeek === s.week - 1 : horizonOf(d.kind) === "week" && d.madeWeek === s.week - 1;
+      if (!ranOut || !living.has(other) || open.has(other)) continue;
+      out.set(other, { with: { id: other, name: this.nameOf(other) }, kind: d.kind });
+    }
+    return [...out.values()];
+  }
+
   /** ORW-727: true when a deal of `kind` that `giver` would offer `other` cannot be made now: its vote term is not keepable this week, or the pair already holds this very deal. `exceptId` is a deal the new one replaces. */
   private offeredDealBlocked(kind: DealKind, giver: EntityId, other: EntityId, exceptId?: string): boolean {
     const s = this.live;
@@ -22311,7 +22331,9 @@ export class GameSessionAdapter implements GameSession {
     const keepers = (req.moment ?? view6.moment) === "eviction" ? this.keepPromisersOfPlayer() : []; // ORW-737: eviction night only
     const view7 = keepers.length ? { ...view6, keepPromisers: keepers } : view6;
     const votePromises = this.votePromisesForNarrator(); // ORW-750: the vote promises on the record, for each nominee (the week of a nomination only)
-    const view = votePromises ? { ...view7, votePromises } : view7;
+    const closed = this.dealsClosedForNarrator(); // ORW-930: last week's deals ran out at the roll and nothing said so
+    const view8 = closed.length ? { ...view7, dealsClosed: closed } : view7;
+    const view = votePromises ? { ...view8, votePromises } : view8;
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
     const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
       ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)
