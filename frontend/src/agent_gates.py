@@ -26,6 +26,13 @@ def want_record(*, recorded: bool, is_lull: bool, lull_message_carries_talk: Cal
             and turn_record_nudges < max_record_nudges)
 
 
+def want_promise_backfill(*, recorded: bool, model_carried_promise: bool, turn_promise_nudges: int, max_promise_nudges: int, player_message_commits: Callable[[], bool]) -> bool:
+    """ORW-860: the model recorded the scene itself, but its recordInteraction carried neither a casual assurance nor a typed promise, and the player's own typed words commit to something.
+    The scene belt never runs on a recorded turn, so without this a promise made on a model-recorded turn reached no ledger and no later decision. `player_message_commits` is a thunk (cheap
+    pre-filter, run last). Not recorded: the scene belt owns it (it extracts the promise itself)."""
+    return bool(recorded and (not model_carried_promise) and turn_promise_nudges < max_promise_nudges and player_message_commits())
+
+
 def want_move(*, moved: bool, turn_move_nudges: int, max_move_nudges: int, signal_in_user_message: bool, signal_in_narration: bool) -> bool:
     return ((not moved)
             and turn_move_nudges < max_move_nudges
