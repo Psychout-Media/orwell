@@ -37,6 +37,10 @@ async function play(seed: number, messages: number, on: boolean) {
     if (prev === undefined) delete process.env.ORWELL_RUMOR_SUBJECTS; else process.env.ORWELL_RUMOR_SUBJECTS = prev;
   }
 }
+// ORW-1043: the flag-on season of 420 messages is read by two tests (same seed, user and message count); both only read it, so it is played once.
+let onSeason: ReturnType<typeof play> | undefined;
+const flagOnSeason = (): ReturnType<typeof play> => (onSeason ??= play(3, 420, true));
+
 /** Every fact an NPC holds that is ABOUT someone else (engine-only read of the knowledge layer). */
 const aboutOthers = (g: Awaited<ReturnType<typeof play>>) => {
   const out: Array<{ holder: string; subject: string; factId: string; pathway: string }> = [];
@@ -64,13 +68,13 @@ describe("rumor subjects (ORW-688)", () => {
   });
 
   it("a played season: what the houseguests hold about someone carries who it is about; with the flag off the same season holds less of it", async () => {
-    const on = aboutOthers(await play(3, 420, true));
+    const on = aboutOthers(await flagOnSeason());
     const off = aboutOthers(await play(3, 420, false));
     expect(on.length).toBeGreaterThan(off.length);
   }, 300_000);
 
   it("WALL: the subject on an NPC-held fact never reaches a player or admin surface; what the player holds with a subject came through an in-game pathway", async () => {
-    const g = await play(3, 420, true);
+    const g = await flagOnSeason();
     const rows = aboutOthers(g);
     expect(rows.length).toBeGreaterThan(0); // positive control: the engine record holds the subject
     const playerFactIds = new Set(g.sb.engine.knowledge.knownTo(PLAYER).map((k) => k.factId ?? k.id));
