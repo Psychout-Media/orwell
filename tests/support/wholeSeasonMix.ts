@@ -85,8 +85,7 @@ export function evaluate(shares: PhaseShares): RuleResult[] {
 export interface KnownRed { value: number; card: string }
 export const KNOWN_RED: Readonly<Record<string, KnownRed>> = {
   // ORW-702 slice 2: empty. The combined retune on the new casts (ORW-893) and the attraction flirts (ORW-892) clears the three lines slice 1 left (mid strategy 35.8, late strategy 42.4, late conflict 9.3). Pooled over seeds
-  // 1, 2, 3, 6 (player in; bonding/strategy/gossip/conflict): early 33.2/28.2/30.1/8.5, mid 27.7/31.8/30.6/9.9, late 21.2/35.2/31.1/12.5; the same retune over six seasons (adding 12 and 13): early 32.9/27.8/30.9/8.4,
-  // mid 26.7/32.1/31.6/9.6, late 21.1/33.7/31.8/13.5. A rule that fails again is a regression; bands, hard rules and tolerances are untouched.
+  // 1, 2, 3, 6 (player in; bonding/strategy/gossip/conflict): early 34.1/28.0/29.6/8.3, mid 27.1/33.3/29.9/9.7, late 21.8/35.8/28.3/14.1. A rule that fails again is a regression; bands, hard rules and tolerances are untouched.
 };
 /** Hysteresis (Coordinator ruling 2026-11-25): a KNOWN_RED line is asked to be deleted only once its rule passes by at least this many points, so a rule that flips at its boundary from run to run does not redden unrelated PRs. The same margin applies the other way: a rule main meets (not listed) is a regression only when it misses its limit by MORE than this (Coordinator ruling 2026-11-25: 45.3 against a cap of 45 is run-to-run noise). Drift of a still-red line is already tolerated up to RATCHET_SLACK. Bands and tolerances are unchanged. */
 export const RATCHET_FIXED_MARGIN = 1.0;

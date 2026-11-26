@@ -451,6 +451,16 @@ export function dramaScale(day: number): number {
   return HOUSE_LIFE.dramaFrom + (HOUSE_LIFE.dramaTo - HOUSE_LIFE.dramaFrom) * t;
 }
 
+/**
+ * ORW-702 slice 2: the chance a goal step that folds as strategy keeps the hour, by the in-game day: `goalStrategyKeep` on day 1 falling linearly to `goalStrategyKeepTo` at `dramaOverDays`, flat after. The first week of play was inside its
+ * agreed mix with the plain keep, and a lower one handed week-1 hours to ordinary life (bonding read 36.8 against a reference of 30.2); the later weeks, where the scheming ratchets (strategy over its mid and late bands), need the lower one. One
+ * continuous curve, no table. Pure.
+ */
+export function strategyKeepScale(day: number): number {
+  const t = Math.max(0, Math.min(1, (day - 1) / Math.max(1, HOUSE_LIFE.dramaOverDays)));
+  return HOUSE_LIFE.goalStrategyKeep + (HOUSE_LIFE.goalStrategyKeepTo - HOUSE_LIFE.goalStrategyKeep) * t;
+}
+
 export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   const hourKey = `d${v.day}h${v.hour}${v.repeat ? `r${v.repeat}` : ""}`; // ORW-581: the first stretch of an hour keys exactly as before; a repeat gets its own dice
   const roll = (salt: string): number => agendaRoll(seed, v.owner, `hour:${hourKey}:${salt}`);
@@ -512,7 +522,7 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
     const step = planned ? planStepNow(planned, g, v) : nextStepFor(g, v, roll(`variant:${g.id}`));
     // ORW-702: a goal step whose own fold is gossip (a fish, a plant, a wedge, a frame...) or strategy takes the hour only with its keep chance; when it does not, the hour goes to ordinary life (the goal loop ends:
     // a different goal's step would only swap one kind of scheming for another). A keyed roll, no shared draw.
-    const foldKept = step ? (ACTIONS[step.kind].fold === "gossip" ? HOUSE_LIFE.goalGossipKeep : ACTIONS[step.kind].fold === "strategy" ? HOUSE_LIFE.goalStrategyKeep : 1) : 1;
+    const foldKept = step ? (ACTIONS[step.kind].fold === "gossip" ? HOUSE_LIFE.goalGossipKeep : ACTIONS[step.kind].fold === "strategy" ? strategyKeepScale(v.day) : 1) : 1;
     if (step && foldKept < 1 && roll(`goalkeep:${g.id}`) >= foldKept) break;
     if (step) return finish(step);
   }
