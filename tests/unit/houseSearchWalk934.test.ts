@@ -35,13 +35,13 @@ function start() {
   const others = p.livingIds().filter((id) => id !== p.house.player.id);
   const x = others[0]!;
   const firstName = p.nameOf(x).split(" ")[0]!;
-  // script: per movement tick, where the target stands (the rest of the house is parked in the far bedroom behind a closed door); a tick past the script keeps the last placement
+  // script: per movement tick, where the target stands (the rest of the house is parked on the landing); a tick past the script keeps the last placement
   let tick = 0;
   let script: string[] = [];
   const orig = p.presenceTick.bind(p);
   p.presenceTick = (rng?: unknown) => {
     orig(rng);
-    others.forEach((id) => p.presence.set(id, "bedroom-c"));
+    others.forEach((id) => p.presence.set(id, PARK));
     p.presence.set(x, script[Math.min(tick, script.length - 1)]!);
     tick += 1;
   };
@@ -51,20 +51,22 @@ function start() {
     /** X's room at each leg's tick (index 0 = before the first leg), and a recorded sighting of X by the player. */
     plan(rooms: string[], seenIn?: string) {
       script = rooms; tick = 0;
-      others.forEach((id) => p.presence.set(id, "bedroom-c"));
+      others.forEach((id) => p.presence.set(id, PARK));
       p.presence.set(x, rooms[0]!);
       p.lastSeenAt = seenIn ? new Map([[x, { room: seenIn, tick: 0, day: p.live.dayNumber ?? 1, part: p.live.timeOfDay ?? "" }]]) : null;
     },
     say(text: string) {
       s.noteMessage({ messageId: `m${++n}` });
       clock.atSearch = p.live.nightDepth; // the clock as the message's own step left it, just before the search walks
-      others.forEach((id) => p.presence.set(id, "bedroom-c"));
+      others.forEach((id) => p.presence.set(id, PARK));
       p.presence.set(x, script[0]!); // the turn's own tick re-seats the house; the target stands where the plan puts them as the search begins
       return s.resolvePlayerMove({ text });
     },
   };
 }
 let n = 0;
+/** the rest of the house is parked upstairs on the landing, a room no test route visits */
+const PARK = "landing";
 /** Every leg is one step into a room NEXT DOOR to the one before: nothing teleports. */
 function expectNoTeleport(from: string, legs: Array<{ room: string }>, finalRoom: string): void {
   let at = from as Room;
@@ -117,15 +119,15 @@ describe("ORW-934 searching for a houseguest plays out leg by leg", () => {
 
   it("X moves while the player walks: the search follows where X really is, never where they were", () => {
     const t = start();
-    t.plan(["bedroom-a", "bedroom-a", "bedroom-c"], "hallway"); // in bedroom A when the player sets out, in bedroom C two ticks later
+    t.plan(["bedroom-a", "bedroom-a", PARK], "hallway"); // in bedroom A when the player sets out, in bedroom C two ticks later
     const r = t.say(`I look for ${t.firstName}`);
     expect(r.search!.outcome).toBe("found");
     const rooms = r.search!.legs.map((l) => l.room);
-    expect(rooms[rooms.length - 1]).toBe("bedroom-c");
+    expect(rooms[rooms.length - 1]).toBe(PARK);
     expect(rooms).toContain("bedroom-a"); // checked it, empty by then
     expect(r.search!.legs.find((l) => l.room === "bedroom-a")!.present).toEqual([]);
-    expect(t.p.presence.get(t.x)).toBe("bedroom-c");
-    expectNoTeleport("living-room", r.search!.legs, "bedroom-c");
+    expect(t.p.presence.get(t.x)).toBe(PARK);
+    expectNoTeleport("living-room", r.search!.legs, PARK);
   });
 
   it("X in the Diary Room: the search ends with a plain reason, the player is not moved and no time is spent", () => {
@@ -144,6 +146,8 @@ describe("ORW-934 searching for a houseguest plays out leg by leg", () => {
     const t = start();
     t.plan(["bedroom-b"], "kitchen");
     t.s.noteMessage({ messageId: `m${++n}` });
+    t.p.livingIds().filter((id) => id !== t.p.house.player.id).forEach((id) => t.p.presence.set(id, PARK));
+    t.p.presence.set(t.x, "bedroom-b");
     const res = t.s.searchForHouseguest({ name: t.firstName, maxLegs: 1 })!;
     expect(res.search.outcome).toBe("stopped");
     expect(res.search.legs).toHaveLength(1);
@@ -157,5 +161,24 @@ describe("ORW-934 searching for a houseguest plays out leg by leg", () => {
     expect(r.search!.outcome).toBe("found");
     expect(t.p.presence.get(t.x)).toBe("storage-room");
     expect(t.p.presence.get(t.p.house.player.id)).toBe("storage-room");
+  });
+
+  it("with no sighting or tip the search sweeps the busy rooms first, then the bedrooms, then the quiet rooms (nearest first, none twice)", () => {
+    const t = start();
+    t.plan(["lounge"]); // no recorded sighting at all; X is in the lounge, a quiet room
+    const r = t.say(`I look for ${t.firstName}`);
+    const rooms = r.search!.legs.map((l) => l.room);
+    expect(r.search!.outcome).toBe("found");
+    expect(r.search!.legs.every((l) => l.why === "sweep")).toBe(true);
+    expect(rooms[rooms.length - 1]).toBe("lounge");
+    const tier = (x: string) => (["living-room", "kitchen", "dining-room", "backyard"].includes(x) ? 0 : x === "hallway" || x.startsWith("bedroom-") ? 1 : 2);
+    const goals = rooms.filter((x) => !["living-room", "hallway"].includes(x)); // hubs are walked through on the way
+    const tiers = goals.map(tier);
+    expect(tiers).toEqual([...tiers].sort((a, b) => a - b)); // never a quiet room before a bedroom, nor a bedroom before the shared rooms
+    expect(rooms).toContain("kitchen");
+    expect(rooms).toContain("bedroom-a");
+    expect(rooms.indexOf("kitchen")).toBeLessThan(rooms.indexOf("bedroom-a"));
+    expect(rooms.indexOf("bedroom-a")).toBeLessThan(rooms.indexOf("lounge"));
+    expectNoTeleport("living-room", r.search!.legs, "lounge");
   });
 });

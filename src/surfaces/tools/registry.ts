@@ -225,6 +225,9 @@ const INFRA_LEVERS: ReadonlySet<string> = new Set(["hallOfFame" /* 0208 B3: an F
   "noteMessage",
   // ORW-419: the intent-first player move is FE infra (the FE resolves the player's own words before the narrator runs), NOT a model lever.
   "resolvePlayerMove",
+  // ORW-934: the search is committed by the engine from the player's own words (resolvePlayerMove), before the narrator writes; the narrator is handed the legs in the turn's facts (the PLAYER SEARCH line) and the tool's own schema description,
+  // so it stays OUT of the base prompt's lever manifest (the prompt is at its token budget). It is still a callable tool for the intent the parser misses.
+  "searchForHouseguest",
   // 0061: `cancelSelfEviction` is the confirmation card's own Cancel action (FE-driven), NOT a model
   // lever. `requestSelfEviction` IS advertised (below): on a clear OOC intent the model raises the
   // confirmation — which changes NO state — and the player's explicit confirm (the card) is what binds.

@@ -8169,6 +8169,12 @@ export class GameSessionAdapter implements GameSession {
 
   /** ORW-934: the clock a search bills per leg (one step into a neighbouring room). Less than a message (5 min): walking next door is quick. */
   private static readonly SEARCH_LEG_MINUTES = 3;
+  /** ORW-934: the order a search with no lead sweeps the house: 0 the shared rooms, 1 the bedrooms (and the hallway to them), 2 the quiet rooms. */
+  private static searchTier(r: Room): number {
+    if (r === "living-room" || r === "kitchen" || r === "dining-room" || r === "backyard") return 0;
+    if (r === "hallway" || r.startsWith("bedroom-")) return 1;
+    return 2;
+  }
   /** ORW-934: the walk of the player's current search, stamped with its message (memory-only, replaced by the next search or message). */
   private playerSearch: HouseSearchWalk | null = null;
   private playerSearchThisTurn(): HouseSearchWalk | null {
@@ -8259,7 +8265,9 @@ export class GameSessionAdapter implements GameSession {
         let pool = open.filter((r) => !visited.has(r));
         if (pool.length === 0) { sweeps += 1; if (sweeps >= SAFETY_SWEEPS) return finish("gave-up", `the player has been through the whole house more than once and has not found ${target.name}`, target); visited.clear(); visited.add(me0); spent.clear(); pool = open; }
         const dist = (r: Room): number => roomsBetween(me0, r).length;
-        goal = [...pool].sort((a, b) => dist(a) - dist(b) || WALKABLE_ROOMS.indexOf(a) - WALKABLE_ROOMS.indexOf(b))[0]!;
+        // Kevin 2026-11-26 ("busy rooms first"): with no sighting or tip, the shared rooms come first, then the bedrooms, then the quiet rooms; within a tier the nearest, skipping rooms already checked
+        const noLead = !base.legs.some((l) => l.why !== "sweep"); // a followed sighting or tip means "nearby rooms next"; with none, the busy rooms first
+        goal = [...pool].sort((a, b) => (noLead ? GameSessionAdapter.searchTier(a) - GameSessionAdapter.searchTier(b) : 0) || dist(a) - dist(b) || WALKABLE_ROOMS.indexOf(a) - WALKABLE_ROOMS.indexOf(b))[0]!;
         why = "sweep";
       }
       const next = [...roomsBetween(me0, goal), goal][0]!;
