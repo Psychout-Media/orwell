@@ -46,9 +46,9 @@
     "postinstall": "patch-package"
   },
   "devDependencies": {
-    "@cucumber/cucumber": "^11.3.0",
+    "@cucumber/cucumber": "^13.3.0",
     "@types/better-sqlite3": "7.6.13",
-    "@types/node": "^22.10.0",
+    "@types/node": "^26.6.6",
     "@vitest/coverage-v8": "^4.1.12",
     "dependency-cruiser": "^16.10.0",
     "esbuild": "^0.28.2",
