@@ -123,7 +123,7 @@ import { buildReunion, buildYourStories, type ReunionView, type StoryGuest, type
 import { claimText } from "../../engine/rumorMill";
 import { buildYourEdit, sceneMoment, weekMoments, weeksOfLog, type YourEditView } from "../../engine/yourEdit";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
-import { runHangOut, hangOutBedtime, hangOutStopLine, minutesUntilClock, type HangOutResult } from "../../engine/hangOut";
+import { HANGOUT, runHangOut, hangOutBedtime, hangOutStopLine, minutesUntilClock, type HangOutResult } from "../../engine/hangOut";
 import { CUNNING, LEAKY, SEEK, SPIN } from "../../engine/copresenceSpread";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, streakHolds, nextStreak, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
@@ -4181,14 +4181,34 @@ export class GameSessionAdapter implements GameSession {
    *  — the model calls npcVoice with a name as often as an id; tolerate both, but never guess between
    *  two people who share a first name). Returns null when unknown/ambiguous. */
   private resolveHouseguestVoiceId(key: string): EntityId | null {
-    if (!this.house) return null;
+    const r = this.lookupHouseguestVoice(key);
+    return r.status === "found" ? r.id : null;
+  }
+
+  /**
+   * ORW-1067: the same lookup with its REASON. `found` (id, case-insensitive id, exact name, or an unambiguous first or last name), `ambiguous` (two or more
+   * houseguests match: the public names to choose from, never a guess), or `unknown` (nobody matches). Names only: public, Vault-free.
+   */
+  voiceLookup(key: string): { status: "found"; id: EntityId } | { status: "ambiguous"; candidates: NamedRef[] } | { status: "unknown" } {
+    return this.lookupHouseguestVoice(key);
+  }
+  private lookupHouseguestVoice(key: string): { status: "found"; id: EntityId } | { status: "ambiguous"; candidates: NamedRef[] } | { status: "unknown" } {
+    if (!this.house || typeof key !== "string") return { status: "unknown" };
     const npcs = this.house.npcs;
-    if (npcs.some((n) => n.id === key)) return key as EntityId;
+    if (npcs.some((n) => n.id === key)) return { status: "found", id: key as EntityId };
     const k = key.trim().toLowerCase();
-    const byName = npcs.filter((n) => n.name.toLowerCase() === k);
-    if (byName.length === 1) return byName[0]!.id;
-    const byFirst = npcs.filter((n) => n.name.toLowerCase().split(" ")[0] === k);
-    return byFirst.length === 1 ? byFirst[0]!.id : null;
+    const tiers: (readonly (typeof npcs)[number][])[] = [
+      npcs.filter((n) => (n.id as string).toLowerCase() === k),
+      npcs.filter((n) => n.name.toLowerCase() === k),
+      npcs.filter((n) => n.name.toLowerCase().split(" ")[0] === k),
+      npcs.filter((n) => { const parts = n.name.toLowerCase().split(" "); return parts.length > 1 && parts[parts.length - 1] === k; }),
+    ];
+    for (const t of tiers) {
+      if (t.length === 1) return { status: "found", id: t[0]!.id };
+      if (t.length > 1) { this.noteInputRefusal("npc-voice-ambiguous"); return { status: "ambiguous", candidates: t.map((n) => ({ id: n.id, name: n.name })) }; }
+    }
+    this.noteInputRefusal("npc-voice-unknown");
+    return { status: "unknown" };
   }
 
   /**
@@ -17959,6 +17979,16 @@ export class GameSessionAdapter implements GameSession {
     return spreadClockHours(live, "event", `ceremony:w${live.week}:${ref.kind}`, felt, ref.of ?? 0, now === null);
   }
 
+  /** ORW-1063 / ORW-1067: counts of input the engine REFUSED or CLAMPED instead of silently defaulting, by reason. Counts only: no text, no ids. */
+  private readonly inputRefusalTally = new Map<string, number>();
+  noteInputRefusal(name: string): void { this.inputRefusalTally.set(name, (this.inputRefusalTally.get(name) ?? 0) + 1); }
+  inputRefusalCounts(): Record<string, number> { return Object.fromEntries(this.inputRefusalTally); }
+  /** ORW-1063: an invalid decision is an explicit refusal with its reason (an EngineRefusal: HTTP 400, thrown before any mutation, so nothing is cached under an idempotency key and a retry is judged fresh). */
+  private refuseDecision(reason: "no-pending" | "kind-mismatch" | "bad-answer" | "unconfirmed", why: string): never {
+    this.noteInputRefusal(`decision-${reason}`);
+    throw new EngineRefusal(`decision refused (${reason}): ${why}`);
+  }
+
   submitDecision(req: SubmitDecisionReq): AdvanceView {
     // 0065 Part B — replay an already-resolved decision verbatim (wins even if beatSeq moved).
     if (req.idempotencyKey !== undefined) {
@@ -17967,11 +17997,8 @@ export class GameSessionAdapter implements GameSession {
     }
     // 0065 Part A — refuse a decision computed against a superseded board BEFORE any mutation.
     this.guardBeatSeq(req.expectedBeatSeq);
-    if (!this.house || !this.live) {
-      const v = this.advanceView(null);
-      return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, v) : v;
-    }
-    // 0065 Part B — every resolved/no-op path below caches its committed view under the key, so a
+    if (!this.house || !this.live) return this.advanceView(null); // ORW-1063: no game, nothing resolved: never cached under the key, so a retry after the game starts is judged fresh
+    // 0065 Part B — every RESOLVED path below caches its committed view under the key, so a
     // retry replays it verbatim (and never re-applies the decision).
     const remember = (v: AdvanceView): AdvanceView =>
       req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, v) : v;
@@ -17980,24 +18007,29 @@ export class GameSessionAdapter implements GameSession {
     // confirmation must already be raised (the OOC step-1 gate), AND `confirmed` must be true.
     // Anything else (a missing confirmation, confirmed:false/absent) is a safe no-op — the player
     // stays ACTIVE (the anti-accident handshake; never a fabricated exit, §4.2).
-    if (req.kind === "self-evict") return remember(this.resolveSelfEviction(req.confirmed === true));
+    if (req.kind === "self-evict") {
+      // ORW-1063: an unconfirmed (or unraised) self-evict records nothing, so it is REFUSED with its reason (the player stays active), not answered with a success-shaped board.
+      if (req.confirmed !== true) this.refuseDecision("unconfirmed", "the player has not confirmed leaving the game, so nothing was recorded and they stay in it");
+      if (!this.live.selfEvictPending || this.live.finished || playerHasLeft(this.live, PLAYER)) this.refuseDecision("no-pending", "there is no raised leave-the-game confirmation to confirm, so nothing was recorded and the player stays in it");
+      return remember(this.resolveSelfEviction(true));
+    }
     // 0123 — an NPC deal offer resolves through its own path (NOT the ceremony-pending machinery): it
     // lives on `live.dealOffer`, not `live.pending`. Only an EXPLICIT `accept`/`decline` resolves it; a
     // malformed/missing `vote` (a stale or garbled client call) is a safe NO-OP — the offer stands and no
     // hidden cooling is applied. Never silently decline on bad input (Greptile P1).
     if (req.kind === "deal-offer") {
-      if (this.live.finished) return remember(this.advanceView(null)); // a post-season answer binds nothing
+      if (this.live.finished) this.refuseDecision("no-pending", "the season is over, so this answer binds nothing"); // ORW-1063
       // 0174: the vote pitch has its own slot. `offerId` names it when both stand; with no id the ordinary offer answers first, and the pitch when it is the only one standing.
       const s0 = this.live;
       const pitch = s0.votePitch && (req.offerId === s0.votePitch.id || (req.offerId === undefined && !s0.dealOffer));
       if (req.vote === "accept" || req.vote === "decline") return remember(this.resolveDealOffer(req.vote === "accept", pitch ? "pitch" : "deal"));
-      return remember(this.advanceView(null));
+      this.refuseDecision("bad-answer", "a deal offer is answered with vote accept or decline; nothing was recorded and the offer still stands"); // ORW-1063
     }
     // ORW-596 - the player's own answer to an NPC's public accusation: open state (`live.houseMeetings`, not a pending card), answered like a deal offer. A missing/garbled stance is a safe no-op.
     if (req.kind === "meeting-answer") {
-      if (this.live.finished) return remember(this.advanceView(null));
+      if (this.live.finished) this.refuseDecision("no-pending", "the season is over, so this answer binds nothing"); // ORW-1063
       if (req.vote === "deny" || req.vote === "admit" || req.vote === "redirect") return remember(this.resolveMeetingAnswer(req.vote, req.statement));
-      return remember(this.advanceView(null));
+      this.refuseDecision("bad-answer", "a house meeting answer is vote deny, admit or redirect; nothing was recorded and the accusation still stands"); // ORW-1063
     }
     // 0133 — a spectating player may switch WATCH → SKIP later through the same decision kind (no pending needed).
     // SKIP is irreversible and the offer is one-time, so every other answer outside the pending is a safe no-op.
@@ -18015,16 +18047,16 @@ export class GameSessionAdapter implements GameSession {
           return this.advanceView(null);
         }));
       }
-      return remember(this.advanceView(null));
+      this.refuseDecision("no-pending", "there is no open decision for this answer, so nothing was recorded"); // ORW-1063
     }
-    // No-op unless there's a matching pending decision to resolve (idempotent + robust
+    // A decision with no matching pending is REFUSED (ORW-1063), never a success-shaped no-op: nothing recorded decision to resolve (idempotent + robust
     // to malformed calls — the boundary must never throw an unhandled error). `comp-intent` and
     // `comp-round` are interchangeable aliases for the staged per-round approach (0006 staged-rounds).
     const compApproach = (k: string): boolean => k === "comp-intent" || k === "comp-round";
     if ((req.kind as string) === "ceremony-step") throw new EngineRefusal("a ceremony step is a watch step - answer it with advanceGame, not submitDecision");
     const pendingKind = this.live.pending?.kind;
     const kindMatches = !!pendingKind && (pendingKind === req.kind || (compApproach(pendingKind) && compApproach(req.kind)));
-    if (!kindMatches) return remember(this.advanceView(null));
+    if (!kindMatches) this.refuseDecision(pendingKind ? "kind-mismatch" : "no-pending", pendingKind ? `the open decision is a ${pendingKind}, not a ${req.kind}; nothing was recorded and the open decision still stands` : `there is no open decision for a ${req.kind}, so nothing was recorded`);
     // (E42) Eviction-vote reconciliation moved to `commit`: the staged eviction's `voteOf` carries
     // EVERY voter — player and NPC alike — so the ledger now sees all binding votes in one place.
     return remember(this.inOneCommit(() => {
@@ -18629,8 +18661,15 @@ export class GameSessionAdapter implements GameSession {
       this.hangOutSkipStepAt = hour;
       this.hangOutPendingHours = result.minutes / 60;
       this.persist();
+      // ORW-1067: a maxBeats the engine changed (floored, raised to 1, capped at the maximum, or not a number) is REPORTED with the value applied, never silently clamped.
+      let clamp: { clamped: true; maxBeatsAsked?: number; maxBeatsApplied: number } | null = null;
+      if (req.maxBeats !== undefined) {
+        const a = req.maxBeats;
+        const applied = typeof a === "number" && Number.isFinite(a) ? Math.max(1, Math.min(HANGOUT.maxBeats, Math.floor(a))) : HANGOUT.maxBeats;
+        if (applied !== a) { clamp = { clamped: true, ...(typeof a === "number" && Number.isFinite(a) ? { maxBeatsAsked: a } : {}), maxBeatsApplied: applied }; this.noteInputRefusal("hangout-clamped"); }
+      }
       return {
-        ok: true, stopReason: result.stopReason, beats: result.beats, minutes: result.minutes, stopLine,
+        ok: true, stopReason: result.stopReason, beats: result.beats, minutes: result.minutes, stopLine, ...(clamp ?? {}),
         ...(result.detail ? { detail: result.detail } : {}),
         ...(live.timeOfDay ? { timeOfDay: live.timeOfDay } : {}),
         beatSeq: this.beatSeq,
@@ -18677,6 +18716,10 @@ export class GameSessionAdapter implements GameSession {
     if (milestoneDueOf(live)) return refuse("event-due", "Production is about to call everyone for the next event; there is no time to lie down.");
     const asked = typeof req.hours === "number" && Number.isFinite(req.hours) ? req.hours : NAP.defaultHours;
     const hours = Math.min(NAP.maxHours, Math.max(NAP.minHours, Math.round(asked / NAP.lengthStepHours) * NAP.lengthStepHours));
+    // ORW-1067: a length the engine changed (out of range, off the half-hour step, or given but not a number) is REPORTED on the view with the value applied; an omitted length is the default, not a clamp.
+    const napClamp: { clamped: true; hoursApplied: number; hoursAsked?: number } | null = req.hours !== undefined && (typeof req.hours !== "number" || !Number.isFinite(req.hours) || hours !== req.hours)
+      ? { clamped: true, hoursApplied: hours, ...(typeof req.hours === "number" && Number.isFinite(req.hours) ? { hoursAsked: req.hours } : {}) } : null;
+    if (napClamp) this.noteInputRefusal("nap-clamped");
     return remember(this.inOneCommit(() => {
       const me = PLAYER;
       const startHour = live.nightDepth ?? WAKE_HOUR;
@@ -18729,7 +18772,7 @@ export class GameSessionAdapter implements GameSession {
         }
       }
       this.persist();
-      return { ok: true, slept: sleptHours, ...(wokenBy ? { wokenBy, asked: hours } : {}), whereabouts: this.whereabouts(), ...(live.timeOfDay ? { timeOfDay: live.timeOfDay } : {}), beatSeq: this.beatSeq };
+      return { ok: true, slept: sleptHours, ...(napClamp ?? {}), ...(wokenBy ? { wokenBy, asked: hours } : {}), whereabouts: this.whereabouts(), ...(live.timeOfDay ? { timeOfDay: live.timeOfDay } : {}), beatSeq: this.beatSeq };
     }));
   }
 
@@ -21733,7 +21776,9 @@ export class GameSessionAdapter implements GameSession {
         return { kind: "nominations", choice: [c[0]!, c[1]!] };
       }
       case "veto-decision":
-        return { kind: "veto-decision", use: !!req.use, ...(req.save ? { save: req.save } : {}) };
+        // ORW-1067: `use` is a REQUIRED strict boolean (the string "false" is not a yes; a missing one is not a decline).
+        if (typeof req.use !== "boolean") { this.noteInputRefusal("veto-use-not-boolean"); throw new EngineRefusal("the veto decision needs use as true or false; nothing was recorded"); }
+        return { kind: "veto-decision", use: req.use, ...(req.save ? { save: req.save } : {}) };
       case "comp-intent":
       case "comp-round": { // B46 / 0006 staged-rounds: the player declares compete/throw/play-safe.
         // The pending presents this as a generic options/pick decision (id = the intent value), so a

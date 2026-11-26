@@ -870,7 +870,15 @@ export class McpServer {
       case "seasonRetrospective":
         return this.deps.session.seasonRetrospective();
       case "npcVoice":
-        return this.deps.session.npcVoice(args["id"] as EntityId);
+      {
+        const v = this.deps.session.npcVoice(args["id"] as EntityId);
+        if (v !== null) return v;
+        // ORW-1067: a null voice carries its reason: an ambiguous name returns the candidates to choose from, never a silent miss.
+        const l = this.deps.session.voiceLookup(String(args["id"]));
+        return l.status === "ambiguous"
+          ? { error: "ambiguous", reason: "more than one houseguest matches that name; ask again with one of the candidates", candidates: l.candidates }
+          : { error: "unknown", reason: "no houseguest matches that id or name" };
+      }
       case "sealedFromHouse":
         return this.deps.session.sealedFromHouse();
       case "knowledgeScopeManifest":
