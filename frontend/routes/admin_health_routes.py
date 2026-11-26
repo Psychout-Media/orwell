@@ -2629,6 +2629,14 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const up = s => { s = Math.max(0, +s || 0); const d = (s/86400)|0, h = ((s%86400)/3600)|0, m = ((s%3600)/60)|0;
   return d ? d+"d "+h+"h" : h ? h+"h "+m+"m" : m ? m+"m" : (s|0)+"s"; };
 const B = (ok, t) => '<span class="' + (ok ? "ok" : "bad") + '">' + esc(t) + "</span>";
+// ORW-1047 - the last scheduled backup: state badge, age in hours, then the failure message and any tar warning.
+function backupLine(b) {
+  if (!b || b.state === "none") return "no run record yet";
+  const parts = [B(b.state === "ok", String(b.state).toUpperCase()), esc(Math.floor((b.ageS || 0) / 3600)) + " h ago"];
+  if (b.state !== "ok" && b.message) parts.push(esc(b.message));
+  if (b.warning) parts.push(esc(b.warning));
+  return parts.join(" · ");
+}
 function render(d) {
   const eng = d.engine || {}, emb = eng.embeddings || null, img = d.images || {},
         ca = d.castAuthoring || null,
@@ -2653,11 +2661,11 @@ function render(d) {
         " · checked " + esc(p.checked) + " · skipped " + esc(p.skippedTotal) + " (" + sk + ") · conflicts " + esc(p.conflictsTotal) + " (" + cf + ")" +
         " · state from cache " + esc((p.stateFrom || {}).cache) + " / read " + esc((p.stateFrom || {}).read) + " · " + esc(p.turns) + " turn(s)";
     })(d.predisplay)],
-    ["Last backup", ((b) => !b || b.state === "none" ? "no run record yet" : B(b.state === "ok", b.state === "ok" ? "OK" : b.state === "stale" ? "STALE" : "FAILED") + " · " + esc(Math.floor((b.ageS || 0) / 3600)) + " h ago" + (b.message && b.state !== "ok" ? " · " + esc(b.message) : "") + (b.warning ? " · " + esc(b.warning) : ""))(d.backup)],
     ["Tool calls", esc(tc.total ?? 0) + " total · " + esc(tc.failed ?? 0) + " failed"],
     ["Front-end store", (st.degraded ? B(false, "DEGRADED") + " · " : "") + esc(st.sessions ?? "?") + " session(s) · " + esc(st.messages ?? "?") + " message(s)" + (st.database_size_mb != null ? " · " + esc(st.database_size_mb) + " MB" : "")],
   ];
-  document.getElementById("grid").innerHTML = rows.map(r => '<div class="k">' + esc(r[0]) + "</div><div>" + r[1] + "</div>").join("");
+  document.getElementById("grid").innerHTML = rows.map(r => '<div class="k">' + esc(r[0]) + "</div><div>" + r[1] + "</div>").join("") +
+    '<div class="k">Last backup</div><div>' + backupLine(d.backup) + "</div>";
   // #1599 WI3 — the RED alarm banner: each game-breaking signal (or auto-corrected fault) as its
   // own red card. A correction is not a cloak — an auto-corrected alarm is still RED, tagged.
   const alarms = Array.isArray(d.alarms) ? d.alarms : [];

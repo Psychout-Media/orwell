@@ -199,3 +199,9 @@ def test_failed_or_stale_backup_raises_exactly_one_alarm():
     for state in ("ok", "none"):
         assert not [a for a in ahr._compute_alarms({}, backup={"state": state, "ageS": 5}) if a["code"] == "backup-failing"]
     assert not [a for a in ahr._compute_alarms({}) if a["code"] == "backup-failing"]
+
+
+def test_status_page_shows_the_last_backup_row():
+    html = ahr.STATUS_PAGE_HTML if hasattr(ahr, "STATUS_PAGE_HTML") else open(ahr.__file__, encoding="utf-8").read()
+    assert "Last backup" in html and "backupLine(d.backup)" in html
+    assert '"backup": _backup_section()' in open(ahr.__file__, encoding="utf-8").read()
