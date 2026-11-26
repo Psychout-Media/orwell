@@ -538,8 +538,8 @@ On a TTY the installer shows a **whiptail menu** with every field pre-populated:
   `ANTHROPIC_API_KEY` below).
 
 **The OS template is resolved and downloaded automatically** (`pveam update` → newest
-`debian-12-standard` → `pveam download`, with an offline fallback to one already on disk). This
-is the fix for the common `volume 'local:vztmpl/debian-12-standard_…' does not exist` error —
+`debian-13-standard` → `pveam download`, with an offline fallback to one already on disk). This
+is the fix for the common `volume 'local:vztmpl/debian-13-standard_…' does not exist` error —
 templates are no longer hard-pinned or assumed pre-downloaded.
 
 Non-interactive (piped, or `--default` / `USE_DEFAULTS=1` / `ORWELL_NONINTERACTIVE=1`) uses
@@ -552,7 +552,7 @@ defaults. **Every setting is also an env override**, so the same run is fully sc
 | `CORES` / `RAM_MB` / `DISK_GB` | `4` / `8192` / `12` | resources (recommended baseline 4 vCPU / 8 GB — see **Recommended specs**) |
 | `STORAGE` | first `rootdir` storage → `local-lvm` | CT rootfs |
 | `TEMPLATE_STORAGE` | first `vztmpl` storage → `local` | where the template is stored |
-| `TEMPLATE_NAME` / `TEMPLATE` | newest `debian-12-standard` | pin a specific template |
+| `TEMPLATE_NAME` / `TEMPLATE` | newest `debian-13-standard` | pin a specific template |
 | `BRIDGE` / `NET` / `GATEWAY` | `vmbr0` / `dhcp` / — | network (`NET` = `dhcp` or a CIDR) |
 | `ORWELL_PORT` | `8080` | front-end UI port — ports **below 1024 (e.g. 80) are supported**: the installer/updater grant the hardened unit `CAP_NET_BIND_SERVICE` via a systemd drop-in (removed again when the port moves ≥1024) |
 | `CT_ROOT_PASSWORD` | — | optional container **root password for console login** (≥5 chars; fed via stdin, never on a command line). Without it the LXC console rejects every login — use `pct enter <CTID>` from the host, or set one later with `pct exec <CTID> -- passwd` |
