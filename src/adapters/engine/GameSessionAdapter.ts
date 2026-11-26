@@ -82,7 +82,7 @@ import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } fr
 import { dayOfWeek } from "../../engine/houseEvents";
 import { HOUSE_SIGHTLINE, roomsBetween, areVisible, canWitnessDeparture, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
 import type { Room, Zone, Occupancy } from "../../domain/house";
-import { parsePlayerMoveIntent, parsePlayerPersonIntent, parseSearchIntent, matchHouseguestName } from "../../engine/playerMoveIntent";
+import { parsePlayerMoveIntent, parsePlayerPersonIntent, parseSearchIntent, parseVagueGo, matchHouseguestName } from "../../engine/playerMoveIntent";
 import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
@@ -8125,7 +8125,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-728 (W1-11): "my bed" with no room named is the bedroom of the bed the player OWNS (only a fresh claim moved them before, so "I go back to my bed" left the room to the narrator, which picked the wrong one).
     const ownBed = this.live?.beds?.owner[PLAYER];
     const ownBedRoom = ownBed && /\bmy (?:own )?bed\b/i.test(String(req.text ?? "")) ? roomOfBed(ownBed) : null;
-    const searchPhrase = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) === null && !claimedBed && !ownBedRoom ? parseSearchIntent(String(req.text ?? ""), here, this.themedAliases()) : null;
+    const searchPhrase = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) === null && !claimedBed && !ownBedRoom && parseVagueGo(String(req.text ?? "")) === null ? parseSearchIntent(String(req.text ?? ""), here, this.themedAliases()) : null;
     const searchTarget = searchPhrase !== null && here !== null ? this.searchTargetOf(searchPhrase) : null;
     if (searchTarget !== null && here !== null && this.presence.get(searchTarget.id) !== here) {
       // ORW-934: "look for X / find X / where is X" is committed here, before the narrator writes: the engine walks the search leg by leg and the narrator voices the legs as one passage
@@ -8140,12 +8140,19 @@ export class GameSessionAdapter implements GameSession {
       const sres: ResolvePlayerMoveResult = { playerMove: this.playerMove ? { ...this.playerMove } : null, whereabouts: this.whereabouts(), ...(walk ? { search: walk } : {}), beatSeq: this.beatSeqNow() };
       return idemKey ? this.rememberFoldIdempotent(idemKey, sres) : sres;
     }
-    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) ?? (claimedBed ? roomOfBed(claimedBed) : null) ?? ownBedRoom ?? this.roomOfSightedHouseguest(String(req.text ?? ""), here);
+    const named = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) ?? (claimedBed ? roomOfBed(claimedBed) : null) ?? ownBedRoom;
+    const vague = named === null ? this.resolveVagueGo(String(req.text ?? ""), String(req.previousReply ?? ""), here) : undefined;
+    const dest = named ?? (vague !== undefined && vague !== "ambiguous" ? vague : null) ?? this.roomOfSightedHouseguest(String(req.text ?? ""), here);
     const hadMove = this.playerMove !== null;
     this.playerMove = null; // a new player message: last turn's move is over
     this.holdNamedHouseguest(String(req.text ?? ""), dest); // ORW-933: the houseguest the message turns to is held in the room (below)
     let result: ResolvePlayerMoveResult;
-    if (dest === null || here === null || dest === here) {
+    if (dest === null && vague === "ambiguous" && here !== null) {
+      // ORW-1003: they said they are going but not clearly where or after whom: they stay, and the narrator may ask
+      this.playerMove = { refused: true, reason: "the player said they are going somewhere, but not clearly where or after whom: they stay where they are; ask them where, in the scene", from: here, ...this.moveStamp() };
+      this.persist();
+      result = { playerMove: { ...this.playerMove }, whereabouts: this.whereabouts() };
+    } else if (dest === null || here === null || dest === here) {
       if (hadMove) this.persist();
       result = { playerMove: null, whereabouts: this.whereabouts() };
     } else if (this.houseEventInSession()) {
@@ -8409,6 +8416,48 @@ export class GameSessionAdapter implements GameSession {
    * `nearby` sightline list). Same projection the narrator gets: an unseen houseguest never resolves, so nothing hidden is revealed and
    * nothing teleports; the narrator plays "you look around". Same room (or no name) => null.
    */
+  /**
+   * ORW-1003: a go with no named place ("walk over and say hi", "head over there", "I follow her"). "over": the room of the houseguest last NAMED in the player's words, else in the previous reply. "follow": the houseguest the
+   * previous reply last named who is no longer in the player's room (her / him by their public gender; "them" only when those who left went to one room). Only rooms the player can see (public presence in view); anything
+   * else is ambiguous: no move. Returns undefined when the words are not such a go. Reads only public presence and public identity; no rng.
+   */
+  private resolveVagueGo(text: string, previousReply: string, here: Room | null): Room | "ambiguous" | undefined {
+    const go = parseVagueGo(text);
+    if (!go || !this.house || !here) return undefined;
+    const w = this.whereaboutsBase();
+    if (!w || w.houseEvent) return undefined;
+    const inView = new Map<EntityId, Room>(w.nearby.flatMap((n) => n.present.map((p) => [p.id as EntityId, n.room as Room] as [EntityId, Room])));
+    const present = new Set(w.present.map((p) => p.id as EntityId));
+    const npcs = this.house.npcs;
+    const mentioned = (s: string): EntityId[] => {
+      const at: Array<[number, EntityId]> = [];
+      const low = s.toLowerCase();
+      for (const n of npcs) {
+        const full = this.nameOf(n.id).toLowerCase(), first = full.split(" ")[0]!;
+        const uniqueFirst = npcs.filter((m) => this.nameOf(m.id).toLowerCase().split(" ")[0] === first).length === 1;
+        const esc = (v: string): string => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const re = new RegExp(`\\b(?:${uniqueFirst ? `${esc(full)}|${esc(first)}` : esc(full)})\\b`, "g");
+        let m: RegExpExecArray | null, last = -1;
+        while ((m = re.exec(low)) !== null) last = m.index;
+        if (last >= 0) at.push([last, n.id]);
+      }
+      return at.sort((x, y) => x[0] - y[0]).map((x) => x[1]);
+    };
+    if (go.kind === "over") {
+      const named = mentioned(text.toLowerCase());
+      const pool = named.length ? named : mentioned(previousReply);
+      const who = pool.at(-1);
+      if (who === undefined) return "ambiguous";
+      if (present.has(who)) return undefined; // already with them: nothing to move
+      return inView.get(who) ?? "ambiguous";
+    }
+    const gender = go.pronoun === "her" ? "woman" : go.pronoun === "him" ? "man" : null;
+    const left = mentioned(previousReply).filter((id) => !present.has(id) && inView.has(id) && (gender === null || npcs.find((n) => n.id === id)?.character.genderPresentation === gender));
+    if (left.length === 0) return "ambiguous";
+    if (go.pronoun === "them" && new Set(left.map((id) => inView.get(id)!)).size > 1) return "ambiguous";
+    return inView.get(left.at(-1)!)!;
+  }
+
   private roomOfSightedHouseguest(text: string, here: Room | null): Room | null {
     const phrase = parsePlayerPersonIntent(text, here, this.themedAliases());
     if (phrase === null) return null;

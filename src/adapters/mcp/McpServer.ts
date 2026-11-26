@@ -854,6 +854,7 @@ export class McpServer {
         // ORW-419 - the FE-driven intent-first move (infra lever; the engine resolves the player's own words before the narrator).
         return this.deps.session.resolvePlayerMove({
           text: String(args["text"]),
+          ...(typeof args["previousReply"] === "string" && args["previousReply"] !== "" ? { previousReply: args["previousReply"].slice(0, 6000) } : {}),
           ...(typeof args["expectedBeatSeq"] === "number" ? { expectedBeatSeq: args["expectedBeatSeq"] } : {}),
           ...(typeof args["idempotencyKey"] === "string" && args["idempotencyKey"] !== "" ? { idempotencyKey: args["idempotencyKey"] } : {}),
         });

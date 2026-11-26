@@ -2320,13 +2320,15 @@ def last_pending(user=None):
     return _LAST_PENDING.get(user or "")
 
 
-async def resolve_player_move(text: str, idempotency_key: str | None = None, user: str | None = None) -> dict:
+async def resolve_player_move(text: str, idempotency_key: str | None = None, user: str | None = None, previous_reply: str | None = None) -> dict:
     """ORW-419 (intent-first moves): ask the engine to resolve the PLAYER'S OWN move from their message text, BEFORE the
     narrator runs. The engine parses the words, moves the player through the same code as ``moveTo`` (a comp/ceremony pin
     refuses it in fiction) and records the Vault-free ``playerMove`` ``{from, to}`` / ``{refused, reason}`` on the turn
     state. Returns ``{playerMove, whereabouts, beatSeq}``; ``playerMove`` is null when the words held no clear move (the
     post-reply move belt stays the fallback). The key is sent only when given, so a retry re-drive de-dups."""
     args: dict = {"text": str(text)}
+    if previous_reply:
+        args["previousReply"] = str(previous_reply)[-6000:]  # ORW-1003: for "head over there" / "I follow her"
     if idempotency_key:
         args["idempotencyKey"] = str(idempotency_key)
     return await _call("resolvePlayerMove", args, user=user)
