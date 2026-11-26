@@ -1397,6 +1397,7 @@ export class GameSessionAdapter implements GameSession {
     this.evictionVoicedMsgs = this.live && this.live.playedGame === true && this.live.eviction?.evictee ? this.evictionVoicedMsgs + 1 : 0; // memory-only (like the ceremony beat): a restart mid-night forgets it, never a persisted live field
     { const out = this.live?.competition?.eliminated ?? []; this.compToldOut = this.compOutPrev.filter((id) => out.includes(id)); this.compOutPrev = [...out]; } // ORW-937: counted BEFORE this message's own framing: an exit that was already in the last message's view was voiced in that reply
     this.advanceClockPerConversation();
+    this.heatBedRushOnMessage(); // ORW-999: a player message during the premiere's bed rush is one heat of it (the rush no longer waits on the narrator calling advanceGame)
     this.persist(); // the clock moved: one persisted commit (integrity checkpoint + beatSeq), survives a reload
     return { accepted: true, beatSeq: this.beatSeq }; // post-commit token: the FE refreshes its last-seen beatSeq from it (no self-inflicted stale-beat 409)
   }
@@ -8834,6 +8835,20 @@ export class GameSessionAdapter implements GameSession {
       `Rooms with beds still open: ${open.length ? open.join(", ") : "none"}`,
     ];
     return parts.join(". ");
+  }
+
+  /**
+   * ORW-999 (Ryne's live report): the rush ticked only inside `advanceGame`, so a player who was TALKING (never a lull for the front end's advance nudge) and a narrator that voiced the scramble without calling
+   * `advanceGame` left the rush unstarted: stage "done", `bedRush` null, nobody in a bed, houseguests drifting between the bedrooms. A player message is now one heat too: the first one after the circle closes starts the
+   * rush (a save already sitting there starts it on its next message), each later one is another heat, to the same tick bound and the same safety floor for the player. The claims come from the engine either way; the
+   * narrator learns who got where from the BEDS facts. Inside `ORWELL_BED_RUSH`; played games only (`bedRushRunning`); no draw of its own (`startBedRush` / `runBedRushClaims` use their keyed side streams).
+   */
+  private heatBedRushOnMessage(): void {
+    if (!this.bedRushRunning()) return;
+    const br = this.startBedRush();
+    if (!br) return;
+    br.tick += 1;
+    this.runBedRushClaims(br.tick, br.tick > BED_RUSH.ticks);
   }
 
   /** One `advanceGame` of the rush: another heat of the race. Houseguests reach their rooms and claim; the beat hands the narrator who got where, who is still racing and who is left. */
