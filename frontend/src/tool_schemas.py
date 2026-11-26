@@ -1572,6 +1572,21 @@ FUNCTION_TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "searchForHouseguest",
+            "description": "ORW-934: the player is LOOKING FOR a named houseguest. The game walks the player through the house leg by leg on a sensible route (the last recorded sighting first, then nearby rooms); each leg costs clock time and the houseguest may move meanwhile. Nobody is teleported. It ends when the houseguest is found, is somewhere the player cannot go (the Diary Room, a shut door), a house event comes due, the player walks in on a private talk, or it is bedtime. Returns the ordered legs (room, who was there) and the outcome. Voice the legs as ONE compressed passage and invent no sighting that is not in the legs. When the turn's facts already carry a PLAYER SEARCH line the walk is done: voice it, do not call this again.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "The houseguest the player is looking for, as the player said the name."},
+                    "maxLegs": {"type": "integer", "description": "Optional: stop after this many legs (the player said to stop or to just check nearby)."},
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "premiereIntros",
             "description": "PREMIERE ONLY (#380): the meet-everyone progress — who the player has met and who is STILL to introduce (the stragglers are met in motion), each with their OBSERVABLE public persona (archetype/strategy/background/age/presentation/demeanor — never the soul, a number, or how the player feels). This is a READ, never a checklist — with the entrances OFF the champagne circle already met the whole house (0111); with the staged entrances ON, `complete` is false and `remaining` lists anonymous placeholders only until the last arrival. NEVER run a meet-everyone roll-call from it; use it to pick who deserves a DEEPER scene. First power is REACHABLE once a couple of hot reads form and nobody is invisible, WITHOUT every formal introduction first; returns null outside the premiere.",
             "parameters": {"type": "object", "properties": {}},
@@ -2170,6 +2185,8 @@ ORWELL_GAME_TOOLS = frozenset({
     "whereabouts",
     # L21/L24: the player directs their own movement (the engine never auto-relocates a person).
     "moveTo",
+    # ORW-934: looking for a houseguest walks the house leg by leg (the engine plays it out; nobody is teleported).
+    "searchForHouseguest",
     # PREMIERE meet-everyone (#380): the premiere-only meet-everyone tracker — the read + the mark.
     "premiereIntros", "markHouseguestMet",
     # B56/0048: the reunion reads — the public recap + the post-season Vault unsealing.

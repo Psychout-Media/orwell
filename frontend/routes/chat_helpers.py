@@ -1580,6 +1580,25 @@ def _walk_in_names(names):
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 
 
+def _player_search_directive(search) -> Optional[str]:
+    """ORW-934: the engine already walked the player's search for a houseguest this turn (`playerSearch`: ordered legs, who was in each room, how it ended). The narrator voices it as ONE compressed passage and invents
+    nothing. None when there is nothing to voice (fail-open)."""
+    if not isinstance(search, dict):
+        return None
+    legs = [l for l in (search.get("legs") or []) if isinstance(l, dict) and l.get("roomName")]
+    target = search.get("target") if isinstance(search.get("target"), dict) else {}
+    who = str(target.get("name") or "the houseguest")
+    lines = []
+    for i, l in enumerate(legs, 1):
+        present = [str(p.get("name")) for p in (l.get("present") or []) if isinstance(p, dict) and p.get("name")]
+        lines.append(f"{i}. the {l['roomName']}: " + (", ".join(present) + " there" if present else "nobody there"))
+    minutes = search.get("minutes")
+    return (f"PLAYER SEARCH (engine truth, already done this turn): the player looked for {who}, room by room, on foot" + (f", about {minutes} minutes" if isinstance(minutes, (int, float)) and minutes > 0 else "") + ".\n"
+            + ("\n".join(lines) + "\n" if lines else "")
+            + f"How it ended ({search.get('outcome')}): {search.get('reason')}.\n"
+            + "Voice the whole search as ONE compressed passage: the rooms checked in this order, who was in each, and how it ended. Invent no sighting, room or person that is not listed here. Do not walk the player anywhere else or place anyone yourself; the player is now in the last room listed. If it ended because the houseguest is somewhere the player cannot go, say so plainly. The player can stop or redirect at any point.")
+
+
 def _walked_in_directive(walked_in) -> Optional[str]:
     """ORW-473: the player walked in on a private talk between two or more houseguests this turn (the engine's `walkedIn`): each houseguest's reaction was chosen from THEIR OWN sheet, and is handed over as a manner to voice. The talk's
     subject is never known here and must not be invented. None when there is nothing to voice (fail-open)."""
@@ -9929,6 +9948,13 @@ async def apply_game_framing(
             freeze_capture_whereabouts(user, game_state.get("whereabouts"))
         except Exception as e:
             logger.warning("[orwell] location grounding skipped for user=%s: %s", _gkey, e)
+        # ORW-934: the engine walked the player's search for a houseguest this turn (before the narrator): the narrator voices the legs as one passage. Best-effort / fail-open.
+        try:
+            _srch = _player_search_directive(game_state.get("playerSearch"))
+            if _srch:
+                gm_prompt = gm_prompt + "\n\n" + _srch
+        except Exception as e:
+            logger.warning("[orwell] player-search framing skipped for user=%s: %s", _gkey, e)
         # ORW-473: the player walked in on a private talk this turn - each houseguest's reaction comes from their own sheet (engine-chosen); the narrator voices it. Best-effort / fail-open.
         try:
             _walk = _walked_in_directive(game_state.get("walkedIn"))
@@ -10210,7 +10236,7 @@ GAME_ENGINE_WRITE_TOOLS = frozenset({
     # tracking, the bedtime/day-advance lever) — added for the same reason. runCompetition is
     # deliberately EXCLUDED: it only PREVIEWS the already-decided winner, it never mutates.
     "formAlliance", "joinAlliance", "exposeSecret", "tradeSecret",
-    "moveTo", "markHouseguestMet", "turnIn",
+    "moveTo", "markHouseguestMet", "turnIn", "searchForHouseguest",
 })
 
 # E22: narration shorter than this is treated as trivial (a refusal, a one-liner) and not

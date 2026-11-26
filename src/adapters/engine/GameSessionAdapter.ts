@@ -8211,6 +8211,8 @@ export class GameSessionAdapter implements GameSession {
     const startRoom = (this.presence!.get(me) ?? "living-room") as Room;
     const base = { from: startRoom as string, to: startRoom as string, legs: [] as HouseSearchLeg[], minutes: 0, ...this.moveStamp() };
     const finish = (outcome: HouseSearchOutcome, reason: string, t: { id: EntityId; name: string } | null): HouseSearchWalk => {
+      const done = this.playerSearchThisTurn(); // the narrator calling the lever again after this message's search already ran gets that same walk back (it never walks twice)
+      if (outcome === "found" && base.legs.length === 0 && done && done.target?.id === t?.id && done.legs.length > 0) return done;
       const walk: HouseSearchWalk = { target: t ? { id: t.id, name: t.name } : null, outcome, reason, ...base, to: (this.presence!.get(me) ?? startRoom) as string };
       this.playerSearch = walk;
       this.persist();
