@@ -178,10 +178,13 @@ def test_kickoff_is_a_noop_with_the_engine_flag_off(monkeypatch):
     assert ran == []
 
 
-@pytest.mark.quarantine(card="ORW-983", added="2026-11-26")
 def test_kickoff_runs_once_in_background_and_releases_the_guard(monkeypatch):
+    # ORW-983: this was red on main twice (ran == [] with "Event loop is closed"). Two causes, both in the TEST: the module's single-flight set is process-wide, so a key a
+    # kickoff in an earlier test left in flight (its loop closed before the runner finished) made every kickoff here return at once; and the 10 ms sleeps decided whether the
+    # background run had finished. Now the set is this test's own and each step waits for the run it expects (bounded), never for the clock.
     from src import orwell_engine
     monkeypatch.setattr(orwell_engine, "engine_flag", lambda name, default=False: True)
+    monkeypatch.setattr(g, "_IN_FLIGHT", set())
     ran = []
 
     async def fake_run(owner, **kw):
@@ -191,12 +194,20 @@ def test_kickoff_runs_once_in_background_and_releases_the_guard(monkeypatch):
     monkeypatch.setattr(g, "run_group_words", fake_run)
     monkeypatch.setattr(g, "run_name_tickets", fake_run)  # part c2 rides the same single-flight run
 
+    async def until(n):
+        for _ in range(500):
+            if len(ran) >= n and not g._IN_FLIGHT:
+                return
+            await asyncio.sleep(0.01)
+        raise AssertionError(f"the background run never finished: {ran} in flight {g._IN_FLIGHT}")
+
     async def go():
         g.kickoff_group_identity("u")
         g.kickoff_group_identity("u")  # one run in flight
-        await asyncio.sleep(0.01)
+        await until(2)
+        assert ran == ["u", "u"], "the second kickoff did not start a second run"
         g.kickoff_group_identity("u")  # released: a later turn can run again
-        await asyncio.sleep(0.01)
+        await until(4)
 
     run(go())
     assert ran == ["u", "u", "u", "u"]  # words + names per run
