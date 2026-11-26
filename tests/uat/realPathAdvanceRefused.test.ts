@@ -8,7 +8,7 @@ import { playSeason, StallWatch, STALL_REFUSED_ADVANCES, STALL_SAME_STAGE_MESSAG
  */
 describe("ORW-777 REAL PATH: no advance is refused for a text twin of a witnessed line", () => {
   it("the season on the seed that used to stick plays past the old stop with no refused advance", async () => {
-    const r = await playSeason({ user: "wf-4", seed: 4, maxMessages: 1400 });
+    const r = await playSeason({ user: "wf-4", seed: 4, maxMessages: 1800 }) // ORW-995: 1400 messages when the cast was the old hometown deal; the census-frequency hometowns change the cast on this seed, so the same season needs more messages to pass week 7 (week 7 at 1400, week 9 at 1800; no refused advance, not stalled);
     expect(r.crashes.filter((c) => c.tool === "advanceGame"), "no advance was refused").toEqual([]);
     expect(r.faults.filter((f) => f.kind === "vault-leak"), "no leak fault").toEqual([]);
     expect(r.stopped).not.toBe("stalled");
