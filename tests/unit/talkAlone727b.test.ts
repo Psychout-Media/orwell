@@ -3,7 +3,8 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import { HOUSE_ROOMS, isPrivateRoom, type Room } from "../../src/domain/house";
-import { talkAloneRoom } from "../../src/engine/talkAlone";
+import { talkAloneRoom, decideTalkAlone } from "../../src/engine/talkAlone";
+import { DEAL_CONSENT } from "../../src/engine/dealConsentConstants";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
 import type { AskToTalkAloneResult } from "../../src/ports/GameSession";
 
@@ -66,5 +67,39 @@ describe("ORW-727b: saves (unit: the house is staged by hand and the old save is
     const old = JSON.parse(JSON.stringify(snap)); delete old.live.talkHold; delete old.live.talkAsk;
     const b = new GameSessionRegistry().sandboxFor("orw727b-restore-b").session as unknown as Seam; b.restore(old);
     expect(b.live.talkHold).toBeUndefined();
+  });
+});
+
+/**
+ * ORW-853 found that in played seasons every "no" came from a SLEEPING houseguest (askToTalkAlone declines a sleeper whatever the bond), so the played test's
+ * "yes comes from a stronger bond than no" compared bonds against sleep. The bond's part is proven here, on the pure rule an awake houseguest answers by.
+ */
+describe("ORW-727b: an awake houseguest's answer is their read of the player (unit, pure)", () => {
+  const read = (trust: number, affinity: number, threat: number) => ({ trust, affinity, threat, grudge: 0, favor: 0, targetsMe: 0 });
+  const J = DEAL_CONSENT.jitter;
+  it("a warmer read never turns a yes into a no, at the same jitter", () => {
+    const steps = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1];
+    for (const threat of [0, 0.3, 0.6, 0.9]) for (const jitter of [-J, 0, J]) {
+      let saidYes = false;
+      for (const b of steps) {
+        const yes = decideTalkAlone(read(b, b, threat), jitter);
+        expect(!saidYes || yes, `threat ${threat}, jitter ${jitter}: warmer at ${b} turned a yes into a no`).toBe(true);
+        saidYes ||= yes;
+      }
+    }
+  });
+  it("more threat never turns a no into a yes, at the same bond and jitter", () => {
+    for (const b of [0.2, 0.5, 0.8]) for (const jitter of [-J, 0, J]) {
+      let saidNo = false;
+      for (const threat of [0, 0.25, 0.5, 0.75, 1]) {
+        const yes = decideTalkAlone(read(b, b, threat), jitter);
+        expect(!saidNo || !yes, `bond ${b}, jitter ${jitter}: more threat at ${threat} turned a no into a yes`).toBe(true);
+        saidNo ||= !yes;
+      }
+    }
+  });
+  it("a warm read says yes even at the worst jitter; a cold, fearful one says no even at the best", () => {
+    expect(decideTalkAlone(read(0.9, 0.9, 0.1), -J)).toBe(true);
+    expect(decideTalkAlone(read(0.02, 0.02, 0.95), J)).toBe(false);
   });
 });

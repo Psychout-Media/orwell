@@ -37,8 +37,9 @@ type Refused = { npc: string; real: string; r: DealRefusal; before: string; afte
 function askEveryone(g: ReturnType<typeof weekTwo>): { yes: string[]; kinds: string[]; no: Refused[] } {
   const yes: string[] = [], kinds: string[] = [], no: Refused[] = [];
   for (const npc of g.s.livingIds().filter((id) => id !== PLAYER)) {
-    const before = snapNoWhy(g.s);
+    // the deal count is read FIRST: a state read may lazily drop dead sighting beliefs (trackedNow), and the snapshots must bracket the ask alone
     const dealsBefore = g.s.getGameState().deals?.length ?? 0;
+    const before = snapNoWhy(g.s);
     const k = { ...req(npc), idempotencyKey: `ask-${npc}` };
     const r = g.s.makeDeal(k);
     if (!isRefusal(r)) { yes.push(npc); kinds.push((r as DealView).kind); continue; }

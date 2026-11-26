@@ -100,12 +100,30 @@ const slow = { timeout: 900_000 };
 /** The ruling, written out here on purpose (not read from the engine's constants, so a tuned-away rule goes red): the least days a pair spends in each level before the next, at the fastest per-pair pace (a quarter off), and the earliest day a public couple can form. */
 const LEAST_DAYS_IN_LEVEL = [3 * 0.75, 4 * 0.75, 5 * 0.75, 6 * 0.75] as const;
 const EARLIEST_PUBLIC_DAY = 22;
+/**
+ * ORW-893: the one played season most scenarios read was pinned at seed 3. The orientation draw is realistic now (about a tenth of a cast, not five in six), so a pinned cast can hold too few drawn pairs for the
+ * positive controls these scenarios rely on (chemistry toward the player, seeded showmances, a pair that climbs). The seed is the first from 3 up whose cast, played a short while, holds chemistry toward a
+ * player who presents as a woman, chemistry between houseguests, and a seeded showmance: the scan is bounded, deterministic and read off the real engine.
+ */
+let mainSeedRun: Promise<number> | undefined;
+function mainSeed(): Promise<number> {
+  return (mainSeedRun ??= (async () => {
+    for (let seed = 3; seed <= 30; seed++) {
+      const s = await playSeason(seed, "woman", MAIN); // cached: the scenarios then read the same season
+      const recs = Object.entries(s.paceRecords);
+      if (Object.keys(s.chem).some((k) => k.endsWith(">player")) && recs.some(([, r]) => r.steps.length > 0) && recs.some(([k, r]) => k.includes("player") && r.steps.length > 0)
+        && s.rows.some((r) => Object.values(r.stages).length > 0) && s.rows.some((r) => r.push > 0)) return seed;
+    }
+    return assert.fail("no seed in [3,30] plays a season with chemistry toward the player, a climbing pair, a climbing player pair, a seeded showmance and an HOH weighing a couple");
+  })());
+}
+
 const bag = (w: unknown): { seasons: Season[]; ctl?: Ctl } => ((w as { s0207?: { seasons: Season[]; ctl?: Ctl } }).s0207 ??= { seasons: [] });
 
 // ------------------------------------------------------------------ the played seasons
-Given("a played season in which the player has said how they present", slow, async function () { bag(this).seasons = [await playSeason(3, "woman", MAIN)]; });
-Given("played seasons with showmances", slow, async function () { bag(this).seasons = [await playSeason(3, "woman", MAIN)]; });
-Given("a played game where the player keeps a romance going over many days", slow, async function () { bag(this).seasons = [await playSeason(3, "woman", MAIN)]; });
+Given("a played season in which the player has said how they present", slow, async function () { bag(this).seasons = [await playSeason(await mainSeed(), "woman", MAIN)]; });
+Given("played seasons with showmances", slow, async function () { bag(this).seasons = [await playSeason(await mainSeed(), "woman", MAIN)]; });
+Given("a played game where the player keeps a romance going over many days", slow, async function () { bag(this).seasons = [await playSeason(await mainSeed(), "woman", MAIN)]; });
 
 const one = (w: unknown): Season => bag(w).seasons[0]!;
 const pairKeyOf = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`);
@@ -193,7 +211,7 @@ Then("their choice follows whichever tie is stronger for them, by their own natu
 });
 
 // A3 breakup, A4: real seasons where the player's own acts are the only writers
-Given("a played game where the player and a houseguest have a showmance from the player's own scenes", slow, async function () { (bag(this) as Any).clash = await playSeason(3, "woman", 700, "drawn", true); });
+Given("a played game where the player and a houseguest have a showmance from the player's own scenes", slow, async function () { (bag(this) as Any).clash = await playSeason(await mainSeed(), "woman", 700, "drawn", true); });
 When("the player starts a clash with that houseguest", function () {
   const s = (bag(this) as Any).clash as Season;
   assert.ok(Object.keys(s.romances).some((k) => k.includes("player")), "positive control: the showmance was on record");
@@ -201,7 +219,8 @@ When("the player starts a clash with that houseguest", function () {
 });
 Then("the grudge book holds a heartbreak deeper than a broken deal's grudge, once", function () {
   const s = (bag(this) as Any).clash as Season;
-  const rows = s.grudges.filter((g) => g.kind === "heartbreak");
+  // the player's own showmance's heartbreak (the house's own couples may break up in the same season, each with their own row: not this scenario's claim)
+  const rows = s.grudges.filter((g) => g.kind === "heartbreak" && g.key.split("|").includes("player"));
   assert.equal(rows.length, 1, `one heartbreak, once: ${JSON.stringify({ r: s.romances, b: s.breakups, p: s.partner, clashed: s.clashAt, kinds: s.grudges.reduce((m: Record<string, number>, g) => ({ ...m, [g.kind]: (m[g.kind] ?? 0) + 1 }), {}) })}`);
   assert.ok(rows[0]!.severity > GRUDGES.DEAL_BREAK_SEVERITY);
   assert.equal(s.breakups.filter((k) => k.includes("player")).length, 1);
@@ -209,21 +228,25 @@ Then("the grudge book holds a heartbreak deeper than a broken deal's grudge, onc
 });
 
 // A4
-Given("a played game where a houseguest started romance scenes toward the player and the player started none", slow, async function () { (bag(this) as Any).theirs = await playSeason(3, "woman", 100, "none"); });
+Given("a played game where a houseguest started romance scenes toward the player and the player started none", slow, async function () { (bag(this) as Any).theirs = await playSeason(await mainSeed(), "woman", 100, "none"); });
 Then("the engine does not hold the player to be in a showmance", function () {
   const s = (bag(this) as Any).theirs as Season;
   assert.ok(Object.keys(s.chem).some((k) => k.endsWith(">player")), "positive control: someone is drawn to the player");
   assert.equal(Object.keys(s.romances).filter((k) => k.includes("player")).length, 0);
 });
 Then("the player's own showmance scenes, answered by a houseguest drawn to them, make one", slow, async function () {
-  const s = await playSeason(3, "woman", 700, "drawn", true);
+  const s = await playSeason(await mainSeed(), "woman", 700, "drawn", true);
   assert.ok(Object.keys(s.romances).some((k) => k.includes("player")));
-  (bag(this) as Any).away = await playSeason(3, "woman", 700, "notDrawn"); // ORW-876: as long as the drawn season above, which answers in kind; at 160 messages no houseguest answers either way
+  (bag(this) as Any).away = await playSeason(await mainSeed(), "woman", 700, "notDrawn"); // ORW-876: as long as the drawn season above, which answers in kind; at 160 messages no houseguest answers either way
 });
 Then("a houseguest whose orientation does not include the player does not answer in kind", function () {
   const s = (bag(this) as Any).away as Season;
-  assert.equal(Object.keys(s.romances).filter((k) => k.includes("player")).length, 0);
-  assert.ok(s.partner !== undefined, "positive control: the player did start scenes with a houseguest not drawn to them");
+  // a romance with the player is fine when the other party IS drawn to them (a drawn houseguest may start one herself); the claim is that none forms with a houseguest the player's gender is outside of
+  const drawnTo = (id: string): boolean => { const n = s.npcs.find((x) => x.id === id); return !!n && n.gender !== undefined && canBeDrawnTo(n.orientation as never, n.gender as never, s.playerGender as never); };
+  const withNotDrawn = Object.keys(s.romances).filter((k) => k.includes("player")).map((k) => k.split("|").find((x) => x !== "player")!).filter((id) => !drawnTo(id));
+  assert.deepEqual(withNotDrawn, [], "a houseguest whose orientation does not include the player answered in kind");
+  assert.ok(s.partner !== undefined && !drawnTo(s.partner), "positive control: the player did start scenes with a houseguest not drawn to them");
+  assert.ok(!Object.keys(s.romances).some((k) => k.includes("player") && k.includes(s.partner!)), "no romance with the one the player courted");
 });
 
 // ORW-736: the slow build, read off real seasons

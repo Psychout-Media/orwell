@@ -84,23 +84,8 @@ export function evaluate(shares: PhaseShares): RuleResult[] {
  */
 export interface KnownRed { value: number; card: string }
 export const KNOWN_RED: Readonly<Record<string, KnownRed>> = {
-  // Measured on main at 130ef2949 (4 seasons, seeds 1, 2, 3, 6; early n5579 and mid n1401 are the player-in scenes, late n221 is the house after the player left: the player is out by week 2-5).
-  // Card ORW-702 (whole-season mix); the slices that fix them: desire-clock ratchets (gossip), restore bonding, the rumor effect.
-  // ORW-778 / owner ORW-702: re-measured WITH the surviving player (seeds 1, 2, 3, 6 on the GitHub runner, 2026-11-24; the player is in for the whole read now: early n6480, mid n5505, late n812). Pooled:
-  // early 22.4/28.3/42.0/7.4, mid 16.1/28.9/47.4/7.6, late 14.8/27.7/49.0/8.5 (bonding/strategy/gossip/conflict). The values below are those measurements; ORW-702 brings them down. Two lines are new
-  // (mid:no-activity-above-45 and late:band-bonding: main met them while the late weeks were read from a house without the player); late:strategy-at-least-24 is gone (it reads 27.7 now).
-  "early:band-bonding": { value: 22.4, card: "ORW-702 restore bonding" }, // band 32-42
-  "early:band-gossip": { value: 42.0, card: "ORW-702 gossip ratchet" }, // band 22-32
-  "mid:band-bonding": { value: 16.1, card: "ORW-702 restore bonding" }, // band 24-34
-  "mid:band-gossip": { value: 47.4, card: "ORW-702 gossip ratchet" }, // band 26-36
-  "late:band-bonding": { value: 14.8, card: "ORW-702 restore bonding" }, // band 20-30
-  "late:band-conflict": { value: 9.1, card: "ORW-902 767 late mix" }, // band 10-16: ORW-767 (a told couple spreads as gossip) moved the late mix on seeds 1, 2, 3, 6 by about gossip +3, strategy -4, conflict -1; added back as measured (CI run on #3164), carded
-  "late:band-gossip": { value: 49.0, card: "ORW-702 gossip ratchet" }, // band 24-34 (and the 45% ceiling below)
-  // ORW-944 (measured seed noise, 8 independent plays of seeds 1, 2, 3, 6 at 1e7314f82, tests/calibration/wholeSeasonMixNoise.test.ts): main's OWN mean is over the 45% cap on both of these
-  // (mid gossip 46.2, range 45.1-47.4; late gossip 47.5, range 40.5-55.1), so they are real known-reds of the gossip ratchet, not noise around a passing rule: the two "ORW-944 quarantine"
-  // lines (#3206 / ORW-905, 2026-11-26) are replaced by these, at the measured means.
-  "mid:no-activity-above-45": { value: 46.2, card: "ORW-702 gossip ratchet" }, // gossip is the one over 45
-  "late:no-activity-above-45": { value: 47.5, card: "ORW-702 gossip ratchet" }, // gossip is the one over 45
+  // ORW-702 slice 2: empty. The combined retune on the new casts (ORW-893) and the attraction flirts (ORW-892) clears the three lines slice 1 left (mid strategy 35.8, late strategy 42.4, late conflict 9.3). Pooled over seeds
+  // 1, 2, 3, 6 (player in; bonding/strategy/gossip/conflict): early 34.1/28.0/29.6/8.3, mid 27.1/33.3/29.9/9.7, late 21.8/35.8/28.3/14.1. A rule that fails again is a regression; bands, hard rules and tolerances are untouched.
 };
 /** Hysteresis (Coordinator ruling 2026-11-25): a KNOWN_RED line is asked to be deleted only once its rule passes by at least this many points, so a rule that flips at its boundary from run to run does not redden unrelated PRs. The same margin applies the other way: a rule main meets (not listed) is a regression only when it misses its limit by MORE than this (Coordinator ruling 2026-11-25: 45.3 against a cap of 45 is run-to-run noise). Drift of a still-red line is already tolerated up to RATCHET_SLACK. Bands and tolerances are unchanged. */
 export const RATCHET_FIXED_MARGIN = 1.0;

@@ -255,3 +255,9 @@ showmance or pre-game tie**:
 - **Reuses:** **0002** (pathway-only surfacing, knowledge vs. suspicion), **0025** (reserve sealing +
   governance for private orientation & seeded showmance), **0001** (the wall), **0007/0030/0031**
   (byte-stable public facets + durable Vault persistence), **0004/E38** (seeded determinism).
+
+## Amendment 2026-11-25 (ORW-893): orientation is drawn from attractions, against the houseguest's own presentation
+- The seeded orientation used to be one uniform draw over six labels (five of them queer) made before the gender presentation was final: about 5 in 6 of a cast was non-straight and a man could be "lesbian". It is now read off four independent continuous draws per houseguest (a same-gender attraction that is near zero for most, an other-gender attraction that is near one for most, a gender-blind draw, a self-label draw: `ORIENTATION_DRAW` in `diversityConstants.ts`) AFTER every gender repair, against the final presentation: same-gender attraction alone reads as gay (a man), lesbian (a woman) or queer (nonbinary); both reads as bisexual, pansexual or queer; otherwise straight. About a tenth of a cast has a meaningful same-gender attraction (measured over 200 seeds: 13.5 % non-straight with the MIN_QUEER floor, 0 incoherent labels of 3000, was 83 % and 519).
+- The floor's MIN_QUEER repair uses the same relation (the same-gender attraction taken as present), so it too always fits. A model-proposed orientation (`recordCastIdentity`) is kept only if it fits the final presentation ("gay" a man's, "lesbian" a woman's); otherwise the drawn one stands.
+- The seeded-relationships layer is now saved whenever the cast exists, even with no tie and no showmance seeded; an absent layer on load still means a pre-0059 save and re-seeds as before.
+- Old saves load unchanged: the orientation is already in the save (out label on the character, sealed ones in `privateOrientations`); only newly generated casts change.

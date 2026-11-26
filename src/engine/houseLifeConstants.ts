@@ -8,11 +8,21 @@ import type { TimeOfDay } from "./timeOfDay";
 export type Habit = "early-riser" | "night-owl" | "gym-rat" | "house-cook" | "neat-freak" | "napper" | "devout" | "camera-talker" | "storyteller" | "card-shark" | "sun-seeker";
 
 export const HOUSE_LIFE = {
+  /** ORW-702: friction scales from `dramaFrom` on day 1 to `dramaTo` after `dramaOverDays` days (see `dramaScale`): drama builds over the season. */
+  dramaFrom: 0.8,
+  dramaTo: 2.2,
+  dramaOverDays: 70,
   /** How strongly a goal pulls its holder into acting on it this hour (x commitment), against the pull of ordinary life. */
   goalDrive: 1.0,
   /** ORW-350: the most hours (share) a houseguest spends on their goals; the rest are ordinary life whatever their goals are. A pressing goal's commitment climbs toward 0.85+ as the weeks go (get-them-out 0.54 in the first days, 0.85-0.88 by
    *  week 2), and past the pull of ordinary life (0.5-0.9 by time of day) it won every hour, so the house turned into scheming: bonding 55% to 18%, gossip 13% to 69% across 800 chat-paced messages. */
   goalHourCeiling: 0.7,
+  /** ORW-702: the chance a goal step that folds as gossip (fish, plant, wedge, frame, leak, test-a-rumor) actually takes the hour; otherwise the hour goes to ordinary life. Gossip was 42 to 49 % of a whole season's scenes (band 22-36). */
+  goalGossipKeep: 0.5,
+  /** ORW-702: the same for a goal step that folds as strategy (check-in, count-votes, flip-a-vote...): strategy rose as gossip fell. Measured on the guard seeds with the surviving player (ORW-702). */
+  goalStrategyKeep: 0.9,
+  /** ORW-702 slice 2: where the strategy keep has fallen to by `dramaOverDays` (see `strategyKeepScale`). */
+  goalStrategyKeepTo: 0.5,
   /** ORW-353 (A's live week: 16 of 588 off-screen scenes were conflict and ALL were chore fights, none from a goal, though 64 get-them-out goals existed): a HOT get-them-out goal (commitment above `hotGoal`) sharing a room with its target adds
    *  up to this much to the chance of a direct confrontation, whatever the holder's temper. */
   hotConfront: 0.22,

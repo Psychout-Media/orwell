@@ -442,13 +442,32 @@ export function nextStepFor(goal: Goal, v: HourView, variant = 0): Omit<PlannedA
  * when the holder's drive to pursue it beats the pull of ordinary life (habit, time of day, mood, a showmance); otherwise house life.
  * Purposeful actions go where the partner is (they walk there on purpose); house life happens in its usual room or where they are.
  */
+/**
+ * ORW-702: how readily the house falls out by the in-game day: `dramaFrom` of the base chance on day 1, rising linearly to `dramaTo` by `dramaOverDays` and staying there. The agreed whole-season mix has conflict rising with
+ * the phase (early 4-9 %, mid 7-13 %, late 10-16 %), where it used to fall (strangers rub on day one; a settled house had little left to fight about). One continuous curve, no table. Pure.
+ */
+export function dramaScale(day: number): number {
+  const t = Math.max(0, Math.min(1, (day - 1) / Math.max(1, HOUSE_LIFE.dramaOverDays)));
+  return HOUSE_LIFE.dramaFrom + (HOUSE_LIFE.dramaTo - HOUSE_LIFE.dramaFrom) * t;
+}
+
+/**
+ * ORW-702 slice 2: the chance a goal step that folds as strategy keeps the hour, by the in-game day: `goalStrategyKeep` on day 1 falling linearly to `goalStrategyKeepTo` at `dramaOverDays`, flat after. The first week of play was inside its
+ * agreed mix with the plain keep, and a lower one handed week-1 hours to ordinary life (bonding read 36.8 against a reference of 30.2); the later weeks, where the scheming ratchets (strategy over its mid and late bands), need the lower one. One
+ * continuous curve, no table. Pure.
+ */
+export function strategyKeepScale(day: number): number {
+  const t = Math.max(0, Math.min(1, (day - 1) / Math.max(1, HOUSE_LIFE.dramaOverDays)));
+  return HOUSE_LIFE.goalStrategyKeep + (HOUSE_LIFE.goalStrategyKeepTo - HOUSE_LIFE.goalStrategyKeep) * t;
+}
+
 export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   const hourKey = `d${v.day}h${v.hour}${v.repeat ? `r${v.repeat}` : ""}`; // ORW-581: the first stretch of an hour keys exactly as before; a repeat gets its own dice
   const roll = (salt: string): number => agendaRoll(seed, v.owner, `hour:${hourKey}:${salt}`);
   const pool = others(v);
   const cul = v.culture;
   const cGossip = cul?.gossip ?? 1, cFlirt = cul?.flirting ?? 1, cLie = cul?.lying ?? 1;
-  const cConflict = 1 / (cul?.conflict ?? 1); // a threshold: a lean that says "more conflict" is below 1, so it RAISES the chance
+  const cConflict = dramaScale(v.day) / (cul?.conflict ?? 1); // ORW-702: friction builds over the season (strangers are polite, a tight house is not); a threshold: a lean that says "more conflict" is below 1, so it RAISES the chance
   const avoid = new Set(v.avoid ?? []);
   const here = pool.filter((p) => roomOf(v, p) === v.room && !avoid.has(p));
   const finish = (a: Omit<PlannedAction, "actor" | "manner" | "truthful" | "place"> & { place?: Room }): PlannedAction => {
@@ -501,6 +520,10 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
     // ORW-625: a goal with a stored plan takes the plan's next step (and waits for its partner if they are not reachable this hour: no re-roll).
     const planned = v.plans?.get(g.id);
     const step = planned ? planStepNow(planned, g, v) : nextStepFor(g, v, roll(`variant:${g.id}`));
+    // ORW-702: a goal step whose own fold is gossip (a fish, a plant, a wedge, a frame...) or strategy takes the hour only with its keep chance; when it does not, the hour goes to ordinary life (the goal loop ends:
+    // a different goal's step would only swap one kind of scheming for another). A keyed roll, no shared draw.
+    const foldKept = step ? (ACTIONS[step.kind].fold === "gossip" ? HOUSE_LIFE.goalGossipKeep : ACTIONS[step.kind].fold === "strategy" ? strategyKeepScale(v.day) : 1) : 1;
+    if (step && foldKept < 1 && roll(`goalkeep:${g.id}`) >= foldKept) break;
     if (step) return finish(step);
   }
 
@@ -514,10 +537,16 @@ export function chooseHourAction(v: HourView, seed: number): PlannedAction {
   if (v.attract && !v.showmance) {
     const drawn = [...v.attract.entries()].filter(([p, a]) => a > 0 && pool.includes(p) && !avoid.has(p)).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     const top = drawn[0];
+    // ORW-892: someone they are drawn to is ALREADY in the room, a flirt may start with them and the attraction is real (at least `flirtAtLeast`): the chance of a flirt or a cuddle is the romance chance scaled by the attraction up to `flirtFullAt` (a keyed
+    // roll, no shared draw). It used to be reached only through the seek roll below (seekChance x attraction, about 6% at 0.2) AND then a second roll, so outside the seeded showmances no flirt was ever played (0 in an
+    // 800-message season); the attraction the house felt never showed. The seek below still sends them toward a person who is not here.
+    const here = drawn.find(([p, a]) => v.flirtable?.has(p) === true && a >= ATTRACTION_LIFE.flirtAtLeast && p !== PLAYER && roomOf(v, p) === v.room); // the person they are most drawn to among those in the room
+    if (here && roll("attract-flirt") < HOUSE_LIFE.romanceChance * cFlirt * Math.min(1, here[1] / ATTRACTION_LIFE.flirtFullAt)) {
+      return { ...finish({ kind: roll("attract-kind") < 0.5 ? "flirt" : "cuddle", with: [here[0]] }), drawn: true };
+    }
     if (top && roll("attract-seek") < ATTRACTION_LIFE.seekChance * top[1]) {
-      const [who, level] = top;
-      const flirt = v.flirtable?.has(who) === true && level >= ATTRACTION_LIFE.flirtAtLeast && who !== PLAYER && roomOf(v, who) === v.room && roll("attract-flirt") < HOUSE_LIFE.romanceChance * cFlirt;
-      return { ...finish({ kind: flirt ? (roll("attract-kind") < 0.5 ? "flirt" : "cuddle") : "check-in", with: [who] }), drawn: true };
+      const [who] = top;
+      return { ...finish({ kind: "check-in", with: [who] }), drawn: true };
     }
   }
 

@@ -16,6 +16,8 @@ export const ATTRACTION_LIFE = {
   seekChance: 0.3,
   /** The attraction at which a flirt or a cuddle can start without a seeded showmance behind it. */
   flirtAtLeast: 0.2,
+  /** ORW-892: a drawn person who is in the room gets the romance chance times (attraction / flirtFullAt) for a flirt or a cuddle. Attraction is at most 1, so at 2 the chance is at most half the romance chance (a fully drawn person flirts about every other time the plain chance would). Retuned in ORW-702 slice 2: at 0.3 the house made romances in most seasons (a public couple in 3 of 4 played seasons); measured on the guard seeds, 2 keeps the mix inside its bands. */
+  flirtFullAt: 2,
   /** A seeded showmance pair starts with chemistry at least this high, and with this many shared days already behind them. */
   seededChemistry: 0.7,
   seededDays: 5,

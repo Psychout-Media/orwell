@@ -131,13 +131,14 @@ describe("the engine: effort is observable, gated, and never changes a result", 
 });
 
 describe("the staged comp tally (liveSeason) is played-only and leaves the result untouched", () => {
-  type G = S & { advanceGame(): { pending?: unknown }; submitDecision(r: unknown): unknown; setAdvanceGateEnabled(on: boolean): void; setGoalMoodEnabled(on: boolean): void; setHohRoomEnabled(on: boolean): void };
+  type G = S & { advanceGame(): { pending?: unknown }; submitDecision(r: unknown): unknown; setAdvanceGateEnabled(on: boolean): void; setGoalMoodEnabled(on: boolean): void; setHohRoomEnabled(on: boolean): void; setCompMixedEnabled(on: boolean): void };
   const play = (played: boolean, seed: number): { hohs: string[]; effort: boolean } => {
     const s = new GameSessionRegistry().sandboxFor(`cet-${played}-${seed}`).session as unknown as G;
     s.createCharacter({ playerName: "The Player", seed });
     s.setAdvanceGateEnabled(false); // ORW-97: this test drives raw advances; the schedule hold is not under test here
     (s as unknown as { setOwnViewEnabled(on: boolean): void }).setOwnViewEnabled(false); // ORW-574: the own view (played games only) reads each decider's perceived state, so a played run and a headless one would differ by design; this test isolates the comp-effort tally
     s.setGoalMoodEnabled(false); // ORW-317: a played game's settled goals move mood (and so comp odds); this test isolates the comp-effort tally
+    s.setCompMixedEnabled(false); // ORW-893: a played game plays mixed comps (played-only); with the realistic orientation draw seed 3 is a cast where that alone moves the fourth HOH between played and headless. This test isolates the comp-effort tally.
     s.setHohRoomEnabled(false); // ORW-629: the HOH room's snubs and slips move a played game's bonds (and so later comps); this test isolates the comp-effort tally
     const hohs: string[] = [];
     let effort = false;

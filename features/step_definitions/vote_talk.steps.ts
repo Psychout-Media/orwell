@@ -164,5 +164,8 @@ export function voteTalkWeekOne(this: unknown): void {
 export function voteTalkLate(this: unknown): void {
   const { on, off } = (this as unknown as { arms: Arms }).arms;
   assert.ok(on.late.gossip <= 60 && on.late.bonding >= 10 && on.late.strategy <= 75 && on.late.conflict <= 30, `late mix ${JSON.stringify(on.late)}`);
-  for (const k of KINDS) assert.ok(Math.abs(on.late[k] - off.late[k]) <= 6, `late ${k}: ${on.late[k].toFixed(1)} on against ${off.late[k].toFixed(1)} off`);
+  for (const k of KINDS) {
+    const gap = Math.abs(on.late[k] - off.late[k]);
+    assert.ok(gap <= 6, `late ${k}: ${on.late[k].toFixed(1)} on against ${off.late[k].toFixed(1)} off`);
+  }
 }

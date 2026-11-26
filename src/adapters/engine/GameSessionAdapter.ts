@@ -1876,7 +1876,7 @@ export class GameSessionAdapter implements GameSession {
     const ledger = AssuranceLedger.fromJSON(this.live.assurances);
     let broke = false;
     const witnesses: EntityId[] = [];
-    for (const a of ledger.openFor(holder).filter((x) => x.to === nominee)) { if (ledger.resolve(a.id, "broken")) { broke = true; witnesses.push(...(a.heardBy ?? [])); } }
+    for (const a of ledger.openFor(holder).filter((x) => x.to === nominee)) { if (ledger.resolve(a.id, "broken", { sealed: !!sealedAmong })) { broke = true; witnesses.push(...(a.heardBy ?? [])); } }
     if (!broke) return;
     this.live.assurances = ledger.toJSON();
     this.foldBrokenPromise({ promiser: holder, assured: nominee, witnesses, ...(sealedAmong ? { sealedAmong } : {}) });
@@ -2609,7 +2609,8 @@ export class GameSessionAdapter implements GameSession {
       const other = d.parties.find((p) => p !== betrayer);
       if (other !== undefined) found.push({ week: d.madeWeek ?? 0, victim: other });
     }
-    if (this.live?.assurances) for (const a of AssuranceLedger.fromJSON(this.live.assurances).all) if (a.status === "broken" && a.from === betrayer && a.to !== betrayer) found.push({ week: a.week, victim: a.to });
+    // a broken assurance counts too, but never one broken at a secret ballot (the assured never learned who broke it: the same rule as a secret-ballot deal break above)
+    if (this.live?.assurances) for (const a of AssuranceLedger.fromJSON(this.live.assurances).all) if (a.status === "broken" && a.sealed !== true && a.from === betrayer && a.to !== betrayer) found.push({ week: a.week, victim: a.to });
     let best: { week: number; victim: EntityId } | undefined;
     for (const f of found) if (best === undefined || f.week >= best.week) best = f; // the latest; a tie goes to the later record
     return best !== undefined && this.livingIds().includes(best.victim) ? best.victim : undefined;
@@ -6253,7 +6254,9 @@ export class GameSessionAdapter implements GameSession {
       ...(this.tradeCount > 0 ? { secretTradeCount: this.tradeCount } : {}),
       ...(this.playerBluffCount > 0 ? { secretPlayerBluffCount: this.playerBluffCount } : {}),
       ...(Object.keys(this.playerBluffBelief).length ? { secretPlayerBluffBelief: cloneSession(this.playerBluffBelief) } : {}),
-      ...(this.seededRels.ties.length || this.seededRels.showmances.length
+      // ORW-893: kept whenever the cast exists, even with no tie and no showmance seeded (a realistic orientation draw makes an empty layer ordinary): an ABSENT layer on restore means a pre-0059 save and re-seeds, which
+      // could seed what the original season never had.
+      ...(this.house || this.seededRels.ties.length || this.seededRels.showmances.length
         ? { seededRelationships: cloneSession(this.seededRels) } : {}),
       // 0116 — the model-authored world-gen artifact: the seeded season brief (mandate #4 — the committed
       // genesis is the persisted artifact, recalled never regenerated) + the authored-skeleton provenance.

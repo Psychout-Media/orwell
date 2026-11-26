@@ -94,7 +94,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
 
   it("a houseguest who says no: nobody moves, no hold, the answer is typed with nothing else, and the same hour gives the same answer; yes comes from a stronger bond than no", async () => {
     const all: No[] = []; const yesBonds: number[] = [];
-    for (const { at: { yes, nos } } of await firstSeedsWhere(3, (s) => playOne(s, {}, {}), wfScan([3, 5, 11], "a free moment where a houseguest says yes to the ask"))) {
+    for (const { at: { yes, nos } } of await firstSeedsWhere(6, (s) => playOne(s, {}, {}), wfScan([3, 5, 11, 1, 2, 4], "a free moment where a houseguest says yes to the ask"))) {
       all.push(...nos);
       yesBonds.push(yes.at.sess.rel.edge(yes.npc, PLAYER).trust + yes.at.sess.rel.edge(yes.npc, PLAYER).affinity);
     }
@@ -106,12 +106,14 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
       expect(n.again, "the same hour gives the same answer").toBe("declined");
     }
     const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+    // the decision itself is pinned at unit level (tests/unit/talkAlone727b.test.ts: a warmer read never turns a yes into a no at the same jitter; more threat never turns a no into a yes). This played mean reads
+    // trust + affinity only, while the answer also reads threat, grudge, favor, mood and a jitter, so on a few seeds the means can cross: it is averaged over six seeds, as a smoke check on the played path.
     expect(mean(yesBonds), "the bond is what decides").toBeGreaterThan(mean(all.map((n) => n.bond)));
   }, 300_000);
 
   it("'come here': the houseguest comes to the player's room and the player does not move; the hold keeps them there, then lapses as the hours pass and they wander again", async () => {
     const away = (s: Stop) => (s.sess.livingIds() as string[]).filter((id) => id !== PLAYER && roomOf(s, id) !== roomOf(s, PLAYER) && roomOf(s, id) !== "diary-room");
-    const { yes: { at, npc, r, from } } = await untilYes(11, { private: false }, { who: away, minCompany: 0 });
+    const { yes: { at, npc, r, from } } = await untilYes(11, { private: false }, { who: away, minCompany: 0, when: (s) => !isPrivateRoom(roomOf(s, PLAYER) as Room) /* the player is in a public room: in a bedroom a houseguest who is called stays with the player (and sleeps there) */ });
     expect(r.room).toBe(from);
     expect(roomOf(at, PLAYER)).toBe(from);
     expect(roomOf(at, npc)).toBe(from);

@@ -41,6 +41,12 @@ function dvStart(w: BbWorld, seedLabel: string, playerName = "The Player"): User
   return sb;
 }
 
+/** ORW-893: the cast at the label, or the first of its numbered variants that satisfies `ok` (the orientation draw is realistic now, so a cast without a privately-held or publicly-out houseguest is ordinary): fixed labels, a bounded scan. */
+function dvStartWhere(w: BbWorld, label: string, ok: (sb: UserSandbox) => boolean, what: string): UserSandbox {
+  for (let i = 0; i < 120; i++) { const sb = dvStart(w, i === 0 ? label : `${label}#${i}`); if (ok(sb)) return sb; }
+  return assert.fail(`no cast among 120 variants of seed "${label}" has ${what}`);
+}
+
 /** Every PUBLIC outward surface, concatenated — for the no-leak sweeps. */
 function dvPlayerSurface(sb: UserSandbox): string {
   return JSON.stringify(sb.session.getGameState())
@@ -61,15 +67,11 @@ Given("a generated 15-houseguest cast at seed {string}", function (this: BbWorld
 });
 
 Given("a generated cast at seed {string} with a houseguest whose orientation is held privately", function (this: BbWorld, label: string) {
-  const sb = dvStart(this, label);
-  assert.ok(Object.keys(sb.session.snapshot().privateOrientations ?? {}).length > 0,
-    "expected at least one privately-held orientation in this cast");
+  dvStartWhere(this, label, (sb) => Object.keys(sb.session.snapshot().privateOrientations ?? {}).length > 0, "a privately-held orientation");
 });
 
 Given("a generated cast at seed {string} with a houseguest who is publicly out", function (this: BbWorld, label: string) {
-  const sb = dvStart(this, label);
-  assert.ok(sb.session.getGameState().house.some((h) => h.outOrientation),
-    "expected at least one publicly-out houseguest in this cast");
+  dvStartWhere(this, label, (sb) => sb.session.getGameState().house.some((h) => h.outOrientation), "a publicly-out houseguest");
 });
 
 Given("a season seeded so the 0059 showmance layer pairs two same-gender houseguests at seed {string}", function (this: BbWorld, _label: string) {
