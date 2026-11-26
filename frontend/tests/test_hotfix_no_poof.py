@@ -19,6 +19,9 @@ NAMES = {"bedroom-b": "Palmetto Quarters", "living-room": "The Lounge"}
     "I keep thinking about that bedroom thing from yesterday.",
     "You should go to the backyard if you want air.",
     "I went to the kitchen earlier and he was there.",
+    "I leave it to you.",
+    "I'm going to leave that vote alone.",
+    "We talked it over in the kitchen.",
 ])
 def test_talking_about_a_room_is_not_going_there(text):
     assert not al._player_asked_to_move(text, NAMES), text
@@ -33,6 +36,11 @@ def test_talking_about_a_room_is_not_going_there(text):
     "I go outside.",
     "I'll follow them.",
     "Okay, then I walk over to the lounge.",
+    "I want to leave the room.",
+    "I'm going to leave.",
+    "I walk over and say hi.",
+    "I head over there.",
+    "I head out.",
 ])
 def test_an_intent_to_go_moves(text):
     assert al._player_asked_to_move(text, NAMES), text

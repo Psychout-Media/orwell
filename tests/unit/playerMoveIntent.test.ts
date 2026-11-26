@@ -20,6 +20,16 @@ describe("ORW-419 parsePlayerMoveIntent", () => {
     ["I smile at them. I go to the storage room.", "kitchen", "storage-room"],
     ["I want to go to the HOH room", "living-room", "hoh-room"],
     ["bring me to the bathroom", "hallway", "bathroom"],
+    // live (Ryne): a clear wish to go now moves this turn
+    ["I'm going to go to the kitchen", "living-room", "kitchen"],
+    ["I'll head to the kitchen", "living-room", "kitchen"],
+    ["I'm gonna head to the kitchen", "living-room", "kitchen"],
+    ["I get up and go to the kitchen", "living-room", "kitchen"],
+    ["Let me go to the kitchen", "living-room", "kitchen"],
+    ["Time to go to the kitchen", "living-room", "kitchen"],
+    ["I excuse myself and head to the bathroom", "living-room", "bathroom"],
+    ["I want to leave the room", "living-room", "kitchen"],
+    ["I'm going to leave", "living-room", "kitchen"],
   ];
   for (const [text, from, to] of moves) {
     it(`moves: ${text}`, () => expect(parsePlayerMoveIntent(text, from as never)).toBe(to));
@@ -35,7 +45,6 @@ describe("ORW-419 parsePlayerMoveIntent", () => {
     "I say \"let's go to the kitchen\"",
     "I go to bed",
     "I might head to the lounge",
-    "I'm going to go to the kitchen",
     "Can you take me to the kitchen?",
     "I walk over to the nominee and talk",
     "I go to the moon",
