@@ -4828,8 +4828,10 @@ async def do_create_character(
     # NEXT season exactly like the menu's button — so when it fires we advance the per-user season
     # counter too (0057 parity), keeping the two paths consistent.
     restarting_post_season = False
+    prior_season_started = False
     try:
         state = await orwell_engine.get_game_state(user=owner)
+        prior_season_started = bool(isinstance(state, dict) and state.get("started"))
         if isinstance(state, dict) and state.get("started") and state.get("moment") == "post-season":
             restarting_post_season = True  # a chat "run it back" = a next season → advance the counter
             confirm_restart = True          # post-season createCharacter IS the restart
@@ -5037,6 +5039,15 @@ async def do_create_character(
                 orwell_seasons.increment_season(owner)
             except Exception:
                 pass  # the counter is best-effort meta-progression; never fail the restart over it
+        # ORW-1051: a confirmed in-chat restart over a season that had started opens a NEW season in THIS chat; mark where it
+        # begins so the narrator's window and the day summaries never carry the old season (the old rows stay stored).
+        if (confirm_restart and prior_season_started and isinstance(res, dict)
+                and res.get("started") and not res.get("createRefused")):
+            try:
+                from routes import chat_helpers as _ch_boundary
+                _ch_boundary.mark_season_boundary_for_owner(owner)
+            except Exception:
+                logger.warning("[orw-1051] season boundary not stamped for %s", owner, exc_info=True)
         # 2026-07-16 audit item 1 — the FIRST-SEASON session-rename edge (see
         # chat_helpers.rename_canonical_session_for_season_start's docstring). Placed AFTER the
         # restart-path season increment just above so a season-2+ restart reads the FRESH number,
@@ -5888,6 +5899,28 @@ async def do_move_to(content: str, owner: Optional[str] = None) -> Dict:
         if isinstance(res, dict) and res.get("room") and isinstance(res.get("present"), list):
             # ORW-501 (review 4502563245): the HARD ROSTER in the turn's opening instructions was for the room the player just LEFT. The tool result carries the destination's own people; say so in the result itself (no change to the system prompt).
             res = {**res, "rosterNote": "The player has moved. The HARD ROSTER you were given at the start of this turn was for the room they left; from here on the people in the room are `present` in this result, and `nearby` are the adjacent rooms."}
+        return {"output": json.dumps(res, indent=2), "exit_code": 0}
+    except Exception as e:
+        return {"error": f"engine error: {e}", "exit_code": 1}
+
+
+async def do_search_for_houseguest(content: str, owner: Optional[str] = None) -> Dict:
+    """ORW-934: the player looks for a named houseguest; the engine walks the house leg by leg. `content` is the tool args JSON ({name, maxLegs?})."""
+    from src import orwell_engine
+    try:
+        args = {}
+        try:
+            args = json.loads(content) if content else {}
+        except Exception:
+            args = {"name": (content or "").strip()}
+        if not isinstance(args, dict):
+            args = {}
+        max_legs = args.get("maxLegs")
+        res = await orwell_engine.search_for_houseguest(str(args.get("name", "")), max_legs if isinstance(max_legs, int) and not isinstance(max_legs, bool) and max_legs >= 1 else None, user=owner)
+        if res is None:
+            return {"output": "No game is running, or that name is not a houseguest in the house.", "exit_code": 0}
+        await _refresh_after_model_progression(owner, res)
+        _note_narrator_view(owner, res)
         return {"output": json.dumps(res, indent=2), "exit_code": 0}
     except Exception as e:
         return {"error": f"engine error: {e}", "exit_code": 1}

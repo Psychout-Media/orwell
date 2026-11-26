@@ -1477,6 +1477,7 @@ const TOOL_META = {
   markHouseguestMet:   { name: 'Mark Met',           desc: 'Mark a houseguest introduced',     cat: 'Game', ctx: '~100' },
   whereabouts:         { name: 'Whereabouts',        desc: 'Room, presence and sightlines',    cat: 'Game', ctx: '~150' },
   moveTo:              { name: 'Move To',            desc: 'Walk the player to a room',        cat: 'Game', ctx: '~100' },
+  searchForHouseguest: { name: 'Search For Houseguest', desc: 'Walk the house leg by leg to find one', cat: 'Game', ctx: '~150' },
   socialInitiatives:   { name: 'Social Initiatives', desc: 'Who wants to approach the player', cat: 'Game', ctx: '~150' },
   npcVoice:            { name: 'NPC Voice',          desc: 'A houseguest\'s bounded voicing view', cat: 'Game', ctx: '~200' },
   confide:             { name: 'Confide',            desc: 'Press an ally to open up',         cat: 'Game', ctx: '~150' },
