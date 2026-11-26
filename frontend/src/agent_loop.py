@@ -13677,6 +13677,13 @@ async def _stream_agent_loop_impl(
         except Exception as _wr_err:
             logger.warning(f"[orwell] post-turn wrong-room check failed: {_wr_err}")
 
+        # ORW-1009 - a houseguest's report of where someone else was seen must come from a recorded sighting: next-turn re-ground, closed-set, never edits prose.
+        try:
+            from routes.chat_helpers import record_post_turn_sighting_check
+            await record_post_turn_sighting_check(owner, _turn_narration_full)
+        except Exception as _sg_err:
+            logger.warning(f"[orwell] post-turn sighting check failed: {_sg_err}")
+
         # ORW-78 (A94) - the FALSE-PREMISE backstop: 'the nominee' voiced as a person in play while the engine has no nominees (before nominations). Closed-set, post-turn, next-turn re-ground.
         try:
             from routes.chat_helpers import record_post_turn_false_premise_check
