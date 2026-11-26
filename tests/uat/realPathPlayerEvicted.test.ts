@@ -1,15 +1,18 @@
 import { describe, it, expect } from "vitest";
 import { PLAYER } from "../../src/domain/ids";
 import { renderHostBlock } from "../../src/engine/momentPrompts";
-import { playUntil, type Stop } from "../realpath/playedSeason";
+import { playUntil, wfScan, type Stop } from "../realpath/playedSeason";
+import { firstSeedWhere } from "../support/firstSeedWhere";
 
 /**
  * ORW-719: the PLAYER is voted out of a PLAYED game (ORW-813: before, the board was set by hand - the HOH chosen, the player put on the block - and sentinels planted in the hidden
- * layer). Seed 16, the scripted talking player: the house votes the player out at the first eviction. (1) The two cards the player owes (their exit interview, then the
+ * layer). ORW-894: the seed is picked by a scan (a season where the house votes the player out; the old seed 16 is the hint), not pinned. (1) The two cards the player owes (their exit interview, then the
  * watch-or-skip choice) each appear exactly once, in that order, survive a save/restore, and the season then ends. (2) The houseguests' goodbyes are voiced from the speaker's REAL
  * public record with the player, and none of the hidden material the season holds rides with them. HEAVY LANE (tests/uat/**, the `real-path` leg). Roles only.
  */
-const SEED_OUT = 16; // the house votes the player out at the first eviction (week 1)
+const HINT_OUT = 16; // last seed known to vote the player out at the first eviction (the scan tries it first)
+/** The first seed whose played season reaches the player's own goodbye night (the house voted the player out), with the game stopped there. */
+const evictedSeason = () => firstSeedWhere((seed) => playUntil(seed, goodbyeNow, { user: `wf-${seed}`, maxMessages: 8000 }), wfScan(HINT_OUT, "a season where the house votes the player out"));
 const goodbyeNow = (s: Stop): boolean => { const ev = s.sess.getGameState().eviction; return ev?.stage === "goodbye" && ev.evictee?.id === PLAYER; };
 const hiddenOf = (s: Stop): string[] => [
   ...s.engine.events.queryAll().filter((e) => e.hidden && !e.witnessSet.includes(PLAYER)).map((e) => String(e.content)),
@@ -19,6 +22,7 @@ const hiddenOf = (s: Stop): string[] => [
 describe("ORW-719 - the evicted player's own cards (played)", () => {
   it("raises the exit interview then the watch-or-skip choice, each exactly once, surviving a save/restore at each, and the season then ends with no further card for the player", async () => {
     const seen: string[] = []; let restoredSame = true; let after: string[] = [];
+    const { seed: SEED_OUT } = await evictedSeason();
     const at = await playUntil(SEED_OUT, (s) => !!s.sess.getGameState().finished, { user: `wf-${SEED_OUT}`,
       maxMessages: 8000,
       decide: (p, sess) => {
@@ -39,7 +43,7 @@ describe("ORW-719 - the evicted player's own cards (played)", () => {
 
 describe("ORW-719 - the goodbyes are voiced from the speaker's real record with the player (played)", () => {
   it("hands each speaker's public record (facts only), the rule rides the eviction moment, and none of the hidden material the season holds is in it", async () => {
-    const at = await playUntil(SEED_OUT, goodbyeNow, { user: `wf-${SEED_OUT}`, maxMessages: 8000 });
+    const { at } = await evictedSeason();
     const ev = at.sess.getGameState().eviction;
     const goodbyes = ev.host.goodbyes as Array<{ speaker: string; record: string[] }>;
     expect(goodbyes.length).toBeGreaterThan(0);

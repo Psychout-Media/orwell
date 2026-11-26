@@ -54,6 +54,8 @@ export interface BeatAnnouncement {
     saved?: EntityId;
     /** `eviction-result` only: the HOH broke a tied vote (E12 — never implies an extra "HOH ballot"). */
     tieBroken?: boolean;
+    /** `eviction-result` only (ORW-919): the public count, as the host states it ("By a vote of 9 to 4") - totals only, never a voter (E12). Absent when the ballots do not back the evictee (a twist decided it) or for a Final 3 eviction. */
+    votes?: { evict: number; keep: number };
     /** `comp-round-result` only: how many houseguests are still in the competition after this round's drops. */
     remaining?: number;
     /** `final-hoh-part` only: which part (1 or 2) the subject just won. */
@@ -161,14 +163,18 @@ export function buildBeatAnnouncements(ev: BeatEvent, s: LiveSeasonState): BeatA
       const evictee = ev.participants[0];
       if (!evictee) return [];
       let tieBroken = false;
+      let votes: { evict: number; keep: number } | undefined;
       const e = s.eviction;
       if (e) {
         const tally = fullBallotTally(e);
         tieBroken = tally[e.nominees[0]] === tally[e.nominees[1]];
+        const other = e.nominees.find((n) => n !== evictee);
+        const against = tally[evictee] ?? 0, forOther = other !== undefined ? (tally[other] ?? 0) : 0;
+        if (e.nominees.includes(evictee) && against >= forOther && against + forOther > 0) votes = { evict: against, keep: forOther }; // ORW-919: the public count; none when a twist overrode the ballots
       }
       return [{
         kind: "eviction-result", week, subjects: [evictee],
-        detail: { ...(s.hoh ? { by: s.hoh } : {}), ...(tieBroken ? { tieBroken: true } : {}) },
+        detail: { ...(s.hoh ? { by: s.hoh } : {}), ...(tieBroken ? { tieBroken: true } : {}), ...(votes ? { votes } : {}) },
       }];
     }
     case "final-eviction": {
@@ -236,7 +242,9 @@ export function announcementHeadline(a: BeatAnnouncement, nameOf: NameResolver):
       return a.subjects.map((id) => `a vote to evict ${nameOf(id)}.`).join(" ");
     case "eviction-result": {
       const tie = a.detail?.tieBroken ? " after the Head of Household broke a tied vote" : "";
-      return `${nameOf(a.subjects[0]!)} has been evicted from the house${tie}.`;
+      const v = a.detail?.votes;
+      const count = v ? `By a vote of ${v.evict} to ${v.keep}, ` : ""; // ORW-919: the host's count (totals only, E12)
+      return `${count}${nameOf(a.subjects[0]!)} has been evicted from the house${tie}.`;
     }
   }
 }
