@@ -190,7 +190,8 @@ describe("B1: the player's own start choice on the createCharacter tool", () => 
     await expect(sb.mcp.player.callTool("createCharacter", { playerName: "The Player", seed: 7, start: 3 })).rejects.toThrow(/start/);
   });
 
-  it("start 'return' brings reputation and may cast a returner even with a NEW character; 'new' is a clean slate even when keeping the character", async () => {
+  // ORW-955: vitest 2 never enforced the 30 s limit on synchronous tests; this keeps that behaviour explicit
+  it("start 'return' brings reputation and may cast a returner even with a NEW character; 'new' is a clean slate even when keeping the character", { timeout: 120_000 }, async () => {
     let returned = false;
     for (let seed = 100; seed < 140 && !returned; seed++) {
       const r = await restartVia(`u-ret-${seed}`, seed, { start: "return" });

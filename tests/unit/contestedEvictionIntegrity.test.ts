@@ -200,7 +200,8 @@ describe("#1106 — a REAL contested eviction (player-HOH TIE) through the produ
    * vote, per-houseguest nomination styles, the pawn-or-target replacement reshape the block): seed 44 produces the
    * player-HOH tie. Same harness-only retune; the integrity story is unchanged.
    */
-  it("tie-break fires; a 3-fault storm at the beat opens the circuit; the tie still resolves clean; no data loss; stale/duplicate submits are inert", () => {
+  // ORW-955: vitest 2 never enforced the 30 s limit on synchronous tests; this keeps that behaviour explicit The seed search alone runs about 800 s on CI, so this test needs 1_200_000, not 120_000.
+  it("tie-break fires; a 3-fault storm at the beat opens the circuit; the tie still resolves clean; no data loss; stale/duplicate submits are inert", { timeout: 1_200_000 }, () => {
     // The tie is a property of (seed, user, driving-pattern) and the balance moves it, so SEARCH for a seed that
     // reaches a player-HOH tie (44 first — the last known one — then a tail) instead of re-pinning by hand every
     // time the difficulty changes. Anything other than "this seed had no tie" surfaces.

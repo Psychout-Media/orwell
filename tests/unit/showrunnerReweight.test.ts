@@ -237,7 +237,8 @@ describe("0101/#1401 Phase-2 — reweight OFF is byte-identical to today", () =>
 // ── (C) ON ⇒ genuinely re-paces the HIDDEN layer, while the CLOSED-SET spine stays neutral + capped ────
 
 describe("0101/#1401 Phase-2 — reweight ON re-paces the hidden layer within the mandate", () => {
-  it("re-orders the scheduler and moves the hidden layer, WITHOUT deciding a closed-set outcome", () => {
+  // ORW-955: vitest 2 never enforced the 30 s limit on synchronous tests; this keeps that behaviour explicit
+  it("re-orders the scheduler and moves the hidden layer, WITHOUT deciding a closed-set outcome", { timeout: 120_000 }, () => {
     let anyHiddenDiff = false;
     let anyReweighted = false;
     // NOTE on the mandate line (measured 2026-07-12): the thread scheduler's folds move ONLY the player's

@@ -20,7 +20,8 @@ function resolveLegally(s: Pick<GameSession, "submitDecision">, p: NonNullable<A
 }
 
 describe("ORW-513 - a competition's hours are counted once", () => {
-  it("after a competition-suppressed commit the tick anchor is the current in-game hour", () => {
+  // ORW-955: vitest 2 never enforced the 30 s limit on synchronous tests; this keeps that behaviour explicit
+  it("after a competition-suppressed commit the tick anchor is the current in-game hour", { timeout: 120_000 }, () => {
     GameSessionAdapter.setTimeOfDayEnabled(true);
     const reg = new GameSessionRegistry();
     const user = "u-comp-hours";
