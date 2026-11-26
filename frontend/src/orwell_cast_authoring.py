@@ -39,6 +39,7 @@ except Exception:  # pragma: no cover
         def debug(self, *a, **k): pass
     logger = _L()
 
+from src import orwell_cast_rules as R  # ORW-956: the one table of rules the prompt and the checks are built from
 from src.orwell_cast_gate import BIO_ASK_CHARS  # ORW-952: the prompt states the length the gate checks
 
 
@@ -46,62 +47,35 @@ from src.orwell_cast_gate import BIO_ASK_CHARS  # ORW-952: the prompt states the
 #
 # One text, used by new-cast authoring (`_SYSTEM`) and by the running-season upgrader / the new-cast
 # de-duplication pass (`PHOTO_SHEET_SYSTEM`). The checker below (`look_problems`) enforces the same rules.
-_ONCAMERA_BANNED_WORDS = (
-    "then", "says", "said", "narrates", "narrating", "jokes", "joke", "story", "monologue", "answers",
-    "answering", "asks", "humming", "calling out", "mid-sentence", "mid-story", "mid-joke", "everyone",
-    "someone", "whoever", "anyone", "stranger", "the group", "the others", "houseguests", "scrubs",
-    "scrubbing", "cooking", "washing", "counting", "ticking off", "hands flying", "gesturing", "paces",
-    "pacing",
-)
-_PHOTOHAIR_BANNED_WORDS = (
-    "usually", "by afternoon", "messy", "frizzy", "flyaway", "flyaways", "fly-away", "fly away", "ragged",
-    "unruly", "fuzzy", "frays", "frayed", "shoved",
-)
-PHOTO_SHEET_RULES = (
+_ONCAMERA_BANNED_WORDS = R.ONCAMERA_BANNED_WORDS  # ORW-956: the word lists live in the rules table, which prints them in the prompt
+_PHOTOHAIR_BANNED_WORDS = R.PHOTOHAIR_BANNED_WORDS
+# ORW-956: the example clauses of the rule sentences stay here (the short-list guard allowlists example lines in this file only).
+_RULE_EXAMPLES = {
+    "ex:main-piece": ', for example "leather jacket" or "flannel shirt"',
+    "ex:photohair": (' (for example "sleek neat braid over one shoulder", "glossy waves swept into a high ponytail", '
+                     '"buzzed close with a clean line-up")'),
+    "ex:build": " (for example broad-shouldered with willowy)",
+    "ex:posture": ' (not "He stands", "She stands", "He leans")',
+}
+# ORW-956: every rule sentence below is printed from the ONE table of rules (orwell_cast_rules.SENTENCES), the same table the checks
+# (`look_problems` and the gate) take their thresholds and codes from.
+_PHOTO_SHEET_TEMPLATE = (
     "PHOTO SHEET: three optional fields that say how this person looks on the day of the cast photo "
     "shoot. They are public and describe only what a camera sees. Use the houseguest's name and "
     "genderPresentation from the input: pronouns in every line must match it (man: he/him; woman: "
     "she/her; nonbinary: they/them), and the clothes fit how this person presents. "
-    # ORW-952: the pronoun-mismatch check rejects any other pronoun in these three lines, so the prompt says so.
-    "In the onCamera line, the photoHair line and the wardrobe, use no pronoun other than this person's own, never \"they\" or \"their\" for a man or a woman, and do not refer to anyone else. "
-    "(1) wardrobe: an array of 2-3 pieces, each under 60 characters, in camera-ready condition, with no "
-    "visible words, logos, band names or brand names, and each a real garment or accessory a shop sells, chosen from this person's job, hometown, age, money and personality (the style family is only a lean). Test every piece with one question: would this person, with this job, age, income and the weather of their hometown, really wear it on an ordinary day, at work or off it (not another trade's work gear, not the wrong season for the job, not above their money, not a costume)? The FIRST piece is the MAIN piece (the jacket, "
-    "shirt, dress or top). It must not repeat a main piece already listed in taken.mainPieces (compare "
-    "the garment, for example \"leather jacket\" or \"flannel shirt\"). "
-    "(2) photoHair: at most 90 characters: the SAME cut, length and colour as their written hair, "
-    "styled and neat for a photo shoot, said positively (for example \"sleek neat braid over one "
-    "shoulder\", \"glossy waves swept into a high ponytail\", \"buzzed close with a clean line-up\"). "
-    "Never use these words: usually, by afternoon, messy, frizzy, flyaway, ragged, unruly, fuzzy, "
-    "frays, shoved. "
-    "(3) onCamera: the MOMENT: ONE still moment a photographer captures, chosen for THIS person from "
-    "their demeanor, identity concept and voice energy. It says where they are in the house, how they "
-    "hold themselves, where they look, and one expression, in one to three short sentences of at most "
-    "240 characters. It names no room of the house (the room of the photo is chosen separately), so describe "
-    "posture, hands, gaze and expression only, with nothing that a room would have to supply (no counter, sofa, doorway "
-    "or window to lean on or sit at). Where the eyes go follows the person: on the camera for the open and "
-    "bold; off to one side, down, at something in the room or past the lens for the guarded, shy, distracted or "
-    "busy. Hands at rest or doing ONE simple thing (arms folded, hands in pockets, a hand on a knee, tucking hair, "
-    "adjusting a cuff, elbow propped). The expression follows the person too: smiling only if this person would; "
-    "a serious, wry, tired, guarded, amused-without-smiling or thoughtful face is as likely as a smile; never "
-    "mid-word. Usually no prop: a prop only when this person's job or life gives a reason, never a mug or cup, and "
-    "at most one. Only when the OPENING PATTERN line says closing read: yes, end with a read of who they are in 3-8 "
-    "words, introduced by \"the one who\"; otherwise end the line plainly. It is a still photograph, not a scene: no sequence of events, "
-    "no speech, no chores, no other people. Never use these words: "
-    + ", ".join(w for w in _ONCAMERA_BANNED_WORDS if w != "someone") + ", someone. "
-    "Use the pronoun that matches genderPresentation, but never open the line with the pronoun and a posture verb "
-    "(not \"He stands\", \"She stands\", \"He leans\"): open it with the spot, the hands, the gaze or the expression, "
-    "or the way an OPENING PATTERN line in the prompt says. Never use the houseguest's name in the onCamera line, only the pronoun. "
-    "(4) lookSignature: at most 90 characters: exactly ONE thing about how this person looks or dresses that someone would use to describe "
-    "them to a friend. It comes from their own life as the biography tells it (their job, hometown, family, hobby or a habit), is something "
-    "they could really buy or do where they live on their own money, and is something nobody else in the cast has: a different kind of thing "
-    "from every signature in taken.signatures. It is a real, ordinary choice (a hairstyle, jewellery, glasses, a garment worn a certain way, "
-    "facial hair, nails), never a costume, a uniform, a prop, a tattoo or anything with words on it, and the wardrobe carries it (the pieces and "
-    "this line agree). It is ONE thing, never a whole outfit. When it is about hair it names only the cut, length and texture that this card's own "
-    "hair and photoHair lines already carry. Colour follows the person too, not a default of black, charcoal or navy: no colour family on more than 3 of 15 main pieces, "
+    "[[rule:pronouns]]"
+    "[[rule:wardrobe-shape]][[rule:wardrobe-garment]][[rule:wardrobe-real]][[rule:wardrobe-taken]]"
+    "[[rule:wardrobe-pieces]][[rule:style-family]][[rule:label-leak]]"
+    "[[rule:photohair]]"
+    "[[rule:oncamera]]"
+    "[[rule:signature]]"
+    "Colour follows the person too, not a default of black, charcoal or navy: no colour family on more than 3 of 15 main pieces, "
     "and about a third of the cast wears a pattern (stripes, plaid, a floral), a plain graphic with no words, or visible wear (faded, worn-in). "
     "When the input carries castingType, the moment, the clothes and the hair styling should make this "
     "person read as their casting type at a glance, without naming the type."
 )
+PHOTO_SHEET_RULES = R.render(_PHOTO_SHEET_TEMPLATE, _RULE_EXAMPLES)
 PHOTO_SHEET_SYSTEM = (
     "You write the PHOTO SHEET for one reality-show houseguest from their PUBLIC profile only. "
     + PHOTO_SHEET_RULES +
@@ -118,7 +92,7 @@ PHOTO_SHEET_SYSTEM = (
 # around the player. The NPC's Day-1 read of the player is a SEPARATE concept owned entirely by the
 # engine's seeded, net-zero-balanced floor (the LLM does not author it) — so the authored storyline
 # cannot tilt the cast toward the player and the calibration (juryReach) balance is preserved.
-_SYSTEM = (
+_SYSTEM = R.render(
     "You are a CASTING PRODUCER for the reality show ORWELL (never call it Big Brother) building the secret bible for ONE houseguest. "
     "Write a rich, believable, reality-TV-plausible person with real depth and a life that exists "
     "ENTIRELY on its own. Output STRICT JSON only (no prose around it), with these keys:\n"
@@ -126,16 +100,16 @@ _SYSTEM = (
     "cast; do NOT rename or re-invent them. ONLY when the skeleton carries no name, supply a realistic, "
     "common, pronounceable FIRST and LAST name (two words), diverse and ordinary, NEVER invented/fantasy/"
     "gibberish.\n"
-    '  "identityConcept": ONE sentence (under 250 characters) naming who this exact person is, written about the '
+    '  "identityConcept": [[rule:identity-length]] naming who this exact person is, written about the '
     "name, gender, age and occupation on the card (the skeleton's identityConcept, if any, is a rough draft: rewrite it for THIS card; "
-    "do not open it with \"A\" and the age, the age is already printed beside it, and open it the way an OPENING PATTERN line in the prompt says, if there is one; do not put the person's name in it, and make it one complete phrase that reads as a sentence),\n"
-    '  "biography": a 2-3 sentence presentable backstory (life outside the house), under ' + str(BIO_ASK_CHARS) + ' characters,\n'
+    "do not open it with \"A\" and the age, the age is already printed beside it, and open it the way an OPENING PATTERN line in the prompt says, if there is one; [[rule:identity-no-name]], and make it one complete phrase that reads as a sentence),\n"
+    '  "biography": [[rule:bio-length]],\n'
     '  "vocation": echo the skeleton\'s occupation EXACTLY — it is already cast and IMMUTABLE; do NOT '
     "change it, and do NOT adopt a different job from the biography. The biography and the secrets must "
     "name the SAME job as the committed occupation (the engine keys the hidden stakes off vocation),\n"
     '  "physicalCharacteristics": { "heightBuild", "skinTone", "hair", "facialFeatures", '
     '"distinguishingMark", "ageLook", "style", "wardrobe", "lookSignature", "photoHair", "onCamera" } — short phrases '
-    "(wardrobe is an array, photoHair and onCamera short lines, see PHOTO SHEET below); this single facet is what BOTH "
+    "[[rule:look-fields]]; this single facet is what BOTH "
     "the portrait and the narration read, so make it concrete and distinctive. The look must COHERE "
     "with the houseguest's heritage/ethnicity in the skeleton (skin tone, hair, features that fit that "
     "background) — never a generic default; vary it widely across the cast. When the skeleton shows a "
@@ -151,27 +125,16 @@ _SYSTEM = (
     "STYLE AND CLOTHES START FROM THE PERSON: ask what a person of this age and job, from this hometown, with this money and "
     "personality, would really own and wear to be photographed for TV, and could buy in an ordinary shop in or near their hometown on their income, and write that. The skeleton's presentation is only a "
     "tiebreak between equal choices (a colour, a cut, one accent piece), never a theme to build the outfit from, and never blended "
-    "with another family (no rocker edge layered over bohemian). Interests and hobbies in the biography come from this person's own life (job, family, town, background), never from the look: a style does not hand a person a pastime. Write \"style\" as those real clothes in a phrase. Every piece is ONE "
-    "garment or accessory a shop sells (a shirt, a jacket, jeans, boots, a watch): no piece that combines two things (not \"a vest "
-    "over a polo\", not \"sneakers with a gold chain\": two pieces), no uniform worn as a style (never \"worn like a uniform\"), no "
-    "costume, no work badge, name tag or lanyard, no bare skin under a blazer, no hand-sewn or DIY decoration. "
+    "with another family (no rocker edge layered over bohemian). Interests and hobbies in the biography come from this person's own life (job, family, town, background), never from the look: a style does not hand a person a pastime. Write \"style\" as those real clothes in a phrase. "
     + PHOTO_SHEET_RULES + " "
-    "STORY MATCHES THE CARD (HARD): the biography is read beside the card, so it must agree with it. "
-    "Use ONLY the houseguest's pinned pronouns for the houseguest (other people keep their own, named by role); "
-    "state no age except the skeleton's exact age (a life stage or no number is better); name no body or face feature "
-    "(tooth gap, tattoo, glasses, scar, freckles) that your own physicalCharacteristics does not carry; and the show "
-    "is Orwell, never Big Brother. "
-    "AGE COHERENCE: hair, skin and ageLook must fit the stated age; no gray, silver or salt-and-pepper "
-    "hair under 35 unless it is written as dyed. BUILD COHERENCE: heightBuild must not combine "
-    "opposites (for example broad-shouldered with willowy). Keep the FITNESS LEVEL of the seeded "
-    "heightBuild: an athletic person stays athletic, a soft or slight one stays so; enrich the wording "
-    "only, in neutral, flattering terms (never \"gone soft\" or \"soft through the middle from long "
-    "shifts\"),\n"
+    "[[rule:story-matches]]"
+    "[[rule:age-coherence]]"
+    "[[rule:build-coherence]],\n"
     '  "voice": the houseguest\'s IDIOLECT — how THIS person talks, all season: { "register", '
     '"rhythm", "energy", "directness", "humor", "stressTell", "signature", "lexicon", "catchphrases" }. '
     'The first six are SHORT dial phrases (e.g. register "folksy", rhythm "rambling", humor "dry", '
     'stressTell "over-explains"); "signature" is ONE prose sentence capturing the texture of their talk; '
-    '"lexicon" is an array of 2-3 habitual filler words/phrases; "catchphrases" is an array of 2-3 '
+    '[[rule:voice]]; "catchphrases" is an array of 2-3 '
     'characteristic PHRASINGS this exact person falls back on — how THEY put things, grounded in their '
     'job/archetype/age (e.g. "at the end of the day", "we move", "I did not come here to make friends") — '
     'authentic verbal habits, NOT comedy bits. Ground the voice in the archetype, '
@@ -190,9 +153,11 @@ _SYSTEM = (
     "and backstory exist on their own but must NEVER be built around, reference, or revolve around any "
     "single 'player' or main character; there is no protagonist here, only a cast of equals. Make this "
     "person VISIBLY distinct from a generic warm, witty professional.\n"
+    "CARD TEXT CHECKS (HARD): [[rule:bio-no-stop]] [[rule:identity-story]] [[rule:no-copy]]\n"
     "OUTPUT CONTRACT (HARD, #1002): reply with a SINGLE raw JSON object and NOTHING else — no prose, "
     "no markdown, no ```json fences, no preamble, no chain-of-thought in the body. The first character "
-    "of your reply MUST be '{' and the last MUST be '}'. JSON only."
+    "of your reply MUST be '{' and the last MUST be '}'. JSON only.",
+    _RULE_EXAMPLES,
 )
 
 # #1002: the OpenAI/OpenRouter structured-output request — threaded onto the authoring call so a model
@@ -518,8 +483,8 @@ _AUTHOR_CONCURRENCY = 2
 # Quality floor (#3, FE-side guard): a degraded/thin authored field must never overwrite the richer
 # deterministic seeded floor in the engine. Since recordCastProfile only overwrites the fields it
 # receives, OMITTING a sub-floor field is the whole guard — the engine keeps its prior (seeded) value.
-_BIO_MIN_CHARS = 80          # a coherent presentable backstory is more than a clause
-_BIO_MIN_SENTENCES = 2       # >= 2 sentence terminators [.!?]
+_BIO_MIN_CHARS = R.BIO_FLOOR_CHARS          # a coherent presentable backstory is more than a clause
+_BIO_MIN_SENTENCES = R.BIO_FLOOR_SENTENCES       # >= 2 sentence terminators [.!?]
 _HIDDEN_ENTRY_MIN_CHARS = 12  # a real secret/weakness is more than a stray word
 _SENTENCE_TERMINATORS = re.compile(r"[.!?]")
 # `vocation` (#849) is a SHORT occupation noun phrase ("court reporter") — not a sentence. A value that
@@ -1084,9 +1049,9 @@ _BAND_BRAND_NAMES = (
 )
 _BAND_BRAND_RE = re.compile(
     r"(?<![\w])(?:%s)(?![\w])" % "|".join(re.escape(n) for n in _BAND_BRAND_NAMES), re.I)
-_ONCAMERA_MAX = 240
-_SPOT_MAX = 3  # at most this many houseguests share one house spot in their on-camera moment
-_PHOTOHAIR_MAX = 90
+_ONCAMERA_MAX = R.ONCAMERA_MAX_CHARS
+_SPOT_MAX = R.SPOT_MAX  # at most this many houseguests share one house spot in their on-camera moment
+_PHOTOHAIR_MAX = R.PHOTOHAIR_MAX_CHARS
 _SPOT_PATTERNS = (
     ("kitchen", re.compile(r"\bkitchen\b", re.I)), ("living room", re.compile(r"\bliving room\b", re.I)),
     ("dining room", re.compile(r"\bdining room\b", re.I)), ("backyard", re.compile(r"\bback ?yard\b", re.I)),
@@ -1193,11 +1158,11 @@ _LOOK_PROBLEM_TEXT = {
     "gray-hair-young": "hair reads gray/silver/salt-and-pepper for someone under 35 (write it as dyed, or pick a natural colour that fits their age)",
     "build-contradiction": "heightBuild combines opposites (broad/stocky/heavyset/burly/thick with willowy/slight/petite/lanky/reedy/slender, or tall with petite)",
     "style-wrong-family": "style/wardrobe reads as a different style family than the skeleton's presentation (stay inside the presentation family, never blend)",
-    "wardrobe-shape": "wardrobe must be 2-3 specific pieces, each with no logo, lettering, slogan, printed words, or band or brand name",
+    "wardrobe-shape": f"wardrobe must be {R.WARDROBE_MIN_PIECES}-{R.WARDROBE_MAX_PIECES} specific pieces, each with no logo, lettering, slogan, printed words, or band or brand name",
     "oncamera-shape": "onCamera is a still moment of posture, hands, gaze and expression, with no room named",
-    "oncamera-scene": "onCamera must be ONE still moment, at most 240 characters, with exactly one spot, and none of these words: " + ", ".join(_ONCAMERA_BANNED_WORDS) + " (no sequence, speech, chores or other people)",
+    "oncamera-scene": f"onCamera must be ONE still moment, at most {R.ONCAMERA_MAX_CHARS} characters, with exactly one spot, and none of these words: " + ", ".join(_ONCAMERA_BANNED_WORDS) + " (no sequence, speech, chores or other people)",
     "pronoun-mismatch": "a pronoun in onCamera, photoHair or wardrobe contradicts genderPresentation (man: he/him; woman: she/her; nonbinary: they/them)",
-    "photohair-messy": "photoHair must be at most 90 characters and positive: neat, styled, the same cut as the written hair, and none of: usually, by afternoon, messy, frizzy, flyaway, ragged, unruly, fuzzy, frays, shoved",
+    "photohair-messy": f"photoHair must be at most {R.PHOTOHAIR_MAX_CHARS} characters and positive: neat, styled, the same cut as the written hair, and none of: " + ", ".join(R.PHOTOHAIR_BANNED_WORDS),
     "oncamera-taken": "the house spot in onCamera already holds three houseguests (see taken.spots); choose a spot with fewer than three",
     "wardrobe-unreal": "a wardrobe piece or the style line is not a real garment (a work badge, lanyard or name tag, a costume, a uniform worn as a style, bare skin under a blazer, hand-sewn decoration); use ordinary pieces a shop sells",
     "wardrobe-multi": "a wardrobe piece is two things in one (a vest over a polo, sneakers with a gold chain): write each garment as its own piece",
@@ -1254,8 +1219,8 @@ def look_problems(profile: dict, npc: dict, taken: Optional[dict] = None) -> lis
         if fam["id"] not in mentioned and any(m != fam["id"] for m in mentioned):
             out.append("style-wrong-family")
     if "wardrobe" in pc and (
-            not isinstance(wardrobe, list) or not 2 <= len(items) <= 3
-            or any(len(i) > 60 or _WARDROBE_TEXT_RE.search(i) or _BAND_BRAND_RE.search(i) for i in items)):
+            not isinstance(wardrobe, list) or not R.WARDROBE_MIN_PIECES <= len(items) <= R.WARDROBE_MAX_PIECES
+            or any(len(i) > R.WARDROBE_PIECE_MAX_CHARS or _WARDROBE_TEXT_RE.search(i) or _BAND_BRAND_RE.search(i) for i in items)):
         out.append("wardrobe-shape")
     if items or pc.get("style"):
         from src import orwell_cast_realism as _R
@@ -1270,7 +1235,7 @@ def look_problems(profile: dict, npc: dict, taken: Optional[dict] = None) -> lis
         out.append("label-leak")  # an internal category name ("red-pink") in a card text: the gate scrubs it, a first pass is asked again
     if "lookSignature" in pc:
         sg = pc.get("lookSignature")
-        if (not isinstance(sg, str) or not sg.strip() or len(sg) > 90 or _WARDROBE_TEXT_RE.search(sg) or _BAND_BRAND_RE.search(sg)
+        if (not isinstance(sg, str) or not sg.strip() or len(sg) > R.SIGNATURE_MAX_CHARS or _WARDROBE_TEXT_RE.search(sg) or _BAND_BRAND_RE.search(sg)
                 or _INK_RE.search(sg)):
             out.append("signature-shape")
         else:
@@ -1397,6 +1362,168 @@ def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
     return list(problems)
 
 
+
+
+# ── ORW-956: a failing field is re-asked once with the failing rule's own sentence, before a fallback may delete it ──────────────────
+# `apply_look_fallbacks` (and the parse floors) used to DELETE a field a check refused: an onCamera line with one banned word cost the
+# card its whole on-camera line, a wardrobe a second chance. `repair_failing_fields` finds which fields a fallback would delete or replace,
+# asks the writer for exactly those fields in ONE call (so at most one targeted repair per field, one extra call per card and place),
+# and keeps a new value only when it clears the rules it was asked for and brings no new look problem. Whatever is still failing then
+# goes to the fallback exactly as before, so the repair can only add a field, never remove one.
+_REPAIR_PHYS_FIELDS = ("wardrobe", "photoHair", "onCamera", "lookSignature", "style", "hair", "heightBuild")
+_REPAIR_TOP_FIELDS = ("biography", "identityConcept")
+_REPAIR_DROP_ONLY = ("wardrobe", "photoHair", "onCamera", "lookSignature")  # these vanish; style, hair and heightBuild are replaced by the brief
+
+
+def parse_dropped(text, npc: dict) -> dict:
+    """{field: code} for the biography / identityConcept the writer sent that `parse_authored_profile` then dropped on a floor
+    (`bio-floor`: under 80 characters or fewer than 2 sentences; `identity-length`: outside 12 to 250 characters)."""
+    try:
+        obj = _extract_json(text or "") if isinstance(text, str) else None
+    except Exception:  # failsoft-ok: no object, nothing was dropped by a floor
+        return {}
+    if not isinstance(obj, dict):
+        return {}
+    out = {}
+    bio = obj.get("biography")
+    if isinstance(bio, str) and bio.strip() and not _biography_meets_floor(bio.strip()):
+        out["biography"] = "bio-floor"
+    ic = obj.get("identityConcept")
+    if isinstance(ic, str) and ic.strip() and not R.IDENTITY_PARSE_MIN_CHARS <= len(" ".join(ic.split())) <= R.IDENTITY_MAX_CHARS:
+        out["identityConcept"] = "identity-length"
+    return out
+
+
+def _copy_profile(profile: dict) -> dict:
+    out = dict(profile)
+    if isinstance(out.get("physicalCharacteristics"), dict):
+        out["physicalCharacteristics"] = {k: (list(v) if isinstance(v, list) else v) for k, v in out["physicalCharacteristics"].items()}
+    return out
+
+
+def fields_a_fallback_changes(profile: dict, npc: dict, problems: list) -> list:
+    """The look fields `apply_look_fallbacks` would delete (wardrobe, photoHair, onCamera, lookSignature) or replace with the brief (style,
+    hair, heightBuild) for these problems. A deterministic mend that keeps the field (a split wardrobe, a scrubbed label, a cut
+    on-camera line) is not a deletion, so it does not count."""
+    pc = (profile or {}).get("physicalCharacteristics")
+    if not isinstance(pc, dict):
+        return []
+    probe = _copy_profile(profile)
+    apply_look_fallbacks(probe, npc, list(problems))
+    after = probe.get("physicalCharacteristics") or {}
+    out = []
+    for f in _REPAIR_PHYS_FIELDS:
+        if pc.get(f) in (None, "", [], {}):
+            continue
+        gone = after.get(f) in (None, "", [], {})
+        if gone or (f not in _REPAIR_DROP_ONLY and after.get(f) != pc.get(f)):
+            out.append(f)
+    return out
+
+
+def _repair_card(profile: dict, npc: dict) -> dict:
+    card = {k: v for k, v in (npc or {}).items()}
+    for k, v in (profile or {}).items():
+        if k == "physicalCharacteristics" and isinstance(v, dict):
+            card[k] = {**(card.get(k) if isinstance(card.get(k), dict) else {}), **v}
+        elif v not in (None, "", [], {}):
+            card[k] = v
+    return card
+
+
+def repair_ask(field_codes: dict, npc: dict, taken: Optional[dict] = None) -> str:
+    """The one-call ask: for each failing field, the sentence of every rule it failed, worded as the prompt words it."""
+    first = str((npc or {}).get("name") or "").split(" ")[0] or "the houseguest"
+    extras = {**_RULE_EXAMPLES, "name": first}
+    parts = []
+    for field, codes in field_codes.items():
+        sents = []
+        for c in codes:
+            sent = R.sentence(c, extras)
+            if sent not in sents:
+                sents.append(sent)
+        parts.append(f"{field} (it failed {', '.join(codes)}): " + " ".join(sents))
+    tail = ""
+    if isinstance(taken, dict) and taken:
+        tail = " taken = " + json.dumps(taken, ensure_ascii=False) + "."
+    return ("Only this needs fixing: " + " | ".join(parts) + "." + tail + " Reply with ONLY a JSON object holding just the field or fields "
+            "named above (the look fields inside physicalCharacteristics); change nothing else.")
+
+
+def _reply_field(obj: dict, field: str):
+    phys = obj.get("physicalCharacteristics")
+    if isinstance(phys, dict) and field in phys:
+        return phys[field]
+    return obj.get(field)
+
+
+def _clean_repair_value(field: str, v):
+    if field == "wardrobe":
+        return _clean_sheet({"wardrobe": v}).get("wardrobe")
+    if isinstance(v, str) and v.strip():
+        out = " ".join(v.split())
+        return out[:R.SIGNATURE_MAX_CHARS] if field == "lookSignature" else out
+    return None
+
+
+async def repair_failing_fields(profile: dict, npc: dict, problems: list, llm_fn, taken: Optional[dict] = None,
+                                dropped: Optional[dict] = None) -> dict:
+    """Re-ask, ONCE and in ONE model call, every field a fallback would delete or replace (and the biography / identityConcept a parse
+    floor dropped: `dropped` = `parse_dropped(...)`), with the sentence of the rule it failed. Mutates `profile` with each new value
+    that clears the rules it was asked for and brings no new look problem; returns {"asked": [...], "fixed": [...]} (no call, and empty
+    lists, when nothing is at risk). Call failures and unusable replies leave `profile` as it was. Codes and field names only in logs."""
+    asked: dict = {}
+    for f in fields_a_fallback_changes(profile, npc, problems):
+        codes = [r.code for r in R.rules_for_field(f, problems) if r.repair]
+        if codes:
+            asked[f] = codes
+    for f, code in (dropped or {}).items():
+        if (profile or {}).get(f) in (None, ""):  # a field the first draft lost on a floor and nothing has put back since
+            asked.setdefault(f, [code])
+    if not asked:
+        return {"asked": [], "fixed": []}
+    card = _repair_card(profile, npc)
+    messages = compact_rewrite_messages(card, repair_ask(asked, npc, taken))
+    try:
+        text = await llm_fn(messages)
+    except Exception as e:  # failsoft-ok: a failed repair leaves the fallback to run as it always did
+        logger.info(f"[cast-repair] call failed ({type(e).__name__})")
+        return {"asked": list(asked), "fixed": []}
+    obj = _extract_json(text or "") if isinstance(text, str) else None
+    if not isinstance(obj, dict):
+        return {"asked": list(asked), "fixed": []}
+    fixed = []
+    base_problems = set(problems)
+    for f, codes in asked.items():
+        val = _clean_repair_value(f, _reply_field(obj, f))
+        if val is None:
+            continue
+        trial = _copy_profile(profile)
+        if f in _REPAIR_TOP_FIELDS:
+            trial[f] = val
+            if f == "biography":
+                ok = (_biography_meets_floor(val) and not story_problems(trial, npc)
+                      and not [c for c in card_consistency(trial, npc) if c.startswith("story-")])
+            else:
+                ok = (R.IDENTITY_PARSE_MIN_CHARS <= len(val) <= R.IDENTITY_MAX_CHARS
+                      and not [c for c in card_consistency(trial, npc) if c.startswith("identity-")])
+        else:
+            pc = trial.get("physicalCharacteristics")
+            trial["physicalCharacteristics"] = pc = dict(pc) if isinstance(pc, dict) else {}
+            pc[f] = val
+            after = set(look_problems(trial, npc, taken))
+            ok = not (after & set(codes)) and not (after - base_problems)
+        if ok:
+            if f in _REPAIR_TOP_FIELDS:
+                profile[f] = val
+            else:
+                pcw = profile.get("physicalCharacteristics")
+                if not isinstance(pcw, dict):
+                    pcw = profile["physicalCharacteristics"] = {}
+                pcw[f] = val
+            fixed.append(f)
+    logger.info(f"[cast-repair] asked {','.join(asked)} fixed {','.join(fixed) or '-'}")
+    return {"asked": list(asked), "fixed": fixed}
 
 
 # ── ORW-388: the story must match the card ─────────────────────────────────────────────────────────────
@@ -1775,7 +1902,7 @@ def story_problems(profile: dict, npc: dict, cast=None) -> list:
 # photo-sheet pass, which may still fill them; reported, RED at the end of the run if still missing, and the card is
 # listed by `unauthored_ids` so the backfill takes it again), identity-missing (genesis owns the identity; the writer cannot
 # make one and no filler is invented), identity-* (an identity problem the repair could not settle).
-_IDENTITY_MIN_CHARS = 20
+_IDENTITY_MIN_CHARS = R.IDENTITY_MIN_CHARS
 _REQUIRED_LOOK_FIELDS = ("wardrobe", "onCamera", "photoHair")
 
 
@@ -1979,6 +2106,14 @@ async def write_photo_sheet(card: dict, taken: Optional[dict], llm_fn: LlmFn) ->
                     + (" - retrying once" if attempt == 0 else ""))
     if not fields:
         return {}, problems
+    # ORW-956: a field the fallback would delete is re-asked ONCE first (one extra call, with the failing rules' sentences)
+    holder = {"physicalCharacteristics": dict(fields)}
+    rep_result = await repair_failing_fields(holder, card, problems, llm_fn, taken)
+    if rep_result["fixed"]:
+        fields = {k: v for k, v in holder["physicalCharacteristics"].items() if k in SHEET_FIELDS}
+        problems = sheet_problems(fields, card, taken)
+        if not problems:
+            return fields, []
     out = sheet_fallbacks(fields, card, problems)
     logger.warning(f"[photo-sheet] fell back for {hid} after the retry ({', '.join(problems)})")
     return out, problems
@@ -2127,7 +2262,7 @@ async def fit_audit_pass(cards: list, llm_fn: LlmFn, write_look_fn, limit: int =
         if isinstance(sig, str) and sig.strip() and ("signature" in reason.lower() or "wardrobe" in new):
             cats = [c for c in _R.tag_card({"physicalCharacteristics": {"lookSignature": sig}}).get("signature", []) if c != "other"]
             if not any(len([h for h in held.get(c, []) if h != hid]) >= cap for c in cats):
-                new["lookSignature"] = " ".join(sig.split())[:90]
+                new["lookSignature"] = " ".join(sig.split())[:R.SIGNATURE_MAX_CHARS]
         new = {k: ([_R.scrub_labels(x) for x in v] if isinstance(v, list) else _R.scrub_labels(v)) for k, v in new.items()}
         if not new:
             logger.info(f"[fit-audit] rewrite for {hid} carried nothing usable (reply keys={sorted(str(k) for k in fresh)[:6]}, wardrobe pieces={len(wd)}, "
@@ -2333,8 +2468,7 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
             # a small rotated list keyed by this card's slot, so cards written in parallel still open differently
             parts.append("OPENING PATTERN for this card: " + "; ".join(f"{k} {v}" for k, v in op.items()))
         if parts:
-            taken_rule = ("\nCAST-WIDE TAKEN LIST (the other houseguests occupy this ground — do NOT "
-                          "duplicate it or drift this houseguest toward it): " + "; ".join(parts) + ".")
+            taken_rule = ("\n" + R.render("[[rule:taken]]", _RULE_EXAMPLES) + ": " + "; ".join(parts) + ".")
     user = (
         f"Houseguest to flesh out: {name}.\n"
         f"Public skeleton (build FROM this, never contradict it): {json.dumps(skeleton, ensure_ascii=False)}\n"
@@ -2344,10 +2478,7 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
         f"{pronoun_rule}"
         f"{hand_rule}"
         f"{taken_rule}\n"
-        f"The skeleton's background and identityConcept are FACTS about {name}: the biography must agree with them "
-        f"(same job, same years of service, same workplace) and may add to them, never contradict them.\n"
-        f"The biography is about {name} and no one else: write it about {name} by that exact name (or by role), "
-        f"and never give them any other first name. Use the first name at least once in the biography.\n"
+        + R.render("[[rule:background-years]]\n[[rule:bio-subject]]\n", {**_RULE_EXAMPLES, "name": name}) +
         f"Write {name}'s secret bible as JSON now — their own independent life, no protagonist."
     )
     return [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": user}]
@@ -2451,7 +2582,7 @@ def parse_authored_profile(text: str, houseguest_id: str) -> Optional[dict]:
     # (genesis's was written before the name, gender and age were settled and is never shown once this lands).
     if isinstance(obj.get("identityConcept"), str):
         ic = " ".join(obj["identityConcept"].split())
-        if 12 <= len(ic) <= 250:  # ORW-437: the prompt promises "under 250 characters"
+        if R.IDENTITY_PARSE_MIN_CHARS <= len(ic) <= R.IDENTITY_MAX_CHARS:  # ORW-437: the prompt promises "under 250 characters"
             out["identityConcept"] = ic
     # The PUBLIC occupation (#849) — forwarded so the engine keeps it in lockstep with the biography and
     # re-grounds the hidden stakes off the job the player will infer. A blank / runaway value is dropped
@@ -2484,7 +2615,7 @@ def parse_authored_profile(text: str, houseguest_id: str) -> Optional[dict]:
                 facet["photoHair"] = " ".join(ph.split())
             ls = phys.get("lookSignature")
             if isinstance(ls, str) and ls.strip():
-                facet["lookSignature"] = " ".join(ls.split())[:90]
+                facet["lookSignature"] = " ".join(ls.split())[:R.SIGNATURE_MAX_CHARS]
             out["physicalCharacteristics"] = facet
 
     # The authored VOICE fingerprint (0084 / the 2026-07-11 expressive-e2e widening): forwarded WHOLE
@@ -3110,6 +3241,7 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             _no_bio = lambda p: [] if (_biography_meets_floor(str((p or {}).get("biography") or "").strip())
                                        or _has_floor_biography(npc)) else ["story-no-biography"]
             problems = look_problems(profile, npc) + story_problems(profile, npc, cast) + _no_bio(profile)
+            _dropped = parse_dropped(text, npc)  # ORW-956: the biography / identityConcept the parse floors deleted from the first draft
             if problems:
                 logger.info(f"[cast-authoring] look check failed for {hid} ({', '.join(problems)}) — retrying once")
                 _spend_attempt(ukey, hid)
@@ -3128,11 +3260,23 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                         and not story_problems(look_profile, npc, cast) and not _no_bio(look_profile)
                         and not facet_hand_conflicts(look_profile, npc) and _lint_identity(look_profile)):
                     profile = look_profile
+                    _dropped = {}
                 else:
+                    # ORW-956: ONE targeted repair call for the fields a fallback would delete, before it does
+                    if not _given_up(ukey, hid):
+                        _spend_attempt(ukey, hid)
+                        _fixed = await repair_failing_fields(profile, npc, problems, llm_fn, dropped=_dropped)
+                        if _fixed["fixed"]:
+                            problems = look_problems(profile, npc) + story_problems(profile, npc, cast) + _no_bio(profile)
+                        _dropped = {}
                     applied = apply_look_fallbacks(profile, npc, problems)
                     logger.warning(
                         f"[cast-authoring] look fell back to the seeded brief for {hid} after the retry "
                         f"({', '.join(applied)}) — look-fallback")
+            elif _dropped and not _given_up(ukey, hid):
+                # ORW-956: nothing failed a look check, but a parse floor deleted the biography or identity line: ask for it once
+                _spend_attempt(ukey, hid)
+                await repair_failing_fields(profile, npc, [], llm_fn, dropped=_dropped)
             # ORW-388: whatever the retry did not clear is mended deterministically (the biography here, and the card's
             # identityConcept, which genesis wrote and no retry can rewrite). Codes and the id only in the log.
             repaired = [] if _gate_on else repair_story(profile, npc, cast)  # ORW-431: the gate below mends (and counts) it
