@@ -4519,6 +4519,8 @@ export class GameSessionAdapter implements GameSession {
       ...(isActive ? (() => { const r = this.statedReasonsFor(id); return r.length ? { statedReasons: r } : {}; })() : {}),
       // ORW-737: what they DECLARE to the player about keeping them (the engine's call; the private vote never crosses). Absent when nothing is at stake.
       ...(isActive ? (() => { const d = this.declaredStanceFor(id); return d ? { declaredStance: d } : {}; })() : {}),
+      // ORW-749: what their own consent roll will do with a player pitch, told BEFORE the narrator speaks so it never voices a yes or a no the engine then contradicts.
+      ...(isActive && this.tellsVisibleFor(id) ? (() => { const c = this.dealConsentStanceFor(id); return c ? { dealConsent: c } : {}; })() : {}),
       whereabouts: room ? { room, present } : null,
       // ORW-349: the same fact held twice (a retold rumour, the same overhear) is listed once, newest kept; the cap then counts DISTINCT facts. Deduped over the whole list BEFORE the cap, so repeats in the recent tail never crowd out distinct older facts.
       knows: dedupeKeepNewest(this.voiceKnownFacts(id).map((f) => this.humanizeTidy(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP),
@@ -19115,6 +19117,15 @@ export class GameSessionAdapter implements GameSession {
   private dealConsentRefusal(npcId: EntityId, kind: DealReqKind, direction?: "offer" | "ask", bonus = 0): DealRefusal | null {
     const live = this.live;
     if (!live) return null;
+    const d = this.dealConsentDecision(npcId, kind, direction, bonus, (w) => recordWhy(live, npcId, w)); // ORW-305: record WHY (a record only)
+    return d.accept || !d.reason ? null : this.statedRefusal(npcId, d.reason);
+  }
+  /**
+   * ORW-749: the ENGINE's consent roll for one ask, with no side effect unless a `why` sink is passed. `makeDeal` (through `dealConsentRefusal`) and the narrator's per-turn read (`dealConsentStanceFor`) both use it,
+   * so what the narrator is told before it speaks is the same decision `makeDeal` will make (the jitter is keyed on the week and phase, not on the call).
+   */
+  private dealConsentDecision(npcId: EntityId, kind: DealReqKind, direction?: "offer" | "ask", bonus = 0, why?: Parameters<typeof decideDealConsent>[1]): ReturnType<typeof decideDealConsent> {
+    const live = this.live!;
     const e = this.rel.edge(npcId, PLAYER);
     const entries = this.npcMemoryEnabled ? this.memoryEntriesSeenBy(npcId, live.npcMemory?.[npcId]?.[PLAYER], PLAYER) : undefined;
     // standalone memory reads the ledger on its own; otherwise the residual floor (what the edge no longer carries) - the same split `memoryTiltFor` makes
@@ -19135,8 +19146,16 @@ export class GameSessionAdapter implements GameSession {
         return bonus || rep ? { mood: bonus + rep } : {};
       })(),
       ...(live.playedGame === true ? { opposed: this.ownPushAgainstPlayer(npcId) } : {}),
-    }, (w) => recordWhy(live, npcId, w)); // ORW-305: record WHY (a record only)
-    return d.accept || !d.reason ? null : this.statedRefusal(npcId, d.reason);
+    }, why);
+    return d;
+  }
+  /** ORW-749: what a present houseguest's own consent roll says to a player pitch NOW, over the asks a player makes: `will-accept` (every ask), `will-decline` (every ask), else `undecided` (it depends on the ask). Played games, consent on; a closed word, never a number or a reason. */
+  dealConsentStanceFor(id: EntityId): "will-accept" | "will-decline" | "undecided" | undefined {
+    const s = this.live;
+    if (!this.declaredStanceEnabled || !this.npcDealConsentEnabled || !s || s.playedGame !== true || id === PLAYER || !this.livingIds().includes(id)) return undefined;
+    const kinds: DealReqKind[] = ["safety", "vote", "target-other", "final-two", "comp-throw", "veto-save"];
+    const accepts = kinds.map((k) => this.dealConsentDecision(id, k, isPositiveObligation(k) ? "ask" : undefined).accept);
+    return accepts.every(Boolean) ? "will-accept" : accepts.some(Boolean) ? "undecided" : "will-decline";
   }
   /**
    * ORW-608 (Ryne 2026-11-17, (a)): the houseguest gives a reason in their own words - honest, softened or a cover story, as `explainDecision` decides from their candor.
@@ -22300,6 +22319,7 @@ export class GameSessionAdapter implements GameSession {
           ...(v.rivalry ? { rivalry: v.rivalry } : {}),
           ...(v.statedReasons ? { statedReasons: v.statedReasons } : {}),
           ...(v.declaredStance ? { declaredStance: v.declaredStance } : {}),
+          ...(v.dealConsent ? { dealConsent: v.dealConsent } : {}),
           // ORW-338: the two ORW-317 lines `npcVoice` already gated (flags, public kinds, this week, trust + candor); pushed, never recomputed here.
           ...(v.moodCause ? { moodCause: v.moodCause } : {}),
           ...(v.rememberedAboutOthers?.length ? { rememberedAboutOthers: v.rememberedAboutOthers } : {}),
@@ -22311,7 +22331,7 @@ export class GameSessionAdapter implements GameSession {
       .filter(
         (e): e is NonNullable<typeof e> =>
           e !== null &&
-          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined || e.declaredStance !== undefined || e.moodCause !== undefined || e.rememberedAboutOthers !== undefined || e.tellsYou !== undefined || e.leansOnYou !== undefined),
+          (e.knows.length > 0 || e.suspects.length > 0 || e.dealConsent !== undefined || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined || e.declaredStance !== undefined || e.moodCause !== undefined || e.rememberedAboutOthers !== undefined || e.tellsYou !== undefined || e.leansOnYou !== undefined),
       );
   }
 
