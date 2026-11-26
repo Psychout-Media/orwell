@@ -448,8 +448,8 @@ diagnose() {
   git_remote_check
   # ORW-971: a held season, and any owed or failed season-start step.
   season_hold_check
-  force_canary_check
   systemd_security_floor
+  force_canary_check
 }
 
 # ---- systemd hardening floor (audit E85) -------------------------------------------------
