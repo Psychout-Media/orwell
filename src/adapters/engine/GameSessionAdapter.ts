@@ -2770,6 +2770,8 @@ export class GameSessionAdapter implements GameSession {
   private perConversationClockEnabled = PER_CONVERSATION_CLOCK_ENABLED_DEFAULT;
   private socialFatigueEnabled = SOCIAL_FATIGUE_ENABLED_DEFAULT;
   private multiNightFatigueEnabled = MULTI_NIGHT_FATIGUE_ENABLED_DEFAULT;
+  private dayBreakFatigueEnabled = flagDefaultOn("ORWELL_DAYBREAK_FATIGUE"); // ORW-856
+  setDayBreakFatigueEnabled(on: boolean): void { this.dayBreakFatigueEnabled = on; }
   /**
    * Feature #1400 — generative competition design. default ON in the shipped game (the calibration/UAT harness turns it off) (its `ORWELL_GEN_COMPETITIONS` env
    * default): when off, `competitionStagingView` returns null and `recordCompetitionFiction` refuses, so
@@ -17870,7 +17872,12 @@ export class GameSessionAdapter implements GameSession {
       const weekBefore = this.live!.week; // the eviction result rolls the week inside this same step
       const cerBefore = ceremonyRef(this.live!); // ORW-281 4a: the open ceremony step (if any) BEFORE this advance
       this.syncTargetsMeClaims(); // ORW-581: the beliefs the beat's decisions read are written here, at commit time (never inside a scoring read)
+      const wrapRetired = this.live!.playerRetired ?? false, wrapDepth = this.live!.nightDepth; // ORW-856: the state a day-break wrap starts from
       const ev = advanceBeat(this.live!, this.ctx(), this.beatRng());
+      // ORW-856 (`ORWELL_DAYBREAK_FATIGUE`, default ON; `=0` opts out): the day-break wrap crosses the night inside the engine (`crossToNextDay`) and is an inert beat, so it never reached the night-end
+      // accrual in `chargeBeatClock`: a player who stayed up to the wrap woke with the night's cost recorded (the sleep debt) but never rolled into the multi-night meter. Like every other genuine night-end (a turn-in,
+      // the wrap an event's steps cross), a wrap the player did NOT sleep through accrues once: the break is a one-shot per night, so exactly once. Played games with the clock on only; no rng.
+      if (this.dayBreakFatigueEnabled && ev?.beat === "day-break" && this.timeOfDayEnabled && this.playedGameNow() && !wrapRetired && wrapDepth !== undefined && wrapDepth !== WAKE_HOUR) { this.noteBadSleepCauses(); this.accrueNightFatigue(); }
       const ceremonyHours = this.ceremonyClockHours(cerBefore, ceremonyRef(this.live!));
       if (cerBefore && !this.live!.ceremony) this.ceremonyEcho = cerBefore; // the closing Continue: echo the step that just closed
       this.maybeLapseDealOffer(standingOfferId); // folded BEFORE commit(ev) so the beat's persist carries it
