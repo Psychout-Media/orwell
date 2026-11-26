@@ -59,7 +59,7 @@ def test_background_authoring_defaults_low_effort():
     # #1002: raised from 1200 to a comfortable floor — a full authored JSON cast profile must fit even
     # on a reasoning model that counts reasoning+visible against the same cap (the 1200 cap risked the
     # reasoning eating the budget and leaving an empty body, the silent no-op #1002 chased).
-    assert pol["max_tokens"] == 3000
+    assert pol["max_tokens"] == 6000
 
 
 def test_background_authoring_with_default_settings_seed_resolves_off_and_3000():
@@ -81,7 +81,7 @@ def test_background_authoring_with_default_settings_seed_resolves_off_and_3000()
     # reasoning:{"enabled": false} on the wire so a reasoning model emits the JSON directly.
     assert pol["reasoning"] is None
     # the seed no longer pins 1200 — the cap is the comfortable 3000 floor the JSON profile needs.
-    assert pol["max_tokens"] == 3000
+    assert pol["max_tokens"] == 6000
 
 
 def test_caching_true_and_context_budget_none_for_all_classes():

@@ -2107,6 +2107,12 @@ async def _portrait_check_pass(png: bytes, prompt: str, user: Optional[str], ref
             if C.check_enabled(user) and not image_gen_disabled():
                 # the check was on but gave no verdict (an empty answer, a timeout, an error): the photo is kept, but it is recorded as UNVERIFIED, never as passed
                 logger.warning("[portraits] photo check for %s gave no verdict: kept unverified", _hid_tag())
+                try:  # ORW-1025: counted per unverified photo (the doctor shows photos-unchecked)
+                    from src import log_rings
+                    log_rings.record_soft_failure("portraits:photo-unverified", "photo check gave no verdict",
+                                                  corrected="kept-marked-unverified", user=user)
+                except Exception:  # failsoft-ok: the health record must never break the portrait run
+                    pass
                 return png, {"unverified": True}
             return png, None
         logger.info("[portraits] photo check for %s: %s", _hid_tag(), "ok" if first["ok"] else "problems " + ",".join(map(str, first["problems"])))

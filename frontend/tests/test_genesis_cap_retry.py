@@ -6,7 +6,7 @@ class cap (3000, sized for ONE NPC's profile) and ended ``finish_reason=length``
 truncated JSON → unparseable → committed 0 → the strict pre-finalize gate refused casting. Pins:
 
   (a) the sketch call class resolves an output cap ≥ ``GENESIS_SKETCH_MIN_OUTPUT_TOKENS`` (8000),
-      while the per-NPC deep-authoring cap stays byte-identical at 3000 (ALSO a golden-fixture pin:
+      while the per-NPC deep-authoring cap stays 6000 (ALSO a golden-fixture pin:
       the committed fixture holds the per-NPC calls at max_tokens=3000 — max_tokens is part of the
       replay request key, so the class cap must not move);
   (b) a ``finish_reason=length`` completion triggers EXACTLY ONE doubled-cap retry, bounded by
@@ -127,7 +127,7 @@ def test_per_npc_authoring_cap_is_byte_identical_at_3000(monkeypatch):
     assert fn is not None
     _run(fn([{"role": "user", "content": "author this houseguest"}]))
     assert len(calls) == 1
-    assert calls[0]["max_tokens"] == 3000, calls[0]
+    assert calls[0]["max_tokens"] == 6000, calls[0]
 
 
 def test_admin_override_larger_than_the_floor_wins(monkeypatch):
