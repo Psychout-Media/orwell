@@ -1471,7 +1471,20 @@ async def submit_decision(decision: dict, expected_beat_seq: int | None = None, 
         payload["expectedBeatSeq"] = expected_beat_seq
     if idempotency_key is not None:
         payload["idempotencyKey"] = idempotency_key
-    return await _call("submitDecision", payload, user=user)
+    try:
+        return await _call("submitDecision", payload, user=user)
+    except EngineToolError as e:
+        # ORW-1063: the engine REFUSES a decision it cannot record (kind mismatch, garbled answer, unconfirmed leave, nothing open) with
+        # "decision refused (<reason>)". Count each refusal in the sync ledger's belt counters (reason names only), then re-raise so the
+        # relay (card, socket, model tool) surfaces the refusal and the card stays open. Nothing is cached for it (the engine throws before any key is stored).
+        _m = re.search(r"decision refused \(([a-z-]+)\)", str(e))
+        if _m:
+            try:
+                from src.orwell_sync_ledger import note_belt as _note_belt
+                _note_belt(user, "decision-refused-" + _m.group(1))
+            except Exception:  # pragma: no cover - telemetry must never hurt the app
+                pass
+        raise
 
 
 async def request_self_eviction(user: str | None = None) -> dict:

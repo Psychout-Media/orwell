@@ -3061,6 +3061,10 @@ export interface NapView {
   whereabouts?: WhereaboutsView | null;
   timeOfDay?: string;
   beatSeq: number;
+  /** ORW-1067: present when the engine changed the asked-for length (out of range, off the half-hour step, or not a number): the value applied. Absent when the request was used as given. */
+  clamped?: true;
+  hoursApplied?: number;
+  hoursAsked?: number;
 }
 
 export interface HangOutReq {
@@ -3091,6 +3095,10 @@ export interface HangOutView {
   detail?: { by?: string; npc?: string; desire?: string; kind?: string; who?: string[] };
   timeOfDay?: string;
   beatSeq: number;
+  /** ORW-1067: present when the engine changed `maxBeats` (floored, raised to 1, capped at 8, or not a number): the value applied. */
+  clamped?: true;
+  maxBeatsAsked?: number;
+  maxBeatsApplied?: number;
 }
 
 export interface AdvanceGameReq {
@@ -3800,6 +3808,8 @@ export interface GameSession {
    * unknown or non-active houseguest (the departed are voiced from the public record only).
    */
   npcVoice(id: EntityId): NpcVoiceView | null;
+  /** ORW-1067: why an `npcVoice` lookup of an id or name found nobody: ambiguous (the public candidate names) or unknown. */
+  voiceLookup(key: string): { status: "found"; id: EntityId } | { status: "ambiguous"; candidates: NamedRef[] } | { status: "unknown" };
 
   /**
    * The knowledge-wall manifest (ship-blocker A0) — the player's private disclosures that are sealed

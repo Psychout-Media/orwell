@@ -73,7 +73,7 @@ describe("0061 self-eviction folds the present house's hidden read of the leaver
     const quit = play("sef-unconfirmed", 3, 8);
     const control = play("sef-unconfirmed-control", 3, 8);
     quit.session.requestSelfEviction();           // intent only
-    quit.session.submitDecision({ kind: "self-evict", confirmed: false });
+    expect(() => quit.session.submitDecision({ kind: "self-evict", confirmed: false })).toThrow(/decision refused \(unconfirmed\)/); // ORW-1063
     for (const h of present(quit)) expect(read(quit, h)).toEqual(read(control, h));
     expect(quit.session.getGameState().player?.status).toBe("active");
   });
