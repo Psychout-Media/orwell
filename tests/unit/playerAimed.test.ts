@@ -98,6 +98,17 @@ describe("a step aimed at the player is recorded", () => {
     expect(b.s.rel.edge(b.holder, PLAYER)).toEqual(edge);
   });
 
+  it("ORW-905: an answer closes only a record that surfaced; an open hostile one the player never saw stays and is still ignored later", () => {
+    const a = raised();
+    const rec = () => a.s.live.aimedAtPlayer!.find((x) => x.actor === a.holder)!;
+    expect(rec().status).toBe("open");
+    a.s.notePlayerTalk([a.holder], "conversation", undefined); // the player talks to them, but never saw this step
+    expect(rec().status).toBe("open");
+    rec().status = "shown";
+    a.s.live.dayNumber = (a.s.live.dayNumber ?? a.s.live.week) + 5;
+    a.s.aimedAtPlayerTick(a.sb.engine.events);
+    expect(rec().status).toBe("ignored");
+  });
   it("the record survives a persistence round trip", () => {
     const { s, holder } = raised();
     const copy = JSON.parse(JSON.stringify(s.live.aimedAtPlayer)) as Rec[];

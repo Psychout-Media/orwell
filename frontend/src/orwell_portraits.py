@@ -2327,6 +2327,7 @@ def intake_status(user: Optional[str]) -> dict:
         "mode": (meta or {}).get("mode"),
         "finalized": _intake_final_path(user).exists(),
         "candidates": candidate_count(user),
+        "generating": studio_generating(user),  # ORW-950: a run in flight; the page shows "generating", not a half picker
     }
 
 
@@ -2500,7 +2501,32 @@ _STUDIO_VARIANTS = (
 )
 
 
+# ORW-950: one studio run per player at a time; a reload's second request joins it, not re-runs it.
+_STUDIO_RUNS: dict = {}
+
+
+def studio_generating(user: Optional[str]) -> bool:
+    t = _STUDIO_RUNS.get(_safe_user(user))
+    return bool(t is not None and not t.done())
+
+
 async def generate_studio_candidates(user: Optional[str], n: int = 3) -> dict:
+    """Single-flight wrapper (ORW-950): a second call for the same player awaits the run in flight."""
+    k = _safe_user(user)
+    task = _STUDIO_RUNS.get(k)
+    if task is None or task.done():
+        task = asyncio.ensure_future(_generate_studio_candidates(user, n))
+        _STUDIO_RUNS[k] = task
+
+        def _done(t, k=k):
+            if _STUDIO_RUNS.get(k) is t:
+                del _STUDIO_RUNS[k]
+        task.add_done_callback(_done)
+    # shield: an aborted request (page reload) must not cancel the shared run.
+    return await asyncio.shield(task)
+
+
+async def _generate_studio_candidates(user: Optional[str], n: int = 3) -> dict:
     """Generate up to `n` studio portrait OPTIONS off the player's uploaded photo (image-to-
     image, likeness-preserving). Writes cand-0…N-1; returns {generated, reason?}. The player
     picks one via finalize, or calls this again for a fresh set (back-and-forth, indefinitely)."""
@@ -2509,7 +2535,6 @@ async def generate_studio_candidates(user: Optional[str], n: int = 3) -> dict:
         return {"generated": 0, "reason": "upload a photo first"}
     if not image_generation_available(user):
         return {"generated": 0, "reason": "no image model is configured"}
-    _clear_candidates(user)
     made = 0
     for i in range(max(1, min(int(n), 4))):
         # _generate_one prepends the identity-keep instruction when a reference is set.
@@ -2519,6 +2544,8 @@ async def generate_studio_candidates(user: Optional[str], n: int = 3) -> dict:
         png = await _generate_one(prompt, user, reference_png=src)
         if png:
             try:
+                if made == 0:
+                    _clear_candidates(user)  # ORW-950: clear only once a new image exists, so a run that makes nothing keeps the old set
                 _candidate_path(user, made).write_bytes(png)
                 made += 1
                 log_attempt("player:candidate", True, None, 0)
