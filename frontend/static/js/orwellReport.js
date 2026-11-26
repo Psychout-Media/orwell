@@ -84,5 +84,15 @@
     } catch (_) { /* never throws — the report is an addition, never new behavior */ }
   }
 
-  window.OrwellReport = { fail, markConnected };
+  // ORW-1023: count a benign, expected event (never a failure). One beacon per event, flagged `count`, which the server logs at DEBUG and tallies per surface.
+  function count(surface, errorClass, detail) {
+    try {
+      const body = JSON.stringify({ surface: clip(surface, 80), errorClass: clip(errorClass, 120), detail: clip(detail, 300), count: true });
+      let sent = false;
+      try { if (navigator.sendBeacon) sent = navigator.sendBeacon(ENDPOINT, new Blob([body], { type: "application/json" })); } catch (_) { sent = false; }
+      if (!sent) fetch(ENDPOINT, { method: "POST", credentials: "same-origin", keepalive: true, headers: { "Content-Type": "application/json" }, body }).catch(() => {});
+    } catch (_) { /* never throws */ }
+  }
+
+  window.OrwellReport = { fail, count, markConnected };
 })();
