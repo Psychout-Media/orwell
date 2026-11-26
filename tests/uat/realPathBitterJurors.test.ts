@@ -32,8 +32,9 @@ describe("0182 REAL PATH: a juror's grudge leans their finale vote away from tha
       g.playUntil(() => (g.s.getGameState() as { phase?: string }).phase === "finale", 20_000, "the finale");
       const save = g.s.snapshot();
       const r = run(seed, save, true);
-      return r.why.some((w) => r.finalists.some((f) => r.grudge(w.by, f) < 0)) ? { save, on: r } : undefined;
-    }, { from: 1, to: 12, hint: 11, sandbox: (s) => (s === 11 ? "bitter-real" : `bitter-real-${s}`), what: "a finale jury holding a grudge against a finalist" });
+      // the precondition is what the claims read: a juror holding a grudge against a finalist whose vote carries it as a term (a personality can scale a small grudge to nothing)
+      return r.why.some((w) => w.options.some((o) => r.grudge(w.by, o.option) < 0 && o.terms.some(([n, v]) => n === "grudge" && v < 0))) ? { save, on: r } : undefined;
+    }, { from: 1, to: 12, hint: [1, 11], sandbox: (s) => (s === 11 ? "bitter-real" : `bitter-real-${s}`), what: "a finale jury holding a grudge against a finalist" });
     on = found.at.on; off = run(found.seed, found.at.save, false);
   }, 900_000);
 
@@ -96,7 +97,7 @@ describe("ORW-843 REAL PATH: a natural grudge changes finale votes", () => {
       const save = g.s.snapshot();
       const a = copy(seed, sandbox, save, true), b = copy(seed, sandbox, save, false);
       return Object.keys(a.votes).some((j) => j !== PLAYER && a.votes[j] !== b.votes[j]) ? { save, a, b } : undefined;
-    }, { from: 1, to: 18, hint: [10, 1, 14], sandbox: (s) => `gf-${s}`, what: "a finale where some juror votes differently with grudges on and off" });
+    }, { from: 1, to: 18, hint: [3, 10, 1, 14], sandbox: (s) => `gf-${s}`, what: "a finale where some juror votes differently with grudges on and off" });
     on = found.at.a; off = found.at.b; again = copy(found.seed, found.sandbox, found.at.save, true);
   }, 1_800_000);
 
