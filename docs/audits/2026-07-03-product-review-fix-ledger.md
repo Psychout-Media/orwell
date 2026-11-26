@@ -45,6 +45,7 @@ OPEN items:
 - FLOW-11 [P3/S] J5-22: one residual system-language error string ("your move wasn't allowed") — grep-confirm then fix.
 - FLOW-12 [P3/M] J-49: /api/orwell/status pending served from in-memory cache; FE restart mid-decision + refresh shows no card until next turn. Fall back to live engine pending query.
 - FLOW-13 [P3/S] J-37: post-confirm composer prefill still authors words (kind-specific now; owner taste call: empty box + placeholder?).
+  - **Resolved 2026-11-25 (ORW-919, Coordinator ruling; F-NEW-5 amended):** the prefill is gone. A successful decision submit arms ONE hidden production cue (the ORW-771/924 kind: no player bubble, no clock charge, armed only by a success) and the page sends it, so the narrator voices the locked-in beat at once; the box stays empty, and a cue that cannot go out leaves it empty (never words sent for the player). F-NEW-5's purpose, "never speak for the player", is kept.
 - FLOW-14 [P2/S] LEDGER#1 residual: live MOBILE re-verify of casting-skip fix still owed (keyed playtest).
 - FLOW-15 [P3/S] J-1 residual: regression pin that holding-card + setup-wizard can't both show in a race.
 - FLOW-16 [P3/S] J-29: exhaustive Continue▸ coverage sweep of every truncation/timeout branch (verify-only).
@@ -113,6 +114,7 @@ OPEN items (deduped — CA-4=ops AUTH-1 upgraded):
 - CNT-4 [P3/S] CA-6/#989: residual "Let me…" scrub edge — treat as live-model regression-test item vs blind copy fix.
 - CNT-5 [P3/S] CA-2/J1-33 residual: "Chats" vs "Search conversations" noun drift (index.html:946 vs :898/:935/:2606).
 - CNT-6 [P3/S] CA-1: prefill → placeholder swap option (orwellDecision.js:678) — owner voice call (=FLOW-13/IF-08).
+  - **Resolved 2026-11-25 by ORW-919** (see FLOW-13): no prefill at all; a hidden decision-beat cue instead.
 - CNT-7 [P3/S] CA-7: icon-rail buttons title-only accessible names — add aria-label parity w/ expanded sidebar (index.html:919 etc.).
 - NOTE: WAY-1 (composer placeholder "Message Orwell...") DISPUTED — content sweep found sender label rebranded to "Orwell" in-fiction (#889, chat.js:71-73), making the placeholder ON-VOICE. Verify before fixing; likely stale finding.
 

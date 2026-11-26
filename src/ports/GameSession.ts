@@ -648,12 +648,16 @@ export interface GameStateView {
   houseMeeting?: HouseMeetingView;
   /** ORW-593 (moment prompt only, one turn): the player's call for a house meeting was refused, and why in the world's terms. Never a number or a hidden reason. */
   houseMeetingRefused?: "ceremony" | "asleep" | "nobody" | "spent";
+  /** ORW-794 (moment prompt only): the alliances an NPC has let the player in on and the player has not taken (the same Vault-free view `gameStatus.alliancePitches` shows: id, name, the roster the player was told). Absent when none is open. */
+  alliancePitchesOpen?: AllianceView[];
   /** ORW-920 (moment prompt only, this turn and the next): the player tried to go to bed before the night and `turnIn` answered `held`. Whole minutes until the night period opens, read fresh from the clock (never shown to the player as a number: the prompt phrases it). Absent otherwise. */
   bedtimeHeld?: { minutesUntil: number };
   /** ORW-913 (moment prompt only, two turns): the alliance the player proposed did not form (the houseguests are not close enough to the player yet): its name (the player's own words) and the houseguests it was proposed to. Never a number or a hidden reason. */
   allianceNotFormed?: { name: string; with: string[] };
   /** ORW-737: on eviction night, the houseguests who HAVE a recorded promise to keep the player (an assurance on the ledger, kept or still open). The ONLY people the narrator may say told the player they would keep them. Absent when none. */
   keepPromisers?: NamedRef[];
+  /** ORW-750 (moment prompt only): in the week of a nomination, for each nominee, the houseguests whose vote promise IS on the engine's record and that the player was told or heard (an open promise about the nominee, or an assurance to the player when the player is the nominee). Names only: never a ballot, how sincere anyone is, or a number. Absent outside that week or when nobody is on the block. */
+  votePromises?: Array<{ nominee: NamedRef; keepers: NamedRef[] }>;
   /**
    * #1792 — Producer Read: Vault-free post-scene exchange-accounting string,
    * delivered ONCE in the moment prompt immediately following a substantive
@@ -1686,6 +1690,8 @@ export interface BeatAnnouncementView {
     saved?: NamedRef;
     /** `eviction-result` only: the HOH broke a tied vote (never implies an extra "HOH ballot", E12). */
     tieBroken?: boolean;
+    /** `eviction-result` only (ORW-919): the public count as the host states it - totals only, never a voter (E12). */
+    votes?: { evict: number; keep: number };
     /** `comp-round-result` only: houseguests still in the competition after this round's drops (a public count). */
     remaining?: number;
     /** `final-hoh-part` only (0128): which part of the three-part Final HOH the subject just won (1 or 2). */

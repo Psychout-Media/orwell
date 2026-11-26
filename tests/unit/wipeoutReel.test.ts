@@ -189,6 +189,7 @@ function play(active: EntityId[], ctx: SeasonCtx, seed: number): { traj: Traject
     if (!ev) return;
     if (TRAJECTORY_BEATS.has(ev.beat)) traj.ceremonies.push(`${ev.beat}: ${ev.content}`);
     if (ev.beat === "comp-elimination") traj.compEliminationContent.push(ev.content);
+    if (ev.lastDrops) traj.compEliminationContent.push(ev.lastDrops.content); // ORW-830: a comp's last batch airs as an inert comp-elimination event carried on the crown
   };
   for (let guard = 0; guard < 20_000 && !s.finished; guard++) {
     if (s.pending) {
@@ -314,7 +315,7 @@ describe("wipeoutReel — P1 fix (PR #1831 review): wipeoutHistory ⊆ AIRED ree
   // ("the second time this season") to a moment the player never saw. The history must record only
   // what actually aired.
 
-  it("T-Rex repro: the final pre-crown batch gets NO history entry; aired drops get exactly one", () => {
+  it("T-Rex repro (ORW-830: the final batch now airs on the crown): every aired drop, the last included, gets exactly one history entry", () => {
     // A 6-strong field ⇒ 5 drops at batch size 1 ⇒ exactly 4 AIRED `comp-elimination` beats; the 5th
     // (final) drop rides the crown return and never airs. Deterministic given the seed.
     const h = buildHouse(6, 3);
@@ -337,13 +338,13 @@ describe("wipeoutReel — P1 fix (PR #1831 review): wipeoutHistory ⊆ AIRED ree
       }
       if (s.competition?.dropOrder) dropOrder = [...s.competition.dropOrder];
       if (ev?.beat === "comp-elimination") aired.push(ev.content);
+      if (ev?.lastDrops) aired.push(ev.lastDrops.content); // ORW-830: the final batch airs as an inert comp-elimination event carried on the crown
       if (ev?.beat === "hoh-competition") break; // the crown beat — comp complete
     }
 
     expect(dropOrder, "the staged comp must have resolved a drop order").toBeDefined();
     expect(dropOrder).toHaveLength(5);
-    const airedIds = dropOrder!.slice(0, -1); // the four drops that emit a comp-elimination beat
-    const neverAired = dropOrder![dropOrder!.length - 1]!; // the final drop — rides the crown, never airs
+    const airedIds = dropOrder!; // ORW-830: all five drops air now (the last as the crown's lastDrops event)
     expect(aired).toHaveLength(airedIds.length);
 
     // AIRED drops: exactly one history entry each, and the recorded text is verbatim what aired.
@@ -356,13 +357,10 @@ describe("wipeoutReel — P1 fix (PR #1831 review): wipeoutHistory ⊆ AIRED ree
       ).toBe(true);
     }
 
-    // THE P1: the never-aired final drop has NO history entry…
-    expect(s.wipeoutHistory?.[neverAired] ?? []).toHaveLength(0);
-    // …so their NEXT wipeout reads as a FIRST (priorWipeoutCount 0 ⇒ no callback clause).
-    expect(priorWipeoutCount(s.wipeoutHistory?.[neverAired])).toBe(0);
-    const next = deriveFailureFact(new SeededRandom(1), archetypeFor(neverAired), undefined, undefined,
-      priorWipeoutCount(s.wipeoutHistory?.[neverAired]));
-    expect(next.text).not.toContain("this season");
+    // THE P1 invariant still holds (history ⊆ aired): the final drop now airs, so it has exactly one entry and its text is in the aired lines (checked above for every id).
+    // (Before ORW-830 the final drop never aired and had no entry; the history never holds a moment the player did not see.)
+    const last = dropOrder![dropOrder!.length - 1]!;
+    expect(priorWipeoutCount(s.wipeoutHistory?.[last])).toBe(1);
   });
 
   it("authored-fiction leak (P1 #2): a #1400-dressed round voices the model's prose, NOT the reel — so it must append NO history", () => {

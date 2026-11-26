@@ -8862,6 +8862,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
     if _comp_hops == 0 and _comp_log is None and not _after_day_break:
         event_pause_clear(user)  # a new framed turn: last turn's pause no longer holds the model's tools
         _VETO_DRAW_HOLDS.pop(_runway_key(user or None), None)
+    if is_beat_cue_message(player_msg):
+        return game_state  # ORW-919: a hidden beat cue voices a beat the engine ALREADY committed; its turn never moves the board (a finale walk advanced past a step card here)
     try:
         phase = (game_state.get("phase") or "").lower()
         # ORW-116: no phase advance moves the clock, so the premiere is exited only when the player's night is over - it is Day 2's morning, the premiere still "open", and the FIRST HOH is not due until the
@@ -9294,6 +9296,55 @@ def consume_draw_beat_cue(message, user) -> bool:
     if isinstance(message, str) and message.startswith(_DRAW_BEAT_CUE_PREFIX):
         hit = bool(_DRAW_BEAT_ARMED.pop(user, False))
         logger.info("[orwell] draw-beat cue seen for user=%s armed=%s", user, hit)
+        return hit
+    return False
+
+
+# ORW-919: two more hidden beat cues of the ORW-771/924 kind (armed server-side, one turn each, no clock charge, no player-move parse; a hand-typed copy with no armed press is an
+# ordinary message). CEREMONY RESULT: a Continue press whose result carries a ceremony's public result (the veto's use, the replacement nominee, the eviction result and its count) -
+# in a week-1 playtest those showed only on the card and were narrated a turn late, and the eviction count was never voiced. DECISION: a successful decision-card submit - the card used to pre-fill the message box and nothing happened until the
+# player pressed Send (F-NEW-5 amended: a hidden cue sends no player words; a failed cue leaves the box empty).
+_CEREMONY_RESULT_BEAT_CUE_PREFIX = "(Production cue \u2014 the player pressed Continue through a ceremony result"
+_CEREMONY_RESULT_BEAT_ARMED: dict = {}
+_CEREMONY_RESULT_KINDS = frozenset({"veto-decision", "replacement-nominee", "eviction-result"})  # the veto's use, the replacement, the eviction result (with its count)
+_DECISION_BEAT_CUE_PREFIX = "(Production cue \u2014 the player locked in their decision on the card"
+_DECISION_BEAT_ARMED: dict = {}
+
+
+def is_beat_cue_message(message) -> bool:
+    """ORW-919: True for a hidden BEAT cue (vote / draw / ceremony result / decision): the engine already committed the beat it voices, so its turn moves nothing."""
+    t = message.lstrip() if isinstance(message, str) else ""
+    return bool(t) and t.startswith((_VOTE_BEAT_CUE_PREFIX, _DRAW_BEAT_CUE_PREFIX, _CEREMONY_RESULT_BEAT_CUE_PREFIX, _DECISION_BEAT_CUE_PREFIX))
+
+
+def carries_ceremony_result_fact(res) -> bool:
+    """True when an advance result carries a ceremony-result announcement (the veto's use, the replacement nominee, the eviction result)."""
+    anns = res.get("announcements") if isinstance(res, dict) else None
+    return isinstance(anns, list) and any(isinstance(a, dict) and a.get("kind") in _CEREMONY_RESULT_KINDS for a in anns)
+
+
+def arm_ceremony_result_beat_cue(user) -> None:
+    _CEREMONY_RESULT_BEAT_ARMED[user] = True
+    logger.info("[orwell] ceremony-result-beat cue armed for user=%s", user)
+
+
+def consume_ceremony_result_beat_cue(message, user) -> bool:
+    if isinstance(message, str) and message.startswith(_CEREMONY_RESULT_BEAT_CUE_PREFIX):
+        hit = bool(_CEREMONY_RESULT_BEAT_ARMED.pop(user, False))
+        logger.info("[orwell] ceremony-result-beat cue seen for user=%s armed=%s", user, hit)
+        return hit
+    return False
+
+
+def arm_decision_beat_cue(user) -> None:
+    _DECISION_BEAT_ARMED[user] = True
+    logger.info("[orwell] decision-beat cue armed for user=%s", user)
+
+
+def consume_decision_beat_cue(message, user) -> bool:
+    if isinstance(message, str) and message.startswith(_DECISION_BEAT_CUE_PREFIX):
+        hit = bool(_DECISION_BEAT_ARMED.pop(user, False))
+        logger.info("[orwell] decision-beat cue seen for user=%s armed=%s", user, hit)
         return hit
     return False
 
@@ -10769,7 +10820,8 @@ async def build_chat_context(
 
     # Per-message pacing: announce this player message to the engine clock ONCE, before the model
     # call, keyed by the send's clientMsgId (retry / two-window re-drive is idempotent). Fail-soft.
-    _vote_beat_turn = (not incognito) and (consume_vote_beat_cue(message, user) or consume_draw_beat_cue(message, user))  # ORW-771: a vote-beat turn is not a player message
+    _vote_beat_turn = (not incognito) and (consume_vote_beat_cue(message, user) or consume_draw_beat_cue(message, user)
+                                           or consume_ceremony_result_beat_cue(message, user) or consume_decision_beat_cue(message, user))  # ORW-919: + veto ceremony, decision  # ORW-771: a vote-beat turn is not a player message
     if not incognito and not _vote_beat_turn:
         await note_player_message(client_msg_id, user)
         # ORW-419 (intent-first moves): the engine resolves the player's OWN move from their words BEFORE the narrator's moment
