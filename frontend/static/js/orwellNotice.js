@@ -154,7 +154,7 @@
       "#" + ZONE_ID + " {" +
       "  display: flex; flex-direction: column; gap: var(--space-2, .45rem);" +
       "  margin: 0 auto var(--space-2, .45rem); width: 100%; max-width: 760px;" +
-      "  max-height: min(40vh, 320px); overflow-y: auto;" +
+      "  max-height: min(40vh, 320px); max-height: min(40dvh, 320px); overflow-y: auto;" +
       "  pointer-events: none; }" +   // the column is inert; each card re-enables pointer events
       "#" + ZONE_ID + ":empty { display: none; margin: 0; }" +
       // A single notice card — the shared above-composer chrome. The visual language matches
