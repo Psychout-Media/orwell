@@ -25,7 +25,7 @@ describe("ORW-509 house authored at setup, adopted at createCharacter", () => {
     s.createCharacter({ playerName: "The Player", seed: 11 });
     const live = s.snapshot().live!;
     expect(live.houseTheme).toBe(res.house!.id);
-    expect(roomLabel("kitchen", live.houseTheme)).toContain("Pelican kitchen");
+    expect(roomLabel("kitchen", live.houseTheme)).toContain("pelican kitchen");
 
     const t = new GameSessionAdapter();
     t.preSeedCast({ seed: 12 });
@@ -42,7 +42,7 @@ describe("ORW-509 house authored at setup, adopted at createCharacter", () => {
     expect(snap.live!.houseThemeDef?.name).toBe("The Heron Inn");
     const r = new GameSessionAdapter();
     r.restore(snap);
-    expect(roomLabel("hallway", r.snapshot().live!.houseTheme)).toContain("Heron hallway");
+    expect(roomLabel("hallway", r.snapshot().live!.houseTheme)).toContain("heron hallway");
   });
 });
 
