@@ -652,6 +652,8 @@ export interface GameStateView {
   napOpen?: true;
   /** ORW-466 slice 2: the move-in bed pick, per turn (moment prompt only): which bedrooms have free beds and who sleeps in each, the player's own bed, and this turn's claim result. Public facts. Absent outside the claim window. */
   beds?: string;
+  /** ORW-1010: why the player's bed claim or swap did NOT happen this turn; the narrator says so plainly in the reply. */
+  bedRefused?: string;
   /** ORW-652 (moment prompt only): the shape of a double-eviction night while its second cycle runs (who left, the instant crown, the hurried block), from public facts. Absent outside it. */
   longNight?: string;
   /** 0152: this turn's engine answer to "who told you that?" (one Vault-free line: who is named, that they will not say, or that they saw it). Absent otherwise. */
@@ -2236,7 +2238,7 @@ export type PlayerMoveView =
   | { refused: true; reason: string; from?: string; to?: string; msg?: string };
 
 /** ORW-419 - `resolvePlayerMove` request: the player's own message text (never the narration). */
-export interface ResolvePlayerMoveReq { text: string; expectedBeatSeq?: number; idempotencyKey?: string }
+export interface ResolvePlayerMoveReq { /** ORW-1003: the previous narrator reply (player-visible text), for "head over there" / "I follow her". */ previousReply?: string; text: string; expectedBeatSeq?: number; idempotencyKey?: string }
 /** ORW-419 - the result: the recorded `playerMove` (null when the words held no clear move) + the resulting whereabouts. */
 export interface ResolvePlayerMoveResult { playerMove: PlayerMoveView | null; whereabouts: WhereaboutsView | null; beatSeq?: number }
 

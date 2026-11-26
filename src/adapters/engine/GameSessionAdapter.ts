@@ -82,7 +82,7 @@ import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } fr
 import { dayOfWeek } from "../../engine/houseEvents";
 import { HOUSE_SIGHTLINE, roomsBetween, areVisible, canWitnessDeparture, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
 import type { Room, Zone, Occupancy } from "../../domain/house";
-import { parsePlayerMoveIntent, parsePlayerPersonIntent, matchHouseguestName } from "../../engine/playerMoveIntent";
+import { parsePlayerMoveIntent, parsePlayerPersonIntent, parseVagueGo, matchHouseguestName } from "../../engine/playerMoveIntent";
 import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
@@ -8119,12 +8119,19 @@ export class GameSessionAdapter implements GameSession {
     // ORW-728 (W1-11): "my bed" with no room named is the bedroom of the bed the player OWNS (only a fresh claim moved them before, so "I go back to my bed" left the room to the narrator, which picked the wrong one).
     const ownBed = this.live?.beds?.owner[PLAYER];
     const ownBedRoom = ownBed && /\bmy (?:own )?bed\b/i.test(String(req.text ?? "")) ? roomOfBed(ownBed) : null;
-    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) ?? (claimedBed ? roomOfBed(claimedBed) : null) ?? ownBedRoom ?? this.roomOfSightedHouseguest(String(req.text ?? ""), here);
+    const named = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) ?? (claimedBed ? roomOfBed(claimedBed) : null) ?? ownBedRoom;
+    const vague = named === null ? this.resolveVagueGo(String(req.text ?? ""), String(req.previousReply ?? ""), here) : undefined;
+    const dest = named ?? (vague !== undefined && vague !== "ambiguous" ? vague : null) ?? this.roomOfSightedHouseguest(String(req.text ?? ""), here);
     const hadMove = this.playerMove !== null;
     this.playerMove = null; // a new player message: last turn's move is over
     this.holdNamedHouseguest(String(req.text ?? ""), dest); // ORW-933: the houseguest the message turns to is held in the room (below)
     let result: ResolvePlayerMoveResult;
-    if (dest === null || here === null || dest === here) {
+    if (dest === null && vague === "ambiguous" && here !== null) {
+      // ORW-1003: they said they are going but not clearly where or after whom: they stay, and the narrator may ask
+      this.playerMove = { refused: true, reason: "the player said they are going somewhere, but not clearly where or after whom: they stay where they are; ask them where, in the scene", from: here, ...this.moveStamp() };
+      this.persist();
+      result = { playerMove: { ...this.playerMove }, whereabouts: this.whereabouts() };
+    } else if (dest === null || here === null || dest === here) {
       if (hadMove) this.persist();
       result = { playerMove: null, whereabouts: this.whereabouts() };
     } else if (this.houseEventInSession()) {
@@ -8271,6 +8278,48 @@ export class GameSessionAdapter implements GameSession {
    * `nearby` sightline list). Same projection the narrator gets: an unseen houseguest never resolves, so nothing hidden is revealed and
    * nothing teleports; the narrator plays "you look around". Same room (or no name) => null.
    */
+  /**
+   * ORW-1003: a go with no named place ("walk over and say hi", "head over there", "I follow her"). "over": the room of the houseguest last NAMED in the player's words, else in the previous reply. "follow": the houseguest the
+   * previous reply last named who is no longer in the player's room (her / him by their public gender; "them" only when those who left went to one room). Only rooms the player can see (public presence in view); anything
+   * else is ambiguous: no move. Returns undefined when the words are not such a go. Reads only public presence and public identity; no rng.
+   */
+  private resolveVagueGo(text: string, previousReply: string, here: Room | null): Room | "ambiguous" | undefined {
+    const go = parseVagueGo(text);
+    if (!go || !this.house || !here) return undefined;
+    const w = this.whereaboutsBase();
+    if (!w || w.houseEvent) return undefined;
+    const inView = new Map<EntityId, Room>(w.nearby.flatMap((n) => n.present.map((p) => [p.id as EntityId, n.room as Room] as [EntityId, Room])));
+    const present = new Set(w.present.map((p) => p.id as EntityId));
+    const npcs = this.house.npcs;
+    const mentioned = (s: string): EntityId[] => {
+      const at: Array<[number, EntityId]> = [];
+      const low = s.toLowerCase();
+      for (const n of npcs) {
+        const full = this.nameOf(n.id).toLowerCase(), first = full.split(" ")[0]!;
+        const uniqueFirst = npcs.filter((m) => this.nameOf(m.id).toLowerCase().split(" ")[0] === first).length === 1;
+        const esc = (v: string): string => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const re = new RegExp(`\\b(?:${uniqueFirst ? `${esc(full)}|${esc(first)}` : esc(full)})\\b`, "g");
+        let m: RegExpExecArray | null, last = -1;
+        while ((m = re.exec(low)) !== null) last = m.index;
+        if (last >= 0) at.push([last, n.id]);
+      }
+      return at.sort((x, y) => x[0] - y[0]).map((x) => x[1]);
+    };
+    if (go.kind === "over") {
+      const named = mentioned(text.toLowerCase());
+      const pool = named.length ? named : mentioned(previousReply);
+      const who = pool.at(-1);
+      if (who === undefined) return "ambiguous";
+      if (present.has(who)) return undefined; // already with them: nothing to move
+      return inView.get(who) ?? "ambiguous";
+    }
+    const gender = go.pronoun === "her" ? "woman" : go.pronoun === "him" ? "man" : null;
+    const left = mentioned(previousReply).filter((id) => !present.has(id) && inView.has(id) && (gender === null || npcs.find((n) => n.id === id)?.character.genderPresentation === gender));
+    if (left.length === 0) return "ambiguous";
+    if (go.pronoun === "them" && new Set(left.map((id) => inView.get(id)!)).size > 1) return "ambiguous";
+    return inView.get(left.at(-1)!)!;
+  }
+
   private roomOfSightedHouseguest(text: string, here: Room | null): Room | null {
     const phrase = parsePlayerPersonIntent(text, here, this.themedAliases());
     if (phrase === null) return null;
@@ -8776,9 +8825,12 @@ export class GameSessionAdapter implements GameSession {
     const byRoom = new Map<Room, string[]>();
     for (const [id, p] of racing) byRoom.set(p.room, [...(byRoom.get(p.room) ?? []), this.nameOf(id)]);
     const open = BEDROOM_LAYOUT.filter((spec) => freeBeds(beds, living).some((b) => roomOfBed(b) === spec.room)).map((spec) => this.roomName(spec.room));
+    const claimed = BEDROOM_LAYOUT.map((spec) => ({ spec, who: roommatesIn(beds, spec.room, living) })).filter((x) => x.who.length > 0)
+      .map(({ spec, who }) => `${this.roomName(spec.room)}: ${who.map((id) => (id === PLAYER ? "the player" : this.nameOf(id))).join(", ")}`);
     const parts = [
       s.premiereEntrance.stage === "done" && !br ? "The circle has closed and the house is released: the race for the bedrooms is about to begin; a bed is claimed by actually reaching its room, so the player can rush straight to a room or hang back" : "The bed rush is on: a bed is claimed by actually reaching its room, so the player can rush straight to a room or hang back",
       ...(racing.length ? [`Still racing: ${[...byRoom].map(([room, names]) => `${names.join(", ")} for ${this.roomName(room)}`).join("; ")}`] : []),
+      `Beds already claimed (engine truth, by room): ${claimed.length ? claimed.join("; ") : "none yet"}`,
       `Rooms with beds still open: ${open.length ? open.join(", ") : "none"}`,
     ];
     return parts.join(". ");
@@ -9053,7 +9105,17 @@ export class GameSessionAdapter implements GameSession {
     if (target !== undefined && this.presence?.get(this.house.player.id) !== target) this.movePlayer(target);
   }
 
+  /** ORW-1010: the reason the player's bed request did NOT happen this turn (null when it happened or nothing was asked): handed to the narrator to say plainly in the reply. Memory-only, replaced each message. */
+  private playerBedRefusal: string | null = null;
+
   private resolvePlayerBed(text: string): boolean {
+    const changed = this.resolvePlayerBedInner(text);
+    // A note on a request that changed nothing is a refusal, except the plain "already have it there" (nothing was asked of the game).
+    this.playerBedRefusal = !changed && this.playerBedNote !== null && !/already has their bed/.test(this.playerBedNote) ? this.playerBedNote.replace(/\s*\(engine truth:[^)]*\)/g, "") : null;
+    return changed;
+  }
+
+  private resolvePlayerBedInner(text: string): boolean {
     this.playerBedNote = null;
     const beds = this.ensureBeds();
     if (!beds || !this.house || this.live?.finished || !this.playerBedWindowOpen(beds)) return false;
@@ -9139,7 +9201,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private bedsLine(): string | undefined {
     const beds = this.live?.playedGame === true ? this.live.beds : undefined; // a read: never claims
-    if (!beds || !this.playerBedWindowOpen(beds) || (!this.moveInPickOpen(beds) && !this.playerBedNote)) return undefined;
+    if (!beds || !this.playerBedWindowOpen(beds) || (!this.moveInPickOpen(beds) && !this.playerBedNote && !this.bedRushRunning())) return undefined;
     const living = new Set(this.livingIds());
     const label = (id: EntityId): string => (id === PLAYER ? "the player" : this.nameOf(id));
     const rooms = BEDROOM_LAYOUT.map((spec) => {
@@ -22385,7 +22447,8 @@ export class GameSessionAdapter implements GameSession {
     const view1 = slept ? { ...view0, whileYouSlept: slept } : view0;
     const view2 = this.napOpenNow() ? { ...view1, napOpen: true as const } : view1; // 0148: the NAP line only when a nap is possible
     const bedsNow = this.bedsLine(); // ORW-466 slice 2: the move-in bed pick, per turn (absent outside the claim window / headless)
-    const view3 = bedsNow ? { ...view2, beds: bedsNow } : view2;
+    const view3a = bedsNow ? { ...view2, beds: bedsNow } : view2;
+    const view3 = this.playerBedRefusal ? { ...view3a, bedRefused: this.playerBedRefusal } : view3a; // ORW-1010: a refused bed claim or swap, told to the narrator to say plainly
     const longNightNow = this.longNightLine(); // ORW-652: the shape of a double-eviction night, per turn (absent outside it / headless)
     const view3b = longNightNow ? { ...view3, longNight: longNightNow } : view3;
     const view4 = this.claimSourceNote ? { ...view3b, sourceNote: this.claimSourceNote } : view3b; // 0152: the answer to "who told you that?", this turn only
