@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { phaseOfWeek, poolByPhase, poolSeason, evaluate, ratchet, inBand, BANDS, KNOWN_RED, type PhaseShares, type Share } from "../support/wholeSeasonMix";
+import { phaseOfWeek, poolByPhase, poolSeason, evaluate, ratchet, inBand, BANDS, KNOWN_RED, type PhaseShares, type Share, RULE_MARGIN, marginOf, RATCHET_FIXED_MARGIN, RATCHET_SLACK } from "../support/wholeSeasonMix";
 import type { MixScene } from "../support/houseMixDriver";
 
 /** ORW-702: the whole-season mix guard's machinery under CI (the guard itself plays seasons in the heavy lane). */
@@ -103,5 +103,43 @@ describe("the KNOWN_RED ratchet", () => {
   it("every KNOWN_RED id names a real rule", () => {
     const ids = new Set(evaluate(centre).map((r) => r.id));
     for (const id of Object.keys(KNOWN_RED)) expect(ids.has(id), id).toBe(true);
+  });
+  it("hysteresis: a listed rule that passes by less than its margin is not yet asked to leave KNOWN_RED, one that clears it by the margin is", () => {
+    const m = marginOf("mid:band-bonding");
+    const edge = { id: "mid:band-bonding", what: "w", value: 24 + m - 0.1, pass: true, miss: 0, room: +(m - 0.1).toFixed(1) } as never;
+    const clear = { id: "mid:band-bonding", what: "w", value: 24 + m + 0.1, pass: true, miss: 0, room: +(m + 0.1).toFixed(1) } as never;
+    const known = { "mid:band-bonding": { value: 14, card: "X" } };
+    expect(ratchet([edge], known).fixed).toEqual([]);
+    expect(ratchet([clear], known).fixed.length).toBe(1);
+  });
+  it("hysteresis, the other way: an unlisted rule that misses by no more than its margin is noise, one that misses by more is a regression", () => {
+    const m = marginOf("mid:band-bonding");
+    const near = { id: "mid:band-bonding", what: "w", value: 24 - m + 0.1, pass: false, miss: +(m - 0.1).toFixed(1), room: 0 } as never;
+    const far = { id: "mid:band-bonding", what: "w", value: 24 - m - 0.5, pass: false, miss: +(m + 0.5).toFixed(1), room: 0 } as never;
+    expect(ratchet([near], {}).regressions).toEqual([]);
+    expect(ratchet([far], {}).regressions.length).toBe(1);
+  });
+  // ORW-944: each rule's margin is its MEASURED seed noise (twice the standard deviation across independent plays of the guard's own seeds; tests/calibration/wholeSeasonMixNoise.test.ts), never below the 1.0 floor.
+  it("ORW-944: every rule has a measured margin, at least the floor", () => {
+    for (const r of evaluate(centre)) {
+      expect(RULE_MARGIN[r.id], `${r.id} has a measured margin`).toBeDefined();
+      expect(marginOf(r.id)).toBeGreaterThanOrEqual(RATCHET_FIXED_MARGIN);
+    }
+  });
+  it("ORW-944: a noisy rule tolerates its noise, a quiet rule does not", () => {
+    expect(marginOf("late:band-gossip")).toBeGreaterThan(5);
+    expect(marginOf("mid:band-conflict")).toBeLessThan(1.5);
+    const lateMiss = { id: "late:band-gossip", what: "w", value: 39, pass: false, miss: 5, room: 0 } as never;
+    const midMiss = { id: "mid:band-conflict", what: "w", value: 5.5, pass: false, miss: 1.5, room: 0 } as never;
+    expect(ratchet([lateMiss], {}).regressions, "a 5-point late gossip miss is inside the lane's measured noise").toEqual([]);
+    expect(ratchet([midMiss], {}).regressions.length, "a 1.5-point mid conflict miss is outside it").toBe(1);
+  });
+  it("ORW-944: a listed rule is 'worse' only past its measured noise as well as the slack", () => {
+    const known = { "late:band-gossip": { value: 49, card: "X" } };
+    const swing = { id: "late:band-gossip", what: "w", value: 49 + RATCHET_SLACK + 1, pass: false, miss: 15 + RATCHET_SLACK + 1, room: 0 } as never;
+    expect(ratchet([swing], known).worse, "a late gossip swing past the flat slack but inside its noise is not worse").toEqual([]);
+  });
+  it("ORW-944: no quarantine lines remain - the two 4-season-noise lines are real known-reds or gone", () => {
+    for (const [id, k] of Object.entries(KNOWN_RED)) expect(k.card, id).not.toMatch(/quarantine/i);
   });
 });

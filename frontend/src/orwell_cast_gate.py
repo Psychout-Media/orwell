@@ -16,7 +16,8 @@ from typing import Awaitable, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
-BIO_OVERSIZE_CHARS = 720  # ORW-437: 1.5 x the 480-character ask in `rewrite_message`
+BIO_ASK_CHARS = 480  # ORW-952: the length the cast prompt and `rewrite_message` ask for, from this one number so they match the gate
+BIO_OVERSIZE_CHARS = BIO_ASK_CHARS * 3 // 2  # ORW-437: 1.5 x the ask (720)
 REALISM_LOWPRIO_BUDGET = 6  # of those, the ones that are not about the look fitting the life (a prop, a smile, a gaze, a repeated garment)
 REALISM_REWRITE_BUDGET = 12  # casting-director rewrites per cast: each is a model call inside the serialized gate, so the time it adds is bounded
 GATE_REWRITE_BOUND = 2  # re-writes per card per run (each is one model call, inside the per-season give-up cap)
@@ -353,7 +354,7 @@ def card_codes(profile: dict, npc: dict, cast=None, registry: Optional[dict] = N
 
 def rewrite_message(codes: list) -> str:
     return ("The biography failed the final check (" + ", ".join(codes) + "). Write the COMPLETE JSON object again. The "
-            "biography is 2-3 whole sentences (under 480 characters, ending on a full stop), about the houseguest named "
+            "biography is 2-3 whole sentences (under " + str(BIO_ASK_CHARS) + " characters, ending on a full stop), about the houseguest named "
             "on the card by that exact first name and the pronouns on the card, the stated age only, no look feature the "
             "look lacks, never \"Big Brother\"; include voice, physicalCharacteristics with wardrobe and an identityConcept.")
 

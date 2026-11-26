@@ -823,9 +823,11 @@ def _hang_out_steer(res: dict, asked_minutes=None) -> str:
     obs = {"overheard-whisper": "two housemates whispering (%s)", "argument": "two housemates arguing (%s)", "someone-moved": "%s on the move"}.get(str(d.get("kind") or ""), "something happening (%s)") % " and ".join(d.get("who") or []) if reason == "observed" else ""
     line = _HANGOUT_STOP_LINES.get(reason, _HANGOUT_STOP_LINES["max-beats"]).format(by=by, npc=d.get("npc") or "A housemate", obs=obs)
     mins = int(res.get("minutes") or 0)
-    shown = str(res.get("stopLine") or "").strip()  # ORW-22: the engine's own player-facing line for this stop - the reply must put it on screen
+    shown = str(res.get("stopLine") or "").strip()  # ORW-22: the engine has a player-facing line for this stop - the reply must put the stop on screen
     if shown:
-        line += " Make sure the reply shows the player this, in your own words: \"%s\"" % shown
+        # ORW-917: the engine's stock sentence is NOT quoted: a quoted line was copied into the reply word for word ("A and B are in a tense exchange.") on ~60 playtest turns.
+        # The stop's facts (who, what kind) are already in `line` above.
+        line += " Make sure the reply shows the player this stop, told in fresh prose of your own (never a stock sentence)."
     cut = ""
     if isinstance(asked_minutes, (int, float)) and asked_minutes > 0 and reason != "max-beats" and mins < asked_minutes:
         cut = ("The wait was CUT SHORT: the player asked to wait about %d minutes but only about %d passed. Say plainly that the wait was interrupted; do NOT claim the full time went by. " % (asked_minutes, mins))
@@ -3095,7 +3097,13 @@ _CLAIM_NOMINATED_RE = re.compile(
     r"(?:turns?|turned|hands?|handed|handing|gives?|gave|giving|passes?|passed)\s+(?:out\s+)?(?:a|the|each|every|one)?\s*(?:\w+\s+){0,4}?keys?\b(?!\s+(?:in|into|to|of|from|on)\s+(?:\w+\s+){0,3}?(?:doors?|locks?|ignition|rooms?|cars?|drawers?|cabinets?|padlocks?|chests?|gates?)\b)|"
     r"(?:without|with no)\s+(?:a\s+)?key|(?:two|2|both)\s+(?:\w+\s+){0,3}?(?:are\s+)?left\s+without(?=\s*[.,;!?]|\s+(?:a\s+)?(?:key|safe))|walks?\s+the\s+line\s+(?:with|holding)\s+(?:\w+\s+){0,2}?keys?|"
     r"(?:the\s+)?nominations?\s+ceremony\s+(?:begins?|begun|starts?|started|is\s+(?:starting|beginning|about\s+to)|kicks?\s+off)|"
-    r"(?:the\s+)?(?:last|final|remaining)\s+two\s+(?:houseguests\s+)?(?:are\s+)?(?:left\s+)?(?:without|standing)\b)",
+    r"(?:the\s+)?(?:last|final|remaining)\s+two\s+(?:houseguests\s+)?(?:are\s+)?(?:left\s+)?(?:without|standing)\b|"
+    # ORW-915 (Fable's week-1 run, turn 125): the ritual voiced as a LIST - "a key for X, a key for Y, ..." with no verb in front of "key" - the two with "nothing in front of them", "the two keys in her hand", "about to name the
+    # nominees". The engine had no nominee yet and the two it later named were among those keyed (handed safety). Each cue still needs the ritual's own wording, so a door key or a drink is untouched.
+    r"\ba\s+key\s+for\s+(?:(?-i:[A-Z][\w'-]*)|each\s+\w+|every\s+\w+)|"
+    r"(?:two|2|both)\s+(?:\w+\s+){0,2}?(?:people|houseguests|players)\s+(?:\w+\s+){0,6}?(?:with\s+)?nothing\s+(?:in\s+front\s+of|before)\s+them|"
+    r"\b(?:holds?|holding|clutch(?:es|ing)?|with)\s+(?:the\s+)?(?:two|2)\s+keys\s+in\s+(?:her|his|their|one)\s+hands?\b|"
+    r"\babout\s+to\s+name\s+(?:the\s+|her\s+|his\s+|their\s+)?(?:two\s+)?nominees\b)",
     re.IGNORECASE,
 )
 # A nomination narrated as happening NOW ("the HOH nominates two houseguests") while nominees are already committed is a re-enacted ceremony, not a recap.
@@ -3675,10 +3683,10 @@ _BALLOT_PHRASE_RE = re.compile(
     r"([A-Z][\w'’\-]+(?:\s+[A-Z][\w'’\-]+)?)", re.IGNORECASE)
 
 
-# PO ruling 2026-11-04 (one-turn vote reveal): the narrator reads the WHOLE ballot list and may group it - "nine votes to evict X". Sanctioned only when N is
+# PO ruling 2026-11-04 (one-turn vote reveal): the narrator reads the WHOLE ballot list and may group it - "nine votes to evict X" (ORW-946: or "nine to evict X", the engine's own TALLY wording, noun optional). Sanctioned only when N is
 # one of the engine's own revealed per-nominee ballot counts (`ballotCounts`); any other N stays a fabrication and trips the tally guard.
 _BALLOT_COUNT_RE = re.compile(
-    r"\b(" + r"\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen" + r")\s+(?:votes?|ballots?)\s+(?:to|for)\s+evict\s+"
+    r"\b(" + r"\d+|zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen" + r")\s+(?:(?:votes?|ballots?)\s+)?(?:to|for)\s+evict\s+"
     r"([A-Z][\w'’\-]+(?:\s+[A-Z][\w'’\-]+)?)", re.IGNORECASE)
 
 
@@ -4534,7 +4542,7 @@ def _scan_quote_state(part: str, quote):
     return quote, first_close
 
 
-async def screen_presence_wall(user, text: str, alt_state=None) -> str:
+async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[dict] = None) -> str:
     """A2 (#1726) — the STRUCTURAL, SAME-TURN presence guard. Returns `text` with any sentence that
     stages an off-scene or already-evicted houseguest as present/acting in the player's scene DROPPED
     (delimiters preserved for the rest) — the empirically load-bearing half: the terminal whereabouts
@@ -4548,8 +4556,16 @@ async def screen_presence_wall(user, text: str, alt_state=None) -> str:
 
     ORW-395: `alt_state` is the board snapshot taken BEFORE the FE ran the player's own `turnIn` this
     turn. The reply voices the goodnight in the evening room, but live presence is already the morning
-    board; a sentence is a phantom only if it is absent under BOTH boards."""
+    board; a sentence is a phantom only if it is absent under BOTH boards.
+
+    ORW-917: `carry` is the ROUND's quote state across streamed chunks ({"quote", "drop_quote"}; the caller keeps one dict per round). The wall runs per chunk, and it used to
+    start every chunk outside any quote: a dropped speaker line split at a chunk boundary left the rest of its quote on screen ("Moss." / " Town, State.\" She comes in...").
+    None => one-shot (a whole text), as before."""
+    if carry is None:
+        carry = {}
     if not text or not text.strip():
+        if text:
+            carry["quote"], _ = _scan_quote_state(text, carry.get("quote"))
         return text
     try:
         from src import orwell_engine
@@ -4559,8 +4575,13 @@ async def screen_presence_wall(user, text: str, alt_state=None) -> str:
         return text  # engine unreachable this turn — never hold narration on a read hiccup
     facts = _presence_facts(state if isinstance(state, dict) else {})
     if not facts or (not facts.get("evicted") and not facts.get("active_offscene") and not facts.get("adjacent")):
-        return text  # nothing off-scene/evicted/next-door this turn — the overwhelmingly common path
-    roster = set(facts["in_view"]) | set(facts["active_offscene"]) | set(facts["evicted"])
+        if carry.get("drop_quote") or carry.get("quote"):
+            pass  # ORW-917: a quote still open (or a drop still running) from an earlier chunk: scan below so the state stays true
+        else:
+            carry["quote"], _ = _scan_quote_state(text, None)
+            return text  # nothing off-scene/evicted/next-door this turn — the overwhelmingly common path
+    facts = facts or {}
+    roster = set(facts.get("in_view") or ()) | set(facts.get("active_offscene") or ()) | set(facts.get("evicted") or ())
     first_counts = _first_name_counts(roster)
     alt_facts = _presence_facts(alt_state) if isinstance(alt_state, dict) else None
     if alt_facts:
@@ -4569,8 +4590,8 @@ async def screen_presence_wall(user, text: str, alt_state=None) -> str:
     parts = re.split(r"(?<=[.!?\n])", text)
     out = []
     dropped: set = set()
-    quote = None  # ORW-481: the quote mark open across the WHOLE reply (kept sentences count too), so a dropped line's close is not read as an open
-    drop_quote = False  # a dropped line that left a quote open drops the rest of that quote too
+    quote = carry.get("quote")  # ORW-481: the quote mark open across the WHOLE reply (kept sentences count too), so a dropped line's close is not read as an open; ORW-917: across chunks
+    drop_quote = bool(carry.get("drop_quote"))  # a dropped line that left a quote open drops the rest of that quote too (ORW-917: even into the next chunk)
     for part in parts:
         quote, close_end = _scan_quote_state(part, quote)
         if drop_quote:
@@ -4580,6 +4601,9 @@ async def screen_presence_wall(user, text: str, alt_state=None) -> str:
             part = part[close_end:]  # the closing mark ends the quote; the rest is judged on its own
             if not part.strip():
                 continue
+        if not facts or not (facts.get("evicted") or facts.get("active_offscene") or facts.get("adjacent")):
+            out.append(part)  # ORW-917: only finishing a carried drop this chunk; nothing to screen
+            continue
         try:
             hit = _sentence_stages_absent_npc(part, facts, first_counts)
             if hit and alt_facts and not _sentence_stages_absent_npc(part, alt_facts, _alt_counts):
@@ -4591,6 +4615,7 @@ async def screen_presence_wall(user, text: str, alt_state=None) -> str:
         except Exception:
             pass  # any hiccup falls through to emit (conservatism), except a proven hit above
         out.append(part)
+    carry["quote"], carry["drop_quote"] = quote, drop_quote
     if dropped:
         try:
             _dkey = _desync_key(user)
@@ -8518,6 +8543,7 @@ def current_game_day(user) -> Optional[int]:
     return _LAST_FRAMED_GAME_DAY.get(user or "default")
 
 
+_STAMP_REFRESH_RETRY_TIMEOUT = 6.0  # ORW-875: the second, longer try after a missed first read
 _STAMP_REFRESH_TIMEOUT = 2.0  # seconds: the persist-time stamp refresh is best-effort and must stay short
 
 
@@ -8527,7 +8553,11 @@ async def refresh_framed_game_stamps(user) -> None:
     try:
         from src import orwell_engine
         # Review of #2772: bounded, so a stalled engine read can never hold the save for the full framing timeout (the start-of-turn stamp stands).
-        gs = await asyncio.wait_for(orwell_engine.get_game_state(user=user), _STAMP_REFRESH_TIMEOUT)
+        # ORW-875: one retry with a longer bound. A loaded box can miss the first window, and the start-of-turn stamp that then stands is a phase BEHIND the engine (the playtest stamp read "Veto competition" while the turn had crossed to the ceremony).
+        try:
+            gs = await asyncio.wait_for(orwell_engine.get_game_state(user=user), _STAMP_REFRESH_TIMEOUT)
+        except Exception:
+            gs = await asyncio.wait_for(orwell_engine.get_game_state(user=user), _STAMP_REFRESH_RETRY_TIMEOUT)
         if not isinstance(gs, dict) or not gs.get("started"):
             return
         key = user or "default"
@@ -8755,9 +8785,25 @@ async def _advance_one_watch_step(user, pending) -> bool:
     return True
 
 
-# ORW-291 pacing: a played eviction reads ONE anonymized ballot per engine step (a 13-voter vote is ~16 steps). A progress-only player message walks the ballot steps in one pass, capped here
-# (the Continue button stays one step at a time). Eviction-specific: comp pacing (_COMP_PAUSE_EVERY = 1) is untouched.
+# ORW-291 pacing, as amended by ORW-846 (coordinator ruling 11-23): a played eviction reads ONE anonymized ballot per engine step (a 13-voter vote is ~16 steps). A bare "next"/"continue" at a
+# ballot step reads exactly ONE ballot, the same step the Continue button takes (play by play: decisions are made in each one; ORW-703 every step is told; ORW-262 keeps the clock budget).
+# Only an EXPLICIT fast-forward request ("skip to the result", "just tell me who's out") walks the remaining ballots in one pass, capped here. Eviction-specific: comp pacing is untouched.
 _EVICTION_BALLOT_HOPS = 20
+
+# ORW-846: a DETECTOR (not a pick) deciding between "one ballot" and "fast-forward the ballots". It fires only on an explicit ask to skip/jump to the outcome, in a short message with no question;
+# anything else (a bare continue, talk, an unclear message) is NOT a fast-forward and fails toward ONE ballot.
+_BALLOT_FASTFORWARD_RE = re.compile(
+    r"\b(?:(?:skip|jump|fast[\s-]?forward|go)\s+(?:ahead\s+)?(?:to\s+)?(?:the\s+)?(?:results?|reveal|outcome|tally|end\s+of\s+the\s+vote)|"
+    r"skip\s+(?:the\s+|all\s+(?:the\s+|of\s+the\s+)?)?(?:votes?|ballots?|voting)|"
+    r"(?:just\s+)?(?:tell|show|give)\s+me\s+(?:who(?:'s|\s+is|\s+got|\s+goes?|\s+was)?\s+(?:out|evicted|going\s+home|gone)|the\s+(?:result|results|outcome)))\b", re.IGNORECASE)
+
+
+def _is_ballot_fast_forward(text) -> bool:
+    """ORW-846: True only for a short, question-free message that explicitly asks to skip the ballots / see the result now. Pure and narrow; unclear => False (one ballot)."""
+    s = str(text or "").strip()
+    if not s or "?" in s or len(re.findall(r"[A-Za-z']+", s)) > 10:
+        return False
+    return bool(_BALLOT_FASTFORWARD_RE.search(s) or _SKIP_AHEAD_RE.search(s))
 
 
 def _is_eviction_ballot_step(pending) -> bool:
@@ -8832,6 +8878,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
     if _comp_hops == 0 and _comp_log is None and not _after_day_break:
         event_pause_clear(user)  # a new framed turn: last turn's pause no longer holds the model's tools
         _VETO_DRAW_HOLDS.pop(_runway_key(user or None), None)
+    if is_beat_cue_message(player_msg):
+        return game_state  # ORW-919: a hidden beat cue voices a beat the engine ALREADY committed; its turn never moves the board (a finale walk advanced past a step card here)
     try:
         phase = (game_state.get("phase") or "").lower()
         # ORW-116: no phase advance moves the clock, so the premiere is exited only when the player's night is over - it is Day 2's morning, the premiere still "open", and the FIRST HOH is not due until the
@@ -8843,8 +8891,9 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             return game_state
         status = await orwell_engine.game_status(user=user)
         _refresh_beat_seq(user, status)  # 0065: track the freshest token before any progression call
-        if isinstance(status, dict) and _is_eviction_ballot_step(status.get("pending")) and _is_progress_only_message(player_msg):
-            # ORW-291 pacing: a bare "next"/"continue" walks the anonymized ballot steps in ONE pass (the speeches, the player's own card and the result keep their own stops).
+        if isinstance(status, dict) and _is_eviction_ballot_step(status.get("pending")) and _is_ballot_fast_forward(player_msg):
+            # ORW-291/ORW-846: ONLY an explicit fast-forward walks the anonymized ballot steps in one pass (the speeches, the player's own card and the result keep their own stops). A bare "next" falls to the
+            # one-step branch below, the same single advance the Continue press makes (its engine step carries the ORW-771 sealed beat facts to the narrator).
             _walked = await _walk_eviction_ballots(user, status.get("pending"))
             if _walked:
                 try:
@@ -9243,6 +9292,76 @@ def consume_vote_beat_cue(message, user) -> bool:
     if isinstance(message, str) and message.startswith(_VOTE_BEAT_CUE_PREFIX):
         hit = bool(_VOTE_BEAT_ARMED.pop(user, False))
         logger.info("[orwell] vote-beat cue seen for user=%s armed=%s", user, hit)
+        return hit
+    return False
+
+
+# ORW-924: the same hidden beat cue for a Continue press through the veto DRAW (the draw's watch steps were a banner and no narrated beat). Armed by the press that carried the engine's `vetoDrawBeat`
+# (routes/orwell_routes.py); the chat turn that carries the cue is a narrated beat, not a player message: no clock charge, no player-move parse. A hand-typed copy with no armed press is an ordinary message.
+_DRAW_BEAT_CUE_PREFIX = "(Production cue \u2014 the player pressed Continue through the veto draw"
+_DRAW_BEAT_ARMED: dict = {}
+
+
+def arm_draw_beat_cue(user) -> None:
+    """The Continue press just made carried a veto-draw beat: the next chat turn that is the cue is a beat turn."""
+    _DRAW_BEAT_ARMED[user] = True
+    logger.info("[orwell] draw-beat cue armed for user=%s", user)
+
+
+def consume_draw_beat_cue(message, user) -> bool:
+    """True (once per armed press) when `message` is the draw-beat cue AND a press armed it. Pure bookkeeping."""
+    if isinstance(message, str) and message.startswith(_DRAW_BEAT_CUE_PREFIX):
+        hit = bool(_DRAW_BEAT_ARMED.pop(user, False))
+        logger.info("[orwell] draw-beat cue seen for user=%s armed=%s", user, hit)
+        return hit
+    return False
+
+
+# ORW-919: two more hidden beat cues of the ORW-771/924 kind (armed server-side, one turn each, no clock charge, no player-move parse; a hand-typed copy with no armed press is an
+# ordinary message). CEREMONY RESULT: a Continue press whose result carries a ceremony's public result (the veto's use, the replacement nominee, the eviction result and its count) -
+# in a week-1 playtest those showed only on the card and were narrated a turn late, and the eviction count was never voiced. DECISION: a successful decision-card submit - the card used to pre-fill the message box and nothing happened until the
+# player pressed Send (F-NEW-5 amended: a hidden cue sends no player words; a failed cue leaves the box empty).
+_CEREMONY_RESULT_BEAT_CUE_PREFIX = "(Production cue \u2014 the player pressed Continue through a ceremony result"
+_CEREMONY_RESULT_BEAT_ARMED: dict = {}
+_CEREMONY_RESULT_KINDS = frozenset({"veto-decision", "replacement-nominee", "eviction-result"})  # the veto's use, the replacement, the eviction result (with its count)
+_DECISION_BEAT_CUE_PREFIX = "(Production cue \u2014 the player locked in their decision on the card"
+_DECISION_BEAT_ARMED: dict = {}
+
+
+def is_beat_cue_message(message) -> bool:
+    """ORW-919: True for a hidden BEAT cue (vote / draw / ceremony result / decision): the engine already committed the beat it voices, so its turn moves nothing."""
+    t = message.lstrip() if isinstance(message, str) else ""
+    return bool(t) and t.startswith((_VOTE_BEAT_CUE_PREFIX, _DRAW_BEAT_CUE_PREFIX, _CEREMONY_RESULT_BEAT_CUE_PREFIX, _DECISION_BEAT_CUE_PREFIX))
+
+
+def carries_ceremony_result_fact(res) -> bool:
+    """True when an advance result carries a ceremony-result announcement (the veto's use, the replacement nominee, the eviction result)."""
+    anns = res.get("announcements") if isinstance(res, dict) else None
+    return isinstance(anns, list) and any(isinstance(a, dict) and a.get("kind") in _CEREMONY_RESULT_KINDS for a in anns)
+
+
+def arm_ceremony_result_beat_cue(user) -> None:
+    _CEREMONY_RESULT_BEAT_ARMED[user] = True
+    logger.info("[orwell] ceremony-result-beat cue armed for user=%s", user)
+
+
+def consume_ceremony_result_beat_cue(message, user) -> bool:
+    if isinstance(message, str) and message.startswith(_CEREMONY_RESULT_BEAT_CUE_PREFIX):
+        hit = bool(_CEREMONY_RESULT_BEAT_ARMED.pop(user, False))
+        logger.info("[orwell] ceremony-result-beat cue seen for user=%s armed=%s", user, hit)
+        return hit
+    return False
+
+
+def arm_decision_beat_cue(user) -> None:
+    _DECISION_BEAT_ARMED[user] = True
+    logger.info("[orwell] decision-beat cue armed for user=%s", user)
+
+
+def consume_decision_beat_cue(message, user) -> bool:
+    if isinstance(message, str) and message.startswith(_DECISION_BEAT_CUE_PREFIX):
+        hit = bool(_DECISION_BEAT_ARMED.pop(user, False))
+        logger.info("[orwell] decision-beat cue seen for user=%s armed=%s", user, hit)
         return hit
     return False
 
@@ -10718,7 +10837,8 @@ async def build_chat_context(
 
     # Per-message pacing: announce this player message to the engine clock ONCE, before the model
     # call, keyed by the send's clientMsgId (retry / two-window re-drive is idempotent). Fail-soft.
-    _vote_beat_turn = (not incognito) and consume_vote_beat_cue(message, user)  # ORW-771: a vote-beat turn is not a player message
+    _vote_beat_turn = (not incognito) and (consume_vote_beat_cue(message, user) or consume_draw_beat_cue(message, user)
+                                           or consume_ceremony_result_beat_cue(message, user) or consume_decision_beat_cue(message, user))  # ORW-919: + veto ceremony, decision  # ORW-771: a vote-beat turn is not a player message
     if not incognito and not _vote_beat_turn:
         await note_player_message(client_msg_id, user)
         # ORW-419 (intent-first moves): the engine resolves the player's OWN move from their words BEFORE the narrator's moment

@@ -121,7 +121,7 @@ describe("T0-3 — buildBeatAnnouncements (weekly-loop scope)", () => {
     };
     const ev: BeatEvent = { beat: "eviction", content: "x is evicted", participants: [NOM_A] };
     const facts = buildBeatAnnouncements(ev, stateFixture({ hoh: HOH, eviction }));
-    expect(facts).toEqual([{ kind: "eviction-result", week: 3, subjects: [NOM_A], detail: { by: HOH } }]);
+    expect(facts).toEqual([{ kind: "eviction-result", week: 3, subjects: [NOM_A], detail: { by: HOH, votes: { evict: 2, keep: 1 } } }]); // ORW-919: + the public count
   });
 
   it("eviction with a TIED final tally ⇒ eviction-result carries tieBroken:true (the HOH broke the tie)", () => {
@@ -137,7 +137,21 @@ describe("T0-3 — buildBeatAnnouncements (weekly-loop scope)", () => {
     };
     const ev: BeatEvent = { beat: "eviction", content: "x is evicted", participants: [NOM_A] };
     const facts = buildBeatAnnouncements(ev, stateFixture({ hoh: HOH, eviction }));
-    expect(facts).toEqual([{ kind: "eviction-result", week: 3, subjects: [NOM_A], detail: { by: HOH, tieBroken: true } }]);
+    expect(facts).toEqual([{ kind: "eviction-result", week: 3, subjects: [NOM_A], detail: { by: HOH, tieBroken: true, votes: { evict: 1, keep: 1 } } }]);
+  });
+
+  it("ORW-919: the result states the count, as the host does ('By a vote of 9 to 4'), never a voter; no count when the ballots do not back the evictee", () => {
+    const nameOf = (id: string): string => (id === NOM_A ? "NomA" : id);
+    expect(announcementHeadline({ kind: "eviction-result", week: 1, subjects: [NOM_A], detail: { by: HOH, votes: { evict: 9, keep: 4 } } }, nameOf))
+      .toBe("By a vote of 9 to 4, NomA has been evicted from the house.");
+    expect(announcementHeadline({ kind: "eviction-result", week: 1, subjects: [NOM_A], detail: { by: HOH, tieBroken: true, votes: { evict: 6, keep: 6 } } }, nameOf))
+      .toBe("By a vote of 6 to 6, NomA has been evicted from the house after the Head of Household broke a tied vote.");
+    const eviction: EvictionProgress = {
+      stage: "goodbye", nominees: [NOM_A, NOM_B], revealOrder: [npc(7), npc(8), npc(9)],
+      voteOf: { [npc(7)]: NOM_B, [npc(8)]: NOM_B, [npc(9)]: NOM_A }, revealIx: 3, evictee: NOM_A, goodbyeFrom: [], goodbyeIx: 0,
+    };
+    const facts = buildBeatAnnouncements({ beat: "eviction", content: "x is evicted", participants: [NOM_A] }, stateFixture({ hoh: HOH, eviction }));
+    expect(facts[0]!.detail?.votes, "a twist overrode the ballots: no count is stated").toBeUndefined();
   });
 
   it("final-eviction (Final 3) ⇒ exactly one eviction-result announcement naming the finalist evicted", () => {

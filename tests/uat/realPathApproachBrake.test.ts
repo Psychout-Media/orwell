@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { PLAYER } from "../../src/domain/ids";
 import { nextMilestone } from "../../src/engine/daySchedule";
 import { playMixGame } from "../support/houseMixDriver";
+import { firstStop, wfScan, type Stop } from "../realpath/playedSeason";
 
 /**
  * ORW-709 (B3-3/4/5 and the approach treadmill) - in PLAYED games (ORW-812: before, a get-them-out goal was pushed into a houseguest's agenda, the house moved into the yard, the bond
@@ -10,7 +11,7 @@ import { playMixGame } from "../support/houseMixDriver";
  * `real-path` leg): over a minute of play on the runner. Roles only.
  */
 type Rec = { id: string; actor: string; hostile: boolean; status: string; eventId?: string; goalId: string; hour: number };
-type Sess = { live: { aimedAtPlayer?: Rec[]; interruption?: { npc: string; desire: string; atHour: number }; approachAsked?: Record<string, { q: string; answered?: true }>; dayNumber?: number; week: number }; presence: Map<string, string>; record?: { events(): Array<{ id: string; type: string; hidden: boolean; initiator: string; witnessSet: string[]; content: string; houseLife?: { about?: string; at?: number } }> }; livingIds(): string[]; desireApproach(ids: string[]): { npc: string } | null };
+type Sess = { live: { aimedAtPlayer?: Rec[]; interruption?: { npc: string; desire: string; atHour: number }; approachAsked?: Record<string, { q: string; answered?: true }>; dayNumber?: number; week: number; goalApproaches?: Record<string, unknown> }; presence: Map<string, string>; record?: { events(): Array<{ id: string; type: string; hidden: boolean; initiator: string; witnessSet: string[]; content: string; houseLife?: { about?: string; at?: number } }> }; livingIds(): string[]; desireApproach(ids: string[]): { npc: string } | null };
 const events = (s: Sess) => s.record?.events() ?? [];
 
 describe("B3-3: a houseguest scheming about the player to a third party stays hidden, in played games", () => {
@@ -41,12 +42,56 @@ describe("B3-3: a houseguest scheming about the player to a third party stays hi
 });
 
 describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer folds none (played)", () => {
-  it.todo("real path: a milestone ask by a houseguest who holds an open record of their own leaves it open - not reached: in seeds 11, 12, 13 (700 messages each) no houseguest with an open record made a milestone ask (ORW-709)");
+  it("ORW-839: a milestone ask by a houseguest who holds an open record of their own leaves that record open (the scripted talking player, the first seed that gets there)", async () => {
+    // PRECONDITION (the scan): a houseguest steps up to the player with a milestone question (not their goal's) while holding an open record aimed at the player. The house-mix
+    // games above (seeds 11-13, 700 messages) never got there; with the scripted talking player a 2026-11-24 search found it in 18 of 40 seeds, so the scan finds one in 1..12.
+    type Seen = { npc: string; asked: string; open: string[] };
+    const memo = new WeakMap<object, { last: string; open: Map<string, string[]>; goal: Set<string> }>();
+    let seen: Seen | undefined;
+    const milestoneAskOnOpenRecord = (st: Stop): boolean => {
+      const s = st.sess as Sess;
+      const m = memo.get(s) ?? { last: "", open: new Map<string, string[]>(), goal: new Set<string>() };
+      memo.set(s, m);
+      let hit = false;
+      const it2 = s.live.interruption;
+      if (it2) {
+        const key = `${it2.npc}:${it2.atHour}`;
+        if (key !== m.last) {
+          m.last = key;
+          const q = s.live.approachAsked?.[it2.npc]?.q;
+          // still open NOW as well as at the last stop: a record the asker's own earlier approach surfaced a step ago (a goal approach, then a plea in the next stretch) is not the ask's to answer for
+          const nowOpen = new Set((s.live.aimedAtPlayer ?? []).filter((r) => r.status === "open").map((r) => r.id));
+          const had = (m.open.get(it2.npc) ?? []).filter((id) => nowOpen.has(id));
+          // a PURE milestone ask: not the goal's own question, and carrying no goal's words (a houseguest with a goal approach pending voices that goal whatever they step up
+          // for, and that goal's record surfaces by design: ORW-709's "only that record's own goal does")
+          if (q && !q.startsWith("goal:") && !(it2 as { say?: unknown }).say && had.length > 0 && !m.goal.has(it2.npc) && !s.live.goalApproaches?.[it2.npc]) { seen = { npc: it2.npc, asked: q, open: had }; hit = true; }
+        }
+      }
+      const open = new Map<string, string[]>();
+      for (const r of s.live.aimedAtPlayer ?? []) if (r.status === "open") (open.get(r.actor) ?? open.set(r.actor, []).get(r.actor)!).push(r.id);
+      m.open = open;
+      // ORW-905: a houseguest holding a goal approach of their own voices that goal whatever they step up for (the engine marks the record of the PENDING goal approach as shown), with or without words; so the
+      // precondition needs "no goal approach pending" for the asker, read from the step before as well as now (the approach is consumed as the ask surfaces).
+      m.goal = new Set(Object.keys(s.live.goalApproaches ?? {}));
+      return hit;
+    };
+    const at = await firstStop(milestoneAskOnOpenRecord, wfScan(1, "a milestone ask by a houseguest who holds an open record"));
+    expect(seen, "the stop recorded the ask").toBeDefined();
+    const recs = ((at.sess as Sess).live.aimedAtPlayer ?? []).filter((r) => seen!.open.includes(r.id));
+    expect(recs.length).toBe(seen!.open.length);
+    // the claim is that the ask does not SURFACE the record (only that record's own goal does): never "shown". A record can still close as "answered" in the same message when the
+    // player answered an earlier question from that houseguest (answerAimedFrom closes the asker's records): that is the player's answer, recorded, not the ask surfacing it.
+    const answeredByPlayer = (at.sess as Sess).live.approachAsked?.[seen!.npc]?.answered === true;
+    for (const r of recs) {
+      expect(r.status, "a milestone ask does not surface the asker's own record (only that record's own goal does)").not.toBe("shown");
+      if (r.status !== "open") expect({ status: r.status, answeredByPlayer }, "closed only by the player's own answer").toEqual({ status: "answered", answeredByPlayer: true });
+    }
+  }, 900_000);
 
-  it("a hostile approach answered kindly writes no fight; the same approach ignored does (seed 13, the same game played twice up to the approach)", async () => {
+  it("a hostile approach answered kindly writes no fight; the same approach ignored does (seed 11, the same game played twice up to the approach; re-pinned from 13 by ORW-791, see ORW-872)", async () => {
     const run = async (answer: boolean): Promise<{ fights: number; shown: boolean }> => {
       let target: string | undefined; let answered = false; let shown = false; let after = 0; let s: Sess | undefined;
-      await playMixGame(13, 1400, { user: "mixdrv-13",
+      await playMixGame(11, 1400, { user: "mixdrv-11",
         onStep: (sess) => { s = sess as Sess; if (!target) { const r = (s.live.aimedAtPlayer ?? []).find((x) => x.hostile && x.status === "shown"); if (r) { target = r.actor; shown = true; } } else after++; },
         onMessage: async (call) => { if (answer && target && !answered) { answered = true; await call("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, target], content: "I hear you, let's talk it through", kind: "conversation" }); } },
         stopWhen: () => after > 500,

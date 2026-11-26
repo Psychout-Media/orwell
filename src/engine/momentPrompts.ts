@@ -1214,7 +1214,12 @@ function vetoDecisionLines(cer: GameStateView["ceremony"]): string[] {
 function competitionFloorLines(cer: GameStateView["ceremony"]): string[] {
   const c = cer.competition;
   if (!c || !c.out.length) return [];
-  return [`    Competition floor: still in ${c.stillIn.map((p) => p.name).join(", ") || "no one"}; already out ${c.out.map((p) => p.name).join(", ")} (an eliminated houseguest does not compete again).`];
+  const lines = [`    Competition floor: still in ${c.stillIn.map((p) => p.name).join(", ") || "no one"}; already out ${c.out.map((p) => p.name).join(", ")} (an eliminated houseguest does not compete again).`];
+  // ORW-927: rounds the game ran while the player was choosing their approach were voiced by nobody. Name them so this reply tells each exit (once), instead of jumping from the full field to the last few.
+  if (c.justOut?.length) lines.push(`    NOT YET TOLD: ${c.justOut.map((p) => p.name).join(", ")} went out in the rounds the game ran while the player chose their approach, and no one has voiced those exits. Voice each of them in this reply, in this competition's own manner, before anything later; do not drop anyone else and do not skip them.`);
+  // ORW-937: an exit an earlier reply already voiced is not staged again (Fable's week-2 veto: two houseguests went out a second time two turns later).
+  if (c.told?.length) lines.push(`    ALREADY VOICED: ${c.told.map((p) => p.name).join(", ")} went out in earlier replies. Do not narrate their exit, a miss or a step back again; any exit you tell must be one the game has recorded and is not named here.`);
+  return lines;
 }
 
 export function renderGameContext(view: GameStateView): string {
@@ -1325,6 +1330,10 @@ export function renderGameContext(view: GameStateView): string {
   // The ceremony status block — engine truth for the HOH / nominations / veto this week. Present only
   // once something has been set (premiere/pre-ceremony has none), so the model never invents these.
   const vetoPlayers = cer.veto.players ?? [];
+  const vetoPlayerNames = new Set(vetoPlayers.map((p) => p.id));
+  const evictionDay = view.phase === "eviction" || view.daySchedule?.todaysEvent === "eviction";
+  const playerNominated = cer.nominees.some((n) => n.id === view.player?.id);
+  const watchingVeto = view.house.filter((h) => !vetoPlayerNames.has(h.id)).map((h) => h.name);
   const hasCeremony = !!(cer.hoh || cer.nominees.length || cer.veto.holder || vetoPlayers.length);
   const ceremonyLines = !hasCeremony ? [] : [
     "- THIS WEEK'S CEREMONY (engine truth — voice EXACTLY this; never name a different HOH, nominee, or",
@@ -1335,8 +1344,13 @@ export function renderGameContext(view: GameStateView): string {
     // R9-AGENCY-1: the engine draws the six who play the veto (HOH, both noms, three by chip) — surface
     // the field so the model never tells a drawn houseguest (the player included) they aren't playing.
     `    Playing the veto: ${vetoPlayers.length ? vetoPlayers.map((p) => p.name).join(", ") : "not yet drawn"}`,
+    // ORW-923/925: everyone the chip draw did NOT pick is on the sidelines. Named, so a houseguest outside the six is never staged as competing, falling or going out early, and the field is never "all of you" (Fable week 1: "All sixteen of you are out here", non-players "out early").
+    ...(vetoPlayers.length && watchingVeto.length ? [`    Watching the veto, not playing (they cannot fall, drop or go out in it): ${watchingVeto.join(", ")}`] : []),
     `    Veto: ${cer.veto.holder ? `held by ${cer.veto.holder.name}${cer.veto.used ? " (already used)" : ""}` : "not yet played"}`,
     ...vetoDecisionLines(cer),
+    // ORW-945 (Fable week 2): on the day of the eviction a nominee told the player "I'm voting to keep you" (a nominee does not vote) and another said "I told you I'd keep you" to a player who was never on the block. The facts the narrator
+    // already has (who is on the block) are not enough: say who votes, and what that means for the player.
+    ...(evictionDay && cer.nominees.length ? [`    Eviction vote tonight: the HOH and the nominees (${cer.nominees.map((n) => n.name).join(" and ")}) do not vote; everyone else does. ${playerNominated ? "The player IS on the block: only a houseguest who actually told them they would keep them may be said to have promised it." : "The player is NOT on the block, so nobody is deciding the player's fate tonight: no one promises or announces a vote to keep or to evict the player."}`] : []),
   ];
   const ceremonyAndFloorLines = [...ceremonyLines, ...competitionFloorLines(cer)];
   // E58: the in-game day index, derived from the ceremony cadence (Day 1 HOH → Day 5 eviction),
@@ -1551,7 +1565,7 @@ export function renderGameContext(view: GameStateView): string {
           for (const r of e.statedReasons ?? []) lines.push(`        said aloud (${STATED_ACT[r.decision] ?? "deciding on"} ${neutralizeForPrompt(r.about.name)}): the reason they give - ${STATED_REASON_GLOSS[r.kind] ?? "they call it purely strategic"}; voice THIS reason in their own words, never stock phrasing, and no other`);
           // ORW-338: ORW-317's two NPC-mind lines, pushed here (npcVoice-gated already) so the narrator has them without calling the under-called tool. They sit in this per-turn block, i.e. the volatile tail, never the leading stable lines.
           if (e.moodCause) lines.push(`        moodCause (they chose to tell the player why they feel this way; the ONLY reason they may give): "${neutralizeForPrompt(e.moodCause)}"`);
-          if (e.tellsYou) lines.push(`        tellsYou (their own words to the player, certainty ${e.tellsYou.certainty.replace("-", " ")}): ${neutralizeForPrompt(e.tellsYou.subject)} ${TELLS_YOU_VERB[e.tellsYou.kind] ?? "is involved with"}${e.tellsYou.label ? ` ${e.tellsYou.label} (gossip, in their own words, never as a label)` : ""}${e.tellsYou.object ? ` ${e.tellsYou.object === e.name ? "the speaker themself" : neutralizeForPrompt(e.tellsYou.object)}` : ""}`);
+          if (e.tellsYou) lines.push(`        tellsYou (their own words to the player, certainty ${e.tellsYou.certainty.replace("-", " ")}): ${neutralizeForPrompt(e.tellsYou.subject)} ${TELLS_YOU_VERB[e.tellsYou.kind] ?? "is involved with"}${e.tellsYou.label ? ` ${e.tellsYou.label} (gossip, in their own words, never as a label)` : ""}${e.tellsYou.object ? ` ${e.tellsYou.object === e.name ? "the speaker themself" : neutralizeForPrompt(e.tellsYou.object)}` : ""}${e.tellsYou.alreadyHeard ? " - the player already heard this from someone else: this is them saying it too, so voice it as confirming what the player heard, never as news" : ""}`);
           if (e.leansOnYou) lines.push(`        leansOnYou (${e.leansOnYou.manner}): they are pressing the player with something they hold - the player answers or ignores`);
           if (e.rememberedAboutOthers?.length) lines.push(`        rememberedAboutOthers (things the whole house saw): ${e.rememberedAboutOthers.map((m) => neutralizeForPrompt(m)).join("; ")}`);
           return lines;
@@ -1649,7 +1663,14 @@ export function renderGameContext(view: GameStateView): string {
     ...(view.napOpen ? ["- NAP (open now): if the player naps or lies down, call nap {hours} (0.5-3 from their words, else 1). An event wakes them; if refused, voice the `why`. On waking, voice only the WHILE YOU SLEPT line."] : []),
     ...(view.houseMeeting ? [`- HOUSE MEETING (engine truth; the player is in the room and heard it): ${houseMeetingLine(view.houseMeeting)}.${view.houseMeeting.answer === undefined ? "" : " Voice the accusation and the answer as the speakers' own words; do not say whether either is true, why the caller called it, or how anyone took it."}`] : []),
     ...(view.keepPromisers?.length ? [`- WHO TOLD THE PLAYER THEY WOULD KEEP THEM (engine truth; the only people who may be said to have promised it; ballots stay anonymous, so never say how any of them voted): ${view.keepPromisers.map((h) => neutralizeForPrompt(h.name)).join(", ")}.`] : []),
+    ...(view.votePromises ? [`- VOTE PROMISES ON THE RECORD (engine truth; names only, what the player was told or heard): ${view.votePromises.map((v) => `${v.nominee.name}: ${v.keepers.length ? v.keepers.map((k) => k.name).join(", ") : "nobody"}`).join("; ")}. A vow that is not listed is not on the record: do not voice it as firm.`] : []),
+    ...(view.alliancePitchesOpen?.length ? view.alliancePitchesOpen.map((a) => `- ALLIANCE PITCH (engine truth; open until the player takes it or the houseguest withdraws it): a houseguest has let the player in on the alliance "${a.name}" (allianceId ${a.id}; the roster the player was told: ${a.members.map((m) => m.name).join(", ")}). Work the offer into a scene in that houseguest's own manner when it fits, and do not make the player's answer for them. If the player says yes, call joinAlliance({ allianceId: "${a.id}" }); the game decides whether they are let in.`) : []),
+    // ORW-851 (same gap ORW-794 closed for alliance pitches): the narrator used to learn a favor it is owed, or a vote pitch a houseguest has floated, only by calling gameStatus and reading the state. Prompt-only lines from the view's own fields; no new read.
+    ...(view.owedFavors?.length ? [`- FAVORS OWED TO THE PLAYER (engine truth; houseguests who kept a deal with them): ${view.owedFavors.map((f) => `${neutralizeForPrompt(f.from.name)} (${f.n})`).join(", ")}. If the player calls one in, call callInFavor; never say a favor is owed that is not listed here.`] : []),
+    ...(view.openVotePitch ? [`- VOTE PITCH OPEN (engine truth; open until the player answers it or the week rolls over): ${neutralizeForPrompt(view.openVotePitch.from.name)} has floated a vote to the player: ${neutralizeForPrompt(view.openVotePitch.terms)}. Work it into a scene in that houseguest's own manner when it fits, and do not make the player's answer for them.`] : []),
+    ...(view.bedtimeHeld ? [`- BEDTIME NOT YET (engine truth): ${bedtimeHeldLine(view.bedtimeHeld.minutesUntil)}.`] : []),
     ...(view.houseMeetingRefused ? [`- HOUSE MEETING REFUSED (engine truth): ${houseMeetingRefusedLine(view.houseMeetingRefused)}.`] : []),
+    ...(view.allianceNotFormed ? [`- ALLIANCE NOT FORMED (engine truth): the player proposed "${view.allianceNotFormed.name}" to ${view.allianceNotFormed.with.join(", ")} and it did NOT form: they are not close enough to the player yet. Nobody is sworn in and none of them is in an alliance with the player: do not narrate it as formed or as agreed, and take back any "I'm in" you already wrote by voicing them as warm toward the idea but holding back; it can only come once they have grown closer.`] : []),
     ...(view.longNight ? [`- LONG NIGHT (engine truth; play it hurried and breathless in your own words, and never write a morning, a sleep or a day passing until this line is gone): ${view.longNight}.`] : []),
     ...(view.beds ? [`- BEDS (engine truth; the player claims or swaps a bed in their own words and the engine records it before you write, so never claim, swap or assign one for them): ${view.beds}`] : []),
     ...(view.sourceNote ? [`- WHO TOLD THEM (engine truth; the engine decided this answer before you write, so voice it as the houseguest's own words; tone, hedging and colour are yours, but never change who they name, or that they name no one): ${view.sourceNote}`] : []),
@@ -1690,7 +1711,10 @@ export function renderGameContext(view: GameStateView): string {
     // number). Present only when the per-conversation clock is live (absent in the seeded spine / golden).
     ...(view.daySchedule
       ? [
-          view.daySchedule.due
+          view.daySchedule.due && view.pending && (view.daySchedule.heldTurns ?? 0) > 0
+            // ORW-859 (716b): the event is due AND the game already opened it and now waits on the player (the approach card, a ballot, a choice). Production's call has been voiced once; saying "starting NOW, production calls the house" again on every later turn made the narrator re-stage the call scene each time the player spoke (three times in a row) and never reach the event itself.
+            ? `- THE ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart).toUpperCase()} HAS ALREADY BEEN CALLED and the house is gathered${view.daySchedule.stagingRoom ? ` in ${roomRefHere(view.daySchedule.stagingRoom)}` : ""}: production's call is voiced, so never voice it again and never stage the gathering again. The game is waiting on the player's own ${view.pending.kind === "ceremony-step" ? "Continue" : "decision card"}. Answer whatever the player says or does in the scene, keep the room tense and in motion, and hold there; the event plays out only after the player decides, and its rounds, drops and winner come from the game, never from you.`
+            : view.daySchedule.due
             ? `- IT IS TIME: the ${milestoneLabel(view.daySchedule.next, view.daySchedule.finalHohPart)} is starting NOW — production calls the whole house to ${view.daySchedule.stagingRoom ? roomRefHere(view.daySchedule.stagingRoom) : "the living room"}${view.daySchedule.stagingRoom && wa ? ` (you are in ${roomRefHere(wa.room)})` : ""}; the scheming pauses and everyone gathers for the ceremony.`
             : view.daySchedule.todaysEvent
               // ORW-258: every event gets its own day - while the next one waits behind its night, today belongs to the event just played and the next is TOMORROW
@@ -1723,7 +1747,7 @@ export const STATED_REASON_GLOSS: Readonly<Record<string, string>> = {
 const TELLS_YOU_VERB: Record<string, string> = {
   "targets-you": "is targeting the player,", "voted-to-evict-you": "voted to evict the player,", "final-two-with": "has a final two with",
   "going-after": "is going after", "talking-about": "has been talking behind the back of", "lying-about": "is lying to",
-  "has-reputation": "has a name around the house as",
+  "has-reputation": "has a name around the house as", "couple-with": "is seeing",
 };
 const STATED_ACT: Readonly<Record<string, string>> = { nominate: "naming", replacement: "naming as the replacement", veto: "using the veto to save", "veto-hold": "not using the veto, leaving the nominations of", "hc-pick": "picking to play in the veto", vote: "breaking the tie against", "final-hoh-evict": "evicting" };
 
@@ -1932,6 +1956,24 @@ export function renderVoteBeatBlock(view: GameStateView): string[] {
   return out;
 }
 
+/**
+ * ORW-924 - the VETO DRAW BEAT of the Continue press just made through the draw: third-person facts for the narrator to voice as a short beat (the narrator authors every word). The draw's two
+ * watch steps were a banner and nothing else; this gives the press a voiced moment. It names NO veto winner and NO result (the competition has not been run), and the six only once the game has published them.
+ */
+export function renderVetoDrawBeatBlock(view: GameStateView): string[] {
+  const b = view.ceremony?.veto?.drawBeat;
+  if (!b) return [];
+  const nm = (r: { name: string }): string => neutralizeForPrompt(r.name);
+  const out = [`    VETO DRAW BEAT (the player just pressed Continue through the Power of Veto draw; the competition has NOT been run, so there is no veto winner and no result):`];
+  const who = `${b.hoh ? `${nm(b.hoh)} is the Head of Household` : "the Head of Household is not marked"}; ${b.nominees.length ? `${b.nominees.map(nm).join(" and ")} wait on the block` : "nobody is named on the block"}; ${b.gathered} houseguests are gathered; the part of the day is ${b.timeOfDay ?? "unmarked"}`;
+  if (b.field && b.field.length) out.push(`      Facts of this moment: the draw has set its six: ${b.field.map(nm).join(", ")}. ${who}.`);
+  else out.push(`      Facts of this moment: the chips are being drawn and the six are not yet shown. ${who}.`);
+  out.push(b.closed
+    ? "      The draw is over; the competition itself has not started and is not voiced here. Voice a short beat of a few sentences: the room taking in who was drawn, from these facts only."
+    : "      Voice a short beat of a few sentences: the room around the draw, from these facts only. Name no one as drawn who is not listed above, no winner, no chip holder's choice and no result; add no new fact about the board.");
+  return out;
+}
+
 /** The short engine-committed board recap for the ceremony phases (HOH, nominees, veto, eviction ballots), or undefined. */
 export function renderBoardRecap(view: GameStateView): string[] | undefined {
   const phase = String(view.phase ?? "").toLowerCase();
@@ -1986,7 +2028,10 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
     }
     if (ev?.host) lines.push(...renderHostBlock(view));
     if (ev?.voteBeat) lines.push(...renderVoteBeatBlock(view));
+    // ORW-928: the result was committed on an earlier turn and the reveal, the host's words and the evictee's exit were voiced then. Staging them again made the evictee leave twice (a second exit speech).
+    if (ev?.evictee && (ev.voicedTurns ?? 0) > 0) lines.push(`    THE REVEAL AND ${ev.evictee.name.toUpperCase()}'S EXIT HAVE ALREADY BEEN VOICED on an earlier turn: the host has spoken, ${ev.evictee.name} has said goodbye and left the room. Never read the result again, never give the host's send-off again and never have ${ev.evictee.name} leave again. Play only what the player says or does now, and the game's own next step (the player's goodbye card, the house reacting) when it comes.`);
   }
+  if (cer.veto.drawBeat) lines.push(...renderVetoDrawBeatBlock(view)); // ORW-924
   return lines;
 }
 
@@ -2303,6 +2348,12 @@ const UNCOMMITTED_CEREMONY_FRAGMENT =
   "MOMENT — The house is social. Play the player's conversations, the scheming and the lingering as ordinary play; the game's closed-set events (nominees, the veto, a vote, a result) exist only once the game has run them.";
 
 function uncommittedCeremonyGate(moment: string, view: GameStateView): { replace: boolean; note: string } | null {
+  // ORW-925 (Fable week 1, turn 142): the veto draw's first step is a WATCH step ("the chips are being drawn"), not a decision. A typed message at that step ("I walk down for the draw") reached the narrator with the full draw script
+  // and it read every chip aloud before the engine drew, naming a field the game did not have. Until the draw has run, a watch step of the draw keeps the narrator social and says the chips wait for the player's Continue.
+  const wp = view.pending;
+  if (wp && wp.kind === "ceremony-step" && wp.ceremony?.kind === "veto-draw" && wp.ceremony.stepId === "chips" && (view.ceremony?.veto?.players?.length ?? 0) === 0 && (moment === "veto-draw" || moment === "veto-competition")) {
+    return { replace: true, note: "MOMENT NOTE - the veto draw has NOT happened yet: the game has not drawn the six players, so none exist, and the chips are drawn when the player presses Continue (or says plainly to go on). Do not narrate the chip draw, any chip, the field or the competition, and do not name who is in or out. Play the walk down, the room and the talk as ordinary scene and stop before anyone reaches for the bag." };
+  }
   if (view.pending) return null; // the engine is asking for the player's own decision: that card keeps its script
   const c = view.ceremony;
   switch (moment) {
@@ -2419,6 +2470,21 @@ export function houseMeetingLine(m: { caller: string; accused: string; claim: { 
     : m.answer === "redirect" ? `the accused DEFLECTS: they neither confirm nor deny, and must not admit or flatly deny it, now or in later turns`
     : `the accused DENIES it: they must not admit, confess or concede it, now or in later turns`;
   return `${m.caller} called the house together and said: ${said}. ${reply}. The answer is FIXED, ${fixed}`;
+}
+
+/**
+ * ORW-920: the player tried to turn in before the night period and the engine held the bed. Said in the world's terms (a part of the evening, never minutes as data) so the narrator does not write the
+ * sleep the engine refused. Pure.
+ */
+export function bedtimeOpensPhrase(minutesUntil: number): string {
+  if (minutesUntil <= 75) return "within the hour or so";
+  const hours = Math.round(minutesUntil / 60);
+  const words = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]; // the world's terms: never a digit
+  return hours <= 1 ? "within the hour or so" : `in about ${words[hours] ?? "several"} hours`;
+}
+export function bedtimeHeldLine(minutesUntil: number): string {
+  return `the player tried to go to bed and it is not bedtime yet: the house is still up and bed opens ${bedtimeOpensPhrase(minutesUntil)}. They are NOT asleep: do not write a lamp going out, closed eyes, a night passing or a morning, and do not call turnIn again until the night. `
+    + "Say plainly, in the scene's own voice, that it is too early to sleep, and offer one or two things to do until then (time with a houseguest, a quiet stretch, or waiting for the night)";
 }
 
 /** ORW-593: a call for a house meeting the engine refused, said in the world's terms for the narrator to voice. No meeting is held, so none may be improvised. */

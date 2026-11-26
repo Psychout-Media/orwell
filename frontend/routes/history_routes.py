@@ -26,7 +26,7 @@ def _without_admin_engine_results(entries):
     out = []
     for e in entries:
         md = e.get("metadata") if isinstance(e, dict) else None
-        if isinstance(md, dict) and "tool_events" in md:
+        if isinstance(md, dict):  # ORW-482: also a turn with an admin-only key but no tool_events (the forced casting finalize)
             e = {**e, "metadata": public_metadata(md)}
         out.append(e)
     return out

@@ -93,25 +93,50 @@ export const KNOWN_RED: Readonly<Record<string, KnownRed>> = {
   "early:band-gossip": { value: 42.0, card: "ORW-702 gossip ratchet" }, // band 22-32
   "mid:band-bonding": { value: 16.1, card: "ORW-702 restore bonding" }, // band 24-34
   "mid:band-gossip": { value: 47.4, card: "ORW-702 gossip ratchet" }, // band 26-36
-  "mid:no-activity-above-45": { value: 47.4, card: "ORW-702 gossip ratchet" }, // gossip is the one over 45
   "late:band-bonding": { value: 14.8, card: "ORW-702 restore bonding" }, // band 20-30
-  "late:band-strategy": { value: 27.7, card: "ORW-702 late strategy" }, // band 28-38: 0.3 under the floor
+  "late:band-conflict": { value: 9.1, card: "ORW-902 767 late mix" }, // band 10-16: ORW-767 (a told couple spreads as gossip) moved the late mix on seeds 1, 2, 3, 6 by about gossip +3, strategy -4, conflict -1; added back as measured (CI run on #3164), carded
   "late:band-gossip": { value: 49.0, card: "ORW-702 gossip ratchet" }, // band 24-34 (and the 45% ceiling below)
-  "late:band-conflict": { value: 8.5, card: "ORW-702 late conflict" }, // band 10-16
-  "late:no-activity-above-45": { value: 49.0, card: "ORW-702 gossip ratchet" }, // gossip is the one over 45
+  // ORW-944 (measured seed noise, 8 independent plays of seeds 1, 2, 3, 6 at 1e7314f82, tests/calibration/wholeSeasonMixNoise.test.ts): main's OWN mean is over the 45% cap on both of these
+  // (mid gossip 46.2, range 45.1-47.4; late gossip 47.5, range 40.5-55.1), so they are real known-reds of the gossip ratchet, not noise around a passing rule: the two "ORW-944 quarantine"
+  // lines (#3206 / ORW-905, 2026-11-26) are replaced by these, at the measured means.
+  "mid:no-activity-above-45": { value: 46.2, card: "ORW-702 gossip ratchet" }, // gossip is the one over 45
+  "late:no-activity-above-45": { value: 47.5, card: "ORW-702 gossip ratchet" }, // gossip is the one over 45
 };
+/** Hysteresis (Coordinator ruling 2026-11-25): a KNOWN_RED line is asked to be deleted only once its rule passes by at least this many points, so a rule that flips at its boundary from run to run does not redden unrelated PRs. The same margin applies the other way: a rule main meets (not listed) is a regression only when it misses its limit by MORE than this (Coordinator ruling 2026-11-25: 45.3 against a cap of 45 is run-to-run noise). Drift of a still-red line is already tolerated up to RATCHET_SLACK. Bands and tolerances are unchanged. */
+export const RATCHET_FIXED_MARGIN = 1.0;
+
+/**
+ * ORW-944: each rule's MEASURED seed noise in this lane: twice the standard deviation of the rule's value across 8 independent plays of the guard's own seeds (1, 2, 3, 6), each replica a
+ * different sandbox name (a game is its seed and its sandbox, ORW-852), measured with tests/calibration/wholeSeasonMixNoise.test.ts at 1e7314f82 (2026-11-26), rounded UP to 0.5. A rule's
+ * margin is this or RATCHET_FIXED_MARGIN, whichever is larger (`marginOf`): a rule main meets is a regression only when it misses by more than its margin, a listed rule is asked to leave
+ * only once it passes by its margin, and a listed rule is "worse" only past max(slack, margin). The flat 1.0 reddened PRs on 4-season noise (3-4 points on late). The late gossip and
+ * strategy rules swing about +-11 with four seasons: the lane cannot see a smaller late change in those two (a wider seed set would; re-measure when SEEDS grows).
+ */
+export const RULE_MARGIN: Readonly<Record<string, number>> = {
+  "early:band-bonding": 1.5, "early:band-strategy": 3.0, "early:band-gossip": 4.0, "early:band-conflict": 1.5,
+  "early:strategy-below-50": 3.0, "early:no-activity-above-45": 4.0, "early:conflict-at-most-16": 1.5,
+  "mid:band-bonding": 2.0, "mid:band-strategy": 1.5, "mid:band-gossip": 2.0, "mid:band-conflict": 1.0,
+  "mid:strategy-below-50": 1.5, "mid:no-activity-above-45": 2.0, "mid:conflict-at-most-16": 1.0, "mid:gossip-at-least-22": 2.0, "mid:strategy-at-least-24": 1.5,
+  "late:band-bonding": 3.5, "late:band-strategy": 11.5, "late:band-gossip": 11.0, "late:band-conflict": 3.0,
+  "late:strategy-below-50": 11.5, "late:no-activity-above-45": 11.0, "late:conflict-at-most-16": 3.0, "late:gossip-at-least-22": 11.0, "late:strategy-at-least-24": 11.5,
+};
+/** ORW-944: a rule's margin: its measured noise, never below the floor (an unknown rule gets the floor). */
+export function marginOf(id: string, floor: number = RATCHET_FIXED_MARGIN, margins: Readonly<Record<string, number>> = RULE_MARGIN): number {
+  return Math.max(floor, margins[id] ?? 0);
+}
 export const RATCHET_SLACK = 6; // points of drift past the measured value that is still noise at this many seasons; tighten as the seed set grows
 
 export interface Verdict { regressions: string[]; fixed: string[]; worse: string[]; red: string[] }
 /** Compare the evaluated rules to the table. `regressions`: failing and not listed. `fixed`: listed and now passing (move the line out). `worse`: listed, still failing, but further out than measured + slack. */
-export function ratchet(results: readonly RuleResult[], known: Readonly<Record<string, KnownRed>> = KNOWN_RED, slack = RATCHET_SLACK, fixedMargin = 0): Verdict {
+export function ratchet(results: readonly RuleResult[], known: Readonly<Record<string, KnownRed>> = KNOWN_RED, slack = RATCHET_SLACK, fixedMargin = RATCHET_FIXED_MARGIN): Verdict {
   const v: Verdict = { regressions: [], fixed: [], worse: [], red: [] };
   const byId = new Map(results.map((r) => [r.id, r]));
   for (const r of results) {
     const k = known[r.id];
-    if (!r.pass && !k) v.regressions.push(`${r.id}: ${r.what}, measured ${r.value}`);
-    if (!r.pass && k) { v.red.push(r.id); if (r.miss > missOf(r.id, k.value) + slack) v.worse.push(`${r.id}: measured ${r.value}, was ${k.value} when listed (${k.card})`); }
-    if (r.pass && k && r.room >= fixedMargin) v.fixed.push(`${r.id} now passes (${r.value}): delete it from KNOWN_RED so it is asserted from now on`);
+    const m = marginOf(r.id, fixedMargin); // ORW-944: the rule's measured noise (never below the floor)
+    if (!r.pass && !k && r.miss > m) v.regressions.push(`${r.id}: ${r.what}, measured ${r.value}`);
+    if (!r.pass && k) { v.red.push(r.id); if (r.miss > missOf(r.id, k.value) + Math.max(slack, marginOf(r.id, 0))) v.worse.push(`${r.id}: measured ${r.value}, was ${k.value} when listed (${k.card})`); }
+    if (r.pass && k && r.room >= m) v.fixed.push(`${r.id} now passes (${r.value}): delete it from KNOWN_RED so it is asserted from now on`);
   }
   for (const id of Object.keys(known)) if (!byId.has(id)) v.fixed.push(`${id} is not evaluated (no scenes in that phase)`);
   return v;

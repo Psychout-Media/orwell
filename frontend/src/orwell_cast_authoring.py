@@ -39,6 +39,8 @@ except Exception:  # pragma: no cover
         def debug(self, *a, **k): pass
     logger = _L()
 
+from src.orwell_cast_gate import BIO_ASK_CHARS  # ORW-952: the prompt states the length the gate checks
+
 
 # ── ORW-380: the PHOTO SHEET instruction, shared by every writer ──────────────────────────────
 #
@@ -60,6 +62,8 @@ PHOTO_SHEET_RULES = (
     "shoot. They are public and describe only what a camera sees. Use the houseguest's name and "
     "genderPresentation from the input: pronouns in every line must match it (man: he/him; woman: "
     "she/her; nonbinary: they/them), and the clothes fit how this person presents. "
+    # ORW-952: the pronoun-mismatch check rejects any other pronoun in these three lines, so the prompt says so.
+    "In the onCamera line, the photoHair line and the wardrobe, use no pronoun other than this person's own, never \"they\" or \"their\" for a man or a woman, and do not refer to anyone else. "
     "(1) wardrobe: an array of 2-3 pieces, each under 60 characters, in camera-ready condition, with no "
     "visible words, logos, band names or brand names, and each a real garment or accessory a shop sells, chosen from this person's job, hometown, age, money and personality (the style family is only a lean). Test every piece with one question: would this person, with this job, age, income and the weather of their hometown, really wear it on an ordinary day, at work or off it (not another trade's work gear, not the wrong season for the job, not above their money, not a costume)? The FIRST piece is the MAIN piece (the jacket, "
     "shirt, dress or top). It must not repeat a main piece already listed in taken.mainPieces (compare "
@@ -125,7 +129,7 @@ _SYSTEM = (
     '  "identityConcept": ONE sentence (under 250 characters) naming who this exact person is, written about the '
     "name, gender, age and occupation on the card (the skeleton's identityConcept, if any, is a rough draft: rewrite it for THIS card; "
     "do not open it with \"A\" and the age, the age is already printed beside it, and open it the way an OPENING PATTERN line in the prompt says, if there is one; do not put the person's name in it, and make it one complete phrase that reads as a sentence),\n"
-    '  "biography": a 2-3 sentence presentable backstory (life outside the house),\n'
+    '  "biography": a 2-3 sentence presentable backstory (life outside the house), under ' + str(BIO_ASK_CHARS) + ' characters,\n'
     '  "vocation": echo the skeleton\'s occupation EXACTLY — it is already cast and IMMUTABLE; do NOT '
     "change it, and do NOT adopt a different job from the biography. The biography and the secrets must "
     "name the SAME job as the committed occupation (the engine keys the hidden stakes off vocation),\n"
@@ -3931,9 +3935,17 @@ async def authoring_completeness_for(user: Optional[str]) -> Optional[dict]:
         return None
     try:
         from routes.orwell_routes import roster_cards  # the one roster-card derivation (G9), public
-        return authoring_completeness(user, roster_cards(state, user))
+        comp = authoring_completeness(user, roster_cards(state, user))
     except Exception:
         return None
+    # ORW-948: during the premiere the engine's public read lists only the houseguests who have walked in (ORW-710)
+    # and counts the rest in `unarrivedCount`. `total` / `authored` above therefore cover the arrived cast only; the
+    # count of the withheld ones rides beside them (a number, never a card) so the house-entry gate does not wait
+    # for cards this read cannot show. Absent or zero (the flag off, or everyone is in) leaves the dict as it was.
+    unarrived = state.get("unarrivedCount")
+    if isinstance(unarrived, int) and not isinstance(unarrived, bool) and unarrived > 0:
+        comp["unarrived"] = unarrived
+    return comp
 
 
 def authoring_backfill_allowed(user: Optional[str]) -> bool:
@@ -4085,6 +4097,9 @@ _HOUSE_READY_INLINE_S = _env_float("ORWELL_HOUSE_READY_INLINE_S", 10.0)
 # After a REFUSED entry the background gate-clear watch keeps polling this much longer, so the season
 # still opens (and the skipped post-start kicks still run) the moment authoring finally lands.
 _HOUSE_READY_WATCH_TIMEOUT_S = _env_float("ORWELL_HOUSE_READY_WATCH_TIMEOUT_S", 1800.0)
+# ORW-949: after the long window expires the watch keeps re-checking at this slow interval, so a cast that
+# lands late still releases the player without a process restart.
+_HOUSE_READY_RECHECK_S = _env_float("ORWELL_HOUSE_READY_RECHECK_S", 60.0)
 
 # The HOLDING/refused marker: which users currently have house entry held (or refused) because the
 # cast isn't authored yet. While a user's marker is set, the FE status/state projections OVERLAY
@@ -4228,7 +4243,8 @@ def house_ready_watch_active(user: Optional[str]) -> bool:
 def kickoff_house_ready_watch(owner: Optional[str],
                               on_ready: Optional[Callable[[], None]] = None,
                               *, timeout: Optional[float] = None,
-                              poll_interval: Optional[float] = None) -> bool:
+                              poll_interval: Optional[float] = None,
+                              recheck_interval: Optional[float] = None) -> bool:
     """After a REFUSED house entry: keep watching authoring in the background and, the moment the
     cast reaches the threshold, CLEAR the holding marker, run the post-start kicks the early holding
     return skipped (`on_ready` — e.g. the 0062 zeitgeist capture) EXACTLY ONCE, and push a server-side
@@ -4240,6 +4256,24 @@ def kickoff_house_ready_watch(owner: Optional[str],
     if existing is not None and not existing.done():
         return False
 
+    def _release(ready: dict) -> None:
+        clear_house_entry_gate_block(owner)
+        logger.info(
+            "[house-entry-gate] gate CLEARED for %s — cast authored %s/%s; opening the "
+            "season and running the deferred post-start kicks", k,
+            ready.get("authored"), ready.get("total"))
+        if on_ready is not None:
+            try:
+                on_ready()
+            except Exception as e:
+                logger.warning(
+                    "[house-entry-gate] deferred post-start kick failed for %s: %s", k, e)
+        try:
+            from src import orwell_game_session
+            orwell_game_session.publish_game_updated(owner)
+        except Exception:
+            pass
+
     async def _watch():
         try:
             ready = await await_house_ready(
@@ -4247,22 +4281,7 @@ def kickoff_house_ready_watch(owner: Optional[str],
                 timeout=(_HOUSE_READY_WATCH_TIMEOUT_S if timeout is None else timeout),
                 poll_interval=poll_interval)
             if ready.get("ready"):
-                clear_house_entry_gate_block(owner)
-                logger.info(
-                    "[house-entry-gate] gate CLEARED for %s — cast authored %s/%s; opening the "
-                    "season and running the deferred post-start kicks", k,
-                    ready.get("authored"), ready.get("total"))
-                if on_ready is not None:
-                    try:
-                        on_ready()
-                    except Exception as e:
-                        logger.warning(
-                            "[house-entry-gate] deferred post-start kick failed for %s: %s", k, e)
-                try:
-                    from src import orwell_game_session
-                    orwell_game_session.publish_game_updated(owner)
-                except Exception:
-                    pass
+                _release(ready)
             else:
                 # Still below the threshold after the long watch window — stay LOUD (the marker
                 # stays, the overlay keeps reporting the holding state, the operator sees it).
@@ -4285,6 +4304,19 @@ def kickoff_house_ready_watch(owner: Optional[str],
                             f"{ready.get('total')} authored after the readiness window")
                 except Exception:
                     pass
+                # ORW-949: an expired watch used to keep the hold until a restart. Keep re-checking slowly
+                # (one poll per round) until the cast is ready or someone else clears the marker.
+                gap = _HOUSE_READY_RECHECK_S if recheck_interval is None else recheck_interval
+                while house_entry_gate_status(owner) is not None:
+                    await asyncio.sleep(max(0.0, float(gap)))
+                    if house_entry_gate_status(owner) is None:
+                        break
+                    ready = await await_house_ready(owner, timeout=0, poll_interval=poll_interval)
+                    if ready.get("ready"):
+                        _release(ready)
+                        break
+        except Exception as e:  # noqa: BLE001 - background helper never raises
+            logger.warning("[house-entry-gate] watch failed for %s: %s", k, e)
         finally:
             if _HOUSE_READY_WATCHES.get(k) is task_ref[0]:
                 _HOUSE_READY_WATCHES.pop(k, None)
@@ -4323,9 +4355,20 @@ async def await_house_ready(owner: Optional[str], *, min_authored: int = HOUSE_R
             total = int(comp.get("total") or _HOUSE_READY_TOTAL_DEFAULT)
             missing_n = int(comp.get("missing") if comp.get("missing") is not None
                             else max(0, total - authored))
-            last = {"ready": authored >= min_authored, "authored": authored,
+            # ORW-948: the threshold is the FULL cast, but while the premiere's entrances run the read above shows only
+            # the houseguests who have arrived (`unarrived` = how many it withholds). Comparing the arrived count to
+            # the full-cast threshold could never pass (prod, 2026-11-26: 7 of 7 arrived cards authored, 8 still to
+            # walk in, held against 15 until the watch expired and kept the hold). The withheld cards cannot be read
+            # here, so they come off the threshold: every houseguest this read CAN show must be authored. A later
+            # arrival that is still on the floor is picked up by the roster backfill the moment its card appears.
+            unarrived = comp.get("unarrived")
+            unarrived = unarrived if isinstance(unarrived, int) and not isinstance(unarrived, bool) and unarrived > 0 else 0
+            need = max(0, int(min_authored) - unarrived)
+            last = {"ready": authored >= need, "authored": authored,
                     "total": total, "missing": missing_n}
-            if authored >= min_authored:
+            if unarrived:
+                last["unarrived"] = unarrived
+            if authored >= need:
                 return last
             # Nudge the stragglers through the existing (debounced, fail-soft) backfill spine so a
             # transient per-NPC authoring miss is re-attempted while we wait.

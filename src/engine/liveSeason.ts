@@ -81,7 +81,7 @@ import type { RelationshipDisposition } from "./relationshipConstants";
 import type { RelationshipModel } from "./relationships";
 import {
   runFinale as buildFinaleScript, castJuryVote, juryLean, appealEffect, bestAppeal, gameRespectTerm, JURY_WEIGHTS,
-  FINALE_APPEALS, bitterJurorExtra, mannerLeanOf, type EvictionManner, type FinaleAppeal, type FinaleScript, type JuryRel,
+  FINALE_APPEALS, bitterJurorExtra, bitterByPersonality, mannerLeanOf, type EvictionManner, type FinaleAppeal, type FinaleScript, type JuryRel,
 } from "./jury";
 import { MANNER_THRESHOLDS, MANNER_GRADING, MEND_TRACE } from "./juryConstants";
 import { RELATIONSHIP_CONSTANTS } from "./relationshipConstants";
@@ -1105,6 +1105,11 @@ export interface LiveSeasonState {
    * pre-0102 save or whenever the clock has never rolled a day ⇒ no recap, byte-identical to today.
    */
   dayNumber?: number;
+  /** ORW-859: player messages since the due event opened and the engine began holding the player's card (see `noteMessage`); absent when 0. */
+  dueHeldMessages?: number;
+  /** ORW-927: houseguests a comp-round approach press eliminated with no narrator turn in between (not yet voiced); cleared one player message after the first framing that told it. Played games only. */
+  compSilentOut?: string[];
+  compSilentSeen?: boolean;
   dailyRecapEventCursor?: number;
   dailyRecapKnowledgeCursor?: number;
   lastDailyRecap?: DailyRecapEntry;
@@ -1135,6 +1140,8 @@ export interface LiveSeasonState {
    * construction (built only from the already-player-visible recap). Absent until the first turnIn.
    */
   dayLedger?: DaySummaryEntry[];
+  /** ORW-807 (0200): the narrator's authored episode titles, by week, written back after the crown (first title per week stands). Absent until one is written. */
+  episodeTitles?: Record<string, string>;
   /**
    * C1 (#1788) — the season-spanning, MONOTONIC Wipeout Reel history per houseguest (mandate #4:
    * appended only, never trimmed or overwritten). Fed by each REVEALED staged-comp drop's failure-style
@@ -1450,6 +1457,11 @@ export interface BeatEvent {
   beat: Beat;
   content: string;
   participants: EntityId[];
+  /**
+   * ORW-830: the LAST batch of a staged comp's drops, told as the same inert `comp-elimination` event the earlier rounds are, carried on the crown beat (the crown is reached on the same advance, so no extra step and
+   * no clock charge). The adapter records it just before the crown. Absent on every other beat and on a non-staged crown (byte-identical there).
+   */
+  lastDrops?: BeatEvent;
 }
 
 export type DecisionInput =
@@ -1795,7 +1807,8 @@ function advanceCompetition(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
     droppedThisRound.push(dropped);
   }
   c.round += 1;
-  if (c.stillIn.length === 1) return crownCompetition(s);
+  // ORW-830: when this batch leaves one player the comp crowns on THIS advance (no extra step): the crown carries the batch as its `lastDrops` event, told exactly like any other round.
+  const crowning = c.stillIn.length === 1;
   // #1400: when the model authored + the engine VALIDATED fiction for THIS comp, tell the drop as the
   // model's per-round fiction (looked up by the exact dropped ids) instead of the deterministic 0042
   // template. PRESENTATION ONLY — `droppedThisRound` and its order come straight from the fixed
@@ -1828,7 +1841,7 @@ function advanceCompetition(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
       if (fact) appendWipeoutHistory((s.wipeoutHistory ??= {}), dropped, { week: s.week, comp: c.comp, text: fact.text });
     }
   }
-  return {
+  const dropEvent: BeatEvent = {
     // A per-round DROP — NOT the crown (which keeps the comp beat key so its consequence still folds).
     // `comp-elimination` falls through every commit side-effect switch (no fold, no soul inflection, no
     // confessional, no rng) — so a reveal is inert to the game state, keeping the trajectory unchanged.
@@ -1836,6 +1849,9 @@ function advanceCompetition(s: LiveSeasonState, ctx: SeasonCtx): BeatEvent | nul
     content: authored ?? (wipeout ? `${template}. ${wipeout}` : template),
     participants: [...droppedThisRound, ...c.stillIn],
   };
+  if (!crowning) return dropEvent;
+  const crown = crownCompetition(s);
+  return { ...crown, lastDrops: dropEvent };
 }
 
 /**
@@ -2050,7 +2066,7 @@ export function peekCompetition(s: LiveSeasonState, ctx: SeasonCtx, rng: Randomn
 }
 
 /** The library def backing an in-progress staged competition — the LAST recorded draw for its phase. */
-function competitionDefFor(s: LiveSeasonState, c: CompetitionProgress): CompetitionDef | undefined {
+export function competitionDefFor(s: LiveSeasonState, c: CompetitionProgress): CompetitionDef | undefined {
   const phase: CompetitionPhase = c.comp === "hoh-competition" ? "hoh" : "veto";
   const recent = s.compHistory?.[phase] ?? [];
   const last = recent[recent.length - 1];
@@ -3253,7 +3269,12 @@ function advanceEviction(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSour
         const from = e.revealIx;
         const to = Math.min(from + batch, e.revealOrder.length);
         e.revealIx = to;
-        if (s.ceremony?.kind === "eviction") s.ceremony.at = s.ceremony.steps.indexOf("ballot") + to - 1; // the open step is the ballot just read
+        if (s.ceremony?.kind === "eviction") {
+          s.ceremony.at = s.ceremony.steps.indexOf("ballot") + to - 1; // the open step is the ballot just read
+          // ORW-791: every ballot step is a WATCH step the player presses Continue on, like the speeches - including after the player's own vote card (which reads the first ballot). A press (or a typed
+          // "next") is one engine step; a typed message that is not a press drives none (ORW-703). Played staged ceremonies only (this branch never runs for a headless sim).
+          s.pending = { kind: "ceremony-step", by: s.hoh ?? ctx.player, binding: false };
+        }
         // E12: eviction votes are SECRET BALLOTS — the reveal reads the ballot(s), never the voter
         // ("a vote to evict X…" / "N votes to evict X"). `voteOf` stays engine-internal (manner/deal
         // reconciliation); attributions unseal only in the 0048 post-season retrospective. Anonymized
@@ -3536,7 +3557,7 @@ function precomputeVotes(s: LiveSeasonState, ctx: SeasonCtx, f: FinaleProgress, 
     const prof = ctx.jurorProfiles ? (fromCharacter ? profileOfArchetype(fromCharacter) : jurorProfile(juror, ctx.jurorProfileSalt ?? 0)) : undefined; // A2: this juror's OWN profile (flag-gated; no rng)
     // 0182 PR 3: the grudge adds only what the manner term and the memory term do not already count (`bitterJurorExtra`). No provider => exactly 0.
     const bitterTerm = (fin: EntityId, mannerW: number): number => {
-      const raw = ctx.juryGrudgeFor?.(juror, fin) ?? 0;
+      const raw = bitterByPersonality(ctx.juryGrudgeFor?.(juror, fin) ?? 0, prof?.archetype); // ORW-943: the grudge weighs by who the juror is (no profile => unchanged)
       if (raw === 0) return 0;
       const covered = mannerW * Math.max(0, -mannerLeanOf(mannerForVote(s, ctx, f, juror, fin))) + Math.max(0, -(ctx.juryMemoryFor?.(juror, fin) ?? 0));
       return bitterJurorExtra(raw, covered);
@@ -3662,6 +3683,10 @@ function advanceFinale(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource
  * blocked on a player decision (`state.pending` is set) or already complete.
  */
 export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent | null {
+  if (s.pending?.kind === "ceremony-step" && s.ceremony?.kind === "eviction" && s.eviction) { // ORW-791: a Continue on a BALLOT step reads the next ballot (or, past the last, decides the vote)
+    s.pending = undefined;
+    return advanceEviction(s, ctx, rng);
+  }
   if (s.pending?.kind === "ceremony-step" && s.ceremony?.kind === "eviction") { // ORW-281 4d: the speeches step's Continue opens the vote (the secret-veto check already ran before the speeches)
     s.pending = undefined; s.ceremony.at = 1;
     return startEvictionVote(s, ctx, rng);

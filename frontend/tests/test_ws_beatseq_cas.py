@@ -97,7 +97,9 @@ def test_decision_fresh_beat_proceeds_and_acks(run, monkeypatch):
 
 # ── turn up-frame: the pre-flight CAS guard ───────────────────────────────────────────────────────
 
-def test_turn_stale_beat_is_refused_before_starting_a_run(run, monkeypatch):
+def test_turn_stale_beat_is_admitted_and_the_ack_carries_the_current_beat(run, monkeypatch):
+    """ORW-941 (protocol §3.5 amended): a `turn` token is advisory. A stale turn is ADMITTED (casting write-backs move the beatSeq with no edge to the page, and a refusing CAS
+    dropped casting turns), and its ack hands the page the current beatSeq. `decision` keeps the refusing CAS."""
     _set_beat(monkeypatch, cur=10)
     started = {"factory": 0}
 
@@ -115,12 +117,10 @@ def test_turn_stale_beat_is_refused_before_starting_a_run(run, monkeypatch):
         await H.hello(ws, canon)
         ws.client_send({"t": "turn", "ch": "chat", "cid": "c_turn",
                         "d": {"message": "I pull them aside", "expectedBeatSeq": 8}})  # stale (< 10)
-        err = await ws.recv_where(lambda f: f.get("t") == "error")
-        assert err["cid"] == "c_turn"
-        assert err["d"]["code"] == "stale-beat"
-        assert err["d"]["beatSeq"] == 10
-        assert started["factory"] == 0                      # NO run started on a stale turn
-        assert not ws_routes.agent_runs.has_run(canon)
+        ack = await ws.recv_where(lambda f: f.get("cid") == "c_turn")
+        assert ack["t"] == "ack" and ack["d"]["accepted"] is True, ack
+        assert ack["d"]["beatSeq"] == 10                     # the page catches up
+        assert started["factory"] == 1                      # the turn runs
         await H.stop(ws, t)
 
     run(main())

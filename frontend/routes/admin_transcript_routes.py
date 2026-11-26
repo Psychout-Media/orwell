@@ -189,12 +189,15 @@ def _render_markdown(session_row, owner, nodes) -> str:
         # carried them, the Markdown export did not.
         evs = (n.get("metadata") or {}).get("tool_events") if isinstance(n.get("metadata"), dict) else None
         results = [e for e in (evs if isinstance(evs, list) else []) if isinstance(e, dict) and isinstance(e.get("engine_result"), str) and e.get("engine_result")]
+        # ORW-482: calls the front end made itself (the forced casting finalize) live in their own admin-only key, not in tool_events.
+        fe_calls = (n.get("metadata") or {}).get("admin_engine_results") if isinstance(n.get("metadata"), dict) else None
+        results += [e for e in (fe_calls if isinstance(fe_calls, list) else []) if isinstance(e, dict) and isinstance(e.get("engine_result"), str) and e.get("engine_result")]
         if results:
             lines.append("")
             lines.append("**Engine results (admin only):**")
             for e in results:
                 lines.append("")
-                lines.append(f"- `{e.get('tool') or '?'}` (round {e.get('round', '?')})")
+                lines.append(f"- `{e.get('tool') or '?'}` (round {e.get('round', '?')}{', forced by the front end' if e.get('forced') else ''})")
                 lines.append("")
                 lines.append("```json")
                 lines.append(e["engine_result"].replace("```", "` ` `"))
