@@ -199,7 +199,7 @@ pluggy==1.6.0
     # via pytest
 primp==1.3.1
     # via ddgs
-protobuf==6.33.6
+protobuf==7.36.2
     # via
     #   googleapis-common-protos
     #   onnxruntime
