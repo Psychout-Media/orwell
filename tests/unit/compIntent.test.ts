@@ -18,23 +18,46 @@ import { PLAYER, npc } from "../../src/domain/ids";
  * (deterministic per seed). Does the player win the opening HOH? The player is cast as a comp-beast so a
  * `compete` win is measurable (C6 made the NO-archetype default the MEDIAN floater — a deliberate underdog).
  */
+// ORW-984: each seed is cast ONCE and played to the opening HOH's first comp-round decision, saved, and restored for each approach (a cast + premiere is
+// the cost; the approach only matters from the first decision on). Results are memoized: the two tests below read the same `compete` games.
+const atFirstRound = new Map<number, { snap: string } | { done: boolean }>();
+const outcome = new Map<string, boolean>();
 function playerWinsOpeningHoh(seed: number, approach: "compete" | "throw" | "play-safe"): boolean {
-  const s = new GameSessionAdapter();
-  s.createCharacter({ playerName: "P", archetype: "comp-beast", seed });
-  for (let g = 0; g < 200; g++) {
-    if (s.gameStatus().hoh) break;
-    const adv = s.advanceGame();
-    if (adv.pending?.kind === "comp-round") {
-      s.submitDecision({ kind: "comp-round", intent: approach });
-    } else if (adv.pending) {
-      break; // the comp crowned an NPC and the loop moved on to a different decision
+  const key = `${seed}:${approach}`;
+  if (outcome.has(key)) return outcome.get(key)!;
+  if (!atFirstRound.has(seed)) {
+    const s0 = new GameSessionAdapter();
+    s0.createCharacter({ playerName: "P", archetype: "comp-beast", seed });
+    let at: { snap: string } | { done: boolean } = { done: false };
+    for (let g = 0; g < 200; g++) {
+      if (s0.gameStatus().hoh) { at = { done: s0.gameStatus().hoh?.id === PLAYER }; break; }
+      const adv = s0.advanceGame();
+      if (adv.pending?.kind === "comp-round") { at = { snap: JSON.stringify(s0.snapshot()) }; break; }
+      if (adv.pending) break; // the comp crowned an NPC and the loop moved on to a different decision
     }
+    atFirstRound.set(seed, at);
   }
-  return s.gameStatus().hoh?.id === PLAYER;
+  const at = atFirstRound.get(seed)!;
+  let won: boolean;
+  if ("done" in at) won = at.done;
+  else {
+    const s = new GameSessionAdapter();
+    s.restore(JSON.parse(at.snap));
+    s.submitDecision({ kind: "comp-round", intent: approach });
+    for (let g = 0; g < 200; g++) {
+      if (s.gameStatus().hoh) break;
+      const adv = s.advanceGame();
+      if (adv.pending?.kind === "comp-round") s.submitDecision({ kind: "comp-round", intent: approach });
+      else if (adv.pending) break;
+    }
+    won = s.gameStatus().hoh?.id === PLAYER;
+  }
+  outcome.set(key, won);
+  return won;
 }
 
 describe("0006 staged-rounds — a declared throw measurably lowers the player's win rate", () => {
-  it("throwing the up-front approach in the opening HOH wins far less often than competing, across seeds", () => {
+  it("throwing the up-front approach in the opening HOH wins far less often than competing, across seeds", { timeout: 120_000 }, () => { // ORW-984: 150 castings, about 25 s on a CI runner: an explicit budget, not the 30 s default
     let competeWins = 0, throwWins = 0;
     for (let seed = 1; seed <= 150; seed++) {
       if (playerWinsOpeningHoh(seed, "compete")) competeWins++;
@@ -44,7 +67,7 @@ describe("0006 staged-rounds — a declared throw measurably lowers the player's
     expect(throwWins).toBeLessThan(competeWins);     // throwing measurably lowers the win rate (0028 penalty)
   });
 
-  it("play-safe never beats compete: the approach levers are negative-only (A18), paired by seed", () => {
+  it("play-safe never beats compete: the approach levers are negative-only (A18), paired by seed", { timeout: 120_000 }, () => { // ORW-984: 150 castings, about 25 s on a CI runner: an explicit budget, not the 30 s default
     let competeWins = 0, safeWins = 0, safeOnly = 0;
     for (let seed = 1; seed <= 150; seed++) {
       const c = playerWinsOpeningHoh(seed, "compete");
