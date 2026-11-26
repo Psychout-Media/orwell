@@ -225,6 +225,42 @@ disk_space_check() {
   fi
 }
 
+# ORW-1047: the scheduled backup must never fail silently. orwell-backup.sh records every run in
+# <app>/backups/.backup-status.json; a failed last run, a missing record, or a record older than the
+# limit (default 26 h: a daily timer plus its random delay) is a FAILING verdict, because a unit that
+# dies before the script starts (a namespace failure) leaves no record and only the age shows it.
+BACKUP_MAX_AGE_H="${ORWELL_BACKUP_MAX_AGE_HOURS:-26}"
+# A restart does not cure a failed backup, so it is counted in SEASON_HOLD_FAILS (the verdict-only counter): it fails the verdict but never triggers a bounce.
+bfail() { fail "$@"; SEASON_HOLD_FAILS=$((SEASON_HOLD_FAILS + 1)); }
+backup_status_check() {
+  local f="${APP_DIR}/backups/.backup-status.json" st fin age_s msg warn_txt
+  if [[ ! -f "$f" ]]; then
+    if ls "${APP_DIR}"/backups/orwell-backup-*.tar.gz >/dev/null 2>&1; then
+      bfail "backup: no run record in ${f} (an archive exists from before records were kept; check: systemctl status orwell-backup.timer, journalctl -u orwell-backup.service)"
+    else
+      bfail "backup: no backup has ever run here (no archive, no run record); check: systemctl list-timers orwell-backup.timer, journalctl -u orwell-backup.service"
+    fi
+    return 0
+  fi
+  st="$(sed -n 's/.*"status": *"\([^"]*\)".*/\1/p' "$f" | head -1)"
+  fin="$(sed -n 's/.*"finishedAt": *\([0-9]*\).*/\1/p' "$f" | head -1)"
+  msg="$(sed -n 's/.*"message": *"\([^"]*\)".*/\1/p' "$f" | head -1)"
+  warn_txt="$(sed -n 's/.*"warning": *"\([^"]*\)".*/\1/p' "$f" | head -1)"
+  if [[ -z "$fin" ]]; then
+    bfail "backup: run record ${f} is unreadable"
+    return 0
+  fi
+  age_s=$(( $(date +%s) - fin ))
+  local age_h=$(( age_s / 3600 ))
+  if [[ "$st" != "ok" ]]; then
+    bfail "backup: the last run FAILED ${age_h} h ago (${msg:-no message}); see journalctl -u orwell-backup.service"
+  elif [[ "$age_s" -gt $(( BACKUP_MAX_AGE_H * 3600 )) ]]; then
+    bfail "backup: last good backup is ${age_h} h old (limit ${BACKUP_MAX_AGE_H} h); the timer is not producing backups: systemctl status orwell-backup.timer orwell-backup.service"
+  else
+    pass "backup: last run ok ${age_h} h ago (limit ${BACKUP_MAX_AGE_H} h)${warn_txt:+; note: ${warn_txt}}"
+  fi
+}
+
 # DEPLOY-17: the deploy PAT (A4/ruling #17) is a fine-grained token capped at ONE YEAR — its
 # expiry is mentioned once, in orwell-update.sh's rotation echo, and never re-checked. An expired
 # token breaks the web-triggered auto-update path (orwell-ops-update.service) silently — it just
@@ -348,6 +384,20 @@ update_deferred_check() {
   info "emergency only, to cut a stuck turn that never ends (a turn in flight may be lost): bash ${APP_DIR}/deploy/orwell-update.sh --force-now"
 }
 
+# ORW-1014: the narrator forces a tool call (ceremony beat, stall advance) only because DeepSeek's own API honors tool_choice with thinking off. One forced call (a fraction of a
+# cent) proves it still does; a rejection is a FAIL. Opt-in (it spends a token or two): DOCTOR_FORCE_CANARY=1.
+force_canary_check() {
+  [[ "${DOCTOR_FORCE_CANARY:-0}" == "1" ]] || return 0
+  local py="${APP_DIR}/venv/bin/python"; [[ -x "$py" ]] || py="$(command -v python3 || true)"
+  [[ -n "$py" ]] || { info "force canary: python3 not found - skipping"; return 0; }
+  local out
+  if out="$(cd "${APP_DIR}/frontend" 2>/dev/null && timeout 60 "$py" -m src.deepseek_force_canary 2>&1)"; then
+    pass "force canary: ${out}"
+  else
+    fail "force canary: DeepSeek forced tool_choice is NOT honored - set ORWELL_DEEPSEEK_FORCE=0 and open an ORW card: ${out}"
+  fi
+}
+
 # ORW-971: a season HELD at house entry is a failure the unit and /health probes cannot see (the units are up and the engine answers, yet the player has no Cast button and no
 # decision card). Read the held seasons and the owed or failed season-start steps off the front-end over loopback (GET /api/admin/season-holds, direct loopback connections
 # only) and report them. A hold older than its window (the watch's timeout, 1800 s) is a FAIL: the verdict is not healthy. It is counted apart in SEASON_HOLD_FAILS, because a
@@ -392,6 +442,51 @@ for s in d.get("steps") or []:
   done <<<"$line"
 }
 
+# ORW-1019: a paid provider that answered HTTP 402 (out of credit). Read over loopback (GET /api/admin/provider-credit); hosts and counts only.
+provider_credit_check() {
+  [[ -n "$FE_BASE" ]] || return 0
+  command -v python3 >/dev/null 2>&1 || { info "provider credit: python3 not found - skipping"; return 0; }
+  local body line
+  body="$(curl -fsS -m 5 "${FE_BASE}/api/admin/provider-credit" 2>/dev/null)" || { info "provider credit: the front-end did not answer /api/admin/provider-credit (an older build?) - skipping"; return 0; }
+  line="$(printf '%s' "$body" | python3 -c '
+import json, re, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(3)
+f = lambda v: re.sub(r"[^A-Za-z0-9._:-]", "_", str(v))[:60]
+print(" ".join(f(t.get("host")) + "(" + f(t.get("kind")) + ")" for t in d.get("tripped") or []))
+' 2>/dev/null)" || { info "provider credit: could not read the front-end's answer - skipping"; return 0; }
+  if [[ -z "$line" ]]; then pass "provider credit: no provider has answered HTTP 402"; else fail "provider OUT OF CREDIT (HTTP 402): ${line} - calls to it are paused; top up the account (the app re-probes every 5 min and resumes by itself)"; fi
+}
+
+# ORW-1019: the hourly provider balance check (read-only), from the same loopback endpoint. WARN when a balance is under the configured line,
+# info when a provider's balance is unknown. Provider names and dollars only.
+provider_balance_check() {
+  [[ -n "$FE_BASE" ]] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  local body line kind a b c
+  body="$(curl -fsS -m 5 "${FE_BASE}/api/admin/provider-credit" 2>/dev/null)" || return 0
+  line="$(printf '%s' "$body" | python3 -c '
+import json, re, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(3)
+f = lambda v: re.sub(r"[^A-Za-z0-9._:-]", "_", str(v if v is not None else "?"))[:40]
+for x in d.get("balances") or []:
+    print("\t".join([f(x.get("status")), f(x.get("provider")), f(x.get("balanceUsd")), f(x.get("warnUsd"))]))
+' 2>/dev/null)" || return 0
+  if [[ -z "$line" ]]; then info "provider balance: not checked yet (hourly, read-only)"; return 0; fi
+  while IFS=$'\t' read -r kind a b c; do
+    case "$kind" in
+      low) warn "provider balance LOW: ${a} has \$${b}, under the \$${c} line - top up before it runs out" ;;
+      unknown) info "provider balance unknown: ${a} (last known \$${b}); the check backs off and retries" ;;
+      ok) pass "provider balance: ${a} \$${b}" ;;
+    esac
+  done <<<"$line"
+}
+
 diagnose() {
   echo "==> diagnose (engine=${ENGINE_SVC} :${ENGINE_PORT}, frontend=${FRONTEND_SVC}${FE_PORT:+ :${FE_PORT}})"
   if [[ "$UNITS_MISSING" == 1 ]]; then
@@ -430,11 +525,16 @@ diagnose() {
   fi
   # DEPLOY-10: disk pressure on the (often 12 GB default) LXC disk.
   disk_space_check
+  backup_status_check
   # DEPLOY-17: catch a PAT-expiry-shaped auth failure before the update path breaks silently.
   git_remote_check
   # ORW-971: a held season, and any owed or failed season-start step.
+  # ORW-1019: an out-of-credit provider.
+  provider_credit_check
+  provider_balance_check
   season_hold_check
   systemd_security_floor
+  force_canary_check
 }
 
 # ---- systemd hardening floor (audit E85) -------------------------------------------------

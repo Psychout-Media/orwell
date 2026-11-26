@@ -248,7 +248,14 @@ update_defer_notify() {
   fi
   ops_progress_step 0 "$1"
 }
-update_defer_cancelled() { [[ -n "${__UD_PROGRESS:-}" ]] && ops_progress_fail "update deferral was cancelled before it started" || true; }
+update_defer_cancelled() {
+  if [[ -n "${__UD_PROGRESS:-}" ]]; then
+    if declare -F ops_progress_cancel >/dev/null; then ops_progress_cancel "update deferral was cancelled before it started; nothing was changed"
+    else ops_progress_fail "update deferral was cancelled before it started"; fi
+  fi
+  RUN_RESULT=cancelled; RUN_DEFER_S=$(( $(date +%s) - RUN_T0 )); ops_run_record 0
+  return 0
+}
 # ORW-398: who/how this run started, in the ops update log (a deferred run is otherwise anonymous there).
 # Flags only: tokens travel in the environment, never argv.
 ops_log_invocation() {
@@ -258,10 +265,38 @@ ops_log_invocation() {
       "$FORCE" "$([[ $FORCE_NOW -eq 1 ]] && echo force-now || { [[ $FORCE -eq 1 ]] && echo force || echo normal; })" "$ROLLBACK" "$SET_TOKEN" "$NO_RESTART" "${REF:-none}" "$$"
   } >> "$log" 2>/dev/null || true
 }
+# ORW-1048: every run (any entry point: web trigger, ssh, pinned ref) leaves ONE complete, timestamped record in ops-update.log:
+# ref from and to, result, deferral and revert. Written by the EXIT trap, so a run killed mid-way still records itself.
+# The run's own output is also copied into the log when it is not already going there (a run started by hand over ssh).
+RUN_T0="$(date +%s)"; RUN_RESULT=""; RUN_REVERT="none"; RUN_DEFER_S=0; RUN_RECORDED=0
+RUN_FROM="$(git -C "${APP_DIR}" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
+ops_run_tee_output() {
+  local log="${APP_DIR%/}/data/ops-update.log"
+  [[ -e "$log" ]] || return 0
+  [[ /proc/self/fd/1 -ef "$log" || /proc/self/fd/2 -ef "$log" ]] && return 0
+  command -v tee >/dev/null 2>&1 || return 0
+  exec > >(tee -a -p "$log") 2> >(tee -a -p "$log" >&2) || true   # stdout and stderr stay separate streams
+}
+ops_run_record() {
+  [[ "$RUN_RECORDED" -eq 0 ]] || return 0
+  RUN_RECORDED=1
+  local rc="${1:-0}" log="${APP_DIR%/}/data/ops-update.log" res="$RUN_RESULT" to deferral=none
+  [[ -n "$res" ]] || { [[ "$rc" -eq 0 ]] && res=ok || res=failed; }
+  to="$(git -C "${APP_DIR}" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
+  if [[ "${UPDATE_WAIT_OVERDUE:-0}" == 1 ]]; then deferral=overdue-waited
+  elif [[ "${UPDATE_WAIT_DEFERRED:-0}" == 1 || "$RUN_DEFER_S" -gt 0 ]]; then deferral=waited; fi
+  [[ "$res" == cancelled ]] && deferral=cancelled
+  { printf '== orwell-update.sh run record %s: result=%s exit=%s from=%s to=%s requested_ref=%s deferral=%s deferred_seconds=%s revert=%s duration_seconds=%s pid=%s ==\n' \
+      "$(date -Is)" "$res" "$rc" "$RUN_FROM" "$to" "${REF:-branch-tip}" "$deferral" "$RUN_DEFER_S" "$RUN_REVERT" "$(( $(date +%s) - RUN_T0 ))" "$$"
+  } >> "$log" 2>/dev/null || true
+}
+ops_run_record_exit() { local rc=$?; ops_run_record "$rc"; exit "$rc"; }
 # The helper sourced above may be the OLDER installed copy (a host-pushed first update): give the newer helpers a safe stand-in.
 declare -F update_fe_db_path >/dev/null || update_fe_db_path() { printf '%s' "$3"; }
 declare -F _update_abs_path >/dev/null || _update_abs_path() { local p="$1"; [[ -n "$p" && "$p" != /* ]] && p="$(pwd)/${p#./}"; printf '%s' "$p"; }
 ops_log_invocation "$@"
+ops_run_tee_output
+trap ops_run_record_exit EXIT
 __UD_WAITED=0; __UD_SUPERSEDED=0
 if [[ $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && $NO_RESTART -eq 0 ]] && type update_wait_for_idle_game >/dev/null 2>&1; then
   __ud_rc=0; __ud_superseded=0
@@ -272,6 +307,8 @@ if [[ $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && $NO_RESTART -eq 0 ]] && type update
     echo "==> a later update run went ahead; checking under the lock that it finished this update"
     __ud_rc=0; __ud_superseded=1; __UD_SUPERSEDED=1
   fi
+  trap ops_run_record_exit EXIT   # the wait cleared its own EXIT trap; the run record must still be written
+  [[ "${UPDATE_WAIT_DEFERRED:-0}" == 1 ]] && RUN_DEFER_S=$(( $(date +%s) - RUN_T0 ))
   [[ $__ud_rc -eq 0 ]] || exit "$__ud_rc"
   # ORW-488: a --rollback that ran while this update was deferred is an operator decision to leave the tip it rejected: a waiter that
   # wakes up must not fetch and redeploy that tip (the under-lock "already at the ref" check would fail, HEAD being the rolled-back commit).
@@ -904,6 +941,7 @@ revert_failed_update() {
     # second engine beside the live one could only add a false alarm.
     rm -rf "$STAGED_DIST"
     echo "==> nothing had been changed yet (${PREV_SHA} is still checked out, dependencies and build untouched); services were NOT restarted."
+    RUN_REVERT="not-needed"
     ops_progress_fail "update failed during ${PHASE} — nothing had been changed (previous build untouched), services NOT restarted"
     return 1
   fi
@@ -913,10 +951,12 @@ revert_failed_update() {
     if [[ "$HOST_TOUCHED" -eq 1 ]]; then
       echo "NOTE: unit files / log policy installed from the new checkout before the failure are NOT reverted (they are idempotent; the next update re-applies them)." >&2
     fi
+    RUN_REVERT="reverted"
     ops_progress_fail "update failed during ${PHASE} — reverted to ${PREV_SHA} (restored build verified to start), services NOT restarted"
     echo "Hint: retry with REF=<known-good sha|tag>, or run 'orwell-update.sh --rollback' later." >&2
     return 1
   fi
+  RUN_REVERT="revert-FAILED"
   echo "ERROR: the revert FAILED — ${PREV_SHA}'s dependencies/build could NOT be restored and verified; the app may not start." >&2
   echo "       Fix the cause above, then recover with: REF=<known-good sha|tag> bash ${APP_DIR}/deploy/orwell-update.sh" >&2
   if [[ -d "$STAGED_DIST" ]]; then
@@ -934,12 +974,14 @@ on_update_exit() {
   trap - EXIT
   ! declare -F update_force_flag_clear >/dev/null || update_force_flag_clear "${APP_DIR%/}/data/ops"   # ORW-485: a force request made after the wait must not outlive this run
   [[ "${__HOLD_ON:-0}" != 1 ]] || { ! declare -F update_turn_hold_end >/dev/null || update_turn_hold_end; }   # ORW-461: never leave new turns held when the update fails or is killed
-  [[ "$rc" -ne 0 ]] || return 0
+  [[ "$rc" -ne 0 ]] || { ops_run_record 0; return 0; }
   if [[ "$UPDATE_ARMED" -eq 1 ]]; then
     revert_failed_update "$rc" || rrc=$?
+    ops_run_record "$rrc"   # ORW-1048: written after the revert, so from/to/revert tell what really happened
     exit "$rrc"
   fi
   ops_progress_fail "update exited with code $rc — see ops-update.log"
+  ops_run_record "$rc"
 }
 
 # ── Rollback (B71/ops A4): return to the recorded previous SHA + ITS build, then restart. ─────

@@ -19,7 +19,7 @@ export class StallTimer {
   constructor(
     private readonly sink: StallSink = (l) => console.error(l),
     private readonly clock: StallClock = () => performance.now(),
-    private readonly thresholdMs: () => number = envThresholdMs,
+    private readonly thresholdMs: (step: string) => number = envThresholdMs,
   ) {}
 
   now(): number { return this.clock(); }
@@ -32,7 +32,7 @@ export class StallTimer {
     s.totalMs += d;
     if (d > s.maxMs) s.maxMs = d;
     this.stats.set(step, s);
-    if (d <= this.thresholdMs()) return;
+    if (d <= this.thresholdMs(step)) return;
     s.slow += 1;
     const fields = [
       `step=${step}`,
@@ -51,7 +51,20 @@ export class StallTimer {
   }
 }
 
-function envThresholdMs(): number {
+/**
+ * ORW-1018: `save.fsync` is the BACKGROUND disk hardening of a save that is already renamed complete (the turn never
+ * waits on it; the blocking part is `save.persist`, ms on prod). On the CT disk (zfs) its normal cost is about 1 s,
+ * so the 500 ms line fired on nearly every save and carried no signal. Its default line is a real outlier (5 s, an
+ * `ORWELL_STALL_LOG_MS` above that still wins). Counters in /health are unaffected: count, totalMs, maxMs stay exact.
+ */
+export const SAVE_FSYNC_OUTLIER_MS = 5000;
+
+function envThresholdMs(step?: string): number {
+  const base = envBaseThresholdMs();
+  return step === "save.fsync" ? Math.max(base, SAVE_FSYNC_OUTLIER_MS) : base;
+}
+
+function envBaseThresholdMs(): number {
   const raw = (process.env.ORWELL_STALL_LOG_MS ?? "").trim(); // whitespace-only is unset, never a zero threshold
   if (raw === "") return DEFAULT_STALL_THRESHOLD_MS;
   const n = Number(raw);

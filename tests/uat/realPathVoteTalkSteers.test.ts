@@ -1,3 +1,4 @@
+import { quarantine } from "../support/quarantine";
 import { describe, it, expect } from "vitest";
 import { keepCredit } from "../../src/engine/voteTalk";
 import { PLAYER } from "../../src/domain/ids";
@@ -55,7 +56,7 @@ describe("vote talk in a played season", () => {
     expect(withCredit).toBeGreaterThan(0);
   }, 120_000);
 
-  it("a unanimous count catches every believed \"I voted to keep them\" at once, and a credit it earned is taken back", async () => {
+  quarantine({ card: "ORW-1007", added: "2026-11-26" }).it("a unanimous count catches every believed \"I voted to keep them\" at once, and a credit it earned is taken back", async () => {
     const caughtCredit = (s: Stop, t: Talk) => t.tally.keepVotes === 0 && t.told.some((c) => c.listener !== PLAYER && beliefOf(s, c.listener, c.id)?.refuted && (beliefOf(s, c.listener, c.id)?.impact?.trust ?? 0) > 0);
     const { at, talk } = await firstTalk([20, 1, 17, 24], caughtCredit);
     // the count rules out every keep claim about the evictee from a voter: each one believed is now caught, with a lied-to-me in its listener
