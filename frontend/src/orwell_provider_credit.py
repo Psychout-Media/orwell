@@ -10,10 +10,8 @@ Now, on the first 402 from a host:
     ``provider-credit``, a row in ``deploy/orwell-doctor.sh --status`` via ``GET /api/admin/provider-credit``); repeats
     for the same host are rate-limited to one per ``ALERT_INTERVAL_S``.
 
-Balance prediction: the app has NO remaining-balance source. No provider response carries one that the app reads, and
-neither DeepSeek's ``/user/balance`` nor OpenRouter's ``/api/v1/credits`` is called anywhere (calling a billing endpoint
-is a separate decision). What it does have is the per-call cost ledger, so ``snapshot()`` reports spend for today and
-yesterday (UTC) and the status page shows the daily figure; a low-balance warning needs a balance source first.
+Balance prediction: ``orwell_provider_balance`` checks both providers' balance hourly (read-only) and warns under a
+configurable line; ``snapshot()`` carries its rows and the ledger's spend for today and yesterday (UTC).
 
 Vault-free: host names, counts, dates and costs only. Never a request body, never player text.
 """
@@ -136,5 +134,10 @@ def daily_spend(days: int = 2) -> dict:
 def snapshot() -> dict:
     with _LOCK:
         tripped = [{"host": r["host"], "kind": r["kind"], "sinceEpoch": int(r["since"]), "count": r["count"]} for r in _HOSTS.values()]
-    return {"tripped": tripped, "degraded": bool(tripped), "dailySpendUsd": daily_spend(),
-            "balanceSource": "none: the app reads no remaining-balance figure from any provider"}
+    try:
+        from src import orwell_provider_balance
+        balances = orwell_provider_balance.snapshot()
+    except Exception:
+        balances = []
+    return {"tripped": tripped, "degraded": bool(tripped), "dailySpendUsd": daily_spend(), "balances": balances,
+            "lowBalance": any(b.get("status") == "low" for b in balances)}

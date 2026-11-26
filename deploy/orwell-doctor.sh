@@ -410,6 +410,33 @@ print(" ".join(f(t.get("host")) + "(" + f(t.get("kind")) + ")" for t in d.get("t
   if [[ -z "$line" ]]; then pass "provider credit: no provider has answered HTTP 402"; else fail "provider OUT OF CREDIT (HTTP 402): ${line} - calls to it are paused; top up the account (the app re-probes every 5 min and resumes by itself)"; fi
 }
 
+# ORW-1019: the hourly provider balance check (read-only), from the same loopback endpoint. WARN when a balance is under the configured line,
+# info when a provider's balance is unknown. Provider names and dollars only.
+provider_balance_check() {
+  [[ -n "$FE_BASE" ]] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+  local body line kind a b c
+  body="$(curl -fsS -m 5 "${FE_BASE}/api/admin/provider-credit" 2>/dev/null)" || return 0
+  line="$(printf '%s' "$body" | python3 -c '
+import json, re, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(3)
+f = lambda v: re.sub(r"[^A-Za-z0-9._:-]", "_", str(v if v is not None else "?"))[:40]
+for x in d.get("balances") or []:
+    print("\t".join([f(x.get("status")), f(x.get("provider")), f(x.get("balanceUsd")), f(x.get("warnUsd"))]))
+' 2>/dev/null)" || return 0
+  if [[ -z "$line" ]]; then info "provider balance: not checked yet (hourly, read-only)"; return 0; fi
+  while IFS=$'\t' read -r kind a b c; do
+    case "$kind" in
+      low) warn "provider balance LOW: ${a} has \$${b}, under the \$${c} line - top up before it runs out" ;;
+      unknown) info "provider balance unknown: ${a} (last known \$${b}); the check backs off and retries" ;;
+      ok) pass "provider balance: ${a} \$${b}" ;;
+    esac
+  done <<<"$line"
+}
+
 diagnose() {
   echo "==> diagnose (engine=${ENGINE_SVC} :${ENGINE_PORT}, frontend=${FRONTEND_SVC}${FE_PORT:+ :${FE_PORT}})"
   if [[ "$UNITS_MISSING" == 1 ]]; then
@@ -453,6 +480,7 @@ diagnose() {
   # ORW-971: a held season, and any owed or failed season-start step.
   # ORW-1019: an out-of-credit provider.
   provider_credit_check
+  provider_balance_check
   season_hold_check
   systemd_security_floor
 }
