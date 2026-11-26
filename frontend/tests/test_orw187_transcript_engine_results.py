@@ -30,7 +30,11 @@ def test_an_oversized_result_is_capped_with_a_marker_never_blank():
 
 
 def test_the_ledger_set_is_narrow_and_does_not_widen_other_silent_tools():
-    assert al._ENGINE_RESULT_LEDGER_TOOLS == {"getGameState", "whereabouts", "gameStatus", "createCharacter"}
+    assert al._ENGINE_RESULT_LEDGER_TOOLS == {"getGameState", "whereabouts", "gameStatus", "createCharacter"}  # ORW-187's own four
+    # ORW-975: plus every NON-silent engine game tool (their output reaches the page as a closed copy; the raw result is admin-only here); the other silent read tools and non-game tools stay out
+    wider = al._engine_result_ledger_tools()
+    assert al._ENGINE_RESULT_LEDGER_TOOLS <= wider and {"makeDeal", "advanceGame", "submitDecision", "confide", "seasonRetrospective"} <= wider
+    assert not ({"npcVoice", "socialRead", "getVisibleStateFor", "playerDossier", "bash"} & wider)
     for tool in ("npcVoice", "socialRead", "getVisibleStateFor", "playerDossier", "bash"):
         assert al._engine_result_for_transcript(tool, _res({"knows": ["x"]})) is None
 

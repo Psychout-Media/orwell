@@ -8064,7 +8064,10 @@ export class GameSessionAdapter implements GameSession {
     // ORW-522: claiming a bed is going to it (to drop your things on it). With no other room named, a fresh claim is a move to that bedroom, through the
     // same pin as any move: gathered for an event, the narrator is told the player stays with the house; otherwise the engine moves them before the narrator writes.
     const claimedBed = bedChanged ? this.live?.beds?.owner[PLAYER] : undefined;
-    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) ?? (claimedBed ? roomOfBed(claimedBed) : null) ?? this.roomOfSightedHouseguest(String(req.text ?? ""), here);
+    // ORW-728 (W1-11): "my bed" with no room named is the bedroom of the bed the player OWNS (only a fresh claim moved them before, so "I go back to my bed" left the room to the narrator, which picked the wrong one).
+    const ownBed = this.live?.beds?.owner[PLAYER];
+    const ownBedRoom = ownBed && /\bmy (?:own )?bed\b/i.test(String(req.text ?? "")) ? roomOfBed(ownBed) : null;
+    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) ?? (claimedBed ? roomOfBed(claimedBed) : null) ?? ownBedRoom ?? this.roomOfSightedHouseguest(String(req.text ?? ""), here);
     const hadMove = this.playerMove !== null;
     this.playerMove = null; // a new player message: last turn's move is over
     this.holdNamedHouseguest(String(req.text ?? ""), dest); // ORW-933: the houseguest the message turns to is held in the room (below)

@@ -35,6 +35,7 @@ describe("0101/#1401 Phase-2 — the full game completes cleanly with the showru
 
   it(
     `plays ${SEEDS.length} full seeded games WITH the reweight ON — each finishes with no anomalies`,
+    { timeout: 600_000 },
     async () => {
       for (const seed of SEEDS) {
         const run = await runFullGameDirect(harness.directResolver, seed, "never-use-veto");
@@ -43,6 +44,5 @@ describe("0101/#1401 Phase-2 — the full game completes cleanly with the showru
         expect(run.anomalies, `seed ${seed}: anomalies with reweight ON: ${JSON.stringify(run.anomalies)}`).toEqual([]);
       }
     },
-    { timeout: 600_000 },
   );
 });

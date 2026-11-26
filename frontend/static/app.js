@@ -252,10 +252,13 @@ function initializeEventListeners() {
   }
 
   // Scrolling
+  // ORW-974: this handler used to set autoscroll to "is the view within 80px of the bottom right now?" 100ms after a scroll. A streamed reply grows by more than 80px in that time with nobody touching the
+  // scroll, so autoscroll switched itself OFF mid-reply and the view stopped following (the newest reply sat below the fold; a card above the composer then hid the rest). Only the PLAYER turns following off:
+  // the wheel-up and touchmove handlers below, and chatFollow's own scroll-up rule in `scrollHistory`. Reaching the bottom again still turns it back on.
   el('chat-history').addEventListener('scroll', uiModule.debounce(() => {
     const box = el('chat-history');
     const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
-    uiModule.setAutoScroll(atBottom);
+    if (atBottom) uiModule.setAutoScroll(true);
   }, 100));
   // Close all footer popups immediately on any scroll
   el('chat-history').addEventListener('scroll', () => {

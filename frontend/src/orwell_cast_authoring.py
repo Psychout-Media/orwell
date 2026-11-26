@@ -22,6 +22,7 @@ never echoes a hidden value). This module only authors + forwards; it never seal
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import contextvars
 import json
 import os
@@ -3654,49 +3655,53 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
         # passed explicitly (read from the module global at CALL time, not `_bounded_stream`'s default
         # parameter — a default is bound once at function-definition time) so a runtime override of
         # `_AUTHORING_STREAM_WALL_CLOCK_S` (e.g. a test, or a future admin knob) actually takes effect.
-        async for chunk in _bounded_stream(stream_llm_with_fallback(
+        # ORW-983: close the wrapper whenever this loop ends, however it ends (a body error between two chunks would otherwise leave its pump blocked on its full queue until the garbage collector
+        # closes the generator, possibly in another loop).
+        _stream = _bounded_stream(stream_llm_with_fallback(
             candidates, messages, temperature=_temperature, policy=_policy,
-            max_tokens=cap, response_format=(_response_format_for(messages) if json_mode else None)), wall_clock_s=_AUTHORING_STREAM_WALL_CLOCK_S):
-            # stream_llm yields SSE-ish data lines; keep only the assistant text deltas.
-            piece = _delta_text(chunk)
-            if piece:
-                parts.append(piece)
-                continue
-            if isinstance(chunk, str) and chunk.lstrip().startswith("event: error"):
-                _error_frame = _error_frame or chunk  # ORW-437: the stream failed; the text so far is a PARTIAL
-                continue
-            # S3b: keep reasoning/thinking deltas in a SEPARATE buffer (never the visible body) so a
-            # misrouted JSON answer is recoverable — see the empty-visible fallback in `_fn`.
-            rpiece = _reasoning_delta_text(chunk)
-            if rpiece:
-                rparts.append(rpiece)
-                continue
-            # ADR 0010: capture the usage envelope (the trailing 'usage' SSE event) for the meter,
-            # and the terminal finish event ("length" ⇒ the model was CUT OFF by the output cap).
-            s = str(chunk or "")
-            if s.startswith("data:"):
-                _body = s[5:].strip()
-                if _body and _body != "[DONE]":
-                    try:
-                        _d = json.loads(_body)
-                    except (ValueError, TypeError):
-                        _d = None
-                    if isinstance(_d, dict) and _d.get("type") == "usage":
-                        _ud = _d.get("data") or {}
-                        if _ud:
-                            _usage = {
-                                "input_tokens": _ud.get("input_tokens", 0),
-                                "output_tokens": _ud.get("output_tokens", 0),
-                                "cached_tokens": _ud.get("cached_tokens", 0) or 0,
-                                "cache_miss_tokens": _ud.get("cache_miss_tokens"),
-                                "reasoning_tokens": _ud.get("reasoning_tokens", 0) or 0,
-                                "cost": _ud.get("cost"),
-                                "cost_estimated": bool(_ud.get("cost_estimated")),
-                                "model": _ud.get("model"),
-                                "provider": _ud.get("provider"),
-                            }
-                    elif isinstance(_d, dict) and _d.get("type") == "finish":
-                        _finish = _d.get("reason") or _finish
+            max_tokens=cap, response_format=(_response_format_for(messages) if json_mode else None)), wall_clock_s=_AUTHORING_STREAM_WALL_CLOCK_S)
+        async with contextlib.aclosing(_stream):
+            async for chunk in _stream:
+                # stream_llm yields SSE-ish data lines; keep only the assistant text deltas.
+                piece = _delta_text(chunk)
+                if piece:
+                    parts.append(piece)
+                    continue
+                if isinstance(chunk, str) and chunk.lstrip().startswith("event: error"):
+                    _error_frame = _error_frame or chunk  # ORW-437: the stream failed; the text so far is a PARTIAL
+                    continue
+                # S3b: keep reasoning/thinking deltas in a SEPARATE buffer (never the visible body) so a
+                # misrouted JSON answer is recoverable — see the empty-visible fallback in `_fn`.
+                rpiece = _reasoning_delta_text(chunk)
+                if rpiece:
+                    rparts.append(rpiece)
+                    continue
+                # ADR 0010: capture the usage envelope (the trailing 'usage' SSE event) for the meter,
+                # and the terminal finish event ("length" ⇒ the model was CUT OFF by the output cap).
+                s = str(chunk or "")
+                if s.startswith("data:"):
+                    _body = s[5:].strip()
+                    if _body and _body != "[DONE]":
+                        try:
+                            _d = json.loads(_body)
+                        except (ValueError, TypeError):
+                            _d = None
+                        if isinstance(_d, dict) and _d.get("type") == "usage":
+                            _ud = _d.get("data") or {}
+                            if _ud:
+                                _usage = {
+                                    "input_tokens": _ud.get("input_tokens", 0),
+                                    "output_tokens": _ud.get("output_tokens", 0),
+                                    "cached_tokens": _ud.get("cached_tokens", 0) or 0,
+                                    "cache_miss_tokens": _ud.get("cache_miss_tokens"),
+                                    "reasoning_tokens": _ud.get("reasoning_tokens", 0) or 0,
+                                    "cost": _ud.get("cost"),
+                                    "cost_estimated": bool(_ud.get("cost_estimated")),
+                                    "model": _ud.get("model"),
+                                    "provider": _ud.get("provider"),
+                                }
+                        elif isinstance(_d, dict) and _d.get("type") == "finish":
+                            _finish = _d.get("reason") or _finish
         # ADR 0010: one Vault-free token/cost entry per authoring call, keyed by the canonical game
         # session so it aggregates with the game's narration spend. Fail-open; never seen by the player.
         if owner and _usage:

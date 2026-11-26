@@ -130,7 +130,10 @@ import { onNarrowChange } from './platform.js';
     if (idOf(status.hoh) === me) return "You break ties";
     const noms = Array.isArray(status.nominees) ? status.nominees.map(idOf) : [];
     if (noms.includes(me)) return "The House votes on you";
-    return "You vote tonight";
+    // ORW-728 (W1-11): the voter cue lasts only while the player's own vote is open. The phase stays "eviction" through the staged reveal after they voted, and the cue kept reading "You vote tonight". The ballot
+    // is open exactly while the pending decision is the eviction vote; with nothing pending (voted, or the card is not up yet) there is nothing for the player to do, so no cue.
+    const pk = status.pending && typeof status.pending === "object" ? status.pending.kind : "";
+    return pk === "eviction-vote" ? "You vote tonight" : "";
   }
 
   // M2-3 (audit B2): pre-HOH board state — before the very first HOH exists (week 1, no HOH crowned

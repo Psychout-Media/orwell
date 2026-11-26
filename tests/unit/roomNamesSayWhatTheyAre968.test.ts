@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { HOUSE_ROOMS, WALKABLE_ROOMS, resolveRoom, roomDisplayName, type Room } from "../../src/domain/house";
 import { HOUSE_THEMES } from "../../src/engine/data/houseThemes";
+import { LEGACY_ROOM_NAMES } from "../../src/engine/data/legacyRoomNames";
+import { parsePlayerMoveIntent } from "../../src/engine/playerMoveIntent";
 import { acceptHouseThemeDraft, plainRoomName, registerHouseTheme, roomLabel, roomNamesFor, roomRef, themedRoomAliases } from "../../src/engine/roomLabels";
 
 /**
@@ -44,18 +46,38 @@ describe("every library house says what each room is", () => {
 
 describe("the composition itself (any name the season may carry)", () => {
   const cases: Array<[Room, string, string]> = [
-    ["kitchen", "the Galley", "the Galley kitchen"], ["kitchen", "the Fudge Kitchen", "the Fudge Kitchen"], ["kitchen", "the Palace Kitchens", "the Palace Kitchens"],
-    ["bedroom-a", "the Coral Reef Room", "the Coral Reef bedroom"], ["hoh-room", "the Captain's Quarters", "the Captain's HOH room"], ["bathroom", "the Bubblegum Bath", "the Bubblegum bathroom"],
-    ["bathroom", "the Baths", "the bathroom"], ["diary-room", "the Lighthouse Diary Room", "the Lighthouse Diary Room"], ["diary-room", "the Magic Mirror", "the Magic Mirror Diary Room"],
-    ["landing", "Quarterdeck", "the Quarterdeck landing"], ["storage-room", "the Hold", "the Hold storage room"],
+    ["kitchen", "the Galley", "the galley kitchen"], ["kitchen", "the Fudge Kitchen", "the fudge kitchen"], ["kitchen", "the Palace Kitchens", "the palace kitchen"],
+    ["kitchen", "the Copper Kettle Galley", "the copper kitchen"], ["dining-room", "the Long Table Hall", "the long dining room"], ["lounge", "Ember Court", "the ember lounge"],
+    ["bedroom-a", "the Coral Reef Room", "the coral bedroom"], ["bathroom", "the Bubblegum Bath", "the bubblegum bathroom"], ["bathroom", "the Baths", "the bathroom"],
+    ["hoh-room", "the Captain's Quarters", "the HOH room"], ["diary-room", "the Lighthouse Diary Room", "the Diary Room"], ["landing", "Quarterdeck", "the landing"], ["storage-room", "the Hold", "the storage room"],
+    ["lounge", "the Room", "the lounge"], ["kitchen", "the 12th Street Kitchen", "the street kitchen"], ["kitchen", "the O'Brien's", "the kitchen"],
   ];
   for (const [room, raw, want] of cases) it(`${room}: "${raw}" -> "${want}"`, () => expect(plainRoomName(room, raw)).toBe(want));
-  it("never leaves a room unnamed, and an empty or word-only name is just the plain word", () => {
-    expect(plainRoomName("kitchen", "")).toBe("");
-    expect(plainRoomName("lounge", "the Room")).toBe("the lounge");
-  });
+  it("an empty name stays empty", () => expect(plainRoomName("kitchen", "")).toBe(""));
   it("is idempotent: a composed name is kept as it is", () => {
     for (const t of HOUSE_THEMES) for (const r of HOUSE_ROOMS) { const once = plainRoomName(r, t.rooms[r].name); expect(plainRoomName(r, once)).toBe(once); }
+  });
+});
+
+// The form Ryne asked for ("don't overdo the theming, just cohesive"): the plain word with at most one lowercase themed word in front, or the plain word alone. Nothing else is a shown name: a proper noun or a
+// run of words never stands directly in front of the function word.
+const FORM = new RegExp(`^the (?:[a-z][a-z-]{1,13} )?(?:${[...new Set(Object.values(PLAIN))].map((w) => w.replace(/\s+/g, "\\s")).join("|")})$`);
+describe("the shown names are in the light form, in every house", () => {
+  for (const t of HOUSE_THEMES) {
+    it(`${t.id}: every library name is already in the form (nothing for the funnel to change), and the HOH room, landing, storage room and Diary Room are the plain word alone`, () => {
+      for (const r of HOUSE_ROOMS) {
+        const raw = t.rooms[r].name;
+        expect(raw, `${t.id}/${r}`).toMatch(FORM);
+        expect(plainRoomName(r, raw), `${t.id}/${r}: the library is written in the shown form`).toBe(raw);
+      }
+      for (const r of ["hoh-room", "landing", "storage-room", "diary-room"] as Room[]) expect(t.rooms[r].name).toBe(`the ${PLAIN[r]}`);
+    });
+  }
+  it("no shown name, library or authored, stacks a capitalised word in front of a function word", () => {
+    const names: string[] = [];
+    for (const t of HOUSE_THEMES) for (const r of HOUSE_ROOMS) names.push(roomLabel(r, t.id));
+    for (const x of names) expect(x, x).not.toMatch(/\b[A-Z][a-z']+ (kitchen|living room|dining room|backyard|hallway|bedroom|bathroom|lounge)\b/);
+    expect(names.length).toBe(HOUSE_THEMES.length * HOUSE_ROOMS.length);
   });
 });
 
@@ -76,7 +98,7 @@ describe("a house the writer authors reads the same way", () => {
       registerHouseTheme(verdict.theme!);
       const id = verdict.theme!.id;
       const names = roomNamesFor(id)!;
-      for (const r of HOUSE_ROOMS) expect(says(names[r]!, PLAIN[r]!), `authored ${seed}/${r}: "${names[r]}"`).toBe(true);
+      for (const r of HOUSE_ROOMS) { expect(says(names[r]!, PLAIN[r]!), `authored ${seed}/${r}: "${names[r]}"`).toBe(true); expect(names[r], `authored ${seed}/${r}`).toMatch(FORM); }
       const aliases = themedRoomAliases(id);
       for (const r of WALKABLE_ROOMS) {
         const plain = resolveRoom(`the ${PLAIN[r]!.toLowerCase()}`, null, aliases);
@@ -88,5 +110,41 @@ describe("a house the writer authors reads the same way", () => {
   });
   it("the plain label is still what an un-themed season says", () => {
     for (const r of HOUSE_ROOMS) expect(roomLabel(r, undefined)).toBe(roomDisplayName(r));
+  });
+});
+
+// A season in progress when the names changed (Ryne's live save: the narrator and the player said "the Galley", "the Captain's Quarters") must still find its rooms by the names it knew.
+describe("a season in progress still finds its rooms by the names the library carried before", () => {
+  const TAIL = /\s+(room|cabin|pod|cave|chamber|suite|quarters)$/;
+  const flat = (x: string) => x.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  it("the library's old names are all in the legacy table (24 houses x 14 rooms)", () => {
+    for (const t of HOUSE_THEMES) expect(Object.keys(LEGACY_ROOM_NAMES[t.id] ?? {}).sort(), t.id).toEqual([...HOUSE_ROOMS].sort());
+  });
+  for (const t of HOUSE_THEMES) {
+    it(`${t.id}: every phrase that named a room before (the name, without "the", without a generic last word) still names that room`, () => {
+      const aliases = themedRoomAliases(t.id);
+      const before = new Map<string, Set<Room>>();  // the old alias rule: a phrase that named two rooms was dropped
+      for (const r of HOUSE_ROOMS) {
+        const full = flat(LEGACY_ROOM_NAMES[t.id]![r]!), bare = full.replace(/^the\s+/, ""), short = r === "diary-room" ? bare : bare.replace(TAIL, "");
+        for (const f of new Set([full, bare, ...(short !== bare ? [short, `the ${short}`] : [])])) (before.get(f) ?? before.set(f, new Set()).get(f)!).add(r);
+      }
+      let checked = 0;
+      for (const [phrase, rooms] of before) {
+        if (rooms.size !== 1) continue;
+        const room = [...rooms][0]!;
+        const plainOfOther = Object.entries(PLAIN).some(([o, w]) => o !== room && !(room.startsWith("bedroom") && o.startsWith("bedroom")) && w.toLowerCase() === phrase.replace(/^the\s+/, ""));
+        if (plainOfOther) continue;  // a phrase that is another room's plain word ("the lounge") now means that room, by design
+        expect(resolveRoom(phrase, null, aliases), `${t.id}: "${phrase}" named ${room} before`).toEqual({ kind: "ok", room });
+        checked++;
+      }
+      expect(checked).toBeGreaterThan(20);
+    });
+  }
+  it("a player's typed move by an old name still moves them, curly apostrophe or not", () => {
+    const ocean = themedRoomAliases("ocean-depths");
+    expect(parsePlayerMoveIntent("I head to the Captain\u2019s Quarters", "kitchen", ocean)).toBe("hoh-room");
+    expect(parsePlayerMoveIntent("let's go to the coral reef", "kitchen", ocean)).toBe("bedroom-a");
+    expect(parsePlayerMoveIntent("I go to the Oyster Bar", "kitchen", ocean)).toBe("dining-room");
+    expect(resolveRoom("the galley", null, ocean)).toEqual({ kind: "ok", room: "kitchen" });
   });
 });

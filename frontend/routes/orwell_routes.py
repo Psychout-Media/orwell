@@ -667,6 +667,39 @@ _BROWSER_WHEREABOUTS_SHAPE = {
     "unavailable": _T,
 }
 #   /recap (the retrospective panel: finished, winner, weeksPlayed, highlights, placement, margin), /finale (the finale panel: stage, finalists, asking, reveals; NOT the `bearing` of the asker, NOT the winner).
+#   /retrospective (ORW-976; the post-crown unseal, the ONE place the hidden story is told): exactly what the window (orwellRetrospective.js) reads and nothing it does not - so a field the engine adds to the retrospective
+#     later (dealPlans, socialMap, americasFavorite, a count such as `tellings`, a raw id inside a view) never reaches the page until a screen reads it and it is added here. Everything the window does not read is dropped at every level
+#     (the winner / finished / placement top-level echo, which /recap carries; dealPlans; socialMap; americasFavorite; the tellings count).
+_NAMED_NAME = {"id": _T, "name": _T}
+_RUMOR_ROW = {"claim": _T, "starter": _NAMED_NAME, "startedWeek": _T, "passedOn": [_NAMED_NAME], "believers": [_NAMED_NAME], "toldToYou": _T}
+_LINE_ROW = {"line": _T}
+_BROWSER_RETROSPECTIVE_SHAPE = {"retrospective": {
+    "twists": [{"kind": _T, "firedWeek": _T}],
+    "evictionVotes": [{"week": _T, "evictee": _NAMED_NAME, "votes": [{"voter": _NAMED_NAME, "votedFor": _NAMED_NAME}]}],
+    "juryVotes": {"votes": [{"juror": _NAMED_NAME, "votedFor": _NAMED_NAME}]},
+    "exitInterviews": [{"week": _T, "evictee": _NAMED_NAME, "stance": _T, "message": _T}],
+    "finaleInterview": {"stance": _T, "message": _T},
+    "pullQuoteReel": [{"week": _T, "quotes": [{"quote": _T, "speaker": _T, "source": _T}]}],
+    "playerConfessionals": [_T],
+    "houseYouNeverSaw": [{
+        "houseguest": _NAMED_NAME, "leftWeek": _T, "reflectionNights": [_T],
+        "seasonAim": {"aim": _T, "why": [_T]},
+        "goals": [{"from": _T, "aim": _T, "ended": _T, "why": [_T]}],
+        "decisions": [{"week": _T, "day": _T, "act": _T, "real": _T, "said": _T, "aired": _T, "honesty": _T}],
+        "longCon": {"mark": _T, "from": _T, "plan": _T, "ended": _T, "why": [_T]},
+        "reflections": [{"night": _T, "text": _T}],
+    }],
+    "rumorMill": {"biggest": [_RUMOR_ROW], "aboutYou": [_RUMOR_ROW]},
+    "yourEdit": {"episodes": [{"title": _T, "authoredTitle": _T}], "heroes": [_LINE_ROW], "villains": [_LINE_ROW], "you": _LINE_ROW},
+    "reunion": {"threads": [_LINE_ROW]},
+    "yourStories": {"stories": [_LINE_ROW]},
+    "groupLife": {"groups": [_LINE_ROW]},
+    "decisionReveal": {"decisions": [_LINE_ROW]},
+    "houseCulture": {"leans": [_T]},
+    "comingClean": {"stories": [{"liar": _T, "about": _T, "versions": [{"to": _T, "said": _T, "week": _T, "true": _T, "confessedTo": [_T], "loopedIn": [_T]}]}]},
+    "territory": {"crowds": [_T]},
+    "hiddenStory": [{"type": _T, "content": _T}],
+}}
 _BROWSER_RECAP_SHAPE = {"recap": {"finished": _T, "winner": _NAMED, "weeksPlayed": _T, "highlights": [_T], "placement": _T, "margin": _T}}
 _BROWSER_FINALE_SHAPE = {"finale": {"stage": _T, "finalists": [_NAMED], "asking": _NAMED, "reveals": [{"juror": _NAMED, "votedFor": _NAMED}]}}
 #   /roster (the cast wall, pin and monogram: id, name, status, isPlayer, portrait, evictedSeq, lastSeenMood; the portrait counters and generation progress). NOT read by any screen: the per-card
@@ -712,6 +745,14 @@ _BROWSER_ADVANCE_SHAPE = {
 #     card keys above: `finished` + `winner.name` and `event.beat` / `event.content` (the beat chip's outcome line and the ceremony slate's headline), `event.participants[]` ({id, name}: the slate's faces),
 #     `status.week` and `status.veto.holder` (the slate's kicker and the veto winner), `eviction.votesRevealed[].votedFor` (the ANONYMIZED ballot count, never a voter), and `correction` (the control-room card).
 #     NOT read: the engine's own result fields (a vote's tally, a voter, a planned outcome, the event's consequences, the status's other fields).
+#   Every OTHER game tool's output (ORW-975: makeDeal, confide, confront, recordInteraction, runCompetition, createCharacter and the rest of the non-silent game keep-set): the page reads `beatSeq` and `correction` off any
+#     mutating tool (the G15 dispatcher), `started` / `createRefused` off createCharacter, and the beat chip's outcome line (`finished`, `winner.name`, `event.beat` / `content`, and the anonymized ballot
+#     count `eviction.votesRevealed[].votedFor`) for the beat tools. Nothing else of a tool's result is read, so nothing else is kept (the expandable raw-output block a non-beat tool used to show is now empty).
+_BROWSER_GAME_TOOL_SHAPE = {
+    "beatSeq": _T, "correction": _T, "started": _T, "createRefused": _T, "finished": _T, "winner": _NAMED,
+    "event": {"beat": _T, "content": _T, "participants": [_NAMED]},
+    "eviction": {"votesRevealed": [{"votedFor": _NAMED}]},
+}
 _BROWSER_TOOL_ADVANCE_SHAPE = {
     **_BROWSER_ADVANCE_SHAPE,
     "finished": _T, "winner": _NAMED, "correction": _T,
@@ -1306,7 +1347,7 @@ def setup_orwell_routes() -> APIRouter:
             orwell_episode_titles.kickoff_episode_titles(_current_user(request), retro)
         except Exception as e:  # never let the enrichment break the retrospective route
             logger.info(f"[orwell] episode titles kickoff skipped: {e}")
-        return {"retrospective": retro}
+        return _project_for_browser({"retrospective": retro}, _BROWSER_RETROSPECTIVE_SHAPE)  # ORW-976: the closed shape the window reads (raw `retro` still feeds the two background enrichments above)
 
     @router.get("/whereabouts")
     async def orwell_whereabouts(request: Request):

@@ -380,6 +380,21 @@ function _bindFollow(box) {
   if (!box || _followBound === box) return;
   _followBound = box;
   try { box.addEventListener('scroll', () => _follow.onScroll(box), { passive: true }); } catch (_) {}
+  // ORW-974: the chat area changes HEIGHT without any new content (a card mounting above the composer, a dismissed card, a composer that grows): `scrollTop` stays, so the tail of the newest reply slides under
+  // whatever took the room. While the player is following the newest reply, keep the bottom in view across a resize; a player who scrolled up to read is never pulled down (`shouldFollow`).
+  try {
+    if (typeof ResizeObserver !== 'undefined') {
+      let lastH = box.clientHeight;
+      new ResizeObserver(() => {
+        const h = box.clientHeight;
+        const shrank = h < lastH;
+        lastH = h;
+        if (!shrank || !autoScrollEnabled || !_follow.shouldFollow()) return;
+        box.scrollTop = box.scrollHeight;
+        _follow.noteSet(box.scrollTop);
+      }).observe(box);
+    }
+  } catch (_) {}
 }
 
 export function scrollHistory() {
