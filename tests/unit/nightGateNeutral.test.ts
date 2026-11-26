@@ -101,7 +101,7 @@ const hash = (o: Outcome): string =>
   createHash("sha256").update(JSON.stringify({ c: o.ceremonies, e: o.evictionOrder, w: o.winner })).digest("hex");
 
 describe("#1320 night-gate — HOH→nominations day boundary is calibration-neutral", () => {
-  it("CALIBRATION SPINE (master clock OFF): the night-gate is fully inert — byte-identical, zero day-breaks", () => {
+  it("CALIBRATION SPINE (master clock OFF): the night-gate is fully inert — byte-identical, zero day-breaks", { timeout: 120_000 }, () => { // ORW-985: two full games: an explicit budget, not the 30 s default
     // Exactly the harness state the seeded juryReach/gradient/UAT sims run in. The night-gate rides the
     // master clock, so flipping the per-conversation clock can never fire it and never perturbs the stream.
     const off = play({ clockOn: false, perConvOn: false });

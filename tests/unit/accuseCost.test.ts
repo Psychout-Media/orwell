@@ -25,13 +25,18 @@ describe("sourChance / hitReaction (pure)", () => {
 
 type G = { accuseTie(a: string, b: string): { landed: boolean } | null; setAccuseCostEnabled(on: boolean): void };
 type Ledger = Record<string, Record<string, { kind: string }[]>>;
-function game(seed: number) {
-  const sb = new GameSessionRegistry().sandboxFor(`accuse-${seed}-${Math.random()}`);
-  sb.session.createCharacter({ playerName: "P", seed });
-  sb.session.advanceGame(); sb.session.advanceGame();
+// ORW-985: fixed sandbox names (the same games on every run). `save` + `from` let one cast serve a second arm (a cast is ~100 ms, a restore ~5).
+function game(seed: number, user = `accuse-${seed}`, from?: string) {
+  const reg = new GameSessionRegistry();
+  let sb;
+  if (from === undefined) {
+    sb = reg.sandboxFor(user);
+    sb.session.createCharacter({ playerName: "P", seed });
+    sb.session.advanceGame(); sb.session.advanceGame();
+  } else sb = reg.restore(user, JSON.parse(from));
   const ties = (sb.session as unknown as { seededRels: { ties: Array<{ a: string; b: string; nature: TieNature }> } }).seededRels.ties;
   const npcs = [...sb.session.livingIds()].filter((i) => i !== PLAYER);
-  return { sb, g: sb.session as unknown as G, ties, npcs, rel: sb.engine.relationships, ledger: () => ((sb.session.snapshot().live as { npcMemory?: Ledger }).npcMemory ?? {}) };
+  return { sb, g: sb.session as unknown as G, ties, npcs, rel: sb.engine.relationships, save: () => JSON.stringify(reg.snapshot(user)), ledger: () => ((sb.session.snapshot().live as { npcMemory?: Ledger }).npcMemory ?? {}) };
 }
 const noTiePair = (ties: Array<{ a: string; b: string }>, npcs: string[]): [string, string] => {
   for (const a of npcs) for (const b of npcs) if (a < b && !ties.some((t) => (t.a === a && t.b === b) || (t.a === b && t.b === a))) return [a, b];
@@ -56,10 +61,11 @@ describe("a MISS dings the accuser (flag on); a free miss stays free (flag off)"
 });
 
 describe("an honest HIT sometimes sours and sometimes earns respect", () => {
-  it("over many seeds both reactions occur; each is bounded; the same seed gives the same reaction; flag off folds neither", { timeout: 120_000 }, () => { // ORW-985: a seed sweep near the 30 s default on CI; budgeted until it is sped up
+  it("over many seeds both reactions occur; each is bounded; the same seed gives the same reaction; flag off folds neither", { timeout: 120_000 }, () => { // ORW-985: 120 castings plus a second one per accusable tie: an explicit budget, not the 30 s default
     let sour = 0, respect = 0, seen = 0;
     for (let seed = 1; seed <= 120; seed++) { // ORW-132 made pre-show ties rare, so more seeds are needed to see enough accusable ties
       const g = game(seed); const tie = g.ties[0]; if (!tie) continue;
+      const unaccused = g.save();
       g.g.setAccuseCostEnabled(true);
       const before = g.rel.edge(tie.a, PLAYER).trust;
       expect(g.g.accuseTie(tie.a, tie.b)).toEqual({ landed: true });
@@ -68,11 +74,12 @@ describe("an honest HIT sometimes sours and sometimes earns respect", () => {
       const kinds = (g.ledger()[tie.a]?.[PLAYER] ?? []).map((e) => e.kind);
       if (kinds.includes("scene-conflict")) sour++; else if (kinds.includes("scene-kindness")) respect++;
       seen++;
-      // same seed => same reaction
-      const again = game(seed); again.g.setAccuseCostEnabled(true); again.g.accuseTie(tie.a, tie.b);
+      // same seed => same reaction (a second, independent cast under another sandbox name)
+      const again = game(seed, `accuse-${seed}-again`); again.g.setAccuseCostEnabled(true); again.g.accuseTie(tie.a, tie.b);
       expect((again.ledger()[tie.a]?.[PLAYER] ?? []).map((e) => e.kind)).toEqual(kinds);
       // flag off: a hit folds neither reaction
-      const off = game(seed); off.g.setAccuseCostEnabled(false); off.g.accuseTie(tie.a, tie.b);
+      const off = game(seed, `accuse-${seed}`, unaccused); off.g.setAccuseCostEnabled(false);
+      expect(off.g.accuseTie(tie.a, tie.b)).toEqual({ landed: true });
       expect(off.ledger()[tie.a]?.[PLAYER]).toBeUndefined();
     }
     expect(seen).toBeGreaterThan(20);
