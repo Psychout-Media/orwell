@@ -55,6 +55,7 @@ def test_beat_signature_shape_from_sample_dicts():
         "noms": ["npc:1", "npc:2"],   # sorted
         "nomNames": [],                # #561 — nominee names (none named in this sample)
         "activeNames": [],             # #561 — active roster names (none named in this sample)
+        "roomNames": None,             # ORW-1020 — themed room names (no house theme in this sample)
         "vetoHolder": "npc:4",
         "vetoHolderName": None,        # A2 — no name on the veto-holder node in this sample
         "vetoUsed": True,
