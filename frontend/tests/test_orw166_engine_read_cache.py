@@ -276,7 +276,7 @@ def test_pure_reads_list_is_pinned():
     assert cache.PURE_READS == frozenset({
         "getGameState", "gameStatus", "getMomentPrompt", "stateDelta", "getVisibleStateFor", "whereabouts", "renderScene", "socialRead",
         "seasonRecap", "dailyRecap", "playerReceipts", "playerDossier", "playerTagline", "socialInitiatives", "worldSnapshotView", "npcVoice",
-        "competitionStagingView", "openLedgerHere", "groupsAwaitingWords", "beatLog", "hallOfFame",
+        "competitionStagingView", "openLedgerHere", "groupsAwaitingWords", "beatLog", "hallOfFame", "pipelineCast",
     })
 
 

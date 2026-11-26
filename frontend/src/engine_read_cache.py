@@ -38,6 +38,7 @@ PURE_READS = frozenset({
     "dailyRecap", "playerReceipts", "playerDossier", "playerTagline", "socialInitiatives", "worldSnapshotView", "npcVoice", "competitionStagingView", "openLedgerHere", "groupsAwaitingWords",
     "hallOfFame",  # 0208 B3: a read of the per-user hall; commits nothing
     "beatLog",  # ORW-439: the engine's per-bump cause log (diagnostic read; commits and bumps nothing)
+    "pipelineCast",  # ORW-969: the full cast for the casting jobs (a read; the gate polls it, so it must not invalidate the cache or count as a mutation)
 })
 
 

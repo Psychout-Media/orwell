@@ -33,6 +33,8 @@ export interface DiaryCallsState {
   byDay: Record<string, number>;
   /** The in-game hour of the player's last visit that was recorded (a visit is recorded once per hour). */
   playerLast?: number;
+  /** ORW-694 / B1-11: the in-game hour the player's current Diary Room stay began (a stay into a second hour is a long one). */
+  playerStayFrom?: number;
 }
 
 /** Minutes a houseguest's call lasts: a keyed roll, never the shared stream. */

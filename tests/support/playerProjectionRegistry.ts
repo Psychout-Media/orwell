@@ -18,6 +18,7 @@ export interface ProjectionEntry { method: string; tool?: string; coveredBy: Cov
 export const PLAYER_PROJECTION_REGISTRY: readonly ProjectionEntry[] = [
   { method: "gameStatus", coveredBy: "read", note: "public board status" },
   { method: "getGameState", coveredBy: "read", note: "roster + player card + daySchedule + weekDigests + juryHouse" },
+  { method: "pipelineCast", coveredBy: "port-only", note: "ORW-969: the full cast for server-side casting jobs; an unadvertised infra read (INFRA_TOOL_NAMES), never on the player channel list, never forwarded to the browser by the front end" },
   { method: "stateDelta", coveredBy: "read", note: "player-visible events since beatSeq" },
   { method: "beatLog", coveredBy: "read", note: "ORW-439 diagnostic: takes the required `sinceBeatSeq` counter and returns tool NAMES + counter values + timestamps of beat bumps; carries no Vault or game state (no tool args, no player names)" },
   { method: "getMomentPrompt", coveredBy: "read", note: "the narrator prompt (systemPrompt + hardConstraints), incl. RETURNING CAST legend (0136), producer read (0137), Show Brief / room canon / open threads (ORW-223)" },

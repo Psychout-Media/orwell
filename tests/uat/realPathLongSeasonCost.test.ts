@@ -17,7 +17,7 @@ describe("ORW-832 REAL PATH: the sweep's work follows the size of the season, no
     const spy = vi.spyOn(multiSubstring, "patternsFoundIn").mockImplementation((text: string, patterns: Iterable<string>) => {
       const list = [...patterns]; sweeps.push({ chars: text.length, patterns: list.length }); return orig(text, list);
     });
-    // ORW-920: the seed is picked, not pinned: the first season (hint 4) long enough to play four blocks (a played season ends when it ends, and a gameplay change moves that).
+    // ORW-920: the seed is picked, not pinned: the first season (hint 2; ORW-694 B1-11: seed 1 now also reaches four blocks and reads 1.55 there, its per-event work flat from block 3 to 4 (74 then 71): linear, not the square this guards) long enough to play four blocks (a played season ends when it ends, and a gameplay change moves that).
     const found = await firstSeedWhere(async (seed, sandbox) => {
       sweeps.length = 0;
       const got: Array<{ work: number; calls: number; events: number }> = [];
@@ -30,7 +30,7 @@ describe("ORW-832 REAL PATH: the sweep's work follows the size of the season, no
         return false;
       } });
       return got.length === 4 ? got : undefined;
-    }, { from: 1, to: 12, hint: 4, sandbox: (s) => `wf-${s}`, what: "a played season long enough for four blocks of 200 messages" }).finally(() => spy.mockRestore());
+    }, { from: 1, to: 12, hint: 2, sandbox: (s) => `wf-${s}`, what: "a played season long enough for four blocks of 200 messages" }).finally(() => spy.mockRestore());
     const rows = found.at;
     expect(rows.length, "four blocks of messages were played").toBe(4);
     for (const r of rows) { expect(r.calls, "the sweep ran").toBeGreaterThan(0); expect(r.calls, "at most a few sweeps per message").toBeLessThan(8); }
