@@ -7645,23 +7645,27 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
-   * ORW-981 / spec 0209 (`ORWELL_PLAYER_HAUNTS`, default ON; `=0` opts out): a routine brings a houseguest to the player. A houseguest who has been in the room with the player at this time of day on enough separate days
-   * (`knowsRoutine`) knows where the player usually is then, and leans toward them when it is that time again. Only a houseguest who does not keep away from the player (no avoid, a bond at or above neutral); never lowers a
-   * pull; engine-only, no rng, nothing shown. Played games only (the caller gates).
+   * ORW-981 / spec 0209 (`ORWELL_PLAYER_HAUNTS`, default ON; `=0` opts out): a routine brings a houseguest to whoever keeps it, the same for every onlooker and every holder. A houseguest who has seen where someone usually
+   * is at this time of day on enough separate days (`knowsRoutine`; the player's usual room counted as a haunt, a houseguest's own routine counted by `noteRoutinesSeenByHouse`) leans toward them when it is that time again.
+   * Only toward someone they do not keep away from (no avoid, a bond at or above neutral when there was no pull already); never lowers a pull; engine-only, no rng, nothing shown. Played games only (the caller gates).
    */
   private playerHauntsEnabled = flagDefaultOn("ORWELL_PLAYER_HAUNTS");
   setPlayerHauntsEnabled(on: boolean): void { this.playerHauntsEnabled = on; }
   private applyPlayerHauntToPulls(id: EntityId, pulls: MovementPull[], neutralBond: number): void {
-    const s = this.live, me = this.house?.player.id;
-    if (!s || !me || id === me || !s.timeOfDay) return;
-    const seen = s.npcRoutineSightings?.[id]?.[me];
+    const s = this.live;
+    if (!s || !s.timeOfDay) return;
+    const seen = s.npcRoutineSightings?.[id];
     if (!seen) return;
-    const usual = Object.entries(seen).some(([key, days]) => key.startsWith(`${s.timeOfDay}:`) && knowsRoutine(days.length));
-    if (!usual) return;
-    const existing = pulls.find((p) => p.target === me);
-    if (existing) { if (!existing.avoid) existing.weight *= 1 + ROUTINES.playerHauntGain; return; }
-    if (this.rel.bondStrength(id, me) < neutralBond) return;
-    pulls.push({ target: me, weight: MOVEMENT_INTENT.minCharge * (1 + ROUTINES.playerHauntGain), avoid: false });
+    const active = new Set(this.presenceActive());
+    for (const [holder, byKey] of Object.entries(seen)) {
+      if (holder === id || !active.has(holder)) continue;
+      const usual = Object.entries(byKey).some(([key, days]) => key.startsWith(`${s.timeOfDay}:`) && knowsRoutine(days.length));
+      if (!usual) continue;
+      const existing = pulls.find((p) => p.target === holder);
+      if (existing) { if (!existing.avoid) existing.weight *= 1 + ROUTINES.playerHauntGain; continue; }
+      if (this.rel.bondStrength(id, holder) < neutralBond) continue;
+      pulls.push({ target: holder, weight: MOVEMENT_INTENT.minCharge * (1 + ROUTINES.playerHauntGain), avoid: false });
+    }
   }
 
   /**

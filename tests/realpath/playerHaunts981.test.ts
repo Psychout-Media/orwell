@@ -43,9 +43,45 @@ describe("a houseguest who knows where the player usually is leans toward them",
     expect(stronger, "positive control: someone leans toward the player").toBeGreaterThan(0);
     for (const id of others) {
       s.setPlayerHauntsEnabled(false);
-      const off = JSON.stringify(s.movementIntentFor(id));
+      const off = JSON.stringify(pullOf(at, id) ?? null);
       s.setPlayerHauntsEnabled(true);
-      expect(JSON.stringify(s.movementIntentFor(id)), "a houseguest who has not learned it is unchanged").toBe(off);
+      expect(JSON.stringify(pullOf(at, id) ?? null), "a houseguest who has not learned the player's haunt has the same pull toward the player").toBe(off);
     }
+  }, 900_000);
+});
+
+/** The same layer for a houseguest's own routine: an onlooker who has seen where another houseguest keeps a routine at this time of day, on enough separate days, leans toward them. */
+const learnedNpcHolder = (s: Stop): Array<[string, string]> => {
+  const tod = s.sess.live?.timeOfDay as string | undefined;
+  const seen = (s.sess.live?.npcRoutineSightings ?? {}) as Record<string, Record<string, Record<string, number[]>>>;
+  const out: Array<[string, string]> = [];
+  for (const id of s.sess.livingIds() as string[]) for (const [holder, byKey] of Object.entries(seen[id] ?? {})) {
+    if (holder !== PLAYER && holder !== id && (s.sess.livingIds() as string[]).includes(holder) && Object.entries(byKey).some(([k, days]) => !!tod && k.startsWith(`${tod}:`) && knowsRoutine(days.length))) out.push([id, holder]);
+  }
+  return out;
+};
+const leansToNpcNow = (s: Stop): boolean => learnedNpcHolder(s).some(([id, holder]) => {
+  s.sess.setPlayerHauntsEnabled(false);
+  const off = ((s.sess.movementIntentFor(id) as Pull[] | null) ?? []).find((p) => p.target === holder);
+  s.sess.setPlayerHauntsEnabled(true);
+  const on = ((s.sess.movementIntentFor(id) as Pull[] | null) ?? []).find((p) => p.target === holder);
+  return !!on && (!off || on.weight > off.weight);
+});
+
+describe("the same holds between houseguests (parity with the player's haunts)", () => {
+  it("an onlooker who knows another houseguest's routine at this time leans toward them, never weaker, an avoid stays an avoid", async () => {
+    const at = await firstStop(leansToNpcNow, wfScan([3, 5, 7, 11], "an onlooker who has seen a houseguest keep a routine on three days"), { maxMessages: 1500 });
+    const s = at.sess;
+    let stronger = 0;
+    for (const [id, holder] of learnedNpcHolder(at)) {
+      s.setPlayerHauntsEnabled(false);
+      const off = ((s.movementIntentFor(id) as Pull[] | null) ?? []).find((p) => p.target === holder);
+      s.setPlayerHauntsEnabled(true);
+      const on = ((s.movementIntentFor(id) as Pull[] | null) ?? []).find((p) => p.target === holder);
+      if (off?.avoid) { expect(on?.avoid).toBe(true); expect(on?.weight).toBe(off.weight); continue; }
+      if (off) expect(on!.weight).toBeGreaterThanOrEqual(off.weight);
+      if (on && (!off || on.weight > off.weight)) stronger++;
+    }
+    expect(stronger, "positive control: someone leans toward a houseguest").toBeGreaterThan(0);
   }, 900_000);
 });
