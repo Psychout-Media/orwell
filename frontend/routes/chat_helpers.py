@@ -1571,7 +1571,9 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -
         "Do not write anyone who walks in, arrives, appears at the door or joins the scene: arrivals are the game's to bring (it tells you in the turn when someone comes in), so if a scene needs "
         "someone else, let the player go find them or let someone on the roster mention them. People on the roster may move between rooms or leave (narrate it and the engine records it). Three more hard rules keep "
         "the prose foldable into the board: (1) NEVER place a houseguest who has already been evicted in any room - they have left the house for good; (2) NEVER invent a room that is not part of "
-        "the house; (3) a houseguest is in exactly ONE place at a time. Do not silently teleport anyone, and do not empty a room the engine says is occupied."
+        "the house; (3) a houseguest is in exactly ONE place at a time. Do not silently teleport anyone, and do not empty a room the engine says is occupied. "
+        "A houseguest who is neither on the list above nor in an adjacent room is somewhere the game has not told you: place none of them in a named room, say nothing of where they have been or sat, and keep them off the page until the game brings them in. "
+        "A houseguest may say where another houseguest is or was only as what that speaker saw for themselves (first person, possibly out of date); never name a third houseguest as the one who saw them, and never give a sighting the game did not hand you."
     )
 
 
@@ -5059,6 +5061,79 @@ async def record_post_turn_wrong_room_check(user, narration: str) -> None:
         logger.warning("[orwell] wrong-room placement detected for user=%s (%s) - re-grounding next turn", user, ", ".join(n for n, _ in shown))
     except Exception as e:
         logger.warning("[orwell] post-turn wrong-room check skipped for user=%s: %s", user, _exc_detail(e))
+
+
+# ORW-1009 - a houseguest's report of where someone else is must come from a recorded sighting. The engine records them (a houseguest's own `npcSightings`, handed over as a TOLD fact on a house-search turn, spoken by THAT houseguest).
+# The narrator once had one houseguest say a second had seen Levi in the bathroom, and the second then gave another room: the attribution was invented. Post-turn and closed-set (never edits prose): a sentence in which a named
+# houseguest SAW a different named houseguest in a named room, where the seer is not a speaker the game handed a TOLD sighting this turn, queues a next-turn re-ground. `_TOLD_SPEAKERS` is filled by the house-search framing.
+_TOLD_SPEAKERS: dict = {}
+_SIGHTING_VERBS = r"(?:saw|seen|spotted|noticed|watched|glimpsed|caught\s+sight\s+of|ran\s+into|bumped\s+into)"
+
+
+def _told_speaker_names(whereabouts) -> set:
+    """The names of the houseguests the engine's house search gave a TOLD sighting to (who may say where someone was). Empty when there is none."""
+    sv = whereabouts.get("search") if isinstance(whereabouts, dict) else None
+    out: set = set()
+    for e in (sv.get("houseguests") if isinstance(sv, dict) and isinstance(sv.get("houseguests"), list) else []):
+        tb = e.get("toldBy") if isinstance(e, dict) else None
+        if isinstance(tb, dict) and tb.get("name"):
+            out.add(str(tb["name"]))
+    return out
+
+
+def _unrecorded_sighting_claims(narration: str, roster, allowed=()) -> list:
+    """[(seer, subject)]: a sentence with a named houseguest as the one who SAW another named houseguest in a named house room, the seer not among `allowed` (the speakers the game handed a TOLD sighting). Skips ((asides))."""
+    if not narration or not roster:
+        return []
+    roster = [str(n) for n in roster if n]
+    first_counts = _first_name_counts(roster)
+    allowed_l = {str(a).lower() for a in allowed}
+
+    def _forms(full: str) -> list:
+        parts = full.split()
+        return [full] + ([parts[0]] if len(parts) > 1 and first_counts.get(parts[0].lower(), 0) == 1 else [])
+
+    text = re.sub(r"\(\([^)]*\)\)", " ", narration, flags=re.DOTALL)
+    out: list = []
+    for sentence in re.split(r"(?<=[.!?\n])", text):
+        if not _room_keys(sentence):
+            continue
+        for seer in roster:
+            if seer.lower() in allowed_l or any(f.lower() in allowed_l for f in _forms(seer)):
+                continue
+            for subject in roster:
+                if subject == seer:
+                    continue
+                for a in _forms(seer):
+                    for b in _forms(subject):
+                        if re.search(rf"\b{re.escape(a)}\b[^.!?\n]{{0,25}}?\b{_SIGHTING_VERBS}\b[^.!?\n]{{0,25}}?\b{re.escape(b)}\b", sentence, re.IGNORECASE):
+                            if (seer, subject) not in out:
+                                out.append((seer, subject))
+    return out
+
+
+async def record_post_turn_sighting_check(user, narration: str) -> None:
+    """ORW-1009: queue a next-turn re-ground when the narration has a houseguest report another houseguest's sighting the game never recorded. Fail-open; never raises, never edits this turn's prose."""
+    try:
+        if not narration:
+            return
+        from src import orwell_engine
+        state = await orwell_engine.get_game_state(user=user)
+        if not isinstance(state, dict):
+            return
+        roster = [str(h.get("name")) for h in (state.get("house") or []) if isinstance(h, dict) and h.get("name") and str(h.get("status") or "active") == "active"]
+        hits = _unrecorded_sighting_claims(narration, roster, _TOLD_SPEAKERS.get(_desync_key(user), ()))
+        if not hits:
+            return
+        names = "; ".join(f"{a} seeing {b}" for a, b in hits[:_PRESENCE_MOVE_MAX_NAMES])
+        _reground_enqueue(_desync_key(user), (
+            "RE-GROUND ON SIGHTINGS - last turn you had a houseguest report where another houseguest was seen (" + names + "), and the game recorded no such sighting. A sighting may be given only from what the game hands you "
+            "(a houseguest says what they saw for themselves, in first person, possibly out of date); never name a third houseguest as the one who saw someone. If it came up again, correct it IN CHARACTER (a houseguest "
+            "says they misremembered), never with an out-of-character apology."
+        ))
+        logger.warning("[orwell] unrecorded sighting attributed for user=%s (%s) - re-grounding next turn", user, names)
+    except Exception as e:
+        logger.warning("[orwell] post-turn sighting check skipped for user=%s: %s", user, _exc_detail(e))
 
 
 async def record_post_turn_roster_check(user, narration: str) -> None:
@@ -9938,11 +10013,13 @@ async def apply_game_framing(
             logger.warning("[orwell] walk-in framing skipped for user=%s: %s", _gkey, e)
         # ORW-386 - the player asks where someone is / searches the house: hand the narrator the engine's house search (each houseguest's room + whether the player can walk in) so it never invents closed doors.
         try:
+            _TOLD_SPEAKERS.pop(_desync_key(user), None)  # ORW-1009: only this turn's house search can hand over a sighting
             if _is_house_search(player_msg):
                 _target = _search_target(player_msg, game_state)
                 _search_kw = {"looking_for": _target} if _target else {}  # ORW-462: the named houseguest is always found
                 _search_wa = await asyncio.wait_for(orwell_engine.whereabouts(user=user, search=True, **_search_kw), orwell_engine._FRAMING_TIMEOUT)
                 _search_dir = _house_search_directive(_search_wa, player_msg)
+                _TOLD_SPEAKERS[_desync_key(user)] = _told_speaker_names(_search_wa)
                 if _search_dir:
                     gm_prompt = gm_prompt + "\n\n" + _search_dir
         except Exception as e:
@@ -11145,7 +11222,8 @@ async def build_chat_context(
         from src.settings import game_build_enabled as _gbe_pm
         if _gbe_pm():
             from src.orwell_player_move import resolve_player_move_before_narrator
-            await resolve_player_move_before_narrator(message, user, client_msg_id)
+            _prev_reply = next((_game_narration(m.content) for m in reversed(getattr(sess, "history", None) or []) if getattr(m, "role", None) == "assistant" and isinstance(m.content, str)), None)
+            await resolve_player_move_before_narrator(message, user, client_msg_id, previous_reply=_prev_reply)
 
     # Game build (feature 0032): under the game build the front-end's own memory / RAG /
     # skills / web are off, so the engine's moment prompt is the only injected framing — no

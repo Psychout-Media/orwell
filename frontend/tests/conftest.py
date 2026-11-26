@@ -256,6 +256,11 @@ def _reset_portrait_billing_breaker() -> None:
         orwell_portraits.reset_billing_breaker()
     except Exception:  # failsoft-ok: test-hygiene (module may be unimportable in a narrow test)
         pass
+    try:  # ORW-1019: the text-provider credit breaker is module state too
+        from src import orwell_provider_credit
+        orwell_provider_credit.reset()
+    except Exception:  # failsoft-ok: test-hygiene
+        pass
     yield
     # Casting in the background: the per-photo retry timers, the opening-scene order, the image gates and the cast-warm retry tasks are
     # process state too; a test that fakes a failed shot must not leave a timer that fires inside the next test.
