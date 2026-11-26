@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { execFile } from "node:child_process";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { PHASES, poolByPhase, poolSeason, evaluate, ratchet, fmtShare, type PhaseShares } from "../support/wholeSeasonMix";
+import { PHASES, poolByPhase, poolSeason, evaluate, fmtShare, type PhaseShares } from "../support/wholeSeasonMix";
+import { socialBroken } from "../support/brokenBounds";
 import type { MixScene } from "../support/houseMixDriver";
 
 /**
@@ -11,7 +12,8 @@ import type { MixScene } from "../support/houseMixDriver";
  * pooled shares against the agreed bands and hard rules in `tests/support/wholeSeasonMix.ts` (the one constants module; target note: vault "Whole Season Mix Target Proposal").
  * The week-1 guard (houseMixGuard.test.ts) is separate and untouched.
  *
- * It lands as a REPORTING guard: the rules main already meets are asserted; the ones it does not are in KNOWN_RED (a ratchet: a later slice that fixes one must move it out).
+ * ORW-991 (Ryne 2026-11-26: social balance is tracked weekly, not held per fix): it fails only when the mix is BROKEN (tests/support/brokenBounds.ts: a kind of scene gone, or one kind
+ * over 75% of a phase). The agreed bands (`evaluate`) print as a report on every run and are tracked by the weekly calibration workflow; there is no ratchet.
  * Heavy lane: `npm run test:heavy:season-mix` (the seasons play at the same time in child processes); prints `MIXWS` lines (counts and shares only, no content).
  * WSMIX_SEEDS='1,2' narrows the seeds for a local run (numbers only, no assertions).
  * ORW-986 (the nightly slow-calibration workflow): WSMIX_REPLICAS=3 plays each seed under that many sandbox names (replica 0 is the guard's own game, the others
@@ -67,12 +69,10 @@ describe("whole-season house-life mix guard", () => {
     const { shares: pooled, basis } = poolSeason(all);
     console.log(`MIXWS judged (${per.length} seasons): ${PHASES.map((p) => `${p} ${fmtShare(pooled[p])} [${basis[p]}]`).join(" | ")}`);
     const results = evaluate(pooled);
-    for (const r of results) console.log(`MIXWS rule ${r.pass ? "pass" : "FAIL"} ${r.id} value ${r.value} miss ${r.miss}`);
+    // ORW-991 (Ryne 2026-11-26): the agreed bands are a REPORT (tracked weekly), never a failure; only a broken mix (tests/support/brokenBounds.ts) fails the build.
+    for (const r of results) console.log(`MIXWS report ${r.pass ? "in-band" : "out-of-band"} ${r.id} value ${r.value} miss ${r.miss}`);
     if (narrowed) { expect(pooled.early.n).toBeGreaterThan(0); return; }
     for (const p of PHASES) expect(pooled[p].n, `${p} phase has scenes to read (pooled over ${seeds.length} seasons)`).toBeGreaterThan(MIN_SCENES);
-    const v = ratchet(results);
-    expect(v.regressions, "rules main met that now fail").toEqual([]);
-    expect(v.fixed, "KNOWN_RED lines that now pass: move them out").toEqual([]);
-    expect(v.worse, "KNOWN_RED lines that got worse").toEqual([]);
+    expect(socialBroken(pooled, MIN_SCENES), "the house-life mix is broken").toEqual([]);
   }, 1_200_000 * REPLICAS); // ORW-986: replicas share the cores
 });

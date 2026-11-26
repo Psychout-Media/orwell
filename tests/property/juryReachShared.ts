@@ -19,6 +19,7 @@ import { PLAYER } from "../../src/domain/ids";
  * are played moved. Roles only — no houseguest names.
  */
 
+import { juryBroken } from "../support/brokenBounds";
 export const SEEDS = 20; // deterministic seeds 1..SEEDS — one full live season each
 export const FLOOR = 3; // ≥ 3/20 (15%): the jury/endgame is structurally reachable for a passive player
 export const CEILING = 19; // ≤ 19/20: the loose absurdity guard — a passive player can still lose a season
@@ -221,14 +222,14 @@ export function assertBand(
   const detail = `reached jury/endgame in ${reachedJury}/${SEEDS} passive seasons (${outcomes.join(", ")})`;
   // FLOOR (E33): the endgame content is reachable — passive play is a disadvantage, not a death
   // sentence. CEILING (anti-sycophancy): a social-game-less player is never shepherded to jury.
-  expect(reachedJury, detail).toBeGreaterThanOrEqual(FLOOR);
-  expect(reachedJury, detail).toBeLessThanOrEqual(CEILING);
-  // The player can genuinely lose early (0046): at least one pre-jury eviction across the set —
-  // anything else would mean the engine is quietly walking the player past the early weeks.
-  expect(outcomes.filter((s) => s === "evicted").length, detail).toBeGreaterThan(0);
-  // THE ANTI-SYCOPHANCY TEETH (ruling 2026-06-11): wins stay RARE across the set, and each one
-  // was already proven EARNED above (a real public comp resume). A socially-passive player is
-  // never handed the crown — when they win, the season record shows why.
-  const f2Detail = `passive Final-2 jury wins: ${f2Wins}`;
-  expect(f2Wins, f2Detail).toBeLessThanOrEqual(F2_WIN_MAX);
+  // ORW-991 (Ryne 2026-11-26: difficulty is tracked weekly, not held per fix): FLOOR / CEILING / F2_WIN_MAX are a REPORT; only a broken jury reach fails (tests/support/brokenBounds.ts).
+  // Each crown being EARNED (above) stays a hard check: that is anti-sycophancy (mandate #3), not a balance band.
+  const evictedEarly = outcomes.filter((s) => s === "evicted").length;
+  const report = [
+    ...(reachedJury < FLOOR ? [`reach ${reachedJury}/${SEEDS} is under the floor ${FLOOR}`] : []),
+    ...(reachedJury > CEILING ? [`reach ${reachedJury}/${SEEDS} is over the ceiling ${CEILING}`] : []),
+    ...(f2Wins > F2_WIN_MAX ? [`passive Final-2 wins ${f2Wins} over ${F2_WIN_MAX}`] : []),
+  ];
+  console.log(`JURY REPORT: ${report.length ? report.join("; ") : "within the floor, ceiling and win cap"} — ${detail}; passive Final-2 wins ${f2Wins}`);
+  expect(juryBroken(reachedJury, evictedEarly, f2Wins, SEEDS).join("; "), `jury reach is broken — ${detail}`).toBe("");
 }
