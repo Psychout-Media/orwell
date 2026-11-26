@@ -11,7 +11,7 @@ import { PLAYER } from "../../src/domain/ids";
  */
 describe("a dodger on the block reads higher stakes (played)", () => {
   it("every dodge recorded while someone is nominated is staked by their secret and by whether they are on the block", async () => {
-    let nominated = 0, offBlock = 0;
+    let nominated = 0, offBlock = 0, powerHolders = 0;
     for (const seed of [1, 2, 3, 4, 5, 6]) {
       if (nominated >= 2 && offBlock >= 2) break;
       let at;
@@ -28,11 +28,14 @@ describe("a dodger on the block reads higher stakes (played)", () => {
       for (const d of sess.dodgeLog as Array<{ npc: string; stakes?: number; week: number }>) {
         const held = sess.house.npcs.find((n: { id: string }) => n.id === d.npc).character.hiddenElements?.find((e: { kind: string }) => e.kind !== "trigger");
         const on = block.has(d.npc);
-        expect(d.stakes).toBeCloseTo(dodgeStakes(severityOf(held?.kind), on), 10);
-        if (on) { nominated++; expect(d.stakes!).toBeGreaterThan(dodgeStakes(severityOf(held?.kind), false)); } else offBlock++;
+        const power = sess.live.hoh === d.npc || sess.live.vetoHolder === d.npc; // ORW-802: a power holder's dodge carries +0.15
+        expect(d.stakes).toBeCloseTo(dodgeStakes(severityOf(held?.kind), on, power), 10);
+        if (power) powerHolders++;
+        if (on) { nominated++; expect(d.stakes!).toBeGreaterThan(dodgeStakes(severityOf(held?.kind), false, power)); } else offBlock++;
       }
     }
     expect(nominated, "a nominated houseguest dodged a press").toBeGreaterThan(0);
     expect(offBlock, "a houseguest off the block dodged a press").toBeGreaterThan(0);
+    expect(powerHolders, "the HOH or the veto holder dodged a press (ORW-802 power-holder term)").toBeGreaterThan(0);
   }, 900_000);
 });
