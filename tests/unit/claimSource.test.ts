@@ -10,10 +10,12 @@ describe("parseWhoToldYou", () => {
   it.each([
     "Who told you that?", "who told you this", "Wait, who said that?", "Where did you hear that?", "how do you know that", "Who'd you hear that from?",
     "who told you?", "Who's your source?", "who did you hear this from", "I narrow my eyes. \"Who told you that?\"", "Where'd you get that from?",
+    // ORW-720: the question runs on into the claim (Season 2 playtest, each a miss before)
+    "Kristin, who told you Camila's coming after you? We'll sort it in the morning.", "Who told you there was one going round?", "Thank you, Chad. Who told you different?", "And who told you otherwise?", "Who told you about Lisa and Nikhil? Give me one actual name.",
   ])("reads %s as the question", (t) => expect(parseWhoToldYou(t)).toBe(true));
   it.each([
     "", "I go to the kitchen", "Who won the veto?", "I told you that already", "who told you to come here", "Tell me what you heard", "how do you do",
-    "I won't ask who told you that.", "Did you tell anyone?",
+    "I won't ask who told you that.", "Did you tell anyone?", "who told you to leave the kitchen", "Who told you to do that",
   ])("does not read %s", (t) => expect(parseWhoToldYou(t)).toBe(false));
 });
 

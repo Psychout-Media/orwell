@@ -69,6 +69,8 @@ export function parseWhoToldYou(text: string): boolean {
     new RegExp(`\\bwho (?:told|tells|said|says|has told|had told|gave|fed|whispered to|mentioned) (?:you|(?:that|this|it) to you)(?: ${that})?\\s*(?:[?.!,]|$)`),
     new RegExp(`\\bwho (?:told|said|mentioned|gave|fed) you ${that}\\b`),
     new RegExp(`\\bwho (?:said|says) ${that}\\b`),
+    // ORW-720 (Season 2 playtest): "who told you Camila's coming after you", "who told you there was a name going round", "who told you different", "who told you about Lisa": the question runs on into the claim. Not "who told you to ..." (an instruction).
+    /\bwho (?:told|said|mentioned|whispered|gave|fed) you (?!to\b|that\b|this\b|it\b)[a-z']{2,}/,
     new RegExp(`\\bwho (?:did|d|do) you hear ${that}(?: from)?\\b`),
     new RegExp(`\\bwho'?d you hear ${that}(?: from)?\\b`),
     new RegExp(`\\b(?:where|who) did you (?:hear|get|learn) ${that}(?: from)?\\b`),
