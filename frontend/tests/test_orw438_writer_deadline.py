@@ -51,10 +51,18 @@ def test_a_fast_stream_cannot_outrun_the_consumer():
 
     async def go():
         seen_ahead = []
-        async for _ in ca._bounded_stream(firehose(), wall_clock_s=5):
-            seen_ahead.append(produced[0] - len(seen_ahead) - 1)
-            if len(seen_ahead) >= 50:
-                break
+        # ORW-983: close the wrapper ourselves. Breaking out of an `async for` leaves its `finally` (the pump's cancel) to the garbage collector, which can run it in a LATER test, after this
+        # loop is closed: the pump is still blocked on its full queue of ("chunk", n) items, and "Event loop is closed" / "Queue ... is bound to a different event loop" surfaced in whichever test
+        # was running then (test_orw566c_group_identity went red twice on main that way).
+        stream = ca._bounded_stream(firehose(), wall_clock_s=5)
+        try:
+            async for _ in stream:
+                seen_ahead.append(produced[0] - len(seen_ahead) - 1)
+                if len(seen_ahead) >= 50:
+                    break
+        finally:
+            await stream.aclose()
+            await asyncio.sleep(0)  # let the cancelled pump finish inside this loop
         return max(seen_ahead)
 
     assert _run(go()) <= 8
