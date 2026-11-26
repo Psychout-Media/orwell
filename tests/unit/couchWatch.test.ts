@@ -28,8 +28,10 @@ function resolve(s: GameSessionAdapter, p: NonNullable<AdvanceView["pending"]>, 
 }
 
 let seq = 0;
+// ORW-985: the search for a seed that evicts the player pre-jury plays ~20 games. It runs once; every later watcher starts at the seed it found (still a fresh, independent play of that game).
+let foundSeed = 1;
 function watcher(mode: "watch" | "skip" = "watch"): { s: GameSessionAdapter; mcp: { callTool(name: string, args: unknown): Promise<unknown> }; plant: (hidden: boolean, id: string, content: string) => void } {
-  for (let seed = 1; seed <= 60; seed++) {
+  for (let seed = foundSeed; seed <= 60; seed++) {
     const reg = new GameSessionRegistry();
     const user = `cw${seq++}`;
     const sb = reg.sandboxFor(user);
@@ -39,6 +41,7 @@ function watcher(mode: "watch" | "skip" = "watch"): { s: GameSessionAdapter; mcp
       const v = s.advanceGame();
       if (v.pending?.kind === "spectator-choice") {
         resolve(s, v.pending, mode);
+        foundSeed = seed;
         const ev = sb.engine.events;
         return {
           s,

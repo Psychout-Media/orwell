@@ -26,7 +26,11 @@ import { PLAYER } from "../../src/domain/ids";
  * outcomes). The player's seat is read from the PUBLIC 0046 seam (`GameStateView.player.status`).
  */
 
-export const SEEDS = 6;        // modest (heavy lane): two full-season sweeps per seed (passive + active) = 12 seasons
+// ORW-982 (2026-11-26): 6 -> 60. Six seeds could not tell noise from a gap: on main the fixed set 1-6 read passive 6/6 vs active 4/6 jury reach (a trip) while
+// seeds 1-60 read passive 49/60 vs active 52/60, and 2 vs 2 wins (no trip); 1 of the ten 6-seed windows in 1-60 trips on its own. 30 is not enough either: wins
+// are rare (about 3%), and seeds 1-30 hold passive 2 vs active 0, which trips. The gate is run by hand (out of CI since #2361), so the longer run is affordable:
+// two full-season sweeps per seed (passive + active) = 120 seasons, about 15 min on a runner (the shards split it).
+export const SEEDS = 60;
 export const SCENES_PER_ALLY = 3; // a few bonding/alliance scenes per ally each season — "a player who shows up"
 
 interface NamedRef { id: string; name: string }
