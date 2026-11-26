@@ -2738,6 +2738,28 @@ export class GameSessionAdapter implements GameSession {
     const { heardBy, ...rest } = a;
     ledger.add({ ...rest, sincerity, week: this.live.week, ...(this.memoryPromisesEnabled && heardBy && heardBy.length > 0 ? { heardBy: [...heardBy] } : {}) });
     this.live.assurances = ledger.toJSON();
+    if (a.source === "player") this.keepPlayerAssuranceInLedger(a.to, a.kind);
+  }
+
+  /**
+   * ORW-860: a casual promise the PLAYER gave a houseguest is kept where the narrator reads (the open ledger), not only in the assurance ledger, which the
+   * brief never shows: with only that row, a houseguest re-asked for the promise as if it had never been given whenever the separate open-ledger extraction
+   * skipped it. The engine's own words, no model text. Stands down when the player already has an open promise to that houseguest today (a typed promise
+   * writes its own entry first, and a spoken one the extraction caught is not doubled). Quiet (byte-identical) when promise terms or the ledger are off, the ledger is locked, or the houseguest is not here.
+   */
+  private keepPlayerAssuranceInLedger(to: EntityId, kind: "safe" | "vote" | "loyal"): void {
+    if (!this.promiseTermsLive || this.openLedgerAsLoaded !== undefined || this.live?.playedGame !== true || !this.house) return;
+    const day = this.ledgerDay();
+    const standing = this.openLedger.entries.some((e) => e.status === "open" && e.speaker === OPEN_LEDGER_PLAYER && e.kind === "promise" && e.addressedTo.includes(to as string)
+      && (day === undefined || e.day === day));
+    if (standing) return;
+    const wa = this.whereabouts();
+    if (!wa) return;
+    const what = kind === "safe" ? "to keep them safe" : kind === "vote" ? "to keep them in the house and not vote them out" : "to stay loyal to them";
+    const p = openLedgerProposal({ text: `You promised ${this.nameOf(to)} ${what}`, speaker: OPEN_LEDGER_PLAYER, addressedTo: [to as string], kind: "promise" }, new Set<string>(this.house.npcs.map((n) => n.id as string)));
+    if (typeof p === "string") return;
+    const out = recordOpenEntry(this.openLedger, p, { turn: this.beatSeq, beatSeq: this.beatSeq, room: wa.room, witnesses: wa.present.map((x) => x.id as string), ...(day !== undefined ? { day } : {}) });
+    if (out.outcome === "recorded") this.openLedger = out.ledger;
   }
   /** The DEDICATED campaign rng tick counter — campaign draws fork off the game seed + this, never the
    * shared society/vote stream (the L21/L24 isolation), so even live campaigns don't re-phase calibration. */
