@@ -219,6 +219,9 @@ if AUTH_ENABLED:
         # Engine-reachability probe (doctor script, monitoring, the engine-status banner pre-login).
         # Vault-free and user-free: engine up/down + a connection-error string — no game state.
         "/api/orwell/health",
+        # ORW-971: held seasons and owed season-start steps, for deploy/orwell-doctor.sh (no login there). The handler answers a DIRECT loopback connection only and
+        # sends every other caller to require_admin; owner ids, ages, counts and machine words, never game or cast content.
+        "/api/admin/season-holds",
         # ORW-396: the client failure beacon (POST) promises "always 204": it must work logged-out (login page / expired session).
         # Already per-client rate-limited and field-capped in the handler; it logs three clipped strings and touches no game data.
         "/api/orwell/fe-report",
@@ -1140,6 +1143,14 @@ async def _startup_event():
     app.state._startup_tasks = _startup_tasks
     if upload_cleanup_func:
         upload_cleanup_task = asyncio.create_task(upload_cleanup_func())
+    # ORW-970: pick up season-start steps (house-entry hold, world snapshot, producer persona, habits + culture) that a restart left owed.
+    try:
+        from src import orwell_season_checklist
+        _resume_task = orwell_season_checklist.start_resume_task()
+        if _resume_task is not None:
+            _startup_tasks.append(_resume_task)
+    except Exception as _e:  # failsoft-ok: resume is recovery bookkeeping, never a startup blocker
+        logger.warning("season-start checklist resume skipped: %s", _e)
     # Always-on monitor that auto-continues the agent when a background bash
     # job (#!bg) finishes — re-invokes the turn with the job output.
     try:
@@ -1429,6 +1440,11 @@ async def _startup_event():
 
 async def _shutdown_event():
     logger.info("Application shutting down...")
+    try:  # ORW-954: flush the pacing counters (the entrance cadence) now - the debounced turn-end save may still be waiting on its timer
+        from src import belt_state_persist as _bsp_shutdown
+        _bsp_shutdown.save_now()
+    except Exception:  # failsoft-ok: best-effort durability
+        pass
     if upload_cleanup_task:
         upload_cleanup_task.cancel()
         try:

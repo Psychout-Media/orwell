@@ -688,6 +688,18 @@ _BROWSER_DOSSIER_SHAPE = {
     "alliances": [{"id": _T, "name": _T, "members": [_NAMED], "youAreFounder": _T}],
 }
 _BROWSER_SEASON_SHAPE = {"season": _T}
+#   POST /decision and POST /ceremony-continue (ORW-769): the response the card's own script reads. orwellDecision.js reads, off a Continue press: `beatSeq` (the panels' freshness token), `announcements` (the chyron renders
+#     only `id`, `kind` and `headline` of each), the three hidden-cue markers `voteBeatCue` / `drawBeatCue` / `ceremonyResultBeatCue`, `eviction.voteBeat.sealed`, a truthy `vetoDrawBeat`, and `pending` (the next card: the
+#     same `_CARD` /status serves); off a decision POST: `beatSeq` only. A stale-beat reconcile answers with the current state, so the /state shape is the base. NOT read by any script: the engine's own result
+#     fields (a vote's tally, a ballot's voter, a veto's reason, the ceremony's planned outcome, the announcements' `subjects` / `detail`), which the shape drops by construction.
+_BROWSER_ADVANCE_SHAPE = {
+    **_BROWSER_STATE_SHAPE,
+    "pending": _CARD,
+    "eviction": {"stage": _T, "evictee": _NAMED, "nominees": [_NAMED], "voteBeat": {"sealed": _T}},
+    "announcements": [{"id": _T, "kind": _T, "headline": _T}],
+    "vetoDrawBeat": {"step": _T},
+    "voteBeatCue": _T, "drawBeatCue": _T, "ceremonyResultBeatCue": _T, "decisionBeatCue": _T,  # the server-set hidden-cue markers (a boolean each); the page fires the decision cue on a successful submit without reading its marker
+}
 
 
 def _project_for_browser(payload, shape):
@@ -1930,7 +1942,7 @@ def setup_orwell_routes() -> APIRouter:
             res = await _post_decision_tail(decision, res, user, body.kind, _dec_ik)
             if _refresh_beat_seq is not None:
                 _refresh_beat_seq(user, res if isinstance(res, dict) else {})
-            return res
+            return _project_for_browser(res, _BROWSER_ADVANCE_SHAPE)  # ORW-769: the card's script reads beatSeq; nothing else of the engine's result reaches the page
         except orwell_engine.EngineToolError as e:
             # A stale decision-card POST after the game has ended (or pre-game) — the engine refused
             # because there is no active game. Benign 409, not a false "engine unreachable" 502.
@@ -1948,7 +1960,7 @@ def setup_orwell_routes() -> APIRouter:
                     _cur = await orwell_engine.get_game_state(user=user)
                     orwell_engine.remember_pending(_cur, user=user)
                     _publish_game_updated(user)
-                    return _cur
+                    return _project_for_browser(_cur, _BROWSER_ADVANCE_SHAPE)  # ORW-769
             except Exception:
                 pass  # reconcile failed — fall through to the normal error handling below
             # DB1/DB2 (#1025): the engine ANSWERED with a structured error — it is reachable. Propagate
@@ -2010,7 +2022,7 @@ def setup_orwell_routes() -> APIRouter:
                 except Exception:  # failsoft-ok: the beat is texture; a press never fails on it
                     pass
             _publish_game_updated(user)
-            return res
+            return _project_for_browser(res, _BROWSER_ADVANCE_SHAPE)  # ORW-769: the closed shape of what the card's script reads
         except orwell_engine.EngineToolError as e:
             if e.no_game:
                 return JSONResponse(status_code=409, content={"started": False, "error": "no active game"})
@@ -2021,7 +2033,7 @@ def setup_orwell_routes() -> APIRouter:
                     cur = await orwell_engine.get_game_state(user=user)
                     orwell_engine.remember_pending(cur, user=user)
                     _publish_game_updated(user)
-                    return cur
+                    return _project_for_browser(cur, _BROWSER_ADVANCE_SHAPE)  # ORW-769
             except Exception:  # failsoft-ok: reconcile failed; fall through to the typed error below
                 pass
             status = e.status if isinstance(e.status, int) and 400 <= e.status < 600 else 502

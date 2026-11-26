@@ -89,8 +89,8 @@ def test_per_round_prompt_re_issues_as_the_field_narrows(client, monkeypatch):
         n = len(posted)
         if n < 3:
             still = [{"id": f"npc({i})", "name": f"HG{i}"} for i in range(6 - n)]
-            return {"started": True, "status": {"pending": {"kind": "comp-round", "round": n + 1, "stillIn": still}}}
-        return {"started": True, "status": {"pending": None}}
+            return {"started": True, "pending": {"kind": "comp-round", "round": n + 1, "stillIn": still}}  # ORW-769: the card's response carries `pending` at the top level (the closed shape the page reads)
+        return {"started": True, "pending": None}
 
     monkeypatch.setattr(orwell_engine, "submit_decision", _round)
     monkeypatch.setattr(orwell_engine, "remember_pending", lambda *a, **k: None)
@@ -99,7 +99,7 @@ def test_per_round_prompt_re_issues_as_the_field_narrows(client, monkeypatch):
     fields = []
     res = client.post("/api/orwell/decision", json={"kind": "comp-round", "intent": "compete"}).json()
     for _ in range(3):
-        pending = (res.get("status") or {}).get("pending")
+        pending = res.get("pending")
         if not pending or pending.get("kind") != "comp-round":
             break
         fields.append(len(pending.get("stillIn") or []))

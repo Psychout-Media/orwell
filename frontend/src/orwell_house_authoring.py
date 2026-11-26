@@ -52,7 +52,7 @@ def build_messages(brief: Optional[dict], seed, rejected: Optional[dict] = None)
     system = (
         "You are the production designer of a reality-TV house. Invent THIS season's house: a short NAME, a one-sentence PITCH, and for EACH of the 14 rooms a NAME (3-48 "
         "characters) and a LOOK (one line of physical detail: materials, colours, objects; no people, no events). The three bedrooms are related but distinct "
-        "(bedroom-a sleeps six, bedroom-b and bedroom-c five). Every room name must be different, and none may be just the plain room word. Invent from the season facts and "
+        "(bedroom-a sleeps six, bedroom-b and bedroom-c five). Every room name must be different and must SAY what the room is: it ends with that room's own plain word (the kitchen's name ends in kitchen, a bedroom's in bedroom, the HOH room's in HOH room, the Diary Room's in Diary Room, and so on for every key), with at most a short themed modifier of one or two words in front of it, and never a name that stands in for the room. The theme lives in the LOOK, not in the name. Invent from the season facts and "
         "the anchor words; do not reach for a stock theme. Output ONLY a JSON object: "
         '{"name":"..","pitch":"..","rooms":{"kitchen":{"name":"..","look":".."}, ...}} with exactly these room keys: ' + ", ".join(ROOM_IDS) + "."
     )

@@ -3918,6 +3918,29 @@ def authoring_completeness(user: Optional[str], roster_cards: list) -> dict:
             "givenUp": giveups(user)}
 
 
+async def pipeline_cast_for(owner: Optional[str]) -> Optional[dict]:
+    """ORW-969: the FULL cast for a server-side casting job, or None when the engine cannot give it.
+
+    ``get_game_state`` lists only the houseguests who have walked in during the premiere (ORW-710); a job that must see every card reads this instead (the engine's unadvertised
+    ``pipelineCast``, never sent to the browser or the narrator). Returns the engine's dict (``started``, ``total``, ``unarrivedCount``, ``house``), ``{"started": False}`` for a
+    no-game user, and None for ANY failure or an unexpected shape (an engine without the tool, an outage), so every caller can fall back to the met-only read exactly as before."""
+    from src import orwell_engine
+
+    try:
+        pc = await orwell_engine.pipeline_cast(user=owner)
+    except Exception as e:
+        logger.info("[cast-authoring] pipeline cast read unavailable for %s: %s", _safe_user(owner), e)
+        return None
+    if not isinstance(pc, dict):
+        return None
+    if pc.get("started") is False:
+        return {"started": False}
+    unarrived = pc.get("unarrivedCount")
+    if not isinstance(pc.get("house"), list) or not isinstance(unarrived, int) or isinstance(unarrived, bool):
+        return None
+    return pc
+
+
 async def authoring_completeness_for(user: Optional[str]) -> Optional[dict]:
     """{total, authored, missing} for this user's active NPC cast, or None pre-game / engine-down.
 
@@ -3927,10 +3950,14 @@ async def authoring_completeness_for(user: Optional[str]) -> Optional[dict]:
     health surface; best-effort — any failure reads as None, never a 500."""
     from src import orwell_engine
 
-    try:
-        state = await orwell_engine.get_game_state(user=user)
-    except Exception:
-        return None
+    # ORW-969: read the FULL cast, so every houseguest (arrived or not) is counted and the gate compares the whole cast with the threshold. Unavailable => the met-only read below.
+    state = await pipeline_cast_for(user)
+    full_cast = state is not None
+    if state is None:
+        try:
+            state = await orwell_engine.get_game_state(user=user)
+        except Exception:
+            return None
     if not isinstance(state, dict) or state.get("started") is False:
         return None
     try:
@@ -3938,6 +3965,8 @@ async def authoring_completeness_for(user: Optional[str]) -> Optional[dict]:
         comp = authoring_completeness(user, roster_cards(state, user))
     except Exception:
         return None
+    if full_cast:
+        return comp  # the pipeline read: nothing is withheld, so no `unarrived` allowance rides with the counts
     # ORW-948: during the premiere the engine's public read lists only the houseguests who have walked in (ORW-710)
     # and counts the rest in `unarrivedCount`. `total` / `authored` above therefore cover the arrived cast only; the
     # count of the withheld ones rides beside them (a number, never a card) so the house-entry gate does not wait
@@ -3967,11 +3996,14 @@ async def backfill_unauthored(missing_ids: list, user: Optional[str]) -> int:
         return 0
     from src import orwell_engine
 
-    try:
-        state = await orwell_engine.get_game_state(user=user)
-    except Exception as e:
-        logger.info("[cast-authoring] backfill state read failed for %s: %s", _safe_user(user), e)
-        return 0
+    # ORW-969: the straggler list now includes houseguests who have not walked in yet, so the cast is read in full; unavailable => the met-only read.
+    state = await pipeline_cast_for(user)
+    if state is None:
+        try:
+            state = await orwell_engine.get_game_state(user=user)
+        except Exception as e:
+            logger.info("[cast-authoring] backfill state read failed for %s: %s", _safe_user(user), e)
+            return 0
     if not isinstance(state, dict) or state.get("started") is False:
         return 0
     house = state.get("house") if isinstance(state.get("house"), list) else []
@@ -4108,6 +4140,15 @@ _HOUSE_READY_RECHECK_S = _env_float("ORWELL_HOUSE_READY_RECHECK_S", 60.0)
 # would report a started game mid-hold). Doubles as the loud, in-process health signal (operator-
 # visible; read by tests). Never a silent floor start.
 _HOUSE_ENTRY_GATE_BLOCKS: dict = {}
+
+
+def _checklist_hold(user: Optional[str], held: bool) -> None:
+    """ORW-970: mirror the in-process hold marker into the persisted season-start checklist (a no-op without a record; never raises)."""
+    try:
+        from src import orwell_season_checklist
+        orwell_season_checklist.mark_hold(user, held)
+    except Exception:
+        pass
 # One background gate-clear watch per user (exactly-once post-start kicks on clear).
 _HOUSE_READY_WATCHES: dict = {}
 
@@ -4196,6 +4237,29 @@ async def house_entry_gate_active(owner: Optional[str]) -> bool:
     return await _utility_model_available(owner)
 
 
+def _hold_since(user: Optional[str]) -> float:
+    """ORW-971: when this hold began. A re-stamp of a live marker (the readiness result, the expired watch) keeps the first time, so the hold's age never resets."""
+    prev = _HOUSE_ENTRY_GATE_BLOCKS.get(_safe_user(user)) or {}
+    since = prev.get("since")
+    return float(since) if isinstance(since, (int, float)) and not isinstance(since, bool) else time.time()
+
+
+def house_entry_holds() -> list:
+    """ORW-971: every active house-entry hold, for the health snapshot and the doctor. One row per owner: ``{owner, ageS, authored, total, missing, windowS, overdue}``.
+    ``overdue`` = held longer than the watch window (`ORWELL_HOUSE_READY_WATCH_TIMEOUT_S`, 1800 s): the cast should have landed by then. Counts and ids only; never cast text."""
+    now = time.time()
+    rows = []
+    for owner, hold in list(_HOUSE_ENTRY_GATE_BLOCKS.items()):
+        if not isinstance(hold, dict):
+            continue
+        began = hold.get("since") if isinstance(hold.get("since"), (int, float)) else hold.get("at")
+        age = max(0, int(now - began)) if isinstance(began, (int, float)) else 0
+        rows.append({"owner": str(owner), "ageS": age, "authored": hold.get("authored"), "total": hold.get("total"),
+                     "missing": hold.get("missing"), "windowS": int(_HOUSE_READY_WATCH_TIMEOUT_S),
+                     "overdue": age > _HOUSE_READY_WATCH_TIMEOUT_S})
+    return sorted(rows, key=lambda r: -r["ageS"])
+
+
 def begin_house_entry_hold(user: Optional[str], info: Optional[dict] = None) -> None:
     """Mark that house entry is being HELD for `user` (the gate is awaiting authoring). Set BEFORE
     the readiness wait begins so a concurrent /status or /state poll during the hold reports the
@@ -4203,7 +4267,8 @@ def begin_house_entry_hold(user: Optional[str], info: Optional[dict] = None) -> 
     the instant createCharacter commits)."""
     try:
         _HOUSE_ENTRY_GATE_BLOCKS[_safe_user(user)] = {
-            "state": "authoring", **(info or {}), "at": time.time()}
+            "state": "authoring", **(info or {}), "at": time.time(), "since": _hold_since(user)}
+        _checklist_hold(user, True)
     except Exception:
         pass
 
@@ -4214,7 +4279,8 @@ def record_house_entry_gate_block(user: Optional[str], info: dict) -> None:
     keeps the status/state overlay reporting the holding state until the gate-clear watch releases."""
     try:
         _HOUSE_ENTRY_GATE_BLOCKS[_safe_user(user)] = {
-            "state": "authoring", **(info or {}), "at": time.time()}
+            "state": "authoring", **(info or {}), "at": time.time(), "since": _hold_since(user)}
+        _checklist_hold(user, True)
     except Exception:
         pass
 
@@ -4222,6 +4288,7 @@ def record_house_entry_gate_block(user: Optional[str], info: dict) -> None:
 def clear_house_entry_gate_block(user: Optional[str]) -> None:
     """Clear the holding/refused marker once the cast is ready / the game genuinely starts."""
     _HOUSE_ENTRY_GATE_BLOCKS.pop(_safe_user(user), None)
+    _checklist_hold(user, False)
 
 
 def house_entry_gate_status(user: Optional[str]) -> Optional[dict]:
@@ -4290,6 +4357,14 @@ def kickoff_house_ready_watch(owner: Optional[str],
                     "entry remains held (set ORWELL_ALLOW_FLOOR_START=1 to override).", k,
                     ready.get("authored"), ready.get("total"))
                 record_house_entry_gate_block(owner, ready)
+                try:  # ORW-971: the expired watch is the stuck-hold alert (RED on /admin/status, a FAIL in the doctor)
+                    from src import log_rings
+                    log_rings.record_soft_failure(
+                        "season-start:hold-expired",
+                        "house entry still held after the watch window: cast %s/%s authored" % (ready.get("authored"), ready.get("total")),
+                        user=owner)
+                except Exception:  # failsoft-ok: the alert is bookkeeping, the marker and the error log above stand
+                    pass
                 # STRICT enrichment policy: the exhausted watch is the REAL "house entry refused"
                 # failure (2026-07-13 — it moved here from the createCharacter turn, whose short
                 # inline wait now returns the holding card as the NORMAL path, not a failure).
@@ -4384,10 +4459,12 @@ async def await_house_ready(owner: Optional[str], *, min_authored: int = HOUSE_R
 async def _kick_backfill_for_stragglers(owner: Optional[str]) -> None:
     """Best-effort: re-author the NPCs still on the floor via the existing backfill spine."""
     from src import orwell_engine
-    try:
-        state = await orwell_engine.get_game_state(user=owner)
-    except Exception:
-        return
+    state = await pipeline_cast_for(owner)  # ORW-969: the full cast; unavailable => the met-only read
+    if state is None:
+        try:
+            state = await orwell_engine.get_game_state(user=owner)
+        except Exception:
+            return
     if not isinstance(state, dict) or state.get("started") is False:
         return
     try:

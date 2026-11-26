@@ -1,7 +1,7 @@
 import { liveHouseEvent, isCompOrCeremonyKind, eventStagingRoom } from "../../engine/houseEvent";
 import { stallTimer } from "../stallTiming";
 import type {
-  GameSession, CreateCharacterReq, GameStateView, HouseMeetingView, MomentPromptReq, MomentPromptView,
+  GameSession, CreateCharacterReq, GameStateView, PipelineCastView, HouseMeetingView, MomentPromptReq, MomentPromptView,
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, NapReq, NapView, NapRefusal, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
@@ -56,7 +56,7 @@ import {
   selectNemesis, NEMESIS, NO_NEMESIS,
   type Campaign, type CampaignActor, type Influence, type Drive, type NemesisTrack, type NemesisCandidate,
 } from "../../engine/campaigns";
-import { whisperConspicuousPairings, whisperHabitSighting, type HabitSighting } from "../../engine/houseSuspicion";
+import { whisperConspicuousPairings, whisperLongDiaryStay, type DiaryStaySighting, whisperHabitSighting, type HabitSighting } from "../../engine/houseSuspicion";
 import { issueNightBatch, validateAllianceName, normName, type TraitTable } from "../../engine/allianceNaming";
 import { pairKey, isClosePair, inDebriefWindow, habitRoom, nicknameOf, allianceNameFromHouse, noteIdentity, noteWords, validateGroupIdentity, GROUP_IDENTITY, type PairCloseness } from "../../engine/groupIdentity";
 import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/juryHouse";
@@ -1495,7 +1495,7 @@ export class GameSessionAdapter implements GameSession {
    */
   pitchTiltFor(subject: EntityId, holder: EntityId): number {
     if (!this.lobbyingEnabled || !this.house || holder === PLAYER) return 0;
-    return pitchTilt(subject, this.derivePitches(holder), (p) => Math.max(0, Math.min(1, this.rel.edge(holder, p).trust)));
+    return pitchTilt(subject, this.derivePitches(holder), (p) => Math.max(0, Math.min(1, this.rel.edge(holder, p).trust)), this.standingPitchWeight()); // ORW-694 B1-9: standing weighs the pitch
   }
   /** B6/B38 - the pitches `holder` (the HOH) faces, derived deterministically from the live edges (no rng, no stored state). Shared by the nomination tilt and the pitch-event recorder, so what is RECORDED is exactly what is WEIGHED. */
   private derivePitches(holder: EntityId): Pitch[] {
@@ -2287,6 +2287,8 @@ export class GameSessionAdapter implements GameSession {
   setGroupIdentityEnabled(on: boolean): void { this.groupIdentityEnabled = on; }
   /** Habit scenes seen from a public spot this tick, waiting for the calm off-screen tick's whisper (memory-only). */
   private habitSightings: HabitSighting[] = [];
+  /** ORW-694 / B1-11: long Diary Room stays the house saw, waiting for the next whisper tick (persisted, like the habit sightings). */
+  private diaryStaySightings: DiaryStaySighting[] = [];
   /** ORW-551 (spec 0168 slice 3): the live culture's multiplier on one house dial, read at the CALL SITE from live state. EXACTLY 1 with the flag off, no live game, or no culture (headless games, old saves) so every consumer stays byte-identical. Engine-only: never projected. */
   private cultureMult(dial: DialId): number { return dialMult(this.houseCultureEnabled ? this.live?.houseLeans : undefined, dial); }
   setHouseMeetingsEnabled(on: boolean): void { this.houseMeetingsEnabled = on; }
@@ -4673,7 +4675,7 @@ export class GameSessionAdapter implements GameSession {
    * shot from a stale captured prompt is exactly the identity-mismatch ADR 0013 forbids). Returns
    * null when neither a live house nor a warmed cast holds the id.
    */
-  getPortraitPrompt(id: EntityId): { houseguestId: string; name: string; prompt: string } | null {
+  getPortraitPrompt(id: EntityId): { houseguestId: string; name: string; prompt: string; lookKey?: string } | null {
     if (this.house && this.portraitStyleAnchor) {
       const npc = this.house.npcs.find((n) => n.id === id);
       const subject = id === this.house.player.id ? this.house.player : npc;
@@ -4702,7 +4704,7 @@ export class GameSessionAdapter implements GameSession {
     subject: { id: EntityId; name: string; character: GameHouse["npcs"][number]["character"] },
     styleAnchor: string,
     roster: ReadonlyArray<{ id: EntityId; name: string; character: GameHouse["npcs"][number]["character"] }>,
-  ): { houseguestId: string; name: string; prompt: string } {
+  ): { houseguestId: string; name: string; prompt: string; lookKey?: string } {
     // ORW-480: the shot and face cards are dealt across the WHOLE cast, so one person's prompt is the cast build's entry for them
     // (the same text `castPortraitPrompts` serves). A subject the cast build skips (an incomplete facet) is dealt alone.
     const own = buildCastPortraitPrompts(roster.map((h) => this.portraitFacetsOf(h)), styleAnchor).find((p) => p.houseguestId === subject.id);
@@ -6079,7 +6081,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.presenceBase ? { presenceBase: Object.fromEntries(this.presenceBase) as Record<EntityId, Room> } : {}),
       ...(this.presenceTenure ? { presenceTenure: Object.fromEntries(this.presenceTenure) as Record<EntityId, number> } : {}),
       ...(this.walkIn ? { walkIn: { ...this.walkIn } } : {}), ...(this.walkInDone.length ? { walkInDone: [...this.walkInDone] } : {}), // ORW-473
-      ...(this.roomCardNow ? { roomCardNow: { ...this.roomCardNow } } : {}), ...(this.habitSightings.length ? { habitSightings: this.habitSightings.map((h) => ({ pair: [...h.pair] as [EntityId, EntityId], room: h.room, onlookers: [...h.onlookers] })) } : {}), // ORW-698
+      ...(this.roomCardNow ? { roomCardNow: { ...this.roomCardNow } } : {}), ...(this.habitSightings.length ? { habitSightings: this.habitSightings.map((h) => ({ pair: [...h.pair] as [EntityId, EntityId], room: h.room, onlookers: [...h.onlookers] })) } : {}), // ORW-698 ...(this.diaryStaySightings.length ? { diaryStaySightings: this.diaryStaySightings.map((d) => ({ who: d.who, onlookers: [...d.onlookers] })) } : {}), // ORW-694
       ...(this.playerMove ? { playerMove: { ...this.playerMove } } : {}), // ORW-419
       // L21/L24: the dedicated movement stream's tick counter — persisted so the personality-weighted
       // movement trajectory stays reproducible across a restart (absent ⇒ 0).
@@ -6434,6 +6436,7 @@ export class GameSessionAdapter implements GameSession {
     this.walkInDone = core.walkInDone ? [...core.walkInDone] : [];
     this.roomCardNow = core.roomCardNow ? { ...core.roomCardNow } : null; // ORW-698
     this.habitSightings = core.habitSightings ? core.habitSightings.map((h) => ({ pair: [...h.pair] as [EntityId, EntityId], room: h.room, onlookers: [...h.onlookers] })) : []; // ORW-698
+    this.diaryStaySightings = core.diaryStaySightings ? core.diaryStaySightings.map((d) => ({ who: d.who, onlookers: [...d.onlookers] })) : []; // ORW-694
     this.playerMove = core.playerMove ? ({ ...core.playerMove } as PlayerMoveView) : null; // ORW-419
     // L21/L24: restore the dedicated movement stream's tick counter (absent on older saves ⇒ 0).
     this.presenceTickCount = core.presenceTickCount ?? 0;
@@ -8427,6 +8430,13 @@ export class GameSessionAdapter implements GameSession {
     const st = this.live?.status;
     return st ? { tiers: st.tiers, ...(st.leader ? { leader: st.leader } : {}), lieutenants: st.lieutenants, ...(st.vacuumSince !== undefined ? { vacuumSince: st.vacuumSince } : {}), count: st.count, history: st.history } : undefined;
   }
+  /** ORW-694 / B1-9: a pitch weighed by the pitcher's standing (the informal leader's and lieutenants' carry more). Undefined when the court is off or no status exists: byte-identical. */
+  private standingPitchWeight(): ((pitcher: EntityId) => number) | undefined {
+    const st = this.hohCourtOn() ? this.live?.status : undefined;
+    if (!st || (!st.leader && st.lieutenants.length === 0)) return undefined;
+    const w = HOH_COURT.standing.pitchWeight;
+    return (p) => (p === st.leader ? w.leader : st.lieutenants.includes(p) ? w.lieutenant : 1);
+  }
   /** Test seam: derive today's status now (the off-screen tick does it once a day). */
   statusTickNow(): void { this.statusTick(); }
   /** 0173 (b): who is in danger from the HOH this week (on the block, or the HOH reads them as a real threat), the ones who seek the HOH out most. */
@@ -9656,6 +9666,7 @@ export class GameSessionAdapter implements GameSession {
   whisperPairings(knowledge: KnowledgeService): void {
     this.npcCallsHouseMeeting();
     this.whisperHabits(knowledge); // ORW-566 (spec 0183 part b): own stream, empty unless a habit was seen
+    this.whisperDiaryStays(knowledge); // ORW-694 / B1-11: own stream, empty unless a long Diary Room stay was seen
 
     if (!this.house || !this.presence) return;
     const player = this.house.player.id;
@@ -12768,7 +12779,8 @@ export class GameSessionAdapter implements GameSession {
       // ORW-568 / 0181: the voter's (or HOH's) real feeling for the person keeps them. Played games with the bond record only, so a headless sim carries no hook (+0, byte-identical).
       ...(this.bondFeelingsOn() ? { feelingKeepFor: (n: EntityId, v: EntityId) => this.feelingKeepOf(n, v) } : {}),
       ...(this.houseNormsEnabled && this.live?.playedGame === true && this.npcBeliefsEnabled ? { herdFor: (n: EntityId, v: EntityId, fn: readonly [EntityId, EntityId]) => this.herdFor(n, v, fn) } : {}), // 0180 part 2
-      ...(this.showmancesEnabled && this.live?.playedGame === true ? { couplePushFor: (t: EntityId, h: EntityId) => this.couplePushFor(t, h) } : {}), // 0207 A2: a pair the HOH reads as a couple is a target
+      ...(this.showmancesEnabled && this.live?.playedGame === true ? { couplePushFor: (t: EntityId, h: EntityId) => this.couplePushFor(t, h) } : {}),
+      ...(this.hohCourtOn() ? { standingPushFor: (t: EntityId, h: EntityId) => (t !== h && this.live?.status?.leader === t ? HOH_COURT.standing.leaderTargetPush : 0) } : {}), // ORW-694 B1-9: the house's informal leader is a bigger target // 0207 A2: a pair the HOH reads as a couple is a target
       ...(this.endgameTrustEnabled && this.live?.playedGame === true ? { endgameFor: (t: EntityId, d: EntityId) => this.endgameFor(t, d) } : {}), // 0193
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
@@ -15747,6 +15759,25 @@ export class GameSessionAdapter implements GameSession {
       ...(this.napAsleep ? { playerAsleep: true } : {}),
     }, pick);
   }
+  /** ORW-694 / B1-11 (spec 0210 C2, "both ways"): spread the queued long Diary Room stays as a position whisper - a DEDICATED stream, no relationship fold (calibration-neutral). */
+  whisperDiaryStays(knowledge: KnowledgeService): void {
+    const sightings = this.diaryStaySightings;
+    this.diaryStaySightings = [];
+    if (sightings.length === 0 || !this.house || !this.presence || this.live?.playedGame !== true) return;
+    const player = this.house.player.id;
+    const evicted = new Set(this.live?.evictionOrder ?? []);
+    const awake = this.awakeNow();
+    const npcs = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
+    if (npcs.length < 2) return;
+    const rng = new SeededRandom(hashSeed(`house-diary-stay:${this.gameSeed ?? ""}:${this.presenceTickCount}`));
+    for (const sighting of sightings) {
+      whisperLongDiaryStay({
+        occupancy: this.presence, tenureOf: (id) => this.presenceTenure?.get(id) ?? 0, npcs, player,
+        affinity: (a, b) => this.rel.edge(a, b).affinity, nameOf: (id) => this.nameOf(id), roomRef: (r) => this.roomRefOf(r), knowledge, rng,
+        ...(this.napAsleep ? { playerAsleep: true } : {}),
+      }, sighting);
+    }
+  }
   /** ORW-466 slice 4: the bed facts a houseguest's hour reads - their sleep room, their AWAKE roommates among this stretch's actors, the one sharing their double. Empty without beds. */
   private roommateView(beds: BedsState | undefined, id: EntityId, inHouse: ReadonlySet<EntityId>, awake: ReadonlyMap<EntityId, Room>): { bedroom?: Room; roommates?: EntityId[]; bedPartner?: EntityId } {
     if (!beds) return {};
@@ -15797,6 +15828,7 @@ export class GameSessionAdapter implements GameSession {
       st.seen.push({ ...seen, at: abs });
       delete st.away;
       this.recordDiaryCallEvent(events, a.who, backEventText(this.nameOf(a.who), seen), `diary-call:back:${seed}:${a.since}:${a.who}`);
+      if (seen.long) this.diaryStaySightings.push({ who: a.who, onlookers: this.diaryWitnesses().filter((id) => id !== a.who && id !== PLAYER) }); // ORW-694 / B1-11: the house saw a long stay
     }
     if (st.away || this.diaryHouseBusy() || this.phase === "premiere") return;
     const day = s.dayNumber ?? s.week;
@@ -15812,6 +15844,11 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live!, seed = this.gameSeed ?? 0, abs = this.inGameAbsHour()!;
     const st: DiaryCallsState = (s.diaryCalls ??= { seen: [], byDay: {} });
     if (st.playerLast === abs) return;
+    // ORW-694 / B1-11 ("both ways"): a stay that runs into a second in-game hour is a long one (an NPC's long call is 20+ minutes); the house sees it once per stay.
+    if (st.playerLast === abs - 1) {
+      if (st.playerStayFrom === undefined) st.playerStayFrom = abs - 1;
+      if (abs - st.playerStayFrom === 1) this.diaryStaySightings.push({ who: PLAYER, onlookers: this.diaryWitnesses().filter((id) => id !== PLAYER) });
+    } else st.playerStayFrom = abs;
     st.playerLast = abs;
     st.seen.push({ who: PLAYER, day: s.dayNumber ?? s.week, long: false, comesBack: "same", at: abs }); // the engine never says how it left the player feeling
     this.recordDiaryCallEvent(events, PLAYER, playerVisitText(this.nameOf(PLAYER)), `diary-call:player:${seed}:${abs}`);
@@ -22008,6 +22045,20 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * ORW-969: the FULL cast for the front end's server-side casting jobs (the house-entry gate, the habits step, the backfills). `getGameState` withholds the houseguests who have
+   * not walked in yet (ORW-710) - right for the browser and the narrator, blind for a job that must check every card. This is the same `house` projection with that one filter off
+   * (the entries are the PUBLIC facets only, exactly what `getGameState` shows once everyone is in), plus how many of them are still outside. It is an unadvertised infra read
+   * (`INFRA_TOOL_NAMES`): not in any tool list the narrator sees and never forwarded to the browser by the front end.
+   */
+  pipelineCast(): PipelineCastView {
+    const v = this.view({ fullRoster: true });
+    if (!this.house || v.started === false) return { started: false, total: 0, unarrivedCount: 0, house: [] };
+    const away = this.notYetArrived();
+    const unarrivedCount = away ? away.size - (away.has(this.house.player.id) ? 1 : 0) : 0;
+    return { started: true, total: v.house.length, unarrivedCount, house: v.house };
+  }
+
+  /**
    * 0065 Part E — the `beatSeq`-keyed delta state feed. Given the caller's last-seen `beatSeq`, return
    * exactly WHAT CHANGED since: the player-visible events appended, the ceremony field transitions, and
    * any finished/winner flip — plus the freshest board to re-anchor on. A pure READ (no mutation).
@@ -23239,7 +23290,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** The Vault-free projection. Player card = authored persona (no numeric stats); NPCs = name + status only. */
-  private view(): GameStateView {
+  private view(opts?: { fullRoster?: boolean }): GameStateView {
     if (!this.house) {
       // Pre-game, the view carries the interview's status (0050): the engine — not the model —
       // says which building blocks are in and what the next step is.
@@ -23251,7 +23302,7 @@ export class GameSessionAdapter implements GameSession {
         pending: null,
       };
     }
-    const unarrivedHidden = this.metOnlyRosterEnabled && this.inPremiere() ? (this.notYetArrived() ?? undefined) : undefined; // ORW-710
+    const unarrivedHidden = this.metOnlyRosterEnabled && !opts?.fullRoster && this.inPremiere() ? (this.notYetArrived() ?? undefined) : undefined; // ORW-710
     const p = this.house.player;
     const status = this.playerStatus();
     // Once the player is out, the moment frames their new seat (closure / the jury spectator box, 0046)

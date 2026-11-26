@@ -5232,6 +5232,9 @@ async def do_create_character(
         # cast is ready. Only the watch's own expiry is the LOUD "house entry refused" failure.
         try:
             _started = isinstance(res, dict) and res.get("started") and not res.get("createRefused")
+            if _started:  # ORW-970: the durable season-start checklist (a fresh record per genuine start; the steps below report into it)
+                from src import orwell_season_checklist
+                orwell_season_checklist.begin_season(owner, hold=bool(_gate_on))
             if _started and _gate_on:
                 from src import orwell_cast_authoring as _authoring_gate
                 # The engine season is already LIVE the instant create_character commits — mark the

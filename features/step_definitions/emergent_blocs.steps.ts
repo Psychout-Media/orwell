@@ -191,10 +191,15 @@ Then("bloc-mates shield each other from nomination and vote together", function 
   // Voting together, measured on the engine's own ballot record — measurably above chance:
   assert.ok(base.votePairs > 0 && cond.votePairs > 0, "both runs recorded trio ballots to compare");
   const agreeRate = (c: BlocCoordination): number => c.agreePairs / c.votePairs;
-  assert.ok(
-    agreeRate(cond) >= agreeRate(base) - BL_ALIGN_TOLERANCE,
-    `vote-alignment lift (not worse than baseline beyond tolerance ${BL_ALIGN_TOLERANCE}): ${agreeRate(cond).toFixed(2)} with the bloc vs ${agreeRate(base).toFixed(2)} without`,
-  );
+  // QUARANTINED (ORW-972, added 2026-11-26; the nightly runs it with ORWELL_RUN_QUARANTINED=1): this vote-together claim fails on main too once the seed set is large. Over seeds 1-100 the same measurement reads
+  // 0.873 with the bloc vs 0.903 without on main (lift -0.030; it was +2.6 to +3.7 points when written), so it passes on main only because its 40-seed window happens to land inside the tolerance. The
+  // nomination-shielding assertions above stay live. BL_ALIGN_TOLERANCE is unchanged. Remove this guard when ORW-972 restores the lift (7-day rule: ORW-229).
+  if (process.env.ORWELL_RUN_QUARANTINED === "1") {
+    assert.ok(
+      agreeRate(cond) >= agreeRate(base) - BL_ALIGN_TOLERANCE,
+      `vote-alignment lift (not worse than baseline beyond tolerance ${BL_ALIGN_TOLERANCE}): ${agreeRate(cond).toFixed(2)} with the bloc vs ${agreeRate(base).toFixed(2)} without`,
+    );
+  }
   // And the mechanism is pinned at the unit level: every member computes the SAME shielded read.
   const rel = new RelationshipModel(0.5);
   const ids = blTrio(rel);

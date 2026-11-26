@@ -1338,6 +1338,8 @@ export interface SeasonCtx {
   endgameFor?: (target: EntityId, decider: EntityId) => number;
   /** 0207 A2 (ORW-659): the push an NPC HOH puts on `target` because the HOH reads them and another as a couple (the one of the two the HOH finds the bigger threat). Absent => 0 => byte-identical. */
   couplePushFor?: (target: EntityId, hoh: EntityId) => number;
+  /** ORW-694 / B1-9: the house's informal leader is a bigger nomination target (status, 0173). Absent => byte-identical. */
+  standingPushFor?: (target: EntityId, hoh: EntityId) => number;
   /**
    * ORW-624: the crowd the evictee walks out to, decided as their exit interview begins (the audience folds the week so far; the house hears it through the door, a
    * player-evictee hears their own). Absent / undefined => the exit interview is byte-identical. Reads no rng from the season stream.
@@ -3813,6 +3815,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         ...(ctx.feelingKeepFor ? { feelingPush: (t: EntityId) => -ctx.feelingKeepFor!(t, s.hoh!) } : {}), // ORW-568 / 0181: someone the HOH truly likes is harder to put up
         ...(ctx.endgameFor ? { endgamePush: (t: EntityId) => ctx.endgameFor!(t, s.hoh!) } : {}), // 0193: at four left, who the HOH can't beat goes up
         ...(ctx.couplePushFor ? { couplePush: (t: EntityId) => ctx.couplePushFor!(t, s.hoh!) } : {}), // 0207 A2: a pair the HOH reads as a couple is a target
+        ...(ctx.standingPushFor ? { standingPush: (t: EntityId) => ctx.standingPushFor!(t, s.hoh!) } : {}), // ORW-694 B1-9: the house's leader is a bigger target
         ...(ctx.assuranceProtects ? { protectedByAssurance: (t: EntityId) => ctx.assuranceProtects!(t, s.hoh!) } : {}),
         why: reasonSinkFor(s, ctx, s.hoh!), // ORW-305: record WHY (a record only); ORW-314: and the stated reason
       });
@@ -4122,6 +4125,7 @@ function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId,
     ...(ctx.feelingKeepFor ? { feelingPush: (t: EntityId) => -ctx.feelingKeepFor!(t, s.hoh!) } : {}), // ORW-568 / 0181
     ...(ctx.endgameFor ? { endgamePush: (t: EntityId) => ctx.endgameFor!(t, s.hoh!) } : {}), // 0193
     ...(ctx.couplePushFor ? { couplePush: (t: EntityId) => ctx.couplePushFor!(t, s.hoh!) } : {}), // 0207 A2
+    ...(ctx.standingPushFor ? { standingPush: (t: EntityId) => ctx.standingPushFor!(t, s.hoh!) } : {}), // ORW-694 B1-9: the house's leader is a bigger target
     ...(ctx.replacementFullTerms ? nominationOnlyTerms(s, ctx) : {}), // ORW-639: the four terms nominations read that the replacement used to drop
     why, // ORW-305: record WHY (a record only); ORW-314: and the stated reason
   });
