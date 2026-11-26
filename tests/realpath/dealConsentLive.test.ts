@@ -27,9 +27,9 @@ function weekTwo(seed: number, user: string, consent = true) {
   return g;
 }
 /** The first seed from 5 whose week-2 house satisfies `has` (read with the asks the test itself makes; each asks a fresh game). */
-function houseWhere<T>(prefix: string, has: (g: ReturnType<typeof weekTwo>) => T | undefined, what: string, consent = true): { g: ReturnType<typeof weekTwo>; seed: number; got: T } {
+function houseWhere<T>(prefix: string, has: (g: ReturnType<typeof weekTwo>) => T | undefined, what: string, consent = true, hint: number[] = [1, 5]): { g: ReturnType<typeof weekTwo>; seed: number; got: T } {
   const f = firstSeedWhereSync((seed, sandbox) => { const g = weekTwo(seed, sandbox, consent); const got = has(g); return got === undefined ? undefined : { g, got }; },
-    { from: 1, to: 12, hint: 5, sandbox: (s) => `${prefix}-${s}`, what });
+    { from: 1, to: 12, hint, sandbox: (s) => `${prefix}-${s}`, what });
   return { g: f.at.g, seed: f.seed, got: f.at.got };
 }
 type Refused = { npc: string; real: string; r: DealRefusal; before: string; after: string; dealsBefore: number; dealsAfter: number; replay: unknown; afterReplay: string };
@@ -90,7 +90,7 @@ describe("NPC deal consent REAL PATH: the engine decides from each houseguest's 
 
   it("flag off: at the same seed and moment, a houseguest who refused now agrees", () => {
     // the precondition: a houseguest who refuses with the flag on
-    const { seed, got: refuser } = houseWhere("dcl-a", (on) => on.s.livingIds().filter((id) => id !== PLAYER).find((npc) => { const r = on.s.makeDeal(req(npc)); return isRefusal(r) && !r.illegal; }), "a houseguest who refuses");
+    const { seed, got: refuser } = houseWhere("dcl-a", (on) => on.s.livingIds().filter((id) => id !== PLAYER).find((npc) => { const r = on.s.makeDeal(req(npc)); return isRefusal(r) && !r.illegal; }), "a houseguest who refuses", true, [5]); // seed 5: its control arm (consent off) agrees there
     // not as shipped: the control arm, the same seed with consent off, proves consent is what refused
     const off = weekTwo(seed, `dcl-b-${seed}`, false);
     const r = off.s.makeDeal(req(refuser));
