@@ -72,6 +72,7 @@ function violations(seed: number): { list: string[]; returns: number; pushed: bo
   }
   const last = snaps[snaps.length - 1];
   const pushed = !!last && last.playerStatus === "jury" && last.finaleInterview !== undefined; // a juror gets no pre-jury finale interview
+  list.splice(3); // the first few say it; the rest repeat each step
   return { list, returns: last?.battleBacks ?? 0, pushed };
 }
 
