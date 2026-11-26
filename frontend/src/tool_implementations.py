@@ -4828,8 +4828,10 @@ async def do_create_character(
     # NEXT season exactly like the menu's button — so when it fires we advance the per-user season
     # counter too (0057 parity), keeping the two paths consistent.
     restarting_post_season = False
+    prior_season_started = False
     try:
         state = await orwell_engine.get_game_state(user=owner)
+        prior_season_started = bool(isinstance(state, dict) and state.get("started"))
         if isinstance(state, dict) and state.get("started") and state.get("moment") == "post-season":
             restarting_post_season = True  # a chat "run it back" = a next season → advance the counter
             confirm_restart = True          # post-season createCharacter IS the restart
@@ -5037,6 +5039,15 @@ async def do_create_character(
                 orwell_seasons.increment_season(owner)
             except Exception:
                 pass  # the counter is best-effort meta-progression; never fail the restart over it
+        # ORW-1051: a confirmed in-chat restart over a season that had started opens a NEW season in THIS chat; mark where it
+        # begins so the narrator's window and the day summaries never carry the old season (the old rows stay stored).
+        if (confirm_restart and prior_season_started and isinstance(res, dict)
+                and res.get("started") and not res.get("createRefused")):
+            try:
+                from routes import chat_helpers as _ch_boundary
+                _ch_boundary.mark_season_boundary_for_owner(owner)
+            except Exception:
+                logger.warning("[orw-1051] season boundary not stamped for %s", owner, exc_info=True)
         # 2026-07-16 audit item 1 — the FIRST-SEASON session-rename edge (see
         # chat_helpers.rename_canonical_session_for_season_start's docstring). Placed AFTER the
         # restart-path season increment just above so a season-2+ restart reads the FRESH number,
