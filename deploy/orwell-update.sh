@@ -275,7 +275,7 @@ ops_run_tee_output() {
   [[ -e "$log" ]] || return 0
   [[ /proc/self/fd/1 -ef "$log" || /proc/self/fd/2 -ef "$log" ]] && return 0
   command -v tee >/dev/null 2>&1 || return 0
-  exec > >(tee -a "$log") 2>&1 || true
+  exec > >(tee -a -p "$log") 2> >(tee -a -p "$log" >&2) || true   # stdout and stderr stay separate streams
 }
 ops_run_record() {
   [[ "$RUN_RECORDED" -eq 0 ]] || return 0
