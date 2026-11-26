@@ -2496,6 +2496,7 @@ def _volatile_tail_wire(messages):
 #:   stall     - S1b: advanceGame after a lost progression beat / repeated stall signals; never with a pending open.            ENABLED
 #:   bedtime   - turnIn when the player went to bed: the FE already runs it directly before narration (ORW-310b, proven live).  OFF (direct path kept)
 #:   whereabouts - BL-007: forced on every premiere/group free-play turn; not owed by the engine and costs a round each turn.    OFF
+_ESC_INELIGIBLE_ROUNDS: dict = {}  # ORW-1041: owner -> consecutive rounds the S1b escalation stayed armed on a route that rejects tool_choice
 _DEEPSEEK_FORCE_SITES = frozenset({"beat", "casting", "stall"})
 
 
@@ -2503,28 +2504,23 @@ def _deepseek_direct_thinking_off(model: str, url) -> bool:
     """True only when the request goes to DeepSeek's OWN api (api.deepseek.com) on a model for which llm_core._apply_deepseek_thinking_off
     sends `thinking: disabled` (every model but the thinking-only deepseek-reasoner). Probed 2026-11-26 (ORW-1014): HTTP 200 and the right
     call for tool_choice auto / required / named. A thinking-on route, the reasoner, R1 or DeepSeek via OpenRouter stay rejecters."""
-    if not url:
-        return False
     try:
-        from src.llm_core import _host_match
-        if not _host_match(str(url), "deepseek.com"):
-            return False
-    except Exception:
+        from src.llm_core import deepseek_thinking_disabled
+        return bool(url) and deepseek_thinking_disabled(str(url), model) and "r1" not in (model or "").lower()
+    except Exception:  # failsoft-ok: expected-empty (cannot tell the request's thinking state => not a force route)
         return False
-    m = (model or "").lower()
-    return "reasoner" not in m and "r1" not in m
 
 
-def _model_honors_forced_tool_choice(model: str, url=None, *, site: str | None = None) -> bool:
+def _model_honors_forced_tool_choice(model: str, route=None, *, site: str | None = None) -> bool:
     """True unless the (model, route) is a KNOWN `tool_choice` rejecter. Mode-aware (ORW-1014): a DeepSeek-V4/flash model on api.deepseek.com
     with thinking disabled honors forcing, but only at a `_DEEPSEEK_FORCE_SITES` site (pass `site`; no site means "not enabled"). Called with
-    the model alone (no url) it keeps the old, conservative answer. Kill switch: ORWELL_DEEPSEEK_FORCE=0."""
+    the model alone (no route) it keeps the old, conservative answer. Kill switch: ORWELL_DEEPSEEK_FORCE=0."""
     m = (model or "").lower()
     if not any(bad in m for bad in _TOOL_CHOICE_REJECTERS):
         return True
     if os.environ.get("ORWELL_DEEPSEEK_FORCE", "1").strip().lower() in ("0", "false", "off", "no"):
         return False
-    return site in _DEEPSEEK_FORCE_SITES and _deepseek_direct_thinking_off(model, url)
+    return site in _DEEPSEEK_FORCE_SITES and _deepseek_direct_thinking_off(model, route)
 
 
 # P2-16 (prompt audit) — the REJECTER FALLBACK. On a `_TOOL_CHOICE_REJECTERS` model the wire force
@@ -10018,7 +10014,7 @@ async def _stream_agent_loop_impl(
                     from routes import chat_helpers as _ch_draw
                     if _candidate_choice is not None and _ch_draw.veto_draw_holds_force(owner or ""):
                         _candidate_choice = None  # ORW-505: the draw was voiced this turn; the competition waits for a later turn
-                    if _candidate_choice is not None and _model_honors_forced_tool_choice(model, endpoint_url, site="beat"):
+                    if _candidate_choice is not None and _model_honors_forced_tool_choice(model, route=endpoint_url, site="beat"):
                         _forced_tool_choice = _candidate_choice
                         # Belt note DEFERRED until the forced call lands (Greptile P1 — see
                         # _forced_belt_tool above); stash the required tool's name only.
@@ -10047,7 +10043,6 @@ async def _stream_agent_loop_impl(
                 logger.warning(f"[orwell] #1154 tool_choice force skipped: {_force_err}")
                 _forced_tool_choice = None
         elif (game_mode == "casting" and all_tool_schemas
-                and _model_honors_forced_tool_choice(model, endpoint_url, site="casting")
                 and bool(get_setting("force_tool_choice_at_beats", True))):
             # ── Gap #3 — the CASTING-FINALIZE force (the one pre-game closed-set beat). Gates,
             # cheapest first so an ordinary interview turn does NO extra work: the PLAYER explicitly
@@ -10070,6 +10065,13 @@ async def _stream_agent_loop_impl(
                         finalizable=bool(_cast_view and _cast_view.get("finalizable")),
                         started=bool((_cast_state or {}).get("started")),
                         player_signalled=True)
+                    if _forced_tool_choice is not None and not _model_honors_forced_tool_choice(model, route=endpoint_url, site="casting"):
+                        # ORW-1041: a route that rejects tool_choice gets the textual twin and a count, never silence (the reactive casting-finalize-force belt stays the net).
+                        _forced_tool_choice = None
+                        if _CASTING_FINALIZE_TOOL not in _rejecter_fallback_sent:
+                            messages.append({"role": "system", "content": _rejecter_force_fallback_line(_CASTING_FINALIZE_TOOL)})
+                            _rejecter_fallback_sent.add(_CASTING_FINALIZE_TOOL)
+                            _note_belt(owner, "forced-tool-fallback-line:" + _CASTING_FINALIZE_TOOL)
                     if _forced_tool_choice is not None:
                         # Belt note DEFERRED until the forced call lands (Greptile P1 — same
                         # marker as the live beat-force above; one gated note site).
@@ -10097,7 +10099,7 @@ async def _stream_agent_loop_impl(
             try:
                 from routes import chat_helpers as _ch_esc
                 if _ch_esc.advance_escalation_armed(owner) and not _ch_esc.veto_draw_holds_force(owner or ""):  # ORW-505: a draw voiced this turn holds EVERY advance force
-                    if "advanceGame" in _tool_names_sent and _model_honors_forced_tool_choice(model, endpoint_url, site="stall"):
+                    if "advanceGame" in _tool_names_sent and _model_honors_forced_tool_choice(model, route=endpoint_url, site="stall"):
                         from src import orwell_engine as _oe_esc
                         _esc_status = await _oe_esc.game_status(user=_force_owner)
                         _esc_pending = bool(
@@ -10125,13 +10127,23 @@ async def _stream_agent_loop_impl(
                                     lever="force-advance", ok=True, user=owner)
                             except Exception as _lr_esc_err:
                                 logger.debug(f"[orwell] S1b overseer-log skipped: {_lr_esc_err}")
+                    elif "advanceGame" in _tool_names_sent:
+                        # ORW-1041: the route rejects tool_choice. The flag stays armed for a later eligible round, but only for 3 ineligible rounds: then it is cleared and counted, never armed forever.
+                        _esc_inel = _ESC_INELIGIBLE_ROUNDS.get(_force_owner, 0) + 1
+                        _note_belt(owner, "force-ineligible:advanceGame")
+                        if _esc_inel >= 3:
+                            _ESC_INELIGIBLE_ROUNDS.pop(_force_owner, None)
+                            _ch_esc.clear_advance_escalation(owner)
+                            _note_belt(owner, "force-ineligible:advanceGame-cleared")
+                        else:
+                            _ESC_INELIGIBLE_ROUNDS[_force_owner] = _esc_inel
             except Exception as _esc_err:
                 logger.warning(f"[orwell] S1b escalation force skipped: {_esc_err}")
 
         # ── BL-007: force whereabouts on premiere/group free-play turns ───────────────────────────────
         if _forced_tool_choice is None and _is_live_game and all_tool_schemas\
                 and bool(get_setting("force_tool_choice_at_beats", True))\
-                and _model_honors_forced_tool_choice(model, endpoint_url, site="whereabouts"):
+                and _model_honors_forced_tool_choice(model, route=endpoint_url, site="whereabouts"):
             try:
                 from routes import chat_helpers as _ch_wa
                 _wa_frozen = _ch_wa._TURN_WHEREABOUTS.get(_force_owner)
@@ -10181,7 +10193,7 @@ async def _stream_agent_loop_impl(
                             _rejecter_fallback_sent.add("bedtime-held")
                             messages.append({"role": "system", "content": _bt_held})
                             _note_belt(owner, "bedtime-held-note")
-                    if _bt_choice is not None and _model_honors_forced_tool_choice(model, endpoint_url, site="bedtime"):
+                    if _bt_choice is not None and _model_honors_forced_tool_choice(model, route=endpoint_url, site="bedtime"):
                         _forced_tool_choice = _bt_choice
                         _forced_belt_tool = "turnIn"
                         logger.info(f"[orwell] ORW-310 forcing turnIn (player went to bed) round={round_num} user={_force_owner}")

@@ -145,3 +145,36 @@ def test_health_snapshot_carries_the_counters(led):
     led.record_turn("u", session="s", turn_id="1", tools_called=["moveTo"])
     assert h._turn_drivers_section("u")["narratorToolTurns"] == 1
     assert h._sync_ledger_section("u")["driverTotals"]["turns"] == 1
+
+
+# ── ORW-1041 / ORW-1042 ─────────────────────────────────────────────────────────────────────
+
+def test_gate_and_payload_share_one_thinking_predicate():
+    llm = importlib.import_module("src.llm_core")
+    for url, model, want in ((DS, "deepseek-flash", True), (DS, "deepseek-reasoner", False), (OR, "deepseek/deepseek-v4-flash", False)):
+        assert llm.deepseek_thinking_disabled(url, model) is want
+        p = {"reasoning": 1}
+        llm._apply_deepseek_thinking_off(p, url, model)
+        assert (p.get("thinking") == {"type": "disabled"}) is want  # the payload sends thinking-off exactly when the gate says so
+
+
+def test_every_steer_and_reground_builder_is_counted():
+    import re
+    src = open(os.path.join(os.path.dirname(__file__), "..", "routes", "chat_helpers.py")).read()
+    # drained elsewhere and counted at the drain (belts day-roll/desync/ceremony-unvoiced) or pure helpers
+    exempt = {"_counted_steer", "_whereabouts_barrier_directive"}
+    missing = []
+    for m in re.finditer(r"^((?:@[\w_().=]+\n)*)def (\w*(?:_steer|_reground))\(", src, re.M):
+        if m.group(2) not in exempt and "_counted_steer" not in m.group(1):
+            missing.append(m.group(2))
+    assert not missing, f"steer/reground builders with no counter (decorate with @_counted_steer): {missing}"
+
+
+def test_steer_counter_counts_and_logs(caplog):
+    import logging
+    ch = importlib.import_module("routes.chat_helpers")
+    ledger._STEER_COUNTS.clear()
+    caplog.set_level(logging.INFO)
+    ch._veto_draw_steer("x")
+    assert ledger.get_steer_counts().get("_veto_draw_steer") == 1
+    assert any("steer _veto_draw_steer" in r.getMessage() for r in caplog.records)

@@ -675,6 +675,26 @@ def get_forced_choice_totals(user: str | None) -> dict[str, dict[str, int]]:
     return totals
 
 
+_STEER_COUNTS: dict[str, int] = {}
+_MAX_STEER_NAMES = 64
+
+
+def note_steer(name: Any) -> None:
+    """ORW-1042: count one steer / re-ground directive produced (name + count only, process-wide, bounded). Never raises."""
+    try:
+        n = str(name).strip()[:_MAX_NAME_LEN]
+        with _LOCK:
+            if n and (n in _STEER_COUNTS or len(_STEER_COUNTS) < _MAX_STEER_NAMES):
+                _STEER_COUNTS[n] = _STEER_COUNTS.get(n, 0) + 1
+    except Exception:  # pragma: no cover
+        pass
+
+
+def get_steer_counts() -> dict[str, int]:
+    with _LOCK:
+        return dict(_STEER_COUNTS)
+
+
 def get_driver_totals(user: str | None) -> dict[str, Any]:
     """ORW-1014 - who drove the engine changes, over the retained ring: ``turns``, ``narratorToolTurns`` (a narrator game-tool call this turn),
     ``beltDrivenTurns`` (a belt committed a change this turn), the split ``narratorOnly`` / ``beltOnly`` / ``both`` / ``none``, and the two rates
