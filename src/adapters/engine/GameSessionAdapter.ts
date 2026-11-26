@@ -15629,8 +15629,11 @@ export class GameSessionAdapter implements GameSession {
    */
   private routinesOf(id: EntityId, character: AgendaCharacter, authoredHabits: readonly Habit[] | undefined, seed: number): Routine[] {
     const store = (this.live!.routines ??= {});
-    if (store[id] && authoredHabits?.length) return mergeAuthoredRoutines(store, id, routinesFromHabits(authoredHabits, id, seed));
-    return store[id] ?? addRoutines(store, id, authoredHabits?.length ? routinesFromHabits(authoredHabits, id, seed) : floorRoutinesFor(character, id, seed));
+    // ORW-978: the free-form routines the model wrote from the whole profile (validated when recorded) lead the ones mapped from the closed habit set; both are "authored" and both land when the traits do.
+    const written = this.live!.npcMindsAuthored?.traits?.[id]?.routines ?? [];
+    const authored = written.length || authoredHabits?.length ? [...written, ...(authoredHabits?.length ? routinesFromHabits(authoredHabits, id, seed) : [])] : [];
+    if (store[id] && authored.length) return mergeAuthoredRoutines(store, id, authored);
+    return store[id] ?? addRoutines(store, id, authored.length ? authored : floorRoutinesFor(character, id, seed));
   }
   /**
    * ORW-651: the player is where a routine puts its holder, awake, on this day: count it. On the third separate day the player knows the routine, as a third-person fact the narrator may voice

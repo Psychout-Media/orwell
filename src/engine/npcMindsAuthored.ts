@@ -14,7 +14,9 @@
 import type { EntityId } from "../domain/ids";
 import { WALKABLE_ROOMS, type Room } from "../domain/house";
 import type { TimeOfDay } from "./timeOfDay";
-import { HABITS, ACTIONS, type ActionKind, type Habit } from "./houseLife";
+import { HABITS, ACTIONS, ROUTINE_ROOMS, ROUTINE_ACTIONS, type ActionKind, type Habit } from "./houseLife";
+import { validRoutine, type Routine } from "./routines";
+import { routineKey } from "./routineLife";
 import { AIM_HINT_BONUS, type SeasonGoalKind } from "./agendaConstants";
 import { HOUSE_LIFE } from "./houseLifeConstants";
 
@@ -23,13 +25,17 @@ export const AUTHORED = {
   aimHintBonus: AIM_HINT_BONUS,
   /** A ritual's pull on its action at its time of day for anyone free (spec 0146; read by the hourly life wiring). */
   ritualPull: HOUSE_LIFE.ritualPull,
-  maxWhy: 80, maxName: 40, maxJoke: 80, maxSpots: 3, maxRituals: 3, minHabits: 2, maxHabits: 3,
+  maxWhy: 80, maxName: 40, maxJoke: 80, maxSpots: 3, maxRituals: 3, minHabits: 2, maxHabits: 3, maxRoutines: 4,
 } as const;
 
 const AIMS: readonly SeasonGoalKind[] = ["win-by-comps", "win-by-being-liked", "run-the-house", "reach-jury", "last-alliance-standing", "prove-not-a-floater"];
 const TIMES: readonly TimeOfDay[] = ["morning", "afternoon", "evening", "night", "late-night"];
 
-export interface AuthoredTraits { habits: Habit[]; aimHint?: SeasonGoalKind; aimWhy?: string }
+export interface AuthoredTraits {
+  habits: Habit[]; aimHint?: SeasonGoalKind; aimWhy?: string;
+  /** ORW-978 (spec 0209): free-form routines the model wrote from the whole profile (a time, a place, an act from the action library, company, strength, and its own words). Each validated by `validRoutine`; at most `AUTHORED.maxRoutines`. */
+  routines?: Routine[];
+}
 export interface HouseCulture {
   spots: Array<{ room: Room; nickname: string }>;
   rituals: Array<{ timeOfDay: TimeOfDay; action: ActionKind; name: string }>;
@@ -52,7 +58,14 @@ export function validateTraits(raw: unknown): AuthoredTraits | undefined {
   if (habits.length < AUTHORED.minHabits) return undefined;
   const aim = typeof r["aimHint"] === "string" && (AIMS as string[]).includes(r["aimHint"]) ? (r["aimHint"] as SeasonGoalKind) : undefined;
   const why = aim ? cleanText(r["aimWhy"], AUTHORED.maxWhy) : undefined;
-  return { habits: habits.slice(0, AUTHORED.maxHabits), ...(aim ? { aimHint: aim } : {}), ...(why ? { aimWhy: why } : {}) };
+  const rooms = new Set<string>(ROUTINE_ROOMS), slots = new Set<string>(TIMES), acts = new Set<string>(ROUTINE_ACTIONS);
+  const routines: Routine[] = [];
+  for (const raw of Array.isArray(r["routines"]) ? r["routines"] : []) {
+    const v = validRoutine(raw, rooms, slots, acts);
+    if (v && !routines.some((x) => routineKey(x) === routineKey(v))) routines.push(v);
+    if (routines.length >= AUTHORED.maxRoutines) break;
+  }
+  return { habits: habits.slice(0, AUTHORED.maxHabits), ...(aim ? { aimHint: aim } : {}), ...(why ? { aimWhy: why } : {}), ...(routines.length ? { routines } : {}) };
 }
 
 /** Lane 2: validate the house culture. Undefined when nothing usable survives. */
