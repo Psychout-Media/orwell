@@ -1331,6 +1331,8 @@ export function renderGameContext(view: GameStateView): string {
   // once something has been set (premiere/pre-ceremony has none), so the model never invents these.
   const vetoPlayers = cer.veto.players ?? [];
   const vetoPlayerNames = new Set(vetoPlayers.map((p) => p.id));
+  const evictionDay = view.phase === "eviction" || view.daySchedule?.todaysEvent === "eviction";
+  const playerNominated = cer.nominees.some((n) => n.id === view.player?.id);
   const watchingVeto = view.house.filter((h) => !vetoPlayerNames.has(h.id)).map((h) => h.name);
   const hasCeremony = !!(cer.hoh || cer.nominees.length || cer.veto.holder || vetoPlayers.length);
   const ceremonyLines = !hasCeremony ? [] : [
@@ -1346,6 +1348,9 @@ export function renderGameContext(view: GameStateView): string {
     ...(vetoPlayers.length && watchingVeto.length ? [`    Watching the veto, not playing (they cannot fall, drop or go out in it): ${watchingVeto.join(", ")}`] : []),
     `    Veto: ${cer.veto.holder ? `held by ${cer.veto.holder.name}${cer.veto.used ? " (already used)" : ""}` : "not yet played"}`,
     ...vetoDecisionLines(cer),
+    // ORW-945 (Fable week 2): on the day of the eviction a nominee told the player "I'm voting to keep you" (a nominee does not vote) and another said "I told you I'd keep you" to a player who was never on the block. The facts the narrator
+    // already has (who is on the block) are not enough: say who votes, and what that means for the player.
+    ...(evictionDay && cer.nominees.length ? [`    Eviction vote tonight: the HOH and the nominees (${cer.nominees.map((n) => n.name).join(" and ")}) do not vote; everyone else does. ${playerNominated ? "The player IS on the block: only a houseguest who actually told them they would keep them may be said to have promised it." : "The player is NOT on the block, so nobody is deciding the player's fate tonight: no one promises or announces a vote to keep or to evict the player."}`] : []),
   ];
   const ceremonyAndFloorLines = [...ceremonyLines, ...competitionFloorLines(cer)];
   // E58: the in-game day index, derived from the ceremony cadence (Day 1 HOH → Day 5 eviction),

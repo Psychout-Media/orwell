@@ -93,6 +93,29 @@ describe("C8-04 — the ceremony state is in the model's persistent context", ()
     for (const p of gs.ceremony.veto.players) expect(named, "a drawn player is not on the sidelines").not.toContain(p.name);
   });
 
+  it("ORW-945: on eviction day the context says who votes and what that means for the player (Fable week 2: a nominee 'voting to keep you', a promise to a player never on the block)", () => {
+    let checked = 0;
+    for (const seed of [81000, 81001, 81002, 81003]) {
+      const s = new GameSessionAdapter();
+      s.createCharacter({ playerName: "P", archetype: "social", seed });
+      let gs = driveToNominations(s);
+      for (let i = 0; i < 600 && gs.phase !== "eviction"; i++) {
+        const v = s.advanceGame();
+        if (v.pending) resolve(s, v.pending);
+        gs = s.getGameState();
+      }
+      if (gs.phase !== "eviction" || gs.ceremony.nominees.length < 2) continue;
+      const line = s.getMomentPrompt({}).systemPrompt.split("\n").find((l) => l.includes("Eviction vote tonight")) ?? "";
+      expect(line, "the vote is explained on eviction day").not.toBe("");
+      for (const n of gs.ceremony.nominees) expect(line, "the nominees are named as not voting").toContain(n.name);
+      const onBlock = gs.ceremony.nominees.some((n) => n.id === "player");
+      expect(line.includes("The player IS on the block"), "the line matches the board").toBe(onBlock);
+      expect(line.includes("The player is NOT on the block"), "the line matches the board").toBe(!onBlock);
+      checked++;
+    }
+    expect(checked, "an eviction day was reached").toBeGreaterThan(0);
+  }, 120_000);
+
   it("renders WHERE YOU ARE from the engine whereabouts so the model never invents positions (L21/L24)", () => {
     const s = new GameSessionAdapter();
     s.createCharacter({ playerName: "P", seed: 81000 });
