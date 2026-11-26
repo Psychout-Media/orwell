@@ -2332,7 +2332,9 @@ def _strip_leading_recital(owner, round_num: int, round_response: str, clean: st
         kept, n = _rc.strip_leading_recital(clean)
         if not n:
             return round_response, clean, False
-        round_response = _mirror_wall_drop(round_response, clean, kept)
+        idx = round_response.rfind(clean)  # ORW-1057: the guard EDITS the first sentence (cuts a prefix, upper-cases a letter): apply the same edit to the raw text, never the whole-sentence walk
+        if idx >= 0:
+            round_response = round_response[:idx] + kept + round_response[idx + len(clean):]
         _rc.note_stripped()
         logger.info(f"[orwell] recital fragment stripped round={round_num} chars={n}")
         _note_belt(owner, "recital-stripped")
@@ -6963,14 +6965,14 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
     return "".join(out)
 
 
-async def _confession_guard(text: str, owner) -> "tuple[str, list]":
+async def _confession_guard(text: str, owner, player_msg=None) -> "tuple[str, list]":
     """N-17 - replace an INVENTED first-person confession line (no engine disclosure lever this turn) with a short in-voice deflection. Returns (text, [(old, new)]) so the caller mirrors the
     replacement into the raw round buffer. Fail-open: any hiccup returns the text unchanged."""
     if not text:
         return text, []
     try:
         from routes import chat_helpers
-        _t, _ops = chat_helpers.screen_invented_confession(owner, text)
+        _t, _ops = chat_helpers.screen_invented_confession(owner, text, player_msg)  # ORW-1059: the player's own quoted words are never judged
         _t2, _ops2 = chat_helpers.screen_tell_faithfulness(owner, _t)  # A50
         return _t2, list(_ops) + list(_ops2)
     except Exception:
@@ -10559,7 +10561,7 @@ async def _stream_agent_loop_impl(
                                     # presence wall runs right after it and is equally non-overridden: it
                                     # drops a phantom (off-scene/evicted) houseguest staged as present,
                                     # same-turn, before the player ever sees it.
-                                    _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner)  # N-17
+                                    _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner, _pv_msg)  # N-17
                                     round_response = _mirror_confession_replace(round_response, _cf_ops)
                                     _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
                                     _pv_text, _pv_ops = await _player_voice_guard(_guarded.text, owner, _pv_msg, _pv_state, _pd_qopen_pv(_round_emitted_text))  # ORW-725
@@ -10820,7 +10822,7 @@ async def _stream_agent_loop_impl(
                 # A0 knowledge wall: a Vault-Wall leak is never re-admitted by a fallback. A2 (#1726)
                 # presence wall runs right after it, equally non-overridden — drops a phantom
                 # (off-scene/evicted) houseguest staged as present, same-turn, before the player sees it.
-                _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner)  # N-17
+                _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner, _pv_msg)  # N-17
                 round_response = _mirror_confession_replace(round_response, _cf_ops)
                 _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
                 _pv_text, _pv_ops = await _player_voice_guard(_guarded.text, owner, _pv_msg, _pv_state, _pd_qopen_pv(_round_emitted_text))  # ORW-725
