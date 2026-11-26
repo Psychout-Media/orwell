@@ -13,10 +13,7 @@ import { firstSeedWhere } from "../support/firstSeedWhere";
  */
 const HINT_OUT = 16; // last seed known to vote the player out at the first eviction (the scan tries it first)
 /** The first seed whose played season reaches the player's own goodbye night (the house voted the player out), with the game stopped there. */
-// ORW-1043: both tests want the same stopped season (same scan, seed and stop): it is played once. The first reads only its seed, so the second reads it untouched.
-let atGoodbyes: ReturnType<typeof findEvictedSeason> | undefined;
-const findEvictedSeason = () => firstSeedWhere((seed) => playUntil(seed, goodbyeNow, { user: `wf-${seed}`, maxMessages: 8000 }), wfScan(HINT_OUT, "a season where the house votes the player out"));
-const evictedSeason = () => (atGoodbyes ??= findEvictedSeason());
+const evictedSeason = () => firstSeedWhere((seed) => playUntil(seed, goodbyeNow, { user: `wf-${seed}`, maxMessages: 8000 }), wfScan(HINT_OUT, "a season where the house votes the player out"));
 const goodbyeNow = (s: Stop): boolean => { const ev = s.sess.getGameState().eviction; return ev?.stage === "goodbye" && ev.evictee?.id === PLAYER; };
 const hiddenOf = (s: Stop): string[] => [
   ...s.engine.events.queryAll().filter((e) => e.hidden && !e.witnessSet.includes(PLAYER)).map((e) => String(e.content)),
