@@ -192,3 +192,61 @@ def test_empty_send_shows_no_native_validation(_app):
     assert res["novalidate"], f"#chat-form must carry novalidate: {res}"
     assert not res["required"] and not res["reported"], f"the composer must not report native validity: {res}"
     assert res["invalid"] == 0, f"an empty send fired a native invalid event (the bubble): {res}"
+
+
+# ── ORW-993 PR 2: the same fit contract for the rest of the kit ───────────────────────────────────
+# Hall of Fame, the cast roster window and the kit slots every other window rides (retrospective: top-right,
+# headshot studio: top-center modal, decision cards: sheet) get the SAME assertions. The synthetic probe
+# mounts one worst-case window per slot (tall text, an unbroken 300-char word, a 3000px image) so a window
+# whose content differs from the dossier's still has to fit.
+_SLOTS = ["top-right", "top-left", "top-center", "bottom-center", "bottom-right"]
+
+_PROBE = r"""
+(slot) => {
+  const c = document.createElement('div');
+  c.innerHTML = '<p>' + 'Wrapped text for the fit probe. '.repeat(120) + '</p><p>' + 'x'.repeat(300) + '</p>'
+    + '<img alt="" width="3000" height="1800" style="width:3000px" '
+    + 'src="data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'3000\' height=\'1800\'><rect width=\'3000\' height=\'1800\' fill=\'%23468\'/></svg>">';
+  const id = 'orw993-probe-' + slot;
+  const w = window.OrwellWindowKit.create({ id, title: 'Probe', slot, slotKey: null, role: 'complementary',
+    minimizable: true, closable: true, draggable: true, dockable: false, content: c });
+  w.open();
+  return id;
+}
+"""
+
+
+@pytest.mark.parametrize("vw,vh", SIZES)
+def test_every_kit_slot_window_fits_viewport(_app, vw, vh):
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": vw, "height": vh})
+        page.goto(_app, wait_until="domcontentloaded")
+        page.wait_for_function("() => window.OrwellWindowKit && window.OrwellSlots")
+        for slot in _SLOTS:
+            wid = page.evaluate(_PROBE, slot)
+            page.wait_for_timeout(350)
+            _check(page.evaluate(_MEASURE, wid), f"probe {slot} {vw}x{vh}")
+            page.evaluate("(id) => { const e = document.getElementById(id); const b = e && e.querySelector('.ow-close, [aria-label=Close]'); if (b) b.click(); }", wid)
+        browser.close()
+
+
+@pytest.mark.parametrize("vw,vh", SIZES)
+def test_hall_of_fame_and_cast_windows_fit_viewport(_app, vw, vh):
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page(viewport={"width": vw, "height": vh})
+        page.goto(_app, wait_until="domcontentloaded")
+        page.wait_for_function("() => window.OrwellWindowKit && window.OrwellSlots")
+        for btn, win in (("sidebar-hall-btn", "orwell-hall-of-fame"), ("sidebar-cast-btn", "orwell-cast")):
+            opened = page.evaluate("(b) => { const e = document.getElementById(b); if (!e) return false; e.click(); return true; }", btn)
+            if not opened:
+                continue  # the game-build gate has not revealed this button (no game yet): nothing to measure
+            page.wait_for_selector("#" + win, timeout=15000)
+            page.wait_for_timeout(400)
+            _check(page.evaluate(_MEASURE, win), f"{win} {vw}x{vh}")
+        browser.close()
