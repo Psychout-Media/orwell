@@ -3814,8 +3814,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
         ...(ctx.agendaPullFor ? { agendaPush: (t: EntityId) => ctx.agendaPullFor!(t, s.hoh!).value } : {}), // ORW-314: the HOH's goals move the block at full strength
         ...(ctx.feelingKeepFor ? { feelingPush: (t: EntityId) => -ctx.feelingKeepFor!(t, s.hoh!) } : {}), // ORW-568 / 0181: someone the HOH truly likes is harder to put up
         ...(ctx.endgameFor ? { endgamePush: (t: EntityId) => ctx.endgameFor!(t, s.hoh!) } : {}), // 0193: at four left, who the HOH can't beat goes up
-        ...(ctx.couplePushFor ? { couplePush: (t: EntityId) => ctx.couplePushFor!(t, s.hoh!) } : {}), // 0207 A2
-    ...(ctx.standingPushFor ? { standingPush: (t: EntityId) => ctx.standingPushFor!(t, s.hoh!) } : {}), // ORW-694 B1-9: a pair the HOH reads as a couple is a target
+        ...(ctx.couplePushFor ? { couplePush: (t: EntityId) => ctx.couplePushFor!(t, s.hoh!) } : {}), // 0207 A2: a pair the HOH reads as a couple is a target
         ...(ctx.standingPushFor ? { standingPush: (t: EntityId) => ctx.standingPushFor!(t, s.hoh!) } : {}), // ORW-694 B1-9: the house's leader is a bigger target
         ...(ctx.assuranceProtects ? { protectedByAssurance: (t: EntityId) => ctx.assuranceProtects!(t, s.hoh!) } : {}),
         why: reasonSinkFor(s, ctx, s.hoh!), // ORW-305: record WHY (a record only); ORW-314: and the stated reason
@@ -4126,6 +4125,7 @@ function npcReplacementPick(s: LiveSeasonState, ctx: SeasonCtx, saved: EntityId,
     ...(ctx.feelingKeepFor ? { feelingPush: (t: EntityId) => -ctx.feelingKeepFor!(t, s.hoh!) } : {}), // ORW-568 / 0181
     ...(ctx.endgameFor ? { endgamePush: (t: EntityId) => ctx.endgameFor!(t, s.hoh!) } : {}), // 0193
     ...(ctx.couplePushFor ? { couplePush: (t: EntityId) => ctx.couplePushFor!(t, s.hoh!) } : {}), // 0207 A2
+    ...(ctx.standingPushFor ? { standingPush: (t: EntityId) => ctx.standingPushFor!(t, s.hoh!) } : {}), // ORW-694 B1-9: the house's leader is a bigger target
     ...(ctx.replacementFullTerms ? nominationOnlyTerms(s, ctx) : {}), // ORW-639: the four terms nominations read that the replacement used to drop
     why, // ORW-305: record WHY (a record only); ORW-314: and the stated reason
   });
