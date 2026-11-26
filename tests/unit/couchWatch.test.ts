@@ -67,7 +67,7 @@ describe("watching from the couch (ORW-650)", () => {
     expect(m!.length).toBeLessThanOrEqual(12);
   });
 
-  it("deterministic: same seed, same feed; and off-flag = no field", () => {
+  it("deterministic: same seed, same feed; and off-flag = no field", { timeout: 120_000 }, () => { // ORW-985: a seed sweep near the 30 s default on CI; budgeted until it is sped up
     const a = watcher("watch"); a.s.advanceGame();
     const b = watcher("watch"); b.s.advanceGame();
     expect(moments(a.s)).toEqual(moments(b.s));
