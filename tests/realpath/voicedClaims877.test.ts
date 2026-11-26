@@ -40,9 +40,9 @@ function toFirstTell(seed: number, sandbox: string): { s: Peek; tell: { speaker:
 
 describe("ORW-877 REAL PATH: the player hears a told claim only if the narration voiced it", () => {
   it("unvoiced: never enters the player's knowledge and leaves the day's slot free; voiced: enters it exactly once", () => {
-    const { seed, sandbox } = firstSeedWhereSync((sd, sb) => (toFirstTell(sd, sb) ? true : undefined), { from: 1, to: 4, hint: [7], sandbox: (x) => `t931-${x}`, what: "a tell handed to the narrator" });
+    // ORW-1043: the game the scan stopped IS the first copy (stopped before this turn's echo, untouched since), so it is not played a second time
+    const { seed, sandbox, at: quiet } = firstSeedWhereSync(toFirstTell, { from: 1, to: 4, hint: [7], sandbox: (x) => `t931-${x}`, what: "a tell handed to the narrator" });
     // the narration does not voice it
-    const quiet = toFirstTell(seed, sandbox)!;
     expect(toPlayer(quiet.s, quiet.tell.speaker), "held at the prompt build: not yet in the player's knowledge").toHaveLength(quiet.before);
     quiet.s.recordNarrationUse({ text: QUIET });
     expect(toPlayer(quiet.s, quiet.tell.speaker), "an unvoiced tell never enters the player's knowledge").toHaveLength(quiet.before);
