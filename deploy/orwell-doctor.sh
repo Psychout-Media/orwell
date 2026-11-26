@@ -225,6 +225,42 @@ disk_space_check() {
   fi
 }
 
+# ORW-1047: the scheduled backup must never fail silently. orwell-backup.sh records every run in
+# <app>/backups/.backup-status.json; a failed last run, a missing record, or a record older than the
+# limit (default 26 h: a daily timer plus its random delay) is a FAILING verdict, because a unit that
+# dies before the script starts (a namespace failure) leaves no record and only the age shows it.
+BACKUP_MAX_AGE_H="${ORWELL_BACKUP_MAX_AGE_HOURS:-26}"
+# A restart does not cure a failed backup, so it is counted in SEASON_HOLD_FAILS (the verdict-only counter): it fails the verdict but never triggers a bounce.
+bfail() { fail "$@"; SEASON_HOLD_FAILS=$((SEASON_HOLD_FAILS + 1)); }
+backup_status_check() {
+  local f="${APP_DIR}/backups/.backup-status.json" st fin age_s msg warn_txt
+  if [[ ! -f "$f" ]]; then
+    if ls "${APP_DIR}"/backups/orwell-backup-*.tar.gz >/dev/null 2>&1; then
+      bfail "backup: no run record in ${f} (an archive exists from before records were kept; check: systemctl status orwell-backup.timer, journalctl -u orwell-backup.service)"
+    else
+      bfail "backup: no backup has ever run here (no archive, no run record); check: systemctl list-timers orwell-backup.timer, journalctl -u orwell-backup.service"
+    fi
+    return 0
+  fi
+  st="$(sed -n 's/.*"status": *"\([^"]*\)".*/\1/p' "$f" | head -1)"
+  fin="$(sed -n 's/.*"finishedAt": *\([0-9]*\).*/\1/p' "$f" | head -1)"
+  msg="$(sed -n 's/.*"message": *"\([^"]*\)".*/\1/p' "$f" | head -1)"
+  warn_txt="$(sed -n 's/.*"warning": *"\([^"]*\)".*/\1/p' "$f" | head -1)"
+  if [[ -z "$fin" ]]; then
+    bfail "backup: run record ${f} is unreadable"
+    return 0
+  fi
+  age_s=$(( $(date +%s) - fin ))
+  local age_h=$(( age_s / 3600 ))
+  if [[ "$st" != "ok" ]]; then
+    bfail "backup: the last run FAILED ${age_h} h ago (${msg:-no message}); see journalctl -u orwell-backup.service"
+  elif [[ "$age_s" -gt $(( BACKUP_MAX_AGE_H * 3600 )) ]]; then
+    bfail "backup: last good backup is ${age_h} h old (limit ${BACKUP_MAX_AGE_H} h); the timer is not producing backups: systemctl status orwell-backup.timer orwell-backup.service"
+  else
+    pass "backup: last run ok ${age_h} h ago (limit ${BACKUP_MAX_AGE_H} h)${warn_txt:+; note: ${warn_txt}}"
+  fi
+}
+
 # DEPLOY-17: the deploy PAT (A4/ruling #17) is a fine-grained token capped at ONE YEAR — its
 # expiry is mentioned once, in orwell-update.sh's rotation echo, and never re-checked. An expired
 # token breaks the web-triggered auto-update path (orwell-ops-update.service) silently — it just
@@ -462,6 +498,7 @@ diagnose() {
   fi
   # DEPLOY-10: disk pressure on the (often 12 GB default) LXC disk.
   disk_space_check
+  backup_status_check
   # DEPLOY-17: catch a PAT-expiry-shaped auth failure before the update path breaks silently.
   git_remote_check
   # ORW-971: a held season, and any owed or failed season-start step.
