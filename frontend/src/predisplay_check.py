@@ -527,10 +527,10 @@ class RewriteSplit(NamedTuple):
 
 
 def predisplay_rewrite_enabled() -> bool:
-    """ORWELL_PREDISPLAY_REWRITE: default OFF. A pre-deploy review found the rewrite can fire on a character's quoted line (quote state
-    resets per streamed chunk), can drop or double a tool call made after the withheld sentence, and leaves the player waiting with nothing shown.
-    The count-only check stays on. `1/true/on/yes` turns the rewrite on. Needs the check itself on too."""
-    return (os.environ.get("ORWELL_PREDISPLAY_REWRITE", "0").strip().lower() in ("1", "true", "on", "yes")) and predisplay_check_enabled()
+    """ORWELL_PREDISPLAY_REWRITE: default ON (Kevin, 2026-11-26, ORW-408). The pre-deploy review findings that held it back (quote state per chunk, a doubled or dropped tool
+    call, nothing shown while the redo runs, the dropped keepalive, the unread late tool call, the swallowed cancel) are fixed in #2728 and #3335. `0/false/off/no` turns the
+    rewrite off (the count-only check then still runs). Needs the check itself on too."""
+    return (os.environ.get("ORWELL_PREDISPLAY_REWRITE", "1").strip().lower() not in ("0", "false", "off", "no")) and predisplay_check_enabled()
 
 
 def conflict_details(text: str, state: Any, *, zero_clocks: bool, in_quote: bool = False) -> "list[Conflict]":

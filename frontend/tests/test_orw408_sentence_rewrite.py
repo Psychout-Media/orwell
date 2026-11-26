@@ -435,14 +435,19 @@ def test_split_is_none_without_fresh_state_and_never_raises(monkeypatch):
 
 
 
-def test_the_rewrite_is_off_unless_asked_for(monkeypatch):
-    """ORW-408: default OFF until the review findings are fixed (quoted speech across chunks, tool calls after a withhold, the silent wait)."""
+def test_the_rewrite_is_on_unless_turned_off(monkeypatch):
+    """ORW-408: default ON (Kevin, 2026-11-26) now the review findings are fixed (#2728, #3335). `0/off/false/no` turns it off; the check itself off turns it off too."""
     from src import predisplay_check as pc
     monkeypatch.delenv("ORWELL_PREDISPLAY_REWRITE", raising=False)
     monkeypatch.delenv("ORWELL_PREDISPLAY_CHECK", raising=False)
-    assert pc.predisplay_rewrite_enabled() is False
+    assert pc.predisplay_rewrite_enabled() is True
+    for off in ("0", "off", "false", "no"):
+        monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", off)
+        assert pc.predisplay_rewrite_enabled() is False
     monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", "1")
     assert pc.predisplay_rewrite_enabled() is True
+    monkeypatch.setenv("ORWELL_PREDISPLAY_CHECK", "0")
+    assert pc.predisplay_rewrite_enabled() is False
 
 
 # ── pure helpers: the review findings ────────────────────────────────────────────────────────────
