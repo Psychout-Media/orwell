@@ -29,11 +29,12 @@ export const LOBBY = {
 
 const clamp = clampGuarded;
 
-/** The signed nomination-score tilt for `subject`: negative = protected by pitches, positive = steered toward. `credibility(pitcher)` is the HOH's trust in the pitcher, 0..1. */
-export function pitchTilt(subject: EntityId, pitches: readonly Pitch[], credibility: (pitcher: EntityId) => number): number {
+/** The signed nomination-score tilt for `subject`: negative = protected by pitches, positive = steered toward. `credibility(pitcher)` is the HOH's trust in the pitcher, 0..1.
+ *  ORW-694 / B1-9: `standing(pitcher)` weighs a pitch by the pitcher's standing in the house (1 = ordinary; a leader's / lieutenant's pitch carries more). Absent => 1, byte-identical. */
+export function pitchTilt(subject: EntityId, pitches: readonly Pitch[], credibility: (pitcher: EntityId) => number, standing?: (pitcher: EntityId) => number): number {
   let sum = 0;
   for (const p of pitches) {
-    const w = LOBBY.kindWeight[p.kind] * clamp(p.strength, 0, 1) * clamp(credibility(p.from), 0, 1);
+    const w = LOBBY.kindWeight[p.kind] * clamp(p.strength, 0, 1) * clamp(credibility(p.from), 0, 1) * (standing ? Math.max(0, standing(p.from)) : 1);
     if (p.protects === subject) sum -= w;
     if (p.targets === subject) sum += w;
   }
