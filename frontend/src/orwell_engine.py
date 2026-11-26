@@ -1184,6 +1184,20 @@ async def pipeline_cast(user: str | None = None, timeout: float | None = None) -
         raise
 
 
+# ORW-997: per user, whether the latest staged-premiere release (an arrival or a toast batch) was already voiced by an earlier reply. Set by the FE's per-turn premiere hook; read by `get_moment_prompt` so
+# the moment prompt marks the entrance `voiced` (the narrator never plays the same release twice, and is not handed upcoming speakers).
+_ENTRANCE_VOICED: dict = {}
+
+
+def set_entrance_voiced(user, voiced: bool) -> None:
+    """ORW-997: record whether the latest staged-premiere release was already voiced (False clears it)."""
+    k = str(user or "")
+    if voiced:
+        _ENTRANCE_VOICED[k] = True
+    else:
+        _ENTRANCE_VOICED.pop(k, None)
+
+
 async def get_moment_prompt(moment: str | None = None, user: str | None = None, timeout: float | None = None,
                             brief: dict | None = None) -> dict:
     """The managed system prompt to inject for this user's current (or given) moment.
@@ -1195,6 +1209,8 @@ async def get_moment_prompt(moment: str | None = None, user: str | None = None, 
         args["moment"] = moment
     if brief is not None:
         args["brief"] = brief
+    if _ENTRANCE_VOICED.get(str(user or "")):
+        args["entranceVoiced"] = True  # ORW-997
     try:
         from src.zero_clocks import zero_clocks_on
         if zero_clocks_on():
@@ -1390,7 +1406,7 @@ async def end_of_session_summary(user: str | None = None) -> dict:
     return await _call("endOfSessionSummary", {}, user=user)
 
 
-async def advance_game(expected_beat_seq: int | None = None, idempotency_key: str | None = None, user: str | None = None) -> dict:
+async def advance_game(expected_beat_seq: int | None = None, idempotency_key: str | None = None, user: str | None = None, toast_batches: int | None = None) -> dict:
     """Advance the weekly loop by one beat (HOH→noms→veto→ceremony→eviction→finale).
     NPC beats resolve automatically; returns the beat event, any pending player decision,
     and the public status. Vault-free.
@@ -1405,6 +1421,8 @@ async def advance_game(expected_beat_seq: int | None = None, idempotency_key: st
         args["expectedBeatSeq"] = expected_beat_seq
     if idempotency_key is not None:
         args["idempotencyKey"] = idempotency_key
+    if toast_batches is not None and toast_batches > 1:
+        args["toastBatches"] = int(toast_batches)  # ORW-997: a watch-only toast circle flows several batches in one advance
     return await _call("advanceGame", args, user=user)
 
 
@@ -1865,6 +1883,19 @@ async def move_to(room: str, expected_beat_seq: int | None = None, user: str | N
     return await _call("moveTo", args, user=user)
 
 
+async def search_for_houseguest(name: str, max_legs: int | None = None, expected_beat_seq: int | None = None, idempotency_key: str | None = None, user: str | None = None):
+    """ORW-934: the player is looking for a named houseguest. The engine walks the search leg by leg (one real step into a neighbouring room each, billing the clock, the house moving meanwhile) and returns
+    ``{search: {target, outcome, reason, legs, minutes}, whereabouts, beatSeq}``. Nobody is teleported. Optional args are sent only when given."""
+    args: dict = {"name": str(name)}
+    if max_legs is not None:
+        args["maxLegs"] = int(max_legs)
+    if expected_beat_seq is not None:
+        args["expectedBeatSeq"] = expected_beat_seq
+    if idempotency_key:
+        args["idempotencyKey"] = str(idempotency_key)
+    return await _call("searchForHouseguest", args, user=user)
+
+
 async def move_houseguest(houseguest_id: str, room: str, user: str | None = None):
     """ADR 0009 — RECORD a NARRATED NPC relocation: the engine moves houseguest ``houseguest_id`` into
     ``room`` in the OPEN occupancy (so the board agrees with the prose — no visible historic conflict),
@@ -2289,13 +2320,15 @@ def last_pending(user=None):
     return _LAST_PENDING.get(user or "")
 
 
-async def resolve_player_move(text: str, idempotency_key: str | None = None, user: str | None = None) -> dict:
+async def resolve_player_move(text: str, idempotency_key: str | None = None, user: str | None = None, previous_reply: str | None = None) -> dict:
     """ORW-419 (intent-first moves): ask the engine to resolve the PLAYER'S OWN move from their message text, BEFORE the
     narrator runs. The engine parses the words, moves the player through the same code as ``moveTo`` (a comp/ceremony pin
     refuses it in fiction) and records the Vault-free ``playerMove`` ``{from, to}`` / ``{refused, reason}`` on the turn
     state. Returns ``{playerMove, whereabouts, beatSeq}``; ``playerMove`` is null when the words held no clear move (the
     post-reply move belt stays the fallback). The key is sent only when given, so a retry re-drive de-dups."""
     args: dict = {"text": str(text)}
+    if previous_reply:
+        args["previousReply"] = str(previous_reply)[-6000:]  # ORW-1003: for "head over there" / "I follow her"
     if idempotency_key:
         args["idempotencyKey"] = str(idempotency_key)
     return await _call("resolvePlayerMove", args, user=user)

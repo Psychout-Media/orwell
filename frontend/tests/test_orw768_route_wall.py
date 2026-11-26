@@ -40,7 +40,7 @@ ALLOWED = {
     "roster": {"roster[].id", "roster[].name", "roster[].status", "roster[].isPlayer", "roster[].portrait", "roster[].evictedSeq", "roster[].lastSeenMood", "portraitLastRun.generated",
                "portraitLastRun.attempted", "portraitLastRun.failing", "imagesAvailable", "playerAwaitingUpload", "portraitsPresent", "portraitsTotal", "generation.total", "generation.done",
                "generation.active", "stale"},
-    "health": {"engine", "reconnecting", "busy", "lastError.error"},
+    "health": {"engine", "reconnecting", "busy", "lastError.error", "integrityRefusal"},
     "dossier": {"found", "id", "name", "status", "isPlayer", "portrait", "met", "persona.background", "persona.vocation", "persona.hometown", "persona.age", "persona.demeanor", "persona.biography",
                 "history[].id", "history[].ts", "history[].type", "history[].content", "deals[].id", "deals[].parties[].id", "deals[].parties[].name", "deals[].kind", "deals[].terms", "deals[].status",
                 "alliances[].id", "alliances[].name", "alliances[].members[].id", "alliances[].members[].name", "alliances[].youAreFounder"},
@@ -322,4 +322,4 @@ def test_real_stack_walk_every_route_stays_inside_its_screen_paths(_walk):
     cards = [b["pending"] for b in seen["status"] if isinstance(b.get("pending"), dict)]
     assert all(c.get("kind") for c in cards)
     assert any("room" in (b.get("whereabouts") or {}) for b in seen["whereabouts"])
-    assert all(set(b) <= {"engine", "reconnecting", "busy", "lastError"} for b in seen["health"])
+    assert all(set(b) <= {"engine", "reconnecting", "busy", "lastError", "integrityRefusal"} for b in seen["health"])

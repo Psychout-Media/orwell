@@ -348,6 +348,20 @@ update_deferred_check() {
   info "emergency only, to cut a stuck turn that never ends (a turn in flight may be lost): bash ${APP_DIR}/deploy/orwell-update.sh --force-now"
 }
 
+# ORW-1014: the narrator forces a tool call (ceremony beat, stall advance) only because DeepSeek's own API honors tool_choice with thinking off. One forced call (a fraction of a
+# cent) proves it still does; a rejection is a FAIL. Opt-in (it spends a token or two): DOCTOR_FORCE_CANARY=1.
+force_canary_check() {
+  [[ "${DOCTOR_FORCE_CANARY:-0}" == "1" ]] || return 0
+  local py="${APP_DIR}/venv/bin/python"; [[ -x "$py" ]] || py="$(command -v python3 || true)"
+  [[ -n "$py" ]] || { info "force canary: python3 not found - skipping"; return 0; }
+  local out
+  if out="$(cd "${APP_DIR}/frontend" 2>/dev/null && timeout 60 "$py" -m src.deepseek_force_canary 2>&1)"; then
+    pass "force canary: ${out}"
+  else
+    fail "force canary: DeepSeek forced tool_choice is NOT honored - set ORWELL_DEEPSEEK_FORCE=0 and open an ORW card: ${out}"
+  fi
+}
+
 # ORW-971: a season HELD at house entry is a failure the unit and /health probes cannot see (the units are up and the engine answers, yet the player has no Cast button and no
 # decision card). Read the held seasons and the owed or failed season-start steps off the front-end over loopback (GET /api/admin/season-holds, direct loopback connections
 # only) and report them. A hold older than its window (the watch's timeout, 1800 s) is a FAIL: the verdict is not healthy. It is counted apart in SEASON_HOLD_FAILS, because a
@@ -392,6 +406,24 @@ for s in d.get("steps") or []:
   done <<<"$line"
 }
 
+# ORW-1019: a paid provider that answered HTTP 402 (out of credit). Read over loopback (GET /api/admin/provider-credit); hosts and counts only.
+provider_credit_check() {
+  [[ -n "$FE_BASE" ]] || return 0
+  command -v python3 >/dev/null 2>&1 || { info "provider credit: python3 not found - skipping"; return 0; }
+  local body line
+  body="$(curl -fsS -m 5 "${FE_BASE}/api/admin/provider-credit" 2>/dev/null)" || { info "provider credit: the front-end did not answer /api/admin/provider-credit (an older build?) - skipping"; return 0; }
+  line="$(printf '%s' "$body" | python3 -c '
+import json, re, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(3)
+f = lambda v: re.sub(r"[^A-Za-z0-9._:-]", "_", str(v))[:60]
+print(" ".join(f(t.get("host")) + "(" + f(t.get("kind")) + ")" for t in d.get("tripped") or []))
+' 2>/dev/null)" || { info "provider credit: could not read the front-end's answer - skipping"; return 0; }
+  if [[ -z "$line" ]]; then pass "provider credit: no provider has answered HTTP 402"; else fail "provider OUT OF CREDIT (HTTP 402): ${line} - calls to it are paused; top up the account (the app re-probes every 5 min and resumes by itself)"; fi
+}
+
 diagnose() {
   echo "==> diagnose (engine=${ENGINE_SVC} :${ENGINE_PORT}, frontend=${FRONTEND_SVC}${FE_PORT:+ :${FE_PORT}})"
   if [[ "$UNITS_MISSING" == 1 ]]; then
@@ -433,8 +465,11 @@ diagnose() {
   # DEPLOY-17: catch a PAT-expiry-shaped auth failure before the update path breaks silently.
   git_remote_check
   # ORW-971: a held season, and any owed or failed season-start step.
+  # ORW-1019: an out-of-credit provider.
+  provider_credit_check
   season_hold_check
   systemd_security_floor
+  force_canary_check
 }
 
 # ---- systemd hardening floor (audit E85) -------------------------------------------------

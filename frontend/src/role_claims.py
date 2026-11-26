@@ -398,6 +398,15 @@ def screen_role_units(text: str, sig: dict, carry: Optional[dict] = None):
                 tail = ""  # review of #2650: the unit already ends its physical line, so what follows belongs to the NEXT line and says nothing about this name
             offset += len(orig)
             if drop_closers and unit.strip() and not _strip_wrappers(unit).strip():
+                # ORW-772 (2): the closing quote belongs to the stripped unit only when the stripped unit OPENED the quote. When an earlier KEPT sentence of the same quote opened it
+                # (`"We keep this quiet. <stripped sentence>"`), dropping the closer left that sentence with an unclosed quote mark: it stays, and the quote closes where it always did.
+                # Nothing about it is reported as stripped, so the raw round buffer (which the caller edits from the reported units) keeps it too: emitted text and mirror stay equal.
+                _so_far = "".join(kept)
+                if not quote_dropped and (_so_far.count('"') % 2 == 1 or _so_far.count("\u201c") > _so_far.count("\u201d")):
+                    kept.append(orig)
+                    drop_closers = False
+                    quote_dropped = False
+                    continue
                 # the stripped unit's own closing quotes/asterisks (`"**`) — a whole mirror part, never left dangling. Reported so the
                 # raw round buffer drops it too (the caller mirrors every reported unit).
                 stripped.append({"unit": orig, "roles": [], "reason": "closing wrapper of a stripped unit"})

@@ -53,6 +53,7 @@ export const PLAYER_PROJECTION_REGISTRY: readonly ProjectionEntry[] = [
   { method: "runCompetition", coveredBy: "advance", note: "CompetitionResultView (liveSentinel sweeps per beat)" },
   { method: "movePlayer", coveredBy: "advance", note: "WhereaboutsView (moveTo; liveSentinel)" },
   { method: "resolvePlayerMove", coveredBy: "advance", note: "ORW-419: playerMove {from,to}/{refused,reason} + WhereaboutsView (room ids and an in-fiction reason only)" },
+  { method: "searchForHouseguest", coveredBy: "advance", note: "ORW-934: the leg list (room ids and names, who was in each room as names, the outcome and a plain reason) + WhereaboutsView; the route follows the player's own record, never the hidden whereabouts" },
   { method: "markHouseguestMet", coveredBy: "advance", note: "PremiereIntrosView (liveSentinel)" },
   { method: "makeDeal", coveredBy: "lever", note: "lever result view, swept by liveSentinel.property.test.ts" },
   { method: "formAlliance", coveredBy: "lever", note: "lever result view, swept by liveSentinel.property.test.ts" },

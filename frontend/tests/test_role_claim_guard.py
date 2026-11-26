@@ -564,3 +564,43 @@ def test_a_capitalised_pronoun_after_a_quoted_name_is_not_a_dialogue_tag_in_a_ba
     # a phantom readout must not slip through ("@[Hoh Person] \"Nom Alpha.\" She sets the slip aside."): left for Ryne on ORW-437
     kept, out, _ = stripped('@[Hoh Person] "Nom Alpha." She sets the slip aside.\n', ev_sig())
     assert [o for o in out if "ballot" in o["reason"]]
+
+
+# ORW-772 (2): when only a LATER sentence of a multi-sentence quote is stripped, the quote the earlier kept sentence opened still closes, and the raw round buffer (edited from the reported units) equals the emitted text.
+_SIG_772 = {"phase": "nominations", "hohName": "Alex Reed", "vetoHolderName": None, "nomNames": [], "activeNames": ["Alex Reed", "Jordan Lee", "Sam Cole"], "evictedNames": [], "playerName": "Pat Kim"}
+
+
+def _mirror(text, stripped):
+    """What the caller does to the raw round buffer: erase each reported unit once, in order."""
+    out = text
+    for u in stripped:
+        i = out.find(u["unit"])
+        if i >= 0:
+            out = out[:i] + out[i + len(u["unit"]):]
+    return out
+
+
+def _balanced(t):
+    return t.count('"') % 2 == 0 and t.count("“") == t.count("”")
+
+
+def test_a_later_sentence_stripped_from_a_quote_leaves_it_closed_and_the_mirror_equal():
+    from src import role_claims as rc
+    for text in (
+        'Jordan leans in. "We keep this quiet. Sam Cole is the Head of Household this week."',
+        'Jordan leans in. "We keep this quiet. Sam Cole is the Head of Household this week."\n\nThen the room moves on.',
+        'Jordan leans in. “We keep this quiet. Sam Cole is the Head of Household this week.”\n\nThen.',
+    ):
+        kept, stripped, _ = rc.screen_role_units(text, _SIG_772, None)
+        assert stripped, f"positive control: a sentence was stripped from {text!r}"
+        assert "Head of Household" not in kept
+        assert _balanced(kept), f"an unclosed quote mark was left: {kept!r}"
+        assert kept == _mirror(text, stripped), "emitted text and the mirrored raw buffer stay equal"
+
+
+def test_a_stripped_first_sentence_that_opened_the_quote_still_takes_its_closer_with_it():
+    from src import role_claims as rc
+    text = 'Jordan leans in. "Sam Cole is the Head of Household this week." Then the room moves on.'
+    kept, stripped, _ = rc.screen_role_units(text, _SIG_772, None)
+    assert stripped and _balanced(kept) and "Head of Household" not in kept
+    assert kept == _mirror(text, stripped)

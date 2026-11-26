@@ -71,11 +71,16 @@ function moveHead(s: string): string {
   return s.split(/\s+(?:and|then|so|but)\s+|,\s*/)[0] ?? s;
 }
 
+// Live (Ryne: "I don't want to talk about going somewhere 3 messages in a row"): a clear wish to go now is a move. A leading future or lead-in form of a go-verb is read as the present ("I'm going to head to...",
+// "I'll leave", "I get up and go...", "let me go...", "time to go..."). Only go/leave verbs: "I will take her to..." stays a plan, and a later-time word ("later", "tomorrow", "when...") still blocks below.
+const NOW_FORMS = /^(?:(?:i(?:'m| am)?\s+)?(?:gonna|going to)|i'?ll|i will|(?:i\s+)?(?:get up|stand up|excuse myself) and|let me|(?:it'?s\s+)?time to)\s+(?=(?:just\s+|now\s+)?(?:go|head|walk|leave|move|step|wander|find|follow|make my way)\b)/;
+const asNow = (s: string): string => s.replace(NOW_FORMS, "i ");
+
 function clean(clause: string): string {
   let s = clause.replace(/[\u2018\u2019\u02BC]/g, "'").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[*_`~]+/g, " ").replace(/[^a-z0-9' -]+/g, " ").replace(/\s+/g, " ").trim();
   s = s.replace(/\b(?:i'?d|i would) like to\b/g, "i want to").replace(/\bwould like to\b/g, "want to");
   s = s.replace(LEAD_IN, "").trim();
-  return s;
+  return asNow(s);
 }
 
 /** A destination phrase -> a canonical room, or null when unsure/ambiguous. Strict about loose matches. */
@@ -204,7 +209,7 @@ function personFromClause(raw: string, current: Room | null, themed?: Themed): s
     const g = GO_VERB.exec(s);
     if (g) {
       const after = s.slice(g[0].length);
-      rest = after.replace(/^(?:(?:back|right|straight|over|down|up)\s+)*(?:(?:in\s*to|into|to|toward|towards)\b\s*)?(?:(?:over)\s+)?(?:(?:to|and find|and look for|and see)\s+)?/, "");
+      rest = after.replace(/^(?:(?:back|right|straight|over|down|up|off)\s+)*(?:(?:in\s*to|into|to|toward|towards)\b\s*)?(?:(?:over)\s+)?(?:(?:to|and find|and look for|and see)\s+)?/, "");
     }
   }
   if (rest === null) return null;
@@ -231,4 +236,60 @@ export function matchHouseguestName<T extends { name: string }>(phrase: string, 
   if (q === "") return null;
   const hits = candidates.filter((c) => { const n = norm(c.name); return n === q || n.split(" ")[0] === q; });
   return hits.length === 1 ? hits[0]! : null;
+}
+
+/**
+ * ORW-1003 (Ryne: walk with them, don't talk about it): a go with no named place. "walk over and say hi", "head over there", "go over to them" go to the houseguest or group last named; "I follow her/him/them"
+ * goes after whoever just left. Only the FORM is read here (quoted speech ignored; hedged / negated / later clauses never count); the engine resolves who and where from public presence.
+ */
+const VAGUE_GO = /\b(?:walk|walks|head|heads|go|goes|step|steps|wander|wanders|move|moves|come|comes)\s+(?:on\s+)?(?:over(?:\s+there|\s+to\s+(?:them|him|her))?|there)\b/;
+const FOLLOW_PRONOUN = /\b(?:follow|follows|trail|trails|go after|goes after|go with|goes with)\s+(her|him|them)\b/;
+export type VagueGo = { kind: "over" } | { kind: "follow"; pronoun: "her" | "him" | "them" };
+export function parseVagueGo(text: string): VagueGo | null {
+  if (typeof text !== "string" || text.trim() === "") return null;
+  const unquoted = text.replace(/"[^"]*"/g, " ").replace(/\u201c[^\u201d]*\u201d/g, " ");
+  let out: VagueGo | null = null;
+  for (const c of unquoted.match(/[^.!?;\n]+[.!?;\n]*/g) ?? []) {
+    if (/\?\s*$/.test(c.trim())) continue;
+    const s = clean(c);
+    if (s === "" || QUESTION_START.test(s) || NOT_A_MOVE.test(moveHead(s))) continue;
+    const f = FOLLOW_PRONOUN.exec(s);
+    if (f) { out = { kind: "follow", pronoun: f[1] as "her" | "him" | "them" }; continue; }
+    if (VAGUE_GO.test(s)) out = { kind: "over" };
+  }
+  return out;
+}
+
+// ORW-934 - "look for X / find X / search the house for X / where is X": the player is SEARCHING for a houseguest. The parser only extracts the name phrase; the engine decides what the search can reveal (the
+// route follows recorded sightings, never the hidden whereabouts) and the phrase must still match one active houseguest. Hedged or future phrasing ("maybe I'll look for", "later") is not a search.
+const SEARCH_WHERE = /^(?:(?:and|so|ok|okay|hey|wait|um|well|now|hmm)\b[,\s]*)*where(?:'s| is| are| was| did| has)\s+(.+)$/;
+const SEARCH_FIND = /(?:^|\s)(?:go\s+|and\s+|to\s+|try\s+to\s+|help\s+me\s+)?(?:find|look for|looking for|search for|searching for|search (?:the )?(?:whole |entire )?house for|searching (?:the )?(?:whole |entire )?house for|hunt for|hunting for|seek out|seeking out|track down|tracking down|locate)\s+(.+)$/;
+const SEARCH_NOT_A_NAME = new Set(["he", "she", "they", "him", "her", "them", "it", "everyone", "everybody", "anyone", "anybody", "someone", "somebody", "no one", "nobody", "a", "an", "some", "the", "my", "out", "us", "you", "me", "something", "anything", "everything", "the others", "the rest", "answers", "a way", "the exit"]);
+const SEARCH_TAIL = /\s+(?:go|goes|going|went|gone|get|got|disappear(?:ed)?|run off|ran off|end up|ended up|now|today|anywhere|right now|and|to|so|with|then|because|but|for|while|please|again|real quick|quickly|first|next|just|in the|in|at|on|until|before|after)\b.*$/;
+
+export function parseSearchIntent(text: string, current: Room | null, themed?: Themed): string | null {
+  if (typeof text !== "string" || text.trim() === "") return null;
+  const unquoted = text.replace(/"[^"]*"/g, " ").replace(/“[^”]*”/g, " ");
+  const clauses = unquoted.match(/[^.!?;\n]+[.!?;\n]*/g) ?? [];
+  let out: string | null = null;
+  for (const c of clauses) {
+    if (c.trim() === "") continue;
+    let s = clean(c);
+    if (s === "") continue;
+    s = s.replace(LEAD_IN, "").replace(/^.*\buntil i\s+(?=find|locate)/, "i ");
+    let rest: string | null = null;
+    const w = SEARCH_WHERE.exec(s);
+    if (w) rest = w[1]!;
+    else {
+      if (NOT_A_MOVE.test(moveHead(asNow(s))) || QUESTION_START.test(s)) continue;
+      const f = SEARCH_FIND.exec(asNow(s));
+      if (f) rest = f[1]!;
+    }
+    if (rest === null) continue;
+    const p = rest.replace(/^(?:for\s+)/, "").replace(SEARCH_TAIL, "").trim();
+    if (p === "" || SEARCH_NOT_A_NAME.has(p) || !/^[a-z][a-z' -]*$/.test(p) || p.split(" ").length > 3) continue;
+    if (roomFromPhrase(p, current, themed) !== null) continue; // a room word is a room, not a person
+    out = p;
+  }
+  return out;
 }

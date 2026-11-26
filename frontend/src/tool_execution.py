@@ -1174,7 +1174,7 @@ async def execute_tool_block(
         do_manage_sandbox, do_sandbox_health,
         do_create_character, do_update_casting, do_advance_game, do_submit_decision,
         do_request_self_eviction, do_turn_in, do_nap,
-        do_social_initiatives, do_diary_room, do_make_deal, do_confide, do_ask_juror, do_whereabouts, do_move_to,
+        do_social_initiatives, do_diary_room, do_make_deal, do_confide, do_ask_juror, do_whereabouts, do_move_to, do_search_for_houseguest,
         do_form_alliance, do_join_alliance,
         do_expose_secret, do_trade_secret,
         do_confront, do_accuse_tie, do_call_in_favor, do_ask_to_talk_alone,
@@ -1586,6 +1586,9 @@ async def execute_tool_block(
     elif tool == "moveTo":
         desc = "moveTo"
         result = await do_move_to(content, owner=owner)
+    elif tool == "searchForHouseguest":
+        desc = "searchForHouseguest"
+        result = await do_search_for_houseguest(content, owner=owner)
     elif tool == "premiereIntros":
         desc = "premiereIntros"
         result = await do_premiere_intros(content, owner=owner)

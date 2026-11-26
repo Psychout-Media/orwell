@@ -23,6 +23,7 @@ from src.llm_core import stream_llm, stream_llm_with_fallback, _is_ollama_native
 from src.model_context import estimate_tokens
 from src.settings import get_setting
 from src import agent_gates as _gates  # A60: the nudge gates as pure functions (verbatim extraction)
+from src import speaker_turns as _speaker_turns  # ORW-1028: the speaker-turn seam (a turn that lost its head goes whole; quote marks stay paired)
 from src.prompt_security import untrusted_context_message
 from src.tool_security import blocked_tools_for_owner, plan_mode_disabled_tools
 from src.tool_policy import GUIDE_ONLY_DIRECTIVE, ToolPolicy
@@ -2179,6 +2180,27 @@ def _asked_to_go_somewhere(text: str, room_names) -> bool:
     return bool(themed) and bool(re.search(r"\b" + _GO_VERB + r"\b", msg, re.IGNORECASE))
 
 
+# Live hotfix (Ryne: "I shouldn't be able to just poof there by speaking the name of it"): the auto-move belt moved an engaged player alone into a bedroom because a room was NAMED in the talk. Only an INTENT TO GO in the
+# player's own words moves them: "I go / head / walk to <room>", "let's go to <room>", an imperative at the start of a sentence, or following someone out. Mentioning, asking about or discussing a room moves nobody.
+_PI_SUBJECT = (r"(?:(?:^|(?<=[.!?;\n\"\u201c\u2014]))\s*|\b(?:and\s+then|then|so|and)\s+|\blet(?:'s|\u2019s|\s+us|\s+me)\s+|"
+               r"\b(?:i|we)(?:(?:'ll|\u2019ll|\s+will|'m\s+going\s+to|\u2019m\s+going\s+to|'m\s+gonna|\u2019m\s+gonna|\s+am\s+going\s+to|\s+want\s+to|\s+wanna|\s+decide\s+to)\s+|\s+)(?:just\s+|now\s+|quietly\s+|all\s+)?)")
+_PI_VERB = r"(?:go|head|walk|move|wander|step|slip|drift|stroll|climb|run|get\s+up\s+and\s+(?:go|head|walk)|come|heading|going|walking)"
+_PI_PATH = r"(?:\s+(?:back|over|up|down|out|on|straight|on\s+over)){0,2}\s*(?:\b(?:to|into|toward|towards|in|inside)\b\s+)"
+_PI_ROOM = (r"(?:the\s+|my\s+|our\s+)?(?:kitchen|living\s+room|lounge|backyard|back\s+yard|yard|hallway|hall|bathroom|shower|dining\s+room|storage(?:\s+room)?|pantry|diary\s+room|hoh(?:\s+room)?|landing|bedroom|bunk(?:\s+room)?|bed\s*room|outside|inside|downstairs|upstairs)\b")
+_PI_BARE = r"\s+(?:outside|inside|downstairs|upstairs)\b"
+_PLAYER_INTENT_RE = re.compile(_PI_SUBJECT + _PI_VERB + r"(?:" + _PI_PATH + _PI_ROOM + r"|" + _PI_BARE + r")", re.IGNORECASE)
+_PLAYER_INTENT_PREFIX_RE = re.compile(_PI_SUBJECT + _PI_VERB + _PI_PATH, re.IGNORECASE)
+_PLAYER_FOLLOW_RE = re.compile(r"\b(?:i(?:'ll|\u2019ll)?|let(?:'s|\u2019s))\s+(?:follow|go\s+with|come\s+with|tag\s+along\s+with|join)\s+(?:her|him|them|you|the\s+others)\b|\bi\s+(?:get\s+up\s+and\s+)?leave\s+the\s+room\b|\bi(?:'ll|’ll|\s+want\s+to|\s+wanna|'m\s+going\s+to|’m\s+going\s+to|'m\s+gonna|’m\s+gonna)?\s+(?:get\s+up\s+and\s+)?(?:leave\b(?!\s+(?:it|that|him|her|them|you|the\s+(?:deal|alliance|vote)))|(?:head|go|step|walk|wander)\s+(?:over(?:\s+there)?|out)\b)", re.IGNORECASE)
+
+
+def _player_asked_to_move(text: str, room_names) -> bool:
+    """Did the player's own message say they are going somewhere? Pure. A room merely named, asked about or discussed never counts; narration never counts."""
+    msg = str(text or "")
+    if _PLAYER_INTENT_RE.search(msg) or _PLAYER_FOLLOW_RE.search(msg):
+        return True
+    return any(_themed_rooms_in(msg[m.end():m.end() + 60], room_names) for m in _PLAYER_INTENT_PREFIX_RE.finditer(msg))
+
+
 def _turn_in_applied(result) -> bool:
     """ORW-310 — did a `turnIn` tool result APPLY (the night ended)? False for an error, an engine `held`
     refusal (bedtime gate) or a no-op that left the clock where it was. Telemetry counts only True."""
@@ -2310,7 +2332,9 @@ def _strip_leading_recital(owner, round_num: int, round_response: str, clean: st
         kept, n = _rc.strip_leading_recital(clean)
         if not n:
             return round_response, clean, False
-        round_response = _mirror_wall_drop(round_response, clean, kept)
+        idx = round_response.rfind(clean)  # ORW-1057: the guard EDITS the first sentence (cuts a prefix, upper-cases a letter): apply the same edit to the raw text, never the whole-sentence walk
+        if idx >= 0:
+            round_response = round_response[:idx] + kept + round_response[idx + len(clean):]
         _rc.note_stripped()
         logger.info(f"[orwell] recital fragment stripped round={round_num} chars={n}")
         _note_belt(owner, "recital-stripped")
@@ -2468,11 +2492,38 @@ def _volatile_tail_wire(messages):
         return messages
 
 
-def _model_honors_forced_tool_choice(model: str) -> bool:
-    """True unless the resolved model is a KNOWN `tool_choice` rejecter (always-thinking DeepSeek). The
-    issue's pin-the-provider requirement: forcing is only sent where it is honored (asserted live)."""
+#: ORW-1014 — the forcing SITES that may send a wire `tool_choice` to DeepSeek's own API (thinking disabled). Each is a step the engine already
+#: OWES or a stall advance, never a player's binding pick (submitDecision is never forced anywhere). Inventory:
+#:   beat      - the framed ceremony beat's engine-named required lever (comp / advance); an OPEN player pending suppresses it.   ENABLED
+#:   casting   - the casting-finalize createCharacter once the player signalled ready and the intake is finalizable.             ENABLED
+#:   stall     - S1b: advanceGame after a lost progression beat / repeated stall signals; never with a pending open.            ENABLED
+#:   bedtime   - turnIn when the player went to bed: the FE already runs it directly before narration (ORW-310b, proven live).  OFF (direct path kept)
+#:   whereabouts - BL-007: forced on every premiere/group free-play turn; not owed by the engine and costs a round each turn.    OFF
+_ESC_INELIGIBLE_ROUNDS: dict = {}  # ORW-1041: owner -> consecutive rounds the S1b escalation stayed armed on a route that rejects tool_choice
+_DEEPSEEK_FORCE_SITES = frozenset({"beat", "casting", "stall"})
+
+
+def _deepseek_direct_thinking_off(model: str, url) -> bool:
+    """True only when the request goes to DeepSeek's OWN api (api.deepseek.com) on a model for which llm_core._apply_deepseek_thinking_off
+    sends `thinking: disabled` (every model but the thinking-only deepseek-reasoner). Probed 2026-11-26 (ORW-1014): HTTP 200 and the right
+    call for tool_choice auto / required / named. A thinking-on route, the reasoner, R1 or DeepSeek via OpenRouter stay rejecters."""
+    try:
+        from src.llm_core import deepseek_thinking_disabled
+        return bool(url) and deepseek_thinking_disabled(str(url), model) and "r1" not in (model or "").lower()
+    except Exception:  # failsoft-ok: expected-empty (cannot tell the request's thinking state => not a force route)
+        return False
+
+
+def _model_honors_forced_tool_choice(model: str, route=None, *, site: str | None = None) -> bool:
+    """True unless the (model, route) is a KNOWN `tool_choice` rejecter. Mode-aware (ORW-1014): a DeepSeek-V4/flash model on api.deepseek.com
+    with thinking disabled honors forcing, but only at a `_DEEPSEEK_FORCE_SITES` site (pass `site`; no site means "not enabled"). Called with
+    the model alone (no route) it keeps the old, conservative answer. Kill switch: ORWELL_DEEPSEEK_FORCE=0."""
     m = (model or "").lower()
-    return not any(bad in m for bad in _TOOL_CHOICE_REJECTERS)
+    if not any(bad in m for bad in _TOOL_CHOICE_REJECTERS):
+        return True
+    if os.environ.get("ORWELL_DEEPSEEK_FORCE", "1").strip().lower() in ("0", "false", "off", "no"):
+        return False
+    return site in _DEEPSEEK_FORCE_SITES and _deepseek_direct_thinking_off(model, route)
 
 
 # P2-16 (prompt audit) — the REJECTER FALLBACK. On a `_TOOL_CHOICE_REJECTERS` model the wire force
@@ -6914,14 +6965,14 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
     return "".join(out)
 
 
-async def _confession_guard(text: str, owner) -> "tuple[str, list]":
+async def _confession_guard(text: str, owner, player_msg=None) -> "tuple[str, list]":
     """N-17 - replace an INVENTED first-person confession line (no engine disclosure lever this turn) with a short in-voice deflection. Returns (text, [(old, new)]) so the caller mirrors the
     replacement into the raw round buffer. Fail-open: any hiccup returns the text unchanged."""
     if not text:
         return text, []
     try:
         from routes import chat_helpers
-        _t, _ops = chat_helpers.screen_invented_confession(owner, text)
+        _t, _ops = chat_helpers.screen_invented_confession(owner, text, player_msg)  # ORW-1059: the player's own quoted words are never judged
         _t2, _ops2 = chat_helpers.screen_tell_faithfulness(owner, _t)  # A50
         return _t2, list(_ops) + list(_ops2)
     except Exception:
@@ -7038,6 +7089,20 @@ def _mirror_placeholder_cut(round_response: str, text: str):
     if idx >= 0:
         round_response = round_response[:idx] + cut + round_response[idx + len(text):]
     return round_response, cut
+
+
+def _turn_seam_apply(seam, pre: str, post: str, round_response: str) -> "tuple[str, str]":
+    """ORW-1028 - run the speaker-turn seam over one chunk (`pre` as the guards received it, `post` as they left it). Returns (text to emit, round_response with the seam's whole-part
+    cuts erased, so the stored text equals what is shown). Fail-open: a hiccup emits `post` unchanged."""
+    try:
+        out = seam.feed(pre, post)
+        for cut in seam.take_cuts():
+            idx = round_response.rfind(cut)
+            if idx >= 0:
+                round_response = round_response[:idx] + round_response[idx + len(cut):]
+        return out, round_response
+    except Exception:  # failsoft-ok: the seam never blocks a reply
+        return post, round_response
 
 
 def _mirror_wall_drop(round_response: str, before: str, after: str,
@@ -8282,7 +8347,7 @@ _REAPPROACH_LEVEL: Dict[str, int] = {}
 # empty at module level is listed here, so a new one cannot dodge the reset.
 _SEASON_PACING_STORES = (
     _FIRST_WEEK_HINT, _CASTING_STALL_LEVEL, _CASTING_SUBSTANCE_LEVEL, _TOAST_VOICE_HOLDS,
-    _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS,
+    _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS, _ESC_INELIGIBLE_ROUNDS,
     _SILENT_FORCE_ADVANCE_STREAK, _ANTI_STALE_CAP_HOLDS, _LOOP_LAST_FRAMED_KEY, _LOOP_STREAK,
     _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED, _GENDER_HEAL_DONE, _ANN_HELD,
 )
@@ -8467,12 +8532,16 @@ _PD_DRAIN_WAIT_S = 8.0  # ORW-408: after a withhold, the longest the rest of the
 _PD_REDO_TIMEOUT_S = 20  # ORW-408: the continuation call's wall-clock ceiling
 _PD_REDO_MAX_TOKENS = 700  # ORW-408: enough for the rest of one reply
 _PD_BEAT_S = 2.0  # ORW-408: how often a keepalive comment goes out while the player waits
-_PD_KEEPALIVE = ": keepalive\n\n"  # the same SSE comment line the chat route sends before the first token
+# The keepalive is a real `data:` event, not an SSE comment: the chat route's consumer chain only relays `data: ` / `event: ` chunks (a comment line was dropped there, so neither the SSE nor the
+# WebSocket leg ever saw it). `{"type": "keepalive"}` is a type the client ignores (the SSE reader and the WS splice both fall through on an unknown type), and the WS relay carries it as a plain
+# `chat` event payload.
+_PD_KEEPALIVE = 'data: {"type": "keepalive"}\n\n'
 
 
-async def _pd_bounded_stream(stream, armed, drain: dict, wait_s: float = None, beat_s: float = None):
-    """ORW-408: pass the model stream through unchanged until `armed()` (a sentence was withheld); from then on read it for at most `wait_s`, yielding a keepalive comment every `beat_s`
-    while nothing arrives, and on the deadline stop (`drain["timed_out"] = True`). Cancelling the pending read does not hurt the chunks already processed."""
+async def _pd_bounded_stream(stream, armed, drain: dict, wait_s: float = None, beat_s: float = None, hard_deadline: float = None):
+    """ORW-408: pass the model stream through unchanged. Once `armed()` (a sentence was withheld) the stream is STILL read to its end - never abandoned, so a late native tool call / finish / usage event
+    is always seen - while a keepalive event is yielded every `beat_s` that nothing arrives. `wait_s` after the withhold is only the point past which no continuation call is made
+    (`drain["timed_out"] = True`). `hard_deadline` (a `time.monotonic()` value; the round's wall-clock cap) is the one point where the read is cut (`drain["hard_timed_out"]`)."""
     wait_s = _PD_DRAIN_WAIT_S if wait_s is None else wait_s
     beat_s = _PD_BEAT_S if beat_s is None else beat_s
     it = stream.__aiter__()
@@ -8485,37 +8554,42 @@ async def _pd_bounded_stream(stream, armed, drain: dict, wait_s: float = None, b
             if deadline is None:
                 try:
                     chunk = await it.__anext__()
-                except StopAsyncIteration:
+                except StopAsyncIteration:  # failsoft-ok: orw408-drain-end (the normal end of the stream)
                     return
                 yield chunk
                 continue
             nxt = asyncio.ensure_future(it.__anext__())
             while True:
-                left = deadline - time.monotonic()
-                if left <= 0:
+                now = time.monotonic()
+                if hard_deadline is not None and now >= hard_deadline:
                     drain["timed_out"] = True
+                    drain["hard_timed_out"] = True
                     nxt.cancel()
-                    try:
-                        await nxt
-                    except BaseException:  # failsoft-ok: orw408-drain-cancel (the abandoned read; the round ends at the kept text)
-                        pass
+                    await asyncio.wait({nxt})  # settles the inner task only; an OUTER cancel still raises here
+                    if not nxt.cancelled() and nxt.exception() is None:
+                        chunk, nxt = nxt.result(), None
+                        yield chunk  # completed in the same tick as the deadline: not discarded
                     return
-                done, _ = await asyncio.wait({nxt}, timeout=min(beat_s, left))
+                if now >= deadline:
+                    drain["timed_out"] = True
+                wait = beat_s if hard_deadline is None else min(beat_s, max(hard_deadline - now, 0.001))
+                done, _ = await asyncio.wait({nxt}, timeout=wait)
                 if done:
                     break
                 yield _PD_KEEPALIVE
-            try:
-                chunk = nxt.result()
-            except StopAsyncIteration:
-                return
+            if time.monotonic() >= deadline:
+                drain["timed_out"] = True
+            exc = nxt.exception()
+            if exc is not None:
+                if isinstance(exc, StopAsyncIteration):
+                    return
+                raise exc
+            chunk, nxt = nxt.result(), None
             yield chunk
     finally:
         if nxt is not None and not nxt.done():  # closed mid-keepalive: stop the pending read first, or aclose() hits "already running" and the upstream read carries on
             nxt.cancel()
-            try:
-                await nxt
-            except BaseException:  # failsoft-ok: orw408-drain-cancel (the abandoned read)
-                pass
+            await asyncio.wait({nxt}, timeout=1.0)  # review 2 of #2728: never swallow the OUTER task's cancellation (a client disconnect)
         try:
             await it.aclose()
         except Exception:  # failsoft-ok: orw408-drain-close (closing an already-finished stream)
@@ -8942,6 +9016,11 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
                 _forget_season_pacing(kwargs.get("owner"), _bump=False)
         except Exception as _e:  # failsoft-ok: the reset already cleared the stores once
             logger.debug("ORW-499: stale-turn pacing clear failed: %s", _e)
+        try:  # ORW-408: one INFO line per turn (pre-display chunks checked / skipped by reason / conflicts by fact)
+            from src import predisplay_check as _pd_turn
+            _pd_turn.end_turn(kwargs.get("owner"))
+        except Exception as _e:  # failsoft-ok: counter only
+            logger.debug("ORW-408: end_turn failed: %s", _e)
         _ANN_HELD.pop(kwargs.get("owner"), None)  # ORW-479: a held announcement's tail window never outlives its turn
         for _tok in _ledger_tokens:  # ORW-435: a turn that raised / was cancelled / never reached record_turn still closes its window (idempotent)
             try:
@@ -9810,12 +9889,16 @@ async def _stream_agent_loop_impl(
         _ooc_open = ""  # N-6: the PENDING (held, unclosed) `((...))` aside text carried across this round's streamed chunks; always resolved by the round's trailing flush, so nothing is carried between rounds (each round is a fresh completion, not a continuation)
         _round_emitted_text = ""  # F-1: exactly what the player SAW this round (the persisted text must equal it)
         _pw_carry: dict = {}  # ORW-917: the presence wall's quote/drop state across this round's streamed chunks
+        _ts_seam = _speaker_turns.TurnSeam()  # ORW-1028: the speaker-turn seam after every guard: a turn that lost its head goes whole; quote marks stay paired
         _visible_emitted_len = 0  # length of round_response already streamed as visible content
         # T0-5: has THIS round already flushed real visible narration? Gates the inline-planning
         # leading-preamble strip's `at_bubble_start` — a later flush within the round must never be
         # mistaken for the round's opener merely because it's the first line of ITS buffered chunk.
         _round_visible_emitted = False
         _pd_rw_pending = None  # ORW-408: a RewriteSplit once a sentence was withheld this round (the rest of the stream is then discarded unseen)
+        _pd_ended_at_prefix = False  # ORW-408: the round's narration ended at the kept prefix (no continuation): close any open quote / tag
+        _pd_op = -1
+        _pd_all_tail = ""
         _pd_rw_cont = False  # ORW-408: the round's flush is the redo's text (a still-conflicting sentence is dropped whole)
         _pd_rw_round = False  # ORW-408: THIS round withheld a sentence (the turn-scoped `_pd_rewrite_used` must not switch the tail check off for LATER rounds; review of #2751)
         _pd_tail = ""  # ORW-408: the raw text read (and discarded) AFTER a sentence was withheld; only inspected for a text-protocol tool-call opener
@@ -9949,7 +10032,7 @@ async def _stream_agent_loop_impl(
                     from routes import chat_helpers as _ch_draw
                     if _candidate_choice is not None and _ch_draw.veto_draw_holds_force(owner or ""):
                         _candidate_choice = None  # ORW-505: the draw was voiced this turn; the competition waits for a later turn
-                    if _candidate_choice is not None and _model_honors_forced_tool_choice(model):
+                    if _candidate_choice is not None and _model_honors_forced_tool_choice(model, route=endpoint_url, site="beat"):
                         _forced_tool_choice = _candidate_choice
                         # Belt note DEFERRED until the forced call lands (Greptile P1 — see
                         # _forced_belt_tool above); stash the required tool's name only.
@@ -9978,7 +10061,6 @@ async def _stream_agent_loop_impl(
                 logger.warning(f"[orwell] #1154 tool_choice force skipped: {_force_err}")
                 _forced_tool_choice = None
         elif (game_mode == "casting" and all_tool_schemas
-                and _model_honors_forced_tool_choice(model)
                 and bool(get_setting("force_tool_choice_at_beats", True))):
             # ── Gap #3 — the CASTING-FINALIZE force (the one pre-game closed-set beat). Gates,
             # cheapest first so an ordinary interview turn does NO extra work: the PLAYER explicitly
@@ -10001,6 +10083,13 @@ async def _stream_agent_loop_impl(
                         finalizable=bool(_cast_view and _cast_view.get("finalizable")),
                         started=bool((_cast_state or {}).get("started")),
                         player_signalled=True)
+                    if _forced_tool_choice is not None and not _model_honors_forced_tool_choice(model, route=endpoint_url, site="casting"):
+                        # ORW-1041: a route that rejects tool_choice gets the textual twin and a count, never silence (the reactive casting-finalize-force belt stays the net).
+                        _forced_tool_choice = None
+                        if _CASTING_FINALIZE_TOOL not in _rejecter_fallback_sent:
+                            messages.append({"role": "system", "content": _rejecter_force_fallback_line(_CASTING_FINALIZE_TOOL)})
+                            _rejecter_fallback_sent.add(_CASTING_FINALIZE_TOOL)
+                            _note_belt(owner, "forced-tool-fallback-line:" + _CASTING_FINALIZE_TOOL)
                     if _forced_tool_choice is not None:
                         # Belt note DEFERRED until the forced call lands (Greptile P1 — same
                         # marker as the live beat-force above; one gated note site).
@@ -10028,7 +10117,7 @@ async def _stream_agent_loop_impl(
             try:
                 from routes import chat_helpers as _ch_esc
                 if _ch_esc.advance_escalation_armed(owner) and not _ch_esc.veto_draw_holds_force(owner or ""):  # ORW-505: a draw voiced this turn holds EVERY advance force
-                    if "advanceGame" in _tool_names_sent and _model_honors_forced_tool_choice(model):
+                    if "advanceGame" in _tool_names_sent and _model_honors_forced_tool_choice(model, route=endpoint_url, site="stall"):
                         from src import orwell_engine as _oe_esc
                         _esc_status = await _oe_esc.game_status(user=_force_owner)
                         _esc_pending = bool(
@@ -10056,13 +10145,24 @@ async def _stream_agent_loop_impl(
                                     lever="force-advance", ok=True, user=owner)
                             except Exception as _lr_esc_err:
                                 logger.debug(f"[orwell] S1b overseer-log skipped: {_lr_esc_err}")
+                    elif "advanceGame" in _tool_names_sent:
+                        # ORW-1041: the route rejects tool_choice. The flag stays armed for a later eligible round, but only for 3 ineligible rounds: then it is cleared and counted, never armed forever.
+                        _esc_key = _belt_key(owner)
+                        _esc_inel = _ESC_INELIGIBLE_ROUNDS.get(_esc_key, 0) + 1
+                        _note_belt(owner, "force-ineligible:advanceGame")
+                        if _esc_inel >= 3:
+                            _ESC_INELIGIBLE_ROUNDS.pop(_esc_key, None)
+                            _ch_esc.clear_advance_escalation(owner)
+                            _note_belt(owner, "force-ineligible:advanceGame-cleared")
+                        else:
+                            _ESC_INELIGIBLE_ROUNDS[_esc_key] = _esc_inel
             except Exception as _esc_err:
                 logger.warning(f"[orwell] S1b escalation force skipped: {_esc_err}")
 
         # ── BL-007: force whereabouts on premiere/group free-play turns ───────────────────────────────
         if _forced_tool_choice is None and _is_live_game and all_tool_schemas\
                 and bool(get_setting("force_tool_choice_at_beats", True))\
-                and _model_honors_forced_tool_choice(model):
+                and _model_honors_forced_tool_choice(model, route=endpoint_url, site="whereabouts"):
             try:
                 from routes import chat_helpers as _ch_wa
                 _wa_frozen = _ch_wa._TURN_WHEREABOUTS.get(_force_owner)
@@ -10112,7 +10212,7 @@ async def _stream_agent_loop_impl(
                             _rejecter_fallback_sent.add("bedtime-held")
                             messages.append({"role": "system", "content": _bt_held})
                             _note_belt(owner, "bedtime-held-note")
-                    if _bt_choice is not None and _model_honors_forced_tool_choice(model):
+                    if _bt_choice is not None and _model_honors_forced_tool_choice(model, route=endpoint_url, site="bedtime"):
                         _forced_tool_choice = _bt_choice
                         _forced_belt_tool = "turnIn"
                         logger.info(f"[orwell] ORW-310 forcing turnIn (player went to bed) round={round_num} user={_force_owner}")
@@ -10232,7 +10332,7 @@ async def _stream_agent_loop_impl(
             pin_provider=(_pin_threshold > 0 and last_round_input_tokens >= _pin_threshold),
             provider_opts=_provider_opts,
             tool_choice=_forced_tool_choice,  # #1154: None on ordinary turns ⇒ byte-identical
-        ), lambda: _pd_rw_pending is not None, _pd_drain):
+        ), lambda: _pd_rw_pending is not None, _pd_drain, hard_deadline=time.monotonic() + max(_round_deadline - time.time(), 0.0)):
             if chunk == _PD_KEEPALIVE:  # ORW-408: the player is waiting on a withheld sentence; keep the connection alive
                 yield chunk
                 continue
@@ -10461,7 +10561,7 @@ async def _stream_agent_loop_impl(
                                     # presence wall runs right after it and is equally non-overridden: it
                                     # drops a phantom (off-scene/evicted) houseguest staged as present,
                                     # same-turn, before the player ever sees it.
-                                    _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner)  # N-17
+                                    _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner, _pv_msg)  # N-17
                                     round_response = _mirror_confession_replace(round_response, _cf_ops)
                                     _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
                                     _pv_text, _pv_ops = await _player_voice_guard(_guarded.text, owner, _pv_msg, _pv_state, _pd_qopen_pv(_round_emitted_text))  # ORW-725
@@ -10501,7 +10601,9 @@ async def _stream_agent_loop_impl(
                                         # ORW-408: stored text must equal what was shown: cut the raw round buffer to exactly the emitted text (the earlier emitted text + the kept prefix of this chunk),
                                         # never by searching for the withheld sentence (a guard may have rewritten it, leaving it in the stored text).
                                         round_response = _round_emitted_text + (_guarded_text or "")
+                                        _pd_tail = _game_buf + _pd_tail  # the unterminated remainder of this chunk is also unshown: scan it for a tool opener too
                                         _game_buf = ""
+                                    _guarded_text, round_response = _turn_seam_apply(_ts_seam, _clean, _guarded_text or "", round_response)  # ORW-1028
                                     _round_emitted_text += _guarded_text or ""
                                     _shown_piece = _guarded_text or ""
                                     if _guarded_text:
@@ -10640,8 +10742,8 @@ async def _stream_agent_loop_impl(
                 # call from the discarded tail is put back onto the raw round text so it is parsed and run once (the narration before it stays unshown, so nothing is narrated twice).
                 logger.info("[predisplay-rewrite] no continuation: native_calls=%d tail_opener=%s drain_timed_out=%s", len(native_tool_calls), _pd_op >= 0, _pd_drain["timed_out"])
                 if _pd_op >= 0:
-                    round_response += _pd_all_tail[_pd_op:]
                     _opener_halted_round = True  # review of #2784: prose after this opener was never shown either, so the storage cut below drops it (ORW-453)
+                _pd_ended_at_prefix = True
                 _pd_rw_pending = None
             else:
                 # ONE non-streaming continuation from exactly where the shown text ends; it then flows through the SAME guard chain below (the flush site).
@@ -10657,6 +10759,18 @@ async def _stream_agent_loop_impl(
                     round_response += _redo
                     _game_buf = _redo
                     _pd_rw_cont = True
+                else:
+                    _pd_ended_at_prefix = True  # the continuation failed or came back empty: the reply ends at the kept prefix
+            if _pd_ended_at_prefix:
+                # The narration ends at the kept prefix: never leave the bubble inside an open quote / speaker line / bold span (the same close the scene-broken path runs); live == stored.
+                _pd_close = close_open_markup(_round_emitted_text) if _round_emitted_text else ""
+                if _pd_close:
+                    _round_emitted_text += _pd_close
+                    full_response += _pd_close
+                    round_response += _pd_close
+                    yield f'data: {json.dumps({"delta": _pd_close})}\n\n'
+                if _pd_op >= 0:
+                    round_response += _pd_all_tail[_pd_op:]  # the opener's own call text is parsed and run once (after any markup close above)
         # Flush the scrub buffer: emit the trailing (possibly unterminated) sentence, cleaned, so
         # nothing the round produced is left unshown or leaks through.
         if _scrub_active and _game_buf:
@@ -10708,7 +10822,7 @@ async def _stream_agent_loop_impl(
                 # A0 knowledge wall: a Vault-Wall leak is never re-admitted by a fallback. A2 (#1726)
                 # presence wall runs right after it, equally non-overridden — drops a phantom
                 # (off-scene/evicted) houseguest staged as present, same-turn, before the player sees it.
-                _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner)  # N-17
+                _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner, _pv_msg)  # N-17
                 round_response = _mirror_confession_replace(round_response, _cf_ops)
                 _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
                 _pv_text, _pv_ops = await _player_voice_guard(_guarded.text, owner, _pv_msg, _pv_state, _pd_qopen_pv(_round_emitted_text))  # ORW-725
@@ -10744,6 +10858,7 @@ async def _stream_agent_loop_impl(
                         if _di >= 0:
                             round_response = round_response[:_di] + round_response[_di + len(_pd_cut):]
                     _guarded_text = _pd_kept
+                _guarded_text, round_response = _turn_seam_apply(_ts_seam, _clean, _guarded_text or "", round_response)  # ORW-1028
                 _round_emitted_text += _guarded_text or ""
                 if _guarded_text:
                     full_response += _guarded_text
@@ -10751,6 +10866,12 @@ async def _stream_agent_loop_impl(
                         _emitted_visible = True
                         _round_visible_emitted = True
                     yield f'data: {json.dumps({"delta": _guarded_text})}\n\n'
+
+        _ts_tail = _ts_seam.finish()  # ORW-1028: a quote the round still has open is closed (unless the halt close below or the pre-display close already did)
+        if _ts_tail and not _scene_broken and _round_emitted_text and _speaker_turns.quote_open_at_end(_round_emitted_text):
+            _round_emitted_text += _ts_tail
+            full_response += _ts_tail
+            yield f'data: {json.dumps({"delta": _ts_tail})}\n\n'
 
         if _scene_broken and _round_emitted_text:
             # ORW-354: a halt must never leave the player's bubble inside an open quote / bold span (the sentence splitter cuts mid-quote).
@@ -10864,6 +10985,8 @@ async def _stream_agent_loop_impl(
         cleaned_round = _persisted_round_text(
             cleaned_round, scene_broken=(_scene_broken or _SCENE_CUTAWAY_LINE in _round_emitted_text),
             scrub_active=_scrub_active, round_emitted=_round_emitted_text)
+        if _is_live_game and _scrub_active and cleaned_round:
+            cleaned_round = _speaker_turns.wellformed(cleaned_round)  # ORW-1028: the stored round passes the same seam as the streamed one (reload == live)
         round_texts.append(cleaned_round)
 
         # A/B 2026-11-04 — a whole-scene cut that left the player with only the cutaway: re-voice ONCE from the engine truth (bounded) instead of ending the turn on the hole.
@@ -11279,6 +11402,8 @@ async def _stream_agent_loop_impl(
                     moved=_moved, turn_move_nudges=_turn_move_nudges, max_move_nudges=_MAX_MOVE_NUDGES_PER_TURN,
                     signal_in_user_message=bool(_MOVE_SIGNAL_RE.search(_last_user_for_move)) or _themed_move_signal(_last_user_for_move, owner),
                     signal_in_narration=bool(_MOVE_SIGNAL_RE.search(_turn_narration_visible)) or _themed_move_signal(_turn_narration_visible, owner))
+                if _want_move and not _player_asked_to_move(_last_user_for_move, _season_room_names(owner)):
+                    _want_move = False  # the narration walking the player somewhere is not the player's move: only their own words move them
                 if _turn_slept and not _asked_to_go_somewhere(_last_user_for_move, _season_room_names(owner)):
                     _want_move = False  # ORW-940: the player went to bed: the narration's walking about is not their move
                 # ADR 0009 NPC auto-move belt: the turn's NARRATION walked one or more houseguests to a
@@ -13562,6 +13687,13 @@ async def _stream_agent_loop_impl(
             await record_post_turn_wrong_room_check(owner, _turn_narration_full)
         except Exception as _wr_err:
             logger.warning(f"[orwell] post-turn wrong-room check failed: {_wr_err}")
+
+        # ORW-1009 - a houseguest's report of where someone else was seen must come from a recorded sighting: next-turn re-ground, closed-set, never edits prose.
+        try:
+            from routes.chat_helpers import record_post_turn_sighting_check
+            await record_post_turn_sighting_check(owner, _turn_narration_full)
+        except Exception as _sg_err:
+            logger.warning(f"[orwell] post-turn sighting check failed: {_sg_err}")
 
         # ORW-78 (A94) - the FALSE-PREMISE backstop: 'the nominee' voiced as a person in play while the engine has no nominees (before nominations). Closed-set, post-turn, next-turn re-ground.
         try:

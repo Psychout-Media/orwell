@@ -106,3 +106,73 @@ def test_a_second_reset_cuts_at_the_newest_season(monkeypatch):
     assert (sess.history[-1].metadata or {}).get("season_start") is True
     b = _blob(ctx)
     assert "SECOND-SEASON-NARRATION" not in b and OLD_SEASON not in b
+
+
+# ── ORW-1051: season B starts in the same chat as season A; nothing of A reaches B's narrator, summaries or chapters ──
+def test_1051_in_chat_restart_stamps_the_boundary_and_the_next_prompt_has_none_of_season_a(monkeypatch):
+    """Real path: season A is played, the confirmed createCharacter restart runs, then B's first live turn is built."""
+    from routes import chat_helpers as ch
+    loop = asyncio.get_event_loop()
+    hist = _old_season_rows() + [ChatMessage("user", "run it back", metadata={"phase": "game", "_db_id": "9"})]
+    sess = Session(id="s1051", name="n", endpoint_url="http://x", model="m", history=hist)
+
+    class _Mgr:
+        def get_session(self, sid):
+            return sess
+
+    from src import orwell_game_session
+    monkeypatch.setattr(orwell_game_session, "get_game_session", lambda u: "s1051")
+    monkeypatch.setattr(g.core_models, "_session_manager", _Mgr(), raising=False)
+    assert ch.mark_season_boundary_for_owner("u") is True
+    assert (sess.history[-1].metadata or {}).get("season_start") is True
+    sess.history.append(ChatMessage("assistant", "season B opens", metadata={"phase": "game"}))
+    ctx, _ = loop.run_until_complete(_drive(monkeypatch, sess.history, started=True, text="B first turn"))
+    blob = _blob(ctx)
+    assert OLD_SEASON not in blob and OLD_CASTING not in blob
+    assert "season B opens" in blob and "B first turn" in blob
+
+
+def test_1051_no_bound_chat_defers_the_boundary_to_the_next_turn(monkeypatch):
+    from routes import chat_helpers as ch
+    from src import orwell_game_session
+    monkeypatch.setattr(orwell_game_session, "get_game_session", lambda u: None)
+    assert ch.mark_season_boundary_for_owner("u-pending") is False
+    sess = Session(id="s1051b", name="n", endpoint_url="http://x", model="m",
+                   history=_old_season_rows() + [ChatMessage("user", "go", metadata={})])
+    ch._consume_pending_season_boundary(sess, "u-pending")
+    assert (sess.history[-1].metadata or {}).get("season_start") is True
+    assert "u-pending" not in ch._PENDING_SEASON_BOUNDARY
+
+
+def test_1051_day_summary_and_week_chapter_read_only_the_current_season():
+    from core.models import current_season_rows
+    from src import orwell_day_condense as dc, orwell_week_chapter as wc
+    old = [ChatMessage("user", f"{OLD_SEASON} arrives", metadata={"game_day": 1}),
+           ChatMessage("assistant", "old narration", metadata={"game_day": 1, "kind": wc.KIND, "week": 1})]
+    new = [ChatMessage("user", "new arrives", metadata={"game_day": 1, "season_start": True}),
+           ChatMessage("assistant", "new narration", metadata={"game_day": 1})]
+    rows = current_season_rows(old + new)
+    assert OLD_SEASON not in dc.visible_day_text(rows, 1) and "new narration" in dc.visible_day_text(rows, 1)
+    assert OLD_SEASON in dc.visible_day_text(old + new, 1)  # control: the whole chat would have merged them
+    assert wc._has_chapter(old + new, 1) is True and wc._has_chapter(rows, 1) is False
+
+
+def test_1051_old_rows_stay_stored_and_viewable():
+    sess = Session(id="s1051c", name="n", endpoint_url="http://x", model="m",
+                   history=_old_season_rows() + [ChatMessage("user", "B", metadata={"season_start": True})])
+    assert len(sess.history) == 5
+    assert OLD_SEASON not in " ".join(str(m["content"]) for m in sess.get_context_messages(current_season_only=True))
+    assert OLD_SEASON in " ".join(str(m["content"]) for m in sess.get_context_messages())
+
+
+def test_1051_recent_seasons_avoid_sets_still_apply_after_the_chat_is_scoped(tmp_path, monkeypatch):
+    """The cross-season memory is a ledger of avoid sets (not chat), so scoping the chat leaves it untouched."""
+    import importlib
+    ledger = importlib.import_module("src.orwell_recent_seasons")
+    monkeypatch.setattr(ledger, "LEDGER_PATH", tmp_path / "l.json")
+    ledger.record_season("u", {"names": ["Avoid Name"], "hometowns": ["Avoid Town"]})
+    sess = Session(id="s1051d", name="n", endpoint_url="http://x", model="m",
+                   history=_old_season_rows() + [ChatMessage("user", "B", metadata={"season_start": True})])
+    assert OLD_SEASON not in " ".join(str(m["content"]) for m in sess.get_context_messages(current_season_only=True))
+    avoid = ledger.avoid_for("u")
+    assert "Avoid Name" in avoid["names"] and "Avoid Town" in avoid["hometowns"]

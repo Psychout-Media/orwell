@@ -1651,6 +1651,10 @@ export function renderGameContext(view: GameStateView): string {
     ...(view.clockBand
       ? [`- Part of the day: ${view.clockBand} (engine truth). The house has no clocks, as on the real show: voice the part of the day (light, hush, who is up) and NEVER state a clock time: no "6:15", "3am", "8 o'clock", "quarter past eight", "it's eight in the morning". Durations ("for two hours") are fine.`]
       : []),
+    // ORW-1021: "early morning" is the dark hours before the house's wake-up call. The word morning invited morning light and a house stirring (dev journals: 37 holds on those two claims across three play days); say what the band means.
+    ...(typeof view.clockBand === "string" && view.clockBand.startsWith("early morning")
+      ? ["- EARLY MORNING means the dark hours BEFORE the house's wake-up call: it is still dark, the house is quiet and the sleepers are asleep. Write no morning light, daylight, dawn, sunrise or sun, and no one greets the player or says the house is up; morning begins at the wake-up call."]
+      : []),
     ...(view.clockLabel
       ? [`- Clock: ${view.clockLabel} (engine truth, the exact in-game time right now). If you name a time, use exactly this; never state any other clock time or mealtime (no "noon", "lunchtime", "midnight", "tonight at nine") unless it is this one.`]
       : []),
@@ -1681,6 +1685,7 @@ export function renderGameContext(view: GameStateView): string {
     ...(view.houseMeetingRefused ? [`- HOUSE MEETING REFUSED (engine truth): ${houseMeetingRefusedLine(view.houseMeetingRefused)}.`] : []),
     ...(view.allianceNotFormed ? [`- ALLIANCE NOT FORMED (engine truth): the player proposed "${view.allianceNotFormed.name}" to ${view.allianceNotFormed.with.join(", ")} and it did NOT form: they are not close enough to the player yet. Nobody is sworn in and none of them is in an alliance with the player: do not narrate it as formed or as agreed, and take back any "I'm in" you already wrote by voicing them as warm toward the idea but holding back; it can only come once they have grown closer.`] : []),
     ...(view.longNight ? [`- LONG NIGHT (engine truth; play it hurried and breathless in your own words, and never write a morning, a sleep or a day passing until this line is gone): ${view.longNight}.`] : []),
+    ...(view.bedRefused ? [`- BED REQUEST REFUSED (engine truth): ${view.bedRefused}. The bed was NOT claimed or swapped: say so plainly in this reply, with that reason, in the voice of the scene; never narrate the player as having the bed.`] : []),
     ...(view.beds ? [`- BEDS (engine truth; the player claims or swaps a bed in their own words and the engine records it before you write, so never claim, swap or assign one for them): ${view.beds}`] : []),
     ...(view.sourceNote ? [`- WHO TOLD THEM (engine truth; the engine decided this answer before you write, so voice it as the houseguest's own words; tone, hedging and colour are yours, but never change who they name, or that they name no one): ${view.sourceNote}`] : []),
     ...(view.whileYouSlept ? [`- WHILE YOU SLEPT (voice only this; you saw nothing else, never invent what happened elsewhere): ${view.whileYouSlept}`] : []),
@@ -1983,6 +1988,13 @@ export function renderVetoDrawBeatBlock(view: GameStateView): string[] {
   return out;
 }
 
+/**
+ * ORW-1021: before the game hands over a ballot or the result, the eviction beat is the room waiting. The standing eviction text tells the narrator to play the goodbyes, the door and the host's close, and the narrator
+ * did that early (dev journals: 8 role-claim strips for a goodbye line before the evictee was committed, 25 for a nominee's name standing alone as a line, read as a ballot). This line scopes those beats to AFTER the result.
+ */
+export const EVICTION_BEFORE_RESULT_LINE =
+  "Until the game hands you a ballot or the result: no goodbyes, no door, no walk and no host close, and nobody is told to say goodbyes. A nominee's name standing alone as a line reads as a ballot, so name a nominee only inside a full sentence. The goodbyes belong to the beat after the result.";
+
 /** The short engine-committed board recap for the ceremony phases (HOH, nominees, veto, eviction ballots), or undefined. */
 export function renderBoardRecap(view: GameStateView): string[] | undefined {
   const phase = String(view.phase ?? "").toLowerCase();
@@ -2015,8 +2027,10 @@ export function renderBoardRecap(view: GameStateView): string[] | undefined {
     const ballots = ev?.votesRevealed ?? [];
     if (view.pending?.kind === "eviction-vote") {
       lines.push("    The player's eviction-vote card is OPEN: no ballot has been read — stage no ballot, tally or result; set the room, present the vote, then wait.");
+      lines.push(`    ${EVICTION_BEFORE_RESULT_LINE}`);
     } else if (ballots.length === 0) {
       lines.push("    No ballot has been read yet. Read no ballot, tally or evictee beyond what the game hands you.");
+      lines.push(`    ${EVICTION_BEFORE_RESULT_LINE}`);
     } else {
       // PO ruling 2026-11-04: the whole vote is read in ONE turn — every anonymized ballot, in order, then the result. The narrator gets the full truth.
       lines.push(`    BALLOTS (all ${ballots.length}, in the order read; anonymized — name NO voter): ${ballots.map((b) => `a vote to evict ${b.votedFor.name}`).join("; ")}.`);
@@ -2229,6 +2243,8 @@ export interface PremiereEntranceShape {
   playerToast?: "later" | "now" | "done";
   /** ORW-368: speakers still to be released after this batch (the engine's done list). */
   toastRemaining?: number;
+  /** ORW-997: the front end reports that an earlier reply already voiced what the game shows now (the latest arrival, or the toast batch): nothing new was committed this turn. */
+  voiced?: true;
 }
 
 function premiereEntranceOf(pr: unknown): PremiereEntranceShape | null {
@@ -2301,7 +2317,10 @@ function premiereEntranceLines(
         `Nobody else has arrived \u2014 never place anyone else in the room, and never introduce a new arrival yourself (the game does, via advanceGame). ` +
         (unarrived > 0 ? `RECAP RULE: ${unarrived} houseguest${unarrived === 1 ? " has" : "s have"} not walked in. A beat that must refer to one of them may call them only a not-yet-introduced arrival, never by name, until their own entrance; a recap beat may name only houseguests the player has met. ` : "") +
         ` If the arrival shown below is someone you already voiced, do NOT voice them again as new: play the scene with those inside, and call advanceGame when the player lulls or asks for the next.`,
-      ...(ent.playerEntrance
+      ...(ent.voiced && (ja || ent.playerEntrance)
+        ? [`- PREMIERE \u2014 THE LATEST ARRIVAL, ${ent.playerEntrance || !ja ? "the player" : ja.name}, HAS ALREADY BEEN VOICED on an earlier turn (engine truth): nothing new was committed this turn. Do not voice that arrival again, do not introduce them again and do not bring in anyone else; play only what the player says or does now, with those already inside.`]
+        : []),
+      ...(ent.voiced && (ja || ent.playerEntrance) ? [] : ent.playerEntrance
         ? [`- PREMIERE \u2014 THIS ARRIVAL IS THE PLAYER: narrate their own entrance from THEIR point of view \u2014 the room turns, the houseguests inside see them for the first time.`]
         : ja
           ? [
@@ -2311,6 +2330,16 @@ function premiereEntranceLines(
     ];
   }
   if (ent.stage === "toast") {
+    if (ent.voiced && (ent.speakers ?? []).length > 0) {
+      // ORW-997: nothing new was committed this turn. The batch the game shows was voiced by an earlier reply, so it is not listed as speakers, carries no facts to voice, and no later speaker is named.
+      return [
+        `- PREMIERE \u2014 THE TOAST (engine truth): the house is gathered with the player in the living room. ` +
+          (ent.headcount ? `HEADCOUNT (engine truth): ${ent.headcount}. Never count the room yourself. ` : "") +
+          `THE LATEST TOAST BATCH HAS ALREADY BEEN VOICED on an earlier turn: those speakers have given their toasts and introduced themselves. Do not voice, repeat or recap any toast or introduction, and do not call advanceGame. ` +
+          `The next batch has NOT been committed: never voice, name, hint at or set up any further speaker, and never wrap the circle up or move the evening on; the game releases the next batch itself. ` +
+          `Play only what the player says or does now, with the circle as part of the room.`,
+      ];
+    }
     const sp = (ent.speakers ?? []).map((x) => (x as { isPlayer?: boolean }).isPlayer ? `${x.name} (the PLAYER'S slot: invite it, never voice it)` : x.name).join(", ");
     return [
       `- PREMIERE \u2014 THE TOAST (engine truth): everyone has arrived and the house is gathered with the player in the living room. ` +

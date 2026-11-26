@@ -209,7 +209,7 @@
       "  box-shadow: var(--win-shadow, 0 8px 32px rgba(0,0,0,.45)); }" +
       ".ow-sheet.ow-sheet-anchored .ow-sheet-grabber { min-height: 18px; padding-top: 6px; cursor: default; }" +
       ".ow-sheet.ow-sheet-anchored .ow-sheet-grabber::after { display: none; }" +   // not draggable
-      ".ow-sheet.ow-sheet-anchored .ow-sheet-body { max-height: 60vh; }" +
+      ".ow-sheet.ow-sheet-anchored .ow-sheet-body { max-height: 60vh; max-height: 60dvh; }" +
       // anchored mount/unmount: a gentle rise+fade (the notice-zone motion), not a full slide-up.
       "@keyframes ow-sheet-anchored-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }" +
       ".ow-sheet.ow-sheet-anchored.ow-sheet-anim-in { animation: ow-sheet-anchored-in .22s cubic-bezier(.22,.61,.36,1) both; }" +
