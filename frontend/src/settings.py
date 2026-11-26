@@ -293,7 +293,9 @@ DEFAULT_SETTINGS = {
         # alongside even a little reasoning. 3000 = the comfortable floor for the whole JSON object.
         # (background-authoring is non-reasoning structured extraction, not a reasoning-headroom
         # concern, so a literal cap here is safe — unlike narration/casting above.)
-        "background-authoring": 3000,
+        # ORW-1025: 3000 → 6000. A card in the current format hit finish_reason=length at 3000 on every
+        # cast (prod 2, dev 8 in 14 days) and paid a second call at the doubled 6000; start at the size that fits.
+        "background-authoring": 6000,
     },
     # Owner directive 2026-07-11 — the cast-authoring MODEL ROUTING knob (sibling of the per-class
     # budgets above): which model class serves the cast-authoring call class. "narration" (default)

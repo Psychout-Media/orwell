@@ -234,7 +234,7 @@ def test_genesis_floor_exceeds_the_per_npc_class_cap_that_truncated():
     # The load-bearing fix: the genesis floor must exceed the per-NPC background-authoring class cap
     # (3000) that caused finish_reason=length on the whole-cast sketch.
     per_npc_cap = token_policy.resolve_token_policy("background-authoring").get("max_tokens")
-    assert per_npc_cap == 3000, "the per-NPC background-authoring class cap is the 3000 that truncated"
+    assert per_npc_cap == 6000, "the per-NPC background-authoring class cap is the 6000 that replaced the 3000 that truncated"
     assert token_policy.GENESIS_SKETCH_MIN_OUTPUT_TOKENS > per_npc_cap, (
         "the whole-cast genesis floor must exceed the one-NPC class cap that chopped the skeleton")
     # A finish_reason=length can grow the cap (the retry ceiling sits above the genesis floor).
