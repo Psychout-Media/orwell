@@ -1,0 +1,310 @@
+name: weekly-calibration
+
+# ORW-991 (Ryne, 2026-11-26: "social balancing and the difficulty balancing should be tested around once a week and tracked rather than tweaked every time. Maybe let's come up
+# with a super wide range for these that only don't pass if they break the game.") Folds in ORW-986 (the 60-seed gradient gate, ORW-982, and the 12-season whole-season mix,
+# ORW-944's late blind spot). Once a week (Tuesday, ahead of the backlog sweep) and on demand, it plays every social-mix and difficulty read and appends the FULL table to ONE
+# rolling tracking issue (label `weekly-calibration`), every week, so the trend shows. A leg fails only when the game is BROKEN (tests/support/brokenBounds.ts, each bound with
+# its reason); everything else is the report. NOT a required check, never on pull_request. Each leg's timeout keeps its measured run at or under 75% of the cap.
+on:
+  schedule:
+    - cron: "23 6 * * 2" # Tuesdays 06:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: weekly-calibration
+  cancel-in-progress: false
+
+jobs:
+  gradient-shard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30 # a 15-seed shard: ~4 min on a runner, ~8 expected here
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    name: gradient shard ${{ matrix.shard }}/4
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - env:
+          GRADIENT_SHARDS: "4"
+          GRADIENT_SHARD: ${{ matrix.shard }}
+          GRADIENT_RESULTS_DIR: gradient-shards
+        run: npx vitest run tests/property/calibrationGradient.property.test.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gradient-shard-${{ matrix.shard }}
+          path: gradient-shards/
+          if-no-files-found: error
+
+  gradient:
+    needs: gradient-shard
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gradient-shard-*
+          path: gradient-shards
+          merge-multiple: true
+      - name: the gradient over all 60 seeds (fails only if broken)
+        env:
+          GRADIENT_RESULTS_DIR: gradient-shards
+        run: |
+          set -o pipefail
+          npx vitest run tests/property/calibrationGradientAggregate.property.test.ts 2>&1 | tee gradient.log
+      - name: report fragment
+        if: always()
+        run: |
+          mkdir -p report
+          node -e '
+            const fs = require("fs"), dir = "gradient-shards";
+            const rows = (fs.existsSync(dir) ? fs.readdirSync(dir) : []).filter((n) => n.endsWith(".json")).flatMap((n) => JSON.parse(fs.readFileSync(dir + "/" + n, "utf8")).results);
+            const reach = (k) => rows.filter((r) => r[k].status !== "evicted").length, wins = (k) => rows.filter((r) => r[k].won).length;
+            fs.writeFileSync("report/2-gradient.md", `#### Gradient (${rows.length} seeds)\n\n| | jury reach | wins |\n|---|---|---|\n| passive | ${reach("passive")}/${rows.length} | ${wins("passive")} |\n| active | ${reach("active")}/${rows.length} | ${wins("active")} |\n\n`);'
+          grep -oE "GRADIENT REPORT: .*" gradient.log | head -1 | sed 's/^/    /' >> report/2-gradient.md || true
+          cat report/2-gradient.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: report-gradient
+          path: report/
+          if-no-files-found: ignore
+
+  po-arm:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60 # 75 seeds per slice, 4 slices in parallel: ~25-40 min per arm (calibration-nightly's measured legs)
+    strategy:
+      fail-fast: false
+      matrix:
+        arm: [passive, solid, reckless]
+    name: PO arm ${{ matrix.arm }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - env:
+          ORWELL_PO_SEEDS: "300"
+          ORWELL_PO_ARM: ${{ matrix.arm }}
+          ORWELL_PO_OUT: po-shards
+        run: |
+          set -uo pipefail
+          pids=()
+          for r in "1 76" "76 151" "151 226" "226 301"; do
+            set -- $r
+            ORWELL_PO_FROM=$1 ORWELL_PO_TO=$2 npx vitest run tests/calibration/calibrationPoTarget.test.ts > "slice-$1.log" 2>&1 &
+            pids+=($!)
+          done
+          fail=0
+          for p in "${pids[@]}"; do wait "$p" || fail=1; done
+          tail -n 5 slice-*.log || true
+          exit $fail
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: po-shards-${{ matrix.arm }}
+          path: po-shards/
+          if-no-files-found: error
+
+  po:
+    needs: po-arm
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: po-shards-*
+          path: po-shards
+          merge-multiple: true
+      - name: difficulty over 300 seeds per arm (fails only if broken)
+        env:
+          ORWELL_PO_SEEDS: "300"
+          ORWELL_PO_AGG_DIR: po-shards
+        run: |
+          set -o pipefail
+          npx vitest run tests/calibration/calibrationPoTarget.test.ts 2>&1 | tee po.log
+      - name: report fragment
+        if: always()
+        run: |
+          mkdir -p report
+          node -e '
+            const fs = require("fs"), dir = "po-shards", by = {};
+            for (const n of (fs.existsSync(dir) ? fs.readdirSync(dir) : []).filter((x) => x.endsWith(".json"))) { const arm = n.split("-")[1]; const j = JSON.parse(fs.readFileSync(dir + "/" + n, "utf8")); (by[arm] ??= []).push(...(Array.isArray(j) ? j : j.rows || [])); }
+            const pc = (k, n) => n ? (100 * k / n).toFixed(1) + "%" : "-";
+            let md = "#### Difficulty (PO arms)\n\n| arm | seasons | reach jury | reach F2 | wins |\n|---|---|---|---|---|\n";
+            for (const arm of ["passive", "solid", "reckless"]) { const r = by[arm] || [], c = (k) => r.filter((x) => x[k]).length; md += `| ${arm} | ${r.length} | ${pc(c("reachedJury"), r.length)} | ${pc(c("reachedF2"), r.length)} | ${c("won")} (${pc(c("won"), r.length)}) |\n`; }
+            fs.writeFileSync("report/1-po.md", md + "\n");'
+          grep -oE "PO REPORT over [0-9]+ seeds: [^{]*" po.log | head -1 | sed 's/^/    /' >> report/1-po.md || true
+          cat report/1-po.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: report-po
+          path: report/
+          if-no-files-found: ignore
+
+  jury-reach:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30 # 20 passive seasons: ~3 min on a runner
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: passive jury reach over 20 seasons (fails only if broken, or an unearned crown)
+        run: |
+          set -o pipefail
+          npx vitest run tests/property/juryReach.property.test.ts 2>&1 | tee jury.log
+      - name: report fragment
+        if: always()
+        run: |
+          mkdir -p report
+          { echo "#### Jury reach (passive)"; echo; grep -oE "JURY REPORT: .*" jury.log | head -1 | sed 's/^/    /' || echo "    (no report line)"; echo; } > report/3-jury.md
+          cat report/3-jury.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: report-jury
+          path: report/
+          if-no-files-found: ignore
+
+  season-mix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60 # 12 seasons sharing the cores: ~25-40 min here (608 s on a runner)
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: the whole-season mix over 12 seasons (4 seeds x 3 sandbox names; fails only if broken)
+        env:
+          WSMIX_REPLICAS: "3"
+        run: |
+          set -o pipefail
+          npx vitest run tests/uat/wholeSeasonMixGuard.test.ts 2>&1 | tee mix.log
+      - name: report fragment
+        if: always()
+        run: |
+          mkdir -p report
+          {
+            echo "#### Whole-season mix (12 seasons; bonding/strategy/gossip/conflict %)"
+            echo
+            echo '```'
+            sed -E 's/\x1b\[[0-9;]*m//g' mix.log | grep -E "MIXWS judged|MIXWS report out-of-band" || echo "no MIXWS lines (the run did not get to judging)"
+            echo '```'
+            echo
+          } > report/4-season-mix.md
+          cat report/4-season-mix.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: report-season-mix
+          path: report/
+          if-no-files-found: ignore
+
+  house-mix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20 # 12 week-1 seasons in one process: ~2 min
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: the week-1 mix over 12 seasons (fails only if broken)
+        run: |
+          set -o pipefail
+          npx vitest run tests/uat/houseMixGuard.test.ts 2>&1 | tee house.log
+      - name: report fragment
+        if: always()
+        run: |
+          mkdir -p report
+          {
+            echo "#### Week-1 mix (12 seasons)"
+            echo
+            echo '```'
+            sed -E 's/\x1b\[[0-9;]*m//g' house.log | grep -oE "MIXGUARD12 .*|MIXGUARD12-REPORT .*" | head -2 || echo "no MIXGUARD12 lines"
+            echo '```'
+            echo
+          } > report/5-house-mix.md
+          cat report/5-house-mix.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: report-house-mix
+          path: report/
+          if-no-files-found: ignore
+
+  record:
+    needs: [gradient, po, jury-reach, season-mix, house-mix]
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: report-*
+          path: report
+          merge-multiple: true
+      - name: append this week to the ONE tracking record
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESULTS: "gradient ${{ needs.gradient.result }}, difficulty ${{ needs.po.result }}, jury reach ${{ needs.jury-reach.result }}, season mix ${{ needs.season-mix.result }}, week-1 mix ${{ needs.house-mix.result }}"
+          ANY_FAILED: ${{ contains(needs.*.result, 'failure') }}
+        run: |
+          set -euo pipefail
+          label=weekly-calibration
+          gh label create "$label" --color 0E8A16 --description "Weekly social-mix and difficulty tracking record" 2>/dev/null || true
+          status="all within the broken bounds"
+          if [ "$ANY_FAILED" = "true" ]; then status="BROKEN: at least one leg failed its broken bound (see the run)"; fi
+          { echo "### Week of $(date -u +%Y-%m-%d): $status"; echo; echo "$RESULTS - $RUN_URL"; echo; cat report/*.md 2>/dev/null || echo "(no report fragments)"; } > body.md
+          n=$(gh issue list --label "$label" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then gh issue comment "$n" --body-file body.md; else gh issue create --title "Weekly calibration record (social mix and difficulty)" --label "$label" --body-file body.md; fi

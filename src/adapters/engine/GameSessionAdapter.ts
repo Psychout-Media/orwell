@@ -4318,7 +4318,7 @@ export class GameSessionAdapter implements GameSession {
     const vol = this.soulObj(npc.id)?.volatility ?? 0.3;
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:dodge:${npc.id}:${this.week}:${phase}`));
     // ORW-798: what is on the line for them = the severity of the kind of thing they are keeping + whether they are on the block now (engine state already held; no draw).
-    const stakes = dodgeStakes(severityOf(held?.kind), ((this.live?.nominees as readonly EntityId[] | undefined) ?? []).includes(npc.id));
+    const stakes = dodgeStakes(severityOf(held?.kind), ((this.live?.nominees as readonly EntityId[] | undefined) ?? []).includes(npc.id), this.live?.hoh === npc.id || this.live?.vetoHolder === npc.id); // ORW-802: a power holder is watched more
     const fact = decideDodge({
       cunning: style ? CUNNING[style] ?? 0.3 : 0.3, leakiness: (style ? LEAKY[style] ?? 0.3 : 0.3) + 0.2 * vol, rattled: Math.max(0, vol - 0.5) * 2,
       trustInAsker: signals.npcTrust, stakes,
@@ -10045,7 +10045,7 @@ export class GameSessionAdapter implements GameSession {
     let speakers: Array<{ id?: string; name: string; host?: true; isPlayer?: true; manner?: "drawn-to" | "even" | "guarded" }> | undefined;
     if (pe.stage !== "entrances" && pe.spoke.length > 0) {
       const len = pe.spoke.length;
-      const from = len % TOAST_BATCH === 0 ? len - TOAST_BATCH : len - (len % TOAST_BATCH);
+      const from = pe.lastRelease !== undefined && pe.lastRelease > 0 && pe.lastRelease <= len ? len - pe.lastRelease : (len % TOAST_BATCH === 0 ? len - TOAST_BATCH : len - (len % TOAST_BATCH));
       speakers = pe.spoke.slice(from).map(speakerOf);
     }
     return {
@@ -10123,7 +10123,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** A9 - the staged premiere's entrances + toast, one `advanceGame` per release. */
-  private advancePremiereEntrance(): AdvanceView {
+  private advancePremiereEntrance(toastBatches?: number): AdvanceView {
     const s = this.live!;
     this.ensurePremiereClock();
     const callingCircle = s.premiereEntrance?.stage === "entrances" && !!s.houseTour && everyoneIn(s); // ORW-654 / 0206: calling the circle is not a new scene - it takes no premiere step, so the clock reads as it did before the tour
@@ -10181,7 +10181,10 @@ export class GameSessionAdapter implements GameSession {
       this.persist();
       return { ...this.advanceView(null), event: { beat: "premiere-toast", content: "The champagne toast ends", detail: { speakers: [], index: pe.spoke.length, of: all.length, closed: true } } };
     }
-    const batch = all.slice(pe.spoke.length, pe.spoke.length + TOAST_BATCH);
+    // ORW-997: a watch-only circle may flow several batches in one advance (1 to 4); the default is the one batch it always released.
+    const batches = Math.min(4, Math.max(1, Math.floor(typeof toastBatches === "number" && Number.isFinite(toastBatches) ? toastBatches : 1)));
+    const batch = all.slice(pe.spoke.length, pe.spoke.length + TOAST_BATCH * batches);
+    pe.lastRelease = batch.length;
     for (const sp of batch) {
       if (sp === "host") this.onPlayerEvent?.("The host opens the toast", [...pe.order], "toast-speech");
       else if (sp !== me) this.onPlayerEvent?.(`${this.nameOf(sp)} gives a toast`, [...pe.order], "toast-speech");
@@ -17592,7 +17595,7 @@ export class GameSessionAdapter implements GameSession {
     return new SeededRandom(hashSeed(`${root}:${this.live?.week}:${this.live?.beat}${cycle}`));
   }
 
-  advanceGame(req: { expectedBeatSeq?: number; idempotencyKey?: string } = {}): AdvanceView {
+  advanceGame(req: { expectedBeatSeq?: number; idempotencyKey?: string; toastBatches?: number } = {}): AdvanceView {
     this.disclosureEpoch++; // B33: an advance ends the previous beat's disclosure events
     // 0065 Part B — an at-most-once replay returns the ORIGINAL view (its beatSeq included) WITHOUT
     // advancing again; it WINS even if beatSeq has since moved (the cache is the authority on the
@@ -17616,7 +17619,7 @@ export class GameSessionAdapter implements GameSession {
     // persist, one beatSeq bump) so the released state is durable; `advanceView(null)` reports no new
     // beat (nothing was resolved — only the toast scene closed).
     if (this.live.premiereEntrance && this.live.premiereEntrance.stage !== "done") { // A9: the staged entrances/toast
-      const staged = this.inOneCommit(() => this.advancePremiereEntrance());
+      const staged = this.inOneCommit(() => this.advancePremiereEntrance(req.toastBatches));
       return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, staged) : staged;
     }
     if (this.bedRushRunning()) { // ORW-672 / 0201: the circle has closed - each advance is another heat of the bed rush, until every houseguest has a bed (or the window ends)
@@ -22417,9 +22420,13 @@ export class GameSessionAdapter implements GameSession {
     const view8 = closed.length ? { ...view7, dealsClosed: closed } : view7;
     const view = votePromises ? { ...view8, votePromises } : view8;
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
-    const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
+    const narrView0 = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
       ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)
       : view;
+    // ORW-997: the FE reports the latest staged-premiere release (arrival or toast batch) was already voiced by an earlier reply. A presentation-only mark on the narration view (never the HUD / getGameState view).
+    const narrView = req.entranceVoiced === true && narrView0.premiere?.entrance && narrView0.premiere.entrance.stage !== "done"
+      ? { ...narrView0, premiere: { ...narrView0.premiere, entrance: { ...narrView0.premiere.entrance, voiced: true as const } } }
+      : narrView0;
     const moment = req.moment ?? view.moment;
     // #1735 (A4) — the terminal HARD-CONSTRAINTS block, a SEPARATE field from `systemPrompt` so the
     // caller (the front-end) can append it as the LAST message before generation instead of folding it
@@ -23526,8 +23533,12 @@ export class GameSessionAdapter implements GameSession {
     // it ⇒ byte-identical, no golden re-record. A pure read of the live loop state + the day clock; the
     // HUD shows it and `renderGameContext` primes on it so run-up scenes carry the coming interruption.
     const nextM = this.perConversationClockLive() ? nextMilestone(this.live) : null;
+    // ORW-775: the header's phase, decided once, here, so the status panel and the reply stamp read one value: TODAY's event while the next waits behind its night (ORW-258); the HOH day from Day 2 on while the engine's
+    // phase still says premiere and the HOH competition is next (ORW-705); otherwise the phase itself.
+    const headerToday = nextM ? todaysEvent(this.live) : null;
+    const headerPhase = headerToday ?? (this.phase === "premiere" && (this.live?.dayNumber ?? 1) >= 2 && nextM?.beat === "hoh-competition" ? "hoh-competition" : this.phase);
     const daySchedule = nextM
-      ? { next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}), ...(dueTomorrow(this.live) ? { tomorrow: true as const } : {}), ...((this.live?.dueHeldMessages ?? 0) > 0 ? { heldTurns: this.live!.dueHeldMessages! } : {}), ...(this.eventRoomFactEnabled && eventStagingRoom(nextM.beat, this.live?.playedGame === true) ? { stagingRoom: eventStagingRoom(nextM.beat, this.live?.playedGame === true)! } : {}), ...(finalHohPartOf(this.live, this.finalHohThreePartEnabled) ? { finalHohPart: finalHohPartOf(this.live, this.finalHohThreePartEnabled)! } : {}) }
+      ? { headerPhase, next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}), ...(dueTomorrow(this.live) ? { tomorrow: true as const } : {}), ...((this.live?.dueHeldMessages ?? 0) > 0 ? { heldTurns: this.live!.dueHeldMessages! } : {}), ...(this.eventRoomFactEnabled && eventStagingRoom(nextM.beat, this.live?.playedGame === true) ? { stagingRoom: eventStagingRoom(nextM.beat, this.live?.playedGame === true)! } : {}), ...(finalHohPartOf(this.live, this.finalHohThreePartEnabled) ? { finalHohPart: finalHohPartOf(this.live, this.finalHohThreePartEnabled)! } : {}) }
       : undefined;
     // #1411 — the single closed-set lever this beat requires the narrator to CALL (advanceGame at the
     // deterministic comp/ceremony/eviction beats), or null otherwise. The FE forces THIS on the wire

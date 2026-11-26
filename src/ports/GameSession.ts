@@ -741,7 +741,7 @@ export interface GameStateView {
   interruption?: { npc: string; desire: string; /** ORW-261: what the houseguest chose to tell the player unprompted as they step in (already the player's own told-by knowledge). */ tells?: string };
   /** ORW-443: the approach cap withheld a houseguest this turn (played games only; absent otherwise). Narration-only; carries no count. */
   approachHeld?: true;
-  daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number; /** ORW-258: while the next event waits behind its night, the event that belongs to TODAY (the header names it). Absent otherwise. */ todaysEvent?: StructuralMilestone; /** ORW-363: the next event is on a LATER day (behind tonight's night); absent when it is today. The HUD says "tomorrow". */ /** ORW-859: player messages since the engine opened this due event and began holding the player's card (absent at 0): the call was already voiced. */ heldTurns?: number; tomorrow?: true; /** ORW-370: which part (1-3) of the three-part Final HOH the next `hoh-competition` is. Label only - the hold, due-ness and hours are the ordinary HOH milestone's. Absent for an ordinary HOH. */ finalHohPart?: 1 | 2 | 3; /** ORW-740b: the room the engine stages the next event in (ceremonies in the living room, competitions in the backyard), the same read the gather seats the house with. Absent when the event has no staging room or the flag is off. */ stagingRoom?: Room };
+  daySchedule?: { /** ORW-775: the phase the header names (TODAY's event; ORW-258 / ORW-705 rules applied by the engine), read by the status panel and the reply stamp. */ headerPhase: string; next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number; /** ORW-258: while the next event waits behind its night, the event that belongs to TODAY (the header names it). Absent otherwise. */ todaysEvent?: StructuralMilestone; /** ORW-363: the next event is on a LATER day (behind tonight's night); absent when it is today. The HUD says "tomorrow". */ /** ORW-859: player messages since the engine opened this due event and began holding the player's card (absent at 0): the call was already voiced. */ heldTurns?: number; tomorrow?: true; /** ORW-370: which part (1-3) of the three-part Final HOH the next `hoh-competition` is. Label only - the hold, due-ness and hours are the ordinary HOH milestone's. Absent for an ordinary HOH. */ finalHohPart?: 1 | 2 | 3; /** ORW-740b: the room the engine stages the next event in (ceremonies in the living room, competitions in the backyard), the same read the gather seats the house with. Absent when the event has no staging room or the flag is off. */ stagingRoom?: Room };
   /**
    * A `createCharacter` that was REFUSED rather than honored (audit R4-05): a game already exists
    * and no `confirmRestart` was given, so the prior season is intact and untouched (this view IS
@@ -1027,6 +1027,8 @@ export interface MakeDealReq {
    * duplicate is a clean no-op even against a board that has since moved. Absent ⇒ byte-identical (opt-in).
    */
   idempotencyKey?: string;
+  /** ORW-997: the toast circle only: release up to this many batches (1 to 4, default 1) in ONE advance, so a watch-only circle can flow several steps in a turn. Ignored outside the toast. */
+  toastBatches?: number;
 }
 
 /**
@@ -1274,6 +1276,11 @@ export interface MomentPromptReq {
    * ORW-377 (zero clocks in the house, the FE setting `zero_clocks`): hand the narrator the part of the day ("small hours, Day 5") in place of the clock time. Presentation only; absent/false ⇒ byte-identical.
    */
   zeroClocks?: boolean;
+  /**
+   * ORW-997: the FE reports that an earlier reply already voiced the latest staged-premiere release (the arrival or the toast batch on the board) and nothing new was committed this turn. The narration view then marks
+   * the entrance `voiced` and the prompt says so (no re-voicing, no upcoming speaker). Presentation only; absent/false => byte-identical.
+   */
+  entranceVoiced?: boolean;
 }
 
 /**
@@ -2162,6 +2169,8 @@ export interface PremiereIntrosView {
     playerToast?: "later" | "now" | "done";
     /** ORW-368: toast speakers (the player's slot included) still to be released AFTER the latest batch, from the engine's done list. The toast is over only when this reaches 0 and the stage reads done. Toast stage only. */
     toastRemaining?: number;
+    /** ORW-997: set only on a narration view when the caller (`getMomentPrompt` with `entranceVoiced`) reports that an earlier reply already voiced what this view shows (the latest arrival, or the latest toast batch). */
+    voiced?: true;
   };
 }
 

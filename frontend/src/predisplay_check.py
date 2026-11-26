@@ -40,26 +40,51 @@ _ACT_RE = re.compile(
 _ACT_SRC = _ACT_RE.pattern[len(r"\b(?:"):-len(r")\b")]
 
 
+_MAX_CARRIED_QUOTE = 600  # a quote carried this many characters without a closing mark is a stray mark, not speech: stop exempting
+
+
 def _scan_quotes(text: str, open_at_start: bool) -> "tuple[str, bool]":
     """(the text with every quoted span blanked, whether a quote is still open at the end). A straight quote toggles; a curly open/close sets the state. Only double quotes count
-    (an apostrophe is never a quote). `open_at_start` carries an open quote in from the earlier chunks of the same round (ORW-408 review: a multi-sentence quoted line streams as
-    several chunks, and every chunk after the first arrives without its opening quote). A dangling open quote runs to the end of the text (fail-open: nothing in it can conflict)."""
+    (an apostrophe is never a quote, and a straight quote right after a digit is an inch mark, never an opening quote). `open_at_start` carries an open quote in from the earlier chunks of
+    the same round (ORW-408 review: a multi-sentence quoted line streams as several chunks, and every chunk after the first arrives without its opening quote). The carry is BOUNDED so one
+    stray mark cannot exempt the rest of the round: an open quote ends at a paragraph break (a blank line) and after `_MAX_CARRIED_QUOTE` characters without a closing mark."""
     out: "list[str]" = []
     open_q = bool(open_at_start)
+    run = 0  # characters spent inside the current open quote
+    blank_pending = False  # a newline has been seen since the last non-space character
+    prev = ""
     for ch in text:
+        if ch == "\n":
+            if blank_pending and open_q:
+                open_q, run = False, 0  # a blank line ends any quote
+            blank_pending = True
+            out.append(" " if open_q else ch)
+            prev = ch
+            continue
+        if ch not in " \t\r":
+            blank_pending = False
         if ch == '"':
-            out.append(" " if open_q else "")
-            open_q = not open_q
-            if open_q:
-                out.append(" ")
+            if not open_q and prev.isdigit():
+                out.append(ch)  # an inch mark (5'10"), not a quote
+            else:
+                out.append(" " if open_q else "")
+                open_q = not open_q
+                run = 0
+                if open_q:
+                    out.append(" ")
         elif ch == "\u201c":
-            open_q = True
+            open_q, run = True, 0
             out.append(" ")
         elif ch == "\u201d":
-            open_q = False
+            open_q, run = False, 0
             out.append(" ")
         else:
             out.append(" " if open_q else ch)
+        if open_q:
+            run += 1
+            if run > _MAX_CARRIED_QUOTE:
+                open_q, run = False, 0
+        prev = ch
     return "".join(out), open_q
 
 
@@ -341,25 +366,145 @@ def record_conflicts(facts: "list[str]", user: Any = None) -> None:
     """Count each hit in a plain counter + an INFO log line. Deliberately NOT record_soft_failure: until the rewrite slice exists a count-only hit is not a health event and must not show RED on the admin page."""
     for f in facts:
         PREDISPLAY_COUNTS[f] = PREDISPLAY_COUNTS.get(f, 0) + 1
+        _tc = _tally(user)["conflicts"]
+        _tc[f] = _tc.get(f, 0) + 1
         logger.info("[predisplay-conflict] %s (count only, no rewrite in this slice)", f)
 
 
+# ORW-408: how often the check ran, what it could not check and why, and where its state came from. Plain counters (statuses and numbers only): the admin health
+# snapshot (`predisplay` key) and status page read `stats_snapshot()`. "checked" counts the guarded text chunks the check saw with a usable state (a reply is several chunks).
+CHECK_STATS: "dict[str, Any]" = {
+    "checked": 0,  # chunks checked against a usable state
+    "skipped": {},  # reason -> chunks not checked: "no-cache" / "stale" (refresh off), "timeout" (the bounded read ran out), "other" (read failed, no game, unreadable state)
+    "stateFrom": {"cache": 0, "read": 0},  # the state was already cached and fresh / needed the one bounded read
+    "cacheMiss": {},  # why the cache could not serve a chunk before the read: "no-cache" (nothing stored: never read, or an engine write dropped it) / "stale" (older than 30 s)
+    "turns": 0,
+    "turnsWithConflict": 0,
+}
+_TURN: "dict[str, dict]" = {}  # owner -> this turn's tally, flushed by `end_turn` (bounded)
+_READ_BACKOFF: "dict[str, float]" = {}  # owner -> monotonic time before which a timed-out read is not retried (a slow engine must not tax every chunk)
+_BACKOFF_S = 10.0
+
+
+def predisplay_read_timeout_s() -> float:
+    """ORWELL_PREDISPLAY_READ_TIMEOUT_S (default 1.0): the longest the check waits for the one fresh getGameState read. `0` turns the refresh off (the check then only uses what is cached)."""
+    try:
+        return max(0.0, float(os.environ.get("ORWELL_PREDISPLAY_READ_TIMEOUT_S", "1.0")))
+    except ValueError:
+        return 1.0
+
+
+def _okey(owner: Any) -> str:
+    return "" if owner is None else str(owner)
+
+
+def _tally(owner: Any) -> dict:
+    k = _okey(owner)
+    t = _TURN.get(k)
+    if t is None:
+        if len(_TURN) > 256:
+            _TURN.clear()
+        t = _TURN[k] = {"checked": 0, "skipped": {}, "conflicts": {}}
+    return t
+
+
+def _note_skip(owner: Any, reason: str) -> None:
+    CHECK_STATS["skipped"][reason] = CHECK_STATS["skipped"].get(reason, 0) + 1
+    t = _tally(owner)
+    t["skipped"][reason] = t["skipped"].get(reason, 0) + 1
+
+
+def end_turn(owner: Any) -> None:
+    """One INFO line per turn: chunks checked, skipped (by reason), conflicts (by fact). Called from the turn's `finally`; a turn that never reached the check logs nothing."""
+    try:
+        t = _TURN.pop(_okey(owner), None)
+        if t is None:
+            return
+        CHECK_STATS["turns"] += 1
+        if t["conflicts"]:
+            CHECK_STATS["turnsWithConflict"] += 1
+        logger.info("[predisplay-turn] checked=%d skipped=%s conflicts=%s", t["checked"],
+                    ",".join("%s:%d" % kv for kv in sorted(t["skipped"].items())) or "0",
+                    ",".join("%s:%d" % kv for kv in sorted(t["conflicts"].items())) or "0")
+    except Exception:  # failsoft-ok: counter only
+        pass
+
+
+def stats_snapshot() -> "dict[str, Any]":
+    """Statuses and numbers only (no text, no names), for the admin health snapshot."""
+    return {
+        "enabled": predisplay_check_enabled(),
+        "rewriteEnabled": predisplay_rewrite_enabled(),
+        "readTimeoutS": predisplay_read_timeout_s(),
+        "checked": CHECK_STATS["checked"],
+        "skipped": dict(CHECK_STATS["skipped"]),
+        "skippedTotal": sum(CHECK_STATS["skipped"].values()),
+        "stateFrom": dict(CHECK_STATS["stateFrom"]),
+        "cacheMiss": dict(CHECK_STATS["cacheMiss"]),
+        "conflicts": dict(PREDISPLAY_COUNTS),
+        "conflictsTotal": sum(PREDISPLAY_COUNTS.values()),
+        "rewrites": dict(REWRITE_COUNTS),
+        "turns": CHECK_STATS["turns"],
+        "turnsWithConflict": CHECK_STATS["turnsWithConflict"],
+    }
+
+
+async def _usable_state(owner: Any) -> "tuple[Any, str]":
+    """(state, "") or (None, skip reason). The cached state when fresh; otherwise ONE bounded getGameState read (ORW-408: a narrator turn writes, which drops the cache, so a
+    peek-only check skipped almost every reply). The read is single-flight and stored by `engine_read_cache`, so the rewrite's synchronous `peek` right after sees it too. Never
+    waits longer than `predisplay_read_timeout_s()`; a timeout or failure is a counted skip and backs off 10 s so a slow engine cannot tax every chunk."""
+    import asyncio
+    import time
+    from src import engine_read_cache
+    state, why = engine_read_cache.peek_status("getGameState", owner, fields=_STATE_FIELDS)
+    if state is not None:
+        CHECK_STATS["stateFrom"]["cache"] += 1
+        return state, ""
+    CHECK_STATS["cacheMiss"][why] = CHECK_STATS["cacheMiss"].get(why, 0) + 1
+    tmo = predisplay_read_timeout_s()
+    if tmo <= 0:
+        return None, why
+    k = _okey(owner)
+    if _READ_BACKOFF.get(k, 0.0) > time.monotonic():
+        return None, "timeout"
+    try:
+        from src import orwell_engine
+        full = await asyncio.wait_for(orwell_engine.get_game_state_polled(owner, timeout=tmo), tmo)
+    except asyncio.TimeoutError:
+        _READ_BACKOFF[k] = time.monotonic() + _BACKOFF_S
+        return None, "timeout"
+    except Exception:  # failsoft-ok: a failed read is a counted skip
+        _READ_BACKOFF[k] = time.monotonic() + _BACKOFF_S
+        return None, "other"
+    _READ_BACKOFF.pop(k, None)
+    if not isinstance(full, dict) or full.get("started") is False:
+        return None, "other"
+    CHECK_STATS["stateFrom"]["read"] += 1
+    return {f: full[f] for f in _STATE_FIELDS if f in full}, ""
+
+
 async def check_and_count(text: str, owner: Any, *, in_quote: bool = False) -> "list[str]":
-    """Find conflicts against the ALREADY-CACHED engine state and count them. Never fetches: with no fresh cached state the check is skipped, so a slow engine cannot delay a streamed chunk.
-    Returns the fact ids (the caller ignores them in this slice). Off by `ORWELL_PREDISPLAY_CHECK=0`."""
+    """Find conflicts against the engine's hard facts and count them. The state is the cached one when fresh, else one bounded read (`_usable_state`); when neither is available the
+    chunk is a COUNTED skip (with its reason), never a silent one. Returns the fact ids (the caller ignores them). Off by `ORWELL_PREDISPLAY_CHECK=0`."""
     if not text or not predisplay_check_enabled():
         return []
     try:
-        from src import engine_read_cache
         from src.zero_clocks import zero_clocks_on
-        state = engine_read_cache.peek("getGameState", owner, fields=_STATE_FIELDS)
+        state, why = await _usable_state(owner)
         if state is None:
+            _note_skip(owner, why or "other")
             return []
+        CHECK_STATS["checked"] += 1
+        _tally(owner)["checked"] += 1
         facts = find_conflicts(text, state, zero_clocks=zero_clocks_on(), in_quote=in_quote)
         if facts:
             record_conflicts(facts, owner)
         return facts
     except Exception:  # failsoft-ok: counter only
+        try:
+            _note_skip(owner, "other")
+        except Exception:  # failsoft-ok: counter only
+            pass
         return []
 
 
@@ -552,6 +697,9 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[\s\"'*_]+$|^[\s\"'*_]+", "", s)).strip().lower()
 
 
+_MIN_REPEAT_CHARS = 12
+
+
 def drop_repeated_prefix(redo: str, shown: str) -> str:
     """Drop LEADING sentences of the redo that repeat (exact, after whitespace/quote/case normalisation) the tail of what was already shown: a model that restarts the scene instead of
     continuing it must not narrate the same lines twice. Stops at the first sentence that is new. Lossless otherwise (the rest keeps its spacing)."""
@@ -568,7 +716,7 @@ def drop_repeated_prefix(redo: str, shown: str) -> str:
             if not n:
                 i += 1
                 continue
-            if n in recent or (len(n) >= 12 and n in tail_norm):
+            if len(n) >= _MIN_REPEAT_CHARS and (n in recent or n in tail_norm):  # a short line ("Okay.", "Fine.") that merely equals a shown one is legitimate
                 i += 1
                 continue
             break
