@@ -27,7 +27,7 @@ function run(seed: number, ticks = 200): { top: number; bottom: number } {
 }
 
 describe("0120 strategic cadence - measured frequency", () => {
-  it("the sharpest initiate scheming more often than the most passive, with a slight skew (ratio < 3), pooled over seeds", () => {
+  it("the sharpest initiate scheming more often than the most passive, with a slight skew (ratio < 3), pooled over seeds", { timeout: 120_000 }, () => { // ORW-985: 600 off-screen ticks: an explicit budget, not the 30 s default
     let top = 0, bottom = 0;
     for (const seed of [7, 21, 41]) { const r = run(seed); top += r.top; bottom += r.bottom; }
     // eslint-disable-next-line no-console
