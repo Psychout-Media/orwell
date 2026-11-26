@@ -98,7 +98,7 @@ describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer f
     type Run = { fights: number; shown: boolean; target?: string };
     const play = async (seed: number, user: string, answer: boolean, stopOnShown = false): Promise<Run> => {
       let target: string | undefined; let answered = false; let shown = false; let after = 0; let s: Sess | undefined;
-      await playMixGame(seed, 1400, { user,
+      await playMixGame(seed, 1400, { user: user,
         onStep: (sess) => { s = sess as Sess; if (!target) { const r = (s.live.aimedAtPlayer ?? []).find((x) => x.hostile && x.status === "shown"); if (r) { target = r.actor; shown = true; } } else after++; },
         onMessage: async (call) => { if (answer && target && !answered) { answered = true; await call("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, target], content: "I hear you, let's talk it through", kind: "conversation" }); } },
         stopWhen: () => (stopOnShown ? shown : after > 500),
