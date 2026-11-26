@@ -2538,10 +2538,11 @@ def _volatile_tail_wire(messages):
 #:   beat      - the framed ceremony beat's engine-named required lever (comp / advance); an OPEN player pending suppresses it.   ENABLED
 #:   casting   - the casting-finalize createCharacter once the player signalled ready and the intake is finalizable.             ENABLED
 #:   stall     - S1b: advanceGame after a lost progression beat / repeated stall signals; never with a pending open.            ENABLED
+#:   actfirst  - the ORW-1014 act-first round (flag ORWELL_ACT_FIRST, default off): a closed toolset, forced; submitDecision only for comp-intent/comp-round/deal-offer.   ENABLED (flag OFF)
 #:   bedtime   - turnIn when the player went to bed: the FE already runs it directly before narration (ORW-310b, proven live).  OFF (direct path kept)
 #:   whereabouts - BL-007: forced on every premiere/group free-play turn; not owed by the engine and costs a round each turn.    OFF
 _ESC_INELIGIBLE_ROUNDS: dict = {}  # ORW-1041: owner -> consecutive rounds the S1b escalation stayed armed on a route that rejects tool_choice
-_DEEPSEEK_FORCE_SITES = frozenset({"beat", "casting", "stall"})
+_DEEPSEEK_FORCE_SITES = frozenset({"beat", "casting", "stall", "actfirst"})
 
 
 def _deepseek_direct_thinking_off(model: str, url) -> bool:
@@ -10098,6 +10099,8 @@ async def _stream_agent_loop_impl(
     _pre_bed_state = None  # ORW-395: the board as it stood BEFORE the FE-run belt turnIn (the presence wall accepts either set that turn)
     _first_stream_round = 1  # ORW-395: the belt's own round shifts the first narration round to 2
     _belt_own_round = False
+    _act_first_done = False  # ORW-1014: the act-first round runs at most once per turn
+    _act_first_outcome = None  # ORW-1014: its outcome this turn (None = it did not run); an after-reply move belt that fires on a noAction counts as a miss
     for round_num in range(1, max_rounds + 1):
         _round_finish_reason = None
         round_response = ""
@@ -10524,6 +10527,83 @@ async def _stream_agent_loop_impl(
                     messages.append({"role": "system", "content": _np_note})
             except Exception as _np_err:
                 logger.warning(f"[orwell] ORW-417 nap belt skipped: {_np_err}")
+            # ── ORW-1014 PR 2: act-first, the LOOP half (flag ORWELL_ACT_FIRST, default OFF). The decision and the move / bed / search commits already ran at the resolvePlayerMove slot
+            # (orwell_player_move.act_first_before_narrator, before the briefing was built). Here the committed calls join tool_events (so the after-reply belts stand down) and the
+            # acts that go through the tool dispatcher (sleep, advance, a step answer) run now, in order, each on its own merits. Fail-soft: any problem leaves the ordinary round. ──
+            try:
+                from src import act_first as _af
+                _af_st = _af.take_stash(_force_owner) if (not _act_first_done and round_num == 1 and not _belt_own_round and not _turn_had_error) else None
+                if _af_st:
+                    _act_first_done = True
+                    _act_first_outcome = _af_st.get("outcome")
+                    _af_notes = []
+                    _af_blocked = list(_af_st.get("blocked") or [])
+                    _af_text = _af_st.get("text") or ""
+                    for _af_tool, _af_args, _af_ok in (_af_st.get("done") or []):
+                        _af_json = json.dumps(_af_args)
+                        yield f'data: {json.dumps({"type": "tool_start", "tool": _af_tool, "command": _af_json, "round": round_num})}\n\n'
+                        yield f'data: {json.dumps({"type": "tool_output", "tool": _af_tool, "command": _af_json, "output": "", "exit_code": 0 if _af_ok else 1})}\n\n'
+                        tool_events.append({"round": round_num, "tool": _af_tool, "command": _af_json, "output": "", "exit_code": 0 if _af_ok else 1})
+                        _note_belt(owner, ("act-first:" if _af_ok else "act-first-blocked:") + _af_tool)
+                        _belt_own_round = True
+                    _af_notes += list(_af_st.get("notes") or [])
+                    _af_status = None
+                    for _af_act in (_af_st.get("pending") or []):
+                        _af_why = _af.blocked_precondition(_af_act, _af_blocked)
+                        if _af_why:
+                            _af_notes.append(f"The player's {_af_act[0]} was NOT run: {_af_why}.")
+                            _af_blocked.append(_af_act)
+                            _af.note_commit(_af_act[0] if _af_act[0] in _af.KINDS else "advance", False)
+                            continue
+                        _af_tool, _af_args = _af_act
+                        if _af_tool == "advance":
+                            _af_tool, _af_args = _af_args.get("lever") or "advanceGame", {}
+                        _af_json = json.dumps(_af_args)
+                        yield f'data: {json.dumps({"type": "tool_start", "tool": _af_tool, "command": _af_json, "round": round_num})}\n\n'
+                        _af_desc, _af_result = await execute_tool_block(
+                            ToolBlock(_af_tool, _af_json), session_id=session_id, disabled_tools=disabled_tools,
+                            tool_policy=tool_policy, owner=owner, workspace=workspace)
+                        _af_out = str((_af_result.get("output") or _af_result.get("error") or "") if isinstance(_af_result, dict) else "")
+                        yield f'data: {json.dumps({"type": "tool_output", "tool": _af_tool, "command": _af_json, "output": "", "exit_code": _af_result.get("exit_code") if isinstance(_af_result, dict) else None})}\n\n'
+                        tool_events.append({"round": round_num, "tool": _af_tool, "command": _af_json, "output": "", "exit_code": (_af_result or {}).get("exit_code")})
+                        if _af_tool == "turnIn":
+                            _af_ok = _turn_in_applied(_af_result)
+                        else:
+                            _af_ok = (isinstance(_af_result, dict) and not _af_result.get("error") and _af_result.get("exit_code") in (0, None)
+                                      and not re.search(r'"(?:refused|illegal|held|error)"\s*:\s*(?!false|null)', _af_out))
+                        _af.note_commit("advance" if _af_act[0] == "advance" else _af_act[0], bool(_af_ok))
+                        _af_id = f"call_{round_num}_actfirst_{len(tool_events)}"
+                        messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": _af_id, "type": "function", "function": {"name": _af_tool, "arguments": _af_json}}]})
+                        messages.append({"role": "tool", "tool_call_id": _af_id, "content": f"### {_af_tool}\n```\n{_af_out[:4000]}\n```"})
+                        if _af_ok:
+                            _note_belt(owner, "act-first:" + _af_tool)
+                            if _af_tool == "turnIn":
+                                _turn_slept = True
+                                try:
+                                    await _refresh_context_after_turn_in(messages, _force_owner, _af_out)
+                                except Exception:
+                                    pass
+                        else:
+                            _note_belt(owner, "act-first-blocked:" + _af_tool)
+                            _af_blocked.append(_af_act)
+                            _af_notes.append(f"The {_af_tool} the player asked for was BLOCKED by the game: voice that in the fiction.")
+                            if _af_tool == "turnIn":
+                                try:
+                                    if _af_status is None:
+                                        from src import orwell_engine as _oe_af
+                                        _af_status = await _oe_af.game_status(user=_force_owner)
+                                    _af_held = _bedtime_held_note(set(), player_text=_af_text, status=_af_status)
+                                    if _af_held:
+                                        messages.append({"role": "system", "content": _af_held})
+                                except Exception:
+                                    pass
+                        _belt_own_round = True
+                        _direct_applied = False
+                    if _belt_own_round or _af_notes:
+                        messages.append({"role": "system", "content": "(Production note, not for the player.) The game ALREADY ran the player's own act(s) before this reply, in order: voice what happened from the results, do not call those tools again, and do the rest of what the player did. " + " ".join(_af_notes)})
+            except Exception as _af_err:  # failsoft-ok: act-first-fail-soft - the ordinary narration round runs exactly as before
+                logger.warning(f"[orwell] act-first round skipped: {_af_err}")
+                logger.warning(f"[orwell] act-first round skipped: {_af_err}")
             if _belt_own_round:
                 # ORW-395 (1): same as between ordinary tool rounds - an empty text round, then the next round carries the narration.
                 _belt_own_round = False
@@ -11819,6 +11899,13 @@ async def _stream_agent_loop_impl(
                             # gap #3 telemetry — count only a REAL applied move (a room:null
                             # extraction / failed call is a no-op, not a correction)
                             _note_belt(owner, "auto-move-player")
+                            if _act_first_outcome in ("noaction", "noAction", "skipped", "error", "timeout"):
+                                _note_belt(owner, "act-first-miss:auto-move-player")  # ORW-1014: act-first stood down and the after-reply belt still had to move the player
+                                try:
+                                    from src import act_first as _af_m
+                                    _af_m.bump("misses")
+                                except Exception:
+                                    pass
                     # ── ADR 0009 NPC auto-move belt (also a pure persist side effect, never a re-prompt).
                     # The narration walked one or more houseguests to a room but the model never called
                     # moveHouseguest, so the engine's open presence would snap them back. A constrained

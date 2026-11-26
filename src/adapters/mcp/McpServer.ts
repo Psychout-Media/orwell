@@ -242,6 +242,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       return;
     case "resolvePlayerMove":
       if (!isStr(args["text"])) refuse("text", "a non-empty string (the player's own message)");
+      if (args["skip"] !== undefined && (!Array.isArray(args["skip"]) || !(args["skip"] as unknown[]).every((x) => x === "move" || x === "bed"))) refuse("skip", "an array of \"move\" and/or \"bed\" when present");
       guardSyncFields(true); // optional expectedBeatSeq + idempotencyKey
       return;
     case "noteMessage":
@@ -857,6 +858,7 @@ export class McpServer {
           ...(typeof args["previousReply"] === "string" && args["previousReply"] !== "" ? { previousReply: args["previousReply"].slice(0, 6000) } : {}),
           ...(typeof args["expectedBeatSeq"] === "number" ? { expectedBeatSeq: args["expectedBeatSeq"] } : {}),
           ...(typeof args["idempotencyKey"] === "string" && args["idempotencyKey"] !== "" ? { idempotencyKey: args["idempotencyKey"] } : {}),
+          ...(Array.isArray(args["skip"]) ? { skip: (args["skip"] as unknown[]).filter((x): x is "move" | "bed" => x === "move" || x === "bed") } : {}),
         });
       case "moveHouseguest":
         // ADR 0009 — record a narrated NPC relocation (open-set; legal-only). Vault-free result.

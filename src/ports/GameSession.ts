@@ -2241,7 +2241,8 @@ export type PlayerMoveView =
   | { refused: true; reason: string; from?: string; to?: string; msg?: string };
 
 /** ORW-419 - `resolvePlayerMove` request: the player's own message text (never the narration). */
-export interface ResolvePlayerMoveReq { /** ORW-1003: the previous narrator reply (player-visible text), for "head over there" / "I follow her". */ previousReply?: string; text: string; expectedBeatSeq?: number; idempotencyKey?: string }
+/** ORW-1014: `skip` names the text parses the caller has already decided another way (the act-first round owns the player's move, search and bed claim); the other resolvers in the seam still run. */
+export interface ResolvePlayerMoveReq { /** ORW-1003: the previous narrator reply (player-visible text), for "head over there" / "I follow her". */ previousReply?: string; text: string; expectedBeatSeq?: number; idempotencyKey?: string; skip?: ReadonlyArray<"move" | "bed"> }
 /** ORW-419 - the result: the recorded `playerMove` (null when the words held no clear move) + the resulting whereabouts. */
 export interface ResolvePlayerMoveResult { playerMove: PlayerMoveView | null; whereabouts: WhereaboutsView | null; beatSeq?: number; /** ORW-934: set when the words were a search for a houseguest and the engine walked it. */ search?: HouseSearchWalk }
 
