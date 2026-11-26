@@ -249,7 +249,7 @@ export interface SessionCore {
   /** ORW-698 (B2-12): habit scenes seen from a public spot, waiting for the calm tick's whisper (engine-only queue; consumed and emptied by the whisper, so not superset-guarded). Absent on an old save. */
   habitSightings?: Array<{ pair: [EntityId, EntityId]; room: Room; onlookers: EntityId[] }>;
   /** ORW-694 / B1-11: long Diary Room stays the house saw, not yet whispered. */
-  diaryStaySightings?: Array<{ who: EntityId; onlookers: EntityId[] }>;
+  diaryStaySightings?: Array<{ who: EntityId; onlookers: EntityId[]; key?: string }>;
   walkIn?: { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: "goes-quiet" | "carries-on-guarded" | "moves-the-talk" | "pulls-the-player-in" }[] };
   /**
    * The presence-tick COUNTER (L21/L24). Movement randomness rides a DEDICATED stream forked off the

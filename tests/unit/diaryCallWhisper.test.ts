@@ -115,3 +115,25 @@ describe("B1-11 - wired in the live house", () => {
     expect(mine[0].onlookers.every((id: string) => id !== PLAYER)).toBe(true);
   });
 });
+
+describe("B1-11 option (c) - held copies are inert (Coordinator ruling: the 12-season mix moved late bonding -3.0 with them live)", () => {
+  it("the whisper is recorded under a diary-stay lineage, for the player's stays and an NPC's alike", async () => {
+    const { DIARY_STAY_FACT_PREFIX } = await import("../../src/engine/heldFacts");
+    for (const who of ["npc:1", PLAYER]) {
+      const k = kn();
+      const out = whisperLongDiaryStay({ occupancy: new Map(), tenureOf: () => 0, npcs: ["npc:1", "npc:2", "npc:3"], player: PLAYER, affinity: () => 0.9, nameOf: (id: string) => id, knowledge: k, rng: rngAlways() } as never,
+        { who, onlookers: ["npc:2", "npc:3"], key: `${who}:40` });
+      expect(out).toBeDefined();
+      const held = ["npc:1", "npc:2", "npc:3"].flatMap((id) => k.knownTo(id)).filter((f) => f.content.includes("a long while"));
+      expect(held.length).toBeGreaterThan(0);
+      for (const f of held) expect(String(f.factId).startsWith(DIARY_STAY_FACT_PREFIX), `${who}: ${f.factId}`).toBe(true);
+    }
+  });
+
+  it("a holder never re-tells it or moves toward an audience for it: heldCandidates leaves it out, other facts stay", async () => {
+    const { heldCandidates, DIARY_STAY_FACT_PREFIX } = await import("../../src/engine/heldFacts");
+    const fact = (factId: string, content: string) => ({ id: factId, factId, content, confidence: 1, hops: 1, distortion: 0, source: "npc:9" }) as never;
+    const out = heldCandidates([fact(`${DIARY_STAY_FACT_PREFIX}npc:1:40`, "word in the house: Role 1 was in the Diary Room a long while"), fact("fact:npc:2:7", "word in the house: Role 2 and Role 3 keep slipping off together")], []);
+    expect(out.map((c) => c.factId)).toEqual(["fact:npc:2:7"]);
+  });
+});
