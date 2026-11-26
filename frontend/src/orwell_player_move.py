@@ -19,12 +19,20 @@ logger = logging.getLogger(__name__)
 
 BELT_NAME = "player-move-intent"
 
+#: ORW-1038: the users whose LAST message the engine's parser already decided (moved them, or refused the move): the post-reply move belt must not write a second, different move over it.
+_DECIDED: set = set()
+
+
+def engine_decided_this_message(user) -> bool:
+    return (user or "") in _DECIDED
+
 
 async def resolve_player_move_before_narrator(text: Any, user: Optional[str], client_msg_id: Optional[str] = None,
                                               *, engine: Any = None, previous_reply: Optional[str] = None) -> Optional[dict]:
     """Resolve the player's own move from ``text`` in the engine. Returns the engine's ``playerMove`` dict ({from,to} or
     {refused,reason}) when the words held a clear move, else None. Never raises."""
     try:
+        _DECIDED.discard(user or "")  # ORW-1038: a new message: last turn's verdict is over
         if not isinstance(text, str) or not text.strip():
             return None
         if engine is None:
@@ -42,6 +50,7 @@ async def resolve_player_move_before_narrator(text: Any, user: Optional[str], cl
         move = res.get("playerMove")
         if not isinstance(move, dict):
             return None
+        _DECIDED.add(user or "")
         try:
             from src import orwell_sync_ledger as _led
             if not move.get("refused"):
