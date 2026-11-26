@@ -114,7 +114,7 @@ describe("ORW-596 - an NPC accuses the player, who answers in their own words", 
 
   it("the player's answer settles it, is told once, and a garbled one changes nothing", () => {
     const { s, m } = accused();
-    s.submitDecision({ kind: "meeting-answer", vote: "maybe" } as never);
+    expect(() => s.submitDecision({ kind: "meeting-answer", vote: "maybe" } as never)).toThrow(/decision refused \(bad-answer\)/); // ORW-1063
     expect(m!.answer).toBeUndefined();
     s.submitDecision({ kind: "meeting-answer", vote: "deny", statement: "  That is   not true.\n" } as never);
     expect(m!.answer).toBe("deny");
