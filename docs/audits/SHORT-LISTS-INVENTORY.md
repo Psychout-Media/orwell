@@ -360,7 +360,7 @@ Delete `tests/unit/poolGuard508.test.ts` and `tests/unit/poolGuard508.allowlist.
 | src/engine/data/surnames.ts:7 | SURNAMES (805) | ORW-508 | (a) YES live where a writer authors it per person (genesis writes name, vocation and town: frontend/src/orwell_cast_genesis.py); this table is the offline floor, the de-dup source and the real-frequency world table (ORW-508 audit layer 1), so a long table is the right shape for it |
 | src/engine/data/vocations.ts:15 | VOCATIONS (124) | ORW-508 | (a) YES live where a writer authors it per person (genesis writes name, vocation and town: frontend/src/orwell_cast_genesis.py); this table is the offline floor, the de-dup source and the real-frequency world table (ORW-508 audit layer 1), so a long table is the right shape for it |
 | src/engine/deepProfile.ts:288 | FACIAL (40) | ORW-508 | engine floor for the photo face and mark lines; since #2828 the cast writer authors the face line live and the dealt mark is checked against it, so the list is only the offline floor (ORW-480) |
-| src/engine/deepProfile.ts:303 | MARKS (45) | ORW-508 | engine floor for the photo face and mark lines; since #2828 the cast writer authors the face line live and the dealt mark is checked against it, so the list is only the offline floor (ORW-480) |
+| src/engine/deepProfile.ts:303 | MARKS (composed, about 440 named + none) | ORW-508 | engine floor for the photo face and mark lines; since #2828 the cast writer authors the face line live and the dealt mark is checked against it, so the list is only the offline floor (ORW-480) |
 | src/engine/houseEvents.ts:90 | EVENT_SETUPS (61) | ORW-509 | offline floor under live authoring: when today's house event is recorded the status carries flavourSeed (two random anchors plus the lines already used this season and last) and the turn's narrator authors this cast's own version in the call that already runs; these axes only compose the recorded seed line |
 | src/engine/houseEvents.ts:112 | EVENT_TURNS (51) | ORW-509 | offline floor under live authoring: when today's house event is recorded the status carries flavourSeed (two random anchors plus the lines already used this season and last) and the turn's narrator authors this cast's own version in the call that already runs; these axes only compose the recorded seed line |
 
@@ -529,3 +529,25 @@ Delete `tests/unit/poolGuard508.test.ts` and `tests/unit/poolGuard508.allowlist.
 | src/engine/zeitgeist.ts:102 | 1 | list POOLS.news (6) | per season (once) | ORW-509 |
 | src/engine/zeitgeist.ts:110 | 1 | list POOLS.internet (6) | per season (once) | ORW-509 |
 | src/engine/zeitgeist.ts:121 | 1 | list MOOD_POOL (6) | per season (once) | ORW-509 |
+
+## ORW-508 results: character-facing pools (measured over 200 seeded casts of 15; #3323, #3333)
+
+Ceilings live in `src/domain/poolRecurrence.json` and are held by `tests/unit/poolRecurrence508.test.ts` (a pool that shrinks back fails; a new dealt card field with no row and no named reason fails). Numbers are distinct values, before to after.
+
+| pool | owner | result |
+|---|---|---|
+| distinguishing mark (named) | ORW-508 | 44 to 390; composed from kind templates (#3323); the hand list is gone |
+| face line | ORW-508 | 40 to 320 (base x one short word) |
+| style line | ORW-508 | 30 to 360 (family sample x accent) |
+| skin tone | ORW-508 | 10 to 100 |
+| hair | ORW-508 | 30 to 297 |
+| age look | ORW-508 | 5 to 407 (wordings per age band x one short word) |
+| biography | ORW-508 | root 8 to 34, drive 6 to 29, closer 6 to 20; whole biography 288 to 2774 distinct (#3333) |
+| voice | ORW-508 | dials are closed positions (4 to 5 each); the combination with the signature is 2752 distinct of 3000 dealt, pinned as voice.combo |
+| build | ORW-508 | 16, unchanged: the narrator prompt budget (promptBudget.test.ts) has no room for a tail on this line; needs a decision to raise the budget or move the build off the prompt |
+| demeanor (20), day-one perception (9), archetype, strategy style | ORW-508 | closed mechanic selectors that rules and outcomes branch on; the card text is authored per person; not widened |
+| hidden-element wording (17) | ORW-508 | exact strings key the trigger table (TRIGGER_WORDINGS) and the aptitude stat gates; widening needs a keyed redesign |
+| ethnicity label (20) | ORW-508 | needs a product ruling (named on the card 2026-11-16) |
+| habits (11), aims (6), ritual actions (11) in `frontend/src/orwell_npc_minds_words.py` | ORW-508 | closed mechanic ids the engine validates; the model writes the free-text gist per person |
+
+The tails and marks live in `src/engine/lookVariants.ts`; the narrator prompt carries the build, skin, hair, face and age-look lines of all 16 cards, so each tail on those lines is one short word.
