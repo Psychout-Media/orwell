@@ -293,7 +293,8 @@ def kickoff_capture(owner: Optional[str]) -> None:
 
     async def _runner():
         try:
-            await run_capture(owner)
+            from src.orwell_season_checklist import tracked, WORLD_SNAPSHOT  # ORW-970: records owed/running/done/failed
+            await tracked(owner, WORLD_SNAPSHOT, run_capture, owner)
         except Exception as e:  # pragma: no cover - defensive
             logger.warning("[zeitgeist] background capture failed: %s", e)
         finally:

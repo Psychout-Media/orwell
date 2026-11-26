@@ -206,6 +206,13 @@ async def run_words(owner: Optional[str]) -> dict:
         _alert(owner, "npc-minds:no-model", "no utility model resolved")
         return {"traits": None, "culture": None, "reason": "no-model"}
     from src import orwell_engine
+    from src.orwell_cast_authoring import pipeline_cast_for
+    # ORW-969: read the FULL cast (every houseguest, arrived or not; their cards are authored before the season starts), so habits and the frozen house culture are computed from the whole
+    # cast at once and nothing waits for the entrances. Unavailable (an engine without the read, an error) => the met-only read and the ORW-949 wait below, exactly as before.
+    state = await pipeline_cast_for(owner)
+    if state is not None and state.get("started") is not False:
+        house = [hg for hg in state.get("house") or [] if isinstance(hg, dict) and hg.get("id") and not hg.get("isPlayer")]
+        return await _author_words(owner, llm_fn, house)
     try:
         state = await orwell_engine.get_game_state(user=owner)
     except Exception as e:  # noqa: BLE001 - failsoft-ok: handled-by-terminal (_alert -> log_rings.record_soft_failure, RED)
@@ -226,7 +233,12 @@ async def run_words(owner: Optional[str]) -> dict:
             _alert(owner, "npc-minds:state-failed", e)
             return {"traits": None, "culture": None, "reason": "state-failed"}
     house = [hg for hg in (state or {}).get("house") or [] if isinstance(hg, dict) and hg.get("id") and not hg.get("isPlayer")]
+    return await _author_words(owner, llm_fn, house)
 
+
+async def _author_words(owner: Optional[str], llm_fn, house: list) -> dict:
+    """Lanes 1 and 2 over `house`, then the alerts for anything skipped."""
+    from src import orwell_engine
     async def _write_traits(req: dict) -> dict:
         return await orwell_engine.record_npc_traits(req, user=owner)
 
@@ -251,7 +263,8 @@ def kickoff_npc_minds_words(owner: Optional[str]) -> None:
 
     async def _runner():
         try:
-            await run_words(owner)
+            from src.orwell_season_checklist import tracked, HABITS_CULTURE  # ORW-970: records owed/running/done/failed
+            await tracked(owner, HABITS_CULTURE, run_words, owner)
         except Exception as e:  # pragma: no cover - failsoft-ok: handled-by-terminal (_alert -> log_rings.record_soft_failure, RED)
             _alert(owner, "npc-minds:background-run-failed", e)
         finally:
