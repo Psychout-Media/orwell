@@ -45,6 +45,9 @@ DEFAULT_SETTINGS = {
     # falling back to the spontaneous call + the reactive belts (stall-nudge, forced advanceGame,
     # _auto_record_scene) exactly as before this feature.
     "force_tool_choice_at_beats": True,
+    # ORW-1014 PR 2 - the ACT-FIRST round: before the prose round one small forced call over a closed toolset commits the player's plain acts (move, advance, sleep,
+    # answer an open step). OFF by default; read per turn, so the coordinator flips it at runtime (admin settings, no restart). The env flag ORWELL_ACT_FIRST=1 also turns it on.
+    "act_first_enabled": False,
     # #1782 — the veto-ceremony DECIDE→COMMIT→VOICE micro-call pipeline.
     # OFF by default; this is the runtime KILL-SWITCH so the pipeline can be disabled
     # without a redeploy. OFF ⇒ the veto-ceremony handler runs exactly as today (no

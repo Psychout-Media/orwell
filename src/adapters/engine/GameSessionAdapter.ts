@@ -8138,7 +8138,8 @@ export class GameSessionAdapter implements GameSession {
     const me = this.house.player.id;
     const here = this.presence.get(me) ?? null;
     this.bedRushPreMove(String(req.text ?? "")); // ORW-672 / 0201: rushing to a room is moving there, before the claim reads whether they reached it
-    const bedChanged = this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
+    const skipMove = req.skip?.includes("move") === true; // ORW-1014: the act-first round already decided this message's move
+    const bedChanged = req.skip?.includes("bed") === true ? false : this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
     if (bedChanged) this.persist();
     if (this.resolveWhoToldYou(String(req.text ?? ""))) this.persist(); // 0152 (theme 2 slice 4b): "who told you that?", read before the narrator writes (same seam)
     if (this.resolveSourceAnswer(String(req.text ?? ""))) this.persist(); // ORW-687: the player's own answer to a houseguest's "who told you that?", read before the narrator writes (same seam)
@@ -8149,7 +8150,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-728 (W1-11): "my bed" with no room named is the bedroom of the bed the player OWNS (only a fresh claim moved them before, so "I go back to my bed" left the room to the narrator, which picked the wrong one).
     const ownBed = this.live?.beds?.owner[PLAYER];
     const ownBedRoom = ownBed && /\bmy (?:own )?bed\b/i.test(String(req.text ?? "")) ? roomOfBed(ownBed) : null;
-    const searchPhrase = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) === null && !claimedBed && !ownBedRoom && parseVagueGo(String(req.text ?? "")) === null ? parseSearchIntent(String(req.text ?? ""), here, this.themedAliases()) : null;
+    const searchPhrase = skipMove ? null : parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) === null && !claimedBed && !ownBedRoom && parseVagueGo(String(req.text ?? "")) === null ? parseSearchIntent(String(req.text ?? ""), here, this.themedAliases()) : null;
     const searchTarget = searchPhrase !== null && here !== null ? this.searchTargetOf(searchPhrase) : null;
     if (searchTarget !== null && here !== null && this.presence.get(searchTarget.id) !== here) {
       // ORW-934: "look for X / find X / where is X" is committed here, before the narrator writes: the engine walks the search leg by leg and the narrator voices the legs as one passage
@@ -8164,9 +8165,9 @@ export class GameSessionAdapter implements GameSession {
       const sres: ResolvePlayerMoveResult = { playerMove: this.playerMove ? { ...this.playerMove } : null, whereabouts: this.whereabouts(), ...(walk ? { search: walk } : {}), beatSeq: this.beatSeqNow() };
       return idemKey ? this.rememberFoldIdempotent(idemKey, sres) : sres;
     }
-    const named = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) ?? (claimedBed ? roomOfBed(claimedBed) : null) ?? ownBedRoom;
-    const vague = named === null ? this.resolveVagueGo(String(req.text ?? ""), String(req.previousReply ?? ""), here) : undefined;
-    const dest = named ?? (vague !== undefined && vague !== "ambiguous" ? vague : null) ?? this.roomOfSightedHouseguest(String(req.text ?? ""), here);
+    const named = skipMove ? ownBedRoom : parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) ?? (claimedBed ? roomOfBed(claimedBed) : null) ?? ownBedRoom; // ORW-1014: skip move => only the player's own bed (ORW-728)
+    const vague = named === null && !skipMove ? this.resolveVagueGo(String(req.text ?? ""), String(req.previousReply ?? ""), here) : undefined;
+    const dest = skipMove ? named : named ?? (vague !== undefined && vague !== "ambiguous" ? vague : null) ?? this.roomOfSightedHouseguest(String(req.text ?? ""), here);
     const hadMove = this.playerMove !== null;
     this.playerMove = null; // a new player message: last turn's move is over
     this.holdNamedHouseguest(String(req.text ?? ""), dest); // ORW-933: the houseguest the message turns to is held in the room (below)
