@@ -94,7 +94,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
 
   it("a houseguest who says no: nobody moves, no hold, the answer is typed with nothing else, and the same hour gives the same answer; yes comes from a stronger bond than no", async () => {
     const all: No[] = []; const yesBonds: number[] = [];
-    for (const { at: { yes, nos } } of await firstSeedsWhere(3, (s) => playOne(s, {}, {}), wfScan([3, 5, 11], "a free moment where a houseguest says yes to the ask"))) {
+    for (const { at: { yes, nos } } of await firstSeedsWhere(6, (s) => playOne(s, {}, {}), wfScan([3, 5, 11, 1, 2, 4], "a free moment where a houseguest says yes to the ask"))) {
       all.push(...nos);
       yesBonds.push(yes.at.sess.rel.edge(yes.npc, PLAYER).trust + yes.at.sess.rel.edge(yes.npc, PLAYER).affinity);
     }
