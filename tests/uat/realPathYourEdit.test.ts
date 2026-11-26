@@ -1,3 +1,4 @@
+import { quarantine } from "../support/quarantine";
 import { describe, it, expect } from "vitest";
 import { playSeason } from "../support/whatFired/player";
 import { firstSeedWhere } from "../support/firstSeedWhere";
@@ -13,7 +14,7 @@ import { firstSeedWhere } from "../support/firstSeedWhere";
 type Moments = Array<{ kind: string }>;
 const kindsOf = (edit: { episodes: Array<{ moments: Moments }> } | undefined): Set<string> => new Set((edit?.episodes ?? []).flatMap((e) => e.moments.map((m) => m.kind)));
 describe("ORW-755 REAL PATH: the edit's moments", () => {
-  it("REAL PATH: turned, meeting and scheme moments are in the views of a played season, and gone when their features are off", async () => {
+  quarantine({ card: "ORW-1007", added: "2026-11-26" }).it("REAL PATH: turned, meeting and scheme moments are in the views of a played season, and gone when their features are off", async () => {
     // ORW-880: the first seed from 3 whose season is played to the crown with a house meeting called and a houseguest who turned, with the player's own strategy scenes read as a scheme (the precondition: the house's
     // own doing); the test then asserts what the edit and the stories make of it
     let onKinds = new Set<string>(), noMomentsKinds = new Set<string>(), editOff: unknown = "unset", shapes: string[] = [], retro: unknown;

@@ -167,13 +167,14 @@ export class DealLedger {
     duration?: { expiresWeek?: number; vague?: boolean },
     witnesses?: EntityId[],
     third?: EntityId,
+    moreThirds?: readonly EntityId[],
   ): Deal {
     const deal: Deal = {
       id: `deal:${++this.seq}`,
       parties,
       kind,
       terms,
-      condition: conditionFor(kind, parties, third),
+      condition: conditionFor(kind, parties, third, moreThirds),
       status: "open",
       ...(madeEventId ? { madeEventId } : {}),
       ...(madeWeek !== undefined ? { madeWeek } : {}),

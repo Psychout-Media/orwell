@@ -23,6 +23,7 @@ from src.llm_core import stream_llm, stream_llm_with_fallback, _is_ollama_native
 from src.model_context import estimate_tokens
 from src.settings import get_setting
 from src import agent_gates as _gates  # A60: the nudge gates as pure functions (verbatim extraction)
+from src import speaker_turns as _speaker_turns  # ORW-1028: the speaker-turn seam (a turn that lost its head goes whole; quote marks stay paired)
 from src.prompt_security import untrusted_context_message
 from src.tool_security import blocked_tools_for_owner, plan_mode_disabled_tools
 from src.tool_policy import GUIDE_ONLY_DIRECTIVE, ToolPolicy
@@ -2372,7 +2373,9 @@ def _strip_leading_recital(owner, round_num: int, round_response: str, clean: st
         kept, n = _rc.strip_leading_recital(clean)
         if not n:
             return round_response, clean, False
-        round_response = _mirror_wall_drop(round_response, clean, kept)
+        idx = round_response.rfind(clean)  # ORW-1057: the guard EDITS the first sentence (cuts a prefix, upper-cases a letter): apply the same edit to the raw text, never the whole-sentence walk
+        if idx >= 0:
+            round_response = round_response[:idx] + kept + round_response[idx + len(clean):]
         _rc.note_stripped()
         logger.info(f"[orwell] recital fragment stripped round={round_num} chars={n}")
         _note_belt(owner, "recital-stripped")
@@ -2530,11 +2533,38 @@ def _volatile_tail_wire(messages):
         return messages
 
 
-def _model_honors_forced_tool_choice(model: str) -> bool:
-    """True unless the resolved model is a KNOWN `tool_choice` rejecter (always-thinking DeepSeek). The
-    issue's pin-the-provider requirement: forcing is only sent where it is honored (asserted live)."""
+#: ORW-1014 — the forcing SITES that may send a wire `tool_choice` to DeepSeek's own API (thinking disabled). Each is a step the engine already
+#: OWES or a stall advance, never a player's binding pick (submitDecision is never forced anywhere). Inventory:
+#:   beat      - the framed ceremony beat's engine-named required lever (comp / advance); an OPEN player pending suppresses it.   ENABLED
+#:   casting   - the casting-finalize createCharacter once the player signalled ready and the intake is finalizable.             ENABLED
+#:   stall     - S1b: advanceGame after a lost progression beat / repeated stall signals; never with a pending open.            ENABLED
+#:   bedtime   - turnIn when the player went to bed: the FE already runs it directly before narration (ORW-310b, proven live).  OFF (direct path kept)
+#:   whereabouts - BL-007: forced on every premiere/group free-play turn; not owed by the engine and costs a round each turn.    OFF
+_ESC_INELIGIBLE_ROUNDS: dict = {}  # ORW-1041: owner -> consecutive rounds the S1b escalation stayed armed on a route that rejects tool_choice
+_DEEPSEEK_FORCE_SITES = frozenset({"beat", "casting", "stall"})
+
+
+def _deepseek_direct_thinking_off(model: str, url) -> bool:
+    """True only when the request goes to DeepSeek's OWN api (api.deepseek.com) on a model for which llm_core._apply_deepseek_thinking_off
+    sends `thinking: disabled` (every model but the thinking-only deepseek-reasoner). Probed 2026-11-26 (ORW-1014): HTTP 200 and the right
+    call for tool_choice auto / required / named. A thinking-on route, the reasoner, R1 or DeepSeek via OpenRouter stay rejecters."""
+    try:
+        from src.llm_core import deepseek_thinking_disabled
+        return bool(url) and deepseek_thinking_disabled(str(url), model) and "r1" not in (model or "").lower()
+    except Exception:  # failsoft-ok: expected-empty (cannot tell the request's thinking state => not a force route)
+        return False
+
+
+def _model_honors_forced_tool_choice(model: str, route=None, *, site: str | None = None) -> bool:
+    """True unless the (model, route) is a KNOWN `tool_choice` rejecter. Mode-aware (ORW-1014): a DeepSeek-V4/flash model on api.deepseek.com
+    with thinking disabled honors forcing, but only at a `_DEEPSEEK_FORCE_SITES` site (pass `site`; no site means "not enabled"). Called with
+    the model alone (no route) it keeps the old, conservative answer. Kill switch: ORWELL_DEEPSEEK_FORCE=0."""
     m = (model or "").lower()
-    return not any(bad in m for bad in _TOOL_CHOICE_REJECTERS)
+    if not any(bad in m for bad in _TOOL_CHOICE_REJECTERS):
+        return True
+    if os.environ.get("ORWELL_DEEPSEEK_FORCE", "1").strip().lower() in ("0", "false", "off", "no"):
+        return False
+    return site in _DEEPSEEK_FORCE_SITES and _deepseek_direct_thinking_off(model, route)
 
 
 # P2-16 (prompt audit) — the REJECTER FALLBACK. On a `_TOOL_CHOICE_REJECTERS` model the wire force
@@ -3373,24 +3403,70 @@ def _validate_assurance(raw, scene_ids) -> dict | None:
 _PROMISE_WHATS = ("no-nominate", "no-evict-vote", "use-veto-on", "not-use-veto-on", "final-two")
 
 
+_VALIDATOR_DROPS = collections.Counter()  # a process-wide tally of drops (names only, not per owner)
+
+
+def _note_validator_drop(validator: str, reason: str) -> None:
+    """ORW-1072: every extraction proposal a validator drops is counted (names and counts only, no content) and logged, so a lost promise leaves a trace."""
+    key = f"{validator}:{reason}"
+    _VALIDATOR_DROPS[key] += 1
+    logger.info(f"[orwell] extraction validator dropped a proposal ({key}) total={_VALIDATOR_DROPS[key]}")
+
+
 def _validate_promise(raw, scene_ids, roster_ids) -> dict | None:
     """ORW-586: validate the extraction's optional TYPED promise. `what` must be a promise kind the engine judges (closed set); WHO promised is "player" (the default) or an NPC id actually in the scene (`scene_ids`);
     `subject` (optional, who it concerns when not the person spoken to) must be a roster id. Anything else is dropped, never coerced. No number or free text crosses: the engine validates ids and presence again,
-    judges kept or broken from the board itself, and ignores the whole field unless ORWELL_PROMISE_TERMS is on."""
+    judges kept or broken from the board itself, and ignores the whole field unless ORWELL_PROMISE_TERMS is on.
+    ORW-1072: a subject of "player" is the player; for a houseguest's promise it is the person spoken to, so it is read as no subject (it was dropped, and the promise with it); for the player's own promise it names the promiser and is dropped.
+    Every drop is counted."""
     if not isinstance(raw, dict) or raw.get("what") not in _PROMISE_WHATS:
+        if isinstance(raw, dict):
+            _note_validator_drop("promise", "bad-what")
         return None
     out: dict = {"what": raw["what"]}
     by = raw.get("by")
     if by not in (None, "", "player"):
         if not (isinstance(by, str) and by in (scene_ids or [])):
+            _note_validator_drop("promise", "promiser-not-in-scene")
             return None
         out["from"] = by
     subject = raw.get("subject")
+    if subject == "player":
+        if "from" not in out:
+            _note_validator_drop("promise", "player-promise-about-self")
+            return None
+        subject = None  # a houseguest's promise about the player: the player is who it was made to
     if subject not in (None, ""):
         if not (isinstance(subject, str) and subject in (roster_ids or [])):
+            _note_validator_drop("promise", "subject-not-on-roster")
+            return None
+        if subject == out.get("from"):
+            _note_validator_drop("promise", "subject-is-promiser")
             return None
         out["subject"] = subject
     return out
+
+
+# ORW-1069: words the promise belts must not record. A spoken promise is recorded only when it is unconditional, firm, and its polarity is a promise to KEEP (not to vote out).
+_PROMISE_CONDITIONAL_RE = re.compile(r"\b(?:if|unless|as long as|so long as|provided|in case|on (?:the )?condition|only when|once you|depends?)\b", re.I)
+_PROMISE_HEDGE_RE = re.compile(
+    r"\b(?:try(?:ing)?(?: to)?|maybe|perhaps|might|probably|hope|hoping|can'?t say|cannot say|not sure|no promises|we'?ll see|i guess|i think i|i suppose|likely|ish)\b", re.I)
+_PROMISE_NEGATED_VOTE_RE = re.compile(r"\b(?:won'?t|will not|not|never|don'?t|do not|wouldn'?t|would not|refuse to|shan'?t)\b[^.!?]{0,30}\b(?:vote|evict|send)", re.I)
+_PROMISE_VOTE_OUT_RE = re.compile(
+    r"\b(?:vot(?:e|es|ed|ing)\b[^.!?]{0,40}?\b(?:out|off|against|to evict|evict|home)\b|evict(?:ing)?\b|send(?:ing)?\b[^.!?]{0,20}\bhome\b|(?:she|he|they|you)(?:'re| are)? goes? home\b)", re.I)
+
+
+def _promise_words_unfit(text, kind: str = "vote") -> str | None:
+    """ORW-1069: the reason a spoken promise must NOT be recorded, or None. 'conditional' (an if / unless promise is not a promise), 'hedged' (an attempt or a maybe), or 'vote-out' (the speaker promised
+    to vote someone OUT; recording it as a promise to keep them would be its opposite). A negated vote line ('I will not vote you out') is a promise to keep and passes. Only `vote`-shaped promises get the polarity read."""
+    t = text if isinstance(text, str) else ""
+    if _PROMISE_CONDITIONAL_RE.search(t):
+        return "conditional"
+    if _PROMISE_HEDGE_RE.search(t):
+        return "hedged"
+    if kind == "vote" and _PROMISE_VOTE_OUT_RE.search(t) and not _PROMISE_NEGATED_VOTE_RE.search(t):
+        return "vote-out"
+    return None
 
 
 # ORW-612 part C: the claim kinds the engine can check against its own records (the closed `SPOKEN_CLAIM_KINDS` in src/engine/spokenClaims.ts). Anything else makes no claim, by design.
@@ -4873,7 +4949,7 @@ _PROMISE_EXTRACT_INSTRUCTIONS = (
     '{"withIds":["<roster id of each houseguest the promise was made to>"],'
     '"assurance":{"kind":"<safe|vote|loyal>"},'
     '"promise":{"what":"<the promise kind>","subject":"<houseguest id it concerns>"}}. '
-    "Use `assurance` for a cheap, explicit promise: 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal). "
+    "Use `assurance` for a cheap, explicit promise: 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal). A promise to vote someone OUT is never an assurance or a promise: leave it out, and leave out anything conditional ('if'), hedged or an attempt ('I will try'). "
     "Use `promise` for an explicit promise about what the player will or will not do on the board; `what` must be exactly one of: no-nominate (will not nominate them), no-evict-vote (will not vote them out), "
     "use-veto-on (will use the veto on them), not-use-veto-on (will not use the veto on them), final-two (will take them to the final two). `subject` is left out when it concerns the one spoken to. "
     "Give at most one of the two, whichever fits the words better. Never for a hint, a hope, a threat, a joke, a question or a mere wish, and never about anything the player did not say. "
@@ -4914,6 +4990,11 @@ async def _auto_record_promise(last_user, house, endpoint_url, model, headers, o
         promise = _validate_promise({"what": p_raw.get("what"), "subject": p_raw.get("subject")}, ids, valid) if isinstance(p_raw, dict) else None
         if assurance and promise:
             assurance = None  # one proposal per scene, and the typed promise writes the matching assurance row itself
+        if assurance or promise:
+            _unfit = _promise_words_unfit(last_user, "vote" if (assurance and assurance.get("kind") == "vote") or (promise and promise.get("what") == "no-evict-vote") else "loyal")
+            if _unfit:  # ORW-1069: the player's own words are checked for polarity and firmness before anything is staged
+                _note_validator_drop("player-promise", _unfit)
+                return False
         if not assurance and not promise:
             return False
         content = (last_user or "").strip()[:400]
@@ -5770,7 +5851,11 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
                 # deal with terms other than the spoken ones, so an off-enum kind records NOTHING (no deal, no belt fire).
                 logger.info(f"[orwell] deal back-fill: kind {kind!r} is not in the closed deal-kind set - skipped, no deal recorded user={owner}")
                 continue
-            terms = (prop.get("terms") or "").strip()[:200] or "a mutual protection deal"
+            terms = (prop.get("terms") or "").strip()[:200]
+            if not terms:
+                # ORW-1072: no spoken terms means no deal the engine could judge; the belt never invents a default clause (it used to file final-two and target-other deals under a made-up protection clause).
+                _note_validator_drop("deal", "no-terms")
+                continue
             # 0109 - a duration the scene explicitly named rides along (shape-filtered; the ENGINE bounds it).
             _tw = prop.get("termWeeks")
             _term_kw = {"term": {"weeks": _tw}} if isinstance(_tw, int) and not isinstance(_tw, bool) and _tw >= 1 else {}
@@ -6000,10 +6085,16 @@ def _validate_voiced_promises(raw_items, roster_ids, standing, skip_by) -> list:
         by, about, kind = it.get("by"), it.get("about"), it.get("kind")
         line = it.get("line") if isinstance(it.get("line"), str) else ""
         if not (isinstance(by, str) and by in roster_ids) or kind not in _VOICED_PROMISE_WHAT or not line.strip():
+            _note_validator_drop("voiced-promise", "malformed")
+            continue
+        _unfit = _promise_words_unfit(line, "vote" if kind == "vote" else "loyal")  # ORW-1069: the promiser's own words decide polarity and firmness, never the extraction's label alone
+        if _unfit:
+            _note_validator_drop("voiced-promise", _unfit)
             continue
         if about in (None, "", "player"):
             about = None
         elif not (isinstance(about, str) and about in roster_ids and about != by):
+            _note_validator_drop("voiced-promise", "about-not-on-roster")
             continue
         key = (by, about or "")
         if key in seen or key in standing or by in (skip_by or ()):
@@ -6035,8 +6126,8 @@ async def _auto_promise(narration, last_user, house, endpoint_url, model, header
                 "that they will not put someone on the block. Reply IMMEDIATELY with ONLY a JSON object, no prose, no code fence:\n"
                 '{"promises":[{"by":"<the promiser, an id from the ROSTER>","about":"<the houseguest they promised to keep, an id from the ROSTER, or player when it is the player>",'
                 '"kind":"<vote|loyal>","line":"<their promise in the words spoken>"}]}\n'
-                "vote = they said how they will vote at eviction; loyal = they said they will not nominate someone. Include ONLY a clear, first-person "
-                "promise that was actually voiced; a hope, a question, a threat, a hedge or a promise by the player => leave it out. No promise voiced => "
+                "vote = they promised to vote to KEEP someone (never a promise to vote someone out: a vow to vote a person out is NOT recorded); loyal = they said they will not nominate someone. Include ONLY a clear, first-person "
+                "promise that was actually voiced and is firm and unconditional; a hope, a question, a threat, a hedge, an attempt ('I will try'), an 'if' promise or a promise by the player => leave it out. No promise voiced => "
                 '{"promises":[]}. NEVER invent an id not in the ROSTER.'},
             {"role": "user", "content":
                 f"ROSTER (id = name):\n{roster_lines}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:600]}\n\nWHAT HAPPENED:\n{(narration or '')[:3000]}\n\nJSON:"},
@@ -7019,14 +7110,14 @@ async def _pre_emission_outcome_guard(text: str, owner) -> str:
     return "".join(out)
 
 
-async def _confession_guard(text: str, owner) -> "tuple[str, list]":
+async def _confession_guard(text: str, owner, player_msg=None) -> "tuple[str, list]":
     """N-17 - replace an INVENTED first-person confession line (no engine disclosure lever this turn) with a short in-voice deflection. Returns (text, [(old, new)]) so the caller mirrors the
     replacement into the raw round buffer. Fail-open: any hiccup returns the text unchanged."""
     if not text:
         return text, []
     try:
         from routes import chat_helpers
-        _t, _ops = chat_helpers.screen_invented_confession(owner, text)
+        _t, _ops = chat_helpers.screen_invented_confession(owner, text, player_msg)  # ORW-1059: the player's own quoted words are never judged
         _t2, _ops2 = chat_helpers.screen_tell_faithfulness(owner, _t)  # A50
         return _t2, list(_ops) + list(_ops2)
     except Exception:
@@ -7143,6 +7234,20 @@ def _mirror_placeholder_cut(round_response: str, text: str):
     if idx >= 0:
         round_response = round_response[:idx] + cut + round_response[idx + len(text):]
     return round_response, cut
+
+
+def _turn_seam_apply(seam, pre: str, post: str, round_response: str) -> "tuple[str, str]":
+    """ORW-1028 - run the speaker-turn seam over one chunk (`pre` as the guards received it, `post` as they left it). Returns (text to emit, round_response with the seam's whole-part
+    cuts erased, so the stored text equals what is shown). Fail-open: a hiccup emits `post` unchanged."""
+    try:
+        out = seam.feed(pre, post)
+        for cut in seam.take_cuts():
+            idx = round_response.rfind(cut)
+            if idx >= 0:
+                round_response = round_response[:idx] + round_response[idx + len(cut):]
+        return out, round_response
+    except Exception:  # failsoft-ok: the seam never blocks a reply
+        return post, round_response
 
 
 def _mirror_wall_drop(round_response: str, before: str, after: str,
@@ -8387,7 +8492,7 @@ _REAPPROACH_LEVEL: Dict[str, int] = {}
 # empty at module level is listed here, so a new one cannot dodge the reset.
 _SEASON_PACING_STORES = (
     _FIRST_WEEK_HINT, _CASTING_STALL_LEVEL, _CASTING_SUBSTANCE_LEVEL, _TOAST_VOICE_HOLDS,
-    _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS,
+    _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS, _ESC_INELIGIBLE_ROUNDS,
     _SILENT_FORCE_ADVANCE_STREAK, _ANTI_STALE_CAP_HOLDS, _LOOP_LAST_FRAMED_KEY, _LOOP_STREAK,
     _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED, _GENDER_HEAL_DONE, _ANN_HELD,
 )
@@ -9929,6 +10034,7 @@ async def _stream_agent_loop_impl(
         _ooc_open = ""  # N-6: the PENDING (held, unclosed) `((...))` aside text carried across this round's streamed chunks; always resolved by the round's trailing flush, so nothing is carried between rounds (each round is a fresh completion, not a continuation)
         _round_emitted_text = ""  # F-1: exactly what the player SAW this round (the persisted text must equal it)
         _pw_carry: dict = {}  # ORW-917: the presence wall's quote/drop state across this round's streamed chunks
+        _ts_seam = _speaker_turns.TurnSeam()  # ORW-1028: the speaker-turn seam after every guard: a turn that lost its head goes whole; quote marks stay paired
         _visible_emitted_len = 0  # length of round_response already streamed as visible content
         # T0-5: has THIS round already flushed real visible narration? Gates the inline-planning
         # leading-preamble strip's `at_bubble_start` — a later flush within the round must never be
@@ -10071,7 +10177,7 @@ async def _stream_agent_loop_impl(
                     from routes import chat_helpers as _ch_draw
                     if _candidate_choice is not None and _ch_draw.veto_draw_holds_force(owner or ""):
                         _candidate_choice = None  # ORW-505: the draw was voiced this turn; the competition waits for a later turn
-                    if _candidate_choice is not None and _model_honors_forced_tool_choice(model):
+                    if _candidate_choice is not None and _model_honors_forced_tool_choice(model, route=endpoint_url, site="beat"):
                         _forced_tool_choice = _candidate_choice
                         # Belt note DEFERRED until the forced call lands (Greptile P1 — see
                         # _forced_belt_tool above); stash the required tool's name only.
@@ -10100,7 +10206,6 @@ async def _stream_agent_loop_impl(
                 logger.warning(f"[orwell] #1154 tool_choice force skipped: {_force_err}")
                 _forced_tool_choice = None
         elif (game_mode == "casting" and all_tool_schemas
-                and _model_honors_forced_tool_choice(model)
                 and bool(get_setting("force_tool_choice_at_beats", True))):
             # ── Gap #3 — the CASTING-FINALIZE force (the one pre-game closed-set beat). Gates,
             # cheapest first so an ordinary interview turn does NO extra work: the PLAYER explicitly
@@ -10123,6 +10228,13 @@ async def _stream_agent_loop_impl(
                         finalizable=bool(_cast_view and _cast_view.get("finalizable")),
                         started=bool((_cast_state or {}).get("started")),
                         player_signalled=True)
+                    if _forced_tool_choice is not None and not _model_honors_forced_tool_choice(model, route=endpoint_url, site="casting"):
+                        # ORW-1041: a route that rejects tool_choice gets the textual twin and a count, never silence (the reactive casting-finalize-force belt stays the net).
+                        _forced_tool_choice = None
+                        if _CASTING_FINALIZE_TOOL not in _rejecter_fallback_sent:
+                            messages.append({"role": "system", "content": _rejecter_force_fallback_line(_CASTING_FINALIZE_TOOL)})
+                            _rejecter_fallback_sent.add(_CASTING_FINALIZE_TOOL)
+                            _note_belt(owner, "forced-tool-fallback-line:" + _CASTING_FINALIZE_TOOL)
                     if _forced_tool_choice is not None:
                         # Belt note DEFERRED until the forced call lands (Greptile P1 — same
                         # marker as the live beat-force above; one gated note site).
@@ -10150,7 +10262,7 @@ async def _stream_agent_loop_impl(
             try:
                 from routes import chat_helpers as _ch_esc
                 if _ch_esc.advance_escalation_armed(owner) and not _ch_esc.veto_draw_holds_force(owner or ""):  # ORW-505: a draw voiced this turn holds EVERY advance force
-                    if "advanceGame" in _tool_names_sent and _model_honors_forced_tool_choice(model):
+                    if "advanceGame" in _tool_names_sent and _model_honors_forced_tool_choice(model, route=endpoint_url, site="stall"):
                         from src import orwell_engine as _oe_esc
                         _esc_status = await _oe_esc.game_status(user=_force_owner)
                         _esc_pending = bool(
@@ -10178,13 +10290,24 @@ async def _stream_agent_loop_impl(
                                     lever="force-advance", ok=True, user=owner)
                             except Exception as _lr_esc_err:
                                 logger.debug(f"[orwell] S1b overseer-log skipped: {_lr_esc_err}")
+                    elif "advanceGame" in _tool_names_sent:
+                        # ORW-1041: the route rejects tool_choice. The flag stays armed for a later eligible round, but only for 3 ineligible rounds: then it is cleared and counted, never armed forever.
+                        _esc_key = _belt_key(owner)
+                        _esc_inel = _ESC_INELIGIBLE_ROUNDS.get(_esc_key, 0) + 1
+                        _note_belt(owner, "force-ineligible:advanceGame")
+                        if _esc_inel >= 3:
+                            _ESC_INELIGIBLE_ROUNDS.pop(_esc_key, None)
+                            _ch_esc.clear_advance_escalation(owner)
+                            _note_belt(owner, "force-ineligible:advanceGame-cleared")
+                        else:
+                            _ESC_INELIGIBLE_ROUNDS[_esc_key] = _esc_inel
             except Exception as _esc_err:
                 logger.warning(f"[orwell] S1b escalation force skipped: {_esc_err}")
 
         # ── BL-007: force whereabouts on premiere/group free-play turns ───────────────────────────────
         if _forced_tool_choice is None and _is_live_game and all_tool_schemas\
                 and bool(get_setting("force_tool_choice_at_beats", True))\
-                and _model_honors_forced_tool_choice(model):
+                and _model_honors_forced_tool_choice(model, route=endpoint_url, site="whereabouts"):
             try:
                 from routes import chat_helpers as _ch_wa
                 _wa_frozen = _ch_wa._TURN_WHEREABOUTS.get(_force_owner)
@@ -10234,7 +10357,7 @@ async def _stream_agent_loop_impl(
                             _rejecter_fallback_sent.add("bedtime-held")
                             messages.append({"role": "system", "content": _bt_held})
                             _note_belt(owner, "bedtime-held-note")
-                    if _bt_choice is not None and _model_honors_forced_tool_choice(model):
+                    if _bt_choice is not None and _model_honors_forced_tool_choice(model, route=endpoint_url, site="bedtime"):
                         _forced_tool_choice = _bt_choice
                         _forced_belt_tool = "turnIn"
                         logger.info(f"[orwell] ORW-310 forcing turnIn (player went to bed) round={round_num} user={_force_owner}")
@@ -10583,7 +10706,7 @@ async def _stream_agent_loop_impl(
                                     # presence wall runs right after it and is equally non-overridden: it
                                     # drops a phantom (off-scene/evicted) houseguest staged as present,
                                     # same-turn, before the player ever sees it.
-                                    _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner)  # N-17
+                                    _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner, _pv_msg)  # N-17
                                     round_response = _mirror_confession_replace(round_response, _cf_ops)
                                     _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
                                     _pv_text, _pv_ops = await _player_voice_guard(_guarded.text, owner, _pv_msg, _pv_state, _pd_qopen_pv(_round_emitted_text))  # ORW-725
@@ -10625,6 +10748,7 @@ async def _stream_agent_loop_impl(
                                         round_response = _round_emitted_text + (_guarded_text or "")
                                         _pd_tail = _game_buf + _pd_tail  # the unterminated remainder of this chunk is also unshown: scan it for a tool opener too
                                         _game_buf = ""
+                                    _guarded_text, round_response = _turn_seam_apply(_ts_seam, _clean, _guarded_text or "", round_response)  # ORW-1028
                                     _round_emitted_text += _guarded_text or ""
                                     _shown_piece = _guarded_text or ""
                                     if _guarded_text:
@@ -10843,7 +10967,7 @@ async def _stream_agent_loop_impl(
                 # A0 knowledge wall: a Vault-Wall leak is never re-admitted by a fallback. A2 (#1726)
                 # presence wall runs right after it, equally non-overridden — drops a phantom
                 # (off-scene/evicted) houseguest staged as present, same-turn, before the player sees it.
-                _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner)  # N-17
+                _cf_text, _cf_ops = await _confession_guard(_guarded.text, owner, _pv_msg)  # N-17
                 round_response = _mirror_confession_replace(round_response, _cf_ops)
                 _guarded = _guarded._replace(text=_cf_text)  # downstream walls + their mirror now see the post-confession text
                 _pv_text, _pv_ops = await _player_voice_guard(_guarded.text, owner, _pv_msg, _pv_state, _pd_qopen_pv(_round_emitted_text))  # ORW-725
@@ -10879,6 +11003,7 @@ async def _stream_agent_loop_impl(
                         if _di >= 0:
                             round_response = round_response[:_di] + round_response[_di + len(_pd_cut):]
                     _guarded_text = _pd_kept
+                _guarded_text, round_response = _turn_seam_apply(_ts_seam, _clean, _guarded_text or "", round_response)  # ORW-1028
                 _round_emitted_text += _guarded_text or ""
                 if _guarded_text:
                     full_response += _guarded_text
@@ -10886,6 +11011,12 @@ async def _stream_agent_loop_impl(
                         _emitted_visible = True
                         _round_visible_emitted = True
                     yield f'data: {json.dumps({"delta": _guarded_text})}\n\n'
+
+        _ts_tail = _ts_seam.finish()  # ORW-1028: a quote the round still has open is closed (unless the halt close below or the pre-display close already did)
+        if _ts_tail and not _scene_broken and _round_emitted_text and _speaker_turns.quote_open_at_end(_round_emitted_text):
+            _round_emitted_text += _ts_tail
+            full_response += _ts_tail
+            yield f'data: {json.dumps({"delta": _ts_tail})}\n\n'
 
         if _scene_broken and _round_emitted_text:
             # ORW-354: a halt must never leave the player's bubble inside an open quote / bold span (the sentence splitter cuts mid-quote).
@@ -10999,6 +11130,8 @@ async def _stream_agent_loop_impl(
         cleaned_round = _persisted_round_text(
             cleaned_round, scene_broken=(_scene_broken or _SCENE_CUTAWAY_LINE in _round_emitted_text),
             scrub_active=_scrub_active, round_emitted=_round_emitted_text)
+        if _is_live_game and _scrub_active and cleaned_round:
+            cleaned_round = _speaker_turns.wellformed(cleaned_round)  # ORW-1028: the stored round passes the same seam as the streamed one (reload == live)
         round_texts.append(cleaned_round)
 
         # A/B 2026-11-04 — a whole-scene cut that left the player with only the cutaway: re-voice ONCE from the engine truth (bounded) instead of ending the turn on the hole.
@@ -13699,6 +13832,13 @@ async def _stream_agent_loop_impl(
             await record_post_turn_wrong_room_check(owner, _turn_narration_full)
         except Exception as _wr_err:
             logger.warning(f"[orwell] post-turn wrong-room check failed: {_wr_err}")
+
+        # ORW-1009 - a houseguest's report of where someone else was seen must come from a recorded sighting: next-turn re-ground, closed-set, never edits prose.
+        try:
+            from routes.chat_helpers import record_post_turn_sighting_check
+            await record_post_turn_sighting_check(owner, _turn_narration_full)
+        except Exception as _sg_err:
+            logger.warning(f"[orwell] post-turn sighting check failed: {_sg_err}")
 
         # ORW-78 (A94) - the FALSE-PREMISE backstop: 'the nominee' voiced as a person in play while the engine has no nominees (before nominations). Closed-set, post-turn, next-turn re-ground.
         try:

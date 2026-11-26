@@ -238,8 +238,8 @@ export type PlayerBedIntent =
   /** ask this houseguest to swap beds (or take their bed) */
   | { kind: "swap"; who: EntityId };
 
-const BED_WORD = /\b(?:bed|beds|bunk|bunks|mattress|cot|(?:a|the|an) (?:double|queen|king))\b/;
-const CLAIM_VERB = /\b(?:take|taking|took|claim|claiming|grab|grabbing|pick|picking|choose|choosing|chose|want|snag|snagging|dibs|call|calling|go with|going with|settle on|put my (?:bag|bags|stuff|things|suitcase)|drop my (?:bag|bags|stuff|things|suitcase)|throw my (?:bag|bags|stuff|things|suitcase)|this one|that one|mine)\b/;
+const BED_WORD = /\b(?:bed|beds|bunk|bunks|mattress|cot|double|doubles|half of|other half|spot|(?:a|the|an) (?:queen|king))\b/; // ORW-1010: "half of the double in <room>" names no "bed" yet is a claim
+const CLAIM_VERB = /\b(?:take|taking|took|claim|claiming|grab|grabbing|pick|picking|choose|choosing|chose|want|snag|snagging|dibs|call|calling|go with|going with|settle on|sleep(?:ing)? (?:in|on)|put my (?:bag|bags|stuff|things|suitcase)|drop my (?:bag|bags|stuff|things|suitcase)|throw my (?:bag|bags|stuff|things|suitcase)|this one|that one|mine)\b/;
 const SWAP_VERB = /\b(?:swap|swapping|switch|switching|trade|trading|exchange)\b/;
 const HEDGE = /\b(?:maybe|perhaps|might|thinking about|wonder|if|unless|don'?t|do not|not|never|won'?t|wouldn'?t|shouldn'?t|should i|later|can'?t|cannot|couldn'?t|refuse|refused|refusing|decided against|decide against|already|(?:i )?(?:type|typed)|ooc)\b/;
 const NEAR = /\b(?:next to|near|beside|by|across from|close to|with|alongside|above|below|under|over)\s+$/;

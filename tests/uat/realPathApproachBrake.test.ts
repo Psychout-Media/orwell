@@ -3,6 +3,10 @@ import { PLAYER } from "../../src/domain/ids";
 import { nextMilestone } from "../../src/engine/daySchedule";
 import { playMixGame } from "../support/houseMixDriver";
 import { firstStop, wfScan, type Stop } from "../realpath/playedSeason";
+import { firstSeedWhere } from "../support/firstSeedWhere";
+
+/** The last mix-driver seed known to show a hostile approach (ORW-856): tried first, then 11, then 1..12. */
+const HOSTILE_HINT = 3;
 
 /**
  * ORW-709 (B3-3/4/5 and the approach treadmill) - in PLAYED games (ORW-812: before, a get-them-out goal was pushed into a houseguest's agenda, the house moved into the yard, the bond
@@ -88,22 +92,31 @@ describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer f
     }
   }, 900_000);
 
-  it("a hostile approach answered kindly writes no fight; the same approach ignored does (seed 11, the same game played twice up to the approach; re-pinned from 13 by ORW-791, see ORW-872)", async () => {
-    const run = async (answer: boolean): Promise<{ fights: number; shown: boolean }> => {
-      let target: string | undefined; let answered = false; let shown = false; let after = 0; let s: Sess | undefined;
-      await playMixGame(11, 1400, { user: "mixdrv-11",
-        onStep: (sess) => { s = sess as Sess; if (!target) { const r = (s.live.aimedAtPlayer ?? []).find((x) => x.hostile && x.status === "shown"); if (r) { target = r.actor; shown = true; } } else after++; },
+  it("a hostile approach answered kindly writes no fight FOR THAT APPROACH; the same approach ignored does (a scanned mix-driver seed, the same game played twice up to the approach; was pinned to seed 11, ORW-791/872/1002)", async () => {
+    // ORW-856 / ORW-1002: a pinned seed broke each time a played-fold change moved the trajectory, so the seed is SCANNED. The claim is about ONE approach: the first hostile record shown to the player. A fight is that approach's
+    // when its scene event is that record's own (`<record id>:scene`): a later, separate approach by the same houseguest is another record with its own fight and says nothing about the answer. The precondition of the
+    // kind play is that the answer LANDED (the record closes as "answered"); a seed where the player's answer did not register (e.g. the record has already been ignored) is no evidence either way, so the scan skips it.
+    type Run = { shownId?: string; status?: string; own: number; all: number };
+    const play = async (seed: number, user: string, answer: boolean): Promise<Run> => {
+      let target: string | undefined; let shownId: string | undefined; let answered = false; let after = 0; let s: Sess | undefined;
+      await playMixGame(seed, 1400, { user: user,
+        onStep: (sess) => { s = sess as Sess; if (!target) { const r = (s.live.aimedAtPlayer ?? []).find((x) => x.hostile && x.status === "shown"); if (r) { target = r.actor; shownId = r.id; } } else after++; },
         onMessage: async (call) => { if (answer && target && !answered) { answered = true; await call("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, target], content: "I hear you, let's talk it through", kind: "conversation" }); } },
         stopWhen: () => after > 500,
       });
-      const fights = events(s!).filter((e) => e.type === "conflict" && /steps up to/.test(String(e.content)) && e.initiator === target).length;
-      return { fights, shown };
+      if (!s || !target || !shownId) return { own: 0, all: 0 };
+      const status = (s.live.aimedAtPlayer ?? []).find((r) => r.id === shownId)?.status;
+      const fights = events(s).filter((e) => e.type === "conflict" && /steps up to/.test(String(e.content)) && e.initiator === target);
+      return { shownId, ...(status ? { status } : {}), own: fights.filter((e) => String((e as { id?: string }).id ?? "").startsWith(`${shownId}:`)).length, all: fights.length };
     };
-    const kind = await run(true), ignored = await run(false);
-    expect(kind.shown && ignored.shown, "a hostile approach was shown in play").toBe(true);
-    expect(kind.fights, "answered kindly: no fight").toBe(0);
-    expect(ignored.fights, "ignored: the fight folds").toBe(1);
-  }, 600_000);
+    const found = await firstSeedWhere(async (seed, sandbox) => { const k = await play(seed, sandbox, true); return k.status === "answered" ? { seed, kind: k } : undefined; },
+      { from: 1, to: 12, hint: [HOSTILE_HINT, 1, 11], sandbox: (x) => `mixdrv-${x}`, what: "a hostile approach shown to the player that the kind answer closes as answered (mix driver, 1400 messages)" });
+    const kind = found.at.kind, ignored = await play(found.seed, found.sandbox, false);
+    expect(ignored.shownId, "the same approach is shown in the same game when the player ignores it").toBe(kind.shownId);
+    expect(ignored.status, "ignored: the record is ignored").toBe("ignored");
+    expect(ignored.own, "ignored: the fight folds for that approach").toBe(1);
+    expect(kind.own, "answered kindly: no fight for that approach").toBe(0);
+  }, 900_000);
 });
 
 describe("B3-5 / the approach treadmill, over a played game", () => {
