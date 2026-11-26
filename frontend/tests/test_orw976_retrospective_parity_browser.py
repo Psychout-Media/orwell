@@ -7,6 +7,7 @@ import json
 import pytest
 
 from test_orw98_retro_extras_browser import _app, _open_vault  # noqa: F401  (the shared real-app fixture + opener)
+from test_orw976_retrospective_wall import ALLOWED
 
 pytestmark = pytest.mark.browser
 routes = importlib.import_module("routes.orwell_routes")
@@ -15,20 +16,29 @@ BOOLS = {"aired": False, "toldToYou": True, "true": False}
 OVERRIDE = {"honesty": "lie", "source": "npc-confessional"}
 
 
-def _fill(spec, path=""):
-    if spec is True:
-        key = path.rsplit(".", 1)[-1]
-        if key in BOOLS:
-            return BOOLS[key]
-        if key in OVERRIDE:
-            return OVERRIDE[key]
-        if key in INTS:
-            return 3
-        return f"T[{path}]"
-    if isinstance(spec, dict):
-        return {k: _fill(s, f"{path}.{k}" if path else k) for k, s in spec.items()}
-    one = _fill(spec[0], path)
-    return [one]
+def _build(paths):
+    """The raw view, built from the independently written path list (never from the shape, or a key dropped from the shape would drop out of both sides)."""
+    root = {}
+    for path in sorted(paths):
+        node, parts = root, path.split(".")
+        for i, part in enumerate(parts):
+            last = i == len(parts) - 1
+            is_list = part.endswith("[]")
+            key = part[:-2] if is_list else part
+            if last:
+                val = BOOLS.get(key, OVERRIDE.get(key, 3 if key in INTS else f"T[{path}]"))
+                if is_list:
+                    node.setdefault(key, []).append(val)
+                else:
+                    node[key] = val
+            elif is_list:
+                lst = node.setdefault(key, [])
+                if not lst:
+                    lst.append({})
+                node = lst[0]
+            else:
+                node = node.setdefault(key, {})
+    return root
 
 
 def _with_extras(v):
@@ -48,9 +58,7 @@ def _all_open(page):
 
 def test_the_window_renders_the_same_from_the_raw_and_the_closed_view(_app):
     from playwright.sync_api import sync_playwright
-    shape = routes._BROWSER_RETROSPECTIVE_SHAPE["retrospective"]
-    clean = {k: _fill(s, k) for k, s in shape.items()}
-    clean["houseYouNeverSaw"][0]["houseguest"] = {"id": "npc:1", "name": "Role Alpha"}
+    clean = _build(ALLOWED)["retrospective"]
     raw = _with_extras(clean)
     raw.update({"dealPlans": {"x": "ZZ-extra"}, "socialMap": {"people": []}, "americasFavorite": {"id": "npc:9", "name": "ZZ-extra"}, "winner": {"id": "npc:3", "name": "ZZ-extra"}})
     closed = routes._project_for_browser({"retrospective": raw}, routes._BROWSER_RETROSPECTIVE_SHAPE)["retrospective"]
