@@ -30,7 +30,7 @@ describe("ORW-832 REAL PATH: the sweep's work follows the size of the season, no
         return false;
       } });
       return got.length === 4 ? got : undefined;
-    }, { from: 1, to: 12, hint: 4, sandbox: (s) => `wf-${s}`, what: "a played season long enough for four blocks of 200 messages" }).finally(() => spy.mockRestore());
+    }, { from: 1, to: 12, hint: [2, 4], sandbox: (s) => `wf-${s}`, what: "a played season long enough for four blocks of 200 messages" }).finally(() => spy.mockRestore());
     const rows = found.at;
     expect(rows.length, "four blocks of messages were played").toBe(4);
     for (const r of rows) { expect(r.calls, "the sweep ran").toBeGreaterThan(0); expect(r.calls, "at most a few sweeps per message").toBeLessThan(8); }

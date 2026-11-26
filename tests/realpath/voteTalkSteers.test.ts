@@ -24,7 +24,7 @@ const firstTalk = async (hint: number | number[], wanted: (s: Stop, t: Talk) => 
 
 describe("vote talk in a played season", () => {
   it("the player is told how someone voted, as a scene they were in (never whether it is true)", async () => {
-    const { at, talk } = await firstTalk(3, (_s, t) => t.told.some((c) => c.listener === PLAYER));
+    const { at, talk } = await firstTalk([1, 3], (_s, t) => t.told.some((c) => c.listener === PLAYER));
     const toPlayer = talk.told.filter((c) => c.listener === PLAYER);
     for (const c of toPlayer) {
       const scene = at.engine.events.queryAll().find((e) => !e.hidden && e.type === "conversation" && e.witnessSet.includes(PLAYER) && e.witnessSet.includes(c.speaker) && /voted to keep/.test(String(e.content)));
@@ -39,7 +39,7 @@ describe("vote talk in a played season", () => {
 
   it("a believed keep earns credit exactly when the listener liked the one kept", async () => {
     const credited = (s: Stop, t: Talk) => t.told.some((c) => c.listener !== PLAYER && (beliefOf(s, c.listener, c.id)?.impact?.trust ?? 0) > 0);
-    const { at, talk } = await firstTalk(3, credited);
+    const { at, talk } = await firstTalk([1, 3], credited);
     let withCredit = 0;
     for (const c of talk.told.filter((x) => x.listener !== PLAYER)) {
       const b = beliefOf(at, c.listener, c.id);

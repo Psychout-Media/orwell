@@ -32,7 +32,7 @@ describe("0171 REAL PATH: favors the house banked, called in at real votes", () 
         for (const f of p.favorLedger()) if (f.state === "refused" && before.get(f.id) === "owed") refused.push({ before: trust.get(f.id)!, after: rel.edge(f.holder, f.owedBy).trust });
       }
       return enough() ? { p, refused } : undefined;
-    }, { from: 1, to: 12, hint: 5, sandbox: (s) => (s === 5 ? "pf5" : `pf-${s}`), what: "a season that calls in a favor that is repaid and one that is refused" });
+    }, { from: 1, to: 12, hint: [1, 5], sandbox: (s) => (s === 5 ? "pf5" : `pf-${s}`), what: "a season that calls in a favor that is repaid and one that is refused" });
     seed = found.seed;
     refusalTrust.push(...found.at.refused);
     const p = found.at.p;

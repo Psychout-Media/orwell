@@ -96,7 +96,7 @@ describe("ORW-843 REAL PATH: a natural grudge changes finale votes", () => {
       const save = g.s.snapshot();
       const a = copy(seed, sandbox, save, true), b = copy(seed, sandbox, save, false);
       return Object.keys(a.votes).some((j) => j !== PLAYER && a.votes[j] !== b.votes[j]) ? { save, a, b } : undefined;
-    }, { from: 1, to: 18, hint: 14, sandbox: (s) => `gf-${s}`, what: "a finale where some juror votes differently with grudges on and off" });
+    }, { from: 1, to: 18, hint: [1, 14], sandbox: (s) => `gf-${s}`, what: "a finale where some juror votes differently with grudges on and off" });
     on = found.at.a; off = found.at.b; again = copy(found.seed, found.sandbox, found.at.save, true);
   }, 1_800_000);
 
