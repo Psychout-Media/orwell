@@ -45,7 +45,7 @@
  "tests/realpath/secretPowerBoundary.test.ts": 7418,
  "tests/realpath/showBriefVault.test.ts": 15644,
  "tests/realpath/surfacedFactsDelivery.test.ts": 32458,
- "tests/realpath/voteTalkSteers.test.ts": 49447,
+ "tests/uat/realPathVoteTalkSteers.test.ts": 49447,
  "tests/realpath/wantMovement.test.ts": 10294,
  "tests/unit/accuseCost.test.ts": 2897,
  "tests/unit/accuseTieMissIsFree.test.ts": 89,
