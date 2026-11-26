@@ -104,7 +104,7 @@ httpx==0.28.1
     #   mcp
 httpx-sse==0.4.3
     # via mcp
-huggingface-hub==1.18.0
+huggingface-hub==2.4.0
     # via
     #   fastembed
     #   tokenizers
