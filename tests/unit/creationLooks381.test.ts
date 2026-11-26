@@ -139,7 +139,7 @@ describe("ORW-381 no main-stream draw moved", () => {
     };
     expect(run(true)).toBe("986d0ffe76a90b933b5ad2520d0214ff3a800463f4a78fd67258fdf628f76bbd"); // identical on main and on the ORW-508 branch with ORW-508's and ORW-480's changed fields blanked: no other draw moved. NOTE (ORW-480): this blanked pin also blanks the presentation and the whole look; those draws have their own tests (castRealism.test.ts, orw480MarkRecurrence.test.ts, styleFit)
     // ORW-458 (on purpose): only the background text and the biography built from it moved. Before that, ORW-432: only character.voice (dials re-picked so they coexist, tell spread, loud-vs-flat rule fixed) and the casting type moved; tests/unit/traitsAgree432.test.ts proves everything else byte-identical to main. Before that, ORW-388: only the appearance TEXT changed (no scar/gap-tooth entries, no gray under 40); with appearance blanked the hash is e58eb520... before and after, so no draw moved
-    expect(run(false)).toBe("940976f8e471d66720d1f328e94fb5d4277a07dbc6eaa4b493361324f75246a2"); // re-pinned on purpose by ORW-508 (hometown from the world table, a job the age rules out re-dealt on its own stream, and the text built from the job) on top of ORW-480 (the presentation family weighted by job, hometown and age)
+    expect(run(false)).toBe("7624d283e9f724e82f44b78548ebecc77a04a478d60e89ee57862708b8dd6bf5"); // re-pinned on purpose by ORW-508 (hometown from the world table, a job the age rules out re-dealt on its own stream, and the text built from the job) on top of ORW-480 (the presentation family weighted by job, hometown and age)
   });
 });
 

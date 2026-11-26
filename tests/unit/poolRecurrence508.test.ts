@@ -31,9 +31,11 @@ export function castOf(seed: number): Cast {
     push("phys.skinTone", pc.skinTone); push("phys.heightBuild", pc.heightBuild); push("phys.hair", pc.hair); push("phys.ageLook", pc.ageLook);
     const m = pub.biography.match(/^Outside the house, they are (.*?) who (.*?) (and .*?)\. (.*)$/);
     if (m) { push("bio.root", m[2]); push("bio.drive", m[3]); push("bio.closer", m[4]); }
+    push("bio.combo", `${m?.[2]}|${m?.[3]}|${m?.[4]}`);
+    push("look.combo", [pc.heightBuild, pc.skinTone, pc.hair, pc.facialFeatures, pc.style, pc.ageLook].join("|"));
     push("castingType.label", pub.castingType.label);
     const v = ch.voice;
-    if (v) { for (const k of ["register", "rhythm", "energy", "directness", "humor", "stressTell", "signature"] as const) push(`voice.${k}`, v[k]); for (const l of v.lexicon ?? []) push("voice.lexicon", l); }
+    if (v) { for (const k of ["register", "rhythm", "energy", "directness", "humor", "stressTell", "signature"] as const) push(`voice.${k}`, v[k]); for (const l of v.lexicon ?? []) push("voice.lexicon", l); push("voice.combo", [v.register, v.rhythm, v.energy, v.directness, v.humor, v.stressTell, v.signature].join("|")); }
     push("hidden.dayOnePerception", hid.dayOnePerception?.read);
     for (const h of ch.hiddenElements ?? []) push("hiddenElement.detail", h.detail);
     const d = div.public[n.id]; if (d) push("ethnicity", (d as unknown as { ethnicity?: unknown }).ethnicity);
@@ -97,4 +99,29 @@ describe("ORW-508 recurrence ratchet, unseeded played-season casts (the real nam
       expect(m.sharedConsecutive, "values shared by two consecutive casts").toBeLessThanOrEqual(t.maxSharedConsecutive);
     });
   }
+});
+
+// Coverage: every player-facing card field the engine deals is either held to a ceiling in the table or named here with the reason it is not
+// (a closed mechanic selector, a number, or a value the table measures under another key). A new dealt field that is in neither fails.
+const NOT_RECURRENCE_TABLE: Record<string, string> = {
+  archetype: "closed mechanic id (12 game roles the rules branch on); the card text is authored per person", strategyStyle: "closed mechanic id (6 play styles the AI branches on)",
+  background: "the vocation sentence; held under vocation", presentation: "held under phys.style (style = the presentation family's sample)",
+  "castingType.read": "the read line of the casting type; held under castingType.label (one type, one read)",
+};
+describe("ORW-508 ratchet covers every player-facing dealt value", () => {
+  it("every key the cast card carries has a ceiling in the table, or a named reason it has none", () => {
+    const keys = new Set(SEEDS.slice(0, 20).flatMap((s) => Object.keys(castOf(s))));
+    const known = new Set([...Object.keys(table.fields), ...Object.keys(NOT_RECURRENCE_TABLE)]);
+    for (const k of keys) expect(known.has(k), `${k} is dealt on the card but not measured in poolRecurrence.json`).toBe(true);
+    for (const k of Object.keys(table.fields)) expect(keys.has(k), `${k} is in the table but castOf no longer produces it`).toBe(true);
+  });
+  it("every string field on the character and the physical facet is read by castOf (a new dealt field must be added to it)", () => {
+    const { npcs } = generateHouse(new SeededRandom(1000));
+    const layer = generateCastDeepLayer(1000, npcs);
+    const n = npcs[0]!;
+    const read = new Set(["name", "vocation", "hometown", "demeanor", "age", "archetype", "strategyStyle", "background", "presentation", "voice", "hiddenElements", "ethnicity"]);
+    const ignored = new Set(["stats", "influence", "id", "appearance", "genderPresentation", "gender", "pronouns", "traits", "relationships", "hiddenElementsRaw"]); // numbers, ids and prose assembled from the fields measured above
+    for (const [k, v] of Object.entries(n.character)) if (typeof v === "string") expect(read.has(k) || ignored.has(k), `character.${k} is a dealt string not in the ratchet`).toBe(true);
+    for (const k of Object.keys(layer.public[n.id]!.physicalCharacteristics)) expect(table.fields[`phys.${k}` as keyof typeof table.fields] !== undefined || k === "onCamera" || k === "wardrobe" || k === "lookSignature", `physicalCharacteristics.${k} is not in the ratchet`).toBe(true);
+  });
 });
