@@ -310,6 +310,32 @@ def _log_stream_failure(what, target_url, model, started, body=None) -> None:
         logger.warning(msg)
     except Exception:
         pass
+    try:  # ORW-1019: a 402 trips the host's credit breaker (one alert, no retry storm)
+        if str(what).startswith("status="):
+            from src import orwell_provider_credit
+            orwell_provider_credit.note(target_url, str(what)[7:], body)
+    except Exception:
+        pass
+
+
+_CREDIT_PAUSED_TEXT = "The provider account is out of credit; calls to it are paused until it is topped up (ORW-1019)."
+
+
+def _credit_blocked(url: str) -> bool:
+    """ORW-1019: True while the host's credit breaker is open (answers 402 locally, no network call)."""
+    try:
+        from src import orwell_provider_credit
+        return orwell_provider_credit.blocked(url)
+    except Exception:
+        return False
+
+
+def _credit_ok(url: str) -> None:
+    try:
+        from src import orwell_provider_credit
+        orwell_provider_credit.clear(url)
+    except Exception:
+        pass
 
 
 def _is_host_dead(url: str) -> bool:
@@ -911,6 +937,13 @@ def _deepseek_cost_estimate(model: str, prompt_tokens: int, cached_tokens: int, 
     return round(mult * (hit * price[0] + miss * price[1] + int(output_tokens or 0) * price[2]) / 1_000_000, 8)
 
 
+def deepseek_thinking_disabled(url: str, model: str) -> bool:
+    """ORW-1014: THE one predicate for "this request goes to DeepSeek's own API with thinking disabled" - `_apply_deepseek_thinking_off` sends
+    `thinking: disabled` exactly when it is True, and the agent loop's forced-tool_choice gate asks the same function, so the gate follows the
+    request's real thinking state and cannot drift from it. The thinking-only deepseek-reasoner is never disabled."""
+    return _host_match(url, "deepseek.com") and "reasoner" not in (model or "").lower()
+
+
 def _apply_deepseek_thinking_off(payload: Dict, url: str, model: str) -> None:
     """DeepSeek's OWN API (api.deepseek.com) defaults thinking ON, and with ``tools`` on the wire a
     thinking turn 400s unless ``reasoning_content`` is echoed back on every later request. The agent
@@ -918,9 +951,7 @@ def _apply_deepseek_thinking_off(payload: Dict, url: str, model: str) -> None:
     the OpenRouter-style ``reasoning`` fields (DeepSeek uses ``thinking``/``reasoning_effort``, not the
     unified map). The legacy ``deepseek-reasoner`` is thinking-only, so it is left untouched. Host-gated
     so every other provider (incl. DeepSeek served via OpenRouter) stays byte-identical."""
-    if not _host_match(url, "deepseek.com"):
-        return
-    if "reasoner" in (model or "").lower():
+    if not deepseek_thinking_disabled(url, model):
         return
     payload.pop("reasoning", None)
     payload.pop("reasoning_effort", None)
@@ -1931,6 +1962,8 @@ async def _llm_call_async_impl(
             tok_key = "max_completion_tokens" if _uses_max_completion_tokens(model) else "max_tokens"
             payload[tok_key] = max_tokens
 
+    if _credit_blocked(target_url):
+        raise HTTPException(402, _CREDIT_PAUSED_TEXT)
     if _is_host_dead(target_url):
         raise HTTPException(503, f"Upstream {_host_key(target_url)} marked unreachable (cooldown active)")
 
@@ -1946,6 +1979,11 @@ async def _llm_call_async_impl(
             duration = time.time() - start
             if not r.is_success:
                 friendly = _format_upstream_error(r.status_code, r.text, target_url)
+                try:  # ORW-1019
+                    from src import orwell_provider_credit
+                    orwell_provider_credit.note(target_url, r.status_code, r.text)
+                except Exception:
+                    pass
                 logger.warning(
                     f"LLM async call to {target_url} failed in {duration:.2f}s "
                     f"(attempt {attempt}): HTTP {r.status_code} {friendly}"
@@ -1969,6 +2007,7 @@ async def _llm_call_async_impl(
                     f"200-empty-at-the-edge, not a real completion"
                 )
             _clear_host_dead(target_url)
+            _credit_ok(target_url)
             try:
                 data = r.json()
             except Exception as _je:
@@ -2203,6 +2242,9 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
     # Tailscale. 3s is plenty; 30s let one dead upstream wedge the UI.
     stream_timeout = httpx.Timeout(connect=3.0, read=float(timeout), write=30.0, pool=5.0)
 
+    if _credit_blocked(target_url):
+        yield f'event: error\ndata: {json.dumps({"status": 402, "text": _CREDIT_PAUSED_TEXT, "error": _CREDIT_PAUSED_TEXT})}\n\n'
+        return
     if not _retry_in_flight and _is_host_dead(target_url):
         yield f'event: error\ndata: {json.dumps({"error": f"Upstream {_host_key(target_url)} unreachable (cooldown active)", "status": 503})}\n\n'
         return
@@ -2217,6 +2259,8 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
             client = _get_http_client()
             async with client.stream('POST', target_url, json=payload, headers=h, timeout=stream_timeout) as r:
                 _clear_host_dead(target_url)
+                if r.status_code == 200:
+                    _credit_ok(target_url)
                 if r.status_code != 200:
                     raw = (await r.aread()).decode(errors="replace")
                     _log_stream_failure(f"status={r.status_code}", target_url, model, _stream_t0, raw)
@@ -2286,6 +2330,8 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
             client = _get_http_client()
             async with client.stream('POST', target_url, json=payload, headers=h, timeout=stream_timeout) as r:
                 _clear_host_dead(target_url)
+                if r.status_code == 200:
+                    _credit_ok(target_url)
                 if r.status_code != 200:
                     raw = (await r.aread()).decode(errors="replace")
                     _log_stream_failure(f"status={r.status_code}", target_url, model, _stream_t0, raw)
@@ -2467,6 +2513,8 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
         async with client.stream('POST', target_url, json=payload, headers=h, timeout=stream_timeout) as r:
             _clear_host_dead(target_url)
             _diag["status"] = r.status_code
+            if r.status_code == 200:
+                _credit_ok(target_url)
             if r.status_code != 200:
                 raw = (await r.aread()).decode(errors="replace")
                 _log_stream_failure(f"status={r.status_code}", target_url, model, _stream_t0, raw)

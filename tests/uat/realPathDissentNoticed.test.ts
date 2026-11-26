@@ -15,7 +15,7 @@ describe("ORW-870 REAL PATH: a dissenter the majority heard about is noticed", (
       let noticed = 0;
       await playSeason({ user: sandbox, seed, maxMessages: 700, watch: async ({ sess }) => { noticed = (sess.snapshot()?.live?.dissentNoticed ?? []).length; return noticed > 0; } });
       return noticed > 0 ? noticed : undefined;
-    }, { from: 1, to: 12, hint: 1, sandbox: (s) => `wf-${s}`, what: "a played season in which a houseguest cools on someone they heard dissented" });
+    }, { from: 1, to: 12, hint: [3, 1], sandbox: (s) => `wf-${s}`, what: "a played season in which a houseguest cools on someone they heard dissented" });
     expect(found.at, "a houseguest cooled on someone they heard dissented").toBeGreaterThan(0);
   }, 900_000);
 });

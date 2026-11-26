@@ -608,6 +608,8 @@ export interface GameStateView {
    * player has no recorded move (it is replaced or cleared by the next `resolvePlayerMove`, so a turn that skips that call carries the previous one). Words and room names only, never a number. The narrator VOICES it; it never decides it.
    */
   playerMove?: PlayerMoveView;
+  /** ORW-934: the search the engine walked for the player on this message (only on the message it was made for): the ordered legs, who was in each room and how it ended. The narrator voices it as one passage. */
+  playerSearch?: HouseSearchWalk;
   /** ORW-473: the player walked in on a private talk this turn (only on the message it happened on). */
   walkedIn?: WalkedInView;
   player: PlayerCard | null;
@@ -652,6 +654,8 @@ export interface GameStateView {
   napOpen?: true;
   /** ORW-466 slice 2: the move-in bed pick, per turn (moment prompt only): which bedrooms have free beds and who sleeps in each, the player's own bed, and this turn's claim result. Public facts. Absent outside the claim window. */
   beds?: string;
+  /** ORW-1010: why the player's bed claim or swap did NOT happen this turn; the narrator says so plainly in the reply. */
+  bedRefused?: string;
   /** ORW-652 (moment prompt only): the shape of a double-eviction night while its second cycle runs (who left, the instant crown, the hurried block), from public facts. Absent outside it. */
   longNight?: string;
   /** 0152: this turn's engine answer to "who told you that?" (one Vault-free line: who is named, that they will not say, or that they saw it). Absent otherwise. */
@@ -2236,9 +2240,41 @@ export type PlayerMoveView =
   | { refused: true; reason: string; from?: string; to?: string; msg?: string };
 
 /** ORW-419 - `resolvePlayerMove` request: the player's own message text (never the narration). */
-export interface ResolvePlayerMoveReq { text: string; expectedBeatSeq?: number; idempotencyKey?: string }
+export interface ResolvePlayerMoveReq { /** ORW-1003: the previous narrator reply (player-visible text), for "head over there" / "I follow her". */ previousReply?: string; text: string; expectedBeatSeq?: number; idempotencyKey?: string }
 /** ORW-419 - the result: the recorded `playerMove` (null when the words held no clear move) + the resulting whereabouts. */
-export interface ResolvePlayerMoveResult { playerMove: PlayerMoveView | null; whereabouts: WhereaboutsView | null; beatSeq?: number }
+export interface ResolvePlayerMoveResult { playerMove: PlayerMoveView | null; whereabouts: WhereaboutsView | null; beatSeq?: number; /** ORW-934: set when the words were a search for a houseguest and the engine walked it. */ search?: HouseSearchWalk }
+
+/**
+ * ORW-934 (Kevin 2026-11-26): "looking for X" is an engine action that PLAYS OUT, leg by leg, on a sensible route (the last real sighting first, then nearby rooms). Each leg is one real step into a neighbouring room, bills the
+ * clock and lets the house move; nobody is teleported and X is only where the engine has X (X may move while the player walks). The narrator compresses the legs into ONE passage; it invents no sighting.
+ * `found`: the player stands in X's room. `closed-room`: X is somewhere the player cannot go (the Diary Room, a shut HOH room). `not-in-house`: X is not in the house (not arrived yet, or out). `event-due`: a house event is coming due.
+ * `walk-in`: the walk ended on a private talk. `bedtime`: the day is over. `pinned`: a whole-house event holds the player with the house. `stopped`: the player's cap on legs was reached. `gave-up`: three sweeps of the house found nobody (a safety bound, never a turn count).
+ */
+export type HouseSearchOutcome = "found" | "closed-room" | "not-in-house" | "event-due" | "walk-in" | "bedtime" | "pinned" | "stopped" | "gave-up";
+export interface HouseSearchLeg {
+  /** The room the player stepped into on this leg. */
+  room: string;
+  roomName: string;
+  /** Who was in that room when the player arrived (awake, the player excluded). */
+  present: NamedRef[];
+  /** Why this leg was walked: following a recorded sighting or tip, going to where the houseguest was seen, or checking the nearest room not yet looked in. */
+  why: "sighting" | "tip" | "in-view" | "sweep";
+}
+export interface HouseSearchWalk {
+  target: NamedRef | null;
+  outcome: HouseSearchOutcome;
+  /** One plain sentence the narrator voices as the end of the search (engine truth). */
+  reason: string;
+  from: string;
+  to: string;
+  legs: HouseSearchLeg[];
+  /** In-game minutes the walk cost the clock. */
+  minutes: number;
+  msg?: string;
+}
+/** ORW-934 - `searchForHouseguest` request: the houseguest's name as the player said it; `maxLegs` lets the player stop early or redirect (the walk ends `stopped`). */
+export interface SearchForHouseguestReq { name: string; maxLegs?: number; expectedBeatSeq?: number; idempotencyKey?: string }
+export interface SearchForHouseguestResult { search: HouseSearchWalk; whereabouts: WhereaboutsView | null; beatSeq?: number }
 
 /**
  * ORW-654 / 0206: the one-time card for a room the player has stepped into for the first time. The season's own name and look for it (the house theme), who is in it and what opens onto it (names only: third person, no number, nothing hidden).
@@ -3699,6 +3735,13 @@ export interface GameSession {
    * prior result without re-moving).
    */
   resolvePlayerMove(req: ResolvePlayerMoveReq): ResolvePlayerMoveResult;
+
+  /**
+   * ORW-934 - search the house for a named houseguest: the engine walks the player leg by leg (one real step into a neighbouring room each, billing the clock and running the house's movement tick), following the last real sighting
+   * first, then the nearest rooms not yet checked. It stops when X is found, X is somewhere the player cannot go, a house event comes due, the player walks in on a private talk, it is bedtime, or `maxLegs` is reached. Returns the
+   * ordered leg list for the narrator to compress into one passage. Also committed by `resolvePlayerMove` when the player's words are a search ("look for X", "find X", "where is X"). Nobody is teleported. At-most-once per `idempotencyKey`.
+   */
+  searchForHouseguest(req: SearchForHouseguestReq): SearchForHouseguestResult | null;
 
   /**
    * ADR 0009 — RECORD a narrated houseguest relocation (the model narrates the open texture of who

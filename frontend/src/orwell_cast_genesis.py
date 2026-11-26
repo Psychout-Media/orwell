@@ -1207,9 +1207,22 @@ async def _gather_chunked_proposal(roster: list, brief: dict, llm_fn: LlmFn, val
     tied: set = set()
     any_ok = False
 
+    def _credit_down() -> bool:
+        try:
+            from src import orwell_provider_credit
+            return orwell_provider_credit.any_blocked("text")
+        except Exception:
+            return False
+
     async def _author_one(entry: dict, ledger_snapshot: list, facets_snapshot: dict) -> Optional[dict]:
         """Author ONE houseguest (its own single-id call), retried alone once on a miss. Best-effort."""
         one_ids = {str(entry.get("id"))}
+        try:  # ORW-1019: the text provider is out of credit: author nothing (no call, no retry) rather than a cast with no model
+            from src import orwell_provider_credit
+            if orwell_provider_credit.any_blocked("text"):
+                return None
+        except Exception:
+            pass
         messages = build_genesis_messages([entry], brief, feedback, directives, ledger_snapshot,
                                           facets_snapshot)
         try:
@@ -1218,7 +1231,7 @@ async def _gather_chunked_proposal(roster: list, brief: dict, llm_fn: LlmFn, val
             logger.warning(f"[cast-genesis] npc {entry.get('id')} llm failed: {e}")
             text = ""
         prop = parse_genesis_proposal(text or "", one_ids)
-        if not prop:
+        if not prop and not _credit_down():
             try:  # retry ONLY this houseguest once (strict-JSON) — never re-grind the cast
                 text = await llm_fn(messages + [{"role": "user", "content": _STRICT_RETRY}])
             except Exception as e:
