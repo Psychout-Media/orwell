@@ -4817,6 +4817,11 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
                 "[orwell] presence-wall: dropped a phantom placement of %s for user=%s",
                 ", ".join(sorted(dropped)), user,
             )
+            try:
+                from src import orwell_sync_ledger as _led
+                _led.note_belt_fire(user, "presence-wall", len(dropped))  # ORW-1061
+            except Exception:  # failsoft-ok: telemetry
+                pass
         except Exception:
             pass
     return "".join(out)
@@ -5432,8 +5437,8 @@ _CONF_WEAK = (
     re.compile(r"\bi\s+(?:have\s+been|(?:'|’)ve\s+been|was)\s+(?:hiding|keeping)\b[^.!?\n]{0,40}\bfrom\s+(?:everyone|you|all\s+of\s+you)\b|\bi\s+lied\s+(?:to\s+(?:you|everyone)\s+)?about\b", _CONF_I),
 )
 _CONF_PERSONAL_FACT_RE = re.compile(
-    r"\b(?:prison|jail|arrest(?:ed)?|record|debt|bankrupt\w*|divorce\w*|affair|cheat\w*|abus\w+|addict\w*|rehab|overdos\w+|pregnan\w+|diagnos\w+|cancer|fired|stole|stolen|fraud|"
-    r"felon\w*|convict\w*|adopted|closeted|hospital|prescription|bankruptcy|evict\w+|ex-?wife|ex-?husband|my\s+(?:past|real\s+name|kid|son|daughter|baby))\b", _CONF_I)
+    r"\b(?:prison|jail|arrest(?:ed)?|debt|bankrupt\w*|divorce\w*|affair|cheat\w*|abus\w+|addict\w*|rehab|overdos\w+|pregnan\w+|diagnos\w+|cancer|stole|stolen|fraud|"
+    r"felon\w*|adopted|closeted|prescription|bankruptcy|ex-?wife|ex-?husband|my\s+(?:past|real\s+name|kid|son|daughter|baby))\b", _CONF_I)  # ORW-1059: "record", "fired", "evict...", "hospital", "convict..." are ordinary game words: not facts
 
 # ORW-509: the three authored deflections stay first; the rest are composed (opening x turn x close) so a season's replaced lines are rarely the same one.
 _CONFESSION_DEFLECTION_CLASSICS = (
@@ -5469,9 +5474,40 @@ def _line_is_invented_confession(line: str) -> bool:
     return strong == 1 and bool(_CONF_PERSONAL_FACT_RE.search(line))
 
 
-def screen_invented_confession(user, text: str) -> "tuple[str, list]":
-    """N-17 - replace each LINE that voices an invented first-person confession (no engine disclosure this turn) with a short in-voice deflection. Returns (new_text, [(old_line, new_line)])
-    so the caller can mirror the same replacement into the raw round buffer. No-op (text, []) when an engine disclosure lever ran this turn, nothing matches, or anything hiccups."""
+_PLAYER_SPEAKS_RE = re.compile(r"(?:^|[.!?\n]\s*|,\s*)(?:and\s+|then\s+)?you\s+(?:say|said|reply|replied|answer|answered|tell|told|whisper|whispered|ask|asked|add|added|blurt|blurted|admit|admitted)\b[^\"\u201c\n]{0,40}[:,]?\s*[\"\u201c]", re.IGNORECASE)
+
+
+def _norm_for_echo(x: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9\s]", "", (x or "").lower().replace("\u2019", "'").replace("'", "")).split())
+
+
+def _sentence_is_the_players_own(sentence: str, player_msg) -> bool:
+    """ORW-1059: the confession words are the PLAYER's (narration `You say, "..."`, or the quoted text is in the player's own message): never judged."""
+    if _PLAYER_SPEAKS_RE.search(sentence):
+        return True
+    pm = _norm_for_echo(player_msg)
+    if not pm:
+        return False
+    inner = _norm_for_echo(" ".join(_QUOTED_SPEECH_RE.findall(sentence)))
+    return bool(inner) and inner in pm
+
+
+def _lead_closers(piece: str) -> str:
+    """The blanks and closing quote marks a sentence starts with (the close of a quote the sentence before it opened): kept when the sentence's own words are replaced."""
+    return re.match(r'^[\s"\u201d\u2019\']*', piece).group(0)
+
+
+def _line_is_only_a_quoted_confession(ln: str) -> bool:
+    """A speaker label plus a quote and next to no narration: the confession is the whole line."""
+    outside = re.sub(r'["\u201c][^"\u201d]*(?:["\u201d]|$)', " ", ln)
+    outside = re.sub(r"@\[[^\]]+\]", " ", outside)
+    return len(re.findall(r"[A-Za-z]{2,}", outside)) <= 2
+
+
+def screen_invented_confession(user, text: str, player_msg=None) -> "tuple[str, list]":
+    """N-17 - replace each SENTENCE that voices an invented first-person confession (no engine disclosure this turn) with a short in-voice deflection; the rest of its line (other speakers, actions, the quote
+    that follows) stays (ORW-1059; the unit used to be the whole line). Returns (new_text, [(old, new)]) so the caller can mirror the same replacement into the raw round buffer. The player's own quoted words
+    are never judged. No-op (text, []) when an engine disclosure lever ran this turn, nothing matches, or anything hiccups."""
     if not text or not text.strip():
         return text, []
     try:
@@ -5480,22 +5516,48 @@ def screen_invented_confession(user, text: str) -> "tuple[str, list]":
             return text, []
         if (user or "__anon__") not in _GAME_WAS_ACTIVE:
             return text, []  # not a started game (casting etc.): never judge
-        lines = text.split("\n")
         ops = []
-        out = []
+        out_lines = []
         n = 0
-        for ln in lines:
-            if _line_is_invented_confession(ln):
-                new = _CONFESSION_DEFLECTIONS[(zlib.crc32(ln.encode('utf-8')) + n) % len(_CONFESSION_DEFLECTIONS)]  # ORW-509: keyed on the replaced line, so the pick spreads over the whole composed set
+        for ln in text.split("\n"):
+            if not _line_is_invented_confession(ln):
+                out_lines.append(ln)
+                continue
+            if not _sentence_is_the_players_own(ln, player_msg) and _line_is_only_a_quoted_confession(ln):
+                new = _CONFESSION_DEFLECTIONS[(zlib.crc32(ln.encode('utf-8')) + n) % len(_CONFESSION_DEFLECTIONS)]  # ORW-509: keyed on the replaced line
                 n += 1
                 ops.append((ln, new))
-                out.append(new)
-            else:
-                out.append(ln)
+                out_lines.append(new)  # the line IS the confession (a speaker label and a quote): the whole line is replaced, as before
+                continue
+            pieces = [p for p in re.split(r"(?<=[.!?])", ln) if p != ""]
+            hit = [i for i, p in enumerate(pieces) if (_line_is_invented_confession(p) or any(rx.search(p) for rx in _CONF_STRONG + _CONF_WEAK) or (_CONF_PERSONAL_FACT_RE.search(p) and i > 0 and any(rx.search(pieces[i - 1]) for rx in _CONF_STRONG)))
+                   and not _sentence_is_the_players_own(p, player_msg)]
+            if not hit or _sentence_is_the_players_own(ln, player_msg):
+                out_lines.append(ln)  # the match is the player's own words: leave the line
+                continue
+            first = True
+            new_pieces = list(pieces)
+            for i in hit:
+                old = pieces[i]
+                if first:
+                    lead = _lead_closers(old)
+                    new = lead + _CONFESSION_DEFLECTIONS[(zlib.crc32(ln.encode('utf-8')) + n) % len(_CONFESSION_DEFLECTIONS)]  # ORW-509: keyed on the replaced line
+                    n += 1
+                    first = False
+                else:
+                    new = ""  # the rest of the confession goes with it
+                ops.append((old, new))
+                new_pieces[i] = new
+            out_lines.append("".join(new_pieces))
         if not ops:
             return text, []
-        logger.warning("[orwell] N-17: replaced %d invented-confession line(s) with a deflection (user=%s)", len(ops), user)
-        return "\n".join(out), ops
+        try:
+            from src import orwell_sync_ledger as _led
+            _led.note_belt_fire(user, "invented-confession", len(ops))  # ORW-1061: counted on an APPLIED replacement
+        except Exception:  # failsoft-ok: telemetry
+            pass
+        logger.warning("[orwell] N-17: replaced %d invented-confession sentence(s) with a deflection (user=%s)", len(ops), user)
+        return "\n".join(out_lines), ops
     except Exception:
         return text, []
 
@@ -5510,14 +5572,31 @@ _CUES_STRONG = re.compile(r"\b(?:sobbing|in tears|giddy|bursting with joy)\b", r
 _TELL_NEUTRAL = "{name} keeps a level expression, giving little away."
 
 
-def _tell_line_violation(ln: str, tells: dict):
-    named = [n for n in tells if re.search(r"\b" + re.escape(n) + r"\b", ln)]
+_TELL_DETERMINER_BEFORE_RE = re.compile(r"\b(?:the|a|an|that|this|those|these|his|her|their|its|our|my|your)\s+(?:\w+\s+)?$", re.IGNORECASE)
+
+
+def _cue_is_the_npcs(narr: str, name: str, cue_rx) -> bool:
+    """ORW-1060: some cue of `cue_rx` describes `name` itself: it comes AFTER the name in the same clause, and is not an adjective of a thing ("the slumped sofa", "the giddy cheer of the crowd")."""
+    for nm in re.finditer(r"\b" + re.escape(name) + r"\b", narr):
+        clause = re.split(r"[;:\u2014]|[.!?]", narr[nm.end():], maxsplit=1)[0]
+        window = " ".join(clause.split()[:10])
+        for cue in cue_rx.finditer(window):
+            if not _TELL_DETERMINER_BEFORE_RE.search(window[:cue.start()]):
+                return True
+    return False
+
+
+def _tell_sentence_violation(sentence: str, tells: dict, quote_open: bool = False):
+    """The one houseguest whose engine tell this SENTENCE's narration (quoted words blanked) contradicts, or None. Whole-sentence unit (ORW-1060): other sentences of the line are never touched.
+    `quote_open`: the sentence starts inside a quote opened by an earlier sentence of the same line."""
+    narr, _ = _narration_only(sentence, quote_open)
+    named = [n for n in tells if re.search(r"\b" + re.escape(n) + r"\b", narr)]
     if len(named) != 1:
         return None
     name, kinds = named[0], set(tells[named[0]])
-    low, high = bool(_CUES_LOW.search(ln)), bool(_CUES_HIGH.search(ln))
+    low, high = _cue_is_the_npcs(narr, name, _CUES_LOW), _cue_is_the_npcs(narr, name, _CUES_HIGH)
     if not kinds:
-        return name if _CUES_STRONG.search(ln) else None
+        return name if _cue_is_the_npcs(narr, name, _CUES_STRONG) else None
     if kinds <= _TELL_LOW and high and not low:
         return name
     if kinds <= _TELL_HIGH and low and not high:
@@ -5525,8 +5604,24 @@ def _tell_line_violation(ln: str, tells: dict):
     return None
 
 
+def _narration_only(piece: str, quote_open: bool):
+    """(`piece` with every quoted word blanked, whether a quote is still open at its end). Straight and curly double quotes."""
+    out = []
+    for ch in piece:
+        if ch in '"\u201c\u201d':
+            quote_open = not quote_open if ch == '"' else (ch == "\u201c")
+            out.append(" ")
+        else:
+            out.append(" " if quote_open else ch)
+    return "".join(out), quote_open
+
+
+_tell_line_violation = _tell_sentence_violation  # the unit is one SENTENCE now (ORW-1060); the old name stays for callers and tests
+
+
 def screen_tell_faithfulness(user, text: str) -> "tuple[str, list]":
-    """A50 - replace each LINE that contradicts the engine's tell for the single houseguest it names with a neutral in-voice line. (new_text, [(old, new)]) so the caller mirrors it into the raw buffer. Counts the belt only on an APPLIED replacement. Fail-open."""
+    """A50 - replace each SENTENCE that contradicts the engine's tell for the single houseguest it names with a neutral in-voice line (ORW-1060: not the whole line; cues inside quotes or about a thing are ignored).
+    (new_text, [(old, new)]) so the caller mirrors it into the raw buffer. Counts the belt only on an APPLIED replacement. Fail-open."""
     if not text or not text.strip():
         return text, []
     try:
@@ -5536,13 +5631,19 @@ def screen_tell_faithfulness(user, text: str) -> "tuple[str, list]":
             return text, []
         ops, out = [], []
         for ln in text.split("\n"):
-            who = _tell_line_violation(ln, tells)
-            if who:
-                new = _TELL_NEUTRAL.format(name=who)
-                ops.append((ln, new))
-                out.append(new)
-            else:
-                out.append(ln)
+            pieces = [p for p in re.split(r"(?<=[.!?])", ln) if p != ""]
+            new_pieces = []
+            q_open = False
+            for p in pieces:
+                who = _tell_line_violation(p, tells, q_open)
+                q_open = _narration_only(p, q_open)[1]
+                if who:
+                    new = _lead_closers(p) + _TELL_NEUTRAL.format(name=who)
+                    ops.append((p, new))
+                    new_pieces.append(new)
+                else:
+                    new_pieces.append(p)
+            out.append("".join(new_pieces) if pieces else ln)
         if not ops:
             return text, []
         try:
@@ -5550,7 +5651,7 @@ def screen_tell_faithfulness(user, text: str) -> "tuple[str, list]":
             _led.note_belt_fire(user, "tell_faithfulness", len(ops))
         except Exception:
             pass
-        logger.warning("[orwell] A50: replaced %d tell-contradicting line(s) (user=%s)", len(ops), user)
+        logger.warning("[orwell] A50: replaced %d tell-contradicting sentence(s) (user=%s)", len(ops), user)
         return "\n".join(out), ops
     except Exception:
         return text, []
@@ -5588,6 +5689,11 @@ async def screen_knowledge_wall(user, text: str) -> str:
         try:
             stash_knowledge_wall_reground(user)
             logger.warning("[orwell] knowledge-wall: stripped sealed content from a houseguest's mouth (user=%s)", user)
+            try:
+                from src import orwell_sync_ledger as _led
+                _led.note_belt_fire(user, "knowledge-wall", 1)  # ORW-1061
+            except Exception:  # failsoft-ok: telemetry
+                pass
         except Exception:
             pass
     return "".join(out)
