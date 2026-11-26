@@ -178,7 +178,7 @@ function parseClause(raw: string, current: Room | null, themed?: Themed): Room |
       if (i % 2 === 1) { delim = piece; continue; }
       const t = piece.trim();
       if (t === "") continue;
-      const fix = result !== null ? correctionRoom(t, moved ?? current, themed) : null;
+      const fix: Room | null = result !== null ? correctionRoom(t, moved ?? current, themed) : null;
       if (fix !== null) { moved = fix; result = fix; continue; }
       if (CANCEL_SEG.test(clean(t))) { result = null; moved = null; continue; }
       let r = parseClauseText(t, moved ?? current, themed);
@@ -295,8 +295,8 @@ export function parsePlayerMoveIntent(text: string, current: Room | null, themed
   let at = current;
   for (const c of clauses) {
     if (c.trim() === "") continue;
-    const fix = dest !== null ? correctionRoom(c, at, themed) : null; // "No, the backyard." after a move
-    const room = fix ?? parseClause(c, at, themed);
+    const fix: Room | null = dest !== null ? correctionRoom(c, at, themed) : null; // "No, the backyard." after a move
+    const room: Room | null = fix ?? parseClause(c, at, themed);
     if (room !== null) { dest = room; at = room; }
   }
   return dest === current ? null : dest;
