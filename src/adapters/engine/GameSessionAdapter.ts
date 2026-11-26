@@ -67,7 +67,7 @@ import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
 import { chooseHourAction, assembleScenes, habitsFor, floorRoutinesFor, routinesFromHabits, actionLine, roomActLine, formPlan, GOAL_PLAN, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction, type PlanStep } from "../../engine/houseLife";
 import { addRoutines, isStressed, mergeAuthoredRoutines, noteSighting, routineKey, routineNow } from "../../engine/routineLife";
-import type { Routine } from "../../engine/routines";
+import { ROUTINES, knowsRoutine, type Routine } from "../../engine/routines";
 import type { Habit } from "../../engine/houseLifeConstants";
 import { HOUSE_LIFE, ROOM_LIFE } from "../../engine/houseLifeConstants";
 import { REASONS } from "../../engine/agendaConstants";
@@ -7640,7 +7640,28 @@ export class GameSessionAdapter implements GameSession {
     if (this.copresenceEnabled && this.heldSeeker) this.applyHeldFactsToPulls(id, pulls);
     if (this.live?.playedGame === true && this.npcMemoryEnabled) this.applyMemoryToPulls(id, pulls);
     if (this.live?.playedGame === true && this.tellReactionsEnabled) this.applyTellAvoidToPulls(id, pulls);
+    if (this.live?.playedGame === true && this.playerHauntsEnabled) this.applyPlayerHauntToPulls(id, pulls, neutralBond);
     return pulls.length ? pulls : null;
+  }
+
+  /**
+   * ORW-981 / spec 0209 (`ORWELL_PLAYER_HAUNTS`, default ON; `=0` opts out): a routine brings a houseguest to the player. A houseguest who has been in the room with the player at this time of day on enough separate days
+   * (`knowsRoutine`) knows where the player usually is then, and leans toward them when it is that time again. Only a houseguest who does not keep away from the player (no avoid, a bond at or above neutral); never lowers a
+   * pull; engine-only, no rng, nothing shown. Played games only (the caller gates).
+   */
+  private playerHauntsEnabled = flagDefaultOn("ORWELL_PLAYER_HAUNTS");
+  setPlayerHauntsEnabled(on: boolean): void { this.playerHauntsEnabled = on; }
+  private applyPlayerHauntToPulls(id: EntityId, pulls: MovementPull[], neutralBond: number): void {
+    const s = this.live, me = this.house?.player.id;
+    if (!s || !me || id === me || !s.timeOfDay) return;
+    const seen = s.npcRoutineSightings?.[id]?.[me];
+    if (!seen) return;
+    const usual = Object.entries(seen).some(([key, days]) => key.startsWith(`${s.timeOfDay}:`) && knowsRoutine(days.length));
+    if (!usual) return;
+    const existing = pulls.find((p) => p.target === me);
+    if (existing) { if (!existing.avoid) existing.weight *= 1 + ROUTINES.playerHauntGain; return; }
+    if (this.rel.bondStrength(id, me) < neutralBond) return;
+    pulls.push({ target: me, weight: MOVEMENT_INTENT.minCharge * (1 + ROUTINES.playerHauntGain), avoid: false });
   }
 
   /**
@@ -15683,6 +15704,9 @@ export class GameSessionAdapter implements GameSession {
     const tod = (s.timeOfDay ?? "afternoon") as LifeTimeOfDay;
     for (const id of awakeIds) {
       if (id === house.player.id || this.presence?.get(id) !== playerRoom) continue;
+      // ORW-981 (spec 0209, the other half): a houseguest awake in the room with the player on separate days at the same time of day has SEEN where the player usually is then. Engine-only, counted like any routine sighting
+      // (`npcRoutineSightings[onlooker][player]`); monotonic; no draw.
+      if (this.playerHauntsEnabled) noteSighting(((s.npcRoutineSightings ??= {})[id] ??= {}), house.player.id, `${tod}:${playerRoom}`, day);
       const character = this.agendaCharacterOf(id);
       if (!character) continue;
       const rs = this.routinesOf(id, character, s.npcMindsAuthored?.traits?.[id]?.habits, seed);
