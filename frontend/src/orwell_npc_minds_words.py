@@ -31,6 +31,11 @@ AIMS = ("win-by-comps", "win-by-being-liked", "run-the-house", "reach-jury", "la
 ROOMS = ("kitchen", "living-room", "dining-room", "backyard", "hallway", "bedroom-a", "bedroom-b", "bedroom-c", "bathroom",
          "lounge", "hoh-room", "storage-room", "landing")
 TIMES = ("morning", "afternoon", "evening", "night", "late-night")
+# ORW-978 (spec 0209): the closed sets a free-form routine is written against (mirrors of the engine's `ROUTINE_ROOMS` / `ROUTINE_ACTIONS`; a TS test pins them equal).
+ROUTINE_ROOMS = ("kitchen", "living-room", "dining-room", "backyard", "hallway", "bathroom", "lounge", "storage-room", "landing")
+ROUTINE_ACTIONS = ("cook", "work-out", "do-chores", "nap", "game-of-cards", "sunbathe", "tell-stories", "mull", "study-for-comps", "pray",
+                   "talk-to-cameras")
+ROUTINE_COMPANY = ("alone", "a-regular", "whoever")
 RITUAL_ACTIONS = ("cook", "work-out", "do-chores", "nap", "prank", "comfort", "homesick-talk", "bed-talk", "game-of-cards",
                   "sunbathe", "tell-stories")
 # The ONLY card keys any call may see: public facets (the roster card the whole house can read).
@@ -77,8 +82,13 @@ def traits_messages(card: dict) -> list[dict]:
     system = (
         "You are a reality-TV casting producer reading ONE houseguest's public profile. Decide how they live in the house day to day "
         "and what they most want from the season. Output ONLY a JSON object, no prose: "
-        '{"habits":[2 or 3 of: ' + ", ".join(HABITS) + '],"aimHint":"one of: ' + ", ".join(AIMS) + '","aimWhy":"<= 12 words, from the profile"}. '
-        "Ground every choice in the profile; no names of other people; no numbers."
+        '{"habits":[2 or 3 of: ' + ", ".join(HABITS) + '],"aimHint":"one of: ' + ", ".join(AIMS) + '","aimWhy":"<= 12 words, from the profile",'
+        '"routines":[0 to 4 objects {"slot":one of: ' + ", ".join(TIMES) + ',"place":one of: ' + ", ".join(ROUTINE_ROOMS)
+        + ',"action":one of: ' + ", ".join(ROUTINE_ACTIONS) + ',"company":one of: ' + ", ".join(ROUTINE_COMPANY)
+        + ',"strength":0.3 to 1,"gist":"<= 20 words, in your own words, what this person does then and why it is theirs, from the whole profile"}]}. '
+        "Routines are what a person does at the same time in the same place most days, written for THIS person only: let their work, "
+        "background, temperament and history decide what, when and where, and let two different people get different routines. "
+        "Ground every choice in the profile; no names of other people; no numbers in the words."
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": "Profile: " + json.dumps(public_card(card), ensure_ascii=False)}]
 
@@ -95,6 +105,30 @@ def parse_traits(text: str) -> Optional[dict]:
         out["aimHint"] = obj["aimHint"]
         if isinstance(obj.get("aimWhy"), str) and obj["aimWhy"].strip():
             out["aimWhy"] = obj["aimWhy"].strip()[:80]
+    routines = _clean_routines(obj.get("routines"))
+    if routines:
+        out["routines"] = routines
+    return out
+
+
+def _clean_routines(raw) -> list:
+    """ORW-978: keep the well-formed routine objects (the engine re-validates every field against its own closed sets and drops what does not fit)."""
+    out: list = []
+    for r in raw if isinstance(raw, list) else []:
+        if not isinstance(r, dict):
+            continue
+        if r.get("slot") not in TIMES or r.get("place") not in ROUTINE_ROOMS or r.get("action") not in ROUTINE_ACTIONS:
+            continue
+        item = {"slot": r["slot"], "place": r["place"], "action": r["action"]}
+        if r.get("company") in ROUTINE_COMPANY:
+            item["company"] = r["company"]
+        if isinstance(r.get("strength"), (int, float)) and not isinstance(r.get("strength"), bool):
+            item["strength"] = max(0.0, min(1.0, float(r["strength"])))
+        if isinstance(r.get("gist"), str) and r["gist"].strip():
+            item["gist"] = r["gist"].strip()[:160]
+        out.append(item)
+        if len(out) >= 4:
+            break
     return out
 
 

@@ -142,3 +142,23 @@ def test_no_model_alerts_once_and_changes_nothing(monkeypatch):
 def test_kicked_from_a_genuine_season_start():
     src = open("src/tool_implementations.py", encoding="utf-8").read()
     assert src.count("orwell_npc_minds_words.kickoff_npc_minds_words(owner)") == 2, "both the normal start and the deferred gate-clear start"
+
+
+# ORW-978 (spec 0209): free-form routines written from the profile.
+def test_routines_are_asked_for_with_rules_and_no_sample_or_menu_of_examples():
+    system = w.traits_messages(CARD_A)[0]["content"]
+    assert "routines" in system and "THIS person only" in system
+    for room in w.ROUTINE_ROOMS:
+        assert room in system  # the closed sets the engine validates against are stated
+    assert "for example" not in system.lower() and "e.g." not in system.lower()  # no sample line to copy (Ryne's standing rule)
+    assert CARD_A["name"] not in system
+
+
+def test_parse_traits_carries_clean_routines_and_drops_junk():
+    good = {"slot": "morning", "place": "kitchen", "action": "cook", "company": "alone", "strength": 0.8, "gist": "  up first for coffee  "}
+    junk = [{"slot": "teatime", "place": "kitchen", "action": "cook"}, {"slot": "morning", "place": "the moon", "action": "cook"}, {"slot": "morning", "place": "kitchen", "action": "levitate"}, "x", None]
+    got = w.parse_traits(json.dumps({"habits": ["gym-rat", "early-riser"], "routines": [good] + junk + [dict(good)] * 6}))
+    assert got["routines"][0] == {"slot": "morning", "place": "kitchen", "action": "cook", "company": "alone", "strength": 0.8, "gist": "up first for coffee"}
+    assert len(got["routines"]) == 4  # capped
+    # no routines asked or given: the traits are what they were
+    assert w.parse_traits(GOOD) == {"habits": ["gym-rat", "early-riser"], "aimHint": "win-by-comps", "aimWhy": "a former sprinter"}
