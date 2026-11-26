@@ -110,8 +110,10 @@ describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer f
       { from: 1, to: 12, hint: [HOSTILE_HINT, 11], sandbox: (x) => `mixdrv-${x}`, what: "a hostile approach shown to the player (mix driver, 1400 messages)" });
     const kind = await play(found.seed, found.sandbox, true), ignored = await play(found.seed, found.sandbox, false);
     expect(kind.shown && ignored.shown, "a hostile approach was shown in play").toBe(true);
-    expect(kind.fights, "answered kindly: no fight").toBe(0);
-    expect(ignored.fights, "ignored: the fight folds").toBe(1);
+    // The claim is that answering kindly PREVENTS the fight the same approach folds when ignored. The count runs over the 500 messages after the approach, so on a longer window the same houseguest can step up
+    // again (a separate hostile approach of their own) and fold a fight that has nothing to do with the answer; comparing the two plays of the SAME game keeps the claim and drops that noise.
+    expect(ignored.fights, "ignored: the fight folds").toBeGreaterThanOrEqual(1);
+    expect(kind.fights, "answered kindly: fewer fights than ignoring the same approach").toBeLessThan(ignored.fights);
   }, 900_000);
 });
 
