@@ -672,6 +672,8 @@ export interface GameStateView {
   keepPromisers?: NamedRef[];
   /** ORW-750 (moment prompt only): in the week of a nomination, for each nominee, the houseguests whose vote promise IS on the engine's record and that the player was told or heard (an open promise about the nominee, or an assurance to the player when the player is the nominee). Names only: never a ballot, how sincere anyone is, or a number. Absent outside that week or when nobody is on the block. */
   votePromises?: Array<{ nominee: NamedRef; keepers: NamedRef[] }>;
+  /** ORW-930 (moment prompt only, the new week's HOH competition and nominations): the player's own deals whose week-long term ran out at the week roll, with a houseguest still in the house and nothing new between the two yet. */
+  dealsClosed?: Array<{ with: NamedRef; kind: string }>;
   /**
    * #1792 — Producer Read: Vault-free post-scene exchange-accounting string,
    * delivered ONCE in the moment prompt immediately following a substantive
@@ -741,7 +743,7 @@ export interface GameStateView {
   interruption?: { npc: string; desire: string; /** ORW-261: what the houseguest chose to tell the player unprompted as they step in (already the player's own told-by knowledge). */ tells?: string };
   /** ORW-443: the approach cap withheld a houseguest this turn (played games only; absent otherwise). Narration-only; carries no count. */
   approachHeld?: true;
-  daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number; /** ORW-258: while the next event waits behind its night, the event that belongs to TODAY (the header names it). Absent otherwise. */ todaysEvent?: StructuralMilestone; /** ORW-363: the next event is on a LATER day (behind tonight's night); absent when it is today. The HUD says "tomorrow". */ /** ORW-859: player messages since the engine opened this due event and began holding the player's card (absent at 0): the call was already voiced. */ heldTurns?: number; tomorrow?: true; /** ORW-370: which part (1-3) of the three-part Final HOH the next `hoh-competition` is. Label only - the hold, due-ness and hours are the ordinary HOH milestone's. Absent for an ordinary HOH. */ finalHohPart?: 1 | 2 | 3; /** ORW-740b: the room the engine stages the next event in (ceremonies in the living room, competitions in the backyard), the same read the gather seats the house with. Absent when the event has no staging room or the flag is off. */ stagingRoom?: Room };
+  daySchedule?: { /** ORW-775: the phase the header names (TODAY's event; ORW-258 / ORW-705 rules applied by the engine), read by the status panel and the reply stamp. */ headerPhase: string; next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number; /** ORW-258: while the next event waits behind its night, the event that belongs to TODAY (the header names it). Absent otherwise. */ todaysEvent?: StructuralMilestone; /** ORW-363: the next event is on a LATER day (behind tonight's night); absent when it is today. The HUD says "tomorrow". */ /** ORW-859: player messages since the engine opened this due event and began holding the player's card (absent at 0): the call was already voiced. */ heldTurns?: number; tomorrow?: true; /** ORW-370: which part (1-3) of the three-part Final HOH the next `hoh-competition` is. Label only - the hold, due-ness and hours are the ordinary HOH milestone's. Absent for an ordinary HOH. */ finalHohPart?: 1 | 2 | 3; /** ORW-740b: the room the engine stages the next event in (ceremonies in the living room, competitions in the backyard), the same read the gather seats the house with. Absent when the event has no staging room or the flag is off. */ stagingRoom?: Room };
   /**
    * A `createCharacter` that was REFUSED rather than honored (audit R4-05): a game already exists
    * and no `confirmRestart` was given, so the prior season is intact and untouched (this view IS
@@ -1027,6 +1029,8 @@ export interface MakeDealReq {
    * duplicate is a clean no-op even against a board that has since moved. Absent ⇒ byte-identical (opt-in).
    */
   idempotencyKey?: string;
+  /** ORW-997: the toast circle only: release up to this many batches (1 to 4, default 1) in ONE advance, so a watch-only circle can flow several steps in a turn. Ignored outside the toast. */
+  toastBatches?: number;
 }
 
 /**
@@ -1274,6 +1278,11 @@ export interface MomentPromptReq {
    * ORW-377 (zero clocks in the house, the FE setting `zero_clocks`): hand the narrator the part of the day ("small hours, Day 5") in place of the clock time. Presentation only; absent/false ⇒ byte-identical.
    */
   zeroClocks?: boolean;
+  /**
+   * ORW-997: the FE reports that an earlier reply already voiced the latest staged-premiere release (the arrival or the toast batch on the board) and nothing new was committed this turn. The narration view then marks
+   * the entrance `voiced` and the prompt says so (no re-voicing, no upcoming speaker). Presentation only; absent/false => byte-identical.
+   */
+  entranceVoiced?: boolean;
 }
 
 /**
@@ -2164,6 +2173,8 @@ export interface PremiereIntrosView {
     playerToast?: "later" | "now" | "done";
     /** ORW-368: toast speakers (the player's slot included) still to be released AFTER the latest batch, from the engine's done list. The toast is over only when this reaches 0 and the stage reads done. Toast stage only. */
     toastRemaining?: number;
+    /** ORW-997: set only on a narration view when the caller (`getMomentPrompt` with `entranceVoiced`) reports that an earlier reply already voiced what this view shows (the latest arrival, or the latest toast batch). */
+    voiced?: true;
   };
 }
 
@@ -2410,6 +2421,8 @@ export interface NpcVoiceView {
   statedReasons?: StatedReasonView[];
   /** ORW-737: what this houseguest DECLARES to the player about keeping them (a vote, a nomination, a veto): the ENGINE's call, never the houseguest's private vote. `will-keep` = they say they will (a recorded assurance, or one the engine decided they give); `wont-commit` = they decline to promise either way. Voice only this about the future; absent when nothing is at stake this turn. */
   declaredStance?: "will-keep" | "wont-commit";
+  /** ORW-749: what this houseguest's own consent roll will do with a deal the player pitches now (the ENGINE's call): `will-accept`, `will-decline`, or `undecided` (depends on the ask). Voice nothing that contradicts it. Absent when no deal could be decided. */
+  dealConsent?: "will-accept" | "will-decline" | "undecided";
   /** A49 (#2017 E1a, flag ORWELL_NPC_TELLS, default ON): the houseguest's observable carriage right now - at most 2 closed-vocabulary tells (kind, band, channel), words only, never a number or a cause. Present only for a houseguest who is PRESENT in the player's room and awake. Absent flag-off => byte-identical. */
   tells?: ReadonlyArray<{ kind: string; band: string; channel: string }>;
   /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default ON): up to 3 plain facts this houseguest holds about the PLAYER (words + a recency word; never a kind slug, severity or number). Absent flag-off or when they hold none. */
@@ -2565,6 +2578,8 @@ export interface PresentKnowledgeView {
   statedReasons?: StatedReasonView[];
   /** ORW-737: the same `declaredStance` `npcVoice` carries, pushed so the narrator voices the engine's stance without the under-called tool. */
   declaredStance?: "will-keep" | "wont-commit";
+  /** ORW-749: what this houseguest's own consent roll will do with a deal the player pitches now (the ENGINE's call): `will-accept`, `will-decline`, or `undecided` (depends on the ask). Voice nothing that contradicts it. Absent when no deal could be decided. */
+  dealConsent?: "will-accept" | "will-decline" | "undecided";
   /** ORW-338: the same `moodCause` `npcVoice` carries (this week's, only when they would tell the player), pushed so the narrator can voice it without the under-called tool. Same gates as `npcVoice`. */
   moodCause?: string;
   /** ORW-338: the same `rememberedAboutOthers` `npcVoice` carries (public-fact memories about people in the room, memory speech flag), pushed for the same reason. */

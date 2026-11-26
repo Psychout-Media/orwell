@@ -8,6 +8,7 @@ import { STYLE_FAMILIES, familyForLabel } from "../domain/styleFamilies";
 import { dealCastingTypes, type CastingType } from "../domain/castingTypes";
 import type { Archetype, Character, Houseguest } from "./characterFactory";
 import { THREAD } from "./threadConstants";
+import { dealLookTails, composedMarks, ageLookVariant } from "./lookVariants";
 
 export type { PhysicalCharacteristics };
 
@@ -183,7 +184,7 @@ const HEIGHT_BUILD: readonly string[] = BUILD_ENTRIES.map((e) => e.desc);
 /** The build words for tests that pin the list. */
 export const BUILD_WORDS: readonly string[] = HEIGHT_BUILD;
 /** The band of a stored build string (engine-side test helper; never projected). */
-export function buildBandOf(desc: string): BuildBand | undefined { return BUILD_ENTRIES.find((e) => e.desc === desc)?.band; }
+export function buildBandOf(desc: string): BuildBand | undefined { return BUILD_ENTRIES.find((e) => desc === e.desc || desc.startsWith(`${e.desc} `))?.band; }
 
 /**
  * Pick each houseguest's build band from their physical stat plus noise: ONE `rng.int` per houseguest on the
@@ -300,22 +301,16 @@ const FACIAL = [
 // ORW-480: marks are SIGNATURES a portrait can hold (glasses, ear and nose piercings, freckles, dimples, beauty marks, three tattoos): no scars,
 // birthmarks, tooth gaps or smiles. FORTY-FOUR of them, each dealt at most once per cast, and about 3 or 4 of a 15-cast carry one, so no
 // single mark turns up in more than about one cast in ten (the old pool of eleven put each one in about every other season).
-const MARKS = [
-  "round tortoiseshell glasses", "thin gold-rimmed glasses", "black rectangular glasses", "clear-framed glasses", "aviator-style glasses",
-  "wire-rimmed glasses", "oversized round glasses", "cat-eye glasses", "tinted round glasses", "browline glasses",
-  "a stud earring", "two small studs in one ear", "small gold hoops", "a single pearl stud", "a cartilage piercing in one ear",
-  "a row of small hoops up one ear", "tiny diamond studs", "a small silver hoop in one ear", "a gold stud and a small hoop in one ear", "drop earrings",
-  "a small stud in the upper ear", "simple gold huggie earrings",
-  "a small nose stud", "a thin nose ring", "a small stud in one nostril", "a tiny eyebrow piercing",
-  "freckles across the nose", "a dusting of freckles across the cheeks", "heavy freckles on the nose and cheeks", "a few freckles under one eye",
-  "freckled shoulders", "freckles across the bridge of the nose and forehead",
-  "deep dimples", "a single dimple on the left cheek", "a single dimple on the right cheek", "faint dimples when talking", "a dimpled chin",
-  "a beauty mark on one cheek", "a beauty mark above the lip", "a beauty mark near one eye", "a beauty mark on the chin",
-  "a small wrist tattoo", "a half-sleeve tattoo", "a small tattoo behind one ear",
-  "none notable",
-];
+// ORW-508: the marks are composed (lookVariants.composedMarks: frame x colour glasses, metal x type x side earrings, nose rings, density x
+// area freckles, dimples, beauty marks and small tattoos), several hundred named marks, plus the plain "none notable". The hand list of 43 is gone.
+const MARKS: readonly string[] = [...composedMarks(), "none notable"];
+const MARK_KIND = new Map<string, string>();
 /** The mark's category (glasses, ear-piercing, freckles ...) from the shared casting-director table. */
-const markKind = (m: string): string => tagKind("mark", { distinguishingMark: m } as never)[0] ?? "other";
+const markKind = (m: string): string => {
+  let k = MARK_KIND.get(m);
+  if (k === undefined) { k = tagKind("mark", { distinguishingMark: m } as never)[0] ?? "other"; MARK_KIND.set(m, k); }
+  return k;
+};
 /** No category of mark on more than this many cards of a cast. */
 const MAX_MARKS_PER_KIND = 2;
 /** Share of a cast dealt "none notable" (rounded to a whole count per cast): 11 of 15, so 4 carry a mark. */
@@ -367,6 +362,8 @@ export interface PhysicalSpread {
   style: string;
   /** 2026-07-21 prompt audit: the cast-wide capped distinguishing-mark deal (named marks ≤MAX_PER_MARK; "none…" uncapped). */
   mark: string;
+  /** ORW-508: the independent tail each composed axis carries (lookVariants.ts). */
+  tails?: import("./lookVariants").LookTails;
 }
 
 /**
@@ -445,9 +442,11 @@ export function dealCastPhysicalSpread(
   const labels = presentations ?? dealPresentationFamilies(rng, count);
   const style = Array.from({ length: count }, (_, i) =>
     (familyForLabel(labels[i] ?? "") ?? STYLE_FAMILIES[i % STYLE_FAMILIES.length]!).sample);
+  // ORW-508: drawn LAST off this same dedicated rng, so every base value above is exactly what it was.
+  const tails = dealLookTails(rng, count);
   return Array.from({ length: count }, (_, i) => ({
-    heightBuild: heightBuild[i]!, skinTone: skinTone[i]!, hair: hair[i]!, facial: facial[i]!, style: style[i]!,
-    mark: mark[i]!,
+    heightBuild: heightBuild[i]!, skinTone: `${tails[i]!.skin} ${skinTone[i]!}`, hair: `${hair[i]!}, ${tails[i]!.hair}`,
+    facial: `${facial[i]!}, ${tails[i]!.facial}`, style: `${style[i]!}, ${tails[i]!.style}`, mark: mark[i]!, tails: tails[i]!,
   }));
 }
 
@@ -473,7 +472,7 @@ export function generatePhysicalCharacteristics(
     // 2026-07-21 prompt audit: the mark rides the cast-wide capped deal when a spread is supplied (the
     // live path) — a lone regeneration without cast context keeps the per-NPC pick over the same pool.
     distinguishingMark: spread ? spread.mark : rng.pick(MARKS),
-    ageLook: ageLookFor(age),
+    ageLook: spread?.tails ? `${ageLookVariant(age, spread.tails.ageLookPick)}, ${spread.tails.ageLook}` : ageLookFor(age),
     style: spread ? spread.style : rng.pick(STYLE_FAMILIES).sample,
   };
 }
@@ -490,6 +489,32 @@ const BIO_ROOTS = [
   "was the quiet kid who learned to read a room",
   "built a life from scratch after a rough start",
   "comes from a tight-knit household with high expectations",
+  "moved eleven times before turning eighteen",
+  "learned to cook for a crowd at fourteen",
+  "grew up above the family business",
+  "got out of a town with one stoplight",
+  "was the first one in the family to leave the state",
+  "worked nights through every year of school",
+  "was raised mostly by grandparents",
+  "never quite fit in any one group growing up",
+  "grew up as the peacemaker in a house full of arguments",
+  "was the kid who ran every school fundraiser",
+  "took over the household bills at sixteen",
+  "grew up on the road with a parent who never stayed put",
+  "had a long, slow climb through jobs nobody wanted",
+  "walked away from a plan everyone else had made for them",
+  "learned to read people tending a counter at nineteen",
+  "was the loudest voice in a very quiet house",
+  "came back home after a big move that did not work out",
+  "grew up three kids deep in a two-bedroom place",
+  "spent a decade being told to calm down",
+  "was always the one picked to speak for the group",
+  "grew up around competitive older cousins",
+  "kept a spotless record in a family that expected less",
+  "lost a parent young and grew up fast",
+  "bounced through three majors before finding a direction",
+  "built a reputation locally as the one who gets things done",
+  "was the youngest of five with a lot to prove",
 ];
 const BIO_DRIVES = [
   "and never stopped chasing something bigger",
@@ -498,6 +523,29 @@ const BIO_DRIVES = [
   "and turned that hustle into a real career",
   "and still feels the pull of where they came from",
   "and wants to make the people back home proud",
+  "and believes in actions far more than words",
+  "and treats every setback as a negotiation",
+  "and cannot stand being the one who is underestimated",
+  "and quietly keeps score of every favor",
+  "and has built an easy charm out of pure necessity",
+  "and sets a goal for every single day",
+  "and runs on stubbornness and strong coffee",
+  "and puts on a calm face when things go wrong",
+  "and takes pride in never asking for help",
+  "and is softer underneath than they let people see",
+  "and has a story ready for every occasion",
+  "and treats loyalty as the only currency that counts",
+  "and would rather be respected than liked",
+  "and always plans three moves ahead of the conversation",
+  "and carries a small notebook of things to remember",
+  "and sees every group as a puzzle to solve",
+  "and keeps a promise even when it costs something",
+  "and hides nerves behind a steady joke",
+  "and cannot sit still for more than ten minutes",
+  "and has learned to like being the underdog",
+  "and measures a good day by who laughed",
+  "and is wary of anything that comes too easily",
+  "and works twice as hard to avoid being noticed for it",
 ];
 const BIO_CLOSERS = [
   "Friends describe them as the one you call in a crisis.",
@@ -506,6 +554,20 @@ const BIO_CLOSERS = [
   "They are the first in their circle to ever do anything like this.",
   "They swear they are here for the experience, not just the money.",
   "They have something to prove and a quiet plan to do it.",
+  "A former coworker still calls them the best teammate they ever had.",
+  "Their family does not entirely know they are here.",
+  "They arrived with a lucky object they will not discuss.",
+  "They admit they have watched every season more than once.",
+  "They told almost nobody at home until the day before they left.",
+  "They trained for this the way other people train for a marathon.",
+  "They are quick to laugh and slower to forgive.",
+  "A teacher once wrote that they would either run the place or ruin it.",
+  "They already have a plan for what they will say in the first week.",
+  "They deny being competitive and then keep track of every score.",
+  "Their group chat is already betting on how long they last.",
+  "They have a polite way of saying no that most people take as a yes.",
+  "They are not here to make friends, though they are very good at it.",
+  "They are quietly counting on people to underestimate them.",
 ];
 
 /**

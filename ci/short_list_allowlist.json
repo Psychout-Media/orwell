@@ -535,7 +535,7 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "unassigned at seed time: needs a reviewer",
+   "reason": "reviewed ORW-511: assistant home-automation prompt, trigger phrases for a non-game action; never shown to or copied into game text",
    "sites": [
     {
      "line": 1680,
@@ -962,7 +962,7 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "unassigned at seed time: needs a reviewer",
+   "reason": "reviewed ORW-511: closed vocabulary by design (neutral referring phrases that replace ids), not a sample line the writer copies as content",
    "sites": [
     {
      "line": 330,
@@ -993,7 +993,7 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "unassigned at seed time: needs a reviewer",
+   "reason": "reviewed ORW-511: general-assistant research prompt, format sample for a non-game output",
    "sites": [
     {
      "line": 213,
@@ -1759,7 +1759,7 @@
    "name": "text",
    "max": 2,
    "owner": "ORW-511",
-   "reason": "unassigned at seed time: needs a reviewer",
+   "reason": "reviewed ORW-511: scanner false positive, code comments on a regex line; no prompt text",
    "sites": [
     {
      "line": 295,
@@ -1891,7 +1891,7 @@
    "name": "BEAT_FLOURISHES",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "unassigned at seed time: needs a reviewer",
+   "reason": "reviewed ORW-511: offline floor under live authoring (see decision); owner this card, ceiling 1 per component list",
    "decision": "offline floor under live authoring: the per-competition writer call (orwell_gen_competitions.py, default on) authors theme, premise and drop lines, is told the titles used this season and last, and a repeated title is renamed and counted; these axes only compose the engine skin it departs from"
   },
   {
@@ -1900,7 +1900,7 @@
    "name": "INTENSIFIERS",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "unassigned at seed time: needs a reviewer",
+   "reason": "reviewed ORW-511: offline floor under live authoring (see decision); owner this card, ceiling 1 per component list",
    "decision": "offline floor under live authoring: the per-competition writer call (orwell_gen_competitions.py, default on) authors theme, premise and drop lines, is told the titles used this season and last, and a repeated title is renamed and counted; these axes only compose the engine skin it departs from"
   },
   {
@@ -1909,7 +1909,7 @@
    "name": "SETTING_DRESSINGS",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "unassigned at seed time: needs a reviewer",
+   "reason": "reviewed ORW-511: offline floor under live authoring (see decision); owner this card, ceiling 1 per component list",
    "decision": "offline floor under live authoring: the per-competition writer call (orwell_gen_competitions.py, default on) authors theme, premise and drop lines, is told the titles used this season and last, and a repeated title is renamed and counted; these axes only compose the engine skin it departs from"
   },
   {
@@ -1918,7 +1918,7 @@
    "name": "SETTING_OPENERS",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "unassigned at seed time: needs a reviewer",
+   "reason": "reviewed ORW-511: offline floor under live authoring (see decision); owner this card, ceiling 1 per component list",
    "decision": "offline floor under live authoring: the per-competition writer call (orwell_gen_competitions.py, default on) authors theme, premise and drop lines, is told the titles used this season and last, and a repeated title is renamed and counted; these axes only compose the engine skin it departs from"
   },
   {
@@ -2074,7 +2074,8 @@
    "name": "BIO_CLOSERS",
    "max": 1,
    "owner": "ORW-508",
-   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "parts of a composed backstory: the biography is root x drive x closer (about 20,000 combinations; 2774 distinct over 3000 dealt cards, measured in src/domain/poolRecurrence.json); the cast writer authors the biography per person live and this is the offline floor"
   },
   {
    "path": "src/engine/deepProfile.ts",
@@ -2082,7 +2083,8 @@
    "name": "BIO_DRIVES",
    "max": 1,
    "owner": "ORW-508",
-   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "parts of a composed backstory: the biography is root x drive x closer (about 20,000 combinations; 2774 distinct over 3000 dealt cards, measured in src/domain/poolRecurrence.json); the cast writer authors the biography per person live and this is the offline floor"
   },
   {
    "path": "src/engine/deepProfile.ts",
@@ -2090,7 +2092,8 @@
    "name": "BIO_ROOTS",
    "max": 1,
    "owner": "ORW-508",
-   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "parts of a composed backstory: the biography is root x drive x closer (about 20,000 combinations; 2774 distinct over 3000 dealt cards, measured in src/domain/poolRecurrence.json); the cast writer authors the biography per person live and this is the offline floor"
   },
   {
    "path": "src/engine/deepProfile.ts",
@@ -2104,15 +2107,6 @@
    "path": "src/engine/deepProfile.ts",
    "kind": "list",
    "name": "FACIAL",
-   "max": 1,
-   "owner": "ORW-508",
-   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
-   "decision": "engine floor for the photo face and mark lines; since #2828 the cast writer authors the face line live and the dealt mark is checked against it, so the list is only the offline floor (ORW-480)"
-  },
-  {
-   "path": "src/engine/deepProfile.ts",
-   "kind": "list",
-   "name": "MARKS",
    "max": 1,
    "owner": "ORW-508",
    "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
@@ -2923,6 +2917,51 @@
    "owner": "ORW-480",
    "reason": "closed camera-manner taxonomy: each trait is scored against the character sheet and keys its expression, posture and hand tables",
    "decision": "traits are chosen by scoring the sheet, not dealt; the only deal is the fallback when no sheet line matches. Follow-up (ORW-480): replace that fallback with the writer naming the manner from the biography"
+  },
+  {
+   "path": "src/engine/lookVariants.ts",
+   "kind": "list",
+   "name": "AGE_LOOK_TAILS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "part of a composed look field: the field is the base value with one short word from this list (100 to 407 distinct values per field, measured in src/domain/poolRecurrence.json), so it is a part, not the pool; the cast writer authors the look live where it runs",
+   "decision": "composed part, not a menu: the dealt value is base x word; the writer authors the look line per person live and this is the offline floor"
+  },
+  {
+   "path": "src/engine/lookVariants.ts",
+   "kind": "list",
+   "name": "FACIAL_TAILS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "part of a composed look field: the field is the base value with one short word from this list (100 to 407 distinct values per field, measured in src/domain/poolRecurrence.json), so it is a part, not the pool; the cast writer authors the look live where it runs",
+   "decision": "composed part, not a menu: the dealt value is base x word; the writer authors the look line per person live and this is the offline floor"
+  },
+  {
+   "path": "src/engine/lookVariants.ts",
+   "kind": "list",
+   "name": "HAIR_TAILS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "part of a composed look field: the field is the base value with one short word from this list (100 to 407 distinct values per field, measured in src/domain/poolRecurrence.json), so it is a part, not the pool; the cast writer authors the look live where it runs",
+   "decision": "composed part, not a menu: the dealt value is base x word; the writer authors the look line per person live and this is the offline floor"
+  },
+  {
+   "path": "src/engine/lookVariants.ts",
+   "kind": "list",
+   "name": "SKIN_TAILS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "part of a composed look field: the field is the base value with one short word from this list (100 to 407 distinct values per field, measured in src/domain/poolRecurrence.json), so it is a part, not the pool; the cast writer authors the look live where it runs",
+   "decision": "composed part, not a menu: the dealt value is base x word; the writer authors the look line per person live and this is the offline floor"
+  },
+  {
+   "path": "src/engine/lookVariants.ts",
+   "kind": "list",
+   "name": "STYLE_ACCENTS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "part of a composed look field: the field is the base value with one short word from this list (100 to 407 distinct values per field, measured in src/domain/poolRecurrence.json), so it is a part, not the pool; the cast writer authors the look live where it runs",
+   "decision": "composed part, not a menu: the dealt value is base x word; the writer authors the look line per person live and this is the offline floor"
   }
  ]
 }

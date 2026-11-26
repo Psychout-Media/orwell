@@ -190,6 +190,16 @@ def peek(name: str, user: str | None, max_age_s: float = 30.0, fields: tuple | N
     return copy.deepcopy(value)
 
 
+def peek_status(name: str, user: str | None, max_age_s: float = 30.0, fields: tuple | None = None) -> "tuple[Any, str]":
+    """ORW-408: like :func:`peek` but also says WHY a miss missed, for the pre-display counters: (value, "ok"), (None, "no-cache") when nothing is stored for the user
+    (never read, or dropped by a write), or (None, "stale") when an entry exists but a write landed since it was read or it is older than `max_age_s`. Never fetches."""
+    value = peek(name, user, max_age_s=max_age_s, fields=fields)
+    if value is not None:
+        return value, "ok"
+    with _LOCK:
+        return None, ("no-cache" if _ENTRIES.get((_ukey(user), name)) is None else "stale")
+
+
 async def read(name: str, user: str | None, fetch: Callable[[], Awaitable[Any]], timeout_class: Any = None) -> Any:
     """ORW-396: in-flight calls are keyed by `timeout_class` too, so a read with a wider timeout never joins a tighter-timeout call (it would fail at the shorter bound).
     Stored entries stay shared across classes (a fresh answer is a fresh answer). Serve `name` for `user` from the cache, a shared in-flight call, or `fetch()`. Only CACHEABLE tools are ever stored."""

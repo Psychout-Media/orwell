@@ -20,7 +20,7 @@ function slice(src: string, a: string, b: string): string {
 const SLICES: Record<OtherDecision, () => string> = {
   tieBreak: () => slice(LS, 'if (s.hoh === ctx.player) { s.pending = { kind: "tie-break"', "return commitStagedEviction(s, ctx, evictee, rng);"),
   jury: () => slice(LS, "function precomputeVotes(", "return votes;"),
-  dealConsent: () => slice(GA, "private dealConsentRefusal(", "return d.accept"),
+  dealConsent: () => slice(GA, "private dealConsentDecision(", "}, why);"),
   movement: () => slice(GA, "private movementIntentFor(", "return pulls.length ? pulls : null;"),
 };
 const stripComments = (b: string): string => b.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, ""); // a name only MENTIONED in a comment is not a read

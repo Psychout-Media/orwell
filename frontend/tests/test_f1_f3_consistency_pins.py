@@ -32,7 +32,7 @@ def test_agent_runs_start_accepts_and_seeds_lead_event_before_the_drain():
     # The seed is published BEFORE the drain task is created, so it is guaranteed buffer index 0.
     assert "if lead_event:" in src and "_publish(run, lead_event)" in src
     seed_at = src.index("_publish(run, lead_event)")
-    task_at = src.index("run.task = asyncio.create_task(_drain(session_id, agen, prev_task))")
+    task_at = src.index("run.task = asyncio.create_task(_drain(session_id, agen, prev_task, run))")
     assert seed_at < task_at, "the lead event must be seeded BEFORE the drain task is created"
 
 

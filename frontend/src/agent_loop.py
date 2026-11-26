@@ -2163,6 +2163,43 @@ def _bedtime_held_note(turn_tool_names, *, player_text, status):
             "and do not call turnIn.")
 
 
+# ORW-940: "go back to sleep" and the narrator then moved the player out of bed in the same turn. A player who turned in this turn stays in bed unless their OWN words asked to go somewhere else.
+_GO_VERB = r"(?:go|goes|going|head|heads|heading|walk|walks|walking|move|moves|moving|wander|wanders|wandering|step|steps|stepping|slip|slips|slipping|come|coming|join|joining)"
+_ASKED_ELSEWHERE_RE = re.compile(
+    r"\b" + _GO_VERB + r"\b[^.!?;]*?\b(?:kitchen|living\s+room|lounge|backyard|back\s+yard|yard|hallway|bathroom|shower|dining\s+room|storage|pantry|diary\s+room|hoh|landing|outside|downstairs|upstairs)\b",
+    re.IGNORECASE)
+
+
+def _asked_to_go_somewhere(text: str, room_names) -> bool:
+    """ORW-940: did the player's own message ask to go somewhere that is not their bed? A house room word after a go-verb, or a themed non-bedroom name after one."""
+    msg = str(text or "")
+    if _ASKED_ELSEWHERE_RE.search(msg):
+        return True
+    themed = [r for r in _themed_rooms_in(msg, room_names) if not str(r).startswith("bedroom")]
+    return bool(themed) and bool(re.search(r"\b" + _GO_VERB + r"\b", msg, re.IGNORECASE))
+
+
+# Live hotfix (Ryne: "I shouldn't be able to just poof there by speaking the name of it"): the auto-move belt moved an engaged player alone into a bedroom because a room was NAMED in the talk. Only an INTENT TO GO in the
+# player's own words moves them: "I go / head / walk to <room>", "let's go to <room>", an imperative at the start of a sentence, or following someone out. Mentioning, asking about or discussing a room moves nobody.
+_PI_SUBJECT = (r"(?:(?:^|(?<=[.!?;\n\"\u201c\u2014]))\s*|\b(?:and\s+then|then|so|and)\s+|\blet(?:'s|\u2019s|\s+us|\s+me)\s+|"
+               r"\b(?:i|we)(?:(?:'ll|\u2019ll|\s+will|'m\s+going\s+to|\u2019m\s+going\s+to|'m\s+gonna|\u2019m\s+gonna|\s+am\s+going\s+to|\s+want\s+to|\s+wanna|\s+decide\s+to)\s+|\s+)(?:just\s+|now\s+|quietly\s+|all\s+)?)")
+_PI_VERB = r"(?:go|head|walk|move|wander|step|slip|drift|stroll|climb|run|get\s+up\s+and\s+(?:go|head|walk)|come|heading|going|walking)"
+_PI_PATH = r"(?:\s+(?:back|over|up|down|out|on|straight|on\s+over)){0,2}\s*(?:\b(?:to|into|toward|towards|in|inside)\b\s+)"
+_PI_ROOM = (r"(?:the\s+|my\s+|our\s+)?(?:kitchen|living\s+room|lounge|backyard|back\s+yard|yard|hallway|hall|bathroom|shower|dining\s+room|storage(?:\s+room)?|pantry|diary\s+room|hoh(?:\s+room)?|landing|bedroom|bunk(?:\s+room)?|bed\s*room|outside|inside|downstairs|upstairs)\b")
+_PI_BARE = r"\s+(?:outside|inside|downstairs|upstairs)\b"
+_PLAYER_INTENT_RE = re.compile(_PI_SUBJECT + _PI_VERB + r"(?:" + _PI_PATH + _PI_ROOM + r"|" + _PI_BARE + r")", re.IGNORECASE)
+_PLAYER_INTENT_PREFIX_RE = re.compile(_PI_SUBJECT + _PI_VERB + _PI_PATH, re.IGNORECASE)
+_PLAYER_FOLLOW_RE = re.compile(r"\b(?:i(?:'ll|\u2019ll)?|let(?:'s|\u2019s))\s+(?:follow|go\s+with|come\s+with|tag\s+along\s+with|join)\s+(?:her|him|them|you|the\s+others)\b|\bi\s+(?:get\s+up\s+and\s+)?leave\s+the\s+room\b", re.IGNORECASE)
+
+
+def _player_asked_to_move(text: str, room_names) -> bool:
+    """Did the player's own message say they are going somewhere? Pure. A room merely named, asked about or discussed never counts; narration never counts."""
+    msg = str(text or "")
+    if _PLAYER_INTENT_RE.search(msg) or _PLAYER_FOLLOW_RE.search(msg):
+        return True
+    return any(_themed_rooms_in(msg[m.end():m.end() + 60], room_names) for m in _PLAYER_INTENT_PREFIX_RE.finditer(msg))
+
+
 def _turn_in_applied(result) -> bool:
     """ORW-310 — did a `turnIn` tool result APPLY (the night ended)? False for an error, an engine `held`
     refusal (bedtime gate) or a no-op that left the clock where it was. Telemetry counts only True."""
@@ -4717,6 +4754,102 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
         return False
 
 
+# ORW-860: a promise typed on a turn the MODEL recorded itself. The scene belt (`_auto_record_scene`) runs only when the model recorded nothing, and the model's own recordInteraction seldom carries
+# the optional `assurance` / `promise`, so a casual promise on such a turn reached no ledger and no later decision. This belt reads the player's OWN typed words and writes the promise through the
+# same closed-set door, as a content-only scene (no `kind`, no consequence: the model's scene already folded its relationship impact, so nothing folds twice).
+_MAX_PROMISE_NUDGES_PER_TURN = 1
+_PROMISE_COMMIT_RE = re.compile(
+    r"\b(?:i(?:'ll| will| won't| will not| shall not| promise| swear| vow| guarantee)|i(?:'m| am) (?:with|not (?:going|gonna)|going to|gonna)|you(?:'re| are) (?:safe|good)|you(?:'ve| have) (?:got )?my|"
+    r"(?:got|have) your back|count on me|my word|on my (?:life|honou?r)|never (?:put|nominate|vote|evict|touch))", re.I)
+
+
+def _player_message_commits(msg) -> bool:
+    """Cheap pre-filter for the promise back-fill: the player's own words hold a first-person commitment form. It only decides whether the extraction call is worth making; the model reading
+    the words and the engine's closed set decide everything else."""
+    return bool(isinstance(msg, str) and msg.strip() and _PROMISE_COMMIT_RE.search(msg))
+
+
+def _model_recorded_a_promise(tool_events) -> bool:
+    """True when a landed recordInteraction this turn already carried a casual assurance or a typed promise (the model did it itself, so the back-fill stands down)."""
+    for ev in _landed_tool_events(tool_events or []):
+        if not (isinstance(ev, dict) and ev.get("tool") == "recordInteraction"):
+            continue
+        try:
+            a = json.loads(ev.get("command") or "{}")
+        except Exception:
+            continue
+        if isinstance(a, dict) and (isinstance(a.get("assurance"), dict) or isinstance(a.get("promise"), dict)):
+            return True
+    return False
+
+
+_PROMISE_EXTRACT_INSTRUCTIONS = (
+    "You read ONE thing: the PLAYER'S OWN typed words to the people around them in a Big Brother house. Decide whether the player made an explicit promise about what they themselves will or will not do. "
+    "Reply with one JSON object only: "
+    '{"withIds":["<roster id of each houseguest the promise was made to>"],'
+    '"assurance":{"kind":"<safe|vote|loyal>"},'
+    '"promise":{"what":"<the promise kind>","subject":"<houseguest id it concerns>"}}. '
+    "Use `assurance` for a cheap, explicit promise: 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal). "
+    "Use `promise` for an explicit promise about what the player will or will not do on the board; `what` must be exactly one of: no-nominate (will not nominate them), no-evict-vote (will not vote them out), "
+    "use-veto-on (will use the veto on them), not-use-veto-on (will not use the veto on them), final-two (will take them to the final two). `subject` is left out when it concerns the one spoken to. "
+    "Give at most one of the two, whichever fits the words better. Never for a hint, a hope, a threat, a joke, a question or a mere wish, and never about anything the player did not say. "
+    'When the player made no such promise, or you cannot tell who it was made to, reply {"withIds":[]}.')
+
+
+async def _auto_record_promise(last_user, house, endpoint_url, model, headers, owner, session_id=None) -> bool:
+    """ORW-860: the promise back-fill for a model-recorded turn (see the block comment above). Success-gated: True only when a promise was actually staged or written. Fail-closed on any hiccup."""
+    try:
+        from src.llm_core import llm_call_async
+        from src import orwell_engine as _oe
+        roster = "\n".join(f'{h.get("id")} = {h.get("name")}' for h in house if h.get("id") and h.get("name"))
+        if not roster or not _player_message_commits(last_user) or _is_ooc_aside_text(last_user):
+            return False
+        msgs = [{"role": "system", "content": _EXTRACTION_UNTRUSTED_FENCE + _PROMISE_EXTRACT_INSTRUCTIONS},
+                {"role": "user", "content": f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S WORDS:\n{(last_user or '')[:800]}\n\nJSON:"}]
+        raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers, temperature=0.2, max_tokens=1500, timeout=45,
+                                   call_class="utility-extraction", user=_meter_user(owner))
+        obj = _last_json_object_with_key(raw or "", "withIds")
+        if obj is None:
+            return False
+        valid = {h.get("id") for h in house}
+        ids, _rej = _normalize_with_ids(obj.get("withIds"), valid)
+        if not ids:
+            return False
+        try:  # only people actually in the room heard it (engine whereabouts); a failed read fails open, like the scene belt
+            wb = await _oe.whereabouts(user=owner)
+            present = ({p.get("id") for p in (wb.get("present") or []) if isinstance(p, dict)} if isinstance(wb, dict) else None)
+        except Exception:
+            present = None
+        if present is not None:
+            ids = [i for i in ids if i in present]
+            if not ids:
+                return False
+        # The promiser is always the player here: the words are the player's own, so `by` is never read from the model.
+        a_raw, p_raw = obj.get("assurance"), obj.get("promise")
+        assurance = _validate_assurance({"kind": a_raw.get("kind")}, ids) if isinstance(a_raw, dict) else None
+        promise = _validate_promise({"what": p_raw.get("what"), "subject": p_raw.get("subject")}, ids, valid) if isinstance(p_raw, dict) else None
+        if assurance and promise:
+            assurance = None  # one proposal per scene, and the typed promise writes the matching assurance row itself
+        if not assurance and not promise:
+            return False
+        content = (last_user or "").strip()[:400]
+        from routes import chat_helpers as _ch_idem
+        key = _ch_idem._mint_idempotency_key()
+        if session_id is not None:
+            from src import fold_ledger as _fl
+            _fl.stage_pending_fold(owner, session_id, content=content, with_ids=ids, kind=None, consequence=None, felt_minutes=None, idempotency_key=key,
+                                   assurance=assurance, promise=promise)
+            logger.info(f"[orwell] staged a typed promise for deferred settle (ORW-860, with={ids}) user={owner}")
+            return True
+        if await _backfill_with_cas(owner, _oe.record_interaction, content, with_ids=ids, user=owner, defer_fold=True, idempotency_key=key,
+                                    **({"assurance": assurance} if assurance else {}), **({"promise": promise} if promise else {})) is None:
+            return False
+        return True
+    except Exception as _e:
+        logger.warning(f"[orwell] promise back-fill failed: {_e}")
+        return False
+
+
 # ── Feature 0081 — the narration-FAITHFULNESS gate (the overseer's second role) ────────────────
 # Where _auto_record_scene / the stall belts above error-correct the model's UNDER-calls (pacing /
 # gap-repair), this judges the model's MIS-narration: prose that contradicts the board, drifts a
@@ -5453,7 +5586,9 @@ _DEAL_SIGNAL_RE = re.compile(
     r"shakes? (?:on it|hands|your hand|her hand|his hand)|shook (?:on it|hands|your hand|her hand|his hand)|"
     r"(?:sticks?|stuck|extends?|extended|offers?|holds?|held|puts?|put) (?:out )?(?:a|her|his|your|the) hand|"
     r"handshake|swear|vote (?:with you|together|as a bloc)|bloc|"
-    r"we have a deal|i'?m with you|stick together|lock(?:ed)? (?:it )?in)\b", re.I)
+    r"we have a deal|i'?m with you|stick together|lock(?:ed)? (?:it )?in|"
+    # ORW-987: a RENEWAL of a deal that ran out ("we're still good", "same deal next week", "our deal still stands", "re-up") is a deal struck again, and the model leaves it unrecorded
+    r"still (?:good|on|with you|you and me|us)|same (?:deal|terms|arrangement|as (?:last week|before))|renew(?:s|ed|ing|al)?|(?:our|the) (?:deal|arrangement|thing) (?:still )?(?:stands|holds)|re-?up(?:ping)?)\b", re.I)
 
 
 async def _auto_record_deal(narration, last_user, house, endpoint_url, model, headers, owner,
@@ -5501,7 +5636,7 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
                 '"termWeeks":<integer weeks it runs counting this week, ONLY if a duration was explicitly named, else null>}]}\n'
                 "List a deal ONLY when BOTH sides explicitly AGREED to a concrete commitment, with the kind that matches "
                 "the words actually spoken; if no listed kind matches what was spoken, leave that deal out. If it was loose talk, a one-sided pitch, a 'maybe', or a refusal, leave it "
-                "out; no deal at all => an empty list. kind: " + _kind_desc + "."},
+                "out; no deal at all => an empty list. A RENEWAL that both sides agree to ('we are still good', 'same deal again this week') IS a deal struck now, with the kind of the thing renewed. kind: " + _kind_desc + "."},
             {"role": "user", "content":
                 f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
                 f"WHAT HAPPENED:\n{scene}\n\nJSON:"},
@@ -8353,12 +8488,16 @@ _PD_DRAIN_WAIT_S = 8.0  # ORW-408: after a withhold, the longest the rest of the
 _PD_REDO_TIMEOUT_S = 20  # ORW-408: the continuation call's wall-clock ceiling
 _PD_REDO_MAX_TOKENS = 700  # ORW-408: enough for the rest of one reply
 _PD_BEAT_S = 2.0  # ORW-408: how often a keepalive comment goes out while the player waits
-_PD_KEEPALIVE = ": keepalive\n\n"  # the same SSE comment line the chat route sends before the first token
+# The keepalive is a real `data:` event, not an SSE comment: the chat route's consumer chain only relays `data: ` / `event: ` chunks (a comment line was dropped there, so neither the SSE nor the
+# WebSocket leg ever saw it). `{"type": "keepalive"}` is a type the client ignores (the SSE reader and the WS splice both fall through on an unknown type), and the WS relay carries it as a plain
+# `chat` event payload.
+_PD_KEEPALIVE = 'data: {"type": "keepalive"}\n\n'
 
 
-async def _pd_bounded_stream(stream, armed, drain: dict, wait_s: float = None, beat_s: float = None):
-    """ORW-408: pass the model stream through unchanged until `armed()` (a sentence was withheld); from then on read it for at most `wait_s`, yielding a keepalive comment every `beat_s`
-    while nothing arrives, and on the deadline stop (`drain["timed_out"] = True`). Cancelling the pending read does not hurt the chunks already processed."""
+async def _pd_bounded_stream(stream, armed, drain: dict, wait_s: float = None, beat_s: float = None, hard_deadline: float = None):
+    """ORW-408: pass the model stream through unchanged. Once `armed()` (a sentence was withheld) the stream is STILL read to its end - never abandoned, so a late native tool call / finish / usage event
+    is always seen - while a keepalive event is yielded every `beat_s` that nothing arrives. `wait_s` after the withhold is only the point past which no continuation call is made
+    (`drain["timed_out"] = True`). `hard_deadline` (a `time.monotonic()` value; the round's wall-clock cap) is the one point where the read is cut (`drain["hard_timed_out"]`)."""
     wait_s = _PD_DRAIN_WAIT_S if wait_s is None else wait_s
     beat_s = _PD_BEAT_S if beat_s is None else beat_s
     it = stream.__aiter__()
@@ -8371,37 +8510,42 @@ async def _pd_bounded_stream(stream, armed, drain: dict, wait_s: float = None, b
             if deadline is None:
                 try:
                     chunk = await it.__anext__()
-                except StopAsyncIteration:
+                except StopAsyncIteration:  # failsoft-ok: orw408-drain-end (the normal end of the stream)
                     return
                 yield chunk
                 continue
             nxt = asyncio.ensure_future(it.__anext__())
             while True:
-                left = deadline - time.monotonic()
-                if left <= 0:
+                now = time.monotonic()
+                if hard_deadline is not None and now >= hard_deadline:
                     drain["timed_out"] = True
+                    drain["hard_timed_out"] = True
                     nxt.cancel()
-                    try:
-                        await nxt
-                    except BaseException:  # failsoft-ok: orw408-drain-cancel (the abandoned read; the round ends at the kept text)
-                        pass
+                    await asyncio.wait({nxt})  # settles the inner task only; an OUTER cancel still raises here
+                    if not nxt.cancelled() and nxt.exception() is None:
+                        chunk, nxt = nxt.result(), None
+                        yield chunk  # completed in the same tick as the deadline: not discarded
                     return
-                done, _ = await asyncio.wait({nxt}, timeout=min(beat_s, left))
+                if now >= deadline:
+                    drain["timed_out"] = True
+                wait = beat_s if hard_deadline is None else min(beat_s, max(hard_deadline - now, 0.001))
+                done, _ = await asyncio.wait({nxt}, timeout=wait)
                 if done:
                     break
                 yield _PD_KEEPALIVE
-            try:
-                chunk = nxt.result()
-            except StopAsyncIteration:
-                return
+            if time.monotonic() >= deadline:
+                drain["timed_out"] = True
+            exc = nxt.exception()
+            if exc is not None:
+                if isinstance(exc, StopAsyncIteration):
+                    return
+                raise exc
+            chunk, nxt = nxt.result(), None
             yield chunk
     finally:
         if nxt is not None and not nxt.done():  # closed mid-keepalive: stop the pending read first, or aclose() hits "already running" and the upstream read carries on
             nxt.cancel()
-            try:
-                await nxt
-            except BaseException:  # failsoft-ok: orw408-drain-cancel (the abandoned read)
-                pass
+            await asyncio.wait({nxt}, timeout=1.0)  # review 2 of #2728: never swallow the OUTER task's cancellation (a client disconnect)
         try:
             await it.aclose()
         except Exception:  # failsoft-ok: orw408-drain-close (closing an already-finished stream)
@@ -8828,6 +8972,11 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
                 _forget_season_pacing(kwargs.get("owner"), _bump=False)
         except Exception as _e:  # failsoft-ok: the reset already cleared the stores once
             logger.debug("ORW-499: stale-turn pacing clear failed: %s", _e)
+        try:  # ORW-408: one INFO line per turn (pre-display chunks checked / skipped by reason / conflicts by fact)
+            from src import predisplay_check as _pd_turn
+            _pd_turn.end_turn(kwargs.get("owner"))
+        except Exception as _e:  # failsoft-ok: counter only
+            logger.debug("ORW-408: end_turn failed: %s", _e)
         _ANN_HELD.pop(kwargs.get("owner"), None)  # ORW-479: a held announcement's tail window never outlives its turn
         for _tok in _ledger_tokens:  # ORW-435: a turn that raised / was cancelled / never reached record_turn still closes its window (idempotent)
             try:
@@ -9513,6 +9662,7 @@ async def _stream_agent_loop_impl(
         _scrub_active = _is_live_game
     _turn_advance_nudges = 0
     _turn_record_nudges = 0
+    _turn_promise_backfills = 0  # ORW-860
     # Bound for the WHOLE turn: a turn that exits the round loop early (e.g. the model's own `ask_user`) never reaches the in-loop nudge block that assigns these, and the
     # post-loop overseer/faithfulness hooks then died on UnboundLocalError (live E-1 soft-fails `overseer:hook-error` / `faith:gate-error`) — skipping both gates that turn.
     _want_record = False
@@ -9533,6 +9683,7 @@ async def _stream_agent_loop_impl(
     _turn_promise_by: set = set()  # ORW-750: the houseguests the MODEL recorded a promise or assurance for this turn (the belt never re-records them)
     _turn_alliance_refused: dict = {"join": set(), "form": []}  # ORW-793: what the engine refused the MODEL's own joinAlliance / formAlliance this turn (the belt never re-proposes it)
     _turn_move_nudges = 0  # L21/L24 auto-move belt: at most one auto-move per finishing turn
+    _turn_slept = False  # ORW-940: a turnIn applied this turn (the bed or a doze): no move for the player unless their own words asked to go somewhere
     _turn_npc_move_nudges = 0  # ADR 0009 NPC auto-move belt: at most one per finishing turn
     _turn_approach_nudges = 0  # 0036/0049: at most one NPC-approach nudge per finishing turn
     _emitted_visible = False  # did the player see ANY narration this turn? (scrub can empty a
@@ -9700,6 +9851,9 @@ async def _stream_agent_loop_impl(
         # mistaken for the round's opener merely because it's the first line of ITS buffered chunk.
         _round_visible_emitted = False
         _pd_rw_pending = None  # ORW-408: a RewriteSplit once a sentence was withheld this round (the rest of the stream is then discarded unseen)
+        _pd_ended_at_prefix = False  # ORW-408: the round's narration ended at the kept prefix (no continuation): close any open quote / tag
+        _pd_op = -1
+        _pd_all_tail = ""
         _pd_rw_cont = False  # ORW-408: the round's flush is the redo's text (a still-conflicting sentence is dropped whole)
         _pd_rw_round = False  # ORW-408: THIS round withheld a sentence (the turn-scoped `_pd_rewrite_used` must not switch the tail check off for LATER rounds; review of #2751)
         _pd_tail = ""  # ORW-408: the raw text read (and discarded) AFTER a sentence was withheld; only inspected for a text-protocol tool-call opener
@@ -10021,6 +10175,7 @@ async def _stream_agent_loop_impl(
                             yield f'data: {json.dumps({"type": "tool_output", "tool": "turnIn", "command": "{}", "output": "", "exit_code": _bt_result.get("exit_code") if isinstance(_bt_result, dict) else None})}\n\n'
                             tool_events.append({"round": round_num, "tool": "turnIn", "command": "{}", "output": "", "exit_code": (_bt_result or {}).get("exit_code")})
                             _direct_applied = _turn_in_applied(_bt_result)
+                            _turn_slept = _turn_slept or _direct_applied
                             _belt_own_round = True  # ORW-395: the chip is drawn with ITS round's text; close this round so it sits ABOVE the morning narration
                             if _direct_applied:
                                 _bt_call_id = f"call_{round_num}_bedtime"
@@ -10115,7 +10270,7 @@ async def _stream_agent_loop_impl(
             pin_provider=(_pin_threshold > 0 and last_round_input_tokens >= _pin_threshold),
             provider_opts=_provider_opts,
             tool_choice=_forced_tool_choice,  # #1154: None on ordinary turns ⇒ byte-identical
-        ), lambda: _pd_rw_pending is not None, _pd_drain):
+        ), lambda: _pd_rw_pending is not None, _pd_drain, hard_deadline=time.monotonic() + max(_round_deadline - time.time(), 0.0)):
             if chunk == _PD_KEEPALIVE:  # ORW-408: the player is waiting on a withheld sentence; keep the connection alive
                 yield chunk
                 continue
@@ -10384,6 +10539,7 @@ async def _stream_agent_loop_impl(
                                         # ORW-408: stored text must equal what was shown: cut the raw round buffer to exactly the emitted text (the earlier emitted text + the kept prefix of this chunk),
                                         # never by searching for the withheld sentence (a guard may have rewritten it, leaving it in the stored text).
                                         round_response = _round_emitted_text + (_guarded_text or "")
+                                        _pd_tail = _game_buf + _pd_tail  # the unterminated remainder of this chunk is also unshown: scan it for a tool opener too
                                         _game_buf = ""
                                     _round_emitted_text += _guarded_text or ""
                                     _shown_piece = _guarded_text or ""
@@ -10523,8 +10679,8 @@ async def _stream_agent_loop_impl(
                 # call from the discarded tail is put back onto the raw round text so it is parsed and run once (the narration before it stays unshown, so nothing is narrated twice).
                 logger.info("[predisplay-rewrite] no continuation: native_calls=%d tail_opener=%s drain_timed_out=%s", len(native_tool_calls), _pd_op >= 0, _pd_drain["timed_out"])
                 if _pd_op >= 0:
-                    round_response += _pd_all_tail[_pd_op:]
                     _opener_halted_round = True  # review of #2784: prose after this opener was never shown either, so the storage cut below drops it (ORW-453)
+                _pd_ended_at_prefix = True
                 _pd_rw_pending = None
             else:
                 # ONE non-streaming continuation from exactly where the shown text ends; it then flows through the SAME guard chain below (the flush site).
@@ -10540,6 +10696,18 @@ async def _stream_agent_loop_impl(
                     round_response += _redo
                     _game_buf = _redo
                     _pd_rw_cont = True
+                else:
+                    _pd_ended_at_prefix = True  # the continuation failed or came back empty: the reply ends at the kept prefix
+            if _pd_ended_at_prefix:
+                # The narration ends at the kept prefix: never leave the bubble inside an open quote / speaker line / bold span (the same close the scene-broken path runs); live == stored.
+                _pd_close = close_open_markup(_round_emitted_text) if _round_emitted_text else ""
+                if _pd_close:
+                    _round_emitted_text += _pd_close
+                    full_response += _pd_close
+                    round_response += _pd_close
+                    yield f'data: {json.dumps({"delta": _pd_close})}\n\n'
+                if _pd_op >= 0:
+                    round_response += _pd_all_tail[_pd_op:]  # the opener's own call text is parsed and run once (after any markup close above)
         # Flush the scrub buffer: emit the trailing (possibly unterminated) sentence, cleaned, so
         # nothing the round produced is left unshown or leaks through.
         if _scrub_active and _game_buf:
@@ -11162,6 +11330,10 @@ async def _stream_agent_loop_impl(
                     moved=_moved, turn_move_nudges=_turn_move_nudges, max_move_nudges=_MAX_MOVE_NUDGES_PER_TURN,
                     signal_in_user_message=bool(_MOVE_SIGNAL_RE.search(_last_user_for_move)) or _themed_move_signal(_last_user_for_move, owner),
                     signal_in_narration=bool(_MOVE_SIGNAL_RE.search(_turn_narration_visible)) or _themed_move_signal(_turn_narration_visible, owner))
+                if _want_move and not _player_asked_to_move(_last_user_for_move, _season_room_names(owner)):
+                    _want_move = False  # the narration walking the player somewhere is not the player's move: only their own words move them
+                if _turn_slept and not _asked_to_go_somewhere(_last_user_for_move, _season_room_names(owner)):
+                    _want_move = False  # ORW-940: the player went to bed: the narration's walking about is not their move
                 # ADR 0009 NPC auto-move belt: the turn's NARRATION walked one or more houseguests to a
                 # room but the model never called moveHouseguest, so the engine's open presence still has
                 # them in their seeded room and the whereabouts gadget snaps them back. Gated on a cheap
@@ -11490,7 +11662,7 @@ async def _stream_agent_loop_impl(
                     async def _bank_belt_chain_ordered(_touched, _touched_deal) -> None:
                         """The ordered belt chain (unchanged by ORW-910 but for the prefetch above): see `_bank_belt_chain`."""
                         nonlocal _turn_deal_nudges, _turn_record_nudges, _turn_confide_nudges, _turn_offer_nudges
-                        nonlocal _turn_expose_nudges, _turn_trade_nudges, _turn_alliance_nudges, _turn_promise_nudges
+                        nonlocal _turn_expose_nudges, _turn_trade_nudges, _turn_alliance_nudges, _turn_promise_nudges, _turn_promise_backfills
                         if _want_deal and _touched_deal:
                             _turn_deal_nudges += 1  # once per turn
                             _applied_deals: list = []
@@ -11565,6 +11737,13 @@ async def _stream_agent_loop_impl(
                                                    applied_out=_applied_promises, skip_by=_turn_promise_by):
                                 for _ in (_applied_promises or [None]):
                                     _note_belt(owner, "auto-promise")
+                        # ORW-860: the model recorded the scene itself but its call carried no promise, and the player's own words commit to one: bank it (success-gated telemetry).
+                        if _gates.want_promise_backfill(recorded=_recorded, model_carried_promise=_model_recorded_a_promise(tool_events), turn_promise_nudges=_turn_promise_backfills,
+                                                        max_promise_nudges=_MAX_PROMISE_NUDGES_PER_TURN,
+                                                        player_message_commits=lambda: _player_message_commits(_extract_last_user_message(messages))):
+                            _turn_promise_backfills += 1  # once per turn
+                            if await _auto_record_promise(_extract_last_user_message(messages), _house, _belt_endpoint, _belt_model, _belt_headers, owner, session_id=session_id):
+                                _note_belt(owner, "auto-record-promise")
                         if (_want_record and _touched and _turn_record_nudges < _MAX_RECORD_NUDGES_PER_TURN
                                 and not _progress_only_board_advanced(
                                     owner, _extract_last_user_message(messages), _ledger_beat_seq_before)):
@@ -12788,6 +12967,10 @@ async def _stream_agent_loop_impl(
                     "blocked": True,
                 }
                 logger.info("Tool blocked before start by policy: %s", block.tool_type)
+            elif block.tool_type == "moveTo" and _turn_slept and not _asked_to_go_somewhere(_extract_last_user_message(messages) or "", _season_room_names(owner)):
+                desc = "moveTo: BLOCKED"
+                result = {"error": "The player went to bed this turn and did not ask to go anywhere: they stay in bed. Do not move them; narrate the sleep only.", "exit_code": 1, "blocked": True}
+                logger.info("[orwell] ORW-940 moveTo refused after turnIn in the same turn user=%s", owner)
             else:
                 yield (
                     f'data: {json.dumps({"type": "tool_start", "tool": block.tool_type, "command": cmd_display, "round": round_num})}\n\n'
@@ -13018,6 +13201,8 @@ async def _stream_agent_loop_impl(
                 "output": _persisted_output,
                 "exit_code": result.get("exit_code"),
             }
+            if block.tool_type == "turnIn" and _turn_in_applied(result):
+                _turn_slept = True
             _engine_result = _engine_result_for_transcript(block.tool_type, result)
             if _engine_result is not None:
                 tool_event["engine_result"] = _engine_result  # ORW-187: admin-only full result (stripped from the player's history payload)

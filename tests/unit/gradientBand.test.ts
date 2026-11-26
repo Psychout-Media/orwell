@@ -30,10 +30,13 @@ describe("assertGradient (the injected-expect band over SEEDS seeds)", () => {
     const active: Status[] = times<Status>([J]); active[4] = E;
     expect(() => assertGradient(res(times([J]), active, [], [0]), expect as never)).not.toThrow();
   });
-  it("still fails when active clearly reaches less often (6/6 vs 3/6, repeated) — a real regression is not hidden", () => {
+  it("still fails when active trails passive by a wide margin (6/6 vs 3/6, repeated: a broken gradient)", () => {
     expect(() => assertGradient(res(times([J, J, J, J, J, J]), times([J, J, J, E, E, E])), expect as never)).toThrow();
   });
-  it("still fails when passive clearly out-wins active (2 wins vs 0 in every 6, repeated)", () => {
-    expect(() => assertGradient(res(times([J, J, J, J, J, J]), times([J, J, J, J, J, J]), at([0, 1]), []), expect as never)).toThrow();
+  it("ORW-991: a wins gap (2 vs 0 in every 6, repeated) is a REPORT, not a failure (Ryne 2026-11-26: difficulty is tracked weekly)", () => {
+    expect(() => assertGradient(res(times([J, J, J, J, J, J]), times([J, J, J, J, J, J]), at([0, 1]), []), expect as never)).not.toThrow();
+  });
+  it("fails when active play never reaches the jury", () => {
+    expect(() => assertGradient(res(times([J]), times([E])), expect as never)).toThrow();
   });
 });

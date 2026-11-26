@@ -28,8 +28,9 @@ describe("ORW-743 (built state, then played): the player can say it first", () =
       g.playUntil(() => (s as unknown as { live: { week: number } }).live.week >= 2 && !s.getGameState().pending, 3000, "week 2");
       const fact = `t743:${seed}`, said = "the player has been hiding something about why they are really here";
       kn.seedBelief(s.livingIds().filter((id) => id !== PLAYER)[0]!, { content: said, originalContent: said, factId: fact, subject: PLAYER, confidence: 0.9, hops: 0, distortion: 0 }, "told");
-      const up = (): boolean => (s as unknown as { awakeIds(): ReadonlySet<string> | null }).awakeIds()?.has(PLAYER) ?? true;
-      g.playUntil(() => (s.live.sayItFirst as { factId?: string } | undefined)?.factId === fact && !s.getGameState().pending && up(), 1500, "the house's gossip closing in on it and the card opening, the player up");
+      // the player is up, and so are a few houseguests to hear it (late at night the player may be the only one awake)
+      const up = (): boolean => { const a = (s as unknown as { awakeIds(): ReadonlySet<string> | null }).awakeIds(); return !a || (a.has(PLAYER) && [...a].filter((id) => id !== PLAYER).length >= 3); };
+      g.playUntil(() => (s.live.sayItFirst as { factId?: string } | undefined)?.factId === fact && !s.getGameState().pending && up(), 1500, "the house's gossip closing in on it and the card opening, the player and a few others up");
       expect(s.getMomentPrompt({}).systemPrompt, "the card is open: the narrator is told").toContain(LINE);
       return { g, s, kn, fact };
     }, { from: 1, to: 3, hint: [1], sandbox: (x) => `sif-${x}`, what: "a fact about the player closing in and the card opening" });

@@ -601,7 +601,7 @@ export interface LiveSeasonState {
   houseThemeDef?: import("./data/houseThemes").HouseTheme;
   /** ORW-466: the player's recent seasons' house themes (most recent first, bounded), so this season draws a different one. Carried across a confirmed restart. */
   priorHouseThemes?: string[];
-  premiereEntrance?: { order: string[]; playerPos: number; arrived: number; stage: "entrances" | "toast" | "done"; spoke: string[]; /** ORW-653 / 0205: the houseguests officially introduced at the circle (the player's own id once their slot has come up); append-only. Present only when the meet-the-cast circle is armed. */ introduced?: string[] };
+  premiereEntrance?: { order: string[]; playerPos: number; arrived: number; stage: "entrances" | "toast" | "done"; spoke: string[]; /** ORW-653 / 0205: the houseguests officially introduced at the circle (the player's own id once their slot has come up); append-only. Present only when the meet-the-cast circle is armed. */ introduced?: string[]; /** ORW-997: how many toast speakers the latest release handed over (a release may carry several batches); absent = the old fixed batch. */ lastRelease?: number };
   /** ORW-654 / 0206 (`ORWELL_HOUSE_TOUR`): the self-guided tour, armed when a person starts playing during the premiere. `seen` = the rooms the player has stepped into (append-only; the first entry into each is the one-time room card). Absent when the flag is off or the game is headless (byte-identical). */
   houseTour?: import("./houseTour").HouseTourState;
   /** The player's declared intent for the upcoming competition (B46); consumed when it resolves. */
@@ -1051,6 +1051,8 @@ export interface LiveSeasonState {
   routineSightings?: import("./routineLife").RoutineSightings;
   /** ORW-960 (B2-8): each NPC onlooker's own routine sightings (engine-only; monotone like the player's). */
   npcRoutineSightings?: Record<EntityId, import("./routineLife").RoutineSightings>;
+  /** ORW-981: the days each houseguest was in the room with the PLAYER at a time of day (`slot:room` -> distinct in-game days). Hidden, engine-only, monotonic; kept apart from `npcRoutineSightings` (those are a houseguest's sightings of someone's ROUTINE and each one becomes a learned fact; the player has no routine row). */
+  playerHaunts?: Record<EntityId, Record<string, number[]>>;
   /** 0208 / ORW-663 (B1, engine-only): the houseguest seats that carry a RETURNER from a season this player played, by seat id: which archived season, how many seasons ago, and the public finish (placement, juror). Fixed at casting; never thinned. The feelings and claims they carried live only in the hidden layer. */
   returners?: Record<EntityId, { season: number; seasonsAgo: number; placement: number; juror: boolean }>;
   interruption?: { npc: string; desire: string; atHour: number; /** ORW-261: a VOLUNTEERED (nobody asked) private-orientation disclosure the houseguest chose to make as they step in (the engine-authored sentence; also recorded as a told-by fact). */ tells?: string; /** ORW-611 follow-up: a speech step aimed at the player, told once this framing's view is built. */ say?: AimedSay };

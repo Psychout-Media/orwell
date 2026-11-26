@@ -1,5 +1,5 @@
 {
- "_about": "ORW-508 ratchet. Over 200 seeded casts (seeds 1000 + 7919 i) of 15: the measured value is today's; a field that gets worse than its ceiling fails. A fix lowers the ceiling in the same PR. Excluded because another PR owns the list: distinguishingMark, facialFeatures, style families (PR 2828); shot cards and portrait prompts (PR 2821).",
+ "_about": "ORW-508 ratchet. Over 200 seeded casts (seeds 1000 + 7919 i) of 15: the measured value is today's; a field that gets worse than its ceiling fails. A fix lowers the ceiling in the same PR. distinguishingMark counts named marks only (none notable is the plain majority by design). Shot cards and portrait prompts: PR 2821.",
  "casts": 200,
  "fields": {
   "name.given": {
@@ -454,11 +454,10 @@
   },
   "phys.skinTone": {
    "measured": {
-    "distinct": 10,
-    "topShare": 0.104,
-    "castPresenceMax": 0.92,
-    "castPresenceMean": 0.9,
-    "sharedConsecutive": 8.11
+    "distinct": 100,
+    "topShare": 0.0143,
+    "castPresenceMax": 0.205,
+    "sharedConsecutive": 2.13
    },
    "before": {
     "distinct": 10,
@@ -466,10 +465,10 @@
     "castPresenceMax": 0.92,
     "sharedConsecutive": 8.11
    },
-   "floorDistinct": 10,
-   "maxTopShare": 0.105,
-   "maxCastPresence": 0.925,
-   "maxSharedConsecutive": 8.16,
+   "floorDistinct": 100,
+   "maxTopShare": 0.0153,
+   "maxCastPresence": 0.21,
+   "maxSharedConsecutive": 2.18,
    "target": {
     "distinct": 300,
     "topShare": 0.02,
@@ -504,11 +503,10 @@
   },
   "phys.hair": {
    "measured": {
-    "distinct": 30,
-    "topShare": 0.043,
-    "castPresenceMax": 0.645,
-    "castPresenceMean": 0.5,
-    "sharedConsecutive": 8.25
+    "distinct": 297,
+    "topShare": 0.0073,
+    "castPresenceMax": 0.11,
+    "sharedConsecutive": 0.86
    },
    "before": {
     "distinct": 30,
@@ -516,10 +514,10 @@
     "castPresenceMax": 0.645,
     "sharedConsecutive": 8.25
    },
-   "floorDistinct": 30,
-   "maxTopShare": 0.044,
-   "maxCastPresence": 0.65,
-   "maxSharedConsecutive": 8.3,
+   "floorDistinct": 297,
+   "maxTopShare": 0.0083,
+   "maxCastPresence": 0.115,
+   "maxSharedConsecutive": 0.91,
    "target": {
     "distinct": 300,
     "topShare": 0.02,
@@ -529,11 +527,10 @@
   },
   "phys.ageLook": {
    "measured": {
-    "distinct": 5,
-    "topShare": 0.3547,
-    "castPresenceMax": 1,
-    "castPresenceMean": 0.801,
-    "sharedConsecutive": 3.77
+    "distinct": 407,
+    "topShare": 0.006,
+    "castPresenceMax": 0.09,
+    "sharedConsecutive": 0.61
    },
    "before": {
     "distinct": 5,
@@ -541,12 +538,12 @@
     "castPresenceMax": 1,
     "sharedConsecutive": 3.77
    },
-   "floorDistinct": 5,
-   "maxTopShare": 0.3557,
-   "maxCastPresence": 1.005,
-   "maxSharedConsecutive": 3.82,
+   "floorDistinct": 407,
+   "maxTopShare": 0.007,
+   "maxCastPresence": 0.095,
+   "maxSharedConsecutive": 0.66,
    "target": {
-    "distinct": 300,
+    "distinct": 593,
     "topShare": 0.02,
     "castPresenceMax": 0.25,
     "sharedConsecutive": 1.0
@@ -554,11 +551,10 @@
   },
   "bio.root": {
    "measured": {
-    "distinct": 8,
-    "topShare": 0.133,
-    "castPresenceMax": 0.915,
-    "castPresenceMean": 0.87,
-    "sharedConsecutive": 6.07
+    "distinct": 34,
+    "topShare": 0.0333,
+    "castPresenceMax": 0.405,
+    "sharedConsecutive": 4.38
    },
    "before": {
     "distinct": 8,
@@ -566,10 +562,10 @@
     "castPresenceMax": 0.915,
     "sharedConsecutive": 6.07
    },
-   "floorDistinct": 8,
-   "maxTopShare": 0.134,
-   "maxCastPresence": 0.92,
-   "maxSharedConsecutive": 6.12,
+   "floorDistinct": 34,
+   "maxTopShare": 0.0343,
+   "maxCastPresence": 0.41,
+   "maxSharedConsecutive": 4.43,
    "target": {
     "distinct": 300,
     "topShare": 0.02,
@@ -579,11 +575,10 @@
   },
   "bio.drive": {
    "measured": {
-    "distinct": 12,
-    "topShare": 0.1553,
-    "castPresenceMax": 0.94,
-    "castPresenceMean": 0.585,
-    "sharedConsecutive": 5.3
+    "distinct": 86,
+    "topShare": 0.0387,
+    "castPresenceMax": 0.445,
+    "sharedConsecutive": 4.38
    },
    "before": {
     "distinct": 12,
@@ -591,10 +586,10 @@
     "castPresenceMax": 0.94,
     "sharedConsecutive": 5.3
    },
-   "floorDistinct": 12,
-   "maxTopShare": 0.1563,
-   "maxCastPresence": 0.945,
-   "maxSharedConsecutive": 5.35,
+   "floorDistinct": 86,
+   "maxTopShare": 0.0397,
+   "maxCastPresence": 0.45,
+   "maxSharedConsecutive": 4.43,
    "target": {
     "distinct": 300,
     "topShare": 0.02,
@@ -604,11 +599,10 @@
   },
   "bio.closer": {
    "measured": {
-    "distinct": 6,
-    "topShare": 0.176,
-    "castPresenceMax": 0.95,
-    "castPresenceMean": 0.917,
-    "sharedConsecutive": 5.06
+    "distinct": 20,
+    "topShare": 0.056,
+    "castPresenceMax": 0.605,
+    "sharedConsecutive": 5.51
    },
    "before": {
     "distinct": 6,
@@ -616,10 +610,10 @@
     "castPresenceMax": 0.95,
     "sharedConsecutive": 5.06
    },
-   "floorDistinct": 6,
-   "maxTopShare": 0.177,
-   "maxCastPresence": 0.955,
-   "maxSharedConsecutive": 5.11,
+   "floorDistinct": 20,
+   "maxTopShare": 0.057,
+   "maxCastPresence": 0.61,
+   "maxSharedConsecutive": 5.56,
    "target": {
     "distinct": 300,
     "topShare": 0.02,
@@ -647,6 +641,150 @@
    "maxSharedConsecutive": 5.21,
    "target": {
     "distinct": 300,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "phys.facialFeatures": {
+   "measured": {
+    "distinct": 320,
+    "topShare": 0.0063,
+    "castPresenceMax": 0.095,
+    "sharedConsecutive": 0.66
+   },
+   "before": {
+    "distinct": 40,
+    "topShare": 0.0307,
+    "castPresenceMax": 0.46,
+    "sharedConsecutive": 5.58
+   },
+   "floorDistinct": 320,
+   "maxTopShare": 0.0073,
+   "maxCastPresence": 0.1,
+   "maxSharedConsecutive": 0.71,
+   "target": {
+    "distinct": 400,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "phys.style": {
+   "measured": {
+    "distinct": 360,
+    "topShare": 0.007,
+    "castPresenceMax": 0.105,
+    "sharedConsecutive": 0.59
+   },
+   "before": {
+    "distinct": 30,
+    "topShare": 0.0493,
+    "castPresenceMax": 0.74,
+    "sharedConsecutive": 8.13
+   },
+   "floorDistinct": 360,
+   "maxTopShare": 0.008,
+   "maxCastPresence": 0.11,
+   "maxSharedConsecutive": 0.64,
+   "target": {
+    "distinct": 360,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "phys.distinguishingMark": {
+   "measured": {
+    "distinct": 390,
+    "topShare": 0.0075,
+    "castPresenceMax": 0.03,
+    "sharedConsecutive": 0.02
+   },
+   "before": {
+    "distinct": 44,
+    "topShare": 0.04,
+    "castPresenceMax": 0.16,
+    "sharedConsecutive": 0.36
+   },
+   "floorDistinct": 390,
+   "maxTopShare": 0.0085,
+   "maxCastPresence": 0.035,
+   "maxSharedConsecutive": 0.07,
+   "target": {
+    "distinct": 395,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "bio.combo": {
+   "measured": {
+    "distinct": 2774,
+    "topShare": 0.001,
+    "castPresenceMax": 0.015,
+    "sharedConsecutive": 0
+   },
+   "before": {
+    "distinct": 288,
+    "topShare": 0.007,
+    "castPresenceMax": 0.095,
+    "sharedConsecutive": 0.61
+   },
+   "floorDistinct": 2774,
+   "maxTopShare": 0.002,
+   "maxCastPresence": 0.02,
+   "maxSharedConsecutive": 0.05,
+   "target": {
+    "distinct": 2912,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "voice.combo": {
+   "measured": {
+    "distinct": 2752,
+    "topShare": 0.0017,
+    "castPresenceMax": 0.025,
+    "sharedConsecutive": 0.02
+   },
+   "before": {
+    "distinct": 2752,
+    "topShare": 0.0017,
+    "castPresenceMax": 0.025,
+    "sharedConsecutive": 0.02
+   },
+   "floorDistinct": 2752,
+   "maxTopShare": 0.0027,
+   "maxCastPresence": 0.03,
+   "maxSharedConsecutive": 0.07,
+   "target": {
+    "distinct": 2752,
+    "topShare": 0.02,
+    "castPresenceMax": 0.25,
+    "sharedConsecutive": 1.0
+   }
+  },
+  "look.combo": {
+   "measured": {
+    "distinct": 3000,
+    "topShare": 0.0003,
+    "castPresenceMax": 0.005,
+    "sharedConsecutive": 0
+   },
+   "before": {
+    "distinct": 3000,
+    "topShare": 0.0004,
+    "castPresenceMax": 0.005,
+    "sharedConsecutive": 0
+   },
+   "floorDistinct": 3000,
+   "maxTopShare": 0.0013,
+   "maxCastPresence": 0.01,
+   "maxSharedConsecutive": 0.05,
+   "target": {
+    "distinct": 3000,
     "topShare": 0.02,
     "castPresenceMax": 0.25,
     "sharedConsecutive": 1.0
