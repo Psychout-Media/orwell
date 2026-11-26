@@ -1365,6 +1365,7 @@ export class GameSessionAdapter implements GameSession {
     this.seenMessageIds.push(id);
     if (this.seenMessageIds.length > 256) this.seenMessageIds.shift();
     this.disclosureEpoch++; // a new player turn: last turn's disclosure events are over
+    this.playerTurnNo++; // ORW-877: the turn a held tell belongs to
     if (this.allianceRefusal && this.disclosureEpoch > this.allianceRefusal.epoch + 1) this.allianceRefusal = null; // ORW-913: told for the rest of that turn and the next one, then over
     this.ceremonyBeat = null; // ORW-247b: the player spoke - the ceremony scene is over, the house disperses on the calm tick
     // PLAYTEST BUG: freeze WHO IS IN THE ROOM at the moment the player sends - the turn-driven tick that follows this very commit re-seats the house, and a scene recorded later in the reply must
@@ -2060,14 +2061,18 @@ export class GameSessionAdapter implements GameSession {
   }
   /** 0153 / ORW-330 slice 3: what a house-life speech action SAYS, as a claim the engine decides and checks against its truth; nothing for other actions. Returns the claim told, if any. */
   private sayInHouseLife(p: { kind: string; actor: EntityId; about?: EntityId; truthful: boolean }, partner: EntityId, salt: string): SpokenClaim | undefined {
+    const said = this.planHouseLifeSpeech(p, partner, salt);
+    return said ? this.tellClaim(said) : undefined;
+  }
+  /** What a house-life speech action would SAY (the claim, not yet told). */
+  private planHouseLifeSpeech(p: { kind: string; actor: EntityId; about?: EntityId; truthful: boolean }, partner: EntityId, salt: string): ClaimInput | undefined {
     const action = speechActionOf(p.kind);
     if (!action || !this.live) return undefined;
-    const said = planSpeech(action, p.actor, partner, p.about, p.truthful, {
+    return planSpeech(action, p.actor, partner, p.about, p.truthful, {
       living: this.livingIds(), beliefs: this.live.beliefs, facts: this.truthFacts(),
       roll: new SeededRandom(hashSeed(`${salt}:${p.actor}:${p.kind}`)).next(),
       ...(this.socialRolesOn() ? { roleOf: (h: EntityId, x: EntityId) => this.roleOf(h, x) } : {}), // 0184 part 2a: a leak with nothing else to pass on may voice a role
-    });
-    return said ? this.tellClaim(said) : undefined;
+    }) ?? undefined;
   }
   /**
    * 0155 / ORW-330 slice 6 - THE LEDGER NET. A claim the narrator wrote (caught by the open ledger) is told, as `origin: "narrated"`, to everyone
@@ -2466,8 +2471,8 @@ export class GameSessionAdapter implements GameSession {
     let tells: NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined;
     if (decided) {
       const b = decided.belief;
-      const claim = this.tellClaim({ speaker: id, listener: PLAYER, kind: b.kind, subject: b.subject, ...(b.object !== undefined ? { object: b.object } : {}), ...(b.label !== undefined ? { label: b.label } : {}), isTrue: this.believedThingIsTrue(b), intent: "inform" });
-      if (claim) tells = { ...this.heardBeforeMark(claim), kind: b.kind, subject: b.subject === PLAYER ? "the player" : this.nameOf(b.subject), ...(b.object !== undefined ? { object: this.nameOf(b.object) } : {}), ...(b.label !== undefined ? { label: b.label } : {}), certainty: decided.band };
+      const told = this.tellToPlayer({ speaker: id, listener: PLAYER, kind: b.kind, subject: b.subject, ...(b.object !== undefined ? { object: b.object } : {}), ...(b.label !== undefined ? { label: b.label } : {}), isTrue: this.believedThingIsTrue(b), intent: "inform" });
+      if (told) tells = { ...told.mark, kind: b.kind, subject: b.subject === PLAYER ? "the player" : this.nameOf(b.subject), ...(b.object !== undefined ? { object: this.nameOf(b.object) } : {}), ...(b.label !== undefined ? { label: b.label } : {}), certainty: decided.band };
     }
     if (!tells && !jury) tells = this.plantOnPlayer(id, day, toldTodayBy(told, live.week, day));
     if (!tells && !jury && !toldTodayBy(told, live.week, day)) tells = this.tellCoupleToPlayer(id, attemptKey); // ORW-767: a pair they saw or were told, passed on
@@ -2478,6 +2483,48 @@ export class GameSessionAdapter implements GameSession {
   private heardBeforeMark(claim: SpokenClaim): { alreadyHeard?: true } {
     const log = this.live?.claims?.items ?? [];
     return log.some((c) => c.listener === PLAYER && c.id !== claim.id && sameClaimKey(c, claim)) ? { alreadyHeard: true } : {};
+  }
+
+  /**
+   * ORW-877 (the T2-12 front-end half of ORW-594): a claim a houseguest decides to tell the player is decided when the turn's prompt is built, but the player only HEARS it if the narrator voices it.
+   * The front end already hands every narrated turn's visible text back (`recordNarrationUse`, ORW-510); once a session has done that, a tell taking the day's slot (a held belief told, or a
+   * planted lie, or a house-life line aimed at the player) is HELD, not logged, and the echo logs it exactly once when the narration names both the speaker and who it is about. One the narration never voiced never enters the player's
+   * knowledge (the claim log) and leaves the day's slot free. A session that never echoes (headless, the played-game tests, an old front end) tells at prompt build exactly as before.
+   * ON unless `ORWELL_VOICED_CLAIMS=0`. Memory-only: a restart drops what was held (unvoiced).
+   */
+  private voicedClaimsEnabled = flagDefaultOn("ORWELL_VOICED_CLAIMS");
+  setVoicedClaimsEnabled(on: boolean): void { this.voicedClaimsEnabled = on; }
+  private narrationEchoSeen = false;
+  private playerTurnNo = 0;
+  private heldTells = new Map<EntityId, { input: ClaimInput; turn: number }>();
+  private voicedClaimsNow(): boolean { return this.voicedClaimsEnabled && this.narrationEchoSeen && this.live?.playedGame === true; }
+  /** Tell the player now, or hold it for the narration's echo. The `alreadyHeard` mark is read before the telling, from what the player has already been told. */
+  private tellToPlayer(input: ClaimInput): { mark: { alreadyHeard?: true } } | undefined {
+    const log = this.live?.claims?.items ?? [];
+    const mark = log.some((c) => c.listener === PLAYER && sameClaimKey(c, input)) ? { alreadyHeard: true as const } : {};
+    if (!this.voicedClaimsNow()) return this.tellClaim(input) ? { mark } : undefined;
+    // held: only a claim the claim door would take (the same refusals `tellClaim` applies, so a held tell is never one that cannot be logged)
+    if (claimProblem(input, this.livingIds(), this.juryPool()) !== undefined) return undefined;
+    if (log.some((c) => c.listener === PLAYER && c.speaker === input.speaker && sameClaimKey(c, input))) return undefined;
+    this.heldTells.set(input.speaker, { input, turn: this.playerTurnNo });
+    return { mark };
+  }
+  /** Does the narration name this person (their full name or their first name, as a whole word)? */
+  private narrationNames(text: string, id: EntityId): boolean {
+    const full = this.nameOf(id);
+    const first = full.split(/\s+/)[0] ?? full;
+    const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return [full, first].some((n) => n.length > 0 && new RegExp(`(^|[^\\p{L}])${esc(n)}($|[^\\p{L}])`, "iu").test(text));
+  }
+  /** The narration's echo: each tell held this turn that the narration voiced (speaker and subject both named; a claim about the player needs only the speaker) is logged now, once. Older held tells were never voiced: dropped. */
+  private confirmVoicedTells(text: string): void {
+    for (const [speaker, h] of [...this.heldTells]) {
+      if (h.turn !== this.playerTurnNo) { this.heldTells.delete(speaker); continue; }
+      const voiced = this.narrationNames(text, speaker) && (h.input.subject === PLAYER || this.narrationNames(text, h.input.subject));
+      if (!voiced) continue;
+      this.heldTells.delete(speaker);
+      this.tellClaim(h.input);
+    }
   }
   private claimsToPlayerOn(): boolean { return this.claimsToPlayerEnabled && this.npcBeliefsEnabled && this.live?.playedGame === true; }
   /**
@@ -2491,11 +2538,12 @@ export class GameSessionAdapter implements GameSession {
     if (!live || !it || it.npc !== id || !it.say || !this.claimsToPlayerOn()) return undefined;
     const say = it.say;
     delete it.say;
-    const said = this.sayInHouseLife({ kind: say.kind, actor: id, truthful: say.truthful, ...(say.about ? { about: say.about } : {}) }, PLAYER, say.salt);
-    if (!said) return undefined;
+    const said = this.planHouseLifeSpeech({ kind: say.kind, actor: id, truthful: say.truthful, ...(say.about ? { about: say.about } : {}) }, PLAYER, say.salt);
+    const told = said ? this.tellToPlayer(said) : undefined; // ORW-877: held for the narration's echo like any tell decided at the prompt build
+    if (!said || !told) return undefined;
     const object = said.object ?? (said.kind === "lying-about" ? PLAYER : undefined);
     const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:aimed-speech-band:${say.salt}:${id}`)).next();
-    return { ...this.heardBeforeMark(said), kind: said.kind, subject: said.subject === PLAYER ? "the player" : this.nameOf(said.subject), ...(object !== undefined ? { object: this.nameOf(object) } : {}), ...(said.label !== undefined ? { label: said.label } : {}), certainty: presentedBand(undefined, roll) };
+    return { ...told.mark, kind: said.kind, subject: said.subject === PLAYER ? "the player" : this.nameOf(said.subject), ...(object !== undefined ? { object: this.nameOf(object) } : {}), ...(said.label !== undefined ? { label: said.label } : {}), certainty: presentedBand(undefined, roll) };
   }
   /**
    * 0159 / ORW-330 (theme 2, slice 6b) - A LIE PLANTED ON THE PLAYER. When `id` told the player nothing from a held belief, a houseguest with an ACTIVE goal against someone may plant a lie about them
@@ -2519,10 +2567,10 @@ export class GameSessionAdapter implements GameSession {
     if (!decided) return undefined;
     const said = planSpeech("plant", id, PLAYER, decided.about, false, { living, beliefs: live.beliefs, facts: this.truthFacts(), roll: planKind });
     if (!said) return undefined;
-    const claim = this.tellClaim(said);
-    if (!claim) return undefined;
+    const told = this.tellToPlayer(said);
+    if (!told) return undefined;
     const object = said.object ?? (said.kind === "lying-about" ? PLAYER : undefined);
-    return { ...this.heardBeforeMark(claim), kind: said.kind, subject: this.nameOf(said.subject), ...(object !== undefined ? { object: this.nameOf(object) } : {}), certainty: presentedBand(undefined, bandRoll) };
+    return { ...told.mark, kind: said.kind, subject: this.nameOf(said.subject), ...(object !== undefined ? { object: this.nameOf(object) } : {}), certainty: presentedBand(undefined, bandRoll) };
   }
   recordHeardAboutMe(h: { teller: EntityId; listeners: readonly EntityId[]; nature: HeardNature }): void {
     if (!this.heardAboutMeEnabled || !this.npcBeliefsEnabled || !this.live || !isHeardNature(h.nature)) return;
@@ -22636,6 +22684,7 @@ export class GameSessionAdapter implements GameSession {
     if (!this.narrationUsageEnabled) return { recorded: false, reason: "off" };
     if (!this.house || !this.live || this.live.playedGame !== true) return { recorded: false, reason: "no-game" };
     if (typeof req?.text !== "string" || req.text.trim().length === 0) return { recorded: false, reason: "empty" };
+    if (this.voicedClaimsEnabled) { this.confirmVoicedTells(req.text); this.narrationEchoSeen = true; } // ORW-877: what the narration voiced is what the player heard
     const roster = [this.house.player, ...this.house.npcs].map((h) => ({ id: h.id as string, name: h.name }));
     const out = recordNarration(this.narrationUse, req.text, roster);
     if (out.record === this.narrationUse) return { recorded: false, reason: "no-sentences" };

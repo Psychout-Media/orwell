@@ -340,6 +340,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_TRIGGERS',               key: 'triggers',               parser: 'defaultOn' },
   // B7 / #2017 M1: the NPC veto save also reads memory / beliefs / owed deals. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_VETO_MEMORY', key: 'vetoMemory', parser: 'defaultOn' },
+  // ORW-877 (the T2-12 front-end half of ORW-594): once a session hands its narration back (recordNarrationUse), a tell decided at the prompt build is held and joins the player's knowledge only if the narration voiced it. ON by default; `=0` tells at the prompt build as before.
+  { envKey: 'ORWELL_VOICED_CLAIMS', key: 'voicedClaims', parser: 'defaultOn' },
   // ORW-771 (owner-ruled): a Continue press through the played eviction vote carries a sealed `voteBeat` fact block (who walks into / back from the Diary Room this press, the room, and on the result press that the tally is read with names) so the narrator voices a short beat. Presentation only: no clock, no rng, no ballot content. ON by default; `=0` restores the banner-only press byte for byte.
   { envKey: 'ORWELL_VOTE_BEAT', key: 'voteBeat', parser: 'defaultOn' },
   // B5 / #2017: vote counting - an evict campaign forms only while the actor believes the count is in doubt. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
