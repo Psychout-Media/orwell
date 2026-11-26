@@ -59,7 +59,7 @@ _OOC = re.compile(r"^\s*(\(|\[|//|ooc\b|o\.o\.c|out of character|system:|/)", re
 _NEG = re.compile(r"\b(don'?t|do not|won'?t|will not|not going|not gonna|never|refuse|refusing|stay(?:ing)? (?:in|here|put)|instead of|rather than|can'?t|cannot|no longer|without|ignore|forget)\b", re.I)
 _MOTION = re.compile(
     r"\b(go|going|goes|went|head|heading|walk|walking|run|running|step|stepping|move|moving|enter|entering|leave|leaving|wander|wandering|stroll|strolling|"
-    r"slip|slipping|duck|ducking|retreat|retreating|off to|over to|back to|into|out to|let'?s go|lets go|head out|go back)\b", re.I)
+    r"slip|slipping|duck|ducking|retreat|retreating|off to|over to|back to|into|out to|let'?s go|lets go|let us go|make my way|me to|need to go|head out|go back)\b", re.I)
 _ADVANCE = re.compile(r"\b(continue|next|go on|keep going|proceed|carry on|move on|what happens next|let'?s see)\b", re.I)
 _QUESTION = re.compile(r"\?|\b(what|how|why|which|who|but|unless|if|instead|counter|maybe|what if)\b", re.I)
 _INTENT_RE = {
@@ -86,10 +86,15 @@ def prefilter(text: Any) -> Optional[str]:
 
 
 # Precision first: a move the words do not plainly state is left to the narrator and the after-reply belts (a miss costs a fallback, a wrong commit costs the player a wrong room).
-_FUTURE = re.compile(r"\b(later|after|before|tomorrow|tonight|soon|eventually|once|when|until|at \d|\d ?(?:am|pm)|gonna|will|i'll|i'd|would|should|might|maybe|about to|someday|next (?:week|day|time))\b", re.I)
+_FUTURE = re.compile(r"\b(later|after|before|tomorrow|tonight|soon|eventually|once|when|until|at \d|\d ?(?:am|pm)|gonna|will|i'll|would|should|might|maybe|about to|someday|next (?:week|day|time))\b", re.I)
 _SPEECH = re.compile(r"\b(shout(?:ed|ing)?|yell(?:ed|ing)?|say|said|tell|told|type|typed|whisper(?:ed)?|ask(?:ed)?|text(?:ed)?|write|wrote|call(?:ed)?|scream(?:ed)?|announce|suggest|propose|invite|sing|sang)\b", re.I)
-_SARC = re.compile(r"\b(oh sure|obviously|because|as if|yeah right|sarcas\w*|great idea|how helpful|that's helpful)\b", re.I)
-_NOT_A_MOVE = re.compile(r"\b(by|past|out of|around|through|across)\b|\b(move|take|bring|carry|drag|push|walk|lead|follow|show)\b\s+(?:the|a|my|his|her|their|them|him|[A-Z]\w+)|\bgo (?:crazy|nuts|mad|wild|swimming|shopping|fishing|to sleep)\b|\bgo (?:and|to) (?:sit|swim|eat|sleep|lie|lay)\b|\w+'s (?:room|bedroom)\b", re.I)
+_SARC = re.compile(r"\b(oh sure|obviously|as if|yeah right|sarcas\w*|great idea|how helpful|that's helpful)\b", re.I)
+_NOT_A_MOVE = re.compile(
+    r"\b(by|past|out of|around|through|across)\b"
+    r"|\b(move|take|bring|carry|drag|pull|push|walk|lead|follow|show)\b\s+(?:the|a|my|his|her|their|them|him|(?-i:[A-Z]\w+))"
+    r"|\bgo (?:crazy|nuts|mad|wild|swimming|shopping|fishing|to sleep)\b|\bgo (?:and|to) (?:sit|swim|eat|sleep|lie|lay)\b|\bgo (?:see|find|meet|visit|talk|look)\b"
+    r"|\b(?:storm(?:ed|ing)?|sneak(?:ed|ing)?|closer|start(?:ed|ing)?|begin|began|try|tried|trying|attempt(?:ed|ing)?)\b"
+    r"|\b(?:what if|do i|should i|can i|may i|shall i|could i|am i)\b|\w+'s (?:room|bedroom)\b", re.I)
 
 _ALIASES = {
     "kitchen": ("kitchen",), "living-room": ("living room", "livingroom", "living-room", "couch", "sitting room"), "dining-room": ("dining",),
@@ -100,9 +105,7 @@ _ALIASES = {
 }
 
 
-def grounded(room: str, text: str, room_names=None) -> bool:
-    """The room the model chose is named (or plainly aliased) in the player's own words outside quotes - never a guess from a person's name or a typo."""
-    t = strip_quotes(text).lower().replace("-", " ")
+def _forms(room: str, t: str, room_names=None) -> list:
     forms = [a.replace("-", " ") for a in _ALIASES.get(room, ())]
     if room in ("bedroom-a", "bedroom-b", "bedroom-c") and "bedroom" in t and not re.search(r"bedroom [abc]\b", t):
         forms.append("bedroom")  # a bare "the bedroom" is the player's own (the engine resolves which)
@@ -110,11 +113,30 @@ def grounded(room: str, text: str, room_names=None) -> bool:
     if isinstance(nm, str) and nm.strip():
         n = re.sub(r"^the\s+", "", nm.strip().lower().replace("-", " "))
         forms += [n, re.sub(r"\s+(room|cabin|pod|cave|chamber|suite|quarters)$", "", n)]
-    return any(f and re.search(r"(?<![\w'])" + re.escape(f) + r"(?![\w'])", t) for f in forms)
+    return [f for f in forms if f]
+
+
+def grounded(room: str, text: str, room_names=None) -> bool:
+    """The room the model chose is named (or plainly aliased) in the player's own words outside quotes - never a guess from a person's name or a typo."""
+    t = strip_quotes(text).lower().replace("-", " ")
+    return any(re.search(r"(?<![\w'])" + re.escape(f) + r"(?![\w'])", t) for f in _forms(room, t, room_names))
+
+
+def rooms_named(text: str, room_names=None) -> list:
+    """Every room the words name (alias or themed name), in the order they appear, once each."""
+    t = strip_quotes(text).lower().replace("-", " ")
+    hits = []
+    for rid in _ALIASES:
+        pos = [m.start() for f in _forms(rid, t, room_names) for m in re.finditer(r"(?<![\w'])" + re.escape(f) + r"(?![\w'])", t)]
+        if pos:
+            hits.append((min(pos), rid))
+    return [r for _, r in sorted(hits)]
 
 
 def move_ok(text: str) -> bool:
     out = strip_quotes(text)
+    if "?" in out:
+        return False  # a question is not an act
     return (bool(_MOTION.search(out)) and not _NEG.search(out) and not _FUTURE.search(out) and not _SPEECH.search(out)
             and not _SARC.search(out) and not _NOT_A_MOVE.search(out))
 
@@ -168,7 +190,7 @@ def toolset(rooms, cands) -> list:
     if "moveTo" in cands:
         t.append({"type": "function", "function": {
             "name": "moveTo",
-            "description": "The PLAYER's own plain, present-tense move to a room they name or clearly mean (\"I go to the kitchen\", \"heading out back\"). Never for speech about going, a past or future plan or time, another person's or an object's move, idioms (go crazy), activities (go swimming), walking past or by a room, sarcasm, or merely being somewhere. The room must be named in the player's words.",
+            "description": "The PLAYER's own plain, present-tense move to a room they name or clearly mean (\"I go to the kitchen\", \"heading out back\"). \"Let's go to X\", \"I need to go to X\" and \"I go to X because...\" ARE the player moving. Never for speech about going, a past or future plan or time, another person's or an object's move, idioms (go crazy), activities (go swimming), walking past or by a room, sarcasm, or merely being somewhere. The room must be named in the player's words.",
             "parameters": {"type": "object", "properties": {"room": {"type": "string", "enum": sorted(rooms)}}, "required": ["room"]}}})
     if "advanceGame" in cands:
         t.append({"type": "function", "function": {"name": "advanceGame", "description": "Only when the player plainly asks to continue / go on past the step the game is waiting on.",
@@ -242,6 +264,10 @@ def validate_calls(calls, *, text: str, rooms, ctx: dict) -> list:
                 out.append(("submitDecision", {"kind": k, "vote": args["vote"]}))
         else:  # advanceGame, turnIn
             out.append((name, {}))
+    moves = [a["room"] for t, a in out if t == "moveTo"]
+    _bed = lambda rs: [("bedroom" if r.startswith("bedroom-") else r) for r in rs]  # the engine resolves WHICH bedroom a bare "the bedroom" is
+    if moves and _bed(moves) != list(dict.fromkeys(_bed(rooms_named(text, ctx.get("room_names"))))):
+        return []  # the model's moves must be exactly the rooms the words name, in their order (a dropped second leg or an extra room is doubt)
     if any(t in ("advanceGame", "submitDecision") for t, _ in out) and len(out) > 1:
         return []  # a step answer / advance stands alone
     if any(t == "turnIn" for t, _ in out) and out[-1][0] != "turnIn":
