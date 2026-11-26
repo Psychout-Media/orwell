@@ -3332,13 +3332,13 @@ def _validate_assurance(raw, scene_ids) -> dict | None:
 _PROMISE_WHATS = ("no-nominate", "no-evict-vote", "use-veto-on", "not-use-veto-on", "final-two")
 
 
-_VALIDATOR_DROPS: dict = {}
+_VALIDATOR_DROPS = collections.Counter()  # a process-wide tally of drops (names only, not per owner)
 
 
 def _note_validator_drop(validator: str, reason: str) -> None:
     """ORW-1072: every extraction proposal a validator drops is counted (names and counts only, no content) and logged, so a lost promise leaves a trace."""
     key = f"{validator}:{reason}"
-    _VALIDATOR_DROPS[key] = _VALIDATOR_DROPS.get(key, 0) + 1
+    _VALIDATOR_DROPS[key] += 1
     logger.info(f"[orwell] extraction validator dropped a proposal ({key}) total={_VALIDATOR_DROPS[key]}")
 
 
