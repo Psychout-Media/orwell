@@ -142,12 +142,12 @@ describe("0061 — player self-eviction", () => {
     it("an unconfirmed submit (confirmed:false / absent) is a safe no-op — no fabricated exit", () => {
       const sb = activeMidGame();
       sb.session.requestSelfEviction();
-      sb.session.submitDecision({ kind: "self-evict", confirmed: false });
+      expect(() => sb.session.submitDecision({ kind: "self-evict", confirmed: false })).toThrow(/decision refused \(unconfirmed\)/); // ORW-1063
       expect(playerLeft(sb.session)).toBe(false);
       expect(sb.session.getGameState().player?.status).toBe("active");
       // A confirm WITHOUT a raised intent also never evicts (the gate requires the standing confirmation).
       const sb2 = activeMidGame(5);
-      sb2.session.submitDecision({ kind: "self-evict", confirmed: true });
+      expect(() => sb2.session.submitDecision({ kind: "self-evict", confirmed: true })).toThrow(/decision refused \(no-pending\)/); // ORW-1063
       expect(playerLeft(sb2.session)).toBe(false);
       expect(sb2.session.getGameState().player?.status).toBe("active");
     });

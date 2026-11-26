@@ -69,6 +69,7 @@ export const PLAYER_PROJECTION_REGISTRY: readonly ProjectionEntry[] = [
   { method: "seasonRetrospective", coveredBy: "sanctioned", note: "0048 post-season unsealing: hidden content by design once finished" },
   { method: "producerVaultDump", coveredBy: "sanctioned", note: "mandate #2 DEBUG door, admin-only, out-of-band; producerVault.test.ts is the gate" },
   { method: "notorietySummary", coveredBy: "port-only", note: "voiced via the RETURNING CAST block in getMomentPrompt, which is swept" },
+  { method: "voiceLookup", coveredBy: "port-only", note: "ORW-1067: the reason behind a null npcVoice; public id and name only, read by the npcVoice tool case (the swept npcVoice view carries the same names)" },
   { method: "preSeedCast", coveredBy: "pre-game", note: "pre-game warm of the cast; a no-op refusal once started (liveSentinel sweeps)" },
   { method: "preSeedNextSeason", coveredBy: "pre-game", note: "next-season warm; liveSentinel sweeps" },
   { method: "noteMessage", coveredBy: "receipt", note: "{accepted, beatSeq} - no text" },
