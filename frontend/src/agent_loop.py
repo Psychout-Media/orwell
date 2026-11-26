@@ -238,6 +238,9 @@ answer that is voiced but never recorded does not exist.
 step — never re-ask what is recorded, never invent or assume answers.
 - Start the season with createCharacter only once a name is on file; the engine refuses otherwise.
 - No season is running yet: do not improvise houseguests, scenes, or game events.
+- ORW-1056 (the casting read-back): once createCharacter returns, announce the player's casting card exactly ONCE, with the archetype and description the createCharacter result shows (the engine's recorded \
+archetype). Never state a second card, a second archetype, or a correction of the first; if you misspoke, say nothing more about it.
+- Address the player by the pronouns they gave in the interview; if they gave none, use their name or "you". Never assume a gender from a name, an age or a city.
 """
 
 # Orwell #872 (item C): the MINIMAL tool surface a casting turn needs. The interview is a tight
@@ -2349,15 +2352,36 @@ def _withhold_leading_refusal(owner, round_num: int, round_response: str, clean:
     Returns (round_response, clean, withheld)."""
     try:
         from src import refusal_guard as _rg
-        if not clean or round_emitted.strip() or not _rg.enabled():
+        if not clean or not _rg.enabled():  # ORW-1055: every chunk of the round is screened, not only the first one (a refusal can sit mid-reply)
             return round_response, clean, False
-        kept, n = _rg.strip_leading_refusal(clean)
+        kept, n = _rg.strip_refusals(clean)
         if not n:
             return round_response, clean, False
         round_response = _mirror_wall_drop(round_response, clean, kept)
         _rg.note_withheld()
         logger.info(f"[orwell] refusal-only round withheld round={round_num} chars={n}")
         _note_belt(owner, "refusal-withheld")
+        return round_response, kept, True
+    except Exception:  # failsoft-ok: detector error shows the text as today
+        return round_response, clean, False
+
+
+def _strip_fourth_wall(owner, round_num: int, round_response: str, clean: str):
+    """ORW-1055: drop sentences that name the game as a scene, script or take (a houseguest's goodbye, the narrator's own voice), in any chunk of the round, quoted speech included. Pre-emission, so nothing is
+    retracted; the raw/stored text drops it too (shown == stored). Success-gated telemetry. Returns (round_response, clean, stripped)."""
+    try:
+        from src import fourth_wall_guard as _fw
+        if not clean or not _fw.enabled():
+            return round_response, clean, False
+        kept, n = _fw.strip_fourth_wall(clean)
+        if not n:
+            return round_response, clean, False
+        idx = round_response.rfind(clean)  # the guard may close a quote it cut into, so the raw text takes the same EDIT (never the whole-sentence walk)
+        if idx >= 0:
+            round_response = round_response[:idx] + kept + round_response[idx + len(clean):]
+        _fw.note_withheld()
+        logger.info(f"[orwell] fourth-wall sentence dropped round={round_num} chars={n}")
+        _note_belt(owner, "fourth-wall-dropped")
         return round_response, kept, True
     except Exception:  # failsoft-ok: detector error shows the text as today
         return round_response, clean, False
@@ -2826,14 +2850,15 @@ _CASTING_NUDGES = [
     "(Production note, not for the player.) Casting is COMPLETE — every required answer is on file "
     "and the player just signalled they're ready. Do not keep interviewing or wait on a photo: your "
     "very next action is the createCharacter function call to finalize and start the season. After it "
-    "returns, read back their casting card in your producer voice and move into the premiere.",
+    "returns, read back their casting card ONCE in your producer voice, with the archetype the result shows, and move into the premiere. Use only the pronouns the player gave (none given: their name or you).",
     "STOP interviewing. The player is ready and casting is on file, but the season has NOT started "
     "because createCharacter was never called. Call createCharacter NOW — nothing else.",
 ]
 _CASTING_FORCE_LEVEL = len(_CASTING_NUDGES)  # past the last text rung
 _CASTING_FORCED_NOTE = (
     "(Production note, not for the player.) Casting has been finalized and the season has begun. Read "
-    "back the player's casting card in your producer voice, then walk them through the front door into "
+    "back the player's casting card ONCE in your producer voice, with the archetype the createCharacter result shows (never a second card or a different archetype), "
+    "using only the pronouns the player gave (none given: their name or you), then walk them through the front door into "
     "the house for the premiere. Voice ONLY what the game now shows — never invent it.")
 
 
@@ -5767,7 +5792,7 @@ _DEAL_SIGNAL_RE = re.compile(
 
 
 async def _auto_record_deal(narration, last_user, house, endpoint_url, model, headers, owner,
-                            skip_ids=None, applied_out=None) -> bool:
+                            skip_ids=None, applied_out=None, renewed_out=None) -> bool:
     """GUARANTEE every struck deal is RECORDED (0039 back-fill). When an engaged turn's narration seals a
     deal but the model skipped makeDeal, a constrained extraction proposes the deals {withId, kind, terms}
     and we call makeDeal ourselves for EACH - so the promise is real, reconciles against later play, and shows
@@ -5777,7 +5802,7 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
     the engine), never re-driven. HIGH BAR: a deal is created ONLY for a clear, explicit, MUTUAL agreement
     (both sides committed to concrete terms); loose talk / a one-sided pitch / a maybe yields no deal. Model-driven makeDeal always takes precedence. Fail-closed: any hiccup just skips. Each deal is
     player<->ONE houseguest (the engine's deal shape). Returns True iff at least one deal was APPLIED;
-    `applied_out` (a list) receives one entry per applied deal, for success-gated telemetry."""
+    `applied_out` (a list) receives one entry per applied deal, for success-gated telemetry. ORW-987: `renewed_out` receives the partner id of each APPLIED deal the extraction flagged as the renewal of a deal that ran out (telemetry only; the flag never changes what is recorded)."""
     try:
         from src.llm_core import llm_call_async
         from src import orwell_engine as _oe
@@ -5808,7 +5833,8 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
                 '{"deals":[{"withId":"<the houseguest id from the roster>",'
                 '"kind":"<one of: ' + _kinds_csv + '>",'
                 '"terms":"<one short clause of what was promised, as spoken>",'
-                '"termWeeks":<integer weeks it runs counting this week, ONLY if a duration was explicitly named, else null>}]}\n'
+                '"termWeeks":<integer weeks it runs counting this week, ONLY if a duration was explicitly named, else null>,'
+                '"renewal":<true ONLY if this deal is both sides renewing a deal that ran out, else false>}]}\n'
                 "List a deal ONLY when BOTH sides explicitly AGREED to a concrete commitment, with the kind that matches "
                 "the words actually spoken; if no listed kind matches what was spoken, leave that deal out. If it was loose talk, a one-sided pitch, a 'maybe', or a refusal, leave it "
                 "out; no deal at all => an empty list. A RENEWAL that both sides agree to ('we are still good', 'same deal again this week') IS a deal struck now, with the kind of the thing renewed. kind: " + _kind_desc + "."},
@@ -5894,6 +5920,8 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
             logger.info(f"[orwell] auto-recorded deal (kind={kind}, with={with_id}) user={owner}")
             if isinstance(applied_out, list):
                 applied_out.append(with_id)
+            if prop.get("renewal") is True and isinstance(renewed_out, list):
+                renewed_out.append(with_id)
             _any = True
         return _any
     except Exception as _e:
@@ -10849,6 +10877,7 @@ async def _stream_agent_loop_impl(
                                 if _clean and not _scene_broken:
                                     round_response, _clean, _rf_hit = _withhold_leading_refusal(owner, round_num, round_response, _clean, _round_emitted_text)
                                     _turn_refusal_withheld = _turn_refusal_withheld or _rf_hit
+                                    round_response, _clean, _ = _strip_fourth_wall(owner, round_num, round_response, _clean)  # ORW-1055
                                     round_response, _clean, _ = _strip_leading_recital(owner, round_num, round_response, _clean, _round_emitted_text)
                                 if _clean:
                                     # A2: run the whole-scene circuit-breaker + 0065 Part C per-sentence
@@ -11110,6 +11139,7 @@ async def _stream_agent_loop_impl(
             if _clean and not _scene_broken and not _round_replay:
                 round_response, _clean, _rf_hit = _withhold_leading_refusal(owner, round_num, round_response, _clean, _round_emitted_text)
                 _turn_refusal_withheld = _turn_refusal_withheld or _rf_hit
+                round_response, _clean, _ = _strip_fourth_wall(owner, round_num, round_response, _clean)  # ORW-1055
                 round_response, _clean, _ = _strip_leading_recital(owner, round_num, round_response, _clean, _round_emitted_text)
             if _round_replay:
                 pass  # a dropped replay round: nothing to guard or emit (and no cutaway line — it is not a board fabrication)
@@ -12066,14 +12096,19 @@ async def _stream_agent_loop_impl(
                         if _want_deal and _touched_deal:
                             _turn_deal_nudges += 1  # once per turn
                             _applied_deals: list = []
+                            _renewed_deals: list = []
                             if await _auto_record_deal(_turn_narration, _extract_last_user_message(messages),
                                                        _house, _belt_endpoint, _belt_model, _belt_headers, owner,
-                                                       skip_ids=_turn_model_deal_partners, applied_out=_applied_deals):
+                                                       skip_ids=_turn_model_deal_partners, applied_out=_applied_deals,
+                                                       renewed_out=_renewed_deals):
                                 _turn_record_nudges = max(_turn_record_nudges, 1)  # deal banked the fold
                                 # gap #3 telemetry - only a genuinely APPLIED deal counts (no deal / a failed
                                 # extraction / an engine refusal is a no-op, not a correction): one fire per applied deal
                                 for _ in (_applied_deals or [None]):  # a True return always counts at least once
                                     _note_belt(owner, "auto-record-deal")
+                                # ORW-987: the renewals among them are counted on their own too (a renewal the model never recorded, applied by the engine)
+                                for _ in _renewed_deals:
+                                    _note_belt(owner, "auto-record-deal-renewal")
                         # 0123: a standing houseguest deal offer the player answered in chat but the model never
                         # submitted - record the answer (the engine adjudicates). Only an APPLIED submit counts.
                         if _want_offer_answer:
