@@ -535,7 +535,7 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "unassigned at seed time: needs a reviewer",
+   "reason": "reviewed ORW-511: assistant home-automation prompt, trigger phrases for a non-game action; never shown to or copied into game text",
    "sites": [
     {
      "line": 1680,
@@ -962,7 +962,7 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "unassigned at seed time: needs a reviewer",
+   "reason": "reviewed ORW-511: closed vocabulary by design (neutral referring phrases that replace ids), not a sample line the writer copies as content",
    "sites": [
     {
      "line": 330,
@@ -993,7 +993,7 @@
    "name": "text",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "unassigned at seed time: needs a reviewer",
+   "reason": "reviewed ORW-511: general-assistant research prompt, format sample for a non-game output",
    "sites": [
     {
      "line": 213,
@@ -1759,7 +1759,7 @@
    "name": "text",
    "max": 2,
    "owner": "ORW-511",
-   "reason": "unassigned at seed time: needs a reviewer",
+   "reason": "reviewed ORW-511: scanner false positive, code comments on a regex line; no prompt text",
    "sites": [
     {
      "line": 295,
@@ -1891,7 +1891,7 @@
    "name": "BEAT_FLOURISHES",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "unassigned at seed time: needs a reviewer",
+   "reason": "reviewed ORW-511: offline floor under live authoring (see decision); owner this card, ceiling 1 per component list",
    "decision": "offline floor under live authoring: the per-competition writer call (orwell_gen_competitions.py, default on) authors theme, premise and drop lines, is told the titles used this season and last, and a repeated title is renamed and counted; these axes only compose the engine skin it departs from"
   },
   {
@@ -1900,7 +1900,7 @@
    "name": "INTENSIFIERS",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "unassigned at seed time: needs a reviewer",
+   "reason": "reviewed ORW-511: offline floor under live authoring (see decision); owner this card, ceiling 1 per component list",
    "decision": "offline floor under live authoring: the per-competition writer call (orwell_gen_competitions.py, default on) authors theme, premise and drop lines, is told the titles used this season and last, and a repeated title is renamed and counted; these axes only compose the engine skin it departs from"
   },
   {
@@ -1909,7 +1909,7 @@
    "name": "SETTING_DRESSINGS",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "unassigned at seed time: needs a reviewer",
+   "reason": "reviewed ORW-511: offline floor under live authoring (see decision); owner this card, ceiling 1 per component list",
    "decision": "offline floor under live authoring: the per-competition writer call (orwell_gen_competitions.py, default on) authors theme, premise and drop lines, is told the titles used this season and last, and a repeated title is renamed and counted; these axes only compose the engine skin it departs from"
   },
   {
@@ -1918,7 +1918,7 @@
    "name": "SETTING_OPENERS",
    "max": 1,
    "owner": "ORW-511",
-   "reason": "unassigned at seed time: needs a reviewer",
+   "reason": "reviewed ORW-511: offline floor under live authoring (see decision); owner this card, ceiling 1 per component list",
    "decision": "offline floor under live authoring: the per-competition writer call (orwell_gen_competitions.py, default on) authors theme, premise and drop lines, is told the titles used this season and last, and a repeated title is renamed and counted; these axes only compose the engine skin it departs from"
   },
   {
