@@ -101,7 +101,12 @@ export function planReturner(
   if (seats.length === 0) return undefined;
   const taken = new Set([...castNames, playerName].map((n) => n.trim().toLowerCase()));
   // Only complete, real entries are ever a candidate (the validator), and never a name already in this house.
-  const pool = archive.filter((h) => resolveReturnee({ season: h.season, npcId: h.npcId }, archive) !== undefined && !taken.has((h.name ?? "").trim().toLowerCase()));
+  const candidates = archive.filter((h) => resolveReturnee({ season: h.season, npcId: h.npcId }, archive) !== undefined && !taken.has((h.name ?? "").trim().toLowerCase()));
+  // ORW-960 (B2-7): a person who has played more than one season has one archive entry per season; only their LATEST can be cast (the older one carries a season-old persona and feelings). Archive order is kept, so an
+  // archive with no repeat person yields the same pool as before.
+  const latest = new Map<string, ArchivedHouseguest>();
+  for (const h of candidates) { const k = (h.name ?? "").trim().toLowerCase(); const cur = latest.get(k); if (!cur || h.season > cur.season) latest.set(k, h); }
+  const pool = candidates.filter((h) => latest.get((h.name ?? "").trim().toLowerCase()) === h);
   if (!castsReturner(start, pool.length, agendaRoll(seed, "returner" as EntityId, "cast"))) return undefined;
   const entry = pickReturner(pool, new Set(), agendaRoll(seed, "returner" as EntityId, "pick"));
   if (!entry) return undefined;
