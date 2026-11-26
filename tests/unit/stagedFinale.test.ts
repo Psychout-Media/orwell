@@ -64,7 +64,8 @@ function seatedAt(hoh: "player" | "npc", played = true): { s: Any; live: LiveSea
 const find = seatedAt;
 
 describe("the Final HOH's eviction as a staged ceremony - NPC Final HOH", () => {
-  it("decision (names nothing) -> result (publishes, once) -> closes; beatSeq bumps per step; the house event holds throughout", () => {
+  // ORW-955: vitest 2 never enforced the 30 s limit on synchronous tests; this keeps that behaviour explicit
+  it("decision (names nothing) -> result (publishes, once) -> closes; beatSeq bumps per step; the house event holds throughout", { timeout: 120_000 }, () => {
     const { s, live } = find("npc");
     const before = [...live.active];
     const a = s.advanceGame();
@@ -108,7 +109,8 @@ describe("the Final HOH's eviction as a staged ceremony - NPC Final HOH", () => 
     expect(live.finished).toBe(false);
   });
 
-  it("headless (not a played game) keeps the one-beat resolution", () => {
+  // ORW-955: vitest 2 never enforced the 30 s limit on synchronous tests; this keeps that behaviour explicit
+  it("headless (not a played game) keeps the one-beat resolution", { timeout: 120_000 }, () => {
     const { s, live } = find("npc", false);
     const a = s.advanceGame();
     expect(a.event).toMatchObject({ beat: "final-eviction" });

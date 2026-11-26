@@ -23,7 +23,8 @@ const firstTalk = async (hint: number | number[], wanted: (s: Stop, t: Talk) => 
   }, { from: 1, to: 30, hint, sandbox: (s) => `wf-${s}`, what: "the vote talk the test needs" })).at;
 
 describe("vote talk in a played season", () => {
-  it("the player is told how someone voted, as a scene they were in (never whether it is true)", async () => {
+  // ORW-955: vitest 2 never enforced the 30 s limit on synchronous tests; this keeps that behaviour explicit
+  it("the player is told how someone voted, as a scene they were in (never whether it is true)", { timeout: 120_000 }, async () => {
     const { at, talk } = await firstTalk([1, 3], (_s, t) => t.told.some((c) => c.listener === PLAYER));
     const toPlayer = talk.told.filter((c) => c.listener === PLAYER);
     for (const c of toPlayer) {
