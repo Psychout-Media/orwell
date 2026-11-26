@@ -8776,9 +8776,12 @@ export class GameSessionAdapter implements GameSession {
     const byRoom = new Map<Room, string[]>();
     for (const [id, p] of racing) byRoom.set(p.room, [...(byRoom.get(p.room) ?? []), this.nameOf(id)]);
     const open = BEDROOM_LAYOUT.filter((spec) => freeBeds(beds, living).some((b) => roomOfBed(b) === spec.room)).map((spec) => this.roomName(spec.room));
+    const claimed = BEDROOM_LAYOUT.map((spec) => ({ spec, who: roommatesIn(beds, spec.room, living) })).filter((x) => x.who.length > 0)
+      .map(({ spec, who }) => `${this.roomName(spec.room)}: ${who.map((id) => (id === PLAYER ? "the player" : this.nameOf(id))).join(", ")}`);
     const parts = [
       s.premiereEntrance.stage === "done" && !br ? "The circle has closed and the house is released: the race for the bedrooms is about to begin; a bed is claimed by actually reaching its room, so the player can rush straight to a room or hang back" : "The bed rush is on: a bed is claimed by actually reaching its room, so the player can rush straight to a room or hang back",
       ...(racing.length ? [`Still racing: ${[...byRoom].map(([room, names]) => `${names.join(", ")} for ${this.roomName(room)}`).join("; ")}`] : []),
+      `Beds already claimed (engine truth, by room): ${claimed.length ? claimed.join("; ") : "none yet"}`,
       `Rooms with beds still open: ${open.length ? open.join(", ") : "none"}`,
     ];
     return parts.join(". ");
@@ -9053,7 +9056,17 @@ export class GameSessionAdapter implements GameSession {
     if (target !== undefined && this.presence?.get(this.house.player.id) !== target) this.movePlayer(target);
   }
 
+  /** ORW-1010: the reason the player's bed request did NOT happen this turn (null when it happened or nothing was asked): handed to the narrator to say plainly in the reply. Memory-only, replaced each message. */
+  private playerBedRefusal: string | null = null;
+
   private resolvePlayerBed(text: string): boolean {
+    const changed = this.resolvePlayerBedInner(text);
+    // A note on a request that changed nothing is a refusal, except the plain "already have it there" (nothing was asked of the game).
+    this.playerBedRefusal = !changed && this.playerBedNote !== null && !/already has their bed/.test(this.playerBedNote) ? this.playerBedNote.replace(/\s*\(engine truth:[^)]*\)/g, "") : null;
+    return changed;
+  }
+
+  private resolvePlayerBedInner(text: string): boolean {
     this.playerBedNote = null;
     const beds = this.ensureBeds();
     if (!beds || !this.house || this.live?.finished || !this.playerBedWindowOpen(beds)) return false;
@@ -9139,7 +9152,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private bedsLine(): string | undefined {
     const beds = this.live?.playedGame === true ? this.live.beds : undefined; // a read: never claims
-    if (!beds || !this.playerBedWindowOpen(beds) || (!this.moveInPickOpen(beds) && !this.playerBedNote)) return undefined;
+    if (!beds || !this.playerBedWindowOpen(beds) || (!this.moveInPickOpen(beds) && !this.playerBedNote && !this.bedRushRunning())) return undefined;
     const living = new Set(this.livingIds());
     const label = (id: EntityId): string => (id === PLAYER ? "the player" : this.nameOf(id));
     const rooms = BEDROOM_LAYOUT.map((spec) => {
@@ -22385,7 +22398,8 @@ export class GameSessionAdapter implements GameSession {
     const view1 = slept ? { ...view0, whileYouSlept: slept } : view0;
     const view2 = this.napOpenNow() ? { ...view1, napOpen: true as const } : view1; // 0148: the NAP line only when a nap is possible
     const bedsNow = this.bedsLine(); // ORW-466 slice 2: the move-in bed pick, per turn (absent outside the claim window / headless)
-    const view3 = bedsNow ? { ...view2, beds: bedsNow } : view2;
+    const view3a = bedsNow ? { ...view2, beds: bedsNow } : view2;
+    const view3 = this.playerBedRefusal ? { ...view3a, bedRefused: this.playerBedRefusal } : view3a; // ORW-1010: a refused bed claim or swap, told to the narrator to say plainly
     const longNightNow = this.longNightLine(); // ORW-652: the shape of a double-eviction night, per turn (absent outside it / headless)
     const view3b = longNightNow ? { ...view3, longNight: longNightNow } : view3;
     const view4 = this.claimSourceNote ? { ...view3b, sourceNote: this.claimSourceNote } : view3b; // 0152: the answer to "who told you that?", this turn only
