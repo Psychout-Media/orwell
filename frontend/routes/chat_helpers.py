@@ -2816,6 +2816,7 @@ def _beat_signature(status: dict, state: dict) -> dict:
         "noms": noms,
         "nomNames": nom_names,
         "activeNames": active_names,
+        "roomNames": room_names_of(wa),  # ORW-1020: this season's themed room names, so the invented-houseguest guard can tell a room from a person
         "vetoHolder": veto_holder_id,
         "vetoHolderName": veto_holder_name,
         "vetoUsed": bool(veto.get("used")),
@@ -4875,7 +4876,27 @@ _NAME_TRANSITION_FIRST = {
 }
 
 
-def _sentence_names_invented(sentence: str, known_first: set, known_full: set) -> Optional[str]:
+def _room_vocab(room_names=None) -> frozenset:
+    """ORW-1020: the folded words of every room name the narrator can write: this season's themed names (`roomNames`, every room) and the engine's own plain room labels
+    ("Storage Room", "Bedroom A"). A capitalised two-word run whose BOTH words are room words is a place ("Hearth Pit", "Long Porch"), never an invented houseguest."""
+    from src.house_rooms import HOUSE_ROOMS, fold_room_text
+    names = [r.replace("-", " ") for r in HOUSE_ROOMS]
+    if isinstance(room_names, dict):
+        names += [n for n in room_names.values() if isinstance(n, str)]
+    words: set = set()
+    for n in names:
+        for w in re.findall(r"[a-z]+", fold_room_text(n.replace("-", " "))):
+            if w != "the":
+                words.add(w)
+    return frozenset(words)
+
+
+def _is_speaker_tag(sentence: str, name: str) -> bool:
+    """The narrator's speaker line `@[Name] - "..."` (or `[Name]:`): a place never speaks, so a tagged name is a person whatever its words are."""
+    return bool(re.search(r"@?\[" + re.escape(name) + r"\]", sentence))
+
+
+def _sentence_names_invented(sentence: str, known_first: set, known_full: set, room_vocab=frozenset()) -> Optional[str]:
     """Return a Capitalized name this sentence STAGES as acting in the scene (two-token) or explicitly
     INTRODUCES via a copula/existential frame (single-token — NARR-4) that is NOT any known roster
     name (active or out-of-house), or None. `known_first` = lowercase first tokens of every roster
@@ -4908,6 +4929,8 @@ def _sentence_names_invented(sentence: str, known_first: set, known_full: set) -
             continue  # a game/house proper noun (either token), not a houseguest
         if first_l in known_first or full_l in known_full:
             continue  # matches a real roster name (full or by first name) — legitimate
+        if room_vocab and first_l in room_vocab and second_l in room_vocab and not _is_speaker_tag(sentence, full):
+            continue  # ORW-1020: a room of this house ("Hearth Pit", "Long Porch"), not a person
         # An out-of-roster two-token Name — only flag if it is STAGED as acting in THIS sentence.
         if _stages_in_scene(sentence, full):
             return full
@@ -5083,8 +5106,9 @@ async def record_post_turn_roster_check(user, narration: str) -> None:
         known_first = {n.split()[0].lower() for n in roster if n.split()}
         invented: list[str] = []
         seen: set = set()
+        room_vocab = _room_vocab(sig.get("roomNames"))
         for sentence in re.split(r"(?<=[.!?\n])", narration or ""):
-            who = _sentence_names_invented(sentence, known_first, known_full)
+            who = _sentence_names_invented(sentence, known_first, known_full, room_vocab)
             if who and who.lower() not in seen:
                 seen.add(who.lower())
                 invented.append(who)
