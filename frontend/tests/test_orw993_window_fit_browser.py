@@ -151,7 +151,10 @@ def test_dossier_and_knowledge_windows_fit_viewport(_app, vw, vh):
         # a viewport shrink re-clamps (the kit's resize path)
         if vw > 600:
             page.set_viewport_size({"width": max(500, vw // 2), "height": max(500, vh // 2)})
-            page.wait_for_timeout(400)
+            # the re-clamp is rAF-debounced and a 4K software-rendered frame is slow: poll, never a fixed sleep
+            page.wait_for_function(
+                "() => { const r = document.getElementById('orwell-dossier').getBoundingClientRect();"
+                " return r.right <= window.innerWidth + 1 && r.bottom <= window.innerHeight + 1; }", timeout=10000)
             _check(page.evaluate(_MEASURE, "orwell-dossier"), f"dossier shrunk from {vw}x{vh}")
             page.set_viewport_size({"width": vw, "height": vh})
             page.wait_for_timeout(300)

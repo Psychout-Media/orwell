@@ -192,7 +192,7 @@ function ensureCss() {
          max-height in px (minus the banner and the account bar); these dvh caps are the floor for the
          first paint and for windows outside the slot engine. A flex column so a capped window scrolls
          its .ow-body instead of overflowing; vw/vh first as the fallback for engines without dvh. */
-      max-height: calc(100vh - 8px); max-height: calc(100dvh - 8px);
+      max-height: calc(100vh - 8px); max-height: var(--ow-max-h, calc(100dvh - 8px));
       max-width: min(64vw, calc(100vw - 8px)); max-width: min(64vw, calc(100dvw - 8px));
       display: flex; flex-direction: column;
       background: var(--win-bg, var(--panel, #111)); color: var(--fg, #9cdef2);
@@ -565,6 +565,9 @@ function bannerInset() {
     return Number.isFinite(v) && v > 0 ? v : 0;
   } catch (_) { return 0; }
 }
+
+// ORW-993: a custom property, never inline max-height (the `[style*="height"]` rule would match it).
+function capH(el, px) { el.style.setProperty('--ow-max-h', px + 'px'); }
 
 // Explicit viewport clamp (audit note on norm c: never rely on cursor physics).
 function clampPos(left, top, w, h) {
@@ -1111,7 +1114,7 @@ export class OrwellWindow {
       this.el.style.height = Math.max(this.o.minHeight, maxH) + 'px';
       this.el.style.maxHeight = 'none';
     } else if (!this.el.style.height) {
-      this.el.style.maxHeight = Math.max(this.o.minHeight, maxH) + 'px';
+      capH(this.el, Math.max(this.o.minHeight, maxH));
     }
     // 1. Slotted: let the slot engine re-anchor + clamp (it runs clampPos itself).
     if (this._slot) { this._slot.restack(); }

@@ -193,7 +193,7 @@
         // windows above it, so its body scrolls inside it instead of running off the bottom.
         const room = Math.max(120, Math.floor(window.innerHeight - cursor - 8));
         if (Number.isFinite(parseFloat(el.style.height))) { if (parseFloat(el.style.height) > room) setStyle(el, "height", room + "px"); }
-        else setStyle(el, "maxHeight", room + "px");
+        else setMaxH(el, room);
         setStyle(el, "position", "fixed");
         setStyle(el, "left", "0px");
         setStyle(el, "right", "0px");
@@ -251,6 +251,13 @@
   // computed arithmetically and written ONCE as left/top, never via an intermediate
   // base write. EVERY placement (base stack or dragged) runs through clampPos so the
   // stacking cursor can never strand a panel off-screen (the D2/S11 collision rule).
+  // A custom property, not inline max-height: the kit's `.ow-window[style*="height"]` rule (a window the
+  // player resized) would otherwise match "max-height" and turn every capped window into a fill-the-space one.
+  function setMaxH(el, px) {
+    const v = px + "px";
+    if (el.style.getPropertyValue("--ow-max-h") !== v) el.style.setProperty("--ow-max-h", v);
+  }
+
   function fitHeight(el, name, w) {
     const base = name.endsWith("right") ? (window.innerWidth - 14 - w)
       : name.endsWith("left") ? leftBase() : (window.innerWidth - w) / 2;
@@ -259,7 +266,7 @@
     if (Number.isFinite(explicit)) {
       if (explicit > cap) setStyle(el, "height", cap + "px");   // a resized window that no longer fits
     } else {
-      setStyle(el, "maxHeight", cap + "px");
+      setMaxH(el, cap);
     }
   }
 
