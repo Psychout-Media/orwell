@@ -10685,6 +10685,50 @@ def mark_new_season_start(sess) -> bool:
     return False
 
 
+_PENDING_SEASON_BOUNDARY: set = set()  # ORW-1051: owners whose restart ran with no chat bound; the next turn's user line opens the season
+
+
+def mark_season_boundary_for_owner(owner) -> bool:
+    """ORW-1051: a season was just restarted from inside the chat (the confirmed createCharacter door). Stamp `season_start` on the
+    newest user line of the owner's bound game chat (the request that led to the restart), so the new season's context starts there.
+    With no bound chat, remember the owner and let the next turn's user line open the season. Returns True when a row was stamped."""
+    try:
+        from src import orwell_game_session
+        from core.models import _session_manager as _sm
+        sid = orwell_game_session.get_game_session(owner)
+        sess = _sm.get_session(sid) if (sid and _sm is not None) else None
+        hist = getattr(sess, "history", None) or []
+        for m in reversed(hist):
+            if getattr(m, "role", None) == "user":
+                if _sm is not None and hasattr(_sm, "mark_message_season_start"):
+                    _sm.mark_message_season_start(m)
+                else:
+                    if m.metadata is None:
+                        m.metadata = {}
+                    m.metadata["season_start"] = True
+                return True
+    except Exception:
+        logger.debug("[orw-1051] bound-chat season stamp failed", exc_info=True)
+    _PENDING_SEASON_BOUNDARY.add(str(owner))
+    return False
+
+
+def _consume_pending_season_boundary(sess, user) -> None:
+    """ORW-1051: apply a remembered restart to this turn's trailing user line (see mark_season_boundary_for_owner)."""
+    if str(user) not in _PENDING_SEASON_BOUNDARY:
+        return
+    _PENDING_SEASON_BOUNDARY.discard(str(user))
+    hist = getattr(sess, "history", None) or []
+    if hist and getattr(hist[-1], "role", None) == "user":
+        from core.models import _session_manager as _sm
+        if _sm is not None and hasattr(_sm, "mark_message_season_start"):
+            _sm.mark_message_season_start(hist[-1])
+        else:
+            if hist[-1].metadata is None:
+                hist[-1].metadata = {}
+            hist[-1].metadata["season_start"] = True
+
+
 def discard_last_user_message(sess) -> None:
     """E25 (belt): remove the just-persisted trailing user message when a turn is REFUSED
     after build_chat_context already added it (the sync route's game-turn 409) — otherwise
@@ -11340,6 +11384,10 @@ async def build_chat_context(
     # ORW-224b: only when the turn is actually FRAMED as casting (the game build with the engine up, or feeds-down),
     # the same condition the assistant-reply stamp uses (`ctx.framed and not ctx.game_active`). In the workspace
     # build (ORWELL_GAME_BUILD=0) there is no casting interview, so no stamp, and compaction stays available there.
+    try:
+        _consume_pending_season_boundary(sess, user)
+    except Exception:
+        logger.debug("[orw-1051] pending season boundary skipped", exc_info=True)
     if not game_active and framed and getattr(sess, "history", None):
         _last = sess.history[-1]
         if getattr(_last, "role", None) == "user":

@@ -463,7 +463,8 @@ async def run_condense(owner, closed_day: Optional[int], sid=_ANY_GAME, heal_day
         hist_sid = orwell_game_session.get_game_session(owner)
         mgr = get_session_manager()
         if hist_sid and mgr:
-            history = list(mgr.get_session(hist_sid).history)
+            from core.models import current_season_rows  # ORW-1051: a day summary is built from THIS season's rows only
+            history = current_season_rows(mgr.get_session(hist_sid).history)
     except Exception:
         history = []
 
