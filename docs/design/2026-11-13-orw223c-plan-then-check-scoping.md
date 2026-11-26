@@ -1,6 +1,6 @@
 # ORW-223 part C - plan, check, write, check, commit: scoping (no code yet)
 
-Status: SCOPING for the Coordinator, 2026-11-13, Overseer A. Nothing is built. No paid calls were made for this note; every number below is from runs already on record (the 2026-11-12 live arms and the offline checks).
+Status: SCOPING for the Coordinator, 2026-11-13, Overseer A. Nothing is built. **Revised 2026-11-26 (ORW-1011): see the last section, "Revision 2026-11-26". It supersedes the PLAN-call design in C1 to C3 with an act-first tool round, and it is for Kevin and Ryne to review before any build.** No paid calls were made for this note; every number below is from runs already on record (the 2026-11-12 live arms and the offline checks).
 
 ## What part C is
 
@@ -53,3 +53,128 @@ Golden replays of recorded turns through the checker; mutations (a plan naming a
 ## Ask
 
 Approve C1 to C3 (the schema and checker, shadow measurement, commit-from-plan) as the first build, with C4 and C5 decided after the C2 numbers. I will not spend model money on C2 without the Coordinator's go (about $0.10).
+
+
+---
+
+# Revision 2026-11-26 (ORW-1011): decide, commit, then narrate
+
+Status: DESIGN for Kevin and Ryne to review. No code. Cards: ORW-1011 (this), ORW-1014, ORW-934, ORW-1008, ORW-1009, ORW-1010, ORW-408, ORW-749. Rulings that bound it: ADR 0005 (open set stays open), ADR 0009 ruling 1 (NPC movement is narrated, the engine records it), ADR 0016 (model choice), ADR 0003.
+
+This revision extends the plan-then-check scoping above; it does not replace its checks, its proof plan or its rule that a belt is demoted before it is deleted. What changes is the first step. The scoping doc proposed a separate PLAN utility call. The review and Kevin's direction found a cheaper and more direct route: the narrator model itself is forced to call a tool first.
+
+## 1. The problem, with prod numbers
+
+Prod, season on 33.13, 16:40Z to 20:00Z on 2026-11-26, 47 turns:
+
+* The narrator called a game tool on 5 of 47 turns.
+* Belts did the rest: auto-record-scene 31, auto-move-player 13, desync-reground-voiced 9, forced-advance 6, stall-nudge 6, auto-move-npc 5.
+* The board and the prose disagreed (desync) on 8 of 47 turns.
+* Belts carried 89% of the turns.
+
+Kevin, 2026-11-26: "I'm very concerned that we've had to leverage fallback code for such a high percentage of the turns and I continue to be concerned about the tool calling rate." And on ORW-1014: "I want to get that 89% number down. And I want us to use tool calling."
+
+Why it happens, from the code at main 6611957d:
+
+* DeepSeek V4 is on the rejecter list (`_TOOL_CHOICE_REJECTERS`, `agent_loop.py`), so forced `tool_choice` is skipped for the live narrator. The list dates from the always-thinking audit (ADR 0016). `llm_core.py` has since sent thinking-disabled on deepseek.com. A probe on dev on 2026-11-26 (ORW-1014) got HTTP 200 and the right call for `auto`, `required` and a named function. The block is stale.
+* 42 tools are sent every round, so an unforced narrator mostly writes prose and skips the call.
+* Several belts are themselves LLM JSON extractions run after the prose (`agent_loop.py`, around lines 3825 to 3949). The prose comes first and the effect is inferred from it.
+* The player-move seam has two defects (ORW-1008): a mention of the player's own bed moves the player (the seam near `GameSessionAdapter.ts:8121`), and a plain "go to X" can fail through quote stripping (`playerMoveIntent.ts:172`).
+
+## 2. The architecture
+
+One turn, in order:
+
+1. **Act first.** Before any prose, a forced tool round (ORW-1014 PR 2). The narrator must call exactly one tool from a small closed set of player acts: move, search, claim a bed, go to sleep, answer a pending step, advance, or `noAction`. Forcing needs the mode-aware rejecter fix (ORW-1014 PR 1): allowed on api.deepseek.com with thinking disabled, kept off for reasoner or thinking-on routes, with a canary that fails if DeepSeek rejects again. The round sends only the closed set, not 42 tools.
+2. **Commit before narrate.** The engine validates and commits the call through the normal dispatcher with `expectedBeatSeq` and an idempotency key (the ORW-419 seam, the precedent in the scoping doc above). The checks are the ones the dispatcher already applies.
+3. **Narrate committed facts.** The narration round gets the committed result as facts to voice: where the player now is, who is there, what time it is. The narrator writes the words, never the outcome of a closed-set act. A second call to the same tool is a no-op by the idempotency key.
+4. **NPC-side belts stay** (ADR 0009 ruling 1). Houseguests wander, talk and act in the open set, and the narrator records that through the existing tools and belts. "Few or no tools" is not a goal. The goal is that the player's own closed-set acts never depend on a belt.
+5. **Deals** (ORW-749). The consent roll needs the houseguest's reply, so the engine pre-rolls the stance before the narration and hands it to the narrator as a hidden bound. The deal itself is committed after the reply, by the same commit path.
+6. **Search is an engine lever** (ORW-934, Kevin's spec, below).
+7. **Pre-display check** (ORW-408) and the remaining belts stay as a backstop. Every belt firing stays counted in the sync ledger.
+
+### Kevin's search spec (ORW-934, 2026-11-26)
+
+Kevin: "I don't love the find within two turns directive... what I don't want to happen is me leading the search as the player and then the engine or narrator having to like teleport the character to where I am or teleport me to where they are... I'd rather just kind of like fast forward a bit and like oh we looked in this room this room this room didn't see them ended up being in the bedroom something like that I do not want any type of like forced movement into a place without it narratively making sense."
+
+How the design meets it:
+
+* `search` is one act in the closed set. The engine plans a route room by room: the last real sighting first (`lastSeenAt`, sightings), then nearby rooms by `roomsBetween` (`house.ts`), then the leads in `houseSearchView`.
+* Each step is a real move on the board and costs clock time, and the clock rules for waits and interruptions apply. The engine commits the whole route before the narrator writes; the narrator voices one compressed passage: rooms checked, who was there, where the person turned up.
+* No teleport either way. The player moves only along the committed route. The target is only where the engine has the target. If the target moves during the search, the route reflects it.
+* A tip is real only if it comes from a recorded sighting (no invented sightings, ORW-1009). A stale tip is fine; the search continues from it.
+* No fixed turn limit. The search ends when the target is found or when the target is somewhere the player cannot go (the Diary Room, a closed private talk), and the player is told so plainly. The player can stop or redirect at any point.
+
+## 3. The review holes and the answers
+
+The adversarial review (Fable, 2026-11-26, verdict "sound with changes") found nine. Each one and where this design answers it:
+
+1. **Search needs an engine lever, not one action per message.** `movePlayer` is a single jump and the clock is billed once per message. Answer: section 2, item 6; the route is committed as a series of moves with clock cost per step.
+2. **It duplicates ORW-223 part C and ORW-42.** Answer: this is a revision of that doc, not a fork. Its checks (CHECK the plan, CHECK the prose) and its proof plan stay.
+3. **The diagnosis is half right: belts are already LLM extractions, and the seam already resolves moves before the narrator.** Answer: slice R0 fixes the two seam defects first and replays the 47 prod turns through `resolvePlayerMove` offline, so the numbers say how much is seam bug and how much is missing calls. "Nobody has claimed a bed" is intended text while the circle is open, and it is left alone.
+4. **ADR 0005: a closed action list on every message flattens the open set.** Answer: the act-first set is closed-set player acts only (move, search, bed, sleep, pending answers, advance). Anything else is `noAction`. When the narrator is unsure it picks `noAction`; it never asks the player to disambiguate, and it never forces the player's binding pick. Speech and social play stay open and are recorded verbatim as today.
+5. **Deals need the houseguest's reply.** Answer: section 2, item 5 (pre-roll, commit after the reply).
+6. **NPC-side belts stay.** Answer: section 2, item 4.
+7. **"Belts under 5%" is a vanity number.** Belts are success-gated, the player-move-intent belt counts as one, and no belt is removed in this work. Answer: the bar in section 6 uses correctness counts, and the belt rate stays as an alarmed health metric, not a target.
+8. **Classifier risks: speech versus action, multi-action, injection, outage, latency, a wrong pre-commit narrated as fact.** Answer: section 4. Note the structural change from the first proposal: there is no separate classifier call. The narrator itself makes the forced call, which removes one model hop.
+9. **The tool_choice probe.** Answer: done on 2026-11-26 (ORW-1014). Forcing works with thinking off. The first slice makes the fix permanent and tested.
+
+## 4. What stays open (ADR 0005), failure modes, fail-soft
+
+**Open set.** The engine commits only closed-set player acts. It never classifies speech, tone, persuasion or alliances into acts. The act-first round has no tool for them, so there is nothing to flatten. The checker may only reject or trim a call, never add one.
+
+**Failure modes and what happens:**
+
+* The forced call is wrong (a false commit): the checks reject an illegal act. A legal but wrong act (the player was talking about a room, not going there) is the worst case. Mitigation: the move and search tools require an explicit destination or target that resolves in the engine, the prompt for the round says to choose `noAction` when the message is talk, and false commits are weighted heavily in the replay corpus. A committed move is narrated as fact, so the player sees it at once and can say so; the correction is a normal move, never a hidden rewrite.
+* The model returns no call, or an invalid one: one retry with the rejection reason, then no act is committed and the turn proceeds as today with the old belts armed. A ring entry records the soft fail.
+* DeepSeek rejects forcing again or the call fails (outage, HTTP 400): fall back to the deterministic parsers (`playerMoveIntent`, the bed and sleep detectors) and the existing belts. The canary from ORW-1014 raises the alarm.
+* Latency: the act-first round is serial before the first narrated word. It sends a small tool set and no thinking, so it should be shorter than the old 42-tool round, but there is no measurement yet. Section 6 sets the bar and the dev run measures it.
+* Injection: the player's message is untrusted input to the round. It goes in behind the same fence as the extraction calls (`_EXTRACTION_UNTRUSTED_FENCE`), the round has no tool that can write free text into the board, and every argument is an engine ID or a room, validated by the dispatcher. The Vault stays out of the round; it sees Vault-free state only.
+* Multi-action messages ("go to the kitchen and then sleep"): one act per round. The first act commits; the rest of the message is narrated as intent and is picked up by the next turn or the existing belts. Whether to allow a second round is an open question for Ryne below.
+
+## 5. Rollout
+
+All behind flags, default off. Dev first, then prod.
+
+1. `ORWELL_ACT_FIRST` (ORW-1014 PR 2) and a separate flag for the search lever, each off by default. Dev only.
+2. Dev replay: the same labelled scenarios run before and after on dev, against the prod baseline above. No prod change until the dev numbers meet the bar in section 6.
+3. Prod: flip one flag at a time, with the belt rate, desync and the unrecorded and unnarrated counts on the admin page. Roll back by flag. Ryne approves the flip.
+
+## 6. Measures and the success bar
+
+Measured per 100 turns on the dev replay and then in prod:
+
+* **0** player acts narrated but not recorded.
+* **0** player acts recorded but not narrated.
+* Desync turns from 8 in 47 to near 0.
+* Tool-driven share: the share of engine changes made by a narrator tool call versus a belt, per turn (ORW-1014 metric, admin page). Baseline: a tool call on 5 of 47 turns. This is reported, with no fixed target, since NPC-side belts stay.
+* Latency to first token, p50 and p95, before and after.
+* A labelled replay corpus: the 47 prod turns, relabelled by hand with the act each player message performed (turn text stays out of the repo and out of the board; the labels and ids go in). Precision and recall per action, with false commits weighted above misses.
+* The non-collapse tests (ADR 0005) stay green, and the belt rate stays counted and alarmed.
+
+The bar: the first two counts at 0 on the replay and on one prod day, desync near 0, p95 latency no worse than the old path by more than the bound Ryne sets (open question 3), and precision on committed acts at or above the level Ryne sets (open question 4).
+
+## 7. Slices and cards
+
+Each ships alone, behind a flag, small PRs.
+
+* **R0 seam fixes and the offline replay**: the bed false move, the quote stripping, the 47-turn replay through `resolvePlayerMove`. Cards ORW-1008 (move seam), ORW-1010 (beds).
+* **R1 unblock forcing**: mode-aware rejecter, conformance test, canary, the narrator-versus-belt metric, the inventory of forcing sites. Card ORW-1014 PR 1.
+* **R2 act-first round**: the closed-set forced round, commit, narrate committed facts, flag off. Card ORW-1014 PR 2.
+* **R3 search lever**: route planner, clock cost per step, committed route, one compressed narration. Card ORW-934. Depends on R2 for the commit path.
+* **R4 sightings and placement**: no invented sightings, dropped folds, so tips and routes are true. Card ORW-1009.
+* **R5 pre-display check**: the prose check before the player sees it, so a wrong narrated act is caught. Card ORW-408.
+* **R6 deals**: pre-rolled stance, commit after the reply. Card ORW-749.
+* **R7 dev replay, measures, prod flip**: the corpus, the bar in section 6, the rollout in section 5. Card ORW-1011.
+
+## 8. Open questions for Ryne
+
+**For Ryne to decide.** Kevin has the same list.
+
+1. **The closed set.** Is move, search, bed, sleep, pending answer, advance and `noAction` the right set? Anything to add or drop?
+2. **Multi-action messages.** One act per turn with the rest left to the next turn, or allow a second forced round when the message clearly has two acts?
+3. **Latency bound.** How much extra time before the first narrated word is acceptable at p95?
+4. **Precision floor.** What precision on committed acts is acceptable before prod, given that a false commit is narrated as fact?
+5. **A wrong commit.** When the player says a committed move was not what they meant, should the engine offer an undo, or is a normal move enough?
+6. **Search without a sighting.** When no sighting exists for the target, should the route start from the room list in a fixed order, or should the narrator say the player has no lead and stop?
+7. **Prod flip.** Is a one-day prod window per flag, with rollback by flag, the right gate, and does Ryne sign it off?
