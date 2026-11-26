@@ -428,6 +428,24 @@ for s in d.get("steps") or []:
   done <<<"$line"
 }
 
+# ORW-1019: a paid provider that answered HTTP 402 (out of credit). Read over loopback (GET /api/admin/provider-credit); hosts and counts only.
+provider_credit_check() {
+  [[ -n "$FE_BASE" ]] || return 0
+  command -v python3 >/dev/null 2>&1 || { info "provider credit: python3 not found - skipping"; return 0; }
+  local body line
+  body="$(curl -fsS -m 5 "${FE_BASE}/api/admin/provider-credit" 2>/dev/null)" || { info "provider credit: the front-end did not answer /api/admin/provider-credit (an older build?) - skipping"; return 0; }
+  line="$(printf '%s' "$body" | python3 -c '
+import json, re, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(3)
+f = lambda v: re.sub(r"[^A-Za-z0-9._:-]", "_", str(v))[:60]
+print(" ".join(f(t.get("host")) + "(" + f(t.get("kind")) + ")" for t in d.get("tripped") or []))
+' 2>/dev/null)" || { info "provider credit: could not read the front-end's answer - skipping"; return 0; }
+  if [[ -z "$line" ]]; then pass "provider credit: no provider has answered HTTP 402"; else fail "provider OUT OF CREDIT (HTTP 402): ${line} - calls to it are paused; top up the account (the app re-probes every 5 min and resumes by itself)"; fi
+}
+
 diagnose() {
   echo "==> diagnose (engine=${ENGINE_SVC} :${ENGINE_PORT}, frontend=${FRONTEND_SVC}${FE_PORT:+ :${FE_PORT}})"
   if [[ "$UNITS_MISSING" == 1 ]]; then
@@ -470,6 +488,8 @@ diagnose() {
   # DEPLOY-17: catch a PAT-expiry-shaped auth failure before the update path breaks silently.
   git_remote_check
   # ORW-971: a held season, and any owed or failed season-start step.
+  # ORW-1019: an out-of-credit provider.
+  provider_credit_check
   season_hold_check
   systemd_security_floor
 }

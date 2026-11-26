@@ -1562,6 +1562,15 @@ def _backup_section(now: float | None = None) -> dict:
             "warning": str(rec.get("warning") or "")[:300]}
 
 
+def _credit_section() -> dict:
+    """ORW-1019 - tripped (out-of-credit) providers and the ledger's daily spend. Counts, hosts and dollars only; a failed read is empty."""
+    try:
+        from src import orwell_provider_credit
+        return orwell_provider_credit.snapshot()
+    except Exception:
+        return {"tripped": [], "degraded": False, "dailySpendUsd": {}}
+
+
 def _season_section() -> dict:
     """ORW-971 - the held seasons and the season-start steps still owed or failed, for EVERY owner (the operator's view; counts, ids and machine words only).
     ``{holds: [{owner, ageS, authored, total, missing, windowS, overdue}], steps: [{owner, step, status, attempts, reason, ageS}]}``. Best-effort: a failed read is empty."""
@@ -1573,7 +1582,7 @@ def _season_section() -> dict:
 
 
 def _compute_alarms(rollup: dict, *, embeddings=None, sync_recent=None, belt_totals=None,
-                    sandbox=None, faithfulness=None, capability=None, season=None, backup=None) -> list:
+                    sandbox=None, faithfulness=None, capability=None, season=None, backup=None, credit=None) -> list:
     """WI3 — derive the RED alarms for game-breaking signals from the rollup + the snapshot reads.
     Pure over its inputs (unit-testable): returns a list of ``{code, severity:'red', label, count,
     detail, autoCorrected}``. Vault-free — every input is a count / flag / class token."""
@@ -1736,6 +1745,14 @@ def _compute_alarms(rollup: dict, *, embeddings=None, sync_recent=None, belt_tot
              else f"no scheduled backup has succeeded for {hrs} h (limit 26 h)")
             + " - check journalctl -u orwell-backup.service and systemctl status orwell-backup.timer"))
 
+    # 4g) ORW-1019 - a paid provider answered HTTP 402 (out of credit): its calls are paused until it is topped up.
+    credit = (credit or {}).get("tripped") or []
+    if credit:
+        alarms.append(_alarm(
+            "provider-credit", "Provider out of credit", len(credit),
+            "HTTP 402 from " + ", ".join(f"{c.get('host')} ({c.get('kind')}, {c.get('count')} refusal(s))" for c in credit[:4])
+            + " - calls to it are paused, re-probed every 5 min; top up the account"))
+
     # 5) Embeddings degraded (semantic recall fell back).
     if isinstance(embeddings, dict) and embeddings.get("degraded"):
         alarms.append(_alarm(
@@ -1827,7 +1844,8 @@ async def _rollup_and_alarms(user: str | None, engine: dict,
     try:
         alarms = _compute_alarms(rollup, embeddings=engine.get("embeddings"),
                                  sync_recent=sync_recent, belt_totals=belt_totals, sandbox=sandbox,
-                                 faithfulness=faithfulness, capability=capability, season=_season_section(), backup=_backup_section())
+                                 faithfulness=faithfulness, capability=capability, season=_season_section(),
+                                 backup=_backup_section(), credit=_credit_section())
     except Exception:
         alarms = []
     return rollup, alarms
@@ -1923,6 +1941,8 @@ async def _health_snapshot(user: str | None) -> dict:
         "enrichment": enrichment,
         "seasonChecklist": season_checklist,
         "backup": _backup_section(),  # ORW-1047: last scheduled backup result and age (RED alarm backup-failing when failed or over 26 h)
+
+        "providerCredit": _credit_section(),  # ORW-1019: out-of-credit hosts + daily spend
         "seasonHolds": _season_section(),  # ORW-971: every held season (owner, age, authored/total) and every owed or failed start step
         # F10 / BL-019 — the faithfulness-judge health posture (dark ⇒ the RED alarm above fires).
         "faithfulness": faithfulness,
@@ -2006,6 +2026,14 @@ def setup_admin_health_routes() -> APIRouter:
         if not is_trusted_loopback(request):
             require_admin(request)
         return _season_section()
+
+    @router.get("/provider-credit")
+    async def admin_provider_credit(request: Request):
+        """ORW-1019: tripped (402) providers and daily spend, for ``deploy/orwell-doctor.sh``. Direct loopback only, else the admin check."""
+        from core.middleware import is_trusted_loopback
+        if not is_trusted_loopback(request):
+            require_admin(request)
+        return _credit_section()
 
     @router.get("/token-economy")
     async def admin_token_economy(request: Request, user: str | None = None):
@@ -2651,6 +2679,12 @@ function render(d) {
     ["Engine", B(!!eng.ok, eng.ok ? "REACHABLE" : "DOWN") + (eng.latencyMs != null ? " · " + esc(eng.latencyMs) + " ms" : "") + (eng.uptimeSeconds != null ? " · up " + esc(up(eng.uptimeSeconds)) : "") + (eng.error ? " · " + esc(eng.error) : "")],
     ["Tiers agree", B(!!d.tiersAgree, d.tiersAgree ? "YES" : "NO")],
     ["Embeddings", emb ? esc(emb.provider || "?") + " " + B(!emb.degraded, emb.degraded ? "DEGRADED" : "OK") : B(false, "UNKNOWN")],
+    ["Provider credit", (function (c) {
+      if (!c) return '<span class="sub">—</span>';
+      const sp = c.dailySpendUsd || {}, ks = Object.keys(sp), last = ks.length ? ks[ks.length - 1] : null;
+      return (c.degraded ? B(false, "OUT OF CREDIT") + " · " + esc((c.tripped || []).map(function (t) { return t.host; }).join(", ")) : B(true, "OK")) +
+        (last ? " · spend " + esc(last) + " $" + esc(sp[last]) : "") + ' <span class="sub">(no balance source)</span>';
+    })(d.providerCredit)],
     ["Image generation", (img.available ? B(true, "AVAILABLE") : B(false, img.enabled ? "NO USABLE MODEL" : "DISABLED")) + (img.model ? " · " + esc(img.model) : "") + (img.portraits && img.portraits.total ? " · portraits " + (img.portraits.missing ? '<span class="warn">' : '<span class="ok">') + esc(img.portraits.present) + "/" + esc(img.portraits.total) + "</span>" : "") + (img.lastRun && img.lastRun.failing ? ' · <span class="warn">last run FAILED (0/' + esc(img.lastRun.attempted) + ' — provider not producing images)</span>' : "")],
     ["Cast authoring", (ca && ca.total ? (ca.missing ? '<span class="warn">' : '<span class="ok">') + esc(ca.authored) + "/" + esc(ca.total) + "</span> deep-authored" + (ca.missing ? " · " + esc(ca.missing) + " on floor" : "") : '<span class="sub">—</span>')],
     ["Pre-display check", (function (p) {
