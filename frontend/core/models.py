@@ -69,6 +69,19 @@ def client_metadata_update(update: Any) -> dict:
     return {k: v for k, v in update.items() if k not in SERVER_OWNED_METADATA_KEYS}
 
 
+def current_season_rows(history):
+    """ORW-1051: the rows of the NEWEST season in a chat: from the newest row stamped `metadata.season_start` to the end
+    (the whole list when no row carries the stamp). The older rows stay stored and viewable; only prompt-side readers
+    (the narrator's window, the day summaries, the week-chapter check) use this slice. Works on ChatMessage or dict rows."""
+    rows = list(history or [])
+    for i in range(len(rows) - 1, -1, -1):
+        m = rows[i]
+        md = (m.get("metadata") if isinstance(m, dict) else getattr(m, "metadata", None)) or {}
+        if isinstance(md, dict) and md.get("season_start"):
+            return rows[i:]
+    return rows
+
+
 @dataclass
 class ChatMessage:
     """A single chat message."""
@@ -187,10 +200,7 @@ class Session:
         phases = exclude_phases or set()
         history = self.history
         if current_season_only:
-            for _i in range(len(history) - 1, -1, -1):
-                if (history[_i].metadata or {}).get("season_start"):
-                    history = history[_i:]
-                    break
+            history = current_season_rows(history)
         # #530: the season-start boundary = the first live ("game") turn. Everything in scroll
         # order before it is pre-game (casting / OOC setup), regardless of whether each turn got
         # its per-message stamp. Index-based so it survives a stamp miss AND a DB reload.

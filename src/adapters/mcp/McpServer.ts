@@ -235,6 +235,11 @@ function requireShape(name: string, args: Record<string, unknown>): void {
     case "moveTo":
       guardSyncFields(false); // 0065 Part A — optional expectedBeatSeq
       return;
+    case "searchForHouseguest": // ORW-934
+      if (!isStr(args["name"])) refuse("name", "the houseguest's name (string)");
+      if (args["maxLegs"] !== undefined && (typeof args["maxLegs"] !== "number" || !Number.isInteger(args["maxLegs"]) || args["maxLegs"] < 1)) refuse("maxLegs", "a whole number of legs, at least 1, when present");
+      guardSyncFields(true); // CAS + at-most-once: the walk bills the clock and moves the player, so a re-drive of the same search must not walk twice
+      return;
     case "resolvePlayerMove":
       if (!isStr(args["text"])) refuse("text", "a non-empty string (the player's own message)");
       guardSyncFields(true); // optional expectedBeatSeq + idempotencyKey
@@ -837,6 +842,14 @@ export class McpServer {
           String(args["room"] ?? ""),
           typeof args["expectedBeatSeq"] === "number" ? args["expectedBeatSeq"] : undefined,
         );
+      case "searchForHouseguest":
+        // ORW-934 - the engine walks the search leg by leg; the narrator voices the returned legs as one passage
+        return this.deps.session.searchForHouseguest({
+          name: String(args["name"]),
+          ...(typeof args["maxLegs"] === "number" ? { maxLegs: args["maxLegs"] } : {}),
+          ...(typeof args["expectedBeatSeq"] === "number" ? { expectedBeatSeq: args["expectedBeatSeq"] } : {}),
+          ...(typeof args["idempotencyKey"] === "string" && args["idempotencyKey"] !== "" ? { idempotencyKey: args["idempotencyKey"] } : {}),
+        });
       case "resolvePlayerMove":
         // ORW-419 - the FE-driven intent-first move (infra lever; the engine resolves the player's own words before the narrator).
         return this.deps.session.resolvePlayerMove({

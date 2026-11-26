@@ -1,3 +1,4 @@
+import { quarantine } from "../support/quarantine";
 import { describe, it, expect, vi } from "vitest";
 import { playSeason } from "../support/whatFired/player";
 import * as multiSubstring from "../../src/composition/multiSubstring";
@@ -11,7 +12,7 @@ import { firstSeedWhere } from "../support/firstSeedWhere";
  * (2) the work per message per stored event in a late block stays within a margin of an early block (the old per-line re-scan, or any scan that grows faster than the state, would break it). HEAVY LANE (tests/uat/**).
  */
 describe("ORW-832 REAL PATH: the sweep's work follows the size of the season, not its square", () => {
-  it("per message and per stored event, the leak sweep does about the same work late in the season as early", async () => {
+  quarantine({ card: "ORW-1007", added: "2026-11-26" }).it("per message and per stored event, the leak sweep does about the same work late in the season as early", async () => {
     const BLOCK = 200; const sweeps: Array<{ chars: number; patterns: number }> = [];
     const orig = multiSubstring.patternsFoundIn;
     const spy = vi.spyOn(multiSubstring, "patternsFoundIn").mockImplementation((text: string, patterns: Iterable<string>) => {

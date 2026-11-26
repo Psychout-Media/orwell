@@ -60,7 +60,7 @@ TOOL_TAGS = {"bash", "python", "web_search", "web_fetch", "read_file", "write_fi
              # Big Brother game engine (Vault-free): the model drives the game by
              # calling these, then narrates the engine-decided results.
              "getGameState", "runCompetition", "recordInteraction", "surfaceInformationTo",
-             "socialInitiatives", "diaryRoom", "makeDeal", "confide", "askJuror", "whereabouts", "moveTo",
+             "socialInitiatives", "diaryRoom", "makeDeal", "confide", "askJuror", "whereabouts", "moveTo", "searchForHouseguest",
              # 0107: named alliances — the player names a pact / accepts an NPC's pitch.
              "formAlliance", "joinAlliance",
              # 0093/0099: out a learned secret to the house / trade it to a houseguest for a favor.
@@ -135,6 +135,8 @@ GAME_TOOL_KEEP = frozenset({
     "whereabouts",
     # L21/L24: the player walks where they choose; the engine never auto-relocates a person.
     "moveTo",
+    # ORW-934: looking for a houseguest is an engine action that walks the house leg by leg (no teleport).
+    "searchForHouseguest",
     # PREMIERE meet-everyone (#380): the premiere-only meet-everyone tracker — the read + the mark
     # (the engine guarantees all 15 NPCs are met before the first HOH; the model drives it from here).
     "premiereIntros", "markHouseguestMet",
