@@ -158,7 +158,7 @@ _TURN_SEQ = itertools.count(1)
 #: and is logged once. tests/test_orw435 fails when a tool the FE can call through `_call` is in none of the three sets below.
 BUMPING_WRITES = frozenset({
     "noteMessage", "recordInteraction", "moveTo", "moveHouseguest", "markHouseguestMet", "recordImageBeat", "makeDeal", "diaryRoom",
-    "confide", "exposeSecret", "tradeSecret", "surfaceInformationTo", "turnIn", "advanceGame", "updateCasting", "resolvePlayerMove",
+    "confide", "exposeSecret", "tradeSecret", "surfaceInformationTo", "turnIn", "advanceGame", "updateCasting", "resolvePlayerMove", "searchForHouseguest",
     "accuseTie", "callInFavor", "askToTalkAlone", "confront", "askJuror", "submitDecision", "hangOut", "nap", "requestSelfEviction", "cancelSelfEviction",
     "raiseSpectatorChoice", "formAlliance", "joinAlliance", "createCharacter", "preSeedCast", "recordCastGenesis", "advanceToFinale",
     "runCompetition",

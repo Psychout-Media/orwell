@@ -5904,6 +5904,28 @@ async def do_move_to(content: str, owner: Optional[str] = None) -> Dict:
         return {"error": f"engine error: {e}", "exit_code": 1}
 
 
+async def do_search_for_houseguest(content: str, owner: Optional[str] = None) -> Dict:
+    """ORW-934: the player looks for a named houseguest; the engine walks the house leg by leg. `content` is the tool args JSON ({name, maxLegs?})."""
+    from src import orwell_engine
+    try:
+        args = {}
+        try:
+            args = json.loads(content) if content else {}
+        except Exception:
+            args = {"name": (content or "").strip()}
+        if not isinstance(args, dict):
+            args = {}
+        max_legs = args.get("maxLegs")
+        res = await orwell_engine.search_for_houseguest(str(args.get("name", "")), max_legs if isinstance(max_legs, int) and not isinstance(max_legs, bool) and max_legs >= 1 else None, user=owner)
+        if res is None:
+            return {"output": "No game is running, or that name is not a houseguest in the house.", "exit_code": 0}
+        await _refresh_after_model_progression(owner, res)
+        _note_narrator_view(owner, res)
+        return {"output": json.dumps(res, indent=2), "exit_code": 0}
+    except Exception as e:
+        return {"error": f"engine error: {e}", "exit_code": 1}
+
+
 PREMIERE_INTROS_ENTRANCES_NOTE = (
     "\n\nNOTE: the houseguest entrances are STILL IN PROGRESS — arrivals are released one at a time, so this list does not mean everyone has arrived. "
     "The champagne toast has NOT happened yet; do not narrate or stage it until the engine reaches it."
