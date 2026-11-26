@@ -496,3 +496,55 @@ def admin_view(owner: Optional[str]) -> dict:
                    "attempts": rec["steps"][n]["attempts"], "reason": rec["steps"][n]["reason"],
                    "detail": rec["steps"][n].get("detail"), "nextAt": iso(rec["steps"][n]["next_at"])} for n in STEPS],
     }
+
+
+def open_steps() -> list:
+    """ORW-971: every `owed` or `failed` step of every open (not closed) record, for the health snapshot and the doctor:
+    ``{owner, step, status, attempts, reason, ageS}``. The hold step is left out while it is the live hold marker's job to report it
+    (`orwell_cast_authoring.house_entry_holds`). Machine words and numbers only."""
+    now = time.time()
+    rows = []
+    for owner, rec in _load().items():
+        if rec.get("closed"):
+            continue
+        for n in STEPS:
+            st = rec["steps"][n]
+            if st["status"] not in ("owed", "failed"):
+                continue
+            if n == HOUSE_HOLD and st["status"] == "owed":
+                continue
+            rows.append({"owner": owner, "step": n, "status": st["status"], "attempts": st["attempts"], "reason": st["reason"],
+                         "ageS": max(0, int(now - st["at"])) if st.get("at") else None})
+    return rows
+
+
+def release_hold(owner: Optional[str], reason: str = "admin-release") -> dict:
+    """ORW-971: release a held season by hand. Refuses (``released`` False) when no hold is active for `owner`. Otherwise: stop the armed
+    watch (so the deferred kicks cannot run a second time), record the hold released with `reason` on the checklist, clear the marker, start the
+    post-start steps the hold deferred (`kick_owed_steps`), and tell open pages. Returns ``{released, owner, kicked}``."""
+    from src import orwell_cast_authoring as ca
+    if ca.house_entry_gate_status(owner) is None:
+        return {"released": False, "owner": _key(owner), "reason": "no-hold-active", "kicked": []}
+    try:
+        w = ca._HOUSE_READY_WATCHES.pop(ca._safe_user(owner), None)
+        if w is not None:
+            w.cancel()
+    except Exception as e:  # failsoft-ok: a watch that cannot be stopped only repeats idempotent kicks
+        logger.warning("[season-checklist] could not stop the house-ready watch for %s: %s", _key(owner), e)
+    mark_hold(owner, False, reason)  # first, so the checklist keeps this reason (the marker clear below records a bare release)
+    ca.clear_house_entry_gate_block(owner)
+    kicked = kick_owed_steps(owner)
+    if get_record(owner) is None:  # a season with no record (it began before ORW-970): nothing says what is owed, so start all three, as the watch's own release does
+        for step in POST_START_STEPS:
+            try:
+                _kick(owner, step)
+                kicked.append(step)
+            except Exception as e:  # failsoft-ok
+                logger.warning("[season-checklist] could not start %s for %s: %s", step, _key(owner), e)
+    try:
+        from src import orwell_game_session
+        orwell_game_session.publish_game_updated(owner)
+    except Exception:  # failsoft-ok: open pages catch up on their next poll
+        pass
+    logger.info("[season-checklist] hold on %s released (%s); kicked %s", _key(owner), reason, kicked)
+    return {"released": True, "owner": _key(owner), "kicked": kicked}

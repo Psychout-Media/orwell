@@ -348,6 +348,50 @@ update_deferred_check() {
   info "emergency only, to cut a stuck turn that never ends (a turn in flight may be lost): bash ${APP_DIR}/deploy/orwell-update.sh --force-now"
 }
 
+# ORW-971: a season HELD at house entry is a failure the unit and /health probes cannot see (the units are up and the engine answers, yet the player has no Cast button and no
+# decision card). Read the held seasons and the owed or failed season-start steps off the front-end over loopback (GET /api/admin/season-holds, direct loopback connections
+# only) and report them. A hold older than its window (the watch's timeout, 1800 s) is a FAIL: the verdict is not healthy. It is counted apart in SEASON_HOLD_FAILS, because a
+# restart cannot release it (a restart re-holds): --fix must not bounce for it. A failed start step is a warn; an owed one is info.
+SEASON_HOLD_FAILS=0
+season_hold_check() {
+  [[ -n "$FE_BASE" ]] || return 0
+  command -v python3 >/dev/null 2>&1 || { info "season holds: python3 not found - skipping"; return 0; }
+  local body line kind a b c d e g
+  body="$(curl -fsS -m 5 "${FE_BASE}/api/admin/season-holds" 2>/dev/null)" || { info "season holds: the front-end did not answer /api/admin/season-holds (an older build?) - skipping"; return 0; }
+  # One line per item, fields separated by a tab: HOLD owner age authored total window overdue | STEP owner step status attempts. Only [A-Za-z0-9._:-] survives in a field.
+  line="$(printf '%s' "$body" | python3 -c '
+import json, re, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    sys.exit(3)
+def f(v):
+    return re.sub(r"[^A-Za-z0-9._:-]", "_", str(v if v is not None else "?"))[:48] or "?"
+for h in d.get("holds") or []:
+    print("\t".join(["HOLD", f(h.get("owner")), f(h.get("ageS")), f(h.get("authored")), f(h.get("total")), f(h.get("windowS")), "1" if h.get("overdue") else "0"]))
+for s in d.get("steps") or []:
+    print("\t".join(["STEP", f(s.get("owner")), f(s.get("step")), f(s.get("status")), f(s.get("attempts"))]))
+' 2>/dev/null)" || { info "season holds: could not read the front-end's answer - skipping"; return 0; }
+  if [[ -z "$line" ]]; then pass "season holds: none held, no season-start step owed or failed"; return 0; fi
+  while IFS=$'\t' read -r kind a b c d e g; do
+    case "$kind" in
+      HOLD)  # a=owner b=age (s) c=authored d=total e=window (s) g=overdue (1/0)
+        if [[ "$g" == "1" ]]; then
+          fail "season HELD at house entry past its window: owner=${a} held ${b}s (window ${e}s), cast ${c}/${d} authored - release it on the status page (SEASON START CHECKLIST) or POST /api/admin/ops/release-season-hold; a restart re-holds"
+          SEASON_HOLD_FAILS=$((SEASON_HOLD_FAILS + 1))
+        else
+          info "season held at house entry: owner=${a} held ${b}s (window ${e}s), cast ${c}/${d} authored"
+        fi ;;
+      STEP)  # a=owner b=step c=status d=attempts
+        if [[ "$c" == "failed" ]]; then
+          warn "season-start step FAILED: owner=${a} step=${b} attempts=${d} - see SEASON START CHECKLIST on the status page"
+        else
+          info "season-start step owed: owner=${a} step=${b} (${c})"
+        fi ;;
+    esac
+  done <<<"$line"
+}
+
 diagnose() {
   echo "==> diagnose (engine=${ENGINE_SVC} :${ENGINE_PORT}, frontend=${FRONTEND_SVC}${FE_PORT:+ :${FE_PORT}})"
   if [[ "$UNITS_MISSING" == 1 ]]; then
@@ -388,6 +432,8 @@ diagnose() {
   disk_space_check
   # DEPLOY-17: catch a PAT-expiry-shaped auth failure before the update path breaks silently.
   git_remote_check
+  # ORW-971: a held season, and any owed or failed season-start step.
+  season_hold_check
   systemd_security_floor
 }
 
@@ -451,14 +497,14 @@ case "$MODE" in
     ;;
   --bounce)
     diagnose
-    fails=0  # the pre-bounce picture is informational; the verdict is post-bounce health
+    fails=$SEASON_HOLD_FAILS  # the pre-bounce picture is informational; the verdict is post-bounce health, plus a stuck season hold (a restart re-holds)
     bounce || true
     ;;
   --fix|*)
     diagnose
-    if [[ $fails -gt 0 ]]; then
-      echo "==> ${fails} problem(s) found — bouncing"
-      fails=0
+    if [[ $((fails - SEASON_HOLD_FAILS)) -gt 0 ]]; then
+      echo "==> $((fails - SEASON_HOLD_FAILS)) problem(s) found — bouncing"
+      fails=$SEASON_HOLD_FAILS   # a stuck season hold is not cured by a restart (it re-holds); it stays in the verdict
       bounce || true
     else
       echo "==> everything healthy — nothing to fix (use --bounce to force a restart)"
