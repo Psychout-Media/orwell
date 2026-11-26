@@ -716,7 +716,7 @@
    "path": "frontend/src/orwell_cast_authoring.py",
    "kind": "menu",
    "name": "text",
-   "max": 3,
+   "max": 2,
    "owner": "ORW-480",
    "reason": "cast-text authoring prompt and tables, rewritten by the ORW-480 PRs"
   },
