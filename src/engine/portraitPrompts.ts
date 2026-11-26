@@ -89,11 +89,34 @@ export function physicalFacetToAppearance(p: PhysicalCharacteristics): string {
   return parts.join(", ");
 }
 
+/**
+ * ORW-953: the staleness key of one face. Only the inputs that change how THIS person looks: age, gender presentation, heritage,
+ * the structured physical description (build, skin, hair, features, mark, age look, style, wardrobe, signature), job and hometown
+ * (they dress and groom the person), and the prose appearance when there is no structured one. NOT the voice, biography, demeanor,
+ * casting read or identity concept (they only steer the dealt shot card), and NOT the dealt shot or face card: those are dealt across the
+ * whole cast under per-value caps, so another houseguest's repair can move one person's card while their own look is unchanged.
+ * A repair to someone's voice or biography, or to another houseguest, therefore never changes anyone's key.
+ */
+export function portraitLookKey(facets: PublicAppearanceFacets): string {
+  const look = facets.physicalCharacteristics as PortraitLook | undefined;
+  const t = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
+  const lookPart = look === undefined ? null : [
+    t(look.heightBuild), t(look.skinTone), t(look.hair), t(look.photoHair), t(look.facialFeatures), t(look.distinguishingMark),
+    t(look.ageLook), t(look.style), Array.isArray(look.wardrobe) ? look.wardrobe.map(t) : [], t(look.lookSignature),
+  ];
+  return JSON.stringify([
+    facets.age, t(facets.genderPresentation), t(facets.ethnicity), t(facets.vocation), t(facets.hometown),
+    lookPart ?? [t(facets.appearance), t(facets.presentation)],
+  ]);
+}
+
 /** A generated portrait prompt ready to hand to an image provider. */
 export interface PortraitPromptResult {
   houseguestId: string;
   name: string;
   prompt: string;
+  /** ORW-953: the canonical text of the inputs that change how THIS person looks (see `portraitLookKey`). The staleness fingerprint is taken from it, never from the prompt. */
+  lookKey: string;
 }
 
 type Gender = "man" | "woman" | "nonbinary";
@@ -358,7 +381,7 @@ export function buildPortraitPrompt(
     opener, sentence(`${who}${withClause}`), lifeLine, faceLine, hairLine, clothesLine, ownMoment, settingLine, lightLine, momentLine, propLine, format, TAIL[variant],
   ].filter((x) => x !== "").join(" ");
 
-  return { houseguestId, name, prompt };
+  return { houseguestId, name, prompt, lookKey: portraitLookKey(facets) };
 }
 
 /** The sheet the shot and face deals read: public facets only. */

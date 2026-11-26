@@ -31,12 +31,12 @@ _MAX_SIDE = 768
 # code -> plain words (used in the re-shoot "Fix in this version" line)
 PROBLEM_WORDS = {
     "not-one-person": "show exactly one person",
-    "text-or-logo": "no text or logos anywhere",
+    "text-or-logo": "no text or logos anywhere, and no printed words, logos or graphics on any clothing",
     "messy-hair": "neat, groomed hair with no flyaways or frizz",
     "bad-hands": "natural hands with five separate fingers, or keep the hands out of frame",
     "mouth-mid-word": "a closed or gently smiling mouth, not caught mid-word",
     "skin-patch": "clear skin with no bruise, wound, bandage or patch on the face",
-    "wrong-age": "the stated age",
+    "wrong-age": "the stated age exactly, not older and not younger",
     "wrong-clothes": "the stated clothing",
     "wrong-presentation": "clothes that match the stated gender presentation",
     # the person themselves reads as the stated presentation (a man or a woman as the card says; never judged for a nonbinary card)
@@ -653,6 +653,15 @@ def check_enabled(user) -> bool:
         return False
 
 
+def _face_tag() -> str:
+    """ORW-953: which face a skipped check was for (the id the portrait run is working on), for the log line. Never raises."""
+    try:
+        from src import orwell_portraits as P
+        return P._hid_tag()
+    except Exception:  # failsoft-ok: best-effort-enrichment (a log label only)
+        return "unknown face"
+
+
 async def check_portrait(png: bytes, facts: dict, user) -> Optional[dict]:
     """{"ok": bool, "problems": [codes]}, or None when the check was skipped (fail open). Never raises."""
     try:
@@ -664,5 +673,5 @@ async def check_portrait(png: bytes, facts: dict, user) -> Optional[dict]:
         if isinstance(e, (KeyboardInterrupt, SystemExit)) or (
                 isinstance(e, asyncio.CancelledError) and not isinstance(e, asyncio.TimeoutError)):
             raise
-        logger.info("[portrait-check] skipped: %s", type(e).__name__)
+        logger.info("[portrait-check] skipped: %s (%s)", type(e).__name__, _face_tag())
         return None

@@ -219,7 +219,7 @@ async def shoot_one(user, sid: str, card: dict) -> bool:
     if not isinstance(pp, dict) or not pp.get("prompt"):
         raise RuntimeError("no-prompt")
     entry = {"houseguestId": sid, "name": pp.get("name") or card.get("name") or "", "prompt": pp["prompt"],
-             "identityPrefix": True}
+             "identityPrefix": True, **({"lookKey": pp["lookKey"]} if isinstance(pp.get("lookKey"), str) else {})}
     await P.generate_and_store([entry], user, record_beats=False, force_ids=[sid], silent=True)
     stored = P.load_manifest(user).get(P._safe_id(sid))
     if isinstance(stored, dict) and not P._entry_version_stale(stored):
