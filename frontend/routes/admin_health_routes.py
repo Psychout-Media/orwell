@@ -2703,9 +2703,7 @@ function render(d) {
     ["Embeddings", emb ? esc(emb.provider || "?") + " " + B(!emb.degraded, emb.degraded ? "DEGRADED" : "OK") : B(false, "UNKNOWN")],
     ["Provider credit", (function (c) {
       if (!c) return '<span class="sub">—</span>';
-      const sp = c.dailySpendUsd || {}, ks = Object.keys(sp), last = ks.length ? ks[ks.length - 1] : null;
-      return (c.degraded ? B(false, "OUT OF CREDIT") + " · " + esc((c.tripped || []).map(function (t) { return t.host; }).join(", ")) : B(true, "OK")) +
-        (last ? " · spend " + esc(last) + " $" + esc(sp[last]) : "") + ' <span class="sub">(no balance source)</span>';
+      return (c.degraded ? B(false, "OUT OF CREDIT") : (c.lowBalance ? B(false, "LOW BALANCE") : B(true, "OK"))) + " " + esc(c.summary || "");
     })(d.providerCredit)],
     ["Image generation", (img.available ? B(true, "AVAILABLE") : B(false, img.enabled ? "NO USABLE MODEL" : "DISABLED")) + (img.model ? " · " + esc(img.model) : "") + (img.portraits && img.portraits.total ? " · portraits " + (img.portraits.missing ? '<span class="warn">' : '<span class="ok">') + esc(img.portraits.present) + "/" + esc(img.portraits.total) + "</span>" : "") + (img.lastRun && img.lastRun.failing ? ' · <span class="warn">last run FAILED (0/' + esc(img.lastRun.attempted) + ' — provider not producing images)</span>' : "")],
     ["Cast authoring", (ca && ca.total ? (ca.missing ? '<span class="warn">' : '<span class="ok">') + esc(ca.authored) + "/" + esc(ca.total) + "</span> deep-authored" + (ca.missing ? " · " + esc(ca.missing) + " on floor" : "") : '<span class="sub">—</span>')],

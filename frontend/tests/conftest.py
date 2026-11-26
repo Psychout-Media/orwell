@@ -259,6 +259,8 @@ def _reset_portrait_billing_breaker() -> None:
     try:  # ORW-1019: the text-provider credit breaker is module state too
         from src import orwell_provider_credit
         orwell_provider_credit.reset()
+        from src import orwell_provider_balance
+        orwell_provider_balance.reset()
     except Exception:  # failsoft-ok: test-hygiene
         pass
     yield

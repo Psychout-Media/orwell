@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 FEATURE_MAX_CHARS = 120   # the engine's cap (ROOM_CANON_FEATURE_MAX); we never send more
 MAX_FEATURES_PER_TURN = 2  # the engine's per-scene canon budget is 2
+NARRATION_MAX_CHARS = 3600  # ORW-1066: the whole turn, tail first (the player usually ends in a new room there); 1500 head chars missed it
 _MIN_NARRATION_CHARS = 80  # a one-liner has no room texture worth a model call
 
 LlmFn = Callable[[list], Awaitable[str]]
@@ -31,11 +32,27 @@ _SYSTEM = (
     "You extract STANDING physical details of a room from a Big Brother narration so a later scene stays consistent. "
     "Reply IMMEDIATELY with ONLY a JSON object, no prose, no code fence: "
     '{"features":["<a short noun phrase, at most 15 words>"]} . '
+    "Take details ONLY of the room where the scene ENDS (where the player is at the end of the narration); ignore any room the player left "
+    "earlier in the narration. "
     "Include ONLY a decor item or a loose everyday object the narration newly placed in the room (a mug on the ledge, "
     "a faded blanket over the sofa arm). NEVER include what a person does, says, thinks or feels; events, votes, "
     "deals, plans, secrets, discoveries; hidden or new places; keys, notes, devices; counts or numbers; or anything "
     "about the house rules. Most turns have none: reply {\"features\":[]} when unsure."
 )
+
+
+# ORW-1066: nothing is lost silently. Every discard and every engine refusal is counted by reason, in process
+# (``discard_counts``), and refusals other than an accepted write are one soft failure per reason per turn.
+_DISCARDS: dict = {}
+_LAST_ROOM: dict = {}
+
+
+def _count(reason: str, n: int = 1) -> None:
+    _DISCARDS[reason] = _DISCARDS.get(reason, 0) + n
+
+
+def discard_counts() -> dict:
+    return dict(_DISCARDS)
 
 
 def clean_features(raw: object) -> list[str]:
@@ -45,12 +62,15 @@ def clean_features(raw: object) -> list[str]:
     out: list[str] = []
     for f in feats if isinstance(feats, list) else []:
         if not isinstance(f, str):
+            _count("feature-not-a-string")
             continue
         t = re.sub(r"\s+", " ", f).strip().strip('"').strip()
         if not t or len(t) > FEATURE_MAX_CHARS or t.lower() in (x.lower() for x in out):
+            _count("feature-empty-long-or-duplicate")
             continue
         out.append(t)
         if len(out) >= MAX_FEATURES_PER_TURN:
+            _count("features-over-cap", max(1, len(feats) - feats.index(f) - 1))
             break
     return out
 
@@ -80,13 +100,24 @@ async def capture_room_canon(narration: str, room_id: Optional[str], llm: LlmFn,
             return 0
         reply = await llm([
             {"role": "system", "content": _SYSTEM},
-            {"role": "user", "content": f"THE NARRATION:\n{narration[:1500]}\n\nJSON:"},
+            {"role": "user", "content": f"THE NARRATION:\n{narration[-NARRATION_MAX_CHARS:]}\n\nJSON:"},
         ])
         accepted = 0
+        refused: dict = {}
         for feature in clean_features(_parse(reply or "")):
             res = await write({"roomId": room_id, "feature": feature})
             if isinstance(res, dict) and res.get("accepted") is True:
                 accepted += 1
+            else:
+                reason = str(res.get("reason") or "refused") if isinstance(res, dict) else "no-reply"
+                slug = re.sub(r"[^a-z0-9]+", "-", reason.lower()).strip("-")[:30] or "refused"
+                refused[slug] = refused.get(slug, 0) + 1
+                _count("refused-" + slug)
+        if refused:
+            from src import log_rings
+            for slug, n in refused.items():
+                log_rings.record_soft_failure(f"room-canon:refused-{slug}",
+                                              RuntimeError(f"the engine refused {n} room-canon write(s): {slug}"))
         return accepted
     except Exception as e:  # fail-soft: canon is enrichment, never the turn
         logger.debug(f"[room-canon] skipped: {e}")
@@ -109,6 +140,13 @@ async def after_turn(narration: str, owner, endpoint_url, model, headers) -> int
 
         wa = await _oe.whereabouts(user=owner)
         room_id = wa.get("room") if isinstance(wa, dict) else None
+        _key = owner or "default"
+        if isinstance(room_id, str) and _LAST_ROOM.get(_key) not in (None, room_id):
+            _count("turn-started-in-another-room")  # the player moved: features are asked for in the room the scene ends in
+        if isinstance(room_id, str):
+            if len(_LAST_ROOM) > 2000:
+                _LAST_ROOM.clear()
+            _LAST_ROOM[_key] = room_id
 
         async def _llm(messages: list) -> str:
             return await llm_call_async(url=endpoint_url, model=model, messages=messages, headers=headers,
