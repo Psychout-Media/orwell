@@ -77,9 +77,19 @@ _ENGINE_RESULT_CAP = 30000
 _ENGINE_RESULT_ERROR_CLASS = "[engine error - details withheld]"
 
 
+def _engine_result_ledger_tools() -> frozenset:
+    """ORW-187's four read tools, plus (ORW-975) every non-silent engine game tool: the page now gets a closed copy of those tools' output, so the full raw result (what an admin reading the transcript used to see as the
+    tool event's `output`) moves to this admin-only key. The other silent read tools (npcVoice, socialRead ...) stay out, as ORW-187 decided; a tool that is not an engine game tool stays out."""
+    try:
+        from src.tool_schemas import ORWELL_GAME_TOOLS
+        return _ENGINE_RESULT_LEDGER_TOOLS | (frozenset(ORWELL_GAME_TOOLS) - _ORWELL_SILENT_TOOLS) | _BROWSER_PROJECTED_TOOLS
+    except Exception:  # failsoft-ok: the four ORW-187 tools still stand
+        return _ENGINE_RESULT_LEDGER_TOOLS
+
+
 def _engine_result_for_transcript(tool_type: str, result: Any) -> Optional[str]:
     """ORW-187 — the full (capped) engine result text for the admin transcript, or None when this tool is not in the ledger set / carries no text."""
-    if tool_type not in _ENGINE_RESULT_LEDGER_TOOLS or not isinstance(result, dict):
+    if tool_type not in _engine_result_ledger_tools() or not isinstance(result, dict):
         return None
     raw = result.get("output")
     if not isinstance(raw, str) or not raw:
@@ -102,23 +112,32 @@ def _admin_engine_result_entry(round_num: int, tool_type: str, result: Any, *, f
 # ORW-964 (Vault Wall, part 3b of the browser wall): the model's advanceGame / submitDecision call hands the page the engine's WHOLE advance view as the tool event's `output` (live `tool_output`, the stored tool event
 # on reload, the WS mirror). Only the keys the page reads survive: the closed shape `_BROWSER_TOOL_ADVANCE_SHAPE` (routes/orwell_routes.py, each key cited there). The model still gets the full result in its own context
 # (this is the display copy only). Fail CLOSED: an output that is not a JSON object, or a shape that cannot be loaded, leaves no output rather than the raw one.
-_BROWSER_PROJECTED_TOOLS = frozenset({"advanceGame", "submitDecision"})
+_BROWSER_PROJECTED_TOOLS = frozenset({"advanceGame", "submitDecision"})  # the advance view: its own wider closed shape (the card, the slate, the chyron)
 _BROWSER_PROJECTED_CAP = 12000
 
 
 def _browser_tool_output(tool_type: str, result: Any) -> Optional[str]:
-    """The closed display copy of an advance tool result's output, or None when this tool is not projected (the caller keeps its own text)."""
-    if tool_type not in _BROWSER_PROJECTED_TOOLS:
+    """The closed display copy of an engine game tool's output, or None when this tool is not an engine game tool (the caller keeps its own text). ORW-975: every non-silent game tool, not only the two advance tools:
+    the advance tools use `_BROWSER_TOOL_ADVANCE_SHAPE`, every other one `_BROWSER_GAME_TOOL_SHAPE` (beatSeq, correction, createCharacter's started / createRefused and the beat chip's outcome). The projection is small valid
+    JSON, so a long engine result no longer arrives as a 2,000-character cut the page cannot parse (it lost `beatSeq` that way). An error or a non-JSON output leaves no output."""
+    if tool_type in _ORWELL_SILENT_TOOLS:
+        return None
+    try:
+        from src.tool_schemas import ORWELL_GAME_TOOLS
+    except Exception:  # failsoft-ok: fail CLOSED below for a name that is certainly an engine tool; an unknown name stays as it was
+        ORWELL_GAME_TOOLS = _BROWSER_PROJECTED_TOOLS
+    if tool_type not in ORWELL_GAME_TOOLS and tool_type not in _BROWSER_PROJECTED_TOOLS:
         return None
     raw = result.get("output") if isinstance(result, dict) else None
     if not isinstance(raw, str) or not raw.strip():
-        return None if not (isinstance(result, dict) and result.get("error")) else ""
+        return "" if isinstance(result, dict) and result.get("error") else None
     try:
-        from routes.orwell_routes import _project_for_browser, _BROWSER_TOOL_ADVANCE_SHAPE
+        from routes.orwell_routes import _project_for_browser, _BROWSER_TOOL_ADVANCE_SHAPE, _BROWSER_GAME_TOOL_SHAPE
         obj = json.loads(raw)
         if not isinstance(obj, dict):
             return ""
-        return json.dumps(_project_for_browser(obj, _BROWSER_TOOL_ADVANCE_SHAPE), separators=(",", ":"))[:_BROWSER_PROJECTED_CAP]
+        shape = _BROWSER_TOOL_ADVANCE_SHAPE if tool_type in _BROWSER_PROJECTED_TOOLS else _BROWSER_GAME_TOOL_SHAPE
+        return json.dumps(_project_for_browser(obj, shape), separators=(",", ":"))[:_BROWSER_PROJECTED_CAP]
     except Exception:  # failsoft-ok: fail CLOSED, the page gets no output rather than the engine's raw view
         return ""
 
