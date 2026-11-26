@@ -111,6 +111,17 @@ export const JURY_MEMORY = { scale: 1, max: 0.15 } as const;
 export const JURY_GRUDGE = { scale: 0.2, max: 0.2 } as const;
 
 /**
+ * ORW-943 (Ryne 2026-11-26: "2% of bitter jurors seems honestly kind of low ... it would really depend on the personality of the person"): how much a juror's grudge weighs depends on who the juror is. The multiplier
+ * scales the grudge's signed lean (before it is netted against the manner and memory terms) by the juror's voting style, which already comes from their character (`juryMinds.jurorArchetypeFor`): a grudge-holder
+ * takes a wrong far harder, a loyalist takes a betrayal personally, a forgiver lets most of it go. The product is held to `ceiling`, under the manner term (0.48) like `JURY_GRUDGE.max`, so a grudge tilts a vote and
+ * never out-votes how a juror was treated on the way out. Same rule for every finalist, the player included (parity); the juror is the only input. ASSUMED sizing, pending Ryne: the measured before/after is in the PR.
+ */
+export const JURY_GRUDGE_PERSONALITY = {
+  byArchetype: { "grudge-holder": 3.0, loyalist: 1.8, competitor: 1.0, pragmatist: 0.7, forgiver: 0.3 },
+  ceiling: 0.45,
+} as const;
+
+/**
  * ORW-129 (Ryne: "fades, leaves a trace") - what a `mend` appeal leaves behind. A mend used to dissolve a juror's MISTAKEN grievance completely; now most of it clears and a small lingering doubt remains:
  * the grievance is kept but its strength is multiplied by `residual`, so the juror leans a little less warmly toward the finalist than if it had never happened, forever above zero. ASSUMED, pending Ryne:
  * the residual share (0.15 = about a seventh of the original sting stays).
