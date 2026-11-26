@@ -106,6 +106,8 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
       expect(n.again, "the same hour gives the same answer").toBe("declined");
     }
     const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+    // the decision itself is pinned at unit level (tests/unit/talkAlone727b.test.ts: a warmer read never turns a yes into a no at the same jitter; more threat never turns a no into a yes). This played mean reads
+    // trust + affinity only, while the answer also reads threat, grudge, favor, mood and a jitter, so on a few seeds the means can cross: it is averaged over six seeds, as a smoke check on the played path.
     expect(mean(yesBonds), "the bond is what decides").toBeGreaterThan(mean(all.map((n) => n.bond)));
   }, 300_000);
 
