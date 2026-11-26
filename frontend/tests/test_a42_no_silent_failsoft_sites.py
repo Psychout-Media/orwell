@@ -190,5 +190,6 @@ def test_a_benign_count_beacon_is_tallied_not_logged_as_fe_fail(client):
     assert client.post("/api/orwell/fe-report", json=body).status_code == 204
     assert client.post("/api/orwell/fe-report", json=dict(body, surface="arbitrary:surface")).status_code == 204
     _, lines = log_rings.LIVE.since(0, limit=100000)
-    assert not any("run-started-empty" in str(l) and "fe-fail" in str(l) for l in lines)
+    assert not any("ws:resync-heal-benign" in str(l) and "fe-fail" in str(l) for l in lines), "the counted benign event must not raise an fe-fail line"
+    assert any("arbitrary:surface" in str(l) and "fe-fail" in str(l) for l in lines), "a surface outside the allowlist is not counted; it logs as an ordinary report"
     assert _overseer() == []
