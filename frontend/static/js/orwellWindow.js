@@ -1099,9 +1099,9 @@ export class OrwellWindow {
     // #896: width ceiling = the shared max cap.
     const maxW = window.innerWidth - 8;
     // ORW-993: floor = viewport bottom or the account bar's top.
-    const bottomLimit = (window.OrwellSlots && window.OrwellSlots.visibleBottom)
-      ? window.OrwellSlots.visibleBottom(r0.left, r0.width) : window.innerHeight;
-    const maxH = bottomLimit - inset - 8;
+    const vb = window.OrwellSlots && window.OrwellSlots.visibleBottom;
+    const bottomLimit = vb ? vb(r0.left, r0.width) : window.innerHeight;
+    const maxH = Math.min(window.innerHeight - inset - 8, bottomLimit - inset - 8);
     const widthCeil = windowMaxWidth(this.el, this.o.minWidth);
     if (r0.width > widthCeil) {
       this.el.style.maxWidth = 'none';
