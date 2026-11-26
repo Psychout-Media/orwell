@@ -911,6 +911,13 @@ def _deepseek_cost_estimate(model: str, prompt_tokens: int, cached_tokens: int, 
     return round(mult * (hit * price[0] + miss * price[1] + int(output_tokens or 0) * price[2]) / 1_000_000, 8)
 
 
+def deepseek_thinking_disabled(url: str, model: str) -> bool:
+    """ORW-1014: THE one predicate for "this request goes to DeepSeek's own API with thinking disabled" - `_apply_deepseek_thinking_off` sends
+    `thinking: disabled` exactly when it is True, and the agent loop's forced-tool_choice gate asks the same function, so the gate follows the
+    request's real thinking state and cannot drift from it. The thinking-only deepseek-reasoner is never disabled."""
+    return _host_match(url, "deepseek.com") and "reasoner" not in (model or "").lower()
+
+
 def _apply_deepseek_thinking_off(payload: Dict, url: str, model: str) -> None:
     """DeepSeek's OWN API (api.deepseek.com) defaults thinking ON, and with ``tools`` on the wire a
     thinking turn 400s unless ``reasoning_content`` is echoed back on every later request. The agent
@@ -918,9 +925,7 @@ def _apply_deepseek_thinking_off(payload: Dict, url: str, model: str) -> None:
     the OpenRouter-style ``reasoning`` fields (DeepSeek uses ``thinking``/``reasoning_effort``, not the
     unified map). The legacy ``deepseek-reasoner`` is thinking-only, so it is left untouched. Host-gated
     so every other provider (incl. DeepSeek served via OpenRouter) stays byte-identical."""
-    if not _host_match(url, "deepseek.com"):
-        return
-    if "reasoner" in (model or "").lower():
+    if not deepseek_thinking_disabled(url, model):
         return
     payload.pop("reasoning", None)
     payload.pop("reasoning_effort", None)
@@ -1687,6 +1692,43 @@ async def llm_call_async(
         url, model, messages, temperature=temperature, max_tokens=max_tokens,
         headers=headers, timeout=timeout, max_retries=max_retries,
         prompt_type=prompt_type, call_class=call_class, user=user, session=session)
+
+
+async def llm_tool_call_async(url: str, model: str, messages: List[Dict], tools: List[Dict], tool_choice: object = "required",
+                              temperature: float = 0.0, max_tokens: int = 300, headers: Optional[Dict] = None,
+                              timeout: float = 15.0) -> List[Dict]:
+    """ORW-1014 - ONE non-streaming OpenAI-style call that returns the model's tool calls as ``[{"name", "arguments": dict}]`` (empty when it
+    made none). For the act-first round: a small closed toolset with a forced ``tool_choice``. No retries (the caller fails soft), thinking is
+    disabled on deepseek.com exactly as on every other call. Raises on a transport error, an HTTP error or an unsupported provider."""
+    url, model, headers = _enforce_text_route(url, model, headers)
+    provider = _detect_provider(url)
+    if provider in ("anthropic", "ollama"):
+        raise ValueError(f"tool-call round unsupported on provider {provider}")
+    target_url = _ensure_openai_chat_path(url)
+    h = _provider_headers(provider, headers)
+    payload: Dict = {"model": model, "messages": _sanitize_llm_messages(messages), "temperature": temperature,
+                     "tools": tools, "tool_choice": tool_choice}
+    if _restricts_temperature(model):
+        payload.pop("temperature", None)
+    _apply_deepseek_thinking_off(payload, url, model)
+    if max_tokens and max_tokens > 0:
+        payload["max_completion_tokens" if _uses_max_completion_tokens(model) else "max_tokens"] = max_tokens
+    if _is_host_dead(target_url):
+        raise HTTPException(503, f"Upstream {_host_key(target_url)} marked unreachable (cooldown active)")
+    r = await _get_http_client().post(target_url, headers=h, json=payload,
+                                      timeout=httpx.Timeout(connect=3.0, read=float(timeout), write=10.0, pool=5.0))
+    if not r.is_success:
+        raise HTTPException(r.status_code, _format_upstream_error(r.status_code, r.text, target_url))
+    msg = ((r.json().get("choices") or [{}])[0] or {}).get("message") or {}
+    out: List[Dict] = []
+    for c in (msg.get("tool_calls") or []):
+        fn = (c or {}).get("function") or {}
+        try:
+            args = json.loads(fn.get("arguments") or "{}")
+        except Exception:
+            args = {}
+        out.append({"name": fn.get("name"), "arguments": args if isinstance(args, dict) else {}})
+    return out
 
 
 async def _bounded_impl_call(*args, timeout: int, **impl_kwargs) -> str:

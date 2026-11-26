@@ -675,6 +675,26 @@ def get_forced_choice_totals(user: str | None) -> dict[str, dict[str, int]]:
     return totals
 
 
+_STEER_COUNTS: dict[str, int] = {}
+_MAX_STEER_NAMES = 64
+
+
+def note_steer(name: Any) -> None:
+    """ORW-1042: count one steer / re-ground directive produced (name + count only, process-wide, bounded). Never raises."""
+    try:
+        n = str(name).strip()[:_MAX_NAME_LEN]
+        with _LOCK:
+            if n and (n in _STEER_COUNTS or len(_STEER_COUNTS) < _MAX_STEER_NAMES):
+                _STEER_COUNTS[n] = _STEER_COUNTS.get(n, 0) + 1
+    except Exception:  # pragma: no cover
+        pass
+
+
+def get_steer_counts() -> dict[str, int]:
+    with _LOCK:
+        return dict(_STEER_COUNTS)
+
+
 def get_driver_totals(user: str | None) -> dict[str, Any]:
     """ORW-1014 - who drove the engine changes, over the retained ring: ``turns``, ``narratorToolTurns`` (a narrator game-tool call this turn),
     ``beltDrivenTurns`` (a belt committed a change this turn), the split ``narratorOnly`` / ``beltOnly`` / ``both`` / ``none``, and the two rates
@@ -683,17 +703,19 @@ def get_driver_totals(user: str | None) -> dict[str, Any]:
     with _LOCK:
         bucket = _load().get(k)
     split = {"narrator": 0, "belt": 0, "both": 0, "none": 0}
-    n = 0
+    n = af = 0
     if isinstance(bucket, list):
         for e in bucket:
             if isinstance(e, dict):
                 n += 1
+                if any(str(b).startswith("act-first:") for b in (e.get("beltsFired") or {})):
+                    af += 1  # ORW-1014 PR 2: the act-first round committed this turn's act (counted as a tool call: the model made it)
                 split[classify_driver(e.get("toolsCalled"), e.get("beltsFired"))] += 1
     nt = split["narrator"] + split["both"]
     bt = split["belt"] + split["both"]
     return {"turns": n, "narratorToolTurns": nt, "beltDrivenTurns": bt,
             "narratorOnly": split["narrator"], "beltOnly": split["belt"], "both": split["both"], "none": split["none"],
-            "narratorToolRate": round(nt / n, 3) if n else None, "beltDrivenRate": round(bt / n, 3) if n else None}
+            "actFirstTurns": af, "narratorToolRate": round(nt / n, 3) if n else None, "beltDrivenRate": round(bt / n, 3) if n else None}
 
 
 def _drain_pending_belts(user_key: str) -> dict[str, int]:
