@@ -75,8 +75,10 @@ def test_counter_is_plain_not_a_health_event_and_text_untouched(monkeypatch):
     assert pc.PREDISPLAY_COUNTS == {f: 1 for f in got}
 
 
-def test_check_never_fetches_engine_state_and_skips_without_a_cached_state(monkeypatch):
+def test_check_with_refresh_off_never_fetches_and_counts_a_skip(monkeypatch):
     from src import engine_read_cache as erc, orwell_engine
+    monkeypatch.setenv("ORWELL_PREDISPLAY_READ_TIMEOUT_S", "0")
+    pc.CHECK_STATS["skipped"].clear()
     called = []
 
     async def slow(*a, **k):
@@ -87,6 +89,7 @@ def test_check_never_fetches_engine_state_and_skips_without_a_cached_state(monke
     monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0, fields=None: None)
     got = asyncio.new_event_loop().run_until_complete(asyncio.wait_for(pc.check_and_count("Sleeper Role walks in.", "u"), 1))
     assert got == [] and called == []
+    assert pc.CHECK_STATS["skipped"] == {"no-cache": 1}
 
 
 def test_flag_off_counts_nothing_and_reads_nothing(monkeypatch):
@@ -105,6 +108,7 @@ def test_orw437_the_real_peek_honours_the_staleness_cutoff_and_invalidation(monk
     from src import engine_read_cache as erc
     monkeypatch.setenv("ORWELL_STATE_CACHE_TTL_MS", "400")
     erc.clear()
+    monkeypatch.setenv("ORWELL_PREDISPLAY_READ_TIMEOUT_S", "0")  # this test is about the cache-only path
     loop = asyncio.new_event_loop()
 
     async def fetch():
