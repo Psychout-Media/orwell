@@ -32,19 +32,22 @@ export async function auditSeason(seed: number, opts: { survive?: boolean; maxMe
         try {
           const order: string[] = sess.live?.evictionOrder ?? [];
           const start: number = sess.juryStartIndex();
+          const evictee: string | undefined = sess.live?.evictee;
+          const departing = (id: string): boolean => id === evictee && !(sess.live?.weekDigests ?? []).some((d: any) => d.evictee === id); // the evictee on their own eviction night is still part of that beat
           const playerId: string = sess.house.player.id;
           const finaleNight = sess.live?.finished === true || ["final-eviction", "finale", "finale-reveal", "finale-result", "complete"].includes(String(sess.live?.beat));
           if (!finaleNight && !SKIP_TYPE.test(String(e.type)) && e.type !== "house-event" && !String(e.id).startsWith("season:") && !DEPARTURE.test(String(e.content))) {
             const members: string[] = [...new Set<string>([e.initiator, ...(e.witnessSet ?? [])])];
-            const outNpc = members.filter((i) => i !== playerId && order.indexOf(i) >= 0);
+            const outNpc = members.filter((i) => i !== playerId && order.indexOf(i) >= 0 && !departing(i));
             const preJury = outNpc.filter((i) => order.indexOf(i) < start);
             const jurors = outNpc.filter((i) => order.indexOf(i) >= start);
-            const housemates = members.filter((i) => i !== playerId && order.indexOf(i) < 0);
-            const playerOut = members.includes(playerId) && order.includes(playerId);
+            const housemates = members.filter((i) => i !== playerId && (order.indexOf(i) < 0 || departing(i)));
+            const playerOut = members.includes(playerId) && order.includes(playerId) && !departing(playerId);
             let kind: HitKind | undefined;
             if (preJury.length) kind = "pre-jury-evictee";
             else if (jurors.length && housemates.length) kind = "juror-with-active";
             else if (playerOut && housemates.length) kind = "out-player-with-house";
+            if (kind && process.env.A7_STACK && e.type === "gossip") console.log("AUDIT-STACK", e.id, new Error().stack?.split("\n").slice(2, 9).join(" | "));
             if (kind) {
               if (kind === "pre-jury-evictee") row.preJuryEvictee++; else if (kind === "juror-with-active") row.jurorWithActive++; else row.outPlayer++;
               if (hits.length < 600) hits.push({ seed, msg: msgNow, id: String(e.id), type: String(e.type), kind, who: [...outNpc, ...(playerOut ? [playerId] : [])], content: String(e.content).slice(0, 90) });

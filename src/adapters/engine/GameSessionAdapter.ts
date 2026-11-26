@@ -3627,7 +3627,7 @@ export class GameSessionAdapter implements GameSession {
   setOnPlayerEvent(fn: (content: string, witnessSet: EntityId[], type?: string) => string | undefined): void {
     // ORW-1084/1085/1086: the active-in-house gate sits at this one seam, so no producer (lobbying, deals, HOH room, bed claims, reasons said aloud, secret breaks, betrayals, conversations) can seat a houseguest who has left the house.
     this.onPlayerEvent = (content, witnessSet, type) => {
-      const set = gateHouseEvent(this.live, type ?? "deal", witnessSet);
+      const set = gateHouseEvent(this.live ? { evictionOrder: this.live.evictionOrder, finished: this.live.finished, beat: this.live.beat, evictee: this.live.evictee !== undefined && !(this.live.weekDigests ?? []).some((d) => d.evictee === this.live!.evictee) ? this.live.evictee : undefined, juryStart: this.juryStartIndex() } : null, type ?? "deal", witnessSet);
       return set === null ? undefined : fn(content, set, type);
     };
   }
@@ -10081,7 +10081,7 @@ export class GameSessionAdapter implements GameSession {
       roomRef: (r) => this.roomRefOf(r), // ORW-466: the season's room name
       knowledge,
       rng,
-      ...(this.napAsleep ? { playerAsleep: true } : {}),
+      ...(this.napAsleep || playerOutReason(this.live) ? { playerAsleep: true } : {}), // ORW-1086: a player out of the house is no node of its talk
       ...(this.live?.playedGame === true ? { countPlayer: true } : {}), // ORW-614 (P-9): a played game's house counts the player in the room it is watching
     });
   }
@@ -12191,6 +12191,7 @@ export class GameSessionAdapter implements GameSession {
       ties: this.seededRels.ties,
       npcs,
       player: this.house.player.id,
+      playerOut: evicted.has(this.house.player.id), // ORW-1086
       affinity: (a, b) => this.rel.edge(a, b).affinity,
       nameOf: (id) => this.nameOf(id),
       knowledge,
@@ -16180,7 +16181,7 @@ export class GameSessionAdapter implements GameSession {
     whisperHabitSighting({
       occupancy: this.presence, tenureOf: (id) => this.presenceTenure?.get(id) ?? 0, npcs, player,
       affinity: (a, b) => this.rel.edge(a, b).affinity, nameOf: (id) => this.nameOf(id), roomRef: (r) => this.roomRefOf(r), knowledge, rng,
-      ...(this.napAsleep ? { playerAsleep: true } : {}),
+      ...(this.napAsleep || playerOutReason(this.live) ? { playerAsleep: true } : {}), // ORW-1086: a player out of the house is no node of its talk
     }, pick);
   }
   /** ORW-694 / B1-11 (spec 0210 C2, "both ways"): spread the queued long Diary Room stays as a position whisper - a DEDICATED stream, no relationship fold (calibration-neutral). */
@@ -16198,7 +16199,7 @@ export class GameSessionAdapter implements GameSession {
       whisperLongDiaryStay({
         occupancy: this.presence, tenureOf: (id) => this.presenceTenure?.get(id) ?? 0, npcs, player,
         affinity: (a, b) => this.rel.edge(a, b).affinity, nameOf: (id) => this.nameOf(id), roomRef: (r) => this.roomRefOf(r), knowledge, rng,
-        ...(this.napAsleep ? { playerAsleep: true } : {}),
+        ...(this.napAsleep || playerOutReason(this.live) ? { playerAsleep: true } : {}), // ORW-1086: a player out of the house is no node of its talk
       }, sighting);
     }
   }

@@ -12,6 +12,10 @@ export interface HouseStatusSource {
   evictionOrder?: readonly EntityId[];
   finished?: boolean;
   beat?: string;
+  /** This week's evictee, until the week rolls: the one on their own eviction night, still part of that beat. */
+  evictee?: EntityId;
+  /** Where the jury starts in the eviction order: a place before it is a pre-jury evictee, who goes home (no jury house). */
+  juryStart?: number;
 }
 
 /** The beats where the jury is in the room (the final eviction and the finale itself). */
@@ -53,8 +57,15 @@ const ACT_TYPES = /^(lobbying|deal|betrayal|conversation|alliance|overheard|spy-
  */
 export function gateHouseEvent(live: HouseStatusSource | null | undefined, type: string, witnessSet: readonly EntityId[]): EntityId[] | null {
   if (!live || live.finished || BROADCAST_TYPES.has(type) || (live.beat !== undefined && JURY_IN_THE_ROOM.has(live.beat))) return [...witnessSet];
-  const active = witnessSet.filter((id) => isActiveInHouse(live, id));
-  if (active.length === 0 || active.length === witnessSet.length) return [...witnessSet]; // all out (jury house, spectator) or all in (the ordinary case)
-  if (ACT_TYPES.test(type) && !isActiveInHouse(live, witnessSet[0]!)) return null; // an evicted houseguest acted: that did not happen in the house
+  const here = (id: EntityId): boolean => isActiveInHouse(live, id) || id === live.evictee; // this week's evictee is still on their own eviction night
+  const active = witnessSet.filter(here);
+  if (active.length === witnessSet.length) return [...witnessSet]; // everyone is in the house (the ordinary case)
+  if (active.length === 0) {
+    // Only people who have left: the jury house (jurors with jurors, the player watching among them) is the one place that is theirs. A lone one, or a pre-jury evictee, has nowhere to act.
+    const order = live.evictionOrder ?? [];
+    const juror = (id: EntityId): boolean => id === PLAYER || order.indexOf(id) >= (live.juryStart ?? 0);
+    return witnessSet.length >= 2 && witnessSet.every(juror) ? [...witnessSet] : null;
+  }
+  if (ACT_TYPES.test(type) && !here(witnessSet[0]!)) return null; // an evicted houseguest acted: that did not happen in the house
   return active;
 }
