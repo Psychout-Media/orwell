@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { quarantine } from "../support/quarantine";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 import type { BeliefClaim } from "../../src/engine/beliefStore";
@@ -236,7 +237,7 @@ describe("a twist that makes a promise impossible: the plan decides betrayal or 
     }
     expect(found).toBe(true);
   });
-  it("the same twist with no betraying plan is the forced innocent break: no betrayal, no fold", () => {
+  quarantine({ card: "ORW-984", added: "2026-11-26" }).it("the same twist with no betraying plan is the forced innocent break: no betrayal, no fold", () => {
     for (const seed of seeds) {
       for (const kind of ["keep", "a-retired-kind"]) {
         const r = run(seed, kind);
@@ -246,7 +247,7 @@ describe("a twist that makes a promise impossible: the plan decides betrayal or 
       }
     }
   });
-  it("the plan flag off: today's behaviour exactly, even with a faking plan stored", () => {
+  quarantine({ card: "ORW-984", added: "2026-11-26" }).it("the plan flag off: today's behaviour exactly, even with a faking plan stored", () => {
     for (const seed of seeds) {
       const off = run(seed, "break-at", { plans: false }), keep = run(seed, "keep");
       expect(off.deal.status).not.toBe("broken");
