@@ -237,3 +237,37 @@ export function matchHouseguestName<T extends { name: string }>(phrase: string, 
   const hits = candidates.filter((c) => { const n = norm(c.name); return n === q || n.split(" ")[0] === q; });
   return hits.length === 1 ? hits[0]! : null;
 }
+
+// ORW-934 - "look for X / find X / search the house for X / where is X": the player is SEARCHING for a houseguest. The parser only extracts the name phrase; the engine decides what the search can reveal (the
+// route follows recorded sightings, never the hidden whereabouts) and the phrase must still match one active houseguest. Hedged or future phrasing ("maybe I'll look for", "later") is not a search.
+const SEARCH_WHERE = /^(?:(?:and|so|ok|okay|hey|wait|um|well|now|hmm)\b[,\s]*)*where(?:'s| is| are| was| did| has)\s+(.+)$/;
+const SEARCH_FIND = /(?:^|\s)(?:go\s+|and\s+|to\s+|try\s+to\s+|help\s+me\s+)?(?:find|look for|looking for|search for|searching for|search (?:the )?(?:whole |entire )?house for|searching (?:the )?(?:whole |entire )?house for|hunt for|hunting for|seek out|seeking out|track down|tracking down|locate)\s+(.+)$/;
+const SEARCH_NOT_A_NAME = new Set(["he", "she", "they", "him", "her", "them", "it", "everyone", "everybody", "anyone", "anybody", "someone", "somebody", "no one", "nobody", "a", "an", "some", "the", "my", "out", "us", "you", "me", "something", "anything", "everything", "the others", "the rest", "answers", "a way", "the exit"]);
+const SEARCH_TAIL = /\s+(?:go|goes|going|went|gone|get|got|disappear(?:ed)?|run off|ran off|end up|ended up|now|today|anywhere|right now|and|to|so|with|then|because|but|for|while|please|again|real quick|quickly|first|next|just|in the|in|at|on|until|before|after)\b.*$/;
+
+export function parseSearchIntent(text: string, current: Room | null, themed?: Themed): string | null {
+  if (typeof text !== "string" || text.trim() === "") return null;
+  const unquoted = text.replace(/"[^"]*"/g, " ").replace(/“[^”]*”/g, " ");
+  const clauses = unquoted.match(/[^.!?;\n]+[.!?;\n]*/g) ?? [];
+  let out: string | null = null;
+  for (const c of clauses) {
+    if (c.trim() === "") continue;
+    let s = clean(c);
+    if (s === "") continue;
+    s = s.replace(LEAD_IN, "").replace(/^.*\buntil i\s+(?=find|locate)/, "i ");
+    let rest: string | null = null;
+    const w = SEARCH_WHERE.exec(s);
+    if (w) rest = w[1]!;
+    else {
+      if (NOT_A_MOVE.test(moveHead(asNow(s))) || QUESTION_START.test(s)) continue;
+      const f = SEARCH_FIND.exec(asNow(s));
+      if (f) rest = f[1]!;
+    }
+    if (rest === null) continue;
+    const p = rest.replace(/^(?:for\s+)/, "").replace(SEARCH_TAIL, "").trim();
+    if (p === "" || SEARCH_NOT_A_NAME.has(p) || !/^[a-z][a-z' -]*$/.test(p) || p.split(" ").length > 3) continue;
+    if (roomFromPhrase(p, current, themed) !== null) continue; // a room word is a room, not a person
+    out = p;
+  }
+  return out;
+}
