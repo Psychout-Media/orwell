@@ -255,7 +255,7 @@
   // player resized) would otherwise match "max-height" and turn every capped window into a fill-the-space one.
   function setMaxH(el, px) {
     const v = px + "px";
-    if (el.style.getPropertyValue("--ow-max-h") !== v) el.style.setProperty("--ow-max-h", v);
+    if (el.style.getPropertyValue("--ow-cap-h") !== v) el.style.setProperty("--ow-cap-h", v);
   }
 
   function fitHeight(el, name, w) {
