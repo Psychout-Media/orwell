@@ -1037,7 +1037,8 @@ def _serve_html_with_nonce(request: Request, file_path: str) -> HTMLResponse:
     body = _html_template(file_path).replace("{{CSP_NONCE}}", nonce)
     # ORW-146: the shell is ~250 KB of text; gzip it for clients that accept it. Only this one buffered
     # response is compressed (never the SSE/WS paths).
-    if "gzip" in request.headers.get("accept-encoding", "").lower():
+    hdrs = getattr(request, "headers", None)  # some unit tests hand in a bare stub request
+    if hdrs is not None and "gzip" in hdrs.get("accept-encoding", "").lower():
         import gzip as _gzip
         raw = _gzip.compress(body.encode("utf-8"), compresslevel=5)
         return HTMLResponse(raw, headers={"Content-Encoding": "gzip", "Vary": "Accept-Encoding",
