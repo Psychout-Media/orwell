@@ -81,3 +81,13 @@ def test_join_alliance_forwards_the_narrators_name_only_when_given(monkeypatch):
     _run(T.do_join_alliance(json.dumps({"allianceId": "alliance:1", "name": "The Last Table"}), owner="o"))
     _run(T.do_join_alliance(json.dumps({"allianceId": "alliance:2"}), owner="o"))
     assert seen == [("alliance:1", "The Last Table"), ("alliance:2", None)] or seen[1][0] == "alliance:2"
+
+
+def test_orw968_the_writer_is_asked_for_names_that_say_what_the_room_is():
+    """ORW-968 (Ryne, live playtest): a room's name ends with its plain word, with at most a short themed modifier in front; the theme lives in the look. The engine says every name with its plain word anyway
+    (roomLabels.plainRoomName); this asks the writer for the form we want so the modifier it picks reads well."""
+    import importlib
+    ha = importlib.import_module("src.orwell_house_authoring")
+    src = open(ha.__file__).read()
+    assert "SAY what the room is" in src and "plain word" in src and "The theme lives in the LOOK" in src
+    assert "none may be just the plain room word" not in src

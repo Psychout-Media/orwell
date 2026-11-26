@@ -3,7 +3,7 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { HOUSE_THEMES } from "../../src/engine/data/houseThemes";
 import { resolveRoom } from "../../src/domain/house";
-import { themedRoomAliases } from "../../src/engine/roomLabels";
+import { themedRoomAliases, roomNamesFor } from "../../src/engine/roomLabels";
 import { parsePlayerMoveIntent } from "../../src/engine/playerMoveIntent";
 
 /** ORW-466 (Ryne 2026-11-15: "Themes should be random"; "all rooms in the house to be themed as well"): the season's house theme in a live game. Roles only. A test-only seam on `live`. */
@@ -35,15 +35,15 @@ describe("the season's house theme", () => {
     liveOf(s).houseTheme = OCEAN.id; // pin the theme so the names are known
     const wa = s.whereabouts()!;
     const here = wa.room as keyof typeof OCEAN.rooms; // wherever the player stands (gathered for the premiere, a move is held)
-    expect(wa.roomNames?.["bedroom-a"]).toBe("the Coral Reef Room");
+    expect(wa.roomNames?.["bedroom-a"]).toBe("the Coral Reef bedroom"); // ORW-968: said with its plain word
     expect(wa.roomLook).toBe(OCEAN.rooms[here].look);
     // the house search's facts use the season's name too ("here with you in the Coral Reef Room", never "the bedroom a")
     const withMe = (s.whereabouts({ search: true })?.search?.houseguests ?? []).filter((h) => h.status === "here");
     expect(withMe.length).toBeGreaterThan(0);
-    for (const h of withMe) expect(h.fact).toContain(OCEAN.rooms[here].name);
+    for (const h of withMe) expect(h.fact).toContain(roomNamesFor(OCEAN.id)![here]!);
     const prompt = s.getMomentPrompt({}).systemPrompt;
-    expect(prompt).toContain(OCEAN.rooms[here].name);
-    expect(prompt).toContain("the Captain's Quarters");
+    expect(prompt).toContain(roomNamesFor(OCEAN.id)![here]!);
+    expect(prompt).toContain("the Captain's HOH room");
     expect(prompt).toContain(`This season it looks like this (dress the scene with it; never read it out as a list): ${OCEAN.rooms[here].look}`); // review of #2856: no "this this season"
     expect(prompt).not.toMatch(/bedroom a\b/i);
     const r = s.resolvePlayerMove({ text: "I head to the coral reef" });
