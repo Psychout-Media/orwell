@@ -542,3 +542,30 @@ def test_orw453_prose_after_the_tool_call_is_not_stored_and_does_not_weld(monkey
     assert "Trailing" not in emitted and "Trailing" not in stored[0]
     assert stored[0] == "The kitchen is quiet. Rain taps the glass. A cup is set down." == emitted.split("The morning moves on.")[0].strip()
     assert cont == [] and extra["runs"] == ["bash"]
+
+
+# ORW-776 (1): a reply that calls the whole house to a room other than the one the engine gathered it in is HELD and quietly rewritten once, like any other hard-fact conflict (ORW-740b put the event room into the pre-display
+# check; with the rewrite slice on, a hit is withheld and re-voiced from the engine's room). Stubbed model, roles only.
+EVENT_ROOM_STATE = {"whereabouts": {"room": "backyard", "roomNames": {"backyard": "the Dry Wash Deck", "living-room": "the Hearth Pit"},
+                                    "houseEvent": {"kind": "hoh-competition", "room": "backyard"}}}
+CALL_WRONG_ROOM = 'Production calls over the speakers: "Houseguests, everyone to the Hearth Pit." '
+
+
+def test_a_ceremony_called_to_the_wrong_room_is_held_and_rewritten_from_the_engines_room(monkeypatch):
+    emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, CALL_WRONG_ROOM, TAIL]}], redo="They file out onto the Dry Wash Deck.", state=EVENT_ROOM_STATE)
+    assert "everyone to the Hearth Pit" not in emitted and TAIL.strip() not in emitted, "the wrong-room call and the rest of that stream are never shown"
+    assert emitted.strip() == (CLEAN_A + "They file out onto the Dry Wash Deck.").strip()
+    assert len(cont) == 1, "one continuation"
+    assert "The whole house is gathered in the Dry Wash Deck for this event" in cont[0][-1]["content"], "the correction names the engine's room"
+    assert stored and stored[0] == emitted.strip(), "stored text equals what was shown"
+
+
+def test_a_reply_that_names_the_engines_own_room_is_untouched(monkeypatch):
+    ok = 'Production calls: "Houseguests, everyone out to the Dry Wash Deck." '
+    emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, ok, TAIL]}], state=EVENT_ROOM_STATE)
+    assert len(cont) == 0 and "Dry Wash Deck" in emitted and TAIL.strip() in emitted
+
+
+def test_the_event_room_hold_is_off_with_the_rewrite_flag_off(monkeypatch):
+    emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, CALL_WRONG_ROOM, TAIL]}], state=EVENT_ROOM_STATE, flag="0")  # not as shipped: the rewrite is off by default
+    assert len(cont) == 0 and "everyone to the Hearth Pit" in emitted
