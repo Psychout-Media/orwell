@@ -337,6 +337,7 @@ import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
 import type { ArchivedHouseguest } from "../../engine/seasonMemory";
 import type { ArchivedOwnCharacter, OwnCharacterFields } from "../../engine/seasonMemory";
+import { gateHouseEvent, playerOutMessage, playerOutReason } from "../../engine/inHouse";
 import { buildSeasonArchive, carriedNudge, nextSeasonNumber, planReturner, returnerBeliefs, returnerCharacter, seasonsSince, type SeasonNpcRecord } from "../../engine/returnees";
 import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, plantedBy, type EdgeDelta } from "../../engine/beliefStore";
 import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs";
@@ -3624,7 +3625,18 @@ export class GameSessionAdapter implements GameSession {
 
   /** Wire the one-off witnessed-event recorder (deal made/broken reveals, 0039). */
   setOnPlayerEvent(fn: (content: string, witnessSet: EntityId[], type?: string) => string | undefined): void {
-    this.onPlayerEvent = fn;
+    // ORW-1084/1085/1086: the active-in-house gate sits at this one seam, so no producer (lobbying, deals, HOH room, bed claims, reasons said aloud, secret breaks, betrayals, conversations) can seat a houseguest who has left the house.
+    this.onPlayerEvent = (content, witnessSet, type) => {
+      const set = gateHouseEvent(this.live, type ?? "deal", witnessSet);
+      return set === null ? undefined : fn(content, set, type);
+    };
+  }
+
+  /** ORW-1086: why the player cannot act in the house right now (evicted, season over), or null while they can (or when there is no game yet). */
+  playerHouseRefusal(): { reason: "evicted" | "season-over"; message: string } | null {
+    if (!this.house || !this.live) return null;
+    const reason = playerOutReason(this.live);
+    return reason ? { reason, message: playerOutMessage(reason) } : null;
   }
 
   /** Wire a narrator for the snarky tagline (0033). Without one, the curated fallback is used. */
