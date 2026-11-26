@@ -165,6 +165,10 @@ export function claimConfidence(trustInSpeaker: number, credited: boolean): numb
  */
 export function tellClaim(log: ClaimLog, beliefs: BeliefStore | undefined, input: ClaimInput, ctx: ClaimContext): SpokenClaim | undefined {
   if (claimProblem(input, ctx.living, ctx.jury) !== undefined) return undefined;
+  // ORW-931 (Fable W2-7): the SAME speaker saying the same thing to the PLAYER again is not a new telling (parity with an NPC listener, ORW-591 below: a same-speaker repeat is
+  // never fresh proof). Nothing is logged and nothing reaches the narrator, so it cannot read as news. A DIFFERENT speaker is corroboration and is told (the caller marks it
+  // `alreadyHeard` for the narrator).
+  if (input.listener === PLAYER && log.items.some((c) => c.listener === PLAYER && c.speaker === input.speaker && sameClaimKey(c, input))) return undefined;
   log.seq += 1;
   const claim: SpokenClaim = {
     id: `claim:${log.seq}`, speaker: input.speaker, listener: input.listener, kind: input.kind, subject: input.subject,
@@ -195,6 +199,11 @@ export function tellClaim(log: ClaimLog, beliefs: BeliefStore | undefined, input
     } else recordClaim(beliefs, planted);
   }
   return claim;
+}
+
+/** ORW-931: two tellings say the same thing (kind, who, the second party, a reputation's label), whoever said them. */
+export function sameClaimKey(a: { kind: string; subject: EntityId; object?: EntityId; label?: string }, b: { kind: string; subject: EntityId; object?: EntityId; label?: string }): boolean {
+  return a.kind === b.kind && a.subject === b.subject && (a.object ?? "") === (b.object ?? "") && (a.label ?? "") === (b.label ?? "");
 }
 
 /** ORW-591 (Fable T2-8) - the save check's rule for the claim log (append-only, never thinned): no claim told is ever lost, and the id counter never goes back. */
