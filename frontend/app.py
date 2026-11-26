@@ -1437,6 +1437,11 @@ async def _startup_event():
 
 async def _shutdown_event():
     logger.info("Application shutting down...")
+    try:  # ORW-954: flush the pacing counters (the entrance cadence) now - the debounced turn-end save may still be waiting on its timer
+        from src import belt_state_persist as _bsp_shutdown
+        _bsp_shutdown.save_now()
+    except Exception:  # failsoft-ok: best-effort durability
+        pass
     if upload_cleanup_task:
         upload_cleanup_task.cancel()
         try:
