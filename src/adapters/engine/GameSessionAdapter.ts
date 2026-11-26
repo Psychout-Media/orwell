@@ -275,7 +275,7 @@ import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearanc
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ, MEET_FIRST_IMPRESSION, firstImpressionLean, meetMannerOf } from "../../engine/premiereEntrances";
 import type { Houseguest } from "../../engine/characterFactory";
-import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, ARCHETYPES, VOL_OF, articleFor } from "../../engine/characterFactory";
+import { startNewGame, resolveStrategyStyle, repairPlayerStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, ARCHETYPES, VOL_OF, articleFor } from "../../engine/characterFactory";
 import type { Disposition } from "../../engine/characterFactory";
 import type { GameHouse, StrategyStyle, Soul, HiddenElement, Character } from "../../engine/characterFactory";
 import { evolveEmotion, arcNote, offscreenEmotion, composedEmotion, effectiveDisposition, settleScaleOf } from "../../engine/emotionalArc";
@@ -6416,6 +6416,8 @@ export class GameSessionAdapter implements GameSession {
     // refreshes rather than slicing against a window that no longer holds its checkpoint.
     this.beatCheckpoints.clear();
     this.house = core.house ? cloneSession(core.house) : null;
+    // ORW-1075: an older save can store a player style that is not the chosen one; repair it once, idempotently, on every load.
+    if (this.house) repairPlayerStrategyStyle(this.house.player);
     // #1326 — legacy-save backfill for NPCs ONLY: an NPC's `genderPresentation` is always dealt by the
     // 0063 diversity floor at cast time, so an unset facet on a resumed NPC means a save that predates
     // that floor (or a non-standard creation path that skipped it) — a genuine gap worth repairing.
