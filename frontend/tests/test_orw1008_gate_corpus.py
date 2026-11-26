@@ -5,8 +5,8 @@ import os
 from src import agent_loop as al
 
 FX = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "tests", "fixtures", "orw1008", "corpus.txt")
-CEILING_FALSE_MOVES = 46
-CEILING_MISSED_MOVES = 55
+CEILING_FALSE_MOVES = 40
+CEILING_MISSED_MOVES = 60  # after the relabel (sprint, bring-the-plates, meet-Dana are moves)
 
 
 def _rows():
