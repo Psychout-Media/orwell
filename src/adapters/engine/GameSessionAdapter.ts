@@ -1393,6 +1393,7 @@ export class GameSessionAdapter implements GameSession {
     if (this.live) { if (this.live.pending && milestoneDueOf(this.live)) this.live.dueHeldMessages = (this.live.dueHeldMessages ?? 0) + 1; else delete this.live.dueHeldMessages; }
     // ORW-928: after the engine committed the eviction result (the evictee is named) the reveal and the evictee's exit were voiced on the turn that committed it. Count each later player message, counted BEFORE its own step, so the committing turn reads 0 and voices the night once.
     this.evictionVoicedMsgs = this.live && this.live.playedGame === true && this.live.eviction?.evictee ? this.evictionVoicedMsgs + 1 : 0; // memory-only (like the ceremony beat): a restart mid-night forgets it, never a persisted live field
+    { const out = this.live?.competition?.eliminated ?? []; this.compToldOut = this.compOutPrev.filter((id) => out.includes(id)); this.compOutPrev = [...out]; } // ORW-937: counted BEFORE this message's own framing: an exit that was already in the last message's view was voiced in that reply
     this.advanceClockPerConversation();
     this.persist(); // the clock moved: one persisted commit (integrity checkpoint + beatSeq), survives a reload
     return { accepted: true, beatSeq: this.beatSeq }; // post-commit token: the FE refreshes its last-seen beatSeq from it (no self-inflicted stale-beat 409)
@@ -6721,11 +6722,12 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** ORW-715: the staged competition's floor - who is still in and who has already gone out (the drops the game has announced). Undefined unless a staged competition is live. */
-  private competitionFieldFact(): { stillIn: Array<{ id: EntityId; name: string }>; out: Array<{ id: EntityId; name: string }>; justOut?: Array<{ id: EntityId; name: string }> } | undefined {
+  private competitionFieldFact(): { stillIn: Array<{ id: EntityId; name: string }>; out: Array<{ id: EntityId; name: string }>; justOut?: Array<{ id: EntityId; name: string }>; told?: Array<{ id: EntityId; name: string }> } | undefined {
     const c = this.live?.competition;
     if (!this.ceremonyFactsEnabled || !c || !this.playedGameNow() || !c.eliminated?.length) return undefined;
     const silent = (this.live?.compSilentOut ?? []).filter((id) => c.eliminated.includes(id));
-    return { stillIn: c.stillIn.map((id) => ({ id, name: this.nameOf(id) })), out: c.eliminated.map((id) => ({ id, name: this.nameOf(id) })), ...(silent.length ? { justOut: silent.map((id) => ({ id, name: this.nameOf(id) })) } : {}) };
+    const told = this.compToldOut.filter((id) => c.eliminated.includes(id) && !silent.includes(id));
+    return { stillIn: c.stillIn.map((id) => ({ id, name: this.nameOf(id) })), out: c.eliminated.map((id) => ({ id, name: this.nameOf(id) })), ...(silent.length ? { justOut: silent.map((id) => ({ id, name: this.nameOf(id) })) } : {}), ...(told.length ? { told: told.map((id) => ({ id, name: this.nameOf(id) })) } : {}) };
   }
 
   private card(id?: EntityId): { id: EntityId; name: string } | null {
@@ -9188,6 +9190,9 @@ export class GameSessionAdapter implements GameSession {
    */
   /** ORW-928: player messages since the engine committed the eviction result (memory-only). */
   private evictionVoicedMsgs = 0;
+  /** ORW-937 (memory-only, like the ceremony beat: a restart forgets it and the narrator is simply not told): who was out of the staged competition when the previous player message was framed (`compOutPrev`), and who of them an earlier reply has therefore voiced (`compToldOut`). */
+  private compOutPrev: EntityId[] = [];
+  private compToldOut: EntityId[] = [];
   private ceremonyBeat: "nominations" | "veto-draw" | "veto-ceremony" | "eviction" | null = null; // memory-only
   private ceremonyHeld: string | null = null;
   /** ORW-281: the narrator is on the veto DRAW (its own moment) from the schedule's draw stage until the player speaks after the draw was voiced; the competition's moment takes over afterwards. */
@@ -18358,6 +18363,9 @@ export class GameSessionAdapter implements GameSession {
         if (m === 0) clockTargetPassed = true;
         else if (m !== null) statedMinutes = statedMinutes === null ? m : Math.min(statedMinutes, m);
       }
+      // ORW-920 (Ryne's ruling): a STATED wait ("until 9am", "for an hour", "the rest of the afternoon") is interrupted ONLY by something actually due - a ceremony/comp call (event-due), bedtime, or a houseguest whose own
+      // desire clock has crossed its threshold (a real reason to approach). No per-beat dice (a random production pull, a random sighting, the flat approach roll) and no rate knob. An open-ended hang-out keeps them.
+      const statedWait = statedMinutes !== null;
       const result: HangOutResult = clockTargetPassed ? { stopReason: "max-beats", beats: 0, minutes: 0 } : runHangOut({
         advance: (h) => { advanceClockPerConversation(live, h); },
         // ORW-392: the same clock `eventDue` reads - behind a pending night gate the event is tomorrow, so the probe must not read 0 at night (that returned a false "event-due" with 0 beats).
@@ -18366,7 +18374,7 @@ export class GameSessionAdapter implements GameSession {
         // PO: the night block (20-24) is prime social time and late night is the sleep-debt mechanic - stop at midnight, or sooner once the house has thinned to the player plus at most one person awake.
         bedtime: () => hangOutBedtime(live.nightDepth ?? WAKE_HOUR, awakeNpcs().length, CLOCK.phaseStartsHour.night, CLOCK.midnightHour),
         pulled: (r) => {
-          if (!started || live.hangOutPulledDay === day) return null;
+          if (statedWait || !started || live.hangOutPulledDay === day) return null;
           if (r.next() >= HANGOUT_PULL_P) return null;
           live.hangOutPulledDay = day;
           return { by: r.next() < 0.5 ? "diary-room" : "production" };
@@ -18381,14 +18389,14 @@ export class GameSessionAdapter implements GameSession {
             delete live.approachHeld; // ORW-452 (cubic): a REAL approach later in the same wait supersedes an earlier hold, so the narrator is never told both "someone approaches" and "no one new steps up"
             return { npc: this.nameOf(hit.npc), desire: hit.desire };
           }
-          if (!approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;
+          if (statedWait || !approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;
           const ids = awakeNpcs();
           if (ids.length === 0) return null;
           const top = rankApproaches(PLAYER, ids, this.rel, r, undefined, this.approachBiasHook(PLAYER), this.grudgeStanceHook(PLAYER))[0];
           return top ? { npc: this.nameOf(top.npc) } : null;
         },
         observed: (r) => {
-          if (r.next() >= HANGOUT_OBSERVED_P || !this.presence) return null;
+          if (statedWait || r.next() >= HANGOUT_OBSERVED_P || !this.presence) return null;
           // Only what is in the player's eyeshot (their room + sightline rooms) - public presence, Vault-free.
           const me = this.presence.get(PLAYER);
           if (!me) return null;
@@ -18684,6 +18692,21 @@ export class GameSessionAdapter implements GameSession {
         const refusal: DealRefusal = { refused: true, illegal };
         if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, refusal);
         return refusal;
+      }
+    }
+    // ORW-930: the player's makeDeal to the houseguest who made them a standing offer (same kind, no counter terms) IS accepting that offer. The houseguest asked for this deal: re-rolling their consent
+    // on it refused the very thing they proposed ("take the favor and don't ask me to sign for it" after the player said the HOH's own terms back). Same spine as an explicit accept.
+    if (this.live.playedGame === true && !req.countersOffer) {
+      const slot: "deal" | "pitch" | undefined = this.live.dealOffer?.from === target && this.live.dealOffer.kind === req.kind ? "deal" : this.live.votePitch?.from === target && this.live.votePitch.kind === req.kind ? "pitch" : undefined;
+      const o = slot === "deal" ? this.live.dealOffer : slot === "pitch" ? this.live.votePitch : undefined;
+      if (slot && o && !this.dealOfferPartyGone(o.from) && !this.offeredDealBlocked(o.kind, o.from, PLAYER, o.replacesDealId)) {
+        this.resolveDealOffer(true, slot);
+        const made = [...this.deals.all].reverse().find((d) => d.status === "open" && d.kind === req.kind && d.parties.includes(PLAYER) && d.parties.includes(target));
+        if (made) {
+          const view = this.dealView(made);
+          if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, view);
+          return view;
+        }
       }
     }
     // NPC CONSENT (anti-sycophancy): the ENGINE decides whether the NPC agrees, BEFORE anything is recorded or folded. A refusal returns here - no event, no deal, no

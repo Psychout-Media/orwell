@@ -181,9 +181,12 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
   }, 120_000);
 });
 
+/** ORW-920: a houseguest's own ask is standing and shown to the player. The seed is picked (hint 3), not pinned: a gameplay change moves which season gets there. */
+const askStanding = () => firstSeedWhere((seed) => playUntil(seed, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending && !!(s.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk, { user: `wf-${seed}`, maxMessages: 3000 }), wfScan(3, "a houseguest's own ask standing and shown to the player"));
+
 describe("ORW-727b: a houseguest asks the player for a private word (parity), in a played season", () => {
   it("their own ask stands as an open, non-blocking offer the player sees; the player's yes through the same lever is accepted; it then clears", async () => {
-    const at = await playUntil(3, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending, { user: "wf-3", maxMessages: 3000 });
+    const { at } = await askStanding();
     const npc = at.sess.live.talkAsk.npc as string;
     const view = at.sess.getGameState() as { openTalkAsk?: { from: { id: string } } };
     expect(view.openTalkAsk?.from.id).toBe(npc);
@@ -197,7 +200,7 @@ describe("ORW-727b: a houseguest asks the player for a private word (parity), in
 
 describe("ORW-727b: a houseguest's ask lapses, in a played season", () => {
   it("left unanswered, their ask stops showing once its hours have passed", async () => {
-    const at = await playUntil(3, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending, { user: "wf-3", maxMessages: 3000 });
+    const { at } = await askStanding();
     const npc = at.sess.live.talkAsk.npc as string;
     const until = at.sess.live.talkAsk.until as number;
     const abs = () => ((at.sess.live.dayNumber ?? 1) - 1) * 24 + (at.sess.live.nightDepth ?? 8);
