@@ -532,7 +532,7 @@ const BIO_DRIVES = [
   "and runs on stubbornness and strong coffee",
   "and puts on a calm face when things go wrong",
   "and takes pride in never asking for help",
-  "and is far more sentimental than they let people see",
+  "and is softer underneath than they let people see",
   "and has a story ready for every occasion",
   "and treats loyalty as the only currency that counts",
   "and would rather be respected than liked",
