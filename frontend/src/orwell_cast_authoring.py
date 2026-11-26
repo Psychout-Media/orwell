@@ -3931,9 +3931,17 @@ async def authoring_completeness_for(user: Optional[str]) -> Optional[dict]:
         return None
     try:
         from routes.orwell_routes import roster_cards  # the one roster-card derivation (G9), public
-        return authoring_completeness(user, roster_cards(state, user))
+        comp = authoring_completeness(user, roster_cards(state, user))
     except Exception:
         return None
+    # ORW-948: during the premiere the engine's public read lists only the houseguests who have walked in (ORW-710)
+    # and counts the rest in `unarrivedCount`. `total` / `authored` above therefore cover the arrived cast only; the
+    # count of the withheld ones rides beside them (a number, never a card) so the house-entry gate does not wait
+    # for cards this read cannot show. Absent or zero (the flag off, or everyone is in) leaves the dict as it was.
+    unarrived = state.get("unarrivedCount")
+    if isinstance(unarrived, int) and not isinstance(unarrived, bool) and unarrived > 0:
+        comp["unarrived"] = unarrived
+    return comp
 
 
 def authoring_backfill_allowed(user: Optional[str]) -> bool:
@@ -4323,9 +4331,20 @@ async def await_house_ready(owner: Optional[str], *, min_authored: int = HOUSE_R
             total = int(comp.get("total") or _HOUSE_READY_TOTAL_DEFAULT)
             missing_n = int(comp.get("missing") if comp.get("missing") is not None
                             else max(0, total - authored))
-            last = {"ready": authored >= min_authored, "authored": authored,
+            # ORW-948: the threshold is the FULL cast, but while the premiere's entrances run the read above shows only
+            # the houseguests who have arrived (`unarrived` = how many it withholds). Comparing the arrived count to
+            # the full-cast threshold could never pass (prod, 2026-11-26: 7 of 7 arrived cards authored, 8 still to
+            # walk in, held against 15 until the watch expired and kept the hold). The withheld cards cannot be read
+            # here, so they come off the threshold: every houseguest this read CAN show must be authored. A later
+            # arrival that is still on the floor is picked up by the roster backfill the moment its card appears.
+            unarrived = comp.get("unarrived")
+            unarrived = unarrived if isinstance(unarrived, int) and not isinstance(unarrived, bool) and unarrived > 0 else 0
+            need = max(0, int(min_authored) - unarrived)
+            last = {"ready": authored >= need, "authored": authored,
                     "total": total, "missing": missing_n}
-            if authored >= min_authored:
+            if unarrived:
+                last["unarrived"] = unarrived
+            if authored >= need:
                 return last
             # Nudge the stragglers through the existing (debounced, fail-soft) backfill spine so a
             # transient per-NPC authoring miss is re-attempted while we wait.
