@@ -48,6 +48,8 @@ export interface FeatureFlagDef {
  *    See `GameSessionAdapter` module consts for the definitive list of env var names.
  */
 export const FEATURE_FLAGS: FeatureFlagDef[] = [
+  // ORW-881 (ORW-844 option 1): structure-shared live snapshots (the five big keys of the live loop are cloned once and reused while unwritten). OFF by default: `=1` reuses across commits, `=commit` within a commit only, `=paranoid` also compares every reuse with a fresh clone (diagnostic; /health shows only 1/true/on). Saved bytes are identical either way.
+  { envKey: 'ORWELL_SHARED_SNAPSHOT', key: 'sharedSnapshot', parser: 'loose' },
   // B50-accuse layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_ACCUSE_COST', key: 'accuseCost', parser: 'defaultOn' },
   // A65 / ORW-97: the engine refuses an ordinary advanceGame before the schedule says an event is due (typed `held`). ON by default; applies only to a game a person is playing (`live.playedGame`), so headless drivers are untouched; the FE reads `held`.

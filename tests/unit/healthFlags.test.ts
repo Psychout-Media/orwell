@@ -44,7 +44,7 @@ describe("/health flag parsing matches what the engine actually runs", () => {
     const FLIPPED = FEATURE_FLAGS.filter((d) => d.parser === "defaultOn");
     // a floor, not an exact count: the exact literal on this one line was edited by every flag-adding PR and conflicted at every merge. The per-flag checks below already walk the whole registry, and flagDefaultParity + flagInventory pin each flag against the deploy defaults, so a dropped or unregistered flag still fails; this only catches a mass loss.
     expect(FLIPPED.length, "the registry still carries its flipped flags").toBeGreaterThanOrEqual(100);
-    const NOT_FLIPPED: string[] = []; // ORW-97 flipped advanceGate ON
+    const NOT_FLIPPED: string[] = ["sharedSnapshot"]; // ORW-97 flipped advanceGate ON; ORW-881 sharedSnapshot is opt-in
     for (const k of Object.keys(process.env)) if (k.startsWith("ORWELL_")) delete process.env[k];
     let f = bootFlagsFromEnv();
     for (const d of FLIPPED) expect(f[d.key], `${d.key} defaults ON`).toBe(true);

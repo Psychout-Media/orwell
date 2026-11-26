@@ -465,6 +465,7 @@ import { derivedLoyalty, cohesionOf, mutualBond } from "../../engine/blocs";
 import type { ReserveTwist, TwistKind } from "../../engine/reserveTwists";
 import type { CeremonyState, SessionCore, TrackedSighting } from "../../engine/sessionSnapshot";
 import { cloneSession, fastClone, retroArmedIntroductions } from "../../engine/sessionSnapshot";
+import { SharedLiveClones, sharedSnapshotFromEnv } from "../../engine/sharedLiveClone";
 import { emptyCanonLedger, recordCanon, activeCanon, canonHash, restoreCanon, serializeCanon, type CanonLedger } from "../../engine/canonLedger";
 import type { PersistedCanon } from "../../domain/canon";
 import { diffuseGossip, makeSocialGraph, gossipEdgeAffinity, GOSSIP, GOSSIP_HEARD, legendFrom, legendSeedProbability } from "../../engine/gossip";
@@ -1213,6 +1214,17 @@ export class GameSessionAdapter implements GameSession {
   private static readonly FOLD_IDEMPOTENCY_MAX = 256;
   // The incremental weekly-loop state (0011); null until a game starts.
   private live: LiveSeasonState | null = null;
+  /**
+   * ORW-881: structure-shared snapshots of the five big keys of `live` (see `sharedLiveClone.ts`). OFF unless `ORWELL_SHARED_SNAPSHOT=1` (reuse across commits), `=commit` (reuse only within the commit that took the clone) or `=paranoid` (reuse, and every snapshot also clones fresh and
+   * compares, throwing on any difference; the shared clones are frozen). Off => `snapshot()` is the plain full clone, byte for byte as before.
+   */
+  private sharedLive: SharedLiveClones | null = sharedSnapshotFromEnv(process.env.ORWELL_SHARED_SNAPSHOT);
+  /** ORW-881: set the shared-snapshot mode (the test seam for the env var). A new mode starts with no clones. */
+  /** ORW-881: a READ-ONLY look at one of the five shared keys of the live loop (does not mark it written; the caller must not write through the result nor keep it). Same value as `live[k]`. */
+  private peekLive<K extends "agendas" | "npcMemory" | "beliefs">(live: LiveSeasonState, k: K): LiveSeasonState[K] { return this.sharedLive ? this.sharedLive.peek<LiveSeasonState[K]>(live, k) : live[k]; }
+  setSharedSnapshotMode(mode: "off" | "on" | "commit" | "paranoid"): void { this.sharedLive = sharedSnapshotFromEnv(mode === "off" ? undefined : mode === "on" ? "1" : mode); }
+  /** ORW-881: what the shared snapshot has reused and cloned so far (measurement and tests); null when off. */
+  sharedSnapshotStats(): SharedLiveClones["stats"] | null { return this.sharedLive?.stats ?? null; }
   /** Save-on-mutation hook (0030); the registry wires it to persist the user's snapshot. */
   private onPersist?: () => void;
   /**
@@ -3353,7 +3365,11 @@ export class GameSessionAdapter implements GameSession {
     this.syncOpenLedger(); // ORW-448: what the engine knows is over (an eviction, a linked deal ending, an entry left untouched for a week) closes in the same commit
     this.captureSeenWhereabouts(); // ORW-462: what the player can see now becomes their last-known whereabouts
     this.catchUpDailyRecaps();
-    this.onPersist?.();
+    try {
+      this.onPersist?.();
+    } finally {
+      this.sharedLive?.fence(); // ORW-881: the commit is over (or refused): no shared clone outlives it
+    }
   }
 
   // Greptile P2 (issue #1725 follow-up) — constrained to `{ beatSeq: number }` (every real caller
@@ -6074,7 +6090,7 @@ export class GameSessionAdapter implements GameSession {
       // (JSON round-trip) but shares the unchanged souls' clones by reference, so the export re-clones
       // only the souls touched this turn — not the whole, ever-growing history. See `soulCloneCache`.
       house: this.house ? this.cloneHouse(this.house) : null,
-      live: this.live ? fastClone(this.live) : null,
+      live: this.live ? (this.sharedLive ? (this.sharedLive.clone(this.live) as unknown as LiveSeasonState) : fastClone(this.live)) : null,
       deals: this.deals.serialize(),
       // 0171: the append-only favor ledger (accumulates, never thins). Absent when no favor was ever owed => byte-shaped as a pre-0171 save.
       ...(this.favors.all.length ? { favors: this.favors.serialize() } : {}),
@@ -6426,6 +6442,7 @@ export class GameSessionAdapter implements GameSession {
     this.phase = core.phase;
     this.ceremony = { ...core.ceremony, nominees: [...core.ceremony.nominees] };
     this.live = core.live ? cloneSession(core.live) : null;
+    this.sharedLive?.reset(); // ORW-881: a restored season starts with no shared clones (the new live object is a different owner too)
     if (this.live?.houseThemeDef) registerHouseTheme(this.live.houseThemeDef); // ORW-509: an authored house resolves again after a restart
     this.deals.load(core.deals ?? []);
     this.favors.load(core.favors ?? []); // 0171: absent on a pre-0171 save => none; `seq` is recomputed from the loaded ids
@@ -7154,8 +7171,9 @@ export class GameSessionAdapter implements GameSession {
       seen.add(mark);
       if (noteGrudge((live.grudges ??= {}), holder, subject, kind, severity, week, day, mark) && live.grudges[grudgeKey(holder, subject)]!.refKey === mark) live.grudges[grudgeKey(holder, subject)]!.seenAt = (this.record?.events() ?? []).length; // ORW-605: stamp when this wrong was noted
     };
-    for (const holder of Object.keys(live.npcMemory ?? {}).sort() as EntityId[]) {
-      const row = live.npcMemory![holder] ?? {};
+    const memory = this.peekLive(live, "npcMemory"); // ORW-881: read-only here (it only reads the entries; the grudge book `live.grudges` is what it writes)
+    for (const holder of Object.keys(memory ?? {}).sort() as EntityId[]) {
+      const row = memory![holder] ?? {};
       for (const subject of Object.keys(row).sort() as EntityId[]) for (const e of row[subject] ?? []) {
         const kind: GrudgeKind | undefined = e.kind === "deal-broken" ? "deal-broken" : e.kind === "nominated-by-friend" || e.kind === "replaced-by-friend" ? "cut-by-ally" : undefined;
         if (kind && !gone.has(holder)) note(`m:${holder}|${subject}|${e.kind}|${e.week}|${e.severity.toFixed(3)}`, holder, subject, kind, e.severity, e.week);
@@ -7268,7 +7286,7 @@ export class GameSessionAdapter implements GameSession {
   /** 0182 PR 2: whether `holder` is a grudge-keeper toward `subject` (the same read `grudgeOf` uses). */
   private grudgeKeeper(holder: EntityId, subject: EntityId): boolean {
     const hg = this.house?.npcs.find((n) => n.id === holder);
-    return forgivenessTraitFor(this.live?.npcMemory?.[holder]?.[subject], {
+    return forgivenessTraitFor(this.live ? this.peekLive(this.live, "npcMemory")?.[holder]?.[subject] : undefined, {
       ...(hg?.character.strategyStyle !== undefined ? { style: hg.character.strategyStyle } : {}),
       volatility: this.soulObj(holder)?.volatility ?? 0.5,
       closeness: this.rel.bondStrength(holder, subject),
@@ -10596,6 +10614,7 @@ export class GameSessionAdapter implements GameSession {
     this.sendOccupancy = null; // the frozen send-time roster is the prior season's too
     // Start the incremental weekly loop over the live house (player + NPCs).
     this.live = newLiveSeason([this.house.player.id, ...this.house.npcs.map((n) => n.id)]);
+    this.sharedLive?.reset(); // ORW-881: a new season starts with no shared clones
     // ORW-509: a house the writer authored at setup (accepted pre-game) becomes this season's house; none => plain room labels, exactly as before.
     if (adopt?.houseTheme) {
       // Re-read against the memory this season starts with (the restart carry arrives after the warm): a house that reuses the last seasons' rooms is dropped (plain labels), counted.
@@ -13967,7 +13986,7 @@ export class GameSessionAdapter implements GameSession {
   private agendaGoalTarget(owner: EntityId): { target: EntityId; commitment: number } | undefined {
     if (!this.hohCourtOn()) return undefined;
     const living = new Set(this.livingIds());
-    const goals = (this.live?.agendas?.[owner]?.goals ?? []).filter((g) => g.status === "active" && (g.kind === "get-them-out" || g.kind === "revenge") && g.target !== undefined && g.target !== owner && living.has(g.target) && g.commitment >= HOH_COURT.goalMin);
+    const goals = ((this.live ? this.peekLive(this.live, "agendas") : undefined)?.[owner]?.goals ?? []).filter((g) => g.status === "active" && (g.kind === "get-them-out" || g.kind === "revenge") && g.target !== undefined && g.target !== owner && living.has(g.target) && g.commitment >= HOH_COURT.goalMin);
     const best = [...goals].sort((a, b) => b.commitment - a.commitment || (a.id < b.id ? -1 : 1))[0];
     return best ? { target: best.target!, commitment: best.commitment } : undefined;
   }
@@ -14637,7 +14656,7 @@ export class GameSessionAdapter implements GameSession {
     const played = this.live?.playedGame === true && this.live.agendas !== undefined;
     // ORW-353: no count cap on agenda-driven alliances (the ORW-341 retune's standing cap of 2 is gone, Ryne 2026-11-14): they form freely, and the ones that do not hold fade (`fadeAlliances`, the bloc cohesion measure).
     const agendaOpen = played;
-    const goalsOf = (id: EntityId): Goal[] => (played ? this.live!.agendas![id]?.goals ?? [] : []).filter((g) => g.status === "active");
+    const goalsOf = (id: EntityId): Goal[] => (played ? this.peekLive(this.live!, "agendas")![id]?.goals ?? [] : []).filter((g) => g.status === "active");
     const buildsByAim = (id: EntityId): boolean => goalsOf(id).some((g) => g.kind === "last-alliance-standing" || g.kind === "run-the-house");
     // A founder: a build-drive NPC (or one whose own aim is to build) who hasn't already founded an active alliance.
     const founders = npcs
@@ -16256,8 +16275,9 @@ export class GameSessionAdapter implements GameSession {
     const affinity = others.map((toward) => ({ toward, affinity: this.rel.edge(owner, toward).affinity }));
     const grudges: AgendaView["grudges"] = [];
     let secretExposed = false;
-    for (const toward of Object.keys(s.npcMemory?.[owner] ?? {}).sort()) {
-      const entries = s.npcMemory![owner]![toward]!;
+    const ownerMemory = this.peekLive(s, "npcMemory")?.[owner]; // ORW-881: read-only (every use below filters or reads; `sort` runs on a filtered copy)
+    for (const toward of Object.keys(ownerMemory ?? {}).sort()) {
+      const entries = ownerMemory![toward]!;
       if (entries.some((e) => e.kind === "secret-exposed")) secretExposed = true;
       const kinds = new Set(entries.filter((e) => isGrudgeKind(e.kind)).map((e) => e.kind));
       if (kinds.size === 0) continue;
@@ -20892,7 +20912,7 @@ export class GameSessionAdapter implements GameSession {
   private beliefNomTiltFor(subject: EntityId, holder: EntityId): number {
     if (!this.live || holder === PLAYER || !this.npcBeliefsEnabled) return 0;
     if (this.live.playedGame !== true) this.noteTargetsMeClaims(holder); // headless only: the legacy write-on-read, byte for byte
-    return beliefPull(this.live.beliefs, holder, subject, this.live.week); // 0150 / ORW-330 slice 2: every believed grievance, at the Q2 strength (full = a goal's scale; capped = the old targets-me tilt)
+    return beliefPull(this.peekLive(this.live, "beliefs"), holder, subject, this.live.week); // ORW-881: read-only. 0150 / ORW-330 slice 2: every believed grievance, at the Q2 strength (full = a goal's scale; capped = the old targets-me tilt)
   }
 
   /**
@@ -20990,7 +21010,7 @@ export class GameSessionAdapter implements GameSession {
   /** The signed residual tilt of `holder` toward acting AGAINST `subject` (`+grudge − favor`); 0 for the player. */
   private memoryTiltFor(subject: EntityId, holder: EntityId): number {
     if (holder === PLAYER || !this.live) return 0;
-    const raw = this.live.npcMemory?.[holder]?.[subject];
+    const raw = this.peekLive(this.live, "npcMemory")?.[holder]?.[subject];
     if (!raw || raw.length === 0) return 0;
     const entries = this.memoryEntriesSeenBy(holder, raw, subject);
     const mc = this.memoryConstants();

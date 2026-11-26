@@ -14,6 +14,7 @@ import { FEATURE_FLAGS } from "../../src/featureFlags";
 const NEVER_FLIPPED = [
   // One flag per line: concurrent flag PRs append DIFFERENT lines instead of conflicting on one.
   "ORWELL_FORESHADOW",
+  "ORWELL_SHARED_SNAPSHOT", // ORW-881: opt-in until the runner season-mix leg has measured it
 ] as const;
 
 const deployKeys = execFileSync("bash", ["-c", 'source "$1" && orwell_optin_env_defaults "$2"', "_", "deploy/orwell-env-defaults.sh", "/nonexistent/orwell-data"], { encoding: "utf8" })
