@@ -73,6 +73,7 @@ def _turn(monkeypatch, *, round1_tools, narration, extraction, user_msg):
         return False
 
     monkeypatch.setattr(al, "_auto_record_scene", fake_record)
+    monkeypatch.setattr(al, "_auto_record_promise", fake_record)  # ORW-860: the typed-promise back-fill has its own extraction; out of scope here
 
     async def fake_exec(block, **k):  # the narrator's own tool calls (gathering / scene log), never a deal
         seen["tools"].append(block.tool_type)
