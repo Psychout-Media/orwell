@@ -146,23 +146,31 @@ async def believability_pass(cards: list, taken: set, llm_fn, write_fn, look_wri
                 continue
             phys = card.get("physicalCharacteristics") if isinstance(card.get("physicalCharacteristics"), dict) else {}
             fresh = None
+            refused: list = []  # ORW-952: the check code(s) that refused the rewrite, named in the soft-failure
             ask = ("A casting director found this look far from what this person's whole life would own (" + (fl.get("reason") or "it does not fit") + "). "
                    + A.FIT_AUDIT_RULE + " Rewrite the wardrobe (2-3 pieces, one garment each) and a short style line that describes those very clothes in plain "
                    'words and names no style family. Reply with ONLY {"wardrobe": [...], "style": "..."}.')
             obj = A._extract_json(await llm_fn(A.compact_rewrite_messages(card, ask))) or {}
             wd = obj.get("wardrobe")
             wd = [" ".join(str(x).split()) for x in wd if isinstance(x, (str, int)) and str(x).strip()] if isinstance(wd, list) else []
+            if not 2 <= len(wd) <= 3:
+                refused = ["wardrobe-count"]
             if 2 <= len(wd) <= 3:
                 style = " ".join(str(obj.get("style") or "").split()) or ", ".join(x.lower() for x in wd)
                 new_look = {k: (R.scrub_labels(v) if isinstance(v, str) else [R.scrub_labels(x) for x in v]) for k, v in {"wardrobe": wd, "style": style}.items()}
                 cand = {**card, "presentation": new, "physicalCharacteristics": {**phys, **new_look}}
-                if (not A.look_problems(cand, cand) and not [x for x in R.look_fits_life(cand) if x in ("upscale", "climate", "missing")]
-                        and not R.believability_look_life(cand)):
+                lp = A.look_problems(cand, cand)
+                fit = [x for x in R.look_fits_life(cand) if x in ("upscale", "climate", "missing")]
+                bl = R.believability_look_life(cand)
+                if not lp and not fit and not bl:
                     fresh = new_look
+                refused = list(lp) + fit + list(bl)
             ok = False
             if fresh is not None:
                 lres = await look_write_fn(hid, fresh)
                 ok = not (isinstance(lres, dict) and lres.get("accepted") is False)
+                if not ok:
+                    refused = ["look-write-refused"]
             if ok:
                 card["presentation"] = new
                 card["physicalCharacteristics"] = {**phys, **fresh}
@@ -173,7 +181,9 @@ async def believability_pass(cards: list, taken: set, llm_fn, write_fn, look_wri
             else:
                 await write_fn({"houseguestId": hid, "presentation": old})  # put the dealt family back: the label and the clothes agree
                 stats["reverted"] = stats.get("reverted", 0) + 1
-                _soft_failure("rewrite", f"card {hid} was judged an outlier but its clothes could not be rewritten; left as dealt", user)
+                why = ",".join(refused) or "none"
+                logger.info(f"[cast-believability] clothes rewrite refused for {hid}: {why}")
+                _soft_failure("rewrite", f"card {hid} was judged an outlier but its clothes could not be rewritten ({why}); left as dealt", user)
         except Exception as e:  # failsoft-ok: best-effort-enrichment (the dealt look stands)
             logger.warning(f"[cast-believability] re-pick skipped for {hid}: {type(e).__name__}")
             try:
