@@ -649,7 +649,7 @@ export interface LiveSeasonState {
   /** ORW-610: the player's own recorded talk to the sitting HOH this week (counts as a pitch on the NPC terms). Engine-only; played games only. */
   playerPitch?: import("./hohCourt").PlayerPitchRecord;
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
-  moodCauses?: Record<EntityId, MoodCause & { week: number }>;
+  moodCauses?: Record<EntityId, MoodCause & { week: number; day?: number }>;
   /** 0194 / ORW-626: every other mood CAUSE a houseguest has had (a lie found out, a friend gone, a bad night, a win or loss), append-only. Vault-class; voiced only when the houseguest chooses to say it. Played games only; absent otherwise. */
   moodCauseLog?: import("./moodCauses").MoodCauseEntry[];
   /** 0197 / ORW-631: every lead a houseguest gave the player when asked where someone is (the room they named, whether they misled, how it later resolved by what the player saw). Append-only. Vault-class: the truth and the misled flag are never projected. Played games only; absent otherwise. */
