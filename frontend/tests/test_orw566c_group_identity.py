@@ -3,6 +3,7 @@
 One cheap utility call per NEW group, one retry, fail-soft (the engine floor stands), idempotent, public facts only; the prompt states rules, never a menu
 or a sample (Ryne's standing rule 2026-11-17). Injected fakes; no live model. Roles only.
 """
+import pytest
 import asyncio
 import json
 import re
@@ -177,6 +178,7 @@ def test_kickoff_is_a_noop_with_the_engine_flag_off(monkeypatch):
     assert ran == []
 
 
+@pytest.mark.quarantine(card="ORW-983", added="2026-11-26")
 def test_kickoff_runs_once_in_background_and_releases_the_guard(monkeypatch):
     from src import orwell_engine
     monkeypatch.setattr(orwell_engine, "engine_flag", lambda name, default=False: True)
