@@ -1139,7 +1139,8 @@ export interface AskToTalkAloneReq { npcId: EntityId; room?: string; private?: b
  * ORW-727b: `accepted` (they are in `room` now: the player too when private), `declined` (they stay put; voice their refusal in character, never a reason), `occupied` (every private room has someone in it: nothing moved),
  * `gathered` (the whole house is gathered for an event; nothing moved). Vault-free: an outcome and a room, never a number or a reason.
  */
-export interface AskToTalkAloneResult { outcome: "accepted" | "declined" | "occupied" | "gathered"; room?: string; roomName?: string; beatSeq?: number }
+/** ORW-1064: "ambiguous-room" / "unknown-room": the room the player named is not one room (or none): nothing moved, `candidates` lists the rooms it could mean, and the narrator voices that the player must say which. */
+export interface AskToTalkAloneResult { outcome: "accepted" | "declined" | "occupied" | "gathered" | "ambiguous-room" | "unknown-room"; room?: string; roomName?: string; candidates?: string[]; beatSeq?: number }
 
 /** 0142: the houseguests who owe the player a favor for a deal they kept (Vault-free; `n` is how many are banked). */
 export interface OwedFavorView { from: NamedRef; n: number }
@@ -2285,6 +2286,8 @@ export interface RoomCardView { room: string; name: string; look?: string; here:
 export interface WhereaboutsView {
   /** The room the player is in. */
   room: string;
+  /** ORW-1064: present only on the answer to a move the engine REFUSED because the room named is ambiguous (`candidates`) or unknown: the player did not move, and the narrator must voice that they have to say which room. */
+  moveRefused?: { reason: "ambiguous-room" | "unknown-room"; asked: string; candidates?: string[] };
   /** ORW-466: this season's name for every room ("the Coral Reef Room"), when the season has a house theme. Absent: the plain labels stand. */
   roomNames?: Partial<Record<string, string>>;
   /** ORW-466: one line of what the player's room looks like this season (the house theme), for the narrator. */
@@ -2411,6 +2414,9 @@ export interface WhereaboutsView {
  */
 export interface HouseguestMoveResult {
   status: "moved" | "noop" | "illegal";
+  /** ORW-1064: on "illegal" for a room the name did not settle: "ambiguous-room" (see `candidates`, nothing moved) or "unknown-room". */
+  reason?: "ambiguous-room" | "unknown-room";
+  candidates?: string[];
   whereabouts: WhereaboutsView | null;
   /** A29 - on "moved" only: the closed-set beatSeq AFTER the commit this move made, so the front-end adopts it and its next compare-and-swap call is not a self-inflicted stale-beat 409. */
   beatSeq?: number;

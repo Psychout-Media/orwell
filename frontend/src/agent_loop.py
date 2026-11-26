@@ -2193,12 +2193,53 @@ _PLAYER_INTENT_PREFIX_RE = re.compile(_PI_SUBJECT + _PI_VERB + _PI_PATH, re.IGNO
 _PLAYER_FOLLOW_RE = re.compile(r"\b(?:i(?:'ll|\u2019ll)?|let(?:'s|\u2019s))\s+(?:follow|go\s+with|come\s+with|tag\s+along\s+with|join)\s+(?:her|him|them|you|the\s+others)\b|\bi\s+(?:get\s+up\s+and\s+)?leave\s+the\s+room\b|\bi(?:'ll|’ll|\s+want\s+to|\s+wanna|'m\s+going\s+to|’m\s+going\s+to|'m\s+gonna|’m\s+gonna)?\s+(?:get\s+up\s+and\s+)?(?:leave\b(?!\s+(?:it|that|him|her|them|you|the\s+(?:deal|alliance|vote)))|(?:head|go|step|walk|wander)\s+(?:over(?:\s+there)?|out)\b)", re.IGNORECASE)
 
 
+_PI_NOT_A_MOVE_RE = re.compile(
+    r"\b(?:will|i'?ll|ill|later|maybe|perhaps|might|may|could|would|should|shall|if|when|whenever|once|after|before|until|unless|tomorrow|tonight|eventually|someday|soon|don'?t|do not|not|never|won'?t|can'?t|cannot|wouldn'?t|shouldn'?t|"
+    r"gonna|plan|planning|thinking|think|wonder|supposed|rather|instead|about to|how about|what about|why don'?t|every|each|sometimes|usually|always|all the time|"
+    r"in (?:an|a|one|two|few|\d+) (?:hour|hours|minute|minutes|min|mins|hr|hrs|day|days|while|bit)|at (?:\d+|noon|midnight|dinner|lunch|breakfast)(?:\s*(?:am|pm))?|on (?:monday|tuesday|wednesday|thursday|friday|saturday|sunday))\b")
+_PI_TAKES_IT_BACK_RE = re.compile(r"\bbut (?:i )?(?:can'?t|won'?t|cannot|don'?t|stop|then stop)\b|\bnever ?mind\b|\bnvm\b|\bnot really\b|\bjust kidding\b|\bwhichever\b|\bor (?:to )?the\b|\bbut stop\b|,\s*(?:but\s+)?(?:only\s+)?(?:if|unless)\b")
+_PI_EXTRA_VERB_RE = re.compile(
+    r"(?:^|[.!?;,]\s*|\b(?:and|then|so)\s+)(?:(?:ok(?:ay)?|so|now|alright|then)\b[,\s]*)*(?:(?:i|we)(?:'?m|\s+am|\s+are)?\s+|let'?s\s+|lets\s+|together,?\s+we\s+|me and \w+\s+)(?:just\s+|now\s+|quickly\s+|quietly\s+|all\s+|want to\s+|need to\s+|choose to\s+|decide to\s+)?"
+    r"(?:go|going|goes|head|heading|walk|walking|step|stepping|move|moving|run|running|enter|entering|stroll|strolling|sneak|tiptoe|creep|hurry|rush|race|jog|bolt|sprint|dash|storm|stomp|pop|swing|slip|wander|drift|come|arrive|reach|get)\s+"
+    r"(?:(?:back|over|right|straight|up|down)\s+)*(?:(?:in\s*to|into|to|toward|towards|by|at|through|inside)\s+)?(?:the\s+|my\s+|our\s+)?(?:[a-z'-]+\s+){0,3}?"
+    r"(?:kitchen|living\s*room|lounge|back\s*yard|yard|hallway|hall|bathroom|dining\s*room|storage|pantry|diary\s*room|hoh|landing|bedroom|bunk|garden|patio|pool|outside|inside|downstairs|upstairs)\b", re.IGNORECASE)
+_PI_NOW_FORMS_RE = re.compile(r"\b(?:(?:i(?:'?m| am)?\s+)?(?:gonna|going to)|i'?ll|i will|let me|(?:it'?s\s+)?time to)\s+(?=(?:just\s+|now\s+)?(?:go|head|walk|leave|move|step|wander|find|follow|make my way)\b)")
+_PI_STARTS_WITH_SUBJECT_RE = re.compile(r"^(?:(?:ok(?:ay)?|so|now|alright|then)\\b[,\\s]*)*(?:i|we|let'?s|lets|me)\\b")
+_PI_QUOTE_RE = re.compile(r'\(\([\s\S]*?\)\)|\[[^\]]*ooc[^\]]*\][^.!?\n]*|\(ooc\)[^.!?\n]*|\booc:[^\n]*|"[^"]*"|\u201c[^\u201d]*\u201d|(?<![\w])[\u2018\'](?:[^\'\u2018\u2019\n]|[\u2019\'](?=[A-Za-z])){2,}?[\u2019\'](?=$|[\s.,!?;:)])', re.IGNORECASE)
+
+
 def _player_asked_to_move(text: str, room_names) -> bool:
-    """Did the player's own message say they are going somewhere? Pure. A room merely named, asked about or discussed never counts; narration never counts."""
-    msg = str(text or "")
-    if _PLAYER_INTENT_RE.search(msg) or _PLAYER_FOLLOW_RE.search(msg):
+    """Did the player's own message say they are going somewhere? Pure. A room merely named, asked about or discussed never counts; narration never counts.
+    ORW-1038 (audit A3): quoted speech and ((out-of-character)) asides are not the player's act; a hedge, a negation, a later time, a habit, a question or a move the player takes back ("but I can't", "never mind",
+    "if Dana is there") is no move; the verbs the engine's own parser (src/engine/playerMoveIntent.ts) reads count here too, so the two agree on what a move is."""
+    msg = _PI_QUOTE_RE.sub(" ", str(text or "")).replace("\u2019", "'")
+    moved = False
+    for clause in re.split(r"(?<=[.!?;])\s+|\n", msg):
+        c = clause.strip()
+        if not c or c.endswith("?"):
+            continue
+        if re.match(r"^(?:actually[,\s]+)?(?:(?:no\s+)?wait\b|never ?mind\b|nvm\b|forget (?:it|that)\b|scratch that\b)", c.lower()):
+            moved = False  # "I head to the kitchen; actually never mind": the move is taken back
+            continue
+        low = _PI_NOW_FORMS_RE.sub("i ", c.lower())  # as the engine's parser: "I'll go", "I'm going to head", "let me go" are a wish to go now; a later-time word still blocks below
+        if _PI_TAKES_IT_BACK_RE.search(low):
+            continue
+        if re.match(r"^(?:can|could|would|should|shall|may|do|does|did|is|are|am|will|what|where|why|how|who|which)\b", low):
+            continue
+        # the hedge has to sit in the piece that holds the move ("I tell Dana I will keep it quiet and walk out to the yard" moves; "maybe I go to the kitchen" does not)
+        pieces = re.split(r"\s+(?:and then|then|and|so|but)\s+|,\s*", low)
+        if any(not _PI_NOT_A_MOVE_RE.search(piece) and _player_clause_goes(piece if k == 0 or _PI_STARTS_WITH_SUBJECT_RE.match(piece) else "i " + piece, room_names) for k, piece in enumerate(pieces)):
+            moved = True
+    return moved
+
+
+def _player_clause_goes(msg: str, room_names) -> bool:
+    if _PLAYER_INTENT_RE.search(msg) or _PLAYER_FOLLOW_RE.search(msg) or _PI_EXTRA_VERB_RE.search(msg):
         return True
-    return any(_themed_rooms_in(msg[m.end():m.end() + 60], room_names) for m in _PLAYER_INTENT_PREFIX_RE.finditer(msg))
+    if any(_themed_rooms_in(msg[m.end():m.end() + 60], room_names) for m in _PLAYER_INTENT_PREFIX_RE.finditer(msg)):
+        return True
+    low = msg.lower()
+    return bool(_PI_EXTRA_VERB_RE.search(low)) or bool(_themed_rooms_in(msg, room_names) and re.search(r"(?:^|[.!?;,]\s*|\b(?:and|then|so)\s+)(?:(?:i|we)(?:'?m|\s+am)?\s+|let'?s\s+|lets\s+)(?:go|going|head|heading|walk|walking|step|move|run|enter)\b", low))
 
 
 def _turn_in_applied(result) -> bool:
@@ -4071,6 +4112,45 @@ def _narration_places_player_elsewhere(narration, room, room_names=None) -> bool
     return bool(named) and not any(room in rooms for rooms in named)
 
 
+_PLAYER_GO_RE = re.compile(
+    r"(?:^|[.!?;,]\s*)(?:(?:ok(?:ay)?|so|and|now|alright|then)\b[,\s]*)*"
+    r"(?:i(?:'?m|\s+am)?\s+(?:just\s+|now\s+|quickly\s+|want\s+to\s+|going\s+to\s+)?|let'?s\s+(?:all\s+|just\s+|now\s+)?|lets\s+|we\s+(?:go\s+)?|take\s+me\s+)"
+    r"(?:go|going|head|heading|walk|walking|step|stepping|come|move|moving|run|running|wander|take)\b")
+_PLAYER_HEDGE_RE = re.compile(r"\b(?:will|i'll|later|maybe|perhaps|might|may|could|would|should|if|when|once|after|before|until|unless|tomorrow|tonight|don'?t|do not|not|never|won'?t|can'?t|cannot|gonna|plan|planning|thinking|wonder)\b")
+_PLAYER_ANY_MOVE_RE = re.compile(r"\b(?:go|goes|going|head|heading|walk|walking|step|stepping|come|move|moving|run|running|enter|leave|follow|wander|take me|bring me|let'?s|lets)\b")
+_PLAYER_AFFILIATION_RE = re.compile(r"\b(?:my|our)\s+(?:own\s+)?(?:bed|bunk|room|bedroom)\b|\bi(?:'?m|\s+am)\s+in\b|\bi\s+(?:sleep|live|stay)\s+in\b")
+
+
+def _player_unquoted_clauses(last_user):
+    text = re.sub(r'"[^"]*"|\u201c[^\u201d]*\u201d', " ", str(last_user or ""))
+    text = text.replace("\u2019", "'").replace("\u2018", "'")
+    return [c.strip().lower() for c in re.split(r"(?<=[.!?;])\s+|\n", text) if c.strip()]
+
+
+def _player_explicitly_asked_to_move(last_user, room, room_names=None) -> bool:
+    """ORW-1008: the PLAYER's own present-tense request to go to `room` ("let's go to the Palmetto room", "I head to the kitchen"): a first-person go-verb at a clause start, the room named in that
+    clause, no hedge, negation or quote. The engine already committed such a move before the reply (the ORW-419 seam); the post-reply belt must not veto it with the narration's wording. Deterministic."""
+    from src.house_rooms import rooms_named_in
+    for c in _player_unquoted_clauses(last_user):
+        m = _PLAYER_GO_RE.search(c)
+        if not m or c.endswith("?"):
+            continue
+        tail = c[m.start():]
+        if _PLAYER_HEDGE_RE.search(tail.replace("let's", "lets")):
+            continue
+        tail = re.sub(r"\b(?:my|our)\s+(?:own\s+)?(?:bed|bunk|room|bedroom)\b", " ", tail)  # "my bunk" names the player's own bed, not a room by name: the engine resolves that one, the narration may still veto it
+        if any(room in rooms for rooms in rooms_named_in(tail, room_names)):
+            return True
+    return False
+
+
+def _player_words_are_affiliation_only(last_user) -> bool:
+    """ORW-1008: "my bed is in the Palmetto room", "I'm in my room": which room is the player's (or where they are) with no verb of movement anywhere. Such words never move the player,
+    so the post-reply belt must not turn a narrated walk the player never asked for into the engine's truth. Deterministic."""
+    cl = _player_unquoted_clauses(last_user)
+    return bool(cl) and any(_PLAYER_AFFILIATION_RE.search(c) for c in cl) and not any(_PLAYER_ANY_MOVE_RE.search(c) for c in cl)
+
+
 async def _auto_move_player(narration, last_user, endpoint_url, model, headers, owner, raw=None) -> bool:
     """GUARANTEE whereabouts cohesion (L21/L24). When the player's turn walked them to a room but the
     model never called moveTo, a constrained extraction proposes the destination room and we call
@@ -4100,7 +4180,11 @@ async def _auto_move_player(narration, last_user, endpoint_url, model, headers, 
         room = _room_id_of(obj.get("room"), _names)  # ORW-466: a themed-name echo still maps to its id
         if not room:
             return False  # null / no move / unknown room → nothing to do
-        if _narration_places_player_elsewhere(narration, room, _names):
+        if _player_words_are_affiliation_only(last_user):
+            # ORW-1008: "my bed is in the X room" is affiliation, not a request to go: a narrated walk the player never asked for is not the engine's truth.
+            logger.info(f"[orwell] auto-move: the player's words are affiliation only, no move to {room} user={owner}")
+            return False
+        if not _player_explicitly_asked_to_move(last_user, room, _names) and _narration_places_player_elsewhere(narration, room, _names):
             # ORW-918: the narration the player saw keeps them somewhere else (it names rooms, never this one), so the engine must not move them here: the engine would
             # put them alone in a room they were never shown in, and the house's scenes there would be recorded as witnessed by them. Next turn grounds to where they are.
             logger.info(f"[orwell] auto-move: narration keeps the player elsewhere, no move to {room} user={owner}")
@@ -12269,6 +12353,13 @@ async def _stream_agent_loop_impl(
                         if _emitted_visible:
                             await _bank_scene_consequences()
                         if _emitted_visible:
+                            from routes import chat_helpers as _ch_defer
+                            if (not _previewed_uncommitted and not _decision_undelivered and _premiere_staged(owner)
+                                    and _ch_defer.defer_postreply_arrival_commit(owner)):
+                                # ORW-1029: a staged arrival/toast batch committed AFTER the reply is never in that reply; the next turn's pre-reply release commits it where the narrator writes it.
+                                _note_belt(owner, "premiere-arrival-postreply-deferred")
+                                logger.info(f"[orwell] premiere arrival commit deferred to the next turn's pre-reply release round {round_num} user={owner}")
+                                break
                             if await _commit_advance_silently(
                                     "preview-commit" if _previewed_uncommitted
                                     else "decision-deliver" if _decision_undelivered
