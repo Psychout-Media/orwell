@@ -60,7 +60,9 @@ describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer f
         if (key !== m.last) {
           m.last = key;
           const q = s.live.approachAsked?.[it2.npc]?.q;
-          const had = m.open.get(it2.npc) ?? [];
+          // still open NOW as well as at the last stop: a record the asker's own earlier approach surfaced a step ago (a goal approach, then a plea in the next stretch) is not the ask's to answer for
+          const nowOpen = new Set((s.live.aimedAtPlayer ?? []).filter((r) => r.status === "open").map((r) => r.id));
+          const had = (m.open.get(it2.npc) ?? []).filter((id) => nowOpen.has(id));
           // a PURE milestone ask: not the goal's own question, and carrying no goal's words (a houseguest with a goal approach pending voices that goal whatever they step up
           // for, and that goal's record surfaces by design: ORW-709's "only that record's own goal does")
           if (q && !q.startsWith("goal:") && !(it2 as { say?: unknown }).say && had.length > 0) { seen = { npc: it2.npc, asked: q, open: had }; hit = true; }
@@ -71,7 +73,7 @@ describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer f
       m.open = open;
       return hit;
     };
-    const at = await firstStop(milestoneAskOnOpenRecord, wfScan(4, "a milestone ask by a houseguest who holds an open record"));
+    const at = await firstStop(milestoneAskOnOpenRecord, wfScan(9, "a milestone ask by a houseguest who holds an open record"));
     expect(seen, "the stop recorded the ask").toBeDefined();
     const recs = ((at.sess as Sess).live.aimedAtPlayer ?? []).filter((r) => seen!.open.includes(r.id));
     expect(recs.length).toBe(seen!.open.length);
