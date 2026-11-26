@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { PLAYER_TOOLS, PLAYER_AGENT_LEVERS } from "../../src/surfaces/tools/registry";
 import { PLAYER } from "../../src/domain/ids";
 import type { ExposeResult, TradeResult } from "../../src/ports/GameSession";
-import { playUntil, learned, type Stop } from "./playedSeason";
+import { playUntil, learned, wfScan, type Stop } from "./playedSeason";
+import { firstSeedWhere } from "../support/firstSeedWhere";
 
 /**
  * Features 0093 + 0099 - the BOUNDARY test (the four-place wiring gate). The static gates MISS a missing McpServer dispatch (#4): a lever wired in the port + adapter + registry but
@@ -52,12 +53,15 @@ describe("0093/0099 - the levers DISPATCH through the player channel on a secret
   }, 120_000);
 
   it("makeDeal dispatches WITH a leverage descriptor on the learned secret (the optional secret rides the existing tool)", async () => {
-    const { at, subject, factId } = await secretLearned(3);
-    // Leverage is about the deal PARTNER (the subject of the held secret).
-    const res = (await at.call("makeDeal", { with: subject, kind: "safety", terms: "keep me safe", leverage: { factId } })) as { id: string } | null;
-    expect(res).toBeTruthy();
-    expect(res!.id).toBeTruthy(); // the deal still forms (additive); leverage colored it
-  }, 120_000);
+    // ORW-892: whether the partner agrees to the deal is their own read of the player, so the scan picks a season where the deal forms; the claim is that the leverage descriptor rides the tool and the deal still forms
+    const f = await firstSeedWhere(async (seed) => {
+      const { at, subject, factId } = await secretLearned(seed);
+      // Leverage is about the deal PARTNER (the subject of the held secret).
+      const res = (await at.call("makeDeal", { with: subject, kind: "safety", terms: "keep me safe", leverage: { factId } })) as { id?: string } | null;
+      return res && res.id ? res : undefined;
+    }, wfScan(3, "a played season where the learned secret's subject agrees to a safety deal"));
+    expect(f.at.id).toBeTruthy(); // the deal still forms (additive); leverage colored it
+  }, 600_000);
 
   it("the arg-guard refuses a malformed call with a 400-shaped field error, never a 500", async () => {
     const { at } = await secretLearned(3);

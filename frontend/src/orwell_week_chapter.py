@@ -69,7 +69,8 @@ def save_week_chapter(owner, result) -> bool:
         if not sid or not mgr:
             return False
         sess = mgr.get_session(sid)
-        if _has_chapter(list(sess.history), wc["week"]):
+        from core.models import current_season_rows  # ORW-1051: an earlier season's chapter for this week number must not block this season's
+        if _has_chapter(current_season_rows(sess.history), wc["week"]):
             return False
         moment = None
         try:

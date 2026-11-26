@@ -171,7 +171,7 @@ export const ORWELL_MUTATING_TOOLS = Object.freeze([
   // Consequence loop + the single competition authority (all move the board the HUD reads).
   'recordInteraction', 'runCompetition', 'surfaceInformationTo', 'diaryRoom', 'recordImageBeat',
   // Presence & movement (0049 / ADR 0009), premiere meet-everyone (#380), the bedtime lever (ADR 0006).
-  'moveTo', 'moveHouseguest', 'markHouseguestMet', 'turnIn', 'hangOut', 'nap', 'resolvePlayerMove', // ORW-419: the intent-first player move
+  'moveTo', 'moveHouseguest', 'markHouseguestMet', 'turnIn', 'hangOut', 'nap', 'resolvePlayerMove', 'searchForHouseguest', // ORW-419: the intent-first player move; ORW-934: the engine-walked search
   // Per-message clock (P0a): announcing a player message steps the in-game clock the HUD reads.
   'noteMessage',
   // Deals & alliances (0039 / 0107).
