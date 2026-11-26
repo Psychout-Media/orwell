@@ -303,7 +303,8 @@ def kickoff_producer_authoring(owner: Optional[str]) -> None:
 
     async def _runner():
         try:
-            await run_authoring(owner)
+            from src.orwell_season_checklist import tracked, PRODUCER_PERSONA  # ORW-970: records owed/running/done/failed
+            await tracked(owner, PRODUCER_PERSONA, run_authoring, owner)
         except Exception as e:  # pragma: no cover - defensive
             # #1599: run_authoring records its own failures and is not expected to raise; a raise here
             # means the producer deepening silently degraded with no record — surface it RED. Seeded floor stands.

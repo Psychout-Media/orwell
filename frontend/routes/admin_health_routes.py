@@ -1830,6 +1830,13 @@ async def _health_snapshot(user: str | None) -> dict:
     # (enabled but unconfigured) surfaces here AND lights the RED alarm below. Vault-free/best-effort.
     faithfulness = _faithfulness_section(user)
 
+    # ORW-970 — the durable season-start checklist (step names, statuses, times; never cast text).
+    try:
+        from src import orwell_season_checklist as _sc
+        season_checklist = _sc.admin_view(user)
+    except Exception:
+        season_checklist = None
+
     # T0-4 (telemetry + probe arm) — every persisted per-endpoint CapabilityProfile (tool_choice
     # honoring / json conformance / reasoning-channel separation), Vault-free by construction
     # (capability_probe.py never stores a request/response body — counts, rates, short tier
@@ -1853,6 +1860,7 @@ async def _health_snapshot(user: str | None) -> dict:
         "images": images,
         "castAuthoring": cast_authoring,
         "enrichment": enrichment,
+        "seasonChecklist": season_checklist,
         # F10 / BL-019 — the faithfulness-judge health posture (dark ⇒ the RED alarm above fires).
         "faithfulness": faithfulness,
         # T0-4 — per-endpoint provider CapabilityProfiles (see src/capability_probe.py). A RED
@@ -1910,6 +1918,19 @@ def setup_admin_health_routes() -> APIRouter:
                 "versions": _versions(),  # build/PR is git-derived — still resolvable when the DB/engine is down
                 "error": "health snapshot degraded — recovery actions remain available",
             }
+
+    @router.get("/season-checklist")
+    async def admin_season_checklist(request: Request):
+        """ORW-970: the persisted season-start checklist for this admin's account, read-only: step names, statuses, times,
+        attempt counts and short machine reasons. No cast text."""
+        require_admin(request)
+        user = None
+        try:
+            user = effective_user(request)
+        except Exception:
+            pass
+        from src import orwell_season_checklist
+        return orwell_season_checklist.admin_view(user)
 
     @router.get("/token-economy")
     async def admin_token_economy(request: Request, user: str | None = None):
@@ -2476,6 +2497,9 @@ _STATUS_PAGE = """<!doctype html>
 <h1 style="margin-top:26px">CAST AUTHORING &middot; ENRICHMENT</h1>
 <div class="sub">The model-driven cast pipeline (genesis → identity → deep authoring → zeitgeist/texture): the runtime policy, the authoring run state, and every recorded per-class failure — a "no model wired" refusal lands here loudly instead of reading as in-fiction stalling.</div>
 <div id="enrichwrap"></div>
+<h1 style="margin-top:26px">SEASON START CHECKLIST</h1>
+<div class="sub">The persisted record of what this season's start still owes (house-entry hold, world snapshot, producer persona, habits and house culture). It survives a restart: owed steps are re-run at startup, with bounded retries. Statuses and times only.</div>
+<div id="seasonwrap"></div>
 <h1 style="margin-top:26px">LIVE LOG</h1>
 <div class="sub">Every log stream in the program, selectable. Auto-follows the tail while you are at the bottom; scrolling up pauses the follow — scroll back down to resume.</div>
 <div class="actions" style="margin:8px 0">
@@ -2592,6 +2616,17 @@ function render(d) {
     (eFails.map(f => "<tr><td>" + esc(fmt((f.at || 0) * 1000)) + "</td><td>" + esc(f.callClass) + "</td><td>" +
                      esc(f.reason) + (f.detail ? " — " + esc(f.detail) : "") + "</td></tr>").join("") ||
      "<tr><td colspan=3>No enrichment failures on record.</td></tr>") + "</tbody></table>";
+  // ORW-970: the season-start checklist (read-only; names, statuses, times, attempts, machine reasons).
+  const sc = d.seasonChecklist || null, scEl = document.getElementById("seasonwrap");
+  if (scEl) {
+    scEl.innerHTML = !sc || !sc.present ? "<div class='sub'>No season-start record for this account (a season that began before this was recorded, or none started).</div>" :
+      "<div class='sub' style='margin:6px 0'>Season " + esc(sc.season) + " &middot; started " + esc(sc.startedAt || "?") + (sc.closed ? " &middot; closed: " + esc(sc.closed) : "") + "</div>" +
+      "<table><thead><tr><th>Step</th><th>Status</th><th>Time (UTC)</th><th>Attempts</th><th>Reason</th><th>Next try</th></tr></thead><tbody>" +
+      (sc.steps || []).map(s => "<tr><td>" + esc(s.step) + "</td><td>" +
+        (s.status === "done" ? '<span class="ok">done</span>' : s.status === "failed" ? '<span class="bad">failed</span>' : '<span class="warn">' + esc(s.status) + "</span>") +
+        (s.detail ? " <span class='sub'>(" + esc(s.detail) + ")</span>" : "") + "</td><td>" + esc(s.at || "") + "</td><td class='num'>" + esc(s.attempts) +
+        "</td><td>" + esc(s.reason || "") + "</td><td>" + esc(s.nextAt || "") + "</td></tr>").join("") + "</tbody></table>";
+  }
 }
 // #1599 WI2 — render the per-class/-tool failure-rate rollup as three small tables (LLM call
 // classes, engine tools, guard/judge soft-failure classes). Vault-free: class tokens + counts.

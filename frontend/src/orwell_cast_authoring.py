@@ -4108,6 +4108,15 @@ _HOUSE_READY_RECHECK_S = _env_float("ORWELL_HOUSE_READY_RECHECK_S", 60.0)
 # would report a started game mid-hold). Doubles as the loud, in-process health signal (operator-
 # visible; read by tests). Never a silent floor start.
 _HOUSE_ENTRY_GATE_BLOCKS: dict = {}
+
+
+def _checklist_hold(user: Optional[str], held: bool) -> None:
+    """ORW-970: mirror the in-process hold marker into the persisted season-start checklist (a no-op without a record; never raises)."""
+    try:
+        from src import orwell_season_checklist
+        orwell_season_checklist.mark_hold(user, held)
+    except Exception:
+        pass
 # One background gate-clear watch per user (exactly-once post-start kicks on clear).
 _HOUSE_READY_WATCHES: dict = {}
 
@@ -4204,6 +4213,7 @@ def begin_house_entry_hold(user: Optional[str], info: Optional[dict] = None) -> 
     try:
         _HOUSE_ENTRY_GATE_BLOCKS[_safe_user(user)] = {
             "state": "authoring", **(info or {}), "at": time.time()}
+        _checklist_hold(user, True)
     except Exception:
         pass
 
@@ -4215,6 +4225,7 @@ def record_house_entry_gate_block(user: Optional[str], info: dict) -> None:
     try:
         _HOUSE_ENTRY_GATE_BLOCKS[_safe_user(user)] = {
             "state": "authoring", **(info or {}), "at": time.time()}
+        _checklist_hold(user, True)
     except Exception:
         pass
 
@@ -4222,6 +4233,7 @@ def record_house_entry_gate_block(user: Optional[str], info: dict) -> None:
 def clear_house_entry_gate_block(user: Optional[str]) -> None:
     """Clear the holding/refused marker once the cast is ready / the game genuinely starts."""
     _HOUSE_ENTRY_GATE_BLOCKS.pop(_safe_user(user), None)
+    _checklist_hold(user, False)
 
 
 def house_entry_gate_status(user: Optional[str]) -> Optional[dict]:
