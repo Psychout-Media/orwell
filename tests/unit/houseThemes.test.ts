@@ -44,7 +44,7 @@ describe("season house themes", () => {
     const forms968 = (room: string, name: string): Set<string> => {
       const composed = plainRoomName(room as never, name), plain = composed.toLowerCase().replace(/^the\s+/, "");
       const head = plain.replace(/\s+(kitchen|living room|dining room|backyard|hallway|bedroom|bathroom|lounge|hoh room|landing|storage room)$/, "");
-      return new Set([...formsOf(name, room === "diary-room"), ...formsOf(composed, room === "diary-room"), head, `the ${head}`]);
+      return new Set([...formsOf(name, room === "diary-room"), ...formsOf(composed, room === "diary-room"), head, `the ${head}`, ...(room.startsWith("bedroom") ? [`${head} room`, `the ${head} room`] : [])]); // ORW-1008: players say "the X room" for "the X Bedroom"
     };
     const legacyForms = (themeId: string, room: string): Set<string> => {  // the names the library carried before the light-form pass stay aliases (a season in progress)
       const old = (LEGACY_ROOM_NAMES[themeId] as Record<string, string> | undefined)?.[room];

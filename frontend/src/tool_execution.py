@@ -21,6 +21,7 @@ from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 from src.tool_security import is_public_blocked_tool, owner_may_use_god_mode_tools
 from src.tool_policy import ToolPolicy
 from src.constants import MAX_OUTPUT_CHARS, MAX_READ_CHARS, MAX_DIFF_LINES
+from src.failsoft_counter import note as _failsoft_note  # ORW-1026: a swallowed failure is counted, not silent
 
 # Persistent working directory for agent subprocesses.
 # Resolves to <repo_root>/data, which is the bind-mounted volume in Docker
@@ -216,7 +217,8 @@ def _tool_path_roots() -> list[str]:
         extra = get_setting("tool_path_extra_roots")
         if isinstance(extra, list):
             roots.extend(str(r) for r in extra if r)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("tool_execution:_tool_path_roots:1", _fs_exc)
         pass
 
     # Deduplicate; resolve symlinks so containment is unambiguous.
@@ -424,7 +426,7 @@ async def _run_subprocess_streaming(
                 except Exception:
                     # Progress is best-effort — never let a UI hiccup
                     # break the underlying subprocess.
-                    pass
+                    pass  # failsoft-ok: UI progress tick is best-effort: a dropped tick never affects the tool result
             await asyncio.sleep(PROGRESS_INTERVAL_S)
 
     rd_out = asyncio.create_task(_reader(proc.stdout, stdout_full, "out"))
@@ -439,11 +441,11 @@ async def _run_subprocess_streaming(
         try:
             proc.kill()
         except Exception:
-            pass
+            pass  # failsoft-ok: best-effort teardown: the process or stream is already gone
         try:
             await asyncio.wait_for(proc.wait(), timeout=2)
         except Exception:
-            pass
+            pass  # failsoft-ok: best-effort teardown: the process or stream is already gone
     except asyncio.CancelledError:
         # User hit stop / SSE stream torn down. Kill the child so it
         # doesn't keep running orphaned. Re-raise so the agent loop's
@@ -451,11 +453,11 @@ async def _run_subprocess_streaming(
         try:
             proc.kill()
         except Exception:
-            pass
+            pass  # failsoft-ok: best-effort teardown: the process or stream is already gone
         try:
             await asyncio.wait_for(proc.wait(), timeout=2)
         except Exception:
-            pass
+            pass  # failsoft-ok: best-effort teardown: the process or stream is already gone
         # Best-effort: stop the readers + emitter before re-raising.
         for t in (rd_out, rd_err):
             t.cancel()
@@ -474,7 +476,7 @@ async def _run_subprocess_streaming(
             try:
                 await asyncio.wait_for(t, timeout=1)
             except Exception:
-                pass
+                pass  # failsoft-ok: best-effort teardown: the process or stream is already gone
 
     return (
         "\n".join(stdout_full),
@@ -1681,14 +1683,16 @@ async def execute_tool_block(
             try:
                 from src import orwell_week_chapter
                 orwell_week_chapter.save_week_chapter(owner, result)
-            except Exception:
+            except Exception as _fs_exc:
+                _failsoft_note("tool_execution:execute_tool_block:1", _fs_exc)
                 pass
         # ORW-271: after a successful turnIn, condense the closed day in the BACKGROUND (idempotent, fail-soft, never blocks sleep).
         if isinstance(result, dict) and not result.get("error"):
             try:
                 from src import orwell_day_condense
                 orwell_day_condense.kickoff_after_turn_in(owner, result)
-            except Exception:
+            except Exception as _fs_exc:
+                _failsoft_note("tool_execution:execute_tool_block:2", _fs_exc)
                 pass
     elif tool.startswith("mcp__"):
         # MCP tool dispatch
@@ -1711,6 +1715,11 @@ async def execute_tool_block(
     # ORW-706: a refused game-engine call said nothing about WHY in the journal (six refused recordInteraction calls left no reason). Log the engine's own refusal text, capped; it is Vault-free by construction.
     if isinstance(result, dict) and result.get("exit_code") not in (None, 0, "n/a") and isinstance(result.get("error"), str) and str(tool) in ("recordInteraction", "makeDeal", "surfaceInformationTo"):
         logger.warning("[orwell] %s refused: %s", tool, result["error"][:300])
+        try:  # ORW-1022: every engine refusal of a front-end write is a counted, visible class (never a silent loss)
+            from src import log_rings
+            log_rings.record_soft_failure(f"engine-refusal:{tool}", result["error"][:200], corrected="write-skipped")
+        except Exception:  # failsoft-ok: the health record must never break the tool result
+            pass
     return desc, result
 
 

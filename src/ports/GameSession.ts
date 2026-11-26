@@ -1139,7 +1139,8 @@ export interface AskToTalkAloneReq { npcId: EntityId; room?: string; private?: b
  * ORW-727b: `accepted` (they are in `room` now: the player too when private), `declined` (they stay put; voice their refusal in character, never a reason), `occupied` (every private room has someone in it: nothing moved),
  * `gathered` (the whole house is gathered for an event; nothing moved). Vault-free: an outcome and a room, never a number or a reason.
  */
-export interface AskToTalkAloneResult { outcome: "accepted" | "declined" | "occupied" | "gathered"; room?: string; roomName?: string; beatSeq?: number }
+/** ORW-1064: "ambiguous-room" / "unknown-room": the room the player named is not one room (or none): nothing moved, `candidates` lists the rooms it could mean, and the narrator voices that the player must say which. */
+export interface AskToTalkAloneResult { outcome: "accepted" | "declined" | "occupied" | "gathered" | "ambiguous-room" | "unknown-room"; room?: string; roomName?: string; candidates?: string[]; beatSeq?: number }
 
 /** 0142: the houseguests who owe the player a favor for a deal they kept (Vault-free; `n` is how many are banked). */
 export interface OwedFavorView { from: NamedRef; n: number }
@@ -2240,7 +2241,8 @@ export type PlayerMoveView =
   | { refused: true; reason: string; from?: string; to?: string; msg?: string };
 
 /** ORW-419 - `resolvePlayerMove` request: the player's own message text (never the narration). */
-export interface ResolvePlayerMoveReq { /** ORW-1003: the previous narrator reply (player-visible text), for "head over there" / "I follow her". */ previousReply?: string; text: string; expectedBeatSeq?: number; idempotencyKey?: string }
+/** ORW-1014: `skip` names the text parses the caller has already decided another way (the act-first round owns the player's move, search and bed claim); the other resolvers in the seam still run. */
+export interface ResolvePlayerMoveReq { /** ORW-1003: the previous narrator reply (player-visible text), for "head over there" / "I follow her". */ previousReply?: string; text: string; expectedBeatSeq?: number; idempotencyKey?: string; skip?: ReadonlyArray<"move" | "bed"> }
 /** ORW-419 - the result: the recorded `playerMove` (null when the words held no clear move) + the resulting whereabouts. */
 export interface ResolvePlayerMoveResult { playerMove: PlayerMoveView | null; whereabouts: WhereaboutsView | null; beatSeq?: number; /** ORW-934: set when the words were a search for a houseguest and the engine walked it. */ search?: HouseSearchWalk }
 
@@ -2285,6 +2287,8 @@ export interface RoomCardView { room: string; name: string; look?: string; here:
 export interface WhereaboutsView {
   /** The room the player is in. */
   room: string;
+  /** ORW-1064: present only on the answer to a move the engine REFUSED because the room named is ambiguous (`candidates`) or unknown: the player did not move, and the narrator must voice that they have to say which room. */
+  moveRefused?: { reason: "ambiguous-room" | "unknown-room"; asked: string; candidates?: string[] };
   /** ORW-466: this season's name for every room ("the Coral Reef Room"), when the season has a house theme. Absent: the plain labels stand. */
   roomNames?: Partial<Record<string, string>>;
   /** ORW-466: one line of what the player's room looks like this season (the house theme), for the narrator. */
@@ -2411,6 +2415,9 @@ export interface WhereaboutsView {
  */
 export interface HouseguestMoveResult {
   status: "moved" | "noop" | "illegal";
+  /** ORW-1064: on "illegal" for a room the name did not settle: "ambiguous-room" (see `candidates`, nothing moved) or "unknown-room". */
+  reason?: "ambiguous-room" | "unknown-room";
+  candidates?: string[];
   whereabouts: WhereaboutsView | null;
   /** A29 - on "moved" only: the closed-set beatSeq AFTER the commit this move made, so the front-end adopts it and its next compare-and-swap call is not a self-inflicted stale-beat 409. */
   beatSeq?: number;
@@ -3055,6 +3062,10 @@ export interface NapView {
   whereabouts?: WhereaboutsView | null;
   timeOfDay?: string;
   beatSeq: number;
+  /** ORW-1067: present when the engine changed the asked-for length (out of range, off the half-hour step, or not a number): the value applied. Absent when the request was used as given. */
+  clamped?: true;
+  hoursApplied?: number;
+  hoursAsked?: number;
 }
 
 export interface HangOutReq {
@@ -3085,6 +3096,10 @@ export interface HangOutView {
   detail?: { by?: string; npc?: string; desire?: string; kind?: string; who?: string[] };
   timeOfDay?: string;
   beatSeq: number;
+  /** ORW-1067: present when the engine changed `maxBeats` (floored, raised to 1, capped at 8, or not a number): the value applied. */
+  clamped?: true;
+  maxBeatsAsked?: number;
+  maxBeatsApplied?: number;
 }
 
 export interface AdvanceGameReq {
@@ -3794,6 +3809,8 @@ export interface GameSession {
    * unknown or non-active houseguest (the departed are voiced from the public record only).
    */
   npcVoice(id: EntityId): NpcVoiceView | null;
+  /** ORW-1067: why an `npcVoice` lookup of an id or name found nobody: ambiguous (the public candidate names) or unknown. */
+  voiceLookup(key: string): { status: "found"; id: EntityId } | { status: "ambiguous"; candidates: NamedRef[] } | { status: "unknown" };
 
   /**
    * The knowledge-wall manifest (ship-blocker A0) — the player's private disclosures that are sealed

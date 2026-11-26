@@ -1,6 +1,7 @@
 # src/llm_core.py
 import httpx
 import asyncio
+import contextvars
 import os
 import time
 import json
@@ -298,13 +299,63 @@ def _redact_for_log(text, limit: int = 300) -> str:
     return t[:limit]
 
 
+# ORW-1024: the call class of the code asking for this completion (a "module.function" label set by the
+# shared authoring resolver from its caller), so a provider failure names who sent it. Labels only.
+LLM_CALLER: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVar("llm_caller", default=None)
+
+JSON_WORD_REMINDER = "Reply with a single JSON object."
+
+
+def _content_texts(content):
+    if isinstance(content, str):
+        yield content
+    elif isinstance(content, list):
+        for b in content:
+            if isinstance(b, dict):
+                yield str(b.get("text") or "")
+
+
+def messages_mention_json(messages) -> bool:
+    """ORW-1024: True when any message text contains the word json (any case). DeepSeek answers 400
+    "Prompt must contain the word 'json'" to a json_object request whose prompt never says it."""
+    try:
+        for m in messages or []:
+            if isinstance(m, dict) and any("json" in t.lower() for t in _content_texts(m.get("content"))):
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def ensure_json_word(messages):
+    """ORW-1024: the ONE shared helper for json_object calls. Returns the messages unchanged when they already
+    carry the word json; otherwise a copy whose last user message ends with a short JSON instruction (a new
+    user message when there is none). Appended at the END so the cached prompt prefix is untouched."""
+    if messages_mention_json(messages):
+        return messages
+    out = [dict(m) if isinstance(m, dict) else m for m in (messages or [])]
+    for i in range(len(out) - 1, -1, -1):
+        m = out[i]
+        if isinstance(m, dict) and m.get("role") == "user":
+            c = m.get("content")
+            if isinstance(c, str):
+                m["content"] = c + "\n\n" + JSON_WORD_REMINDER
+                return out
+            if isinstance(c, list):
+                m["content"] = list(c) + [{"type": "text", "text": JSON_WORD_REMINDER}]
+                return out
+            break
+    out.append({"role": "user", "content": JSON_WORD_REMINDER})
+    return out
+
+
 def _log_stream_failure(what, target_url, model, started, body=None) -> None:
     """One WARNING per provider-stream failure so a player-visible interlude is attributable.
     Host only (never the URL/query), never headers/payload/keys."""
     try:
         elapsed = time.monotonic() - started
         msg = (f"[orwell] provider stream failed: {what} host={_host_key(target_url)} "
-               f"model={model} elapsed={elapsed:.1f}s")
+               f"model={model} elapsed={elapsed:.1f}s caller={LLM_CALLER.get() or 'unknown'}")
         if body is not None:
             msg += f" body={_redact_for_log(body)!r}"
         logger.warning(msg)
@@ -1720,6 +1771,43 @@ async def llm_call_async(
         prompt_type=prompt_type, call_class=call_class, user=user, session=session)
 
 
+async def llm_tool_call_async(url: str, model: str, messages: List[Dict], tools: List[Dict], tool_choice: object = "required",
+                              temperature: float = 0.0, max_tokens: int = 300, headers: Optional[Dict] = None,
+                              timeout: float = 15.0) -> List[Dict]:
+    """ORW-1014 - ONE non-streaming OpenAI-style call that returns the model's tool calls as ``[{"name", "arguments": dict}]`` (empty when it
+    made none). For the act-first round: a small closed toolset with a forced ``tool_choice``. No retries (the caller fails soft), thinking is
+    disabled on deepseek.com exactly as on every other call. Raises on a transport error, an HTTP error or an unsupported provider."""
+    url, model, headers = _enforce_text_route(url, model, headers)
+    provider = _detect_provider(url)
+    if provider in ("anthropic", "ollama"):
+        raise ValueError(f"tool-call round unsupported on provider {provider}")
+    target_url = _ensure_openai_chat_path(url)
+    h = _provider_headers(provider, headers)
+    payload: Dict = {"model": model, "messages": _sanitize_llm_messages(messages), "temperature": temperature,
+                     "tools": tools, "tool_choice": tool_choice}
+    if _restricts_temperature(model):
+        payload.pop("temperature", None)
+    _apply_deepseek_thinking_off(payload, url, model)
+    if max_tokens and max_tokens > 0:
+        payload["max_completion_tokens" if _uses_max_completion_tokens(model) else "max_tokens"] = max_tokens
+    if _is_host_dead(target_url):
+        raise HTTPException(503, f"Upstream {_host_key(target_url)} marked unreachable (cooldown active)")
+    r = await _get_http_client().post(target_url, headers=h, json=payload,
+                                      timeout=httpx.Timeout(connect=3.0, read=float(timeout), write=10.0, pool=5.0))
+    if not r.is_success:
+        raise HTTPException(r.status_code, _format_upstream_error(r.status_code, r.text, target_url))
+    msg = ((r.json().get("choices") or [{}])[0] or {}).get("message") or {}
+    out: List[Dict] = []
+    for c in (msg.get("tool_calls") or []):
+        fn = (c or {}).get("function") or {}
+        try:
+            args = json.loads(fn.get("arguments") or "{}")
+        except Exception:
+            args = {}
+        out.append({"name": fn.get("name"), "arguments": args if isinstance(args, dict) else {}})
+    return out
+
+
 async def _bounded_impl_call(*args, timeout: int, **impl_kwargs) -> str:
     """N4 (2026-07-16 live-playthrough forensics) — wrap ``_llm_call_async_impl`` in a genuine
     WALL-CLOCK ceiling of ``timeout`` seconds, enforced over the WHOLE call (every retry attempt
@@ -2223,6 +2311,8 @@ async def stream_llm(url: str, model: str, messages: List[Dict], temperature: fl
         # returns strict JSON for the cast-authoring path. A provider that ignores it is harmless.
         if response_format:
             payload["response_format"] = response_format
+            if isinstance(response_format, dict) and response_format.get("type") == "json_object":
+                payload["messages"] = ensure_json_word(payload["messages"])  # ORW-1024: the provider 400s without the word
         if tools:
             payload["tools"] = tools
             # #1154 / ADR 0016 §D — FORCE the tool call at a catastrophic-miss beat. Only meaningful

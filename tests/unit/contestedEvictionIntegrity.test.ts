@@ -286,10 +286,10 @@ describe("#1106 — a REAL contested eviction (player-HOH TIE) through the produ
       expect(recovered.faults.filter((f) => f.kind === "degradation").length).toBeGreaterThanOrEqual(3);
       expect(recovered.faults.length).toBeLessThanOrEqual(20);
 
-      // A DUPLICATE tie-break submission (second window, replayed turn) is an inert no-op: no second
+      // A DUPLICATE tie-break submission (second window, replayed turn) is REFUSED (ORW-1063) and inert: no second
       // eviction, no fault, the board unchanged.
       const savedAfter = JSON.stringify(store.loadLatest(user)!);
-      live.session.submitDecision({ kind: "tie-break", vote: tie!.options[1]!.id });
+      expect(() => live.session.submitDecision({ kind: "tie-break", vote: tie!.options[1]!.id })).toThrow(/decision refused \(no-pending\)/); // ORW-1063: refused with its reason, still nothing recorded
       expect(reg.sandboxFor(user).session.snapshot().live?.evictionOrder ?? []).toEqual(evictionOrder);
       expect((orch.sandboxHealth(user) as HealthRecord).lastIntegrity).toBe("ok");
       expect(JSON.stringify(store.loadLatest(user)!)).toBe(savedAfter);

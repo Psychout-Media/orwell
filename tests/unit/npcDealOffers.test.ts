@@ -102,7 +102,7 @@ describe("0123 — a houseguest floats the player a deal, resolved accept/declin
     const beforeThreat = sb.engine.relationships.edge(from, PLAYER).threat;
     const beforeDeals = (sb.session.getGameState().deals ?? []).length;
     // A garbled/stale client call with no explicit accept/decline must NOT consume the offer or cool the NPC.
-    sb.session.submitDecision({ kind: "deal-offer" } as never);
+    expect(() => sb.session.submitDecision({ kind: "deal-offer" } as never)).toThrow(/decision refused \(bad-answer\)/); // ORW-1063: refused with its reason
     expect(sb.engine.relationships.edge(from, PLAYER).threat).toBe(beforeThreat); // no hidden cooling
     expect((sb.session.getGameState().deals ?? []).length).toBe(beforeDeals);     // no deal created
     // The offer still stands and can be answered properly afterward.
@@ -234,7 +234,7 @@ describe("0123 — a deal-offer answer after the season ends binds nothing", () 
     snap.live!.finished = true;
     sb.session.restore(snap);
     const before = (sb.session.getGameState().deals ?? []).length;
-    sb.session.submitDecision({ kind: "deal-offer", vote: "accept" });
+    expect(() => sb.session.submitDecision({ kind: "deal-offer", vote: "accept" })).toThrow(/decision refused \(no-pending\)/); // ORW-1063
     expect((sb.session.getGameState().deals ?? []).length).toBe(before);
     expect(offer.from.id).not.toBe(PLAYER);
   });
