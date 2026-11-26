@@ -312,6 +312,8 @@
   function _onAck(frame) {
     var cid = frame.cid;
     var d = frame.d || {};
+    // ORW-941: a turn ack carries the engine's current beatSeq (background write-backs move it with no edge to the page); note it (monotonic) so the next up-frame's token is fresh.
+    if (cid && _pending[cid] && _pending[cid].t !== "hello" && typeof d.beatSeq === "number") _noteBeat(d.beatSeq);
     // Handshake ack (hello/bind): carries canonicalId/live/beatSeq (§2.3).
     if (cid && _pending[cid] && _pending[cid].t === "hello") {
       var p = _pending[cid]; delete _pending[cid];
