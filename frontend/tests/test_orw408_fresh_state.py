@@ -139,3 +139,13 @@ def test_through_the_real_loop_an_empty_cache_still_gets_a_check_and_the_contrad
     emitted, _c, _s, _n = t408._drive(monkeypatch, rounds_scripts=[{"deltas": [t408.CLEAN_A, t408.BAD, t408.TAIL]}], flag="0", engine_state=STATE, owner="orw408-fresh")
     assert pc.PREDISPLAY_COUNTS.get(pc.FACT_ASLEEP) == 1, pc.PREDISPLAY_COUNTS
     assert pc.CHECK_STATS["skipped"] == {} and pc.CHECK_STATS["stateFrom"]["read"] >= 1
+
+
+@pytest.mark.usefixtures("non_game_text_routing")
+def test_with_the_rewrite_on_a_contradicting_reply_never_reaches_the_player_even_after_a_write(monkeypatch):
+    """The shipped default (no env): the cache starts EMPTY (as after a narrator turn's writes), the check takes its one read, the contradicting sentence is withheld and redone."""
+    monkeypatch.delenv("ORWELL_PREDISPLAY_REWRITE", raising=False)
+    assert pc.predisplay_rewrite_enabled() is True
+    emitted, cont, _s, _n = t408._drive(monkeypatch, rounds_scripts=[{"deltas": [t408.CLEAN_A, t408.BAD, t408.TAIL]}], redo=t408.REDO.strip(), flag=None, engine_state=STATE, owner="orw408-on")
+    assert "Sleeper Role says" not in emitted and "Morning, everyone" not in emitted
+    assert len(cont) == 1 and emitted.strip() == (t408.CLEAN_A + t408.REDO).strip()
