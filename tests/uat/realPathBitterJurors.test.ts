@@ -76,7 +76,7 @@ describe("0182 REAL PATH: a juror's grudge leans their finale vote away from tha
  * ORW-843: a natural grudge FLIPS finale votes. The calibration report (tests/calibration/grudgeVoteFlip.test.ts) measured a few NPC juror votes in a hundred
  * changed (on main at 2026-11-24: seeds 2, 3 and 14 of 1-18, four votes, no winner changed; the earlier main also changed seed 14's winner). Same method: a season played to the finale, saved, and the save played under the SAME
  * sandbox name (each copy in its own registry, so every copy draws the same numbers) with grudges on (as shipped), off, and on again (the control).
- * PRECONDITION (the scan, hint 14, sandboxes gf-<seed>): some NPC juror votes differently with grudges on and off. CLAIMS: the control copy plays the same finale as the on copy,
+ * PRECONDITION (the scan, hint 10, sandboxes gf-<seed>): some NPC juror votes differently with grudges on and off. CLAIMS: the control copy plays the same finale as the on copy,
  * and every juror whose vote changed moved AWAY from a finalist they hold a grudge against.
  */
 type Fin = { votes: Record<string, string>; finalists: string[]; winner?: string; grudge: (j: string, f: string) => number };
@@ -96,7 +96,7 @@ describe("ORW-843 REAL PATH: a natural grudge changes finale votes", () => {
       const save = g.s.snapshot();
       const a = copy(seed, sandbox, save, true), b = copy(seed, sandbox, save, false);
       return Object.keys(a.votes).some((j) => j !== PLAYER && a.votes[j] !== b.votes[j]) ? { save, a, b } : undefined;
-    }, { from: 1, to: 18, hint: 14, sandbox: (s) => `gf-${s}`, what: "a finale where some juror votes differently with grudges on and off" });
+    }, { from: 1, to: 18, hint: 10, sandbox: (s) => `gf-${s}`, what: "a finale where some juror votes differently with grudges on and off" });
     on = found.at.a; off = found.at.b; again = copy(found.seed, found.sandbox, found.at.save, true);
   }, 1_800_000);
 
