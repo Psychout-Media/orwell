@@ -12,8 +12,8 @@ type Pull = { target: string; weight: number; avoid: boolean };
 const pullOf = (s: Stop, id: string): Pull | undefined => (s.sess.movementIntentFor(id) as Pull[] | null)?.find((p) => p.target === PLAYER);
 const learnedNow = (s: Stop): string[] => {
   const tod = s.sess.live?.timeOfDay as string | undefined;
-  const seen = (s.sess.live?.npcRoutineSightings ?? {}) as Record<string, Record<string, Record<string, number[]>>>;
-  return (s.sess.livingIds() as string[]).filter((id) => id !== PLAYER && Object.entries(seen[id]?.[PLAYER] ?? {}).some(([k, days]) => !!tod && k.startsWith(`${tod}:`) && knowsRoutine(days.length)));
+  const haunts = (s.sess.live?.playerHaunts ?? {}) as Record<string, Record<string, number[]>>;
+  return (s.sess.livingIds() as string[]).filter((id) => id !== PLAYER && Object.entries(haunts[id] ?? {}).some(([k, days]) => !!tod && k.startsWith(`${tod}:`) && knowsRoutine(days.length)));
 };
 
 /** The stop's precondition: the layer changes someone's movement intent right now (a learned houseguest with no avoid and a bond that lets them lean in). */

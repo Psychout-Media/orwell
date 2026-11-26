@@ -7654,8 +7654,9 @@ export class GameSessionAdapter implements GameSession {
   private applyPlayerHauntToPulls(id: EntityId, pulls: MovementPull[], neutralBond: number): void {
     const s = this.live;
     if (!s || !s.timeOfDay) return;
-    const seen = s.npcRoutineSightings?.[id];
-    if (!seen) return;
+    const seen: Record<string, Record<string, number[]>> = { ...(s.npcRoutineSightings?.[id] ?? {}) };
+    if (this.house && s.playerHaunts?.[id]) seen[this.house.player.id] = s.playerHaunts[id]!; // the player's usual rooms (their own store: the player has no routine rows)
+    if (!Object.keys(seen).length) return;
     const active = new Set(this.presenceActive());
     for (const [holder, byKey] of Object.entries(seen)) {
       if (holder === id || !active.has(holder)) continue;
@@ -15710,7 +15711,7 @@ export class GameSessionAdapter implements GameSession {
       if (id === house.player.id || this.presence?.get(id) !== playerRoom) continue;
       // ORW-981 (spec 0209, the other half): a houseguest awake in the room with the player on separate days at the same time of day has SEEN where the player usually is then. Engine-only, counted like any routine sighting
       // (`npcRoutineSightings[onlooker][player]`); monotonic; no draw.
-      if (this.routineHauntsEnabled) noteSighting(((s.npcRoutineSightings ??= {})[id] ??= {}), house.player.id, `${tod}:${playerRoom}`, day);
+      if (this.routineHauntsEnabled) { const d = (((s.playerHaunts ??= {})[id] ??= {})[`${tod}:${playerRoom}`] ??= []); if (!d.includes(day)) d.push(day); }
       const character = this.agendaCharacterOf(id);
       if (!character) continue;
       const rs = this.routinesOf(id, character, s.npcMindsAuthored?.traits?.[id]?.habits, seed);
