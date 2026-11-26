@@ -237,3 +237,25 @@ export function matchHouseguestName<T extends { name: string }>(phrase: string, 
   const hits = candidates.filter((c) => { const n = norm(c.name); return n === q || n.split(" ")[0] === q; });
   return hits.length === 1 ? hits[0]! : null;
 }
+
+/**
+ * ORW-1003 (Ryne: walk with them, don't talk about it): a go with no named place. "walk over and say hi", "head over there", "go over to them" go to the houseguest or group last named; "I follow her/him/them"
+ * goes after whoever just left. Only the FORM is read here (quoted speech ignored; hedged / negated / later clauses never count); the engine resolves who and where from public presence.
+ */
+const VAGUE_GO = /\b(?:walk|walks|head|heads|go|goes|step|steps|wander|wanders|move|moves|come|comes)\s+(?:on\s+)?(?:over(?:\s+there|\s+to\s+(?:them|him|her))?|there)\b/;
+const FOLLOW_PRONOUN = /\b(?:follow|follows|trail|trails|go after|goes after|go with|goes with)\s+(her|him|them)\b/;
+export type VagueGo = { kind: "over" } | { kind: "follow"; pronoun: "her" | "him" | "them" };
+export function parseVagueGo(text: string): VagueGo | null {
+  if (typeof text !== "string" || text.trim() === "") return null;
+  const unquoted = text.replace(/"[^"]*"/g, " ").replace(/\u201c[^\u201d]*\u201d/g, " ");
+  let out: VagueGo | null = null;
+  for (const c of unquoted.match(/[^.!?;\n]+[.!?;\n]*/g) ?? []) {
+    if (/\?\s*$/.test(c.trim())) continue;
+    const s = clean(c);
+    if (s === "" || QUESTION_START.test(s) || NOT_A_MOVE.test(moveHead(s))) continue;
+    const f = FOLLOW_PRONOUN.exec(s);
+    if (f) { out = { kind: "follow", pronoun: f[1] as "her" | "him" | "them" }; continue; }
+    if (VAGUE_GO.test(s)) out = { kind: "over" };
+  }
+  return out;
+}

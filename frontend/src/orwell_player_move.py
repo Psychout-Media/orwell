@@ -21,7 +21,7 @@ BELT_NAME = "player-move-intent"
 
 
 async def resolve_player_move_before_narrator(text: Any, user: Optional[str], client_msg_id: Optional[str] = None,
-                                              *, engine: Any = None) -> Optional[dict]:
+                                              *, engine: Any = None, previous_reply: Optional[str] = None) -> Optional[dict]:
     """Resolve the player's own move from ``text`` in the engine. Returns the engine's ``playerMove`` dict ({from,to} or
     {refused,reason}) when the words held a clear move, else None. Never raises."""
     try:
@@ -30,7 +30,8 @@ async def resolve_player_move_before_narrator(text: Any, user: Optional[str], cl
         if engine is None:
             from src import orwell_engine as engine  # type: ignore[no-redef]
         key = f"move:{client_msg_id}" if client_msg_id else None
-        res = await engine.resolve_player_move(text, key, user=user)
+        extra = {"previous_reply": previous_reply} if previous_reply else {}
+        res = await engine.resolve_player_move(text, key, user=user, **extra)
         if not isinstance(res, dict):
             return None
         try:
