@@ -1209,6 +1209,11 @@ async def _startup_event():
         _startup_tasks.append(start_bg_monitor())
     except Exception as _e:
         logger.warning("Failed to start background-job monitor: %s", _e)
+    try:  # ORW-1019: the hourly read-only provider balance check (warns under the configured line)
+        from src import orwell_provider_balance
+        _startup_tasks.append(asyncio.create_task(orwell_provider_balance.run_forever()))
+    except Exception as _e:  # failsoft-ok: a balance check never blocks startup
+        logger.warning("Failed to start the provider balance check: %s", _e)
     # MCP servers can be slow or blocked by local tooling. Connect them after
     # the web server is accepting traffic instead of delaying the whole UI.
     async def _startup_mcp_connections():
