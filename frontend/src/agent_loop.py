@@ -4156,6 +4156,15 @@ _SUMMON_RE = re.compile(
     r"pull\s+\w+\s+aside|ask|asks|tell|tells|wave|waves|beckon)\b", re.I)
 
 
+def _companion_ids(owner) -> set:
+    """ORW-1030: the houseguests who agreed to walk with the player (engine-fact store); empty on any hiccup."""
+    try:
+        from src import orwell_companions as _oc
+        return set(_oc.companions_of(owner))
+    except Exception:
+        return set()
+
+
 def _player_summoned(last_user, name) -> bool:
     """ORW-210: did the PLAYER's message ask this houseguest to come over (their name + a summoning verb)?
     Only then may the FE turn a narrated arrival into a real move. Merely naming them is not enough.
@@ -4271,7 +4280,7 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
             if _proom:
                 _kept = []
                 for hid, room in picks:
-                    if room == _proom and not _player_summoned(last_user, _roster_names.get(hid)):
+                    if room == _proom and not _player_summoned(last_user, _roster_names.get(hid)) and hid not in _companion_ids(owner):  # ORW-1030: an agreed companion walking with the player is no unrequested arrival
                         logger.info(f"[orwell] auto-move-npc: dropped unrequested arrival of {hid} into the player's room")
                         continue
                     _kept.append((hid, room))
@@ -13567,6 +13576,12 @@ async def _stream_agent_loop_impl(
                                   if isinstance(ev, dict) and ev.get("tool")}
             _desync_progressed = bool(_desync_tool_names & _PROGRESSION_TOOLS)
             await record_post_turn_desync_check(owner, _turn_narration_full, _desync_progressed)
+            try:  # ORW-1030: register/end the player's agreed companions and re-seat them in the player's room through the engine
+                from src import orwell_companions as _oc
+                if await _oc.update(owner, _extract_last_user_message(messages) or "", _turn_narration_full):
+                    _note_belt(owner, "companion-reseat")
+            except Exception as _comp_err:  # failsoft-ok: companions are an aid; the next turn re-checks
+                logger.warning(f"[orwell] companions update failed: {_comp_err}")
         except Exception as _desync_err:
             logger.warning(f"[orwell] post-turn desync check failed: {_desync_err}")
 
