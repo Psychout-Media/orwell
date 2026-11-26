@@ -3178,7 +3178,8 @@ _CLAIM_NOMINATED_RE = re.compile(
 )
 # A nomination narrated as happening NOW ("the HOH nominates two houseguests") while nominees are already committed is a re-enacted ceremony, not a recap.
 _PRESENT_NOMINATION_ACT_RE = re.compile(r"\b(?:nominates|is nominating|are nominating|nominating)\b", re.IGNORECASE)
-_NOM_HYPOTHETICAL_RE = re.compile(r"\b(?:if|suppose|imagine|what if|would|could|might|hypothetically|were you|were I|had I|in case)\b", re.IGNORECASE)
+# ORW-1021: + a negated intent ("Cora's not gonna nominate somebody she has a thing with", "won't nominate"): talk of what someone will not do, not a nomination made. Plain future / "going to" stays a claim (the key ritual is voiced as "I'm going to turn the first key now").
+_NOM_HYPOTHETICAL_RE = re.compile(r"\b(?:if|suppose|imagine|what if|would|could|might|hypothetically|were you|were I|had I|in case|won(?:'|\u2019)?t)\b|\b(?:not|never|isn(?:'|\u2019)?t|aren(?:'|\u2019)?t)\s+(?:gonna|going\s+to)\b", re.IGNORECASE)
 
 
 # ORW-429: talk of WORRY about the block / the vote ("nervous about the vote", "afraid of going up", "scared of being on the block", "who will be nominated", "dreading the nominations") is not a
@@ -3377,6 +3378,7 @@ _CLAIM_CLAUSE_SPLIT_RE = re.compile(r"[,;:]|—|–|\s-{1,2}\s|--")
 # is the rule form; a bare "last one standing" mid-sentence is a RESULT phrase ("Hoh Person, last one standing, is the new HOH") and is NOT a cue.
 _CLAIM_RULE_CUE_RE = re.compile(
     r"\b(?:will\s+(?:be|become|win|take|earn|get)|would|shall|going\s+to|gonna|to\s+become|stands?\s+to|the\s+rules?|whoever|whichever)\b"
+    r"|\b(?:win|earn|take|beat)\s+(?:it|this|that)\s+and\b"  # ORW-1021: the stakes line "Win it and you're Head of Household" is the rule, not a crowning
     r"|(?:'|\u2019)ll\s+be\b",
     re.IGNORECASE,
 )
@@ -5816,7 +5818,7 @@ _CLAIM_VETO_INTENT_RE = re.compile(
     # third person: Name is going to / will use the veto
     r"|\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)(?i:\s+(?:is\s+(?:gonna|going\s+to)|will|'ll|’ll)\s+use\s+(?:it|the\s+(?:power of )?veto|pov)\b)")
 _VETO_N1_HYP_RE = re.compile(
-    r"\b(?:whoever|whomever|if|unless|could|would|might|may|should|hope[sd]?|hoping|wonders?|wondered|"
+    r"\b(?:whoever|whomever|who(?:'s|\u2019s|\s+is|\s+was|\s+has|\s+will)|if|unless|could|would|might|may|should|hope[sd]?|hoping|wonders?|wondered|"
     r"wants? to|wanted to|try(?:ing)? to|dream(?:s|ed)? of|debat(?:e|es|ing)|plan(?:s|ning)?\s+(?:on|to)|"
     r"think(?:s|ing)?\s+about|whether"
     # ORW-25 (A80): a supposition ("Imagine the nominees aren't set yet") and a negated report ("Nobody says the
@@ -5901,7 +5903,10 @@ _COMP_STARTED_CUES = (
 _COMP_DECISIVE_CUES = (
     re.compile(r"\b(?:the\s+)?(?:first\s+|second\s+)?(?:head\s+of\s+household\s+|hoh\s+|veto\s+)?(?:competition|comp)\s+(?:is|'s|\u2019s)\s+(?:live|underway|under\s+way|happening|running)\b", re.IGNORECASE),
     re.compile(r"\b(?:the\s+)?(?:competition|comp)\s+(?:resolves|has\s+resolved|ends|has\s+ended|is\s+over|wraps\s+up|finishes)\b", re.IGNORECASE),
-    re.compile(r"\b[A-Z][\w'\u2019-]+\s+(?:wins|won|takes|claims)\s+(?:it|the\s+(?:competition|comp|head\s+of\s+household|hoh|crown|key))\b"),
+    re.compile(r"\b[A-Z][\w'\u2019-]+\s+(?:(?:wins|won)\s+it|(?:wins|won|takes|claims)\s+the\s+(?:competition|comp|head\s+of\s+household|hoh|crown|key))\b"),
+    # ORW-1021: "<Name> takes it" is a RESULT only when the clause ends there ("Tara takes it."). "Layla takes it standing", "Kristin takes it in without a flicker", "Emilio takes it and doesn't dress it up" are a
+    # houseguest absorbing what was said (7 of the 14 whole-scene cuts on dev were this); a manner phrase after the verb is not a win.
+    re.compile(r"\b[A-Z][\w'\u2019-]+\s+(?:takes|claims)\s+it(?=\s*(?:$|[.!?;\n\"\u201d*_)]|\s+home\b))"),
 )
 _COMP_DECISIVE_EXEMPT_RE = re.compile(r"\b(?:isn'?t|is\s+not|not\s+yet|hasn'?t|has\s+not|won'?t|will|when|once|until|before|if|after|whether)\b", re.IGNORECASE)
 
@@ -7680,9 +7685,10 @@ _EC_NUM_RE = r"(" + _HC_NUM_ALT + r")"
 _EC_ROOM_ANCHOR = (r"(?:\s+(?:are\s+)?(?:right\s+now\s+)?(?:in\s+here|here|in\s+this\s+room|in\s+the\s+(?:kitchen|living\s*room|lounge|backyard|bedroom|"
                    r"bathroom|hoh\s*room|storage\s*room|room)|together\s+in\s+(?:here|this\s+room)))")
 _EC_ROOM_US_RE = re.compile(r"\b(?:(there\s+(?:are|were|'s)\s+)|(?:the|all|just|only)\s+)" + _EC_NUM_RE + r"\s+of\s+us\b(" + _EC_ROOM_ANCHOR + r")?", re.IGNORECASE)
+_EC_ROOM_ANCHOR_TAIL_RE = re.compile(r"\bof\s+us" + _EC_ROOM_ANCHOR + r"$", re.IGNORECASE)
 _EC_SUBGROUP_RE = re.compile(r"^\s*(?:\w+\s+)?(?:should|could|can|will|would|need|needs|have\s+to|gotta|must|better|ought|going\s+to|gonna|might|may|'ll|’ll|against|vs|versus|\bto\b)\b", re.IGNORECASE)
 _EC_OTHER_RE = re.compile(r"\bthe\s+other\s+" + _EC_NUM_RE + r"(?:\s+of\s+you|\s+(?:are\s+)?(?:(?:houseguests|people)\s+)?(?:in\s+here|in\s+the\s+room|here))?(?=\s*(?:$|[,.;:!?)\]\"'“”‘’—–…*_\n]))", re.IGNORECASE)
-_EC_HOUSE_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?P<who>of\s+us|houseguests|people|of\s+you)\s+(?:are\s+)?(?:left|remain(?:ing)?|still\s+(?:in\s+(?:the|this)\s+(?:game|house)|standing|alive))\b", re.IGNORECASE)
+_EC_HOUSE_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?P<who>of\s+us|houseguests|people|of\s+you)\s+(?:are\s+)?(?:left(?=\s*(?:$|[,.;:!?)\]\x22'\u201d\u2019\u2014\u2013\u2026*_\n])|\s+(?:in\s+(?:the|this)\s+(?:game|house|running)|now|tonight|today|standing|alive)\b)|remain(?:ing)?|still\s+(?:in\s+(?:the|this)\s+(?:game|house)|standing|alive))\b", re.IGNORECASE)
 _EC_VOTES_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?:more\s+)?votes?\b|\b" + _EC_NUM_RE + r"\s*(?:-|–|to)\s*" + _EC_NUM_RE + r"\s+(?:vote|votes|majority|decision)\b|\bby\s+a\s+(?:vote|count)\s+of\s+" + _EC_NUM_RE + r"\s*(?:-|–|to)\s*" + _EC_NUM_RE, re.IGNORECASE)
 _EcClaim = collections.namedtuple("_EcClaim", ["kind", "n", "text", "rooms"], defaults=((),))
 # ORW-386 - two more closed-set claims the engine settles: "N asleep" (the game's asleep list) and "the X is empty" (a room the player can see into, which the engine rosters).
@@ -7771,7 +7777,7 @@ def _engine_count_claims(text: str, room_names=None) -> list:
         out.append(_EcClaim("room", n, m.group(0).strip()))
     for m in _EC_OTHER_RE.finditer(text):
         n = _ec_num(m.group(1))
-        if n is not None and n >= 1:
+        if n is not None and n >= 2:  # ORW-1021: "the other one" is a pronoun phrase ("this one or the other one"), never a headcount (5 dev holds, the engine had 0 to 12 others)
             out.append(_EcClaim("others", n, m.group(0).strip()))
     for m in _EC_HOUSE_RE.finditer(text):
         n = _ec_num(m.group(1))
@@ -7814,7 +7820,8 @@ def _engine_count_ok(claim, c: dict) -> bool:
     """Does the engine's count back this stated count? A tally may carry one extra ballot (the HOH breaks a tie)."""
     n = claim.n
     if claim.kind == "room":
-        return n == c["room"]
+        # ORW-1021: an unanchored "all sixteen of us" at a gathering is the whole house, not a count of this room (a room claim needs the "in here" anchor to bind to the room)
+        return n == c["room"] or (n == c["house"] and not _EC_ROOM_ANCHOR_TAIL_RE.search(claim.text))
     if claim.kind == "others":
         return n in (c["others"], c["others"] - 1)  # the speaker may be one of the others
     if claim.kind == "house":
