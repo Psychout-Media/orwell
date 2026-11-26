@@ -57,7 +57,7 @@ function playerWinsOpeningHoh(seed: number, approach: "compete" | "throw" | "pla
 }
 
 describe("0006 staged-rounds — a declared throw measurably lowers the player's win rate", () => {
-  it("throwing the up-front approach in the opening HOH wins far less often than competing, across seeds", () => {
+  it("throwing the up-front approach in the opening HOH wins far less often than competing, across seeds", { timeout: 120_000 }, () => { // ORW-984: 150 castings, about 25 s on a CI runner: an explicit budget, not the 30 s default
     let competeWins = 0, throwWins = 0;
     for (let seed = 1; seed <= 150; seed++) {
       if (playerWinsOpeningHoh(seed, "compete")) competeWins++;
@@ -67,7 +67,7 @@ describe("0006 staged-rounds — a declared throw measurably lowers the player's
     expect(throwWins).toBeLessThan(competeWins);     // throwing measurably lowers the win rate (0028 penalty)
   });
 
-  it("play-safe never beats compete: the approach levers are negative-only (A18), paired by seed", () => {
+  it("play-safe never beats compete: the approach levers are negative-only (A18), paired by seed", { timeout: 120_000 }, () => { // ORW-984: 150 castings, about 25 s on a CI runner: an explicit budget, not the 30 s default
     let competeWins = 0, safeWins = 0, safeOnly = 0;
     for (let seed = 1; seed <= 150; seed++) {
       const c = playerWinsOpeningHoh(seed, "compete");
