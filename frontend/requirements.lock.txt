@@ -296,7 +296,10 @@ shellingham==1.5.4
     # via typer
 six==1.17.0
     # via python-dateutil
-soupsieve==4.0.0
+soupsieve==4.0.0 ; python_full_version >= "3.11.5"
+    # ORW-955: prod runs Debian bookworm's Python 3.11.2 and soupsieve 3.0.2+ needs >=3.11.5, so prod gets
+    # the newest 2.x it can install until prod moves to a newer Python (3 soupsieve alerts stay open there)
+soupsieve==2.10 ; python_full_version < "3.11.5"
     # via beautifulsoup4
 sqlalchemy==2.0.50
     # via -r requirements.txt
