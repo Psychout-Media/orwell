@@ -23567,8 +23567,12 @@ export class GameSessionAdapter implements GameSession {
     // it ⇒ byte-identical, no golden re-record. A pure read of the live loop state + the day clock; the
     // HUD shows it and `renderGameContext` primes on it so run-up scenes carry the coming interruption.
     const nextM = this.perConversationClockLive() ? nextMilestone(this.live) : null;
+    // ORW-775: the header's phase, decided once, here, so the status panel and the reply stamp read one value: TODAY's event while the next waits behind its night (ORW-258); the HOH day from Day 2 on while the engine's
+    // phase still says premiere and the HOH competition is next (ORW-705); otherwise the phase itself.
+    const headerToday = nextM ? todaysEvent(this.live) : null;
+    const headerPhase = headerToday ?? (this.phase === "premiere" && (this.live?.dayNumber ?? 1) >= 2 && nextM?.beat === "hoh-competition" ? "hoh-competition" : this.phase);
     const daySchedule = nextM
-      ? { next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}), ...(dueTomorrow(this.live) ? { tomorrow: true as const } : {}), ...((this.live?.dueHeldMessages ?? 0) > 0 ? { heldTurns: this.live!.dueHeldMessages! } : {}), ...(this.eventRoomFactEnabled && eventStagingRoom(nextM.beat, this.live?.playedGame === true) ? { stagingRoom: eventStagingRoom(nextM.beat, this.live?.playedGame === true)! } : {}), ...(finalHohPartOf(this.live, this.finalHohThreePartEnabled) ? { finalHohPart: finalHohPartOf(this.live, this.finalHohThreePartEnabled)! } : {}) }
+      ? { headerPhase, next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}), ...(dueTomorrow(this.live) ? { tomorrow: true as const } : {}), ...((this.live?.dueHeldMessages ?? 0) > 0 ? { heldTurns: this.live!.dueHeldMessages! } : {}), ...(this.eventRoomFactEnabled && eventStagingRoom(nextM.beat, this.live?.playedGame === true) ? { stagingRoom: eventStagingRoom(nextM.beat, this.live?.playedGame === true)! } : {}), ...(finalHohPartOf(this.live, this.finalHohThreePartEnabled) ? { finalHohPart: finalHohPartOf(this.live, this.finalHohThreePartEnabled)! } : {}) }
       : undefined;
     // #1411 — the single closed-set lever this beat requires the narrator to CALL (advanceGame at the
     // deterministic comp/ceremony/eviction beats), or null otherwise. The FE forces THIS on the wire
