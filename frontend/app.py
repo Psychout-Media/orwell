@@ -453,7 +453,13 @@ class _RevalidatingStatic(StaticFiles):
     return a cheap 304 (ETag/Last-Modified are preserved)."""
 
     async def get_response(self, path, scope):
-        resp = await super().get_response(path, scope)
+        resp = await self._asset_response(path, scope)
+        if resp is None:
+            resp = await super().get_response(path, scope)
+        if path.startswith("_bundle/") and resp.status_code == 200:
+            # ORW-1015: a bundle's name carries its content hash, so it can never change under that name.
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            return resp
         if path.endswith((".js", ".css", ".html")):
             resp.headers["Cache-Control"] = "no-cache"
             if _is_build_stamped(scope) and resp.status_code == 200:
@@ -462,6 +468,37 @@ class _RevalidatingStatic(StaticFiles):
                 # for a year with no conditional request at all.
                 resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return resp
+
+
+    async def _asset_response(self, path, scope):
+        """ORW-1015: a generated classic-script bundle, or a minified stylesheet; None = serve the file as it is (also on any doubt)."""
+        from src import static_assets as _sa
+        if not _sa.bundling_enabled():
+            return None
+        from starlette.responses import Response
+        if path.startswith(_sa.BUNDLE_PREFIX):
+            body = _sa.get_bundle(path[len(_sa.BUNDLE_PREFIX):])
+            if body is None:
+                # a bundle named by a page shell from before a restart: rebuild the shells, then look again
+                for page in ("index.html",):
+                    try:
+                        _html_template(os.path.join(STATIC_DIR, page))
+                    except Exception:  # failsoft-ok: a miss stays a 404
+                        pass
+                body = _sa.get_bundle(path[len(_sa.BUNDLE_PREFIX):])
+            if body is None:
+                return Response("not found", status_code=404, media_type="text/plain")
+            return Response(body, media_type="text/javascript")
+        if path.endswith(".css") and ".." not in path:
+            hit = _sa.minified_css_file(os.path.join(STATIC_DIR, path))
+            if hit is None:
+                return None
+            body, etag = hit
+            inm = dict(scope.get("headers") or []).get(b"if-none-match", b"").decode("latin-1")
+            if etag in [t.strip() for t in inm.split(",")]:
+                return Response(status_code=304, headers={"ETag": etag})
+            return Response(body, media_type="text/css", headers={"ETag": etag})
+        return None
 
 
 # ORW-164 S1: gzip ONLY the static mount (text assets >= 1000 B when the client sends Accept-Encoding:
@@ -960,6 +997,8 @@ def _stamp_static_urls(html: str, build: str) -> str:
         return html
     import urllib.parse as _up
     q = _up.quote(build, safe="")
+    # ORW-1015: the hand-edited `?v=<date>` cache busters (game-trim.css, three deferred scripts) give way to the build stamp, so they too are immutable
+    html = re.sub(r'((?:<script defer src="|<link rel="stylesheet" href=")/static/[^"?#]+\.(?:js|css))\?v=\d+(")', r"\1\2", html)
     return _STAMP_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}?b={q}{m.group(3)}", html)
 
 
@@ -975,6 +1014,9 @@ def _html_template(file_path: str) -> str:
         _zc = False
     key = (file_path, st.st_mtime_ns, st.st_size, _fe_build(), game_build_enabled(), ws_transport_enabled(),
            tuple(dropped_script_srcs()), _zc)
+    if not _build_stamp_enabled():  # ORW-1015: no real build id (local dev): an edited script must rebuild the bundle
+        from src import static_assets as _sa0
+        key = key + (_sa0.files_fingerprint(STATIC_DIR),)
     cached = _HTML_TEMPLATE_CACHE.get(key)
     if cached is not None:
         return cached
@@ -1027,6 +1069,9 @@ def _html_template(file_path: str) -> str:
         # (ORWELL_GAME_BUILD=0 debugging) the full workspace must come back, so strip the link.
         import re as _re
         html = _re.sub(r'<link[^>]*game-trim\.css[^>]*>\s*(<!--[^>]*-->)?', "", html, count=1)
+    # ORW-1015: cacheable module URLs (import map) and one bundle per run of classic scripts; falls back to the page as is.
+    from src import static_assets as _sa
+    html = _sa.transform_page(html, STATIC_DIR, _fe_build(), _build_stamp_enabled(), tuple(dropped_script_srcs()))
     _HTML_TEMPLATE_CACHE[key] = html
     return html
 
