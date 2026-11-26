@@ -127,7 +127,7 @@ describe("ORW-509 writer-authored house acceptance", () => {
     expect(r.accepted).toBe(true);
     registerHouseTheme(r.theme!);
     expect(houseTheme(r.theme!.id)?.name).toBe("The Lantern Inn");
-    expect(roomLabel("kitchen", r.theme!.id)).toContain("kitchen lantern");
+    expect(roomLabel("kitchen", r.theme!.id)).toBe("the lantern kitchen");
   });
   it("counts rejections by rule and falls back to the library, never throwing", () => {
     expect(acceptHouseThemeDraft(null).rejected.shape).toBe(1);
@@ -135,7 +135,9 @@ describe("ORW-509 writer-authored house acceptance", () => {
     const dup = draft({ rooms: Object.fromEntries(HOUSE_ROOMS.map((r) => [r, { name: "the same room", look: "Low beams, a single hanging lantern, and a smell of woodsmoke." }])) });
     expect(acceptHouseThemeDraft(dup).rejected["unique-in-house"]).toBe(1);
     const lib = HOUSE_THEMES[0]!;
-    const copied = draft({ rooms: Object.fromEntries(HOUSE_ROOMS.map((r) => [r, { name: lib.rooms[r].name, look: lib.rooms[r].look }])) });
+    // ORW-968: the library's HOH room, landing, storage room and Diary Room are the plain word alone (a writer's draft may not be), so those four get a name of their own; the other ten are the library's, which is what the freshness rule refuses
+    const plainOnly = new Set(["hoh-room", "landing", "storage-room", "diary-room"]);
+    const copied = draft({ rooms: Object.fromEntries(HOUSE_ROOMS.map((r) => [r, { name: plainOnly.has(r) ? `the ${r.replace(/-/g, " ")} annex` : lib.rooms[r].name, look: lib.rooms[r].look }])) });
     const res = acceptHouseThemeDraft(copied);
     expect(res.accepted).toBe(false);
     expect(res.rejected.fresh).toBe(1);
