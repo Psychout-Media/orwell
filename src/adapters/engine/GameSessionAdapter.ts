@@ -4674,7 +4674,7 @@ export class GameSessionAdapter implements GameSession {
    * shot from a stale captured prompt is exactly the identity-mismatch ADR 0013 forbids). Returns
    * null when neither a live house nor a warmed cast holds the id.
    */
-  getPortraitPrompt(id: EntityId): { houseguestId: string; name: string; prompt: string } | null {
+  getPortraitPrompt(id: EntityId): { houseguestId: string; name: string; prompt: string; lookKey?: string } | null {
     if (this.house && this.portraitStyleAnchor) {
       const npc = this.house.npcs.find((n) => n.id === id);
       const subject = id === this.house.player.id ? this.house.player : npc;
@@ -4703,7 +4703,7 @@ export class GameSessionAdapter implements GameSession {
     subject: { id: EntityId; name: string; character: GameHouse["npcs"][number]["character"] },
     styleAnchor: string,
     roster: ReadonlyArray<{ id: EntityId; name: string; character: GameHouse["npcs"][number]["character"] }>,
-  ): { houseguestId: string; name: string; prompt: string } {
+  ): { houseguestId: string; name: string; prompt: string; lookKey?: string } {
     // ORW-480: the shot and face cards are dealt across the WHOLE cast, so one person's prompt is the cast build's entry for them
     // (the same text `castPortraitPrompts` serves). A subject the cast build skips (an incomplete facet) is dealt alone.
     const own = buildCastPortraitPrompts(roster.map((h) => this.portraitFacetsOf(h)), styleAnchor).find((p) => p.houseguestId === subject.id);
