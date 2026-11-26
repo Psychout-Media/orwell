@@ -1027,6 +1027,8 @@ export interface MakeDealReq {
    * duplicate is a clean no-op even against a board that has since moved. Absent ⇒ byte-identical (opt-in).
    */
   idempotencyKey?: string;
+  /** ORW-997: the toast circle only: release up to this many batches (1 to 4, default 1) in ONE advance, so a watch-only circle can flow several steps in a turn. Ignored outside the toast. */
+  toastBatches?: number;
 }
 
 /**

@@ -10030,7 +10030,7 @@ export class GameSessionAdapter implements GameSession {
     let speakers: Array<{ id?: string; name: string; host?: true; isPlayer?: true; manner?: "drawn-to" | "even" | "guarded" }> | undefined;
     if (pe.stage !== "entrances" && pe.spoke.length > 0) {
       const len = pe.spoke.length;
-      const from = len % TOAST_BATCH === 0 ? len - TOAST_BATCH : len - (len % TOAST_BATCH);
+      const from = pe.lastRelease !== undefined && pe.lastRelease > 0 && pe.lastRelease <= len ? len - pe.lastRelease : (len % TOAST_BATCH === 0 ? len - TOAST_BATCH : len - (len % TOAST_BATCH));
       speakers = pe.spoke.slice(from).map(speakerOf);
     }
     return {
@@ -10108,7 +10108,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** A9 - the staged premiere's entrances + toast, one `advanceGame` per release. */
-  private advancePremiereEntrance(): AdvanceView {
+  private advancePremiereEntrance(toastBatches?: number): AdvanceView {
     const s = this.live!;
     this.ensurePremiereClock();
     const callingCircle = s.premiereEntrance?.stage === "entrances" && !!s.houseTour && everyoneIn(s); // ORW-654 / 0206: calling the circle is not a new scene - it takes no premiere step, so the clock reads as it did before the tour
@@ -10166,7 +10166,10 @@ export class GameSessionAdapter implements GameSession {
       this.persist();
       return { ...this.advanceView(null), event: { beat: "premiere-toast", content: "The champagne toast ends", detail: { speakers: [], index: pe.spoke.length, of: all.length, closed: true } } };
     }
-    const batch = all.slice(pe.spoke.length, pe.spoke.length + TOAST_BATCH);
+    // ORW-997: a watch-only circle may flow several batches in one advance (1 to 4); the default is the one batch it always released.
+    const batches = Math.min(4, Math.max(1, Math.floor(typeof toastBatches === "number" && Number.isFinite(toastBatches) ? toastBatches : 1)));
+    const batch = all.slice(pe.spoke.length, pe.spoke.length + TOAST_BATCH * batches);
+    pe.lastRelease = batch.length;
     for (const sp of batch) {
       if (sp === "host") this.onPlayerEvent?.("The host opens the toast", [...pe.order], "toast-speech");
       else if (sp !== me) this.onPlayerEvent?.(`${this.nameOf(sp)} gives a toast`, [...pe.order], "toast-speech");
@@ -17577,7 +17580,7 @@ export class GameSessionAdapter implements GameSession {
     return new SeededRandom(hashSeed(`${root}:${this.live?.week}:${this.live?.beat}${cycle}`));
   }
 
-  advanceGame(req: { expectedBeatSeq?: number; idempotencyKey?: string } = {}): AdvanceView {
+  advanceGame(req: { expectedBeatSeq?: number; idempotencyKey?: string; toastBatches?: number } = {}): AdvanceView {
     this.disclosureEpoch++; // B33: an advance ends the previous beat's disclosure events
     // 0065 Part B — an at-most-once replay returns the ORIGINAL view (its beatSeq included) WITHOUT
     // advancing again; it WINS even if beatSeq has since moved (the cache is the authority on the
@@ -17601,7 +17604,7 @@ export class GameSessionAdapter implements GameSession {
     // persist, one beatSeq bump) so the released state is durable; `advanceView(null)` reports no new
     // beat (nothing was resolved — only the toast scene closed).
     if (this.live.premiereEntrance && this.live.premiereEntrance.stage !== "done") { // A9: the staged entrances/toast
-      const staged = this.inOneCommit(() => this.advancePremiereEntrance());
+      const staged = this.inOneCommit(() => this.advancePremiereEntrance(req.toastBatches));
       return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, staged) : staged;
     }
     if (this.bedRushRunning()) { // ORW-672 / 0201: the circle has closed - each advance is another heat of the bed rush, until every houseguest has a bed (or the window ends)
