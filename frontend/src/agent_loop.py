@@ -99,6 +99,30 @@ def _admin_engine_result_entry(round_num: int, tool_type: str, result: Any, *, f
     return {"round": round_num, "tool": tool_type, "forced": bool(forced), "engine_result": text}
 
 
+# ORW-964 (Vault Wall, part 3b of the browser wall): the model's advanceGame / submitDecision call hands the page the engine's WHOLE advance view as the tool event's `output` (live `tool_output`, the stored tool event
+# on reload, the WS mirror). Only the keys the page reads survive: the closed shape `_BROWSER_TOOL_ADVANCE_SHAPE` (routes/orwell_routes.py, each key cited there). The model still gets the full result in its own context
+# (this is the display copy only). Fail CLOSED: an output that is not a JSON object, or a shape that cannot be loaded, leaves no output rather than the raw one.
+_BROWSER_PROJECTED_TOOLS = frozenset({"advanceGame", "submitDecision"})
+_BROWSER_PROJECTED_CAP = 12000
+
+
+def _browser_tool_output(tool_type: str, result: Any) -> Optional[str]:
+    """The closed display copy of an advance tool result's output, or None when this tool is not projected (the caller keeps its own text)."""
+    if tool_type not in _BROWSER_PROJECTED_TOOLS:
+        return None
+    raw = result.get("output") if isinstance(result, dict) else None
+    if not isinstance(raw, str) or not raw.strip():
+        return None if not (isinstance(result, dict) and result.get("error")) else ""
+    try:
+        from routes.orwell_routes import _project_for_browser, _BROWSER_TOOL_ADVANCE_SHAPE
+        obj = json.loads(raw)
+        if not isinstance(obj, dict):
+            return ""
+        return json.dumps(_project_for_browser(obj, _BROWSER_TOOL_ADVANCE_SHAPE), separators=(",", ":"))[:_BROWSER_PROJECTED_CAP]
+    except Exception:  # failsoft-ok: fail CLOSED, the page gets no output rather than the engine's raw view
+        return ""
+
+
 def _classify_narrator_stream_error(err_msg: Any, data: Any = None) -> str:
     """Return the truthful narrator failure class for a mid-stream `data.error` frame. An explicit
     numeric HTTP status on the frame (or an HTTP status in the message) is `narrator-http`; a
@@ -12902,6 +12926,10 @@ async def _stream_agent_loop_impl(
             # #1871 — Vault Wall: silent tools carry NO output to the player channel.
             if block.tool_type in _ORWELL_SILENT_TOOLS:
                 output_text = ""
+            # ORW-964: the advance tools' output is the closed shape the page reads, never the engine's raw view (both the live tool_output below and the stored copy)
+            _closed_output = _browser_tool_output(block.tool_type, result)
+            if _closed_output is not None:
+                output_text = _closed_output
 
             # Emit tool_output (include ui_event data if present)
             tool_output_data = {"type": "tool_output", "tool": block.tool_type, "command": cmd_display, "output": output_text, "exit_code": result.get("exit_code")}

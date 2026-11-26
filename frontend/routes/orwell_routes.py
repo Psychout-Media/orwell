@@ -700,6 +700,17 @@ _BROWSER_ADVANCE_SHAPE = {
     "vetoDrawBeat": {"step": _T},
     "voteBeatCue": _T, "drawBeatCue": _T, "ceremonyResultBeatCue": _T, "decisionBeatCue": _T,  # the server-set hidden-cue markers (a boolean each); the page fires the decision cue on a successful submit without reading its marker
 }
+#   The model's own advanceGame / submitDecision call (ORW-964): the same advance view reaches the page as that tool's `tool_output` (live) and as the stored tool event (reload, the WS mirror). The page reads, beyond the
+#     card keys above: `finished` + `winner.name` and `event.beat` / `event.content` (the beat chip's outcome line and the ceremony slate's headline), `event.participants[]` ({id, name}: the slate's faces),
+#     `status.week` and `status.veto.holder` (the slate's kicker and the veto winner), `eviction.votesRevealed[].votedFor` (the ANONYMIZED ballot count, never a voter), and `correction` (the control-room card).
+#     NOT read: the engine's own result fields (a vote's tally, a voter, a planned outcome, the event's consequences, the status's other fields).
+_BROWSER_TOOL_ADVANCE_SHAPE = {
+    **_BROWSER_ADVANCE_SHAPE,
+    "finished": _T, "winner": _NAMED, "correction": _T,
+    "event": {"beat": _T, "content": _T, "participants": [_NAMED]},
+    "status": {"week": _T, "veto": {"holder": _NAMED}},
+    "eviction": {**_BROWSER_ADVANCE_SHAPE["eviction"], "votesRevealed": [{"votedFor": _NAMED}]},
+}
 
 
 def _project_for_browser(payload, shape):
