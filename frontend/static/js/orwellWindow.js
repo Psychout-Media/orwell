@@ -188,6 +188,13 @@ function ensureCss() {
     .ow-window {
       position: fixed; z-index: ${Z_BASE};
       min-width: 180px; max-width: 64vw;
+      /* ORW-993: never taller / wider than the visible viewport. The slot engine and _reclamp refine
+         max-height in px (minus the banner and the account bar); these dvh caps are the floor for the
+         first paint and for windows outside the slot engine. A flex column so a capped window scrolls
+         its .ow-body instead of overflowing; vw/vh first as the fallback for engines without dvh. */
+      max-height: calc(100vh - 8px); max-height: calc(100dvh - 8px);
+      max-width: min(64vw, calc(100vw - 8px)); max-width: min(64vw, calc(100dvw - 8px));
+      display: flex; flex-direction: column;
       background: var(--win-bg, var(--panel, #111)); color: var(--fg, #9cdef2);
       border: 1px solid var(--win-border, var(--border, #355a66));
       border-radius: var(--win-radius, 10px);
@@ -324,7 +331,13 @@ function ensureCss() {
     /* R4 (audit resp-F2): dvh tracks the dynamic (keyboard/URL-bar-shrunk) mobile viewport so a
        window's lowest controls don't fall below the fold when the soft keyboard opens; vh first
        as the fallback for engines without dvh. */
-    .ow-body { padding: .4rem .7rem .6rem; overflow: auto; max-height: min(70vh, 560px); max-height: min(70dvh, 560px); }
+    /* ORW-993: text-only bodies never scroll sideways (overflow-x hidden + wrapping, min-width:0 so a flex
+       child can shrink) and an image never outgrows the content box (max-width:100%, aspect kept). */
+    .ow-body { padding: .4rem .7rem .6rem; overflow-x: hidden; overflow-y: auto; overflow-wrap: anywhere;
+      min-width: 0; min-height: 0; flex: 0 1 auto; max-height: min(70vh, 560px); max-height: min(70dvh, 560px); }
+    .ow-titlebar { flex: 0 0 auto; }
+    .ow-body :where(img, video, canvas) { max-width: 100%; }
+    .ow-body :where(img:not([height]), video) { height: auto; }
     /* WCAG 2.1.1 (Keyboard): the scroll body is focusable (tabindex=0, set in _build) so a
        keyboard/SR user can Tab to it and use arrows/PageDown/Space to read non-interactive
        content below the fold. Ring matches the kit's neutral iOS-blue focus ring (titlebar). */
@@ -1077,16 +1090,18 @@ export class OrwellWindow {
   //   3. a window now LARGER than the viewport shrinks to fit (viewport − 8),
   //      respecting its own minWidth/minHeight, then re-clamps its position.
   _reclamp() {
-    // #893: sheet geometry is CSS-owned (bottom-pinned, dvh detent heights track the
-    // viewport natively) — nothing to re-clamp.
+    // #893: sheet geometry is CSS-owned.
     if (!this.el || this._docked || this._sheet || this.isMinimized()) return;
     if (this.el.style.display === 'none') return;
     // 3. Shrink-to-fit FIRST so the post-shrink size drives the position clamp.
     const r0 = this.el.getBoundingClientRect();
-    const inset = bannerInset();  // #758: subtract a top banner so a tall window COMPRESSES to fit
-    // #896: width ceiling = the shared max cap min(content, viewport−margin) (not a bare viewport−8).
+    const inset = bannerInset();  // #758
+    // #896: width ceiling = the shared max cap.
     const maxW = window.innerWidth - 8;
-    const maxH = window.innerHeight - inset - 8;
+    // ORW-993: floor = viewport bottom or the account bar's top.
+    const bottomLimit = (window.OrwellSlots && window.OrwellSlots.visibleBottom)
+      ? window.OrwellSlots.visibleBottom(r0.left, r0.width) : window.innerHeight;
+    const maxH = bottomLimit - inset - 8;
     const widthCeil = windowMaxWidth(this.el, this.o.minWidth);
     if (r0.width > widthCeil) {
       this.el.style.maxWidth = 'none';
@@ -1095,19 +1110,20 @@ export class OrwellWindow {
     if (r0.height > maxH) {
       this.el.style.height = Math.max(this.o.minHeight, maxH) + 'px';
       this.el.style.maxHeight = 'none';
+    } else if (!this.el.style.height) {
+      this.el.style.maxHeight = Math.max(this.o.minHeight, maxH) + 'px';
     }
     // 1. Slotted: let the slot engine re-anchor + clamp (it runs clampPos itself).
     if (this._slot) { this._slot.restack(); }
     // 2. Clamp this window's own position into the viewport. clampPos only guarantees a
-    //    SLIVER stays on-screen; on a viewport SHRINK we want the WHOLE window in view when
-    //    it fits, so pull left/top back so right/bottom land inside the margin.
+    //    SLIVER stays on-screen; pull right/bottom inside the margin.
     const m = 4;
     const topFloor = m + inset;  // #758: the top floor clears the banner
     const r = this.el.getBoundingClientRect();
     let left = Math.max(m, Math.min(window.innerWidth - r.width - m, r.left));
-    let top = Math.max(topFloor, Math.min(window.innerHeight - r.height - m, r.top));
-    if (left < m) left = m;            // wider than the viewport (already min-clamped above) — pin left
-    if (top < topFloor) top = topFloor; // taller than the viewport — pin just below the banner
+    let top = Math.max(topFloor, Math.min(window.innerHeight - r.height - m, bottomLimit - r.height - m, r.top));
+    if (left < m) left = m;
+    if (top < topFloor) top = topFloor;
     if (Math.abs(left - r.left) > 0.5 || Math.abs(top - r.top) > 0.5) {
       this.el.style.left = left + 'px'; this.el.style.top = top + 'px';
       this.el.style.right = 'auto'; this.el.style.bottom = 'auto'; this.el.style.transform = 'none';

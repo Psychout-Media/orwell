@@ -200,6 +200,24 @@
     }
   }
 
+  // ORW-993: the lowest y a window spanning [left, left+w] may reach. Normally the viewport bottom
+  // (innerHeight tracks the visible viewport; the dvh twins in the kit CSS cover the same thing for
+  // the first paint), but a PERSISTENT chrome bar the window would overlap horizontally - the sidebar
+  // account bar (.sidebar-user-bar: avatar, name, settings) - is not covered by a floating window, so
+  // the floor rises to that bar's top edge. Kit windows previously ran over it on a tall screen.
+  function visibleBottom(left, w) {
+    let bottom = window.innerHeight;
+    try {
+      const bar = document.querySelector(".sidebar-user-bar");
+      if (bar) {
+        const r = bar.getBoundingClientRect();
+        const shown = r.width > 0 && r.height > 0 && getComputedStyle(bar).visibility !== "hidden";
+        if (shown && left < r.right && left + w > r.left && r.top > 0) bottom = Math.min(bottom, r.top);
+      }
+    } catch (_) {}
+    return bottom;
+  }
+
   // Clamp a left/top pair into the viewport (S11/E91): a stacked window can NEVER
   // be positioned off-screen — top above the viewport, or left/right/bottom out of
   // view — no matter how many panels share a slot or how big the saved offset is.
@@ -213,12 +231,13 @@
     // panel COMPRESSES into [inset+4, innerHeight-4] rather than overrunning the banner.
     const topFloor = 4 + bannerInset();
     const maxLeft = window.innerWidth - w - 4;
-    const maxTop = window.innerHeight - h - 4;
+    const floorY = visibleBottom(left, w);  // ORW-993: viewport bottom, or the account bar's top
+    const maxTop = floorY - h - 4;
     return {
       left: maxLeft >= 4 ? Math.max(4, Math.min(maxLeft, left))
         : Math.max(4, Math.min(window.innerWidth - 60 - 4, left)),       // wider than viewport
       top: maxTop >= topFloor ? Math.max(topFloor, Math.min(maxTop, top))
-        : Math.max(topFloor, Math.min(window.innerHeight - Math.min(h, 200) - 4, top)),  // taller than viewport
+        : Math.max(topFloor, Math.min(floorY - Math.min(h, 200) - 4, top)),  // taller than viewport
     };
   }
 
@@ -227,6 +246,18 @@
   // computed arithmetically and written ONCE as left/top, never via an intermediate
   // base write. EVERY placement (base stack or dragged) runs through clampPos so the
   // stacking cursor can never strand a panel off-screen (the D2/S11 collision rule).
+  function fitHeight(el, name, w) {
+    const base = name.endsWith("right") ? (window.innerWidth - 14 - w)
+      : name.endsWith("left") ? leftBase() : (window.innerWidth - w) / 2;
+    const cap = Math.max(120, Math.floor(visibleBottom(base, w) - (4 + bannerInset()) - 4));
+    const explicit = parseFloat(el.style.height);
+    if (Number.isFinite(explicit)) {
+      if (explicit > cap) setStyle(el, "height", cap + "px");   // a resized window that no longer fits
+    } else {
+      setStyle(el, "maxHeight", cap + "px");
+    }
+  }
+
   function restackSlot(name) {
     if (NARROW.matches) { restackNarrowSheets(); return; } // F3: the sheet host owns narrow
     if (dragInProgress()) return; // F2: the gesture owns the position until drop
@@ -238,8 +269,12 @@
     for (const entry of list) {
       const el = entry.el;
       if (!visible(el)) continue;
-      const h = el.offsetHeight || 0;
       const w = el.offsetWidth || 0;
+      // ORW-993: a window is never taller than the visible space it opens in (viewport minus the
+      // banner and any persistent chrome under it): cap its height BEFORE measuring so the body
+      // scrolls inside the window instead of the window running off-screen / over the account bar.
+      fitHeight(el, name, w);
+      const h = el.offsetHeight || 0;
       let top = null, bottom = null;
       if (name.startsWith("top")) { top = cursor; cursor += h + GAP; }
       else { bottom = cursor; cursor += h + GAP; }
@@ -412,5 +447,5 @@
     else document.addEventListener("DOMContentLoaded", startDecisionWatch, { once: true });
   })();
 
-  window.OrwellSlots = { register, restackAll };
+  window.OrwellSlots = { register, restackAll, visibleBottom };
 })();
