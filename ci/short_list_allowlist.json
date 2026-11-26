@@ -2112,15 +2112,6 @@
   {
    "path": "src/engine/deepProfile.ts",
    "kind": "list",
-   "name": "MARKS",
-   "max": 1,
-   "owner": "ORW-508",
-   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
-   "decision": "engine floor for the photo face and mark lines; since #2828 the cast writer authors the face line live and the dealt mark is checked against it, so the list is only the offline floor (ORW-480)"
-  },
-  {
-   "path": "src/engine/deepProfile.ts",
-   "kind": "list",
    "name": "PATHWAYS",
    "max": 1,
    "owner": "ORW-508",
@@ -2923,6 +2914,51 @@
    "owner": "ORW-480",
    "reason": "closed camera-manner taxonomy: each trait is scored against the character sheet and keys its expression, posture and hand tables",
    "decision": "traits are chosen by scoring the sheet, not dealt; the only deal is the fallback when no sheet line matches. Follow-up (ORW-480): replace that fallback with the writer naming the manner from the biography"
+  },
+  {
+   "path": "src/engine/lookVariants.ts",
+   "kind": "list",
+   "name": "AGE_LOOK_TAILS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "part of a composed look field: the field is the base value with one short word from this list (100 to 407 distinct values per field, measured in src/domain/poolRecurrence.json), so it is a part, not the pool; the cast writer authors the look live where it runs",
+   "decision": "composed part, not a menu: the dealt value is base x word; the writer authors the look line per person live and this is the offline floor"
+  },
+  {
+   "path": "src/engine/lookVariants.ts",
+   "kind": "list",
+   "name": "FACIAL_TAILS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "part of a composed look field: the field is the base value with one short word from this list (100 to 407 distinct values per field, measured in src/domain/poolRecurrence.json), so it is a part, not the pool; the cast writer authors the look live where it runs",
+   "decision": "composed part, not a menu: the dealt value is base x word; the writer authors the look line per person live and this is the offline floor"
+  },
+  {
+   "path": "src/engine/lookVariants.ts",
+   "kind": "list",
+   "name": "HAIR_TAILS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "part of a composed look field: the field is the base value with one short word from this list (100 to 407 distinct values per field, measured in src/domain/poolRecurrence.json), so it is a part, not the pool; the cast writer authors the look live where it runs",
+   "decision": "composed part, not a menu: the dealt value is base x word; the writer authors the look line per person live and this is the offline floor"
+  },
+  {
+   "path": "src/engine/lookVariants.ts",
+   "kind": "list",
+   "name": "SKIN_TAILS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "part of a composed look field: the field is the base value with one short word from this list (100 to 407 distinct values per field, measured in src/domain/poolRecurrence.json), so it is a part, not the pool; the cast writer authors the look live where it runs",
+   "decision": "composed part, not a menu: the dealt value is base x word; the writer authors the look line per person live and this is the offline floor"
+  },
+  {
+   "path": "src/engine/lookVariants.ts",
+   "kind": "list",
+   "name": "STYLE_ACCENTS",
+   "max": 1,
+   "owner": "ORW-508",
+   "reason": "part of a composed look field: the field is the base value with one short word from this list (100 to 407 distinct values per field, measured in src/domain/poolRecurrence.json), so it is a part, not the pool; the cast writer authors the look live where it runs",
+   "decision": "composed part, not a menu: the dealt value is base x word; the writer authors the look line per person live and this is the offline floor"
   }
  ]
 }

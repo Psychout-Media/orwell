@@ -171,6 +171,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       // Showrunner memory — the OPTIONAL Show Brief request (ORWELL_SHOW_BRIEF on the FE). Shape-guard only; the
       // engine re-validates every field and builds the brief from its own Vault-free view. Absent ⇒ unchanged.
       if (args["zeroClocks"] !== undefined && typeof args["zeroClocks"] !== "boolean") refuse("zeroClocks", "a boolean when present");
+      if (args["entranceVoiced"] !== undefined && typeof args["entranceVoiced"] !== "boolean") refuse("entranceVoiced", "a boolean when present"); // ORW-997
       const b = args["brief"];
       if (b === undefined) return;
       if (typeof b !== "object" || b === null || Array.isArray(b)) refuse("brief", "an object when present");

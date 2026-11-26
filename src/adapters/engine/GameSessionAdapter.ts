@@ -4317,7 +4317,7 @@ export class GameSessionAdapter implements GameSession {
     const vol = this.soulObj(npc.id)?.volatility ?? 0.3;
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:dodge:${npc.id}:${this.week}:${phase}`));
     // ORW-798: what is on the line for them = the severity of the kind of thing they are keeping + whether they are on the block now (engine state already held; no draw).
-    const stakes = dodgeStakes(severityOf(held?.kind), ((this.live?.nominees as readonly EntityId[] | undefined) ?? []).includes(npc.id));
+    const stakes = dodgeStakes(severityOf(held?.kind), ((this.live?.nominees as readonly EntityId[] | undefined) ?? []).includes(npc.id), this.live?.hoh === npc.id || this.live?.vetoHolder === npc.id); // ORW-802: a power holder is watched more
     const fact = decideDodge({
       cunning: style ? CUNNING[style] ?? 0.3 : 0.3, leakiness: (style ? LEAKY[style] ?? 0.3 : 0.3) + 0.2 * vol, rattled: Math.max(0, vol - 0.5) * 2,
       trustInAsker: signals.npcTrust, stakes,
@@ -22402,9 +22402,13 @@ export class GameSessionAdapter implements GameSession {
     const view8 = closed.length ? { ...view7, dealsClosed: closed } : view7;
     const view = votePromises ? { ...view8, votePromises } : view8;
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
-    const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
+    const narrView0 = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
       ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)
       : view;
+    // ORW-997: the FE reports the latest staged-premiere release (arrival or toast batch) was already voiced by an earlier reply. A presentation-only mark on the narration view (never the HUD / getGameState view).
+    const narrView = req.entranceVoiced === true && narrView0.premiere?.entrance && narrView0.premiere.entrance.stage !== "done"
+      ? { ...narrView0, premiere: { ...narrView0.premiere, entrance: { ...narrView0.premiere.entrance, voiced: true as const } } }
+      : narrView0;
     const moment = req.moment ?? view.moment;
     // #1735 (A4) — the terminal HARD-CONSTRAINTS block, a SEPARATE field from `systemPrompt` so the
     // caller (the front-end) can append it as the LAST message before generation instead of folding it

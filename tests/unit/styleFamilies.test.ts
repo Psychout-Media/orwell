@@ -50,7 +50,7 @@ describe("ORW-360 style families — the one list", () => {
       for (const n of npcs) {
         const fam = familyForLabel(n.character.presentation)!;
         expect(fam).toBeDefined();
-        expect(layer.public[n.id]!.physicalCharacteristics.style).toBe(fam.sample);
+        expect(layer.public[n.id]!.physicalCharacteristics.style.startsWith(`${fam.sample}, `)).toBe(true); // the sample plus one accent (ORW-508)
       }
     }
   });

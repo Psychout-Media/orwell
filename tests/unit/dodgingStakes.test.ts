@@ -26,6 +26,15 @@ describe("dodgeStakes (pure)", () => {
   });
 });
 
+describe("ORW-802: a power holder's dodge carries more stakes (HOH or veto holder: watched more, so a dodge is noticed more; Coordinator default +0.15)", () => {
+  it("adds a bounded 0.15 for a power holder and stacks with the block", () => {
+    expect(dodgeStakes(0.5, false, true) - dodgeStakes(0.5, false, false)).toBeCloseTo(0.15, 10);
+    expect(dodgeStakes(0.5, true, true) - dodgeStakes(0.5, true, false)).toBeCloseTo(0.15, 10);
+    for (const sev of [-1, 0, 0.5, 1, 4]) for (const b of [false, true]) for (const p of [false, true]) { const v = dodgeStakes(sev, b, p); expect(v).toBeGreaterThanOrEqual(0); expect(v).toBeLessThanOrEqual(1); }
+    expect(dodgeStakes(0.5, false), "no third argument: unchanged").toBe(dodgeStakes(0.5, false, false));
+  });
+});
+
 describe("a pressed houseguest's dodge is staked by what they hold (played game)", () => {
   it("each recorded dodge carries stakes derived from the held secret's kind, and different kinds differ", async () => {
     const seen = new Map<number, number>();

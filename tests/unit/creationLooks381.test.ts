@@ -275,6 +275,6 @@ describe("ORW-381 build leans to the physical stat", () => {
     const hv = JSON.stringify(view.house);
     expect(hv).not.toMatch(/"(stats|buildBand|fitnessBand|band)"/i);
     expect(hv).not.toMatch(/"(physical|mental|social)"\s*:\s*[0-9]/);
-    for (const c of warm.house) expect(BUILD_WORDS).toContain(c.physicalCharacteristics!.heightBuild);
+    for (const c of warm.house) expect(BUILD_WORDS.some((w) => c.physicalCharacteristics!.heightBuild.startsWith(w))).toBe(true);
   });
 });
