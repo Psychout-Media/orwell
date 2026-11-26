@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { playSeason } from "../support/whatFired/player";
 import * as multiSubstring from "../../src/composition/multiSubstring";
+import { firstSeedWhere } from "../support/firstSeedWhere";
 
 /**
  * ORW-832 (reworked by the CI-unblock rule): a long played season used to slow down faster than it grew, because the integrity checkpoint's vault-leak sweep read the whole player view once per hidden line (cost = hidden
@@ -16,17 +17,21 @@ describe("ORW-832 REAL PATH: the sweep's work follows the size of the season, no
     const spy = vi.spyOn(multiSubstring, "patternsFoundIn").mockImplementation((text: string, patterns: Iterable<string>) => {
       const list = [...patterns]; sweeps.push({ chars: text.length, patterns: list.length }); return orig(text, list);
     });
-    const rows: Array<{ work: number; calls: number; events: number }> = [];
-    let from = 0;
-    try {
-      await playSeason({ seed: 4, user: "wf-4", maxMessages: 800, watch: async ({ engine, msg }) => {
+    // ORW-920: the seed is picked, not pinned: the first season (hint 4) long enough to play four blocks (a played season ends when it ends, and a gameplay change moves that).
+    const found = await firstSeedWhere(async (seed, sandbox) => {
+      sweeps.length = 0;
+      const got: Array<{ work: number; calls: number; events: number }> = [];
+      let from = 0;
+      await playSeason({ seed, user: sandbox, maxMessages: 800, watch: async ({ engine, msg }) => {
         if ((msg + 1) % BLOCK === 0) {
           const slice = sweeps.slice(from); from = sweeps.length;
-          rows.push({ work: slice.reduce((a, x) => a + x.chars + x.patterns, 0) / BLOCK, calls: slice.length / BLOCK, events: engine.events.count() });
+          got.push({ work: slice.reduce((a, x) => a + x.chars + x.patterns, 0) / BLOCK, calls: slice.length / BLOCK, events: engine.events.count() });
         }
         return false;
       } });
-    } finally { spy.mockRestore(); }
+      return got.length === 4 ? got : undefined;
+    }, { from: 1, to: 12, hint: 4, sandbox: (s) => `wf-${s}`, what: "a played season long enough for four blocks of 200 messages" }).finally(() => spy.mockRestore());
+    const rows = found.at;
     expect(rows.length, "four blocks of messages were played").toBe(4);
     for (const r of rows) { expect(r.calls, "the sweep ran").toBeGreaterThan(0); expect(r.calls, "at most a few sweeps per message").toBeLessThan(8); }
     const perEvent = (i: number): number => rows[i]!.work / rows[i]!.events;
