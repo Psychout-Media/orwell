@@ -8659,16 +8659,10 @@ def _format_game_moment(game_state: dict) -> Optional[str]:
     if isinstance(week, int) and not isinstance(week, bool) and week > 0:
         parts.append(f"Week {week}")
     phase = (game_state.get("phase") or "").strip()
-    # ORW-258 (Ryne: every event gets its own day): while the next event waits behind its night, the header names the event that belongs to TODAY (the HOH day reads HOH, not Nominations).
+    # ORW-775: the engine decides which event the header names (ORW-258 / ORW-705 rules live there, once); the stamp reads it.
     _ds = game_state.get("daySchedule")
-    if isinstance(_ds, dict) and isinstance(_ds.get("todaysEvent"), str) and _ds.get("todaysEvent"):
-        phase = _ds["todaysEvent"]
-    # ORW-705 (PT-11, dev playtest): the engine's phase stays `premiere` through the whole of Day 2 until the first HOH competition STARTS, so a Day-2 morning stamped "Premiere". Once the first
-    # night has passed (day 2+) and the next scheduled event is the HOH competition, today is the HOH day: the stamp names it, the same rule as ORW-258 for every later day.
-    _day = game_state.get("dayNumber")
-    if (phase == "premiere" and isinstance(_day, int) and not isinstance(_day, bool) and _day >= 2
-            and isinstance(_ds, dict) and _ds.get("next") == "hoh-competition"):
-        phase = "hoh-competition"
+    if isinstance(_ds, dict) and isinstance(_ds.get("headerPhase"), str) and _ds.get("headerPhase"):
+        phase = _ds["headerPhase"]
     if phase:
         parts.append(_MOMENT_PHASE_LABELS.get(phase) or phase.replace("-", " "))
     tod = (game_state.get("timeOfDay") or "").strip()
