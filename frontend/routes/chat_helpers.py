@@ -11518,7 +11518,10 @@ async def build_chat_context(
         if _gbe_pm():
             from src.orwell_player_move import resolve_player_move_before_narrator
             _prev_reply = next((_game_narration(m.content) for m in reversed(getattr(sess, "history", None) or []) if getattr(m, "role", None) == "assistant" and isinstance(m.content, str)), None)
-            await resolve_player_move_before_narrator(message, user, client_msg_id, previous_reply=_prev_reply)
+            from src.orwell_player_move import act_first_before_narrator
+            # ORW-1014: with ORWELL_ACT_FIRST on, act-first owns this message (ONE owner, one idempotency key); the parser runs only when it is off or its round failed.
+            if not await act_first_before_narrator(message, user, client_msg_id, sess=sess, previous_reply=_prev_reply):
+                await resolve_player_move_before_narrator(message, user, client_msg_id, previous_reply=_prev_reply)
 
     # Game build (feature 0032): under the game build the front-end's own memory / RAG /
     # skills / web are off, so the engine's moment prompt is the only injected framing — no

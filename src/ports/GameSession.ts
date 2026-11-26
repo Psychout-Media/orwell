@@ -2241,7 +2241,8 @@ export type PlayerMoveView =
   | { refused: true; reason: string; from?: string; to?: string; msg?: string };
 
 /** ORW-419 - `resolvePlayerMove` request: the player's own message text (never the narration). */
-export interface ResolvePlayerMoveReq { /** ORW-1003: the previous narrator reply (player-visible text), for "head over there" / "I follow her". */ previousReply?: string; text: string; expectedBeatSeq?: number; idempotencyKey?: string }
+/** ORW-1014: `skip` names the text parses the caller has already decided another way (the act-first round owns the player's move, search and bed claim); the other resolvers in the seam still run. */
+export interface ResolvePlayerMoveReq { /** ORW-1003: the previous narrator reply (player-visible text), for "head over there" / "I follow her". */ previousReply?: string; text: string; expectedBeatSeq?: number; idempotencyKey?: string; skip?: ReadonlyArray<"move" | "bed"> }
 /** ORW-419 - the result: the recorded `playerMove` (null when the words held no clear move) + the resulting whereabouts. */
 export interface ResolvePlayerMoveResult { playerMove: PlayerMoveView | null; whereabouts: WhereaboutsView | null; beatSeq?: number; /** ORW-934: set when the words were a search for a houseguest and the engine walked it. */ search?: HouseSearchWalk }
 
@@ -3061,6 +3062,10 @@ export interface NapView {
   whereabouts?: WhereaboutsView | null;
   timeOfDay?: string;
   beatSeq: number;
+  /** ORW-1067: present when the engine changed the asked-for length (out of range, off the half-hour step, or not a number): the value applied. Absent when the request was used as given. */
+  clamped?: true;
+  hoursApplied?: number;
+  hoursAsked?: number;
 }
 
 export interface HangOutReq {
@@ -3091,6 +3096,10 @@ export interface HangOutView {
   detail?: { by?: string; npc?: string; desire?: string; kind?: string; who?: string[] };
   timeOfDay?: string;
   beatSeq: number;
+  /** ORW-1067: present when the engine changed `maxBeats` (floored, raised to 1, capped at 8, or not a number): the value applied. */
+  clamped?: true;
+  maxBeatsAsked?: number;
+  maxBeatsApplied?: number;
 }
 
 export interface AdvanceGameReq {
@@ -3800,6 +3809,8 @@ export interface GameSession {
    * unknown or non-active houseguest (the departed are voiced from the public record only).
    */
   npcVoice(id: EntityId): NpcVoiceView | null;
+  /** ORW-1067: why an `npcVoice` lookup of an id or name found nobody: ambiguous (the public candidate names) or unknown. */
+  voiceLookup(key: string): { status: "found"; id: EntityId } | { status: "ambiguous"; candidates: NamedRef[] } | { status: "unknown" };
 
   /**
    * The knowledge-wall manifest (ship-blocker A0) — the player's private disclosures that are sealed
