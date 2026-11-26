@@ -184,7 +184,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
 });
 
 /** ORW-920: a houseguest's own ask is standing and shown to the player. The seed is picked (hint 3), not pinned: a gameplay change moves which season gets there. */
-const askStanding = () => firstSeedWhere((seed) => playUntil(seed, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending && !!(s.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk, { user: `wf-${seed}`, maxMessages: 3000 }), wfScan(3, "a houseguest's own ask standing and shown to the player"));
+const askStanding = () => firstSeedWhere((seed) => playUntil(seed, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending && !!(s.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk, { user: `wf-${seed}`, maxMessages: 3000 }), wfScan([1, 3], "a houseguest's own ask standing and shown to the player"));
 
 describe("ORW-727b: a houseguest asks the player for a private word (parity), in a played season", () => {
   it("their own ask stands as an open, non-blocking offer the player sees; the player's yes through the same lever is accepted; it then clears", async () => {

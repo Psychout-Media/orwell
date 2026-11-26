@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { PLAYER } from "../../src/domain/ids";
 import type { BeliefClaim } from "../../src/engine/beliefStore";
-import { type Stop, firstStop, wfScan } from "./playedSeason";
+import { type Stop, firstStop, playUntil, wfScan } from "./playedSeason";
+import { firstSeedWhere } from "../support/firstSeedWhere";
+import { AssuranceLedger } from "../../src/engine/assurances";
 import { answerPending } from "../../features/support/answerPending";
 
 /**
@@ -50,32 +52,28 @@ async function tellTheRoom(s: Stop, v: string): Promise<{ o: string; t: string }
 describe("a betrayal rumor records its victim from the real betrayal event (played)", () => {
   it("a deal the player broke at the secret ballot names no victim: the betrayed never learned who broke it, so the rumor stays victim-less, and the told rumor still costs a bystander a small bounded distrust", async () => {
     // seed 3: at the first eviction the player votes against a houseguest they hold a deal with; the break is a secret ballot (the wronged side never learns it by name)
-    // ORW-880: the scan picks the games that reach the secret-ballot break; whether a bystander HEARS the told rumor is a seeded chance (a mishearing), so it is a precondition too: the claims are checked on the first of
-    // those games where the bystander heard it about the player (the rest are other seeds' luck, not claims).
-    let checked = 0;
-    for (const seed of [HINT, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12].filter((x, i, all) => all.indexOf(x) === i)) {
-      // one game at a time (lazily): most runs stop at the first
-      const at = await firstStop((s) => quiet(s) && betrayed(s).some((v) => room(s).includes(v)) && room(s).length >= 3, { from: seed, to: seed, sandbox: (x) => `wf-${x}`, what: "a secret-ballot break with a room of three" }, { decide: voteAgainstAPartner }).catch(() => undefined);
-      if (!at) continue;
-      const v = betrayed(at).find((x) => room(at).includes(x))!;
-      const deal = dealsOf(at).find((d) => d.status === "broken" && d.brokenBy === PLAYER && d.parties.includes(v)) as Deal & { secretVote?: boolean };
-      expect(deal.secretVote, "the break was the player's secret ballot").toBe(true);
-      const held = new Set([...room(at)].flatMap((h) => rumorsOf(at, h).map((c) => `${h}|${c.id}`)));
-      const { o } = await tellTheRoom(at, v);
-      // the rumors THIS telling planted (about the player): the listeners may already hold other betrayal rumors about other houseguests, each with its own victim
-      const planted = [v, o].flatMap((h) => rumorsOf(at, h).filter((c) => !held.has(`${h}|${c.id}`) && c.subject === PLAYER));
-      for (const c of planted) expect(c.object, "no victim from a ballot the betrayed never saw").toBeUndefined();
-      const toO = () => rumorsOf(at, o).find((c) => c.subject === PLAYER);
-      if (planted.length === 0 || !toO()) continue; // a mishearing on this seed: not the game this claim is about
-      await playOnToTheNextBeat(at); // the week's claims are folded at commit time, before a beat
-      const drop = -(toO()!.impact?.trust ?? 0);
-      expect(drop, "a bystander distrusts the betrayer").toBeGreaterThan(0);
-      expect(drop).toBeLessThan(0.1);
-      checked++;
-      break;
-    }
-    expect(checked, "non-vacuous: in one of the scanned games the telling planted a rumor about the player and the bystander heard it").toBeGreaterThan(0);
-  }, 600_000);
+    // the precondition: the player broke a deal at the secret ballot, a houseguest tells the room what they believe about the player, AND the bystander hears it (ORW-920: whether a told rumor lands is the house's call, so the seed is scanned for it, not assumed)
+    const heardTold = (s: Stop, o: string) => rumorsOf(s, o).find((c) => c.subject === PLAYER);
+    const found = await firstSeedWhere(async (seed) => {
+      const s = await playUntil(seed, (x) => quiet(x) && betrayed(x).some((y) => room(x).includes(y)) && room(x).length >= 3, { user: `wf-${seed}`, decide: voteAgainstAPartner });
+      // the only recorded betrayal is the secret-ballot break: a broken casual assurance is a PUBLIC betrayal and does name its victim (a different claim, checked elsewhere)
+      if (AssuranceLedger.fromJSON(s.sess.live.assurances ?? []).all.some((a) => a.status === "broken" && a.from === PLAYER)) return undefined;
+      const victim = betrayed(s).find((x) => room(s).includes(x))!;
+      const { o: bystander } = await tellTheRoom(s, victim);
+      return heardTold(s, bystander) ? { s, victim, bystander } : undefined;
+    }, wfScan([5, HINT], "a played season where the player breaks a deal at the secret ballot and the bystander hears the told rumor"));
+    const at = found.at.s, v = found.at.victim, o = found.at.bystander;
+    const deal = dealsOf(at).find((d) => d.status === "broken" && d.brokenBy === PLAYER && d.parties.includes(v)) as Deal & { secretVote?: boolean };
+    expect(deal.secretVote, "the break was the player's secret ballot").toBe(true);
+    for (const h of [v, o]) for (const c of rumorsOf(at, h)) expect(c.object, "no victim from a ballot the betrayed never saw").toBeUndefined();
+    expect(rumorsOf(at, v).length + rumorsOf(at, o).length, "non-vacuous: the rumor landed").toBeGreaterThan(0);
+    const toO = () => rumorsOf(at, o).find((c) => c.subject === PLAYER);
+    expect(toO(), "the bystander heard it about the player (no mishearing on this seed)").toBeDefined();
+    await playOnToTheNextBeat(at); // the week's claims are folded at commit time, before a beat
+    const drop = -(toO()!.impact?.trust ?? 0);
+    expect(drop, "a bystander distrusts the betrayer").toBeGreaterThan(0);
+    expect(drop).toBeLessThan(0.1);
+  }, 120_000);
 
   // ORW-813: not reached in play. A victim is named only for a PUBLIC break (a nomination or a replacement by the player as HOH; a ballot break stays sealed). In 18 played seasons
   // (seeds 1-18, the scripted talking player nominating any houseguest it holds a safety deal with) the player was never HOH before week 8 or their eviction, so no public break happened.

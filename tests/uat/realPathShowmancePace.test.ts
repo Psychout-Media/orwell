@@ -37,7 +37,7 @@ describe("ORW-736 REAL PATH: a showmance builds slowly in a played season", () =
         for (const sm of p.seededRels.showmances ?? []) if (sm.stage === "visible" && day < SHOWMANCE_PACE.publicNotBeforeDay) early.push({ day, pair: `${sm.a}|${sm.b}` });
       }
       return climbedTwo() ? { p, early, first } : undefined;
-    }, { from: 1, to: 24, hint: 21, sandbox: (s) => (s === 21 ? "ps21" : `ps-${s}`), what: "a pair climbing two levels before the crown" });
+    }, { from: 1, to: 24, hint: [3, 21], sandbox: (s) => (s === 21 ? "ps21" : `ps-${s}`), what: "a pair climbing two levels before the crown" });
     seed = found.seed; user = found.sandbox;
     publicBefore = found.at.early;
     firstRomanceTurn = found.at.first;
