@@ -26,7 +26,7 @@ describe("the bloc's own pick", () => {
     const blocs = [bloc([VOTER, MATE], B)];
     const w = BLOC.termWeight;
     expect(blocVoteTerm(blocs, VOTER, MATE, A)).toBe(-w);
-    expect(blocVoteTerm(blocs, VOTER, A, A)).toBe(w);
+    expect(blocVoteTerm(blocs, VOTER, A, A)).toBeCloseTo(w * BLOC.voteLeanShare, 12);
     expect(blocVoteTerm(blocs, VOTER, B, A)).toBe(0);
     expect(blocVoteTerm(blocs, VOTER, B, undefined)).toBe(0);
     expect(blocVoteTerm([], VOTER, A, A)).toBe(0);

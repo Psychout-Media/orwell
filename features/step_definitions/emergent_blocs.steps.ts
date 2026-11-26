@@ -91,11 +91,11 @@ interface BlocCoordination {
 // ORW-972 (re-measured 2026-11-26, this scenario's own logic, seeds 1-100, 10 weeks): the old note here (+2.6..3.7 pts) did not hold. At 2026-11-03 the lift was
 // +1.7 pts (83.1% -> 84.8%); by ORW-19 (comp-win threat 0.45) it was -3.1 pts (90.6% -> 87.5%), and the same games showed the bloc term LOWERING the trio's agreement
 // (0.835 without it, 0.823 with it): it pulled each member toward the threat-derived shared target, flipping only the marginal member against a house that votes by
-// consensus. The fix: on a vote the bloc pulls toward its OWN majority pick (`blocVoteTerm` / `blocVotePick`). Now: 90.3% -> 94.6% (+4.3 pts), shielding 31 -> 1
-// bloc-mate nominations. The 40-seed window below reads the same direction.
+// consensus. The fix: on a vote the bloc pulls toward its OWN majority pick (`blocVoteTerm` / `blocVotePick`), at a third of the shield's weight (`BLOC.voteLeanShare`, Ryne
+// approved 2026-11-26). Now: 90.3% -> 91.9% (+1.6 pts) over seeds 1-100, shielding 31 -> 1 bloc-mate nominations.
 // A92: a seed RANGE, not a hand-picked set (the old [11..15] was re-selected after every balance change and went red on any default shift though the mechanism was fine).
 const BL_LIFT_SEEDS = Array.from({ length: 40 }, (_, i) => i + 1); // 12 -> 40 seeds on 2026-11-13 (ORW-19 comp-win threat 0.3 -> 0.45): the lift is ~0.02, below the sampling error of a 12-seed pool (~0.03); over 40 seeds: 0.856 vs 0.844 at 0.3, 0.889 vs 0.903 at 0.45; shielding is unchanged (0 vs 19 bloc-mate nominations at both)
-/** The alignment lift is about +4 pts over seeds 1-100 (ORW-972), so the claim is 'not worse than the unbonded baseline beyond sampling error', not a strict inequality on a lucky set. */
+/** The alignment lift is about +1.6 pts over seeds 1-100 (ORW-972), so the claim is 'not worse than the unbonded baseline beyond sampling error', not a strict inequality on a lucky set. */
 const BL_ALIGN_TOLERANCE = 0.03;
 const BL_LIFT_WEEKS = 10;
 let blBaseline: BlocCoordination | undefined;

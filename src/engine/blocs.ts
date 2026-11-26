@@ -14,6 +14,12 @@ import type { RelationshipDisposition } from "./relationshipConstants";
 export const BLOC = {
   /** How hard the bloc term bends a decision read, scaled by the bloc's loyalty strength. */
   termWeight: 0.5,
+  /**
+   * ORW-972: the lean toward the bloc's OWN majority pick on an eviction vote, as a share of `termWeight` (the shield keeps the full weight). Swept 2026-11-26 (seeds 1-100 for the
+   * 0043 lift, 300 per PO arm): 1.0 = lift +0.043, solid wins 6.0%; 0.5 = +0.021, 6.0%; 0.33 = +0.016, 6.3%; 0.2 = +0.007, 6.3%; the old shared-target lean = -0.030, 8.0%. 0.33 is the
+   * smallest weight that makes a bloc vote together; Ryne approved shipping it (2026-11-26: "Yeah that is fine to ship... If it gets too unbalanced, then we can go in with a fix.").
+   */
+  voteLeanShare: 0.33,
   /** Below this derived loyalty a member is defection-prone (their own incentives dominate). */
   defectionLoyalty: 0.4,
   /** An outside bond must beat the member's weakest inside bond by this margin to peel them off. */
@@ -208,7 +214,7 @@ export function blocVoteTerm(blocs: readonly Bloc[], holder: EntityId, target: E
   if (!bloc) return 0;
   const strength = BLOC.termWeight * bloc.loyaltyStrength;
   if (bloc.members.includes(target)) return -strength;          // shield a bloc-mate
-  if (pick !== undefined && pick === target) return +strength;  // vote with the bloc
+  if (pick !== undefined && pick === target) return +strength * BLOC.voteLeanShare;  // vote with the bloc (a smaller lean than the shield)
   return 0;
 }
 
