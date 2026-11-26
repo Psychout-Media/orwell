@@ -6758,6 +6758,29 @@ export class GameSessionAdapter implements GameSession {
     this.persist();
   }
 
+  /**
+   * ORW-1053: the living houseguests, outside the deal's own pair, whom a deal's terms name (full name, or a first name no other houseguest shares), in roster order; an explicit id leads.
+   * Matching is on whole words, case-insensitive.
+   */
+  private thirdsNamedIn(terms: string, explicit: EntityId | undefined, pair: readonly EntityId[]): EntityId[] {
+    if (!this.house || !this.live) return [];
+    const gone = new Set(this.live.evictionOrder);
+    const living = this.house.npcs.filter((n) => !gone.has(n.id) && !pair.includes(n.id));
+    const firsts = new Map<string, number>();
+    for (const n of [...this.house.npcs, this.house.player]) { const f = (n.name ?? "").trim().split(/\s+/)[0]?.toLowerCase(); if (f) firsts.set(f, (firsts.get(f) ?? 0) + 1); }
+    const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const hit = (word: string) => new RegExp(`(^|[^\\p{L}])${esc(word)}($|[^\\p{L}])`, "iu").test(terms);
+    const out: EntityId[] = [];
+    if (explicit && living.some((n) => n.id === explicit)) out.push(explicit);
+    for (const n of living) {
+      if (out.includes(n.id)) continue;
+      const full = (n.name ?? "").trim();
+      const first = full.split(/\s+/)[0] ?? "";
+      if (full && (hit(full) || (first && firsts.get(first.toLowerCase()) === 1 && hit(first)))) out.push(n.id);
+    }
+    return out;
+  }
+
   private nameOf(id: EntityId): string {
     if (!this.house) return id;
     if (this.house.player.id === id) return this.house.player.name;
@@ -18939,7 +18962,9 @@ export class GameSessionAdapter implements GameSession {
     }
     // B55: an ASKED active obligation binds the NPC (the promisor is parties[0]); everything else keeps the player first, as before
     const parties: [EntityId, EntityId] = (isPositiveObligation(req.kind) && req.direction === "ask") || req.kind === "protect-third" || req.kind === "information" ? [target, PLAYER] : [PLAYER, target];
-    const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses, req.kind === "protect-third" ? req.third : undefined);
+    // ORW-1053: a vote / safety / conditional deal whose terms name living houseguests outside the pair protects those houseguests (the named ones, or the explicit `third`).
+    const named = req.kind === "vote" || req.kind === "safety" || req.kind === "conditional" ? this.thirdsNamedIn(terms, req.third, [PLAYER, target]) : [];
+    const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses, req.kind === "protect-third" ? req.third : named[0], named.slice(1));
     this.trackDealMade(deal);
     // ORW-85: the houseguests who SAW the deal made remember it - and read it against their own position (see rememberDealWitnesses). Played games only.
     if (witnesses && witnesses.length > 0 && this.live.playedGame === true) this.rememberDealWitnesses(deal, witnesses);
