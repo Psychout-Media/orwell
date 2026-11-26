@@ -66,7 +66,7 @@ def _ruled_out(r, want):
     return on_block if want == "vote" else (bool(r["nominees"]) and not on_block)
 
 
-def _walk_week_one(stack, sid, want=None):
+def _walk_week_one(stack, sid, want=None, stop_at_eviction_ceremony=False):
     """Drive week 1 to its eviction; returns the list of (message_index, sched, phase, pending_kind, roles) observations taken AFTER every message or decision. Ends on the player's own
     eviction-vote card when they vote, or - when they are on the block or the HOH, so no vote card is theirs - on the first observation where the engine reports the evictee. Every other card
     on the way (a comp round, the nominations, a veto decision, a tie-break...) is answered. `want` ("vote" / "block"): also stop as soon as the engine reports that path ruled out."""
@@ -82,6 +82,8 @@ def _walk_week_one(stack, sid, want=None):
         obs.append((n, s, st.get("phase"), pend, roles))
         if pend == "eviction-vote" or roles["out"]:
             return obs
+        if stop_at_eviction_ceremony and pend == "ceremony-step" and roles.get("cer") == "eviction":
+            return obs  # ORW-816: the caller steps the eviction ceremony itself (a player on the block, ballot by ballot)
         if want and _ruled_out(roles, want):
             return obs
         if pend:
@@ -201,7 +203,7 @@ def _assert_the_eviction_landed(obs):
 _PATHS = {"vote": ("votes",), "block": ("on-the-block", "evicted")}
 
 
-def _walk_seeded_week(stack, seeds, want, label):
+def _walk_seeded_week(stack, seeds, want, label, stop_at_eviction_ceremony=False):
     """Walk week 1 on the first of `seeds` whose season takes the wanted path ("vote": the player keeps their eviction vote; "block": an NPC HOH puts the player on the block); returns
     (sid, obs). A seed is dropped only for a legitimate other path, and its partial walk must still honour the clock. A voter whose eviction ran without their card is a BUG, so it fails
     here as one - never as "re-pick the seeds"."""
@@ -209,7 +211,7 @@ def _walk_seeded_week(stack, seeds, want, label):
         _fresh(stack, seed)
         sid = _session(stack, f"{label}-{seed}")
         _start_day(stack, sid)
-        obs = _walk_week_one(stack, sid, want=want)
+        obs = _walk_week_one(stack, sid, want=want, stop_at_eviction_ceremony=stop_at_eviction_ceremony)
         path = _path(obs)
         if path in _PATHS[want]:
             return sid, obs

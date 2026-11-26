@@ -40,16 +40,25 @@ def public_tool_events(events: Any) -> list:
     return [{k: v for k, v in e.items() if k in PUBLIC_TOOL_EVENT_FIELDS} for e in events if isinstance(e, dict)]
 
 
+# ORW-482 - metadata keys only the ADMIN transcript export may read: the engine results of calls the front end made itself (the forced casting finalize). Dropped by `public_metadata` and never client-writable.
+ADMIN_ONLY_METADATA_KEYS = frozenset({"admin_engine_results"})
+
+
 def public_metadata(metadata: Any) -> Any:
-    """A copy of message `metadata` that is safe for a non-admin reader: `tool_events` are whitelisted. The stored metadata is never mutated.
-    Also the INBOUND sanitizer: a client-supplied `engine_result` can never be stored (`add_message`)."""
-    if not isinstance(metadata, dict) or "tool_events" not in metadata:
+    """A copy of message `metadata` that is safe for a non-admin reader: `tool_events` are whitelisted and the admin-only keys are dropped. The stored metadata is never mutated.
+    Also the INBOUND sanitizer: a client-supplied `engine_result` (or `admin_engine_results`) can never be stored (`add_message`)."""
+    if not isinstance(metadata, dict):
         return metadata
-    return {**metadata, "tool_events": public_tool_events(metadata.get("tool_events"))}
+    if "tool_events" not in metadata and not (ADMIN_ONLY_METADATA_KEYS & metadata.keys()):
+        return metadata
+    out = {k: v for k, v in metadata.items() if k not in ADMIN_ONLY_METADATA_KEYS}
+    if "tool_events" in out:
+        out["tool_events"] = public_tool_events(metadata.get("tool_events"))
+    return out
 
 
 # Server-owned metadata keys a CLIENT may never write (they feed the admin forensic ledger): dropped from any client-supplied metadata merge.
-SERVER_OWNED_METADATA_KEYS = frozenset({"tool_events"})
+SERVER_OWNED_METADATA_KEYS = frozenset({"tool_events", "admin_engine_results"})
 
 
 def client_metadata_update(update: Any) -> dict:

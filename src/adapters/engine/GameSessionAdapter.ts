@@ -407,7 +407,7 @@ import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engi
 import { sameMoment } from "../../engine/claimMoment";
 import { COMING_CLEAN, confessable, confessionTrustDrop, loopInTrustGain, catchRisk, confessChance, cleanActDone, otherVersionNear, buildComingCleanRetro } from "../../engine/comingClean";
 import { CAUGHT_LIE, caughtLieTrustDrop, contradicts, overclaimedKeeps, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
-import { claimProblem, liesBy, claimsHeardBy, tellClaim, labelOfNature, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
+import { sameClaimKey, claimProblem, liesBy, claimsHeardBy, tellClaim, labelOfNature, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
 import { answerFold, decideAsk, namedSources, parseSourceDodge, readAnswer, trueSourceOf, type AnswerRead } from "../../engine/sourceAsk";
 import { askableClaims, claimPhrase, decideCover, decideSourceAnswer, pickAskedClaim, COVER, heldBeliefFor, namedInText, namedSourceContent, noRecordNote, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
@@ -2465,12 +2465,17 @@ export class GameSessionAdapter implements GameSession {
     if (decided) {
       const b = decided.belief;
       const claim = this.tellClaim({ speaker: id, listener: PLAYER, kind: b.kind, subject: b.subject, ...(b.object !== undefined ? { object: b.object } : {}), ...(b.label !== undefined ? { label: b.label } : {}), isTrue: this.believedThingIsTrue(b), intent: "inform" });
-      if (claim) tells = { kind: b.kind, subject: b.subject === PLAYER ? "the player" : this.nameOf(b.subject), ...(b.object !== undefined ? { object: this.nameOf(b.object) } : {}), ...(b.label !== undefined ? { label: b.label } : {}), certainty: decided.band };
+      if (claim) tells = { ...this.heardBeforeMark(claim), kind: b.kind, subject: b.subject === PLAYER ? "the player" : this.nameOf(b.subject), ...(b.object !== undefined ? { object: this.nameOf(b.object) } : {}), ...(b.label !== undefined ? { label: b.label } : {}), certainty: decided.band };
     }
     if (!tells && !jury) tells = this.plantOnPlayer(id, day, toldTodayBy(told, live.week, day));
     if (!tells && !jury && !toldTodayBy(told, live.week, day)) tells = this.tellCoupleToPlayer(id, attemptKey); // ORW-767: a pair they saw or were told, passed on
     this.claimsToPlayerDecided.set(id, { epoch: this.disclosureEpoch, ...(tells ? { tells } : {}) });
     return tells;
+  }
+  /** ORW-931: a claim told to the player that another houseguest already told them (same kind, who, second party, label): the narrator is told it confirms what the player heard, not news. */
+  private heardBeforeMark(claim: SpokenClaim): { alreadyHeard?: true } {
+    const log = this.live?.claims?.items ?? [];
+    return log.some((c) => c.listener === PLAYER && c.id !== claim.id && sameClaimKey(c, claim)) ? { alreadyHeard: true } : {};
   }
   private claimsToPlayerOn(): boolean { return this.claimsToPlayerEnabled && this.npcBeliefsEnabled && this.live?.playedGame === true; }
   /**
@@ -2488,7 +2493,7 @@ export class GameSessionAdapter implements GameSession {
     if (!said) return undefined;
     const object = said.object ?? (said.kind === "lying-about" ? PLAYER : undefined);
     const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:aimed-speech-band:${say.salt}:${id}`)).next();
-    return { kind: said.kind, subject: said.subject === PLAYER ? "the player" : this.nameOf(said.subject), ...(object !== undefined ? { object: this.nameOf(object) } : {}), ...(said.label !== undefined ? { label: said.label } : {}), certainty: presentedBand(undefined, roll) };
+    return { ...this.heardBeforeMark(said), kind: said.kind, subject: said.subject === PLAYER ? "the player" : this.nameOf(said.subject), ...(object !== undefined ? { object: this.nameOf(object) } : {}), ...(said.label !== undefined ? { label: said.label } : {}), certainty: presentedBand(undefined, roll) };
   }
   /**
    * 0159 / ORW-330 (theme 2, slice 6b) - A LIE PLANTED ON THE PLAYER. When `id` told the player nothing from a held belief, a houseguest with an ACTIVE goal against someone may plant a lie about them
@@ -2515,7 +2520,7 @@ export class GameSessionAdapter implements GameSession {
     const claim = this.tellClaim(said);
     if (!claim) return undefined;
     const object = said.object ?? (said.kind === "lying-about" ? PLAYER : undefined);
-    return { kind: said.kind, subject: this.nameOf(said.subject), ...(object !== undefined ? { object: this.nameOf(object) } : {}), certainty: presentedBand(undefined, bandRoll) };
+    return { ...this.heardBeforeMark(claim), kind: said.kind, subject: this.nameOf(said.subject), ...(object !== undefined ? { object: this.nameOf(object) } : {}), certainty: presentedBand(undefined, bandRoll) };
   }
   recordHeardAboutMe(h: { teller: EntityId; listeners: readonly EntityId[]; nature: HeardNature }): void {
     if (!this.heardAboutMeEnabled || !this.npcBeliefsEnabled || !this.live || !isHeardNature(h.nature)) return;
