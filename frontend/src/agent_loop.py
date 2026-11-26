@@ -5779,6 +5779,11 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
             _g_err, _g_term = await _guard_deal(with_id, _term_kw.get("term"), owner, last_user or "")
             if _g_err:
                 logger.info(f"[orwell] deal back-fill refused by the N-4 guard: {_g_err} user={owner}")
+                try:  # ORW-1022: counted per refusal (the guard is right to refuse a wrong partner; the doctor shows how often the extraction picks one)
+                    from src import log_rings
+                    log_rings.record_soft_failure("deal-backfill:partner-refused", _g_err[:160], corrected="deal-not-recorded", user=owner)
+                except Exception:  # failsoft-ok: the health record must never break the belt
+                    pass
                 continue
             _term_kw = {"term": _g_term} if _g_term else {}
             # 0065 Part A / A10 / #591 / R1c: one stable at-most-once key per deal, threaded through every

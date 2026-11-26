@@ -3258,8 +3258,8 @@ async def _record_image_beats(shown: list, user: Optional[str],
             logger.info("[portraits] record_image_beat(%s) failed: %s", hid, e)
             try:
                 from src import log_rings
-                log_rings.record_soft_failure("portraits:image-beat-record-failed", e,
-                                              corrected="portrait-shown-beat-skipped", user=user)
+                _cls = "portraits:image-budget-refused" if "image budget exhausted" in str(e) else "portraits:image-beat-record-failed"  # ORW-1022: a budget refusal is its own counted class
+                log_rings.record_soft_failure(_cls, e, corrected="portrait-shown-beat-skipped", user=user)
             except Exception:  # pragma: no cover — failsoft-ok: recorder-self
                 pass
         else:
