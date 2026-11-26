@@ -7,7 +7,7 @@ truncated JSON → unparseable → committed 0 → the strict pre-finalize gate 
 
   (a) the sketch call class resolves an output cap ≥ ``GENESIS_SKETCH_MIN_OUTPUT_TOKENS`` (8000),
       while the per-NPC deep-authoring cap stays 6000 (ALSO a golden-fixture pin:
-      the committed fixture holds the per-NPC calls at max_tokens=3000 — max_tokens is part of the
+      the committed fixture holds the per-NPC calls at max_tokens=3000 (ORW-1025 moved the class cap to 6000) — max_tokens is part of the
       replay request key, so the class cap must not move);
   (b) a ``finish_reason=length`` completion triggers EXACTLY ONE doubled-cap retry, bounded by
       ``LENGTH_RETRY_MAX_TOKENS`` (16000) — never a second retry, never past the ceiling;
@@ -115,7 +115,7 @@ def test_genesis_sketch_call_resolves_cap_at_least_the_floor(monkeypatch):
     assert calls[0]["max_tokens"] >= tp.GENESIS_SKETCH_MIN_OUTPUT_TOKENS >= 8000, calls[0]
 
 
-def test_per_npc_authoring_cap_is_byte_identical_at_3000(monkeypatch):
+def test_per_npc_authoring_cap_is_byte_identical_at_6000(monkeypatch):
     """The golden-fixture pin: the committed fixture replays the per-NPC deep-authoring calls at
     max_tokens=3000 and max_tokens is part of the replay request key — the DEFAULT authoring cap
     must not move. Only the genesis sketch (not in the fixture) carries the larger floor."""
@@ -165,8 +165,8 @@ def test_finish_length_triggers_exactly_one_doubled_cap_retry(monkeypatch):
     fn = _run(A._resolve_llm_fn("u-len"))
     text = _run(fn([{"role": "user", "content": "author"}]))
     assert len(calls) == 2, "finish_reason=length must trigger exactly one retry"
-    assert calls[0]["max_tokens"] == 3000
-    assert calls[1]["max_tokens"] == 6000  # doubled, under the 16000 ceiling
+    assert calls[0]["max_tokens"] == 6000
+    assert calls[1]["max_tokens"] == 12000  # doubled, under the 16000 ceiling
     assert text == _valid_proposal_json()  # the complete retry body wins
 
 
@@ -239,8 +239,8 @@ def test_length_retry_records_finish_reason_in_the_ledger(monkeypatch):
     fn = _run(A._resolve_llm_fn("u-ledger"))
     _run(fn([{"role": "user", "content": "author"}]))
     assert len(recorded) == 2
-    assert recorded[0]["applied_max_tokens"] == 3000 and recorded[0]["finish_reason"] == "length"
-    assert recorded[1]["applied_max_tokens"] == 6000 and recorded[1]["finish_reason"] == "stop"
+    assert recorded[0]["applied_max_tokens"] == 6000 and recorded[0]["finish_reason"] == "length"
+    assert recorded[1]["applied_max_tokens"] == 12000 and recorded[1]["finish_reason"] == "stop"
 
 
 # ── (d) the salvage guard — complete leading entries of a truncated proposal ────────────────────────────
