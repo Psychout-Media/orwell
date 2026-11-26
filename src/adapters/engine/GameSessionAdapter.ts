@@ -8188,7 +8188,7 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house) return null;
     const me = this.house.player.id;
     const cands = this.presenceActive().filter((id) => id !== me).map((id) => ({ id, name: this.nameOf(id) }));
-    return matchHouseguestName(phrase, cands);
+    return cands.find((c) => c.id.toLowerCase() === phrase.trim().toLowerCase()) ?? matchHouseguestName(phrase, cands); // a tool caller may pass the houseguest's id
   }
 
   /**
