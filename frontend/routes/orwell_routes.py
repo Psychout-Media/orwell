@@ -605,7 +605,7 @@ _BROWSER_STATE_SHAPE = {
     "house": [{"id": _T, "name": _T, "status": _T, "evictedSeq": _T, "lastSeenMood": _T}],
     "asleep": [_NAMED], "awake": [_NAMED], "deals": [_DEAL],
     "premiere": {"met": [_MET_ROW], "remaining": [_MET_ROW], "complete": _T, "metCount": _T, "total": _T, "champagneCircle": _T},
-    "daySchedule": {"next": _T, "phase": _T, "due": _T, "minutesUntil": _T, "todaysEvent": _T, "tomorrow": _T, "finalHohPart": _T},
+    "daySchedule": {"headerPhase": _T, "next": _T, "phase": _T, "due": _T, "minutesUntil": _T, "todaysEvent": _T, "tomorrow": _T, "finalHohPart": _T},
     "watching": {"moments": [_T]},
     "casting": {"missing": [_T]},
     "castingHouse": {"state": _T, "authored": _T, "total": _T, "missing": _T},
@@ -710,8 +710,8 @@ _BROWSER_ROSTER_SHAPE = {
     "portraitLastRun": {"generated": _T, "attempted": _T, "failing": _T}, "imagesAvailable": _T, "playerAwaitingUpload": _T, "portraitsPresent": _T, "portraitsTotal": _T,
     "generation": {"total": _T, "done": _T, "active": _T}, "stale": _T,
 }
-#   /health (the engine banner reads `engine`, `busy`, `reconnecting` and the truthiness of `lastError.error`; it never shows the engine's address, the raw error text or a tool name, which stay on /admin/status).
-_BROWSER_HEALTH_SHAPE = {"engine": _T, "reconnecting": _T, "busy": _T, "lastError": {"error": _T}}
+#   /health (the engine banner reads `engine`, `busy`, `reconnecting`, `integrityRefusal` (a bare true) and the truthiness of `lastError.error`; it never shows the engine's address, the raw error text or a tool name, which stay on /admin/status).
+_BROWSER_HEALTH_SHAPE = {"integrityRefusal": _T, "engine": _T, "reconnecting": _T, "busy": _T, "lastError": {"error": _T}}
 #   /dossier (orwellDossier): already built field by field (`_public_persona`, `_public_deal`, `_public_alliance`, `_public_beat`); the shape holds the whole payload to it.
 _BROWSER_DOSSIER_SHAPE = {
     "found": _T, "id": _T, "name": _T, "status": _T, "isPlayer": _T, "portrait": _T, "met": _T,
@@ -1171,14 +1171,17 @@ def setup_orwell_routes() -> APIRouter:
     router = APIRouter(prefix="/api/orwell", tags=["orwell"])
 
     @router.get("/health")
-    async def orwell_health():
+    async def orwell_health(request: Request):
         """Engine reachability for the visible status banner: `engine` (bool), `busy`, `reconnecting`, and `lastError.error` (true when a recent call failed while the engine is up). The concrete
         reason, the address and the failed tool stay on /admin/status (ORW-768)."""
         detail = await orwell_engine.engine_health_detail()
         # ORW-768: the browser banner reads `engine`, `busy`, `reconnecting` and only WHETHER a recent call failed. The engine's address, the raw error text and the failed tool's name stay on the
         # operator's /admin/status health payload, never here.
         _last = detail.get("lastError")
+        # ORW-770: the banner reads whether THIS player's turn was refused by the integrity checkpoint (a bare true: no tool, kinds or invariant name, which stay on /admin/status); never another player's.
+        _refused = {"integrityRefusal": True} if orwell_engine.integrity_refusal(_current_user(request)) else {}
         return _project_for_browser({
+            **_refused,
             "engine": bool(detail.get("ok")),
             "lastError": {"error": True} if isinstance(_last, dict) and _last.get("error") else None,
             # Issue 1: a brief, soft "reconnecting…" while a transient outage is being retried —

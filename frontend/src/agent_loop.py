@@ -2179,6 +2179,27 @@ def _asked_to_go_somewhere(text: str, room_names) -> bool:
     return bool(themed) and bool(re.search(r"\b" + _GO_VERB + r"\b", msg, re.IGNORECASE))
 
 
+# Live hotfix (Ryne: "I shouldn't be able to just poof there by speaking the name of it"): the auto-move belt moved an engaged player alone into a bedroom because a room was NAMED in the talk. Only an INTENT TO GO in the
+# player's own words moves them: "I go / head / walk to <room>", "let's go to <room>", an imperative at the start of a sentence, or following someone out. Mentioning, asking about or discussing a room moves nobody.
+_PI_SUBJECT = (r"(?:(?:^|(?<=[.!?;\n\"\u201c\u2014]))\s*|\b(?:and\s+then|then|so|and)\s+|\blet(?:'s|\u2019s|\s+us|\s+me)\s+|"
+               r"\b(?:i|we)(?:(?:'ll|\u2019ll|\s+will|'m\s+going\s+to|\u2019m\s+going\s+to|'m\s+gonna|\u2019m\s+gonna|\s+am\s+going\s+to|\s+want\s+to|\s+wanna|\s+decide\s+to)\s+|\s+)(?:just\s+|now\s+|quietly\s+|all\s+)?)")
+_PI_VERB = r"(?:go|head|walk|move|wander|step|slip|drift|stroll|climb|run|get\s+up\s+and\s+(?:go|head|walk)|come|heading|going|walking)"
+_PI_PATH = r"(?:\s+(?:back|over|up|down|out|on|straight|on\s+over)){0,2}\s*(?:\b(?:to|into|toward|towards|in|inside)\b\s+)"
+_PI_ROOM = (r"(?:the\s+|my\s+|our\s+)?(?:kitchen|living\s+room|lounge|backyard|back\s+yard|yard|hallway|hall|bathroom|shower|dining\s+room|storage(?:\s+room)?|pantry|diary\s+room|hoh(?:\s+room)?|landing|bedroom|bunk(?:\s+room)?|bed\s*room|outside|inside|downstairs|upstairs)\b")
+_PI_BARE = r"\s+(?:outside|inside|downstairs|upstairs)\b"
+_PLAYER_INTENT_RE = re.compile(_PI_SUBJECT + _PI_VERB + r"(?:" + _PI_PATH + _PI_ROOM + r"|" + _PI_BARE + r")", re.IGNORECASE)
+_PLAYER_INTENT_PREFIX_RE = re.compile(_PI_SUBJECT + _PI_VERB + _PI_PATH, re.IGNORECASE)
+_PLAYER_FOLLOW_RE = re.compile(r"\b(?:i(?:'ll|\u2019ll)?|let(?:'s|\u2019s))\s+(?:follow|go\s+with|come\s+with|tag\s+along\s+with|join)\s+(?:her|him|them|you|the\s+others)\b|\bi\s+(?:get\s+up\s+and\s+)?leave\s+the\s+room\b|\bi(?:'ll|’ll|\s+want\s+to|\s+wanna|'m\s+going\s+to|’m\s+going\s+to|'m\s+gonna|’m\s+gonna)?\s+(?:get\s+up\s+and\s+)?(?:leave\b(?!\s+(?:it|that|him|her|them|you|the\s+(?:deal|alliance|vote)))|(?:head|go|step|walk|wander)\s+(?:over(?:\s+there)?|out)\b)", re.IGNORECASE)
+
+
+def _player_asked_to_move(text: str, room_names) -> bool:
+    """Did the player's own message say they are going somewhere? Pure. A room merely named, asked about or discussed never counts; narration never counts."""
+    msg = str(text or "")
+    if _PLAYER_INTENT_RE.search(msg) or _PLAYER_FOLLOW_RE.search(msg):
+        return True
+    return any(_themed_rooms_in(msg[m.end():m.end() + 60], room_names) for m in _PLAYER_INTENT_PREFIX_RE.finditer(msg))
+
+
 def _turn_in_applied(result) -> bool:
     """ORW-310 — did a `turnIn` tool result APPLY (the night ended)? False for an error, an engine `held`
     refusal (bedtime gate) or a no-op that left the clock where it was. Telemetry counts only True."""
@@ -8467,12 +8488,16 @@ _PD_DRAIN_WAIT_S = 8.0  # ORW-408: after a withhold, the longest the rest of the
 _PD_REDO_TIMEOUT_S = 20  # ORW-408: the continuation call's wall-clock ceiling
 _PD_REDO_MAX_TOKENS = 700  # ORW-408: enough for the rest of one reply
 _PD_BEAT_S = 2.0  # ORW-408: how often a keepalive comment goes out while the player waits
-_PD_KEEPALIVE = ": keepalive\n\n"  # the same SSE comment line the chat route sends before the first token
+# The keepalive is a real `data:` event, not an SSE comment: the chat route's consumer chain only relays `data: ` / `event: ` chunks (a comment line was dropped there, so neither the SSE nor the
+# WebSocket leg ever saw it). `{"type": "keepalive"}` is a type the client ignores (the SSE reader and the WS splice both fall through on an unknown type), and the WS relay carries it as a plain
+# `chat` event payload.
+_PD_KEEPALIVE = 'data: {"type": "keepalive"}\n\n'
 
 
-async def _pd_bounded_stream(stream, armed, drain: dict, wait_s: float = None, beat_s: float = None):
-    """ORW-408: pass the model stream through unchanged until `armed()` (a sentence was withheld); from then on read it for at most `wait_s`, yielding a keepalive comment every `beat_s`
-    while nothing arrives, and on the deadline stop (`drain["timed_out"] = True`). Cancelling the pending read does not hurt the chunks already processed."""
+async def _pd_bounded_stream(stream, armed, drain: dict, wait_s: float = None, beat_s: float = None, hard_deadline: float = None):
+    """ORW-408: pass the model stream through unchanged. Once `armed()` (a sentence was withheld) the stream is STILL read to its end - never abandoned, so a late native tool call / finish / usage event
+    is always seen - while a keepalive event is yielded every `beat_s` that nothing arrives. `wait_s` after the withhold is only the point past which no continuation call is made
+    (`drain["timed_out"] = True`). `hard_deadline` (a `time.monotonic()` value; the round's wall-clock cap) is the one point where the read is cut (`drain["hard_timed_out"]`)."""
     wait_s = _PD_DRAIN_WAIT_S if wait_s is None else wait_s
     beat_s = _PD_BEAT_S if beat_s is None else beat_s
     it = stream.__aiter__()
@@ -8485,37 +8510,42 @@ async def _pd_bounded_stream(stream, armed, drain: dict, wait_s: float = None, b
             if deadline is None:
                 try:
                     chunk = await it.__anext__()
-                except StopAsyncIteration:
+                except StopAsyncIteration:  # failsoft-ok: orw408-drain-end (the normal end of the stream)
                     return
                 yield chunk
                 continue
             nxt = asyncio.ensure_future(it.__anext__())
             while True:
-                left = deadline - time.monotonic()
-                if left <= 0:
+                now = time.monotonic()
+                if hard_deadline is not None and now >= hard_deadline:
                     drain["timed_out"] = True
+                    drain["hard_timed_out"] = True
                     nxt.cancel()
-                    try:
-                        await nxt
-                    except BaseException:  # failsoft-ok: orw408-drain-cancel (the abandoned read; the round ends at the kept text)
-                        pass
+                    await asyncio.wait({nxt})  # settles the inner task only; an OUTER cancel still raises here
+                    if not nxt.cancelled() and nxt.exception() is None:
+                        chunk, nxt = nxt.result(), None
+                        yield chunk  # completed in the same tick as the deadline: not discarded
                     return
-                done, _ = await asyncio.wait({nxt}, timeout=min(beat_s, left))
+                if now >= deadline:
+                    drain["timed_out"] = True
+                wait = beat_s if hard_deadline is None else min(beat_s, max(hard_deadline - now, 0.001))
+                done, _ = await asyncio.wait({nxt}, timeout=wait)
                 if done:
                     break
                 yield _PD_KEEPALIVE
-            try:
-                chunk = nxt.result()
-            except StopAsyncIteration:
-                return
+            if time.monotonic() >= deadline:
+                drain["timed_out"] = True
+            exc = nxt.exception()
+            if exc is not None:
+                if isinstance(exc, StopAsyncIteration):
+                    return
+                raise exc
+            chunk, nxt = nxt.result(), None
             yield chunk
     finally:
         if nxt is not None and not nxt.done():  # closed mid-keepalive: stop the pending read first, or aclose() hits "already running" and the upstream read carries on
             nxt.cancel()
-            try:
-                await nxt
-            except BaseException:  # failsoft-ok: orw408-drain-cancel (the abandoned read)
-                pass
+            await asyncio.wait({nxt}, timeout=1.0)  # review 2 of #2728: never swallow the OUTER task's cancellation (a client disconnect)
         try:
             await it.aclose()
         except Exception:  # failsoft-ok: orw408-drain-close (closing an already-finished stream)
@@ -8942,6 +8972,11 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
                 _forget_season_pacing(kwargs.get("owner"), _bump=False)
         except Exception as _e:  # failsoft-ok: the reset already cleared the stores once
             logger.debug("ORW-499: stale-turn pacing clear failed: %s", _e)
+        try:  # ORW-408: one INFO line per turn (pre-display chunks checked / skipped by reason / conflicts by fact)
+            from src import predisplay_check as _pd_turn
+            _pd_turn.end_turn(kwargs.get("owner"))
+        except Exception as _e:  # failsoft-ok: counter only
+            logger.debug("ORW-408: end_turn failed: %s", _e)
         _ANN_HELD.pop(kwargs.get("owner"), None)  # ORW-479: a held announcement's tail window never outlives its turn
         for _tok in _ledger_tokens:  # ORW-435: a turn that raised / was cancelled / never reached record_turn still closes its window (idempotent)
             try:
@@ -9816,6 +9851,9 @@ async def _stream_agent_loop_impl(
         # mistaken for the round's opener merely because it's the first line of ITS buffered chunk.
         _round_visible_emitted = False
         _pd_rw_pending = None  # ORW-408: a RewriteSplit once a sentence was withheld this round (the rest of the stream is then discarded unseen)
+        _pd_ended_at_prefix = False  # ORW-408: the round's narration ended at the kept prefix (no continuation): close any open quote / tag
+        _pd_op = -1
+        _pd_all_tail = ""
         _pd_rw_cont = False  # ORW-408: the round's flush is the redo's text (a still-conflicting sentence is dropped whole)
         _pd_rw_round = False  # ORW-408: THIS round withheld a sentence (the turn-scoped `_pd_rewrite_used` must not switch the tail check off for LATER rounds; review of #2751)
         _pd_tail = ""  # ORW-408: the raw text read (and discarded) AFTER a sentence was withheld; only inspected for a text-protocol tool-call opener
@@ -10232,7 +10270,7 @@ async def _stream_agent_loop_impl(
             pin_provider=(_pin_threshold > 0 and last_round_input_tokens >= _pin_threshold),
             provider_opts=_provider_opts,
             tool_choice=_forced_tool_choice,  # #1154: None on ordinary turns ⇒ byte-identical
-        ), lambda: _pd_rw_pending is not None, _pd_drain):
+        ), lambda: _pd_rw_pending is not None, _pd_drain, hard_deadline=time.monotonic() + max(_round_deadline - time.time(), 0.0)):
             if chunk == _PD_KEEPALIVE:  # ORW-408: the player is waiting on a withheld sentence; keep the connection alive
                 yield chunk
                 continue
@@ -10501,6 +10539,7 @@ async def _stream_agent_loop_impl(
                                         # ORW-408: stored text must equal what was shown: cut the raw round buffer to exactly the emitted text (the earlier emitted text + the kept prefix of this chunk),
                                         # never by searching for the withheld sentence (a guard may have rewritten it, leaving it in the stored text).
                                         round_response = _round_emitted_text + (_guarded_text or "")
+                                        _pd_tail = _game_buf + _pd_tail  # the unterminated remainder of this chunk is also unshown: scan it for a tool opener too
                                         _game_buf = ""
                                     _round_emitted_text += _guarded_text or ""
                                     _shown_piece = _guarded_text or ""
@@ -10640,8 +10679,8 @@ async def _stream_agent_loop_impl(
                 # call from the discarded tail is put back onto the raw round text so it is parsed and run once (the narration before it stays unshown, so nothing is narrated twice).
                 logger.info("[predisplay-rewrite] no continuation: native_calls=%d tail_opener=%s drain_timed_out=%s", len(native_tool_calls), _pd_op >= 0, _pd_drain["timed_out"])
                 if _pd_op >= 0:
-                    round_response += _pd_all_tail[_pd_op:]
                     _opener_halted_round = True  # review of #2784: prose after this opener was never shown either, so the storage cut below drops it (ORW-453)
+                _pd_ended_at_prefix = True
                 _pd_rw_pending = None
             else:
                 # ONE non-streaming continuation from exactly where the shown text ends; it then flows through the SAME guard chain below (the flush site).
@@ -10657,6 +10696,18 @@ async def _stream_agent_loop_impl(
                     round_response += _redo
                     _game_buf = _redo
                     _pd_rw_cont = True
+                else:
+                    _pd_ended_at_prefix = True  # the continuation failed or came back empty: the reply ends at the kept prefix
+            if _pd_ended_at_prefix:
+                # The narration ends at the kept prefix: never leave the bubble inside an open quote / speaker line / bold span (the same close the scene-broken path runs); live == stored.
+                _pd_close = close_open_markup(_round_emitted_text) if _round_emitted_text else ""
+                if _pd_close:
+                    _round_emitted_text += _pd_close
+                    full_response += _pd_close
+                    round_response += _pd_close
+                    yield f'data: {json.dumps({"delta": _pd_close})}\n\n'
+                if _pd_op >= 0:
+                    round_response += _pd_all_tail[_pd_op:]  # the opener's own call text is parsed and run once (after any markup close above)
         # Flush the scrub buffer: emit the trailing (possibly unterminated) sentence, cleaned, so
         # nothing the round produced is left unshown or leaks through.
         if _scrub_active and _game_buf:
@@ -11279,6 +11330,8 @@ async def _stream_agent_loop_impl(
                     moved=_moved, turn_move_nudges=_turn_move_nudges, max_move_nudges=_MAX_MOVE_NUDGES_PER_TURN,
                     signal_in_user_message=bool(_MOVE_SIGNAL_RE.search(_last_user_for_move)) or _themed_move_signal(_last_user_for_move, owner),
                     signal_in_narration=bool(_MOVE_SIGNAL_RE.search(_turn_narration_visible)) or _themed_move_signal(_turn_narration_visible, owner))
+                if _want_move and not _player_asked_to_move(_last_user_for_move, _season_room_names(owner)):
+                    _want_move = False  # the narration walking the player somewhere is not the player's move: only their own words move them
                 if _turn_slept and not _asked_to_go_somewhere(_last_user_for_move, _season_room_names(owner)):
                     _want_move = False  # ORW-940: the player went to bed: the narration's walking about is not their move
                 # ADR 0009 NPC auto-move belt: the turn's NARRATION walked one or more houseguests to a

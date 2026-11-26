@@ -2229,6 +2229,8 @@ export interface PremiereEntranceShape {
   playerToast?: "later" | "now" | "done";
   /** ORW-368: speakers still to be released after this batch (the engine's done list). */
   toastRemaining?: number;
+  /** ORW-997: the front end reports that an earlier reply already voiced what the game shows now (the latest arrival, or the toast batch): nothing new was committed this turn. */
+  voiced?: true;
 }
 
 function premiereEntranceOf(pr: unknown): PremiereEntranceShape | null {
@@ -2301,7 +2303,10 @@ function premiereEntranceLines(
         `Nobody else has arrived \u2014 never place anyone else in the room, and never introduce a new arrival yourself (the game does, via advanceGame). ` +
         (unarrived > 0 ? `RECAP RULE: ${unarrived} houseguest${unarrived === 1 ? " has" : "s have"} not walked in. A beat that must refer to one of them may call them only a not-yet-introduced arrival, never by name, until their own entrance; a recap beat may name only houseguests the player has met. ` : "") +
         ` If the arrival shown below is someone you already voiced, do NOT voice them again as new: play the scene with those inside, and call advanceGame when the player lulls or asks for the next.`,
-      ...(ent.playerEntrance
+      ...(ent.voiced && (ja || ent.playerEntrance)
+        ? [`- PREMIERE \u2014 THE LATEST ARRIVAL, ${ent.playerEntrance || !ja ? "the player" : ja.name}, HAS ALREADY BEEN VOICED on an earlier turn (engine truth): nothing new was committed this turn. Do not voice that arrival again, do not introduce them again and do not bring in anyone else; play only what the player says or does now, with those already inside.`]
+        : []),
+      ...(ent.voiced && (ja || ent.playerEntrance) ? [] : ent.playerEntrance
         ? [`- PREMIERE \u2014 THIS ARRIVAL IS THE PLAYER: narrate their own entrance from THEIR point of view \u2014 the room turns, the houseguests inside see them for the first time.`]
         : ja
           ? [
@@ -2311,6 +2316,16 @@ function premiereEntranceLines(
     ];
   }
   if (ent.stage === "toast") {
+    if (ent.voiced && (ent.speakers ?? []).length > 0) {
+      // ORW-997: nothing new was committed this turn. The batch the game shows was voiced by an earlier reply, so it is not listed as speakers, carries no facts to voice, and no later speaker is named.
+      return [
+        `- PREMIERE \u2014 THE TOAST (engine truth): the house is gathered with the player in the living room. ` +
+          (ent.headcount ? `HEADCOUNT (engine truth): ${ent.headcount}. Never count the room yourself. ` : "") +
+          `THE LATEST TOAST BATCH HAS ALREADY BEEN VOICED on an earlier turn: those speakers have given their toasts and introduced themselves. Do not voice, repeat or recap any toast or introduction, and do not call advanceGame. ` +
+          `The next batch has NOT been committed: never voice, name, hint at or set up any further speaker, and never wrap the circle up or move the evening on; the game releases the next batch itself. ` +
+          `Play only what the player says or does now, with the circle as part of the room.`,
+      ];
+    }
     const sp = (ent.speakers ?? []).map((x) => (x as { isPlayer?: boolean }).isPlayer ? `${x.name} (the PLAYER'S slot: invite it, never voice it)` : x.name).join(", ");
     return [
       `- PREMIERE \u2014 THE TOAST (engine truth): everyone has arrived and the house is gathered with the player in the living room. ` +

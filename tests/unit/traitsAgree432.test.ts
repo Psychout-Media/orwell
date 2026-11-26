@@ -191,17 +191,17 @@ describe("ORW-432 what moved and what did not", () => {
         const { npcs } = generateHouse(new SeededRandom(seed));
         const l = generateCastDeepLayer(seed, npcs);
         // Blank ONLY what ORW-432 changes: the voice object on each character and the casting type.
-        // ORW-508 also blanks what its acceptance re-deal and world hometown change (vocation, hometown, the background built from the vocation, and the secrets, goals, weakness and thread premises conditioned on it); ORW-480 blanks the presentation, style line, mark and face line.
+        // ORW-508 also blanks what its acceptance re-deal and world hometown change (vocation, hometown, the background built from the vocation, and the secrets, goals, weakness and thread premises conditioned on it); ORW-480 blanks the presentation, style line, mark and face line; ORW-508 (composed look axes) also blanks the skin tone, hair and age look (the build is blanked too, harmlessly).
         const blanked = npcs.map((n) => ({ ...n, character: { ...n.character, voice: 0, ...(blankText ? { background: 0, presentation: 0, vocation: 0, hometown: 0 } : {}) } }));
         const hid = blankText ? Object.fromEntries(Object.entries(l.hidden).map(([k, v]) => [k, { ...v, secrets: 0, trueGoals: 0, weakness: 0 }])) : l.hidden;
         const thr = blankText ? l.threads.map((t) => ({ ...t, premise: 0 })) : l.threads;
-        const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: blankText ? 0 : v.biography, physicalCharacteristics: blankText ? { ...v.physicalCharacteristics, style: 0, distinguishingMark: 0, facialFeatures: 0 } : v.physicalCharacteristics, castingType: 0 }]));
+        const pub = Object.fromEntries(Object.entries(l.public).map(([k, v]) => [k, { biography: blankText ? 0 : v.biography, physicalCharacteristics: blankText ? { ...v.physicalCharacteristics, style: 0, distinguishingMark: 0, facialFeatures: 0, heightBuild: 0, skinTone: 0, hair: 0, ageLook: 0 } : v.physicalCharacteristics, castingType: 0 }]));
         all += JSON.stringify([blanked, pub, hid, thr]);
       }
       return createHash("sha256").update(all).digest("hex");
     };
-    expect(run(true)).toBe("23a86119fd0d9952f1a535083bd67f5500e9ef2e64a3ebb691c5d6a6606073ee"); // identical on main and on the ORW-508 branch with ORW-508's and ORW-480's changed fields blanked: no other random draw moved
-    expect(run(false)).toBe("0f55970ff6051dfc9541d48f2fe2cf37f50edbc6ec631b63baebcd0509b256d7"); // re-pinned on purpose by ORW-508 (hometown from the world table, a job the age rules out re-dealt, and the text built from the job) on top of ORW-458 and ORW-480 (mark pool, face lines, style family weighted by job sector, hometown and age)
+    expect(run(true)).toBe("09f83e1decf4a25d50a3450376fad5f6acd5badbb0617a061ada2fdb9e428c80"); // identical on main and on the ORW-508 branch (re-taken on main with the build, skin tone, hair and age look also blanked) with ORW-508 and ORW-480 changed fields blanked: no other random draw moved
+    expect(run(false)).toBe("d3bb8f462f7e8be762ce06719988e0c563fcfeadf063d4b63b260194393ec947"); // re-pinned on purpose by ORW-508 (composed look axes: build, skin tone, hair, face, style, age look and the mark pool; the blanked hash above is unchanged) and by ORW-508 earlier (hometown from the world table, a job the age rules out re-dealt, and the text built from the job) on top of ORW-458 and ORW-480 (mark pool, face lines, style family weighted by job sector, hometown and age)
   });
 });
 

@@ -95,6 +95,7 @@ def test_never_released_when_the_arrival_should_wait(monkeypatch, kind):
         s = _state(6, pending={"kind": "x"})
     elif kind == "toast":
         s = _state(6, stage="toast")
+        s["premiere"]["entrance"]["speakers"] = [{"id": "npc:1", "name": NPCS[0]}]  # ORW-997: a toast batch the narrator has not voiced yet is never overtaken by the next release
         ch.note_premiere_turn(USER, s)
     elif kind == "unvoiced_previous":
         pass  # nothing named yet: the latest arrival is still owed

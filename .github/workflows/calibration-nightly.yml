@@ -115,4 +115,4 @@ jobs:
 
           $(grep -E 'PO targets|outside|above|beats|clearly' gate.log | head -12 || true)"
           n=$(gh issue list --label "$label" --state open --json number --jq '.[0].number // empty')
-          if [ -n "$n" ]; then gh issue comment "$n" --body "$body"; else gh issue create --title "Nightly calibration: PO-target bands violated" --label "$label" --body "$body"; fi
+          if [ -n "$n" ]; then gh issue comment "$n" --body "$body"; else gh issue create --title "Calibration: difficulty broken (ORW-991 bounds)" --label "$label" --body "$body"; fi

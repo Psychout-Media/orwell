@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { phaseOfWeek, poolByPhase, poolSeason, evaluate, ratchet, inBand, BANDS, KNOWN_RED, type PhaseShares, type Share, RULE_MARGIN, marginOf, RATCHET_FIXED_MARGIN, RATCHET_SLACK } from "../support/wholeSeasonMix";
+import { phaseOfWeek, poolByPhase, poolSeason, evaluate, inBand, BANDS, type PhaseShares, type Share } from "../support/wholeSeasonMix";
+import { BROKEN, socialBroken, seasonsIdentical, poBroken, gradientBroken, juryBroken } from "../support/brokenBounds";
 import type { MixScene } from "../support/houseMixDriver";
 
 /** ORW-702: the whole-season mix guard's machinery under CI (the guard itself plays seasons in the heavy lane). */
@@ -73,73 +74,38 @@ describe("band and rule evaluation", () => {
   });
 });
 
-describe("the KNOWN_RED ratchet", () => {
-  const bad = evaluate({ ...centre, mid: sh(100, 14, 30, 36, 10) }); // mid bonding 14 (10 under)
-  it("a failing rule that is not listed is a regression", () => {
-    expect(ratchet(bad, {}).regressions).toEqual(["mid:band-bonding: bonding share within its mid band 24-34, measured 14"]);
+describe("ORW-991: the build fails only on a broken game (Ryne 2026-11-26)", () => {
+  it("social: a healthy mix, even far off the agreed bands, is not broken; a kind gone or one kind over 75% is", () => {
+    expect(socialBroken(centre, 50)).toEqual([]);
+    expect(socialBroken({ late: sh(400, 10, 20, 62, 8) }, 50), "a gossip-heavy late phase is a report, not broken").toEqual([]);
+    expect(socialBroken({ mid: sh(400, 20, 30, 50, 0) }, 50)[0]).toMatch(/no conflict scenes at all/);
+    expect(socialBroken({ mid: sh(400, 5, 10, 80, 5) }, 50)[0]).toMatch(/gossip is 80.0%.*swallowed/);
+    expect(socialBroken({ mid: sh(30, 0, 0, 100, 0) }, 50), "too few scenes to read: not judged").toEqual([]);
+    expect(BROKEN.socialOneKindSwallows).toBeGreaterThan(62.5); // the highest single healthy season measured
   });
-  it("a listed rule that still fails is fine", () => {
-    const v = ratchet(bad, { "mid:band-bonding": { value: 14, card: "X" } });
-    expect(v).toEqual({ regressions: [], fixed: [], worse: [], red: ["mid:band-bonding"] });
+  it("social: seasons that all read the same week 1 are broken; seasons that differ are not", () => {
+    expect(seasonsIdentical({ bonding: 0.5, strategy: 0.4, gossip: 0.2, conflict: 0.1 }).length).toBe(1);
+    expect(seasonsIdentical({ bonding: 12, strategy: 3, gossip: 9, conflict: 2 })).toEqual([]);
   });
-  it("a listed rule that now passes must be moved out", () => {
-    const v = ratchet(evaluate(centre), { "mid:band-bonding": { value: 14, card: "X" } });
-    expect(v.fixed.length).toBe(1); expect(v.fixed[0]).toContain("delete it from KNOWN_RED");
+  it("PO: broken only when solid never wins or reaches the Final 2, or passive out-wins solid by more than 5 points", () => {
+    const arm = (wins: number, f2: number) => ({ seasons: 300, wins, reachedF2: f2 });
+    expect(poBroken({ passive: arm(16, 25), solid: arm(18, 30) }), "solid below its 8% target is a report, not broken").toEqual([]);
+    expect(poBroken({ passive: arm(10, 25), solid: arm(0, 30) })[0]).toMatch(/never won/);
+    expect(poBroken({ passive: arm(10, 25), solid: arm(5, 0) })[0]).toMatch(/never reached the Final 2/);
+    expect(poBroken({ passive: arm(40, 25), solid: arm(20, 30) })[0]).toMatch(/out-wins solid/);
+    expect(poBroken({ passive: arm(30, 25), solid: arm(20, 30) }), "3.3 points is not wide").toEqual([]);
   });
-  it("a listed rule that got worse by more than the slack is flagged", () => {
-    const worse = evaluate({ ...centre, mid: sh(100, 5, 30, 36, 10) });
-    expect(ratchet(worse, { "mid:band-bonding": { value: 14, card: "X" } }, 6).worse.length).toBe(1);
-    expect(ratchet(worse, { "mid:band-bonding": { value: 14, card: "X" } }, 20).worse).toEqual([]);
+  it("gradient: broken only when active never reaches the jury or trails passive by more than 25 points", () => {
+    expect(gradientBroken(60, 52, 60)).toEqual([]);
+    expect(gradientBroken(60, 48, 60), "a 20-point gap over 60 seasons is a report, not broken").toEqual([]);
+    expect(gradientBroken(50, 0, 60).length).toBeGreaterThan(0);
+    expect(gradientBroken(55, 30, 60)[0]).toMatch(/trails by more than 25/);
   });
-  it("a listed rule for a phase that has no scenes is flagged (the table must not rot)", () => {
-    expect(ratchet(evaluate({ ...centre, late: sh(0, 0, 0, 0, 0) }), { "late:band-gossip": { value: 40, card: "X" } }).fixed.length).toBe(1);
-  });
-  it("room says how far inside the limit a passing rule is, and fixedMargin keeps a borderline pass from forcing a move", () => {
-    const r = evaluate(centre).find((x) => x.id === "mid:band-bonding")!;
-    expect(r.room).toBe(5); // 29 in 24-34
-    expect(ratchet([r], { "mid:band-bonding": { value: 14, card: "X" } }, 6, 6).fixed).toEqual([]);
-    expect(ratchet([r], { "mid:band-bonding": { value: 14, card: "X" } }, 6, 5).fixed.length).toBe(1);
-  });
-  it("every KNOWN_RED id names a real rule", () => {
-    const ids = new Set(evaluate(centre).map((r) => r.id));
-    for (const id of Object.keys(KNOWN_RED)) expect(ids.has(id), id).toBe(true);
-  });
-  it("hysteresis: a listed rule that passes by less than its margin is not yet asked to leave KNOWN_RED, one that clears it by the margin is", () => {
-    const m = marginOf("mid:band-bonding");
-    const edge = { id: "mid:band-bonding", what: "w", value: 24 + m - 0.1, pass: true, miss: 0, room: +(m - 0.1).toFixed(1) } as never;
-    const clear = { id: "mid:band-bonding", what: "w", value: 24 + m + 0.1, pass: true, miss: 0, room: +(m + 0.1).toFixed(1) } as never;
-    const known = { "mid:band-bonding": { value: 14, card: "X" } };
-    expect(ratchet([edge], known).fixed).toEqual([]);
-    expect(ratchet([clear], known).fixed.length).toBe(1);
-  });
-  it("hysteresis, the other way: an unlisted rule that misses by no more than its margin is noise, one that misses by more is a regression", () => {
-    const m = marginOf("mid:band-bonding");
-    const near = { id: "mid:band-bonding", what: "w", value: 24 - m + 0.1, pass: false, miss: +(m - 0.1).toFixed(1), room: 0 } as never;
-    const far = { id: "mid:band-bonding", what: "w", value: 24 - m - 0.5, pass: false, miss: +(m + 0.5).toFixed(1), room: 0 } as never;
-    expect(ratchet([near], {}).regressions).toEqual([]);
-    expect(ratchet([far], {}).regressions.length).toBe(1);
-  });
-  // ORW-944: each rule's margin is its MEASURED seed noise (twice the standard deviation across independent plays of the guard's own seeds; tests/calibration/wholeSeasonMixNoise.test.ts), never below the 1.0 floor.
-  it("ORW-944: every rule has a measured margin, at least the floor", () => {
-    for (const r of evaluate(centre)) {
-      expect(RULE_MARGIN[r.id], `${r.id} has a measured margin`).toBeDefined();
-      expect(marginOf(r.id)).toBeGreaterThanOrEqual(RATCHET_FIXED_MARGIN);
-    }
-  });
-  it("ORW-944: a noisy rule tolerates its noise, a quiet rule does not", () => {
-    expect(marginOf("late:band-gossip")).toBeGreaterThan(5);
-    expect(marginOf("mid:band-conflict")).toBeLessThan(1.5);
-    const lateMiss = { id: "late:band-gossip", what: "w", value: 39, pass: false, miss: 5, room: 0 } as never;
-    const midMiss = { id: "mid:band-conflict", what: "w", value: 5.5, pass: false, miss: 1.5, room: 0 } as never;
-    expect(ratchet([lateMiss], {}).regressions, "a 5-point late gossip miss is inside the lane's measured noise").toEqual([]);
-    expect(ratchet([midMiss], {}).regressions.length, "a 1.5-point mid conflict miss is outside it").toBe(1);
-  });
-  it("ORW-944: a listed rule is 'worse' only past its measured noise as well as the slack", () => {
-    const known = { "late:band-gossip": { value: 49, card: "X" } };
-    const swing = { id: "late:band-gossip", what: "w", value: 49 + RATCHET_SLACK + 1, pass: false, miss: 15 + RATCHET_SLACK + 1, room: 0 } as never;
-    expect(ratchet([swing], known).worse, "a late gossip swing past the flat slack but inside its noise is not worse").toEqual([]);
-  });
-  it("ORW-944: no quarantine lines remain - the two 4-season-noise lines are real known-reds or gone", () => {
-    for (const [id, k] of Object.entries(KNOWN_RED)) expect(k.card, id).not.toMatch(/quarantine/i);
+  it("jury reach: broken only when nobody reaches it, nobody is evicted early, or a passive player wins most seasons", () => {
+    expect(juryBroken(15, 5, 2, 20)).toEqual([]);
+    expect(juryBroken(0, 20, 0, 20)[0]).toMatch(/no passive season reached the jury/);
+    expect(juryBroken(20, 0, 2, 20)[0]).toMatch(/walks the player past/);
+    expect(juryBroken(18, 2, 11, 20)[0]).toMatch(/hands out the crown/);
   });
 });
+

@@ -374,10 +374,8 @@ Then("it yields a well-formed outcome the band gate can score", function (this: 
   const r = this.ms!.seasonResult!;
   assert.ok(["active", "jury", "evicted"].includes(r.status), `a scoreable status (got ${r.status})`);
   assert.ok(typeof r.playerCompWins === "number" && r.playerCompWins >= 0, "the public comp-win count the EARNED_WINS teeth read");
-  // AMEND 0078 #3: a SPECIFIC, deterministic expected outcome (the wiring-only check accepted all three statuses). Seed 1 / passive on the current model: the player makes the jury,
-  // does not reach Final 2, with one public comp win. Re-pin DELIBERATELY when calibration moves (A10 / any movement-strength change) - a silent drift here is the point.
-  // Re-pinned 2026-11-06 for ORW-132 (pre-show ties are now rare, so the seed-1 cast seeds differently): same status, the player's one public comp win became zero. (ORW-116, 2026-11-07: measured again with the clock-from-entry flow merged - unchanged.)
-  assert.deepEqual(r, { seed: 1, status: "active", f2Win: true, playerCompWins: 3 }, "seed 1, passive, current model"); // re-pinned 2026-11-19 for ORW-711 (the new floor plan moved the seeded presence trajectory: this one seed now reaches and wins the final with three public comp wins; the 20-seed jury-reach band and the 6-seed gradient stay green, so it is one seed moving, not the calibration) // re-pinned 2026-11-13 for ORW-19 (comp-win threat 0.3 -> 0.45): same status, the player's public comp wins 0 -> 1
+  // ORW-991 (Ryne 2026-11-26: "social balancing and the difficulty balancing should be tested around once a week and tracked rather than tweaked every time"): the exact seed-1 outcome pin
+  // (AMEND 0078 #3) is gone - it went red on every balance change. The outcome is tracked by the weekly calibration run; here only that the season played to a scoreable verdict.
   assert.ok(MOVEMENT_INTENT.moveIntentStrength > 0, "the intentional-movement lever is live in the measured model");
 });
 

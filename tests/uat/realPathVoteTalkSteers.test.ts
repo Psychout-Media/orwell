@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { keepCredit } from "../../src/engine/voteTalk";
 import { PLAYER } from "../../src/domain/ids";
-import { playUntil, type Stop } from "./playedSeason";
+import { playUntil, type Stop } from "../realpath/playedSeason";
 import { firstSeedWhere } from "../support/firstSeedWhere";
-import { watchVoteTalk, beliefOf, overclaims, type Talk } from "./voteTalkPlay";
+import { watchVoteTalk, beliefOf, overclaims, type Talk } from "../realpath/voteTalkPlay";
 
 /**
  * ORW-594 (Fable T2-13) + ORW-613: vote talk steers, a vote lie can be caught by the public count, and the player hears how people voted - in a PLAYED season (ORW-810: before,
@@ -24,7 +24,7 @@ const firstTalk = async (hint: number | number[], wanted: (s: Stop, t: Talk) => 
 
 describe("vote talk in a played season", () => {
   it("the player is told how someone voted, as a scene they were in (never whether it is true)", async () => {
-    const { at, talk } = await firstTalk([1, 3], (_s, t) => t.told.some((c) => c.listener === PLAYER));
+    const { at, talk } = await firstTalk([5, 1, 3], (_s, t) => t.told.some((c) => c.listener === PLAYER));
     const toPlayer = talk.told.filter((c) => c.listener === PLAYER);
     for (const c of toPlayer) {
       const scene = at.engine.events.queryAll().find((e) => !e.hidden && e.type === "conversation" && e.witnessSet.includes(PLAYER) && e.witnessSet.includes(c.speaker) && /voted to keep/.test(String(e.content)));

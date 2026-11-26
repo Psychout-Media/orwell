@@ -2,6 +2,7 @@
 re-voices from the text already shown; a still-conflicting redo sentence is dropped whole; stored text equals what was streamed. Stubbed model, no network, roles only."""
 import asyncio
 import json
+import time
 
 import pytest
 
@@ -21,7 +22,7 @@ def _rewrite_on(monkeypatch):
     """The rewrite ships OFF by default; these tests exercise it, so turn it on (a test that needs it off sets the flag itself)."""
     monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", "1")
 
-def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None, flag=None, owner="orw408", extra=None, status=None):
+def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None, flag=None, owner="orw408", extra=None, status=None, engine_state=None):
     """Returns (emitted_text, continuation_calls, stored_round_texts, n_rounds). `extra` (a dict) is filled with: runs (tool blocks executed), chunks (every raw SSE chunk), cont_kwargs,
     and may carry `redo_delay_s` (the stubbed continuation takes that long)."""
     extra = extra if extra is not None else {}
@@ -39,7 +40,14 @@ def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None
     if flag is not None:
         monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", flag)
     monkeypatch.setattr(ti, "get_tool_index", lambda: None)
-    monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0, fields=None: state)
+    if engine_state is None:
+        monkeypatch.setattr(erc, "peek", lambda name, user, max_age_s=30.0, fields=None: state)
+    else:  # ORW-408: the REAL cache, empty at the start (as after a narrator turn's engine writes); the engine answers the one bounded read with `engine_state`
+        erc.clear()
+
+        async def fake_get_game_state(user=None, timeout=None):
+            return dict(engine_state)
+        monkeypatch.setattr(oe, "get_game_state", fake_get_game_state)
     monkeypatch.setattr(oe, "_RETRY_ATTEMPTS", 0)
 
     async def fake_status(user=None):
@@ -58,6 +66,8 @@ def _drive(monkeypatch, *, rounds_scripts, redo="", state=STATE, tool_calls=None
             await asyncio.sleep(sc["stall_s"])
         if sc.get("calls"):
             yield f'data: {json.dumps({"type": "tool_calls", "calls": sc["calls"]})}\n\n'
+        if sc.get("usage"):
+            yield f'data: {json.dumps({"type": "usage", "data": sc["usage"]})}\n\n'
         yield "data: [DONE]\n\n"
     monkeypatch.setattr(al, "stream_llm_with_fallback", fake_stream)
 
@@ -257,14 +267,107 @@ def test_a_conflict_after_the_quote_closes_is_still_withheld(monkeypatch):
 
 def test_the_wait_after_a_withhold_is_bounded_and_the_reply_ends_at_the_last_whole_sentence(monkeypatch):
     from src import agent_loop as al
-    monkeypatch.setattr(al, "_PD_DRAIN_WAIT_S", 0.4)
-    monkeypatch.setattr(al, "_PD_BEAT_S", 0.1)
+    monkeypatch.setattr(al, "_PD_DRAIN_WAIT_S", 0.2)
+    monkeypatch.setattr(al, "_PD_BEAT_S", 0.05)
     extra = {}
     emitted, cont, stored, _ = _drive(
-        monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, BAD, TAIL], "stall_s": 30}], redo=REDO.strip(), extra=extra)
-    assert cont == [], "the stream never finished, so a tool call can not be ruled out: no continuation"
+        monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, BAD, TAIL], "stall_s": 0.6}], redo=REDO.strip(), extra=extra)
+    assert cont == [], "the stream outlived the cap, so a tool call can not be ruled out: no continuation"
     assert emitted.strip() == CLEAN_A.strip() and stored[0] == emitted.strip()
-    assert any(c.startswith(": keepalive") for c in extra["chunks"]), "the player's connection is kept alive while the stream is drained"
+    assert any(c == al._PD_KEEPALIVE for c in extra["chunks"]), "the player's connection is kept alive while the stream is drained"
+
+
+def test_a_tool_call_after_the_cap_still_runs_and_usage_is_recorded(monkeypatch):
+    # finding 2: the stream is never abandoned at the cap; a late native tool call + usage event are read, the call runs, usage is counted, and no continuation is made
+    from src import agent_loop as al
+    monkeypatch.setattr(al, "_PD_DRAIN_WAIT_S", 0.15)
+    monkeypatch.setattr(al, "_PD_BEAT_S", 0.05)
+    calls = [{"name": "advanceGame", "arguments": "{}"}]
+    extra = {}
+    emitted, cont, stored, n_rounds = _drive(
+        monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, BAD, TAIL], "stall_s": 0.5, "calls": calls,
+                                      "usage": {"input_tokens": 11, "output_tokens": 7777}}, {"deltas": ["The morning moves on."]}],
+        redo=REDO.strip(), extra=extra)
+    assert cont == [], "no continuation once the stream outlived the cap"
+    assert extra["runs"], "the late native tool call ran"
+    assert n_rounds >= 2
+    assert any("7777" in c for c in extra["chunks"] if c.startswith("data: ")), "the late usage event was recorded"
+    assert emitted.strip().startswith(CLEAN_A.strip()) and "Sleeper Role says" not in emitted
+
+
+def test_the_keepalive_is_a_data_event_the_client_ignores():
+    from src import agent_loop as al
+    assert al._PD_KEEPALIVE.startswith("data: ") and json.loads(al._PD_KEEPALIVE[6:]) == {"type": "keepalive"}
+
+
+def test_cancelling_the_consumer_is_not_swallowed_by_the_bounded_read():
+    # finding 5: a client disconnect cancels the outer task; the drain must let that cancellation through
+    from src import agent_loop as al
+
+    async def slow():
+        yield "data: {}\n\n"
+        await asyncio.sleep(30)
+        yield "data: {}\n\n"
+
+    async def main():
+        armed = {"v": False}
+        out = []
+
+        async def consume():
+            async for c in al._pd_bounded_stream(slow(), lambda: armed["v"], {"timed_out": False}, wait_s=0.05, beat_s=0.02, hard_deadline=time.monotonic() + 1.0):
+                out.append(c)
+                armed["v"] = True
+        t = asyncio.ensure_future(consume())
+        await asyncio.sleep(0.3)
+        t.cancel()
+        try:
+            await asyncio.wait_for(t, 2)
+        except asyncio.CancelledError:
+            return "cancelled"
+        return "finished"
+    assert asyncio.get_event_loop().run_until_complete(main()) == "cancelled"
+
+
+def test_the_drain_stops_at_the_hard_deadline_and_says_so():
+    from src import agent_loop as al
+
+    async def src_():
+        yield "data: {}\n\n"
+        await asyncio.sleep(5)
+
+    async def main():
+        st = {"timed_out": False}
+        t0 = time.monotonic()
+        async for _ in al._pd_bounded_stream(src_(), lambda: True, st, wait_s=0.01, beat_s=0.01, hard_deadline=time.monotonic() + 0.1):
+            pass
+        return st, time.monotonic() - t0
+    st, dt = asyncio.get_event_loop().run_until_complete(main())
+    assert st.get("hard_timed_out") and st["timed_out"] and dt < 2
+
+
+def test_dangling_open_quote_is_closed_when_the_reply_ends_at_the_kept_prefix(monkeypatch):
+    # finding 3: chunk 1 opens a quote the withheld chunk would have closed; the round ends at the kept prefix (tool call) -> the closing mark is emitted and stored.
+    # A carried-open quote hides an asleep speaker from the check (#2754) but only for 600 characters, so the quote here has run past that bound when the sleeper acts.
+    calls = [{"name": "advanceGame", "arguments": "{}"}]
+    ZC = '@[Speaker Role] \u2014 "' + "Let's go now. " * 50
+    emitted, cont, stored, _ = _drive(
+        monkeypatch, rounds_scripts=[{"deltas": [ZC, "Sleeper Role walks into the kitchen. ", "Later. "], "calls": calls}, {"deltas": ["Done."]}], redo="X", extra={})
+    assert cont == []
+    first = emitted.split("Done.")[0]
+    assert "Sleeper Role walks" not in first and "Later." not in first, first
+    assert first.count('"') % 2 == 0, f"the open quote was closed: {first!r}"
+    assert stored[0] == first.strip()
+
+
+def test_text_after_the_withheld_chunk_remainder_that_opens_a_tool_call_runs_once(monkeypatch):
+    # finding 4: the unterminated remainder of the chunk that triggered the withhold carries the tool opener
+    extra = {}
+    call = 'CALL] {tool => "bash", args => {--command "echo hi"}} [/TOOL_CALL]'
+    chunk = "Sleeper Role walks in. Then [TOOL_"  # the opener begins in the unterminated remainder and finishes in the next delta
+    emitted, cont, stored, n_rounds = _drive(
+        monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, chunk, call]}, {"deltas": ["The morning moves on."]}], redo=REDO.strip(), extra=extra)
+    assert cont == [] and extra["runs"], "the call whose opener sat in the unterminated remainder ran"
+    assert "TOOL_CALL" not in emitted
 
 
 def test_the_continuation_is_capped_and_keeps_the_connection_alive(monkeypatch):
@@ -274,7 +377,7 @@ def test_the_continuation_is_capped_and_keeps_the_connection_alive(monkeypatch):
     emitted, cont, stored, _ = _drive(monkeypatch, rounds_scripts=[{"deltas": [CLEAN_A, BAD, TAIL]}], redo=REDO.strip(), extra=extra)
     k = extra["cont_kwargs"][0]
     assert k["timeout"] <= 20 and k["max_tokens"] <= 700
-    assert sum(1 for c in extra["chunks"] if c.startswith(": keepalive")) >= 2
+    assert sum(1 for c in extra["chunks"] if c == al._PD_KEEPALIVE) >= 2
     assert emitted.strip() == (CLEAN_A + REDO).strip()
 
 
@@ -332,14 +435,19 @@ def test_split_is_none_without_fresh_state_and_never_raises(monkeypatch):
 
 
 
-def test_the_rewrite_is_off_unless_asked_for(monkeypatch):
-    """ORW-408: default OFF until the review findings are fixed (quoted speech across chunks, tool calls after a withhold, the silent wait)."""
+def test_the_rewrite_is_on_unless_turned_off(monkeypatch):
+    """ORW-408: default ON (Kevin, 2026-11-26) now the review findings are fixed (#2728, #3335). `0/off/false/no` turns it off; the check itself off turns it off too."""
     from src import predisplay_check as pc
     monkeypatch.delenv("ORWELL_PREDISPLAY_REWRITE", raising=False)
     monkeypatch.delenv("ORWELL_PREDISPLAY_CHECK", raising=False)
-    assert pc.predisplay_rewrite_enabled() is False
+    assert pc.predisplay_rewrite_enabled() is True
+    for off in ("0", "off", "false", "no"):
+        monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", off)
+        assert pc.predisplay_rewrite_enabled() is False
     monkeypatch.setenv("ORWELL_PREDISPLAY_REWRITE", "1")
     assert pc.predisplay_rewrite_enabled() is True
+    monkeypatch.setenv("ORWELL_PREDISPLAY_CHECK", "0")
+    assert pc.predisplay_rewrite_enabled() is False
 
 
 # ── pure helpers: the review findings ────────────────────────────────────────────────────────────

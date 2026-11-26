@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { playMixGame, mixShares } from "../support/houseMixDriver";
+import { socialBroken, seasonsIdentical } from "../support/brokenBounds";
 
 /**
  * The house-life MIX guard (ORW-551 slice 4; it replaces the old 2-seed guard `tests/unit/houseMixGuard.test.ts`, which pinned two seeds to one agreed mix).
@@ -9,6 +10,8 @@ import { playMixGame, mixShares } from "../support/houseMixDriver";
  *   1. the AVERAGE week-1 mix (bonding / strategy / gossip / conflict shares) stays within AVG_TOLERANCE points of REFERENCE;
  *   2. at least one of bonding / strategy / gossip spreads at least MIN_SPREAD points between its most and least extreme season (seasons must actually differ);
  *   3. no single season is more than MAX_DEVIATION points off REFERENCE in any category (no season goes off the rails).
+ * ORW-991 (Ryne 2026-11-26: social balance is tracked weekly, not held per fix): those three are now a REPORT (printed as MIXGUARD12-REPORT, tracked weekly). The build fails only when
+ * the mix is BROKEN (tests/support/brokenBounds.ts): a kind of scene gone or over 75% in the average week 1, any season's week 1 likewise, or every season the same mix.
  * The late game keeps its own runaway guard (`tests/property/houseMixLate.property.test.ts`, untouched).
  *
  * Heavy lane (`npm run test:heavy:house-mix`, a heavy-sims leg): 12 seasons of full week-1 play (until week 2 begins), so it runs in one process.
@@ -67,15 +70,25 @@ function judge(rows: Shares[]): void {
   for (const r of rows) console.log(`MIXGUARD12-SEEDS ${r.seed}: ${r.bonding.toFixed(1)}/${r.strategy.toFixed(1)}/${r.gossip.toFixed(1)}/${r.conflict.toFixed(1)} n${r.n}`);
   expect(rows.map((r) => r.seed).sort((a, b) => a - b), "all 12 seeded seasons are present").toEqual(ALL_SEEDS);
   for (const r of rows) expect(r.n, `season ${r.seed} has enough week-1 scenes to read a mix`).toBeGreaterThan(40);
-  for (const k of CATS) expect(Math.abs(avg[k] - REFERENCE[k]), `average ${k} is ${avg[k].toFixed(1)}% against the reference ${REFERENCE[k]}%`).toBeLessThanOrEqual(AVG_TOLERANCE);
-  const spreadWinner = (["bonding", "strategy", "gossip"] as const).filter((k) => spread[k] >= MIN_SPREAD);
-  expect(spreadWinner.length, `seasons must differ: bonding spreads ${spread.bonding.toFixed(1)}, strategy ${spread.strategy.toFixed(1)}, gossip ${spread.gossip.toFixed(1)} points (need one at ${MIN_SPREAD}+)`).toBeGreaterThan(0);
-  for (const k of CATS) expect(maxDev[k], `the most extreme season is ${maxDev[k].toFixed(1)} points off the reference ${k}`).toBeLessThanOrEqual(MAX_DEVIATION);
+  // the report (never fails): the agreed reference, tolerance, spread and deviation
+  const report = [
+    ...CATS.filter((k) => Math.abs(avg[k] - REFERENCE[k]) > AVG_TOLERANCE).map((k) => `average ${k} ${avg[k].toFixed(1)}% is more than ${AVG_TOLERANCE} off the reference ${REFERENCE[k]}%`),
+    ...((["bonding", "strategy", "gossip"] as const).some((k) => spread[k] >= MIN_SPREAD) ? [] : [`no kind spreads ${MIN_SPREAD}+ points across the seasons`]),
+    ...CATS.filter((k) => maxDev[k] > MAX_DEVIATION).map((k) => `the most extreme season is ${maxDev[k].toFixed(1)} points off the reference ${k}`),
+  ];
+  console.log(`MIXGUARD12-REPORT ${report.length ? report.join("; ") : "all within the agreed reference"}`);
+  // the build fails only on a broken mix
+  const broken = [
+    ...socialBroken({ "week 1 average": { n: rows.reduce((a, r) => a + r.n, 0), ...avg } }, 40),
+    ...rows.flatMap((r) => socialBroken({ [`season ${r.seed} week 1`]: r }, 40)),
+    ...seasonsIdentical(spread),
+  ];
+  expect(broken, "the week-1 house-life mix is broken").toEqual([]);
 }
 
 describe("house-life mix guard (12 seasons, week 1)", () => {
   const envSeeds = process.env.ORWELL_MIX_SEEDS?.split(",").map(Number).filter(Number.isFinite);
-  it("plays the seasons and holds the reworked mix guard", async () => {
+  it("plays the seasons; fails only on a broken mix (the agreed reference is a report)", async () => {
     const rows: Shares[] = [];
     for (const seed of envSeeds ?? ALL_SEEDS) rows.push(await playSeed(seed));
     if (envSeeds) { // local smoke run: numbers only
