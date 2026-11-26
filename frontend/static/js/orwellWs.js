@@ -595,7 +595,8 @@
             });
           }
           _emitWindow("orwell:ws-resync",
-            { canonicalId: _canonicalId, beatSeq: _beatSeq, reason: "run-started-empty" });
+            // ORW-1023: after the own-turn retries ran out the empty ack is NOT a stale ring replay: this window's turn got no run, a possible lost reply. A distinct (non-routine, RED) reason keeps that detection.
+            { canonicalId: _canonicalId, beatSeq: _beatSeq, reason: _ownTurnLive ? "run-started-empty-own-turn" : "run-started-empty" });
         }
       });
     };
