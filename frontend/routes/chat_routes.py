@@ -1905,6 +1905,10 @@ def setup_chat_routes(
                                         except Exception:
                                             pass
                                     yield chunk
+                                elif data.get("type") == "keepalive":
+                                    # ORW-408: the agent loop's "still working" beat while a withheld sentence is waited out. The chain used to have no branch for it (the old SSE comment line
+                                    # was dropped here), so both the SSE and the WS leg starved. Relay it as is: a `data:` event of a type the client ignores (never saved, never text).
+                                    yield chunk
                                 elif "announcements" in data and "delta" not in data:
                                     # F-2/F-4 owed chyron: the agent loop emits `{"announcements":[…]}` for a beat the FE
                                     # pre-resolved. This chain had NO branch for it, so the event was silently dropped
