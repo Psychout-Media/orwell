@@ -8881,6 +8881,8 @@ async def maybe_release_premiere_arrival(user, game_state, *, retry: bool, playe
     try:
         if not _premiere_arrival_due(user, game_state, player_msg):
             return game_state
+        if _PRE_RESOLVED_ADVANCE.get(user) or _PRE_RESOLVED_ADVANCE.get(user if user is not None else ""):
+            return game_state  # #670 twin: the pre-resolve already walked a beat this turn - one engine advance per turn
         key = _runway_key(user)
         # ORW-704 twin: the previous arrival is still unnamed in any reply -> hold this release (bounded), the narrator owes it first.
         ent = ((game_state.get("premiere") or {}).get("entrance")) or {}

@@ -156,3 +156,15 @@ def test_entrance_counter_survives_a_restart_and_shutdown_flushes_it(tmp_path, m
     app_src = open(os.path.join(FRONTEND, "app.py"), encoding="utf-8").read()
     i = app_src.index("async def _shutdown_event")
     assert "belt_state_persist" in app_src[i:i + 900]
+
+
+def test_no_release_when_the_pre_resolve_already_walked_a_beat_this_turn(monkeypatch):
+    """Review of #3270: one engine advance per turn. If `_pre_resolve_npc_ceremony` already advanced (#670 flag set), the arrival release stands down."""
+    board = {"n": 6}
+    calls = _wire(monkeypatch, board)
+    s = _framed(6)
+    ch.note_premiere_narration(USER, f"{NPCS[5]} is here.")
+    al._TURNS_SINCE_PROGRESS[al._belt_key(USER)] = 1  # the cadence alone would say due
+    ch.mark_pre_resolved_advance(USER)
+    out = asyncio.run(ch.maybe_release_premiere_arrival(USER, s, retry=False, player_msg="what is the kitchen like"))
+    assert calls == [] and board["n"] == 6 and out is s
