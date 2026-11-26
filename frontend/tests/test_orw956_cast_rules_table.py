@@ -61,7 +61,7 @@ def test_no_sentence_is_in_the_table_without_a_rule_to_check_it():
 
 
 def test_render_refuses_an_unknown_rule_so_a_typo_cannot_ship_a_hole():
-    for bad in ("[[rule:no-such-rule]]", "[[eg:no-such-example]]", "[[name]]"):
+    for bad in ("[[rule:no-such-rule]]", "[[ex:no-such-example]]", "[[name]]"):
         try:
             R.render(bad)
         except KeyError:

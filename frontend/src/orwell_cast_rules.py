@@ -9,7 +9,7 @@ sentence. The thresholds live here once (`BIO_ASK_CHARS` and the rest) and the c
 
 This module is a LEAF: it imports nothing from the cast modules, so both the gate and the authoring module can import it.
 Example clauses that the short-list guard (ci/check_short_lists.py) allowlists in `orwell_cast_authoring.py` stay there and
-are passed in as `[[eg:KEY]]` values, so this file carries no example line. The drift test is
+are passed in as `[[ex:KEY]]` values, so this file carries no example line. The drift test is
 `frontend/tests/test_orw956_cast_rules_table.py`.
 """
 from __future__ import annotations
@@ -48,7 +48,7 @@ PHOTOHAIR_BANNED_WORDS = (
 )
 
 # ── the instruction sentences (the exact prompt wording) ───────────────────────────────────────────────────────────
-# `[[eg:KEY]]` is filled by the caller (the example clauses stay in orwell_cast_authoring.py); `[[name]]` by the caller.
+# `[[ex:KEY]]` is filled by the caller (the example clauses stay in orwell_cast_authoring.py); `[[name]]` by the caller.
 SENTENCES = {
     # the photo sheet (PHOTO_SHEET_RULES: first draft, photo-sheet writer, field rewrites)
     "pronouns": (
@@ -66,7 +66,7 @@ SENTENCES = {
         "money, not a costume)? "),
     "wardrobe-taken": (
         "The FIRST piece is the MAIN piece (the jacket, shirt, dress or top). It must not repeat a main piece already listed in "
-        "taken.mainPieces (compare the garment[[eg:main-piece]]). "),
+        "taken.mainPieces (compare the garment[[ex:main-piece]]). "),
     "wardrobe-pieces": (
         "Every piece is ONE garment or accessory a shop sells (a shirt, a jacket, jeans, boots, a watch): no piece that combines two "
         "things (not \"a vest over a polo\", not \"sneakers with a gold chain\": two pieces), no uniform worn as a style (never "
@@ -78,7 +78,7 @@ SENTENCES = {
         "Write colours and styles in plain words a shopper would use, never a hyphenated category label made of two colour names. "),
     "photohair": (
         f"(2) photoHair: at most {PHOTOHAIR_MAX_CHARS} characters: the SAME cut, length and colour as their written hair, styled and neat "
-        "for a photo shoot, said positively[[eg:photohair]]. Never use these words: " + ", ".join(PHOTOHAIR_BANNED_WORDS) + ". "),
+        "for a photo shoot, said positively[[ex:photohair]]. Never use these words: " + ", ".join(PHOTOHAIR_BANNED_WORDS) + ". "),
     "oncamera": (
         "(3) onCamera: the MOMENT: ONE still moment a photographer captures, chosen for THIS person from their demeanor, identity "
         "concept and voice energy. It says where they are in the house, how they hold themselves, where they look, and one expression, "
@@ -93,8 +93,8 @@ SENTENCES = {
         "yes, end with a read of who they are in 3-8 words, introduced by \"the one who\"; otherwise end the line plainly. It is a still "
         "photograph, not a scene: no sequence of events, no speech, no chores, no other people. Never use these words: "
         + ", ".join(w for w in ONCAMERA_BANNED_WORDS if w != "someone") + ", someone. "
-        "Use the pronoun that matches genderPresentation, but never open the line with the pronoun and a posture verb "
-        "(not \"He stands\", \"She stands\", \"He leans\"): open it with the spot, the hands, the gaze or the expression, "
+        "Use the pronoun that matches genderPresentation, but never open the line with the pronoun and a posture verb"
+        "[[ex:posture]]: open it with the spot, the hands, the gaze or the expression, "
         "or the way an OPENING PATTERN line in the prompt says. Never use the houseguest's name in the onCamera line, only the pronoun. "),
     "signature": (
         f"(4) lookSignature: at most {SIGNATURE_MAX_CHARS} characters: exactly ONE thing about how this person looks or dresses that someone "
@@ -121,7 +121,7 @@ SENTENCES = {
         "AGE COHERENCE: hair, skin and ageLook must fit the stated age; no gray, silver or salt-and-pepper "
         "hair under 35 unless it is written as dyed. "),
     "build-coherence": (
-        "BUILD COHERENCE: heightBuild must not combine opposites[[eg:build]]. Keep the FITNESS LEVEL of the seeded "
+        "BUILD COHERENCE: heightBuild must not combine opposites[[ex:build]]. Keep the FITNESS LEVEL of the seeded "
         "heightBuild: an athletic person stays athletic, a soft or slight one stays so; enrich the wording "
         "only, in neutral, flattering terms (never \"gone soft\" or \"soft through the middle from long "
         "shifts\")"),
@@ -230,12 +230,12 @@ if len(BY_CODE) != len(RULES):  # a duplicated code would hide a rule
     raise RuntimeError("orwell_cast_rules: duplicate rule code")
 BLOCKING = frozenset(r.code for r in RULES if r.blocking)
 
-_MARK = re.compile(r"\[\[(rule|eg):([a-z\-]+)\]\]|\[\[(name)\]\]")
+_MARK = re.compile(r"\[\[(rule|ex):([a-z\-]+)\]\]|\[\[(name)\]\]")
 
 
 def render(template: str, extras: Optional[dict] = None, used: Optional[set] = None) -> str:
-    """Fill a prompt template: `[[rule:KEY]]` with SENTENCES[KEY] (its own `[[eg:..]]` and `[[name]]` markers then come
-    from `extras`: {"eg:KEY": text, "name": text}). An unknown key or a missing extra raises, so a typo cannot ship a
+    """Fill a prompt template: `[[rule:KEY]]` with SENTENCES[KEY] (its own `[[ex:..]]` and `[[name]]` markers then come
+    from `extras`: {"ex:KEY": text, "name": text}). An unknown key or a missing extra raises, so a typo cannot ship a
     prompt with a hole in it. `used` collects the sentence keys rendered (the drift test reads it)."""
     extras = extras or {}
 
@@ -251,9 +251,9 @@ def render(template: str, extras: Optional[dict] = None, used: Optional[set] = N
             if used is not None:
                 used.add(key)
             return render(SENTENCES[key], extras, used)
-        if f"eg:{key}" not in extras:
-            raise KeyError(f"eg:{key}")
-        return str(extras[f"eg:{key}"])
+        if f"ex:{key}" not in extras:
+            raise KeyError(f"ex:{key}")
+        return str(extras[f"ex:{key}"])
     return _MARK.sub(sub, template)
 
 

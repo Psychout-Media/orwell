@@ -51,10 +51,11 @@ _ONCAMERA_BANNED_WORDS = R.ONCAMERA_BANNED_WORDS  # ORW-956: the word lists live
 _PHOTOHAIR_BANNED_WORDS = R.PHOTOHAIR_BANNED_WORDS
 # ORW-956: the example clauses of the rule sentences stay here (the short-list guard allowlists example lines in this file only).
 _RULE_EXAMPLES = {
-    "eg:main-piece": ', for example "leather jacket" or "flannel shirt"',
-    "eg:photohair": (' (for example "sleek neat braid over one shoulder", "glossy waves swept into a high ponytail", '
+    "ex:main-piece": ', for example "leather jacket" or "flannel shirt"',
+    "ex:photohair": (' (for example "sleek neat braid over one shoulder", "glossy waves swept into a high ponytail", '
                      '"buzzed close with a clean line-up")'),
-    "eg:build": " (for example broad-shouldered with willowy)",
+    "ex:build": " (for example broad-shouldered with willowy)",
+    "ex:posture": ' (not "He stands", "She stands", "He leans")',
 }
 # ORW-956: every rule sentence below is printed from the ONE table of rules (orwell_cast_rules.SENTENCES), the same table the checks
 # (`look_problems` and the gate) take their thresholds and codes from.
