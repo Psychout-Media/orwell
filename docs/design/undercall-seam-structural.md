@@ -76,6 +76,7 @@ branch. An ignored nudge that leaves the identical gate stalled notes nothing.
 | Belt | Trigger | What the model skipped | Failure mode if the belt breaks |
 |---|---|---|---|
 | **`_auto_record_scene`** (0055) | Engaged player↔houseguest turn, nothing recorded | `recordInteraction` | The scene folds **zero** hidden impact — social play has no consequence and no memory (the point of the game lost) |
+| **`_auto_record_promise`** (ORW-860) | The model DID record the scene, but its call carried no `assurance`/`promise` and the player's own typed words commit to one | a content-only `recordInteraction` (no kind) carrying the assurance / typed promise | A casual promise on a model-recorded turn reaches no ledger and no later decision (the houseguest re-asks as if never given) |
 | **`_auto_record_deal`** (0039) | Deal-language in the turn's narration, no `makeDeal` | `makeDeal` | The deal never binds, never reconciles against later noms/votes; the deals surface stays empty |
 | **`_auto_promise`** (ORW-750 part 2) | Promise-language in the turn's narration (a vote, or not putting someone up), no promise or assurance recorded for that houseguest this turn, none on the open ledger | A typed promise on `recordInteraction` (ORW-586) | A voiced vow is narrator-only: no ledger entry, so a kept promise never binds the vote (ORW-723) and nothing is later kept or broken. Success-gated: counts only when the open ledger GAINED the promise; the engine validates and rolls sincerity itself |
 | **`_auto_confide`** (0075) | Player pressed an ally to open up, no `confide` | `confide` | The trust-gated disclosure — the 0075 payoff — never fires |
@@ -233,7 +234,7 @@ Every belt firing now increments a **named counter** in the existing Vault-free 
 Stable belt names (the registry — keep these tokens stable across refactors):
 `advance-stall-nudge`, `forced-advance:<why>` (the L39b/silent-commit family, `<why>` =
 `preview-commit` / `decision-deliver` / `eviction-drain` / `stall-force` / …),
-`forced-tool-choice:<tool>` (#1154 + the casting force + the ORW-310 bedtime force), `bedtime-turn-in` (ORW-310, applied turnIn only), `auto-record-scene`, `auto-record-deal`, `auto-promise` (ORW-750, only a promise the ledger gained),
+`forced-tool-choice:<tool>` (#1154 + the casting force + the ORW-310 bedtime force), `bedtime-turn-in` (ORW-310, applied turnIn only), `auto-record-scene`, `auto-record-promise` (ORW-860), `auto-record-deal`, `auto-promise` (ORW-750, only a promise the ledger gained),
 `auto-answer-deal-offer` (ORW-86: a standing 0123 offer the player answered in chat but the model never submitted),
 `auto-confide`, `auto-expose-secret`, `auto-trade-secret`, `auto-move-player`, `auto-move-npc`,
 `premiere-meet-belt`, `casting-record-belt`, `casting-nudge`, `casting-finalize-force`,
