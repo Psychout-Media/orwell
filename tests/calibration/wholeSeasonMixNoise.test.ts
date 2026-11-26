@@ -9,7 +9,7 @@ import type { MixScene } from "../support/houseMixDriver";
  * ORW-944: REPORT, NOT A GATE. How much does the whole-season mix guard's own reading move with NOTHING changed but the game's identity? A game is its seed plus its sandbox name
  * (ORW-852), so replaying the guard's seeds under other sandbox names gives independent plays of the same code: the guard lane's own seed noise. For each replica the guard's
  * pooling (`poolSeason`) and rules (`evaluate`) are applied exactly as in the guard; per rule this prints the mean, the spread and the standard deviation across replicas, and
- * the margin it supports (`RULE_MARGIN` in tests/support/wholeSeasonMix.ts is set from these lines). Replica 0 is the guard's own game (`wf-<seed>`).
+ * the noise each rule shows (it once set the KNOWN_RED margins; since ORW-991 the bands are a weekly report and only tests/support/brokenBounds.ts fails a build). Replica 0 is the guard's own game (`wf-<seed>`).
  * Skipped unless ORWELL_MIX_NOISE=1. ORWELL_MIX_NOISE_REPLICAS (default 8), ORWELL_MIX_NOISE_PARALLEL (seasons at once, default 12). Counts only, no content.
  */
 const RUN = process.env.ORWELL_MIX_NOISE === "1";

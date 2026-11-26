@@ -364,7 +364,7 @@
          binding control below the fold (the m-1 audit shot: Confirm off-screen on 390×844). */
       @media (max-width: 480px), (max-height: 720px) {
         .odec .odec-prompt, .odec .odec-stillin {
-          max-height: 20vh; overflow-y: auto; -webkit-overflow-scrolling: touch;
+          max-height: 20vh; max-height: 20dvh; overflow-y: auto; -webkit-overflow-scrolling: touch;
         }
       }
       /* ── LIQUID GLASS (body.theme-frosted) ──────────────────────────────────────
