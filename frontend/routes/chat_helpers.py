@@ -948,6 +948,7 @@ _ARRIVALS_NAMED: dict = {}      # runway key -> set of arrival names a reply has
 _ARRIVALS_FRAMED: dict = {}     # runway key -> names the narrator was framed with this turn (the latest, plus any owed from before)
 _ARRIVAL_VOICE_HOLDS: dict = {}  # runway key -> consecutive turns the next release was held for an unnamed arrival
 _ARRIVAL_VOICE_HOLD_CAP = 2
+_TOAST_FLOW_BATCHES = 4  # ORW-997: an explicit next / continue plays up to this many toast batches (two speakers each) in one turn
 _TOAST_BATCH_NAMED: dict = {}   # runway key -> tuple of the toast batch a reply already voiced
 # ORW-997: the latest staged release (an arrival or a toast batch) and how many framed turns have handed it to the narrator. A release handed once and named in the reply (or handed twice) is VOICED: the next
 # framing of the same release says so (the engine marks the entrance `voiced`), so a no-advance turn never plays it again. A new release (a new signature) starts again at zero.
@@ -9015,8 +9016,7 @@ def _premiere_arrival_due(user, game_state, player_msg) -> bool:
             # ORW-997: the toast batch is committed BEFORE the reply too, once the batch on the board has been voiced (or none is out yet) and the player asked for the next one.
             if not _entrance_release_resolved(user, game_state):
                 return False
-            due, _ = _al._entrance_pacing(0, player_msg or "", False, False, stage="toast")
-            return bool(due)
+            return True  # ORW-997: a watch-only circle flows - any player message brings the next batch once the one on the board is voiced; the player's own words ride the same reply
         if ent.get("playerEntrance") or not ent.get("total") or int(ent.get("index") or 0) >= int(ent.get("total") or 0):
             return False  # the player's own entrance is the narrator's to voice; nobody left to release
         turns = _al._TURNS_SINCE_PROGRESS.get(_al._belt_key(user), 0) + 1
@@ -9047,13 +9047,21 @@ async def maybe_release_premiere_arrival(user, game_state, *, retry: bool, playe
         _ARRIVAL_VOICE_HOLDS.pop(key, None)
         from src import orwell_engine
         idem = _mint_idempotency_key()
+        _toast = _entrance_stage_of(game_state) == "toast"
+        _cue = False
+        _kw = {}
+        if _toast:
+            from src import agent_loop as _al_cue
+            _cue = bool(_al_cue._entrance_pacing(0, player_msg or "", False, False, stage="toast")[0])
+            if _cue:
+                _kw["toast_batches"] = _TOAST_FLOW_BATCHES  # ORW-997: an explicit "next" plays several batches in this one turn
         try:
-            adv = await orwell_engine.advance_game(expected_beat_seq=last_beat_seq(user), idempotency_key=idem, user=user)
+            adv = await orwell_engine.advance_game(expected_beat_seq=last_beat_seq(user), idempotency_key=idem, user=user, **_kw)
         except Exception as _e:
             if not _is_stale_beat_error(_e):
                 raise
             await _handle_stale_beat(user, _e)
-            adv = await orwell_engine.advance_game(expected_beat_seq=last_beat_seq(user), idempotency_key=idem, user=user)  # SAME key: the engine dedupes
+            adv = await orwell_engine.advance_game(expected_beat_seq=last_beat_seq(user), idempotency_key=idem, user=user, **_kw)  # SAME key: the engine dedupes
         if not isinstance(adv, dict) or (adv.get("held") and not adv.get("event")):
             return game_state  # nothing committed: the end-of-turn belt remains the net
         _refresh_beat_seq(user, adv)
@@ -9077,6 +9085,11 @@ async def maybe_release_premiere_arrival(user, game_state, *, retry: bool, playe
                 _SCHEDULE_STEER.pop(key, None)
         note_premiere_turn(user, fresh)  # re-stamp justArrived / owed arrivals / the voicing check on the board the narrator now sees (clears the release mark, so:)
         mark_premiere_release(user)  # this turn's one release is spent: the narrator's own advanceGame is answered `held`
+        if _toast and not _cue:
+            # ORW-997 (the player's own request must not lose to the ceremony): the committed toast step is voiced in a short passage, then what the player asked happens in this same reply.
+            _SCHEDULE_STEER[key] = (_SCHEDULE_STEER.get(key, "") + "\n\n" if _SCHEDULE_STEER.get(key) else "") + (
+                "THE PLAYER'S OWN MESSAGE COMES FIRST AFTER THIS STEP (engine truth): the circle moved on this turn. Voice the committed toast step briefly, one or two lines for each speaker listed, in the order given, then do what the player's message asks in this same reply. "
+                "The host's call is voiced once; never repeat it and never hold the player's own action back for another step.")
         return fresh
     except Exception as _e:  # failsoft-ok: the end-of-turn silent advance stays the net
         logger.warning("[orwell] premiere arrival pre-release failed for user=%s: %s: %s", user, type(_e).__name__, _e)
