@@ -23,6 +23,7 @@ from src.llm_core import stream_llm, stream_llm_with_fallback, _is_ollama_native
 from src.model_context import estimate_tokens
 from src.settings import get_setting
 from src import agent_gates as _gates  # A60: the nudge gates as pure functions (verbatim extraction)
+from src import speaker_turns as _speaker_turns  # ORW-1028: the speaker-turn seam (a turn that lost its head goes whole; quote marks stay paired)
 from src.prompt_security import untrusted_context_message
 from src.tool_security import blocked_tools_for_owner, plan_mode_disabled_tools
 from src.tool_policy import GUIDE_ONLY_DIRECTIVE, ToolPolicy
@@ -7061,6 +7062,20 @@ def _mirror_placeholder_cut(round_response: str, text: str):
     return round_response, cut
 
 
+def _turn_seam_apply(seam, pre: str, post: str, round_response: str) -> "tuple[str, str]":
+    """ORW-1028 - run the speaker-turn seam over one chunk (`pre` as the guards received it, `post` as they left it). Returns (text to emit, round_response with the seam's whole-part
+    cuts erased, so the stored text equals what is shown). Fail-open: a hiccup emits `post` unchanged."""
+    try:
+        out = seam.feed(pre, post)
+        for cut in seam.take_cuts():
+            idx = round_response.rfind(cut)
+            if idx >= 0:
+                round_response = round_response[:idx] + round_response[idx + len(cut):]
+        return out, round_response
+    except Exception:  # failsoft-ok: the seam never blocks a reply
+        return post, round_response
+
+
 def _mirror_wall_drop(round_response: str, before: str, after: str,
                       split_pattern: str = r"(?<=[.!?\n])") -> str:
     """Greptile P1 (#1746) — durability fix. `_knowledge_wall_guard`/`_presence_wall_guard` only
@@ -9845,6 +9860,7 @@ async def _stream_agent_loop_impl(
         _ooc_open = ""  # N-6: the PENDING (held, unclosed) `((...))` aside text carried across this round's streamed chunks; always resolved by the round's trailing flush, so nothing is carried between rounds (each round is a fresh completion, not a continuation)
         _round_emitted_text = ""  # F-1: exactly what the player SAW this round (the persisted text must equal it)
         _pw_carry: dict = {}  # ORW-917: the presence wall's quote/drop state across this round's streamed chunks
+        _ts_seam = _speaker_turns.TurnSeam()  # ORW-1028: the speaker-turn seam after every guard: a turn that lost its head goes whole; quote marks stay paired
         _visible_emitted_len = 0  # length of round_response already streamed as visible content
         # T0-5: has THIS round already flushed real visible narration? Gates the inline-planning
         # leading-preamble strip's `at_bubble_start` — a later flush within the round must never be
@@ -10541,6 +10557,7 @@ async def _stream_agent_loop_impl(
                                         round_response = _round_emitted_text + (_guarded_text or "")
                                         _pd_tail = _game_buf + _pd_tail  # the unterminated remainder of this chunk is also unshown: scan it for a tool opener too
                                         _game_buf = ""
+                                    _guarded_text, round_response = _turn_seam_apply(_ts_seam, _clean, _guarded_text or "", round_response)  # ORW-1028
                                     _round_emitted_text += _guarded_text or ""
                                     _shown_piece = _guarded_text or ""
                                     if _guarded_text:
@@ -10795,6 +10812,7 @@ async def _stream_agent_loop_impl(
                         if _di >= 0:
                             round_response = round_response[:_di] + round_response[_di + len(_pd_cut):]
                     _guarded_text = _pd_kept
+                _guarded_text, round_response = _turn_seam_apply(_ts_seam, _clean, _guarded_text or "", round_response)  # ORW-1028
                 _round_emitted_text += _guarded_text or ""
                 if _guarded_text:
                     full_response += _guarded_text
@@ -10802,6 +10820,12 @@ async def _stream_agent_loop_impl(
                         _emitted_visible = True
                         _round_visible_emitted = True
                     yield f'data: {json.dumps({"delta": _guarded_text})}\n\n'
+
+        _ts_tail = _ts_seam.finish()  # ORW-1028: a quote the round still has open is closed (unless the halt close below or the pre-display close already did)
+        if _ts_tail and not _scene_broken and _round_emitted_text and _speaker_turns.quote_open_at_end(_round_emitted_text):
+            _round_emitted_text += _ts_tail
+            full_response += _ts_tail
+            yield f'data: {json.dumps({"delta": _ts_tail})}\n\n'
 
         if _scene_broken and _round_emitted_text:
             # ORW-354: a halt must never leave the player's bubble inside an open quote / bold span (the sentence splitter cuts mid-quote).
@@ -10915,6 +10939,8 @@ async def _stream_agent_loop_impl(
         cleaned_round = _persisted_round_text(
             cleaned_round, scene_broken=(_scene_broken or _SCENE_CUTAWAY_LINE in _round_emitted_text),
             scrub_active=_scrub_active, round_emitted=_round_emitted_text)
+        if _is_live_game and _scrub_active and cleaned_round:
+            cleaned_round = _speaker_turns.wellformed(cleaned_round)  # ORW-1028: the stored round passes the same seam as the streamed one (reload == live)
         round_texts.append(cleaned_round)
 
         # A/B 2026-11-04 — a whole-scene cut that left the player with only the cutaway: re-voice ONCE from the engine truth (bounded) instead of ending the turn on the hole.
