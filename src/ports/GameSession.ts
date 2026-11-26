@@ -670,6 +670,8 @@ export interface GameStateView {
   keepPromisers?: NamedRef[];
   /** ORW-750 (moment prompt only): in the week of a nomination, for each nominee, the houseguests whose vote promise IS on the engine's record and that the player was told or heard (an open promise about the nominee, or an assurance to the player when the player is the nominee). Names only: never a ballot, how sincere anyone is, or a number. Absent outside that week or when nobody is on the block. */
   votePromises?: Array<{ nominee: NamedRef; keepers: NamedRef[] }>;
+  /** ORW-930 (moment prompt only, the new week's HOH competition and nominations): the player's own deals whose week-long term ran out at the week roll, with a houseguest still in the house and nothing new between the two yet. */
+  dealsClosed?: Array<{ with: NamedRef; kind: string }>;
   /**
    * #1792 — Producer Read: Vault-free post-scene exchange-accounting string,
    * delivered ONCE in the moment prompt immediately following a substantive
