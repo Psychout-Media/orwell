@@ -2112,15 +2112,6 @@
   {
    "path": "src/engine/deepProfile.ts",
    "kind": "list",
-   "name": "MARKS",
-   "max": 1,
-   "owner": "ORW-508",
-   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
-   "decision": "engine floor for the photo face and mark lines; since #2828 the cast writer authors the face line live and the dealt mark is checked against it, so the list is only the offline floor (ORW-480)"
-  },
-  {
-   "path": "src/engine/deepProfile.ts",
-   "kind": "list",
    "name": "PATHWAYS",
    "max": 1,
    "owner": "ORW-508",

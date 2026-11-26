@@ -8,6 +8,7 @@ import { STYLE_FAMILIES, familyForLabel } from "../domain/styleFamilies";
 import { dealCastingTypes, type CastingType } from "../domain/castingTypes";
 import type { Archetype, Character, Houseguest } from "./characterFactory";
 import { THREAD } from "./threadConstants";
+import { dealLookTails, composedMarks } from "./lookVariants";
 
 export type { PhysicalCharacteristics };
 
@@ -183,7 +184,7 @@ const HEIGHT_BUILD: readonly string[] = BUILD_ENTRIES.map((e) => e.desc);
 /** The build words for tests that pin the list. */
 export const BUILD_WORDS: readonly string[] = HEIGHT_BUILD;
 /** The band of a stored build string (engine-side test helper; never projected). */
-export function buildBandOf(desc: string): BuildBand | undefined { return BUILD_ENTRIES.find((e) => e.desc === desc)?.band; }
+export function buildBandOf(desc: string): BuildBand | undefined { return BUILD_ENTRIES.find((e) => desc === e.desc || desc.startsWith(`${e.desc} `))?.band; }
 
 /**
  * Pick each houseguest's build band from their physical stat plus noise: ONE `rng.int` per houseguest on the
@@ -300,22 +301,16 @@ const FACIAL = [
 // ORW-480: marks are SIGNATURES a portrait can hold (glasses, ear and nose piercings, freckles, dimples, beauty marks, three tattoos): no scars,
 // birthmarks, tooth gaps or smiles. FORTY-FOUR of them, each dealt at most once per cast, and about 3 or 4 of a 15-cast carry one, so no
 // single mark turns up in more than about one cast in ten (the old pool of eleven put each one in about every other season).
-const MARKS = [
-  "round tortoiseshell glasses", "thin gold-rimmed glasses", "black rectangular glasses", "clear-framed glasses", "aviator-style glasses",
-  "wire-rimmed glasses", "oversized round glasses", "cat-eye glasses", "tinted round glasses", "browline glasses",
-  "a stud earring", "two small studs in one ear", "small gold hoops", "a single pearl stud", "a cartilage piercing in one ear",
-  "a row of small hoops up one ear", "tiny diamond studs", "a small silver hoop in one ear", "a gold stud and a small hoop in one ear", "drop earrings",
-  "a small stud in the upper ear", "simple gold huggie earrings",
-  "a small nose stud", "a thin nose ring", "a small stud in one nostril", "a tiny eyebrow piercing",
-  "freckles across the nose", "a dusting of freckles across the cheeks", "heavy freckles on the nose and cheeks", "a few freckles under one eye",
-  "freckled shoulders", "freckles across the bridge of the nose and forehead",
-  "deep dimples", "a single dimple on the left cheek", "a single dimple on the right cheek", "faint dimples when talking", "a dimpled chin",
-  "a beauty mark on one cheek", "a beauty mark above the lip", "a beauty mark near one eye", "a beauty mark on the chin",
-  "a small wrist tattoo", "a half-sleeve tattoo", "a small tattoo behind one ear",
-  "none notable",
-];
+// ORW-508: the marks are composed (lookVariants.composedMarks: frame x colour glasses, metal x type x side earrings, nose rings, density x
+// area freckles, dimples, beauty marks and small tattoos), several hundred named marks, plus the plain "none notable". The hand list of 43 is gone.
+const MARKS: readonly string[] = [...composedMarks(), "none notable"];
+const MARK_KIND = new Map<string, string>();
 /** The mark's category (glasses, ear-piercing, freckles ...) from the shared casting-director table. */
-const markKind = (m: string): string => tagKind("mark", { distinguishingMark: m } as never)[0] ?? "other";
+const markKind = (m: string): string => {
+  let k = MARK_KIND.get(m);
+  if (k === undefined) { k = tagKind("mark", { distinguishingMark: m } as never)[0] ?? "other"; MARK_KIND.set(m, k); }
+  return k;
+};
 /** No category of mark on more than this many cards of a cast. */
 const MAX_MARKS_PER_KIND = 2;
 /** Share of a cast dealt "none notable" (rounded to a whole count per cast): 11 of 15, so 4 carry a mark. */
@@ -367,6 +362,8 @@ export interface PhysicalSpread {
   style: string;
   /** 2026-07-21 prompt audit: the cast-wide capped distinguishing-mark deal (named marks ≤MAX_PER_MARK; "none…" uncapped). */
   mark: string;
+  /** ORW-508: the independent tail each composed axis carries (lookVariants.ts). */
+  tails?: import("./lookVariants").LookTails;
 }
 
 /**
@@ -445,9 +442,11 @@ export function dealCastPhysicalSpread(
   const labels = presentations ?? dealPresentationFamilies(rng, count);
   const style = Array.from({ length: count }, (_, i) =>
     (familyForLabel(labels[i] ?? "") ?? STYLE_FAMILIES[i % STYLE_FAMILIES.length]!).sample);
+  // ORW-508: drawn LAST off this same dedicated rng, so every base value above is exactly what it was.
+  const tails = dealLookTails(rng, count);
   return Array.from({ length: count }, (_, i) => ({
-    heightBuild: heightBuild[i]!, skinTone: skinTone[i]!, hair: hair[i]!, facial: facial[i]!, style: style[i]!,
-    mark: mark[i]!,
+    heightBuild: `${heightBuild[i]!} ${tails[i]!.build}`, skinTone: `${skinTone[i]!} ${tails[i]!.skin}`, hair: `${hair[i]!}, ${tails[i]!.hair}`,
+    facial: `${facial[i]!} ${tails[i]!.facial}`, style: `${style[i]!}, ${tails[i]!.style}`, mark: mark[i]!, tails: tails[i]!,
   }));
 }
 
@@ -473,7 +472,7 @@ export function generatePhysicalCharacteristics(
     // 2026-07-21 prompt audit: the mark rides the cast-wide capped deal when a spread is supplied (the
     // live path) — a lone regeneration without cast context keeps the per-NPC pick over the same pool.
     distinguishingMark: spread ? spread.mark : rng.pick(MARKS),
-    ageLook: ageLookFor(age),
+    ageLook: spread?.tails ? `${ageLookFor(age)} ${spread.tails.ageLook}` : ageLookFor(age),
     style: spread ? spread.style : rng.pick(STYLE_FAMILIES).sample,
   };
 }
