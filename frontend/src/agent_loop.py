@@ -5469,7 +5469,9 @@ _DEAL_SIGNAL_RE = re.compile(
     r"shakes? (?:on it|hands|your hand|her hand|his hand)|shook (?:on it|hands|your hand|her hand|his hand)|"
     r"(?:sticks?|stuck|extends?|extended|offers?|holds?|held|puts?|put) (?:out )?(?:a|her|his|your|the) hand|"
     r"handshake|swear|vote (?:with you|together|as a bloc)|bloc|"
-    r"we have a deal|i'?m with you|stick together|lock(?:ed)? (?:it )?in)\b", re.I)
+    r"we have a deal|i'?m with you|stick together|lock(?:ed)? (?:it )?in|"
+    # ORW-987: a RENEWAL of a deal that ran out ("we're still good", "same deal next week", "our deal still stands", "re-up") is a deal struck again, and the model leaves it unrecorded
+    r"still (?:good|on|with you|you and me|us)|same (?:deal|terms|arrangement|as (?:last week|before))|renew(?:s|ed|ing|al)?|(?:our|the) (?:deal|arrangement|thing) (?:still )?(?:stands|holds)|re-?up(?:ping)?)\b", re.I)
 
 
 async def _auto_record_deal(narration, last_user, house, endpoint_url, model, headers, owner,
@@ -5517,7 +5519,7 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
                 '"termWeeks":<integer weeks it runs counting this week, ONLY if a duration was explicitly named, else null>}]}\n'
                 "List a deal ONLY when BOTH sides explicitly AGREED to a concrete commitment, with the kind that matches "
                 "the words actually spoken; if no listed kind matches what was spoken, leave that deal out. If it was loose talk, a one-sided pitch, a 'maybe', or a refusal, leave it "
-                "out; no deal at all => an empty list. kind: " + _kind_desc + "."},
+                "out; no deal at all => an empty list. A RENEWAL that both sides agree to ('we are still good', 'same deal again this week') IS a deal struck now, with the kind of the thing renewed. kind: " + _kind_desc + "."},
             {"role": "user", "content":
                 f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\n"
                 f"WHAT HAPPENED:\n{scene}\n\nJSON:"},
