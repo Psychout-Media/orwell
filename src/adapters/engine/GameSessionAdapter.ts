@@ -66,7 +66,7 @@ import { planJuryNotes } from "../../engine/juryNotes";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
 import { chooseHourAction, assembleScenes, habitsFor, floorRoutinesFor, routinesFromHabits, actionLine, roomActLine, formPlan, GOAL_PLAN, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction, type PlanStep } from "../../engine/houseLife";
-import { addRoutines, isStressed, noteSighting, routineKey, routineNow } from "../../engine/routineLife";
+import { addRoutines, isStressed, mergeAuthoredRoutines, noteSighting, routineKey, routineNow } from "../../engine/routineLife";
 import type { Routine } from "../../engine/routines";
 import type { Habit } from "../../engine/houseLifeConstants";
 import { HOUSE_LIFE, ROOM_LIFE } from "../../engine/houseLifeConstants";
@@ -15555,9 +15555,13 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-651 / spec 0209 (habits and routines): each houseguest's routines (a time, a place, an act) shape where they are and what they do in a free hour, replacing the named-habit pull; the player learns one by seeing it on separate days. ON unless `ORWELL_ROUTINES=0`. Played games only; OFF => no routine on the hour view => the old habit branch, byte-identical. */
   private routinesEnabled = flagDefaultOn("ORWELL_ROUTINES");
   setRoutinesEnabled(on: boolean): void { this.routinesEnabled = on; }
-  /** A houseguest's routines, composed once (the cast-authoring habits mapped when they landed, else the engine floor from the character) and kept for the season: never replaced or thinned. Engine-only. */
+  /**
+   * A houseguest's routines, composed once (the cast-authoring habits mapped when they landed, else the engine floor from the character) and kept for the season: never replaced or thinned. Engine-only.
+   * ORW-960 (B2-8): cast-authoring habits that land AFTER the floor was composed are added then (`mergeAuthoredRoutines`: the floor stays, the authored lead at their time).
+   */
   private routinesOf(id: EntityId, character: AgendaCharacter, authoredHabits: readonly Habit[] | undefined, seed: number): Routine[] {
     const store = (this.live!.routines ??= {});
+    if (store[id] && authoredHabits?.length) return mergeAuthoredRoutines(store, id, routinesFromHabits(authoredHabits, id, seed));
     return store[id] ?? addRoutines(store, id, authoredHabits?.length ? routinesFromHabits(authoredHabits, id, seed) : floorRoutinesFor(character, id, seed));
   }
   /**
@@ -15571,11 +15575,29 @@ export class GameSessionAdapter implements GameSession {
   private countRoutineSighting(actor: EntityId, routine: string, place: string, kind: string, day: number, knowledge: KnowledgeService | undefined): void {
     if (!this.live) return;
     const { learned } = noteSighting((this.live.routineSightings ??= {}), actor, routine, day);
-    if (!learned || !knowledge) return;
-    const me = this.house!.player.id;
-    const r = this.live.routines?.[actor]?.find((x) => routineKey(x) === routine);
+    if (learned && knowledge) this.learnRoutine(this.house!.player.id, actor, routine, place, kind, knowledge);
+  }
+  /** The onlooker now knows the routine: a third-person fact (the holder's name, the room, the time of day, the act or the authored words), the same words for the player and for an NPC. No subject: it is where someone usually is, never a secret to trade or press. */
+  private learnRoutine(onlooker: EntityId, actor: EntityId, routine: string, place: string, kind: string, knowledge: KnowledgeService): void {
+    const r = this.live?.routines?.[actor]?.find((x) => routineKey(x) === routine);
     const content = `${this.nameOf(actor)} is usually in the ${place.replace(/-/g, " ")} in the ${routine.split(":")[0]!.replace(/-/g, " ")}, ${r?.gist ?? `their usual: ${kind.replace(/-/g, " ")}`}`;
-    if (!knowledge.knownTo(me).some((f) => f.content === content)) knowledge.seedBelief(me, { content, factId: `routine:${actor}:${routine}`, confidence: 1, hops: 0, distortion: 0 }, "witnessed");
+    if (!knowledge.knownTo(onlooker).some((f) => f.content === content)) knowledge.seedBelief(onlooker, { content, factId: `routine:${actor}:${routine}`, confidence: 1, hops: 0, distortion: 0 }, "witnessed");
+  }
+  /**
+   * ORW-960 (B2-8, parity): only the player ever learned a routine. A houseguest awake in the room where someone keeps their routine sees it too, counted per onlooker on separate days
+   * (`live.npcRoutineSightings`, engine-only) and known on the same day the player would know it, as the same fact. Played games with routines on only; no draw of its own.
+   */
+  private noteRoutinesSeenByHouse(plans: readonly PlannedAction[], awakeIds: readonly EntityId[], day: number, knowledge: KnowledgeService | undefined): void {
+    const s = this.live, house = this.house, presence = this.presence;
+    if (!s || !house || !presence || !this.routinesEnabled || s.playedGame !== true) return;
+    for (const p of plans) {
+      if (!p.routine || p.place === "diary-room" || presence.get(p.actor) !== p.place) continue;
+      for (const o of awakeIds) {
+        if (o === p.actor || o === house.player.id || presence.get(o) !== p.place) continue;
+        const { learned } = noteSighting(((s.npcRoutineSightings ??= {})[o] ??= {}), p.actor, p.routine, day);
+        if (learned && knowledge) this.learnRoutine(o, p.actor, p.routine, p.place, p.kind, knowledge);
+      }
+    }
   }
   /**
    * ORW-799: a sighting was only counted when a routine WALKED someone into the player's room; a houseguest already in that room when their routine pulls (same keyed roll the planner uses, so the same hour) was never
@@ -15990,6 +16012,7 @@ export class GameSessionAdapter implements GameSession {
       this.presenceBase?.set(p.actor, p.place);
       if (p.routine && playerUp && p.place === playerRoom) this.noteRoutineSighting(p, day, knowledge); // ORW-651: the player is there, awake, and sees them keep it
     }
+    this.noteRoutinesSeenByHouse(plans, awakeIds, day, knowledge); // ORW-960: the houseguests there see them keep it too
     // ORW-561 (spec 0176 part 2): after they have walked, each awake houseguest's hour accrues to the hidden tenure map where they ended up (the HOH room too: slice 11 reads that time; the Diary Room is private).
     if (this.territoryOn()) { const t = (s.tenure ??= {}); for (const id of awakeIds) { const r = presence.get(id); if (r && r !== "diary-room") bumpTenure(t, id, r); }
       // ORW-614 (P-11): the player's own hours count toward the crowd they keep, like anyone's (never while napping; the Diary Room is private).
