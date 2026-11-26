@@ -2066,7 +2066,7 @@ export function peekCompetition(s: LiveSeasonState, ctx: SeasonCtx, rng: Randomn
 }
 
 /** The library def backing an in-progress staged competition — the LAST recorded draw for its phase. */
-function competitionDefFor(s: LiveSeasonState, c: CompetitionProgress): CompetitionDef | undefined {
+export function competitionDefFor(s: LiveSeasonState, c: CompetitionProgress): CompetitionDef | undefined {
   const phase: CompetitionPhase = c.comp === "hoh-competition" ? "hoh" : "veto";
   const recent = s.compHistory?.[phase] ?? [];
   const last = recent[recent.length - 1];
