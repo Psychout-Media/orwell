@@ -197,6 +197,37 @@ export function blocFor(blocs: readonly Bloc[], holder: EntityId): Bloc | null {
  * lean toward the shared enemy — bounded by `termWeight × loyaltyStrength`, layered on the base
  * threat/trust read (it nudges; it never overrides the 0005 hard rules, which bind downstream).
  */
+/**
+ * ORW-972 (0043 "bloc-mates vote together"): the bloc term ON AN EVICTION VOTE. A member shields a bloc-mate as before, and leans toward the bloc's OWN pick (`blocVotePick`: what its
+ * members would vote, each read without the bloc), not toward the threat-derived `sharedTarget`. Pulling every member toward the shared target flipped only the marginal member
+ * against the rest of the bloc when the house voted by consensus: the trio agreed LESS with the term than without it (measured 0.823 vs 0.835 on seeds 1-100). No pick (a tie,
+ * or nobody to count) = no lean, the shield only. Nominations keep `blocTerm` (the shared target is who the bloc wants on the block).
+ */
+export function blocVoteTerm(blocs: readonly Bloc[], holder: EntityId, target: EntityId, pick: EntityId | undefined): number {
+  const bloc = blocFor(blocs, holder);
+  if (!bloc) return 0;
+  const strength = BLOC.termWeight * bloc.loyaltyStrength;
+  if (bloc.members.includes(target)) return -strength;          // shield a bloc-mate
+  if (pick !== undefined && pick === target) return +strength;  // vote with the bloc
+  return 0;
+}
+
+/**
+ * ORW-972: the bloc's own pick between the two nominees, as `holder` reads it: the majority of its members' votes (nominees do not vote). `readOf(member)` is the member's pick read
+ * without the bloc (undefined = not counted). A tie, or no one counted, is no pick. Pure.
+ */
+export function blocVotePick(blocs: readonly Bloc[], holder: EntityId, fn: readonly [EntityId, EntityId], readOf: (member: EntityId) => EntityId | undefined): EntityId | undefined {
+  const bloc = blocFor(blocs, holder);
+  if (!bloc) return undefined;
+  let n0 = 0, n1 = 0;
+  for (const m of bloc.members) {
+    if (fn.includes(m)) continue;
+    const p = readOf(m);
+    if (p === fn[0]) n0++; else if (p === fn[1]) n1++;
+  }
+  return n0 > n1 ? fn[0] : n1 > n0 ? fn[1] : undefined;
+}
+
 export function blocTerm(blocs: readonly Bloc[], holder: EntityId, target: EntityId): number {
   const bloc = blocFor(blocs, holder);
   if (!bloc) return 0;

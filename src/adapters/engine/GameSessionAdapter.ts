@@ -6994,6 +6994,21 @@ export class GameSessionAdapter implements GameSession {
     if (scapegoat === undefined || scapegoat === decider) return 0;
     return scapegoatLean(subject, scapegoat, hardness, holdsGrievance(s.beliefs[decider] ?? [], decider, subject, s.week));
   }
+  /**
+   * ORW-972: what the PLAYER told `holder` they will vote between the nominees, from `holder`'s own beliefs: this week's "voted against N" (evict N) or "voted to keep N" (evict the other),
+   * told by the player about their own vote. The latest such belief wins; none = undefined (the player is not counted in the bloc's pick).
+   */
+  private playerStatedVoteFor(holder: EntityId, fn: readonly [EntityId, EntityId]): EntityId | undefined {
+    const s = this.live;
+    if (!s || holder === PLAYER) return undefined;
+    let pick: EntityId | undefined;
+    for (const b of s.beliefs?.[holder] ?? []) {
+      if (!b.value || b.refuted || b.week !== s.week || b.subject !== PLAYER || b.source !== PLAYER || b.object === undefined || !fn.includes(b.object)) continue;
+      if (b.kind === "heard-rumor" && b.nature === "voted-against") pick = b.object;
+      else if (b.kind === "heard-rumor" && b.nature === "voted-to-keep") pick = fn[0] === b.object ? fn[1] : fn[0];
+    }
+    return pick;
+  }
   /** 0180 part 2: the herd's pull on `voter` toward evicting `nominee`, from the voices they hold this week, scaled by the culture's alliance-size dial. */
   private herdFor(nominee: EntityId, voter: EntityId, fn: readonly [EntityId, EntityId]): number {
     const s = this.live;
@@ -12826,6 +12841,8 @@ export class GameSessionAdapter implements GameSession {
         if (!hg) return 0.55;
         return derivedLoyalty(this.dispositionReadOf(id), this.emotionalReadOf(id), this.cultureMult("loyalty"));
       },
+      // ORW-972: the vote the player told this houseguest they will cast at this eviction (a this-week claim about their OWN vote, told by the player): the player counts in their bloc's pick only so.
+      ...(this.live?.playedGame === true && this.npcBeliefsEnabled ? { playerStatedVoteFor: (holder: EntityId, fn: readonly [EntityId, EntityId]) => this.playerStatedVoteFor(holder, fn) } : {}),
       // 0107: the named-alliance cement into bloc detection — bounded, saturation-diluted; 0 for every
       // pair when no alliance is named ⇒ the seeded bloc/vote read is byte-identical (the calibration spine).
       allianceTie: (a, b) => allianceTieBoost(this.alliances.all(), a, b) + this.territoryBondNudge(a, b), // ORW-561: + the territory nudge (0 unless a played game with the flag on)
