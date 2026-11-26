@@ -135,8 +135,9 @@ async def _reseat(user, w: dict) -> int:
             continue
         try:
             res = await _oe.move_houseguest(hid, room, user=user)
-        except Exception as e:
-            logger.info("[orwell] companion %s re-seat failed: %s", hid, e)
+        except Exception as e:  # failsoft-ok: companions-reseat (recorded RED below; the companion is kept for the next turn)
+            from src import log_rings as _lr
+            _lr.record_soft_failure("companions:reseat", e, corrected="kept-for-next-turn", user=user)
             continue
         if isinstance(res, dict) and res.get("status") == "moved":
             moved += 1
@@ -146,6 +147,6 @@ async def _reseat(user, w: dict) -> int:
         try:
             from routes import chat_helpers as _ch
             _ch._refresh_beat_seq(user, res)  # the move commits: adopt its beatSeq token
-        except Exception:
+        except Exception:  # failsoft-ok: companions-beatseq (the next call reconciles a stale token through the stale-beat path)
             pass
     return moved

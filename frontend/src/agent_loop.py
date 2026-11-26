@@ -13576,12 +13576,6 @@ async def _stream_agent_loop_impl(
                                   if isinstance(ev, dict) and ev.get("tool")}
             _desync_progressed = bool(_desync_tool_names & _PROGRESSION_TOOLS)
             await record_post_turn_desync_check(owner, _turn_narration_full, _desync_progressed)
-            try:  # ORW-1030: register/end the player's agreed companions and re-seat them in the player's room through the engine
-                from src import orwell_companions as _oc
-                if await _oc.update(owner, _extract_last_user_message(messages) or "", _turn_narration_full):
-                    _note_belt(owner, "companion-reseat")
-            except Exception as _comp_err:  # failsoft-ok: companions are an aid; the next turn re-checks
-                logger.warning(f"[orwell] companions update failed: {_comp_err}")
         except Exception as _desync_err:
             logger.warning(f"[orwell] post-turn desync check failed: {_desync_err}")
 
@@ -13595,6 +13589,12 @@ async def _stream_agent_loop_impl(
             await record_post_turn_presence_check(owner, _turn_narration_full)
         except Exception as _pres_err:
             logger.warning(f"[orwell] post-turn presence check failed: {_pres_err}")
+        try:  # ORW-1030: register/end the player's agreed companions and re-seat them in the player's room through the engine
+            from src import orwell_companions as _oc
+            if await _oc.update(owner, _extract_last_user_message(messages) or "", _turn_narration_full):
+                _note_belt(owner, "companion-reseat")
+        except Exception as _comp_err:  # failsoft-ok: companions are an aid; the next turn re-checks
+            logger.warning(f"[orwell] companions update failed: {_comp_err}")
 
         # ── S2a / S7 (2026-07-16) — the IN-TURN closed-set overclaim REALIGNMENT belt. ────────────────
         # The post-turn desync/presence checks above only QUEUE a next-turn re-ground; the owner's ruling
