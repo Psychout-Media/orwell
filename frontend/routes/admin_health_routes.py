@@ -1540,6 +1540,28 @@ def _is_guard_down_class(kind: str) -> bool:
     return any(m in k for m in _GUARD_DOWN_MARKERS)
 
 
+_BACKUP_MAX_AGE_S = 26 * 3600  # a daily timer plus its random delay; older than this is a failing verdict (ORW-1047)
+
+
+def _backup_section(now: float | None = None) -> dict:
+    """ORW-1047 - the last scheduled backup's result and age, read from ``<app>/backups/.backup-status.json`` (written by
+    ``deploy/orwell-backup.sh`` on every run, also a failed one). ``{state: ok|failed|stale|none, ageS, finishedAt, message, warning}``.
+    ``none`` means no record yet (a box that never ran the new script); the doctor reports that, the RED alarm does not.
+    Machine words and numbers only; a broken read is ``none``."""
+    try:
+        base = os.environ.get("ORWELL_BACKUP_DIR") or os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "backups")
+        with open(os.path.join(base, ".backup-status.json"), encoding="utf-8") as f:
+            rec = json.load(f)
+        fin = int(rec["finishedAt"])
+    except Exception:
+        return {"state": "none", "ageS": None, "finishedAt": None, "message": "", "warning": ""}
+    age = max(0, int((time.time() if now is None else now) - fin))
+    state = "failed" if rec.get("status") != "ok" else ("stale" if age > _BACKUP_MAX_AGE_S else "ok")
+    return {"state": state, "ageS": age, "finishedAt": fin, "message": str(rec.get("message") or "")[:300],
+            "warning": str(rec.get("warning") or "")[:300]}
+
+
 def _season_section() -> dict:
     """ORW-971 - the held seasons and the season-start steps still owed or failed, for EVERY owner (the operator's view; counts, ids and machine words only).
     ``{holds: [{owner, ageS, authored, total, missing, windowS, overdue}], steps: [{owner, step, status, attempts, reason, ageS}]}``. Best-effort: a failed read is empty."""
@@ -1551,7 +1573,7 @@ def _season_section() -> dict:
 
 
 def _compute_alarms(rollup: dict, *, embeddings=None, sync_recent=None, belt_totals=None,
-                    sandbox=None, faithfulness=None, capability=None, season=None) -> list:
+                    sandbox=None, faithfulness=None, capability=None, season=None, backup=None) -> list:
     """WI3 — derive the RED alarms for game-breaking signals from the rollup + the snapshot reads.
     Pure over its inputs (unit-testable): returns a list of ``{code, severity:'red', label, count,
     detail, autoCorrected}``. Vault-free — every input is a count / flag / class token."""
@@ -1704,6 +1726,16 @@ def _compute_alarms(rollup: dict, *, embeddings=None, sync_recent=None, belt_tot
             f"{len(overdue)} season(s) held longer than the watch window (oldest {max(int(h.get('ageS') or 0) for h in overdue)} s, "
             "cast " + ", ".join(f"{h.get('authored')}/{h.get('total')}" for h in overdue[:3]) + " authored) - release it from the season checklist"))
 
+    # 4g) ORW-1047 - the scheduled backup failed on its last run, or has not produced one in over 26 h. One standing alarm
+    #     (one code) for as long as the record reads bad; it clears by itself when a run succeeds.
+    if isinstance(backup, dict) and backup.get("state") in ("failed", "stale"):
+        hrs = int((backup.get("ageS") or 0) // 3600)
+        alarms.append(_alarm(
+            "backup-failing", "Scheduled backup failing", 1,
+            (f"the last scheduled backup FAILED {hrs} h ago ({backup.get('message') or 'no message'})" if backup.get("state") == "failed"
+             else f"no scheduled backup has succeeded for {hrs} h (limit 26 h)")
+            + " - check journalctl -u orwell-backup.service and systemctl status orwell-backup.timer"))
+
     # 5) Embeddings degraded (semantic recall fell back).
     if isinstance(embeddings, dict) and embeddings.get("degraded"):
         alarms.append(_alarm(
@@ -1795,7 +1827,7 @@ async def _rollup_and_alarms(user: str | None, engine: dict,
     try:
         alarms = _compute_alarms(rollup, embeddings=engine.get("embeddings"),
                                  sync_recent=sync_recent, belt_totals=belt_totals, sandbox=sandbox,
-                                 faithfulness=faithfulness, capability=capability, season=_season_section())
+                                 faithfulness=faithfulness, capability=capability, season=_season_section(), backup=_backup_section())
     except Exception:
         alarms = []
     return rollup, alarms
@@ -1890,6 +1922,7 @@ async def _health_snapshot(user: str | None) -> dict:
         "castAuthoring": cast_authoring,
         "enrichment": enrichment,
         "seasonChecklist": season_checklist,
+        "backup": _backup_section(),  # ORW-1047: last scheduled backup result and age (RED alarm backup-failing when failed or over 26 h)
         "seasonHolds": _season_section(),  # ORW-971: every held season (owner, age, authored/total) and every owed or failed start step
         # F10 / BL-019 — the faithfulness-judge health posture (dark ⇒ the RED alarm above fires).
         "faithfulness": faithfulness,
@@ -2620,6 +2653,7 @@ function render(d) {
         " · checked " + esc(p.checked) + " · skipped " + esc(p.skippedTotal) + " (" + sk + ") · conflicts " + esc(p.conflictsTotal) + " (" + cf + ")" +
         " · state from cache " + esc((p.stateFrom || {}).cache) + " / read " + esc((p.stateFrom || {}).read) + " · " + esc(p.turns) + " turn(s)";
     })(d.predisplay)],
+    ["Last backup", ((b) => !b || b.state === "none" ? "no run record yet" : B(b.state === "ok", b.state === "ok" ? "OK" : b.state === "stale" ? "STALE" : "FAILED") + " · " + esc(Math.floor((b.ageS || 0) / 3600)) + " h ago" + (b.message && b.state !== "ok" ? " · " + esc(b.message) : "") + (b.warning ? " · " + esc(b.warning) : ""))(d.backup)],
     ["Tool calls", esc(tc.total ?? 0) + " total · " + esc(tc.failed ?? 0) + " failed"],
     ["Front-end store", (st.degraded ? B(false, "DEGRADED") + " · " : "") + esc(st.sessions ?? "?") + " session(s) · " + esc(st.messages ?? "?") + " message(s)" + (st.database_size_mb != null ? " · " + esc(st.database_size_mb) + " MB" : "")],
   ];
