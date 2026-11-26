@@ -45,7 +45,6 @@ def _settle(page, follow=True):
         last = now
 
 
-@pytest.mark.quarantine(card="ORW-996", added="2026-11-26")
 def test_a_card_mounting_above_the_composer_never_hides_the_newest_reply(_stack):  # noqa: F811
     from playwright.sync_api import sync_playwright
     _session(_stack, "orw974")
