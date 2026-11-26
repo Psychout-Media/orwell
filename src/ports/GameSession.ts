@@ -1274,6 +1274,11 @@ export interface MomentPromptReq {
    * ORW-377 (zero clocks in the house, the FE setting `zero_clocks`): hand the narrator the part of the day ("small hours, Day 5") in place of the clock time. Presentation only; absent/false ⇒ byte-identical.
    */
   zeroClocks?: boolean;
+  /**
+   * ORW-997: the FE reports that an earlier reply already voiced the latest staged-premiere release (the arrival or the toast batch on the board) and nothing new was committed this turn. The narration view then marks
+   * the entrance `voiced` and the prompt says so (no re-voicing, no upcoming speaker). Presentation only; absent/false => byte-identical.
+   */
+  entranceVoiced?: boolean;
 }
 
 /**
@@ -2162,6 +2167,8 @@ export interface PremiereIntrosView {
     playerToast?: "later" | "now" | "done";
     /** ORW-368: toast speakers (the player's slot included) still to be released AFTER the latest batch, from the engine's done list. The toast is over only when this reaches 0 and the stage reads done. Toast stage only. */
     toastRemaining?: number;
+    /** ORW-997: set only on a narration view when the caller (`getMomentPrompt` with `entranceVoiced`) reports that an earlier reply already voiced what this view shows (the latest arrival, or the latest toast batch). */
+    voiced?: true;
   };
 }
 

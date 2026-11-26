@@ -1184,6 +1184,20 @@ async def pipeline_cast(user: str | None = None, timeout: float | None = None) -
         raise
 
 
+# ORW-997: per user, whether the latest staged-premiere release (an arrival or a toast batch) was already voiced by an earlier reply. Set by the FE's per-turn premiere hook; read by `get_moment_prompt` so
+# the moment prompt marks the entrance `voiced` (the narrator never plays the same release twice, and is not handed upcoming speakers).
+_ENTRANCE_VOICED: dict = {}
+
+
+def set_entrance_voiced(user, voiced: bool) -> None:
+    """ORW-997: record whether the latest staged-premiere release was already voiced (False clears it)."""
+    k = str(user or "")
+    if voiced:
+        _ENTRANCE_VOICED[k] = True
+    else:
+        _ENTRANCE_VOICED.pop(k, None)
+
+
 async def get_moment_prompt(moment: str | None = None, user: str | None = None, timeout: float | None = None,
                             brief: dict | None = None) -> dict:
     """The managed system prompt to inject for this user's current (or given) moment.
@@ -1195,6 +1209,8 @@ async def get_moment_prompt(moment: str | None = None, user: str | None = None, 
         args["moment"] = moment
     if brief is not None:
         args["brief"] = brief
+    if _ENTRANCE_VOICED.get(str(user or "")):
+        args["entranceVoiced"] = True  # ORW-997
     try:
         from src.zero_clocks import zero_clocks_on
         if zero_clocks_on():
