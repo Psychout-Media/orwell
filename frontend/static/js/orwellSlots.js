@@ -189,6 +189,11 @@
       for (const entry of slots[name]) {
         const el = entry.el;
         if (!visible(el)) continue;
+        // ORW-993: a stacked narrow window may only use the room left under the header and the
+        // windows above it, so its body scrolls inside it instead of running off the bottom.
+        const room = Math.max(120, Math.floor(window.innerHeight - cursor - 8));
+        if (Number.isFinite(parseFloat(el.style.height))) { if (parseFloat(el.style.height) > room) setStyle(el, "height", room + "px"); }
+        else setStyle(el, "maxHeight", room + "px");
         setStyle(el, "position", "fixed");
         setStyle(el, "left", "0px");
         setStyle(el, "right", "0px");
