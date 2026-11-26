@@ -100,3 +100,37 @@ describe("validation and the wall", () => {
     expect(surfaces).not.toContain("zzsentineljokezz");
   });
 });
+
+describe("ORW-978 (spec 0209): free-form routines written from the whole profile", () => {
+  const good = { slot: "morning", place: "kitchen", action: "cook", company: "alone", strength: 0.8, gist: "makes the first pot of coffee before anyone is up, a habit from years of early shifts" };
+
+  it("validateTraits keeps valid routines (clean, source authored), drops invalid ones, dedupes and caps", () => {
+    const v = validateTraits({ habits: ["gym-rat", "early-riser"], routines: [
+      good, good, // a repeat of the same time, place and act
+      { ...good, slot: "teatime" }, { ...good, place: "the moon" }, { ...good, action: "levitate" }, "nonsense", null,
+      { ...good, place: "living-room", action: "nap" }, { ...good, slot: "evening" }, { ...good, slot: "night" }, { ...good, slot: "late-night" },
+    ] });
+    expect(v?.routines?.length, "capped").toBeLessThanOrEqual(4);
+    expect(v?.routines?.[0]).toMatchObject({ slot: "morning", place: "kitchen", action: "cook", source: "authored", gist: good.gist });
+    expect(v?.routines?.every((r) => r.source === "authored")).toBe(true);
+    expect(new Set(v?.routines?.map((r) => `${r.slot}:${r.place}:${r.action}`)).size).toBe(v?.routines?.length);
+    // no routines given: byte-identical to before
+    expect(validateTraits({ habits: ["gym-rat", "early-riser"] })).toEqual({ habits: ["gym-rat", "early-riser"] });
+  });
+
+  it("through callTool: stored write-once, and the houseguest's routines lead with the written ones, then the mapped habits", async () => {
+    const { server, session, npcs } = playerServer();
+    const res = await server.callTool("recordNpcTraits", { traits: [{ id: npcs[0], habits: ["gym-rat", "early-riser"], routines: [good] }] }) as { accepted: number };
+    expect(res.accepted).toBe(1);
+    const again = await server.callTool("recordNpcTraits", { traits: [{ id: npcs[0], habits: ["gym-rat", "early-riser"], routines: [{ ...good, place: "backyard" }] }] }) as { accepted: number };
+    expect(again.accepted, "write-once").toBe(0);
+    const s = session as unknown as { routinesOf(id: string, c: unknown, h: string[], seed: number): Array<{ source: string; gist?: string; place: string }>; agendaCharacterOf(id: string): unknown; live: { routines?: Record<string, unknown> } };
+    const rs = s.routinesOf(npcs[0]!, s.agendaCharacterOf(npcs[0]!), ["gym-rat", "early-riser"], 9);
+    expect(rs[0]).toMatchObject({ source: "authored", place: "kitchen", gist: good.gist });
+    expect(rs.length, "the written one plus the two mapped habits").toBe(3);
+    // a houseguest with no written routines is unchanged (the mapped habits only)
+    const other = s.routinesOf(npcs[1]!, s.agendaCharacterOf(npcs[1]!), ["napper", "devout"], 9);
+    expect(other.length).toBe(2);
+  });
+});
+

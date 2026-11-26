@@ -27,6 +27,8 @@ export const ROUTINES = {
   learnAfterDays: 3,
   /** The morning (8am, the whole house's wake-up per Ryne 11-06): a morning routine at or above this strength means up and about before the call. */
   earlyRiserStrength: 0.6,
+  /** ORW-981: how much more a houseguest who knows where the player usually is at this time of day leans toward them (a multiplier of one plus this on the pull). */
+  playerHauntGain: 0.5,
 } as const;
 
 /** Who usually shares the routine: nobody, one regular (a named houseguest the build resolves), or whoever is around. */

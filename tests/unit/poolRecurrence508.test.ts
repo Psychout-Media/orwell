@@ -9,12 +9,12 @@ import table from "../../src/domain/poolRecurrence.json";
 // ORW-508 ratchet: how much does each player-facing card field repeat inside a cast and from one season to the
 // next? Over 200 seeded casts of 15, every field in src/domain/poolRecurrence.json must be no worse than its
 // recorded ceiling. A fix that widens a field lowers its ceiling in the same PR; nothing may creep back.
-// Excluded on purpose (another PR owns the list): distinguishingMark, facialFeatures, style families.
+// distinguishingMark counts named marks only ("none notable" is the plain majority by design).
 
-const SEEDS = Array.from({ length: table.casts }, (_, i) => 1000 + i * 7919);
+export const SEEDS = Array.from({ length: table.casts }, (_, i) => 1000 + i * 7919);
 type Cast = Record<string, string[]>;
 
-function castOf(seed: number): Cast {
+export function castOf(seed: number): Cast {
   const { npcs } = generateHouse(new SeededRandom(seed));
   const layer = generateCastDeepLayer(seed, npcs);
   const div = generateDiversityLayer(seed, npcs);
@@ -26,6 +26,8 @@ function castOf(seed: number): Cast {
     push("name.given", given); push("name.surname", rest.join(" "));
     push("vocation", ch.vocation); push("hometown", ch.hometown); push("hometown.state", String(ch.hometown).split(", ").pop());
     push("demeanor", ch.demeanor); push("age", ch.age);
+    if (!/^none\b/i.test(String(pc.distinguishingMark))) push("phys.distinguishingMark", pc.distinguishingMark); push("phys.facialFeatures", pc.facialFeatures); push("phys.style", pc.style);
+    push("castingType.read", pub.castingType.read);
     push("phys.skinTone", pc.skinTone); push("phys.heightBuild", pc.heightBuild); push("phys.hair", pc.hair); push("phys.ageLook", pc.ageLook);
     const m = pub.biography.match(/^Outside the house, they are (.*?) who (.*?) (and .*?)\. (.*)$/);
     if (m) { push("bio.root", m[2]); push("bio.drive", m[3]); push("bio.closer", m[4]); }

@@ -570,7 +570,7 @@ def clear_social_runway(user) -> None:
     _PREMIERE_CLOCK_HOLD.pop(key, None)
     _PREMIERE_CLOCK_STARTED.discard(key)
     _PREMIERE_TOAST_SPEAKERS.pop(key, None)
-    for _d in (_ARRIVALS_NAMED, _ARRIVALS_FRAMED, _ARRIVAL_VOICE_HOLDS, _TOAST_BATCH_NAMED):  # ORW-704
+    for _d in (_ARRIVALS_NAMED, _ARRIVALS_FRAMED, _ARRIVAL_VOICE_HOLDS, _TOAST_BATCH_NAMED, _ENTRANCE_FRAMES):  # ORW-704 / ORW-997
         _d.pop(key, None)
     for _d in (_COMP_PAUSED, _COMP_CONT, _COMP_STEER_BASE):  # review of ORW-232: a restart mid-pause must not leak the old pause / steer into the new season
         _d.pop(key, None)
@@ -949,6 +949,63 @@ _ARRIVALS_FRAMED: dict = {}     # runway key -> names the narrator was framed wi
 _ARRIVAL_VOICE_HOLDS: dict = {}  # runway key -> consecutive turns the next release was held for an unnamed arrival
 _ARRIVAL_VOICE_HOLD_CAP = 2
 _TOAST_BATCH_NAMED: dict = {}   # runway key -> tuple of the toast batch a reply already voiced
+# ORW-997: the latest staged release (an arrival or a toast batch) and how many framed turns have handed it to the narrator. A release handed once and named in the reply (or handed twice) is VOICED: the next
+# framing of the same release says so (the engine marks the entrance `voiced`), so a no-advance turn never plays it again. A new release (a new signature) starts again at zero.
+_ENTRANCE_FRAMES: dict = {}     # runway key -> (release signature, framed turns so far, whether the latest framing found it voiced)
+
+
+def _entrance_release_sig(stage, ent):
+    """ORW-997: what identifies the latest staged release on the board. Pure; None when the board names no release yet."""
+    try:
+        if stage == "toast":
+            sp = [("host" if x.get("host") else ("player" if x.get("isPlayer") else str(x.get("name") or ""))) for x in (ent.get("speakers") or []) if isinstance(x, dict)]
+            return ("toast", tuple(sp), ent.get("toastRemaining")) if sp else None
+        ja = ent.get("justArrived")
+        jn = str((ja or {}).get("name") or "") if isinstance(ja, dict) else ""
+        return ("entrances", ent.get("index"), jn) if (jn or ent.get("playerJustEntered") or ent.get("playerEntrance")) else None
+    except Exception:
+        return None
+
+
+def _note_entrance_frame(user, key, stage, ent) -> bool:
+    """ORW-997: count this framed turn against the latest release; True when an earlier reply already voiced it (named it, or it was handed over twice). Stashes the answer for `getMomentPrompt`. Never raises."""
+    voiced = False
+    try:
+        sig = _entrance_release_sig(stage, ent) if stage in ("entrances", "toast") else None
+        prev = _ENTRANCE_FRAMES.get(key)
+        n = prev[1] if prev and sig is not None and prev[0] == sig else 0
+        if sig is None:
+            _ENTRANCE_FRAMES.pop(key, None)
+        else:
+            if stage == "toast":
+                people = tuple(x for x in sig[1] if x not in ("host", "player"))
+                named = bool(people) and _TOAST_BATCH_NAMED.get(key) == people
+            else:
+                named = bool(sig[2]) and sig[2] in _ARRIVALS_NAMED.get(key, set())
+            voiced = n >= 1 and (named or n >= 2)
+            _ENTRANCE_FRAMES[key] = (sig, n + 1, voiced)
+    except Exception:
+        voiced = False
+    try:
+        from src import orwell_engine as _oe
+        _oe.set_entrance_voiced(user, voiced)
+    except Exception:
+        pass
+    return voiced
+
+
+def _entrance_release_resolved(user, game_state) -> bool:
+    """ORW-997: True when the latest staged release on the board needs nothing more from the narrator (none yet, or this turn's framing found it already voiced), so the next one may be committed before the reply. Pure read of the stash."""
+    try:
+        stage = _entrance_stage_of(game_state)
+        ent = ((game_state.get("premiere") or {}).get("entrance")) or {}
+        sig = _entrance_release_sig(stage, ent)
+        if sig is None:
+            return True
+        prev = _ENTRANCE_FRAMES.get(_runway_key(user))
+        return bool(prev and prev[0] == sig and prev[2])
+    except Exception:
+        return True
 
 
 def _name_voiced_in(text: str, name: str) -> bool:
@@ -1047,19 +1104,28 @@ def note_premiere_turn(user, game_state) -> None:
                         sp.append("host" if x.get("host") else str(x.get("name") or ""))
             except Exception:
                 sp = []
+            try:
+                _note_entrance_frame(user, key, stage, ((game_state or {}).get("premiere") or {}).get("entrance") or {})
+            except Exception:  # failsoft-ok: the voiced mark is a prompt aid; a miss leaves the old behaviour
+                pass
             if stage == "toast" and sp:
                 _PREMIERE_TOAST_SPEAKERS[key] = sp
                 _people = tuple(x for x in sp if x != "host")
                 if _people and _TOAST_BATCH_NAMED.get(key) == _people:
                     _SCHEDULE_STEER[key] = (_SCHEDULE_STEER.get(key, "") + "\n\n" if _SCHEDULE_STEER.get(key) else "") + (
                         "THE TOAST BATCH HAS ALREADY BEEN VOICED (engine truth): " + ", ".join(_people)
-                        + " have already given their toasts and introduced themselves to the house. Do not introduce them again; play the circle with them as part of the room, and bring the next batch with advanceGame when the player lulls.")
+                        + " have already given their toasts and introduced themselves to the house. Do not introduce them again; play the circle with them as part of the room. The next batch is not committed yet: never voice or name a further speaker.")
             else:
                 _PREMIERE_TOAST_SPEAKERS.pop(key, None)
             return
         _PREMIERE_ENTRANCE_STAGE.pop(key, None)
-        for _d in (_ARRIVALS_NAMED, _ARRIVALS_FRAMED, _ARRIVAL_VOICE_HOLDS, _TOAST_BATCH_NAMED):
+        for _d in (_ARRIVALS_NAMED, _ARRIVALS_FRAMED, _ARRIVAL_VOICE_HOLDS, _TOAST_BATCH_NAMED, _ENTRANCE_FRAMES):
             _d.pop(key, None)  # ORW-704: the staged premiere is over (or a new game): nothing is owed
+        try:
+            from src import orwell_engine as _oe_clear
+            _oe_clear.set_entrance_voiced(user, False)
+        except Exception:
+            pass
         if stage == "done":
             # Live finding (A9 rerun #2): with the entrances ON, the entrances + toast ARE the premiere. Stacking the 48-message premiere hold on top of them froze the engine at
             # phase=premiere for 25+ messages (the stall-nudge was suppressed) while the narrator kept the house "in the morning" - and the clock-driven 48-message Day-1 morning
@@ -1296,7 +1362,10 @@ def _day_break_narration_steer(content: str) -> str:
 _PENDING_KIND_HINTS = {
     "ceremony-step": (
         "This is a WATCH step of a staged ceremony, not a choice. The engine supplies the one line that "
-        "just happened (quoted above); voice THAT moment in the fiction, in the room, and stop. Do NOT call "
+        "just happened (quoted above); voice THAT moment in the fiction, in the room, and stop. State the step ONCE: "
+        "when the player types something at a step you have already voiced (their own plea, remark or question), "
+        "answer what they said in the room and do NOT announce the step again or hand them the floor a second time. "
+        "Do NOT call "
         "advanceGame or submitDecision and do NOT narrate the next step: the player moves the ceremony on "
         "with the Continue button, one step at a time, and the engine then supplies the next line. Never "
         "reveal a result, a vote or a name the engine has not yet supplied."
@@ -4053,6 +4122,9 @@ def note_ceremony_beat_for_voicing(user, label: str, names) -> None:
         pass
 
 
+_COUNT_WORDS = {0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen", 14: "fourteen", 15: "fifteen", 16: "sixteen"}
+
+
 def _ceremony_beat_unvoiced(narration: str, note: dict) -> bool:
     text = (narration or "").lower()
     for n in note.get("names", []):
@@ -4060,6 +4132,37 @@ def _ceremony_beat_unvoiced(narration: str, note: dict) -> bool:
         if n.lower() in text or any(p in text for p in parts):
             return False
     return True
+
+
+def _ceremony_count_unvoiced(narration: str, note: dict) -> bool:
+    """ORW-815: a beat that carries a public vote count (the eviction result) is unvoiced when the reply states none of its numbers, as digits or as words."""
+    counts = [c for c in (note.get("counts") or []) if isinstance(c, int)]
+    if not counts:
+        return False
+    text = (narration or "").lower()
+    return not any(re.search(r"\b%d\b" % c, text) or (c in _COUNT_WORDS and re.search(r"\b%s\b" % _COUNT_WORDS[c], text)) for c in counts)
+
+
+def note_eviction_result_for_voicing(user, adv) -> None:
+    """ORW-815 (remainder of ORW-784 item 3): the eviction result beat (who left, and the house's count) was committed in the pre-resolve pass but, unlike nominations / the veto draw / comp winners,
+    never registered for the unvoiced-ceremony belt, so a reply that skipped it went unchecked. Register the evictee and the engine's public count (totals only, E12). Never raises."""
+    try:
+        evt = (adv or {}).get("event") if isinstance(adv, dict) else None
+        if not isinstance(evt, dict) or evt.get("beat") != "eviction-result":
+            return
+        names = [(p.get("name") if isinstance(p, dict) else p) for p in (evt.get("participants") or [])]
+        counts: list = []
+        for a in (adv.get("announcements") or []):
+            if isinstance(a, dict) and a.get("kind") == "eviction-result":
+                m = re.search(r"\b(\d+)\s+to\s+(\d+)\b", str(a.get("headline") or ""))
+                if m:
+                    counts = [int(m.group(1)), int(m.group(2))]
+        note_ceremony_beat_for_voicing(user, str(evt.get("content") or "the eviction result"), names)
+        k = _desync_key(user)
+        if k in _CEREMONY_UNVOICED and counts:
+            _CEREMONY_UNVOICED[k]["counts"] = counts
+    except Exception:
+        pass
 
 
 async def record_post_turn_desync_check(user, narration: str, this_turn_progressed: bool = True) -> None:
@@ -4079,7 +4182,12 @@ async def record_post_turn_desync_check(user, narration: str, this_turn_progress
         _dkey = _desync_key(user)  # #1045: stable key — functions single-tenant (user=None) too.
         note_premiere_narration(user, narration)  # ORW-704: which arrivals / toast batch this reply named
         _cnote = _CEREMONY_UNVOICED.pop(_dkey, None)
-        if _cnote and narration and _ceremony_beat_unvoiced(narration, _cnote):
+        if _cnote and narration and _ceremony_count_unvoiced(narration, _cnote) and not _ceremony_beat_unvoiced(narration, _cnote):
+            _c = _cnote["counts"]
+            _reground_enqueue(_dkey, "RE-GROUND ON THE CEREMONY: the engine committed the eviction result - " + _cnote["label"] + " - and your last turn named who left but never gave the house's count. Open your next turn by "
+                              "having the host state the count, " + str(_c[0]) + " to " + str(_c[1]) + " (totals only, never who voted which way).")
+            _note_belt(user, "ceremony-unvoiced-reground")
+        elif _cnote and narration and _ceremony_beat_unvoiced(narration, _cnote):
             _reground_enqueue(_dkey, "RE-GROUND ON THE CEREMONY: the engine just committed this beat - " + _cnote["label"] + " - but your last turn never voiced it, so the player has not been told. Open your next turn by "
                               "playing it for real (who is named, the room's reaction), using ONLY the names given here; do not invent anyone else.")
             _note_belt(user, "ceremony-unvoiced-reground")
@@ -8856,7 +8964,8 @@ def _premiere_arrival_due(user, game_state, player_msg) -> bool:
     try:
         if not isinstance(game_state, dict) or str(game_state.get("phase") or "").lower() != "premiere":
             return False
-        if _entrance_stage_of(game_state) != "entrances" or _PREMIERE_ENTRANCE_STAGE.get(_runway_key(user)) != "entrances":
+        stage = _entrance_stage_of(game_state)
+        if stage not in ("entrances", "toast") or _PREMIERE_ENTRANCE_STAGE.get(_runway_key(user)) != stage:
             return False
         if game_state.get("pending") is not None or event_pause_holds(user) or is_beat_cue_message(player_msg):
             return False
@@ -8864,6 +8973,12 @@ def _premiere_arrival_due(user, game_state, player_msg) -> bool:
         if _al._is_production_cue(player_msg or ""):
             return False
         ent = ((game_state.get("premiere") or {}).get("entrance")) or {}
+        if stage == "toast":
+            # ORW-997: the toast batch is committed BEFORE the reply too, once the batch on the board has been voiced (or none is out yet) and the player asked for the next one.
+            if not _entrance_release_resolved(user, game_state):
+                return False
+            due, _ = _al._entrance_pacing(0, player_msg or "", False, False, stage="toast")
+            return bool(due)
         if ent.get("playerEntrance") or not ent.get("total") or int(ent.get("index") or 0) >= int(ent.get("total") or 0):
             return False  # the player's own entrance is the narrator's to voice; nobody left to release
         turns = _al._TURNS_SINCE_PROGRESS.get(_al._belt_key(user), 0) + 1
@@ -8886,7 +9001,7 @@ async def maybe_release_premiere_arrival(user, game_state, *, retry: bool, playe
         key = _runway_key(user)
         # ORW-704 twin: the previous arrival is still unnamed in any reply -> hold this release (bounded), the narrator owes it first.
         ent = ((game_state.get("premiere") or {}).get("entrance")) or {}
-        owed_last = [n for n in _post_player_arrivals(ent)[-1:] if n not in _ARRIVALS_NAMED.get(key, set())]
+        owed_last = [n for n in _post_player_arrivals(ent)[-1:] if n not in _ARRIVALS_NAMED.get(key, set())] if _entrance_stage_of(game_state) == "entrances" else []
         if owed_last and _ARRIVAL_VOICE_HOLDS.get(key, 0) < _ARRIVAL_VOICE_HOLD_CAP:
             _ARRIVAL_VOICE_HOLDS[key] = _ARRIVAL_VOICE_HOLDS.get(key, 0) + 1
             logger.info("[orwell] premiere arrival release held for user=%s: the last arrival is not yet voiced (hold %d/%d)", user, _ARRIVAL_VOICE_HOLDS[key], _ARRIVAL_VOICE_HOLD_CAP)
@@ -8986,7 +9101,7 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                     from src import log_rings as _lr_walk
                     _lr_walk.record_soft_failure("progression:ballot-walk-refetch", _fe, corrected="input-snapshot", user=user)
             return game_state
-        if isinstance(status, dict) and _is_watch_step(status.get("pending")) and _is_progress_only_message(player_msg):
+        if isinstance(status, dict) and _is_watch_step(status.get("pending")) and _is_watch_continue_message(player_msg):
             # ORW-297: a typed "next" on ANY open ceremony WATCH step moves it exactly ONE step - the same advance the Continue button (/api/orwell/ceremony-continue) makes.
             if await _advance_one_watch_step(user, status.get("pending")):
                 try:
@@ -9197,6 +9312,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             mark_comp_walked(user)  # ORW-273
             _prior = _COMP_STEER_BASE.get(_runway_key(user), "")  # any production cue already armed this turn (e.g. 'production calls everyone') rides first, then the competition record
             _SCHEDULE_STEER[_runway_key(user)] = (_prior + "\n\n" if _prior else "") + _competition_scene_steer(_comp_log, continuing=_COMP_CONT.get(_runway_key(user), False))
+        if _beat_kind == "eviction-result":
+            note_eviction_result_for_voicing(user, adv)  # ORW-815: the result and its count must be voiced, or the belt re-grounds the next turn
         if phase == "nominations" and _beat:
             try:  # the ceremony must be voiced: remember the nominees so a reply that never mentions them is re-grounded next turn
                 note_ceremony_beat_for_voicing(user, str(_beat), [n.get("name") for n in ((((_adv_event or {}) if isinstance(_adv_event, dict) else {}).get("nominees")) or [])]
@@ -10107,6 +10224,17 @@ def _is_progress_only_message(text) -> bool:
     except Exception:  # failsoft-ok: expected-empty (the classifier is an optimisation; on any error the guard keeps its old behaviour and records the fallback)
         return False
     return False
+
+
+# ORW-772 (3): the player's own closing remark at a staged watch step ("That's all.", "I'm done.", "That's it.") is a lull cue for the stall-nudge but NOT a press of Continue: it ended their own speech or plea, and the
+# step must not silently advance on it. A watch step moves on the explicit continue words and readiness cues only.
+_FINISH_STATEMENT_RE = re.compile(r"\b(that'?s? (it|all)|nothing else|no more|i'?m (done|good)|enough( of)? (this|that)|wrap (it )?up)\b", re.IGNORECASE)
+
+
+def _is_watch_continue_message(text) -> bool:
+    """ORW-772 (3): `_is_progress_only_message` minus the player's own finishing statements (see `_FINISH_STATEMENT_RE`). Used where a typed message may press Continue on an open ceremony watch step."""
+    s = str(text or "")
+    return _is_progress_only_message(s) and not _FINISH_STATEMENT_RE.search(s)
 
 
 async def ensure_turn_recorded(user, player_message, narration, tools_called, beat_seq_before=None, session_id=None, failed_tools=None) -> bool:

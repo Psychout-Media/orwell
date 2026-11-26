@@ -649,7 +649,7 @@ export interface LiveSeasonState {
   /** ORW-610: the player's own recorded talk to the sitting HOH this week (counts as a pitch on the NPC terms). Engine-only; played games only. */
   playerPitch?: import("./hohCourt").PlayerPitchRecord;
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
-  moodCauses?: Record<EntityId, MoodCause & { week: number }>;
+  moodCauses?: Record<EntityId, MoodCause & { week: number; day?: number }>;
   /** 0194 / ORW-626: every other mood CAUSE a houseguest has had (a lie found out, a friend gone, a bad night, a win or loss), append-only. Vault-class; voiced only when the houseguest chooses to say it. Played games only; absent otherwise. */
   moodCauseLog?: import("./moodCauses").MoodCauseEntry[];
   /** 0197 / ORW-631: every lead a houseguest gave the player when asked where someone is (the room they named, whether they misled, how it later resolved by what the player saw). Append-only. Vault-class: the truth and the misled flag are never projected. Played games only; absent otherwise. */
@@ -1044,6 +1044,8 @@ export interface LiveSeasonState {
   routineSightings?: import("./routineLife").RoutineSightings;
   /** ORW-960 (B2-8): each NPC onlooker's own routine sightings (engine-only; monotone like the player's). */
   npcRoutineSightings?: Record<EntityId, import("./routineLife").RoutineSightings>;
+  /** ORW-981: the days each houseguest was in the room with the PLAYER at a time of day (`slot:room` -> distinct in-game days). Hidden, engine-only, monotonic; kept apart from `npcRoutineSightings` (those are a houseguest's sightings of someone's ROUTINE and each one becomes a learned fact; the player has no routine row). */
+  playerHaunts?: Record<EntityId, Record<string, number[]>>;
   /** 0208 / ORW-663 (B1, engine-only): the houseguest seats that carry a RETURNER from a season this player played, by seat id: which archived season, how many seasons ago, and the public finish (placement, juror). Fixed at casting; never thinned. The feelings and claims they carried live only in the hidden layer. */
   returners?: Record<EntityId, { season: number; seasonsAgo: number; placement: number; juror: boolean }>;
   interruption?: { npc: string; desire: string; atHour: number; /** ORW-261: a VOLUNTEERED (nobody asked) private-orientation disclosure the houseguest chose to make as they step in (the engine-authored sentence; also recorded as a told-by fact). */ tells?: string; /** ORW-611 follow-up: a speech step aimed at the player, told once this framing's view is built. */ say?: AimedSay };

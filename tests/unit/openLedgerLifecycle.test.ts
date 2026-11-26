@@ -561,7 +561,7 @@ describe("part 4 (real engine): the lapse happens at the day roll, inside that c
 });
 
 describe("a simulated season: weekly evictions, several new entries a day, no model", () => {
-  it("the open count never reaches the bound and nothing is ever removed from the snapshot", () => {
+  it("the open count never reaches the bound and nothing is ever removed from the snapshot", { timeout: 120_000 }, () => { // ORW-985: a whole simulated season: an explicit budget, not the 30 s default
     const r = startAtNominations(4002);
     const rng = new SeededRandom(448);
     let maxOpen = 0; let created = 0; let day = -1;

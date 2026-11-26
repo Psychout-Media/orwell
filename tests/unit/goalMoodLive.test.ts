@@ -3,6 +3,8 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 import type { EntityId } from "../../src/domain/ids";
 import type { Goal } from "../../src/engine/agenda";
+import { MOOD_CAUSES } from "../../src/engine/moodCauses";
+const MOOD_CARRY_DAYS = MOOD_CAUSES.carryDays;
 
 /**
  * ORW-317 mood half (ORW-253 slice 4, Ryne approved the NPC minds design 2026-11-12; motives: "no hints ... their actions are visible"):
@@ -77,5 +79,23 @@ describe("the cause is theirs to share (Ryne: no motive hints)", () => {
     s.setGoalMoodEnabled(false);
     (s as unknown as { setMoodCausesEnabled(on: boolean): void }).setMoodCausesEnabled(false); // 0194: the instruction also rides the other mood causes
     expect(s.getMomentPrompt({}).systemPrompt).not.toContain("moodCause");
+  });
+
+  // ORW-735 (Season 2 W2-7): a goal cause was handed over on every look at the houseguest all week ("X would not come over to my side" a dozen times from one mouth).
+  it("a goal cause ages like every other: voiced the day it settled and for a few days after, then no longer, within the same week", async () => {
+    const { s, holder } = await setup(15);
+    const live = s.live as unknown as { dayNumber?: number };
+    const about = s.live.active.find((x) => x !== holder && x !== PLAYER);
+    (s.rel as unknown as { edge(a: EntityId, b: EntityId): { affinity: number } }).edge(holder, PLAYER).affinity = 0.95;
+    live.dayNumber = 2;
+    s.live.moodCauses = { [holder]: { goalKind: "pull-them-in", outcome: "fell-apart", about, line: "{subject} would not come over to their side", week: s.live.week, day: 2 } as never };
+    expect(s.npcVoice(holder)!.moodCause, "the day it settled").toMatch(/would not come over/);
+    live.dayNumber = 4;
+    expect(s.npcVoice(holder)!.moodCause, "two days on it is still speakable").toMatch(/would not come over/);
+    live.dayNumber = 2 + MOOD_CARRY_DAYS + 1;
+    expect(s.npcVoice(holder)!.moodCause, "past the carry days, in the same week, it is no longer given").toBeUndefined();
+    // a cause saved without its day keeps the old same-week rule
+    s.live.moodCauses = { [holder]: { goalKind: "pull-them-in", outcome: "fell-apart", about, line: "{subject} would not come over to their side", week: s.live.week } as never };
+    expect(s.npcVoice(holder)!.moodCause).toMatch(/would not come over/);
   });
 });

@@ -1537,6 +1537,10 @@ export function renderGameContext(view: GameStateView): string {
         ...((view.presentKnowledge ?? []).some((e) => e.declaredStance)
           ? ["  (a `declaredStance` is the ONLY commitment that houseguest may make about a future vote, nomination or veto: `will-keep` they say they will keep the player; `wont-commit` they decline to promise either way, in their own manner. Never promise, swear, shake on, deny or hint at what anyone WILL do beyond it, never refuse a deal the player has accepted, and the HOH never says whether the player will go up unless it says will-keep)"]
           : []),
+        // ORW-749: a `dealConsent` is what the ENGINE has already decided this houseguest does with a deal the player pitches now. Present only when decided => byte-identical otherwise.
+        ...((view.presentKnowledge ?? []).some((e) => e.dealConsent)
+          ? ["  (a `dealConsent` is decided before you speak: when the player pitches this houseguest a deal, `will-accept` they agree, `will-decline` they say no and give their own reason, `undecided` you voice neither yes nor no until the deal tool answers. Never voice a deal as made, shaken on or agreed against a will-decline, and never leave a will-accept unanswered; the deal exists only when the engine records it)"]
+          : []),
         // 0151: a `tellsYou` is something the engine decided this houseguest tells the player now. Present only when one does => byte-identical otherwise.
         ...((view.presentKnowledge ?? []).some((e) => e.tellsYou)
           ? ["  (a `tellsYou` is a belief this houseguest passes to the player now: voice it as THEIR OWN words, hedged by their certainty; do not say whether it is true or why they tell it)"]
@@ -1560,6 +1564,7 @@ export function renderGameContext(view: GameStateView): string {
           // govern them), never to state. Emitted only when set ⇒ byte-identical otherwise.
           const cues = presentCues(e);
           if (cues) lines.push(`        now (play as conduct, never state): ${cues}`);
+          if (e.dealConsent) lines.push(`        dealConsent (what they do with a deal the player pitches now): ${e.dealConsent}`);
           if (e.declaredStance) lines.push(`        declaredStance (what they tell the player about keeping them): ${e.declaredStance}`);
           // ORW-314: the reason this houseguest GAVE ALOUD for a public act on the board. Closed set; the kind and the subject only. Voice it; never add or swap another.
           for (const r of e.statedReasons ?? []) lines.push(`        said aloud (${STATED_ACT[r.decision] ?? "deciding on"} ${neutralizeForPrompt(r.about.name)}): the reason they give - ${STATED_REASON_GLOSS[r.kind] ?? "they call it purely strategic"}; voice THIS reason in their own words, never stock phrasing, and no other`);
@@ -1671,6 +1676,7 @@ export function renderGameContext(view: GameStateView): string {
     // The line carries the engine's own facts and its own `howToVoice` text.
     ...(view.openDealOffer ? [`- STANDING DEAL OFFER (engine truth; open until the player answers it or the week rolls over): ${neutralizeForPrompt(view.openDealOffer.from.name)} is offering the player a ${neutralizeForPrompt(view.openDealOffer.kind)} deal: ${neutralizeForPrompt(view.openDealOffer.terms)}.${view.openDealOffer.replacesDealId ? " It asks to swap a deal already standing." : ""}${view.openDealOffer.counter ? ` A counter is in play (round ${view.openDealOffer.counter.round}).` : ""} ${view.openDealOffer.howToVoice}`] : []),
     ...(view.openVotePitch ? [`- VOTE PITCH OPEN (engine truth; open until the player answers it or the week rolls over): ${neutralizeForPrompt(view.openVotePitch.from.name)} has floated a vote to the player: ${neutralizeForPrompt(view.openVotePitch.terms)}. Work it into a scene in that houseguest's own manner when it fits, and do not make the player's answer for them.`] : []),
+    ...(view.dealsClosed?.length ? [`- LAST WEEK'S DEALS ARE DONE (engine truth; the player's own deals whose week ran out): ${view.dealsClosed.map((d) => `${neutralizeForPrompt(d.with.name)} (${d.kind})`).join(", ")}. Nothing binds the two of them now unless they make a new one; if either renews it in words, record it with makeDeal to that houseguest.`] : []),
     ...(view.bedtimeHeld ? [`- BEDTIME NOT YET (engine truth): ${bedtimeHeldLine(view.bedtimeHeld.minutesUntil)}.`] : []),
     ...(view.houseMeetingRefused ? [`- HOUSE MEETING REFUSED (engine truth): ${houseMeetingRefusedLine(view.houseMeetingRefused)}.`] : []),
     ...(view.allianceNotFormed ? [`- ALLIANCE NOT FORMED (engine truth): the player proposed "${view.allianceNotFormed.name}" to ${view.allianceNotFormed.with.join(", ")} and it did NOT form: they are not close enough to the player yet. Nobody is sworn in and none of them is in an alliance with the player: do not narrate it as formed or as agreed, and take back any "I'm in" you already wrote by voicing them as warm toward the idea but holding back; it can only come once they have grown closer.`] : []),
@@ -2223,6 +2229,8 @@ export interface PremiereEntranceShape {
   playerToast?: "later" | "now" | "done";
   /** ORW-368: speakers still to be released after this batch (the engine's done list). */
   toastRemaining?: number;
+  /** ORW-997: the front end reports that an earlier reply already voiced what the game shows now (the latest arrival, or the toast batch): nothing new was committed this turn. */
+  voiced?: true;
 }
 
 function premiereEntranceOf(pr: unknown): PremiereEntranceShape | null {
@@ -2295,7 +2303,10 @@ function premiereEntranceLines(
         `Nobody else has arrived \u2014 never place anyone else in the room, and never introduce a new arrival yourself (the game does, via advanceGame). ` +
         (unarrived > 0 ? `RECAP RULE: ${unarrived} houseguest${unarrived === 1 ? " has" : "s have"} not walked in. A beat that must refer to one of them may call them only a not-yet-introduced arrival, never by name, until their own entrance; a recap beat may name only houseguests the player has met. ` : "") +
         ` If the arrival shown below is someone you already voiced, do NOT voice them again as new: play the scene with those inside, and call advanceGame when the player lulls or asks for the next.`,
-      ...(ent.playerEntrance
+      ...(ent.voiced && (ja || ent.playerEntrance)
+        ? [`- PREMIERE \u2014 THE LATEST ARRIVAL, ${ent.playerEntrance || !ja ? "the player" : ja.name}, HAS ALREADY BEEN VOICED on an earlier turn (engine truth): nothing new was committed this turn. Do not voice that arrival again, do not introduce them again and do not bring in anyone else; play only what the player says or does now, with those already inside.`]
+        : []),
+      ...(ent.voiced && (ja || ent.playerEntrance) ? [] : ent.playerEntrance
         ? [`- PREMIERE \u2014 THIS ARRIVAL IS THE PLAYER: narrate their own entrance from THEIR point of view \u2014 the room turns, the houseguests inside see them for the first time.`]
         : ja
           ? [
@@ -2305,6 +2316,16 @@ function premiereEntranceLines(
     ];
   }
   if (ent.stage === "toast") {
+    if (ent.voiced && (ent.speakers ?? []).length > 0) {
+      // ORW-997: nothing new was committed this turn. The batch the game shows was voiced by an earlier reply, so it is not listed as speakers, carries no facts to voice, and no later speaker is named.
+      return [
+        `- PREMIERE \u2014 THE TOAST (engine truth): the house is gathered with the player in the living room. ` +
+          (ent.headcount ? `HEADCOUNT (engine truth): ${ent.headcount}. Never count the room yourself. ` : "") +
+          `THE LATEST TOAST BATCH HAS ALREADY BEEN VOICED on an earlier turn: those speakers have given their toasts and introduced themselves. Do not voice, repeat or recap any toast or introduction, and do not call advanceGame. ` +
+          `The next batch has NOT been committed: never voice, name, hint at or set up any further speaker, and never wrap the circle up or move the evening on; the game releases the next batch itself. ` +
+          `Play only what the player says or does now, with the circle as part of the room.`,
+      ];
+    }
     const sp = (ent.speakers ?? []).map((x) => (x as { isPlayer?: boolean }).isPlayer ? `${x.name} (the PLAYER'S slot: invite it, never voice it)` : x.name).join(", ");
     return [
       `- PREMIERE \u2014 THE TOAST (engine truth): everyone has arrived and the house is gathered with the player in the living room. ` +

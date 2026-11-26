@@ -51,7 +51,7 @@ function parked(seed: number, user: string) {
 afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(false));
 
 describe("hangOut on a live session", () => {
-  it("every stop returns a stopLine; approach/pulled/bedtime each add exactly one public, player-witnessed event equal to it", () => {
+  it("every stop returns a stopLine; approach/pulled/bedtime each add exactly one public, player-witnessed event equal to it", { timeout: 120_000 }, () => { // ORW-985: a search over up to 120 played games: an explicit budget, not the 30 s default
     const recorded = new Set<string>();
     const lined = new Set<string>();
     for (let seed = 1; seed <= 120 && recorded.size < 3; seed++) {

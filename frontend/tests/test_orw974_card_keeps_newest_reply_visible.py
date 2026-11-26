@@ -31,13 +31,16 @@ _MOUNT_CARD = """([id, h]) => {
 }"""
 
 
-def _settle(page):
-    """Wait until the chat's scroll position stops moving (the kit's rise+fade and the chat's own catch-up frames), up to 15 s."""
+def _settle(page, follow=True):
+    """Wait for the chat to come to rest (up to 20 s). With `follow` (the player is following) it rests only once the newest reply is fully in view: a position that merely paused for one poll mid-catch-up on a slow page is
+    not rest (ORW-996: the old rule "two equal polls" returned mid-way on CI's slow frames). A player who scrolled up (`follow=False`) rests when the position stops moving."""
     last = None
-    for _ in range(50):
+    for _ in range(67):
         page.wait_for_timeout(300)
         now = page.evaluate("() => { const b = document.getElementById('chat-history'); return [Math.round(b.scrollTop), Math.round(b.scrollHeight), Math.round(b.clientHeight)]; }")
-        if now == last:
+        if follow and now[1] - now[2] - now[0] <= 3:
+            return
+        if not follow and now == last:
             return
         last = now
 
@@ -86,7 +89,7 @@ def test_a_player_who_scrolled_up_to_read_is_never_pulled_down_by_a_card(_stack)
         page.evaluate("() => { const b = document.getElementById('chat-history'); b.scrollTop = 0; b.dispatchEvent(new Event('scroll')); }")
         page.wait_for_timeout(200)
         assert page.evaluate(_MOUNT_CARD, ["t974-b", 260])
-        _settle(page)
+        _settle(page, follow=False)
         top = page.evaluate("() => document.getElementById('chat-history').scrollTop")
         assert top < 40, f"a card pulled a reading player down the transcript (scrollTop {top})"
         browser.close()
