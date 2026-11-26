@@ -5,7 +5,7 @@ import { GameSessionRegistry } from "../../src/composition/registry";
 import { PLAYER } from "../../src/domain/ids";
 import type { BeliefClaim } from "../../src/engine/beliefStore";
 
-/** ORW-594 (Fable T2-13) + ORW-613: vote talk steers, vote lies can be caught by counting, and the player hears how people voted. UNIT checks (ORW-810: the played-season checks are in tests/realpath/voteTalkSteers.test.ts). Roles only: voters (v1..v5), the evictee (e), the survivor (s), a listener (h). */
+/** ORW-594 (Fable T2-13) + ORW-613: vote talk steers, vote lies can be caught by counting, and the player hears how people voted. UNIT checks (ORW-810: the played-season checks are in tests/uat/realPathVoteTalkSteers.test.ts). Roles only: voters (v1..v5), the evictee (e), the survivor (s), a listener (h). */
 const keepClaim = (speaker: string, listener = "h") => ({ id: `c-${speaker}`, speaker, listener, kind: "voted-to-keep", subject: speaker, object: "e" });
 
 describe("catch by counting (caughtLies.ts)", () => {
@@ -37,7 +37,7 @@ describe("vote talk reaches the player and earns credit (voteTalk.ts)", () => {
 });
 
 describe("in the live adapter (unit: the vote record, bonds and tellings are set by hand)", () => {
-  // ORW-810: the player being told, the keep credit and a unanimous count catching a credited keep are proven in a played season (tests/realpath/voteTalkSteers.test.ts). These two catches
+  // ORW-810: the player being told, the keep credit and a unanimous count catching a credited keep are proven in a played season (tests/uat/realPathVoteTalkSteers.test.ts). These two catches
   // were not reached in forty seasons played to the crown (seeds 1-40, sandboxes wf-<seed>, the scripted talking player; ORW-829, 2026-11-24), so they stay hand-set here.
   it.todo("real path: a listener told by more believed voters that they kept the evictee than the count has keep votes catches the excess (counting) - blocked: not reached in forty played seasons, seeds 1-40 (ORW-829)");
   it.todo("real path: a keep claim told after the count is public, and ruled out by it, is caught at once - blocked: not reached in forty played seasons, seeds 1-40 (ORW-829, 0154)");
