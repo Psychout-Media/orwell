@@ -140,7 +140,7 @@ markdown==3.10.2
     # via -r requirements.txt
 markdown-it-py==4.2.0
     # via rich
-mcp==1.30.0
+mcp==2.3.0
     # via -r requirements.txt
 mdurl==0.1.2
     # via markdown-it-py
