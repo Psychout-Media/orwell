@@ -106,11 +106,12 @@ def _publish(run: _Run, ev: str) -> None:
             pass
 
 
-def _schedule_evict(session_id: str) -> None:
+def _schedule_evict(session_id: str, run: Optional["_Run"] = None) -> None:
     """(Re)arm a grace-period eviction for a terminal run with no subscribers.
     Identity-checked so a run that gets replaced/reused is never evicted by a
     stale timer."""
-    run = _RUNS.get(session_id)
+    if run is None:
+        run = _RUNS.get(session_id)
     if run is None:
         return
     _safe_cancel(run.evict_task)
@@ -171,23 +172,31 @@ def get_status(session_id: str) -> Optional[str]:
 
 
 async def _drain(session_id: str, agen: AsyncGenerator[str, None],
-                 prev_task: Optional[asyncio.Task] = None) -> None:
+                 prev_task: Optional[asyncio.Task] = None, run: Optional["_Run"] = None) -> None:
     """Pull every event from the wrapped generator into the run buffer, fanning
     each out to live subscribers. Runs to completion regardless of subscribers."""
-    run = _RUNS.get(session_id)
+    # ORW-814: the run is BOUND by start(), never looked up here. This coroutine first executes on a later loop tick; if a second turn start()ed in between (rapid sends, three
+    # unanswered then a fourth), `_RUNS.get(session_id)` returned the NEWEST run, so this older run's reply was published into the newer run's buffer (the reply landed under the wrong
+    # turn) and its status/sentinel were applied to the wrong run. `run` is None only for a legacy direct caller.
+    if run is None:
+        run = _RUNS.get(session_id)
     if run is None:
         return
+    if _RUNS.get(session_id) is not run:
+        logger.info("[agent-run] run %s on %s was superseded before it first ran (queued behind another turn)", run.run_id, session_id)
     # If this run replaced an in-flight one (rapid double-send), wait for that
     # one to fully finish first. Its CancelledError handler calls aclose(), which
     # persists its partial response — letting it complete before we start writing
     # keeps the two runs' session saves sequential instead of interleaved.
     if prev_task is not None and not prev_task.done():
+        _t0 = time.monotonic()
         try:
             await asyncio.wait({prev_task})
         except asyncio.CancelledError:
             raise            # our own cancellation — propagate
         except Exception:
             pass
+        logger.info("[agent-run] run %s on %s started after waiting %.0f ms behind the previous turn", run.run_id, session_id, (time.monotonic() - _t0) * 1000)
     try:
         async for ev in agen:
             _publish(run, ev)
@@ -220,7 +229,7 @@ async def _drain(session_id: str, agen: AsyncGenerator[str, None],
         # Run is terminal — arm the grace timer so it (and its buffer) is
         # eventually freed even if nobody ever reconnects. subscribe() cancels
         # this on connect and re-arms on disconnect.
-        _schedule_evict(session_id)
+        _schedule_evict(session_id, run)
 
 
 def start(session_id: str, agen: AsyncGenerator[str, None], *, queue: bool = False,
@@ -260,7 +269,7 @@ def start(session_id: str, agen: AsyncGenerator[str, None], *, queue: bool = Fal
     # task exists, so no assistant delta can ever precede it in the replay buffer.
     if lead_event:
         _publish(run, lead_event)
-    run.task = asyncio.create_task(_drain(session_id, agen, prev_task))
+    run.task = asyncio.create_task(_drain(session_id, agen, prev_task, run))
     if on_finish is not None:
         # ORW-491 admission hand-off hook: fires on EVERY end of this run's task (done, error, cancelled while queued or running, cancelled before its first step), exactly once.
         def _fin(_t: "asyncio.Task") -> None:
@@ -316,7 +325,7 @@ async def subscribe(session_id: str, from_seq: int = 0) -> AsyncGenerator[str, N
         # Last subscriber gone on a finished run — (re)arm eviction so the
         # buffer doesn't linger indefinitely.
         if not run.subscribers and run.status != "running":
-            _schedule_evict(session_id)
+            _schedule_evict(session_id, run)
 
 
 def stop(session_id: str) -> bool:
