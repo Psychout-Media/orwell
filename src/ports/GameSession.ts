@@ -2236,7 +2236,7 @@ export type PlayerMoveView =
   | { refused: true; reason: string; from?: string; to?: string; msg?: string };
 
 /** ORW-419 - `resolvePlayerMove` request: the player's own message text (never the narration). */
-export interface ResolvePlayerMoveReq { text: string; expectedBeatSeq?: number; idempotencyKey?: string }
+export interface ResolvePlayerMoveReq { /** ORW-1003: the previous narrator reply (player-visible text), for "head over there" / "I follow her". */ previousReply?: string; text: string; expectedBeatSeq?: number; idempotencyKey?: string }
 /** ORW-419 - the result: the recorded `playerMove` (null when the words held no clear move) + the resulting whereabouts. */
 export interface ResolvePlayerMoveResult { playerMove: PlayerMoveView | null; whereabouts: WhereaboutsView | null; beatSeq?: number }
 
