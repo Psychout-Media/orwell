@@ -1393,6 +1393,7 @@ export class GameSessionAdapter implements GameSession {
     if (this.live) { if (this.live.pending && milestoneDueOf(this.live)) this.live.dueHeldMessages = (this.live.dueHeldMessages ?? 0) + 1; else delete this.live.dueHeldMessages; }
     // ORW-928: after the engine committed the eviction result (the evictee is named) the reveal and the evictee's exit were voiced on the turn that committed it. Count each later player message, counted BEFORE its own step, so the committing turn reads 0 and voices the night once.
     this.evictionVoicedMsgs = this.live && this.live.playedGame === true && this.live.eviction?.evictee ? this.evictionVoicedMsgs + 1 : 0; // memory-only (like the ceremony beat): a restart mid-night forgets it, never a persisted live field
+    { const out = this.live?.competition?.eliminated ?? []; this.compToldOut = this.compOutPrev.filter((id) => out.includes(id)); this.compOutPrev = [...out]; } // ORW-937: counted BEFORE this message's own framing: an exit that was already in the last message's view was voiced in that reply
     this.advanceClockPerConversation();
     this.persist(); // the clock moved: one persisted commit (integrity checkpoint + beatSeq), survives a reload
     return { accepted: true, beatSeq: this.beatSeq }; // post-commit token: the FE refreshes its last-seen beatSeq from it (no self-inflicted stale-beat 409)
@@ -6721,11 +6722,12 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** ORW-715: the staged competition's floor - who is still in and who has already gone out (the drops the game has announced). Undefined unless a staged competition is live. */
-  private competitionFieldFact(): { stillIn: Array<{ id: EntityId; name: string }>; out: Array<{ id: EntityId; name: string }>; justOut?: Array<{ id: EntityId; name: string }> } | undefined {
+  private competitionFieldFact(): { stillIn: Array<{ id: EntityId; name: string }>; out: Array<{ id: EntityId; name: string }>; justOut?: Array<{ id: EntityId; name: string }>; told?: Array<{ id: EntityId; name: string }> } | undefined {
     const c = this.live?.competition;
     if (!this.ceremonyFactsEnabled || !c || !this.playedGameNow() || !c.eliminated?.length) return undefined;
     const silent = (this.live?.compSilentOut ?? []).filter((id) => c.eliminated.includes(id));
-    return { stillIn: c.stillIn.map((id) => ({ id, name: this.nameOf(id) })), out: c.eliminated.map((id) => ({ id, name: this.nameOf(id) })), ...(silent.length ? { justOut: silent.map((id) => ({ id, name: this.nameOf(id) })) } : {}) };
+    const told = this.compToldOut.filter((id) => c.eliminated.includes(id) && !silent.includes(id));
+    return { stillIn: c.stillIn.map((id) => ({ id, name: this.nameOf(id) })), out: c.eliminated.map((id) => ({ id, name: this.nameOf(id) })), ...(silent.length ? { justOut: silent.map((id) => ({ id, name: this.nameOf(id) })) } : {}), ...(told.length ? { told: told.map((id) => ({ id, name: this.nameOf(id) })) } : {}) };
   }
 
   private card(id?: EntityId): { id: EntityId; name: string } | null {
@@ -9188,6 +9190,9 @@ export class GameSessionAdapter implements GameSession {
    */
   /** ORW-928: player messages since the engine committed the eviction result (memory-only). */
   private evictionVoicedMsgs = 0;
+  /** ORW-937 (memory-only, like the ceremony beat: a restart forgets it and the narrator is simply not told): who was out of the staged competition when the previous player message was framed (`compOutPrev`), and who of them an earlier reply has therefore voiced (`compToldOut`). */
+  private compOutPrev: EntityId[] = [];
+  private compToldOut: EntityId[] = [];
   private ceremonyBeat: "nominations" | "veto-draw" | "veto-ceremony" | "eviction" | null = null; // memory-only
   private ceremonyHeld: string | null = null;
   /** ORW-281: the narrator is on the veto DRAW (its own moment) from the schedule's draw stage until the player speaks after the draw was voiced; the competition's moment takes over afterwards. */
