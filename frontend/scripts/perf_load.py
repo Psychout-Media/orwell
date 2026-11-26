@@ -56,7 +56,7 @@ CEILINGS = {
     "warm_load_event_ms": 10000,
     "warm_tti_ms": 25000,
     "worst_interaction_ms": 8000,
-    "warm_network_requests": 200,
+    "warm_network_requests": 100,
 }
 
 INIT_JS = r"""
