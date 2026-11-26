@@ -2074,7 +2074,8 @@
    "name": "BIO_CLOSERS",
    "max": 1,
    "owner": "ORW-508",
-   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "parts of a composed backstory: the biography is root x drive x closer (about 20,000 combinations; 2774 distinct over 3000 dealt cards, measured in src/domain/poolRecurrence.json); the cast writer authors the biography per person live and this is the offline floor"
   },
   {
    "path": "src/engine/deepProfile.ts",
@@ -2082,7 +2083,8 @@
    "name": "BIO_DRIVES",
    "max": 1,
    "owner": "ORW-508",
-   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "parts of a composed backstory: the biography is root x drive x closer (about 20,000 combinations; 2774 distinct over 3000 dealt cards, measured in src/domain/poolRecurrence.json); the cast writer authors the biography per person live and this is the offline floor"
   },
   {
    "path": "src/engine/deepProfile.ts",
@@ -2090,7 +2092,8 @@
    "name": "BIO_ROOTS",
    "max": 1,
    "owner": "ORW-508",
-   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring"
+   "reason": "cast and character pool (ORW-508 audit); moves to world tables / per-person authoring",
+   "decision": "parts of a composed backstory: the biography is root x drive x closer (about 20,000 combinations; 2774 distinct over 3000 dealt cards, measured in src/domain/poolRecurrence.json); the cast writer authors the biography per person live and this is the offline floor"
   },
   {
    "path": "src/engine/deepProfile.ts",
