@@ -71,11 +71,16 @@ function moveHead(s: string): string {
   return s.split(/\s+(?:and|then|so|but)\s+|,\s*/)[0] ?? s;
 }
 
+// Live (Ryne: "I don't want to talk about going somewhere 3 messages in a row"): a clear wish to go now is a move. A leading future or lead-in form of a go-verb is read as the present ("I'm going to head to...",
+// "I'll leave", "I get up and go...", "let me go...", "time to go..."). Only go/leave verbs: "I will take her to..." stays a plan, and a later-time word ("later", "tomorrow", "when...") still blocks below.
+const NOW_FORMS = /^(?:(?:i(?:'m| am)?\s+)?(?:gonna|going to)|i'?ll|i will|(?:i\s+)?(?:get up|stand up|excuse myself) and|let me|(?:it'?s\s+)?time to)\s+(?=(?:just\s+|now\s+)?(?:go|head|walk|leave|move|step|wander|find|follow|make my way)\b)/;
+const asNow = (s: string): string => s.replace(NOW_FORMS, "i ");
+
 function clean(clause: string): string {
   let s = clause.replace(/[\u2018\u2019\u02BC]/g, "'").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[*_`~]+/g, " ").replace(/[^a-z0-9' -]+/g, " ").replace(/\s+/g, " ").trim();
   s = s.replace(/\b(?:i'?d|i would) like to\b/g, "i want to").replace(/\bwould like to\b/g, "want to");
   s = s.replace(LEAD_IN, "").trim();
-  return s;
+  return asNow(s);
 }
 
 /** A destination phrase -> a canonical room, or null when unsure/ambiguous. Strict about loose matches. */
@@ -204,7 +209,7 @@ function personFromClause(raw: string, current: Room | null, themed?: Themed): s
     const g = GO_VERB.exec(s);
     if (g) {
       const after = s.slice(g[0].length);
-      rest = after.replace(/^(?:(?:back|right|straight|over|down|up)\s+)*(?:(?:in\s*to|into|to|toward|towards)\b\s*)?(?:(?:over)\s+)?(?:(?:to|and find|and look for|and see)\s+)?/, "");
+      rest = after.replace(/^(?:(?:back|right|straight|over|down|up|off)\s+)*(?:(?:in\s*to|into|to|toward|towards)\b\s*)?(?:(?:over)\s+)?(?:(?:to|and find|and look for|and see)\s+)?/, "");
     }
   }
   if (rest === null) return null;
