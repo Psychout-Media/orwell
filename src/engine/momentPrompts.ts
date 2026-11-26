@@ -1331,6 +1331,8 @@ export function renderGameContext(view: GameStateView): string {
   // once something has been set (premiere/pre-ceremony has none), so the model never invents these.
   const vetoPlayers = cer.veto.players ?? [];
   const vetoPlayerNames = new Set(vetoPlayers.map((p) => p.id));
+  const evictionDay = view.phase === "eviction" || view.daySchedule?.todaysEvent === "eviction";
+  const playerNominated = cer.nominees.some((n) => n.id === view.player?.id);
   const watchingVeto = view.house.filter((h) => !vetoPlayerNames.has(h.id)).map((h) => h.name);
   const hasCeremony = !!(cer.hoh || cer.nominees.length || cer.veto.holder || vetoPlayers.length);
   const ceremonyLines = !hasCeremony ? [] : [
@@ -1346,6 +1348,9 @@ export function renderGameContext(view: GameStateView): string {
     ...(vetoPlayers.length && watchingVeto.length ? [`    Watching the veto, not playing (they cannot fall, drop or go out in it): ${watchingVeto.join(", ")}`] : []),
     `    Veto: ${cer.veto.holder ? `held by ${cer.veto.holder.name}${cer.veto.used ? " (already used)" : ""}` : "not yet played"}`,
     ...vetoDecisionLines(cer),
+    // ORW-945 (Fable week 2): on the day of the eviction a nominee told the player "I'm voting to keep you" (a nominee does not vote) and another said "I told you I'd keep you" to a player who was never on the block. The facts the narrator
+    // already has (who is on the block) are not enough: say who votes, and what that means for the player.
+    ...(evictionDay && cer.nominees.length ? [`    Eviction vote tonight: the HOH and the nominees (${cer.nominees.map((n) => n.name).join(" and ")}) do not vote; everyone else does. ${playerNominated ? "The player IS on the block: only a houseguest who actually told them they would keep them may be said to have promised it." : "The player is NOT on the block, so nobody is deciding the player's fate tonight: no one promises or announces a vote to keep or to evict the player."}`] : []),
   ];
   const ceremonyAndFloorLines = [...ceremonyLines, ...competitionFloorLines(cer)];
   // E58: the in-game day index, derived from the ceremony cadence (Day 1 HOH → Day 5 eviction),
@@ -2340,6 +2345,12 @@ const UNCOMMITTED_CEREMONY_FRAGMENT =
   "MOMENT — The house is social. Play the player's conversations, the scheming and the lingering as ordinary play; the game's closed-set events (nominees, the veto, a vote, a result) exist only once the game has run them.";
 
 function uncommittedCeremonyGate(moment: string, view: GameStateView): { replace: boolean; note: string } | null {
+  // ORW-925 (Fable week 1, turn 142): the veto draw's first step is a WATCH step ("the chips are being drawn"), not a decision. A typed message at that step ("I walk down for the draw") reached the narrator with the full draw script
+  // and it read every chip aloud before the engine drew, naming a field the game did not have. Until the draw has run, a watch step of the draw keeps the narrator social and says the chips wait for the player's Continue.
+  const wp = view.pending;
+  if (wp && wp.kind === "ceremony-step" && wp.ceremony?.kind === "veto-draw" && wp.ceremony.stepId === "chips" && (view.ceremony?.veto?.players?.length ?? 0) === 0 && (moment === "veto-draw" || moment === "veto-competition")) {
+    return { replace: true, note: "MOMENT NOTE - the veto draw has NOT happened yet: the game has not drawn the six players, so none exist, and the chips are drawn when the player presses Continue (or says plainly to go on). Do not narrate the chip draw, any chip, the field or the competition, and do not name who is in or out. Play the walk down, the room and the talk as ordinary scene and stop before anyone reaches for the bag." };
+  }
   if (view.pending) return null; // the engine is asking for the player's own decision: that card keeps its script
   const c = view.ceremony;
   switch (moment) {
