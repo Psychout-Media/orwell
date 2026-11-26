@@ -1,4 +1,4 @@
-# Spec-only until slice 1 wires it (docs/features/0212-bloc-vote-pact.md). Roles only, never names.
+# spec-only: design contract for ORW-972, NOT wired into the BDD gate (no step definitions yet); slice 1 of docs/features/0212-bloc-vote-pact.md wires it. Roles only, never names.
 Feature: The bloc vote pact
   Allies agree a vote target in a scene and vote it together, bound by personality and stakes.
 
