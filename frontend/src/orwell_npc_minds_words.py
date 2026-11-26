@@ -263,7 +263,8 @@ def kickoff_npc_minds_words(owner: Optional[str]) -> None:
 
     async def _runner():
         try:
-            await run_words(owner)
+            from src.orwell_season_checklist import tracked, HABITS_CULTURE  # ORW-970: records owed/running/done/failed
+            await tracked(owner, HABITS_CULTURE, run_words, owner)
         except Exception as e:  # pragma: no cover - failsoft-ok: handled-by-terminal (_alert -> log_rings.record_soft_failure, RED)
             _alert(owner, "npc-minds:background-run-failed", e)
         finally:

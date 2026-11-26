@@ -237,6 +237,8 @@ export interface PortraitPromptEntry {
   houseguestId: string;
   name: string;
   prompt: string;
+  /** ORW-953: the canonical text of the inputs that change how this person looks; the face's staleness fingerprint is hashed from it. */
+  lookKey?: string;
 }
 
 /** The shared, frozen real-world slices the cast moved in with (0062) — public flavor only. */
@@ -3765,7 +3767,7 @@ export interface GameSession {
    * cast (0065/ADR 0013 — the per-NPC authored shoot fetches the store as it stands at shoot time).
    * Null when neither holds the id.
    */
-  getPortraitPrompt(id: EntityId): { houseguestId: string; name: string; prompt: string } | null;
+  getPortraitPrompt(id: EntityId): { houseguestId: string; name: string; prompt: string; lookKey?: string } | null;
 
   /**
    * The Vault-free projection of the move-in zeitgeist snapshot (feature 0062) — the FROZEN, shared

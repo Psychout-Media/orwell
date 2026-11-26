@@ -8849,6 +8849,87 @@ async def _walk_eviction_ballots(user, pending) -> int:
     return n
 
 
+def _premiere_arrival_due(user, game_state, player_msg) -> bool:
+    """ORW-954: True when the premiere's staged-entrance cadence says the NEXT arrival is due on THIS player turn. Pure read of the stashes; mirrors the end-of-turn ladder
+    (`agent_loop._entrance_pacing`, evaluated there AFTER this turn is counted, so the staleness clock reads one higher here). Only the `entrances` stage releases on cadence (not the
+    toast, not the tour). A production cue, a beat cue, an open pending, a paused event or an arrival the narrator still owes the player never release."""
+    try:
+        if not isinstance(game_state, dict) or str(game_state.get("phase") or "").lower() != "premiere":
+            return False
+        if _entrance_stage_of(game_state) != "entrances" or _PREMIERE_ENTRANCE_STAGE.get(_runway_key(user)) != "entrances":
+            return False
+        if game_state.get("pending") is not None or event_pause_holds(user) or is_beat_cue_message(player_msg):
+            return False
+        from src import agent_loop as _al
+        if _al._is_production_cue(player_msg or ""):
+            return False
+        ent = ((game_state.get("premiere") or {}).get("entrance")) or {}
+        if ent.get("playerEntrance") or not ent.get("total") or int(ent.get("index") or 0) >= int(ent.get("total") or 0):
+            return False  # the player's own entrance is the narrator's to voice; nobody left to release
+        turns = _al._TURNS_SINCE_PROGRESS.get(_al._belt_key(user), 0) + 1
+        due, _ = _al._entrance_pacing(turns, player_msg or "", False, False, stage="entrances")
+        return bool(due)
+    except Exception:
+        return False
+
+
+async def maybe_release_premiere_arrival(user, game_state, *, retry: bool, player_msg=None):
+    """ORW-954 (PT-2, "four of fifteen arrivals never seen"): release the due staged-entrance arrival BEFORE the narrator writes, so the arrival is in the moment prompt the reply is
+    written from. The web tier used to commit it silently AFTER the reply (`_commit_advance_silently`, stall L0), so it was never in that reply and the next turn re-grounded it
+    (`ceremony-unvoiced-reground`). Same one-advance-per-turn shape as `_pre_resolve_npc_ceremony`: marks the turn pre-resolved (the end-of-turn backstop and the staleness clock stand
+    down) and marks this turn's one release spent (the narrator's own advanceGame is answered `held`). Returns the (possibly re-fetched) state; never raises, never blocks a turn."""
+    try:
+        if not _premiere_arrival_due(user, game_state, player_msg):
+            return game_state
+        if _PRE_RESOLVED_ADVANCE.get(user) or _PRE_RESOLVED_ADVANCE.get(user if user is not None else ""):
+            return game_state  # #670 twin: the pre-resolve already walked a beat this turn - one engine advance per turn
+        key = _runway_key(user)
+        # ORW-704 twin: the previous arrival is still unnamed in any reply -> hold this release (bounded), the narrator owes it first.
+        ent = ((game_state.get("premiere") or {}).get("entrance")) or {}
+        owed_last = [n for n in _post_player_arrivals(ent)[-1:] if n not in _ARRIVALS_NAMED.get(key, set())]
+        if owed_last and _ARRIVAL_VOICE_HOLDS.get(key, 0) < _ARRIVAL_VOICE_HOLD_CAP:
+            _ARRIVAL_VOICE_HOLDS[key] = _ARRIVAL_VOICE_HOLDS.get(key, 0) + 1
+            logger.info("[orwell] premiere arrival release held for user=%s: the last arrival is not yet voiced (hold %d/%d)", user, _ARRIVAL_VOICE_HOLDS[key], _ARRIVAL_VOICE_HOLD_CAP)
+            return game_state
+        _ARRIVAL_VOICE_HOLDS.pop(key, None)
+        from src import orwell_engine
+        idem = _mint_idempotency_key()
+        try:
+            adv = await orwell_engine.advance_game(expected_beat_seq=last_beat_seq(user), idempotency_key=idem, user=user)
+        except Exception as _e:
+            if not _is_stale_beat_error(_e):
+                raise
+            await _handle_stale_beat(user, _e)
+            adv = await orwell_engine.advance_game(expected_beat_seq=last_beat_seq(user), idempotency_key=idem, user=user)  # SAME key: the engine dedupes
+        if not isinstance(adv, dict) or (adv.get("held") and not adv.get("event")):
+            return game_state  # nothing committed: the end-of-turn belt remains the net
+        _refresh_beat_seq(user, adv)
+        clear_engine_held(user)
+        mark_pre_resolved_advance(user if user is not None else "")  # consumed as `owner or ""`: the auth-off owner must key the same way
+        from src import agent_loop as _al
+        _al._TURNS_SINCE_PROGRESS[_al._belt_key(user)] = 0
+        _al._ADVANCE_STALL_LEVEL.pop(_al._belt_key(user), None)
+        stash_preresolved_announcements(user, adv)
+        _note_belt(user, "premiere-arrival-pre-release")
+        logger.info("[orwell] premiere arrival released before the reply for user=%s (entrance stage)", user)
+        fresh = await _fetch_game_state(user, retry=retry)
+        if not isinstance(fresh, dict):
+            return game_state
+        _refresh_beat_seq(user, fresh)
+        _st = _SCHEDULE_STEER.get(key) or ""
+        _i = _st.find("ENTRANCES OWED (engine truth)")
+        if _i >= 0:  # the first framing call appended the owed-arrivals paragraph off the OLD board; the re-stamp below writes it again off the new one
+            _SCHEDULE_STEER[key] = _st[:_i].rstrip()
+            if not _SCHEDULE_STEER[key]:
+                _SCHEDULE_STEER.pop(key, None)
+        note_premiere_turn(user, fresh)  # re-stamp justArrived / owed arrivals / the voicing check on the board the narrator now sees (clears the release mark, so:)
+        mark_premiere_release(user)  # this turn's one release is spent: the narrator's own advanceGame is answered `held`
+        return fresh
+    except Exception as _e:  # failsoft-ok: the end-of-turn silent advance stays the net
+        logger.warning("[orwell] premiere arrival pre-release failed for user=%s: %s: %s", user, type(_e).__name__, _e)
+        return game_state
+
+
 async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, player_msg=None,
                                     _after_day_break: bool = False, _comp_hops: int = 0, _comp_log: Optional[list] = None) -> dict:
     """If the live game sits at an unresolved engine-driven beat with NO player decision pending,
@@ -9486,6 +9567,7 @@ async def apply_game_framing(
             _refresh_beat_seq(user, game_state)
         game_state = await _pre_resolve_npc_ceremony(
             user, game_state, retry=game_build, player_msg=player_msg)
+        game_state = await maybe_release_premiere_arrival(user, game_state, retry=game_build, player_msg=player_msg)  # ORW-954
         # P2: a session this process has never framed is a FRESH CONTEXT — request the
         # re-entry moment so the engine's prompt carries THE RECORD (ADR 0003 §6: long-term
         # memory is the store recalled, never the chat remembered). Subsequent turns in the
