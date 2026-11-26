@@ -234,7 +234,9 @@ def _chunks(text: str) -> list:
 
 
 _KEY_LIST_RULE = ("After the prose, add one line starting 'Key list:' with the open promises, nicknames and running "
-                  "jokes, each quoted as closely to the text as you can, separated by semicolons.")
+                  "jokes, each quoted as closely to the text as you can, separated by semicolons. "
+                  "A promise goes in the prose only with the promiser's own words in double quotes, copied from the text; "
+                  "never say anyone promised, swore or assured something the text does not show them saying.")  # ORW-918
 
 
 def _day_messages(day: int, text: str, words: int = DAY_WORDS) -> list:
@@ -278,6 +280,51 @@ def _clip_with_key_list(text: str, words: int) -> str:
     return f"{out} Key list: {keys}".strip() if keys else out
 
 
+# ORW-918: a sentence that has someone promise / swear / vow / assure / pledge / give their word.
+_PROMISE_RE = re.compile(r"\b(promis\w*|swor[en]|swear\w*|vow\w*|assur\w*|pledg\w*|guarantee\w*|gave (?:his|her|their|my|your) word|giving (?:his|her|their) word)\b", re.I)
+_QUOTE_RE = re.compile(r"[\"\u201c\u201d]([^\"\u201c\u201d]{6,})[\"\u201c\u201d]")
+_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|(?<=[.!?][\"\u201d])\s+|\s+(?=- )")
+
+
+def _fold_quote(t: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(t).replace("\u2019", "'").replace("'", "").lower()).strip()
+
+
+_STOP = frozenset("that this with what they them their there from have were will would your about into than then when which just also over very".split())
+
+
+def _stems(t: str) -> set:
+    """The content words of a sentence (4+ letters, not a stop word, the promise words themselves left out), cut to 5 letters so 'promised'/'promise' meet."""
+    return {w[:5] for w in _fold_quote(t).split() if len(w) >= 4 and w not in _STOP and not _PROMISE_RE.fullmatch(w)}
+
+
+def drop_unquoted_promises(summary: str, day_text: str) -> str:
+    """ORW-918: the PROSE of a day summary (before 'Key list:') loses every sentence that has someone promise something unless the day shows that promise: it quotes,
+    in double quotes, words that are in the day's own text, or a sentence of the day that reports a promise carries most of its content words. The closed day's rows are replaced by this summary in the narrator's prompt, so an invented promise would be cited as the player's
+    word. Deterministic; the Key list (already quotes by rule) is left as it is. Never raises: any problem returns the summary unchanged."""
+    try:
+        head, sep, keys = (summary or "").partition("Key list:")
+        src = _fold_quote(day_text)
+        # the day's own sentences that report a promise (a narrated "A promised B an alliance" is the day showing it, quoted or not)
+        told = [_stems(x) for x in re.split(r"(?<=[.!?])\s+|\n", day_text or "") if _PROMISE_RE.search(x)]
+        kept, dropped = [], 0
+        for sent in _SENTENCE_RE.split(head):
+            if _PROMISE_RE.search(sent):
+                quotes = [_fold_quote(q) for q in _QUOTE_RE.findall(sent)]
+                mine = _stems(sent)
+                shown = bool(mine) and any(len(mine & t) >= 0.6 * len(mine) for t in told)
+                if not shown and not any(q and q in src for q in quotes):
+                    dropped += 1
+                    continue
+            kept.append(sent)
+        if dropped:
+            logger.info("[day-condense] %s promise line(s) with no quote from the day's text dropped", dropped)
+        prose = " ".join(x.strip() for x in kept if x.strip())
+        return f"{prose} {sep}{keys}".strip() if sep else prose
+    except Exception:  # failsoft-ok: the summary as written stands
+        return summary
+
+
 async def _summarise_day(day: int, text: str, llm_fn) -> str:
     """ORW-402 layer 2: one call for a short day; otherwise summarise each chunk, then merge. Returns "" on an error-shaped
     reply (the caller records it)."""
@@ -316,6 +363,7 @@ async def _author_day(entry: dict, llm_fn, history: list, write_fn) -> dict:
         except Exception:  # failsoft-ok: recorder-self
             pass
         return {"accepted": False, "reason": "error-text"}
+    raw = drop_unquoted_promises(raw, text)  # ORW-918: a promise the day never shows is never handed to the narrator as fact
     out = _clip_with_key_list(raw, day_word_budget(len(text)))
     if not out:
         return {"accepted": False, "reason": "empty"}
