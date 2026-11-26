@@ -6074,7 +6074,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.presenceBase ? { presenceBase: Object.fromEntries(this.presenceBase) as Record<EntityId, Room> } : {}),
       ...(this.presenceTenure ? { presenceTenure: Object.fromEntries(this.presenceTenure) as Record<EntityId, number> } : {}),
       ...(this.walkIn ? { walkIn: { ...this.walkIn } } : {}), ...(this.walkInDone.length ? { walkInDone: [...this.walkInDone] } : {}), // ORW-473
-      ...(this.roomCardNow ? { roomCardNow: { ...this.roomCardNow } } : {}), ...(this.habitSightings.length ? { habitSightings: this.habitSightings.map((h) => ({ pair: [...h.pair] as [EntityId, EntityId], room: h.room, onlookers: [...h.onlookers] })) } : {}), // ORW-698 ...(this.diaryStaySightings.length ? { diaryStaySightings: this.diaryStaySightings.map((d) => ({ who: d.who, onlookers: [...d.onlookers], ...(d.key ? { key: d.key } : {}) })) } : {}), // ORW-694
+      ...(this.roomCardNow ? { roomCardNow: { ...this.roomCardNow } } : {}), ...(this.habitSightings.length ? { habitSightings: this.habitSightings.map((h) => ({ pair: [...h.pair] as [EntityId, EntityId], room: h.room, onlookers: [...h.onlookers] })) } : {}), // ORW-698 ...(this.diaryStaySightings.length ? { diaryStaySightings: this.diaryStaySightings.map((d) => ({ who: d.who, onlookers: [...d.onlookers] })) } : {}), // ORW-694
       ...(this.playerMove ? { playerMove: { ...this.playerMove } } : {}), // ORW-419
       // L21/L24: the dedicated movement stream's tick counter — persisted so the personality-weighted
       // movement trajectory stays reproducible across a restart (absent ⇒ 0).
@@ -6427,7 +6427,7 @@ export class GameSessionAdapter implements GameSession {
     this.walkInDone = core.walkInDone ? [...core.walkInDone] : [];
     this.roomCardNow = core.roomCardNow ? { ...core.roomCardNow } : null; // ORW-698
     this.habitSightings = core.habitSightings ? core.habitSightings.map((h) => ({ pair: [...h.pair] as [EntityId, EntityId], room: h.room, onlookers: [...h.onlookers] })) : []; // ORW-698
-    this.diaryStaySightings = core.diaryStaySightings ? core.diaryStaySightings.map((d) => ({ who: d.who, onlookers: [...d.onlookers], ...(d.key ? { key: d.key } : {}) })) : []; // ORW-694
+    this.diaryStaySightings = core.diaryStaySightings ? core.diaryStaySightings.map((d) => ({ who: d.who, onlookers: [...d.onlookers] })) : []; // ORW-694
     this.playerMove = core.playerMove ? ({ ...core.playerMove } as PlayerMoveView) : null; // ORW-419
     // L21/L24: restore the dedicated movement stream's tick counter (absent on older saves ⇒ 0).
     this.presenceTickCount = core.presenceTickCount ?? 0;
@@ -15790,7 +15790,7 @@ export class GameSessionAdapter implements GameSession {
       st.seen.push({ ...seen, at: abs });
       delete st.away;
       this.recordDiaryCallEvent(events, a.who, backEventText(this.nameOf(a.who), seen), `diary-call:back:${seed}:${a.since}:${a.who}`);
-      if (seen.long) this.diaryStaySightings.push({ who: a.who, onlookers: this.diaryWitnesses().filter((id) => id !== a.who && id !== PLAYER), key: `${a.who}:${a.since}` }); // ORW-694 / B1-11: the house saw a long stay
+      if (seen.long) this.diaryStaySightings.push({ who: a.who, onlookers: this.diaryWitnesses().filter((id) => id !== a.who && id !== PLAYER) }); // ORW-694 / B1-11: the house saw a long stay
     }
     if (st.away || this.diaryHouseBusy() || this.phase === "premiere") return;
     const day = s.dayNumber ?? s.week;
@@ -15809,7 +15809,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-694 / B1-11 ("both ways"): a stay that runs into a second in-game hour is a long one (an NPC's long call is 20+ minutes); the house sees it once per stay.
     if (st.playerLast === abs - 1) {
       if (st.playerStayFrom === undefined) st.playerStayFrom = abs - 1;
-      if (abs - st.playerStayFrom === 1) this.diaryStaySightings.push({ who: PLAYER, onlookers: this.diaryWitnesses().filter((id) => id !== PLAYER), key: `${PLAYER}:${st.playerStayFrom}` });
+      if (abs - st.playerStayFrom === 1) this.diaryStaySightings.push({ who: PLAYER, onlookers: this.diaryWitnesses().filter((id) => id !== PLAYER) });
     } else st.playerStayFrom = abs;
     st.playerLast = abs;
     st.seen.push({ who: PLAYER, day: s.dayNumber ?? s.week, long: false, comesBack: "same", at: abs }); // the engine never says how it left the player feeling

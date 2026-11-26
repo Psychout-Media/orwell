@@ -19,7 +19,6 @@ import type { KnowledgeService } from "../ports/KnowledgeService";
 import type { RandomnessSource } from "../ports/RandomnessSource";
 import { makeSocialGraph, diffuseGossip, GOSSIP } from "./gossip";
 import { PRIVACY } from "./presenceConstants";
-import { DIARY_STAY_FACT_PREFIX } from "./heldFacts";
 
 export interface HouseSuspicionDeps {
   /** The WEIGHTED, player-facing occupancy (what the house observably looks like) — never the base. */
@@ -101,7 +100,7 @@ export function whisperConspicuousPairings(deps: HouseSuspicionDeps): WhisperedP
  * Diffuse one Vault-free position fact NPC-to-NPC along the affinity graph from `origin` (no relationship fold: texture only, a dedicated rng).
  * False when no edge exists to carry it. Shared by the closed-door whisper above and the public-habit whisper below.
  */
-function spreadSuspicion(deps: HouseSuspicionDeps, origin: EntityId, content: string, factId?: string): boolean {
+function spreadSuspicion(deps: HouseSuspicionDeps, origin: EntityId, content: string): boolean {
   const { npcs, player, affinity, knowledge, rng } = deps;
   const everyone = deps.playerAsleep ? [...npcs] : [player, ...npcs];
   const edges: Array<readonly [EntityId, EntityId]> = [];
@@ -117,7 +116,6 @@ function spreadSuspicion(deps: HouseSuspicionDeps, origin: EntityId, content: st
     rng,
     origin,
     fact: { content },
-    ...(factId !== undefined ? { factId } : {}), // ORW-694: an explicit lineage (the Diary Room stay whisper's, held inert by heldCandidates); absent = minted as before
     rounds: GOSSIP.rounds,
     transmitProb: GOSSIP.transmitProb,
     decay: GOSSIP.decay,
@@ -147,7 +145,7 @@ export function whisperHabitSighting(deps: HouseSuspicionDeps, s: HabitSighting)
 }
 
 /** ORW-694 / B1-11 (spec 0210 C2, "both ways"): a LONG Diary Room stay the house saw - an NPC back after a long call, or the player's own stay into a second in-game hour. */
-export interface DiaryStaySighting { who: EntityId; onlookers: readonly EntityId[]; /** a stable key for the stay (who + the in-game hour), the whisper's lineage */ key?: string }
+export interface DiaryStaySighting { who: EntityId; onlookers: readonly EntityId[] }
 
 /**
  * A long Diary Room stay starts a whisper: the onlooker most drawn to the one who was in there tells the house they were in the Diary Room a long while - a POSITION fact, never what
@@ -161,7 +159,6 @@ export function whisperLongDiaryStay(deps: HouseSuspicionDeps, s: DiaryStaySight
   if (deps.rng.next() >= PRIVACY.whisperProb) return undefined;
   const origin = onlookers.reduce((best, id) => (deps.affinity(id, s.who) > deps.affinity(best, s.who) ? id : best));
   const own = s.who === deps.player;
-  const lineage = `${DIARY_STAY_FACT_PREFIX}${s.key ?? `${s.who}:${deps.rng.int(1_000_000)}`}`; // ORW-694 (c): held copies are inert (heldFacts.isInertWhisper)
-  if (!spreadSuspicion(own ? { ...deps, playerAsleep: true } : deps, origin, `word in the house: ${deps.nameOf(s.who)} was in the Diary Room a long while`, lineage)) return undefined;
+  if (!spreadSuspicion(own ? { ...deps, playerAsleep: true } : deps, origin, `word in the house: ${deps.nameOf(s.who)} was in the Diary Room a long while`)) return undefined;
   return { who: s.who, origin };
 }

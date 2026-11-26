@@ -24,16 +24,6 @@ export function isSealedAttribution(f: { pathway?: string; factId?: string }): b
   return (f.pathway ?? "").startsWith("jury-house:blame") || (f.factId ?? "").startsWith("traitors-fury:blame");
 }
 
-/**
- * ORW-694 / B1-11 option (c) (Coordinator ruling 2026-11-26): a long-Diary-Room-stay whisper ("X was in the Diary Room a long while", spec 0210 C2, both ways) spreads once, when the house
- * notices, and can reach the player; a houseguest's held copy is INERT - never one more fact to tell, never a reason to move toward an audience. Live, it re-entered the co-presence spread and
- * the 12-season whole-season mix moved late bonding by -3.0 (past the 2.0 line for a texture feature). The same for the player's stays and an NPC's (parity). Keyed by lineage, never by text.
- */
-export const DIARY_STAY_FACT_PREFIX = "diary-stay:";
-export function isInertWhisper(f: { factId?: string }): boolean {
-  return (f.factId ?? "").startsWith(DIARY_STAY_FACT_PREFIX);
-}
-
 /** The facts `holder` could tell `listener`: held by the holder, absent from the listener's knowledge (by lineage), most-recent-first-stable. Sealed ballot attributions are never candidates (see isSealedAttribution). */
 export function heldCandidates(holderFacts: readonly KnowledgeFact[], listenerFacts: readonly KnowledgeFact[]): HeldCandidate[] {
   const listenerHas = new Set(listenerFacts.map(lineageOf));
@@ -41,7 +31,6 @@ export function heldCandidates(holderFacts: readonly KnowledgeFact[], listenerFa
   const out: HeldCandidate[] = [];
   for (const f of holderFacts) {
     if (isSealedAttribution(f as { pathway?: string; factId?: string })) continue;
-    if (isInertWhisper(f as { factId?: string })) continue; // ORW-694: a Diary Room stay whisper is held, never re-told
     const id = lineageOf(f);
     if (listenerHas.has(id) || seen.has(id)) continue;
     seen.add(id);
