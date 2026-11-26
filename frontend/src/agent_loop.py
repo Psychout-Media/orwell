@@ -90,6 +90,15 @@ def _engine_result_for_transcript(tool_type: str, result: Any) -> Optional[str]:
     return raw
 
 
+def _admin_engine_result_entry(round_num: int, tool_type: str, result: Any, *, forced: bool = False) -> Optional[dict]:
+    """ORW-482 - an admin-only ledger entry for an engine call the FRONT END made itself (the forced casting finalize), which has no model tool event. Kept in the SEPARATE `admin_engine_results` metadata key, never in
+    `tool_events`: the belts, the sync ledger and the finalize detection read `tool_events` and must not see a call the model did not make. Same capped, Vault-free text as the ORW-187 ledger; None when there is nothing to keep."""
+    text = _engine_result_for_transcript(tool_type, result)
+    if text is None:
+        return None
+    return {"round": round_num, "tool": tool_type, "forced": bool(forced), "engine_result": text}
+
+
 def _classify_narrator_stream_error(err_msg: Any, data: Any = None) -> str:
     """Return the truthful narrator failure class for a mid-stream `data.error` frame. An explicit
     numeric HTTP status on the frame (or an HTTP status in the message) is `narrator-http`; a
@@ -9515,6 +9524,7 @@ async def _stream_agent_loop_impl(
     # the createCharacter finalize fallback (force), and the substance/finalize nudges.
     _turn_casting_record_belt = 0  # _auto_record_casting fired (back-filled updateCasting)
     _turn_casting_force = 0        # FORCED createCharacter (the finalize fallback)
+    _admin_engine_results: list = []  # ORW-482: engine calls the FE made itself (the forced finalize), admin-only ledger entries
     _turn_casting_nudge = 0        # casting finalize/substance nudge fired
     # #1312 (Vault Wall): on the finalize→premiere transition, purge the OOC casting interview from
     # the working context BEFORE the premiere continuation narrates the move-in. Set when
@@ -12473,6 +12483,9 @@ async def _stream_agent_loop_impl(
                                     _CASTING_STALL_LEVEL.pop(owner, None)
                                     _CASTING_SUBSTANCE_LEVEL.pop(owner, None)
                                     _turn_casting_force += 1  # FE forced the season start (finalize fallback)
+                                    _ae = _admin_engine_result_entry(round_num, "createCharacter", _cres, forced=True)  # ORW-482: the season start has an engine result in the admin transcript
+                                    if _ae is not None:
+                                        _admin_engine_results.append(_ae)
                                     _note_belt(owner, "casting-finalize-force")  # gap #3 telemetry
                                     logger.info(f"[orwell] FORCED createCharacter (casting stall "
                                                 f"L{_clv}) round {round_num} user={owner}")
@@ -13668,6 +13681,8 @@ async def _stream_agent_loop_impl(
         backend_prefill_tps=backend_prefill_tps,
     )
     metrics["requested_model"] = requested_model
+    if _admin_engine_results:
+        metrics["admin_engine_results"] = _admin_engine_results  # ORW-482: admin-only (stripped by public_metadata); the forced casting finalize's engine result
     if _casting_finalized_this_turn:
         metrics["casting_finalized"] = True  # ORW-481: this casting-stamped reply carries the premiere (the Show Brief may tail it)
     if _turn_owed_announcements:
