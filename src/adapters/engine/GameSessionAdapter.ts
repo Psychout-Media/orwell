@@ -9484,8 +9484,7 @@ export class GameSessionAdapter implements GameSession {
   /**
    * ORW-1090 (Ryne 2026-11-26: an empty half of a double is fair game; the sleeper may react when they wake, annoyed or fine by how they feel about the joiner; the same for houseguests joining a sleeping player or
    * houseguest). Once per join, on the first tick of a LATER day than the join: the earlier claimant of a double's two halves is the sleeper, the later one the joiner. The sleeper's own read of the joiner (their warmth
-   * toward them, the same bar a swap uses) is "annoyed" below `BED_RULES.swapAcceptAbove`, else "fine"; annoyed folds a tiny hidden slight on the sleeper->joiner edge (`BED_MOVES.slight`, seeded per pair and day), fine folds
-   * nothing. Never the player's own edge. When the player is the sleeper or the joiner the reaction is handed to the narrator for one turn (`bedWake`). Append-only record so a join reacts once.
+   * toward them, the same bar a swap uses) is "annoyed" below `BED_RULES.swapAcceptAbove`, else "fine". NARRATION ONLY: no relationship fold (a hidden slight moves every seeded trajectory and so every seed-pinned scan; folding it is a calibration change for the product owner, carded separately). When the player is the sleeper or the joiner the reaction is handed to the narrator for one turn (`bedWake`). Append-only record so a join reacts once.
    */
   private reactToHalfJoins(beds: BedsState, day: number, living: ReadonlySet<EntityId>): void {
     this.bedWakeNote = null;
@@ -9503,7 +9502,6 @@ export class GameSessionAdapter implements GameSession {
       if (beds.wokeBeside?.includes(key)) continue;
       (beds.wokeBeside ??= []).push(key);
       const mood = r.warmth(sleeper, joiner) < BED_RULES.swapAcceptAbove ? "annoyed" as const : "fine" as const;
-      if (mood === "annoyed" && sleeper !== PLAYER && joiner !== sleeper) this.rel.applyImpactDirected(sleeper, joiner, BED_MOVES.slight, new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:bed-wake:${sleeper}:${joiner}:${day}`)));
       if (sleeper === PLAYER || joiner === PLAYER) this.bedWakeNote = { sleeper: this.nameOf(sleeper), joiner: this.nameOf(joiner), mood };
     }
   }
