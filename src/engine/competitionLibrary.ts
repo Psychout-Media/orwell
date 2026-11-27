@@ -329,7 +329,14 @@ export const COMPETITION_LIBRARY_PLUS: CompetitionDef[] = [
       winReads: "proof of who really reads this house",
     },
   },
-  // --- ORW-530 (Ryne 2026-11-27: grow the authored pool from 30 to about 50): 10 HOH + 10 veto, per phase 3 physical, 5 mental, 2 social (the base mix: mental-dominant, physical second, social a minority) ---
+];
+
+/**
+ * ORW-530 (Ryne 2026-11-27: grow the authored pool from 30 to about 50): 10 HOH + 10 veto more mechanics, per phase 3 physical, 5 mental, 2 social (the base mix: mental-dominant, physical second, social a minority).
+ * Drawn only when `ORWELL_COMP_MECHANICS_MORE` is on (`SeasonCtx.moreComps`, together with the 0126 expanded pool): the flag is ON in the deploy defaults, so prod draws from all 50; the seeded TEST lanes pin it
+ * OFF (tests/support/premiereTestDefault.ts) until the follow-up card ORW-1104 re-hints the seed-pinned tests, because a larger pool moves which mechanic a fixed seed draws. Off => the 30 pool, byte-identical.
+ */
+export const COMPETITION_LIBRARY_MORE: CompetitionDef[] = [
   {
     id: "hoh-ladder", name: "The Greased Ladder", phase: "hoh", type: "physical", governing: "physical",
     format: "skill",
@@ -530,7 +537,7 @@ export const NO_REPEAT_WINDOW = 1;
 /** Library lookup by id (searches BOTH the base 12 and the 0126 expanded pool, so a deferred veto
  *  drawn from the expanded pool still resolves the comp it already drew). */
 export function competitionById(id: string): CompetitionDef | undefined {
-  return COMPETITION_LIBRARY.find((d) => d.id === id) ?? COMPETITION_LIBRARY_PLUS.find((d) => d.id === id);
+  return COMPETITION_LIBRARY.find((d) => d.id === id) ?? COMPETITION_LIBRARY_PLUS.find((d) => d.id === id) ?? COMPETITION_LIBRARY_MORE.find((d) => d.id === id);
 }
 
 /**
@@ -544,9 +551,9 @@ export function competitionById(id: string): CompetitionDef | undefined {
  */
 export function drawCompetition(
   phase: CompetitionPhase, week: number, rng: RandomnessSource, recent: readonly string[] = [],
-  expanded = false,
+  expanded = false, more = false,
 ): CompetitionDef {
-  const library = expanded ? [...COMPETITION_LIBRARY, ...COMPETITION_LIBRARY_PLUS] : COMPETITION_LIBRARY;
+  const library = expanded ? [...COMPETITION_LIBRARY, ...COMPETITION_LIBRARY_PLUS, ...(more ? COMPETITION_LIBRARY_MORE : [])] : COMPETITION_LIBRARY;
   const pool = library.filter((d) => d.phase === phase);
   // 0126: with the expanded pool the window widens to the whole pool minus one — a rolling shuffle, so no
   // mechanic repeats until every one has been used (a season of ~14 comps from 15 is repeat-free). The base

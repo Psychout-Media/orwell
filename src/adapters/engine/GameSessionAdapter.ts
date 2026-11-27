@@ -755,6 +755,8 @@ const COMP_THEMES_ENABLED_DEFAULT = process.env.ORWELL_COMP_THEMES !== "0";
  * deploy turns it on for real play; the new mechanics preserve the base stat mix so the band still holds.
  */
 const COMP_MECHANICS_PLUS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_MECHANICS_PLUS");
+/** ORW-530: the 20 more mechanics (30 => 50). ON as shipped (deploy defaults); the seeded test lanes pin it OFF until ORW-1104. */
+const COMP_MECHANICS_MORE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_MECHANICS_MORE");
 
 /**
  * 0127 — whether HYBRID competitions blend their SECONDARY aptitude into the outcome by DEFAULT (a
@@ -2940,6 +2942,7 @@ export class GameSessionAdapter implements GameSession {
   /** #1793 — the Player Dossier read (ORWELL_PLAYER_DOSSIER); per-instance so the prompt + tool follow it. */
   private playerDossierEnabled = PLAYER_DOSSIER_ENABLED_DEFAULT;
   private compMechanicsPlusEnabled = COMP_MECHANICS_PLUS_ENABLED_DEFAULT;
+  private compMechanicsMoreEnabled = COMP_MECHANICS_MORE_ENABLED_DEFAULT;
 
   private compMixedEnabled = COMP_MIXED_ENABLED_DEFAULT;
   /** C1 (#1788) — the Wipeout Reel presentation layer; off ⇒ `comp-elimination` content is untouched. */
@@ -13247,6 +13250,7 @@ export class GameSessionAdapter implements GameSession {
       // 0126: fold the expanded mechanic pool into the competition draw — present ONLY when enabled (off in
       // the calibration/golden harness ⇒ absent ⇒ the base 12-mechanic draw ⇒ byte-identical).
       ...(this.compMechanicsPlusEnabled ? { expandedComps: true as const } : {}),
+      ...(this.compMechanicsPlusEnabled && this.compMechanicsMoreEnabled ? { moreComps: true as const } : {}),
       // 0127: blend a hybrid comp's secondary aptitude into its outcome — present ONLY when enabled (off in
       // the calibration/golden harness ⇒ absent ⇒ pure single-stat resolution ⇒ byte-identical).
       ...(this.compMixedEnabled ? { mixedComps: true as const } : {}),
@@ -13278,6 +13282,7 @@ export class GameSessionAdapter implements GameSession {
   /** 0126 — turn the expanded competition-mechanic pool (30 total) on/off. Off by default (the calibration
    *  harness leaves it off ⇒ base 12-mechanic draw ⇒ byte-identical). The deploy turns it on for real play. */
   setCompMechanicsPlusEnabled(on: boolean): void { this.compMechanicsPlusEnabled = on; }
+  setCompMechanicsMoreEnabled(on: boolean): void { this.compMechanicsMoreEnabled = on; }
   /** 0126 — the resolved on/off state of the expanded-mechanic pool (for an admin/status read). */
   compMechanicsPlusEnabledNow(): boolean { return this.compMechanicsPlusEnabled; }
 
