@@ -875,6 +875,13 @@ export interface LiveSeasonState {
   /** ORW-698: the last in-game day the nightly secret-break pass ran (monotone), so a restart on the same night does not run it again. Absent in an old save (loads as not run). Engine-only, never projected. */
   secretBreakDay?: number;
   /**
+   * ORW-743 (0204 part 2): the open "say it yourself first" card - a fact about the PLAYER that enough of the house holds (closing in). Engine-only (Vault class: it names a fact id); the player and
+   * the narrator are told one bit only ("people are talking about you"). Absent = no card.
+   */
+  sayItFirst?: { factId: string; since: number };
+  /** ORW-743: who learns a fact the player told the room themselves, waiting for the next tick that has the knowledge layer (engine-only; emptied as it is seeded). */
+  sayItFirstSeeds?: Array<{ factId: string; spoken: string; ids: string[] }>;
+  /**
    * 0130 — each evictee's exit interview, week by week: their public posture on the way out (a `stance`
    * DERIVED from their manner for an NPC, or the PLAYER's own chosen stance + words). Recorded as the
    * exit-interview beat resolves; resurfaced in the 0048 retrospective as first-person exit accounts.
@@ -1413,6 +1420,8 @@ export interface SeasonCtx {
    * `ORWELL_COMP_MECHANICS_PLUS`; the calibration/UAT/golden harness leaves it off.
    */
   expandedComps?: boolean;
+  /** ORW-530: also draw from the 20 more mechanics (needs `expandedComps`). */
+  moreComps?: boolean;
   /**
    * 0127 — blend a hybrid comp's SECONDARY aptitude into its outcome (a physical-with-a-puzzle-element
    * veto rewards the well-rounded houseguest). Absent/false ⇒ the pure single stat, byte-identical (the
@@ -1514,7 +1523,7 @@ export type DecisionInput =
 /** Draw this week's competition from the curated library (0042) — seeded, no immediate repeats.
  *  `ctx.expandedComps` (0126) folds in the extra mechanic pool; off ⇒ the base 12 (byte-identical). */
 const drawFor = (s: LiveSeasonState, phase: CompetitionPhase, rng: RandomnessSource, ctx: SeasonCtx): CompetitionDef =>
-  drawCompetition(phase, s.week, rng, s.compHistory?.[phase] ?? [], ctx.expandedComps);
+  drawCompetition(phase, s.week, rng, s.compHistory?.[phase] ?? [], ctx.expandedComps, ctx.moreComps);
 
 /** Record a resolved draw into the persisted history (0030) — what the NEXT draw must avoid. */
 function recordDraw(s: LiveSeasonState, phase: CompetitionPhase, def: CompetitionDef): void {

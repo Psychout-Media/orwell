@@ -28,13 +28,9 @@ function stepScript(): string {
   return lines.slice(0, end).map((l) => l.replace(/^ {10}/, "")).join("\n");
 }
 
-/** The filter part only (from the matches() helper to the end of the loop), fed a given change list. */
+/** The filter part only: ORW-1044 moved the mapping into ci/path-lanes.sh, which reads the change list on stdin and prints `lane=true|false`. */
 function filterScript(): string {
-  const s = stepScript();
-  const from = s.indexOf("# Helper: does any changed file match the given ERE?");
-  const to = s.indexOf("\ndone\n", s.indexOf("for name in engine frontend fe_render deploy heavy; do"));
-  expect(from >= 0 && to > from, "the filter loop").toBe(true);
-  return s.slice(from, to + "\ndone\n".length);
+  return 'bash ci/path-lanes.sh <<<"$changed" >> "$GITHUB_OUTPUT"\n';
 }
 
 function run(script: string, env: Record<string, string>): Record<string, string> {
