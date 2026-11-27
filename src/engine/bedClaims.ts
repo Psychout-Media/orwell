@@ -15,6 +15,7 @@
  */
 import type { EntityId } from "../domain/ids";
 import type { Room } from "../domain/house";
+import { stripNonActs } from "./playerText";
 import { BEDROOM_LAYOUT, type BedroomSpec } from "./data/bedrooms";
 import { BED_CROWD_PULL, EMPTY_DOUBLE_PENALTY, NOISE_WEIGHT, SHARE_DOUBLE_AT, pickSpot, bedOfSpot, claimBed, freeBeds, isDoubleSpot, roomOfBed, roommatesIn, type BedId, type BedsState } from "./beds";
 
@@ -237,10 +238,10 @@ export type PlayerBedIntent =
   /** ask this houseguest to swap beds (or take their bed) */
   | { kind: "swap"; who: EntityId };
 
-const BED_WORD = /\b(?:bed|beds|bunk|bunks|mattress|cot)\b/;
-const CLAIM_VERB = /\b(?:take|taking|took|claim|claiming|grab|grabbing|pick|picking|choose|choosing|chose|want|snag|snagging|dibs|call|calling|go with|going with|settle on|put my (?:bag|bags|stuff|things|suitcase)|drop my (?:bag|bags|stuff|things|suitcase)|throw my (?:bag|bags|stuff|things|suitcase)|this one|that one|mine)\b/;
+const BED_WORD = /\b(?:bed|beds|bunk|bunks|mattress|cot|double|doubles|half of|other half|spot|(?:a|the|an) (?:queen|king))\b/; // ORW-1010: "half of the double in <room>" names no "bed" yet is a claim
+const CLAIM_VERB = /\b(?:take|taking|took|claim|claiming|grab|grabbing|pick|picking|choose|choosing|chose|want|snag|snagging|dibs|call|calling|go with|going with|settle on|sleep(?:ing)? (?:in|on)|put my (?:bag|bags|stuff|things|suitcase)|drop my (?:bag|bags|stuff|things|suitcase)|throw my (?:bag|bags|stuff|things|suitcase)|this one|that one|mine)\b/;
 const SWAP_VERB = /\b(?:swap|swapping|switch|switching|trade|trading|exchange)\b/;
-const HEDGE = /\b(?:maybe|perhaps|might|thinking about|wonder|if|unless|don'?t|do not|not|never|won'?t|wouldn'?t|shouldn'?t|should i|later)\b/;
+const HEDGE = /\b(?:maybe|perhaps|might|thinking about|wonder|if|unless|don'?t|do not|not|never|won'?t|wouldn'?t|shouldn'?t|should i|later|can'?t|cannot|couldn'?t|refuse|refused|refusing|decided against|decide against|already|(?:i )?(?:type|typed)|ooc)\b/;
 const NEAR = /\b(?:next to|near|beside|by|across from|close to|with|alongside|above|below|under|over)\s+$/;
 
 /** The names a room answers to: its display name, minus a leading "the", and the plain id forms ("bedroom a", "bedroom 1"). */
@@ -272,12 +273,18 @@ export function parsePlayerBedIntent(
   people: ReadonlyArray<{ id: EntityId; names: readonly string[] }>,
 ): PlayerBedIntent | null {
   if (typeof text !== "string" || text.trim() === "") return null;
-  const unquoted = text.replace(/"[^"]*"/g, " ").replace(/“[^”]*”/g, " ");
+  const unquoted = stripNonActs(text);
   const clauses = unquoted.match(/[^.!;\n]+[.!;\n?]*/g) ?? [];
   let out: PlayerBedIntent | null = null;
   for (const raw of clauses) {
-    const c = ` ${fold(raw).replace(/[’]/g, "'").replace(/[^a-z0-9' -]+/g, " ").replace(/\s+/g, " ").trim()} `;
-    if (!BED_WORD.test(c) || HEDGE.test(c)) continue;
+    const c = ` ${fold(raw).replace(/[’]/g, "'").replace(/[^a-z0-9' -]+/g, " ").replace(/\bbed ?room\b/g, "bedroom").replace(/\s+/g, " ").trim()} `;
+    if (out?.kind === "claim" && /^ (?:actually|no|i mean|wait)\b/.test(c) && !BED_WORD.test(c)) { // "I take a bed in bedroom A. Actually bedroom B.": the correction replaces the room
+      const fixed = rooms.find((r) => r.names.some((n) => findName(c, fold(n)) >= 0));
+      if (fixed) { out = { kind: "claim", room: fixed.room, ...(out.prefer ? { prefer: out.prefer } : {}) }; continue; }
+    }
+    const subjectOther = people.some((p) => p.names.some((n) => new RegExp(`^${esc(fold(n))} (?:took|takes|taking|claimed|claims|grabbed|grabs|picked|picks|has|got|gets|snagged)\\b`).test(c.trim())));
+    if (!BED_WORD.test(c) || HEDGE.test(c) || subjectOther) continue;
+    if (/\b(?:tell|told|telling)\s+\S+(?:\s+\S+)?\s+(?:to|she|he|they|that)\b/.test(c) && !SWAP_VERB.test(c)) continue;
     const named = people.map((p) => ({ id: p.id, at: Math.max(...p.names.map((n) => findName(c, fold(n)))), names: p.names })).filter((p) => p.at >= 0);
     const possessed = named.find((p) => p.names.some((n) => new RegExp(`\\b${esc(fold(n))}'s\\s+(?:bed|bunk|spot)\\b`).test(c)));
     if (possessed) { out = { kind: "swap", who: possessed.id }; continue; }

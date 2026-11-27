@@ -14,6 +14,8 @@
  *   - per-houseguest repeated gestures and lines (the record check, `recordNarration`),
  *   - the share of turns whose opening frames overlap the turn before,
  *   - prompt examples copied verbatim: quoted example spans of the CURRENT prompt text found in the corpus,
+ *   - ORW-1032 tics and repeats (turn shares, each over the number of turns): delivery tags ("says it flat", "evenly", "plainly"), the word "flat", stock body habits (eyebrows, crossed or folded arms),
+ *     the same question asked again inside one turn or in the next five turns, a long quoted line told again in near-identical words, and counted-hours relative times ("four hours ago").
  *   - replay of the live record: how many of the repeats the "ALREADY USED" brief section would have named just before they aired.
  */
 import { readFileSync } from "node:fs";
@@ -39,7 +41,79 @@ export interface RepetitionReport {
   replayRepeats: number;
   replayNamedInBrief: number;
   seasonLine: string;
+  tics: TicReport;
   topPhrases?: { openers: Array<[string, number]>; closers: Array<[string, number]> };
+}
+
+/** ORW-1032: counts of turns carrying each tic; every share is turns-with-the-tic over turns. */
+export interface TicReport {
+  deliveryTagTurns: number;
+  deliveryTagTurnShare: number;
+  flatWordTurns: number;
+  eyebrowTurns: number;
+  armsTurns: number;
+  repeatedAsks: number;
+  retoldLines: number;
+  hoursAgoClaims: number;
+}
+
+const DELIVERY_TAG_RE = /\b(?:says?|said|murmurs?|murmured|answers?|answered|replies|replied|states?|stated|delivers?|delivered)\s+(?:it|that|this|them|the (?:words|line))?\s*(?:\w+\s+)?(?:flat(?:ly)?|even(?:ly)?|plain(?:ly)?)\b|\b(?:flat(?:ly)?|even(?:ly)?|plain(?:ly)?)\s*[,.]?\s*(?:and|as)?\s*(?:says?|said)\b|\bin a (?:flat|even|level) (?:voice|tone)\b/i;
+const EYEBROW_RE = /\beyebrows?\b|\bbrows?\b/i;
+const ARMS_RE = /\barms? (?:crossed|folded)|\b(?:crosses|crossed|folds|folded) (?:her|his|their) arms\b/i;
+const HOURS_AGO_RE = /\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|a couple of|a few) hours? ago\b/i;
+
+/** The quoted question spans of a turn: a quote that ends in a question mark, as its first five words. */
+function questionKeys(turn: string): string[] {
+  const keys: string[] = [];
+  for (const m of turn.matchAll(/["“]([^"”\n]{8,240}\?)["”]/g)) {
+    const w = words(m[1]!);
+    if (w.length >= 4) keys.push(w.slice(0, 5).join(" "));
+  }
+  return keys;
+}
+
+/** The quoted spans of 12 or more words, as sets of four-word runs. */
+function longQuoteGrams(turn: string): Array<Set<string>> {
+  const out: Array<Set<string>> = [];
+  for (const m of turn.matchAll(/["“]([^"”\n]{40,600})["”]/g)) {
+    const w = words(m[1]!);
+    if (w.length < 12) continue;
+    const g = new Set<string>();
+    for (let i = 0; i + 4 <= w.length; i++) g.add(w.slice(i, i + 4).join(" "));
+    out.push(g);
+  }
+  return out;
+}
+
+/** ORW-1032: the tic and repeat counters over a corpus, in the order the turns aired. Pure string work. */
+export function measureTics(turns: readonly string[]): TicReport {
+  let tag = 0, flat = 0, brow = 0, arms = 0, asks = 0, retold = 0, hours = 0;
+  const recentAsks: string[][] = [];
+  const quotes: Array<Set<string>> = [];
+  for (const t of turns) {
+    const body = t.replace(/[*_`]+/g, "");
+    if (DELIVERY_TAG_RE.test(body)) tag++;
+    if (/\bflat(?:ly)?\b/i.test(body)) flat++;
+    if (EYEBROW_RE.test(body)) brow++;
+    if (ARMS_RE.test(body)) arms++;
+    if (HOURS_AGO_RE.test(body)) hours++;
+    const keys = questionKeys(body);
+    const seen = new Set<string>();
+    for (const k of keys) {
+      if (seen.has(k) || recentAsks.some((r) => r.includes(k))) asks++;
+      seen.add(k);
+    }
+    recentAsks.push(keys);
+    if (recentAsks.length > 5) recentAsks.shift();
+    for (const g of longQuoteGrams(body)) {
+      if (quotes.some((q) => { let hit = 0; for (const x of g) if (q.has(x)) hit++; return hit / Math.max(1, Math.min(g.size, q.size)) >= 0.5; })) retold++;
+      quotes.push(g);
+    }
+  }
+  return {
+    deliveryTagTurns: tag, deliveryTagTurnShare: turns.length ? Math.round((1000 * tag) / turns.length) / 10 : 0,
+    flatWordTurns: flat, eyebrowTurns: brow, armsTurns: arms, repeatedAsks: asks, retoldLines: retold, hoursAgoClaims: hours,
+  };
 }
 
 const norm = (s: string): string => s.toLowerCase().replace(/[‘’]/g, "'").replace(/[^a-z0-9' ]+/g, " ").replace(/\s+/g, " ").trim();
@@ -133,6 +207,7 @@ export function measure(turns: readonly string[], roster: readonly NarrationRost
     copiedExampleSpans: copiedSpans,
     replayRepeats,
     replayNamedInBrief: replayNamed,
+    tics: measureTics(turns),
     seasonLine: narrationSeasonLine(rec) + ` (record-check total per 1000: ${repeatsPer1000(rec)})`,
     ...(opts.showPhrases ? { topPhrases: { openers: sorted(openerCount), closers: sorted(closerCount) } } : {}),
   };

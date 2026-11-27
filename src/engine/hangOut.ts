@@ -18,6 +18,8 @@ export const HANGOUT = {
   maxBeats: 8,
   /** ORW-445: hard cap on a player-STATED wait, minutes (never more than 3 h, whatever they asked for). */
   maxStatedMinutes: 180,
+  /** ORW-1054: hard cap on a wait for the NEXT SCHEDULED EVENT ("hang out until production calls"), minutes: most of a waking day (10 h); bedtime still stops it sooner. */
+  maxUntilEventMinutes: 600,
 } as const;
 
 export type HangOutStopReason = "event-due" | "pulled" | "npc-approach" | "observed" | "bedtime" | "max-beats";
@@ -49,15 +51,17 @@ export interface HangOutResult {
   detail?: { by?: string; npc?: string; desire?: string; kind?: string; who?: string[] };
 }
 
-export function runHangOut(p: HangOutProbes, rng: RandomnessSource, opts: { maxBeats?: number; maxMinutes?: number } = {}): HangOutResult {
+export function runHangOut(p: HangOutProbes, rng: RandomnessSource, opts: { maxBeats?: number; maxMinutes?: number; capMinutes?: number } = {}): HangOutResult {
   // ORW-445: a player-stated target. Absent/invalid => the original behaviour, byte-identical (same rng draws, same cap).
-  const target = typeof opts.maxMinutes === "number" && Number.isFinite(opts.maxMinutes) && opts.maxMinutes > 0 ? Math.min(HANGOUT.maxStatedMinutes, opts.maxMinutes) : null;
+  const target = typeof opts.maxMinutes === "number" && Number.isFinite(opts.maxMinutes) && opts.maxMinutes > 0 ? Math.min(typeof opts.capMinutes === "number" && opts.capMinutes > 0 ? opts.capMinutes : HANGOUT.maxStatedMinutes, opts.maxMinutes) : null;
   // A target needs room to be reached with the shortest beats (15 min): the beat count scales to it, never past the 3 h cap.
   // Review of #2772: an explicitly supplied `maxBeats` still caps a stated wait; only an OMITTED cap scales to the target.
   const stated = typeof opts.maxBeats === "number" && Number.isFinite(opts.maxBeats) ? Math.max(1, Math.floor(opts.maxBeats)) : null;
-  const cap = target !== null
+  // ORW-1054: a wait for the event itself gets two spare beats: the last beat is clamped to the event and a float remainder needs one more beat to fire it (never a "max-beats" stop a hair short of the event).
+  const spare = typeof opts.capMinutes === "number" && opts.capMinutes > 0 ? 2 : 0;
+  const cap = spare + (target !== null
     ? Math.max(1, stated !== null ? Math.min(stated, Math.ceil(target / HANGOUT.beatMinutesBase)) : Math.ceil(target / HANGOUT.beatMinutesBase))
-    : Math.max(1, Math.min(HANGOUT.maxBeats, Math.floor(opts.maxBeats ?? HANGOUT.maxBeats)));
+    : Math.max(1, Math.min(HANGOUT.maxBeats, Math.floor(opts.maxBeats ?? HANGOUT.maxBeats))));
   if (p.eventDue()) return { stopReason: "event-due", beats: 0, minutes: 0 };
   if (p.bedtime()) return { stopReason: "bedtime", beats: 0, minutes: 0 };
   let minutes = 0;

@@ -31,10 +31,10 @@ const GAME_SESSION_METHODS: Record<keyof GameSession, true> = {
   createCharacter: true, dailyRecap: true, dayLedger: true, recordDaySummary: true, recordEpisodeTitles: true,
   exposeSecret: true, finaleView: true, formAlliance: true, gameStatus: true, getGameState: true, pipelineCast: true,
   getMomentPrompt: true, hallOfFame: true, recallSceneMemories: true, getOffscreenSceneSkeletons: true, getPortraitPrompt: true, joinAlliance: true,
-  makeDeal: true, markHouseguestMet: true, movePlayer: true, resolvePlayerMove: true, npcVoice: true, playerTagline: true,
+  makeDeal: true, markHouseguestMet: true, movePlayer: true, resolvePlayerMove: true, searchForHouseguest: true, npcVoice: true, playerTagline: true,
   preSeedCast: true, preSeedNextSeason: true, premiereIntros: true, producerVaultDump: true,
   recordCastGenesis: true, recordCastIdentity: true, recordCastProfile: true, recordLookExtras: true, recordCompetitionFiction: true, recordHouseguestMove: true,
-  notorietySummary: true, noteMessage: true,
+  voiceLookup: true, notorietySummary: true, noteMessage: true,
   playerDossier: true,
   playerReceipts: true,
   recordOffscreenSceneTexture: true, recordWorldSnapshot: true, recordNpcTraits: true, recordNpcReflections: true, recordHouseCulture: true, recordGroupIdentity: true, groupsAwaitingWords: true, allianceNameTickets: true, recordAllianceName: true, recordRoomCanon: true, recordOpenLedger: true, recordNarrationUse: true, resolveOpenLedger: true, openLedgerHere: true, recordProducerProfile: true, requestSelfEviction: true,
@@ -67,6 +67,7 @@ const TOOL_NAME_OVERRIDE: Partial<Record<string, string>> = {
  */
 const PORT_ONLY_METHODS: ReadonlySet<string> = new Set([
   "notorietySummary",  // #1791: voiced through the always-on RETURNING CAST context block
+  "voiceLookup",       // ORW-1067: the reason behind a null npcVoice; read by the npcVoice dispatch case itself, not a tool
 ]);
 
 /**

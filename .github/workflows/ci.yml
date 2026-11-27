@@ -166,7 +166,7 @@ jobs:
           # ORW-416 (root cause of the #2681 main break): front-end tests also READ repo files outside frontend/ and src/ (deploy scripts, systemd units, ci/ and harness
           # scripts, a few design docs and fixtures). #2681 changed only deploy/, fe-unit was skipped, and test_orw174 (which reads deploy/orwell-backup.sh) broke every later PR.
           # frontend/tests/test_ci_fe_reads_repo_filter.py proves this list covers EVERY such path the front-end tests read.
-          FE_READS_REPO_RE='^(deploy/|ci/|\.github/workflows/|scripts/(live-run|rehearsal-kit)/|scripts/ci(/|$)|tests/unit/beatsTerminateThemselves\.test\.ts$|tests/fixtures/orw480_(cast_s3_text|tag_cases|style_fit_cases)\.json$|tests/fixtures/orw563_dealt_lives\.json$|scripts/stage-finale-snapshot\.ts$|docs/audits/playtest-harness/|docs/design/(liquid-glass/|frontend-single-worker-ceiling\.md$)|docs/legacy/meta-feedback/|docs/mocks/)'
+          FE_READS_REPO_RE='^(deploy/|ci/|\.github/workflows/|scripts/(live-run|rehearsal-kit)/|scripts/ci(/|$)|tests/unit/beatsTerminateThemselves\.test\.ts$|tests/fixtures/orw480_(cast_s3_text|tag_cases|style_fit_cases)\.json$|tests/fixtures/orw563_dealt_lives\.json$|tests/fixtures/orw1008/corpus\.txt$|scripts/stage-finale-snapshot\.ts$|docs/audits/playtest-harness/|docs/design/(liquid-glass/|frontend-single-worker-ceiling\.md$)|docs/legacy/meta-feedback/|docs/mocks/)'
           # DEPLOY: anything the end-to-end deploy smoke boots — engine, FE, deploy scripts, this workflow.
           DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
           # HEAVY (calibration-relevant): the simulation inputs. A subset of engine — a docs/frontend
@@ -311,6 +311,9 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     name: test-unit (${{ matrix.shard }}/10)
+    permissions:
+      contents: read
+      actions: read # ORW-1013: read the nightly seed catalog artifact
     steps:
       - uses: actions/checkout@v4
         with:
@@ -320,6 +323,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - uses: ./.github/actions/seed-catalog # ORW-1013: main's current qualifying seeds, tried before each scan's hints (fail-soft)
       - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
       - run: npm run build
       # ORW-229 flaky-test rule (docs/CI.md): one automatic retry; a test that passes only on the retry is listed in the job summary (vitest.config.ts).
@@ -400,6 +404,9 @@ jobs:
           - leg: real-path-b
             scripts: "real-path-b"
     name: heavy-sims (${{ matrix.leg }})
+    permissions:
+      contents: read
+      actions: read # ORW-1013: read the nightly seed catalog artifact
     steps:
       - uses: actions/checkout@v4
         with:
@@ -420,6 +427,8 @@ jobs:
           key: heavy-proof-v1-${{ matrix.leg }}-${{ hashFiles('src/**', 'tests/uat/**', 'tests/property/**', 'tests/calibration/**', 'tests/support/**', 'features/support/**', 'patches/**', 'package.json', 'package-lock.json', 'vitest.config.ts', 'vitest.sequencer.ts', 'tsconfig*.json', 'deploy/orwell-env-defaults.sh') }}
       - if: steps.heavyproof.outputs.cache-hit != 'true'
         run: npm ci
+      - if: steps.heavyproof.outputs.cache-hit != 'true'
+        uses: ./.github/actions/seed-catalog # ORW-1013 (fail-soft)
       # ORW-229: NO automatic retry here. The heavy sims play fixed seeds, so a retry could only hide a real failure, never fix a flake (docs/CI.md).
       - name: heavy sims (${{ matrix.scripts }})
         if: steps.heavyproof.outputs.cache-hit != 'true'
@@ -697,6 +706,14 @@ jobs:
             echo "### Front-end performance: perf harness did not run" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+      # ORW-1016: page load (cold and warm), time to interactive and interaction lag at 1080p, 4K and a phone viewport; a generous-ceiling
+      # guard (scripts/perf_load.py CEILINGS) fails the job on a real regression. The numbers land in the job summary and perf-load.json.
+      - name: page load + interaction guard (1080p, 4K, phone)
+        run: |
+          rc=0
+          (cd frontend && python3 scripts/perf_load.py --enforce --out "$GITHUB_WORKSPACE/perf-load.json") || rc=$?
+          if [ "$rc" -eq 3 ]; then echo "::error::a page load or interaction ceiling was exceeded (see the job summary)"; exit 1; fi
+          if [ "$rc" -ne 0 ]; then echo "::error::perf-load harness did not run; see this step's log"; exit 1; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -704,6 +721,7 @@ jobs:
           path: |
             perf-report.json
             perf-report-lowpower.json
+            perf-load.json
           if-no-files-found: warn
           retention-days: 30
 

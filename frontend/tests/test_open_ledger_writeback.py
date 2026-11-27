@@ -29,8 +29,8 @@ def test_clean_entries_bounds_and_free_kind():
     out = ol.clean_entries(raw, {"npc:3"})
     assert out == [
         {"text": "I will keep you safe", "speaker": "npc:3", "addressedTo": ["player"], "kind": "an oath of loyalty"},
+        {"text": "npc to npc", "speaker": "npc:3", "addressedTo": [], "kind": "k"},  # ORW-1065: the bad id (self) is dropped, the entry kept
         {"text": "c", "speaker": "player", "addressedTo": ["npc:3"], "kind": "claim"},
-        {"text": "d", "speaker": "player", "addressedTo": ["npc:3"], "kind": "k"},
     ]  # capped at 3, kind is whatever the model said
     assert ol.clean_entries(None, {"npc:3"}) == [] and ol.clean_entries({"entries": "no"}, {"npc:3"}) == []
 
@@ -119,7 +119,9 @@ def test_group_pact_keeps_all_parties_and_a_plan_needs_no_addressee():
     assert out[0] == {"text": "If one of us wins the rest are safe", "speaker": "npc:3", "addressedTo": [], "kind": "group pact",
                       "parties": ["npc:3", "npc:4", "player"]}
     assert out[1] == {"text": "I will throw the next puzzle", "speaker": "npc:4", "addressedTo": [], "kind": "stated plan"}
-    assert [e["text"] for e in out] == ["If one of us wins the rest are safe", "I will throw the next puzzle", "lone party"]
+    # ORW-1065: the unknown party id is dropped, not the whole entry; one remaining party is no group
+    assert [e["text"] for e in out] == ["If one of us wins the rest are safe", "I will throw the next puzzle", "bad party"]
+    assert "parties" not in out[2]
     assert "parties" not in out[2]  # one party is just the speaker
 
 
@@ -298,7 +300,9 @@ def test_other_refusals_and_acceptances_do_not_record_full(monkeypatch):
 
     run(ol.capture_open_ledger(NARR, PRESENT, _entries_llm(2), other))
     run(ol.capture_open_ledger(NARR, PRESENT, _entries_llm(2), ok))
-    assert seen == []
+    # ORW-1065: a refusal other than "full" is no longer silent: one soft failure per reason, never the "full" one
+    assert seen == ["open-ledger:refused-not-present"]
+    assert ol.discard_counts().get("refused-not-present", 0) >= 2
 
 
 def test_prompt_is_behind_the_untrusted_fence_and_takes_spoken_deals_as_kind_deal():
@@ -350,3 +354,21 @@ def test_a_spoken_deal_is_kept_with_kind_deal_not_dropped():
     raw = {"entries": [{"text": "We go to the end together", "speaker": "player", "addressedTo": ["npc:1"], "kind": "Deal"}]}
     out = ol.clean_entries(raw, {"npc:1"})
     assert out == [{"text": "We go to the end together", "speaker": "player", "addressedTo": ["npc:1"], "kind": "Deal"}]
+
+
+def test_orw1065_discards_and_overflow_are_counted_and_one_bad_id_keeps_the_entry():
+    before = ol.discard_counts()
+    raw = {"entries": [
+        {"text": "I will keep you safe", "speaker": "npc:3", "addressedTo": ["player", "Dale"], "kind": "oath"},
+        {"text": "who", "speaker": "npc:9", "addressedTo": ["player"], "kind": "k"},
+        {"text": "a", "speaker": "player", "addressedTo": ["npc:3"], "kind": "k"},
+        {"text": "b", "speaker": "player", "addressedTo": ["npc:3"], "kind": "k"},
+        {"text": "c", "speaker": "player", "addressedTo": ["npc:3"], "kind": "k"},
+    ]}
+    out = ol.clean_entries(raw, {"npc:3"})
+    assert out[0]["addressedTo"] == ["player"]  # the unknown id went, the entry and the good id stayed
+    after = ol.discard_counts()
+
+    def d(k):
+        return after.get(k, 0) - before.get(k, 0)
+    assert d("addressee-id-dropped") == 1 and d("entry-speaker-not-present") == 1 and d("entries-over-cap") >= 1
