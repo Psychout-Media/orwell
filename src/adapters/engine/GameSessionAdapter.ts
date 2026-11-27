@@ -23542,7 +23542,7 @@ export class GameSessionAdapter implements GameSession {
   /**
    * ORW-407 slice 2 - the still-open entries that matter to those here now, bounded, with player-visible fields only.
    * ORW-448: entries DUE after a public ceremony come first (at most 3, anyone, here or not: the result is public), each with its
-   * `due` line; then the entries relevant to those here, so the list is at most 6 and a turn with nothing due is as before.
+   * `due` line; then the entries relevant to those here, so the list is at most 6 (more only when more houseguests here have an open entry than fit: ORW-1093) and a turn with nothing due is as before.
    */
   openLedgerHere(): OpenLedgerItemView[] {
     if (!this.openLedgerEnabled || !this.house || !this.live || this.live.playedGame !== true) return [];

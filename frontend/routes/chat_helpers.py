@@ -4793,43 +4793,6 @@ def _absent_holds_floor(narration: str, facts: dict, first_counts: dict) -> Opti
     return None
 
 
-# ORW-1003: the narration writes the player into a room they did not go to (the engine keeps their real room), so the player reads the wrong room. A sentence that PLACES the player ("you drift into...",
-# "you're in...") somewhere the engine does not have them is dropped, the same posture as an absent houseguest. Modals, conditionals and questions ("you could go...", "if you step...?") place nobody.
-_PLAYER_PLACED_RE = re.compile(
-    r"\byou(?:'re|\u2019re|\s+are|\s+find\s+yourself)?\s+(?:\w+ly\s+)?(?:now\s+)?(?:walk|walking|step|stepping|head|heading|drift|drifting|slip|slipping|wander|wandering|stroll|strolling|settle|settling|sit|sitting|stand|standing|"
-    r"arrive|arriving|follow|following|move|moving|duck|ducking|climb|climbing|drop|sink|sinking|lie|lying|stretch|stretching|perch|perched|in\b|back\b|alone\b)[^.!?]*?\b(?:in|into|onto|inside|to|on)\b",
-    re.IGNORECASE)
-_PLAYER_NOT_PLACED_RE = re.compile(r"\b(?:could|would|might|can|should|may|if|whether|want|wanna|do\s+you|will\s+you)\b|\?", re.IGNORECASE)
-
-
-def _drop_misplacing_player(text: str, player_room: str, room_names=None, quote=None) -> str:
-    """`text` without the sentences whose NARRATION (never quoted speech, even a quote split across sentences) puts the player in another room."""
-    out = []
-    for part in re.split(r"(?<=[.!?\n])", text):
-        was = quote
-        quote, close_end = _scan_quote_state(part, quote)
-        narr = part if was is None else (part[close_end:] if close_end is not None else "")
-        if quote is not None:  # a quote opens in this part: only what precedes the opening mark is narration
-            narr = re.split(r'["\u201c]', narr, maxsplit=1)[0]
-        if was is None and _sentence_misplaces_player(narr, player_room, room_names):
-            continue
-        out.append(part)
-    return "".join(out)
-
-
-def _sentence_misplaces_player(sentence: str, player_room: str, room_names=None) -> bool:
-    """True when the narration (quoted words blanked) states the player is in or moving into a room, and no room it names there can be the engine's room for them."""
-    from src.house_rooms import rooms_named_in
-    narr = _QUOTED_SPEECH_RE.sub(" ", sentence or "")
-    if not player_room or _PLAYER_NOT_PLACED_RE.search(narr):
-        return False
-    m = _PLAYER_PLACED_RE.search(narr)
-    if not m:
-        return False
-    named = rooms_named_in(narr[m.start():], room_names)
-    return bool(named) and not any(player_room in rooms for rooms in named)
-
-
 async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[dict] = None) -> str:
     """A2 (#1726) — the STRUCTURAL, SAME-TURN presence guard. Returns `text` with any sentence that
     stages an off-scene or already-evicted houseguest as present/acting in the player's scene DROPPED
@@ -4862,13 +4825,6 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
         logger.warning("[orwell] presence-wall: game-state read skipped for user=%s: %s", user, _exc_detail(e))
         return text  # engine unreachable this turn — never hold narration on a read hiccup
     facts = _presence_facts(state if isinstance(state, dict) else {})
-    if facts and not (isinstance(alt_state, dict)):  # ORW-1003: a turn with a pre-sleep board keeps the evening room's goodnight; otherwise the player is where the engine has them
-        _kept = _drop_misplacing_player(text, facts.get("room"), facts.get("room_names"), carry.get("quote"))
-        if _kept != text:
-            logger.warning("[orwell] presence-wall: dropped a sentence placing the player outside their room for user=%s", user)
-            text = _kept
-            if not text.strip():
-                return text
     if not facts or (not facts.get("evicted") and not facts.get("active_offscene") and not facts.get("adjacent")):
         if carry.get("drop_quote") or carry.get("quote"):
             pass  # ORW-917: a quote still open (or a drop still running) from an earlier chunk: scan below so the state stays true
@@ -8104,7 +8060,9 @@ def _engine_count_claims(text: str, room_names=None) -> list:
                     continue
                 if not re.search(r"\b(?:asleep|in\s+(?:their\s+)?beds?|turned\s+in|tucked\s+in)\b", m.group(0), re.IGNORECASE):
                     continue
-            out.append(_EcClaim("asleep", n, m.group(0).strip()))
+            # ORW-1094: "only two are asleep" states the whole count, so it is exact; any other smaller number may be a subgroup
+            only = bool(re.search(r"\bonly\s+$", text[:m.start(1)], re.IGNORECASE))
+            out.append(_EcClaim("asleep-only" if only else "asleep", n, m.group(0).strip()))
     for m in _EC_ROOM_US_RE.finditer(text):
         n = _ec_num(m.group(2))
         if n is None or n < 2:
@@ -8173,6 +8131,8 @@ def _engine_count_ok(claim, c: dict) -> bool:
     if claim.kind == "asleep":
         # More asleep than the game's list is plainly wrong; fewer may be a subgroup ("two of them asleep in the bedroom"), so it is not a claim about the house.
         return c.get("asleep") is None or n <= c["asleep"]
+    if claim.kind == "asleep-only":
+        return c.get("asleep") is None or n == c["asleep"]
     if claim.kind == "empty":
         return all((c.get("rooms") or {}).get(r, 0) == 0 for r in claim.rooms)
     return True
@@ -8188,7 +8148,7 @@ def _engine_count_mismatch(text: str, c: Optional[dict], claims=None):
 
 
 def _engine_count_directive(claim, c: dict) -> str:
-    if claim.kind == "asleep":
+    if claim.kind in ("asleep", "asleep-only"):
         return ("RE-GROUND ON THE HEADCOUNT - last turn you said how many are asleep (\"" + claim.text[:80] + "\"), but the engine's asleep list holds " + str(c.get("asleep")) + " houseguests. "
                 "Quote that number exactly or use no number at all; never count the sleepers yourself.")
     if claim.kind == "empty":
@@ -8223,6 +8183,10 @@ def _note_engine_count_hold(user, bad, c: dict) -> None:
 
 
 
+#: ORW-1094: the claims an entrance or toast turn checks against the engine's counts too (its headcount wall covers the room count only)
+_PREMIERE_COUNT_KINDS = ("empty", "asleep", "asleep-only")
+
+
 async def screen_headcount_wall(user, text: str) -> str:
     """ORW-205 — the same-turn headcount wall for one streamed chunk: `text` with every sentence whose
     stated headcount the engine's live entrance count contradicts DROPPED (delimiters preserved for the
@@ -8243,6 +8207,8 @@ async def screen_headcount_wall(user, text: str) -> str:
             counts = await _live_engine_counts(user)
             if counts is None:
                 return text
+        elif any(c.kind in _PREMIERE_COUNT_KINDS for c in _engine_count_claims(text, _rn)):
+            counts = await _live_engine_counts(user)
         kept = []
         for part in re.split(r"(?<=[.!?\n])", text):
             if ent is not None:
@@ -8250,6 +8216,10 @@ async def screen_headcount_wall(user, text: str) -> str:
                 if bad is not None:
                     _note_headcount_hold(user, bad, ent)
                     continue  # DROP — a count the engine contradicts never reaches the player
+                pbad = _engine_count_mismatch(part, counts, [c for c in _engine_count_claims(part, _rn) if c.kind in _PREMIERE_COUNT_KINDS])  # ORW-1094
+                if pbad is not None:
+                    _note_engine_count_hold(user, pbad, counts)
+                    continue
             else:
                 ebad = _engine_count_mismatch(part, counts)
                 if ebad is not None:
@@ -8281,6 +8251,13 @@ async def screen_streamed_headcount(user, sentence: str) -> bool:
             return False
         bad = _headcount_mismatch(sentence, ent, claims)
         if bad is None:
+            pclaims = [c for c in eclaims if c.kind in _PREMIERE_COUNT_KINDS]  # ORW-1094: entrances and the toast check these too
+            if ent is not None and pclaims:
+                counts = await _live_engine_counts(user)
+                pbad = _engine_count_mismatch(sentence, counts, pclaims)
+                if pbad is not None:
+                    _note_engine_count_hold(user, pbad, counts)
+                    return False
             return True
         _note_headcount_hold(user, bad, ent)
         return False
