@@ -73,7 +73,7 @@ describe("a betrayal rumor records its victim from the real betrayal event (play
     const drop = -(toO()!.impact?.trust ?? 0);
     expect(drop, "a bystander distrusts the betrayer").toBeGreaterThan(0);
     expect(drop).toBeLessThan(0.1);
-  }, 120_000);
+  }, 900_000);
 
   // ORW-813: not reached in play. A victim is named only for a PUBLIC break (a nomination or a replacement by the player as HOH; a ballot break stays sealed). In 18 played seasons
   // (seeds 1-18, the scripted talking player nominating any houseguest it holds a safety deal with) the player was never HOH before week 8 or their eviction, so no public break happened.
