@@ -847,7 +847,7 @@ def _hang_out_steer(res: dict, asked_minutes=None) -> str:
     reason = str(res.get("stopReason") or "max-beats")
     d = res.get("detail") or {}
     by = {"diary-room": " to the Diary Room", "production": " by production"}.get(str(d.get("by") or ""), "")
-    obs = {"overheard-whisper": "two housemates whispering (%s)", "argument": "two housemates arguing (%s)", "someone-moved": "%s on the move"}.get(str(d.get("kind") or ""), "something happening (%s)") % " and ".join(d.get("who") or []) if reason == "observed" else ""
+    obs = {"overheard-whisper": "two housemates whispering (%s)", "argument": "two housemates arguing (%s)", "someone-moved": "%s on the move", "someone-entered": "%s coming into the room"}.get(str(d.get("kind") or ""), "something happening (%s)") % " and ".join(d.get("who") or []) if reason == "observed" else ""
     line = _HANGOUT_STOP_LINES.get(reason, _HANGOUT_STOP_LINES["max-beats"]).format(by=by, npc=d.get("npc") or "A housemate", obs=obs)
     mins = int(res.get("minutes") or 0)
     shown = str(res.get("stopLine") or "").strip()  # ORW-22: the engine has a player-facing line for this stop - the reply must put the stop on screen
@@ -882,12 +882,23 @@ def _waits_for_event(player_msg) -> bool:
     return bool(_WAIT_ENDS_AT_EVENT_RE.search(tail[:end.start()] if end else tail))
 
 
+# ORW-1089 (Ryne 2026-11-27): "we could essentially fast forward and summarize what happens around us. Ending as soon as a new person enters. Or game talk starts... Whenever the player is prompted."
+# Only a message that is NOTHING BUT the cue ("next", "ok, continue"), and only while the engine says nothing is due. The UI's "Continue from where you left off." is not one.
+_BARE_NEXT_RE = re.compile(r"^\s*(?:(?:ok(?:ay)?|alright)\s*[,.]?\s+)?(?:next|continue|skip|skip\s+ahead|keep\s+going)\s*[.!\u2026]*\s*$", re.IGNORECASE)
+
+
+def bare_next_while_nothing_due(game_state: dict, player_msg) -> bool:
+    sched = (game_state or {}).get("daySchedule")
+    return bool(_BARE_NEXT_RE.match(str(player_msg or ""))) and isinstance(sched, dict) and sched.get("due") is False
+
+
 async def maybe_hang_out(user, game_state: dict, player_msg) -> bool:
     """Recognise a hang-out-until-X intent and, when the engine's lever is live, run it and arm the narrator steer. Returns True when the clock moved (the caller refreshes the
     board). Fail-open: flag off / clock off / a pending decision / any hiccup => the turn proceeds exactly as before (the engine refuses with `ok:false`, no state change)."""
     from src import orwell_engine
     try:
-        if not hang_out_intent(player_msg) or not game_state.get("started") or game_state.get("pending"):
+        bare = bare_next_while_nothing_due(game_state, player_msg)
+        if not (bare or hang_out_intent(player_msg)) or not game_state.get("started") or game_state.get("pending"):
             return False
         _mins, _band = parse_stated_wait(player_msg)  # ORW-445: the player's own stated wait length (None => unchanged)
         _kw = {}
@@ -898,6 +909,8 @@ async def maybe_hang_out(user, game_state: dict, player_msg) -> bool:
         _clock = parse_wait_until_clock(player_msg)  # ORW-734a: "until 10pm" - the engine resolves it on its own clock (the next such time, never a day later)
         if _clock is not None:
             _kw["until_clock"] = _clock
+        if bare:
+            _kw = {"bare_next": True}
         if not _kw and _waits_for_event(player_msg):
             _kw["until_event"] = True  # ORW-1054: "hang out until production calls" runs to the event in one call, not a run of chance-stopped calls
         res = await orwell_engine.hang_out(expected_beat_seq=last_beat_seq(user), user=user, **_kw)
@@ -1635,6 +1648,9 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -
         _mf, _mt = room_ref(player_move['from'], names), room_ref(player_move['to'], names)  # ORW-466: the season's names (no theme: "the living room", as before)
         move_line = (f"\nTHE PLAYER JUST MOVED: from {_mf} to {_mt} (the engine has already done it). Open this turn's scene in {_mt}, "
                      f"with exactly the people listed above; never in {_mf}, and never re-describe the walk as still to come.")
+    # ORW-1076: a move the engine refused this turn, with its reason (a shut HOH door, the house gathered, "where?"): without it the narrator wrote the player through the door
+    if isinstance(player_move, dict) and player_move.get("refused") and player_move.get("reason"):
+        move_line = f"\nTHE PLAYER DID NOT MOVE (engine truth): {player_move['reason']}. Voice that in the scene; the player stays where they are."
     # ORW-478: a houseguest the earlier narration put in the player's room who is NOT on this roster must not just vanish or be described as inside the player's head. Said only on a move or when the engine reports someone left the room since
     # the player's last message (`sinceSend.departed`), not on every turn the player is alone; a houseguest on the asleep list is only mentioned, as the turned-in rule above says.
     since = whereabouts.get("sinceSend") if isinstance(whereabouts.get("sinceSend"), dict) else {}
@@ -4508,6 +4524,10 @@ def _presence_facts(state: dict) -> Optional[dict]:
     tonight = ((ev.get("evictee") or {}).get("name") if isinstance(ev, dict) and isinstance(ev.get("evictee"), dict) else None)
     if tonight and tonight in evicted:
         evicted.discard(tonight); in_view.add(tonight); room_present.add(tonight)
+    # ORW-1077: someone who walks out as their reaction to the player coming in is acting in this scene on this turn, though the board already has them next door
+    for _r in ((state.get("walkedIn") or {}).get("reactions") or []) if isinstance(state.get("walkedIn"), dict) else []:
+        if isinstance(_r, dict) and _r.get("left") and isinstance(_r.get("name"), str):
+            exempt.add(_r["name"].strip())
     return {"room": wa.get("room"), "in_view": in_view, "room_present": room_present,
             "evicted": evicted, "active_offscene": active_offscene,
             "adjacent": adjacent, "adjacent_rooms": adjacent_rooms, "exempt": exempt, "npc_rooms": npc_rooms, "room_names": room_names,
@@ -4793,43 +4813,6 @@ def _absent_holds_floor(narration: str, facts: dict, first_counts: dict) -> Opti
     return None
 
 
-# ORW-1003: the narration writes the player into a room they did not go to (the engine keeps their real room), so the player reads the wrong room. A sentence that PLACES the player ("you drift into...",
-# "you're in...") somewhere the engine does not have them is dropped, the same posture as an absent houseguest. Modals, conditionals and questions ("you could go...", "if you step...?") place nobody.
-_PLAYER_PLACED_RE = re.compile(
-    r"\byou(?:'re|\u2019re|\s+are|\s+find\s+yourself)?\s+(?:\w+ly\s+)?(?:now\s+)?(?:walk|walking|step|stepping|head|heading|drift|drifting|slip|slipping|wander|wandering|stroll|strolling|settle|settling|sit|sitting|stand|standing|"
-    r"arrive|arriving|follow|following|move|moving|duck|ducking|climb|climbing|drop|sink|sinking|lie|lying|stretch|stretching|perch|perched|in\b|back\b|alone\b)[^.!?]*?\b(?:in|into|onto|inside|to|on)\b",
-    re.IGNORECASE)
-_PLAYER_NOT_PLACED_RE = re.compile(r"\b(?:could|would|might|can|should|may|if|whether|want|wanna|do\s+you|will\s+you)\b|\?", re.IGNORECASE)
-
-
-def _drop_misplacing_player(text: str, player_room: str, room_names=None, quote=None) -> str:
-    """`text` without the sentences whose NARRATION (never quoted speech, even a quote split across sentences) puts the player in another room."""
-    out = []
-    for part in re.split(r"(?<=[.!?\n])", text):
-        was = quote
-        quote, close_end = _scan_quote_state(part, quote)
-        narr = part if was is None else (part[close_end:] if close_end is not None else "")
-        if quote is not None:  # a quote opens in this part: only what precedes the opening mark is narration
-            narr = re.split(r'["\u201c]', narr, maxsplit=1)[0]
-        if was is None and _sentence_misplaces_player(narr, player_room, room_names):
-            continue
-        out.append(part)
-    return "".join(out)
-
-
-def _sentence_misplaces_player(sentence: str, player_room: str, room_names=None) -> bool:
-    """True when the narration (quoted words blanked) states the player is in or moving into a room, and no room it names there can be the engine's room for them."""
-    from src.house_rooms import rooms_named_in
-    narr = _QUOTED_SPEECH_RE.sub(" ", sentence or "")
-    if not player_room or _PLAYER_NOT_PLACED_RE.search(narr):
-        return False
-    m = _PLAYER_PLACED_RE.search(narr)
-    if not m:
-        return False
-    named = rooms_named_in(narr[m.start():], room_names)
-    return bool(named) and not any(player_room in rooms for rooms in named)
-
-
 async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[dict] = None) -> str:
     """A2 (#1726) — the STRUCTURAL, SAME-TURN presence guard. Returns `text` with any sentence that
     stages an off-scene or already-evicted houseguest as present/acting in the player's scene DROPPED
@@ -4862,13 +4845,6 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
         logger.warning("[orwell] presence-wall: game-state read skipped for user=%s: %s", user, _exc_detail(e))
         return text  # engine unreachable this turn — never hold narration on a read hiccup
     facts = _presence_facts(state if isinstance(state, dict) else {})
-    if facts and not (isinstance(alt_state, dict)):  # ORW-1003: a turn with a pre-sleep board keeps the evening room's goodnight; otherwise the player is where the engine has them
-        _kept = _drop_misplacing_player(text, facts.get("room"), facts.get("room_names"), carry.get("quote"))
-        if _kept != text:
-            logger.warning("[orwell] presence-wall: dropped a sentence placing the player outside their room for user=%s", user)
-            text = _kept
-            if not text.strip():
-                return text
     if not facts or (not facts.get("evicted") and not facts.get("active_offscene") and not facts.get("adjacent")):
         if carry.get("drop_quote") or carry.get("quote"):
             pass  # ORW-917: a quote still open (or a drop still running) from an earlier chunk: scan below so the state stays true
@@ -8104,7 +8080,9 @@ def _engine_count_claims(text: str, room_names=None) -> list:
                     continue
                 if not re.search(r"\b(?:asleep|in\s+(?:their\s+)?beds?|turned\s+in|tucked\s+in)\b", m.group(0), re.IGNORECASE):
                     continue
-            out.append(_EcClaim("asleep", n, m.group(0).strip()))
+            # ORW-1094: "only two are asleep" states the whole count, so it is exact; any other smaller number may be a subgroup
+            only = bool(re.search(r"\bonly\s+$", text[:m.start(1)], re.IGNORECASE))
+            out.append(_EcClaim("asleep-only" if only else "asleep", n, m.group(0).strip()))
     for m in _EC_ROOM_US_RE.finditer(text):
         n = _ec_num(m.group(2))
         if n is None or n < 2:
@@ -8173,6 +8151,8 @@ def _engine_count_ok(claim, c: dict) -> bool:
     if claim.kind == "asleep":
         # More asleep than the game's list is plainly wrong; fewer may be a subgroup ("two of them asleep in the bedroom"), so it is not a claim about the house.
         return c.get("asleep") is None or n <= c["asleep"]
+    if claim.kind == "asleep-only":
+        return c.get("asleep") is None or n == c["asleep"]
     if claim.kind == "empty":
         return all((c.get("rooms") or {}).get(r, 0) == 0 for r in claim.rooms)
     return True
@@ -8188,7 +8168,7 @@ def _engine_count_mismatch(text: str, c: Optional[dict], claims=None):
 
 
 def _engine_count_directive(claim, c: dict) -> str:
-    if claim.kind == "asleep":
+    if claim.kind in ("asleep", "asleep-only"):
         return ("RE-GROUND ON THE HEADCOUNT - last turn you said how many are asleep (\"" + claim.text[:80] + "\"), but the engine's asleep list holds " + str(c.get("asleep")) + " houseguests. "
                 "Quote that number exactly or use no number at all; never count the sleepers yourself.")
     if claim.kind == "empty":
@@ -8223,6 +8203,10 @@ def _note_engine_count_hold(user, bad, c: dict) -> None:
 
 
 
+#: ORW-1094: the claims an entrance or toast turn checks against the engine's counts too (its headcount wall covers the room count only)
+_PREMIERE_COUNT_KINDS = ("empty", "asleep", "asleep-only")
+
+
 async def screen_headcount_wall(user, text: str) -> str:
     """ORW-205 — the same-turn headcount wall for one streamed chunk: `text` with every sentence whose
     stated headcount the engine's live entrance count contradicts DROPPED (delimiters preserved for the
@@ -8243,6 +8227,8 @@ async def screen_headcount_wall(user, text: str) -> str:
             counts = await _live_engine_counts(user)
             if counts is None:
                 return text
+        elif any(c.kind in _PREMIERE_COUNT_KINDS for c in _engine_count_claims(text, _rn)):
+            counts = await _live_engine_counts(user)
         kept = []
         for part in re.split(r"(?<=[.!?\n])", text):
             if ent is not None:
@@ -8250,6 +8236,10 @@ async def screen_headcount_wall(user, text: str) -> str:
                 if bad is not None:
                     _note_headcount_hold(user, bad, ent)
                     continue  # DROP — a count the engine contradicts never reaches the player
+                pbad = _engine_count_mismatch(part, counts, [c for c in _engine_count_claims(part, _rn) if c.kind in _PREMIERE_COUNT_KINDS])  # ORW-1094
+                if pbad is not None:
+                    _note_engine_count_hold(user, pbad, counts)
+                    continue
             else:
                 ebad = _engine_count_mismatch(part, counts)
                 if ebad is not None:
@@ -8281,6 +8271,13 @@ async def screen_streamed_headcount(user, sentence: str) -> bool:
             return False
         bad = _headcount_mismatch(sentence, ent, claims)
         if bad is None:
+            pclaims = [c for c in eclaims if c.kind in _PREMIERE_COUNT_KINDS]  # ORW-1094: entrances and the toast check these too
+            if ent is not None and pclaims:
+                counts = await _live_engine_counts(user)
+                pbad = _engine_count_mismatch(sentence, counts, pclaims)
+                if pbad is not None:
+                    _note_engine_count_hold(user, pbad, counts)
+                    return False
             return True
         _note_headcount_hold(user, bad, ent)
         return False

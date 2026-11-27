@@ -209,7 +209,10 @@ export function buildYourEdit(inp: YourEditInput): YourEditView {
   const episodes: EditEpisode[] = [];
   for (const d of inp.digests) {
     if (d.evictee === null) continue;
-    const ms = (weekOf.get(d.week) ?? []).map((m, i) => ({ w: editWorthiness(m), i, m })).sort(rank).slice(0, YOUR_EDIT.episodeMoments);
+    const ranked = (weekOf.get(d.week) ?? []).map((m, i) => ({ w: editWorthiness(m), i, m })).sort(rank);
+    // ORW-1098: with the fuller cut on, an episode keeps at most one moment of each kind (its best), so a week of blow-ups cannot fill all three slots and keep the comp win, the veto, the block and the vote out of every episode.
+    const seen = new Set<EditMomentKind>();
+    const ms = (inp.more ? ranked.filter((x) => (seen.has(x.m.kind) ? false : (seen.add(x.m.kind), true))) : ranked).slice(0, YOUR_EDIT.episodeMoments);
     const close = (weekOf.get(d.week) ?? []).some((m) => (m.kind === "eviction" || m.kind === "blindside") && (m.twist ?? 0) >= YOUR_EDIT.closeAt);
     const moments = ms.map((x) => factOf(x.m));
     const alliances = allianceBeats(inp.alliances, d.week);

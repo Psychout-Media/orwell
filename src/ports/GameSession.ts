@@ -656,12 +656,16 @@ export interface GameStateView {
   beds?: string;
   /** ORW-1010: why the player's bed claim or swap did NOT happen this turn; the narrator says so plainly in the reply. */
   bedRefused?: string;
+  /** ORW-1090: one turn after a night, how the player and the houseguest whose half of a double they share (or who shares the player's) took it on waking: "annoyed" or "fine". Vault-free fact for the narrator to voice; never a number. */
+  bedWake?: { sleeper: string; joiner: string; mood: "annoyed" | "fine" };
   /** ORW-652 (moment prompt only): the shape of a double-eviction night while its second cycle runs (who left, the instant crown, the hurried block), from public facts. Absent outside it. */
   longNight?: string;
   /** 0152: this turn's engine answer to "who told you that?" (one Vault-free line: who is named, that they will not say, or that they saw it). Absent otherwise. */
   sourceNote?: string;
   /** 0156 (theme 2, slice 7b): the house meeting the player was in the house and awake to hear, as the speakers' words (moment prompt only, one turn). Names only; never whether anything said is true, why it was called, ids, or how any houseguest took it. Absent otherwise. */
   houseMeeting?: HouseMeetingView;
+  /** ORW-743 (0204 part 2, moment prompt only): people in the house are talking about the player - ONE bit, never what, who or how many. The player may get ahead of it in their own words. */
+  talkedAboutYou?: true;
   /** ORW-593 (moment prompt only, one turn): the player's call for a house meeting was refused, and why in the world's terms. Never a number or a hidden reason. */
   houseMeetingRefused?: "ceremony" | "asleep" | "nobody" | "spent";
   /** ORW-794 (moment prompt only): the alliances an NPC has let the player in on and the player has not taken (the same Vault-free view `gameStatus.alliancePitches` shows: id, name, the roster the player was told). Absent when none is open. */
@@ -1817,7 +1821,9 @@ export interface PendingDecisionView {
     // player-witnessed approach, resolved via submitDecision({ kind:"deal-offer", vote:"accept"|"decline" }). ---
     | "deal-offer"
     // --- ORW-596: the player's answer to an NPC's public accusation is open state like a deal offer (never raised as a pending card); listed so the kind master list matches the request union. ---
-    | "meeting-answer";
+    | "meeting-answer"
+    // --- ORW-743: the player says the thing the house is talking about themselves, first (open state, never a card). ---
+    | "say-it-first";
   by: NamedRef;
   /** A human-readable instruction for the moment (what the player must choose). */
   prompt: string;
@@ -2238,7 +2244,8 @@ export interface WalkedInView {
   room: string;
   with: NamedRef[];
   /** The manner to voice only. The raw reaction value is engine-side: its distribution follows the hidden stakes of the talk, so it is never part of this view. */
-  reactions: Array<{ id: EntityId; name: string; line: string }>;
+  /** `left` (ORW-1077): this houseguest walked out of the room as their reaction. */
+  reactions: Array<{ id: EntityId; name: string; line: string; left?: true }>;
 }
 
 export type PlayerMoveView =
@@ -2293,7 +2300,8 @@ export interface WhereaboutsView {
   /** The room the player is in. */
   room: string;
   /** ORW-1064: present only on the answer to a move the engine REFUSED because the room named is ambiguous (`candidates`) or unknown: the player did not move, and the narrator must voice that they have to say which room. */
-  moveRefused?: { reason: "ambiguous-room" | "unknown-room"; asked: string; candidates?: string[] };
+  /** `hoh-door` (ORW-1076): the HOH room did not open; `detail` says why in plain words. */
+  moveRefused?: { reason: "ambiguous-room" | "unknown-room" | "hoh-door"; asked: string; candidates?: string[]; detail?: string };
   /** ORW-466: this season's name for every room ("the Coral Reef Room"), when the season has a house theme. Absent: the plain labels stand. */
   roomNames?: Partial<Record<string, string>>;
   /** ORW-466: one line of what the player's room looks like this season (the house theme), for the narrator. */
@@ -2992,7 +3000,9 @@ export interface SubmitDecisionReq {
     // ("accept" | "decline") rides the shared `vote` field (a string, like a tone/appeal value). ---
     | "deal-offer"
     // --- ORW-596: the player's own answer to an NPC's public accusation at a house meeting. The stance ("deny" | "admit" | "redirect") rides `vote`; the player's own words ride `statement`. ---
-    | "meeting-answer";
+    | "meeting-answer"
+    // --- ORW-743: the player tells the room the thing it is talking about, first, in their own words (`statement`, kept verbatim; blank = not said). ---
+    | "say-it-first";
   /**
    * self-evict (0061): the EXPLICIT confirmation. ONLY `confirmed:true` executes the irreversible
    * walk-out (record the event + fold its impact + flip status through the 0046 door). Anything else
@@ -3085,6 +3095,9 @@ export interface HangOutReq {
   untilClock?: number;
   /** ORW-1054: the player asked to wait for the next scheduled event ("hang out until production calls"): the target is that event (never past it), no per-beat dice, so ONE call reaches it instead of a run of calls cut short by chance stops. Bedtime and a houseguest whose own want is due still stop it; capped at 10 h. */
   untilEvent?: boolean;
+  /** ORW-1089 (Ryne 2026-11-27): the player sent a bare "next" while nothing was due. Time runs toward the next event and stops at the first thing that calls for them: someone walks into their room, game talk starts in
+   *  their sight, a houseguest's own want is due, the event, or bedtime. */
+  bareNext?: boolean;
 }
 /** Why a hang-out stopped (the engine decides; the narrator voices it). */
 /** `max-beats` also means a player-stated wait reached its target (ORW-445): a met target is not a separate stop reason. */

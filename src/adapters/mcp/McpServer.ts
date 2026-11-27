@@ -236,6 +236,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (args["maxMinutes"] !== undefined && (typeof args["maxMinutes"] !== "number" || !Number.isFinite(args["maxMinutes"]) || args["maxMinutes"] <= 0)) refuse("maxMinutes", "a positive number of in-game minutes (capped at 180 by the engine)");
       if (args["untilBandEnd"] !== undefined && typeof args["untilBandEnd"] !== "boolean") refuse("untilBandEnd", "a boolean when present");
       if (args["untilEvent"] !== undefined && typeof args["untilEvent"] !== "boolean") refuse("untilEvent", "a boolean when present");
+      if (args["bareNext"] !== undefined && typeof args["bareNext"] !== "boolean") refuse("bareNext", "a boolean when present");
       if (args["untilClock"] !== undefined && (typeof args["untilClock"] !== "number" || !Number.isFinite(args["untilClock"]) || args["untilClock"] < 0 || args["untilClock"] >= 24)) refuse("untilClock", "an hour of the day from 0 up to 24 (22.5 = 10:30pm) when present");
       return;
     case "moveTo":

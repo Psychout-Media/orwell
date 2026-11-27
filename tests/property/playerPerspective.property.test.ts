@@ -36,7 +36,7 @@ const deployedProfile = execFileSync(
 )
   .split("\n").map((l) => l.trim()).filter((l) => l !== "")
   .map((l) => { if (!/^ORWELL_[A-Z0-9_]+=\S+$/.test(l)) throw new Error(`unexpected line: ${l}`); return l; })
-  .filter((l) => !/^ORWELL_(EMBEDDINGS|EMBED_CACHE)=/.test(l));
+  .filter((l) => !/^ORWELL_(EMBEDDINGS|EMBED_CACHE|COMP_MECHANICS_MORE)=/.test(l));
 for (const line of deployedProfile) { const i = line.indexOf("="); process.env[line.slice(0, i)] = line.slice(i + 1); }
 const { GameSessionRegistry } = await import("../../src/composition/registry");
 

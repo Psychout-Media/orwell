@@ -7288,6 +7288,11 @@ async def _knowledge_wall_guard(text: str, owner) -> str:
         return text
 
 
+def _pd_bed_skip(pre_bed_state) -> "tuple[str, ...]":
+    """ORW-395: when the FE itself ran the player's `turnIn`, the goodnight is voiced in the evening room while the board is already the morning one, so where-the-player-is is not judged that turn."""
+    return ("player-room",) if isinstance(pre_bed_state, dict) else ()
+
+
 async def _presence_wall_guard(text: str, owner, alt_state=None, carry=None) -> str:
     """A2 (#1726) — the PRE-EMISSION structural presence guard, a location analog of
     `_knowledge_wall_guard` above. Drops any sentence that stages a houseguest the engine places
@@ -10948,6 +10953,7 @@ async def _stream_agent_loop_impl(
                                     round_response = _mirror_confession_replace(round_response, _pv_ops)
                                     _guarded = _guarded._replace(text=_pv_text)
                                     _guarded_text = await _knowledge_wall_guard(_guarded.text, owner)
+                                    _pw_in = _guarded_text
                                     _guarded_text = await _presence_wall_guard(_guarded_text, owner, alt_state=_pre_bed_state, carry=_pw_carry)
                                     try:  # ORW-408: count (never alter) narration that contradicts an engine hard fact; the rewrite needs a held-back reply (see src/predisplay_check.py)
                                         from src.predisplay_check import check_and_count as _pd_check
@@ -10956,11 +10962,16 @@ async def _stream_agent_loop_impl(
                                         await _pd_check(_guarded_text or "", owner, in_quote=_pd_inq)  # review of #2682: count what the player is shown (post-wall), not the pre-wall text
                                     except Exception:  # failsoft-ok: counter only
                                         pass
-                                    if (not _pd_rewrite_used and _guarded_text and not _scene_broken and not _visible_halted
+                                    if (not _pd_rewrite_used and (_guarded_text or _pw_in) and not _scene_broken and not _visible_halted
                                             and tool_call_opener_index(round_response) < 0):
                                         try:  # ORW-408: withhold the first sentence that contradicts an engine hard fact (nothing emitted yet); fail-open => emitted as today
                                             from src.predisplay_check import split_at_first_conflict as _pd_split_fn
-                                            _pd_split = _pd_split_fn(_guarded_text, owner, in_quote=_pd_qopen(_round_emitted_text))
+                                            _pd_split = _pd_split_fn(_guarded_text, owner, in_quote=_pd_qopen(_round_emitted_text), skip=_pd_bed_skip(_pre_bed_state))
+                                            if _pd_split is None and _pw_in != _guarded_text:  # ORW-408: the presence wall cut a sentence: redo it once rather than show the hole
+                                                from src.predisplay_check import split_at_wall_drop as _pd_wall_fn
+                                                _pd_split = _pd_wall_fn(_pw_in, _guarded_text, owner)
+                                                if _pd_split is not None:
+                                                    _pw_carry.clear()  # the cut lines are never shown, so no quote or drop carries on from them
                                         except Exception:  # failsoft-ok: orw408-split-call
                                             _pd_split = None
                                         if _pd_split is not None:
@@ -11231,7 +11242,7 @@ async def _stream_agent_loop_impl(
                     try:  # ORW-408: the redo (or the trailing unterminated sentence) still states a hard-fact conflict -> drop that WHOLE sentence (never part of one), from the stream AND the stored text
                         from src.predisplay_check import drop_conflicting_sentences as _pd_drop_fn
                         from src.predisplay_check import quote_open_after as _pd_qopen2
-                        _pd_kept, _pd_dropped = _pd_drop_fn(_guarded_text, owner, in_quote=_pd_qopen2(_round_emitted_text))
+                        _pd_kept, _pd_dropped = _pd_drop_fn(_guarded_text, owner, in_quote=_pd_qopen2(_round_emitted_text), skip=_pd_bed_skip(_pre_bed_state))
                     except Exception:  # failsoft-ok: orw408-drop-call
                         _pd_kept, _pd_dropped = _guarded_text, []
                     for _pd_d in _pd_dropped:

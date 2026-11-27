@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { SeededRandom } from "../../src/adapters/random/SeededRandom";
-import { COMPETITION_LIBRARY, COMPETITION_LIBRARY_PLUS, drawCompetition, type CompetitionPhase } from "../../src/engine/competitionLibrary";
+import { COMPETITION_LIBRARY, COMPETITION_LIBRARY_PLUS, COMPETITION_LIBRARY_MORE, drawCompetition, type CompetitionPhase } from "../../src/engine/competitionLibrary";
 
 /**
  * ORW-530 - REPORT, NOT A GATE. How often does the same underlying competition MECHANIC (library id) recur, within a season and across seasons, over 200 seeded seasons of the shipped draw (`drawCompetition`, the same
@@ -10,20 +10,20 @@ import { COMPETITION_LIBRARY, COMPETITION_LIBRARY_PLUS, drawCompetition, type Co
  *   npx vitest run tests/calibration/compRecurrenceReport530.test.ts --reporter=verbose
  */
 const SEASONS = 200, WEEKS = 14, PHASES: CompetitionPhase[] = ["hoh", "veto"];
-type Arm = { name: string; expanded: boolean };
-const ARMS: Arm[] = [{ name: "base pool", expanded: false }, { name: "expanded pool (shipped)", expanded: true }];
+type Arm = { name: string; expanded: boolean; more?: boolean };
+const ARMS: Arm[] = [{ name: "base pool (12)", expanded: false }, { name: "expanded pool (30; the seeded test lanes)", expanded: true }, { name: "expanded + more (50; shipped, ORW-530)", expanded: true, more: true }];
 
-function season(seed: number, expanded: boolean): string[] {
+function season(seed: number, expanded: boolean, more = false): string[] {
   const rng = new SeededRandom(seed), hist: Record<CompetitionPhase, string[]> = { hoh: [], veto: [] }, out: string[] = [];
-  for (let w = 1; w <= WEEKS; w++) for (const p of PHASES) { const d = drawCompetition(p, w, rng, hist[p], expanded); hist[p].push(d.id); out.push(d.id); }
+  for (let w = 1; w <= WEEKS; w++) for (const p of PHASES) { const d = drawCompetition(p, w, rng, hist[p], expanded, more); hist[p].push(d.id); out.push(d.id); }
   return out;
 }
 
 describe("ORW-530 report: underlying mechanic recurrence over 200 seeded seasons", () => {
   it("prints within-season repeats and across-season overlap for the base and the shipped pool", () => {
-    const rows: string[] = [`pool sizes: base ${COMPETITION_LIBRARY.length}, plus ${COMPETITION_LIBRARY_PLUS.length}; ${SEASONS} seasons x ${WEEKS} weeks x 2 comps = ${WEEKS * 2} draws per season`];
+    const rows: string[] = [`pool sizes: base ${COMPETITION_LIBRARY.length}, plus ${COMPETITION_LIBRARY_PLUS.length}, more ${COMPETITION_LIBRARY_MORE.length}; ${SEASONS} seasons x ${WEEKS} weeks x 2 comps = ${WEEKS * 2} draws per season`];
     for (const arm of ARMS) {
-      const seasons = Array.from({ length: SEASONS }, (_, i) => season(1000 + i, arm.expanded));
+      const seasons = Array.from({ length: SEASONS }, (_, i) => season(1000 + i, arm.expanded, arm.more));
       const repeatsPer = seasons.map((s) => s.length - new Set(s).size), distinctPer = seasons.map((s) => new Set(s).size);
       const mean = (a: number[]): number => a.reduce((x, y) => x + y, 0) / a.length;
       let shared = 0, pairs = 0, consecShared = 0, consecPairs = 0;

@@ -763,7 +763,7 @@ export interface LiveSeasonState {
    */
   bonds?: BondStore;
   /** 0199 (ORW-629): HOH room visits already held (`week:hoh`) and backstory facts already revealed (`hoh|text`, each a true public facet of that HOH). Engine-only, idempotent, only grows. */
-  hohRoom?: { done: string[]; used: string[] };
+  hohRoom?: { done: string[]; used: string[]; /** ORW-1076: reigns (`week:hoh`) whose open-house visit the player has used. */ playerUp?: string[] };
   /** 0180 (Theme 3 slice 12, house norms): per `observer|subject`, how many known breaches of word have already been folded into the observer's read (never re-applied). Engine-only. */
   normsApplied?: Record<string, number>;
   /** 0186 (Theme 3 slice 14): exposures already applied (`holder|doubleDealer|rival`) and twists already reopened (`twistKey`, plus `dealId|twistKey` per deal handled). Engine-only (Vault class), never projected; idempotent. */
@@ -874,6 +874,13 @@ export interface LiveSeasonState {
   secretBreaks?: string[];
   /** ORW-698: the last in-game day the nightly secret-break pass ran (monotone), so a restart on the same night does not run it again. Absent in an old save (loads as not run). Engine-only, never projected. */
   secretBreakDay?: number;
+  /**
+   * ORW-743 (0204 part 2): the open "say it yourself first" card - a fact about the PLAYER that enough of the house holds (closing in). Engine-only (Vault class: it names a fact id); the player and
+   * the narrator are told one bit only ("people are talking about you"). Absent = no card.
+   */
+  sayItFirst?: { factId: string; since: number };
+  /** ORW-743: who learns a fact the player told the room themselves, waiting for the next tick that has the knowledge layer (engine-only; emptied as it is seeded). */
+  sayItFirstSeeds?: Array<{ factId: string; spoken: string; ids: string[] }>;
   /**
    * 0130 — each evictee's exit interview, week by week: their public posture on the way out (a `stance`
    * DERIVED from their manner for an NPC, or the PLAYER's own chosen stance + words). Recorded as the
@@ -1413,6 +1420,8 @@ export interface SeasonCtx {
    * `ORWELL_COMP_MECHANICS_PLUS`; the calibration/UAT/golden harness leaves it off.
    */
   expandedComps?: boolean;
+  /** ORW-530: also draw from the 20 more mechanics (needs `expandedComps`). */
+  moreComps?: boolean;
   /**
    * 0127 — blend a hybrid comp's SECONDARY aptitude into its outcome (a physical-with-a-puzzle-element
    * veto rewards the well-rounded houseguest). Absent/false ⇒ the pure single stat, byte-identical (the
@@ -1514,7 +1523,7 @@ export type DecisionInput =
 /** Draw this week's competition from the curated library (0042) — seeded, no immediate repeats.
  *  `ctx.expandedComps` (0126) folds in the extra mechanic pool; off ⇒ the base 12 (byte-identical). */
 const drawFor = (s: LiveSeasonState, phase: CompetitionPhase, rng: RandomnessSource, ctx: SeasonCtx): CompetitionDef =>
-  drawCompetition(phase, s.week, rng, s.compHistory?.[phase] ?? [], ctx.expandedComps);
+  drawCompetition(phase, s.week, rng, s.compHistory?.[phase] ?? [], ctx.expandedComps, ctx.moreComps);
 
 /** Record a resolved draw into the persisted history (0030) — what the NEXT draw must avoid. */
 function recordDraw(s: LiveSeasonState, phase: CompetitionPhase, def: CompetitionDef): void {

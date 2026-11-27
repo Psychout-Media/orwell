@@ -20,7 +20,7 @@ function offerStanding(seed: number, sandbox: string) {
 
 describe("a makeDeal to the houseguest who made the offer accepts it (played)", () => {
   it("the deal is made, not refused; the offer is spent", () => {
-    const f = firstSeedWhereSync((seed, sandbox) => offerStanding(seed, sandbox), { from: 1, to: 12, hint: [8, 12], sandbox: (s) => `ao930-${s}`, what: "a houseguest's offer standing with the player" });
+    const f = firstSeedWhereSync((seed, sandbox) => offerStanding(seed, sandbox), { from: 1, to: 12, hint: [1, 8, 12], sandbox: (s) => `ao930-${s}`, what: "a houseguest's offer standing with the player" });
     const g = f.at;
     const o = (g.s.getGameState() as { openDealOffer: { id: string; kind: string; from: { id: string } } }).openDealOffer;
     const before = g.s.getGameState().deals?.length ?? 0;
@@ -30,7 +30,7 @@ describe("a makeDeal to the houseguest who made the offer accepts it (played)", 
     expect(g.s.getGameState().deals?.length, "one deal was made").toBe(before + 1);
     expect((g.s.getGameState() as { openDealOffer?: unknown }).openDealOffer, "the offer is spent").toBeUndefined();
     expect((r as DealView).parties.some((x) => x.id === o.from.id), "with the houseguest who offered").toBe(true);
-  });
+  }, 120_000); // a whole played season: past the 30 s default on a CI runner
 
   it("a deal with a houseguest who made no offer is still decided by their own consent (unchanged)", () => {
     const f = firstSeedWhereSync((seed, sandbox) => offerStanding(seed, sandbox), { from: 1, to: 12, hint: [8, 12], sandbox: (s) => `ao930b-${s}`, what: "a houseguest's offer standing with the player" });
