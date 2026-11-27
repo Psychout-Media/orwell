@@ -30,6 +30,8 @@ export interface BedsState {
   claims: BedClaim[];
   /** ORW-466 slice 3: evictees whose empty spot the house has noticed (a public event, once each). Append-only; absent until the first eviction. */
   noticedEmpty?: EntityId[];
+  /** ORW-1090: half-of-a-double joins whose sleeper has already woken and reacted (key `bed:sleeper:joiner`). Append-only; absent until the first reaction (saves byte-identical until then). */
+  wokeBeside?: string[];
 }
 
 export const roomOfBed = (spot: BedId): Room => spot.slice(0, spot.lastIndexOf("#")) as Room;

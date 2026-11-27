@@ -393,16 +393,14 @@ jobs:
           # ORW-551 slice 4: the 12-season house-mix guard (replaces the 2-seed unit guard). About two minutes of play in one process.
           - leg: house-mix
             scripts: "house-mix"
-          # ORW-702: the whole-season house-mix guard: 4 played seasons (one scripted talking player), ORW-991: fails only on a broken mix (tests/support/brokenBounds.ts); the agreed bands print as a report.
-          # The seasons play at the same time in child processes inside the one leg (the longest is about 5 minutes), so the pooled numbers are judged in one place.
-          - leg: season-mix
-            scripts: "season-mix"
           # ORW-741: the real-path tests (a feature reached in a PLAYED season, no hand-set state, and gone when switched off). A few minutes of play in all.
-          # Two shards (ORW-702, CI unblock): the one leg ran 13-20 min against its 25-min cap and capped on a slow runner. A is an explicit file list balanced on main's timings; B is every other realPath file, so a new file lands in B.
+          # Three shards (ORW-702 unblocked it with two; ORW-410 made it three): A and B are explicit file lists balanced on measured times; C is every other realPath file, so a new file lands in C.
           - leg: real-path-a
             scripts: "real-path-a"
           - leg: real-path-b
             scripts: "real-path-b"
+          - leg: real-path-c
+            scripts: "real-path-c"
     name: heavy-sims (${{ matrix.leg }})
     permissions:
       contents: read
@@ -446,6 +444,72 @@ jobs:
       - name: record the proof (saved by the cache action's post step, only if every step above passed)
         if: steps.heavyproof.outputs.cache-hit != 'true'
         run: mkdir -p .heavy-proof && echo "${{ github.run_id }} ${{ matrix.scripts }}" > .heavy-proof/ok
+
+  # ORW-702 / ORW-410: the whole-season house-mix guard. Four played seasons (one scripted talking player), each in its OWN job (they used to share one 4-core runner, 530-630 s each);
+  # `season-mix` then judges all four TOGETHER, so a phase share is never judged on a partial set. ORW-991: it fails only on a broken mix (tests/support/brokenBounds.ts); the agreed bands print as a report.
+  season-mix-shard:
+    needs: changes
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.heavy == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [1, 2, 3, 6] # SEEDS in tests/uat/wholeSeasonMixGuard.test.ts (pinned by tests/unit/seasonMixShards.test.ts)
+    name: season-mix-shard (${{ matrix.seed }})
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # A season is a function of the same inputs as a heavy sim, so the played result is cached by their hash and replayed to the judging job.
+      - name: played-season cache (a hit means these inputs were already played)
+        id: played
+        uses: actions/cache@v4
+        with:
+          path: .wsmix
+          key: mix-season-v1-${{ matrix.seed }}-${{ hashFiles('src/**', 'tests/uat/**', 'tests/property/**', 'tests/calibration/**', 'tests/support/**', 'features/support/**', 'patches/**', 'package.json', 'package-lock.json', 'vitest.config.ts', 'vitest.sequencer.ts', 'tsconfig*.json', 'deploy/orwell-env-defaults.sh') }}
+      - if: steps.played.outputs.cache-hit != 'true'
+        run: npm ci
+      - name: play season ${{ matrix.seed }}
+        if: steps.played.outputs.cache-hit != 'true'
+        env:
+          WSMIX_SEEDS: ${{ matrix.seed }}
+          WSMIX_OUT: .wsmix
+        run: npm run test:heavy:season-mix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: season-mix-${{ matrix.seed }}
+          path: .wsmix/seed-${{ matrix.seed }}.json
+          include-hidden-files: true
+          if-no-files-found: error
+
+  season-mix:
+    needs: [changes, season-mix-shard]
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.heavy == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: season-mix-*
+          path: .wsmix
+          merge-multiple: true
+      - name: judge the four seasons together
+        env:
+          WSMIX_FROM: .wsmix
+        run: npm run test:heavy:season-mix
 
   # ── Coverage gate ──────────────────────────────────────────────────────────────
   # Per-directory branch thresholds in vitest.config.ts — coverage can no longer silently regress
@@ -1001,6 +1065,8 @@ jobs:
       - fe-perf-report
       - mirror-parity
       - heavy-sims
+      - season-mix-shard
+      - season-mix
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -1023,6 +1089,8 @@ jobs:
             fe-perf-report=${{ needs.fe-perf-report.result }}
             mirror-parity=${{ needs.mirror-parity.result }}
             heavy-sims=${{ needs.heavy-sims.result }}
+            season-mix-shard=${{ needs.season-mix-shard.result }}
+            season-mix=${{ needs.season-mix.result }}
           FULL: ${{ needs.changes.outputs.full }}
           ENGINE: ${{ needs.changes.outputs.engine }}
           HEAVY: ${{ needs.changes.outputs.heavy }}
@@ -1042,7 +1110,7 @@ jobs:
               changes) echo true ;;
               fast-checks) if [ "$ENGINE" = true ] || [ "$FRONTEND" = true ]; then echo true; else echo false; fi ;;
               test|bdd|test-unit|coverage) echo "$ENGINE" ;;
-              heavy-sims) echo "$HEAVY" ;;
+              heavy-sims|season-mix-shard|season-mix) echo "$HEAVY" ;;
               smoke) echo "$DEPLOY" ;;
               fe-unit|fe-coverage|fe-browser-tests) echo "$FRONTEND" ;;
               fe-browser|fe-responsive|fe-perf-report|mirror-parity) echo "$FE_RENDER" ;;
