@@ -22,7 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ci_logparse import parse_flakes  # noqa: E402
 
-SKIP_JOBS = re.compile(r"^(changes|ci-gate|coverage|fe-coverage|heavy-sims.*)$")  # no retries there, or no tests
+SKIP_JOBS = re.compile(r"^(changes|ci-gate|coverage|fe-coverage|heavy-sims.*|season-mix.*)$")  # no retries there, or no tests
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 

@@ -18,8 +18,8 @@ const lines = yml.slice(start).split("\n");
 const end = lines.findIndex((l) => l.trim() !== "" && !l.startsWith(" ".repeat(10)));
 const script = (end < 0 ? lines : lines.slice(0, end)).map((l) => l.replace(/^ {10}/, "")).join("\n");
 
-const JOBS = ["changes", "backlog-whole", "fast-checks", "test", "bdd", "test-unit", "coverage", "smoke", "fe-unit", "fe-coverage", "fe-perf-report", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
-const HEAVY_TIER = ["bdd", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
+const JOBS = ["changes", "backlog-whole", "fast-checks", "test", "bdd", "test-unit", "coverage", "smoke", "fe-unit", "fe-coverage", "fe-perf-report", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims", "season-mix-shard", "season-mix"];
+const HEAVY_TIER = ["bdd", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims", "season-mix-shard", "season-mix"];
 
 function gate(full: boolean, results: Record<string, string>, filters: Record<string, string> = {}): { rc: number; out: string } {
   const env = {
@@ -91,7 +91,7 @@ describe("ci-gate (two-tier CI)", () => {
 
 describe("ci.yml wiring (two-tier CI)", () => {
   it("every heavy-tier job is gated on the full tier", () => {
-    for (const job of ["bdd", "heavy-sims", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "a11y-matrix"]) {
+    for (const job of ["bdd", "heavy-sims", "season-mix-shard", "season-mix", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "a11y-matrix"]) {
       const m = yml.match(new RegExp(`\\n  ${job}:\\n(?:    .*\\n)*?    if: (.*)\\n`));
       expect(m, job).toBeTruthy();
       expect(m![1], job).toContain("needs.changes.outputs.full == 'true'");
@@ -164,7 +164,7 @@ describe("result reuse (ORW-413 PR 2)", () => {
     expect(yml).toContain('[ "$l2" = "$TREE" ] && [ "$l3" = "$WF" ]');
   });
   it("every heavy job (all but changes and ci-gate) skips when the proof is reused", () => {
-    for (const job of ["fast-checks", "test", "bdd", "test-unit", "heavy-sims", "coverage", "smoke", "fe-unit", "fe-coverage", "fe-browser-tests", "fe-browser", "fe-perf-report", "fe-responsive", "mirror-parity", "a11y-matrix"]) {
+    for (const job of ["fast-checks", "test", "bdd", "test-unit", "heavy-sims", "season-mix-shard", "season-mix", "coverage", "smoke", "fe-unit", "fe-coverage", "fe-browser-tests", "fe-browser", "fe-perf-report", "fe-responsive", "mirror-parity", "a11y-matrix"]) {
       const m = yml.match(new RegExp(`\\n  ${job}:\\n(?:    .*\\n)*?    if: (.*)\\n`));
       expect(m![1], job).toContain("needs.changes.outputs.reuse != 'true'");
     }
