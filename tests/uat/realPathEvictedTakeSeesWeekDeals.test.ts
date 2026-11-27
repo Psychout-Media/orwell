@@ -16,7 +16,7 @@ import { firstSeedWhere } from "../support/firstSeedWhere";
  */
 type Deal = { id: string; kind: string; status: string; parties: string[] };
 describe("ORW-871 REAL PATH: the evicted take sees the week's deals before they are closed", () => {
-  quarantine({ card: "ORW-1007", added: "2026-11-26" }).it("at every eviction the evicted take runs before the week's deals expire; the take meets the player's open week deal with the evictee and lapses it", async () => {
+  quarantine({ card: "ORW-1096", added: "2026-11-27" }).it("at every eviction the evicted take runs before the week's deals expire; the take meets the player's open week deal with the evictee and lapses it", async () => {
     let order: string[] = [], met: number[] = [], openAtTake: string[][] = [];
     const takeOrig = GameSessionAdapter.prototype.evictedTakeWithThem; const expireOrig = DealLedger.prototype.expireWeekScoped;
     const take = vi.spyOn(GameSessionAdapter.prototype, "evictedTakeWithThem").mockImplementation(function (this: GameSessionAdapter) {
