@@ -97,6 +97,13 @@ export interface Runtime {
   timeOfDayStatus(): boolean;
 }
 
+/** The default disk store, told what is already on disk so `/health` is truthful from boot (ORW-1092). */
+function seededFileSaveStore(): FileSaveStore {
+  const store = new FileSaveStore();
+  store.seedDurabilityFromDisk();
+  return store;
+}
+
 /**
  * The durable save store the entrypoint composes when `durable` is set (B59/audit E7: the composition
  * layer constructs the engine-only adapter, so `main.ts` never imports one). E63: `ORWELL_STORE=sqlite`
@@ -106,7 +113,7 @@ export interface Runtime {
 function buildDurableStore(env: Record<string, string | undefined> = process.env): UserSaveStore {
   return (env.ORWELL_STORE ?? "").trim().toLowerCase() === "sqlite"
     ? new SqliteSaveStore()
-    : new FileSaveStore();
+    : seededFileSaveStore();
 }
 
 export function composeRuntime(opts: RuntimeOptions = {}): Runtime {
