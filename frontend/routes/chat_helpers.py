@@ -12,6 +12,7 @@ from typing import Any, List, Optional
 
 from core.models import ChatMessage
 from core.database import SessionLocal
+from src.failsoft_counter import note as _failsoft_note  # ORW-1026: a swallowed failure is counted, not silent
 from core.database import Session as DBSession, ModelEndpoint
 from src.llm_core import normalize_model_id
 from src.endpoint_resolver import normalize_base, resolve_session_headers
@@ -785,10 +786,11 @@ def parse_wait_until_clock(player_msg):
 _HANGOUT_STOP_LINES = {
     "event-due": "production is calling everyone - the scheduled event is on now (the house gathers).",
     "pulled": "the player is pulled away{by}.",
-    "npc-approach": "{npc} comes over to talk to the player.",
+    "npc-approach": "an approach - {npc} wants a word with the player and starts the conversation.",
     "observed": "the player notices something: {obs}.",
     "bedtime": "it is getting late - bedtime is the player's own call (do not force it).",
-    "max-beats": "a stretch of time passes with nothing demanding the player.",
+    # ORW-510: facts, not sentences. The old max-beats text ("a stretch of time passes with nothing demanding the player.") was copied into the reply word for word, turn after turn.
+    "max-beats": "no interruption - no one came over and nothing was called; the time simply ran out. Open on what the house around the player is doing now.",
 }
 
 
@@ -803,6 +805,30 @@ _ENGINE_EVENT_NOT_DUE_STOP_LINE = "The house has not been called together yet: n
 _HANGOUT_NOT_DUE_LINE = "the house is still waiting - production hasn't called the scheduled event yet, so it is NOT on now (nobody is gathered)."
 
 
+def _counted_steer(fn=None, *, always: bool = False):
+    """ORW-1042: every steer / re-ground builder writes ONE INFO line (name only, no content) and ONE counter when it produces something, so a directive that
+    changes the next narration is never invisible. The counter is process-wide (`orwell_sync_ledger.get_steer_counts`, on the admin health snapshot as
+    `steerCounts`); a stash that is never drained still shows here, and the drain sites keep their own belt counts. The result is returned unchanged."""
+    import functools
+    if fn is None:  # @_counted_steer(always=True): a STASH function that returns nothing - every call is one stash
+        return lambda f: _counted_steer(f, always=True)
+
+    @functools.wraps(fn)
+    def _w(*a, **k):
+        out = fn(*a, **k)
+        try:
+            if out or always:
+                from src import orwell_sync_ledger as _led
+                _led.note_steer(fn.__name__)
+                logger.info("[orwell] steer %s", fn.__name__)
+        except Exception:  # failsoft-ok: telemetry must never hurt the turn
+            pass
+        return out
+    return _w
+
+
+
+@_counted_steer
 def _reconcile_hang_out_steer(steer: str, game_state, briefing=None) -> str:
     """ORW-409: the engine's hang-out may report `event-due` while the board the turn is framed on says the event is not due (`daySchedule.due` False). The not-due steer
     owns the prompt then; swap the stop line so the narrator is never told the event is on now AND not called yet. No schedule on the board => unchanged."""
@@ -814,6 +840,7 @@ def _reconcile_hang_out_steer(steer: str, game_state, briefing=None) -> str:
     return steer
 
 
+@_counted_steer
 def _hang_out_steer(res: dict, asked_minutes=None) -> str:
     """The one-turn narrator steer for an engine-decided hang-out: the elapsed time and the STOP, both engine facts (invent nothing beyond them).
     ORW-477: `asked_minutes` is the length the player stated; when the engine stopped earlier on an interruption, the steer says the wait was cut short (the engine's own minutes, never the stated span)."""
@@ -838,6 +865,23 @@ def _hang_out_steer(res: dict, asked_minutes=None) -> str:
             + cut + "STOP: %s Voice the passage of time in a brief paragraph, then open the scene on that stop. Invent no ceremony, vote, or outcome beyond it." % line)
 
 
+# ORW-1054: the open-ended wait whose end is the next scheduled event ("hang out until production calls the next ceremony"). No stated length, band or clock time; the sentence names production, a call, the next
+# event or a ceremony/competition. Anything else open-ended ("hang out for a while") keeps the bounded hang-out.
+_WAIT_ENDS_AT_EVENT_RE = re.compile(
+    r"\b(?:until|till|'til|til|for)\b[^.?!\n]{0,60}?\b(?:production|called|calls?|the\s+next\s+(?:event|thing|ceremony|competition|comp)|(?:the\s+)?(?:ceremony|competition|comp|nominations?|veto|eviction|hoh|head\s+of\s+household|show|something\s+happens))\b",
+    re.IGNORECASE)
+
+
+def _waits_for_event(player_msg) -> bool:
+    m = _wait_intent_match(str(player_msg or ""))
+    if not m:
+        return False
+    text = str(player_msg)
+    tail = text[m.start():]
+    end = re.search(r"[.?!\n]", tail)
+    return bool(_WAIT_ENDS_AT_EVENT_RE.search(tail[:end.start()] if end else tail))
+
+
 async def maybe_hang_out(user, game_state: dict, player_msg) -> bool:
     """Recognise a hang-out-until-X intent and, when the engine's lever is live, run it and arm the narrator steer. Returns True when the clock moved (the caller refreshes the
     board). Fail-open: flag off / clock off / a pending decision / any hiccup => the turn proceeds exactly as before (the engine refuses with `ok:false`, no state change)."""
@@ -854,6 +898,8 @@ async def maybe_hang_out(user, game_state: dict, player_msg) -> bool:
         _clock = parse_wait_until_clock(player_msg)  # ORW-734a: "until 10pm" - the engine resolves it on its own clock (the next such time, never a day later)
         if _clock is not None:
             _kw["until_clock"] = _clock
+        if not _kw and _waits_for_event(player_msg):
+            _kw["until_event"] = True  # ORW-1054: "hang out until production calls" runs to the event in one call, not a run of chance-stopped calls
         res = await orwell_engine.hang_out(expected_beat_seq=last_beat_seq(user), user=user, **_kw)
         _refresh_beat_seq(user, res)
         if not isinstance(res, dict) or not res.get("ok"):
@@ -874,6 +920,7 @@ _PREMIERE_SOCIAL_MESSAGES = 48
 _PREMIERE_MSGS: dict = {}  # runway key -> premiere messages seen
 
 
+@_counted_steer
 def _premiere_not_yet_steer(ds: Optional[dict] = None, briefing=None) -> str:
     """The one-turn narration cue for the premiere -> first-HOH hold: the first Head of Household competition is production's to call - never on demand.
     ORW-394: with the engine clock live (`ds` = the board's daySchedule) the when comes from the schedule (never "this afternoon" when it is not today); without it, the premiere morning's "this afternoon"."""
@@ -928,7 +975,8 @@ def mark_premiere_release(user) -> None:
         key = _runway_key(user)
         if key in _PREMIERE_ENTRANCE_STAGE:
             _PREMIERE_RELEASED_THIS_TURN.add(key)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:mark_premiere_release:1", _fs_exc)
         pass
 
 
@@ -948,6 +996,26 @@ _ARRIVALS_NAMED: dict = {}      # runway key -> set of arrival names a reply has
 _ARRIVALS_FRAMED: dict = {}     # runway key -> names the narrator was framed with this turn (the latest, plus any owed from before)
 _ARRIVAL_VOICE_HOLDS: dict = {}  # runway key -> consecutive turns the next release was held for an unnamed arrival
 _ARRIVAL_VOICE_HOLD_CAP = 2
+_ARRIVAL_POSTREPLY_DEFERS: dict = {}  # ORW-1029: runway key -> consecutive turns the end-of-turn silent arrival commit was left for the next turn's pre-reply release
+
+
+def defer_postreply_arrival_commit(user) -> bool:
+    """ORW-1029: a staged premiere arrival (or toast batch) committed silently AFTER the reply is never in that reply, so the next turn must voice it from framing and the narrator often does not
+    (the 11-26 prod run: entrances 11, 12 and 14 committed and never narrated). `maybe_release_premiere_arrival` already commits the due arrival BEFORE the reply; so when the end-of-turn stall belt
+    would commit one after the reply, leave it: the staleness clock is untouched, so the next turn's pre-release finds it due. Bounded (one deferral in a row) so a pre-release that cannot run
+    (held, exception, a pre-resolve already used the turn) still gets the end-of-turn net. True = skip the post-reply commit. Never raises."""
+    try:
+        key = _runway_key(user)
+        if not premiere_entrance_active(user) or _PREMIERE_ENTRANCE_STAGE.get(key) not in ("entrances", "toast"):
+            _ARRIVAL_POSTREPLY_DEFERS.pop(key, None)
+            return False
+        if _ARRIVAL_POSTREPLY_DEFERS.get(key, 0) >= 1:
+            _ARRIVAL_POSTREPLY_DEFERS.pop(key, None)
+            return False
+        _ARRIVAL_POSTREPLY_DEFERS[key] = 1
+        return True
+    except Exception:
+        return False
 _TOAST_FLOW_BATCHES = 4  # ORW-997: an explicit next / continue plays up to this many toast batches (two speakers each) in one turn
 _TOAST_BATCH_NAMED: dict = {}   # runway key -> tuple of the toast batch a reply already voiced
 # ORW-997: the latest staged release (an arrival or a toast batch) and how many framed turns have handed it to the narrator. A release handed once and named in the reply (or handed twice) is VOICED: the next
@@ -990,7 +1058,8 @@ def _note_entrance_frame(user, key, stage, ent) -> bool:
     try:
         from src import orwell_engine as _oe
         _oe.set_entrance_voiced(user, voiced)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_note_entrance_frame:1", _fs_exc)
         pass
     return voiced
 
@@ -1060,7 +1129,8 @@ def note_premiere_narration(user, narration: str) -> None:
         people = [x for x in (sp or []) if x != "host"]
         if people and all(_name_voiced_in(narration, x) for x in people):
             _TOAST_BATCH_NAMED[key] = tuple(people)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_premiere_narration:1", _fs_exc)
         pass
 
 
@@ -1125,7 +1195,8 @@ def note_premiere_turn(user, game_state) -> None:
         try:
             from src import orwell_engine as _oe_clear
             _oe_clear.set_entrance_voiced(user, False)
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:note_premiere_turn:3", _fs_exc)
             pass
         if stage == "done":
             # Live finding (A9 rerun #2): with the entrances ON, the entrances + toast ARE the premiere. Stacking the 48-message premiere hold on top of them froze the engine at
@@ -1157,7 +1228,8 @@ def note_premiere_turn(user, game_state) -> None:
                 _SCHEDULE_STEER[key] = _premiere_not_yet_steer()
         else:
             _PREMIERE_MSGS.pop(key, None)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_premiere_turn:4", _fs_exc)
         pass
 
 
@@ -1212,14 +1284,16 @@ def note_engine_held(user, held) -> None:
     try:
         import time as _t
         _ENGINE_HELD[_runway_key(user)] = (_t.monotonic(), held)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_engine_held:1", _fs_exc)
         pass
 
 
 def clear_engine_held(user) -> None:
     try:
         _ENGINE_HELD.pop(_runway_key(user), None)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:clear_engine_held:1", _fs_exc)
         pass
 
 
@@ -1311,6 +1385,7 @@ def pop_pending_chyron(user) -> list:
     return _PENDING_CHYRON.pop(_runway_key(user), [])
 
 
+@_counted_steer
 def _aired_fact_steer(user) -> Optional[str]:
     """One short framing line grounding the scene on an engine-committed beat the chyron has aired."""
     key = _runway_key(user)
@@ -1327,6 +1402,7 @@ def _aired_fact_steer(user) -> Optional[str]:
 _DAY_BREAK_SOCIAL_TURNS = 1  # held social turns after a consumed day-break (the new day's morning)
 
 
+@_counted_steer
 def _day_break_narration_steer(content: str) -> str:
     """The focused production note that makes the model VOICE the engine's `day-break` beat (the
     night→morning crossing) instead of silently skipping to the next ceremony. Never authors the
@@ -1571,13 +1647,34 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -
         "Do not write anyone who walks in, arrives, appears at the door or joins the scene: arrivals are the game's to bring (it tells you in the turn when someone comes in), so if a scene needs "
         "someone else, let the player go find them or let someone on the roster mention them. People on the roster may move between rooms or leave (narrate it and the engine records it). Three more hard rules keep "
         "the prose foldable into the board: (1) NEVER place a houseguest who has already been evicted in any room - they have left the house for good; (2) NEVER invent a room that is not part of "
-        "the house; (3) a houseguest is in exactly ONE place at a time. Do not silently teleport anyone, and do not empty a room the engine says is occupied."
+        "the house; (3) a houseguest is in exactly ONE place at a time. Do not silently teleport anyone, and do not empty a room the engine says is occupied. "
+        "A houseguest who is neither on the list above nor in an adjacent room is somewhere the game has not told you: place none of them in a named room, say nothing of where they have been or sat, and keep them off the page until the game brings them in. "
+        "A houseguest may say where another houseguest is or was only as what that speaker saw for themselves (first person, possibly out of date); never name a third houseguest as the one who saw them, and never give a sighting the game did not hand you."
     )
 
 
 def _walk_in_names(names):
     """ORW-473: 'A and B' for a pair, 'A, B and C' for a group (a pair reads exactly as before)."""
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _player_search_directive(search) -> Optional[str]:
+    """ORW-934: the engine already walked the player's search for a houseguest this turn (`playerSearch`: ordered legs, who was in each room, how it ended). The narrator voices it as ONE compressed passage and invents
+    nothing. None when there is nothing to voice (fail-open)."""
+    if not isinstance(search, dict):
+        return None
+    legs = [l for l in (search.get("legs") or []) if isinstance(l, dict) and l.get("roomName")]
+    target = search.get("target") if isinstance(search.get("target"), dict) else {}
+    who = str(target.get("name") or "the houseguest")
+    lines = []
+    for i, l in enumerate(legs, 1):
+        present = [str(p.get("name")) for p in (l.get("present") or []) if isinstance(p, dict) and p.get("name")]
+        lines.append(f"{i}. the {l['roomName']}: " + (", ".join(present) + " there" if present else "nobody there"))
+    minutes = search.get("minutes")
+    return (f"PLAYER SEARCH (engine truth, already done this turn): the player looked for {who}, room by room, on foot" + (f", about {minutes} minutes" if isinstance(minutes, (int, float)) and minutes > 0 else "") + ".\n"
+            + ("\n".join(lines) + "\n" if lines else "")
+            + f"How it ended ({search.get('outcome')}): {search.get('reason')}.\n"
+            + "Voice the whole search as ONE compressed passage: the rooms checked in this order, who was in each, and how it ended. Invent no sighting, room or person that is not listed here. Do not walk the player anywhere else or place anyone yourself; the player is now in the last room listed. If it ended because the houseguest is somewhere the player cannot go, say so plainly. The player can stop or redirect at any point.")
 
 
 def _walked_in_directive(walked_in) -> Optional[str]:
@@ -1842,6 +1939,11 @@ _DESYNC_REGROUND: dict = {}
 # is unchanged; the segments ARE the multi-slot queue.
 _REGROUND_SEP = "\n\n"
 _REGROUND_QUEUE_CAP = 8  # generous — a turn rarely queues >1–2; the cap only guards a runaway.
+_REGROUND_DROPPED = {"overflow": 0}  # ORW-1068: queued corrections dropped at the cap, counted (the warning alone was invisible)
+
+
+def reground_dropped_count() -> int:
+    return _REGROUND_DROPPED["overflow"]
 
 
 def _reground_segments(key):
@@ -1872,7 +1974,11 @@ def _reground_enqueue(key, directive) -> bool:
         # NOTE: `key` MAY be None — under a userless single-tenant path with no resolvable game session
         # `_desync_key` returns None, and the store's readers pop/consume that same None key. Preserving
         # None-keying keeps the degenerate single-tenant fallback working (it was the prior behaviour).
-        directive = str(directive)
+        # ORW-1068: a blank line inside a directive would split it into two queue segments (defeating the exact-match
+        # de-duplication and `_reground_remove`), so one directive is always one segment.
+        directive = re.sub(r"\n\s*\n", "\n", str(directive)).strip()
+        if not directive:
+            return False
         segs = _reground_segments(key)
         if directive in segs:
             _DESYNC_REGROUND[key] = _REGROUND_SEP.join(segs)  # normalise (legacy value → canonical)
@@ -1880,6 +1986,7 @@ def _reground_enqueue(key, directive) -> bool:
         segs.append(directive)
         while len(segs) > _REGROUND_QUEUE_CAP:
             dropped = segs.pop(0)
+            _REGROUND_DROPPED["overflow"] += 1
             logger.warning(
                 "[orwell] _DESYNC_REGROUND queue at cap=%d for key=%s — dropped the OLDEST queued "
                 "correction (no silent truncation): %.120s", _REGROUND_QUEUE_CAP, key, dropped)
@@ -1896,14 +2003,15 @@ def _reground_remove(key, directive) -> None:
         if not directive:
             return
         segs = _reground_segments(key)
-        directive = str(directive)
+        directive = re.sub(r"\n\s*\n", "\n", str(directive)).strip()  # same normalisation as _reground_enqueue (ORW-1068)
         if directive in segs:
             segs.remove(directive)
         if segs:
             _DESYNC_REGROUND[key] = _REGROUND_SEP.join(segs)
         else:
             _DESYNC_REGROUND.pop(key, None)
-    except Exception:  # pragma: no cover - defence in depth
+    except Exception as _fs_exc:  # pragma: no cover - defence in depth
+        _failsoft_note("chat_helpers:_reground_remove:1", _fs_exc)
         pass
 
 
@@ -1933,6 +2041,7 @@ _ANTI_STALE_NARRATION_REGROUND = (
 )
 
 
+@_counted_steer
 def stash_anti_stale_reground(user) -> bool:
     """F1 anti-stale guard: OBLIGATE the next narration turn to voice the engine's CURRENT moment after a
     silent forced-advance moved the board past what the chat last voiced. Appends the closed-set directive
@@ -1973,7 +2082,8 @@ def _desync_key(user):
         sid = orwell_game_session.get_game_session(user)
         if isinstance(sid, str) and sid.strip():
             return "gs:" + sid.strip()
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_desync_key:1", _fs_exc)
         pass
     return user
 
@@ -2572,7 +2682,8 @@ def _defer_fold(user, fn, args: tuple, kwargs: dict, desc: str) -> None:
             _sl.note_stale_rejection(
                 user, dropped_fold=True,
                 cause="deferred-fold queue overflow (retry capacity outrun)")
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:_defer_fold:1", _fs_exc)
             pass
     else:
         logger.info("[orwell] deferred a fold-bearing back-fill after a double stale-409 (%s) for "
@@ -2643,7 +2754,8 @@ async def _drain_deferred_folds(user) -> None:
                             _sl.note_stale_rejection(
                                 user, dropped_fold=True,
                                 cause="deferred-fold retry budget exhausted (sustained two-window concurrency)")
-                        except Exception:
+                        except Exception as _fs_exc:
+                            _failsoft_note("chat_helpers:_drain_deferred_folds:1", _fs_exc)
                             pass
                         continue  # DROP -- do not re-queue a fold that will not commit
                     remaining.append(entry)  # still contested, within budget -- leave queued for next time
@@ -2658,7 +2770,8 @@ async def _drain_deferred_folds(user) -> None:
                     _sl.note_stale_rejection(
                         user, dropped_fold=True,
                         cause="deferred-fold non-stale terminal drop (unretryable)")
-                except Exception:
+                except Exception as _fs_exc:
+                    _failsoft_note("chat_helpers:_drain_deferred_folds:2", _fs_exc)
                     pass
                 continue
             _refresh_beat_seq(user, result if isinstance(result, dict) else {})
@@ -2683,7 +2796,8 @@ async def _drain_deferred_folds(user) -> None:
                     _sl.note_stale_rejection(
                         user, dropped_fold=True,
                         cause="deferred-fold queue overflow on drain-merge (retry capacity outrun)")
-                except Exception:
+                except Exception as _fs_exc:
+                    _failsoft_note("chat_helpers:_drain_deferred_folds:3", _fs_exc)
                     pass
             merged = merged[overflow:]
         if merged:
@@ -2816,6 +2930,7 @@ def _beat_signature(status: dict, state: dict) -> dict:
         "noms": noms,
         "nomNames": nom_names,
         "activeNames": active_names,
+        "roomNames": room_names_of(wa),  # ORW-1020: this season's themed room names, so the invented-houseguest guard can tell a room from a person
         "vetoHolder": veto_holder_id,
         "vetoHolderName": veto_holder_name,
         "vetoUsed": bool(veto.get("used")),
@@ -3178,7 +3293,8 @@ _CLAIM_NOMINATED_RE = re.compile(
 )
 # A nomination narrated as happening NOW ("the HOH nominates two houseguests") while nominees are already committed is a re-enacted ceremony, not a recap.
 _PRESENT_NOMINATION_ACT_RE = re.compile(r"\b(?:nominates|is nominating|are nominating|nominating)\b", re.IGNORECASE)
-_NOM_HYPOTHETICAL_RE = re.compile(r"\b(?:if|suppose|imagine|what if|would|could|might|hypothetically|were you|were I|had I|in case)\b", re.IGNORECASE)
+# ORW-1021: + a negated intent ("Cora's not gonna nominate somebody she has a thing with", "won't nominate"): talk of what someone will not do, not a nomination made. Plain future / "going to" stays a claim (the key ritual is voiced as "I'm going to turn the first key now").
+_NOM_HYPOTHETICAL_RE = re.compile(r"\b(?:if|suppose|imagine|what if|would|could|might|hypothetically|were you|were I|had I|in case|won(?:'|\u2019)?t)\b|\b(?:not|never|isn(?:'|\u2019)?t|aren(?:'|\u2019)?t)\s+(?:gonna|going\s+to)\b", re.IGNORECASE)
 
 
 # ORW-429: talk of WORRY about the block / the vote ("nervous about the vote", "afraid of going up", "scared of being on the block", "who will be nominated", "dreading the nominations") is not a
@@ -3377,6 +3493,7 @@ _CLAIM_CLAUSE_SPLIT_RE = re.compile(r"[,;:]|—|–|\s-{1,2}\s|--")
 # is the rule form; a bare "last one standing" mid-sentence is a RESULT phrase ("Hoh Person, last one standing, is the new HOH") and is NOT a cue.
 _CLAIM_RULE_CUE_RE = re.compile(
     r"\b(?:will\s+(?:be|become|win|take|earn|get)|would|shall|going\s+to|gonna|to\s+become|stands?\s+to|the\s+rules?|whoever|whichever)\b"
+    r"|\b(?:win|earn|take|beat)\s+(?:it|this|that)\s+and\b"  # ORW-1021: the stakes line "Win it and you're Head of Household" is the rule, not a crowning
     r"|(?:'|\u2019)ll\s+be\b",
     re.IGNORECASE,
 )
@@ -4119,7 +4236,8 @@ def note_ceremony_beat_for_voicing(user, label: str, names) -> None:
         names = [str(n).strip() for n in (names or []) if str(n).strip()]
         if names:
             _CEREMONY_UNVOICED[_desync_key(user)] = {"label": str(label)[:160], "names": names}
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_ceremony_beat_for_voicing:1", _fs_exc)
         pass
 
 
@@ -4162,7 +4280,8 @@ def note_eviction_result_for_voicing(user, adv) -> None:
         k = _desync_key(user)
         if k in _CEREMONY_UNVOICED and counts:
             _CEREMONY_UNVOICED[k]["counts"] = counts
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_eviction_result_for_voicing:1", _fs_exc)
         pass
 
 
@@ -4674,6 +4793,43 @@ def _absent_holds_floor(narration: str, facts: dict, first_counts: dict) -> Opti
     return None
 
 
+# ORW-1003: the narration writes the player into a room they did not go to (the engine keeps their real room), so the player reads the wrong room. A sentence that PLACES the player ("you drift into...",
+# "you're in...") somewhere the engine does not have them is dropped, the same posture as an absent houseguest. Modals, conditionals and questions ("you could go...", "if you step...?") place nobody.
+_PLAYER_PLACED_RE = re.compile(
+    r"\byou(?:'re|\u2019re|\s+are|\s+find\s+yourself)?\s+(?:\w+ly\s+)?(?:now\s+)?(?:walk|walking|step|stepping|head|heading|drift|drifting|slip|slipping|wander|wandering|stroll|strolling|settle|settling|sit|sitting|stand|standing|"
+    r"arrive|arriving|follow|following|move|moving|duck|ducking|climb|climbing|drop|sink|sinking|lie|lying|stretch|stretching|perch|perched|in\b|back\b|alone\b)[^.!?]*?\b(?:in|into|onto|inside|to|on)\b",
+    re.IGNORECASE)
+_PLAYER_NOT_PLACED_RE = re.compile(r"\b(?:could|would|might|can|should|may|if|whether|want|wanna|do\s+you|will\s+you)\b|\?", re.IGNORECASE)
+
+
+def _drop_misplacing_player(text: str, player_room: str, room_names=None, quote=None) -> str:
+    """`text` without the sentences whose NARRATION (never quoted speech, even a quote split across sentences) puts the player in another room."""
+    out = []
+    for part in re.split(r"(?<=[.!?\n])", text):
+        was = quote
+        quote, close_end = _scan_quote_state(part, quote)
+        narr = part if was is None else (part[close_end:] if close_end is not None else "")
+        if quote is not None:  # a quote opens in this part: only what precedes the opening mark is narration
+            narr = re.split(r'["\u201c]', narr, maxsplit=1)[0]
+        if was is None and _sentence_misplaces_player(narr, player_room, room_names):
+            continue
+        out.append(part)
+    return "".join(out)
+
+
+def _sentence_misplaces_player(sentence: str, player_room: str, room_names=None) -> bool:
+    """True when the narration (quoted words blanked) states the player is in or moving into a room, and no room it names there can be the engine's room for them."""
+    from src.house_rooms import rooms_named_in
+    narr = _QUOTED_SPEECH_RE.sub(" ", sentence or "")
+    if not player_room or _PLAYER_NOT_PLACED_RE.search(narr):
+        return False
+    m = _PLAYER_PLACED_RE.search(narr)
+    if not m:
+        return False
+    named = rooms_named_in(narr[m.start():], room_names)
+    return bool(named) and not any(player_room in rooms for rooms in named)
+
+
 async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[dict] = None) -> str:
     """A2 (#1726) — the STRUCTURAL, SAME-TURN presence guard. Returns `text` with any sentence that
     stages an off-scene or already-evicted houseguest as present/acting in the player's scene DROPPED
@@ -4706,6 +4862,13 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
         logger.warning("[orwell] presence-wall: game-state read skipped for user=%s: %s", user, _exc_detail(e))
         return text  # engine unreachable this turn — never hold narration on a read hiccup
     facts = _presence_facts(state if isinstance(state, dict) else {})
+    if facts and not (isinstance(alt_state, dict)):  # ORW-1003: a turn with a pre-sleep board keeps the evening room's goodnight; otherwise the player is where the engine has them
+        _kept = _drop_misplacing_player(text, facts.get("room"), facts.get("room_names"), carry.get("quote"))
+        if _kept != text:
+            logger.warning("[orwell] presence-wall: dropped a sentence placing the player outside their room for user=%s", user)
+            text = _kept
+            if not text.strip():
+                return text
     if not facts or (not facts.get("evicted") and not facts.get("active_offscene") and not facts.get("adjacent")):
         if carry.get("drop_quote") or carry.get("quote"):
             pass  # ORW-917: a quote still open (or a drop still running) from an earlier chunk: scan below so the state stays true
@@ -4759,7 +4922,8 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
                 dropped.add(hit)
                 drop_quote = quote is not None
                 continue  # DROP — a non-present houseguest is never staged as present
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:screen_presence_wall:1", _fs_exc)
             pass  # any hiccup falls through to emit (conservatism), except a proven hit above
         out.append(part)
     carry["quote"], carry["drop_quote"] = quote, drop_quote
@@ -4773,7 +4937,13 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
                 "[orwell] presence-wall: dropped a phantom placement of %s for user=%s",
                 ", ".join(sorted(dropped)), user,
             )
-        except Exception:
+            try:
+                from src import orwell_sync_ledger as _led
+                _led.note_belt_fire(user, "presence-wall", len(dropped))  # ORW-1061
+            except Exception:  # failsoft-ok: telemetry
+                pass
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:screen_presence_wall:3", _fs_exc)
             pass
     return "".join(out)
 
@@ -4831,7 +5001,27 @@ _NAME_TRANSITION_FIRST = {
 }
 
 
-def _sentence_names_invented(sentence: str, known_first: set, known_full: set) -> Optional[str]:
+def _room_vocab(room_names=None) -> frozenset:
+    """ORW-1020: the folded words of every room name the narrator can write: this season's themed names (`roomNames`, every room) and the engine's own plain room labels
+    ("Storage Room", "Bedroom A"). A capitalised two-word run whose BOTH words are room words is a place ("Hearth Pit", "Long Porch"), never an invented houseguest."""
+    from src.house_rooms import HOUSE_ROOMS, fold_room_text
+    names = [r.replace("-", " ") for r in HOUSE_ROOMS]
+    if isinstance(room_names, dict):
+        names += [n for n in room_names.values() if isinstance(n, str)]
+    words: set = set()
+    for n in names:
+        for w in re.findall(r"[a-z]+", fold_room_text(n.replace("-", " "))):
+            if w != "the":
+                words.add(w)
+    return frozenset(words)
+
+
+def _is_speaker_tag(sentence: str, name: str) -> bool:
+    """The narrator's speaker line `@[Name] - "..."` (or `[Name]:`): a place never speaks, so a tagged name is a person whatever its words are."""
+    return bool(re.search(r"@?\[" + re.escape(name) + r"\]", sentence))
+
+
+def _sentence_names_invented(sentence: str, known_first: set, known_full: set, room_vocab=frozenset()) -> Optional[str]:
     """Return a Capitalized name this sentence STAGES as acting in the scene (two-token) or explicitly
     INTRODUCES via a copula/existential frame (single-token — NARR-4) that is NOT any known roster
     name (active or out-of-house), or None. `known_first` = lowercase first tokens of every roster
@@ -4864,6 +5054,8 @@ def _sentence_names_invented(sentence: str, known_first: set, known_full: set) -
             continue  # a game/house proper noun (either token), not a houseguest
         if first_l in known_first or full_l in known_full:
             continue  # matches a real roster name (full or by first name) — legitimate
+        if room_vocab and first_l in room_vocab and second_l in room_vocab and not _is_speaker_tag(sentence, full):
+            continue  # ORW-1020: a room of this house ("Hearth Pit", "Long Porch"), not a person
         # An out-of-roster two-token Name — only flag if it is STAGED as acting in THIS sentence.
         if _stages_in_scene(sentence, full):
             return full
@@ -5017,6 +5209,79 @@ async def record_post_turn_wrong_room_check(user, narration: str) -> None:
         logger.warning("[orwell] post-turn wrong-room check skipped for user=%s: %s", user, _exc_detail(e))
 
 
+# ORW-1009 - a houseguest's report of where someone else is must come from a recorded sighting. The engine records them (a houseguest's own `npcSightings`, handed over as a TOLD fact on a house-search turn, spoken by THAT houseguest).
+# The narrator once had one houseguest say a second had seen Levi in the bathroom, and the second then gave another room: the attribution was invented. Post-turn and closed-set (never edits prose): a sentence in which a named
+# houseguest SAW a different named houseguest in a named room, where the seer is not a speaker the game handed a TOLD sighting this turn, queues a next-turn re-ground. `_TOLD_SPEAKERS` is filled by the house-search framing.
+_TOLD_SPEAKERS: dict = {}
+_SIGHTING_VERBS = r"(?:saw|seen|spotted|noticed|watched|glimpsed|caught\s+sight\s+of|ran\s+into|bumped\s+into)"
+
+
+def _told_speaker_names(whereabouts) -> set:
+    """The names of the houseguests the engine's house search gave a TOLD sighting to (who may say where someone was). Empty when there is none."""
+    sv = whereabouts.get("search") if isinstance(whereabouts, dict) else None
+    out: set = set()
+    for e in (sv.get("houseguests") if isinstance(sv, dict) and isinstance(sv.get("houseguests"), list) else []):
+        tb = e.get("toldBy") if isinstance(e, dict) else None
+        if isinstance(tb, dict) and tb.get("name"):
+            out.add(str(tb["name"]))
+    return out
+
+
+def _unrecorded_sighting_claims(narration: str, roster, allowed=()) -> list:
+    """[(seer, subject)]: a sentence with a named houseguest as the one who SAW another named houseguest in a named house room, the seer not among `allowed` (the speakers the game handed a TOLD sighting). Skips ((asides))."""
+    if not narration or not roster:
+        return []
+    roster = [str(n) for n in roster if n]
+    first_counts = _first_name_counts(roster)
+    allowed_l = {str(a).lower() for a in allowed}
+
+    def _forms(full: str) -> list:
+        parts = full.split()
+        return [full] + ([parts[0]] if len(parts) > 1 and first_counts.get(parts[0].lower(), 0) == 1 else [])
+
+    text = re.sub(r"\(\([^)]*\)\)", " ", narration, flags=re.DOTALL)
+    out: list = []
+    for sentence in re.split(r"(?<=[.!?\n])", text):
+        if not _room_keys(sentence):
+            continue
+        for seer in roster:
+            if seer.lower() in allowed_l or any(f.lower() in allowed_l for f in _forms(seer)):
+                continue
+            for subject in roster:
+                if subject == seer:
+                    continue
+                for a in _forms(seer):
+                    for b in _forms(subject):
+                        if re.search(rf"\b{re.escape(a)}\b[^.!?\n]{{0,25}}?\b{_SIGHTING_VERBS}\b[^.!?\n]{{0,25}}?\b{re.escape(b)}\b", sentence, re.IGNORECASE):
+                            if (seer, subject) not in out:
+                                out.append((seer, subject))
+    return out
+
+
+async def record_post_turn_sighting_check(user, narration: str) -> None:
+    """ORW-1009: queue a next-turn re-ground when the narration has a houseguest report another houseguest's sighting the game never recorded. Fail-open; never raises, never edits this turn's prose."""
+    try:
+        if not narration:
+            return
+        from src import orwell_engine
+        state = await orwell_engine.get_game_state(user=user)
+        if not isinstance(state, dict):
+            return
+        roster = [str(h.get("name")) for h in (state.get("house") or []) if isinstance(h, dict) and h.get("name") and str(h.get("status") or "active") == "active"]
+        hits = _unrecorded_sighting_claims(narration, roster, _TOLD_SPEAKERS.get(_desync_key(user), ()))
+        if not hits:
+            return
+        names = "; ".join(f"{a} seeing {b}" for a, b in hits[:_PRESENCE_MOVE_MAX_NAMES])
+        _reground_enqueue(_desync_key(user), (
+            "RE-GROUND ON SIGHTINGS - last turn you had a houseguest report where another houseguest was seen (" + names + "), and the game recorded no such sighting. A sighting may be given only from what the game hands you "
+            "(a houseguest says what they saw for themselves, in first person, possibly out of date); never name a third houseguest as the one who saw someone. If it came up again, correct it IN CHARACTER (a houseguest "
+            "says they misremembered), never with an out-of-character apology."
+        ))
+        logger.warning("[orwell] unrecorded sighting attributed for user=%s (%s) - re-grounding next turn", user, names)
+    except Exception as e:
+        logger.warning("[orwell] post-turn sighting check skipped for user=%s: %s", user, _exc_detail(e))
+
+
 async def record_post_turn_roster_check(user, narration: str) -> None:
     """NARR-3 (#613) post-turn roster-validation backstop. Stash a gentle next-turn re-ground when the
     narration STAGED a houseguest name that exists in NEITHER the active nor the out-of-house roster —
@@ -5039,8 +5304,9 @@ async def record_post_turn_roster_check(user, narration: str) -> None:
         known_first = {n.split()[0].lower() for n in roster if n.split()}
         invented: list[str] = []
         seen: set = set()
+        room_vocab = _room_vocab(sig.get("roomNames"))
         for sentence in re.split(r"(?<=[.!?\n])", narration or ""):
-            who = _sentence_names_invented(sentence, known_first, known_full)
+            who = _sentence_names_invented(sentence, known_first, known_full, room_vocab)
             if who and who.lower() not in seen:
                 seen.add(who.lower())
                 invented.append(who)
@@ -5141,6 +5407,12 @@ def _forget_season_pacing(user) -> None:
         dkey = _desync_key(user)
         _CUT_STREAK.pop(dkey, None)
         _DESYNC_REGROUND.pop(dkey, None)
+        try:
+            from src import orwell_companions as _oc_reset
+            _oc_reset.clear(user)  # ORW-1030: last season's companions do not walk into the new one
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:_forget_season_pacing:1", _fs_exc)
+            pass
         _CEREMONY_UNVOICED.pop(dkey, None)  # review of #2287: last season's unvoiced ceremony must not be re-grounded into the new one
         rkey = _runway_key(user)
         _PREMIERE_ENTRANCE_STAGE.pop(rkey, None)
@@ -5159,7 +5431,8 @@ try:  # register at import; fail-soft so a missing engine module never breaks ch
     from src import orwell_engine as _oe_for_reset
     _oe_for_reset.on_season_reset(forget_knowledge_wall)
     _oe_for_reset.on_season_reset(_forget_season_pacing)  # ORW-231
-except Exception:
+except Exception as _fs_exc:
+    _failsoft_note("chat_helpers:module:1", _fs_exc)
     pass
 
 
@@ -5353,6 +5626,7 @@ def _paraphrase_suspect(sentence: str, facts: list, active_names: list) -> bool:
     return False
 
 
+@_counted_steer(always=True)
 def stash_knowledge_wall_reground(user) -> None:
     """Stash a next-turn re-ground after a sealed-content leak was stripped — reminding the model the
     Diary Room is OOC and no houseguest can EVER voice it. Combines with (never clobbers) any re-ground
@@ -5367,7 +5641,8 @@ def stash_knowledge_wall_reground(user) -> None:
             "knows — never the player's diary thoughts, never a secret no pathway gave them."
         )
         _reground_enqueue(_dkey, directive)  # BL-004: bounded append (combine, never clobber)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:stash_knowledge_wall_reground:1", _fs_exc)
         pass
 
 
@@ -5388,8 +5663,8 @@ _CONF_WEAK = (
     re.compile(r"\bi\s+(?:have\s+been|(?:'|’)ve\s+been|was)\s+(?:hiding|keeping)\b[^.!?\n]{0,40}\bfrom\s+(?:everyone|you|all\s+of\s+you)\b|\bi\s+lied\s+(?:to\s+(?:you|everyone)\s+)?about\b", _CONF_I),
 )
 _CONF_PERSONAL_FACT_RE = re.compile(
-    r"\b(?:prison|jail|arrest(?:ed)?|record|debt|bankrupt\w*|divorce\w*|affair|cheat\w*|abus\w+|addict\w*|rehab|overdos\w+|pregnan\w+|diagnos\w+|cancer|fired|stole|stolen|fraud|"
-    r"felon\w*|convict\w*|adopted|closeted|hospital|prescription|bankruptcy|evict\w+|ex-?wife|ex-?husband|my\s+(?:past|real\s+name|kid|son|daughter|baby))\b", _CONF_I)
+    r"\b(?:prison|jail|arrest(?:ed)?|debt|bankrupt\w*|divorce\w*|affair|cheat\w*|abus\w+|addict\w*|rehab|overdos\w+|pregnan\w+|diagnos\w+|cancer|stole|stolen|fraud|"
+    r"felon\w*|adopted|closeted|prescription|bankruptcy|ex-?wife|ex-?husband|my\s+(?:past|real\s+name|kid|son|daughter|baby))\b", _CONF_I)  # ORW-1059: "record", "fired", "evict...", "hospital", "convict..." are ordinary game words: not facts
 
 # ORW-509: the three authored deflections stay first; the rest are composed (opening x turn x close) so a season's replaced lines are rarely the same one.
 _CONFESSION_DEFLECTION_CLASSICS = (
@@ -5425,9 +5700,40 @@ def _line_is_invented_confession(line: str) -> bool:
     return strong == 1 and bool(_CONF_PERSONAL_FACT_RE.search(line))
 
 
-def screen_invented_confession(user, text: str) -> "tuple[str, list]":
-    """N-17 - replace each LINE that voices an invented first-person confession (no engine disclosure this turn) with a short in-voice deflection. Returns (new_text, [(old_line, new_line)])
-    so the caller can mirror the same replacement into the raw round buffer. No-op (text, []) when an engine disclosure lever ran this turn, nothing matches, or anything hiccups."""
+_PLAYER_SPEAKS_RE = re.compile(r"(?:^|[.!?\n]\s*|,\s*)(?:and\s+|then\s+)?you\s+(?:say|said|reply|replied|answer|answered|tell|told|whisper|whispered|ask|asked|add|added|blurt|blurted|admit|admitted)\b[^\"\u201c\n]{0,40}[:,]?\s*[\"\u201c]", re.IGNORECASE)
+
+
+def _norm_for_echo(x: str) -> str:
+    return " ".join(re.sub(r"[^a-z0-9\s]", "", (x or "").lower().replace("\u2019", "'").replace("'", "")).split())
+
+
+def _sentence_is_the_players_own(sentence: str, player_msg) -> bool:
+    """ORW-1059: the confession words are the PLAYER's (narration `You say, "..."`, or the quoted text is in the player's own message): never judged."""
+    if _PLAYER_SPEAKS_RE.search(sentence):
+        return True
+    pm = _norm_for_echo(player_msg)
+    if not pm:
+        return False
+    inner = _norm_for_echo(" ".join(_QUOTED_SPEECH_RE.findall(sentence)))
+    return bool(inner) and inner in pm
+
+
+def _lead_closers(piece: str) -> str:
+    """The blanks and closing quote marks a sentence starts with (the close of a quote the sentence before it opened): kept when the sentence's own words are replaced."""
+    return re.match(r'^[\s"\u201d\u2019\']*', piece).group(0)
+
+
+def _line_is_only_a_quoted_confession(ln: str) -> bool:
+    """A speaker label plus a quote and next to no narration: the confession is the whole line."""
+    outside = re.sub(r'["\u201c][^"\u201d]*(?:["\u201d]|$)', " ", ln)
+    outside = re.sub(r"@\[[^\]]+\]", " ", outside)
+    return len(re.findall(r"[A-Za-z]{2,}", outside)) <= 2
+
+
+def screen_invented_confession(user, text: str, player_msg=None) -> "tuple[str, list]":
+    """N-17 - replace each SENTENCE that voices an invented first-person confession (no engine disclosure this turn) with a short in-voice deflection; the rest of its line (other speakers, actions, the quote
+    that follows) stays (ORW-1059; the unit used to be the whole line). Returns (new_text, [(old, new)]) so the caller can mirror the same replacement into the raw round buffer. The player's own quoted words
+    are never judged. No-op (text, []) when an engine disclosure lever ran this turn, nothing matches, or anything hiccups."""
     if not text or not text.strip():
         return text, []
     try:
@@ -5436,22 +5742,48 @@ def screen_invented_confession(user, text: str) -> "tuple[str, list]":
             return text, []
         if (user or "__anon__") not in _GAME_WAS_ACTIVE:
             return text, []  # not a started game (casting etc.): never judge
-        lines = text.split("\n")
         ops = []
-        out = []
+        out_lines = []
         n = 0
-        for ln in lines:
-            if _line_is_invented_confession(ln):
-                new = _CONFESSION_DEFLECTIONS[(zlib.crc32(ln.encode('utf-8')) + n) % len(_CONFESSION_DEFLECTIONS)]  # ORW-509: keyed on the replaced line, so the pick spreads over the whole composed set
+        for ln in text.split("\n"):
+            if not _line_is_invented_confession(ln):
+                out_lines.append(ln)
+                continue
+            if not _sentence_is_the_players_own(ln, player_msg) and _line_is_only_a_quoted_confession(ln):
+                new = _CONFESSION_DEFLECTIONS[(zlib.crc32(ln.encode('utf-8')) + n) % len(_CONFESSION_DEFLECTIONS)]  # ORW-509: keyed on the replaced line
                 n += 1
                 ops.append((ln, new))
-                out.append(new)
-            else:
-                out.append(ln)
+                out_lines.append(new)  # the line IS the confession (a speaker label and a quote): the whole line is replaced, as before
+                continue
+            pieces = [p for p in re.split(r"(?<=[.!?])", ln) if p != ""]
+            hit = [i for i, p in enumerate(pieces) if (_line_is_invented_confession(p) or any(rx.search(p) for rx in _CONF_STRONG + _CONF_WEAK) or (_CONF_PERSONAL_FACT_RE.search(p) and i > 0 and any(rx.search(pieces[i - 1]) for rx in _CONF_STRONG)))
+                   and not _sentence_is_the_players_own(p, player_msg)]
+            if not hit or _sentence_is_the_players_own(ln, player_msg):
+                out_lines.append(ln)  # the match is the player's own words: leave the line
+                continue
+            first = True
+            new_pieces = list(pieces)
+            for i in hit:
+                old = pieces[i]
+                if first:
+                    lead = _lead_closers(old)
+                    new = lead + _CONFESSION_DEFLECTIONS[(zlib.crc32(ln.encode('utf-8')) + n) % len(_CONFESSION_DEFLECTIONS)]  # ORW-509: keyed on the replaced line
+                    n += 1
+                    first = False
+                else:
+                    new = ""  # the rest of the confession goes with it
+                ops.append((old, new))
+                new_pieces[i] = new
+            out_lines.append("".join(new_pieces))
         if not ops:
             return text, []
-        logger.warning("[orwell] N-17: replaced %d invented-confession line(s) with a deflection (user=%s)", len(ops), user)
-        return "\n".join(out), ops
+        try:
+            from src import orwell_sync_ledger as _led
+            _led.note_belt_fire(user, "invented-confession", len(ops))  # ORW-1061: counted on an APPLIED replacement
+        except Exception:  # failsoft-ok: telemetry
+            pass
+        logger.warning("[orwell] N-17: replaced %d invented-confession sentence(s) with a deflection (user=%s)", len(ops), user)
+        return "\n".join(out_lines), ops
     except Exception:
         return text, []
 
@@ -5466,14 +5798,31 @@ _CUES_STRONG = re.compile(r"\b(?:sobbing|in tears|giddy|bursting with joy)\b", r
 _TELL_NEUTRAL = "{name} keeps a level expression, giving little away."
 
 
-def _tell_line_violation(ln: str, tells: dict):
-    named = [n for n in tells if re.search(r"\b" + re.escape(n) + r"\b", ln)]
+_TELL_DETERMINER_BEFORE_RE = re.compile(r"\b(?:the|a|an|that|this|those|these|his|her|their|its|our|my|your)\s+(?:\w+\s+)?$", re.IGNORECASE)
+
+
+def _cue_is_the_npcs(narr: str, name: str, cue_rx) -> bool:
+    """ORW-1060: some cue of `cue_rx` describes `name` itself: it comes AFTER the name in the same clause, and is not an adjective of a thing ("the slumped sofa", "the giddy cheer of the crowd")."""
+    for nm in re.finditer(r"\b" + re.escape(name) + r"\b", narr):
+        clause = re.split(r"[;:\u2014]|[.!?]", narr[nm.end():], maxsplit=1)[0]
+        window = " ".join(clause.split()[:10])
+        for cue in cue_rx.finditer(window):
+            if not _TELL_DETERMINER_BEFORE_RE.search(window[:cue.start()]):
+                return True
+    return False
+
+
+def _tell_sentence_violation(sentence: str, tells: dict, quote_open: bool = False):
+    """The one houseguest whose engine tell this SENTENCE's narration (quoted words blanked) contradicts, or None. Whole-sentence unit (ORW-1060): other sentences of the line are never touched.
+    `quote_open`: the sentence starts inside a quote opened by an earlier sentence of the same line."""
+    narr, _ = _narration_only(sentence, quote_open)
+    named = [n for n in tells if re.search(r"\b" + re.escape(n) + r"\b", narr)]
     if len(named) != 1:
         return None
     name, kinds = named[0], set(tells[named[0]])
-    low, high = bool(_CUES_LOW.search(ln)), bool(_CUES_HIGH.search(ln))
+    low, high = _cue_is_the_npcs(narr, name, _CUES_LOW), _cue_is_the_npcs(narr, name, _CUES_HIGH)
     if not kinds:
-        return name if _CUES_STRONG.search(ln) else None
+        return name if _cue_is_the_npcs(narr, name, _CUES_STRONG) else None
     if kinds <= _TELL_LOW and high and not low:
         return name
     if kinds <= _TELL_HIGH and low and not high:
@@ -5481,8 +5830,24 @@ def _tell_line_violation(ln: str, tells: dict):
     return None
 
 
+def _narration_only(piece: str, quote_open: bool):
+    """(`piece` with every quoted word blanked, whether a quote is still open at its end). Straight and curly double quotes."""
+    out = []
+    for ch in piece:
+        if ch in '"\u201c\u201d':
+            quote_open = not quote_open if ch == '"' else (ch == "\u201c")
+            out.append(" ")
+        else:
+            out.append(" " if quote_open else ch)
+    return "".join(out), quote_open
+
+
+_tell_line_violation = _tell_sentence_violation  # the unit is one SENTENCE now (ORW-1060); the old name stays for callers and tests
+
+
 def screen_tell_faithfulness(user, text: str) -> "tuple[str, list]":
-    """A50 - replace each LINE that contradicts the engine's tell for the single houseguest it names with a neutral in-voice line. (new_text, [(old, new)]) so the caller mirrors it into the raw buffer. Counts the belt only on an APPLIED replacement. Fail-open."""
+    """A50 - replace each SENTENCE that contradicts the engine's tell for the single houseguest it names with a neutral in-voice line (ORW-1060: not the whole line; cues inside quotes or about a thing are ignored).
+    (new_text, [(old, new)]) so the caller mirrors it into the raw buffer. Counts the belt only on an APPLIED replacement. Fail-open."""
     if not text or not text.strip():
         return text, []
     try:
@@ -5492,21 +5857,28 @@ def screen_tell_faithfulness(user, text: str) -> "tuple[str, list]":
             return text, []
         ops, out = [], []
         for ln in text.split("\n"):
-            who = _tell_line_violation(ln, tells)
-            if who:
-                new = _TELL_NEUTRAL.format(name=who)
-                ops.append((ln, new))
-                out.append(new)
-            else:
-                out.append(ln)
+            pieces = [p for p in re.split(r"(?<=[.!?])", ln) if p != ""]
+            new_pieces = []
+            q_open = False
+            for p in pieces:
+                who = _tell_line_violation(p, tells, q_open)
+                q_open = _narration_only(p, q_open)[1]
+                if who:
+                    new = _lead_closers(p) + _TELL_NEUTRAL.format(name=who)
+                    ops.append((p, new))
+                    new_pieces.append(new)
+                else:
+                    new_pieces.append(p)
+            out.append("".join(new_pieces) if pieces else ln)
         if not ops:
             return text, []
         try:
             from src import orwell_sync_ledger as _led
             _led.note_belt_fire(user, "tell_faithfulness", len(ops))
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:screen_tell_faithfulness:1", _fs_exc)
             pass
-        logger.warning("[orwell] A50: replaced %d tell-contradicting line(s) (user=%s)", len(ops), user)
+        logger.warning("[orwell] A50: replaced %d tell-contradicting sentence(s) (user=%s)", len(ops), user)
         return "\n".join(out), ops
     except Exception:
         return text, []
@@ -5537,14 +5909,21 @@ async def screen_knowledge_wall(user, text: str) -> str:
             if _sentence_leaks_sealed(part, facts, active_names):
                 leaked = True
                 continue  # DROP — a houseguest voicing sealed content never reaches the player
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:screen_knowledge_wall:1", _fs_exc)
             pass  # any hiccup falls through to emit (conservatism), except a proven leak above
         out.append(part)
     if leaked:
         try:
             stash_knowledge_wall_reground(user)
             logger.warning("[orwell] knowledge-wall: stripped sealed content from a houseguest's mouth (user=%s)", user)
-        except Exception:
+            try:
+                from src import orwell_sync_ledger as _led
+                _led.note_belt_fire(user, "knowledge-wall", 1)  # ORW-1061
+            except Exception:  # failsoft-ok: telemetry
+                pass
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:screen_knowledge_wall:3", _fs_exc)
             pass
     return "".join(out)
 
@@ -5772,7 +6151,7 @@ _CLAIM_VETO_INTENT_RE = re.compile(
     # third person: Name is going to / will use the veto
     r"|\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)(?i:\s+(?:is\s+(?:gonna|going\s+to)|will|'ll|’ll)\s+use\s+(?:it|the\s+(?:power of )?veto|pov)\b)")
 _VETO_N1_HYP_RE = re.compile(
-    r"\b(?:whoever|whomever|if|unless|could|would|might|may|should|hope[sd]?|hoping|wonders?|wondered|"
+    r"\b(?:whoever|whomever|who(?:'s|\u2019s|\s+is|\s+was|\s+has|\s+will)|if|unless|could|would|might|may|should|hope[sd]?|hoping|wonders?|wondered|"
     r"wants? to|wanted to|try(?:ing)? to|dream(?:s|ed)? of|debat(?:e|es|ing)|plan(?:s|ning)?\s+(?:on|to)|"
     r"think(?:s|ing)?\s+about|whether"
     # ORW-25 (A80): a supposition ("Imagine the nominees aren't set yet") and a negated report ("Nobody says the
@@ -5857,7 +6236,10 @@ _COMP_STARTED_CUES = (
 _COMP_DECISIVE_CUES = (
     re.compile(r"\b(?:the\s+)?(?:first\s+|second\s+)?(?:head\s+of\s+household\s+|hoh\s+|veto\s+)?(?:competition|comp)\s+(?:is|'s|\u2019s)\s+(?:live|underway|under\s+way|happening|running)\b", re.IGNORECASE),
     re.compile(r"\b(?:the\s+)?(?:competition|comp)\s+(?:resolves|has\s+resolved|ends|has\s+ended|is\s+over|wraps\s+up|finishes)\b", re.IGNORECASE),
-    re.compile(r"\b[A-Z][\w'\u2019-]+\s+(?:wins|won|takes|claims)\s+(?:it|the\s+(?:competition|comp|head\s+of\s+household|hoh|crown|key))\b"),
+    re.compile(r"\b[A-Z][\w'\u2019-]+\s+(?:(?:wins|won)\s+it|(?:wins|won|takes|claims)\s+the\s+(?:competition|comp|head\s+of\s+household|hoh|crown|key))\b"),
+    # ORW-1021: "<Name> takes it" is a RESULT only when the clause ends there ("Tara takes it."). "Layla takes it standing", "Kristin takes it in without a flicker", "Emilio takes it and doesn't dress it up" are a
+    # houseguest absorbing what was said (7 of the 14 whole-scene cuts on dev were this); a manner phrase after the verb is not a win.
+    re.compile(r"\b[A-Z][\w'\u2019-]+\s+(?:takes|claims)\s+it(?=\s*(?:$|[.!?;\n\"\u201d*_)]|\s+home\b))"),
 )
 _COMP_DECISIVE_EXEMPT_RE = re.compile(r"\b(?:isn'?t|is\s+not|not\s+yet|hasn'?t|has\s+not|won'?t|will|when|once|until|before|if|after|whether)\b", re.IGNORECASE)
 
@@ -6332,7 +6714,8 @@ def _roll_cut_streak(dkey, before) -> None:
             if st["cut"] is not st["seen"]:
                 st["count"] = 0  # the previous turn did not cut
             st["seen"] = before
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_roll_cut_streak:1", _fs_exc)
         pass
 
 
@@ -6381,6 +6764,7 @@ def _neutral_board_directive(live) -> str:
 _DAY_ROLL_BEAT_RE = re.compile(r"\b(?:turns? in|turned in|morning breaks?|a new day|new day (?:arrives|dawns)|dawns?)\b", re.IGNORECASE)
 
 
+@_counted_steer
 def day_roll_reground(phase: str, beat) -> Optional[str]:
     """ORW-10 (b): when the pre-resolved beat of a scheduled phase is the OVERNIGHT ROLL ("the house turns in, and morning breaks on the day of the Power of Veto comp"), the event the narrator may just have announced as
     starting/called did NOT happen: the clock jumped to the next morning and production will call it later that day. Returns a one-line re-ground for the next turn, or None when the beat is not a day roll."""
@@ -6413,7 +6797,7 @@ async def guard_emptied_cutaway(user) -> str:
             label = _MOMENT_PHASE_LABELS.get(str(live.get("phase") or "")) or str(live.get("phase") or "the event").replace("-", " ")
             directive += (f" Production has NOT called the {label} yet: it is later today. Do not announce positions, a start or a result; "
                           "if your earlier replies said it was starting, that was wrong - say so in a line and play a normal social scene.")
-        _DESYNC_REGROUND[dkey] = directive
+        _reground_enqueue(dkey, directive)  # ORW-1068: append to the bounded queue, never replace it
         logger.warning("[orwell] sentence-guard emptied %d consecutive turns for user=%s - engine-true line + neutral directive", streak, user)
         return engine_true_line(user)
     except Exception:
@@ -6439,7 +6823,8 @@ def _log_scene_cut(user, phase, directive, text) -> None:
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(_json.dumps({"ts": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()), "user": str(user), "phase": phase,
                                   "directive": str(directive)[:600], "text": str(text)[:4000]}) + "\n")
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_log_scene_cut:1", _fs_exc)
         pass
 
 
@@ -6498,7 +6883,7 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
         _removed = _unbacked_player_removal(text, live)
         if _removed:
             _dir = _overclaim_directive(_removed, live)
-            _DESYNC_REGROUND[_dkey] = _dir
+            _reground_enqueue(_dkey, _dir)  # ORW-1068: append, never replace the queue
             logger.warning("[orwell] scene circuit-breaker HELD a phantom player removal for user=%s — "
                            "cutting the whole scene (still active on the board)", user)
             return _dir
@@ -6538,8 +6923,9 @@ async def screen_streamed_scene_break(user, text: str) -> Optional[str]:
             if _streak >= _CUT_STREAK_NEUTRAL_AT:
                 # ORW-10 item 2: consecutive cut TURNS must never strand the player in fragments - from the second one on, stop accusing (the accusation re-ground is what taught the narrator to answer in
                 # one-line asides) and queue a neutral engine-true board directive INSTEAD of appending another correction; the cutaway line also becomes the engine-true board line (`engine_true_line`).
+                _reground_remove(_dkey, directive)  # ORW-1068: drop only the accusation this cut would re-queue (the neutral line replaces it), never the rest of the queue
                 directive = _neutral_board_directive(live)
-                _DESYNC_REGROUND[_dkey] = directive
+                _reground_enqueue(_dkey, directive)
                 logger.warning("[orwell] scene circuit-breaker cut streak=%d for user=%s - queueing the neutral engine-true board directive instead of another accusation", _streak, user)
             else:
                 _reground_enqueue(_dkey, directive)  # BL-004: bounded append
@@ -6785,13 +7171,15 @@ async def _detect_ungrounded_overclaim(user, text: str, tools: set) -> tuple:
         return (None, None)
 
 
+@_counted_steer(always=True)
 def _stash_overclaim_reground(user, directive: str) -> None:
     """Stash the corrective directive as the NEXT-turn `_DESYNC_REGROUND` backstop (combine, never
     clobber an existing one). Fail-open."""
     try:
         _dkey = _desync_key(user)
         _reground_enqueue(_dkey, directive)  # BL-004: bounded append (combine, never clobber)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_stash_overclaim_reground:1", _fs_exc)
         pass
 
 
@@ -7620,7 +8008,8 @@ def _note_headcount_hold(user, bad, ent: dict) -> None:
         logger.warning("[orwell] pre-emission guard HELD a headcount for user=%s — stated %d (%s), engine has "
                        "%d of %d inside (player inside: %s)", user, bad.n, bad.kind, ent["inside"],
                        ent["total"], ent["player_inside"])
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_note_headcount_hold:1", _fs_exc)
         pass
 
 
@@ -7636,9 +8025,10 @@ _EC_NUM_RE = r"(" + _HC_NUM_ALT + r")"
 _EC_ROOM_ANCHOR = (r"(?:\s+(?:are\s+)?(?:right\s+now\s+)?(?:in\s+here|here|in\s+this\s+room|in\s+the\s+(?:kitchen|living\s*room|lounge|backyard|bedroom|"
                    r"bathroom|hoh\s*room|storage\s*room|room)|together\s+in\s+(?:here|this\s+room)))")
 _EC_ROOM_US_RE = re.compile(r"\b(?:(there\s+(?:are|were|'s)\s+)|(?:the|all|just|only)\s+)" + _EC_NUM_RE + r"\s+of\s+us\b(" + _EC_ROOM_ANCHOR + r")?", re.IGNORECASE)
+_EC_ROOM_ANCHOR_TAIL_RE = re.compile(r"\bof\s+us" + _EC_ROOM_ANCHOR + r"$", re.IGNORECASE)
 _EC_SUBGROUP_RE = re.compile(r"^\s*(?:\w+\s+)?(?:should|could|can|will|would|need|needs|have\s+to|gotta|must|better|ought|going\s+to|gonna|might|may|'ll|’ll|against|vs|versus|\bto\b)\b", re.IGNORECASE)
 _EC_OTHER_RE = re.compile(r"\bthe\s+other\s+" + _EC_NUM_RE + r"(?:\s+of\s+you|\s+(?:are\s+)?(?:(?:houseguests|people)\s+)?(?:in\s+here|in\s+the\s+room|here))?(?=\s*(?:$|[,.;:!?)\]\"'“”‘’—–…*_\n]))", re.IGNORECASE)
-_EC_HOUSE_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?P<who>of\s+us|houseguests|people|of\s+you)\s+(?:are\s+)?(?:left|remain(?:ing)?|still\s+(?:in\s+(?:the|this)\s+(?:game|house)|standing|alive))\b", re.IGNORECASE)
+_EC_HOUSE_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?P<who>of\s+us|houseguests|people|of\s+you)\s+(?:are\s+)?(?:left(?=\s*(?:$|[,.;:!?)\]\x22'\u201d\u2019\u2014\u2013\u2026*_\n])|\s+(?:in\s+(?:the|this)\s+(?:game|house|running)|now|tonight|today|standing|alive)\b)|remain(?:ing)?|still\s+(?:in\s+(?:the|this)\s+(?:game|house)|standing|alive))\b", re.IGNORECASE)
 _EC_VOTES_RE = re.compile(r"\b" + _EC_NUM_RE + r"\s+(?:more\s+)?votes?\b|\b" + _EC_NUM_RE + r"\s*(?:-|–|to)\s*" + _EC_NUM_RE + r"\s+(?:vote|votes|majority|decision)\b|\bby\s+a\s+(?:vote|count)\s+of\s+" + _EC_NUM_RE + r"\s*(?:-|–|to)\s*" + _EC_NUM_RE, re.IGNORECASE)
 _EcClaim = collections.namedtuple("_EcClaim", ["kind", "n", "text", "rooms"], defaults=((),))
 # ORW-386 - two more closed-set claims the engine settles: "N asleep" (the game's asleep list) and "the X is empty" (a room the player can see into, which the engine rosters).
@@ -7727,7 +8117,7 @@ def _engine_count_claims(text: str, room_names=None) -> list:
         out.append(_EcClaim("room", n, m.group(0).strip()))
     for m in _EC_OTHER_RE.finditer(text):
         n = _ec_num(m.group(1))
-        if n is not None and n >= 1:
+        if n is not None and n >= 2:  # ORW-1021: "the other one" is a pronoun phrase ("this one or the other one"), never a headcount (5 dev holds, the engine had 0 to 12 others)
             out.append(_EcClaim("others", n, m.group(0).strip()))
     for m in _EC_HOUSE_RE.finditer(text):
         n = _ec_num(m.group(1))
@@ -7770,7 +8160,8 @@ def _engine_count_ok(claim, c: dict) -> bool:
     """Does the engine's count back this stated count? A tally may carry one extra ballot (the HOH breaks a tie)."""
     n = claim.n
     if claim.kind == "room":
-        return n == c["room"]
+        # ORW-1021: an unanchored "all sixteen of us" at a gathering is the whole house, not a count of this room (a room claim needs the "in here" anchor to bind to the room)
+        return n == c["room"] or (n == c["house"] and not _EC_ROOM_ANCHOR_TAIL_RE.search(claim.text))
     if claim.kind == "others":
         return n in (c["others"], c["others"] - 1)  # the speaker may be one of the others
     if claim.kind == "house":
@@ -7826,7 +8217,8 @@ def _note_engine_count_hold(user, bad, c: dict) -> None:
     try:
         _reground_enqueue(_desync_key(user), _engine_count_directive(bad, c))
         logger.warning("[orwell] pre-emission guard HELD an engine-count claim for user=%s — stated %d (%s), engine counts %s", user, bad.n, bad.kind, c)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_note_engine_count_hold:1", _fs_exc)
         pass
 
 
@@ -8486,6 +8878,7 @@ def _arm_marker(ds, game_state) -> dict:
     return {"event": str((ds or {}).get("next") or ""), "day": None if dn is None else dn + (1 if (ds or {}).get("tomorrow") else 0), "resolved": False}
 
 
+@_counted_steer(always=True)
 def _arm_schedule_steer(key, text: str, ds, game_state) -> None:
     _SCHEDULE_STEER[key] = text
     _SCHEDULE_ARM[key] = _arm_marker(ds, game_state)
@@ -8510,6 +8903,7 @@ def _same_occurrence(arm: dict, b) -> bool:
     return arm.get("day") is None or b_day is None or arm.get("day") == b_day
 
 
+@_counted_steer
 def _reconcile_schedule_steer(steer: str, b, arm=None, after_turn_in: bool = False) -> str:
     """ORW-409: the production warning ("about to be called") and call ("production calls everyone") cues were armed from the board BEFORE the turn's later writes. `arm` is the structured marker stored with the
     cue (`_arm_marker`): the event id, the day it falls on and whether the engine resolved it this turn. A cue whose event the engine resolved this turn is NEVER swapped. A cue is swapped for the not-due line only
@@ -8539,6 +8933,7 @@ def _runway_sig(game_state: dict) -> str:
     return f"{game_state.get('week')}:{(game_state.get('phase') or '').lower()}"
 
 
+@_counted_steer
 def _schedule_not_due_steer(phase: str, scheduled_phase: str, next_beat: str = "", tomorrow: bool = False, briefing=None) -> str:
     """The one-turn narration cue when the player asks for (or drifts toward) an event production has not called yet. In-fiction, closed-set only.
     ORW-394: the event is labelled from the engine's schedule (`daySchedule.next`) when given - not the game phase, which can still be the previous event's - and says "tomorrow" when the schedule does."""
@@ -8560,6 +8955,7 @@ _DESIRE_LINES = {
 }
 
 
+@_counted_steer
 def _interruption_steer(game_state) -> str:
     """A8: an NPC whose own desire clock crossed its threshold is cutting into the conversation. The engine decided WHO and the coarse WHY; the narrator voices the entrance, nothing more."""
     i = game_state.get("interruption") if isinstance(game_state, dict) else None
@@ -8574,6 +8970,7 @@ def _interruption_steer(game_state) -> str:
             "invent no outcome, vote or secret beyond that.")
 
 
+@_counted_steer
 def _approach_held_steer(game_state) -> str:
     """ORW-443: the engine's approach cap withheld a houseguest this turn (`approachHeld`). One-turn, closed-set: the room settles; no new request goes to the player. Never a count, never a time."""
     if not isinstance(game_state, dict) or game_state.get("approachHeld") is not True:
@@ -8586,6 +8983,7 @@ def _approach_held_steer(game_state) -> str:
 _PRODUCTION_WARN_MINUTES = 30
 
 
+@_counted_steer
 def _production_warning_steer(phase: str, minutes: int, briefing=None) -> str:
     """The optional one-turn cue when a scheduled event is <= `_PRODUCTION_WARN_MINUTES` away: production gives notice and the house starts to gather. In-fiction, closed-set only.
     ORW-409: the event and the minutes come from the briefing's schedule facts when it has them (`phase` / `minutes` only without one)."""
@@ -8599,6 +8997,7 @@ def _production_warning_steer(phase: str, minutes: int, briefing=None) -> str:
             "houseguests starting to drift toward the gathering spot. The player may keep talking; do NOT start the event, narrate a result, or call anyone to it yet.")
 
 
+@_counted_steer
 def _production_call_steer(phase: str, briefing=None) -> str:
     """The one-turn cue when a scheduled event comes due WHILE the player is mid-conversation: production calls everyone, the person they were talking to turns toward the call.
     ORW-409: the event is the briefing's next event when it has one (`phase` only without one)."""
@@ -8714,7 +9113,8 @@ async def refresh_framed_game_stamps(user) -> None:
     except Exception as e:
         try:
             record_soft_failure("persist-stamp-refresh-failed", e, corrected="kept-start-of-turn-stamp", user=user)
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:refresh_framed_game_stamps:1", _fs_exc)
             pass
 
 
@@ -8782,18 +9182,21 @@ async def maybe_raise_spectator_choice(user, game_state: dict, player_msg) -> bo
         res = await orwell_engine.raise_spectator_choice(user=user)
         try:
             orwell_engine.remember_pending(res, user=user)
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:maybe_raise_spectator_choice:1", _fs_exc)
             pass
         # The raise COMMITTED (beatSeq bumped): refresh the FE's last-seen token, or the player's very next card confirm carries a stale expectedBeatSeq and the
         # decision route silently reconciles it away as a stale-beat no-op (live E-1: the skip never landed).
         try:
             _refresh_beat_seq(user, res if isinstance(res, dict) else {})
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:maybe_raise_spectator_choice:2", _fs_exc)
             pass
         try:  # tell every window (incl. the WS client's pinned beatSeq) the board moved, so the card's confirm carries the fresh token
             from src import orwell_game_session
             orwell_game_session.publish_game_updated(user)
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:maybe_raise_spectator_choice:3", _fs_exc)
             pass
         logger.info("[orwell] spectator-choice card re-raised for user=%s (watching evictee asked to skip ahead)", user)
         return True
@@ -8846,6 +9249,7 @@ def comp_pause_holds(user) -> bool:
 
 
 
+@_counted_steer
 def _veto_draw_steer(content: str) -> str:
     """ORW-250 (Ryne: "the veto player draw was seemingly skipped ... it was expressed as a call from production at the beginning of the comp instead"): the draw is its OWN small ceremony on the morning of the
     veto day. The engine has already committed it; this hands the narrator the draw as FACTS to voice as a short scene in the room, and says the competition is later, so the draw is never folded into the comp."""
@@ -8857,6 +9261,7 @@ def _veto_draw_steer(content: str) -> str:
     )
 
 
+@_counted_steer
 def _competition_scene_steer(log, continuing: bool = False, paused: bool = False) -> str:
     """ORW-232 slice 1 (Ryne: the first HOH felt awkward - transitions in and out not role-played, a few boxes of who was eliminated and who won): the competition the engine walked this turn, in ENGINE
     ORDER, as FACTS for the narrator to voice as ONE continuous scene in the same chat - the lead-in from the house, every round as its own beat (never released as a list or a recap), the winner by name,
@@ -9039,6 +9444,7 @@ async def maybe_release_premiere_arrival(user, game_state, *, retry: bool, playe
             logger.info("[orwell] premiere arrival release held for user=%s: the last arrival is not yet voiced (hold %d/%d)", user, _ARRIVAL_VOICE_HOLDS[key], _ARRIVAL_VOICE_HOLD_CAP)
             return game_state
         _ARRIVAL_VOICE_HOLDS.pop(key, None)
+        _ARRIVAL_POSTREPLY_DEFERS.pop(key, None)  # ORW-1029: the pre-reply release ran; the next post-reply deferral starts fresh
         from src import orwell_engine
         idem = _mint_idempotency_key()
         _toast = _entrance_stage_of(game_state) == "toast"
@@ -9194,7 +9600,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                 try:
                     from src import log_rings as _lr_hold
                     _lr_hold.record_soft_failure("production:hold-cap-hit", RuntimeError(f"{phase} not due after {_PRODUCTION_HOLD_CAP} held messages"), corrected="event-released", user=user)
-                except Exception:
+                except Exception as _fs_exc:
+                    _failsoft_note("chat_helpers:_pre_resolve_npc_ceremony:1", _fs_exc)
                     pass
             elif not ready and _comp_hops == 0:
                 # A7: the event came due while the player was still talking (no readiness cue) - production calls everyone; narrate the interruption.
@@ -9330,7 +9737,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             if _roll:
                 _reground_enqueue(_desync_key(user), _roll)
                 _note_belt(user, "day-roll-reground")
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:_pre_resolve_npc_ceremony:2", _fs_exc)
             pass
         if _beat and phase in ("hoh-competition", "veto-competition"):
             # live replay 4: the competition ran to its result inside this turn's framing ("Nia Coleman wins the Power of Veto") and the narrator never told the player who won - note the winner so an unvoiced result is re-grounded
@@ -9345,7 +9753,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             try:  # the draw must be voiced: remember the drawn names so a reply that never mentions any of them is re-grounded next turn
                 _dm = re.search(r":\s*(.+?)(?:\s+[\u2014-]\s+|$)", str(_beat))
                 note_ceremony_beat_for_voicing(user, str(_beat), [n.strip() for n in (_dm.group(1).split(",") if _dm else [])][:6])
-            except Exception:
+            except Exception as _fs_exc:
+                _failsoft_note("chat_helpers:_pre_resolve_npc_ceremony:3", _fs_exc)
                 pass
         if _beat and phase in ("hoh-competition", "veto-competition") and _beat_kind in ("comp-elimination", "hoh-competition", "veto-competition"):
             # ORW-232 slice 1: remember every beat the competition walked in THIS pass, in engine order, and hand the narrator the whole record as ONE continuous scene to voice.
@@ -9363,7 +9772,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             try:  # the ceremony must be voiced: remember the nominees so a reply that never mentions them is re-grounded next turn
                 note_ceremony_beat_for_voicing(user, str(_beat), [n.get("name") for n in ((((_adv_event or {}) if isinstance(_adv_event, dict) else {}).get("nominees")) or [])]
                                                or re.findall(r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+", str(_beat))[1:])
-            except Exception:
+            except Exception as _fs_exc:
+                _failsoft_note("chat_helpers:_pre_resolve_npc_ceremony:4", _fs_exc)
                 pass
         # gap #3 belt-fire telemetry (docs/design/undercall-seam-structural.md §5; never raises)
         _note_belt(user, "pre-resolve-npc-ceremony")
@@ -9730,6 +10140,16 @@ async def apply_game_framing(
         game_state = await _pre_resolve_npc_ceremony(
             user, game_state, retry=game_build, player_msg=player_msg)
         game_state = await maybe_release_premiere_arrival(user, game_state, retry=game_build, player_msg=player_msg)  # ORW-954
+        try:  # ORW-1030: an agreed companion is an engine fact: undo any presence drift before the narrator reads the room, and tell the narrator who walks with the player
+            from src import orwell_companions as _oc
+            if await _oc.enforce(user):
+                game_state = (await orwell_engine.get_game_state(user=user)) or game_state
+            _cl = _oc.steer_line(user)
+            if _cl:
+                _ck = _runway_key(user)
+                _SCHEDULE_STEER[_ck] = (_SCHEDULE_STEER.get(_ck, "") + "\n\n" if _SCHEDULE_STEER.get(_ck) else "") + _cl
+        except Exception:  # failsoft-ok: companions are an aid; the engine board stays the authority
+            pass
         # P2: a session this process has never framed is a FRESH CONTEXT — request the
         # re-entry moment so the engine's prompt carries THE RECORD (ADR 0003 §6: long-term
         # memory is the store recalled, never the chat remembered). Subsequent turns in the
@@ -9826,7 +10246,8 @@ async def apply_game_framing(
                     _LAST_FRAMED_MOMENT_VOLATILE[user or "default"] = _mp_txt[_vi:]
                 else:
                     _LAST_FRAMED_MOMENT_VOLATILE.pop(user or "default", None)
-            except Exception:
+            except Exception as _fs_exc:
+                _failsoft_note("chat_helpers:apply_game_framing:2", _fs_exc)
                 pass
             _stash_producer_name(user, mp)  # #1626: the season's producer byline for the client
             _stash_hard_constraints(session_id, mp)  # #1735 (A4) / #1752: this turn's terminal HARD-CONSTRAINTS block, keyed by session
@@ -9885,6 +10306,13 @@ async def apply_game_framing(
             freeze_capture_whereabouts(user, game_state.get("whereabouts"))
         except Exception as e:
             logger.warning("[orwell] location grounding skipped for user=%s: %s", _gkey, e)
+        # ORW-934: the engine walked the player's search for a houseguest this turn (before the narrator): the narrator voices the legs as one passage. Best-effort / fail-open.
+        try:
+            _srch = _player_search_directive(game_state.get("playerSearch"))
+            if _srch:
+                gm_prompt = gm_prompt + "\n\n" + _srch
+        except Exception as e:
+            logger.warning("[orwell] player-search framing skipped for user=%s: %s", _gkey, e)
         # ORW-473: the player walked in on a private talk this turn - each houseguest's reaction comes from their own sheet (engine-chosen); the narrator voices it. Best-effort / fail-open.
         try:
             _walk = _walked_in_directive(game_state.get("walkedIn"))
@@ -9894,11 +10322,13 @@ async def apply_game_framing(
             logger.warning("[orwell] walk-in framing skipped for user=%s: %s", _gkey, e)
         # ORW-386 - the player asks where someone is / searches the house: hand the narrator the engine's house search (each houseguest's room + whether the player can walk in) so it never invents closed doors.
         try:
+            _TOLD_SPEAKERS.pop(_desync_key(user), None)  # ORW-1009: only this turn's house search can hand over a sighting
             if _is_house_search(player_msg):
                 _target = _search_target(player_msg, game_state)
                 _search_kw = {"looking_for": _target} if _target else {}  # ORW-462: the named houseguest is always found
                 _search_wa = await asyncio.wait_for(orwell_engine.whereabouts(user=user, search=True, **_search_kw), orwell_engine._FRAMING_TIMEOUT)
                 _search_dir = _house_search_directive(_search_wa, player_msg)
+                _TOLD_SPEAKERS[_desync_key(user)] = _told_speaker_names(_search_wa)
                 if _search_dir:
                     gm_prompt = gm_prompt + "\n\n" + _search_dir
         except Exception as e:
@@ -10166,7 +10596,7 @@ GAME_ENGINE_WRITE_TOOLS = frozenset({
     # tracking, the bedtime/day-advance lever) — added for the same reason. runCompetition is
     # deliberately EXCLUDED: it only PREVIEWS the already-decided winner, it never mutates.
     "formAlliance", "joinAlliance", "exposeSecret", "tradeSecret",
-    "moveTo", "markHouseguestMet", "turnIn",
+    "moveTo", "markHouseguestMet", "turnIn", "searchForHouseguest",
 })
 
 # E22: narration shorter than this is treated as trivial (a refusal, a one-liner) and not
@@ -10333,7 +10763,8 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
             if staged_this_turn:
                 logger.info("[orwell] E22 guard: stood down — the 0055 belt already staged this turn's scene fold (ORW-185) user=%s", user)
                 return False
-        except Exception:  # fail-open: the guard's floor must still run
+        except Exception as _fs_exc:  # fail-open: the guard's floor must still run
+            _failsoft_note("chat_helpers:ensure_turn_recorded:1", _fs_exc)
             pass
     # ORW-288 (live premiere run, 2026-11-12: 32 of 52 premiere turns fired this WARN): a turn whose player message is a bare "keep going" prompt ("next", "continue", "ok" ...) carries NO social scene, and
     # when the engine's board moved during it (the front-end's own pre-resolve advanced the premiere / a ceremony; the beats it committed are recorded events already) there is nothing for the fallback
@@ -10531,6 +10962,50 @@ def mark_new_season_start(sess) -> bool:
                 last.metadata["season_start"] = True
             return True
     return False
+
+
+_PENDING_SEASON_BOUNDARY: set = set()  # ORW-1051: owners whose restart ran with no chat bound; the next turn's user line opens the season
+
+
+def mark_season_boundary_for_owner(owner) -> bool:
+    """ORW-1051: a season was just restarted from inside the chat (the confirmed createCharacter door). Stamp `season_start` on the
+    newest user line of the owner's bound game chat (the request that led to the restart), so the new season's context starts there.
+    With no bound chat, remember the owner and let the next turn's user line open the season. Returns True when a row was stamped."""
+    try:
+        from src import orwell_game_session
+        from core.models import _session_manager as _sm
+        sid = orwell_game_session.get_game_session(owner)
+        sess = _sm.get_session(sid) if (sid and _sm is not None) else None
+        hist = getattr(sess, "history", None) or []
+        for m in reversed(hist):
+            if getattr(m, "role", None) == "user":
+                if _sm is not None and hasattr(_sm, "mark_message_season_start"):
+                    _sm.mark_message_season_start(m)
+                else:
+                    if m.metadata is None:
+                        m.metadata = {}
+                    m.metadata["season_start"] = True
+                return True
+    except Exception:
+        logger.debug("[orw-1051] bound-chat season stamp failed", exc_info=True)
+    _PENDING_SEASON_BOUNDARY.add(str(owner))
+    return False
+
+
+def _consume_pending_season_boundary(sess, user) -> None:
+    """ORW-1051: apply a remembered restart to this turn's trailing user line (see mark_season_boundary_for_owner)."""
+    if str(user) not in _PENDING_SEASON_BOUNDARY:
+        return
+    _PENDING_SEASON_BOUNDARY.discard(str(user))
+    hist = getattr(sess, "history", None) or []
+    if hist and getattr(hist[-1], "role", None) == "user":
+        from core.models import _session_manager as _sm
+        if _sm is not None and hasattr(_sm, "mark_message_season_start"):
+            _sm.mark_message_season_start(hist[-1])
+        else:
+            if hist[-1].metadata is None:
+                hist[-1].metadata = {}
+            hist[-1].metadata["season_start"] = True
 
 
 def discard_last_user_message(sess) -> None:
@@ -10838,7 +11313,8 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
                 "endpoint_url": chat_url,
                 "endpoint_name": ep.name,
             }
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:try_fallback_endpoint:1", _fs_exc)
             continue
 
     return None
@@ -11004,7 +11480,8 @@ def _normalize_model_id_from_cache(sess) -> Optional[str]:
             try:
                 if normalize_base(getattr(ep, "base_url", "") or "") != session_base:
                     continue
-            except Exception:
+            except Exception as _fs_exc:
+                _failsoft_note("chat_helpers:_normalize_model_id_from_cache:1", _fs_exc)
                 continue
 
             raw_models = getattr(ep, "cached_models", None)
@@ -11013,7 +11490,7 @@ def _normalize_model_id_from_cache(sess) -> Optional[str]:
             try:
                 models = json.loads(raw_models) if isinstance(raw_models, str) else raw_models
             except Exception:
-                continue
+                continue  # failsoft-ok: tolerant parse of model output: a non-JSON candidate is skipped and the next one tried
 
             matched = _match_cached_model_id(requested, models)
             if matched:
@@ -11101,7 +11578,11 @@ async def build_chat_context(
         from src.settings import game_build_enabled as _gbe_pm
         if _gbe_pm():
             from src.orwell_player_move import resolve_player_move_before_narrator
-            await resolve_player_move_before_narrator(message, user, client_msg_id)
+            _prev_reply = next((_game_narration(m.content) for m in reversed(getattr(sess, "history", None) or []) if getattr(m, "role", None) == "assistant" and isinstance(m.content, str)), None)
+            from src.orwell_player_move import act_first_before_narrator
+            # ORW-1014: with ORWELL_ACT_FIRST on, act-first owns this message (ONE owner, one idempotency key); the parser runs only when it is off or its round failed.
+            if not await act_first_before_narrator(message, user, client_msg_id, sess=sess, previous_reply=_prev_reply):
+                await resolve_player_move_before_narrator(message, user, client_msg_id, previous_reply=_prev_reply)
 
     # Game build (feature 0032): under the game build the front-end's own memory / RAG /
     # skills / web are off, so the engine's moment prompt is the only injected framing — no
@@ -11187,6 +11668,10 @@ async def build_chat_context(
     # ORW-224b: only when the turn is actually FRAMED as casting (the game build with the engine up, or feeds-down),
     # the same condition the assistant-reply stamp uses (`ctx.framed and not ctx.game_active`). In the workspace
     # build (ORWELL_GAME_BUILD=0) there is no casting interview, so no stamp, and compaction stays available there.
+    try:
+        _consume_pending_season_boundary(sess, user)
+    except Exception:
+        logger.debug("[orw-1051] pending season boundary skipped", exc_info=True)
     if not game_active and framed and getattr(sess, "history", None):
         _last = sess.history[-1]
         if getattr(_last, "role", None) == "user":

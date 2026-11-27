@@ -185,7 +185,10 @@ export function themedRoomAliases(themeId?: string): ReadonlyArray<readonly [ali
     add(bare, room);
     if (room !== "diary-room") {  // ORW-968: the themed head on its own ("the galley") still finds the room, as it did before the plain word went on
       const head = bare.replace(new RegExp(`\\s+${FUNCTION_WORD[room].toLowerCase().replace(/\s+/g, "\\s+")}$`), "").trim();
-      if (head && head !== bare) { add(head, room); add(`the ${head}`, room); }
+      if (head && head !== bare) {
+        add(head, room); add(`the ${head}`, room);
+        if (/bedroom$/.test(FUNCTION_WORD[room].toLowerCase())) { add(`${head} room`, room); add(`the ${head} room`, room); } // ORW-1008: "the Palmetto room" for "the Palmetto Bedroom": players say room for a bedroom
+      }
     }
     if (room !== "diary-room") {
       const short = bare.replace(GENERIC_TAIL, "");

@@ -156,11 +156,12 @@ def _json_call(base_url: str, api_key: str | None, model: str, prompt: str,
     FAILED conformance, a real miss, not no-signal — see `_tool_choice_call`'s identical fix).
     None is reserved strictly for a TRANSPORT failure (timeout, connection refused)."""
     import json as _json
+    from src.llm_core import ensure_json_word  # ORW-1024: a json_object request must say json in its prompt
     payload = {
-        "messages": [
+        "messages": ensure_json_word([
             {"role": "system", "content": "You are being capability-tested. Follow instructions exactly."},
             {"role": "user", "content": prompt},
-        ],
+        ]),
         "response_format": {"type": "json_object"},
         "max_tokens": 200,
         "temperature": 0,

@@ -674,4 +674,11 @@ async def check_portrait(png: bytes, facts: dict, user) -> Optional[dict]:
                 isinstance(e, asyncio.CancelledError) and not isinstance(e, asyncio.TimeoutError)):
             raise
         logger.info("[portrait-check] skipped: %s (%s)", type(e).__name__, _face_tag())
+        try:  # ORW-1025: a skipped check is a counted, visible degrade (an unchecked photo must not read as verified)
+            from src import log_rings
+            log_rings.record_soft_failure(
+                "portrait-check:skipped", f"{type(e).__name__} {e}"[:120],
+                corrected="photo-kept-unchecked", user=user)
+        except Exception:  # failsoft-ok: the health record must never break the portrait run
+            pass
         return None

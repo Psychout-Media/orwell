@@ -158,7 +158,7 @@ _TURN_SEQ = itertools.count(1)
 #: and is logged once. tests/test_orw435 fails when a tool the FE can call through `_call` is in none of the three sets below.
 BUMPING_WRITES = frozenset({
     "noteMessage", "recordInteraction", "moveTo", "moveHouseguest", "markHouseguestMet", "recordImageBeat", "makeDeal", "diaryRoom",
-    "confide", "exposeSecret", "tradeSecret", "surfaceInformationTo", "turnIn", "advanceGame", "updateCasting", "resolvePlayerMove",
+    "confide", "exposeSecret", "tradeSecret", "surfaceInformationTo", "turnIn", "advanceGame", "updateCasting", "resolvePlayerMove", "searchForHouseguest",
     "accuseTie", "callInFavor", "askToTalkAlone", "confront", "askJuror", "submitDecision", "hangOut", "nap", "requestSelfEviction", "cancelSelfEviction",
     "raiseSpectatorChoice", "formAlliance", "joinAlliance", "createCharacter", "preSeedCast", "recordCastGenesis", "advanceToFinale",
     "runCompetition",
@@ -178,6 +178,29 @@ NON_BUMPING_WRITES = frozenset({
     "knowledgeScopeManifest", "producerVault", "premiereIntros", "finaleView", "getPortraitPrompt", "sandboxHealth",
     "inspectNonVaultState", "getBehavioralFlags", "playerTagline", "worldSnapshotView", "endOfSessionSummary", "askProducers",
 })
+
+# ── ORW-1014: who made the turn's engine change - the narrator's tool call, or a belt? ──
+# Prod 2026-11-26 (47 turns): the narrator called a game tool on 5, belts did the rest. A per-turn driver makes that rate a health number, not a feeling.
+#: Belts that COMMIT an engine change the narrator did not make (the FE called the tool for it). Advisory belts (nudges, notes, steers, re-grounds,
+#: strips) change no engine state and are not listed. `forced-tool-choice:*` is NOT here: the narrator made that call, the wire only demanded it.
+ENGINE_CHANGE_BELT_PREFIXES = ("auto-", "forced-advance", "player-move-intent", "bedtime-turn-in-direct", "nap-direct", "casting-record-belt",
+                               "pre-resolve-npc-ceremony")
+#: A direct belt run is also logged as a tool event; it is the belt's call, not the narrator's. belt prefix -> the tool it runs.
+_BELT_RUN_TOOLS = {"bedtime-turn-in-direct": "turnIn", "nap-direct": "nap"}
+#: FE bookkeeping writes that are never the narrator's game act.
+_NOT_A_NARRATOR_ACT = frozenset({"noteMessage"})
+
+
+def classify_driver(tools_called: Any, belts_fired: Any) -> str:
+    """'narrator' (a game tool call only), 'belt' (a belt-committed change only), 'both', or 'none' (no engine change this turn)."""
+    belts = {str(n): c for n, c in (belts_fired or {}).items()} if isinstance(belts_fired, dict) else {}
+    belt_names = [n for n in belts if n.startswith(ENGINE_CHANGE_BELT_PREFIXES)]
+    belt_ran = {t for b, t in _BELT_RUN_TOOLS.items() if any(n.startswith(b) for n in belt_names)}
+    tools = [t for t in (tools_called or []) if isinstance(t, str)]
+    narrator = any(t in BUMPING_WRITES and t not in _NOT_A_NARRATOR_ACT and t not in belt_ran for t in tools)
+    belt = bool(belt_names)
+    return "both" if narrator and belt else "narrator" if narrator else "belt" if belt else "none"
+
 
 _UNKNOWN_LOGGED: dict[str, float] = {}
 _UNKNOWN_LOG_EVERY_S = 300.0
@@ -342,6 +365,8 @@ def _entry(
         "beltsFired": _clean_belt_map(belts_fired),
         # T0-4: attempt-counted forced-tool_choice outcomes, sibling to beltsFired above.
         "forcedChoice": _clean_forced_map(forced_choice),
+        # ORW-1014: who made this turn's engine change (narrator tool call / belt / both / none).
+        "drivenBy": classify_driver(_clean_names(tools_called), _clean_belt_map(belts_fired)),
     }
 
 
@@ -650,6 +675,49 @@ def get_forced_choice_totals(user: str | None) -> dict[str, dict[str, int]]:
     return totals
 
 
+_STEER_COUNTS: dict[str, int] = {}
+_MAX_STEER_NAMES = 64
+
+
+def note_steer(name: Any) -> None:
+    """ORW-1042: count one steer / re-ground directive produced (name + count only, process-wide, bounded). Never raises."""
+    try:
+        n = str(name).strip()[:_MAX_NAME_LEN]
+        with _LOCK:
+            if n and (n in _STEER_COUNTS or len(_STEER_COUNTS) < _MAX_STEER_NAMES):
+                _STEER_COUNTS[n] = _STEER_COUNTS.get(n, 0) + 1
+    except Exception:  # pragma: no cover
+        pass
+
+
+def get_steer_counts() -> dict[str, int]:
+    with _LOCK:
+        return dict(_STEER_COUNTS)
+
+
+def get_driver_totals(user: str | None) -> dict[str, Any]:
+    """ORW-1014 - who drove the engine changes, over the retained ring: ``turns``, ``narratorToolTurns`` (a narrator game-tool call this turn),
+    ``beltDrivenTurns`` (a belt committed a change this turn), the split ``narratorOnly`` / ``beltOnly`` / ``both`` / ``none``, and the two rates
+    (0..1, None with no turns). Recomputed from each row's tools and belts, so rows written before the field existed count too."""
+    k = _key(user)
+    with _LOCK:
+        bucket = _load().get(k)
+    split = {"narrator": 0, "belt": 0, "both": 0, "none": 0}
+    n = af = 0
+    if isinstance(bucket, list):
+        for e in bucket:
+            if isinstance(e, dict):
+                n += 1
+                if any(str(b).startswith("act-first:") for b in (e.get("beltsFired") or {})):
+                    af += 1  # ORW-1014 PR 2: the act-first round committed an act this turn (counted as a tool call: the model made it)
+                split[classify_driver(e.get("toolsCalled"), e.get("beltsFired"))] += 1
+    nt = split["narrator"] + split["both"]
+    bt = split["belt"] + split["both"]
+    return {"turns": n, "narratorToolTurns": nt, "beltDrivenTurns": bt,
+            "narratorOnly": split["narrator"], "beltOnly": split["belt"], "both": split["both"], "none": split["none"],
+            "actFirstTurns": af, "narratorToolRate": round(nt / n, 3) if n else None, "beltDrivenRate": round(bt / n, 3) if n else None}
+
+
 def _drain_pending_belts(user_key: str) -> dict[str, int]:
     """Pop (and return) the user's buffered belt fires. Caller holds no lock."""
     with _LOCK:
@@ -747,20 +815,29 @@ def classify_gap(info: dict, beat_log: Any) -> dict | None:
             counted_bumps += n
             # Per tool, not only in total: a counted write of THIS FE that landed without bumping must not lend its count to
             # a different counted tool that someone else sent (e.g. one noteMessage counted, a foreign moveTo in the gap).
-            if n > calls:
-                problems.append(f"{t} x{n}, this FE called it {calls} time(s) in the window")
+            # ORW-1009: one dispatch may commit twice - the commit it earns, then the in-game-clock society tick that same commit
+            # fires (the engine attributes both to the dispatching tool). So a counted tool may bump up to MAX_BUMPS_PER_DISPATCH per call.
+            if n > calls * MAX_BUMPS_PER_DISPATCH:
+                problems.append(f"{t} x{n}, this FE called it {calls} time(s) in the window (more than {MAX_BUMPS_PER_DISPATCH} per call)")
         elif t == _OUTSIDE_A_TOOL_CALL or calls <= 0:
             problems.append(f"{t} x{n} (not dispatched by this FE in the window)")
         elif n > calls * MAX_BUMPS_PER_DISPATCH:
             problems.append(f"{t} x{n} from {calls} call(s) (more than {MAX_BUMPS_PER_DISPATCH} per call)")
         else:
             explained += n
-    if counted_bumps > _clean_int(info.get("counted_writes")):
+    # ORW-1009: the bumps beyond what the ledger counted, from tools this FE dispatched, are the same-call tick commits: explained.
+    same_call_extra = max(0, counted_bumps - _clean_int(info.get("counted_writes")))
+    # An allowance that already covers the gap (a stale count) cannot also vouch for an extra bump: counted + extra must fit in the gap.
+    if same_call_extra > _clean_int(info.get("counted_writes")) * (MAX_BUMPS_PER_DISPATCH - 1) or (same_call_extra and _clean_int(info.get("counted")) + same_call_extra > before - since):
         problems.append(f"counted tool(s) bumped {counted_bumps}, the ledger counted {_clean_int(info.get('counted_writes'))}")
+    else:
+        explained += same_call_extra
     if _clean_int(info.get("counted")) + explained < before - since:
         problems.append("the bumps the ledger counted plus the explained ones do not cover the gap")
     if complete and bumps and not problems:
         kind, note = "counting-miss", ""
+        if same_call_extra and not any(t not in BUMPING_WRITES for t in tools):
+            kind = "same-call-tick"  # ORW-1009: only counted tools, each committing again with its own society tick: nothing missed
     else:
         kind = "unexplained"
         note = ("the engine's log does not reach back that far" if beat_log.get("truncated") is not False
@@ -768,7 +845,7 @@ def classify_gap(info: dict, beat_log: Any) -> dict | None:
                 else "not explained by this FE's own calls: " + "; ".join(problems))
     tools_out = {t: n for t, n in tools.items() if t not in BUMPING_WRITES}
     calls_out = {t: _clean_int(dispatched.get(t)) for t in tools_out}
-    return {"kind": kind, "bumps": bumps[:_MAX_GAP_BUMPS], "tools": tools_out if kind == "counting-miss" else tools,
+    return {"kind": kind, "bumps": bumps[:_MAX_GAP_BUMPS], "tools": tools_out if kind in ("counting-miss", "same-call-tick") else tools,
             "calls": calls_out, "note": note, **({"more": True} if len(bumps) > _MAX_GAP_BUMPS else {})}  # review of #2757: say when the list was cut
 
 
@@ -779,7 +856,7 @@ def _describe_causes(expl: dict) -> str:
 
 def _clean_gap_explanation(v: Any) -> dict | None:
     """Coerce a gap explanation to its bounded stored shape (kind + names + ints only), or None."""
-    if not isinstance(v, dict) or v.get("kind") not in ("counting-miss", "unexplained"):
+    if not isinstance(v, dict) or v.get("kind") not in ("counting-miss", "same-call-tick", "unexplained"):
         return None
     bumps = []
     for b in (v.get("bumps") or [])[:_MAX_GAP_BUMPS]:
@@ -887,7 +964,12 @@ def record_turn(
             reason = ("an unaccounted beatSeq gap between turns — the board moved "
                       "without this FE recording the write or reconciling a cross-window "
                       "advance")
-            if expl is not None and expl["kind"] == "counting-miss":
+            if expl is not None and expl["kind"] == "same-call-tick":
+                # ORW-1009: a counted write committed again with the in-game-clock society tick it fires - the extra beat is deliberate
+                # and recorded on the entry, never a lost fold. No alarm, no warning.
+                entry["gapExplanation"] = expl
+                logger.info("[orwell] sync-ledger: beatSeq moved %d between turns; %s", gap, _describe_causes(expl))
+            elif expl is not None and expl["kind"] == "counting-miss":
                 # ORW-439: the engine says every bump in the gap came from a tool this FE dispatched in the window - a counting miss
                 # (a wrong list, a tool that bumps more than once, a commit after the call returned), not a lost change. Not RED;
                 # one WARNING names the tool(s) and how many bumps each, and the entry carries it so a developer sees which list to fix.
@@ -997,7 +1079,7 @@ def _log_line(user_key: str, entry: dict) -> None:
         ) or "-"
         logger.info(
             "[orwell] sync-ledger turn user=%s session=%s turn=%s beat=%s→%s "
-            "tools=[%s] nudges=%s backfills=%s desync=%s stale=%s idem=%s belts=[%s] forced=[%s]",
+            "tools=[%s] nudges=%s backfills=%s desync=%s stale=%s idem=%s belts=[%s] forced=[%s] driver=%s",
             user_key,
             entry.get("session") or "-",
             entry.get("turnId") or "-",
@@ -1011,6 +1093,7 @@ def _log_line(user_key: str, entry: dict) -> None:
             entry.get("idempotencyHits"),
             belts,
             forced,
+            entry.get("drivenBy") or "-",
         )
     except Exception:  # pragma: no cover
         pass

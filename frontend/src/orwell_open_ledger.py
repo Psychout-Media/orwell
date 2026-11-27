@@ -95,6 +95,31 @@ def _system_prompt(due: bool = False, player: bool = False) -> str:
     return _EXTRACTION_UNTRUSTED_FENCE + _SYSTEM + (_DUE_SYSTEM if due else "") + (_PLAYER_SYSTEM if player else "")
 
 
+# ORW-1065: nothing the ledger throws away is silent. Every discard (an entry cleaned out of an extraction reply, an id salvaged
+# off an entry, an entry past the per-turn cap) and every engine refusal is counted here by reason, in process, and the
+# refusals other than "full" are also one soft failure per turn and reason, so the admin status page shows them.
+_DISCARDS: dict = {}
+
+
+def _count(reason: str, n: int = 1) -> None:
+    _DISCARDS[reason] = _DISCARDS.get(reason, 0) + n
+
+
+def discard_counts() -> dict:
+    """A copy of the per-reason counts of everything the open-ledger writer discarded or the engine refused."""
+    return dict(_DISCARDS)
+
+
+def _record_refused(user: Optional[str], reasons: dict) -> None:
+    """The engine refused writes for a reason other than a full ledger (bad-addressee, locked, no-game, a validation reason):
+    one soft failure per reason per turn, never silent."""
+    from src import log_rings
+    for reason, n in reasons.items():
+        slug = re.sub(r"[^a-z0-9]+", "-", str(reason).lower()).strip("-")[:30] or "unknown"
+        log_rings.record_soft_failure(f"open-ledger:refused-{slug}",
+                                      RuntimeError(f"the engine refused {n} open-ledger write(s): {reason}"), user=user)
+
+
 def _record_full(user: Optional[str]) -> None:
     """The engine refused a write because the ledger is full (either bound). Loud, not silent: one soft failure with a
     stable id, so it shows on the admin status page. Called at most once per turn."""
@@ -233,17 +258,31 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
             continue
         t = re.sub(r"\s+", " ", text).strip().strip('"').strip()
         if not t or len(t) > TEXT_MAX_CHARS or (speaker if isinstance(speaker, str) else "", t.lower()) in seen:
+            _count("entry-empty-long-or-duplicate")
             continue
-        if speaker not in ok_ids or any(not isinstance(a, str) or a not in ok_ids or a == speaker for a in to):
+        if speaker not in ok_ids:
+            _count("entry-speaker-not-present")
             continue
+        # ORW-1065: one unknown id (a first name, an elsewhere id) used to drop the whole entry; drop only that id.
+        good_to = [a for a in to if isinstance(a, str) and a in ok_ids and a != speaker]
+        if len(good_to) != len(to):
+            _count("addressee-id-dropped", len(to) - len(good_to))
+        to = good_to
         parties = it.get("parties")
-        if parties is not None and not (isinstance(parties, list) and len(parties) <= PARTIES_MAX
-                                        and all(isinstance(a, str) and a in ok_ids for a in parties)):
-            continue
+        if parties is not None:
+            if not (isinstance(parties, list) and len(parties) <= PARTIES_MAX):
+                _count("entry-parties-malformed")
+                continue
+            good_parties = [a for a in parties if isinstance(a, str) and a in ok_ids]
+            if len(good_parties) != len(parties):
+                _count("party-id-dropped", len(parties) - len(good_parties))
+            parties = good_parties
         about = it.get("about")
         if about is not None and not isinstance(about, str):
+            _count("entry-about-malformed")
             continue
         if not ({speaker, *to, *(parties or [])} - {"player"}):
+            _count("entry-no-houseguest")
             continue  # review of #2692: an entry involving no houseguest would never reach the brief and would only use a ledger slot
         k = _norm(kind, KIND_MAX_CHARS) or "claim"
         entry: dict = {"text": t, "speaker": speaker, "addressedTo": list(dict.fromkeys(to)), "kind": k}
@@ -261,6 +300,7 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
         seen.add((speaker, t.lower()))
         out.append(entry)
         if len(out) >= MAX_ENTRIES_PER_TURN:
+            _count("entries-over-cap", max(1, len(items) - items.index(it) - 1))
             break
     return out
 
@@ -367,6 +407,7 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
         known = {p["id"]: str(p.get("name") or "") for p in people + away}
         accepted = 0
         refused_full = False
+        refused_other: dict = {}
         mode = grounding_mode()
         # review of #2776: a DUE entry lets the call run on a short narration, but NEW entries still need the ordinary bar (someone here, enough narration).
         entries = clean_entries(parsed, {p["id"] for p in people}, known) if people and len(narration or "") >= _MIN_NARRATION_CHARS else []
@@ -390,8 +431,15 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
                 accepted += 1
             elif isinstance(res, dict) and res.get("reason") == "full":
                 refused_full = True
+                _count("refused-full")
+            else:
+                reason = str(res.get("reason") or "refused") if isinstance(res, dict) else "no-reply"
+                refused_other[reason] = refused_other.get(reason, 0) + 1
+                _count("refused-" + re.sub(r"[^a-z0-9]+", "-", reason.lower()).strip("-")[:30])
         if refused_full:
             _record_full(owner)  # once per turn, however many writes were refused
+        if refused_other:
+            _record_refused(owner, refused_other)
         if weak:
             _record_weak_grounding(owner, weak, len(entries), lowest, dropped=(mode == "strict"))
         if resolve is not None and (opens or due):

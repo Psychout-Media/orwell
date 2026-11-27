@@ -2490,6 +2490,9 @@ def setup_orwell_routes() -> APIRouter:
     # ring. Always answers 204 — the reporter never reads the response (sendBeacon
     # can't), and a misbehaving client gets silence, never an error to chase.
     _fe_report_limiter = RateLimiter(max_requests=30, window_seconds=60)
+    #: ORW-1023: per-process tally of benign counted client events (surface -> count), e.g. speculative holders torn down.
+    _FE_BENIGN_COUNTS: dict = {}
+    _FE_COUNT_SURFACES = frozenset({"ws:resync-heal-benign"})  # allowlist: a beacon cannot grow the tally with arbitrary surface names
     _FE_REPORT_CAPS = {"surface": 80, "errorClass": 120, "detail": 300}
     #: A42: the client fail-soft sites allowed to raise a RED health event (each is a real anomaly the client auto-corrects, or a refusal it degrades around).
     _FE_RED_SURFACES = frozenset({"ws:resync-heal", "ws:resync-reconcile-failed", "ws:beat-backwards", "ws:reconnect-run-gone", "ws:chat-subscribe-refused"})
@@ -2564,6 +2567,11 @@ def setup_orwell_routes() -> APIRouter:
             except Exception:
                 pass
         level = logging.DEBUG if data.get("startup") is True else logging.INFO
+        if data.get("count") is True and fields["surface"] in _FE_COUNT_SURFACES:
+            # ORW-1023: a benign counted event (never a failure): tallied per surface, logged at DEBUG, no fe-fail line.
+            _FE_BENIGN_COUNTS[fields["surface"]] = _FE_BENIGN_COUNTS.get(fields["surface"], 0) + 1
+            logger.debug("[fe-count] %s: %s — %s (total %d)", fields["surface"], fields["errorClass"], fields["detail"], _FE_BENIGN_COUNTS[fields["surface"]])
+            return Response(status_code=204)
         logger.log(level, "[fe-fail] %s: %s — %s",
                    fields["surface"], fields["errorClass"], fields["detail"])
         return Response(status_code=204)

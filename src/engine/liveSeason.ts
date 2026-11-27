@@ -72,7 +72,7 @@ import { nominationStrategy, nominationPlan, nominationScore, nominationBaseVals
 import { sumVals, whyOption, runnerUp, type DecisionWhy, type WhyOption, type WhySink } from "./decisionWhy";
 import type { NpcMemoryLedger } from "./npcMemory";
 import type { GrudgeBook } from "./grudges";
-import { detectBlocs, blocTerm } from "./blocs";
+import { detectBlocs, blocVoteTerm, blocVotePick } from "./blocs";
 import type { Bloc } from "./blocs";
 import { DECISION } from "./decisionConstants";
 import type { NominationStyle } from "./decisionConstants";
@@ -412,9 +412,15 @@ export function preJuryEvictionCount(s: { evictionOrder: EntityId[]; active: Ent
 }
 
 /** Is `id` out of the game BEFORE the jury formed (a pre-jury evictee)? Self-eviction is judged by the caller. */
-export function isPreJuryEvictee(s: { evictionOrder: EntityId[]; active: EntityId[] }, id: EntityId): boolean {
-  const idx = s.evictionOrder.indexOf(id);
-  return idx >= 0 && idx < preJuryEvictionCount(s);
+export function isPreJuryEvictee(s: { evictionOrder: EntityId[]; active: EntityId[]; jurorIds?: EntityId[] }, id: EntityId): boolean {
+  return s.evictionOrder.includes(id) && !jurorsOf(s).includes(id);
+}
+
+/** ORW-1087: the jurors seated so far, in eviction order, read from the stable `jurorIds` fact (positional only for a save that predates it). */
+export function jurorsOf(s: { evictionOrder: EntityId[]; active: EntityId[]; jurorIds?: EntityId[] }): EntityId[] {
+  const ids = s.jurorIds;
+  if (!ids) return s.evictionOrder.slice(preJuryEvictionCount(s));
+  return s.evictionOrder.filter((h) => ids.includes(h));
 }
 
 /**
@@ -674,6 +680,8 @@ export interface LiveSeasonState {
   finalNominees?: [EntityId, EntityId];
   outgoingHoh?: EntityId;
   evictionOrder: EntityId[];
+  /** ORW-1087: the jury as a stable fact, assigned once when each houseguest is evicted (their place in the record at that moment is at or after the jury start). Never recomputed from list positions, so a battle-back that removes an earlier entry cannot move anyone on or off the jury. Absent on older saves, which fall back to the positional rule until their next eviction. */
+  jurorIds?: EntityId[];
   evictee?: EntityId;
   finished: boolean;
   winner?: EntityId;
@@ -1214,6 +1222,11 @@ export interface SeasonCtx {
    * blocs themselves are recomputed every read and NEVER stored (decision 0002).
    */
   loyaltyOf?: (id: EntityId) => number;
+  /**
+   * ORW-972 (player parity in a bloc's pick): the vote the PLAYER has told `holder` they will cast between the nominees `fn` (a this-week "voted against / voted to keep" claim the player
+   * told them), or undefined. The player counts in their bloc's majority only as `holder` knows it; an NPC mate's read is their own. Absent = the player is never counted.
+   */
+  playerStatedVoteFor?: (holder: EntityId, fn: readonly [EntityId, EntityId]) => EntityId | undefined;
   /** ORW-551 slice 3: the house culture's paranoia dial (multiplies the rattled-voter / rattled-HOH terms). Absent = 1, byte-identical. */
   paranoiaMult?: number;
   /**
@@ -2438,7 +2451,7 @@ function currentBlocs(s: LiveSeasonState, ctx: SeasonCtx): Bloc[] {
  * on the 0002 threat read). The blend, every magnitude from `decisionConstants`:
  *
  *   threat × (1 + paranoia·moodWeight)   — self-protection: a rattled voter's nerves shout loudest (0041)
- *   + blocTerm                            — vote WITH your bloc: shield a mate, lean into the shared enemy (0043)
+ *   + blocVoteTerm                        — vote WITH your bloc: shield a mate, lean toward the bloc's own majority pick (0043, ORW-972)
  *   − dealHonorWeight (if deal-bound)     — an open promise pulls the vote off the protected party (0039);
  *                                           a strong enough opposing read still BREAKS it — and the ledger
  *                                           reconciles that betrayal with its full consequence downstream
@@ -2497,9 +2510,11 @@ export function voteChoice(
     deals.some((d) => d.status === "open" && d.condition.promisors.includes(voter) && d.parties.includes(n) && n !== voter);
   // ORW-305: one pass - the named terms, in the exact order the score adds them; the score IS their left-to-right sum
   // (`a - b` is `a + (-b)` bit for bit, so the signed terms reproduce the original expression).
+  // ORW-972: the bloc votes TOGETHER - its pull is toward the bloc's own majority pick (each member's read without the bloc term; the player only as this voter knows their stated vote)
+  const blocPick = blocs.length ? blocVotePick(blocs, voter, fn, (m) => (m === ctx.player ? ctx.playerStatedVoteFor?.(voter, fn) : voteChoice(m, fn, ctx, [], hoh))) : undefined;
   const termVals = (n: EntityId): number[] => [
     ctx.rel.edge(voter, n).threat * (1 + paranoia * (V.moodSelfProtectWeight * (ctx.paranoiaMult ?? 1))),
-    blocTerm(blocs, voter, n),
+    blocVoteTerm(blocs, voter, n, blocPick),
     // ORW-37 half 2 (B41): a pre-show tie this voter holds with `n` (positive evicts, negative keeps: family keeps, a rival evicts). Absent provider => 0 => byte-identical.
     ctx.tieVotePushFor?.(n, voter) ?? 0,
     // 0085: a campaign to evict `n` that this voter is aware of pushes the vote toward `n` — bounded,
@@ -2998,6 +3013,9 @@ export function npcRestDeficit(
 /** Record the evictee as out (evictionOrder + remove from the live house). Does NOT roll the week. */
 function removeEvictee(s: LiveSeasonState, evictee: EntityId): void {
   s.evictee = evictee;
+  // ORW-1087: jury membership is decided here, once, from the record as it stands at this eviction.
+  s.jurorIds ??= s.evictionOrder.slice(preJuryEvictionCount(s));
+  if (s.evictionOrder.length >= s.active.length + s.evictionOrder.length - 11 && !s.jurorIds.includes(evictee)) s.jurorIds.push(evictee);
   s.evictionOrder.push(evictee);
   s.active = s.active.filter((h) => h !== evictee);
 }
@@ -3009,7 +3027,7 @@ function rollWeek(s: LiveSeasonState): void {
   (s.weekDigests ??= []).push({
     week: s.week, hoh: s.hoh ?? null, nominees: [...(s.finalNominees ?? s.nominees ?? [])],
     vetoHolder: s.vetoHolder ?? null, vetoUsed: !!s.vetoUsed, evictee: s.evictee ?? null,
-    juryCount: Math.max(0, s.evictionOrder.length - preJuryEvictionCount(s)),
+    juryCount: jurorsOf(s).length,
     ...(s.vetoUsed && s.replacement ? { replacement: s.replacement } : {}),
   });
   s.outgoingHoh = s.hoh;
@@ -3064,8 +3082,7 @@ function rollWeek(s: LiveSeasonState): void {
 /** Jurors seated so far. Cast size is conserved (active + evicted); the first `castSize−11` evictions
  *  are pre-jury, everything after is a juror (a battle-back returnee drops out of this count). */
 function juryCountOf(s: LiveSeasonState): number {
-  const castSize = s.active.length + s.evictionOrder.length;
-  return Math.max(0, s.evictionOrder.length - (castSize - 11));
+  return jurorsOf(s).length;
 }
 
 /** The compact live snapshot the reactive triggers read. */
@@ -3543,7 +3560,7 @@ function appealPerf(
 /** Begin the live finale: lock the Final 2, the last-9 jury, and the engine choreography. */
 function beginFinale(s: LiveSeasonState): FinaleProgress {
   const finalists: [EntityId, EntityId] = [s.active[0]!, s.active[1]!];
-  const jury = s.evictionOrder.slice(-9);
+  const jury = jurorsOf(s).slice(-9);
   const script = buildFinaleScript(finalists, jury);
   return {
     stage: "statements", finalists, jury, script,
@@ -3754,7 +3771,7 @@ export function advance(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSourc
       const evictScore = (r: EntityId): number => sumVals(evictVals(r));
       // ORW-318 (ORW-253 slice 6): an NPC Final HOH reasons from character - who they can beat in front of the jury, the threat, the bond.
       let mindWhy: Omit<DecisionWhy, "by" | "week"> | undefined;
-      const minded = ctx.finalHohMind?.(s.hoh!, rivals, s.evictionOrder.slice(preJuryEvictionCount(s)), (w) => { mindWhy = w; });
+      const minded = ctx.finalHohMind?.(s.hoh!, rivals, jurorsOf(s), (w) => { mindWhy = w; });
       let evictee = minded ?? [...rivals].sort((a, b) => evictScore(b) - evictScore(a))[0]!;
       // ORW-586 slice 4: a final-two promise the HOH keeps (the keep-or-break call is theirs, `decideKeep`) spares the one they promised, whoever the read would have sent out.
       const owed = ctx.promiseFinalTwoFor?.(s.hoh!, rivals);
@@ -4046,15 +4063,15 @@ function resolveBattleBack(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSo
   const field = s.evictionOrder.slice(-k); // the recent jurors — includes the player if they were one
   const def = drawFor(s, "hoh", rng, ctx);
   const winner = resolveComp(field, def, ctx, rng, "compete").winner;
-  // The returnee leaves the eviction record. The jury is POSITIONAL (the last `castSize - 11`-onward evictions), so removing ANY returnee shifts later evictees down
-  // an index — a pre-jury returnee pushes the first juror out of the jury, a juror returnee just leaves it. Either way the count of non-player jurors can DROP; remember
-  // how many (`juryReturns`): the jury-house arrivals counter is persisted + monotonic (the integrity checkpoint reads a lowered counter as degradation), so its
-  // target must keep counting jurors that already arrived rather than the counter being lowered.
-  const castSize = s.active.length + s.evictionOrder.length;
-  const nonPlayerJurors = (order: readonly EntityId[]): number => order.slice(Math.max(0, castSize - 11)).filter((h) => h !== ctx.player).length;
-  const jurorsBefore = nonPlayerJurors(s.evictionOrder);
+  // The returnee leaves the eviction record. The jury is a stable fact (`jurorIds`, ORW-1087), so removing a returnee takes only the returnee's own seat; later evictees
+  // keep theirs. A juror returnee still lowers the non-player juror count; remember how many (`juryReturns`): the jury-house arrivals counter is persisted + monotonic
+  // (the integrity checkpoint reads a lowered counter as degradation), so its target must keep counting jurors that already arrived rather than the counter being lowered.
+  s.jurorIds ??= s.evictionOrder.slice(preJuryEvictionCount(s));
+  const nonPlayerJurors = (): number => jurorsOf(s).filter((h) => h !== ctx.player).length;
+  const jurorsBefore = nonPlayerJurors();
   s.evictionOrder = s.evictionOrder.filter((h) => h !== winner);
-  const dropped = jurorsBefore - nonPlayerJurors(s.evictionOrder);
+  s.jurorIds = s.jurorIds.filter((h) => h !== winner); // the voided eviction takes the returnee's own seat only; nobody else moves
+  const dropped = jurorsBefore - nonPlayerJurors();
   if (dropped > 0) s.juryReturns = (s.juryReturns ?? 0) + dropped;
   s.active.push(winner);
   // A returning PLAYER is a player again: a pre-jury evictee who chose to watch/skip (0133) must not stay a spectator, or the loop would keep

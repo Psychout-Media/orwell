@@ -40,6 +40,8 @@ export interface TieSurfacingDeps {
   /** Active + awake NPCs (evicted/asleep excluded by the caller — they neither notice nor are noticed). */
   npcs: readonly EntityId[];
   player: EntityId;
+  /** ORW-1086: the player has left the house (evicted, season over): they are no node of the house's talk and nothing reaches them as house news. Absent = in the house. */
+  playerOut?: boolean;
   /** Directed affinity read (0017/0026) — how warm the live edge between two houseguests is. */
   affinity: (a: EntityId, b: EntityId) => number;
   nameOf: (id: EntityId) => string;
@@ -84,7 +86,7 @@ export interface SurfacedTie {
  */
 export function surfaceSeededTies(deps: TieSurfacingDeps): SurfacedTie[] {
   const {
-    ties, npcs, player, affinity, nameOf, knowledge, occupancy,
+    ties, npcs, player, playerOut, affinity, nameOf, knowledge, occupancy,
     surfaceToPlayer, foldDiscovery, alreadySurfacedToPlayer, playerSurfaceCount, rng,
   } = deps;
   const C = SEEDED_TIE_SURFACING;
@@ -123,7 +125,7 @@ export function surfaceSeededTies(deps: TieSurfacingDeps): SurfacedTie[] {
   // 3a. Diffuse the observation NPC↔NPC along the affinity graph (0038). NO `rel`/`subjects` ⇒ NO fold
   //     (texture only); the dedicated rng ⇒ zero shared-stream draws. The origin holds it even on a cold
   //     graph (diffuseGossip seeds the origin first), so the noticing never silently vanishes.
-  const everyone = [player, ...npcs];
+  const everyone = playerOut ? [...npcs] : [player, ...npcs];
   const edges: Array<readonly [EntityId, EntityId]> = [];
   for (let i = 0; i < everyone.length; i++) {
     for (let j = i + 1; j < everyone.length; j++) {
@@ -147,7 +149,7 @@ export function surfaceSeededTies(deps: TieSurfacingDeps): SurfacedTie[] {
   //     ties don't re-spend the cap.
   let reachedPlayer = false;
   const capRoom = playerSurfaceCount < C.maxPlayerSurfacesPerSeason;
-  if (capRoom && !alreadySurfacedToPlayer(tie.a) && rng.next() < C.surfaceToPlayerProb) {
+  if (!playerOut && capRoom && !alreadySurfacedToPlayer(tie.a) && rng.next() < C.surfaceToPlayerProb) {
     reachedPlayer = surfaceToPlayer(tie.a, observation);
   }
 

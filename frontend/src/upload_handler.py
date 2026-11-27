@@ -34,6 +34,7 @@ def secure_filename(filename: str) -> str:
 import logging
 
 logger = logging.getLogger(__name__)
+_MAGIC_FALLBACK_NOTED = False  # ORW-1027
 
 # The extension is optional: save_upload builds the id as `{uuid.hex}{ext}`,
 # and a file with no extension (Dockerfile, README, ...) yields a bare 32-hex
@@ -111,7 +112,11 @@ class UploadHandler:
             self.file_detector = magic.Magic(mime=True)
         except Exception:
             self.file_detector = None
-            logger.warning("python-magic not available, falling back to basic detection")
+            # ORW-1027: the fallback is the supported path on the game build; say it once per process, at INFO, not WARNING.
+            global _MAGIC_FALLBACK_NOTED
+            if not _MAGIC_FALLBACK_NOTED:
+                _MAGIC_FALLBACK_NOTED = True
+                logger.info("python-magic not available, falling back to basic detection (expected; noted once per process)")
     
     def inside_base_dir(self, path: str) -> bool:
         """Check if path is inside base directory"""
