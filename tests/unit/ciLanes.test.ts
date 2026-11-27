@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -33,9 +35,9 @@ const TABLE: Array<{ name: string; paths: string[]; pr: Lane[]; push?: Lane[] }>
   { name: "a doc the engine tests read (flag inventory)", paths: ["docs/FLAG-INVENTORY.md"], pr: ["engine"] },
   { name: "a spec doc (whatFired discovers docs/features/NNNN-*.md)", paths: ["docs/features/0100-x.md"], pr: ["engine"] },
   { name: "a Gherkin spec is executable: engine", paths: ["docs/features/0001-x.feature"], pr: ["engine"] },
-  { name: "frontend only (a static js file)", paths: ["frontend/static/js/chat.js"], pr: ["frontend", "fe_render", "deploy"] },
-  { name: "frontend tests only: pytest lanes, no render lanes, no smoke", paths: ["frontend/tests/test_x.py"], pr: ["frontend"], push: ["frontend", "fe_render", "deploy"] },
-  { name: "frontend markdown only", paths: ["frontend/INTEGRATION.md"], pr: ["frontend"], push: ["frontend", "fe_render", "deploy"] },
+  { name: "frontend only (a static js file)", paths: ["frontend/static/js/chat.js"], pr: ["engine", "frontend", "fe_render", "deploy"] },
+  { name: "frontend tests only: pytest lanes, no render lanes, no smoke", paths: ["frontend/tests/test_x.py"], pr: ["engine", "frontend"], push: ["engine", "frontend", "fe_render", "deploy"] },
+  { name: "frontend markdown only", paths: ["frontend/INTEGRATION.md"], pr: ["engine", "frontend"], push: ["engine", "frontend", "fe_render", "deploy"] },
   { name: "engine only (a domain file the front end does not read)", paths: ["src/domain/competitionOutcome.ts"], pr: ["engine", "deploy", "heavy"] },
   { name: "engine file the front-end tests read", paths: ["src/surfaces/tools/registry.ts"], pr: ["engine", "frontend", "deploy", "heavy"] },
   { name: "engine unit test only: no calibration re-run", paths: ["tests/unit/visibility.test.ts"], pr: ["engine"], push: ["engine", "heavy"] },
@@ -45,6 +47,9 @@ const TABLE: Array<{ name: string; paths: string[]; pr: Lane[]; push?: Lane[] }>
   { name: "scripts/live-run: read only by front-end tests, so no engine lanes", paths: ["scripts/live-run/season.sh"], pr: ["frontend"] },
   { name: "scripts/rehearsal-kit: read only by front-end tests", paths: ["scripts/rehearsal-kit/check6.sh"], pr: ["frontend"] },
   { name: "scripts/probes: an engine unit test imports it", paths: ["scripts/probes/worldPoolMeasure.ts"], pr: ["engine"] },
+  { name: "a frontend fixture the engine tests read -> engine (and so bdd)", paths: ["frontend/tests/fixtures/x.json"], pr: ["engine", "frontend"], push: ["engine", "frontend", "fe_render", "deploy"] },
+  { name: "frontend/src python the BDD gateway steps run", paths: ["frontend/src/orwell_cast_realism.py"], pr: ["engine", "frontend", "fe_render", "deploy"] },
+  { name: "frontend/integrations is FE-only: nothing in the engine names it", paths: ["frontend/integrations/claude/README.md"], pr: ["frontend"], push: ["frontend", "fe_render", "deploy"] },
   { name: "workflow file", paths: [".github/workflows/ci.yml"], pr: ALL },
   { name: "any other workflow file", paths: [".github/workflows/ci-nightly.yml"], pr: ALL },
   { name: "ci/ scripts", paths: ["ci/path-lanes.sh"], pr: ALL },
@@ -56,7 +61,7 @@ const TABLE: Array<{ name: string; paths: string[]; pr: Lane[]; push?: Lane[] }>
   { name: "unknown top-level directory", paths: ["brand-new-dir/x.txt"], pr: ALL },
   { name: ".claude/ is not proven inert", paths: [".claude/agents/x.md"], pr: ALL },
   { name: "one unknown path among docs runs everything", paths: ["docs/audits/x.md", "mystery.bin"], pr: ALL },
-  { name: "mixed: docs + frontend = the frontend lanes", paths: ["docs/audits/x.md", "frontend/static/js/chat.js"], pr: ["frontend", "fe_render", "deploy"] },
+  { name: "mixed: docs + frontend = the frontend lanes", paths: ["docs/audits/x.md", "frontend/static/js/chat.js"], pr: ["engine", "frontend", "fe_render", "deploy"] },
   { name: "mixed: engine + frontend = the union", paths: ["src/domain/competitionOutcome.ts", "frontend/static/js/chat.js"], pr: ALL },
   { name: "mixed: engine unit test + frontend test", paths: ["tests/unit/visibility.test.ts", "frontend/tests/test_x.py"], pr: ["engine", "frontend"], push: ALL },
 ];
@@ -66,6 +71,13 @@ describe("ci/path-lanes.sh: changed paths -> lanes (table)", () => {
     it(`${row.name} (pull_request)`, () => expect(lanes(row.paths)).toEqual(row.pr));
     it(`${row.name} (push to main / merge queue: the broad sets)`, () => expect(lanes(row.paths, "push")).toEqual(row.push ?? row.pr));
   }
+
+  it("a docs-only change runs no path lane, so ci.yml must run fast-checks (the secrets scan) unconditionally", () => {
+    const yml = readFileSync(join(ROOT, ".github/workflows/ci.yml"), "utf8");
+    const job = yml.slice(yml.indexOf("\n  fast-checks:\n"), yml.indexOf("\n  test:\n"));
+    expect(job).toMatch(/\n    if: needs\.changes\.outputs\.reuse != 'true'\n/);
+    expect(readFileSync(join(ROOT, "ci/fast-checks.sh"), "utf8")).toContain("tests/unit/secrets.test.ts");
+  });
 
   it("an empty change list counts as every file changed: every lane", () => {
     const r = raw("", "pull_request");

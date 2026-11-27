@@ -73,8 +73,8 @@ describe("the changes job's path filter on big change lists (never a lane skippe
     });
   }
 
-  it("a huge front-end-only change runs the front-end lanes and still skips the engine ones", () => {
-    const fe = Array.from({ length: 3000 }, (_, i) => `frontend/static/vendor/lib-${i}/index.js`).join("\n");
+  it("a huge front-end-only change runs the front-end lanes and still skips the engine ones (ORW-1044: only frontend/integrations and frontend/companion are engine-free)", () => {
+    const fe = Array.from({ length: 3000 }, (_, i) => `frontend/integrations/lib-${i}/index.js`).join("\n");
     const got = run(filterScript(), { changed: fe, EVENT_NAME: "pull_request" });
     expect(got.frontend).toBe("true");
     expect(got.fe_render).toBe("true");
