@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
  * a hard expiry (the seven deployed-profile tests also skip it when they source deploy/orwell-env-defaults.sh: `ORWELL_(EMBEDDINGS|EMBED_CACHE)`); the test fails after the expiry, and it fails if a pin appears in tests/support/premiereTestDefault.ts or cucumber.cjs without being registered. Remove the pin and its row together when the card lands.
  */
 const REGISTERED: Array<{ flag: string; card: string; expires: string }> = [
+  { flag: "ORWELL_COMP_MECHANICS_MORE", card: "ORW-1118", expires: "2026-12-04" }, // the FE real-loop engine stack only (frontend/tests/test_m0_3_midgen_join.py): test_orw785 and the other seed-pinned real-loop tests, ORW-1118
   { flag: "ORWELL_COMP_MECHANICS_MORE", card: "ORW-1113", expires: "2026-12-04" }, // the cucumber lane only (cucumber.cjs): 7 seed-pinned scenarios, ORW-1113
 ];
 const read = (p: string): string => readFileSync(new URL(`../../${p}`, import.meta.url), "utf8");
@@ -14,6 +15,7 @@ const pinned = (src: string): string[] => [...src.matchAll(/process\.env\.(ORWEL
 describe("time-boxed test overrides of shipped-on flags", () => {
   it("every pin in the test setup and cucumber config is registered, with its card", () => {
     const found = new Set([...pinned(read("tests/support/premiereTestDefault.ts")), ...pinned(read("cucumber.cjs"))]);
+    expect(read("frontend/tests/test_m0_3_midgen_join.py"), "the FE real-loop stack pin is registered (ORW-1118)").toContain('ORWELL_COMP_MECHANICS_MORE="0"');
     for (const f of found) expect(REGISTERED.find((r) => r.flag === f), `${f} is pinned off in tests but not registered`).toBeDefined();
   });
   it("no registered override is past its expiry (the card must have landed, or the date is re-ruled here)", () => {
