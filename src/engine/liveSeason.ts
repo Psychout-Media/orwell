@@ -1036,6 +1036,8 @@ export interface LiveSeasonState {
   approachStreak?: { desire: string; count: number; lastHour: number };
   /** ORW-341 (Vault-class, engine-only): `holder>target` -> the week the holder last PITCHED that target in house life for a pull-them-in goal. The alliance tick counts a target pitched this week a little warmer. */
   pitched?: Record<string, number>;
+  /** ORW-1080: houseguest -> the day their day-one read of the player came back to them, and how. Once each; engine-only; played games. */
+  firstReturns?: Record<string, { day: number; took: "warm" | "wary"; held: boolean }>;
   /** ORW-963: `holder>target` -> the in-game day of that houseguest pitch, while it is still open (how long depends on the pitcher). Engine-only; played games. */
   pitchedDay?: Record<string, number>;
   /** ORW-963: alliance id -> the in-game day an unanswered pitch to the PLAYER was first seen open. Engine-only; played games. */

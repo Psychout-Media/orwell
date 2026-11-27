@@ -1776,6 +1776,7 @@ function presentCues(e: NonNullable<GameStateView["presentKnowledge"]>[number]):
   const bits: string[] = [];
   if (e.mood) bits.push(`mood ${neutralizeForPrompt(e.mood)}`);
   if (e.currentRead) bits.push(`toward the player ${neutralizeForPrompt(e.currentRead.toward)} (${e.currentRead.drift})`);
+  if (e.dayOneBack) bits.push(`their first-day read of the player (${e.dayOneBack.firstTook}) has come back to them and ${e.dayOneBack.held ? "has held up" : "turned out wrong"}: they may say so in their own words`); // ORW-1080
   if (e.rivalry) bits.push(`rivalry ${e.rivalry.tone}`);
   return bits.join("; ");
 }
