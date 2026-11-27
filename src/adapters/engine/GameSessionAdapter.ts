@@ -9355,6 +9355,8 @@ export class GameSessionAdapter implements GameSession {
 
   /** ORW-1010: the reason the player's bed request did NOT happen this turn (null when it happened or nothing was asked): handed to the narrator to say plainly in the reply. Memory-only, replaced each message. */
   private playerBedRefusal: string | null = null;
+  /** ORW-1090: the player-involved wake reaction of this tick (told to the narrator for one turn). Memory-only. */
+  private bedWakeNote: { sleeper: string; joiner: string; mood: "annoyed" | "fine" } | null = null;
 
   private resolvePlayerBed(text: string): boolean {
     const changed = this.resolvePlayerBedInner(text);
@@ -9479,6 +9481,31 @@ export class GameSessionAdapter implements GameSession {
     }
   }
 
+  /**
+   * ORW-1090 (Ryne 2026-11-26: an empty half of a double is fair game; the sleeper may react when they wake, annoyed or fine by how they feel about the joiner; the same for houseguests joining a sleeping player or
+   * houseguest). Once per join, on the first tick of a LATER day than the join: the earlier claimant of a double's two halves is the sleeper, the later one the joiner. The sleeper's own read of the joiner (their warmth
+   * toward them, the same bar a swap uses) is "annoyed" below `BED_RULES.swapAcceptAbove`, else "fine". NARRATION ONLY: no relationship fold (a hidden slight moves every seeded trajectory and so every seed-pinned scan; folding it is a calibration change for the product owner, carded separately). When the player is the sleeper or the joiner the reaction is handed to the narrator for one turn (`bedWake`). Append-only record so a join reacts once.
+   */
+  private reactToHalfJoins(beds: BedsState, day: number, living: ReadonlySet<EntityId>): void {
+    this.bedWakeNote = null;
+    const r = this.bedReader();
+    for (const joiner of [...living]) {
+      const spot = beds.owner[joiner];
+      if (!spot || !isDoubleSpot(spot)) continue;
+      const sleeper = otherHalf(beds, spot, living, joiner);
+      if (!sleeper) continue;
+      const at = (who: EntityId): number => { for (let i = beds.claims.length - 1; i >= 0; i--) if (beds.claims[i]!.who === who && beds.claims[i]!.bed === beds.owner[who]) return i; return -1; };
+      if (at(joiner) <= at(sleeper)) continue; // the later claimant is the joiner
+      const claim = beds.claims[at(joiner)];
+      if (!claim || claim.day >= day) continue; // they have not slept on it yet
+      const key = `${bedOfSpot(spot)}:${sleeper}:${joiner}`;
+      if (beds.wokeBeside?.includes(key)) continue;
+      (beds.wokeBeside ??= []).push(key);
+      const mood = r.warmth(sleeper, joiner) < BED_RULES.swapAcceptAbove ? "annoyed" as const : "fine" as const;
+      if (sleeper === PLAYER || joiner === PLAYER) this.bedWakeNote = { sleeper: this.nameOf(sleeper), joiner: this.nameOf(joiner), mood };
+    }
+  }
+
   /** ORW-466 slice 3: the per-day chance of a goal move (`BED_MOVES.dailyChance`); a test seam. */
   private bedMoveChance: number = BED_MOVES.dailyChance;
   setBedMoveChance(p: number): void { this.bedMoveChance = p; }
@@ -9527,6 +9554,7 @@ export class GameSessionAdapter implements GameSession {
       const what = isDoubleSpot(spot) ? "half of a double" : "bed";
       this.onPlayerEvent?.(`${this.nameOf(gone)}'s ${what} in ${this.roomName(room)} sits empty now that they are gone${mates.length ? `; ${mates.map((m) => this.nameOf(m)).join(", ")} ${mates.length === 1 ? "sleeps" : "sleep"} there` : ""}`, witness, "bed-claim");
     }
+    this.reactToHalfJoins(beds, day, living); // ORW-1090
     const movedToday = beds.claims.filter((c) => c.why === "move" && c.day === day && c.who !== PLAYER).length;
     if (movedToday >= BED_MOVES.maxPerDay) return;
     if (new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:bed-moves:${day}`)).next() >= this.bedMoveChance) return;
@@ -20588,6 +20616,8 @@ export class GameSessionAdapter implements GameSession {
       this.endgameTests(); // 0193: at four left or fewer, old final-two promises get tested out loud
       this.audienceAfterEviction(); // ORW-624: the audience outside - the crowd as the evictee walks out, and a fan reward in its weeks
     }
+    // ORW-1097: the Final-3 eviction is atomic (no eviction-result beat), so the third-place evictee's deals, favors and assurances lapsed nowhere and stayed open into the finale. Same lapse step, same seam.
+    if (ev && ev.beat === "final-eviction") this.evictedTakeWithThem();
     // T0-3 (issue #1778) — derive this beat's Vault-free broadcast chyron(s), IF ANY, from the SAME
     // `ev` + the now-committed `this.live` (every read/mutation above this line is either read-only
     // over the ceremony fields `buildBeatAnnouncements` also reads, or scoped to a different beat, so
@@ -22748,7 +22778,8 @@ export class GameSessionAdapter implements GameSession {
     const view2 = this.napOpenNow() ? { ...view1, napOpen: true as const } : view1; // 0148: the NAP line only when a nap is possible
     const bedsNow = this.bedsLine(); // ORW-466 slice 2: the move-in bed pick, per turn (absent outside the claim window / headless)
     const view3a = bedsNow ? { ...view2, beds: bedsNow } : view2;
-    const view3 = this.playerBedRefusal ? { ...view3a, bedRefused: this.playerBedRefusal } : view3a; // ORW-1010: a refused bed claim or swap, told to the narrator to say plainly
+    const view3w = this.playerBedRefusal ? { ...view3a, bedRefused: this.playerBedRefusal } : view3a; // ORW-1010: a refused bed claim or swap, told to the narrator to say plainly
+    const view3 = this.bedWakeNote ? { ...view3w, bedWake: this.bedWakeNote } : view3w; // ORW-1090: the sleeper's reaction on waking, one turn
     const longNightNow = this.longNightLine(); // ORW-652: the shape of a double-eviction night, per turn (absent outside it / headless)
     const view3b = longNightNow ? { ...view3, longNight: longNightNow } : view3;
     const view4 = this.claimSourceNote ? { ...view3b, sourceNote: this.claimSourceNote } : view3b; // 0152: the answer to "who told you that?", this turn only

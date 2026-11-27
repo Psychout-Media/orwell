@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { execFile } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PHASES, poolByPhase, poolSeason, evaluate, fmtShare, type PhaseShares } from "../support/wholeSeasonMix";
@@ -16,6 +17,8 @@ import type { MixScene } from "../support/houseMixDriver";
  * over 75% of a phase). The agreed bands (`evaluate`) print as a report on every run and are tracked by the weekly calibration workflow; there is no ratchet.
  * Heavy lane: `npm run test:heavy:season-mix` (the seasons play at the same time in child processes); prints `MIXWS` lines (counts and shares only, no content).
  * WSMIX_SEEDS='1,2' narrows the seeds for a local run (numbers only, no assertions).
+ * ORW-410 (CI speed): the PR lane plays each seed in its OWN job and judges them together. A play job sets WSMIX_SEEDS=<seed> WSMIX_OUT=<dir> (it writes `seed-<seed>.json` and judges
+ * nothing); the one judging job sets WSMIX_FROM=<dir> (it plays nothing, requires every seed of SEEDS to be there, and judges the pool). With neither set, one run does both, as before.
  * ORW-986 (the nightly slow-calibration workflow): WSMIX_REPLICAS=3 plays each seed under that many sandbox names (replica 0 is the guard's own game, the others
  * `wf-<seed>-noise<r>`, the same independent plays the ORW-944 noise report uses) and JUDGES the pool: 12 seasons instead of 4, so a late-phase change the 4-season
  * PR lane cannot see (late gossip and strategy swing about +-11 points there) shows. Default 1 = the PR guard, unchanged.
@@ -52,11 +55,21 @@ function playInChild(seed: number, sandbox?: string): Promise<SeasonOut> {
   });
 }
 
+const OUT_DIR = process.env.WSMIX_OUT, FROM_DIR = process.env.WSMIX_FROM;
+/** The seasons the play jobs wrote: every seed of SEEDS must be there, so the bounds are never judged on a partial set. */
+function readSeasons(dir: string): SeasonOut[] {
+  const missing = SEEDS.filter((seed) => !existsSync(join(dir, `seed-${seed}.json`)));
+  if (missing.length) throw new Error(`no result for season(s) ${missing.join(", ")} in ${dir}`);
+  return SEEDS.map((seed) => JSON.parse(readFileSync(join(dir, `seed-${seed}.json`), "utf8")) as SeasonOut);
+}
+
 describe("whole-season house-life mix guard", () => {
   it("plays seasons and judges the pooled per-phase mix", async () => {
-    const { seeds, narrowed } = seedsToPlay();
+    const { seeds, narrowed: only } = FROM_DIR ? { seeds: SEEDS, narrowed: false } : seedsToPlay();
+    const narrowed = only || !!OUT_DIR; // a play job judges nothing
     const all: MixScene[] = [];
-    const per: SeasonOut[] = await Promise.all(Array.from({ length: REPLICAS }, (_, r) => seeds.map((seed) => playInChild(seed, sandboxOf(seed, r)))).flat());
+    const per: SeasonOut[] = FROM_DIR ? readSeasons(FROM_DIR) : await Promise.all(Array.from({ length: REPLICAS }, (_, r) => seeds.map((seed) => playInChild(seed, sandboxOf(seed, r)))).flat());
+    if (OUT_DIR) { mkdirSync(OUT_DIR, { recursive: true }); for (const r of per) writeFileSync(join(OUT_DIR, `seed-${r.seed}.json`), JSON.stringify(r)); }
     for (const r of per) {
       const scenes: MixScene[] = r.scenes.map(([type, week, out]) => ({ type, action: "", msg: 0, week, playerOut: out === 1 }));
       const shares = poolByPhase(scenes); // per seed: player-in scenes only (a seed with a short stay has an empty later phase)
