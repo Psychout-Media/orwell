@@ -114,6 +114,20 @@ describe("part 4: an open entry untouched for 7 in-game days lapses (pure)", () 
   });
 });
 
+// ── ORW-1093: the cap never drops a present houseguest ──
+describe("ORW-1093: more houseguests present with something open than the cap holds", () => {
+  it("every one of them still gets an entry, and nothing else is added", () => {
+    const people = ["npc:a", "npc:b", "npc:c", "npc:d", "npc:e", "npc:f", "npc:g", "npc:h"];
+    const entries: OpenLedgerEntry[] = people.map((p, i) => entry({ id: `open:${i + 1}`, speaker: p, text: `old words of ${p}`, quoteHash: `o${i}` }));
+    entries.push(entry({ id: "open:9", speaker: "npc:a", text: "newer words of the first", quoteHash: "n0" }));
+    const lines = openLedgerSection({ nextId: 10, entries }, people, (id) => id, 100)!.split("\n").slice(1);
+    expect(people.length).toBeGreaterThan(OPEN_LEDGER_BRIEF_MAX);
+    expect(lines).toHaveLength(people.length);
+    for (const p of people.slice(1)) expect(lines.some((l) => l.includes(`old words of ${p}`)), p).toBe(true);
+    expect(lines.some((l) => l.includes("newer words of the first"))).toBe(true);
+  });
+});
+
 // ── PART 5: one line per houseguest present ──────────────────────────────────────────────────────────────────────────────
 describe("part 5: each houseguest present with an open entry gets a line (pure)", () => {
   it("five present houseguests each with an old entry, plus five newer entries about two of them: every one has a line", () => {
