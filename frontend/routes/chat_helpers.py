@@ -4916,6 +4916,7 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
             try:
                 from src import orwell_sync_ledger as _led
                 _led.note_belt_fire(user, "presence-wall", len(dropped))  # ORW-1061
+                _led.note_guard_sample(user, "presence-wall", "phantom-placement", len(dropped), len(text) - len("".join(out)))  # ORW-1061: the audit ring
             except Exception:  # failsoft-ok: telemetry
                 pass
         except Exception as _fs_exc:
@@ -5756,6 +5757,7 @@ def screen_invented_confession(user, text: str, player_msg=None) -> "tuple[str, 
         try:
             from src import orwell_sync_ledger as _led
             _led.note_belt_fire(user, "invented-confession", len(ops))  # ORW-1061: counted on an APPLIED replacement
+            _led.note_guard_sample(user, "invented-confession", "replaced-with-deflection", len(ops), 0)  # ORW-1061: the audit ring
         except Exception:  # failsoft-ok: telemetry
             pass
         logger.warning("[orwell] N-17: replaced %d invented-confession sentence(s) with a deflection (user=%s)", len(ops), user)
@@ -5896,6 +5898,7 @@ async def screen_knowledge_wall(user, text: str) -> str:
             try:
                 from src import orwell_sync_ledger as _led
                 _led.note_belt_fire(user, "knowledge-wall", 1)  # ORW-1061
+                _led.note_guard_sample(user, "knowledge-wall", "sealed-content", len(parts) - len(out), len(text) - len("".join(out)))  # ORW-1061: the audit ring
             except Exception:  # failsoft-ok: telemetry
                 pass
         except Exception as _fs_exc:

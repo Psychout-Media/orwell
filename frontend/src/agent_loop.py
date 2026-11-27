@@ -3958,14 +3958,21 @@ def _resolve_belt_endpoint(owner, fallback_url, fallback_model, fallback_headers
             return url, model, headers
         # Fall-through is a real miss (utility tier unresolved) — make it VISIBLE, not silent
         # (ruling #1599): the belts route back to the COSTLIER narration model here.
-        logger.warning(
-            "[orwell] utility belt endpoint unresolved (incomplete url/model) — belts fall back "
-            "to the narration model (costlier extraction); check utility_model/utility_endpoint_id")
+        # ORW-1073: a counted soft failure (RED on /admin/status), not only a WARNING line: on dev a dangling designation ran every belt on the narration model unnoticed.
+        _belt_endpoint_soft_fail(owner, RuntimeError("utility tier unresolved (incomplete url/model); check utility_model / utility_endpoint_id"))
     except Exception as _belt_resolve_err:
-        logger.warning(
-            "[orwell] utility belt endpoint resolution errored (%s) — belts fall back to the "
-            "narration model (costlier extraction)", type(_belt_resolve_err).__name__)
+        _belt_endpoint_soft_fail(owner, _belt_resolve_err)
     return fallback_url, fallback_model, fallback_headers
+
+
+def _belt_endpoint_soft_fail(owner, err) -> None:
+    """ORW-1073: the belts fell back to the narration model. One counted soft failure (the shared #1599 recorder: a WARN line first, then the admin
+    status page), corrected by the fallback itself. Never raises."""
+    try:
+        from src import log_rings
+        log_rings.record_soft_failure("belts:utility-unresolved", err, corrected="belts ran on the narration model (costlier extraction)", user=owner)
+    except Exception:  # failsoft-ok: telemetry; the fallback already happened
+        logger.warning("[orwell] utility belt endpoint unresolved — belts fall back to the narration model (costlier extraction)")
 
 
 def _season_room_names(owner):
