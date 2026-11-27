@@ -1118,6 +1118,9 @@ function napSpanWords(hours: number): string {
   return mins % 60 === 0 ? `${mins / 60} hours` : `${Math.floor(mins / 60)} hours ${mins % 60} minutes`;
 }
 
+/** ORW-1076: how warm the HOH's own read of the player (trust and affinity, averaged) must be to open the door to an uninvited knock. An ordinary stranger-neutral read clears it; a soured one does not. */
+const HOH_DOOR_WELCOME = 0.4;
+
 export class GameSessionAdapter implements GameSession {
   private house: GameHouse | null = null;
   /**
@@ -8225,6 +8228,36 @@ export class GameSessionAdapter implements GameSession {
     return reason;
   }
 
+  /**
+   * ORW-1076 (Ryne 2026-11-26): the player may go up to the HOH room on their own, and the HOH may say no. null = the door opens; otherwise the reason, in plain words for the narrator. Open: the player is the HOH,
+   * nobody holds the crown, a headless game, or the player's FIRST visit of the reign (the room is opened to the whole house, spec 0199). After that the HOH has to be in there, awake, and willing (their own read of
+   * the player, or a deal still open between the two). No number crosses.
+   */
+  private hohDoorRefusal(): string | null {
+    const s = this.live;
+    const hoh = this.ceremony.hoh;
+    if (!s || s.playedGame !== true || !this.house || !this.presence || !hoh || hoh === this.house.player.id) return null;
+    const me = this.house.player.id;
+    const key = `${s.week}:${hoh}`;
+    const awake = this.awakeNow();
+    if (awake && !awake.has(hoh) && this.presence.get(hoh) === "hoh-room") return `${this.nameOf(hoh)} is asleep up there and the door stays shut`;
+    if (s.hohRoom?.done.includes(key) && !s.hohRoom.playerUp?.includes(key)) return null;
+    if (this.presence.get(hoh) !== "hoh-room") return `the HOH room is shut: ${this.nameOf(hoh)} is not in there to let anyone in`;
+    const e = this.rel.peek(hoh, me);
+    const dealt = this.deals.forParty(me).some((d) => this.dealView(d).status === "open" && this.dealView(d).parties.some((p) => p.id === hoh));
+    if (dealt || (e.trust + e.affinity) / 2 >= HOH_DOOR_WELCOME) return null;
+    return `the player knocked and ${this.nameOf(hoh)} did not let them in`;
+  }
+
+  /** ORW-1076: the first visit of a reign is used up. */
+  private noteHohVisit(): void {
+    const s = this.live;
+    const hoh = this.ceremony.hoh;
+    const key = `${s?.week}:${hoh}`;
+    if (!s?.hohRoom || !hoh || !s.hohRoom.done.includes(key) || s.hohRoom.playerUp?.includes(key)) return;
+    s.hohRoom.playerUp = [...(s.hohRoom.playerUp ?? []), key];
+  }
+
   movePlayer(room: string, expectedBeatSeq?: number): WhereaboutsView | null {
     // 0065 Part A — refuse a move computed against a superseded board BEFORE any mutation.
     this.guardBeatSeq(expectedBeatSeq);
@@ -8242,6 +8275,13 @@ export class GameSessionAdapter implements GameSession {
     if (resolved.kind !== "ok") return this.refuseRoom("movePlayer", room, resolved);
     const dest = resolved.room;
     if (here === dest) return this.whereabouts(); // already there — nothing to move
+    if (dest === "hoh-room") {
+      const door = this.hohDoorRefusal(); // ORW-1076
+      if (door) {
+        const w = this.whereabouts();
+        return w ? { ...w, moveRefused: { reason: "hoh-door", asked: String(room).slice(0, 80), detail: door } } : w;
+      }
+    }
     this.relocatePlayer(here, dest);
     this.persist();
     return this.whereabouts();
@@ -8258,6 +8298,7 @@ export class GameSessionAdapter implements GameSession {
     (this.presenceTenure ??= new Map()).set(me, 0); // a fresh arrival
     this.sendOccupancy = null; // ORW-249 (#2321): the frozen send-time roster dies at the FIRST room change, so leaving and returning during one reply cannot revive it
     this.sendAwake = null;
+    if (dest === "hoh-room") this.noteHohVisit(); // ORW-1076
     this.noteRoomEntry(dest); // ORW-654 / 0206: the first entry into a room is a one-time card
     this.detectWalkIn(dest); // ORW-473: walking in on a private talk
   }
@@ -8321,6 +8362,10 @@ export class GameSessionAdapter implements GameSession {
       result = { playerMove: null, whereabouts: this.whereabouts() };
     } else if (this.houseEventInSession()) {
       this.playerMove = { refused: true, reason: "the whole house is gathered for the event; the player stays with everyone until it resolves", from: here, to: dest, ...this.moveStamp() };
+      this.persist();
+      result = { playerMove: { ...this.playerMove }, whereabouts: this.whereabouts() };
+    } else if (dest === "hoh-room" && this.hohDoorRefusal() !== null) { // ORW-1076
+      this.playerMove = { refused: true, reason: this.hohDoorRefusal()!, from: here, to: dest, ...this.moveStamp() };
       this.persist();
       result = { playerMove: { ...this.playerMove }, whereabouts: this.whereabouts() };
     } else {
