@@ -271,8 +271,11 @@ Given("an eviction vote is tied and the HOH, who holds an open \"safe\" assuranc
     if (!hoh || hoh === PLAYER) return undefined;
     const tally = e.nominees.map((n) => Object.values(e.voteOf).filter((t) => t === n).length);
     if (tally[0] !== tally[1]) return undefined;
+    const prog = e as { stage?: string; evictee?: string };
+    if (prog.stage !== "votes" || prog.evictee !== undefined) return undefined; // ORW-1088: parked BEFORE the tie is broken (an assurance recorded after the break cannot be broken by it)
     const evictee = liveOf(control.snap).evictionOrder.at(-1);
-    if (!evictee || evictee === PLAYER) return undefined;
+    // ORW-1088: the evictee must be one of THIS ceremony's nominees (a control that played on into a later week once named the HOH themself, and the step then had the HOH assure themself).
+    if (!evictee || evictee === PLAYER || !e.nominees.includes(evictee) || evictee === hoh) return undefined;
     const a: AsrInput = { from: hoh, to: evictee, kind: "safe", sincerity: 1, source: "npc" };
     const branch = play(parked, atBeat("eviction"), record(a));
     if (!branch || liveOf(branch.snap).evictionOrder.at(-1) !== evictee) return undefined;

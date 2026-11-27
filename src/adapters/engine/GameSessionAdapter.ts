@@ -15932,6 +15932,12 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live;
     if (!this.playerAimedEnabled || !s || s.playedGame !== true || !s.aimedAtPlayer?.length) return;
     const day = s.dayNumber ?? s.week;
+    // ORW-1084 (found by ORW-1088's re-seeded audit): an approach can only play out between two people still in the house. When the player or the approacher has left, an open or shown
+    // record lapses: no scene names the player in a house they have left, and no cost is folded for an answer they could not give.
+    const gone = new Set(s.evictionOrder);
+    for (const r of s.aimedAtPlayer) {
+      if ((r.status === "open" || r.status === "shown") && (gone.has(PLAYER) || gone.has(r.actor))) r.status = "lapsed";
+    }
     for (const r of s.aimedAtPlayer) {
       // ORW-709: a hostile step the player has not answered writes its fight only when it closes (below); an answered one never does. A non-hostile one is written as it surfaces.
       if (r.status === "shown" && r.eventId === undefined && !r.hostile) this.writeAimedScene(events, r);

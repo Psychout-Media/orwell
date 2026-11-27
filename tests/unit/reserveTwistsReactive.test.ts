@@ -78,10 +78,12 @@ describe("0025 reactive triggers — triggeredTwist", () => {
 
   it("returns at most one twist per evaluation, by priority (the cooldown)", () => {
     // Battle-back and double-eviction both eligible: battle-back wins this roll, double defers.
+    // ORW-1088: the battle-back field is jurors only, so it needs a second juror seated.
     const p = armedPlan({ battleBackAtJury: 1 });
-    expect(triggeredTwist(p, sig({ activeCount: 8, juryCount: 1 }), [])).toBe("battle-back");
+    expect(triggeredTwist(p, sig({ activeCount: 8, juryCount: 1 }), [])).toBe("double-eviction");
+    expect(triggeredTwist(p, sig({ activeCount: 8, juryCount: 2 }), [])).toBe("battle-back");
     // With battle-back already fired, the deferred double eviction fires next.
-    expect(triggeredTwist(p, sig({ activeCount: 8, juryCount: 1 }), ["battle-back"])).toBe("double-eviction");
+    expect(triggeredTwist(p, sig({ activeCount: 8, juryCount: 2 }), ["battle-back"])).toBe("double-eviction");
   });
 
   it("arms no new twist once too little game remains", () => {
