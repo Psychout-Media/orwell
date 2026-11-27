@@ -238,6 +238,9 @@ export class BbWorld extends World {
   twistLastEvent?: import("../../src/engine/liveSeason").BeatEvent | null;
   twistJury?: number;
   twistFinalTwo?: number;
+  /** ORW-1088: jury seats given in the season (live.jurorIds) and the jurors seated when a battle-back fires. */
+  twistSeats?: number;
+  twistJurorsSeated?: EntityId[];
 
   // Temperature & emotional constants (0028) scratch state.
   baseWinRate?: number;

@@ -520,6 +520,7 @@ export class EngineCommandsAdapter implements EngineCommands {
         // reciprocates a bounded share of this SAME kind impact onto the player's OWN edge toward
         // each partner they just engaged — see `foldPlayerReciprocal`. No-op for any other
         // initiator, and spends no new budget (`partners` is already budget-cleared above).
+        if (req.initiator === PLAYER) for (const p of partners) this.wearMeter(PLAYER, p); // ORW-1091: the player's own edge is metered too (spends no legacy budget)
         foldPlayerReciprocal(this.rel, this.rng, req.initiator, partners, req.kind as InteractionType);
       }
     }
@@ -543,6 +544,7 @@ export class EngineCommandsAdapter implements EngineCommands {
         this.rel, this.rng, req.initiator, witnessSet, aboutEdges,
         (holder, about) => this.spendFoldBudget(holder, about),
         fatigue,
+        (holder, initiator) => { this.wearMeter(holder, initiator); }, // ORW-1091: a backfire's hit on the pitcher is metered
       );
       // Phase 2 of "the player can play offense" (0085 follow-on): an evict-shaped pitch ("more-
       // threatened") FROM THE PLAYER that actually LANDED (never a backfired one — `moved` only
@@ -704,17 +706,27 @@ export class EngineCommandsAdapter implements EngineCommands {
   }
 
   /**
+   * ORW-401 / ORW-1091: wear the played-game meter for the directed edge `from -> to` (a player edge in a played game): this scene's fold on it lands at METER_RATIO^n, n = the
+   * window's earlier folds on that edge. False (nothing counted) when the meter does not apply. Used for every metered fold: the partner and bystander edges, the player's own
+   * reciprocal edge, and the edge a backfired pitch lands on (Ryne 2026-11-27: "Yes, both sides").
+   */
+  private wearMeter(from: EntityId, to: EntityId): boolean {
+    if (this.foldWindowProvider?.() == null || (from !== PLAYER && to !== PLAYER)) return false;
+    const pair = `${from}->${to}`;
+    if (this.meterPending.has(pair)) return true; // one scene folds an edge at one factor (two folds on the same edge in one scene do not double-count)
+    const n = this.meterCounts.get(pair) ?? 0;
+    this.meterCounts.set(pair, n + 1);
+    this.meterPending.set(pair, Math.pow(METER_RATIO, n));
+    return true;
+  }
+
+  /**
    * E21: take one unit of the current beat window's fold budget for the directed edge
    * `from → initiator`; false once that edge's budget for the beat is spent.
    */
   private spendFoldBudget(from: EntityId, initiator: EntityId): boolean {
     const pair = `${from}->${initiator}`;
-    if (this.foldWindowProvider?.() != null && (from === PLAYER || initiator === PLAYER)) { // player edges only: NPC-to-NPC house life keeps the legacy cap
-      const n = this.meterCounts.get(pair) ?? 0;
-      this.meterCounts.set(pair, n + 1);
-      this.meterPending.set(pair, Math.pow(METER_RATIO, n));
-      return true;
-    }
+    if (this.wearMeter(from, initiator)) return true; // player edges only: NPC-to-NPC house life keeps the legacy cap
     const spent = this.foldCounts.get(pair) ?? 0;
     if (spent >= MAX_FOLDS_PER_PAIR_PER_BEAT) return false;
     this.foldCounts.set(pair, spent + 1);

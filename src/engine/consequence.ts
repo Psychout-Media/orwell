@@ -217,7 +217,6 @@ export function foldGenerativeConsequence(
   const moved = new Set<EntityId>();
   for (const e of edges) {
     if (e.toward === initiator) continue; // an action never folds onto its own initiator
-    if (!spend(e.toward)) continue; // the per-beat-per-edge budget (E21) gates the descriptor too
     const base = CONSEQUENCE_DIRECTION_IMPACTS[e.direction];
     const factor = CONSEQUENCE_EMPHASIS[e.emphasis ?? "notable"]; // RELATIVE weight → engine multiplier
     // BE-101: `direction`/`emphasis` are caller-proposed open-set values (ADR 0005) — the MCP boundary
@@ -227,6 +226,8 @@ export function foldGenerativeConsequence(
     // a silent `NaN` into the PERMANENT relationship layer. Skip the edge instead — a proposal the
     // engine doesn't recognize folds nothing rather than crashing the call or corrupting state.
     if (!base || factor === undefined) continue;
+    // ORW-1091: the budget is spent only on a fold that will land - a rejected proposal (above) spends nothing.
+    if (!spend(e.toward)) continue; // the per-beat-per-edge budget (E21) gates the descriptor too
     // #1419 — a tired initiator's generative fold is valence-scaled too (charm dampened, barbs amplified);
     // `NO_FATIGUE` ⇒ `scaleImpact(base, factor)` unchanged (byte-identical).
     const scaled = scaleImpact(base, factor);
@@ -273,6 +274,8 @@ export function foldThirdPartyConsequence(
   edges: readonly ThirdPartyConsequence[],
   spend: (holder: EntityId, about: EntityId) => boolean = () => true,
   fatigue: ValenceSource = NO_FATIGUE,
+  /** ORW-1091: called just before a backfire lands on holder->initiator, so the fold meter can wear that edge too (no-op by default). */
+  meterBackfire: (holder: EntityId, initiator: EntityId) => void = () => {},
 ): Set<EntityId> {
   const witnesses = witnessSet instanceof Set ? witnessSet : new Set(witnessSet);
   const moved = new Set<EntityId>();
@@ -281,6 +284,12 @@ export function foldThirdPartyConsequence(
     // is what `edges`/`EdgeConsequence` is for — this channel is strictly third-party).
     if (e.holder === e.about || e.holder === initiator || e.about === initiator) continue;
     if (!witnesses.has(e.holder)) continue; // I3: only an ACTUAL witness can form this read
+    const base = CONSEQUENCE_DIRECTION_IMPACTS[e.direction];
+    const factor = CONSEQUENCE_EMPHASIS[e.emphasis ?? "notable"]; // RELATIVE weight → engine multiplier
+    // BE-101: same open-set/closed-magnitude guard as `foldGenerativeConsequence` — an unrecognized
+    // `direction`/`emphasis` must fold nothing, never crash or write NaN into the third-party edge.
+    // ORW-1091: checked BEFORE the budget is spent and before the backfire roll, so a rejected pitch spends nothing and cannot backfire.
+    if (!base || factor === undefined) continue;
     if (!spend(e.holder, e.about)) continue; // the per-beat-per-edge budget (E21) gates this channel too
     const B = THIRD_PARTY_CONSEQUENCE;
     const trustOfInitiator = rel.read(e.holder, initiator).signals.trust;
@@ -291,14 +300,10 @@ export function foldThirdPartyConsequence(
     // the gate is open, so the common (trusted) case never spends an extra rng draw.
     if (trustOfInitiator < B.backfire.trustCeiling && bondWithAbout > bondWithInitiator
       && rng.next() < B.backfire.chance) {
+      meterBackfire(e.holder, initiator); // ORW-1091: the edge a backfire lands on is metered like any other fold
       rel.applyImpactDirected(e.holder, initiator, B.backfire.impact, rng);
       continue; // the pitch backfired — holder->about is untouched
     }
-    const base = CONSEQUENCE_DIRECTION_IMPACTS[e.direction];
-    const factor = CONSEQUENCE_EMPHASIS[e.emphasis ?? "notable"]; // RELATIVE weight → engine multiplier
-    // BE-101: same open-set/closed-magnitude guard as `foldGenerativeConsequence` — an unrecognized
-    // `direction`/`emphasis` must fold nothing, never crash or write NaN into the third-party edge.
-    if (!base || factor === undefined) continue;
     const trustMult = B.trustFloor + (1 - B.trustFloor) * clamp01(trustOfInitiator);
     // #1419 — a tired initiator lands a third-party pitch less warmly / more cuttingly too (valence-scaled
     // on top of the trust gate); `NO_FATIGUE` ⇒ byte-identical to the pre-#1419 pitch.

@@ -21,3 +21,10 @@ if (/[\\/]tests[\\/](property|uat|calibration|realpath)[\\/]/.test(path)) delete
 else process.env.ORWELL_PREMIERE_ENTRANCES = "0";
 // Bedtime gate (turnIn refused in the morning/afternoon): the unit lane drives days by turning in at 8am; the gate has its own test that opts IN through setBedtimeGateEnabled(true).
 if (!/[\\/]tests[\\/](property|uat|calibration|realpath)[\\/]/.test(path)) process.env.ORWELL_BEDTIME_GATE = "0"; else delete process.env.ORWELL_BEDTIME_GATE;
+
+/**
+ * ORW-530 / ORW-1104 (TIME-BOXED test divergence, registered in tests/unit/timeBoxedTestOverrides.test.ts): the 20 more competition mechanics (30 => 50) are ON as shipped (deploy defaults) but every seeded test lane
+ * still runs the 30 pool, because a larger pool moves which mechanic a fixed seed draws and ~22 seed-pinned tests need re-hinting (card ORW-1104, due within a day). Tests that exercise the 50 pool turn it on explicitly
+ * (`drawCompetition(..., true, true)` / `setCompMechanicsMoreEnabled(true)`).
+ */
+process.env.ORWELL_COMP_MECHANICS_MORE = "0";

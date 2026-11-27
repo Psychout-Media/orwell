@@ -23,13 +23,16 @@ from typing import Any, Iterable, NamedTuple, Optional
 
 logger = logging.getLogger(__name__)
 
-_STATE_FIELDS = ("asleep", "daySchedule", "ceremony", "eviction", "whereabouts")  # the only parts of the cached board the checks read
+_STATE_FIELDS = ("asleep", "daySchedule", "ceremony", "eviction", "whereabouts", "timeOfDay", "earlyMorning")  # the only parts of the cached board the checks read
 FACT_ASLEEP = "asleep-speaks"
 FACT_CLOCK = "clock-time"
 FACT_SCHEDULE = "schedule-words"
+FACT_PART_OF_DAY = "part-of-day"
 FACT_VETO = "veto-decision"  # ORW-715
 FACT_EVICTEE = "evictee-named"  # ORW-715
 FACT_EVENT_ROOM = "event-room"  # ORW-740b
+FACT_PLAYER_ROOM = "player-room"  # ORW-1003, a hard fact here since ORW-408
+FACT_ABSENT = "absent-present"  # ORW-408: someone who is not in the room speaks or acts there (the presence wall detects it)
 
 # The sleeper is only MENTIONED (asleep, snoring, in bed, dreaming): allowed. Anything else near their name with a voice or a movement is a conflict.
 _SLEEP_OK_RE = re.compile(r"\b(?:asleep|sleep\w*|snor\w+|slumber\w*|dream\w*|turned\s+in|in\s+(?:his|her|their)\s+bed|in\s+bed|under\s+the\s+covers|out\s+cold|fast\s+asleep)\b", re.IGNORECASE)
@@ -355,6 +358,38 @@ def event_room_conflict(text: str, whereabouts: Any) -> Optional[str]:
         return None
 
 
+# ── ORW-408 / ORW-1003: where the player is ─────────────────────────────────────────────────────────────────────────
+# The narration wrote the player into a room they did not go to (the engine keeps their real room). This replaces the presence wall's drop: the sentence is now quietly rewritten like any other hard fact.
+# A sentence that PLACES the player ("you drift into...", "you're in...") somewhere the engine does not have them. Modals, conditionals, questions and quoted speech place nobody.
+_PLAYER_PLACED_RE = re.compile(
+    r"\byou(?:'re|\u2019re|\s+are|\s+find\s+yourself)?\s+(?:\w+ly\s+)?(?:now\s+)?(?:walk|walking|step|stepping|head|heading|drift|drifting|slip|slipping|wander|wandering|stroll|strolling|settle|settling|sit|sitting|stand|standing|"
+    r"arrive|arriving|follow|following|move|moving|duck|ducking|climb|climbing|drop|sink|sinking|lie|lying|stretch|stretching|perch|perched|in\b|back\b|alone\b)[^.!?]*?\b(?:in|into|onto|inside|to|on)\b",
+    re.IGNORECASE)
+_PLAYER_NOT_PLACED_RE = re.compile(r"\b(?:could|would|might|can|should|may|if|whether|want|wanna|do\s+you|will\s+you)\b|\?", re.IGNORECASE)
+
+
+def player_room_conflict(text: str, whereabouts: Any, *, in_quote: bool = False) -> Optional[str]:
+    """The engine's name for the player's room when the narration places them elsewhere; None otherwise (no room, no room named, or a room that can be theirs)."""
+    try:
+        if not text or not isinstance(whereabouts, dict) or not whereabouts.get("room"):
+            return None
+        from src.house_rooms import rooms_named_in
+        room = str(whereabouts["room"])
+        names = whereabouts.get("roomNames") if isinstance(whereabouts.get("roomNames"), dict) else None
+        for sent in _sentences(_outside_quotes(text, in_quote)):
+            if _PLAYER_NOT_PLACED_RE.search(sent):
+                continue
+            m = _PLAYER_PLACED_RE.search(sent)
+            if not m:
+                continue
+            named = rooms_named_in(sent[m.start():], names)
+            if named and not any(room in rooms for rooms in named):
+                return str((names or {}).get(room) or "the " + room.replace("-", " "))
+        return None
+    except Exception:  # failsoft-ok: orw408-player-room (an unreadable check never holds narration)
+        return None
+
+
 def find_conflicts(text: str, state: Any, *, zero_clocks: bool, in_quote: bool = False) -> "list[str]":
     """The hard-fact conflicts in `text` against the Vault-free `getGameState` dict. Returns fact ids, e.g. ["clock-time"]. Fail-open: any hiccup => [].
     Derived from `conflict_details` (review of #2723) so a hard fact is defined in one place."""
@@ -367,8 +402,10 @@ def correction_for(fact: str) -> str:
         FACT_ASLEEP: "A houseguest who has turned in for the night spoke or acted; they are asleep and do not speak or act.",
         FACT_CLOCK: "A clock time was stated; the house has no clocks, so name only the part of the day.",
         FACT_SCHEDULE: "The next event is on a later day; do not place it today or tonight.",
+        FACT_PART_OF_DAY: "The narration placed the present in the wrong part of the day; use only the part of the day the game gave.",
         FACT_VETO: "The veto decision is stated wrongly or before the game made it; state only the engine's decision, or none if it is not made yet.",
         FACT_EVICTEE: "A houseguest is named as evicted who the game did not evict; name only the engine's evictee.",
+        FACT_PLAYER_ROOM: "The narration put the player in a room they are not in; keep them where the game has them.",
         FACT_EVENT_ROOM: "The house is called to, or gathered in, a room other than the one the game staged the event in; name only the engine's room.",
     }.get(fact, "")
 
@@ -547,6 +584,28 @@ def predisplay_rewrite_enabled() -> bool:
     return (os.environ.get("ORWELL_PREDISPLAY_REWRITE", "1").strip().lower() not in ("0", "false", "off", "no")) and predisplay_check_enabled()
 
 
+# ORW-408 (part of day): the narrator is handed the part of the day every turn and still wrote "the night wears on" at 6pm and "this afternoon" at night. Only the NARRATION places the time (quoted talk
+# is a character's guess), and a sentence about the past or the future ("was", "earlier", "tomorrow") is not placing the present.
+_NIGHT_NOW_RE = re.compile(r"\b(?:the\s+night\s+wears\s+on|(?:the\s+)?(?:middle|dead)\s+of\s+the\s+night|(?:the\s+)?small\s+hours|(?:it\s+is|it's|this)\s+late\s+(?:at\s+)?night|late\s+into\s+the\s+night|past\s+midnight)\b", re.IGNORECASE)
+_DAY_NOW_RE = re.compile(r"\b(?:this\s+(?:morning|afternoon)|the\s+(?:morning|afternoon|midday)\s+(?:sun|light))\b", re.IGNORECASE)
+_NOT_NOW_RE = re.compile(r"\b(?:tomorrow|yesterday|last\s+night|earlier|was|were|had|will|won't|until|by\s+the\s+time)\b", re.IGNORECASE)
+
+
+def part_of_day_conflict(text: str, time_of_day: Any, early_morning: Any, *, in_quote: bool = False) -> Optional[str]:
+    """The sentence that places the present in the wrong part of the day, or None."""
+    band = str(time_of_day or "")
+    if not text or band not in ("morning", "afternoon", "evening", "night", "late-night"):
+        return None
+    daylight = band in ("morning", "afternoon", "evening") and early_morning is not True
+    rx = _NIGHT_NOW_RE if daylight else _DAY_NOW_RE if band in ("night", "late-night") else None
+    if rx is None:
+        return None
+    for sent in _sentences(_outside_quotes(text, in_quote)):
+        if rx.search(sent) and not _NOT_NOW_RE.search(sent):
+            return sent.strip()
+    return None
+
+
 def conflict_details(text: str, state: Any, *, zero_clocks: bool, in_quote: bool = False) -> "list[Conflict]":
     """Like `find_conflicts` but each hit carries the name/phrase the correction needs. Same detection; fail-open."""
     try:
@@ -559,6 +618,8 @@ def conflict_details(text: str, state: Any, *, zero_clocks: bool, in_quote: bool
             from src.zero_clocks import sentence_states_zero_clock_time_raw
             if sentence_states_zero_clock_time_raw(text):
                 out.append(Conflict(FACT_CLOCK, ""))
+        if part_of_day_conflict(text, state.get("timeOfDay"), state.get("earlyMorning"), in_quote=in_quote):
+            out.append(Conflict(FACT_PART_OF_DAY, str(state.get("timeOfDay") or "").replace("-", " ")))
         sched = state.get("daySchedule")
         if schedule_conflict(text, sched, in_quote=in_quote):
             out.append(Conflict(FACT_SCHEDULE, str((sched or {}).get("next") or "").replace("-", " ")))
@@ -569,6 +630,9 @@ def conflict_details(text: str, state: Any, *, zero_clocks: bool, in_quote: bool
         room = event_room_conflict(text, state.get("whereabouts"))
         if room:
             out.append(Conflict(FACT_EVENT_ROOM, room))
+        mine = player_room_conflict(text, state.get("whereabouts"), in_quote=in_quote)
+        if mine:
+            out.append(Conflict(FACT_PLAYER_ROOM, mine))
         return out
     except Exception:  # failsoft-ok: orw408-detail-check (fail-open: an unreadable check never holds narration)
         return []
@@ -588,7 +652,31 @@ def _fresh_state(owner: Any):
     return engine_read_cache.peek("getGameState", owner, fields=_STATE_FIELDS), zero_clocks_on()
 
 
-def split_at_first_conflict(text: str, owner: Any, *, in_quote: bool = False) -> "Optional[RewriteSplit]":
+def split_at_wall_drop(before: str, after: str, owner: Any) -> "Optional[RewriteSplit]":
+    """ORW-408: the presence wall cut a sentence (someone not in the room speaking or acting). Instead of showing the reply with a hole in it, withhold from the first cut sentence and redo it
+    once with who really is here; the wall stays on the redo as the "remove the smallest wrong part" step. None when the rewrite is off or nothing was cut. Fail-open."""
+    try:
+        if before == after or not before or not predisplay_rewrite_enabled():
+            return None
+        parts = _parts(before)
+        keep, i = "", 0
+        while i < len(parts) and (after or "").startswith(keep + parts[i]):
+            keep += parts[i]
+            i += 1
+        if i >= len(parts) or not parts[i].strip():
+            return None
+        state, _ = _fresh_state(owner)
+        here = ((state or {}).get("whereabouts") or {}).get("present") if isinstance(state, dict) else None
+        names = ", ".join(str(p.get("name")) for p in (here or []) if isinstance(p, dict) and p.get("name"))
+        detail = names if here else ("nobody else" if here == [] else "")
+        REWRITE_COUNTS[FACT_ABSENT] = REWRITE_COUNTS.get(FACT_ABSENT, 0) + 1
+        logger.info("[predisplay-rewrite] withholding a sentence: %s", FACT_ABSENT)
+        return RewriteSplit(keep, "".join(parts[i:]), parts[i], (Conflict(FACT_ABSENT, detail),))
+    except Exception:  # failsoft-ok: orw408-wall-split (fail-open: the wall's own cut stands)
+        return None
+
+
+def split_at_first_conflict(text: str, owner: Any, *, in_quote: bool = False, skip: "tuple[str, ...]" = ()) -> "Optional[RewriteSplit]":
     """None when there is nothing to rewrite: flag off, no FRESH cached engine state (never fetches), no conflict, or any hiccup. Otherwise the clean prefix + the withheld rest.
     The offending sentence is the first one whose addition makes the running prefix conflict (so a quote opened earlier keeps its context). `in_quote`: the chunk begins inside a quote opened by an earlier chunk of the round."""
     try:
@@ -600,7 +688,7 @@ def split_at_first_conflict(text: str, owner: Any, *, in_quote: bool = False) ->
         parts = _parts(text)
         acc = ""
         for i, part in enumerate(parts):
-            hits = conflict_details(acc + part, state, zero_clocks=zc, in_quote=in_quote)
+            hits = [c for c in conflict_details(acc + part, state, zero_clocks=zc, in_quote=in_quote) if c.fact not in skip]
             if hits:
                 REWRITE_COUNTS[hits[0].fact] = REWRITE_COUNTS.get(hits[0].fact, 0) + 1
                 logger.info("[predisplay-rewrite] withholding a sentence: %s", ",".join(h.fact for h in hits))
@@ -611,7 +699,7 @@ def split_at_first_conflict(text: str, owner: Any, *, in_quote: bool = False) ->
         return None
 
 
-def drop_conflicting_sentences(text: str, owner: Any, *, in_quote: bool = False) -> "tuple[str, list[str]]":
+def drop_conflicting_sentences(text: str, owner: Any, *, in_quote: bool = False, skip: "tuple[str, ...]" = ()) -> "tuple[str, list[str]]":
     """Second pass over the redo: drop each WHOLE sentence that still conflicts, keep the rest verbatim. Returns (kept, the dropped sentences verbatim). Fail-open (text unchanged, nothing dropped)."""
     try:
         if not text or not predisplay_rewrite_enabled():
@@ -621,7 +709,7 @@ def drop_conflicting_sentences(text: str, owner: Any, *, in_quote: bool = False)
             return text, []
         kept, dropped = "", []
         for part in _parts(text):
-            if conflict_details(kept + part, state, zero_clocks=zc, in_quote=in_quote):
+            if any(c.fact not in skip for c in conflict_details(kept + part, state, zero_clocks=zc, in_quote=in_quote)):
                 dropped.append(part)
                 continue
             kept += part
@@ -663,8 +751,15 @@ def _correction_line(c: Conflict) -> str:
         return f"The veto decision is made and it is: {c.detail}. State only that."
     if c.fact == FACT_EVICTEE:
         return f"{c.detail} is the houseguest the game evicted; no one else was evicted."
+    if c.fact == FACT_PART_OF_DAY:
+        return f"It is {c.detail or 'the part of day the game gave'} now; place nothing in another part of the day."
     if c.fact == FACT_EVENT_ROOM:
         return f"The whole house is gathered in {c.detail} for this event; do not call or place it anywhere else."
+    if c.fact == FACT_ABSENT:
+        who = "Nobody else is" if c.detail == "nobody else" else (f"Only {c.detail} are" if "," in c.detail else f"Only {c.detail} is") if c.detail else "Only the houseguests the game lists are"
+        return f"{who} in the room with the player; no one else speaks or acts here."
+    if c.fact == FACT_PLAYER_ROOM:
+        return f"The player is in {c.detail}; do not move or place them anywhere else."
     return correction_for(c.fact)
 
 

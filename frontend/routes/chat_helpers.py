@@ -12,6 +12,7 @@ from typing import Any, List, Optional
 
 from core.models import ChatMessage
 from core.database import SessionLocal
+from src.failsoft_counter import note as _failsoft_note  # ORW-1026: a swallowed failure is counted, not silent
 from core.database import Session as DBSession, ModelEndpoint
 from src.llm_core import normalize_model_id
 from src.endpoint_resolver import normalize_base, resolve_session_headers
@@ -785,10 +786,11 @@ def parse_wait_until_clock(player_msg):
 _HANGOUT_STOP_LINES = {
     "event-due": "production is calling everyone - the scheduled event is on now (the house gathers).",
     "pulled": "the player is pulled away{by}.",
-    "npc-approach": "{npc} comes over to talk to the player.",
+    "npc-approach": "an approach - {npc} wants a word with the player and starts the conversation.",
     "observed": "the player notices something: {obs}.",
     "bedtime": "it is getting late - bedtime is the player's own call (do not force it).",
-    "max-beats": "a stretch of time passes with nothing demanding the player.",
+    # ORW-510: facts, not sentences. The old max-beats text ("a stretch of time passes with nothing demanding the player.") was copied into the reply word for word, turn after turn.
+    "max-beats": "no interruption - no one came over and nothing was called; the time simply ran out. Open on what the house around the player is doing now.",
 }
 
 
@@ -845,7 +847,7 @@ def _hang_out_steer(res: dict, asked_minutes=None) -> str:
     reason = str(res.get("stopReason") or "max-beats")
     d = res.get("detail") or {}
     by = {"diary-room": " to the Diary Room", "production": " by production"}.get(str(d.get("by") or ""), "")
-    obs = {"overheard-whisper": "two housemates whispering (%s)", "argument": "two housemates arguing (%s)", "someone-moved": "%s on the move"}.get(str(d.get("kind") or ""), "something happening (%s)") % " and ".join(d.get("who") or []) if reason == "observed" else ""
+    obs = {"overheard-whisper": "two housemates whispering (%s)", "argument": "two housemates arguing (%s)", "someone-moved": "%s on the move", "someone-entered": "%s coming into the room"}.get(str(d.get("kind") or ""), "something happening (%s)") % " and ".join(d.get("who") or []) if reason == "observed" else ""
     line = _HANGOUT_STOP_LINES.get(reason, _HANGOUT_STOP_LINES["max-beats"]).format(by=by, npc=d.get("npc") or "A housemate", obs=obs)
     mins = int(res.get("minutes") or 0)
     shown = str(res.get("stopLine") or "").strip()  # ORW-22: the engine has a player-facing line for this stop - the reply must put the stop on screen
@@ -880,12 +882,23 @@ def _waits_for_event(player_msg) -> bool:
     return bool(_WAIT_ENDS_AT_EVENT_RE.search(tail[:end.start()] if end else tail))
 
 
+# ORW-1089 (Ryne 2026-11-27): "we could essentially fast forward and summarize what happens around us. Ending as soon as a new person enters. Or game talk starts... Whenever the player is prompted."
+# Only a message that is NOTHING BUT the cue ("next", "ok, continue"), and only while the engine says nothing is due. The UI's "Continue from where you left off." is not one.
+_BARE_NEXT_RE = re.compile(r"^\s*(?:(?:ok(?:ay)?|alright)\s*[,.]?\s+)?(?:next|continue|skip|skip\s+ahead|keep\s+going)\s*[.!\u2026]*\s*$", re.IGNORECASE)
+
+
+def bare_next_while_nothing_due(game_state: dict, player_msg) -> bool:
+    sched = (game_state or {}).get("daySchedule")
+    return bool(_BARE_NEXT_RE.match(str(player_msg or ""))) and isinstance(sched, dict) and sched.get("due") is False
+
+
 async def maybe_hang_out(user, game_state: dict, player_msg) -> bool:
     """Recognise a hang-out-until-X intent and, when the engine's lever is live, run it and arm the narrator steer. Returns True when the clock moved (the caller refreshes the
     board). Fail-open: flag off / clock off / a pending decision / any hiccup => the turn proceeds exactly as before (the engine refuses with `ok:false`, no state change)."""
     from src import orwell_engine
     try:
-        if not hang_out_intent(player_msg) or not game_state.get("started") or game_state.get("pending"):
+        bare = bare_next_while_nothing_due(game_state, player_msg)
+        if not (bare or hang_out_intent(player_msg)) or not game_state.get("started") or game_state.get("pending"):
             return False
         _mins, _band = parse_stated_wait(player_msg)  # ORW-445: the player's own stated wait length (None => unchanged)
         _kw = {}
@@ -896,6 +909,8 @@ async def maybe_hang_out(user, game_state: dict, player_msg) -> bool:
         _clock = parse_wait_until_clock(player_msg)  # ORW-734a: "until 10pm" - the engine resolves it on its own clock (the next such time, never a day later)
         if _clock is not None:
             _kw["until_clock"] = _clock
+        if bare:
+            _kw = {"bare_next": True}
         if not _kw and _waits_for_event(player_msg):
             _kw["until_event"] = True  # ORW-1054: "hang out until production calls" runs to the event in one call, not a run of chance-stopped calls
         res = await orwell_engine.hang_out(expected_beat_seq=last_beat_seq(user), user=user, **_kw)
@@ -973,7 +988,8 @@ def mark_premiere_release(user) -> None:
         key = _runway_key(user)
         if key in _PREMIERE_ENTRANCE_STAGE:
             _PREMIERE_RELEASED_THIS_TURN.add(key)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:mark_premiere_release:1", _fs_exc)
         pass
 
 
@@ -1055,7 +1071,8 @@ def _note_entrance_frame(user, key, stage, ent) -> bool:
     try:
         from src import orwell_engine as _oe
         _oe.set_entrance_voiced(user, voiced)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_note_entrance_frame:1", _fs_exc)
         pass
     return voiced
 
@@ -1125,7 +1142,8 @@ def note_premiere_narration(user, narration: str) -> None:
         people = [x for x in (sp or []) if x != "host"]
         if people and all(_name_voiced_in(narration, x) for x in people):
             _TOAST_BATCH_NAMED[key] = tuple(people)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_premiere_narration:1", _fs_exc)
         pass
 
 
@@ -1190,7 +1208,8 @@ def note_premiere_turn(user, game_state) -> None:
         try:
             from src import orwell_engine as _oe_clear
             _oe_clear.set_entrance_voiced(user, False)
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:note_premiere_turn:3", _fs_exc)
             pass
         if stage == "done":
             # Live finding (A9 rerun #2): with the entrances ON, the entrances + toast ARE the premiere. Stacking the 48-message premiere hold on top of them froze the engine at
@@ -1222,7 +1241,8 @@ def note_premiere_turn(user, game_state) -> None:
                 _SCHEDULE_STEER[key] = _premiere_not_yet_steer()
         else:
             _PREMIERE_MSGS.pop(key, None)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_premiere_turn:4", _fs_exc)
         pass
 
 
@@ -1277,14 +1297,16 @@ def note_engine_held(user, held) -> None:
     try:
         import time as _t
         _ENGINE_HELD[_runway_key(user)] = (_t.monotonic(), held)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_engine_held:1", _fs_exc)
         pass
 
 
 def clear_engine_held(user) -> None:
     try:
         _ENGINE_HELD.pop(_runway_key(user), None)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:clear_engine_held:1", _fs_exc)
         pass
 
 
@@ -1626,6 +1648,9 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -
         _mf, _mt = room_ref(player_move['from'], names), room_ref(player_move['to'], names)  # ORW-466: the season's names (no theme: "the living room", as before)
         move_line = (f"\nTHE PLAYER JUST MOVED: from {_mf} to {_mt} (the engine has already done it). Open this turn's scene in {_mt}, "
                      f"with exactly the people listed above; never in {_mf}, and never re-describe the walk as still to come.")
+    # ORW-1076: a move the engine refused this turn, with its reason (a shut HOH door, the house gathered, "where?"): without it the narrator wrote the player through the door
+    if isinstance(player_move, dict) and player_move.get("refused") and player_move.get("reason"):
+        move_line = f"\nTHE PLAYER DID NOT MOVE (engine truth): {player_move['reason']}. Voice that in the scene; the player stays where they are."
     # ORW-478: a houseguest the earlier narration put in the player's room who is NOT on this roster must not just vanish or be described as inside the player's head. Said only on a move or when the engine reports someone left the room since
     # the player's last message (`sinceSend.departed`), not on every turn the player is alone; a houseguest on the asleep list is only mentioned, as the turned-in rule above says.
     since = whereabouts.get("sinceSend") if isinstance(whereabouts.get("sinceSend"), dict) else {}
@@ -2001,7 +2026,8 @@ def _reground_remove(key, directive) -> None:
             _DESYNC_REGROUND[key] = _REGROUND_SEP.join(segs)
         else:
             _DESYNC_REGROUND.pop(key, None)
-    except Exception:  # pragma: no cover - defence in depth
+    except Exception as _fs_exc:  # pragma: no cover - defence in depth
+        _failsoft_note("chat_helpers:_reground_remove:1", _fs_exc)
         pass
 
 
@@ -2072,7 +2098,8 @@ def _desync_key(user):
         sid = orwell_game_session.get_game_session(user)
         if isinstance(sid, str) and sid.strip():
             return "gs:" + sid.strip()
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_desync_key:1", _fs_exc)
         pass
     return user
 
@@ -2671,7 +2698,8 @@ def _defer_fold(user, fn, args: tuple, kwargs: dict, desc: str) -> None:
             _sl.note_stale_rejection(
                 user, dropped_fold=True,
                 cause="deferred-fold queue overflow (retry capacity outrun)")
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:_defer_fold:1", _fs_exc)
             pass
     else:
         logger.info("[orwell] deferred a fold-bearing back-fill after a double stale-409 (%s) for "
@@ -2742,7 +2770,8 @@ async def _drain_deferred_folds(user) -> None:
                             _sl.note_stale_rejection(
                                 user, dropped_fold=True,
                                 cause="deferred-fold retry budget exhausted (sustained two-window concurrency)")
-                        except Exception:
+                        except Exception as _fs_exc:
+                            _failsoft_note("chat_helpers:_drain_deferred_folds:1", _fs_exc)
                             pass
                         continue  # DROP -- do not re-queue a fold that will not commit
                     remaining.append(entry)  # still contested, within budget -- leave queued for next time
@@ -2757,7 +2786,8 @@ async def _drain_deferred_folds(user) -> None:
                     _sl.note_stale_rejection(
                         user, dropped_fold=True,
                         cause="deferred-fold non-stale terminal drop (unretryable)")
-                except Exception:
+                except Exception as _fs_exc:
+                    _failsoft_note("chat_helpers:_drain_deferred_folds:2", _fs_exc)
                     pass
                 continue
             _refresh_beat_seq(user, result if isinstance(result, dict) else {})
@@ -2782,7 +2812,8 @@ async def _drain_deferred_folds(user) -> None:
                     _sl.note_stale_rejection(
                         user, dropped_fold=True,
                         cause="deferred-fold queue overflow on drain-merge (retry capacity outrun)")
-                except Exception:
+                except Exception as _fs_exc:
+                    _failsoft_note("chat_helpers:_drain_deferred_folds:3", _fs_exc)
                     pass
             merged = merged[overflow:]
         if merged:
@@ -4221,7 +4252,8 @@ def note_ceremony_beat_for_voicing(user, label: str, names) -> None:
         names = [str(n).strip() for n in (names or []) if str(n).strip()]
         if names:
             _CEREMONY_UNVOICED[_desync_key(user)] = {"label": str(label)[:160], "names": names}
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_ceremony_beat_for_voicing:1", _fs_exc)
         pass
 
 
@@ -4264,7 +4296,8 @@ def note_eviction_result_for_voicing(user, adv) -> None:
         k = _desync_key(user)
         if k in _CEREMONY_UNVOICED and counts:
             _CEREMONY_UNVOICED[k]["counts"] = counts
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_eviction_result_for_voicing:1", _fs_exc)
         pass
 
 
@@ -4491,6 +4524,10 @@ def _presence_facts(state: dict) -> Optional[dict]:
     tonight = ((ev.get("evictee") or {}).get("name") if isinstance(ev, dict) and isinstance(ev.get("evictee"), dict) else None)
     if tonight and tonight in evicted:
         evicted.discard(tonight); in_view.add(tonight); room_present.add(tonight)
+    # ORW-1077: someone who walks out as their reaction to the player coming in is acting in this scene on this turn, though the board already has them next door
+    for _r in ((state.get("walkedIn") or {}).get("reactions") or []) if isinstance(state.get("walkedIn"), dict) else []:
+        if isinstance(_r, dict) and _r.get("left") and isinstance(_r.get("name"), str):
+            exempt.add(_r["name"].strip())
     return {"room": wa.get("room"), "in_view": in_view, "room_present": room_present,
             "evicted": evicted, "active_offscene": active_offscene,
             "adjacent": adjacent, "adjacent_rooms": adjacent_rooms, "exempt": exempt, "npc_rooms": npc_rooms, "room_names": room_names,
@@ -4776,43 +4813,6 @@ def _absent_holds_floor(narration: str, facts: dict, first_counts: dict) -> Opti
     return None
 
 
-# ORW-1003: the narration writes the player into a room they did not go to (the engine keeps their real room), so the player reads the wrong room. A sentence that PLACES the player ("you drift into...",
-# "you're in...") somewhere the engine does not have them is dropped, the same posture as an absent houseguest. Modals, conditionals and questions ("you could go...", "if you step...?") place nobody.
-_PLAYER_PLACED_RE = re.compile(
-    r"\byou(?:'re|\u2019re|\s+are|\s+find\s+yourself)?\s+(?:\w+ly\s+)?(?:now\s+)?(?:walk|walking|step|stepping|head|heading|drift|drifting|slip|slipping|wander|wandering|stroll|strolling|settle|settling|sit|sitting|stand|standing|"
-    r"arrive|arriving|follow|following|move|moving|duck|ducking|climb|climbing|drop|sink|sinking|lie|lying|stretch|stretching|perch|perched|in\b|back\b|alone\b)[^.!?]*?\b(?:in|into|onto|inside|to|on)\b",
-    re.IGNORECASE)
-_PLAYER_NOT_PLACED_RE = re.compile(r"\b(?:could|would|might|can|should|may|if|whether|want|wanna|do\s+you|will\s+you)\b|\?", re.IGNORECASE)
-
-
-def _drop_misplacing_player(text: str, player_room: str, room_names=None, quote=None) -> str:
-    """`text` without the sentences whose NARRATION (never quoted speech, even a quote split across sentences) puts the player in another room."""
-    out = []
-    for part in re.split(r"(?<=[.!?\n])", text):
-        was = quote
-        quote, close_end = _scan_quote_state(part, quote)
-        narr = part if was is None else (part[close_end:] if close_end is not None else "")
-        if quote is not None:  # a quote opens in this part: only what precedes the opening mark is narration
-            narr = re.split(r'["\u201c]', narr, maxsplit=1)[0]
-        if was is None and _sentence_misplaces_player(narr, player_room, room_names):
-            continue
-        out.append(part)
-    return "".join(out)
-
-
-def _sentence_misplaces_player(sentence: str, player_room: str, room_names=None) -> bool:
-    """True when the narration (quoted words blanked) states the player is in or moving into a room, and no room it names there can be the engine's room for them."""
-    from src.house_rooms import rooms_named_in
-    narr = _QUOTED_SPEECH_RE.sub(" ", sentence or "")
-    if not player_room or _PLAYER_NOT_PLACED_RE.search(narr):
-        return False
-    m = _PLAYER_PLACED_RE.search(narr)
-    if not m:
-        return False
-    named = rooms_named_in(narr[m.start():], room_names)
-    return bool(named) and not any(player_room in rooms for rooms in named)
-
-
 async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[dict] = None) -> str:
     """A2 (#1726) — the STRUCTURAL, SAME-TURN presence guard. Returns `text` with any sentence that
     stages an off-scene or already-evicted houseguest as present/acting in the player's scene DROPPED
@@ -4845,13 +4845,6 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
         logger.warning("[orwell] presence-wall: game-state read skipped for user=%s: %s", user, _exc_detail(e))
         return text  # engine unreachable this turn — never hold narration on a read hiccup
     facts = _presence_facts(state if isinstance(state, dict) else {})
-    if facts and not (isinstance(alt_state, dict)):  # ORW-1003: a turn with a pre-sleep board keeps the evening room's goodnight; otherwise the player is where the engine has them
-        _kept = _drop_misplacing_player(text, facts.get("room"), facts.get("room_names"), carry.get("quote"))
-        if _kept != text:
-            logger.warning("[orwell] presence-wall: dropped a sentence placing the player outside their room for user=%s", user)
-            text = _kept
-            if not text.strip():
-                return text
     if not facts or (not facts.get("evicted") and not facts.get("active_offscene") and not facts.get("adjacent")):
         if carry.get("drop_quote") or carry.get("quote"):
             pass  # ORW-917: a quote still open (or a drop still running) from an earlier chunk: scan below so the state stays true
@@ -4905,7 +4898,8 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
                 dropped.add(hit)
                 drop_quote = quote is not None
                 continue  # DROP — a non-present houseguest is never staged as present
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:screen_presence_wall:1", _fs_exc)
             pass  # any hiccup falls through to emit (conservatism), except a proven hit above
         out.append(part)
     carry["quote"], carry["drop_quote"] = quote, drop_quote
@@ -4922,9 +4916,11 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
             try:
                 from src import orwell_sync_ledger as _led
                 _led.note_belt_fire(user, "presence-wall", len(dropped))  # ORW-1061
+                _led.note_guard_sample(user, "presence-wall", "phantom-placement", len(dropped), len(text) - len("".join(out)))  # ORW-1061: the audit ring
             except Exception:  # failsoft-ok: telemetry
                 pass
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:screen_presence_wall:3", _fs_exc)
             pass
     return "".join(out)
 
@@ -5391,7 +5387,8 @@ def _forget_season_pacing(user) -> None:
         try:
             from src import orwell_companions as _oc_reset
             _oc_reset.clear(user)  # ORW-1030: last season's companions do not walk into the new one
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:_forget_season_pacing:1", _fs_exc)
             pass
         _CEREMONY_UNVOICED.pop(dkey, None)  # review of #2287: last season's unvoiced ceremony must not be re-grounded into the new one
         rkey = _runway_key(user)
@@ -5411,7 +5408,8 @@ try:  # register at import; fail-soft so a missing engine module never breaks ch
     from src import orwell_engine as _oe_for_reset
     _oe_for_reset.on_season_reset(forget_knowledge_wall)
     _oe_for_reset.on_season_reset(_forget_season_pacing)  # ORW-231
-except Exception:
+except Exception as _fs_exc:
+    _failsoft_note("chat_helpers:module:1", _fs_exc)
     pass
 
 
@@ -5620,7 +5618,8 @@ def stash_knowledge_wall_reground(user) -> None:
             "knows — never the player's diary thoughts, never a secret no pathway gave them."
         )
         _reground_enqueue(_dkey, directive)  # BL-004: bounded append (combine, never clobber)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:stash_knowledge_wall_reground:1", _fs_exc)
         pass
 
 
@@ -5758,6 +5757,7 @@ def screen_invented_confession(user, text: str, player_msg=None) -> "tuple[str, 
         try:
             from src import orwell_sync_ledger as _led
             _led.note_belt_fire(user, "invented-confession", len(ops))  # ORW-1061: counted on an APPLIED replacement
+            _led.note_guard_sample(user, "invented-confession", "replaced-with-deflection", len(ops), 0)  # ORW-1061: the audit ring
         except Exception:  # failsoft-ok: telemetry
             pass
         logger.warning("[orwell] N-17: replaced %d invented-confession sentence(s) with a deflection (user=%s)", len(ops), user)
@@ -5853,7 +5853,8 @@ def screen_tell_faithfulness(user, text: str) -> "tuple[str, list]":
         try:
             from src import orwell_sync_ledger as _led
             _led.note_belt_fire(user, "tell_faithfulness", len(ops))
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:screen_tell_faithfulness:1", _fs_exc)
             pass
         logger.warning("[orwell] A50: replaced %d tell-contradicting sentence(s) (user=%s)", len(ops), user)
         return "\n".join(out), ops
@@ -5886,7 +5887,8 @@ async def screen_knowledge_wall(user, text: str) -> str:
             if _sentence_leaks_sealed(part, facts, active_names):
                 leaked = True
                 continue  # DROP — a houseguest voicing sealed content never reaches the player
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:screen_knowledge_wall:1", _fs_exc)
             pass  # any hiccup falls through to emit (conservatism), except a proven leak above
         out.append(part)
     if leaked:
@@ -5896,9 +5898,11 @@ async def screen_knowledge_wall(user, text: str) -> str:
             try:
                 from src import orwell_sync_ledger as _led
                 _led.note_belt_fire(user, "knowledge-wall", 1)  # ORW-1061
+                _led.note_guard_sample(user, "knowledge-wall", "sealed-content", len(parts) - len(out), len(text) - len("".join(out)))  # ORW-1061: the audit ring
             except Exception:  # failsoft-ok: telemetry
                 pass
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:screen_knowledge_wall:3", _fs_exc)
             pass
     return "".join(out)
 
@@ -6689,7 +6693,8 @@ def _roll_cut_streak(dkey, before) -> None:
             if st["cut"] is not st["seen"]:
                 st["count"] = 0  # the previous turn did not cut
             st["seen"] = before
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_roll_cut_streak:1", _fs_exc)
         pass
 
 
@@ -6797,7 +6802,8 @@ def _log_scene_cut(user, phase, directive, text) -> None:
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(_json.dumps({"ts": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()), "user": str(user), "phase": phase,
                                   "directive": str(directive)[:600], "text": str(text)[:4000]}) + "\n")
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_log_scene_cut:1", _fs_exc)
         pass
 
 
@@ -7151,7 +7157,8 @@ def _stash_overclaim_reground(user, directive: str) -> None:
     try:
         _dkey = _desync_key(user)
         _reground_enqueue(_dkey, directive)  # BL-004: bounded append (combine, never clobber)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_stash_overclaim_reground:1", _fs_exc)
         pass
 
 
@@ -7980,7 +7987,8 @@ def _note_headcount_hold(user, bad, ent: dict) -> None:
         logger.warning("[orwell] pre-emission guard HELD a headcount for user=%s — stated %d (%s), engine has "
                        "%d of %d inside (player inside: %s)", user, bad.n, bad.kind, ent["inside"],
                        ent["total"], ent["player_inside"])
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_note_headcount_hold:1", _fs_exc)
         pass
 
 
@@ -8075,7 +8083,9 @@ def _engine_count_claims(text: str, room_names=None) -> list:
                     continue
                 if not re.search(r"\b(?:asleep|in\s+(?:their\s+)?beds?|turned\s+in|tucked\s+in)\b", m.group(0), re.IGNORECASE):
                     continue
-            out.append(_EcClaim("asleep", n, m.group(0).strip()))
+            # ORW-1094: "only two are asleep" states the whole count, so it is exact; any other smaller number may be a subgroup
+            only = bool(re.search(r"\bonly\s+$", text[:m.start(1)], re.IGNORECASE))
+            out.append(_EcClaim("asleep-only" if only else "asleep", n, m.group(0).strip()))
     for m in _EC_ROOM_US_RE.finditer(text):
         n = _ec_num(m.group(2))
         if n is None or n < 2:
@@ -8144,6 +8154,8 @@ def _engine_count_ok(claim, c: dict) -> bool:
     if claim.kind == "asleep":
         # More asleep than the game's list is plainly wrong; fewer may be a subgroup ("two of them asleep in the bedroom"), so it is not a claim about the house.
         return c.get("asleep") is None or n <= c["asleep"]
+    if claim.kind == "asleep-only":
+        return c.get("asleep") is None or n == c["asleep"]
     if claim.kind == "empty":
         return all((c.get("rooms") or {}).get(r, 0) == 0 for r in claim.rooms)
     return True
@@ -8159,7 +8171,7 @@ def _engine_count_mismatch(text: str, c: Optional[dict], claims=None):
 
 
 def _engine_count_directive(claim, c: dict) -> str:
-    if claim.kind == "asleep":
+    if claim.kind in ("asleep", "asleep-only"):
         return ("RE-GROUND ON THE HEADCOUNT - last turn you said how many are asleep (\"" + claim.text[:80] + "\"), but the engine's asleep list holds " + str(c.get("asleep")) + " houseguests. "
                 "Quote that number exactly or use no number at all; never count the sleepers yourself.")
     if claim.kind == "empty":
@@ -8188,9 +8200,14 @@ def _note_engine_count_hold(user, bad, c: dict) -> None:
     try:
         _reground_enqueue(_desync_key(user), _engine_count_directive(bad, c))
         logger.warning("[orwell] pre-emission guard HELD an engine-count claim for user=%s — stated %d (%s), engine counts %s", user, bad.n, bad.kind, c)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_note_engine_count_hold:1", _fs_exc)
         pass
 
+
+
+#: ORW-1094: the claims an entrance or toast turn checks against the engine's counts too (its headcount wall covers the room count only)
+_PREMIERE_COUNT_KINDS = ("empty", "asleep", "asleep-only")
 
 
 async def screen_headcount_wall(user, text: str) -> str:
@@ -8213,6 +8230,8 @@ async def screen_headcount_wall(user, text: str) -> str:
             counts = await _live_engine_counts(user)
             if counts is None:
                 return text
+        elif any(c.kind in _PREMIERE_COUNT_KINDS for c in _engine_count_claims(text, _rn)):
+            counts = await _live_engine_counts(user)
         kept = []
         for part in re.split(r"(?<=[.!?\n])", text):
             if ent is not None:
@@ -8220,6 +8239,10 @@ async def screen_headcount_wall(user, text: str) -> str:
                 if bad is not None:
                     _note_headcount_hold(user, bad, ent)
                     continue  # DROP — a count the engine contradicts never reaches the player
+                pbad = _engine_count_mismatch(part, counts, [c for c in _engine_count_claims(part, _rn) if c.kind in _PREMIERE_COUNT_KINDS])  # ORW-1094
+                if pbad is not None:
+                    _note_engine_count_hold(user, pbad, counts)
+                    continue
             else:
                 ebad = _engine_count_mismatch(part, counts)
                 if ebad is not None:
@@ -8251,6 +8274,13 @@ async def screen_streamed_headcount(user, sentence: str) -> bool:
             return False
         bad = _headcount_mismatch(sentence, ent, claims)
         if bad is None:
+            pclaims = [c for c in eclaims if c.kind in _PREMIERE_COUNT_KINDS]  # ORW-1094: entrances and the toast check these too
+            if ent is not None and pclaims:
+                counts = await _live_engine_counts(user)
+                pbad = _engine_count_mismatch(sentence, counts, pclaims)
+                if pbad is not None:
+                    _note_engine_count_hold(user, pbad, counts)
+                    return False
             return True
         _note_headcount_hold(user, bad, ent)
         return False
@@ -9083,7 +9113,8 @@ async def refresh_framed_game_stamps(user) -> None:
     except Exception as e:
         try:
             record_soft_failure("persist-stamp-refresh-failed", e, corrected="kept-start-of-turn-stamp", user=user)
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:refresh_framed_game_stamps:1", _fs_exc)
             pass
 
 
@@ -9151,18 +9182,21 @@ async def maybe_raise_spectator_choice(user, game_state: dict, player_msg) -> bo
         res = await orwell_engine.raise_spectator_choice(user=user)
         try:
             orwell_engine.remember_pending(res, user=user)
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:maybe_raise_spectator_choice:1", _fs_exc)
             pass
         # The raise COMMITTED (beatSeq bumped): refresh the FE's last-seen token, or the player's very next card confirm carries a stale expectedBeatSeq and the
         # decision route silently reconciles it away as a stale-beat no-op (live E-1: the skip never landed).
         try:
             _refresh_beat_seq(user, res if isinstance(res, dict) else {})
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:maybe_raise_spectator_choice:2", _fs_exc)
             pass
         try:  # tell every window (incl. the WS client's pinned beatSeq) the board moved, so the card's confirm carries the fresh token
             from src import orwell_game_session
             orwell_game_session.publish_game_updated(user)
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:maybe_raise_spectator_choice:3", _fs_exc)
             pass
         logger.info("[orwell] spectator-choice card re-raised for user=%s (watching evictee asked to skip ahead)", user)
         return True
@@ -9566,7 +9600,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                 try:
                     from src import log_rings as _lr_hold
                     _lr_hold.record_soft_failure("production:hold-cap-hit", RuntimeError(f"{phase} not due after {_PRODUCTION_HOLD_CAP} held messages"), corrected="event-released", user=user)
-                except Exception:
+                except Exception as _fs_exc:
+                    _failsoft_note("chat_helpers:_pre_resolve_npc_ceremony:1", _fs_exc)
                     pass
             elif not ready and _comp_hops == 0:
                 # A7: the event came due while the player was still talking (no readiness cue) - production calls everyone; narrate the interruption.
@@ -9702,7 +9737,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             if _roll:
                 _reground_enqueue(_desync_key(user), _roll)
                 _note_belt(user, "day-roll-reground")
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:_pre_resolve_npc_ceremony:2", _fs_exc)
             pass
         if _beat and phase in ("hoh-competition", "veto-competition"):
             # live replay 4: the competition ran to its result inside this turn's framing ("Nia Coleman wins the Power of Veto") and the narrator never told the player who won - note the winner so an unvoiced result is re-grounded
@@ -9717,7 +9753,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             try:  # the draw must be voiced: remember the drawn names so a reply that never mentions any of them is re-grounded next turn
                 _dm = re.search(r":\s*(.+?)(?:\s+[\u2014-]\s+|$)", str(_beat))
                 note_ceremony_beat_for_voicing(user, str(_beat), [n.strip() for n in (_dm.group(1).split(",") if _dm else [])][:6])
-            except Exception:
+            except Exception as _fs_exc:
+                _failsoft_note("chat_helpers:_pre_resolve_npc_ceremony:3", _fs_exc)
                 pass
         if _beat and phase in ("hoh-competition", "veto-competition") and _beat_kind in ("comp-elimination", "hoh-competition", "veto-competition"):
             # ORW-232 slice 1: remember every beat the competition walked in THIS pass, in engine order, and hand the narrator the whole record as ONE continuous scene to voice.
@@ -9735,7 +9772,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             try:  # the ceremony must be voiced: remember the nominees so a reply that never mentions them is re-grounded next turn
                 note_ceremony_beat_for_voicing(user, str(_beat), [n.get("name") for n in ((((_adv_event or {}) if isinstance(_adv_event, dict) else {}).get("nominees")) or [])]
                                                or re.findall(r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+", str(_beat))[1:])
-            except Exception:
+            except Exception as _fs_exc:
+                _failsoft_note("chat_helpers:_pre_resolve_npc_ceremony:4", _fs_exc)
                 pass
         # gap #3 belt-fire telemetry (docs/design/undercall-seam-structural.md §5; never raises)
         _note_belt(user, "pre-resolve-npc-ceremony")
@@ -10208,7 +10246,8 @@ async def apply_game_framing(
                     _LAST_FRAMED_MOMENT_VOLATILE[user or "default"] = _mp_txt[_vi:]
                 else:
                     _LAST_FRAMED_MOMENT_VOLATILE.pop(user or "default", None)
-            except Exception:
+            except Exception as _fs_exc:
+                _failsoft_note("chat_helpers:apply_game_framing:2", _fs_exc)
                 pass
             _stash_producer_name(user, mp)  # #1626: the season's producer byline for the client
             _stash_hard_constraints(session_id, mp)  # #1735 (A4) / #1752: this turn's terminal HARD-CONSTRAINTS block, keyed by session
@@ -10724,7 +10763,8 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
             if staged_this_turn:
                 logger.info("[orwell] E22 guard: stood down — the 0055 belt already staged this turn's scene fold (ORW-185) user=%s", user)
                 return False
-        except Exception:  # fail-open: the guard's floor must still run
+        except Exception as _fs_exc:  # fail-open: the guard's floor must still run
+            _failsoft_note("chat_helpers:ensure_turn_recorded:1", _fs_exc)
             pass
     # ORW-288 (live premiere run, 2026-11-12: 32 of 52 premiere turns fired this WARN): a turn whose player message is a bare "keep going" prompt ("next", "continue", "ok" ...) carries NO social scene, and
     # when the engine's board moved during it (the front-end's own pre-resolve advanced the premiere / a ceremony; the beats it committed are recorded events already) there is nothing for the fallback
@@ -11273,7 +11313,8 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
                 "endpoint_url": chat_url,
                 "endpoint_name": ep.name,
             }
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:try_fallback_endpoint:1", _fs_exc)
             continue
 
     return None
@@ -11439,7 +11480,8 @@ def _normalize_model_id_from_cache(sess) -> Optional[str]:
             try:
                 if normalize_base(getattr(ep, "base_url", "") or "") != session_base:
                     continue
-            except Exception:
+            except Exception as _fs_exc:
+                _failsoft_note("chat_helpers:_normalize_model_id_from_cache:1", _fs_exc)
                 continue
 
             raw_models = getattr(ep, "cached_models", None)
@@ -11448,7 +11490,7 @@ def _normalize_model_id_from_cache(sess) -> Optional[str]:
             try:
                 models = json.loads(raw_models) if isinstance(raw_models, str) else raw_models
             except Exception:
-                continue
+                continue  # failsoft-ok: tolerant parse of model output: a non-JSON candidate is skipped and the next one tried
 
             matched = _match_cached_model_id(requested, models)
             if matched:

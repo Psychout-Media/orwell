@@ -29,7 +29,7 @@ from test_a40_due_ceremony_real_loop import _fresh
 from _a64_decisions import answer_for
 
 # Pinned season seeds, picked by walking THIS real loop with THIS driver in this file's order. A seed fixes a season's rolls, but a restart on the same stack also carries what ran before it:
-# the engine keeps earlier seasons' houseguest names out of the new cast (NAME-1, which shifts the seeded draws) and the FE's per-user loop state (e.g. the silent-advance streak) outlives a
+# (until ORW-921 the engine kept earlier seasons' houseguest names, house themes and world picks out of a seeded restart's cast, which shifted the seeded draws; the door now tells the engine to carry none for an explicit seed) the FE's per-user loop state (e.g. the silent-advance streak) outlives a
 # /new-game. So a rerun, a -k selection or an engine change can still move a seed onto another path. Each test walks its list in order and takes the first seed whose season keeps to its path,
 # dropping a seed as soon as the engine reports that path ruled out (a dropped walk is still held to the clock). Only when NO seed takes the path does the test fail - re-pick the list then.
 NOMINEE_SEEDS = (5, 27, 32)   # an NPC HOH nominates the player: no eviction-vote card is theirs. Re-picked for ORW-711 (the new floor plan shifts the seeded week-1 path: 16 and 31 no longer reach the block; a 40-seed scan found 5, 27, 32 and 36 that do). Earlier, ORW-705 re-picked (16, 31, 32): the one-step premiere pacing shifts the seeded week-1 path (seeds 5 and 17 no longer reach the block; seeds 1-15 and 17-30 do not either). Earlier re-pick: ORW-656.

@@ -213,6 +213,14 @@ export function measure(turns: readonly string[], roster: readonly NarrationRost
   };
 }
 
+/** ORW-510: the stderr warning when a --save or --roster file yields no houseguest names (null = nothing to warn). Pure. */
+export function rosterWarning(flag: "--save" | "--roster" | null, names: number): string | null {
+  if (names > 0) return null;
+  if (flag === "--save") return "warning: --save named no houseguests (expected an engine save with house.player and house.npcs[].name); the per-houseguest gesture and line counts below read 0 and are NOT measured. Pass --roster <names.json> instead.";
+  if (flag === "--roster") return "warning: --roster named no houseguests (expected a JSON array of names); the per-houseguest counts below read 0 and are NOT measured.";
+  return "note: no --save or --roster given; the per-houseguest gesture and line counts read 0 and are not measured.";
+}
+
 function rosterFromSave(path: string): NarrationRoster[] {
   const d = JSON.parse(readFileSync(path, "utf8")) as { house?: { player?: { id?: string; name?: string }; npcs?: Array<{ id?: string; name?: string }> } };
   const all = [d.house?.player, ...(d.house?.npcs ?? [])].filter((x): x is { id: string; name: string } => !!x && typeof x.id === "string" && typeof x.name === "string");
@@ -227,6 +235,9 @@ if (process.argv[1] && /narrationRepetition\.ts$/.test(process.argv[1])) {
   let roster: NarrationRoster[] = [];
   if (opt("--save")) roster = rosterFromSave(opt("--save")!);
   else if (opt("--roster")) roster = (JSON.parse(readFileSync(opt("--roster")!, "utf8")) as string[]).map((n, i) => ({ id: `npc:${i + 1}`, name: n }));
+  // ORW-510: a file that names no houseguest (not an engine save, or a roster that is not an array of names) used to read 0 per-houseguest repeats silently, which looks like a clean result.
+  const warn = rosterWarning(opt("--save") ? "--save" : opt("--roster") ? "--roster" : null, roster.length);
+  if (warn) console.error(warn);
   const turns = readFileSync(file, "utf8").split("\n").filter(Boolean).map((l) => (JSON.parse(l) as { text?: string }).text ?? "").filter((t) => t.length > 0);
   const rep = measure(turns, roster, { showPhrases: args.includes("--show-phrases") });
   console.log(JSON.stringify({ roster: roster.length, ...rep }, null, 2));

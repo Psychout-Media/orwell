@@ -332,6 +332,194 @@ export const COMPETITION_LIBRARY_PLUS: CompetitionDef[] = [
 ];
 
 /**
+ * ORW-530 (Ryne 2026-11-27: grow the authored pool from 30 to about 50): 10 HOH + 10 veto more mechanics, per phase 3 physical, 5 mental, 2 social (the base mix: mental-dominant, physical second, social a minority).
+ * Drawn only when `ORWELL_COMP_MECHANICS_MORE` is on (`SeasonCtx.moreComps`, together with the 0126 expanded pool): the flag is ON in the deploy defaults, so prod draws from all 50; the seeded TEST lanes pin it
+ * OFF (tests/support/premiereTestDefault.ts) until the follow-up card ORW-1104 re-hints the seed-pinned tests, because a larger pool moves which mechanic a fixed seed draws. Off => the 30 pool, byte-identical.
+ */
+export const COMPETITION_LIBRARY_MORE: CompetitionDef[] = [
+  {
+    id: "hoh-ladder", name: "The Greased Ladder", phase: "hoh", type: "physical", governing: "physical",
+    format: "skill",
+    narrative: {
+      premise: "A slick ladder bolted to the yard wall: climb it, ring the bell at the top, and climb back down before the next houseguest starts.",
+      beats: ["the first climber slides to the bottom twice", "someone finds grip on the outer rails and sets the pace", "the final pair race the clock on the way down"],
+      winReads: "the one who trusted their grip over their speed",
+    },
+  },
+  {
+    id: "hoh-tug", name: "House Tug", phase: "hoh", type: "endurance", governing: "physical",
+    format: "endurance",
+    narrative: {
+      premise: "Teams of two haul a long rope across the yard, round after round, until one pair is left standing.",
+      beats: ["a heavy pair drags the first round without effort", "the rope burns and the weaker side lets go early", "the last two pairs dig their heels in until one slips"],
+      winReads: "stamina in the shoulders and patience in the heels",
+    },
+  },
+  {
+    id: "hoh-bucket", name: "Bucket Brigade", phase: "hoh", type: "physical", governing: "physical", secondary: "mental",
+    format: "skill",
+    narrative: {
+      premise: "Fill a bucket at the pool, run it to the shed, and pour it into a tank that only shows its level at the end.",
+      beats: ["spills cost the leaders their lead", "a runner learns to carry less and keep moving", "the tank reads full and the cheering turns to counting"],
+      winReads: "the one who ran steady and kept the count in their head",
+    },
+  },
+  {
+    id: "hoh-crossword", name: "Crosswords in the Dark", phase: "hoh", type: "puzzle", governing: "mental",
+    format: "puzzle",
+    narrative: {
+      premise: "A crossword about the house, printed on the ceiling in the dark: read it by flashlight and fill the grid on paper below.",
+      beats: ["the corners fill first and the middle stays blank", "a long answer unlocks three others at once", "the last clue is the one nobody has said aloud all season"],
+      winReads: "a patient reader who saw the pattern before the others",
+    },
+  },
+  {
+    id: "hoh-lights", name: "Light Sequence", phase: "hoh", type: "memory", governing: "mental",
+    format: "puzzle",
+    narrative: {
+      premise: "A wall of colored bulbs flashes a pattern, then goes dark: repeat it, then repeat it longer.",
+      beats: ["the first rounds are a warm-up", "one bulb drops out of a long pattern and half the field freezes", "two houseguests are left reciting from memory"],
+      winReads: "a clean memory under pressure",
+    },
+  },
+  {
+    id: "hoh-price", name: "The Price Is Wrong", phase: "hoh", type: "quiz", governing: "mental",
+    format: "quiz",
+    narrative: {
+      premise: "Rapid-fire estimates: what did the house spend, how many days since move-in, how many steps to the backyard - closest without going over wins the round.",
+      beats: ["the overbidders go out first", "a lucky guess becomes a streak", "the final round is a number nobody has thought about"],
+      winReads: "the best guesser in a house full of guessers",
+    },
+  },
+  {
+    id: "hoh-cipher", name: "The Cipher Wall", phase: "hoh", type: "mental", governing: "mental",
+    format: "puzzle",
+    narrative: {
+      premise: "A wall of symbols swaps letters for pictures: decode the message that tells where the key is hidden.",
+      beats: ["a few symbols fall quickly and everyone copies them", "someone breaks the pattern and keeps their paper hidden", "the last word is the key's hiding place"],
+      winReads: "a quiet mind that cracked it while the others whispered",
+    },
+  },
+  {
+    id: "hoh-saidit", name: "Who Said It", phase: "hoh", type: "quiz", governing: "mental",
+    format: "quiz",
+    narrative: {
+      premise: "Quotes from the season, read aloud with the name removed: name the speaker and the day.",
+      beats: ["the loud quotes go to the loud houseguests", "a mumbled line splits the leaders", "the last quote was said to someone in this room"],
+      winReads: "whoever really was listening",
+    },
+  },
+  {
+    id: "hoh-pitch", name: "The Pitch", phase: "hoh", type: "social", governing: "social",
+    format: "social",
+    narrative: {
+      premise: "Each houseguest gets sixty seconds to pitch the house on why they should hold power this week; the house votes with their feet.",
+      beats: ["a funny opener wins a laugh and a few steps", "a promise to someone in the crowd lands hard", "the final pitch is a confession that shifts the room"],
+      winReads: "a read of the room better than anyone else's",
+    },
+  },
+  {
+    id: "hoh-tales", name: "Tall Tales", phase: "hoh", type: "social", governing: "social",
+    format: "social",
+    narrative: {
+      premise: "Each houseguest tells a story about the house that might be true; the others guess whether it is, and the best bluff wins.",
+      beats: ["a plain truth is doubted and a lie is believed", "a story gets a gasp from someone it is about", "the last teller holds the room in silence"],
+      winReads: "a straight face and a sense of what the room would believe",
+    },
+  },
+  {
+    id: "veto-swing", name: "Rope Swing Relay", phase: "veto", type: "physical", governing: "physical",
+    format: "skill",
+    narrative: {
+      premise: "Swing across the pool on a rope, drop a ring onto a peg, and swim back before the next houseguest goes.",
+      beats: ["the first swinger drops short and gets wet", "a clean swing lands a ring on the first try", "the final two trade the lead on the last peg"],
+      winReads: "timing and a good grip",
+    },
+  },
+  {
+    id: "veto-wheel", name: "Wheel of Pain", phase: "veto", type: "endurance", governing: "physical",
+    format: "endurance",
+    narrative: {
+      premise: "Everyone hangs from a spinning wheel; it speeds up every minute and the last one hanging wins.",
+      beats: ["the wheel starts slowly and nobody lets go", "a stumble sends two off at once", "the wheel hums and the last holds on to a smile"],
+      winReads: "who could take it the longest",
+    },
+  },
+  {
+    id: "veto-darts", name: "Bullseye Blitz", phase: "veto", type: "physical", governing: "physical", secondary: "mental",
+    format: "skill",
+    narrative: {
+      premise: "A wall of balloons, a handful of darts, and a number on each balloon that adds up to the score to beat.",
+      beats: ["the first rounds are noisy and wild", "a steady thrower adds up while the others guess", "a final throw decides it with the crowd quiet"],
+      winReads: "a steady hand with a quick head for sums",
+    },
+  },
+  {
+    id: "veto-sudoku", name: "Sudoku Sprint", phase: "veto", type: "puzzle", governing: "mental",
+    format: "puzzle",
+    narrative: {
+      premise: "A giant numbers grid with half the squares empty: fill it by hand against the clock.",
+      beats: ["the easy rows fall in seconds", "a wrong digit costs the leader their lead", "the last square is a three-way tie broken by time"],
+      winReads: "a logic-minded finisher who never guessed",
+    },
+  },
+  {
+    id: "veto-tune", name: "Name That Tune", phase: "veto", type: "memory", governing: "mental",
+    format: "quiz",
+    narrative: {
+      premise: "A few notes of a song played on a piano: name it and who sang it, then the year.",
+      beats: ["the hits go fast", "a half-remembered chorus splits the room", "the last clip is a song from the house's first night"],
+      winReads: "a good ear and a good memory",
+    },
+  },
+  {
+    id: "veto-zebra", name: "Who Sleeps Where", phase: "veto", type: "mental", governing: "mental",
+    format: "puzzle",
+    narrative: {
+      premise: "A logic puzzle with the house's own beds as the clues: work out who sleeps where from a list of hints.",
+      beats: ["the first clue seems to say nothing", "a contradiction sends a leader back to the start", "the last two cross-check each other and one is right"],
+      winReads: "the person who kept the whole grid in their head",
+    },
+  },
+  {
+    id: "veto-mapmaker", name: "Map the House", phase: "veto", type: "memory", governing: "mental",
+    format: "puzzle",
+    narrative: {
+      premise: "Shown the house floor plan for thirty seconds, then handed a blank one: place every room and bed from memory.",
+      beats: ["the big rooms are easy and the closets are not", "a mislabeled door costs the leader a point", "the last bed goes down and the judges count"],
+      winReads: "a spatial memory that had been quietly walking the halls",
+    },
+  },
+  {
+    id: "veto-trivia", name: "Season Trivia", phase: "veto", type: "quiz", governing: "mental",
+    format: "quiz",
+    narrative: {
+      premise: "Questions from this season's own record: who won, who was nominated, who said what, buzzer rules.",
+      beats: ["an easy start separates no one", "a trick question gets two wrong answers at once", "a sudden-death buzz on a detail from week one"],
+      winReads: "the one who was keeping score all along",
+    },
+  },
+  {
+    id: "veto-hotseat", name: "Hot Seat", phase: "veto", type: "social", governing: "social",
+    format: "social",
+    narrative: {
+      premise: "Each houseguest sits in the hot seat for a minute while the others ask anything; the house scores who handled it best.",
+      beats: ["a joke defuses the first question", "a hard question about a real conflict lands in silence", "the last answer wins the room back"],
+      winReads: "someone who stayed honest and stayed charming",
+    },
+  },
+  {
+    id: "veto-silent", name: "Silent Movie", phase: "veto", type: "social", governing: "social", secondary: "mental",
+    format: "social",
+    narrative: {
+      premise: "Act out a scene from the season without words; the others guess the moment and the people in it.",
+      beats: ["the obvious scenes are guessed in seconds", "a gesture is misread as a fight and the room laughs", "the last scene is one only two people remember"],
+      winReads: "a performer with an audience that knew them",
+    },
+  },
+];
+
+/**
  * How many most-recent draws (per phase) the next draw must avoid — no immediate repeats.
  *
  * NOTE (COMP-4/BB-8, audit 2026-07-03): widening this (e.g. to 3) would meaningfully cut short-
@@ -349,7 +537,7 @@ export const NO_REPEAT_WINDOW = 1;
 /** Library lookup by id (searches BOTH the base 12 and the 0126 expanded pool, so a deferred veto
  *  drawn from the expanded pool still resolves the comp it already drew). */
 export function competitionById(id: string): CompetitionDef | undefined {
-  return COMPETITION_LIBRARY.find((d) => d.id === id) ?? COMPETITION_LIBRARY_PLUS.find((d) => d.id === id);
+  return COMPETITION_LIBRARY.find((d) => d.id === id) ?? COMPETITION_LIBRARY_PLUS.find((d) => d.id === id) ?? COMPETITION_LIBRARY_MORE.find((d) => d.id === id);
 }
 
 /**
@@ -363,9 +551,9 @@ export function competitionById(id: string): CompetitionDef | undefined {
  */
 export function drawCompetition(
   phase: CompetitionPhase, week: number, rng: RandomnessSource, recent: readonly string[] = [],
-  expanded = false,
+  expanded = false, more = false,
 ): CompetitionDef {
-  const library = expanded ? [...COMPETITION_LIBRARY, ...COMPETITION_LIBRARY_PLUS] : COMPETITION_LIBRARY;
+  const library = expanded ? [...COMPETITION_LIBRARY, ...COMPETITION_LIBRARY_PLUS, ...(more ? COMPETITION_LIBRARY_MORE : [])] : COMPETITION_LIBRARY;
   const pool = library.filter((d) => d.phase === phase);
   // 0126: with the expanded pool the window widens to the whole pool minus one — a rolling shuffle, so no
   // mechanic repeats until every one has been used (a season of ~14 comps from 15 is repeat-free). The base

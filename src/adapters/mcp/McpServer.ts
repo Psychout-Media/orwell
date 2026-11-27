@@ -18,6 +18,11 @@ import type { GameSession, ConfideResult, CreateCharacterReq, UpdateCastingReq, 
  * not debug Vault readers.
  * @see registry.ts INFRA_LEVERS — the same tools are excluded from `PLAYER_AGENT_LEVERS`.
  */
+/** ORW-1086: the player levers that act in the house (a scene, a deal, an alliance, a secret, a move, the diary room). Refused with a reason once the player is evicted or the season is over. `askJuror` (the jury house) is not one. */
+export const HOUSE_SOCIAL_LEVERS: ReadonlySet<string> = new Set([
+  "recordInteraction", "makeDeal", "formAlliance", "joinAlliance", "confide", "confront", "accuseTie", "exposeSecret", "tradeSecret", "callInFavor", "askToTalkAlone",
+  "surfaceInformationTo", "diaryRoom", "moveTo", "resolvePlayerMove", "searchForHouseguest",
+]);
 export const INFRA_TOOL_NAMES: ReadonlySet<string> = new Set(["sealedFromHouse", "knowledgeScopeManifest", "beatLog", "pipelineCast"]);
 /**
  * The engine's permissioned outward MCP API (0009). It mounts ONLY the
@@ -231,6 +236,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       if (args["maxMinutes"] !== undefined && (typeof args["maxMinutes"] !== "number" || !Number.isFinite(args["maxMinutes"]) || args["maxMinutes"] <= 0)) refuse("maxMinutes", "a positive number of in-game minutes (capped at 180 by the engine)");
       if (args["untilBandEnd"] !== undefined && typeof args["untilBandEnd"] !== "boolean") refuse("untilBandEnd", "a boolean when present");
       if (args["untilEvent"] !== undefined && typeof args["untilEvent"] !== "boolean") refuse("untilEvent", "a boolean when present");
+      if (args["bareNext"] !== undefined && typeof args["bareNext"] !== "boolean") refuse("bareNext", "a boolean when present");
       if (args["untilClock"] !== undefined && (typeof args["untilClock"] !== "number" || !Number.isFinite(args["untilClock"]) || args["untilClock"] < 0 || args["untilClock"] >= 24)) refuse("untilClock", "an hour of the day from 0 up to 24 (22.5 = 10:30pm) when present");
       return;
     case "moveTo":
@@ -631,6 +637,11 @@ export class McpServer {
   private async dispatchTool(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
     if (!this.allows(name)) {
       throw new Error(`tool "${name}" is not available on channel "${this.channel}"`);
+    }
+    // ORW-1086: the player's house-social levers refuse, with the reason, once the player is out of the house (evicted) or the season is over. The jury house (askJuror), the spectator and couch flows, and every read stay open.
+    if (this.channel === "player" && HOUSE_SOCIAL_LEVERS.has(name)) {
+      const out = (this.deps.session as { playerHouseRefusal?: () => { reason: string; message: string } | null }).playerHouseRefusal?.(); // an optional seat on the adapter, not a tool: the port stays the list of tools
+      if (out) throw new EngineRefusal(`${name}: ${out.message}`);
     }
     requireShape(name, args); // E31: deliberate 400s with field names, never a 500 from a blind cast
     switch (name) {

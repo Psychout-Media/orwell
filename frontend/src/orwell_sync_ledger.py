@@ -391,6 +391,8 @@ def note_belt_fire(user: str | None, belt: Any, n: Any = 1) -> None:
             return
         k = _key(user)
         with _LOCK:
+            if name in _BELT_APPLIED or len(_BELT_APPLIED) < _MAX_STEER_NAMES:  # ORW-1042: the process-wide applied count beside the attempts
+                _BELT_APPLIED[name] = _BELT_APPLIED.get(name, 0) + count
             bucket = _PENDING_BELTS.setdefault(k, {})
             if name not in bucket and len(bucket) >= _MAX_NAMES:
                 return  # bounded: never grow past the name cap
@@ -693,6 +695,65 @@ def note_steer(name: Any) -> None:
 def get_steer_counts() -> dict[str, int]:
     with _LOCK:
         return dict(_STEER_COUNTS)
+
+
+# ORW-1061: a bounded audit ring of the editing guards' applied drops (knowledge wall, presence wall, N-17 confession): which guard, why, for whom,
+# how much it removed, and when. Never the sentence text (the narration stays out of the ledger); enough to sample a guard's false positives by
+# turn and user. Process-wide, newest last, the oldest dropped past the cap.
+_GUARD_SAMPLES_MAX = 200
+_GUARD_SAMPLES: list[dict] = []
+
+
+def note_guard_sample(user: str | None, guard: Any, reason: Any, sentences: Any = 1, chars: Any = 0) -> None:
+    """ORW-1061: one applied guard drop into the audit ring (names and small numbers only). Never raises."""
+    try:
+        row = {
+            "ts": round(time.time(), 1),
+            "user": _key(user),
+            "guard": str(guard).strip()[:_MAX_NAME_LEN],
+            "reason": str(reason).strip()[:_MAX_NAME_LEN],
+            "sentences": _clean_int(sentences),
+            "chars": _clean_int(chars),
+        }
+        with _LOCK:
+            _GUARD_SAMPLES.append(row)
+            del _GUARD_SAMPLES[:-_GUARD_SAMPLES_MAX]
+    except Exception:  # pragma: no cover
+        pass
+
+
+# ORW-1042: per belt, how often its gate passed and it made its extraction call (ATTEMPTS), beside how often it applied a correction (APPLIED,
+# counted inside `note_belt_fire`). Misses are attempts minus applied: the extraction found nothing, or the engine refused. Process-wide since start,
+# names and counts only. A belt counted only as applied (a steer drained, a forced advance) simply has no attempts row.
+_BELT_ATTEMPTS: dict[str, int] = {}
+_BELT_APPLIED: dict[str, int] = {}
+
+
+def note_belt_attempt(name: Any) -> None:
+    """ORW-1042: count one belt attempt (its gate passed, its extraction call is next). Bounded; never raises."""
+    try:
+        n = str(name).strip()[:_MAX_NAME_LEN]
+        with _LOCK:
+            if n and (n in _BELT_ATTEMPTS or len(_BELT_ATTEMPTS) < _MAX_STEER_NAMES):
+                _BELT_ATTEMPTS[n] = _BELT_ATTEMPTS.get(n, 0) + 1
+    except Exception:  # pragma: no cover
+        pass
+
+
+def get_guard_samples(limit: int = 50) -> list[dict]:
+    """ORW-1061: the newest guard drops (at most ``limit``), newest last."""
+    with _LOCK:
+        return [dict(r) for r in _GUARD_SAMPLES[-max(0, int(limit)):]]
+
+
+def get_belt_precision() -> dict[str, dict[str, int]]:
+    """ORW-1042: ``{belt: {attempts, applied, missed}}`` for every belt that counts attempts (missed = attempts - applied, never below 0)."""
+    with _LOCK:
+        out = {}
+        for n, a in _BELT_ATTEMPTS.items():
+            ap = _BELT_APPLIED.get(n, 0)
+            out[n] = {"attempts": a, "applied": ap, "missed": max(0, a - ap)}
+        return out
 
 
 def get_driver_totals(user: str | None) -> dict[str, Any]:

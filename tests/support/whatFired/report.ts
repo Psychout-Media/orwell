@@ -1,7 +1,7 @@
 import { mixShares, type MixScene } from "../houseMixDriver";
 import type { FlagInfo, FeatureInfo } from "./discover";
 import type { SeasonRecord } from "./player";
-import { MASKS } from "./player";
+import { MASKS, ALL_DEAL_KINDS } from "./player";
 import type { Difference, RestartVerdict } from "./compare";
 import { PHASES, BANDS, poolSeason, inBand, type Phase, type Kind, type Share } from "../wholeSeasonMix";
 
@@ -180,6 +180,8 @@ export function renderMarkdown(s: Summary, d: Diff): string {
   L.push(`### Milestones reached in the played seasons (${s.milestones.length})`, "", "Derived footprints, not a feature list: `state.<key>` = the size of a saved-state list or map at the end of the season; `view.<part>.<field>:<value>` = a kind, shape or action the post-season views carried (the edit's moments, the story shapes, the reunion); `pathway.<word>` = how the facts the player holds reached them (told, overheard, witnessed ...). A footprint a feature should leave and that is missing here is a feature that never fired in play.", "", tbl(["milestone", "per season", "seasons"], s.milestones.map((m) => [m.name, m.perSeason, `${m.seasons}/${s.seasons.length}`])), "");
   L.push(`### Saved-state keys that never became non-empty (${s.stateKeysNeverPopulated.length})`, "", s.stateKeysNeverPopulated.length ? s.stateKeysNeverPopulated.map((k) => `\`${k}\``).join(" ") : "none", "");
   L.push("### What the scripted player tried (a tool refused or without effect every time is a script gap or a dead lever)", "", tbl(["tool", "tried", "refused", "took no effect"], s.tools.map((t) => [t.tool, t.tried, t.refused, t.noEffect])), "");
+  const dealsNever = ALL_DEAL_KINDS.filter((k) => !s.tools.some((t) => t.tool === `deal:${k}` && t.tried > t.refused));
+  L.push(`### Deal kinds the scripted player got agreed (ORW-1099; a kind listed here was never made in these seasons)`, "", dealsNever.length ? `ZERO: ${dealsNever.join(", ")}` : "every kind was made at least once", "");
   return L.join("\n");
 }
 

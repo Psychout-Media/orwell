@@ -1668,9 +1668,12 @@ async def _generate_one(prompt: str, user: Optional[str],
                         keep_identity: bool = True) -> Optional[bytes]:
     """The process-wide image queue (see above) around `_generate_one_gated`: waits for a free slot, and requeues the
     face after a delay when the provider answers the in-flight-credits 402. The slot is released while it waits."""
+    if image_gen_disabled():
+        return None
     attempt = 0
     while True:
         async with image_gate().slot(user):
+            _set_gen_state(None, None)  # ORW-1108: only THIS attempt's error decides a requeue; a stale in-flight 402 made a silent None sleep through the whole retry schedule
             png = await _generate_one_gated(prompt, user, reference_png, keep_identity)
         if png:
             _clear_backpressure()
