@@ -13292,6 +13292,8 @@ export class GameSessionAdapter implements GameSession {
       ...(this.audienceEnabled ? { exitCrowd: (id: EntityId) => this.exitCrowd(id) } : {}),
       ...(this.replacementTermsEnabled ? { replacementFullTerms: true } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
+      // ORW-779: a deal the HOH means to keep shields through the same hook the kept assurance uses (nominations and the replacement).
+      ...(this.dealNomsEnabled && this.live?.playedGame === true ? { assuranceProtects: (t: EntityId, h: EntityId) => (this.assurancesEnabled && this.assuranceProtects(t, h)) || this.dealShields(t, h) } : {}),
       // ORW-586 slice 4: an NPC promiser's veto / final-two promises are read by their own decisions and settled on the veto and the Final 2 (played games with promise terms only; off => no hook, byte-identical).
       ...(this.promiseTermsLive && this.live?.playedGame === true ? {
         promiseVetoFor: (n: EntityId, h: EntityId) => this.promiseVetoFor(n, h),
@@ -21117,13 +21119,41 @@ export class GameSessionAdapter implements GameSession {
   /** B7 M3 - open protective deals feed the HOH's nominations (approved tie-in #3). ON unless `ORWELL_DEAL_NOMS=0`. OFF => no ctx provider => byte-identical. */
   private dealNomsEnabled = flagDefaultOn("ORWELL_DEAL_NOMS");
   setDealNomsEnabled(on: boolean): void { this.dealNomsEnabled = on; }
+  /**
+   * ORW-779 - the open deals that bind `holder` not to put `target` up, each with the houseguest who asked for it: their own safety / final-two with the target, and, in a played game, a promise
+   * about a NAMED houseguest outside the pair (`protect-third`, or a safety / vote promise whose terms name them) - before this the HOH's nomination read never looked at those.
+   */
+  private protectiveDealsFor(target: EntityId, holder: EntityId): Array<{ id: string; asker: EntityId }> {
+    const out: Array<{ id: string; asker: EntityId }> = [];
+    for (const d of this.deals.open()) {
+      if (!d.condition.promisors.includes(holder)) continue;
+      if ((d.kind === "safety" || d.kind === "final-two") && d.parties.includes(target)) { out.push({ id: d.id, asker: target }); continue; }
+      const named = d.condition.protect === target || (d.condition.alsoProtect ?? []).includes(target);
+      const asker = d.parties.find((p) => p !== holder);
+      if (this.live?.playedGame === true && named && !d.parties.includes(target) && asker !== undefined) out.push({ id: d.id, asker });
+    }
+    return out;
+  }
+  /**
+   * ORW-779 (Ryne 2026-11-26: safety deals "must be able to genuinely move a nomination, for the player and NPCs alike") - a promise the HOH means to keep keeps `target` off the block while two
+   * legal others remain, as a kept casual assurance already does. Before this an accepted safety deal only nudged the score, and the HOH put the player up anyway 15 times in 16. "Means to keep" is
+   * the HOH's own secret plan for that deal (0178: how likely a promise is faked already follows their bond and trust); a planned betrayal shields nobody. Played games only; no rng.
+   */
+  dealShields(target: EntityId, holder: EntityId): boolean {
+    if (!this.dealNomsEnabled || this.live?.playedGame !== true || holder === PLAYER || target === holder) return false;
+    const plans = this.planSourceOverride ?? this.dealPlanSource();
+    return this.protectiveDealsFor(target, holder).some((p) => { const plan = plans.planOf(p.id, holder); return !plan || !isBetrayal(plan.kind); });
+  }
   /** B7 M3 - the nomination-score push (<= 0) from the HOH's OPEN protective deals (safety / final-two) with `target` - a deal-keeping HOH mostly keeps their word. Bounded; deterministic; no rng. */
   dealNomPushFor(target: EntityId, holder: EntityId): number {
     if (!this.dealNomsEnabled || holder === PLAYER || target === holder) return 0;
-    const bound = this.deals.open().some((d) => (d.kind === "safety" || d.kind === "final-two") && d.condition.promisors.includes(holder) && d.parties.includes(target));
+    const askers = this.protectiveDealsFor(target, holder).map((p) => p.asker);
+    const bound = askers.includes(target);
     const base = bound ? DEAL_NOMS.protectivePush * (BELIEF_RULES.strength === "full" ? dealTrust(this.rel.edge(holder, target).trust) : 1) : 0; // 0160 (Ryne Q3): a low-trust deal protects less
+    // ORW-779: a promise about a named ally weighs the same way, by how far the HOH trusts the one who asked for it.
+    const named = bound || askers.length === 0 ? base : DEAL_NOMS.protectivePush * (BELIEF_RULES.strength === "full" ? Math.max(...askers.map((x) => dealTrust(this.rel.edge(holder, x).trust))) : 1);
     // 0170: the holder's OWN secret plan (flip / break at the nominations) turns the protective push into a positive one. No plan source / flag off => `base` unchanged.
-    return this.npcDealsEnabled && this.live ? planAwareDealPush(base, holder, target, this.live.week, this.deals.serialize(), this.planSourceOverride ?? this.dealPlanSource()) : base;
+    return this.npcDealsEnabled && this.live ? planAwareDealPush(named, holder, target, this.live.week, this.deals.serialize(), this.planSourceOverride ?? this.dealPlanSource()) : named;
   }
 
   /** 0170 (Theme 3 slice 2) - NPC deals and the HOH deal. ON unless `ORWELL_NPC_DEALS=0`; OFF => `mintNpcDeal` alone, byte-identical to before. */
