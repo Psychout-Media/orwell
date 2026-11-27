@@ -369,6 +369,8 @@ export interface CompetitionStagingView {
   week: number;
   /** The drawn 0042 library format (endurance/puzzle/quiz/skill/crapshoot/social), when known. */
   format?: string;
+  /** ORW-938: `library` is the game the house has ALREADY been told; the authored exit lines must be ways of going out of that game. */
+  announced?: true;
   /** The full field that competed (names). */
   participants: NamedRef[];
   /** The FIXED winner (name) — decided up front; the fiction dresses this, it can never change it. */

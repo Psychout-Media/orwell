@@ -64,6 +64,15 @@ def _synthesis_messages(staging: dict) -> list[dict]:
     field = [p.get("name", "") for p in staging.get("participants", []) if p.get("name")]
     lib = staging.get("library") or {}
     ordered = "\n".join(f"{i + 1}. {name}" for i, name in enumerate(drop))
+    # ORW-938: a game the house has already been told is the game; inventing another one told bronco exits for a quiz
+    announced = bool(staging.get("announced") and lib.get("premise"))
+    spark = (
+        f"THE GAME ALREADY ANNOUNCED TO THE HOUSE (do not invent another or change how it is played): {lib.get('name', '')} — {lib.get('premise', '')}\n"
+        "Every exit line is a way of going out of THIS game.\n"
+        if announced else
+        "A starting spark you may DEPART from freely (not a menu; invent your own setting from the field and the kind of contest): "
+        f"{lib.get('name', '')} — {lib.get('premise', '')}\n"
+    )
     system = (
         "You are a reality-TV competition producer writing the STAGING of a Big Brother competition. The "
         "OUTCOME IS ALREADY DECIDED and is NOT yours to change — you are dressing a fixed result. Invent a "
@@ -80,9 +89,8 @@ def _synthesis_messages(staging: dict) -> list[dict]:
         f"Winner (outlasts everyone): {winner}.\n"
         f"Eliminated, in the EXACT order they go out (earliest first) — write one line for each, in this order:\n"
         f"{ordered}\n\n"
-        f"A starting spark you may DEPART from freely (not a menu; invent your own setting from the field and the kind of contest): "
-        f"{lib.get('name', '')} — {lib.get('premise', '')}\n"
-        f"{_already_used_line(staging)}\n"
+        f"{spark}"
+        f"{'' if announced else _already_used_line(staging)}\n"
         "JSON only:"
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
