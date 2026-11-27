@@ -654,6 +654,8 @@ export interface LiveSeasonState {
   status?: import("./hohCourt").StatusRecord;
   /** ORW-610: the player's own recorded talk to the sitting HOH this week (counts as a pitch on the NPC terms). Engine-only; played games only. */
   playerPitch?: import("./hohCourt").PlayerPitchRecord;
+  /** ORW-779: this reign's private answer to the player's plea to be left off the block (`pitchAnswer`). A yes stands for the reign; `sincere: false` is a yes the HOH does not mean. Engine-only, never projected. */
+  pitchAnswer?: { week: number; hoh: EntityId; agreed: boolean; sincere: boolean };
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
   moodCauses?: Record<EntityId, MoodCause & { week: number; day?: number }>;
   /** 0194 / ORW-626: every other mood CAUSE a houseguest has had (a lie found out, a friend gone, a bad night, a win or loss), append-only. Vault-class; voiced only when the houseguest chooses to say it. Played games only; absent otherwise. */
@@ -4079,9 +4081,21 @@ function legacySecretVetoReplacement(s: LiveSeasonState, ctx: SeasonCtx, hoh: En
  * and back into the active house; when they are re-evicted later they rejoin the jury, so the finale
  * still closes at a jury of nine and a Final 2. The player, if a juror in the window, competes.
  */
+/**
+ * ORW-1088 (Ryne 2026-11-27: "It shouldn't mix jurors and non jurors in the same battle back. If it's pre jury, the earliest evictees would essentially fight for a spot
+ * back onto jury. If it's during jury, it wouldn't matter, the jury should always be the last 9th evicted."): the battle-back field. Once any juror is seated it is the
+ * most recent jurors only (up to four); before the jury it is the most recent pre-jury evictees only. Never a mix, so a returnee can never let a tenth person onto the
+ * jury: a pre-jury return shortens the record and the next eviction's seat test (`removeEvictee`) moves the jury start by one; a juror's return frees their own seat,
+ * which they take again when evicted again. Pure.
+ */
+export function battleBackField(s: { evictionOrder: EntityId[]; active: EntityId[]; jurorIds?: EntityId[] }): EntityId[] {
+  const jurors = jurorsOf(s);
+  const pool = jurors.length > 0 ? jurors : s.evictionOrder;
+  return pool.slice(-Math.min(4, pool.length));
+}
+
 function resolveBattleBack(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent {
-  const k = Math.min(4, s.evictionOrder.length);
-  const field = s.evictionOrder.slice(-k); // the recent jurors — includes the player if they were one
+  const field = battleBackField(s); // the recent jurors (or, before the jury, the recent pre-jury evictees) — includes the player if they were one
   const def = drawFor(s, "hoh", rng, ctx);
   const winner = resolveComp(field, def, ctx, rng, "compete").winner;
   // The returnee leaves the eviction record. The jury is a stable fact (`jurorIds`, ORW-1087), so removing a returnee takes only the returnee's own seat; later evictees
@@ -4095,6 +4109,8 @@ function resolveBattleBack(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSo
   const dropped = jurorsBefore - nonPlayerJurors();
   if (dropped > 0) s.juryReturns = (s.juryReturns ?? 0) + dropped;
   s.active.push(winner);
+  if (s.exitInterviews) s.exitInterviews = s.exitInterviews.filter((x) => x.evictee !== winner); // ORW-1116: the exit the returnee gave is undone with the eviction; a second exit leaves one interview, the latest
+  if (s.evictedTaken) s.evictedTaken = s.evictedTaken.filter((h) => h !== winner); // ORW-1103: the returnee's first eviction is voided, so what the house took from it is too; a second eviction takes them with it again (deals, favors, assurances)
   // A returning PLAYER is a player again: a pre-jury evictee who chose to watch/skip (0133) must not stay a spectator, or the loop would keep
   // fast-forwarding their own weeks as if they were still watching from outside (found by the reactive-twists player-path guard).
   if (winner === ctx.player) s.spectator = undefined;

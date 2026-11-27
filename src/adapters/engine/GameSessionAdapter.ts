@@ -95,7 +95,7 @@ import { FAVOR } from "../../engine/favorConstants";
 import { counterStreamKey, weighCounter, type CounterAsk, type CounterSide } from "../../engine/favorCounters";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
 import { NPC_MEMORY, PLAYED_NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, salience, SCENE_MEMORY_SEVERITY, SCENE_MEMORY_SEVERITY_MORE, SCENE_MOOD_ONLY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, BOOK_FOLDED_KINDS, type BookRead, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
-import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
+import { pitchAnswer, pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
 import { DEAL_NOMS } from "../../engine/dealNomConstants";
@@ -2744,7 +2744,9 @@ export class GameSessionAdapter implements GameSession {
     const voter = onBlock && id !== s.hoh && !block!.includes(id);
     const hohBefore = s.hoh === id && (!block || block.length === 0);
     if (!standing && !voter && !hohBefore) return undefined;
-    if (!voter) return standing ? "will-keep" : "wont-commit";
+    // ORW-779 (Coordinator 2026-11-27): a HOH who privately said yes to the player's plea says so. A yes they do not mean is said the same way: lying is allowed.
+    const saidYes = hohBefore && s.pitchAnswer?.week === s.week && s.pitchAnswer.hoh === id && s.pitchAnswer.agreed;
+    if (!voter) return standing || saidYes ? "will-keep" : "wont-commit";
     const key = `${this.gameSeed ?? 0}:stance:${s.week}:${id}`;
     return declaredStance({ standing, pull: this.assurancePullOf(id, PLAYER), honesty: this.assuranceTraitsOf(id).honesty, keepRoll: new SeededRandom(hashSeed(key)).next(), lieRoll: new SeededRandom(hashSeed(`${key}:lie`)).next() });
   }
@@ -8952,6 +8954,27 @@ export class GameSessionAdapter implements GameSession {
     for (const id of withIds) this.answerAimedFrom(id); // ORW-611: talking to a houseguest who stepped up to the player answers it
     if (!this.hohCourtOn() || !s?.hoh || s.hoh === PLAYER || !withIds.includes(s.hoh) || !isPitchLikeTalk(kind, named)) return;
     s.playerPitch = foldPlayerTalk(s.playerPitch, s.week, s.hoh, named);
+    if (named === undefined) this.answerPlayerPlea(s.hoh);
+  }
+  /**
+   * ORW-779: the HOH privately answers the player's plea for safety (`pitchAnswer`), from their own trust in and threat read of the player, their cunning, and whether they are out to get them
+   * (an agenda that wants the player gone). Dice keyed to the reign, never the shared rng; a yes stands, and a later plea can only turn a no into a yes as trust grows. Never voiced.
+   */
+  private answerPlayerPlea(hoh: EntityId): void {
+    const s = this.live;
+    if (!s || s.playedGame !== true) return;
+    const stands = s.pitchAnswer?.week === s.week && s.pitchAnswer.hoh === hoh && s.pitchAnswer.agreed;
+    if (stands) return;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:pitch-answer:${s.week}:${hoh}`));
+    const edge = this.rel.edge(hoh, PLAYER);
+    const answer = pitchAnswer({ trust: edge.trust, threat: edge.threat, cunning: this.fakingCunningOf(hoh), hostile: this.agendaPullOf(PLAYER, hoh).value > 0 }, { agree: rng.next(), fake: rng.next() });
+    s.pitchAnswer = { week: s.week, hoh, ...answer };
+  }
+  /** ORW-779: a yes the HOH means keeps the player off the block this reign, as a kept assurance does. */
+  pitchShields(target: EntityId, holder: EntityId): boolean {
+    const s = this.live;
+    const a = s?.pitchAnswer;
+    return s?.playedGame === true && target === PLAYER && !!a && a.week === s.week && a.hoh === holder && a.agreed && a.sincere;
   }
   /** 0173: engine-only read of a houseguest's coarse tier, the informal leader and the lieutenants (tests and later engine slices; never a tool, never projected). */
   statusRead(): { tiers: Readonly<Record<EntityId, number>>; leader?: EntityId; lieutenants: readonly EntityId[]; vacuumSince?: number; count: number; history: StatusRecord["history"] } | undefined {
@@ -12672,7 +12695,19 @@ export class GameSessionAdapter implements GameSession {
     // a houseguest (a DR→NPC pathway the wall forbids).
     const belief = (this.playerKnowledgeReader?.() ?? []).find((f) => f.pathway !== "diary-room" && ((f.factId ?? f.id) === factId || f.id === factId));
     if (!belief) return null; // the Vault bright line — a non-learned belief is never minted
+    // ORW-1101: the tool contract says the fact must involve the houseguest confronted; a fact about someone ELSE is not theirs to answer (a fact with no recorded subject is left as before).
+    if (belief.subject !== undefined && belief.subject !== npcId) return null;
+    // ORW-1101: one confrontation per (houseguest, fact, phase): a repeat is a no-op that answers what the first one did (it neither stacks a misfire's betrayal nor writes the scene twice).
+    const doneKey = `${npcId}|${factId}|${this.week}:${this.phase}`;
+    const done = ((this.live as unknown as { confrontsDone?: Record<string, boolean> }).confrontsDone ??= {});
+    if (doneKey in done) return { landed: done[doneKey]! };
     const landed = !this.gossipConsequenceEnabled || !isMateriallyDistorted(belief);
+    done[doneKey] = landed;
+    if (landed) {
+      // ORW-1101: a real confrontation leaves a trace: a scene the confronted houseguest was in and remembers (a recorded interaction, so it folds like any scene). The wording names no fact: the player is the one who knows it.
+      this.onPlayerEvent?.(`${this.nameOf(PLAYER)} confronts ${this.nameOf(npcId)} with something they have heard about them`, [PLAYER, npcId], "conversation");
+      this.persist();
+    }
     if (!landed) {
       // The move misfires against REALITY, not the belief: the wrongly-confronted houseguest's own
       // read of the player takes the same betrayal-grade blow a real betrayal folds — seeded,
@@ -13387,6 +13422,8 @@ export class GameSessionAdapter implements GameSession {
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       // ORW-779: a deal the HOH means to keep shields through the same hook the kept assurance uses (nominations and the replacement).
       ...(this.dealNomsEnabled && this.live?.playedGame === true ? { assuranceProtects: (t: EntityId, h: EntityId) => (this.assurancesEnabled && this.assuranceProtects(t, h)) || this.dealShields(t, h) } : {}),
+      // ORW-779: and a plea the HOH said yes to and means (`pitchShields`), through the same hook.
+      ...(this.live?.playedGame === true && this.hohCourtOn() ? { assuranceProtects: (t: EntityId, h: EntityId) => (this.assurancesEnabled && this.assuranceProtects(t, h)) || (this.dealNomsEnabled && this.dealShields(t, h)) || this.pitchShields(t, h) } : {}),
       // ORW-586 slice 4: an NPC promiser's veto / final-two promises are read by their own decisions and settled on the veto and the Final 2 (played games with promise terms only; off => no hook, byte-identical).
       ...(this.promiseTermsLive && this.live?.playedGame === true ? {
         promiseVetoFor: (n: EntityId, h: EntityId) => this.promiseVetoFor(n, h),
@@ -14770,11 +14807,13 @@ export class GameSessionAdapter implements GameSession {
       const candor = Math.max(0, Math.min(1, (REASONS.candorByArchetype[character?.archetype ?? ""] ?? 0.5) + (REASONS.candorByStyle[character?.strategyStyle ?? ""] ?? 0)));
       for (const claim of liesBy(live.claims, liar)) {
         if (!this.openLie(claim) || !living.includes(claim.listener)) continue;
-        const planted = claim.listener === PLAYER ? undefined : (live.beliefs?.[claim.listener] ?? []).find((b) => plantedBy(b, claim.id) && !b.refuted);
+        // ORW-961 (Ryne 2026-11-26: "Yes, same as with others"): a lie told to the PLAYER reads its catch risk the same way as one told to a houseguest (the player's own edges and any belief they hold are read like anyone's;
+        // before, every input was zeroed for a player listener, so the risk was always 0 and no NPC ever came clean to the player).
+        const planted = (live.beliefs?.[claim.listener] ?? []).find((b) => plantedBy(b, claim.id) && !b.refuted);
         const risk = catchRisk({
-          otherVersionNearListener: otherVersionNear(claims, claim, (a, b) => (a === PLAYER || b === PLAYER ? 0 : Math.min(bond(a, b), bond(b, a))), COMING_CLEAN.nearBond),
+          otherVersionNearListener: otherVersionNear(claims, claim, (a, b) => Math.min(bond(a, b), bond(b, a)), COMING_CLEAN.nearBond),
           listenerDoubting: !!planted && planted.confidence < COMING_CLEAN.doubtBelow,
-          subjectCloseToListener: claim.listener !== PLAYER && claim.subject !== claim.listener && bond(claim.listener, claim.subject) >= COMING_CLEAN.nearBond,
+          subjectCloseToListener: claim.subject !== claim.listener && bond(claim.listener, claim.subject) >= COMING_CLEAN.nearBond,
         });
         if (risk <= 0) continue;
         const chance = confessChance(risk, candor);
@@ -15893,6 +15932,12 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live;
     if (!this.playerAimedEnabled || !s || s.playedGame !== true || !s.aimedAtPlayer?.length) return;
     const day = s.dayNumber ?? s.week;
+    // ORW-1084 (found by ORW-1088's re-seeded audit): an approach can only play out between two people still in the house. When the player or the approacher has left, an open or shown
+    // record lapses: no scene names the player in a house they have left, and no cost is folded for an answer they could not give.
+    const gone = new Set(s.evictionOrder);
+    for (const r of s.aimedAtPlayer) {
+      if ((r.status === "open" || r.status === "shown") && (gone.has(PLAYER) || gone.has(r.actor))) r.status = "lapsed";
+    }
     for (const r of s.aimedAtPlayer) {
       // ORW-709: a hostile step the player has not answered writes its fight only when it closes (below); an answered one never does. A non-hostile one is written as it surfaces.
       if (r.status === "shown" && r.eventId === undefined && !r.hostile) this.writeAimedScene(events, r);
@@ -19994,6 +20039,8 @@ export class GameSessionAdapter implements GameSession {
     d: SecretLeverDescriptor, recipient: EntityId, _via: "deal" | "swap",
   ): { accepted: boolean; refused?: TradeResult["refused"]; narratable?: string } | null {
     if (!this.isActiveNpc(recipient)) return { accepted: false, refused: "no-recipient" };
+    // ORW-1101: an already-exposed (public) secret answers `already-spent`, as `exposeSecret` does (the resolver rejects a spent fact as un-wieldable, which would otherwise read as `not-learned`).
+    if (d.factId && this.secretUsedAs[d.factId] === "exposed") return { accepted: false, refused: "already-spent" };
     if (this.tradeCount >= (this.noHardCapsEnabled ? NO_HARD_CAPS.safetyValve : SECRET_TRADE.maxTradesPerSeason)) return { accepted: false, refused: "capped" };
     const resolved = this.resolveWieldedSecret(d);
     if (!resolved) return { accepted: false, refused: "not-learned" };

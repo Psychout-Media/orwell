@@ -190,7 +190,7 @@ Then("no twist fires twice", function (this: BbWorld) {
 
 Given("two triggers are eligible on the same roll", function (this: BbWorld) {
   const plan = allArmed({ battleBackAtJury: 1 });
-  const sig: TwistSignals = { activeCount: 8, juryCount: 1, lopsidedStreak: 0 };
+  const sig: TwistSignals = { activeCount: 8, juryCount: 2, lopsidedStreak: 0 }; // ORW-1088: a battle-back needs two jurors seated
   // Both battle-back and double-eviction qualify; the evaluator returns exactly one.
   const first = triggeredTwist(plan, sig, []);
   const second = triggeredTwist(plan, sig, first ? [first] : []);
@@ -316,6 +316,28 @@ Given("a full live season in which the battle-back fires", function (this: BbWor
   this.twistFiredKinds = (core.live?.firedTwists ?? []).map((t) => t.kind);
   this.twistJury = core.live?.jury?.length ?? -1;
   this.twistFinalTwo = core.live?.finalTwo?.length ?? -1;
+  this.twistSeats = core.live?.jurorIds?.length ?? -1;
+});
+
+Then("no more than nine jury seats are ever given", function (this: BbWorld) {
+  // A seat is never taken back except by its own holder's return (who takes a seat again when evicted again), so the season's final seat count is its most.
+  assert.equal(this.twistSeats, 9, `jury seats given: ${this.twistSeats}`);
+});
+
+Given("the battle-back fires with two jurors seated and five pre-jury evictees out", function (this: BbWorld) {
+  // 16 houseguests: 9 still in, 7 out. The first 16 - 11 = 5 evictions are pre-jury; the last two are the seated jurors.
+  const s = newLiveSeason([npc(1), npc(2), npc(3), npc(4), npc(5), npc(6), npc(7), npc(8), PLAYER]);
+  s.beat = "battle-back";
+  s.evictionOrder = [npc(20), npc(21), npc(22), npc(23), npc(24), npc(25), npc(26)];
+  this.twistJurorsSeated = s.evictionOrder.slice(5);
+  this.twistLive = s; this.twistCtx = ctxOf(new RelationshipModel(0.5));
+  this.twistLastEvent = advance(s, this.twistCtx, new SeededRandom(9));
+});
+
+Then("every battle-back competitor is a juror", function (this: BbWorld) {
+  const field = this.twistLastEvent!.participants;
+  assert.ok(field.length === 2, `the field is the two seated jurors: ${field.join(", ")}`);
+  for (const id of field) assert.ok(this.twistJurorsSeated!.includes(id), `${id} is a pre-jury evictee in a jury battle-back`);
 });
 
 Then("one juror re-enters the game", function (this: BbWorld) {

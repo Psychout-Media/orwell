@@ -9,7 +9,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "esbuild src/main.ts --bundle --platform=node --format=esm --target=node22 --external:fastembed --external:better-sqlite3 --external:sqlite-vec --outfile=dist/main.js && esbuild src/adapters/embedding/fastembedWorker.ts --bundle --platform=node --format=esm --target=node22 --external:fastembed --outfile=dist/embedWorker.js",
+    "build": "esbuild src/main.ts --log-override:duplicate-case=error --bundle --platform=node --format=esm --target=node22 --external:fastembed --external:better-sqlite3 --external:sqlite-vec --outfile=dist/main.js && esbuild src/adapters/embedding/fastembedWorker.ts --log-override:duplicate-case=error --bundle --platform=node --format=esm --target=node22 --external:fastembed --outfile=dist/embedWorker.js",
     "start": "node dist/main.js",
     "observatory": "NODE_OPTIONS='--import tsx' node tests/dev/societyObservatory.ts",
     "test:unit": "vitest run",

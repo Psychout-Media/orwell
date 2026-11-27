@@ -37,14 +37,25 @@ function toFinalEviction(s: Any): LiveSeasonState | null {
   }
   return null;
 }
+/** ORW-1088: the NPC-HOH tests need a Final 3 where at least one NPC, as Final HOH, would evict the OTHER NPC (read the same way `seatedAt` reads it, goals zeroed); otherwise the player leaves and there is nothing to watch. */
+function someNpcKeepsThePlayer(s: Any, live: LiveSeasonState): boolean {
+  (s as { agendaPullOf: unknown }).agendaPullOf = () => ({ value: 0 });
+  const others = live.active.filter((h) => h !== PLAYER);
+  return others.some((h) => s.finalHohMindChoice(h, live.active.filter((x) => x !== h), live.evictionOrder.slice(7)) !== PLAYER);
+}
 const memo = new Map<string, { d: string; seed: number }>();
 /** A season replay is slow, so each (played) variant is driven to the crowned Final HOH ONCE and copied per test. */
 function seatedAt(hoh: "player" | "npc", played = true): { s: Any; live: LiveSeasonState; d: string; seed: number } {
   const key = String(played);
   if (!memo.has(key)) {
-    for (let seed = 1; seed <= 25 && !memo.has(key); seed++) {
+    // ORW-1088: the first seed whose Final 3 keeps the player for an NPC Final HOH is tried first (16 played, 21 headless since the battle-back field is jurors only); the range stays as it was.
+    const hint = played ? 16 : 21;
+    for (const seed of [hint, ...Array.from({ length: 25 }, (_, i) => i + 1).filter((x) => x !== hint)]) {
+      if (memo.has(key)) break;
       const d = freshTmpDir("orwell-fin-");   // shared by every test of the file: removed at the end of the file
-      if (toFinalEviction(boot(d, seed, played))) memo.set(key, { d, seed });
+      const s0 = boot(d, seed, played);
+      const lv = toFinalEviction(s0);
+      if (lv && someNpcKeepsThePlayer(s0, lv)) memo.set(key, { d, seed });
       else dropTmpDir(d);                      // a rejected seed's full-season save goes at once
     }
   }

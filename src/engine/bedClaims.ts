@@ -293,6 +293,10 @@ export function parsePlayerBedIntent(
     if (!CLAIM_VERB.test(c)) continue;
     const room = rooms.find((r) => r.names.some((n) => findName(c, fold(n)) >= 0));
     const prefer = /\b(?:double|queen|king)\b/.test(c) ? "double" as const : /\bsingle\b/.test(c) ? "single" as const : undefined;
+    // ORW-1082: "bedroom A, no wait, C": the correction inside the same breath wins
+    const fix = /\b(?:no wait|no actually|i mean)\s+(?:bedroom\s+)?(.+)$/.exec(c.trim())?.[1];
+    const fixed = fix === undefined ? undefined : rooms.find((r) => r.names.some((n) => findName(` ${fix} `, fold(n)) >= 0)) ?? rooms.find((r) => /^[abc]\b/.test(fix) && r.room === `bedroom-${fix[0]}`);
+    if (fixed) { out = { kind: "claim", room: fixed.room, ...(prefer ? { prefer } : {}) }; continue; }
     if (room) { out = { kind: "claim", room: room.room, ...(prefer ? { prefer } : {}) }; continue; }
     const near = named.find((p) => NEAR.test(c.slice(0, p.at)));
     if (near) out = { kind: "near", who: near.id };
