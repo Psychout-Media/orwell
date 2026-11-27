@@ -1420,6 +1420,8 @@ export interface SeasonCtx {
    * `ORWELL_COMP_MECHANICS_PLUS`; the calibration/UAT/golden harness leaves it off.
    */
   expandedComps?: boolean;
+  /** ORW-530: also draw from the 20 more mechanics (needs `expandedComps`). */
+  moreComps?: boolean;
   /**
    * 0127 — blend a hybrid comp's SECONDARY aptitude into its outcome (a physical-with-a-puzzle-element
    * veto rewards the well-rounded houseguest). Absent/false ⇒ the pure single stat, byte-identical (the
@@ -1521,7 +1523,7 @@ export type DecisionInput =
 /** Draw this week's competition from the curated library (0042) — seeded, no immediate repeats.
  *  `ctx.expandedComps` (0126) folds in the extra mechanic pool; off ⇒ the base 12 (byte-identical). */
 const drawFor = (s: LiveSeasonState, phase: CompetitionPhase, rng: RandomnessSource, ctx: SeasonCtx): CompetitionDef =>
-  drawCompetition(phase, s.week, rng, s.compHistory?.[phase] ?? [], ctx.expandedComps);
+  drawCompetition(phase, s.week, rng, s.compHistory?.[phase] ?? [], ctx.expandedComps, ctx.moreComps);
 
 /** Record a resolved draw into the persisted history (0030) — what the NEXT draw must avoid. */
 function recordDraw(s: LiveSeasonState, phase: CompetitionPhase, def: CompetitionDef): void {

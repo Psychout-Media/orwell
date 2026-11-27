@@ -70,6 +70,7 @@
 #   ORWELL_ADVANCE_GATE         The engine holds an ordinary advanceGame (typed held) until the schedule says an event is due; played games only (ORW-97).
 #   ORWELL_WEEK_CHAPTERS        Week chapters (ORW-275) - the bed on eviction night closes the week with a recap.
 #   ORWELL_COMP_MECHANICS_PLUS  Expanded competition mechanics (0126) — 12 => 30 no-repeat pool.
+#   ORWELL_COMP_MECHANICS_MORE  The 20 more competition mechanics (ORW-530) — 30 => 50 pool (needs ORWELL_COMP_MECHANICS_PLUS).
 #   ORWELL_COMP_MIXED           Mixed-type/HYBRID competitions (0127) — secondary aptitude blended (65/35).
 #   ORWELL_COMP_REACTIONS       ORW-580: while a staged competition runs, the houseguests who are not still in it cheer, taunt or sulk (one public reaction per hour; a played game only; =0 opts out).
 #   ORWELL_FINAL_HOH_THREE_PART Three-part Final HOH (0128, #2045) - endurance / physical+mental hybrid / quiz instead of one Final-3 comp. PO ruling 2026-11-04:
@@ -186,6 +187,7 @@ ORWELL_CLAIMS_TO_PLAYER=1
 ORWELL_COMING_CLEAN=1
 ORWELL_COMP_INTENT=1
 ORWELL_COMP_MECHANICS_PLUS=1
+ORWELL_COMP_MECHANICS_MORE=1
 ORWELL_COMP_MIXED=1
 ORWELL_COMP_REACTIONS=1
 ORWELL_CONFESSIONAL_DEPTH=1
