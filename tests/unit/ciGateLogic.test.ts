@@ -61,18 +61,18 @@ describe("ci-gate (two-tier CI)", () => {
     expect(gateJob).toContain("      - backlog-whole\n");
     expect(gateJob).toContain("backlog-whole=${{ needs.backlog-whole.result }}");
   });
-  it("fast-checks is a required input: its failure or an applicable skip fails the gate; with both engine and front-end filters false a skip is fine (docs-only)", () => {
+  it("fast-checks is a required input: its failure or an applicable skip fails the gate; a skip fails even when both filters are false (docs-only still runs the secrets scan, ORW-1044)", () => {
     expect(gate(true, { "fast-checks": "failure" }).rc).toBe(1);
     expect(gate(true, { "fast-checks": "skipped" }).rc).toBe(1);
-    expect(gate(true, { "fast-checks": "skipped" }, { ENGINE: "false", FRONTEND: "false" }).rc).toBe(0);
+    expect(gate(true, { "fast-checks": "skipped" }, { ENGINE: "false", FRONTEND: "false" }).rc).toBe(1); // ORW-1044: always applies (the repo-wide secrets scan)
     expect(gate(true, { "fast-checks": "skipped" }, { ENGINE: "false" }).rc).toBe(1);
   });
   it("a draft fails on a fast-tier failure too, and on a skipped applicable fast job", () => {
     expect(gate(false, { ...skipHeavy, "test-unit": "failure" }).rc).toBe(1);
     expect(gate(false, { ...skipHeavy, "fe-unit": "skipped" }).rc).toBe(1);
   });
-  it("passes a full run where every job was skipped because every filter is false (a docs-only PR)", () =>
-    expect(gate(true, skipAll, { ENGINE: "false", HEAVY: "false", DEPLOY: "false", FRONTEND: "false", FE_RENDER: "false" }).rc).toBe(0));
+  it("passes a full run where every path-filtered job was skipped because every filter is false (a docs-only PR; fast-checks always runs, ORW-1044)", () =>
+    expect(gate(true, { ...skipAll, "fast-checks": "success" }, { ENGINE: "false", HEAVY: "false", DEPLOY: "false", FRONTEND: "false", FE_RENDER: "false" }).rc).toBe(0));
   it("fails when a filter output is empty or not a boolean, even though every lane was skipped", () => {
     for (const bad of ["", "maybe", "True"]) {
       const r = gate(true, skipAll, { ENGINE: bad, HEAVY: "false", DEPLOY: "false", FRONTEND: "false", FE_RENDER: "false" });
