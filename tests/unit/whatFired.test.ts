@@ -8,7 +8,7 @@ import { discoverFlags, discoverFeatures, commentsByFlag, tagsOf } from "../supp
 import { firstDifference, restartPoints, restartVerdict } from "../support/whatFired/compare";
 import { buildSummary, diffSummaries, renderMarkdown, assertClean, GUARD_REFERENCE, LOOP_REPEATS, type Inputs } from "../support/whatFired/report";
 import { phaseTable } from "../support/whatFired/report";
-import { scrub, type SeasonRecord, type TraceRow } from "../support/whatFired/player";
+import { scrub, ALL_DEAL_KINDS, type SeasonRecord, type TraceRow } from "../support/whatFired/player";
 
 /** ORW-729: the what-fired tool's own machinery under CI (the nightly itself never runs here). */
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -185,5 +185,16 @@ describe("ORW-741: the milestone footprints are derived, not listed", () => {
     expect(md).toContain("### Milestones reached in the played seasons (1)");
     expect(md).toContain("| state.secretBreaks | 1.5 | 1/2 |");
     expect(() => assertClean(md)).not.toThrow();
+  });
+});
+
+describe("ORW-1099: the report flags a deal kind the scripted player never got agreed", () => {
+  it("lists every kind with no agreed deal as ZERO, and drops a kind once one was made", () => {
+    const md0 = renderMarkdown(buildSummary(inputs({ seasons: [season(1, { tried: { makeDeal: 4, "deal:safety": 2 }, refused: { "deal:safety": 2 } })] })));
+    expect(md0).toMatch(/ZERO: .*safety/);
+    const md1 = renderMarkdown(buildSummary(inputs({ seasons: [season(1, { tried: { makeDeal: 4, "deal:safety": 2 }, refused: { "deal:safety": 1 } })] })));
+    expect(md1).toMatch(/ZERO: /);
+    expect(md1.match(/ZERO: ([^\n]*)/)![1]).not.toContain("safety");
+    expect(ALL_DEAL_KINDS).toHaveLength(10);
   });
 });
