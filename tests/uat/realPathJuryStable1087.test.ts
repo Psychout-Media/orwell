@@ -12,7 +12,7 @@ import { PLAYER } from "../../src/domain/ids";
 const profile = execFileSync("bash", ["-c", 'source "$1" && orwell_optin_env_defaults "$2"', "_", "deploy/orwell-env-defaults.sh", "/nonexistent/orwell-data"], { encoding: "utf8" })
   .split("\n").map((l) => l.trim()).filter(Boolean)
   .map((l) => { if (!/^ORWELL_[A-Z0-9_]+=\S+$/.test(l)) throw new Error(`unexpected line from orwell_optin_env_defaults: ${l}`); return l; })
-  .filter((l) => !/^ORWELL_(EMBEDDINGS|EMBED_CACHE)=/.test(l));
+  .filter((l) => !/^ORWELL_(EMBEDDINGS|EMBED_CACHE|COMP_MECHANICS_MORE)=/.test(l));
 if (profile.length < 20) throw new Error(`the deployed flag profile did not load (${profile.length} flags)`);
 for (const line of profile) { const i = line.indexOf("="); process.env[line.slice(0, i)] = line.slice(i + 1); }
 process.env.ORWELL_REACTIVE_TWISTS = "1";
