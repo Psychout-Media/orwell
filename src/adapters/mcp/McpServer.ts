@@ -230,6 +230,7 @@ function requireShape(name: string, args: Record<string, unknown>): void {
       }
       if (args["maxMinutes"] !== undefined && (typeof args["maxMinutes"] !== "number" || !Number.isFinite(args["maxMinutes"]) || args["maxMinutes"] <= 0)) refuse("maxMinutes", "a positive number of in-game minutes (capped at 180 by the engine)");
       if (args["untilBandEnd"] !== undefined && typeof args["untilBandEnd"] !== "boolean") refuse("untilBandEnd", "a boolean when present");
+      if (args["untilEvent"] !== undefined && typeof args["untilEvent"] !== "boolean") refuse("untilEvent", "a boolean when present");
       if (args["untilClock"] !== undefined && (typeof args["untilClock"] !== "number" || !Number.isFinite(args["untilClock"]) || args["untilClock"] < 0 || args["untilClock"] >= 24)) refuse("untilClock", "an hour of the day from 0 up to 24 (22.5 = 10:30pm) when present");
       return;
     case "moveTo":
@@ -770,7 +771,7 @@ export class McpServer {
       case "nap":
         return this.deps.session.nap(args as { hours?: number; expectedBeatSeq?: number; idempotencyKey?: string });
       case "hangOut":
-        return this.deps.session.hangOut(args as { expectedBeatSeq?: number; maxBeats?: number; maxMinutes?: number; untilBandEnd?: boolean; untilClock?: number });
+        return this.deps.session.hangOut(args as { expectedBeatSeq?: number; maxBeats?: number; maxMinutes?: number; untilBandEnd?: boolean; untilClock?: number; untilEvent?: boolean });
       case "noteMessage":
         // Clock-per-message (Coordinator 2026-11-05): the FE announces each PLAYER MESSAGE once (idempotent per messageId); the announcement steps the in-game clock one message-step.
         return this.deps.session.noteMessage({ messageId: String(args["messageId"]) });

@@ -73,7 +73,7 @@ def test_maybe_hang_out_arms_steer_only_on_ok(monkeypatch):
     from src import orwell_engine
     calls = []
 
-    async def fake(expected_beat_seq=None, max_beats=None, user=None):
+    async def fake(expected_beat_seq=None, max_beats=None, user=None, **_kw):
         calls.append(expected_beat_seq)
         return {"ok": True, "stopReason": "npc-approach", "minutes": 50, "detail": {"npc": "Role"}, "beatSeq": 9}
 
@@ -83,7 +83,7 @@ def test_maybe_hang_out_arms_steer_only_on_ok(monkeypatch):
     assert "Role comes over" in ch._HANGOUT_STEER[ch._runway_key("u")]
     ch._HANGOUT_STEER.clear()
 
-    async def refused(expected_beat_seq=None, max_beats=None, user=None):
+    async def refused(expected_beat_seq=None, max_beats=None, user=None, **_kw):
         return {"ok": False, "reason": "disabled", "beats": 0, "minutes": 0, "beatSeq": 3}
 
     monkeypatch.setattr(orwell_engine, "hang_out", refused)
