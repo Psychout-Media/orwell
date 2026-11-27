@@ -26,12 +26,12 @@ const join = (beds: BedsState, sleeper: string, joiner: string, day: number) => 
 };
 
 describe("ORW-1090: the sleeper's reaction when they wake beside a joiner", () => {
-  it("a houseguest who does not like the player is annoyed; the narrator is told for one turn; nothing folds (narration only)", () => {
+  it("a houseguest who does not like the player is annoyed; the narrator is told for one turn; a houseguest's own edge toward the joiner is folded (their read); never the player's", () => {
     const { s, a, beds, living, folds } = setup(-0.5);
     join(beds, a, "player", 1);
     s.reactToHalfJoins(beds, 2, living);
     expect(s.bedWakeNote).toMatchObject({ mood: "annoyed" });
-    expect(folds.length, "narration only: no relationship fold").toBe(0);
+    expect(folds.length, "the player is the joiner: the sleeper's own edge toward them folds a slight").toBe(1);
     s.reactToHalfJoins(beds, 3, living);
     expect(s.bedWakeNote, "told once: the join already reacted").toBeNull();
     expect(beds.wokeBeside?.length).toBe(1);
@@ -50,19 +50,19 @@ describe("ORW-1090: the sleeper's reaction when they wake beside a joiner", () =
     expect(s.bedWakeNote).toBeNull();
     expect(beds.wokeBeside).toBeUndefined();
   });
-  it("parity: a houseguest joining a sleeping PLAYER is told to the narrator", () => {
+  it("parity: a houseguest joining a sleeping PLAYER is told to the narrator and nothing folds on the player's edge", () => {
     const { s, a, beds, living, folds } = setup(-0.5);
     join(beds, "player", a, 1);
     s.reactToHalfJoins(beds, 2, living);
     expect(s.bedWakeNote).toMatchObject({ mood: "annoyed" });
     expect(folds.length).toBe(0);
   });
-  it("two houseguests: nothing is told to the narrator and nothing folds", () => {
+  it("two houseguests: nothing is told to the narrator; the annoyed sleeper folds a slight", () => {
     const { s, a, b, beds, living, folds } = setup(-0.5);
     join(beds, a, b, 1);
     s.reactToHalfJoins(beds, 2, living);
     expect(s.bedWakeNote).toBeNull();
-    expect(folds.length).toBe(0);
-    expect(beds.wokeBeside?.length, "the join is still recorded as reacted").toBe(1);
+    expect(folds.length).toBe(1);
+    expect(beds.wokeBeside?.length, "the join is recorded as reacted").toBe(1);
   });
 });
