@@ -72,7 +72,7 @@ _ops_progress_write() {
     printf '"total":%s,'     "${total:-0}"
     printf '"message":"%s",' "$message"
     printf '"running":%s,'   "${running:-false}"
-    printf '"ok":%s,'        "${ok:-false}"
+    printf '"ok":%s,'        "${ok:-false}"   # ok may be the literal null (ORW-1074: cancelled)
     printf '"error":"%s",'   "$error"
     printf '"ts":"%s"'       "$ts"
     printf '}\n'
@@ -104,4 +104,10 @@ ops_progress_done() {
 ops_progress_fail() {
   local reason="${1:-failed}"
   _ops_progress_write "${ORWELL_OPS_ACTION:-ops}" "${ORWELL_OPS_STEP:-0}" "${ORWELL_OPS_TOTAL:-0}" "FAILED: ${reason}" false false "$reason"
+}
+
+# ORW-1074: the run was cancelled on purpose before it changed anything: ok is null (neither success nor failure).
+ops_progress_cancel() {
+  local reason="${1:-cancelled}"
+  _ops_progress_write "${ORWELL_OPS_ACTION:-ops}" "${ORWELL_OPS_STEP:-0}" "${ORWELL_OPS_TOTAL:-0}" "CANCELLED: ${reason}" false null ""
 }

@@ -864,6 +864,23 @@ def _hang_out_steer(res: dict, asked_minutes=None) -> str:
             + cut + "STOP: %s Voice the passage of time in a brief paragraph, then open the scene on that stop. Invent no ceremony, vote, or outcome beyond it." % line)
 
 
+# ORW-1054: the open-ended wait whose end is the next scheduled event ("hang out until production calls the next ceremony"). No stated length, band or clock time; the sentence names production, a call, the next
+# event or a ceremony/competition. Anything else open-ended ("hang out for a while") keeps the bounded hang-out.
+_WAIT_ENDS_AT_EVENT_RE = re.compile(
+    r"\b(?:until|till|'til|til|for)\b[^.?!\n]{0,60}?\b(?:production|called|calls?|the\s+next\s+(?:event|thing|ceremony|competition|comp)|(?:the\s+)?(?:ceremony|competition|comp|nominations?|veto|eviction|hoh|head\s+of\s+household|show|something\s+happens))\b",
+    re.IGNORECASE)
+
+
+def _waits_for_event(player_msg) -> bool:
+    m = _wait_intent_match(str(player_msg or ""))
+    if not m:
+        return False
+    text = str(player_msg)
+    tail = text[m.start():]
+    end = re.search(r"[.?!\n]", tail)
+    return bool(_WAIT_ENDS_AT_EVENT_RE.search(tail[:end.start()] if end else tail))
+
+
 async def maybe_hang_out(user, game_state: dict, player_msg) -> bool:
     """Recognise a hang-out-until-X intent and, when the engine's lever is live, run it and arm the narrator steer. Returns True when the clock moved (the caller refreshes the
     board). Fail-open: flag off / clock off / a pending decision / any hiccup => the turn proceeds exactly as before (the engine refuses with `ok:false`, no state change)."""
@@ -880,6 +897,8 @@ async def maybe_hang_out(user, game_state: dict, player_msg) -> bool:
         _clock = parse_wait_until_clock(player_msg)  # ORW-734a: "until 10pm" - the engine resolves it on its own clock (the next such time, never a day later)
         if _clock is not None:
             _kw["until_clock"] = _clock
+        if not _kw and _waits_for_event(player_msg):
+            _kw["until_event"] = True  # ORW-1054: "hang out until production calls" runs to the event in one call, not a run of chance-stopped calls
         res = await orwell_engine.hang_out(expected_beat_seq=last_beat_seq(user), user=user, **_kw)
         _refresh_beat_seq(user, res)
         if not isinstance(res, dict) or not res.get("ok"):
@@ -5387,6 +5406,11 @@ def _forget_season_pacing(user) -> None:
         dkey = _desync_key(user)
         _CUT_STREAK.pop(dkey, None)
         _DESYNC_REGROUND.pop(dkey, None)
+        try:
+            from src import orwell_companions as _oc_reset
+            _oc_reset.clear(user)  # ORW-1030: last season's companions do not walk into the new one
+        except Exception:
+            pass
         _CEREMONY_UNVOICED.pop(dkey, None)  # review of #2287: last season's unvoiced ceremony must not be re-grounded into the new one
         rkey = _runway_key(user)
         _PREMIERE_ENTRANCE_STAGE.pop(rkey, None)
@@ -10114,6 +10138,16 @@ async def apply_game_framing(
         game_state = await _pre_resolve_npc_ceremony(
             user, game_state, retry=game_build, player_msg=player_msg)
         game_state = await maybe_release_premiere_arrival(user, game_state, retry=game_build, player_msg=player_msg)  # ORW-954
+        try:  # ORW-1030: an agreed companion is an engine fact: undo any presence drift before the narrator reads the room, and tell the narrator who walks with the player
+            from src import orwell_companions as _oc
+            if await _oc.enforce(user):
+                game_state = (await orwell_engine.get_game_state(user=user)) or game_state
+            _cl = _oc.steer_line(user)
+            if _cl:
+                _ck = _runway_key(user)
+                _SCHEDULE_STEER[_ck] = (_SCHEDULE_STEER.get(_ck, "") + "\n\n" if _SCHEDULE_STEER.get(_ck) else "") + _cl
+        except Exception:  # failsoft-ok: companions are an aid; the engine board stays the authority
+            pass
         # P2: a session this process has never framed is a FRESH CONTEXT — request the
         # re-entry moment so the engine's prompt carries THE RECORD (ADR 0003 §6: long-term
         # memory is the store recalled, never the chat remembered). Subsequent turns in the
@@ -11543,7 +11577,10 @@ async def build_chat_context(
         if _gbe_pm():
             from src.orwell_player_move import resolve_player_move_before_narrator
             _prev_reply = next((_game_narration(m.content) for m in reversed(getattr(sess, "history", None) or []) if getattr(m, "role", None) == "assistant" and isinstance(m.content, str)), None)
-            await resolve_player_move_before_narrator(message, user, client_msg_id, previous_reply=_prev_reply)
+            from src.orwell_player_move import act_first_before_narrator
+            # ORW-1014: with ORWELL_ACT_FIRST on, act-first owns this message (ONE owner, one idempotency key); the parser runs only when it is off or its round failed.
+            if not await act_first_before_narrator(message, user, client_msg_id, sess=sess, previous_reply=_prev_reply):
+                await resolve_player_move_before_narrator(message, user, client_msg_id, previous_reply=_prev_reply)
 
     # Game build (feature 0032): under the game build the front-end's own memory / RAG /
     # skills / web are off, so the engine's moment prompt is the only injected framing — no
