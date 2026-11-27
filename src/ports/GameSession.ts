@@ -2244,7 +2244,8 @@ export interface WalkedInView {
   room: string;
   with: NamedRef[];
   /** The manner to voice only. The raw reaction value is engine-side: its distribution follows the hidden stakes of the talk, so it is never part of this view. */
-  reactions: Array<{ id: EntityId; name: string; line: string }>;
+  /** `left` (ORW-1077): this houseguest walked out of the room as their reaction. */
+  reactions: Array<{ id: EntityId; name: string; line: string; left?: true }>;
 }
 
 export type PlayerMoveView =
