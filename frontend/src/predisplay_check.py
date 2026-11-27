@@ -23,10 +23,11 @@ from typing import Any, Iterable, NamedTuple, Optional
 
 logger = logging.getLogger(__name__)
 
-_STATE_FIELDS = ("asleep", "daySchedule", "ceremony", "eviction", "whereabouts")  # the only parts of the cached board the checks read
+_STATE_FIELDS = ("asleep", "daySchedule", "ceremony", "eviction", "whereabouts", "timeOfDay", "earlyMorning")  # the only parts of the cached board the checks read
 FACT_ASLEEP = "asleep-speaks"
 FACT_CLOCK = "clock-time"
 FACT_SCHEDULE = "schedule-words"
+FACT_PART_OF_DAY = "part-of-day"
 FACT_VETO = "veto-decision"  # ORW-715
 FACT_EVICTEE = "evictee-named"  # ORW-715
 FACT_EVENT_ROOM = "event-room"  # ORW-740b
@@ -367,6 +368,7 @@ def correction_for(fact: str) -> str:
         FACT_ASLEEP: "A houseguest who has turned in for the night spoke or acted; they are asleep and do not speak or act.",
         FACT_CLOCK: "A clock time was stated; the house has no clocks, so name only the part of the day.",
         FACT_SCHEDULE: "The next event is on a later day; do not place it today or tonight.",
+        FACT_PART_OF_DAY: "The narration placed the present in the wrong part of the day; use only the part of the day the game gave.",
         FACT_VETO: "The veto decision is stated wrongly or before the game made it; state only the engine's decision, or none if it is not made yet.",
         FACT_EVICTEE: "A houseguest is named as evicted who the game did not evict; name only the engine's evictee.",
         FACT_EVENT_ROOM: "The house is called to, or gathered in, a room other than the one the game staged the event in; name only the engine's room.",
@@ -547,6 +549,28 @@ def predisplay_rewrite_enabled() -> bool:
     return (os.environ.get("ORWELL_PREDISPLAY_REWRITE", "1").strip().lower() not in ("0", "false", "off", "no")) and predisplay_check_enabled()
 
 
+# ORW-408 (part of day): the narrator is handed the part of the day every turn and still wrote "the night wears on" at 6pm and "this afternoon" at night. Only the NARRATION places the time (quoted talk
+# is a character's guess), and a sentence about the past or the future ("was", "earlier", "tomorrow") is not placing the present.
+_NIGHT_NOW_RE = re.compile(r"\b(?:the\s+night\s+wears\s+on|(?:the\s+)?(?:middle|dead)\s+of\s+the\s+night|(?:the\s+)?small\s+hours|(?:it\s+is|it's|this)\s+late\s+(?:at\s+)?night|late\s+into\s+the\s+night|past\s+midnight)\b", re.IGNORECASE)
+_DAY_NOW_RE = re.compile(r"\b(?:this\s+(?:morning|afternoon)|the\s+(?:morning|afternoon|midday)\s+(?:sun|light))\b", re.IGNORECASE)
+_NOT_NOW_RE = re.compile(r"\b(?:tomorrow|yesterday|last\s+night|earlier|was|were|had|will|won't|until|by\s+the\s+time)\b", re.IGNORECASE)
+
+
+def part_of_day_conflict(text: str, time_of_day: Any, early_morning: Any, *, in_quote: bool = False) -> Optional[str]:
+    """The sentence that places the present in the wrong part of the day, or None."""
+    band = str(time_of_day or "")
+    if not text or band not in ("morning", "afternoon", "evening", "night", "late-night"):
+        return None
+    daylight = band in ("morning", "afternoon", "evening") and early_morning is not True
+    rx = _NIGHT_NOW_RE if daylight else _DAY_NOW_RE if band in ("night", "late-night") else None
+    if rx is None:
+        return None
+    for sent in _sentences(_outside_quotes(text, in_quote)):
+        if rx.search(sent) and not _NOT_NOW_RE.search(sent):
+            return sent.strip()
+    return None
+
+
 def conflict_details(text: str, state: Any, *, zero_clocks: bool, in_quote: bool = False) -> "list[Conflict]":
     """Like `find_conflicts` but each hit carries the name/phrase the correction needs. Same detection; fail-open."""
     try:
@@ -559,6 +583,8 @@ def conflict_details(text: str, state: Any, *, zero_clocks: bool, in_quote: bool
             from src.zero_clocks import sentence_states_zero_clock_time_raw
             if sentence_states_zero_clock_time_raw(text):
                 out.append(Conflict(FACT_CLOCK, ""))
+        if part_of_day_conflict(text, state.get("timeOfDay"), state.get("earlyMorning"), in_quote=in_quote):
+            out.append(Conflict(FACT_PART_OF_DAY, str(state.get("timeOfDay") or "").replace("-", " ")))
         sched = state.get("daySchedule")
         if schedule_conflict(text, sched, in_quote=in_quote):
             out.append(Conflict(FACT_SCHEDULE, str((sched or {}).get("next") or "").replace("-", " ")))
@@ -663,6 +689,8 @@ def _correction_line(c: Conflict) -> str:
         return f"The veto decision is made and it is: {c.detail}. State only that."
     if c.fact == FACT_EVICTEE:
         return f"{c.detail} is the houseguest the game evicted; no one else was evicted."
+    if c.fact == FACT_PART_OF_DAY:
+        return f"It is {c.detail or 'the part of day the game gave'} now; place nothing in another part of the day."
     if c.fact == FACT_EVENT_ROOM:
         return f"The whole house is gathered in {c.detail} for this event; do not call or place it anywhere else."
     return correction_for(c.fact)
