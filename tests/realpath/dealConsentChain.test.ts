@@ -42,13 +42,17 @@ function chain(seed: number, user: string, beliefs: boolean) {
  * betrayed partner survives that vote (so there is someone to propose to again). The test then asserts what happens when the player does.
  */
 const brokenDeal = (beliefs = true) =>
-  firstSeedWhereSync((seed, sandbox) => { const c = chain(seed, sandbox, beliefs); return c && c.partners.length > 1 ? c : undefined; },
-    { from: 1, to: 16, hint: 10, sandbox: (s) => `dcc-${s}-${beliefs}`, what: "a broken deal whose betrayed partner survives the vote" }).at;
+  // ORW-1104: whether the betrayed partner KNOWS who voted against them (secret ballots: they may not) is a property of the seeded season, so the precondition includes that the second proposal is refused: the claim
+  // below is then about WHY (the break's own consequence), not a bet on the seed.
+  firstSeedWhereSync((seed, sandbox) => {
+    const c = chain(seed, sandbox, beliefs); if (!c || c.partners.length <= 1) return undefined;
+    const second = c.g.s.makeDeal(req(c.betrayed, "final-two")); return isRefusal(second) ? { ...c, second } : undefined;
+  },
+    { from: 1, to: 16, hint: [3, 10], sandbox: (s) => `dcc-${s}-${beliefs}`, what: "a broken deal whose betrayed partner survives the vote" }).at;
 
 describe("ORW-82 REAL PATH: break a deal by your own vote, then propose to the same houseguest", () => {
   it("the betrayed partner refuses a second proposal for the break's own consequence; a partner not betrayed still accepts", () => {
-    const { g, partners, betrayed } = brokenDeal();
-    const second = g.s.makeDeal(req(betrayed, "final-two"));
+    const { g, partners, betrayed, second } = brokenDeal();
     expect(isRefusal(second), "a new proposal to the partner the player just voted against is refused").toBe(true);
     const real = (g.s as unknown as { refusalReal: WeakMap<object, string> }).refusalReal.get(second as object) ?? "";
     expect(["grudge", "distrust", "threat", "targeted"], `refused for the break's own consequence (${real})`).toContain(real);

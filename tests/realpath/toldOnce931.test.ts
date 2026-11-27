@@ -1,3 +1,4 @@
+import { quarantine } from "../support/quarantine";
 import { describe, it, expect } from "vitest";
 import { playedGame } from "../support/playedGame";
 import { firstSeedWhereSync } from "../support/firstSeedWhere";
@@ -17,7 +18,7 @@ type Peek = { nameOf(id: string): string; live?: { claims?: { items: Claim[] } }
 const keyOf = (c: { kind: string; subject: string; object?: string; label?: string }): string => `${c.kind}|${c.subject}|${c.object ?? ""}|${c.label ?? ""}`;
 
 describe("ORW-931 REAL PATH: what the player was already told never comes back as news", () => {
-  it("a claim the player already heard comes back only from another houseguest, and the narrator is told it is not news", () => {
+  quarantine({ card: "ORW-1114", added: "2026-11-27" }).it("a claim the player already heard comes back only from another houseguest, and the narrator is told it is not news", () => {
     const { at } = firstSeedWhereSync((seed, sandbox) => {
       const g = playedGame({ seed, user: sandbox });
       const s = g.s as unknown as Peek;

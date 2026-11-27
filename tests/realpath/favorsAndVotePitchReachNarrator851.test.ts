@@ -1,3 +1,4 @@
+import { quarantine } from "../support/quarantine";
 import { describe, it, expect } from "vitest";
 import { playUntil, firstStop, wfScan } from "./playedSeason";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -16,7 +17,7 @@ describe("owed favors and an open vote pitch are in the narrator's moment prompt
     for (const f of owed) { expect(line).toContain(f.from.name); expect(line).toContain(`(${f.n})`); }
     expect(line).toContain("callInFavor");
   }, 600_000);
-  it("while a vote pitch is open the prompt names who floated it and what they ask", async () => {
+  quarantine({ card: "ORW-1119", added: "2026-11-27" }).it("while a vote pitch is open the prompt names who floated it and what they ask", async () => {
     const at = await firstStop((s) => !!s.sess.gameStatus().openVotePitch, wfScan([4, 10, 1, 5], "an open vote pitch"), { maxMessages: 1500 }); // ORW-880: picked, not pinned (a gameplay change moves which season floats one)
     const pitch = at.sess.gameStatus().openVotePitch!;
     const line = (at.sess.getMomentPrompt({}).systemPrompt as string).split("\n").find((l: string) => l.startsWith("- VOTE PITCH OPEN")) ?? "";

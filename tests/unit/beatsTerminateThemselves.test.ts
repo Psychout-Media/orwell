@@ -220,26 +220,32 @@ describe("T0-2 — the chained auto-advance still floats the 0123 NPC deal offer
     // PO ruling 2026-11-01: a floated offer is open state the narrator voices — it NEVER blocks the week,
     // so the chained step still draws its beat in the same single commit.
     // Seed 1 (re-selected 2026-11-19, ORW-711: the new floor plan moved the seeded trajectories; probed 1-7 and 9-12, 1/4/6/7 qualify). Before that, seed 9 (re-selected 2026-11-16, 0163 perceived bonds moved the seeded trajectories; probed 2-12, 9/10/12 qualify). Before that, seed 1 (re-selected 2026-11-12, ORW-19 comp-win threat 0.3 -> 0.45 moved the seeded trajectories; before that seed 2 re-selected 2026-11-04: the one-turn eviction reveal shortened the trajectory; 2,10,24,25 qualify under the ORW-116 clock-from-entry flow): an offer floats on a chained call.
-    const { session } = startedGame(1);
-    session.setNpcDealOffersEnabled(true);
-
-    let view: AdvanceView = session.advanceGame();
+    // ORW-1104: a BOUNDED SCAN of seeds (the first whose chained path floats an offer), not one pinned seed: whether a deal is due at a post-resolution lull is a function of the seeded trajectory, which every content
+    // change that moves the draw reshuffles (seed 1 was re-selected three times already).
+    let session!: ReturnType<typeof startedGame>["session"];
     let caught: AdvanceView | null = null;
-    let beforeSeq = -1;
-    for (let i = 0; i < 1500 && !view.finished && !caught; i++) {
-      if (view.pending && AUTO_ADVANCE_KINDS.has(view.pending.kind)) {
-        const hadOffer = !!session.getGameState().openDealOffer;
-        beforeSeq = session.gameStatus().beatSeq;
-        const result = resolveLegally(session, view.pending);
-        if (!hadOffer && session.getGameState().openDealOffer) { caught = result; break; }
-        view = result;
-        continue;
+    let beforeSeq = -1; const tried: number[] = [];
+    for (const seed of [1, 4, 6, 7, 2, 3, 5, 9, 10, 11, 12, 13, 14]) {
+      if (caught) break;
+      tried.push(seed);
+      session = startedGame(seed).session;
+      session.setNpcDealOffersEnabled(true);
+      let view: AdvanceView = session.advanceGame();
+      for (let i = 0; i < 1500 && !view.finished && !caught; i++) {
+        if (view.pending && AUTO_ADVANCE_KINDS.has(view.pending.kind)) {
+          const hadOffer = !!session.getGameState().openDealOffer;
+          beforeSeq = session.gameStatus().beatSeq;
+          const result = resolveLegally(session, view.pending);
+          if (!hadOffer && session.getGameState().openDealOffer) { caught = result; break; }
+          view = result;
+          continue;
+        }
+        if (view.pending) resolveLegally(session, view.pending);
+        view = session.advanceGame();
       }
-      if (view.pending) resolveLegally(session, view.pending);
-      view = session.advanceGame();
     }
 
-    expect(caught, "seed 1 should float a deal offer on a chained submitDecision call").not.toBeNull();
+    expect(caught, `a deal offer should float on a chained submitDecision call on one of the seeds tried [${tried}]`).not.toBeNull();
     const offer = session.getGameState().openDealOffer!;
     expect(offer.from.id).not.toBe("player");
     expect(["safety", "final-two"]).toContain(offer.kind);

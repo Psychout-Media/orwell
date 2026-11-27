@@ -61,10 +61,14 @@ describe("ORW-877 REAL PATH: the player hears a told claim only if the narration
   }, 600_000);
 
   it("a session that never echoes (headless) tells at the prompt build, as before", () => {
-    const g = playedGame({ seed: 1, user: "t877-1" });
-    const s = g.s as unknown as Peek;
-    let hit: { id: string } | undefined;
-    g.playUntil(() => !!(hit = (s.presentKnowledgeForPrompt() ?? []).find((x) => x.tellsYou)), 900, "a tell");
-    expect(toPlayer(s, hit!.id).length).toBeGreaterThan(0);
+    // ORW-1104: scanned (bounded), not pinned to seed 1: whether a tell reaches the prompt within 900 turns is a property of the seeded season.
+    const found = firstSeedWhereSync((seed, sandbox) => {
+      const g = playedGame({ seed, user: sandbox });
+      const s = g.s as unknown as Peek;
+      let hit: { id: string } | undefined;
+      try { g.playUntil(() => !!(hit = (s.presentKnowledgeForPrompt() ?? []).find((x) => x.tellsYou)), 900, "a tell"); } catch (e) { if (/before a tell|never reached|not reached/i.test(String((e as Error).message))) return undefined; throw e; }
+      return { s, hit: hit! };
+    }, { from: 1, to: 12, hint: [3, 1], sandbox: (x) => `t877-${x}`, what: "a tell handed to the narrator at the prompt build in a headless session" });
+    expect(toPlayer(found.at.s, found.at.hit.id).length).toBeGreaterThan(0);
   }, 600_000);
 });
