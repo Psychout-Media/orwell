@@ -31,7 +31,7 @@ describe("flaky-test rule wiring", () => {
   it("both pytest lanes rerun a failed test once", () => {
     // ORW-218: the fe-unit shards also collect coverage (--cov --cov-report=), between -n 4 and --reruns 1; the rerun-once behaviour is the point of this pin.
     expect(ci).toContain('python3 -m pytest tests/ -m "not browser" -n 4 --cov --cov-report= --reruns 1');
-    expect(ci).toContain("python3 -m pytest tests/ -m browser -n 2 --dist loadgroup --reruns 1");
+    expect(ci).toContain("python3 -m pytest tests/ -m browser -n 3 --dist loadgroup --reruns 1");
   });
   it("the flake reporter is on in GitHub Actions, and every mirror gate counts a late pass", () => {
     expect(read("vitest.config.ts")).toContain('reporters: process.env.GITHUB_ACTIONS === "true" ? ["default", "./tests/support/flakyReporter.ts"] : ["default"]');

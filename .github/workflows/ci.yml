@@ -614,7 +614,7 @@ jobs:
     # The root cause (21 browser files missing from _ci_durations.json) is fixed too, and test_ci_shard.py now fails on a missing entry; this is the headroom.
     timeout-minutes: 20
     # ORW-193: parallel shards by test file (ORWELL_CI_SHARD); the serial lane was 13 of ~15 min on every FE PR. Since ORW-414 a shard runs TWO workers
-    # (`-n 2 --dist loadgroup`: free port and data dir per stack, one stack boot per file) with the same `--reruns 1`. The A41 guard still demands 0 skips in every shard.
+    # (`-n 3 --dist loadgroup`: free port and data dir per stack, one stack boot per file) with the same `--reruns 1`. The A41 guard still demands 0 skips in every shard.
     # ORW-229 re-shard: five legs, files balanced by MEASURED seconds (frontend/tests/_ci_durations.json). Simulated on the 49 browser files:
     # 3 count-balanced legs were 6.8/3.1/3.4 min of tests (the real 3/3 run: 8.4/4.6/6.0 min jobs); 5 duration-balanced legs are 3.3/2.5/2.5/
     # 2.5/2.5, and the 3.3 is one file alone (test_a58_golden_render_live_vs_reload, 200 s), so a sixth leg would add a setup and save nothing.
@@ -641,16 +641,16 @@ jobs:
       - run: npm ci
       - name: build the engine bundle (dist/main.js) for the real-stack browser tests
         run: npm run build
-      - name: pytest — headless-browser suite, 2 workers per leg (whole files) + retry-once
+      - name: pytest — headless-browser suite, 3 workers per leg (whole files) + retry-once
         env:
           ORWELL_SKIP_GUARD: "1"   # A41: in this lane NO browser test may skip (a missing chromium must be red, not green)
           ORWELL_SKIP_LANE: browser
           ORWELL_CI_SHARD: ${{ matrix.shard }}/10
         # --durations=0 (was 8): every test's time is in the log, so the shard table can be refreshed from any green run (_ci_refresh_durations.py)
-        # ORW-414 (finished by the ORW-437 review round): `-n 2 --dist loadgroup`. ORW-414 (#2714) made every browser stack take a kernel-assigned free port and its own data dir, and
+        # ORW-414 (finished by the ORW-437 review round; raised from 2 to 3 workers on the 4-core runner): `-n 3 --dist loadgroup`. ORW-414 (#2714) made every browser stack take a kernel-assigned free port and its own data dir, and
         # said the lane "needs -n 2 in ci.yml"; ORW-413 never added it, so the lane stayed serial. `loadgroup` plus the xdist_group mark that frontend/tests/conftest.py puts on every browser file keeps a file's tests on ONE worker, so a module-scoped stack boots once
         # per file, not once per worker. The runner has 4 cores: two Chromium + two stacks.
-        run: cd frontend && python3 -m pytest tests/ -m browser -n 2 --dist loadgroup --reruns 1 -q -rsR --rerun-show-tracebacks --durations=0
+        run: cd frontend && python3 -m pytest tests/ -m browser -n 3 --dist loadgroup --reruns 1 -q -rsR --rerun-show-tracebacks --durations=0
 
   fe-browser:
     needs: changes
