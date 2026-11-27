@@ -22,7 +22,7 @@ from typing import Awaitable, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
-TEXT_MAX_CHARS = 240      # the engine's cap; longer ones are DROPPED, never truncated
+TEXT_MAX_CHARS = 240      # the engine's cap; a longer one keeps its first sentence when that fits (ORW-1065), else it is DROPPED, never cut mid-sentence
 KIND_MAX_CHARS = 40
 ABOUT_MAX_CHARS = 80
 NOTE_MAX_CHARS = 160
@@ -257,6 +257,13 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
         if not (isinstance(text, str) and isinstance(speaker, str) and isinstance(to, list) and isinstance(kind, str)):
             continue
         t = re.sub(r"\s+", " ", text).strip().strip('"').strip()
+        if len(t) > TEXT_MAX_CHARS:
+            # ORW-1065: an entry longer than the engine's cap keeps its FIRST sentence when that fits (their own words, whole); a cut mid-sentence
+            # could change what was promised, so with no sentence that fits it is still dropped (counted below).
+            first = re.match(r"^(.+?[.!?])(?:\s|$)", t)
+            if first and len(first.group(1)) <= TEXT_MAX_CHARS:
+                t = first.group(1)
+                _count("entry-long-first-sentence-kept")
         if not t or len(t) > TEXT_MAX_CHARS or (speaker if isinstance(speaker, str) else "", t.lower()) in seen:
             _count("entry-empty-long-or-duplicate")
             continue
@@ -381,6 +388,11 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
         away = [p for p in (elsewhere or []) if isinstance(p, dict) and isinstance(p.get("id"), str) and p["id"]]
         due_ids = {o["id"] for o in due}
         opens = [o for o in items if o["id"] not in due_ids]
+        # ORW-1065: the model is shown at most 3 DUE and 5 OPEN entries; what the caps leave out is counted, never silent.
+        if len(due) > 3:
+            _count("due-over-cap", len(due) - 3)
+        if resolve is not None and len(opens) > 5:
+            _count("open-over-cap", len(opens) - 5)
         roster = "\n".join(f"- {p['id']}: {str(p.get('name') or 'someone')[:60]}" for p in people) or "- (nobody is in the player's room)"
         user = f"PRESENT:\n{roster}\n(the player is: player)\n"
         if away:
