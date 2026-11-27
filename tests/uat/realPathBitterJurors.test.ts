@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { PLAYER } from "../../src/domain/ids";
-import { JURY_GRUDGE } from "../../src/engine/juryConstants";
+import { JURY_GRUDGE_PERSONALITY } from "../../src/engine/juryConstants";
 import type { DecisionWhy } from "../../src/engine/decisionWhy";
 import { playedGame } from "../support/playedGame";
 import { firstSeedWhereSync } from "../support/firstSeedWhere";
@@ -32,8 +32,9 @@ describe("0182 REAL PATH: a juror's grudge leans their finale vote away from tha
       g.playUntil(() => (g.s.getGameState() as { phase?: string }).phase === "finale", 20_000, "the finale");
       const save = g.s.snapshot();
       const r = run(seed, save, true);
-      return r.why.some((w) => r.finalists.some((f) => r.grudge(w.by, f) < 0)) ? { save, on: r } : undefined;
-    }, { from: 1, to: 12, hint: 11, sandbox: (s) => (s === 11 ? "bitter-real" : `bitter-real-${s}`), what: "a finale jury holding a grudge against a finalist" });
+      // the precondition is what the claims read: a juror holding a grudge against a finalist whose vote carries it as a term (a personality can scale a small grudge to nothing)
+      return r.why.some((w) => w.options.some((o) => r.grudge(w.by, o.option) < 0 && o.terms.some(([n, v]) => n === "grudge" && v < 0))) ? { save, on: r } : undefined;
+    }, { from: 1, to: 12, hint: [1, 11], sandbox: (s) => (s === 11 ? "bitter-real" : `bitter-real-${s}`), what: "a finale jury holding a grudge against a finalist" });
     on = found.at.on; off = run(found.seed, found.at.save, false);
   }, 900_000);
 
@@ -51,7 +52,7 @@ describe("0182 REAL PATH: a juror's grudge leans their finale vote away from tha
     for (const w of on.why) for (const o of w.options) {
       const g = term(o, "grudge");
       expect(g).toBeLessThanOrEqual(0);
-      expect(g).toBeGreaterThanOrEqual(-JURY_GRUDGE.max);
+      expect(g).toBeGreaterThanOrEqual(-JURY_GRUDGE_PERSONALITY.ceiling); // ORW-943: a juror's personality scales the grudge, held to the ceiling (under the manner term)
       if (on.grudge(w.by, o.option) === 0) expect(g).toBe(0);
       if (g < 0) leaned++;
     }
@@ -70,8 +71,42 @@ describe("0182 REAL PATH: a juror's grudge leans their finale vote away from tha
       }
     }
   });
+});
 
-  // Blocked, not faked: in the played seeds measured (3 and 11) the natural grudge terms (at most about 0.14) never cross a juror's margin, so the finale votes are the
-  // same with grudges on and off. The vote-count claim is proven only by the unit test that sets the grudges by hand (tests/unit/grudgesBitterJurors.test.ts).
-  it.todo("real path: a grudge flips finale votes against that finalist across played seasons, blocked by natural grudges too small to cross a juror's margin in a single played season (needs a multi-season measurement, ORW-569)");
+/**
+ * ORW-843: a natural grudge FLIPS finale votes. The calibration report (tests/calibration/grudgeVoteFlip.test.ts) measured a few NPC juror votes in a hundred
+ * changed (on main at 2026-11-24: seeds 2, 3 and 14 of 1-18, four votes, no winner changed; the earlier main also changed seed 14's winner). Same method: a season played to the finale, saved, and the save played under the SAME
+ * sandbox name (each copy in its own registry, so every copy draws the same numbers) with grudges on (as shipped), off, and on again (the control).
+ * PRECONDITION (the scan, hint 10, sandboxes gf-<seed>): some NPC juror votes differently with grudges on and off. CLAIMS: the control copy plays the same finale as the on copy,
+ * and every juror whose vote changed moved AWAY from a finalist they hold a grudge against.
+ */
+type Fin = { votes: Record<string, string>; finalists: string[]; winner?: string; grudge: (j: string, f: string) => number };
+describe("ORW-843 REAL PATH: a natural grudge changes finale votes", () => {
+  let on: Fin, off: Fin, again: Fin;
+  beforeAll(() => {
+    const copy = (seed: number, sandbox: string, save: unknown, grudges: boolean): Fin => {
+      // not as shipped (grudges=false): the off arm of the on/off comparison
+      const h = playedGame({ seed, user: sandbox, from: save, before: (s) => s.setGrudgesEnabled(grudges) });
+      h.playToCrown();
+      const L = (h.s as unknown as { live: { finale?: { votes?: Record<string, string>; finalists: string[] }; winner?: string } }).live;
+      return { votes: L.finale?.votes ?? {}, finalists: L.finale?.finalists ?? [], ...(L.winner ? { winner: L.winner } : {}), grudge: (j, f) => h.s.juryGrudgeFor(j, f) };
+    };
+    const found = firstSeedWhereSync((seed, sandbox) => {
+      const g = playedGame({ seed, user: sandbox });
+      g.playUntil(() => (g.s.getGameState() as { phase?: string }).phase === "finale", 30_000, "the finale");
+      const save = g.s.snapshot();
+      const a = copy(seed, sandbox, save, true), b = copy(seed, sandbox, save, false);
+      return Object.keys(a.votes).some((j) => j !== PLAYER && a.votes[j] !== b.votes[j]) ? { save, a, b } : undefined;
+    }, { from: 1, to: 18, hint: [3, 10, 1, 14], sandbox: (s) => `gf-${s}`, what: "a finale where some juror votes differently with grudges on and off" });
+    on = found.at.a; off = found.at.b; again = copy(found.seed, found.sandbox, found.at.save, true);
+  }, 1_800_000);
+
+  it("the control copy plays the same finale; every changed vote moves away from a finalist the juror holds a grudge against", () => {
+    expect(again.votes, "two on copies of one save play the same finale").toEqual(on.votes);
+    expect(again.winner).toBe(on.winner);
+    const changed = Object.keys(on.votes).filter((j) => j !== PLAYER && on.votes[j] !== off.votes[j]);
+    expect(changed.length, "a grudge changed some juror's vote").toBeGreaterThan(0);
+    for (const j of changed) expect(on.grudge(j, off.votes[j]!), "the juror leaves the finalist they hold a grudge against").toBeLessThan(0);
+    expect(on.finalists).toEqual(off.finalists);
+  });
 });

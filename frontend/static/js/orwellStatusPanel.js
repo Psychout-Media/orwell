@@ -130,7 +130,10 @@ import { onNarrowChange } from './platform.js';
     if (idOf(status.hoh) === me) return "You break ties";
     const noms = Array.isArray(status.nominees) ? status.nominees.map(idOf) : [];
     if (noms.includes(me)) return "The House votes on you";
-    return "You vote tonight";
+    // ORW-728 (W1-11): the voter cue lasts only while the player's own vote is open. The phase stays "eviction" through the staged reveal after they voted, and the cue kept reading "You vote tonight". The ballot
+    // is open exactly while the pending decision is the eviction vote; with nothing pending (voted, or the card is not up yet) there is nothing for the player to do, so no cue.
+    const pk = status.pending && typeof status.pending === "object" ? status.pending.kind : "";
+    return pk === "eviction-vote" ? "You vote tonight" : "";
   }
 
   // M2-3 (audit B2): pre-HOH board state — before the very first HOH exists (week 1, no HOH crowned
@@ -456,18 +459,12 @@ import { onNarrowChange } from './platform.js';
   };
   const phaseLabel = (p) => PHASE_LABELS[p] || String(p || "").replace(/-/g, " ");
 
-  // ORW-740a (came back from ORW-425 / ORW-705 / ORW-713): the panel's phase row names the event that belongs to TODAY, the SAME rule as the bubble stamp
-  // (`_format_game_moment`, routes/chat_helpers.py): ORW-258 (every event gets its own day: while the next event waits behind its night, `daySchedule.todaysEvent` names today's) and
-  // ORW-705 (from Day 2 on, a `premiere` phase whose next event is the HOH competition reads HOH). The row used the engine's raw `phase` (the NEXT event), so after every ceremony it
-  // read one event ahead of the reply stamp until the day rolled. Pure; reads only the public status + schedule.
+  // ORW-775: the phase row names the event the ENGINE says the header names (`daySchedule.headerPhase`, the ORW-258 / ORW-705 rules applied once, in the engine), the same value the reply stamp reads
+  // (`_format_game_moment`, routes/chat_helpers.py). No schedule (the clock off) => the plain phase.
+  let _heldHeader = null; // ORW-775: the last header the two reads agreed on
   function headerPhase(st) {
-    const gs = (st && st._state) || {};
-    const ds = gs.daySchedule;
-    let p = st && st.phase;
-    if (ds && typeof ds.todaysEvent === "string" && ds.todaysEvent) p = ds.todaysEvent;
-    const day = Number.isInteger(st && st.dayNumber) ? st.dayNumber : gs.dayNumber;
-    if (p === "premiere" && Number.isInteger(day) && day >= 2 && ds && ds.next === "hoh-competition") p = "hoh-competition";
-    return p;
+    const ds = st && st._state && st._state.daySchedule;
+    return (ds && typeof ds.headerPhase === "string" && ds.headerPhase) || (st && st.phase);
   }
 
   // ADR 0006 — the in-game clock. A simple time-of-day graphic (no 12/24h), morning → late night.
@@ -981,7 +978,10 @@ import { onNarrowChange } from './platform.js';
         _catchupTimer = setTimeout(() => refresh(Math.max(stBeat, stateBeat)), 1000);
         return;
       }
-      st._state = Object.assign({}, st._state, { daySchedule: undefined });
+      // ORW-775: hold the last header both reads agreed on, rather than fall back to the raw phase (which names the NEXT event); the schedule's other lines stay hidden.
+      st._state = Object.assign({}, st._state, { daySchedule: _heldHeader ? { headerPhase: _heldHeader } : undefined });
+    } else {
+      _heldHeader = headerPhase(st) || null;
     }
     render(st);
     _catchupTries = 0;

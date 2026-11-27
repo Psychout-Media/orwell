@@ -27,9 +27,9 @@ function weekTwo(seed: number, user: string, consent = true) {
   return g;
 }
 /** The first seed from 5 whose week-2 house satisfies `has` (read with the asks the test itself makes; each asks a fresh game). */
-function houseWhere<T>(prefix: string, has: (g: ReturnType<typeof weekTwo>) => T | undefined, what: string, consent = true): { g: ReturnType<typeof weekTwo>; seed: number; got: T } {
+function houseWhere<T>(prefix: string, has: (g: ReturnType<typeof weekTwo>) => T | undefined, what: string, consent = true, hint: number[] = [1, 5]): { g: ReturnType<typeof weekTwo>; seed: number; got: T } {
   const f = firstSeedWhereSync((seed, sandbox) => { const g = weekTwo(seed, sandbox, consent); const got = has(g); return got === undefined ? undefined : { g, got }; },
-    { from: 1, to: 12, hint: 5, sandbox: (s) => `${prefix}-${s}`, what });
+    { from: 1, to: 12, hint, sandbox: (s) => `${prefix}-${s}`, what });
   return { g: f.at.g, seed: f.seed, got: f.at.got };
 }
 type Refused = { npc: string; real: string; r: DealRefusal; before: string; after: string; dealsBefore: number; dealsAfter: number; replay: unknown; afterReplay: string };
@@ -37,8 +37,11 @@ type Refused = { npc: string; real: string; r: DealRefusal; before: string; afte
 function askEveryone(g: ReturnType<typeof weekTwo>): { yes: string[]; kinds: string[]; no: Refused[] } {
   const yes: string[] = [], kinds: string[] = [], no: Refused[] = [];
   for (const npc of g.s.livingIds().filter((id) => id !== PLAYER)) {
-    const before = snapNoWhy(g.s);
+    // ORW-1095: read the state FIRST. `getGameState` (like every read of the player's tracked beliefs, `trackedNow`) lazily drops tracked sightings that have decayed past their
+    // horizon or been disproven (documented: "Mutates the persisted map lazily"), so the first read after a tick changes the snapshot with no deal involved. The refusal itself
+    // writes nothing (seeds 1, 2 and 6 diffed: the only change across the whole ask was that read). Settle the lazy prune, then snapshot.
     const dealsBefore = g.s.getGameState().deals?.length ?? 0;
+    const before = snapNoWhy(g.s);
     const k = { ...req(npc), idempotencyKey: `ask-${npc}` };
     const r = g.s.makeDeal(k);
     if (!isRefusal(r)) { yes.push(npc); kinds.push((r as DealView).kind); continue; }
@@ -77,6 +80,15 @@ describe("NPC deal consent REAL PATH: the engine decides from each houseguest's 
     expect(g.s.makeDeal(req(PLAYER))).toBeNull();
   }, 300_000);
 
+  it("ORW-1095 regression seeds 1, 2 and 6: a refusal folds nothing even where a tracked sighting is about to decay (the read, not the refusal, prunes it)", () => {
+    for (const seed of [1, 2, 6]) {
+      const g = weekTwo(seed, `dcl-on-${seed}`);
+      const { no } = askEveryone(g);
+      expect(no.length, `seed ${seed}: someone refuses`).toBeGreaterThan(0);
+      for (const n of no) { expect(n.after, `seed ${seed}: a refusal folds nothing`).toBe(n.before); expect(n.afterReplay).toBe(n.before); }
+    }
+  }, 300_000);
+
   it("an expensive ask (the houseguest throws the comp) is refused for its cost; the player's own offer to throw is not", () => {
     // the precondition: someone in the week-2 house turns the ask down for its cost alone
     const { g, got: costly } = houseWhere("dcl-cost", (g) => {
@@ -90,7 +102,7 @@ describe("NPC deal consent REAL PATH: the engine decides from each houseguest's 
 
   it("flag off: at the same seed and moment, a houseguest who refused now agrees", () => {
     // the precondition: a houseguest who refuses with the flag on
-    const { seed, got: refuser } = houseWhere("dcl-a", (on) => on.s.livingIds().filter((id) => id !== PLAYER).find((npc) => { const r = on.s.makeDeal(req(npc)); return isRefusal(r) && !r.illegal; }), "a houseguest who refuses");
+    const { seed, got: refuser } = houseWhere("dcl-a", (on) => on.s.livingIds().filter((id) => id !== PLAYER).find((npc) => { const r = on.s.makeDeal(req(npc)); return isRefusal(r) && !r.illegal; }), "a houseguest who refuses", true, [5]); // seed 5: its control arm (consent off) agrees there
     // not as shipped: the control arm, the same seed with consent off, proves consent is what refused
     const off = weekTwo(seed, `dcl-b-${seed}`, false);
     const r = off.s.makeDeal(req(refuser));

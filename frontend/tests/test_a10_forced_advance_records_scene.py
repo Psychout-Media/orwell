@@ -48,7 +48,7 @@ def _reset_belt_state():
     yield
 
 
-def _drive(monkeypatch, *, loop_stalled, user_msg="At dinner I call out Contestant Alpha in front of everyone.",
+def _drive(monkeypatch, *, loop_stalled, user_msg="At dinner I sit down and pass the salt to Contestant Alpha.",
            scene=SCENE, deal_struck=True):
     from src import agent_loop as al
     import src.orwell_engine as oe

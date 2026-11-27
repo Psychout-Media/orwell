@@ -382,11 +382,13 @@ def test_every_agent_loop_belt_notes_its_fire_as_a_real_call():
         '"forced-tool-choice:"',          # the ONE gated note site (live beat-force + casting force)
         '"auto-record-scene"',
         '"auto-record-deal"',
+        '"auto-record-deal-renewal"',     # ORW-987: a spoken renewal the model never recorded
         '"auto-answer-deal-offer"',
         '"auto-confide"',
         '"auto-expose-secret"',
         '"auto-trade-secret"',
         '"auto-alliance"',
+        '"auto-promise"',                 # ORW-750 (2): a voiced promise the model never recorded
         '"auto-move-player"',
         '"auto-move-npc"',
         '"premiere-meet-belt"',
@@ -419,11 +421,13 @@ def test_success_gated_belts_fire_only_after_the_helper_applied():
         ("_auto_move_player", '"auto-move-player"'),
         ("_auto_move_npc", '"auto-move-npc"'),
         ("_auto_record_deal", '"auto-record-deal"'),
+        ("_auto_record_deal", '"auto-record-deal-renewal"'),   # ORW-987: gated on the same helper's applied renewals
         ("_auto_answer_deal_offer", '"auto-answer-deal-offer"'),
         ("_auto_confide", '"auto-confide"'),
         ("_auto_expose_secret", '"auto-expose-secret"'),
         ("_auto_trade_secret", '"auto-trade-secret"'),
         ("_auto_alliance", '"auto-alliance"'),
+        ("_auto_promise", '"auto-promise"'),
         ("_auto_record_scene", '"auto-record-scene"'),
     ):
         note_at = src.index("_note_belt(owner, " + token)

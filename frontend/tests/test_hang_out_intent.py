@@ -50,19 +50,19 @@ def test_steer_voices_each_engine_stop_without_inventing():
         assert "engine-decided" in steer and f"{res['minutes']} in-game minutes" in steer
         assert "Invent no ceremony" in steer
     assert "Diary Room" in ch._hang_out_steer(cases["pulled"])
-    assert "the Role comes over" in ch._hang_out_steer(cases["npc-approach"])
+    assert "the Role wants a word" in ch._hang_out_steer(cases["npc-approach"])
     assert "A and B" in ch._hang_out_steer(cases["observed"])
     assert "bedtime is the player's own call" in ch._hang_out_steer(cases["bedtime"])
 
 
 def test_steer_carries_the_engine_stop_line_for_every_stop_kind():
-    """ORW-22: the engine's player-facing line rides the steer so the reply must put the stop on screen; absent line => unchanged steer."""
+    """ORW-22: an engine stop line makes the steer require the stop on screen; absent line => unchanged steer. ORW-917: the line itself is never quoted (it was copied verbatim)."""
     for reason in ("event-due", "pulled", "npc-approach", "observed", "bedtime", "max-beats"):
         res = {"stopReason": reason, "minutes": 40, "detail": {"npc": "Role", "by": "production", "kind": "someone-moved", "who": ["A"]}}
         assert "shows the player this" not in ch._hang_out_steer(res)
         res["stopLine"] = f"LINE for {reason}."
         steer = ch._hang_out_steer(res)
-        assert f'"LINE for {reason}."' in steer and "Invent no ceremony" in steer
+        assert "shows the player this stop" in steer and f"LINE for {reason}." not in steer and "Invent no ceremony" in steer  # ORW-917: never quoted
 
 
 def _run(coro):
@@ -73,17 +73,17 @@ def test_maybe_hang_out_arms_steer_only_on_ok(monkeypatch):
     from src import orwell_engine
     calls = []
 
-    async def fake(expected_beat_seq=None, max_beats=None, user=None):
+    async def fake(expected_beat_seq=None, max_beats=None, user=None, **_kw):
         calls.append(expected_beat_seq)
         return {"ok": True, "stopReason": "npc-approach", "minutes": 50, "detail": {"npc": "Role"}, "beatSeq": 9}
 
     monkeypatch.setattr(orwell_engine, "hang_out", fake)
     ch._HANGOUT_STEER.clear()
     assert _run(ch.maybe_hang_out("u", {"started": True}, "let's chill until something happens")) is True
-    assert "Role comes over" in ch._HANGOUT_STEER[ch._runway_key("u")]
+    assert "Role wants a word" in ch._HANGOUT_STEER[ch._runway_key("u")]
     ch._HANGOUT_STEER.clear()
 
-    async def refused(expected_beat_seq=None, max_beats=None, user=None):
+    async def refused(expected_beat_seq=None, max_beats=None, user=None, **_kw):
         return {"ok": False, "reason": "disabled", "beats": 0, "minutes": 0, "beatSeq": 3}
 
     monkeypatch.setattr(orwell_engine, "hang_out", refused)

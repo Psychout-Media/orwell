@@ -3,7 +3,8 @@ import { PLAYER } from "../../src/domain/ids";
 import { isPrivateRoom, type Room } from "../../src/domain/house";
 import { talkAloneRoom } from "../../src/engine/talkAlone";
 import type { AskToTalkAloneResult } from "../../src/ports/GameSession";
-import { playUntil, type Stop, firstStop, wfScan } from "../realpath/playedSeason";
+import { playUntil, wfScan, type Stop } from "../realpath/playedSeason";
+import { NotReached, firstSeedWhere, firstSeedsWhere } from "../support/firstSeedWhere";
 
 /**
  * ORW-727b. The player asks a houseguest for a private word, or to come over - in a PLAYED season (ORW-812: before, every test staged the house by hand: the premiere skipped, the
@@ -28,11 +29,12 @@ const ask = async (s: Stop, args: Record<string, unknown>) => (await s.call("ask
 type Yes = { at: Stop; npc: string; r: AskToTalkAloneResult; witnesses: string[]; from: string; expectedRoom: Room | null; key?: string };
 type No = { bond: number; asleep: boolean; keys: string[]; moved: boolean; held: boolean; again: string | undefined };
 /**
+ * ORW-894: the seed is PICKED, not pinned: `untilYes(hint, ...)` scans seeds 1..12 (the hint first) for a played season where someone says yes, then asserts on what happened there. `playOne` is the single-seed drive.
  * Play `seed`; at every free moment the player asks the houseguests `who` picks (by default those in their room), one by one, for a private word (`args`), until one says yes.
  * Every no is recorded with what it changed (nothing, it must be) and the answer to the same ask again that hour. The room the engine's own picker would choose for the live house is
  * read just before each ask. The player asking around is the player's own act through the channel; nothing is set.
  */
-async function untilYes(seed: number, args: Record<string, unknown> = {}, opts: { who?: (s: Stop) => string[]; when?: (s: Stop) => boolean; minCompany?: number; keyed?: boolean } = {}): Promise<{ yes: Yes; nos: No[] }> {
+async function playOne(seed: number, args: Record<string, unknown> = {}, opts: { who?: (s: Stop) => string[]; when?: (s: Stop) => boolean; minCompany?: number; keyed?: boolean } = {}): Promise<{ yes: Yes; nos: No[] }> {
   const nos: No[] = [];
   let yes: Yes | undefined;
   await playUntil(seed, async (s) => {
@@ -53,9 +55,14 @@ async function untilYes(seed: number, args: Record<string, unknown> = {}, opts: 
     }
     return false;
   }, { user: `wf-${seed}`, maxMessages: 1500 });
-  expect(yes, `seed ${seed}: someone said yes in play`).toBeDefined();
-  return { yes: yes!, nos };
+  if (!yes) throw new NotReached(`seed ${seed}: nobody said yes in play`);
+  return { yes, nos };
 }
+type UntilOpts = Parameters<typeof playOne>[2];
+const untilYes = async (hint: number, args: Record<string, unknown> = {}, opts: UntilOpts = {}): Promise<{ yes: Yes; nos: No[]; seed: number }> => {
+  const f = await firstSeedWhere((seed) => playOne(seed, args, opts), wfScan(hint, "a free moment where a houseguest says yes to the ask"));
+  return { ...f.at, seed: f.seed };
+};
 
 describe("ORW-727b: asking for a private word, in a played season", () => {
   it("an accepting houseguest and the player end up alone in a private room; the scene and a deal there are witnessed by exactly the two; the others saw them leave together", async () => {
@@ -80,8 +87,8 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
   }, 120_000);
 
   it("the room is the engine's own choice for the live house: private, empty, never the diary room or the landing; a named public room (the kitchen) falls back to it", async () => {
-    for (const seed of [3, 11]) {
-      const { yes } = await untilYes(seed, { room: "kitchen" }, { when: (s) => roomOf(s, PLAYER) !== "kitchen" });
+    const when = (s: Stop) => roomOf(s, PLAYER) !== "kitchen";
+    for (const { seed, at: { yes } } of await firstSeedsWhere(2, (s) => playOne(s, { room: "kitchen" }, { when }), wfScan([3, 11], "a free moment where a houseguest says yes to a named-room ask"))) {
       expect(yes.r.room, `seed ${seed}`).toBe(yes.expectedRoom);
       expect(isPrivateRoom(yes.r.room as Room)).toBe(true);
       expect(["diary-room", "landing", "hoh-room"]).not.toContain(yes.r.room);
@@ -90,8 +97,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
 
   it("a houseguest who says no: nobody moves, no hold, the answer is typed with nothing else, and the same hour gives the same answer", async () => {
     const all: No[] = []; const yesBonds: number[] = [];
-    for (const seed of [3, 5, 11]) {
-      const { yes, nos } = await untilYes(seed);
+    for (const { at: { yes, nos } } of await firstSeedsWhere(3, (s) => playOne(s, {}, {}), wfScan([3, 5, 11], "a free moment where a houseguest says yes to the ask"))) {
       all.push(...nos);
       yesBonds.push(yes.at.sess.rel.edge(yes.npc, PLAYER).trust + yes.at.sess.rel.edge(yes.npc, PLAYER).affinity);
     }
@@ -181,10 +187,12 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
   }, 120_000);
 });
 
+/** ORW-920: a houseguest's own ask is standing and shown to the player. The seed is picked (hint 3), not pinned: a gameplay change moves which season gets there. */
+const askStanding = () => firstSeedWhere((seed) => playUntil(seed, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending && !!(s.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk, { user: `wf-${seed}`, maxMessages: 3000 }), { ...wfScan([1, 3], "a houseguest's own ask standing and shown to the player"), to: 30, wide: { maxSeasons: 30, budgetMs: 3_000_000, reason: "ORW-1007: the faster premiere bed rush moved every season, and a houseguest's unprompted ask standing is a rare moment, so seeds 1..12 may not reach it" } });
+
 describe("ORW-727b: a houseguest asks the player for a private word (parity), in a played season", () => {
   it("their own ask stands as an open, non-blocking offer the player sees; the player's yes through the same lever is accepted; it then clears", async () => {
-    const at = await firstStop((s) => !!(s.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk && !s.sess.getGameState().pending && !s.sess.houseEventInSession(), wfScan(6, "an open ask from a houseguest, nothing pending, the house not gathered"), { maxMessages: 3000 });
-    // the precondition is what the player sees: an open ask (not lapsed), with nothing pending and the house not gathered (a gathered house answers "gathered")
+    const { at } = await askStanding();
     const npc = at.sess.live.talkAsk.npc as string;
     const view = at.sess.getGameState() as { openTalkAsk?: { from: { id: string } } };
     expect(view.openTalkAsk?.from.id).toBe(npc);
@@ -193,12 +201,12 @@ describe("ORW-727b: a houseguest asks the player for a private word (parity), in
     expect(r.outcome).toBe("accepted");
     expect(at.sess.live.talkAsk).toBeUndefined();
     expect((at.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk).toBeUndefined();
-  }, 300_000);
+  }, 3_600_000);
 });
 
 describe("ORW-727b: a houseguest's ask lapses, in a played season", () => {
   it("left unanswered, their ask stops showing once its hours have passed", async () => {
-    const at = await playUntil(3, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending, { user: "wf-3", maxMessages: 3000 });
+    const { at } = await askStanding();
     const npc = at.sess.live.talkAsk.npc as string;
     const until = at.sess.live.talkAsk.until as number;
     const abs = () => ((at.sess.live.dayNumber ?? 1) - 1) * 24 + (at.sess.live.nightDepth ?? 8);
@@ -206,7 +214,7 @@ describe("ORW-727b: a houseguest's ask lapses, in a played season", () => {
     expect(abs()).toBeGreaterThanOrEqual(until);
     const view = at.sess.getGameState() as { openTalkAsk?: { from: { id: string } } };
     expect(view.openTalkAsk?.from.id === npc, "a lapsed ask no longer shows").toBe(false);
-  }, 300_000);
+  }, 3_600_000);
 });
 
 describe("ORW-727b: saves, in a played season", () => {

@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { PLAYER } from "../../src/domain/ids";
 import type { BeliefClaim } from "../../src/engine/beliefStore";
-import { type Stop, firstStop, wfScan } from "./playedSeason";
+import { type Stop, firstStop, playUntil, wfScan } from "./playedSeason";
+import { firstSeedWhere } from "../support/firstSeedWhere";
+import { AssuranceLedger } from "../../src/engine/assurances";
 import { answerPending } from "../../features/support/answerPending";
 
 /**
@@ -11,7 +13,7 @@ import { answerPending } from "../../features/support/answerPending";
  * others, a houseguest tells the room what they believe about the player (the narrator's `recordInteraction` with `heardAboutMe`). A rumor names WHO WAS BETRAYED only when the
  * betrayal is on the public record; a secret-ballot break, and a rumor with no betrayal behind it, name no victim. The public-break case was not reached in play (the todo). Roles only.
  */
-const HINT = 3; // ORW-880: the seed tried first; each test scans from here (wfScan)
+const HINT = 3; // ORW-880: a seed tried early; each test scans from here (wfScan). ORW-999: the bed rush now resolves on player messages, which moved the played trajectories: seed 8 reaches the precondition first, then 5 and 3.
 type Deal = { status: string; brokenBy?: string; parties: string[] };
 const dealsOf = (s: Stop): Deal[] => s.sess.deals.forParty(PLAYER) as Deal[];
 /** Who is in the room with the player, and awake, for a scene recorded now: the engine's own witness roster (the room as it was when the player last spoke). */
@@ -50,11 +52,19 @@ async function tellTheRoom(s: Stop, v: string): Promise<{ o: string; t: string }
 describe("a betrayal rumor records its victim from the real betrayal event (played)", () => {
   it("a deal the player broke at the secret ballot names no victim: the betrayed never learned who broke it, so the rumor stays victim-less, and the told rumor still costs a bystander a small bounded distrust", async () => {
     // seed 3: at the first eviction the player votes against a houseguest they hold a deal with; the break is a secret ballot (the wronged side never learns it by name)
-    const at = await firstStop((s) => quiet(s) && betrayed(s).some((v) => room(s).includes(v)) && room(s).length >= 3, wfScan(HINT), { decide: voteAgainstAPartner });
-    const v = betrayed(at).find((x) => room(at).includes(x))!;
+    // the precondition: the player broke a deal at the secret ballot, a houseguest tells the room what they believe about the player, AND the bystander hears it (ORW-920: whether a told rumor lands is the house's call, so the seed is scanned for it, not assumed)
+    const heardTold = (s: Stop, o: string) => rumorsOf(s, o).find((c) => c.subject === PLAYER);
+    const found = await firstSeedWhere(async (seed) => {
+      const s = await playUntil(seed, (x) => quiet(x) && betrayed(x).some((y) => room(x).includes(y)) && room(x).length >= 3, { user: `wf-${seed}`, decide: voteAgainstAPartner });
+      // the only recorded betrayal is the secret-ballot break: a broken casual assurance is a PUBLIC betrayal and does name its victim (a different claim, checked elsewhere)
+      if (AssuranceLedger.fromJSON(s.sess.live.assurances ?? []).all.some((a) => a.status === "broken" && a.from === PLAYER)) return undefined;
+      const victim = betrayed(s).find((x) => room(s).includes(x))!;
+      const { o: bystander } = await tellTheRoom(s, victim);
+      return heardTold(s, bystander) ? { s, victim, bystander } : undefined;
+    }, wfScan([1, 8, 5, HINT], "a played season where the player breaks a deal at the secret ballot and the bystander hears the told rumor"));
+    const at = found.at.s, v = found.at.victim, o = found.at.bystander;
     const deal = dealsOf(at).find((d) => d.status === "broken" && d.brokenBy === PLAYER && d.parties.includes(v)) as Deal & { secretVote?: boolean };
     expect(deal.secretVote, "the break was the player's secret ballot").toBe(true);
-    const { o } = await tellTheRoom(at, v);
     for (const h of [v, o]) for (const c of rumorsOf(at, h)) expect(c.object, "no victim from a ballot the betrayed never saw").toBeUndefined();
     expect(rumorsOf(at, v).length + rumorsOf(at, o).length, "non-vacuous: the rumor landed").toBeGreaterThan(0);
     const toO = () => rumorsOf(at, o).find((c) => c.subject === PLAYER);

@@ -29,6 +29,7 @@ describe("0101/#1401 Phase-2 — calibration gradient holds with the showrunner 
 
   it(
     `across ${SEEDS} passive+active seed pairs WITH the reweight ON, the monotonic gradient band still holds`,
+    { timeout: 3_600_000 }, // SEEDS is 60 since ORW-982
     async () => {
       const results = await playSeeds(1, SEEDS + 1);
       const passiveReach = results.filter((r) => r.passive.status !== "evicted").length;
@@ -39,6 +40,5 @@ describe("0101/#1401 Phase-2 — calibration gradient holds with the showrunner 
       console.log(`[reweight-ON] gradient: reach passive=${passiveReach}/${SEEDS} active=${activeReach}/${SEEDS}; wins passive=${passiveWins} active=${activeWins}`);
       assertGradient(results, expect as never);
     },
-    { timeout: 600_000 },
   );
 });

@@ -18,6 +18,7 @@ export interface ProjectionEntry { method: string; tool?: string; coveredBy: Cov
 export const PLAYER_PROJECTION_REGISTRY: readonly ProjectionEntry[] = [
   { method: "gameStatus", coveredBy: "read", note: "public board status" },
   { method: "getGameState", coveredBy: "read", note: "roster + player card + daySchedule + weekDigests + juryHouse" },
+  { method: "pipelineCast", coveredBy: "port-only", note: "ORW-969: the full cast for server-side casting jobs; an unadvertised infra read (INFRA_TOOL_NAMES), never on the player channel list, never forwarded to the browser by the front end" },
   { method: "stateDelta", coveredBy: "read", note: "player-visible events since beatSeq" },
   { method: "beatLog", coveredBy: "read", note: "ORW-439 diagnostic: takes the required `sinceBeatSeq` counter and returns tool NAMES + counter values + timestamps of beat bumps; carries no Vault or game state (no tool args, no player names)" },
   { method: "getMomentPrompt", coveredBy: "read", note: "the narrator prompt (systemPrompt + hardConstraints), incl. RETURNING CAST legend (0136), producer read (0137), Show Brief / room canon / open threads (ORW-223)" },
@@ -52,6 +53,7 @@ export const PLAYER_PROJECTION_REGISTRY: readonly ProjectionEntry[] = [
   { method: "runCompetition", coveredBy: "advance", note: "CompetitionResultView (liveSentinel sweeps per beat)" },
   { method: "movePlayer", coveredBy: "advance", note: "WhereaboutsView (moveTo; liveSentinel)" },
   { method: "resolvePlayerMove", coveredBy: "advance", note: "ORW-419: playerMove {from,to}/{refused,reason} + WhereaboutsView (room ids and an in-fiction reason only)" },
+  { method: "searchForHouseguest", coveredBy: "advance", note: "ORW-934: the leg list (room ids and names, who was in each room as names, the outcome and a plain reason) + WhereaboutsView; the route follows the player's own record, never the hidden whereabouts" },
   { method: "markHouseguestMet", coveredBy: "advance", note: "PremiereIntrosView (liveSentinel)" },
   { method: "makeDeal", coveredBy: "lever", note: "lever result view, swept by liveSentinel.property.test.ts" },
   { method: "formAlliance", coveredBy: "lever", note: "lever result view, swept by liveSentinel.property.test.ts" },
@@ -68,6 +70,7 @@ export const PLAYER_PROJECTION_REGISTRY: readonly ProjectionEntry[] = [
   { method: "seasonRetrospective", coveredBy: "sanctioned", note: "0048 post-season unsealing: hidden content by design once finished" },
   { method: "producerVaultDump", coveredBy: "sanctioned", note: "mandate #2 DEBUG door, admin-only, out-of-band; producerVault.test.ts is the gate" },
   { method: "notorietySummary", coveredBy: "port-only", note: "voiced via the RETURNING CAST block in getMomentPrompt, which is swept" },
+  { method: "voiceLookup", coveredBy: "port-only", note: "ORW-1067: the reason behind a null npcVoice; public id and name only, read by the npcVoice tool case (the swept npcVoice view carries the same names)" },
   { method: "preSeedCast", coveredBy: "pre-game", note: "pre-game warm of the cast; a no-op refusal once started (liveSentinel sweeps)" },
   { method: "preSeedNextSeason", coveredBy: "pre-game", note: "next-season warm; liveSentinel sweeps" },
   { method: "noteMessage", coveredBy: "receipt", note: "{accepted, beatSeq} - no text" },

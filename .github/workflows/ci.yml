@@ -54,6 +54,7 @@ jobs:
   #   - an engine PR runs `test`/`coverage`/`heavy-sims` (frontend skips); etc.
   #
   # The booleans:
+  #   (the mapping itself is ci/path-lanes.sh, ORW-1044: any path it does not recognise runs EVERY lane; the list below is a summary)
   #   engine   — src/tests/features + the build/test config + this workflow → gates `test`, `coverage`.
   #   frontend — frontend/** + this workflow                                → gates `frontend`.
   #   deploy   — src/** + frontend/** + deploy/** + this workflow           → gates `smoke` (boots both).
@@ -147,76 +148,20 @@ jobs:
           fi
           echo "Changed files:"; echo "$changed" | sed 's/^/  /'
 
-          # Helper: does any changed file match the given ERE? Every test here reads a HERE-STRING, never `echo ... | grep -q`: under pipefail,
-          # grep -q exits at the first match, echo dies of SIGPIPE once the list is bigger than a pipe buffer (64 KB, about 1,300 paths), and
-          # the test reads as "no match", so the lane was skipped exactly when every lane must run (tests/unit/ciPathFilter.test.ts).
-          matches() { grep -qE "$1" <<<"$changed"; }
-
-          # `ci/` (the scripts this workflow runs, e.g. ci/resolve-base.sh) counts like this workflow file in EVERY filter: a change to them must run
-          # everything (ORW-218 review), never skip every lane. So do the shared composite actions in `.github/actions/`: they are steps of every job
-          # that uses them (setup-fe-python runs in engine, deploy and FE jobs), so a change to ONLY an action still runs each of those jobs (ORW-229).
-          # ENGINE: TS sources, all tests, BDD step code (features/) AND the Gherkin itself — the .feature
-          # files live under docs/features/, so a scenario-only edit must still run the BDD gate (BDD PAT-6),
-          # the build/test config, this workflow. (Deliberately matches EVERY .feature, including spec-only ones
-          # cucumber.cjs does not execute: cheap insurance, and a later wiring into cucumber.cjs can't slip through.)
-          ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.(config|shard\.config|sequencer)\.ts$|cucumber\.cjs$|\.github/workflows/|ci/|\.github/actions/)'
-          # FRONTEND: the vendored Python app + this workflow.
-          FRONTEND_RE='^(frontend/|\.github/workflows/ci\.yml$|ci/)'
-          FE_READS_ENGINE_RE='^src/(surfaces/tools/|ports/|adapters/mcp/|adapters/engine/GameSessionAdapter\.ts$|engine/(momentPrompts|voice|liveSeason|beatAnnouncement|characterFactory|genesisConstants|portraitPrompts|promiseTerms|spokenClaims|socialRoles)\.ts$|engine/castGenesis|engine/data/vocations\.ts$|domain/(house|styleFamilies|traitConsistency)\.ts$|domain/(castRealism|castAges)\.json$|composition/runtime\.ts$)|^src/main\.ts$'
-          # ORW-416 (root cause of the #2681 main break): front-end tests also READ repo files outside frontend/ and src/ (deploy scripts, systemd units, ci/ and harness
-          # scripts, a few design docs and fixtures). #2681 changed only deploy/, fe-unit was skipped, and test_orw174 (which reads deploy/orwell-backup.sh) broke every later PR.
-          # frontend/tests/test_ci_fe_reads_repo_filter.py proves this list covers EVERY such path the front-end tests read.
-          FE_READS_REPO_RE='^(deploy/|ci/|\.github/workflows/|scripts/(live-run|rehearsal-kit)/|scripts/ci(/|$)|tests/unit/beatsTerminateThemselves\.test\.ts$|tests/fixtures/orw480_(cast_s3_text|tag_cases|style_fit_cases)\.json$|tests/fixtures/orw563_dealt_lives\.json$|scripts/stage-finale-snapshot\.ts$|docs/audits/playtest-harness/|docs/design/(liquid-glass/|frontend-single-worker-ceiling\.md$)|docs/legacy/meta-feedback/|docs/mocks/)'
-          # DEPLOY: anything the end-to-end deploy smoke boots — engine, FE, deploy scripts, this workflow.
-          DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
-          # HEAVY (calibration-relevant): the simulation inputs. A subset of engine — a docs/frontend
-          # change can never move a calibration result, so the heavy lane skips for those. `deploy/orwell-env-defaults.sh` is in the set
-          # because it still writes the gameplay flags to a box's .env (an `=0` there overrides the code default), so a change to it re-plays the game.
-          HEAVY_RE='^(src/|tests/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|deploy/orwell-env-defaults\.sh$|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
-          # ORW-193 PRECISION (pull requests ONLY; a push to main always uses the broad sets above, so main never loses coverage):
-          #   - `heavy`: the heavy sims import only src/ plus their own tests/{uat,property,calibration} files and the tests/support
-          #     setup files, so an edit under tests/{unit,integration,architecture,dev} cannot move a calibration result.
-          #   - `fe_render` / `deploy`: edits to ONLY front-end tests or markdown (frontend/tests/** except the vendored axe-core,
-          #     frontend/**/*.md) cannot change what the render lanes (fe-browser, fe-responsive, mirror-parity, a11y-matrix) and the
-          #     deploy smoke boot. The pytest lanes (fe-unit, fe-browser-tests) still run for any frontend/ change.
-          fe_changed="$changed"
-          if [ "${EVENT_NAME:-}" = "pull_request" ]; then
-            HEAVY_RE='^(src/|tests/(uat|property|calibration|support)/|package\.json$|package-lock\.json$|vitest\.config\.ts$|cucumber\.cjs$|deploy/orwell-env-defaults\.sh$|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
-            fe_changed="$(echo "$changed" | grep -vE '^frontend/(tests/|.*\.md$)' || true; echo "$changed" | grep -E '^frontend/tests/vendor/' || true)"
-            DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
-          fi
-          FRONTEND_RE="$FRONTEND_RE|^\.github/actions/"
-          for name in engine frontend fe_render deploy heavy; do
-            subject="$changed"
-            case "$name" in
-              engine)    re="$ENGINE_RE" ;;
-              # ORW-218 (root cause of the #2457 main break): front-end tests READ engine source (the tool registry, the GameSession port, the MCP server, the prompt text...), so an
-              # engine-only PR that changes one of those files must still run fe-unit; before this, FRONTEND_RE matched only frontend/ and test_1412/1414 were skipped while ci-gate passed.
-              # frontend/tests/test_ci_fe_reads_engine_filter.py proves this list covers EVERY engine .ts file the front-end tests read.
-              frontend)  re="$FRONTEND_RE|$FE_READS_ENGINE_RE|$FE_READS_REPO_RE" ;;
-              # ORW-218: the F5 mirror-parity gate script lives under docs/audits/playtest-harness/, outside frontend/, so a change to ONLY the gate used to skip every render lane.
-              fe_render) re="$FRONTEND_RE|^docs/audits/playtest-harness/"; subject="$fe_changed" ;;
-              deploy)    re="$DEPLOY_RE"; subject="$fe_changed" ;;
-              heavy)     re="$HEAVY_RE" ;;
-            esac
-            if grep -qE "$re" <<<"$subject"; then
-              echo "${name}=true" >> "$GITHUB_OUTPUT"
-              echo "==> ${name}: WILL run"
-            else
-              echo "${name}=false" >> "$GITHUB_OUTPUT"
-              echo "==> ${name}: skipped"
-            fi
-          done
+          # ORW-1044: the path -> lane mapping lives in ONE pure script, ci/path-lanes.sh (every rule, the PR-only narrowing, and the "unknown path runs everything" default are
+          # documented there; table-tested in tests/unit/ciLanes.test.ts). It reads the changed paths on stdin and prints `lane=true|false`, one per line.
+          bash ci/path-lanes.sh <<<"$changed" | tee -a "$GITHUB_OUTPUT" | sed 's/^/==> /'
 
   # ── Fast checks (ORW-413) ──────────────────────────────────────────────────────
   # The first signal. One job that finishes in about a minute and that NO other job waits for: typecheck, the source-pinned guard tests (the CI wiring pins, the F-3 window
   # ratchet, no-new-bespoke-menu, the Vault-Wall dependency test ...), the Vault word scans that fail on a public string (the 0110 "confidence" scan, the 0023 "opinion change
   # is invisible" scan), py_compile and the ES-module syntax check. All of it is `npm run ci:fast` (ci/fast-checks.sh): run that locally before pushing, because every
   # failure it can report would otherwise be found by a slow lane minutes later. The guard tests and word scans also still run in their full lanes; the typecheck, py_compile and ES-module syntax check were moved here and run only here.
-  # Needs only the path filter (so a docs-only PR skips it); `ci-gate` requires it.
+  # ORW-1044: runs on EVERY pull request, docs-only included (the repo-wide secrets scan); `ci-gate` requires it.
   fast-checks:
     needs: changes
-    if: needs.changes.outputs.reuse != 'true' && (needs.changes.outputs.engine == 'true' || needs.changes.outputs.frontend == 'true')
+    # ORW-1044: UNCONDITIONAL (only a proven-identical tree skips it): it carries the repo-wide secrets scan, which reads EVERY tracked file, so no path set can prove it cannot be affected.
+    if: needs.changes.outputs.reuse != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -311,6 +256,9 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     name: test-unit (${{ matrix.shard }}/10)
+    permissions:
+      contents: read
+      actions: read # ORW-1013: read the nightly seed catalog artifact
     steps:
       - uses: actions/checkout@v4
         with:
@@ -320,6 +268,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - uses: ./.github/actions/seed-catalog # ORW-1013: main's current qualifying seeds, tried before each scan's hints (fail-soft)
       - uses: ./.github/actions/setup-fe-python  # Python 3.12 + frontend/requirements.lock.txt, cached by lockfile hash (ORW-229 re-shard)
       - run: npm run build
       # ORW-229 flaky-test rule (docs/CI.md): one automatic retry; a test that passes only on the retry is listed in the job summary (vitest.config.ts).
@@ -389,14 +338,18 @@ jobs:
           # ORW-551 slice 4: the 12-season house-mix guard (replaces the 2-seed unit guard). About two minutes of play in one process.
           - leg: house-mix
             scripts: "house-mix"
-          # ORW-702: the whole-season house-mix guard: 4 played seasons (one scripted talking player), judged per season phase against the agreed bands (a ratchet while main is off target).
-          # The seasons play at the same time in child processes inside the one leg (the longest is about 5 minutes), so the pooled numbers are judged in one place.
-          - leg: season-mix
-            scripts: "season-mix"
           # ORW-741: the real-path tests (a feature reached in a PLAYED season, no hand-set state, and gone when switched off). A few minutes of play in all.
-          - leg: real-path
-            scripts: "real-path"
+          # Three shards (ORW-702 unblocked it with two; ORW-410 made it three): A and B are explicit file lists balanced on measured times; C is every other realPath file, so a new file lands in C.
+          - leg: real-path-a
+            scripts: "real-path-a"
+          - leg: real-path-b
+            scripts: "real-path-b"
+          - leg: real-path-c
+            scripts: "real-path-c"
     name: heavy-sims (${{ matrix.leg }})
+    permissions:
+      contents: read
+      actions: read # ORW-1013: read the nightly seed catalog artifact
     steps:
       - uses: actions/checkout@v4
         with:
@@ -417,6 +370,8 @@ jobs:
           key: heavy-proof-v1-${{ matrix.leg }}-${{ hashFiles('src/**', 'tests/uat/**', 'tests/property/**', 'tests/calibration/**', 'tests/support/**', 'features/support/**', 'patches/**', 'package.json', 'package-lock.json', 'vitest.config.ts', 'vitest.sequencer.ts', 'tsconfig*.json', 'deploy/orwell-env-defaults.sh') }}
       - if: steps.heavyproof.outputs.cache-hit != 'true'
         run: npm ci
+      - if: steps.heavyproof.outputs.cache-hit != 'true'
+        uses: ./.github/actions/seed-catalog # ORW-1013 (fail-soft)
       # ORW-229: NO automatic retry here. The heavy sims play fixed seeds, so a retry could only hide a real failure, never fix a flake (docs/CI.md).
       - name: heavy sims (${{ matrix.scripts }})
         if: steps.heavyproof.outputs.cache-hit != 'true'
@@ -434,6 +389,72 @@ jobs:
       - name: record the proof (saved by the cache action's post step, only if every step above passed)
         if: steps.heavyproof.outputs.cache-hit != 'true'
         run: mkdir -p .heavy-proof && echo "${{ github.run_id }} ${{ matrix.scripts }}" > .heavy-proof/ok
+
+  # ORW-702 / ORW-410: the whole-season house-mix guard. Four played seasons (one scripted talking player), each in its OWN job (they used to share one 4-core runner, 530-630 s each);
+  # `season-mix` then judges all four TOGETHER, so a phase share is never judged on a partial set. ORW-991: it fails only on a broken mix (tests/support/brokenBounds.ts); the agreed bands print as a report.
+  season-mix-shard:
+    needs: changes
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.heavy == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        seed: [1, 2, 3, 6] # SEEDS in tests/uat/wholeSeasonMixGuard.test.ts (pinned by tests/unit/seasonMixShards.test.ts)
+    name: season-mix-shard (${{ matrix.seed }})
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      # A season is a function of the same inputs as a heavy sim, so the played result is cached by their hash and replayed to the judging job.
+      - name: played-season cache (a hit means these inputs were already played)
+        id: played
+        uses: actions/cache@v4
+        with:
+          path: .wsmix
+          key: mix-season-v1-${{ matrix.seed }}-${{ hashFiles('src/**', 'tests/uat/**', 'tests/property/**', 'tests/calibration/**', 'tests/support/**', 'features/support/**', 'patches/**', 'package.json', 'package-lock.json', 'vitest.config.ts', 'vitest.sequencer.ts', 'tsconfig*.json', 'deploy/orwell-env-defaults.sh') }}
+      - if: steps.played.outputs.cache-hit != 'true'
+        run: npm ci
+      - name: play season ${{ matrix.seed }}
+        if: steps.played.outputs.cache-hit != 'true'
+        env:
+          WSMIX_SEEDS: ${{ matrix.seed }}
+          WSMIX_OUT: .wsmix
+        run: npm run test:heavy:season-mix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: season-mix-${{ matrix.seed }}
+          path: .wsmix/seed-${{ matrix.seed }}.json
+          include-hidden-files: true
+          if-no-files-found: error
+
+  season-mix:
+    needs: [changes, season-mix-shard]
+    if: needs.changes.outputs.reuse != 'true' && needs.changes.outputs.full == 'true' && needs.changes.outputs.heavy == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: season-mix-*
+          path: .wsmix
+          merge-multiple: true
+      - name: judge the four seasons together
+        env:
+          WSMIX_FROM: .wsmix
+        run: npm run test:heavy:season-mix
 
   # ── Coverage gate ──────────────────────────────────────────────────────────────
   # Per-directory branch thresholds in vitest.config.ts — coverage can no longer silently regress
@@ -548,7 +569,8 @@ jobs:
         # ORW-229 flaky-test rule (docs/CI.md): one automatic rerun, like the browser lane; a test that passes only on the rerun is listed in the job
         # summary (frontend/tests/_flaky_report.py). Quarantined tests are deselected here and run nightly (frontend/tests/_quarantine.py).
         # --durations=0: every test's time is in the log, so frontend/tests/_ci_refresh_durations.py can refresh the shard table from any green run
-        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 --cov --cov-report= --reruns 1 -q -rs --durations=0
+        # ORW-1108: --timeout=120 (pyproject default 300): a hung test must fail itself, with its stack, before the job's 10-minute limit cancels the whole leg without naming it.
+        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 --cov --cov-report= --reruns 1 -q -rs --timeout=120 --durations=0
       - uses: actions/upload-artifact@v4
         with:
           name: fe-coverage-data-${{ matrix.shard }}
@@ -694,6 +716,14 @@ jobs:
             echo "### Front-end performance: perf harness did not run" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+      # ORW-1016: page load (cold and warm), time to interactive and interaction lag at 1080p, 4K and a phone viewport; a generous-ceiling
+      # guard (scripts/perf_load.py CEILINGS) fails the job on a real regression. The numbers land in the job summary and perf-load.json.
+      - name: page load + interaction guard (1080p, 4K, phone)
+        run: |
+          rc=0
+          (cd frontend && python3 scripts/perf_load.py --enforce --out "$GITHUB_WORKSPACE/perf-load.json") || rc=$?
+          if [ "$rc" -eq 3 ]; then echo "::error::a page load or interaction ceiling was exceeded (see the job summary)"; exit 1; fi
+          if [ "$rc" -ne 0 ]; then echo "::error::perf-load harness did not run; see this step's log"; exit 1; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -701,6 +731,7 @@ jobs:
           path: |
             perf-report.json
             perf-report-lowpower.json
+            perf-load.json
           if-no-files-found: warn
           retention-days: 30
 
@@ -980,6 +1011,8 @@ jobs:
       - fe-perf-report
       - mirror-parity
       - heavy-sims
+      - season-mix-shard
+      - season-mix
     if: always()
     runs-on: ubuntu-24.04
     steps:
@@ -1002,6 +1035,8 @@ jobs:
             fe-perf-report=${{ needs.fe-perf-report.result }}
             mirror-parity=${{ needs.mirror-parity.result }}
             heavy-sims=${{ needs.heavy-sims.result }}
+            season-mix-shard=${{ needs.season-mix-shard.result }}
+            season-mix=${{ needs.season-mix.result }}
           FULL: ${{ needs.changes.outputs.full }}
           ENGINE: ${{ needs.changes.outputs.engine }}
           HEAVY: ${{ needs.changes.outputs.heavy }}
@@ -1019,9 +1054,9 @@ jobs:
           applicable() {
             case "$1" in
               changes) echo true ;;
-              fast-checks) if [ "$ENGINE" = true ] || [ "$FRONTEND" = true ]; then echo true; else echo false; fi ;;
+              fast-checks) echo true ;;  # ORW-1044: always applies (the repo-wide secrets scan)
               test|bdd|test-unit|coverage) echo "$ENGINE" ;;
-              heavy-sims) echo "$HEAVY" ;;
+              heavy-sims|season-mix-shard|season-mix) echo "$HEAVY" ;;
               smoke) echo "$DEPLOY" ;;
               fe-unit|fe-coverage|fe-browser-tests) echo "$FRONTEND" ;;
               fe-browser|fe-responsive|fe-perf-report|mirror-parity) echo "$FE_RENDER" ;;

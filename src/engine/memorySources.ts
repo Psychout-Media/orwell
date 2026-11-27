@@ -9,7 +9,7 @@
  */
 export type MemoryProvider =
   | "memoryTiltFor" | "beliefTiltFor" | "campaignTiltFor" | "campaignPushFor" | "dealsOf"
-  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor" | "vetoMemoryFor" | "dealNomPushFor" | "juryMemoryFor" | "tieNomPushFor" | "tieVotePushFor" | "hcMemoryFor" | "hcStrategyFor" | "endgameMemoryFor" | "approachMemoryFor" | "moodTiltFor" | "drivePushFor" | "moodVetoFor" | "moodApproachFor" | "feelingKeepFor" | "couplePushFor" | "promiseVetoFor" | "promiseFinalTwoFor";
+  | "assuranceVoteFor" | "assuranceProtects" | "pitchTiltFor" | "vetoMemoryFor" | "dealNomPushFor" | "juryMemoryFor" | "tieNomPushFor" | "tieVotePushFor" | "hcMemoryFor" | "hcStrategyFor" | "endgameMemoryFor" | "approachMemoryFor" | "moodTiltFor" | "drivePushFor" | "moodVetoFor" | "moodApproachFor" | "feelingKeepFor" | "couplePushFor" | "promiseVetoFor" | "promiseFinalTwoFor" | "standingPushFor";
 
 export type StrategicDecision = "evictionVote" | "hohNominations" | "replacementNominee" | "vetoSave" | "houseguestsChoice" | "juryVote" | "approaches" | "final3Eviction" | "secretVetoReplacement";
 
@@ -17,9 +17,9 @@ export const DECISION_SOURCES: Readonly<Record<StrategicDecision, readonly Memor
   // `voteChoice` (liveSeason.ts): the NPC eviction vote - reads the most.
   evictionVote: ["dealsOf", "tieVotePushFor", "campaignTiltFor", "memoryTiltFor", "beliefTiltFor", "assuranceVoteFor", "moodTiltFor", "feelingKeepFor"],
   // The NPC HOH's `nominationPlan(...)` call in `advanceBeat` case "nominations".
-  hohNominations: ["campaignPushFor", "tieNomPushFor", "memoryTiltFor", "beliefTiltFor", "assuranceProtects", "pitchTiltFor", "dealNomPushFor", "moodTiltFor", "drivePushFor", "feelingKeepFor", "couplePushFor"],
+  hohNominations: ["campaignPushFor", "tieNomPushFor", "memoryTiltFor", "beliefTiltFor", "assuranceProtects", "pitchTiltFor", "dealNomPushFor", "moodTiltFor", "drivePushFor", "feelingKeepFor", "couplePushFor", "standingPushFor"], // ORW-694 B1-9: the house's informal leader (0173 status)
   // The NPC HOH's replacement pick (`replacementPick(...)`). ORW-639: it also reads the deal / pre-show-tie / lobbying / kept-assurance terms the nominations read (`nominationOnlyTerms`, ORWELL_REPLACEMENT_TERMS).
-  replacementNominee: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor", "feelingKeepFor", "dealNomPushFor", "tieNomPushFor", "pitchTiltFor", "assuranceProtects", "couplePushFor"],
+  replacementNominee: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor", "feelingKeepFor", "dealNomPushFor", "tieNomPushFor", "pitchTiltFor", "assuranceProtects", "couplePushFor", "standingPushFor"],
   // The NPC veto holder's save (`chooseVetoSave(...)`): campaign bias + (B7 M1, ORWELL_VETO_MEMORY) one combined memory/belief/deal bias.
   vetoSave: ["campaignPushFor", "vetoMemoryFor", "moodVetoFor", "drivePushFor", "promiseVetoFor"], // ORW-586 slice 4: a kept veto promise (`promiseVetoFor`)
   // The NPC Houseguest's-Choice holder's sixth-player pick (`resolveVetoDraw` -> `chooseStrongestBond`): strongest bond + (B7 M4b, ORWELL_HC_MEMORY) the same combined memory/belief/deal read.
@@ -32,7 +32,7 @@ export const DECISION_SOURCES: Readonly<Record<StrategicDecision, readonly Memor
   final3Eviction: ["endgameMemoryFor", "promiseFinalTwoFor"], // ORW-586 slice 4: a kept final-two promise
   // ORW-581 (Fable T1-14): in a played game the secret-veto replacement is the shared replacement read (`npcReplacementPick`), so it reads what the replacement reads; the legacy
   // threat + paranoia + memory read (headless sims, byte-identical) keeps `endgameMemoryFor` (absent outside a played game, so 0 there).
-  secretVetoReplacement: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor", "feelingKeepFor", "endgameMemoryFor", "dealNomPushFor", "tieNomPushFor", "pitchTiltFor", "assuranceProtects", "couplePushFor"],
+  secretVetoReplacement: ["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor", "feelingKeepFor", "endgameMemoryFor", "dealNomPushFor", "tieNomPushFor", "pitchTiltFor", "assuranceProtects", "couplePushFor", "standingPushFor"],
   approaches: ["approachMemoryFor", "moodApproachFor"],
 };
 

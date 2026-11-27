@@ -12,7 +12,7 @@ from _a64_walk import _walk_week_one, _path, _fresh, _session, _start_day, _send
 pytestmark = pytest.mark.browser
 
 # Seasons are walked in this order (a restart on the same stack carries earlier seasons' names, which shifts later seeds); the first whose NPC HOH puts the player on the block AND evicts them is used.
-SEEDS = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+SEEDS = (18, 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12)  # ORW-779 moved the played seasons: 18 now evicts the player (13-17 do not); ORW-410 had 10 first; the rest are the fallback
 
 
 def _board(stack):

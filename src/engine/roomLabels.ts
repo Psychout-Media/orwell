@@ -7,6 +7,7 @@
  */
 import { roomDisplayName, HOUSE_ROOMS, type Room } from "../domain/house";
 import { HOUSE_THEMES, type HouseTheme } from "./data/houseThemes";
+import { LEGACY_ROOM_NAMES } from "./data/legacyRoomNames";
 import { hashSeed } from "./characterFactory";
 
 /**
@@ -24,8 +25,65 @@ export function registerHouseTheme(theme: HouseTheme): void {
   while (AUTHORED_THEMES.size > AUTHORED_THEMES_MAX) AUTHORED_THEMES.delete(AUTHORED_THEMES.keys().next().value as string);
 }
 
+/**
+ * ORW-968 (Ryne, live playtest 2026-11-26: "Copper Kettle Galley ... maybe the kitchen, Ember Court, no clue"): a room's shown name says what the room IS. The plain word per room (the same words the player and the narrator
+ * already say: kitchen, dining room, bedroom ...); the theme is a light modifier in front of it, never a name that stands in for it.
+ */
+const FUNCTION_WORD: Readonly<Record<Room, string>> = {
+  "kitchen": "kitchen", "living-room": "living room", "dining-room": "dining room", "backyard": "backyard", "hallway": "hallway", "bedroom-a": "bedroom", "bedroom-b": "bedroom", "bedroom-c": "bedroom",
+  "bathroom": "bathroom", "lounge": "lounge", "hoh-room": "HOH room", "landing": "landing", "storage-room": "storage room", "diary-room": "Diary Room",
+} as Record<Room, string>;
+/** A generic last word on a themed name that only repeats "this is a room" ("the Coral Reef Room"): dropped from the head before the plain word goes on. */
+const HEAD_TAIL = /(^|\s+)(room|cabin|pod|cave|chamber|suite|quarters)$/i;
+/** Per room, a last word that is the same role in other words ("the Bubblegum Bath" for the bathroom): dropped from the head so the plain word does not double it. */
+const ROLE_TAIL: Partial<Record<Room, RegExp>> = { "bathroom": /(^|\s+)(bath|baths|washroom|restroom)$/i };
+const hasWord = (text: string, word: string): boolean => new RegExp(`(^|[^a-z0-9])${word.toLowerCase().replace(/\s+/g, "\\s+")}s?($|[^a-z0-9])`, "i").test(text);  // "Kitchens" counts
+
+/** Rooms whose name is the plain word alone: the HOH room, the landing, the storage room and the Diary Room read the same in every season (the look carries the theme). */
+const PLAIN_ONLY: ReadonlySet<Room> = new Set<Room>(["hoh-room", "landing", "storage-room", "diary-room"]);
+/** The longest modifier that still reads as a light touch. */
+const MAX_MODIFIER = 14;
+
+/**
+ * The themed `name` of `room` as the player reads it (Ryne 2026-11-26: "don't overdo the theming, just cohesive"): the plain word with AT MOST ONE lowercase word of the theme in front ("the copper kitchen", "the reef
+ * bedroom"), or the plain word alone ("the HOH room", "the Diary Room"). The modifier is the first plain word of the themed head (the name without its article, the plain word and a generic last word), so a name
+ * the writer made long ("the Copper Kettle Galley") comes out as "the copper kitchen", a possessive or a number is never a modifier, and a house already in this form is returned as it is. Pure, composed from whatever
+ * name the season carries (the library or the writer's), no list of names.
+ */
+export function plainRoomName(room: Room, name: string): string {
+  const word = FUNCTION_WORD[room];
+  const raw = name.trim();
+  if (!word || !raw) return raw;
+  if (PLAIN_ONLY.has(room)) return `the ${word}`;
+  let head = raw.replace(/^the\s+/i, "");
+  head = head.replace(new RegExp(`(^|[^a-z0-9])${word.toLowerCase().replace(/\s+/g, "\\s+")}s?(?=$|[^a-z0-9])`, "ig"), " ");
+  head = head.replace(HEAD_TAIL, "").trim();
+  const role = ROLE_TAIL[room];
+  if (role) head = head.replace(role, "").trim();
+  const first = head.split(/\s+/).find((w) => /^[A-Za-z][A-Za-z-]*$/.test(w) && !/^(the|a|an|of|and|room)$/i.test(w));
+  const mod = first && first.length <= MAX_MODIFIER ? first.toLowerCase() : "";
+  return mod ? `the ${mod} ${word}` : `the ${word}`;
+}
+
+/** A library or authored theme with every room name said with its plain word (memoized by object: the lookup is hot). The look, the pitch and the id are untouched. */
+const COMPOSED = new WeakMap<HouseTheme, HouseTheme>();
+function withPlainNames(t: HouseTheme): HouseTheme {
+  let c = COMPOSED.get(t);
+  if (!c) {
+    const rooms = Object.fromEntries((Object.entries(t.rooms) as Array<[Room, { name: string; look: string }]>).map(([r, v]) => [r, { ...v, name: plainRoomName(r, v.name) }])) as HouseTheme["rooms"];
+    c = { ...t, rooms };
+    COMPOSED.set(t, c);
+  }
+  return c;
+}
+
+/** The season's house by id with its room names plain (see `plainRoomName`); `rawHouseTheme` is the theme as written, for the writer's own freshness check. */
 export function houseTheme(themeId: string | undefined): HouseTheme | undefined {
-  return themeId ? (HOUSE_THEMES.find((t) => t.id === themeId) ?? AUTHORED_THEMES.get(themeId)) : undefined;
+  const t = rawHouseTheme(themeId);
+  return t ? withPlainNames(t) : undefined;
+}
+export function rawHouseTheme(themeId: string | undefined): HouseTheme | undefined {
+  return themeId ? (HOUSE_THEMES.find((x) => x.id === themeId) ?? AUTHORED_THEMES.get(themeId)) : undefined;
 }
 
 /** Counts of why drafts were refused, by rule name (the acceptance report for the season line). */
@@ -102,23 +160,45 @@ const GENERIC_TAIL = /\s+(room|cabin|pod|cave|chamber|suite|quarters)$/;
 export function themedRoomAliases(themeId?: string): ReadonlyArray<readonly [alias: string, room: Room]> {
   const t = houseTheme(themeId);
   if (!t) return [];
+  const raw = rawHouseTheme(themeId);  // ORW-968: the name as written still finds the room ("the Captain's Quarters"), so what the narrator or the player already said keeps working
   const byAlias = new Map<string, Set<Room>>();
   const add = (alias: string, room: Room): void => {
     const a = alias.trim().toLowerCase().replace(/\s+/g, " ");
     if (a.length < 3) return;
     for (const form of new Set([a, a.normalize("NFD").replace(/[\u0300-\u036f]/g, "")])) (byAlias.get(form) ?? byAlias.set(form, new Set()).get(form)!).add(room); // "séance" and "seance" both
   };
+  for (const [room, old] of Object.entries(themeId ? (LEGACY_ROOM_NAMES[themeId] ?? {}) : {}) as Array<[Room, string]>) {
+    // ORW-968: a season in progress when the names changed (its narrator and player said "the Galley") still finds its rooms by the names the library carried before; never shown, aliases only
+    const lf = old.toLowerCase(); const lb = lf.replace(/^the\s+/, "");
+    add(lf, room); add(lb, room);
+    if (room !== "diary-room") { const ls = lb.replace(GENERIC_TAIL, ""); if (ls !== lb) { add(ls, room); add(`the ${ls}`, room); } }
+  }
   for (const [room, { name }] of Object.entries(t.rooms) as Array<[Room, { name: string }]>) {
+    if (raw && raw.rooms[room] && raw.rooms[room].name !== name) {
+      const rf = raw.rooms[room].name.toLowerCase(); const rb = rf.replace(/^the\s+/, "");
+      add(rf, room); add(rb, room);
+      if (room !== "diary-room") { const rs = rb.replace(GENERIC_TAIL, ""); if (rs !== rb) { add(rs, room); add(`the ${rs}`, room); } }
+    }
     const full = name.toLowerCase();
     const bare = full.replace(/^the\s+/, "");
     add(full, room);
     add(bare, room);
+    if (room !== "diary-room") {  // ORW-968: the themed head on its own ("the galley") still finds the room, as it did before the plain word went on
+      const head = bare.replace(new RegExp(`\\s+${FUNCTION_WORD[room].toLowerCase().replace(/\s+/g, "\\s+")}$`), "").trim();
+      if (head && head !== bare) {
+        add(head, room); add(`the ${head}`, room);
+        if (/bedroom$/.test(FUNCTION_WORD[room].toLowerCase())) { add(`${head} room`, room); add(`the ${head} room`, room); } // ORW-1008: "the Palmetto room" for "the Palmetto Bedroom": players say room for a bedroom
+      }
+    }
     if (room !== "diary-room") {
       const short = bare.replace(GENERIC_TAIL, "");
       if (short !== bare) { add(short, room); add(`the ${short}`, room); }
     }
   }
-  return [...byAlias].filter(([, rooms]) => rooms.size === 1).map(([a, rooms]) => [a, [...rooms][0]!] as const).sort((x, y) => y[0].length - x[0].length || x[0].localeCompare(y[0]));
+  // ORW-968: a themed alias never takes another room's plain word ("kitchen", "bedroom", "lounge" ...): "go to the kitchen" always means the kitchen, whatever a season's names are.
+  const plainOf = new Map<string, Room>(); for (const [r, w] of Object.entries(FUNCTION_WORD) as Array<[Room, string]>) if (r !== "bedroom-b" && r !== "bedroom-c") plainOf.set(w.toLowerCase(), r === "bedroom-a" ? "bedroom-a" : r);
+  const notAnotherRoomsWord = (a: string, room: Room): boolean => { const owner = plainOf.get(a.replace(/^the\s+/, "")); return owner === undefined || owner === room || (owner === "bedroom-a" && room.startsWith("bedroom")); };
+  return [...byAlias].filter(([a, rooms]) => rooms.size === 1 && notAnotherRoomsWord(a, [...rooms][0]!)).map(([a, rooms]) => [a, [...rooms][0]!] as const).sort((x, y) => y[0].length - x[0].length || x[0].localeCompare(y[0]));
 }
 
 /** The season's house theme: one of the library, drawn from `seed` (the same seed always draws the same theme), skipping the ids in `recent` (the player's last seasons) while any are left. */

@@ -119,6 +119,6 @@ describe("the decision x source table", () => {
     expect(DECISION_SOURCES.final3Eviction).toEqual(["endgameMemoryFor", "promiseFinalTwoFor"]);
     // ORW-581: a played game's secret-veto replacement goes through the full replacement read (the endgame memory still among its sources)
     expect(DECISION_SOURCES.secretVetoReplacement).toContain("endgameMemoryFor");
-    expect(DECISION_SOURCES.secretVetoReplacement).toEqual(["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor", "feelingKeepFor", "endgameMemoryFor", "dealNomPushFor", "tieNomPushFor", "pitchTiltFor", "assuranceProtects", "couplePushFor"]);
+    expect(DECISION_SOURCES.secretVetoReplacement).toEqual(["campaignPushFor", "memoryTiltFor", "beliefTiltFor", "moodTiltFor", "drivePushFor", "feelingKeepFor", "endgameMemoryFor", "dealNomPushFor", "tieNomPushFor", "pitchTiltFor", "assuranceProtects", "couplePushFor", "standingPushFor"]); // ORW-694 B1-9: the house's informal leader is a bigger target in the replacement read too
   });
 });

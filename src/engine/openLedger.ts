@@ -250,7 +250,7 @@ function touchEntry(ledger: OpenLedger, e: OpenLedgerEntry, day: number): OpenLe
 /**
  * Entries that matter to whoever is here now: any party, or the subject, is here. Open entries come before resolved ones;
  * within each, most people here first, then most recent. A resolved entry shows only while recent (`nowTurn` given: within
- * OPEN_LEDGER_RESOLVED_BRIEF_BEATS of its `resolvedTurn`); it stays in the save. At most `max`.
+ * OPEN_LEDGER_RESOLVED_BRIEF_BEATS of its `resolvedTurn`); it stays in the save. At most `max`, except that every houseguest here with an open entry gets one (ORW-1093).
  */
 export function openLedgerRelevant(ledger: OpenLedger, hereIds: readonly string[], max = OPEN_LEDGER_BRIEF_MAX, nowTurn?: number): Array<{ e: OpenLedgerEntry; here: string[] }> {
   const here = new Set(hereIds.filter((id) => id !== OPEN_LEDGER_PLAYER));
@@ -273,9 +273,9 @@ export function openLedgerRelevant(ledger: OpenLedger, hereIds: readonly string[
     for (const h of hits) if (h.e.status === "open" && h.here.includes(id) && (!newest || h.i > newest.i)) newest = h;
     if (newest) picked.add(newest.i);
   }
-  const firsts = ranked.filter((h) => picked.has(h.i)).slice(0, cap);
+  const firsts = ranked.filter((h) => picked.has(h.i)); // ORW-1093: never cut, so the brief grows past the cap when more people here have something open than it holds
   const chosen = new Set(firsts.map((h) => h.i));
-  const rest = ranked.filter((h) => !chosen.has(h.i)).slice(0, cap - firsts.length);
+  const rest = ranked.filter((h) => !chosen.has(h.i)).slice(0, Math.max(0, cap - firsts.length));
   return [...firsts, ...rest].map(({ e, here: h }) => ({ e, here: h }));
 }
 
@@ -431,6 +431,7 @@ export function syncOpenLedger(
       out = closeOpenEntry(out, e.id, end, openLedgerDealNote(end), ctx.turn);
       continue;
     }
+    if (e.term?.what === "final-two") continue; // ORW-693: a final-two promise lasts the season (0187): it is judged at the final two, never lapsed for being quiet
     if (ctx.day === undefined) continue;
     const last = lastTouchedDay(out, e);
     if (last === undefined) out = touchEntry(out, e, ctx.day);

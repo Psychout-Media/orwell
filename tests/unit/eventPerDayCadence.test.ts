@@ -36,7 +36,7 @@ function playWeeks(seed: number, weeks: number): Array<{ beat: string; day: numb
     if (st.pending) {
       const r = resolveLegally(s, st.pending); // ORW-281 4a: a staged ceremony publishes its beat on a step's result (the 'named' step), not on the first advance
       const rb = r?.event?.beat;
-      if (rb === "nominations" || rb === "veto-draw" || rb === "veto-ceremony") rows.push({ beat: rb, day: s.snapshot().live?.dayNumber ?? 0, week: st.week ?? 0 });
+      if (rb === "nominations" || rb === "veto-draw" || rb === "veto-ceremony" || rb === "eviction") rows.push({ beat: rb, day: s.snapshot().live?.dayNumber ?? 0, week: st.week ?? 0 });
       continue;
     }
     const ds = st.daySchedule;
@@ -51,7 +51,7 @@ function playWeeks(seed: number, weeks: number): Array<{ beat: string; day: numb
       if (b && ["hoh-competition", "nominations", "veto-draw", "veto-competition", "veto-ceremony", "eviction"].includes(b)) rows.push({ beat: b, day: s.snapshot().live?.dayNumber ?? 0, week: st.week ?? 0 });
       if (a.pending) {
         const r = resolveLegally(s, a.pending);
-        if (r?.event?.beat === "nominations" || r?.event?.beat === "veto-draw" || r?.event?.beat === "veto-ceremony") rows.push({ beat: r.event.beat, day: s.snapshot().live?.dayNumber ?? 0, week: st.week ?? 0 });
+        if (r?.event?.beat === "nominations" || r?.event?.beat === "veto-draw" || r?.event?.beat === "veto-ceremony" || r?.event?.beat === "eviction") rows.push({ beat: r.event.beat, day: s.snapshot().live?.dayNumber ?? 0, week: st.week ?? 0 });
       }
       if (a.finished) break;
     } else {

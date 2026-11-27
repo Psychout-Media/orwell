@@ -22,6 +22,7 @@ never echoes a hidden value). This module only authors + forwards; it never seal
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import contextvars
 import json
 import os
@@ -39,65 +40,43 @@ except Exception:  # pragma: no cover
         def debug(self, *a, **k): pass
     logger = _L()
 
+from src import orwell_cast_rules as R  # ORW-956: the one table of rules the prompt and the checks are built from
+from src.orwell_cast_gate import BIO_ASK_CHARS  # ORW-952: the prompt states the length the gate checks
+
 
 # ── ORW-380: the PHOTO SHEET instruction, shared by every writer ──────────────────────────────
 #
 # One text, used by new-cast authoring (`_SYSTEM`) and by the running-season upgrader / the new-cast
 # de-duplication pass (`PHOTO_SHEET_SYSTEM`). The checker below (`look_problems`) enforces the same rules.
-_ONCAMERA_BANNED_WORDS = (
-    "then", "says", "said", "narrates", "narrating", "jokes", "joke", "story", "monologue", "answers",
-    "answering", "asks", "humming", "calling out", "mid-sentence", "mid-story", "mid-joke", "everyone",
-    "someone", "whoever", "anyone", "stranger", "the group", "the others", "houseguests", "scrubs",
-    "scrubbing", "cooking", "washing", "counting", "ticking off", "hands flying", "gesturing", "paces",
-    "pacing",
-)
-_PHOTOHAIR_BANNED_WORDS = (
-    "usually", "by afternoon", "messy", "frizzy", "flyaway", "flyaways", "fly-away", "fly away", "ragged",
-    "unruly", "fuzzy", "frays", "frayed", "shoved",
-)
-PHOTO_SHEET_RULES = (
+_ONCAMERA_BANNED_WORDS = R.ONCAMERA_BANNED_WORDS  # ORW-956: the word lists live in the rules table, which prints them in the prompt
+_PHOTOHAIR_BANNED_WORDS = R.PHOTOHAIR_BANNED_WORDS
+# ORW-956: the example clauses of the rule sentences stay here (the short-list guard allowlists example lines in this file only).
+_RULE_EXAMPLES = {
+    "ex:main-piece": ', for example "leather jacket" or "flannel shirt"',
+    "ex:photohair": (' (for example "sleek neat braid over one shoulder", "glossy waves swept into a high ponytail", '
+                     '"buzzed close with a clean line-up")'),
+    "ex:build": " (for example broad-shouldered with willowy)",
+    "ex:posture": ' (not "He stands", "She stands", "He leans")',
+}
+# ORW-956: every rule sentence below is printed from the ONE table of rules (orwell_cast_rules.SENTENCES), the same table the checks
+# (`look_problems` and the gate) take their thresholds and codes from.
+_PHOTO_SHEET_TEMPLATE = (
     "PHOTO SHEET: three optional fields that say how this person looks on the day of the cast photo "
     "shoot. They are public and describe only what a camera sees. Use the houseguest's name and "
     "genderPresentation from the input: pronouns in every line must match it (man: he/him; woman: "
     "she/her; nonbinary: they/them), and the clothes fit how this person presents. "
-    "(1) wardrobe: an array of 2-3 pieces, each under 60 characters, in camera-ready condition, with no "
-    "visible words, logos, band names or brand names, and each a real garment or accessory a shop sells, chosen from this person's job, hometown, age, money and personality (the style family is only a lean). Test every piece with one question: would this person, with this job, age, income and the weather of their hometown, really wear it on an ordinary day, at work or off it (not another trade's work gear, not the wrong season for the job, not above their money, not a costume)? The FIRST piece is the MAIN piece (the jacket, "
-    "shirt, dress or top). It must not repeat a main piece already listed in taken.mainPieces (compare "
-    "the garment, for example \"leather jacket\" or \"flannel shirt\"). "
-    "(2) photoHair: at most 90 characters: the SAME cut, length and colour as their written hair, "
-    "styled and neat for a photo shoot, said positively (for example \"sleek neat braid over one "
-    "shoulder\", \"glossy waves swept into a high ponytail\", \"buzzed close with a clean line-up\"). "
-    "Never use these words: usually, by afternoon, messy, frizzy, flyaway, ragged, unruly, fuzzy, "
-    "frays, shoved. "
-    "(3) onCamera: the MOMENT: ONE still moment a photographer captures, chosen for THIS person from "
-    "their demeanor, identity concept and voice energy. It says where they are in the house, how they "
-    "hold themselves, where they look, and one expression, in one to three short sentences of at most "
-    "240 characters. It names no room of the house (the room of the photo is chosen separately), so describe "
-    "posture, hands, gaze and expression only, with nothing that a room would have to supply (no counter, sofa, doorway "
-    "or window to lean on or sit at). Where the eyes go follows the person: on the camera for the open and "
-    "bold; off to one side, down, at something in the room or past the lens for the guarded, shy, distracted or "
-    "busy. Hands at rest or doing ONE simple thing (arms folded, hands in pockets, a hand on a knee, tucking hair, "
-    "adjusting a cuff, elbow propped). The expression follows the person too: smiling only if this person would; "
-    "a serious, wry, tired, guarded, amused-without-smiling or thoughtful face is as likely as a smile; never "
-    "mid-word. Usually no prop: a prop only when this person's job or life gives a reason, never a mug or cup, and "
-    "at most one. Only when the OPENING PATTERN line says closing read: yes, end with a read of who they are in 3-8 "
-    "words, introduced by \"the one who\"; otherwise end the line plainly. It is a still photograph, not a scene: no sequence of events, "
-    "no speech, no chores, no other people. Never use these words: "
-    + ", ".join(w for w in _ONCAMERA_BANNED_WORDS if w != "someone") + ", someone. "
-    "Use the pronoun that matches genderPresentation, but never open the line with the pronoun and a posture verb "
-    "(not \"He stands\", \"She stands\", \"He leans\"): open it with the spot, the hands, the gaze or the expression, "
-    "or the way an OPENING PATTERN line in the prompt says. Never use the houseguest's name in the onCamera line, only the pronoun. "
-    "(4) lookSignature: at most 90 characters: exactly ONE thing about how this person looks or dresses that someone would use to describe "
-    "them to a friend. It comes from their own life as the biography tells it (their job, hometown, family, hobby or a habit), is something "
-    "they could really buy or do where they live on their own money, and is something nobody else in the cast has: a different kind of thing "
-    "from every signature in taken.signatures. It is a real, ordinary choice (a hairstyle, jewellery, glasses, a garment worn a certain way, "
-    "facial hair, nails), never a costume, a uniform, a prop, a tattoo or anything with words on it, and the wardrobe carries it (the pieces and "
-    "this line agree). It is ONE thing, never a whole outfit. When it is about hair it names only the cut, length and texture that this card's own "
-    "hair and photoHair lines already carry. Colour follows the person too, not a default of black, charcoal or navy: no colour family on more than 3 of 15 main pieces, "
+    "[[rule:pronouns]]"
+    "[[rule:wardrobe-shape]][[rule:wardrobe-garment]][[rule:wardrobe-real]][[rule:wardrobe-taken]]"
+    "[[rule:wardrobe-pieces]][[rule:style-family]][[rule:label-leak]]"
+    "[[rule:photohair]]"
+    "[[rule:oncamera]]"
+    "[[rule:signature]]"
+    "Colour follows the person too, not a default of black, charcoal or navy: no colour family on more than 3 of 15 main pieces, "
     "and about a third of the cast wears a pattern (stripes, plaid, a floral), a plain graphic with no words, or visible wear (faded, worn-in). "
     "When the input carries castingType, the moment, the clothes and the hair styling should make this "
     "person read as their casting type at a glance, without naming the type."
 )
+PHOTO_SHEET_RULES = R.render(_PHOTO_SHEET_TEMPLATE, _RULE_EXAMPLES)
 PHOTO_SHEET_SYSTEM = (
     "You write the PHOTO SHEET for one reality-show houseguest from their PUBLIC profile only. "
     + PHOTO_SHEET_RULES +
@@ -114,7 +93,7 @@ PHOTO_SHEET_SYSTEM = (
 # around the player. The NPC's Day-1 read of the player is a SEPARATE concept owned entirely by the
 # engine's seeded, net-zero-balanced floor (the LLM does not author it) — so the authored storyline
 # cannot tilt the cast toward the player and the calibration (juryReach) balance is preserved.
-_SYSTEM = (
+_SYSTEM = R.render(
     "You are a CASTING PRODUCER for the reality show ORWELL (never call it Big Brother) building the secret bible for ONE houseguest. "
     "Write a rich, believable, reality-TV-plausible person with real depth and a life that exists "
     "ENTIRELY on its own. Output STRICT JSON only (no prose around it), with these keys:\n"
@@ -122,16 +101,16 @@ _SYSTEM = (
     "cast; do NOT rename or re-invent them. ONLY when the skeleton carries no name, supply a realistic, "
     "common, pronounceable FIRST and LAST name (two words), diverse and ordinary, NEVER invented/fantasy/"
     "gibberish.\n"
-    '  "identityConcept": ONE sentence (under 250 characters) naming who this exact person is, written about the '
+    '  "identityConcept": [[rule:identity-length]] naming who this exact person is, written about the '
     "name, gender, age and occupation on the card (the skeleton's identityConcept, if any, is a rough draft: rewrite it for THIS card; "
-    "do not open it with \"A\" and the age, the age is already printed beside it, and open it the way an OPENING PATTERN line in the prompt says, if there is one; do not put the person's name in it, and make it one complete phrase that reads as a sentence),\n"
-    '  "biography": a 2-3 sentence presentable backstory (life outside the house),\n'
+    "do not open it with \"A\" and the age, the age is already printed beside it, and open it the way an OPENING PATTERN line in the prompt says, if there is one; [[rule:identity-no-name]], and make it one complete phrase that reads as a sentence),\n"
+    '  "biography": [[rule:bio-length]],\n'
     '  "vocation": echo the skeleton\'s occupation EXACTLY — it is already cast and IMMUTABLE; do NOT '
     "change it, and do NOT adopt a different job from the biography. The biography and the secrets must "
     "name the SAME job as the committed occupation (the engine keys the hidden stakes off vocation),\n"
     '  "physicalCharacteristics": { "heightBuild", "skinTone", "hair", "facialFeatures", '
     '"distinguishingMark", "ageLook", "style", "wardrobe", "lookSignature", "photoHair", "onCamera" } — short phrases '
-    "(wardrobe is an array, photoHair and onCamera short lines, see PHOTO SHEET below); this single facet is what BOTH "
+    "[[rule:look-fields]]; this single facet is what BOTH "
     "the portrait and the narration read, so make it concrete and distinctive. The look must COHERE "
     "with the houseguest's heritage/ethnicity in the skeleton (skin tone, hair, features that fit that "
     "background) — never a generic default; vary it widely across the cast. When the skeleton shows a "
@@ -147,27 +126,16 @@ _SYSTEM = (
     "STYLE AND CLOTHES START FROM THE PERSON: ask what a person of this age and job, from this hometown, with this money and "
     "personality, would really own and wear to be photographed for TV, and could buy in an ordinary shop in or near their hometown on their income, and write that. The skeleton's presentation is only a "
     "tiebreak between equal choices (a colour, a cut, one accent piece), never a theme to build the outfit from, and never blended "
-    "with another family (no rocker edge layered over bohemian). Interests and hobbies in the biography come from this person's own life (job, family, town, background), never from the look: a style does not hand a person a pastime. Write \"style\" as those real clothes in a phrase. Every piece is ONE "
-    "garment or accessory a shop sells (a shirt, a jacket, jeans, boots, a watch): no piece that combines two things (not \"a vest "
-    "over a polo\", not \"sneakers with a gold chain\": two pieces), no uniform worn as a style (never \"worn like a uniform\"), no "
-    "costume, no work badge, name tag or lanyard, no bare skin under a blazer, no hand-sewn or DIY decoration. "
+    "with another family (no rocker edge layered over bohemian). Interests and hobbies in the biography come from this person's own life (job, family, town, background), never from the look: a style does not hand a person a pastime. Write \"style\" as those real clothes in a phrase. "
     + PHOTO_SHEET_RULES + " "
-    "STORY MATCHES THE CARD (HARD): the biography is read beside the card, so it must agree with it. "
-    "Use ONLY the houseguest's pinned pronouns for the houseguest (other people keep their own, named by role); "
-    "state no age except the skeleton's exact age (a life stage or no number is better); name no body or face feature "
-    "(tooth gap, tattoo, glasses, scar, freckles) that your own physicalCharacteristics does not carry; and the show "
-    "is Orwell, never Big Brother. "
-    "AGE COHERENCE: hair, skin and ageLook must fit the stated age; no gray, silver or salt-and-pepper "
-    "hair under 35 unless it is written as dyed. BUILD COHERENCE: heightBuild must not combine "
-    "opposites (for example broad-shouldered with willowy). Keep the FITNESS LEVEL of the seeded "
-    "heightBuild: an athletic person stays athletic, a soft or slight one stays so; enrich the wording "
-    "only, in neutral, flattering terms (never \"gone soft\" or \"soft through the middle from long "
-    "shifts\"),\n"
+    "[[rule:story-matches]]"
+    "[[rule:age-coherence]]"
+    "[[rule:build-coherence]],\n"
     '  "voice": the houseguest\'s IDIOLECT — how THIS person talks, all season: { "register", '
     '"rhythm", "energy", "directness", "humor", "stressTell", "signature", "lexicon", "catchphrases" }. '
     'The first six are SHORT dial phrases (e.g. register "folksy", rhythm "rambling", humor "dry", '
     'stressTell "over-explains"); "signature" is ONE prose sentence capturing the texture of their talk; '
-    '"lexicon" is an array of 2-3 habitual filler words/phrases; "catchphrases" is an array of 2-3 '
+    '[[rule:voice]]; "catchphrases" is an array of 2-3 '
     'characteristic PHRASINGS this exact person falls back on — how THEY put things, grounded in their '
     'job/archetype/age (e.g. "at the end of the day", "we move", "I did not come here to make friends") — '
     'authentic verbal habits, NOT comedy bits. Ground the voice in the archetype, '
@@ -186,9 +154,11 @@ _SYSTEM = (
     "and backstory exist on their own but must NEVER be built around, reference, or revolve around any "
     "single 'player' or main character; there is no protagonist here, only a cast of equals. Make this "
     "person VISIBLY distinct from a generic warm, witty professional.\n"
+    "CARD TEXT CHECKS (HARD): [[rule:bio-no-stop]] [[rule:identity-story]] [[rule:no-copy]]\n"
     "OUTPUT CONTRACT (HARD, #1002): reply with a SINGLE raw JSON object and NOTHING else — no prose, "
     "no markdown, no ```json fences, no preamble, no chain-of-thought in the body. The first character "
-    "of your reply MUST be '{' and the last MUST be '}'. JSON only."
+    "of your reply MUST be '{' and the last MUST be '}'. JSON only.",
+    _RULE_EXAMPLES,
 )
 
 # #1002: the OpenAI/OpenRouter structured-output request — threaded onto the authoring call so a model
@@ -201,15 +171,10 @@ def _response_format_for(messages) -> Optional[dict]:
     """ORW-391: JSON mode only for a prompt that asks for JSON. DeepSeek (the OOB utility model) answers 400 "Prompt must contain the word 'json'" to a json_object request whose prompt does not, and the shared utility fn
     is also used for PROSE calls (the ORW-271 day condense): that call failed after every bedtime and the day was never condensed. Any message mentioning "json" (any case) keeps the format exactly as before."""
     try:
-        for m in messages or []:
-            c = m.get("content") if isinstance(m, dict) else None
-            if isinstance(c, str) and "json" in c.lower():
-                return _RESPONSE_FORMAT
-            if isinstance(c, list) and any(isinstance(b, dict) and "json" in str(b.get("text", "")).lower() for b in c):
-                return _RESPONSE_FORMAT
+        from src.llm_core import messages_mention_json
+        return _RESPONSE_FORMAT if messages_mention_json(messages) else None
     except Exception:
         return _RESPONSE_FORMAT
-    return None
 
 # #1044: the SHARED background-utility sampling temperature. This module's `_resolve_llm_fn` is the
 # common resolver for several background lanes (zeitgeist / off-screen texture / identity / the gateway
@@ -514,8 +479,8 @@ _AUTHOR_CONCURRENCY = 2
 # Quality floor (#3, FE-side guard): a degraded/thin authored field must never overwrite the richer
 # deterministic seeded floor in the engine. Since recordCastProfile only overwrites the fields it
 # receives, OMITTING a sub-floor field is the whole guard — the engine keeps its prior (seeded) value.
-_BIO_MIN_CHARS = 80          # a coherent presentable backstory is more than a clause
-_BIO_MIN_SENTENCES = 2       # >= 2 sentence terminators [.!?]
+_BIO_MIN_CHARS = R.BIO_FLOOR_CHARS          # a coherent presentable backstory is more than a clause
+_BIO_MIN_SENTENCES = R.BIO_FLOOR_SENTENCES       # >= 2 sentence terminators [.!?]
 _HIDDEN_ENTRY_MIN_CHARS = 12  # a real secret/weakness is more than a stray word
 _SENTENCE_TERMINATORS = re.compile(r"[.!?]")
 # `vocation` (#849) is a SHORT occupation noun phrase ("court reporter") — not a sentence. A value that
@@ -1080,9 +1045,9 @@ _BAND_BRAND_NAMES = (
 )
 _BAND_BRAND_RE = re.compile(
     r"(?<![\w])(?:%s)(?![\w])" % "|".join(re.escape(n) for n in _BAND_BRAND_NAMES), re.I)
-_ONCAMERA_MAX = 240
-_SPOT_MAX = 3  # at most this many houseguests share one house spot in their on-camera moment
-_PHOTOHAIR_MAX = 90
+_ONCAMERA_MAX = R.ONCAMERA_MAX_CHARS
+_SPOT_MAX = R.SPOT_MAX  # at most this many houseguests share one house spot in their on-camera moment
+_PHOTOHAIR_MAX = R.PHOTOHAIR_MAX_CHARS
 _SPOT_PATTERNS = (
     ("kitchen", re.compile(r"\bkitchen\b", re.I)), ("living room", re.compile(r"\bliving room\b", re.I)),
     ("dining room", re.compile(r"\bdining room\b", re.I)), ("backyard", re.compile(r"\bback ?yard\b", re.I)),
@@ -1189,11 +1154,11 @@ _LOOK_PROBLEM_TEXT = {
     "gray-hair-young": "hair reads gray/silver/salt-and-pepper for someone under 35 (write it as dyed, or pick a natural colour that fits their age)",
     "build-contradiction": "heightBuild combines opposites (broad/stocky/heavyset/burly/thick with willowy/slight/petite/lanky/reedy/slender, or tall with petite)",
     "style-wrong-family": "style/wardrobe reads as a different style family than the skeleton's presentation (stay inside the presentation family, never blend)",
-    "wardrobe-shape": "wardrobe must be 2-3 specific pieces, each with no logo, lettering, slogan, printed words, or band or brand name",
+    "wardrobe-shape": f"wardrobe must be {R.WARDROBE_MIN_PIECES}-{R.WARDROBE_MAX_PIECES} specific pieces, each with no logo, lettering, slogan, printed words, or band or brand name",
     "oncamera-shape": "onCamera is a still moment of posture, hands, gaze and expression, with no room named",
-    "oncamera-scene": "onCamera must be ONE still moment, at most 240 characters, with exactly one spot, and none of these words: " + ", ".join(_ONCAMERA_BANNED_WORDS) + " (no sequence, speech, chores or other people)",
+    "oncamera-scene": f"onCamera must be ONE still moment, at most {R.ONCAMERA_MAX_CHARS} characters, with exactly one spot, and none of these words: " + ", ".join(_ONCAMERA_BANNED_WORDS) + " (no sequence, speech, chores or other people)",
     "pronoun-mismatch": "a pronoun in onCamera, photoHair or wardrobe contradicts genderPresentation (man: he/him; woman: she/her; nonbinary: they/them)",
-    "photohair-messy": "photoHair must be at most 90 characters and positive: neat, styled, the same cut as the written hair, and none of: usually, by afternoon, messy, frizzy, flyaway, ragged, unruly, fuzzy, frays, shoved",
+    "photohair-messy": f"photoHair must be at most {R.PHOTOHAIR_MAX_CHARS} characters and positive: neat, styled, the same cut as the written hair, and none of: " + ", ".join(R.PHOTOHAIR_BANNED_WORDS),
     "oncamera-taken": "the house spot in onCamera already holds three houseguests (see taken.spots); choose a spot with fewer than three",
     "wardrobe-unreal": "a wardrobe piece or the style line is not a real garment (a work badge, lanyard or name tag, a costume, a uniform worn as a style, bare skin under a blazer, hand-sewn decoration); use ordinary pieces a shop sells",
     "wardrobe-multi": "a wardrobe piece is two things in one (a vest over a polo, sneakers with a gold chain): write each garment as its own piece",
@@ -1250,8 +1215,8 @@ def look_problems(profile: dict, npc: dict, taken: Optional[dict] = None) -> lis
         if fam["id"] not in mentioned and any(m != fam["id"] for m in mentioned):
             out.append("style-wrong-family")
     if "wardrobe" in pc and (
-            not isinstance(wardrobe, list) or not 2 <= len(items) <= 3
-            or any(len(i) > 60 or _WARDROBE_TEXT_RE.search(i) or _BAND_BRAND_RE.search(i) for i in items)):
+            not isinstance(wardrobe, list) or not R.WARDROBE_MIN_PIECES <= len(items) <= R.WARDROBE_MAX_PIECES
+            or any(len(i) > R.WARDROBE_PIECE_MAX_CHARS or _WARDROBE_TEXT_RE.search(i) or _BAND_BRAND_RE.search(i) for i in items)):
         out.append("wardrobe-shape")
     if items or pc.get("style"):
         from src import orwell_cast_realism as _R
@@ -1266,7 +1231,7 @@ def look_problems(profile: dict, npc: dict, taken: Optional[dict] = None) -> lis
         out.append("label-leak")  # an internal category name ("red-pink") in a card text: the gate scrubs it, a first pass is asked again
     if "lookSignature" in pc:
         sg = pc.get("lookSignature")
-        if (not isinstance(sg, str) or not sg.strip() or len(sg) > 90 or _WARDROBE_TEXT_RE.search(sg) or _BAND_BRAND_RE.search(sg)
+        if (not isinstance(sg, str) or not sg.strip() or len(sg) > R.SIGNATURE_MAX_CHARS or _WARDROBE_TEXT_RE.search(sg) or _BAND_BRAND_RE.search(sg)
                 or _INK_RE.search(sg)):
             out.append("signature-shape")
         else:
@@ -1393,6 +1358,168 @@ def apply_look_fallbacks(profile: dict, npc: dict, problems: list) -> list:
     return list(problems)
 
 
+
+
+# ── ORW-956: a failing field is re-asked once with the failing rule's own sentence, before a fallback may delete it ──────────────────
+# `apply_look_fallbacks` (and the parse floors) used to DELETE a field a check refused: an onCamera line with one banned word cost the
+# card its whole on-camera line, a wardrobe a second chance. `repair_failing_fields` finds which fields a fallback would delete or replace,
+# asks the writer for exactly those fields in ONE call (so at most one targeted repair per field, one extra call per card and place),
+# and keeps a new value only when it clears the rules it was asked for and brings no new look problem. Whatever is still failing then
+# goes to the fallback exactly as before, so the repair can only add a field, never remove one.
+_REPAIR_PHYS_FIELDS = ("wardrobe", "photoHair", "onCamera", "lookSignature", "style", "hair", "heightBuild")
+_REPAIR_TOP_FIELDS = ("biography", "identityConcept")
+_REPAIR_DROP_ONLY = ("wardrobe", "photoHair", "onCamera", "lookSignature")  # these vanish; style, hair and heightBuild are replaced by the brief
+
+
+def parse_dropped(text, npc: dict) -> dict:
+    """{field: code} for the biography / identityConcept the writer sent that `parse_authored_profile` then dropped on a floor
+    (`bio-floor`: under 80 characters or fewer than 2 sentences; `identity-length`: outside 12 to 250 characters)."""
+    try:
+        obj = _extract_json(text or "") if isinstance(text, str) else None
+    except Exception:  # failsoft-ok: no object, nothing was dropped by a floor
+        return {}
+    if not isinstance(obj, dict):
+        return {}
+    out = {}
+    bio = obj.get("biography")
+    if isinstance(bio, str) and bio.strip() and not _biography_meets_floor(bio.strip()):
+        out["biography"] = "bio-floor"
+    ic = obj.get("identityConcept")
+    if isinstance(ic, str) and ic.strip() and not R.IDENTITY_PARSE_MIN_CHARS <= len(" ".join(ic.split())) <= R.IDENTITY_MAX_CHARS:
+        out["identityConcept"] = "identity-length"
+    return out
+
+
+def _copy_profile(profile: dict) -> dict:
+    out = dict(profile)
+    if isinstance(out.get("physicalCharacteristics"), dict):
+        out["physicalCharacteristics"] = {k: (list(v) if isinstance(v, list) else v) for k, v in out["physicalCharacteristics"].items()}
+    return out
+
+
+def fields_a_fallback_changes(profile: dict, npc: dict, problems: list) -> list:
+    """The look fields `apply_look_fallbacks` would delete (wardrobe, photoHair, onCamera, lookSignature) or replace with the brief (style,
+    hair, heightBuild) for these problems. A deterministic mend that keeps the field (a split wardrobe, a scrubbed label, a cut
+    on-camera line) is not a deletion, so it does not count."""
+    pc = (profile or {}).get("physicalCharacteristics")
+    if not isinstance(pc, dict):
+        return []
+    probe = _copy_profile(profile)
+    apply_look_fallbacks(probe, npc, list(problems))
+    after = probe.get("physicalCharacteristics") or {}
+    out = []
+    for f in _REPAIR_PHYS_FIELDS:
+        if pc.get(f) in (None, "", [], {}):
+            continue
+        gone = after.get(f) in (None, "", [], {})
+        if gone or (f not in _REPAIR_DROP_ONLY and after.get(f) != pc.get(f)):
+            out.append(f)
+    return out
+
+
+def _repair_card(profile: dict, npc: dict) -> dict:
+    card = {k: v for k, v in (npc or {}).items()}
+    for k, v in (profile or {}).items():
+        if k == "physicalCharacteristics" and isinstance(v, dict):
+            card[k] = {**(card.get(k) if isinstance(card.get(k), dict) else {}), **v}
+        elif v not in (None, "", [], {}):
+            card[k] = v
+    return card
+
+
+def repair_ask(field_codes: dict, npc: dict, taken: Optional[dict] = None) -> str:
+    """The one-call ask: for each failing field, the sentence of every rule it failed, worded as the prompt words it."""
+    first = str((npc or {}).get("name") or "").split(" ")[0] or "the houseguest"
+    extras = {**_RULE_EXAMPLES, "name": first}
+    parts = []
+    for field, codes in field_codes.items():
+        sents = []
+        for c in codes:
+            sent = R.sentence(c, extras)
+            if sent not in sents:
+                sents.append(sent)
+        parts.append(f"{field} (it failed {', '.join(codes)}): " + " ".join(sents))
+    tail = ""
+    if isinstance(taken, dict) and taken:
+        tail = " taken = " + json.dumps(taken, ensure_ascii=False) + "."
+    return ("Only this needs fixing: " + " | ".join(parts) + "." + tail + " Reply with ONLY a JSON object holding just the field or fields "
+            "named above (the look fields inside physicalCharacteristics); change nothing else.")
+
+
+def _reply_field(obj: dict, field: str):
+    phys = obj.get("physicalCharacteristics")
+    if isinstance(phys, dict) and field in phys:
+        return phys[field]
+    return obj.get(field)
+
+
+def _clean_repair_value(field: str, v):
+    if field == "wardrobe":
+        return _clean_sheet({"wardrobe": v}).get("wardrobe")
+    if isinstance(v, str) and v.strip():
+        out = " ".join(v.split())
+        return out[:R.SIGNATURE_MAX_CHARS] if field == "lookSignature" else out
+    return None
+
+
+async def repair_failing_fields(profile: dict, npc: dict, problems: list, llm_fn, taken: Optional[dict] = None,
+                                dropped: Optional[dict] = None) -> dict:
+    """Re-ask, ONCE and in ONE model call, every field a fallback would delete or replace (and the biography / identityConcept a parse
+    floor dropped: `dropped` = `parse_dropped(...)`), with the sentence of the rule it failed. Mutates `profile` with each new value
+    that clears the rules it was asked for and brings no new look problem; returns {"asked": [...], "fixed": [...]} (no call, and empty
+    lists, when nothing is at risk). Call failures and unusable replies leave `profile` as it was. Codes and field names only in logs."""
+    asked: dict = {}
+    for f in fields_a_fallback_changes(profile, npc, problems):
+        codes = [r.code for r in R.rules_for_field(f, problems) if r.repair]
+        if codes:
+            asked[f] = codes
+    for f, code in (dropped or {}).items():
+        if (profile or {}).get(f) in (None, ""):  # a field the first draft lost on a floor and nothing has put back since
+            asked.setdefault(f, [code])
+    if not asked:
+        return {"asked": [], "fixed": []}
+    card = _repair_card(profile, npc)
+    messages = compact_rewrite_messages(card, repair_ask(asked, npc, taken))
+    try:
+        text = await llm_fn(messages)
+    except Exception as e:  # failsoft-ok: a failed repair leaves the fallback to run as it always did
+        logger.info(f"[cast-repair] call failed ({type(e).__name__})")
+        return {"asked": list(asked), "fixed": []}
+    obj = _extract_json(text or "") if isinstance(text, str) else None
+    if not isinstance(obj, dict):
+        return {"asked": list(asked), "fixed": []}
+    fixed = []
+    base_problems = set(problems)
+    for f, codes in asked.items():
+        val = _clean_repair_value(f, _reply_field(obj, f))
+        if val is None:
+            continue
+        trial = _copy_profile(profile)
+        if f in _REPAIR_TOP_FIELDS:
+            trial[f] = val
+            if f == "biography":
+                ok = (_biography_meets_floor(val) and not story_problems(trial, npc)
+                      and not [c for c in card_consistency(trial, npc) if c.startswith("story-")])
+            else:
+                ok = (R.IDENTITY_PARSE_MIN_CHARS <= len(val) <= R.IDENTITY_MAX_CHARS
+                      and not [c for c in card_consistency(trial, npc) if c.startswith("identity-")])
+        else:
+            pc = trial.get("physicalCharacteristics")
+            trial["physicalCharacteristics"] = pc = dict(pc) if isinstance(pc, dict) else {}
+            pc[f] = val
+            after = set(look_problems(trial, npc, taken))
+            ok = not (after & set(codes)) and not (after - base_problems)
+        if ok:
+            if f in _REPAIR_TOP_FIELDS:
+                profile[f] = val
+            else:
+                pcw = profile.get("physicalCharacteristics")
+                if not isinstance(pcw, dict):
+                    pcw = profile["physicalCharacteristics"] = {}
+                pcw[f] = val
+            fixed.append(f)
+    logger.info(f"[cast-repair] asked {','.join(asked)} fixed {','.join(fixed) or '-'}")
+    return {"asked": list(asked), "fixed": fixed}
 
 
 # ── ORW-388: the story must match the card ─────────────────────────────────────────────────────────────
@@ -1771,7 +1898,7 @@ def story_problems(profile: dict, npc: dict, cast=None) -> list:
 # photo-sheet pass, which may still fill them; reported, RED at the end of the run if still missing, and the card is
 # listed by `unauthored_ids` so the backfill takes it again), identity-missing (genesis owns the identity; the writer cannot
 # make one and no filler is invented), identity-* (an identity problem the repair could not settle).
-_IDENTITY_MIN_CHARS = 20
+_IDENTITY_MIN_CHARS = R.IDENTITY_MIN_CHARS
 _REQUIRED_LOOK_FIELDS = ("wardrobe", "onCamera", "photoHair")
 
 
@@ -1975,6 +2102,14 @@ async def write_photo_sheet(card: dict, taken: Optional[dict], llm_fn: LlmFn) ->
                     + (" - retrying once" if attempt == 0 else ""))
     if not fields:
         return {}, problems
+    # ORW-956: a field the fallback would delete is re-asked ONCE first (one extra call, with the failing rules' sentences)
+    holder = {"physicalCharacteristics": dict(fields)}
+    rep_result = await repair_failing_fields(holder, card, problems, llm_fn, taken)
+    if rep_result["fixed"]:
+        fields = {k: v for k, v in holder["physicalCharacteristics"].items() if k in SHEET_FIELDS}
+        problems = sheet_problems(fields, card, taken)
+        if not problems:
+            return fields, []
     out = sheet_fallbacks(fields, card, problems)
     logger.warning(f"[photo-sheet] fell back for {hid} after the retry ({', '.join(problems)})")
     return out, problems
@@ -2123,7 +2258,7 @@ async def fit_audit_pass(cards: list, llm_fn: LlmFn, write_look_fn, limit: int =
         if isinstance(sig, str) and sig.strip() and ("signature" in reason.lower() or "wardrobe" in new):
             cats = [c for c in _R.tag_card({"physicalCharacteristics": {"lookSignature": sig}}).get("signature", []) if c != "other"]
             if not any(len([h for h in held.get(c, []) if h != hid]) >= cap for c in cats):
-                new["lookSignature"] = " ".join(sig.split())[:90]
+                new["lookSignature"] = " ".join(sig.split())[:R.SIGNATURE_MAX_CHARS]
         new = {k: ([_R.scrub_labels(x) for x in v] if isinstance(v, list) else _R.scrub_labels(v)) for k, v in new.items()}
         if not new:
             logger.info(f"[fit-audit] rewrite for {hid} carried nothing usable (reply keys={sorted(str(k) for k in fresh)[:6]}, wardrobe pieces={len(wd)}, "
@@ -2329,8 +2464,7 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
             # a small rotated list keyed by this card's slot, so cards written in parallel still open differently
             parts.append("OPENING PATTERN for this card: " + "; ".join(f"{k} {v}" for k, v in op.items()))
         if parts:
-            taken_rule = ("\nCAST-WIDE TAKEN LIST (the other houseguests occupy this ground — do NOT "
-                          "duplicate it or drift this houseguest toward it): " + "; ".join(parts) + ".")
+            taken_rule = ("\n" + R.render("[[rule:taken]]", _RULE_EXAMPLES) + ": " + "; ".join(parts) + ".")
     user = (
         f"Houseguest to flesh out: {name}.\n"
         f"Public skeleton (build FROM this, never contradict it): {json.dumps(skeleton, ensure_ascii=False)}\n"
@@ -2340,10 +2474,7 @@ def build_authoring_messages(npc: dict, taken: Optional[dict] = None,
         f"{pronoun_rule}"
         f"{hand_rule}"
         f"{taken_rule}\n"
-        f"The skeleton's background and identityConcept are FACTS about {name}: the biography must agree with them "
-        f"(same job, same years of service, same workplace) and may add to them, never contradict them.\n"
-        f"The biography is about {name} and no one else: write it about {name} by that exact name (or by role), "
-        f"and never give them any other first name. Use the first name at least once in the biography.\n"
+        + R.render("[[rule:background-years]]\n[[rule:bio-subject]]\n", {**_RULE_EXAMPLES, "name": name}) +
         f"Write {name}'s secret bible as JSON now — their own independent life, no protagonist."
     )
     return [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": user}]
@@ -2447,7 +2578,7 @@ def parse_authored_profile(text: str, houseguest_id: str) -> Optional[dict]:
     # (genesis's was written before the name, gender and age were settled and is never shown once this lands).
     if isinstance(obj.get("identityConcept"), str):
         ic = " ".join(obj["identityConcept"].split())
-        if 12 <= len(ic) <= 250:  # ORW-437: the prompt promises "under 250 characters"
+        if R.IDENTITY_PARSE_MIN_CHARS <= len(ic) <= R.IDENTITY_MAX_CHARS:  # ORW-437: the prompt promises "under 250 characters"
             out["identityConcept"] = ic
     # The PUBLIC occupation (#849) — forwarded so the engine keeps it in lockstep with the biography and
     # re-grounds the hidden stakes off the job the player will infer. A blank / runaway value is dropped
@@ -2480,7 +2611,7 @@ def parse_authored_profile(text: str, houseguest_id: str) -> Optional[dict]:
                 facet["photoHair"] = " ".join(ph.split())
             ls = phys.get("lookSignature")
             if isinstance(ls, str) and ls.strip():
-                facet["lookSignature"] = " ".join(ls.split())[:90]
+                facet["lookSignature"] = " ".join(ls.split())[:R.SIGNATURE_MAX_CHARS]
             out["physicalCharacteristics"] = facet
 
     # The authored VOICE fingerprint (0084 / the 2026-07-11 expressive-e2e widening): forwarded WHOLE
@@ -3106,8 +3237,17 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
             _no_bio = lambda p: [] if (_biography_meets_floor(str((p or {}).get("biography") or "").strip())
                                        or _has_floor_biography(npc)) else ["story-no-biography"]
             problems = look_problems(profile, npc) + story_problems(profile, npc, cast) + _no_bio(profile)
+            _dropped = parse_dropped(text, npc)  # ORW-956: the biography / identityConcept the parse floors deleted from the first draft
             if problems:
                 logger.info(f"[cast-authoring] look check failed for {hid} ({', '.join(problems)}) — retrying once")
+                try:  # ORW-1025: counted per look-check failure
+                    from src import log_rings
+                    log_rings.record_soft_failure(
+                        "cast-authoring:look-check-failed",
+                        f"look check failed for {hid} ({', '.join(problems)})",
+                        corrected="strict-retry", user=user, houseguest=hid)
+                except Exception:  # pragma: no cover - the health record must never break authoring
+                    pass
                 _spend_attempt(ukey, hid)
                 try:
                     look_messages = build_authoring_messages(npc, taken=_taken_for(hid), hand=hand_by_id.get(hid))
@@ -3124,11 +3264,31 @@ async def author_cast(cast: list[dict], llm_fn: LlmFn, write_fn: WriteFn,
                         and not story_problems(look_profile, npc, cast) and not _no_bio(look_profile)
                         and not facet_hand_conflicts(look_profile, npc) and _lint_identity(look_profile)):
                     profile = look_profile
+                    _dropped = {}
                 else:
+                    # ORW-956: ONE targeted repair call for the fields a fallback would delete, before it does
+                    if not _given_up(ukey, hid):
+                        _spend_attempt(ukey, hid)
+                        _fixed = await repair_failing_fields(profile, npc, problems, llm_fn, dropped=_dropped)
+                        if _fixed["fixed"]:
+                            problems = look_problems(profile, npc) + story_problems(profile, npc, cast) + _no_bio(profile)
+                        _dropped = {}
                     applied = apply_look_fallbacks(profile, npc, problems)
                     logger.warning(
                         f"[cast-authoring] look fell back to the seeded brief for {hid} after the retry "
                         f"({', '.join(applied)}) — look-fallback")
+                    try:  # ORW-1025: a counted, visible degrade (the photo may not match the written face)
+                        from src import log_rings
+                        log_rings.record_soft_failure(
+                            "cast-authoring:look-fallback",
+                            f"look for {hid} fell back to the seeded brief after the retry ({', '.join(applied)})",
+                            corrected="seeded-brief", user=user, houseguest=hid)
+                    except Exception:  # pragma: no cover - the health record must never break authoring
+                        pass
+            elif _dropped and not _given_up(ukey, hid):
+                # ORW-956: nothing failed a look check, but a parse floor deleted the biography or identity line: ask for it once
+                _spend_attempt(ukey, hid)
+                await repair_failing_fields(profile, npc, [], llm_fn, dropped=_dropped)
             # ORW-388: whatever the retry did not clear is mended deterministically (the biography here, and the card's
             # identityConcept, which genesis wrote and no retry can rewrite). Codes and the id only in the log.
             repaired = [] if _gate_on else repair_story(profile, npc, cast)  # ORW-431: the gate below mends (and counts) it
@@ -3506,49 +3666,53 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
         # passed explicitly (read from the module global at CALL time, not `_bounded_stream`'s default
         # parameter — a default is bound once at function-definition time) so a runtime override of
         # `_AUTHORING_STREAM_WALL_CLOCK_S` (e.g. a test, or a future admin knob) actually takes effect.
-        async for chunk in _bounded_stream(stream_llm_with_fallback(
+        # ORW-983: close the wrapper whenever this loop ends, however it ends (a body error between two chunks would otherwise leave its pump blocked on its full queue until the garbage collector
+        # closes the generator, possibly in another loop).
+        _stream = _bounded_stream(stream_llm_with_fallback(
             candidates, messages, temperature=_temperature, policy=_policy,
-            max_tokens=cap, response_format=(_response_format_for(messages) if json_mode else None)), wall_clock_s=_AUTHORING_STREAM_WALL_CLOCK_S):
-            # stream_llm yields SSE-ish data lines; keep only the assistant text deltas.
-            piece = _delta_text(chunk)
-            if piece:
-                parts.append(piece)
-                continue
-            if isinstance(chunk, str) and chunk.lstrip().startswith("event: error"):
-                _error_frame = _error_frame or chunk  # ORW-437: the stream failed; the text so far is a PARTIAL
-                continue
-            # S3b: keep reasoning/thinking deltas in a SEPARATE buffer (never the visible body) so a
-            # misrouted JSON answer is recoverable — see the empty-visible fallback in `_fn`.
-            rpiece = _reasoning_delta_text(chunk)
-            if rpiece:
-                rparts.append(rpiece)
-                continue
-            # ADR 0010: capture the usage envelope (the trailing 'usage' SSE event) for the meter,
-            # and the terminal finish event ("length" ⇒ the model was CUT OFF by the output cap).
-            s = str(chunk or "")
-            if s.startswith("data:"):
-                _body = s[5:].strip()
-                if _body and _body != "[DONE]":
-                    try:
-                        _d = json.loads(_body)
-                    except (ValueError, TypeError):
-                        _d = None
-                    if isinstance(_d, dict) and _d.get("type") == "usage":
-                        _ud = _d.get("data") or {}
-                        if _ud:
-                            _usage = {
-                                "input_tokens": _ud.get("input_tokens", 0),
-                                "output_tokens": _ud.get("output_tokens", 0),
-                                "cached_tokens": _ud.get("cached_tokens", 0) or 0,
-                                "cache_miss_tokens": _ud.get("cache_miss_tokens"),
-                                "reasoning_tokens": _ud.get("reasoning_tokens", 0) or 0,
-                                "cost": _ud.get("cost"),
-                                "cost_estimated": bool(_ud.get("cost_estimated")),
-                                "model": _ud.get("model"),
-                                "provider": _ud.get("provider"),
-                            }
-                    elif isinstance(_d, dict) and _d.get("type") == "finish":
-                        _finish = _d.get("reason") or _finish
+            max_tokens=cap, response_format=(_response_format_for(messages) if json_mode else None)), wall_clock_s=_AUTHORING_STREAM_WALL_CLOCK_S)
+        async with contextlib.aclosing(_stream):
+            async for chunk in _stream:
+                # stream_llm yields SSE-ish data lines; keep only the assistant text deltas.
+                piece = _delta_text(chunk)
+                if piece:
+                    parts.append(piece)
+                    continue
+                if isinstance(chunk, str) and chunk.lstrip().startswith("event: error"):
+                    _error_frame = _error_frame or chunk  # ORW-437: the stream failed; the text so far is a PARTIAL
+                    continue
+                # S3b: keep reasoning/thinking deltas in a SEPARATE buffer (never the visible body) so a
+                # misrouted JSON answer is recoverable — see the empty-visible fallback in `_fn`.
+                rpiece = _reasoning_delta_text(chunk)
+                if rpiece:
+                    rparts.append(rpiece)
+                    continue
+                # ADR 0010: capture the usage envelope (the trailing 'usage' SSE event) for the meter,
+                # and the terminal finish event ("length" ⇒ the model was CUT OFF by the output cap).
+                s = str(chunk or "")
+                if s.startswith("data:"):
+                    _body = s[5:].strip()
+                    if _body and _body != "[DONE]":
+                        try:
+                            _d = json.loads(_body)
+                        except (ValueError, TypeError):
+                            _d = None
+                        if isinstance(_d, dict) and _d.get("type") == "usage":
+                            _ud = _d.get("data") or {}
+                            if _ud:
+                                _usage = {
+                                    "input_tokens": _ud.get("input_tokens", 0),
+                                    "output_tokens": _ud.get("output_tokens", 0),
+                                    "cached_tokens": _ud.get("cached_tokens", 0) or 0,
+                                    "cache_miss_tokens": _ud.get("cache_miss_tokens"),
+                                    "reasoning_tokens": _ud.get("reasoning_tokens", 0) or 0,
+                                    "cost": _ud.get("cost"),
+                                    "cost_estimated": bool(_ud.get("cost_estimated")),
+                                    "model": _ud.get("model"),
+                                    "provider": _ud.get("provider"),
+                                }
+                        elif isinstance(_d, dict) and _d.get("type") == "finish":
+                            _finish = _d.get("reason") or _finish
         # ADR 0010: one Vault-free token/cost entry per authoring call, keyed by the canonical game
         # session so it aggregates with the game's narration spend. Fail-open; never seen by the player.
         if owner and _usage:
@@ -3593,6 +3757,13 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
             messages = [{"role": "user", "content": messages}]
         elif not isinstance(messages, list):
             messages = [{"role": "user", "content": str(messages)}]
+        try:  # ORW-1024: name the caller class so a provider 400 says who sent it (labels only)
+            import sys as _sys
+            from src.llm_core import LLM_CALLER
+            _f = _sys._getframe(1)
+            LLM_CALLER.set(f"{_f.f_globals.get('__name__', '?')}.{_f.f_code.co_name}")
+        except Exception:  # pragma: no cover - a log label only
+            pass
         text, finish, reasoning = await _once(messages, _max_tokens)
         if finish == "error":
             # ORW-437: a failed stream RAISES (never returns the frame as text): every consumer already wraps the call in a
@@ -3608,6 +3779,14 @@ async def _resolve_llm_fn(owner: Optional[str], *, prefix: str = "utility",
             logger.warning(
                 f"[cast-authoring] completion hit the output cap (finish_reason=length at "
                 f"max_tokens={_max_tokens}) — retrying ONCE at a doubled cap {retry_cap}")
+            try:  # ORW-1025: a counted, visible degrade (every cast paying two calls shows on /admin/status)
+                from src import log_rings
+                log_rings.record_soft_failure(
+                    "cast-authoring:output-cap-hit",
+                    f"completion hit the output cap at max_tokens={_max_tokens}",
+                    corrected="doubled-cap-retry", user=owner)
+            except Exception:  # pragma: no cover - the health record must never break authoring
+                pass
             retry_text, _retry_finish, retry_reasoning = await _once(messages, retry_cap)
             if _retry_finish == "error":
                 # ORW-437: the doubled-cap retry ended in an error frame: raise, never hand the frame back as a completion.
@@ -3914,6 +4093,29 @@ def authoring_completeness(user: Optional[str], roster_cards: list) -> dict:
             "givenUp": giveups(user)}
 
 
+async def pipeline_cast_for(owner: Optional[str]) -> Optional[dict]:
+    """ORW-969: the FULL cast for a server-side casting job, or None when the engine cannot give it.
+
+    ``get_game_state`` lists only the houseguests who have walked in during the premiere (ORW-710); a job that must see every card reads this instead (the engine's unadvertised
+    ``pipelineCast``, never sent to the browser or the narrator). Returns the engine's dict (``started``, ``total``, ``unarrivedCount``, ``house``), ``{"started": False}`` for a
+    no-game user, and None for ANY failure or an unexpected shape (an engine without the tool, an outage), so every caller can fall back to the met-only read exactly as before."""
+    from src import orwell_engine
+
+    try:
+        pc = await orwell_engine.pipeline_cast(user=owner)
+    except Exception as e:
+        logger.info("[cast-authoring] pipeline cast read unavailable for %s: %s", _safe_user(owner), e)
+        return None
+    if not isinstance(pc, dict):
+        return None
+    if pc.get("started") is False:
+        return {"started": False}
+    unarrived = pc.get("unarrivedCount")
+    if not isinstance(pc.get("house"), list) or not isinstance(unarrived, int) or isinstance(unarrived, bool):
+        return None
+    return pc
+
+
 async def authoring_completeness_for(user: Optional[str]) -> Optional[dict]:
     """{total, authored, missing} for this user's active NPC cast, or None pre-game / engine-down.
 
@@ -3923,17 +4125,31 @@ async def authoring_completeness_for(user: Optional[str]) -> Optional[dict]:
     health surface; best-effort — any failure reads as None, never a 500."""
     from src import orwell_engine
 
-    try:
-        state = await orwell_engine.get_game_state(user=user)
-    except Exception:
-        return None
+    # ORW-969: read the FULL cast, so every houseguest (arrived or not) is counted and the gate compares the whole cast with the threshold. Unavailable => the met-only read below.
+    state = await pipeline_cast_for(user)
+    full_cast = state is not None
+    if state is None:
+        try:
+            state = await orwell_engine.get_game_state(user=user)
+        except Exception:
+            return None
     if not isinstance(state, dict) or state.get("started") is False:
         return None
     try:
         from routes.orwell_routes import roster_cards  # the one roster-card derivation (G9), public
-        return authoring_completeness(user, roster_cards(state, user))
+        comp = authoring_completeness(user, roster_cards(state, user))
     except Exception:
         return None
+    if full_cast:
+        return comp  # the pipeline read: nothing is withheld, so no `unarrived` allowance rides with the counts
+    # ORW-948: during the premiere the engine's public read lists only the houseguests who have walked in (ORW-710)
+    # and counts the rest in `unarrivedCount`. `total` / `authored` above therefore cover the arrived cast only; the
+    # count of the withheld ones rides beside them (a number, never a card) so the house-entry gate does not wait
+    # for cards this read cannot show. Absent or zero (the flag off, or everyone is in) leaves the dict as it was.
+    unarrived = state.get("unarrivedCount")
+    if isinstance(unarrived, int) and not isinstance(unarrived, bool) and unarrived > 0:
+        comp["unarrived"] = unarrived
+    return comp
 
 
 def authoring_backfill_allowed(user: Optional[str]) -> bool:
@@ -3955,11 +4171,14 @@ async def backfill_unauthored(missing_ids: list, user: Optional[str]) -> int:
         return 0
     from src import orwell_engine
 
-    try:
-        state = await orwell_engine.get_game_state(user=user)
-    except Exception as e:
-        logger.info("[cast-authoring] backfill state read failed for %s: %s", _safe_user(user), e)
-        return 0
+    # ORW-969: the straggler list now includes houseguests who have not walked in yet, so the cast is read in full; unavailable => the met-only read.
+    state = await pipeline_cast_for(user)
+    if state is None:
+        try:
+            state = await orwell_engine.get_game_state(user=user)
+        except Exception as e:
+            logger.info("[cast-authoring] backfill state read failed for %s: %s", _safe_user(user), e)
+            return 0
     if not isinstance(state, dict) or state.get("started") is False:
         return 0
     house = state.get("house") if isinstance(state.get("house"), list) else []
@@ -4085,6 +4304,9 @@ _HOUSE_READY_INLINE_S = _env_float("ORWELL_HOUSE_READY_INLINE_S", 10.0)
 # After a REFUSED entry the background gate-clear watch keeps polling this much longer, so the season
 # still opens (and the skipped post-start kicks still run) the moment authoring finally lands.
 _HOUSE_READY_WATCH_TIMEOUT_S = _env_float("ORWELL_HOUSE_READY_WATCH_TIMEOUT_S", 1800.0)
+# ORW-949: after the long window expires the watch keeps re-checking at this slow interval, so a cast that
+# lands late still releases the player without a process restart.
+_HOUSE_READY_RECHECK_S = _env_float("ORWELL_HOUSE_READY_RECHECK_S", 60.0)
 
 # The HOLDING/refused marker: which users currently have house entry held (or refused) because the
 # cast isn't authored yet. While a user's marker is set, the FE status/state projections OVERLAY
@@ -4093,6 +4315,15 @@ _HOUSE_READY_WATCH_TIMEOUT_S = _env_float("ORWELL_HOUSE_READY_WATCH_TIMEOUT_S", 
 # would report a started game mid-hold). Doubles as the loud, in-process health signal (operator-
 # visible; read by tests). Never a silent floor start.
 _HOUSE_ENTRY_GATE_BLOCKS: dict = {}
+
+
+def _checklist_hold(user: Optional[str], held: bool) -> None:
+    """ORW-970: mirror the in-process hold marker into the persisted season-start checklist (a no-op without a record; never raises)."""
+    try:
+        from src import orwell_season_checklist
+        orwell_season_checklist.mark_hold(user, held)
+    except Exception:
+        pass
 # One background gate-clear watch per user (exactly-once post-start kicks on clear).
 _HOUSE_READY_WATCHES: dict = {}
 
@@ -4181,6 +4412,29 @@ async def house_entry_gate_active(owner: Optional[str]) -> bool:
     return await _utility_model_available(owner)
 
 
+def _hold_since(user: Optional[str]) -> float:
+    """ORW-971: when this hold began. A re-stamp of a live marker (the readiness result, the expired watch) keeps the first time, so the hold's age never resets."""
+    prev = _HOUSE_ENTRY_GATE_BLOCKS.get(_safe_user(user)) or {}
+    since = prev.get("since")
+    return float(since) if isinstance(since, (int, float)) and not isinstance(since, bool) else time.time()
+
+
+def house_entry_holds() -> list:
+    """ORW-971: every active house-entry hold, for the health snapshot and the doctor. One row per owner: ``{owner, ageS, authored, total, missing, windowS, overdue}``.
+    ``overdue`` = held longer than the watch window (`ORWELL_HOUSE_READY_WATCH_TIMEOUT_S`, 1800 s): the cast should have landed by then. Counts and ids only; never cast text."""
+    now = time.time()
+    rows = []
+    for owner, hold in list(_HOUSE_ENTRY_GATE_BLOCKS.items()):
+        if not isinstance(hold, dict):
+            continue
+        began = hold.get("since") if isinstance(hold.get("since"), (int, float)) else hold.get("at")
+        age = max(0, int(now - began)) if isinstance(began, (int, float)) else 0
+        rows.append({"owner": str(owner), "ageS": age, "authored": hold.get("authored"), "total": hold.get("total"),
+                     "missing": hold.get("missing"), "windowS": int(_HOUSE_READY_WATCH_TIMEOUT_S),
+                     "overdue": age > _HOUSE_READY_WATCH_TIMEOUT_S})
+    return sorted(rows, key=lambda r: -r["ageS"])
+
+
 def begin_house_entry_hold(user: Optional[str], info: Optional[dict] = None) -> None:
     """Mark that house entry is being HELD for `user` (the gate is awaiting authoring). Set BEFORE
     the readiness wait begins so a concurrent /status or /state poll during the hold reports the
@@ -4188,7 +4442,8 @@ def begin_house_entry_hold(user: Optional[str], info: Optional[dict] = None) -> 
     the instant createCharacter commits)."""
     try:
         _HOUSE_ENTRY_GATE_BLOCKS[_safe_user(user)] = {
-            "state": "authoring", **(info or {}), "at": time.time()}
+            "state": "authoring", **(info or {}), "at": time.time(), "since": _hold_since(user)}
+        _checklist_hold(user, True)
     except Exception:
         pass
 
@@ -4199,7 +4454,8 @@ def record_house_entry_gate_block(user: Optional[str], info: dict) -> None:
     keeps the status/state overlay reporting the holding state until the gate-clear watch releases."""
     try:
         _HOUSE_ENTRY_GATE_BLOCKS[_safe_user(user)] = {
-            "state": "authoring", **(info or {}), "at": time.time()}
+            "state": "authoring", **(info or {}), "at": time.time(), "since": _hold_since(user)}
+        _checklist_hold(user, True)
     except Exception:
         pass
 
@@ -4207,6 +4463,7 @@ def record_house_entry_gate_block(user: Optional[str], info: dict) -> None:
 def clear_house_entry_gate_block(user: Optional[str]) -> None:
     """Clear the holding/refused marker once the cast is ready / the game genuinely starts."""
     _HOUSE_ENTRY_GATE_BLOCKS.pop(_safe_user(user), None)
+    _checklist_hold(user, False)
 
 
 def house_entry_gate_status(user: Optional[str]) -> Optional[dict]:
@@ -4228,7 +4485,8 @@ def house_ready_watch_active(user: Optional[str]) -> bool:
 def kickoff_house_ready_watch(owner: Optional[str],
                               on_ready: Optional[Callable[[], None]] = None,
                               *, timeout: Optional[float] = None,
-                              poll_interval: Optional[float] = None) -> bool:
+                              poll_interval: Optional[float] = None,
+                              recheck_interval: Optional[float] = None) -> bool:
     """After a REFUSED house entry: keep watching authoring in the background and, the moment the
     cast reaches the threshold, CLEAR the holding marker, run the post-start kicks the early holding
     return skipped (`on_ready` — e.g. the 0062 zeitgeist capture) EXACTLY ONCE, and push a server-side
@@ -4240,6 +4498,24 @@ def kickoff_house_ready_watch(owner: Optional[str],
     if existing is not None and not existing.done():
         return False
 
+    def _release(ready: dict) -> None:
+        clear_house_entry_gate_block(owner)
+        logger.info(
+            "[house-entry-gate] gate CLEARED for %s — cast authored %s/%s; opening the "
+            "season and running the deferred post-start kicks", k,
+            ready.get("authored"), ready.get("total"))
+        if on_ready is not None:
+            try:
+                on_ready()
+            except Exception as e:
+                logger.warning(
+                    "[house-entry-gate] deferred post-start kick failed for %s: %s", k, e)
+        try:
+            from src import orwell_game_session
+            orwell_game_session.publish_game_updated(owner)
+        except Exception:
+            pass
+
     async def _watch():
         try:
             ready = await await_house_ready(
@@ -4247,22 +4523,7 @@ def kickoff_house_ready_watch(owner: Optional[str],
                 timeout=(_HOUSE_READY_WATCH_TIMEOUT_S if timeout is None else timeout),
                 poll_interval=poll_interval)
             if ready.get("ready"):
-                clear_house_entry_gate_block(owner)
-                logger.info(
-                    "[house-entry-gate] gate CLEARED for %s — cast authored %s/%s; opening the "
-                    "season and running the deferred post-start kicks", k,
-                    ready.get("authored"), ready.get("total"))
-                if on_ready is not None:
-                    try:
-                        on_ready()
-                    except Exception as e:
-                        logger.warning(
-                            "[house-entry-gate] deferred post-start kick failed for %s: %s", k, e)
-                try:
-                    from src import orwell_game_session
-                    orwell_game_session.publish_game_updated(owner)
-                except Exception:
-                    pass
+                _release(ready)
             else:
                 # Still below the threshold after the long watch window — stay LOUD (the marker
                 # stays, the overlay keeps reporting the holding state, the operator sees it).
@@ -4271,6 +4532,14 @@ def kickoff_house_ready_watch(owner: Optional[str],
                     "entry remains held (set ORWELL_ALLOW_FLOOR_START=1 to override).", k,
                     ready.get("authored"), ready.get("total"))
                 record_house_entry_gate_block(owner, ready)
+                try:  # ORW-971: the expired watch is the stuck-hold alert (RED on /admin/status, a FAIL in the doctor)
+                    from src import log_rings
+                    log_rings.record_soft_failure(
+                        "season-start:hold-expired",
+                        "house entry still held after the watch window: cast %s/%s authored" % (ready.get("authored"), ready.get("total")),
+                        user=owner)
+                except Exception:  # failsoft-ok: the alert is bookkeeping, the marker and the error log above stand
+                    pass
                 # STRICT enrichment policy: the exhausted watch is the REAL "house entry refused"
                 # failure (2026-07-13 — it moved here from the createCharacter turn, whose short
                 # inline wait now returns the holding card as the NORMAL path, not a failure).
@@ -4285,6 +4554,19 @@ def kickoff_house_ready_watch(owner: Optional[str],
                             f"{ready.get('total')} authored after the readiness window")
                 except Exception:
                     pass
+                # ORW-949: an expired watch used to keep the hold until a restart. Keep re-checking slowly
+                # (one poll per round) until the cast is ready or someone else clears the marker.
+                gap = _HOUSE_READY_RECHECK_S if recheck_interval is None else recheck_interval
+                while house_entry_gate_status(owner) is not None:
+                    await asyncio.sleep(max(0.0, float(gap)))
+                    if house_entry_gate_status(owner) is None:
+                        break
+                    ready = await await_house_ready(owner, timeout=0, poll_interval=poll_interval)
+                    if ready.get("ready"):
+                        _release(ready)
+                        break
+        except Exception as e:  # noqa: BLE001 - background helper never raises
+            logger.warning("[house-entry-gate] watch failed for %s: %s", k, e)
         finally:
             if _HOUSE_READY_WATCHES.get(k) is task_ref[0]:
                 _HOUSE_READY_WATCHES.pop(k, None)
@@ -4323,9 +4605,20 @@ async def await_house_ready(owner: Optional[str], *, min_authored: int = HOUSE_R
             total = int(comp.get("total") or _HOUSE_READY_TOTAL_DEFAULT)
             missing_n = int(comp.get("missing") if comp.get("missing") is not None
                             else max(0, total - authored))
-            last = {"ready": authored >= min_authored, "authored": authored,
+            # ORW-948: the threshold is the FULL cast, but while the premiere's entrances run the read above shows only
+            # the houseguests who have arrived (`unarrived` = how many it withholds). Comparing the arrived count to
+            # the full-cast threshold could never pass (prod, 2026-11-26: 7 of 7 arrived cards authored, 8 still to
+            # walk in, held against 15 until the watch expired and kept the hold). The withheld cards cannot be read
+            # here, so they come off the threshold: every houseguest this read CAN show must be authored. A later
+            # arrival that is still on the floor is picked up by the roster backfill the moment its card appears.
+            unarrived = comp.get("unarrived")
+            unarrived = unarrived if isinstance(unarrived, int) and not isinstance(unarrived, bool) and unarrived > 0 else 0
+            need = max(0, int(min_authored) - unarrived)
+            last = {"ready": authored >= need, "authored": authored,
                     "total": total, "missing": missing_n}
-            if authored >= min_authored:
+            if unarrived:
+                last["unarrived"] = unarrived
+            if authored >= need:
                 return last
             # Nudge the stragglers through the existing (debounced, fail-soft) backfill spine so a
             # transient per-NPC authoring miss is re-attempted while we wait.
@@ -4341,10 +4634,12 @@ async def await_house_ready(owner: Optional[str], *, min_authored: int = HOUSE_R
 async def _kick_backfill_for_stragglers(owner: Optional[str]) -> None:
     """Best-effort: re-author the NPCs still on the floor via the existing backfill spine."""
     from src import orwell_engine
-    try:
-        state = await orwell_engine.get_game_state(user=owner)
-    except Exception:
-        return
+    state = await pipeline_cast_for(owner)  # ORW-969: the full cast; unavailable => the met-only read
+    if state is None:
+        try:
+            state = await orwell_engine.get_game_state(user=owner)
+        except Exception:
+            return
     if not isinstance(state, dict) or state.get("started") is False:
         return
     try:

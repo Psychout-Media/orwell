@@ -14,6 +14,11 @@ RITUAL = {
     "up for eviction": "Two houseguests are up for eviction this week, the keys all handed out.",
     "ceremony begins": "The nomination ceremony begins. The house gathers in the living room as the HOH reaches for the box of keys.",
     "last two": "The last two houseguests are left without a key and stand together.",
+    # ORW-915: the ritual voiced as a list, as the dev narrator did in Fable's week-1 run (roles only here)
+    "key list": "The HOH starts at the far end and works her way around: a key for Houseguest A, a key for Houseguest B, a key for Houseguest C, each one set down with a small click.",
+    "nothing in front of them": "Then there are two people in the room with nothing in front of them, and the HOH looks up.",
+    "two keys in hand": "The HOH stands at the head of the room with the two keys in her hand.",
+    "about to name": "The HOH is about to name the nominees.",
 }
 
 SOCIAL = {
@@ -21,6 +26,9 @@ SOCIAL = {
     "hypothetical": "If the HOH puts me on the block I will fight, and they know it.",
     "plain": "The kitchen hums. Someone laughs. A door opens. Footsteps.",
     "drink": "A houseguest hands me a drink and we talk about the week ahead.",
+    "a key for the door": "I ask the HOH to cut a key for the storage room door.",
+    "nothing in front": "Two people at the pool table sit with nothing to say to each other.",
+    "about to name a plan": "The HOH is about to name the house's new quiet hour.",
 }
 
 

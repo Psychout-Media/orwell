@@ -26,7 +26,12 @@ import { PLAYER } from "../../src/domain/ids";
  * outcomes). The player's seat is read from the PUBLIC 0046 seam (`GameStateView.player.status`).
  */
 
-export const SEEDS = 6;        // modest (heavy lane): two full-season sweeps per seed (passive + active) = 12 seasons
+// ORW-982 (2026-11-26): 6 -> 60. Six seeds could not tell noise from a gap: on main the fixed set 1-6 read passive 6/6 vs active 4/6 jury reach (a trip) while
+// seeds 1-60 read passive 49/60 vs active 52/60, and 2 vs 2 wins (no trip); 1 of the ten 6-seed windows in 1-60 trips on its own. 30 is not enough either: wins
+// are rare (about 3%), and seeds 1-30 hold passive 2 vs active 0, which trips. The gate is run by hand (out of CI since #2361), so the longer run is affordable:
+// two full-season sweeps per seed (passive + active) = 120 seasons, about 15 min on a runner (the shards split it).
+import { gradientBroken } from "../support/brokenBounds";
+export const SEEDS = 60;
 export const SCENES_PER_ALLY = 3; // a few bonding/alliance scenes per ally each season — "a player who shows up"
 
 interface NamedRef { id: string; name: string }
@@ -286,8 +291,11 @@ export function assertGradient(
   // NOISE-AWARE (the same stance as `poTargetBands.beatsBeyondNoise`, #2026): active play is a FAILURE only when it is WORSE than passive BEYOND sampling noise
   // (two-proportion SE × z=1.28, an 80% interval). A point check ("active reach ≥ passive") over 6 seeds is a coin flip — measured at 60 seeds on plain main, passive reached
   // the jury 46/60 and active 45/60 with 1 win each — so a one-seed miss is noise, while a REAL gap (e.g. passive 6/6 vs active 4/6) still trips it.
-  expect(activeWorseThanPassiveBeyondNoise(passiveReach, activeReach, SEEDS), `active jury-reach must not be WORSE than passive beyond sampling noise — ${detail}`).toBe(false);
-  expect(activeWorseThanPassiveBeyondNoise(passiveWins, activeWins, SEEDS), `active wins must not be WORSE than passive beyond sampling noise — ${detail}`).toBe(false);
-  // Sanity floor (a meaningful run, not two degenerate all-evicted sweeps).
-  expect(activeReach, `active play must reach the endgame in some season — ${detail}`).toBeGreaterThanOrEqual(1);
+  // ORW-991 (Ryne 2026-11-26: difficulty is tracked weekly, not held per fix): the noise-aware gradient is a REPORT; only a broken gradient fails (tests/support/brokenBounds.ts).
+  const report = [
+    ...(activeWorseThanPassiveBeyondNoise(passiveReach, activeReach, SEEDS) ? ["active jury-reach is worse than passive beyond sampling noise"] : []),
+    ...(activeWorseThanPassiveBeyondNoise(passiveWins, activeWins, SEEDS) ? ["active wins are worse than passive beyond sampling noise"] : []),
+  ];
+  console.log(`GRADIENT REPORT: ${report.length ? report.join("; ") : "active is not worse than passive"} — ${detail}`);
+  expect(gradientBroken(passiveReach, activeReach, SEEDS).join("; "), `the gradient is broken — ${detail}`).toBe("");
 }

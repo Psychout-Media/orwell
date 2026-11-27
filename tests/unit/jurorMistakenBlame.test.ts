@@ -48,9 +48,13 @@ describe("A62 - mistaken blame and the mend appeal", () => {
   it("end to end: with deduction + profiles ON some eviction records a WRONG blame; with the flag OFF none is ever recorded", () => {
     let wrongOn = 0, wrongOff = 0;
     for (let seed = 1; seed <= 12; seed++) {
+      // ORW-985: the seed is cast once and restored for each arm.
+      const user = `mb-${seed}`;
+      const reg = new GameSessionRegistry();
+      reg.sandboxFor(user).session.createCharacter({ playerName: "P", seed });
+      const cast = JSON.stringify(reg.snapshot(user));
       for (const on of [true, false]) {
-        const s = new GameSessionRegistry().sandboxFor(`mb-${on}-${seed}`).session;
-        s.createCharacter({ playerName: "P", seed });
+        const s = new GameSessionRegistry().restore(user, JSON.parse(cast)).session;
         s.setVoteDeductionEnabled(true);
         s.setJurorProfilesEnabled(on);
         s.advanceToFinale();

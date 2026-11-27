@@ -7,6 +7,7 @@ engine side, not here). Endpoint comes from ``ORWELL_ENGINE_MCP_URL``.
 import asyncio
 import logging
 import os
+import re
 import time
 
 import httpx
@@ -806,6 +807,7 @@ async def create_character(player_name: str | None = None, *, archetype=None, st
         args["interviewNotes"] = [str(n) for n in interview_notes if str(n).strip()]
     if seed is not None:
         args["seed"] = seed
+        args["isolateSeason"] = True  # ORW-921: an explicit seed is a test or a replay; a restart carries nothing of the dead season, so the seed deals the same season on any stack
     args.update(_avoid_args(user, seed))
     if confirm_restart:
         args["confirmRestart"] = True
@@ -856,6 +858,8 @@ DECISION_KINDS: frozenset = frozenset({
     "deal-offer",
     # ORW-596 — the player's own answer (vote: deny | admit | redirect, statement: their words) to an NPC's public accusation at a house meeting. Open state like a deal offer, never a card.
     "meeting-answer",
+    # ORW-743 - the player tells the room the thing it is talking about, first (statement: their own words, verbatim). Open state, never a card.
+    "say-it-first",
     # ORW-281 4a — a WATCH step of a staged ceremony. NOT a decision: it is answered by advanceGame (Continue); the engine REFUSES submitDecision for it
     # (typed). It lives in the union only because the engine's pending-kind union carries it; card-only, never model-submittable.
     "ceremony-step",
@@ -866,12 +870,13 @@ DECISION_KINDS: frozenset = frozenset({
 # low-stakes / in-chat kinds (an allow-list, so a NEW decision kind is card-only by default — fail closed):
 #   comp-intent / comp-round — the player's competition approach (the engine owns the outcome);
 #   deal-offer               — the in-chat accept/decline of an NPC's open offer (a light social choice);
-#   meeting-answer           — the player's own in-chat answer to an accusation at a house meeting (their words; open state, never a card).
+#   meeting-answer           — the player's own in-chat answer to an accusation at a house meeting (their words; open state, never a card);
+#   say-it-first             — ORW-743: the player tells the room, in their own words, what it has been talking about about them (open state, never a card).
 # Every other kind (nominations, veto-decision, secret-veto, eviction-vote, tie-break, final-eviction,
 # goodbye-message, finale-*, juror-*, exit-interview, replacement, houseguests-choice, self-evict) is bound
 # ONLY by the player's own confirm on its card (POST /api/orwell/decision or the WS relay — unchanged).
 # `tests/test_a6_model_submit_gate.py` pins this set and its parity with the card's HIGH_STAKES_KINDS.
-MODEL_SUBMITTABLE_KINDS: frozenset = frozenset({"comp-intent", "comp-round", "deal-offer", "meeting-answer"})
+MODEL_SUBMITTABLE_KINDS: frozenset = frozenset({"comp-intent", "comp-round", "deal-offer", "meeting-answer", "say-it-first"})
 CARD_ONLY_KINDS: frozenset = DECISION_KINDS - MODEL_SUBMITTABLE_KINDS
 
 
@@ -1169,6 +1174,35 @@ async def get_game_state(user: str | None = None, timeout: float | None = None) 
         raise
 
 
+async def pipeline_cast(user: str | None = None, timeout: float | None = None) -> dict:
+    """ORW-969: the FULL cast (every houseguest, arrived or not) for SERVER-SIDE casting jobs only: the house-entry gate, the habits step, the authoring backfills.
+
+    ``get_game_state`` withholds the houseguests who have not walked in yet during the premiere (ORW-710), which is right for the browser and the narrator and blind for a job that
+    must check every card. This read is the engine's unadvertised ``pipelineCast``: ``{started, total, unarrivedCount, house: [...]}`` with the same public house entries. It must
+    never be returned by a route or handed to the narrator. A no-game user reads as ``{"started": False}`` (as ``get_game_state``); an engine without the tool raises, and
+    ``orwell_cast_authoring.pipeline_cast_for`` turns that into "unavailable" so the callers fall back to the met-only read."""
+    try:
+        return await _call("pipelineCast", {}, user=user, timeout=timeout if timeout is not None else _FRAMING_TIMEOUT)
+    except EngineToolError as e:
+        if e.no_game:
+            return {"started": False}
+        raise
+
+
+# ORW-997: per user, whether the latest staged-premiere release (an arrival or a toast batch) was already voiced by an earlier reply. Set by the FE's per-turn premiere hook; read by `get_moment_prompt` so
+# the moment prompt marks the entrance `voiced` (the narrator never plays the same release twice, and is not handed upcoming speakers).
+_ENTRANCE_VOICED: dict = {}
+
+
+def set_entrance_voiced(user, voiced: bool) -> None:
+    """ORW-997: record whether the latest staged-premiere release was already voiced (False clears it)."""
+    k = str(user or "")
+    if voiced:
+        _ENTRANCE_VOICED[k] = True
+    else:
+        _ENTRANCE_VOICED.pop(k, None)
+
+
 async def get_moment_prompt(moment: str | None = None, user: str | None = None, timeout: float | None = None,
                             brief: dict | None = None) -> dict:
     """The managed system prompt to inject for this user's current (or given) moment.
@@ -1180,6 +1214,8 @@ async def get_moment_prompt(moment: str | None = None, user: str | None = None, 
         args["moment"] = moment
     if brief is not None:
         args["brief"] = brief
+    if _ENTRANCE_VOICED.get(str(user or "")):
+        args["entranceVoiced"] = True  # ORW-997
     try:
         from src.zero_clocks import zero_clocks_on
         if zero_clocks_on():
@@ -1217,6 +1253,31 @@ async def run_competition(comp_type: str | None = None, participant_ids: list | 
     return await _call("runCompetition", args, user=user)
 
 
+_WITNESS_ID_RE = re.compile(r"(?:player|npc:\d+)")
+
+
+def witness_set_for(initiator, with_ids) -> tuple:
+    """ORW-1022: the engine refuses a whole recordInteraction when witnessSet is not an array of houseguest ids
+    ('player' or 'npc:<n>'). A bare string or single id is coerced to a one-entry list (iterating it char by char
+    produced the refused shape), entries that are not ids are dropped. Returns (witness_list, dropped_count)."""
+    if isinstance(with_ids, (str, int)) and not isinstance(with_ids, bool):
+        with_ids = [with_ids]
+    elif not isinstance(with_ids, (list, tuple, set)):
+        with_ids = []
+    init = initiator if isinstance(initiator, str) and _WITNESS_ID_RE.fullmatch(initiator) else "player"
+    dropped = 0
+    witness = [init]
+    for w in with_ids:
+        if isinstance(w, str) and _WITNESS_ID_RE.fullmatch(w.strip()):
+            if w.strip() not in witness:
+                witness.append(w.strip())
+        else:
+            dropped += 1
+    if "player" not in witness:
+        witness.append("player")
+    return witness, dropped
+
+
 async def record_interaction(content: str, with_ids: list | None = None, initiator: str = "player", kind: str | None = None, consequence: dict | None = None, expected_beat_seq: int | None = None, idempotency_key: str | None = None, felt_minutes: int | None = None, assurance: dict | None = None, heard_about_me: dict | None = None, promise: dict | None = None, statement: dict | None = None, user: str | None = None) -> dict:
     """Record a player-present scene as an engine event (player-witnessed → the player's
     knowledge, never the Vault). An optional `kind` folds the hidden relationship impact (0023);
@@ -1235,9 +1296,16 @@ async def record_interaction(content: str, with_ids: list | None = None, initiat
     AT-MOST-ONCE: under sustained two-window concurrency two turns can drain the same deferred fold and
     re-drive it, and the key is what stops that from double-folding the hidden layer (CAS alone can't —
     both re-drives carry a valid reconciled token). Absent ⇒ byte-identical to the pre-key path."""
-    witness = [initiator] + [w for w in (with_ids or []) if w != initiator]
-    if "player" not in witness:
-        witness.append("player")
+    witness, _dropped_w = witness_set_for(initiator, with_ids)
+    if _dropped_w:
+        try:  # ORW-1022: a counted, visible degrade: ids the engine would have refused the whole write over
+            from src import log_rings
+            log_rings.record_soft_failure(
+                "engine-write:witness-ids-dropped",
+                f"recordInteraction: dropped {_dropped_w} witness entr(ies) that are not houseguest ids",
+                corrected="invalid-ids-dropped")
+        except Exception:  # failsoft-ok: the health record must never break the write
+            pass
     req: dict = {"initiator": initiator, "witnessSet": witness, "content": content}
     if kind:
         req["kind"] = kind
@@ -1375,7 +1443,7 @@ async def end_of_session_summary(user: str | None = None) -> dict:
     return await _call("endOfSessionSummary", {}, user=user)
 
 
-async def advance_game(expected_beat_seq: int | None = None, idempotency_key: str | None = None, user: str | None = None) -> dict:
+async def advance_game(expected_beat_seq: int | None = None, idempotency_key: str | None = None, user: str | None = None, toast_batches: int | None = None) -> dict:
     """Advance the weekly loop by one beat (HOH→noms→veto→ceremony→eviction→finale).
     NPC beats resolve automatically; returns the beat event, any pending player decision,
     and the public status. Vault-free.
@@ -1390,6 +1458,8 @@ async def advance_game(expected_beat_seq: int | None = None, idempotency_key: st
         args["expectedBeatSeq"] = expected_beat_seq
     if idempotency_key is not None:
         args["idempotencyKey"] = idempotency_key
+    if toast_batches is not None and toast_batches > 1:
+        args["toastBatches"] = int(toast_batches)  # ORW-997: a watch-only toast circle flows several batches in one advance
     return await _call("advanceGame", args, user=user)
 
 
@@ -1405,7 +1475,20 @@ async def submit_decision(decision: dict, expected_beat_seq: int | None = None, 
         payload["expectedBeatSeq"] = expected_beat_seq
     if idempotency_key is not None:
         payload["idempotencyKey"] = idempotency_key
-    return await _call("submitDecision", payload, user=user)
+    try:
+        return await _call("submitDecision", payload, user=user)
+    except EngineToolError as e:
+        # ORW-1063: the engine REFUSES a decision it cannot record (kind mismatch, garbled answer, unconfirmed leave, nothing open) with
+        # "decision refused (<reason>)". Count each refusal in the sync ledger's belt counters (reason names only), then re-raise so the
+        # relay (card, socket, model tool) surfaces the refusal and the card stays open. Nothing is cached for it (the engine throws before any key is stored).
+        _m = re.search(r"decision refused \(([a-z-]+)\)", str(e))
+        if _m:
+            try:
+                from src.orwell_sync_ledger import note_belt as _note_belt
+                _note_belt(user, "decision-refused-" + _m.group(1))
+            except Exception:  # pragma: no cover - telemetry must never hurt the app
+                pass
+        raise
 
 
 async def request_self_eviction(user: str | None = None) -> dict:
@@ -1461,7 +1544,7 @@ async def nap(hours: float | None = None, expected_beat_seq: int | None = None, 
     return await _call("nap", args, user=user)
 
 
-async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None = None, user: str | None = None, max_minutes: float | None = None, until_band_end: bool = False, until_clock: float | None = None) -> dict:
+async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None = None, user: str | None = None, max_minutes: float | None = None, until_band_end: bool = False, until_clock: float | None = None, until_event: bool = False, bare_next: bool = False) -> dict:
     """"Hang out until X" - the player's safe fast-forward. The ENGINE runs up to 8 short (15-30 in-game minute) beats and decides
     the stop reason (``stopReason`` + Vault-free public ``detail``): the scheduled event coming due, the player being pulled,
     an NPC approaching, something observed, or bedtime. ``{"ok": false, "reason": ...}`` (no state change) when the flag/clock
@@ -1477,6 +1560,10 @@ async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None =
         args["untilBandEnd"] = True
     if until_clock is not None:  # ORW-734a: the player's stated wall-clock time (0..24); the engine resolves it on its own clock
         args["untilClock"] = until_clock
+    if until_event:  # ORW-1054: a wait for the next scheduled event runs to it in one call (the engine clamps the clock to it)
+        args["untilEvent"] = True
+    if bare_next:  # ORW-1089: a bare "next" with nothing due
+        args["bareNext"] = True
     return await _call("hangOut", args, user=user)
 
 
@@ -1848,6 +1935,19 @@ async def move_to(room: str, expected_beat_seq: int | None = None, user: str | N
     if expected_beat_seq is not None:
         args["expectedBeatSeq"] = expected_beat_seq
     return await _call("moveTo", args, user=user)
+
+
+async def search_for_houseguest(name: str, max_legs: int | None = None, expected_beat_seq: int | None = None, idempotency_key: str | None = None, user: str | None = None):
+    """ORW-934: the player is looking for a named houseguest. The engine walks the search leg by leg (one real step into a neighbouring room each, billing the clock, the house moving meanwhile) and returns
+    ``{search: {target, outcome, reason, legs, minutes}, whereabouts, beatSeq}``. Nobody is teleported. Optional args are sent only when given."""
+    args: dict = {"name": str(name)}
+    if max_legs is not None:
+        args["maxLegs"] = int(max_legs)
+    if expected_beat_seq is not None:
+        args["expectedBeatSeq"] = expected_beat_seq
+    if idempotency_key:
+        args["idempotencyKey"] = str(idempotency_key)
+    return await _call("searchForHouseguest", args, user=user)
 
 
 async def move_houseguest(houseguest_id: str, room: str, user: str | None = None):
@@ -2274,13 +2374,17 @@ def last_pending(user=None):
     return _LAST_PENDING.get(user or "")
 
 
-async def resolve_player_move(text: str, idempotency_key: str | None = None, user: str | None = None) -> dict:
+async def resolve_player_move(text: str, idempotency_key: str | None = None, user: str | None = None, previous_reply: str | None = None, skip: list | None = None) -> dict:
     """ORW-419 (intent-first moves): ask the engine to resolve the PLAYER'S OWN move from their message text, BEFORE the
     narrator runs. The engine parses the words, moves the player through the same code as ``moveTo`` (a comp/ceremony pin
     refuses it in fiction) and records the Vault-free ``playerMove`` ``{from, to}`` / ``{refused, reason}`` on the turn
     state. Returns ``{playerMove, whereabouts, beatSeq}``; ``playerMove`` is null when the words held no clear move (the
     post-reply move belt stays the fallback). The key is sent only when given, so a retry re-drive de-dups."""
     args: dict = {"text": str(text)}
+    if previous_reply:
+        args["previousReply"] = str(previous_reply)[-6000:]  # ORW-1003: for "head over there" / "I follow her"
     if idempotency_key:
         args["idempotencyKey"] = str(idempotency_key)
+    if skip:  # ORW-1014: the act-first round already decided this message's move and/or bed claim; the other resolvers in the seam still run
+        args["skip"] = [str(x) for x in skip if x in ("move", "bed")]
     return await _call("resolvePlayerMove", args, user=user)

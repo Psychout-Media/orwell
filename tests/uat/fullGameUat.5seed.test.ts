@@ -35,6 +35,7 @@ describe("full-game UAT — 5 seeds (always-use-veto)", () => {
 
   it(
     "plays 5 seeds with always-use-veto — covers veto-save, replacement, and final-4 revert",
+    { timeout: 60_000 },
     async () => {
       const seeds = [1, 2, 3, 4, 5];
       const runs: RunResult[] = [];
@@ -62,6 +63,5 @@ describe("full-game UAT — 5 seeds (always-use-veto)", () => {
         expect.fail(`\nAnomalies detected (always-use-veto):\n${report}\n`);
       }
     },
-    { timeout: 60_000 },
   );
 });

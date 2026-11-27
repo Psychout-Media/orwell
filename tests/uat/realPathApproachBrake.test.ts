@@ -3,6 +3,10 @@ import { PLAYER } from "../../src/domain/ids";
 import { nextMilestone } from "../../src/engine/daySchedule";
 import { playMixGame } from "../support/houseMixDriver";
 import { firstStop, wfScan, type Stop } from "../realpath/playedSeason";
+import { firstSeedWhere } from "../support/firstSeedWhere";
+
+/** The last mix-driver seed known to show a hostile approach (ORW-856): tried first, then 11, then 1..12. */
+const HOSTILE_HINT = 3;
 
 /**
  * ORW-709 (B3-3/4/5 and the approach treadmill) - in PLAYED games (ORW-812: before, a get-them-out goal was pushed into a houseguest's agenda, the house moved into the yard, the bond
@@ -11,7 +15,7 @@ import { firstStop, wfScan, type Stop } from "../realpath/playedSeason";
  * `real-path` leg): over a minute of play on the runner. Roles only.
  */
 type Rec = { id: string; actor: string; hostile: boolean; status: string; eventId?: string; goalId: string; hour: number };
-type Sess = { live: { aimedAtPlayer?: Rec[]; interruption?: { npc: string; desire: string; atHour: number }; approachAsked?: Record<string, { q: string; answered?: true }>; dayNumber?: number; week: number }; presence: Map<string, string>; record?: { events(): Array<{ id: string; type: string; hidden: boolean; initiator: string; witnessSet: string[]; content: string; houseLife?: { about?: string; at?: number } }> }; livingIds(): string[]; desireApproach(ids: string[]): { npc: string } | null };
+type Sess = { live: { aimedAtPlayer?: Rec[]; interruption?: { npc: string; desire: string; atHour: number }; approachAsked?: Record<string, { q: string; answered?: true }>; dayNumber?: number; week: number; goalApproaches?: Record<string, unknown> }; presence: Map<string, string>; record?: { events(): Array<{ id: string; type: string; hidden: boolean; initiator: string; witnessSet: string[]; content: string; houseLife?: { about?: string; at?: number } }> }; livingIds(): string[]; desireApproach(ids: string[]): { npc: string } | null };
 const events = (s: Sess) => s.record?.events() ?? [];
 
 describe("B3-3: a houseguest scheming about the player to a third party stays hidden, in played games", () => {
@@ -46,11 +50,11 @@ describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer f
     // PRECONDITION (the scan): a houseguest steps up to the player with a milestone question (not their goal's) while holding an open record aimed at the player. The house-mix
     // games above (seeds 11-13, 700 messages) never got there; with the scripted talking player a 2026-11-24 search found it in 18 of 40 seeds, so the scan finds one in 1..12.
     type Seen = { npc: string; asked: string; open: string[] };
-    const memo = new WeakMap<object, { last: string; open: Map<string, string[]> }>();
+    const memo = new WeakMap<object, { last: string; open: Map<string, string[]>; goal: Set<string> }>();
     let seen: Seen | undefined;
     const milestoneAskOnOpenRecord = (st: Stop): boolean => {
       const s = st.sess as Sess;
-      const m = memo.get(s) ?? { last: "", open: new Map<string, string[]>() };
+      const m = memo.get(s) ?? { last: "", open: new Map<string, string[]>(), goal: new Set<string>() };
       memo.set(s, m);
       let hit = false;
       const it2 = s.live.interruption;
@@ -59,18 +63,30 @@ describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer f
         if (key !== m.last) {
           m.last = key;
           const q = s.live.approachAsked?.[it2.npc]?.q;
+<<<<<<< HEAD
           const had = m.open.get(it2.npc) ?? [];
           // a PURE milestone ask: not the goal's own question, and carrying no goal's words (a houseguest with a goal approach pending voices that goal whatever they step up
           // for, and that goal's record surfaces by design: ORW-709's "only that record's own goal does")
           if (q && !q.startsWith("goal:") && !(it2 as { say?: unknown }).say && had.length > 0) { seen = { npc: it2.npc, asked: q, open: had }; hit = true; }
+=======
+          // still open NOW as well as at the last stop: a record the asker's own earlier approach surfaced a step ago (a goal approach, then a plea in the next stretch) is not the ask's to answer for
+          const nowOpen = new Set((s.live.aimedAtPlayer ?? []).filter((r) => r.status === "open").map((r) => r.id));
+          const had = (m.open.get(it2.npc) ?? []).filter((id) => nowOpen.has(id));
+          // a PURE milestone ask: not the goal's own question, and carrying no goal's words (a houseguest with a goal approach pending voices that goal whatever they step up
+          // for, and that goal's record surfaces by design: ORW-709's "only that record's own goal does")
+          if (q && !q.startsWith("goal:") && !(it2 as { say?: unknown }).say && had.length > 0 && !m.goal.has(it2.npc) && !s.live.goalApproaches?.[it2.npc]) { seen = { npc: it2.npc, asked: q, open: had }; hit = true; }
+>>>>>>> origin/main
         }
       }
       const open = new Map<string, string[]>();
       for (const r of s.live.aimedAtPlayer ?? []) if (r.status === "open") (open.get(r.actor) ?? open.set(r.actor, []).get(r.actor)!).push(r.id);
       m.open = open;
+      // ORW-905: a houseguest holding a goal approach of their own voices that goal whatever they step up for (the engine marks the record of the PENDING goal approach as shown), with or without words; so the
+      // precondition needs "no goal approach pending" for the asker, read from the step before as well as now (the approach is consumed as the ask surfaces).
+      m.goal = new Set(Object.keys(s.live.goalApproaches ?? {}));
       return hit;
     };
-    const at = await firstStop(milestoneAskOnOpenRecord, wfScan(1, "a milestone ask by a houseguest who holds an open record"));
+    const at = await firstStop(milestoneAskOnOpenRecord, wfScan([2, 1], "a milestone ask by a houseguest who holds an open record"));
     expect(seen, "the stop recorded the ask").toBeDefined();
     const recs = ((at.sess as Sess).live.aimedAtPlayer ?? []).filter((r) => seen!.open.includes(r.id));
     expect(recs.length).toBe(seen!.open.length);
@@ -83,22 +99,31 @@ describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer f
     }
   }, 900_000);
 
-  it("a hostile approach answered kindly writes no fight; the same approach ignored does (seed 13, the same game played twice up to the approach)", async () => {
-    const run = async (answer: boolean): Promise<{ fights: number; shown: boolean }> => {
-      let target: string | undefined; let answered = false; let shown = false; let after = 0; let s: Sess | undefined;
-      await playMixGame(13, 1400, { user: "mixdrv-13",
-        onStep: (sess) => { s = sess as Sess; if (!target) { const r = (s.live.aimedAtPlayer ?? []).find((x) => x.hostile && x.status === "shown"); if (r) { target = r.actor; shown = true; } } else after++; },
+  it("a hostile approach answered kindly writes no fight FOR THAT APPROACH; the same approach ignored does (a scanned mix-driver seed, the same game played twice up to the approach; was pinned to seed 11, ORW-791/872/1002)", async () => {
+    // ORW-856 / ORW-1002: a pinned seed broke each time a played-fold change moved the trajectory, so the seed is SCANNED. The claim is about ONE approach: the first hostile record shown to the player. A fight is that approach's
+    // when its scene event is that record's own (`<record id>:scene`): a later, separate approach by the same houseguest is another record with its own fight and says nothing about the answer. The precondition of the
+    // kind play is that the answer LANDED (the record closes as "answered"); a seed where the player's answer did not register (e.g. the record has already been ignored) is no evidence either way, so the scan skips it.
+    type Run = { shownId?: string; status?: string; own: number; all: number };
+    const play = async (seed: number, user: string, answer: boolean): Promise<Run> => {
+      let target: string | undefined; let shownId: string | undefined; let answered = false; let after = 0; let s: Sess | undefined;
+      await playMixGame(seed, 1400, { user: user,
+        onStep: (sess) => { s = sess as Sess; if (!target) { const r = (s.live.aimedAtPlayer ?? []).find((x) => x.hostile && x.status === "shown"); if (r) { target = r.actor; shownId = r.id; } } else after++; },
         onMessage: async (call) => { if (answer && target && !answered) { answered = true; await call("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, target], content: "I hear you, let's talk it through", kind: "conversation" }); } },
         stopWhen: () => after > 500,
       });
-      const fights = events(s!).filter((e) => e.type === "conflict" && /steps up to/.test(String(e.content)) && e.initiator === target).length;
-      return { fights, shown };
+      if (!s || !target || !shownId) return { own: 0, all: 0 };
+      const status = (s.live.aimedAtPlayer ?? []).find((r) => r.id === shownId)?.status;
+      const fights = events(s).filter((e) => e.type === "conflict" && /steps up to/.test(String(e.content)) && e.initiator === target);
+      return { shownId, ...(status ? { status } : {}), own: fights.filter((e) => String((e as { id?: string }).id ?? "").startsWith(`${shownId}:`)).length, all: fights.length };
     };
-    const kind = await run(true), ignored = await run(false);
-    expect(kind.shown && ignored.shown, "a hostile approach was shown in play").toBe(true);
-    expect(kind.fights, "answered kindly: no fight").toBe(0);
-    expect(ignored.fights, "ignored: the fight folds").toBe(1);
-  }, 600_000);
+    const found = await firstSeedWhere(async (seed, sandbox) => { const k = await play(seed, sandbox, true); return k.status === "answered" ? { seed, kind: k } : undefined; },
+      { from: 1, to: 12, hint: [HOSTILE_HINT, 1, 11], sandbox: (x) => `mixdrv-${x}`, what: "a hostile approach shown to the player that the kind answer closes as answered (mix driver, 1400 messages)" });
+    const kind = found.at.kind, ignored = await play(found.seed, found.sandbox, false);
+    expect(ignored.shownId, "the same approach is shown in the same game when the player ignores it").toBe(kind.shownId);
+    expect(ignored.status, "ignored: the record is ignored").toBe("ignored");
+    expect(ignored.own, "ignored: the fight folds for that approach").toBe(1);
+    expect(kind.own, "answered kindly: no fight for that approach").toBe(0);
+  }, 900_000);
 });
 
 describe("B3-5 / the approach treadmill, over a played game", () => {

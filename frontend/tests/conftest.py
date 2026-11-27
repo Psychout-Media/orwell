@@ -256,6 +256,13 @@ def _reset_portrait_billing_breaker() -> None:
         orwell_portraits.reset_billing_breaker()
     except Exception:  # failsoft-ok: test-hygiene (module may be unimportable in a narrow test)
         pass
+    try:  # ORW-1019: the text-provider credit breaker is module state too
+        from src import orwell_provider_credit
+        orwell_provider_credit.reset()
+        from src import orwell_provider_balance
+        orwell_provider_balance.reset()
+    except Exception:  # failsoft-ok: test-hygiene
+        pass
     yield
     # Casting in the background: the per-photo retry timers, the opening-scene order, the image gates and the cast-warm retry tasks are
     # process state too; a test that fakes a failed shot must not leave a timer that fires inside the next test.
@@ -354,6 +361,20 @@ def _isolate_recent_seasons_store(tmp_path, monkeypatch) -> None:
     except Exception:
         return
     monkeypatch.setattr(_rs, "LEDGER_PATH", tmp_path / "orwell_recent_seasons.json")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_season_checklist_store(tmp_path, monkeypatch) -> None:
+    """ORW-970: the season-start checklist (`orwell_season_checklist.CHECKLIST_PATH`, under `DATA_DIR`) is written when a season starts, so redirect it per
+    test like the stores above (a test that fakes `createCharacter` must not write the real data dir or share a file across xdist workers). In-process
+    task state is cleared too."""
+    try:
+        import src.orwell_season_checklist as _sc
+    except Exception:
+        return
+    monkeypatch.setattr(_sc, "CHECKLIST_PATH", tmp_path / "orwell_season_checklist.json")
+    _sc._ACTIVE.clear()
+    _sc._RETRY_TASKS.clear()
 
 
 @pytest.fixture(autouse=True)

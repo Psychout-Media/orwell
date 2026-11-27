@@ -34,6 +34,12 @@ export const HOH_COURT = {
   goalMin: 0.5,
   /** The history ring: the most entries kept (the record only grows until this, then the oldest roll off; the count is kept). */
   historyMax: 200,
+  /**
+   * ORW-694 / B1-9 (Ryne 2026-11-26: "standing in the house should matter ... it would also create like a bigger target as a leader ... We can play with that a bit."). FIRST-PASS weights, to be
+   * tuned: a leader's / lieutenant's pitch to the HOH carries this much more (a multiplier inside the bounded `LOBBY.maxTilt`), and the house's informal leader carries this much extra
+   * nomination pull (threat is 0..1). Read only in played games with the court on (the status exists nowhere else).
+   */
+  standing: { pitchWeight: { leader: 1.25, lieutenant: 1.1 }, leaderTargetPush: 0.08 },
 } as const;
 
 export type StatusEventKind = "rose" | "challenged" | "vacuum" | "split";

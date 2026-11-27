@@ -13,6 +13,11 @@
 (function () {
   "use strict";
 
+  // ORW-950: set when the page is going away, so the aborted fetch isn't reported as a failure.
+  let pageLeaving = false;
+  window.addEventListener("pagehide", () => { pageLeaving = true; });
+  window.addEventListener("beforeunload", () => { pageLeaving = true; });
+
   const ID = "orwell-headshot";
   const ready = (fn) =>
     document.readyState === "loading"
@@ -320,6 +325,8 @@
         if (d && d.generated > 0) { st.candidates = d.candidates; st.selected = null; msg("Pick your favorite — or generate 3 more."); ensureOpen(); }
         else { msg((d && d.reason) || "Couldn't generate options — the photo service may be offline (check Settings)."); }
       } catch (e) {
+        // ORW-950: a reload aborts the fetch; that is the page leaving, not a photo-service failure.
+        if (pageLeaving) return;
         if (window.OrwellReport) window.OrwellReport.fail("headshot", "studio", e);
         st.busy = false; msg("The photo service is offline right now.");
       }
@@ -356,7 +363,12 @@
       // G32: a generated-but-unpicked photoset must survive a refresh/new session. The
       // candidate images persist server-side (intake reports the count) — rebuild the picker
       // from that count so the options reappear, instead of dropping to the upload chooser.
-      if (!status.finalized && (status.candidates || 0) > 0 && !st.candidates.length) {
+      if (st.pollBusy && !status.generating) { st.busy = false; st.pollBusy = false; }
+      if (status.generating && !status.finalized) {
+        // ORW-950: a run is still in flight; don't build a picker from its half-written files, re-check shortly.
+        st.busy = true; st.pollBusy = true; msg("Generating 3 studio options…");
+        if (!st.pollTimer) st.pollTimer = setTimeout(() => { st.pollTimer = null; refreshStatus(); }, 4000); // one re-check chain, however many callers
+      } else if (!status.finalized && (status.candidates || 0) > 0 && !st.candidates.length) {
         st.candidates = Array.from({ length: status.candidates },
           (_, i) => ({ index: i, ref: "/api/orwell/portrait/studio/candidate/" + i }));
         ensureOpen(); // L3: restored options reappear expanded, never tucked away
@@ -468,27 +480,36 @@
         return;
       }
 
+      // ORW-950: a reference photo already on the server (before a reload) counts as chosen.
+      const haveRef = !st.file && !!status.present && status.mode === "reference";
+      const chosen = !!st.file || haveRef;
       const previewBg = st.fileUrl ? `style="background-image:url('${st.fileUrl}')"` : "";
       body.innerHTML = lib + `
         <div class="hs-msg" style="margin-bottom:8px">${st.library.length ? "…or make a new one from a photo of yourself." : "Make your houseguest's portrait — and your profile pic — from a photo of yourself."}</div>
         <div class="hs-row">
-          <div class="hs-preview ow-portrait" ${previewBg}>${st.fileUrl ? "" : "👤"}</div>
+          <div class="hs-preview ow-portrait" ${previewBg}>${st.fileUrl ? "" : (haveRef ? "✓" : "👤")}</div>
           <div class="hs-opts">
-            <label class="hs-filebtn ow-btn ow-btn-secondary" for="hs-file">${st.file ? "Choose a different photo" : "Choose a photo of yourself"}</label>
+            <label class="hs-filebtn ow-btn ow-btn-secondary" for="hs-file">${chosen ? "Choose a different photo" : "Choose a photo of yourself"}</label>
             <input type="file" id="hs-file" class="hs-file-native" accept="image/*" aria-label="Choose a photo of yourself">
             <div class="hs-actions">
-              <button type="button" class="ow-btn ow-btn-prominent" id="hs-studio" ${st.file ? "" : "disabled"} aria-describedby="hs-hint">Make AI studio portraits</button>
+              <button type="button" class="ow-btn ow-btn-prominent" id="hs-studio" ${chosen ? "" : "disabled"} aria-describedby="hs-hint">Make AI studio portraits</button>
               <button type="button" class="ow-btn ow-btn-secondary" id="hs-exact" ${st.file ? "" : "disabled"} aria-describedby="hs-hint">Use photo as-is</button>
               ${canSkip ? `<button type="button" class="ow-btn ow-btn-plain" id="hs-skip">Skip for now</button>` : ""}
-              <div class="hs-hint" id="hs-hint" ${st.file ? "hidden" : ""}>Choose a photo above to enable these.</div>
+              <div class="hs-hint" id="hs-hint" ${chosen ? "hidden" : ""}>Choose a photo above to enable these.</div>
             </div>
-            <div class="hs-msg" id="hs-msg2">${esc(_msg)}</div>
+            <div class="hs-msg" id="hs-msg2">${esc(_msg || (haveRef ? "Your photo is already uploaded." : ""))}</div>
           </div></div>`;
       const fi = body.querySelector("#hs-file");
-      fi.addEventListener("change", () => {
-        st.file = fi.files && fi.files[0];
+      fi.addEventListener("change", async () => {
+        const picked = fi.files && fi.files[0];
+        if (!picked) return;
+        // ORW-950: shrink on the device first; the preview and the upload both use the small copy.
+        // A decode failure keeps the original file.
+        let small = picked;
+        try { const m = await import("/static/js/photoShrink.js"); small = await m.shrinkPhoto(picked); } catch (_) { small = picked; }
+        st.file = small;
         if (st.fileUrl) { try { URL.revokeObjectURL(st.fileUrl); } catch (_) {} }
-        st.fileUrl = st.file ? URL.createObjectURL(st.file) : null;
+        st.fileUrl = URL.createObjectURL(st.file);
         render();
       });
       body.querySelector("#hs-studio").addEventListener("click", studioGenerate);
@@ -741,6 +762,18 @@
     const p = document.getElementById(PILL_ID); if (p) p.remove();
   }
 
+  // ORW-950: after a reload mid-step (iOS drops a backgrounded tab while the photo picker is open), reopen
+  // the studio on the server's state (a run in progress, waiting options, an uploaded photo) instead of the pill.
+  async function resumeStudioFromServer() {
+    if (_win || document.getElementById(ID) || document.getElementById(PILL_ID)) return false;
+    const ik = await jget("/api/orwell/portrait/intake");
+    if (ik && !ik.finalized && (ik.generating || (ik.candidates || 0) > 0 || (ik.present && ik.mode === "reference"))) {
+      mount();
+      return true;
+    }
+    return false;
+  }
+
   async function route() {
     const gameBuild = document.body && document.body.hasAttribute("data-game-build");
     if (!gameBuild) { _maybePregame = false; return; }
@@ -782,6 +815,7 @@
       unmount();
       return;
     }
+    if (await resumeStudioFromServer()) return;
     // Thing 2: surface the "Choose Your Character" pill (the box opens on click), NOT the box.
     showPill();
   }

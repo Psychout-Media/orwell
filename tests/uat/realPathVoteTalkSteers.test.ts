@@ -1,16 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { keepCredit } from "../../src/engine/voteTalk";
 import { PLAYER } from "../../src/domain/ids";
-import { playUntil, type Stop } from "./playedSeason";
+import { playUntil, type Stop } from "../realpath/playedSeason";
 import { firstSeedWhere } from "../support/firstSeedWhere";
-import { watchVoteTalk, beliefOf, overclaims, type Talk } from "./voteTalkPlay";
+import { watchVoteTalk, beliefOf, overclaims, type Talk } from "../realpath/voteTalkPlay";
 
 /**
  * ORW-594 (Fable T2-13) + ORW-613: vote talk steers, a vote lie can be caught by the public count, and the player hears how people voted - in a PLAYED season (ORW-810: before,
  * the vote record, the bonds and the tellings were all set by hand). Each test stops at the first vote talk that shows what it needs, in the first seed that gets there
  * (ORW-880: scanned in a fixed order, the hints first):
  *  - from seed 3: the first eviction's vote talk (week 2) tells the player, and credits a believed keep;
- *  - from seed 17: a unanimous eviction (no keep votes), where a credited "I voted to keep them" is caught by the count at once and the credit is taken back.
+ *  - from seed 36 (17 before ORW-779 moved the played seasons): a unanimous eviction (no keep votes), where a credited "I voted to keep them" is caught by the count at once and the credit is taken back.
  * The pure checks stay in tests/unit/voteTalkSteers.test.ts, with the two catches play has not reached (a catch BY COUNTING with keep votes left, and a keep claim told after the
  * count is public): forty seasons played to the crown (seeds 1-40 in the sandboxes wf-<seed>; ORW-829, 2026-11-24) never produced either, so those stay hand-set there
  * with a todo. Roles only.
@@ -24,7 +24,7 @@ const firstTalk = async (hint: number | number[], wanted: (s: Stop, t: Talk) => 
 
 describe("vote talk in a played season", () => {
   it("the player is told how someone voted, as a scene they were in (never whether it is true)", async () => {
-    const { at, talk } = await firstTalk(3, (_s, t) => t.told.some((c) => c.listener === PLAYER));
+    const { at, talk } = await firstTalk([5, 1, 3], (_s, t) => t.told.some((c) => c.listener === PLAYER));
     const toPlayer = talk.told.filter((c) => c.listener === PLAYER);
     for (const c of toPlayer) {
       const scene = at.engine.events.queryAll().find((e) => !e.hidden && e.type === "conversation" && e.witnessSet.includes(PLAYER) && e.witnessSet.includes(c.speaker) && /voted to keep/.test(String(e.content)));
@@ -39,7 +39,7 @@ describe("vote talk in a played season", () => {
 
   it("a believed keep earns credit exactly when the listener liked the one kept", async () => {
     const credited = (s: Stop, t: Talk) => t.told.some((c) => c.listener !== PLAYER && (beliefOf(s, c.listener, c.id)?.impact?.trust ?? 0) > 0);
-    const { at, talk } = await firstTalk(3, credited);
+    const { at, talk } = await firstTalk([1, 3], credited);
     let withCredit = 0;
     for (const c of talk.told.filter((x) => x.listener !== PLAYER)) {
       const b = beliefOf(at, c.listener, c.id);
@@ -57,7 +57,8 @@ describe("vote talk in a played season", () => {
 
   it("a unanimous count catches every believed \"I voted to keep them\" at once, and a credit it earned is taken back", async () => {
     const caughtCredit = (s: Stop, t: Talk) => t.tally.keepVotes === 0 && t.told.some((c) => c.listener !== PLAYER && beliefOf(s, c.listener, c.id)?.refuted && (beliefOf(s, c.listener, c.id)?.impact?.trust ?? 0) > 0);
-    const { at, talk } = await firstTalk([24, 17], caughtCredit);
+    // 36 since ORW-779 moved the played seasons (of seeds 1-36 in the sandboxes wf-<seed>, only 36 got there); the earlier hints stay as the fallback.
+    const { at, talk } = await firstTalk([36, 3, 20, 1, 17, 24], caughtCredit);
     // the count rules out every keep claim about the evictee from a voter: each one believed is now caught, with a lied-to-me in its listener
     for (const c of talk.told.filter((x) => x.listener !== PLAYER && x.object === talk.tally.evictee && talk.tally.voters.includes(x.subject))) {
       const b = beliefOf(at, c.listener, c.id);

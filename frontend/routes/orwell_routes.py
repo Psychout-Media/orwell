@@ -322,6 +322,13 @@ async def _post_decision_tail(
         orwell_engine.remember_pending(res, user=user)
     _publish_game_updated(user)  # 0064: instant cross-device HUD reconcile
     _clear_decision_failure(user, decision)  # DB1/DB2: a success retires any prior refusal
+    try:  # ORW-919: a successful submit arms ONE hidden decision-beat cue (the page sends it right after; HTTP and WS share this tail)
+        from routes.chat_helpers import arm_decision_beat_cue
+        arm_decision_beat_cue(user)
+        if isinstance(res, dict):
+            res["decisionBeatCue"] = True
+    except Exception:  # failsoft-ok: the beat is texture; a submit never fails on it
+        pass
     return res
 
 
@@ -598,7 +605,7 @@ _BROWSER_STATE_SHAPE = {
     "house": [{"id": _T, "name": _T, "status": _T, "evictedSeq": _T, "lastSeenMood": _T}],
     "asleep": [_NAMED], "awake": [_NAMED], "deals": [_DEAL],
     "premiere": {"met": [_MET_ROW], "remaining": [_MET_ROW], "complete": _T, "metCount": _T, "total": _T, "champagneCircle": _T},
-    "daySchedule": {"next": _T, "phase": _T, "due": _T, "minutesUntil": _T, "todaysEvent": _T, "tomorrow": _T, "finalHohPart": _T},
+    "daySchedule": {"headerPhase": _T, "next": _T, "phase": _T, "due": _T, "minutesUntil": _T, "todaysEvent": _T, "tomorrow": _T, "finalHohPart": _T},
     "watching": {"moments": [_T]},
     "casting": {"missing": [_T]},
     "castingHouse": {"state": _T, "authored": _T, "total": _T, "missing": _T},
@@ -660,6 +667,39 @@ _BROWSER_WHEREABOUTS_SHAPE = {
     "unavailable": _T,
 }
 #   /recap (the retrospective panel: finished, winner, weeksPlayed, highlights, placement, margin), /finale (the finale panel: stage, finalists, asking, reveals; NOT the `bearing` of the asker, NOT the winner).
+#   /retrospective (ORW-976; the post-crown unseal, the ONE place the hidden story is told): exactly what the window (orwellRetrospective.js) reads and nothing it does not - so a field the engine adds to the retrospective
+#     later (dealPlans, socialMap, americasFavorite, a count such as `tellings`, a raw id inside a view) never reaches the page until a screen reads it and it is added here. Everything the window does not read is dropped at every level
+#     (the winner / finished / placement top-level echo, which /recap carries; dealPlans; socialMap; americasFavorite; the tellings count).
+_NAMED_NAME = {"id": _T, "name": _T}
+_RUMOR_ROW = {"claim": _T, "starter": _NAMED_NAME, "startedWeek": _T, "passedOn": [_NAMED_NAME], "believers": [_NAMED_NAME], "toldToYou": _T}
+_LINE_ROW = {"line": _T}
+_BROWSER_RETROSPECTIVE_SHAPE = {"retrospective": {
+    "twists": [{"kind": _T, "firedWeek": _T}],
+    "evictionVotes": [{"week": _T, "evictee": _NAMED_NAME, "votes": [{"voter": _NAMED_NAME, "votedFor": _NAMED_NAME}]}],
+    "juryVotes": {"votes": [{"juror": _NAMED_NAME, "votedFor": _NAMED_NAME}]},
+    "exitInterviews": [{"week": _T, "evictee": _NAMED_NAME, "stance": _T, "message": _T}],
+    "finaleInterview": {"stance": _T, "message": _T},
+    "pullQuoteReel": [{"week": _T, "quotes": [{"quote": _T, "speaker": _T, "source": _T}]}],
+    "playerConfessionals": [_T],
+    "houseYouNeverSaw": [{
+        "houseguest": _NAMED_NAME, "leftWeek": _T, "reflectionNights": [_T],
+        "seasonAim": {"aim": _T, "why": [_T]},
+        "goals": [{"from": _T, "aim": _T, "ended": _T, "why": [_T]}],
+        "decisions": [{"week": _T, "day": _T, "act": _T, "real": _T, "said": _T, "aired": _T, "honesty": _T}],
+        "longCon": {"mark": _T, "from": _T, "plan": _T, "ended": _T, "why": [_T]},
+        "reflections": [{"night": _T, "text": _T}],
+    }],
+    "rumorMill": {"biggest": [_RUMOR_ROW], "aboutYou": [_RUMOR_ROW]},
+    "yourEdit": {"episodes": [{"title": _T, "authoredTitle": _T}], "heroes": [_LINE_ROW], "villains": [_LINE_ROW], "you": _LINE_ROW},
+    "reunion": {"threads": [_LINE_ROW]},
+    "yourStories": {"stories": [_LINE_ROW]},
+    "groupLife": {"groups": [_LINE_ROW]},
+    "decisionReveal": {"decisions": [_LINE_ROW]},
+    "houseCulture": {"leans": [_T]},
+    "comingClean": {"stories": [{"liar": _T, "about": _T, "versions": [{"to": _T, "said": _T, "week": _T, "true": _T, "confessedTo": [_T], "loopedIn": [_T]}]}]},
+    "territory": {"crowds": [_T]},
+    "hiddenStory": [{"type": _T, "content": _T}],
+}}
 _BROWSER_RECAP_SHAPE = {"recap": {"finished": _T, "winner": _NAMED, "weeksPlayed": _T, "highlights": [_T], "placement": _T, "margin": _T}}
 _BROWSER_FINALE_SHAPE = {"finale": {"stage": _T, "finalists": [_NAMED], "asking": _NAMED, "reveals": [{"juror": _NAMED, "votedFor": _NAMED}]}}
 #   /roster (the cast wall, pin and monogram: id, name, status, isPlayer, portrait, evictedSeq, lastSeenMood; the portrait counters and generation progress). NOT read by any screen: the per-card
@@ -670,8 +710,8 @@ _BROWSER_ROSTER_SHAPE = {
     "portraitLastRun": {"generated": _T, "attempted": _T, "failing": _T}, "imagesAvailable": _T, "playerAwaitingUpload": _T, "portraitsPresent": _T, "portraitsTotal": _T,
     "generation": {"total": _T, "done": _T, "active": _T}, "stale": _T,
 }
-#   /health (the engine banner reads `engine`, `busy`, `reconnecting` and the truthiness of `lastError.error`; it never shows the engine's address, the raw error text or a tool name, which stay on /admin/status).
-_BROWSER_HEALTH_SHAPE = {"engine": _T, "reconnecting": _T, "busy": _T, "lastError": {"error": _T}}
+#   /health (the engine banner reads `engine`, `busy`, `reconnecting`, `integrityRefusal` (a bare true) and the truthiness of `lastError.error`; it never shows the engine's address, the raw error text or a tool name, which stay on /admin/status).
+_BROWSER_HEALTH_SHAPE = {"integrityRefusal": _T, "engine": _T, "reconnecting": _T, "busy": _T, "lastError": {"error": _T}}
 #   /dossier (orwellDossier): already built field by field (`_public_persona`, `_public_deal`, `_public_alliance`, `_public_beat`); the shape holds the whole payload to it.
 _BROWSER_DOSSIER_SHAPE = {
     "found": _T, "id": _T, "name": _T, "status": _T, "isPlayer": _T, "portrait": _T, "met": _T,
@@ -681,6 +721,45 @@ _BROWSER_DOSSIER_SHAPE = {
     "alliances": [{"id": _T, "name": _T, "members": [_NAMED], "youAreFounder": _T}],
 }
 _BROWSER_SEASON_SHAPE = {"season": _T}
+#   ORW-965 (wall audit 3c): the three small routes outside the ORW-768 audit.
+#   /cast-progress (orwellOnboarding `_castCueText`): reads `phase`, `total`, `faces` and `facesRetrying`; NOT read: `authored` and `attempts` (the warm's own bookkeeping).
+#   /hall-of-fame (orwellHallOfFame): each season's season, placement, result, castSize, winnerName, runnerUpName, compWins and the bestMove / worstBetrayal facts (kind, actor, subject names).
+#   /knowledge (orwellMemoryWall): started, and each item's content, its qualitative source (kind, who, firsthand) and the houseguest it is about; never a number or the undistorted origin of a belief.
+_BROWSER_CAST_PROGRESS_SHAPE = {"phase": _T, "total": _T, "faces": _T, "facesRetrying": _T}
+_HALL_FACT = {"kind": _T, "actor": _T, "subject": _T}
+_BROWSER_HALL_SHAPE = {"seasons": [{"season": _T, "placement": _T, "result": _T, "castSize": _T, "winnerName": _T, "runnerUpName": _T, "compWins": _T, "bestMove": _HALL_FACT, "worstBetrayal": _HALL_FACT}]}
+_BROWSER_KNOWLEDGE_SHAPE = {"started": _T, "items": [{"content": _T, "source": {"kind": _T, "who": _T, "firsthand": _T}, "subject": _NAMED}]}
+#   POST /decision and POST /ceremony-continue (ORW-769): the response the card's own script reads. orwellDecision.js reads, off a Continue press: `beatSeq` (the panels' freshness token), `announcements` (the chyron renders
+#     only `id`, `kind` and `headline` of each), the three hidden-cue markers `voteBeatCue` / `drawBeatCue` / `ceremonyResultBeatCue`, `eviction.voteBeat.sealed`, a truthy `vetoDrawBeat`, and `pending` (the next card: the
+#     same `_CARD` /status serves); off a decision POST: `beatSeq` only. A stale-beat reconcile answers with the current state, so the /state shape is the base. NOT read by any script: the engine's own result
+#     fields (a vote's tally, a ballot's voter, a veto's reason, the ceremony's planned outcome, the announcements' `subjects` / `detail`), which the shape drops by construction.
+_BROWSER_ADVANCE_SHAPE = {
+    **_BROWSER_STATE_SHAPE,
+    "pending": _CARD,
+    "eviction": {"stage": _T, "evictee": _NAMED, "nominees": [_NAMED], "voteBeat": {"sealed": _T}},
+    "announcements": [{"id": _T, "kind": _T, "headline": _T}],
+    "vetoDrawBeat": {"step": _T},
+    "voteBeatCue": _T, "drawBeatCue": _T, "ceremonyResultBeatCue": _T, "decisionBeatCue": _T,  # the server-set hidden-cue markers (a boolean each); the page fires the decision cue on a successful submit without reading its marker
+}
+#   The model's own advanceGame / submitDecision call (ORW-964): the same advance view reaches the page as that tool's `tool_output` (live) and as the stored tool event (reload, the WS mirror). The page reads, beyond the
+#     card keys above: `finished` + `winner.name` and `event.beat` / `event.content` (the beat chip's outcome line and the ceremony slate's headline), `event.participants[]` ({id, name}: the slate's faces),
+#     `status.week` and `status.veto.holder` (the slate's kicker and the veto winner), `eviction.votesRevealed[].votedFor` (the ANONYMIZED ballot count, never a voter), and `correction` (the control-room card).
+#     NOT read: the engine's own result fields (a vote's tally, a voter, a planned outcome, the event's consequences, the status's other fields).
+#   Every OTHER game tool's output (ORW-975: makeDeal, confide, confront, recordInteraction, runCompetition, createCharacter and the rest of the non-silent game keep-set): the page reads `beatSeq` and `correction` off any
+#     mutating tool (the G15 dispatcher), `started` / `createRefused` off createCharacter, and the beat chip's outcome line (`finished`, `winner.name`, `event.beat` / `content`, and the anonymized ballot
+#     count `eviction.votesRevealed[].votedFor`) for the beat tools. Nothing else of a tool's result is read, so nothing else is kept (the expandable raw-output block a non-beat tool used to show is now empty).
+_BROWSER_GAME_TOOL_SHAPE = {
+    "beatSeq": _T, "correction": _T, "started": _T, "createRefused": _T, "finished": _T, "winner": _NAMED,
+    "event": {"beat": _T, "content": _T, "participants": [_NAMED]},
+    "eviction": {"votesRevealed": [{"votedFor": _NAMED}]},
+}
+_BROWSER_TOOL_ADVANCE_SHAPE = {
+    **_BROWSER_ADVANCE_SHAPE,
+    "finished": _T, "winner": _NAMED, "correction": _T,
+    "event": {"beat": _T, "content": _T, "participants": [_NAMED]},
+    "status": {"week": _T, "veto": {"holder": _NAMED}},
+    "eviction": {**_BROWSER_ADVANCE_SHAPE["eviction"], "votesRevealed": [{"votedFor": _NAMED}]},
+}
 
 
 def _project_for_browser(payload, shape):
@@ -1092,14 +1171,17 @@ def setup_orwell_routes() -> APIRouter:
     router = APIRouter(prefix="/api/orwell", tags=["orwell"])
 
     @router.get("/health")
-    async def orwell_health():
+    async def orwell_health(request: Request):
         """Engine reachability for the visible status banner: `engine` (bool), `busy`, `reconnecting`, and `lastError.error` (true when a recent call failed while the engine is up). The concrete
         reason, the address and the failed tool stay on /admin/status (ORW-768)."""
         detail = await orwell_engine.engine_health_detail()
         # ORW-768: the browser banner reads `engine`, `busy`, `reconnecting` and only WHETHER a recent call failed. The engine's address, the raw error text and the failed tool's name stay on the
         # operator's /admin/status health payload, never here.
         _last = detail.get("lastError")
+        # ORW-770: the banner reads whether THIS player's turn was refused by the integrity checkpoint (a bare true: no tool, kinds or invariant name, which stay on /admin/status); never another player's.
+        _refused = {"integrityRefusal": True} if orwell_engine.integrity_refusal(_current_user(request)) else {}
         return _project_for_browser({
+            **_refused,
             "engine": bool(detail.get("ok")),
             "lastError": {"error": True} if isinstance(_last, dict) and _last.get("error") else None,
             # Issue 1: a brief, soft "reconnecting…" while a transient outage is being retried —
@@ -1268,7 +1350,7 @@ def setup_orwell_routes() -> APIRouter:
             orwell_episode_titles.kickoff_episode_titles(_current_user(request), retro)
         except Exception as e:  # never let the enrichment break the retrospective route
             logger.info(f"[orwell] episode titles kickoff skipped: {e}")
-        return {"retrospective": retro}
+        return _project_for_browser({"retrospective": retro}, _BROWSER_RETROSPECTIVE_SHAPE)  # ORW-976: the closed shape the window reads (raw `retro` still feeds the two background enrichments above)
 
     @router.get("/whereabouts")
     async def orwell_whereabouts(request: Request):
@@ -1418,7 +1500,7 @@ def setup_orwell_routes() -> APIRouter:
             logger.info(f"[orwell] knowledge name-map read skipped: {_err_detail(e)}")
         items = _sanitize_knowledge(visible, state)
         _clear_warn("knowledge")
-        return {"started": True, "items": items}
+        return _project_for_browser({"started": True, "items": items}, _BROWSER_KNOWLEDGE_SHAPE)  # ORW-965: the sanitizer's whitelist, held to a closed shape
 
     @router.get("/hall-of-fame")
     async def orwell_hall_of_fame(request: Request):
@@ -1433,7 +1515,7 @@ def setup_orwell_routes() -> APIRouter:
                 _warn_throttled("hall-of-fame", f"[orwell] hall of fame failed: {_err_detail(e)}")
             return {"seasons": []}
         _clear_warn("hall-of-fame")
-        return _sanitize_hall(view)
+        return _project_for_browser(_sanitize_hall(view), _BROWSER_HALL_SHAPE)  # ORW-965: the sanitizer's whitelist, held to a closed shape
 
     @router.get("/dossier/{houseguest_id}")
     async def orwell_dossier(houseguest_id: str, request: Request):
@@ -1571,7 +1653,7 @@ def setup_orwell_routes() -> APIRouter:
         user = _current_user(request)
         try:
             from src import orwell_prewarm
-            return orwell_prewarm.cast_progress(user)
+            return _project_for_browser(orwell_prewarm.cast_progress(user), _BROWSER_CAST_PROGRESS_SHAPE)  # ORW-965
         except Exception as e:
             logger.info(f"[orwell] cast-progress failed: {e}")
             return {"phase": "none"}
@@ -1923,7 +2005,7 @@ def setup_orwell_routes() -> APIRouter:
             res = await _post_decision_tail(decision, res, user, body.kind, _dec_ik)
             if _refresh_beat_seq is not None:
                 _refresh_beat_seq(user, res if isinstance(res, dict) else {})
-            return res
+            return _project_for_browser(res, _BROWSER_ADVANCE_SHAPE)  # ORW-769: the card's script reads beatSeq; nothing else of the engine's result reaches the page
         except orwell_engine.EngineToolError as e:
             # A stale decision-card POST after the game has ended (or pre-game) — the engine refused
             # because there is no active game. Benign 409, not a false "engine unreachable" 502.
@@ -1941,7 +2023,7 @@ def setup_orwell_routes() -> APIRouter:
                     _cur = await orwell_engine.get_game_state(user=user)
                     orwell_engine.remember_pending(_cur, user=user)
                     _publish_game_updated(user)
-                    return _cur
+                    return _project_for_browser(_cur, _BROWSER_ADVANCE_SHAPE)  # ORW-769
             except Exception:
                 pass  # reconcile failed — fall through to the normal error handling below
             # DB1/DB2 (#1025): the engine ANSWERED with a structured error — it is reachable. Propagate
@@ -1988,8 +2070,22 @@ def setup_orwell_routes() -> APIRouter:
                         res["voteBeatCue"] = True  # the page sends the cue ONLY on this marker: a press the engine refused as stale (the reconcile branch below) committed nothing and has no beat to voice
                 except Exception:  # failsoft-ok: the beat is texture; a press never fails on it
                     pass
+                try:  # ORW-924: a press through the veto draw carries the engine's `vetoDrawBeat` facts: arm the same kind of hidden cue for the draw
+                    if isinstance(res.get("vetoDrawBeat"), dict):
+                        from routes.chat_helpers import arm_draw_beat_cue
+                        arm_draw_beat_cue(user)
+                        res["drawBeatCue"] = True
+                except Exception:  # failsoft-ok: the beat is texture; a press never fails on it
+                    pass
+                try:  # ORW-919: a press that committed a ceremony's public result (the veto's use, the replacement, the eviction result) arms the same kind of hidden cue - not when this press already armed the vote beat (one beat per press)
+                    from routes.chat_helpers import carries_ceremony_result_fact, arm_ceremony_result_beat_cue
+                    if carries_ceremony_result_fact(res) and not res.get("voteBeatCue"):
+                        arm_ceremony_result_beat_cue(user)
+                        res["ceremonyResultBeatCue"] = True
+                except Exception:  # failsoft-ok: the beat is texture; a press never fails on it
+                    pass
             _publish_game_updated(user)
-            return res
+            return _project_for_browser(res, _BROWSER_ADVANCE_SHAPE)  # ORW-769: the closed shape of what the card's script reads
         except orwell_engine.EngineToolError as e:
             if e.no_game:
                 return JSONResponse(status_code=409, content={"started": False, "error": "no active game"})
@@ -2000,7 +2096,7 @@ def setup_orwell_routes() -> APIRouter:
                     cur = await orwell_engine.get_game_state(user=user)
                     orwell_engine.remember_pending(cur, user=user)
                     _publish_game_updated(user)
-                    return cur
+                    return _project_for_browser(cur, _BROWSER_ADVANCE_SHAPE)  # ORW-769
             except Exception:  # failsoft-ok: reconcile failed; fall through to the typed error below
                 pass
             status = e.status if isinstance(e.status, int) and 400 <= e.status < 600 else 502
@@ -2394,6 +2490,9 @@ def setup_orwell_routes() -> APIRouter:
     # ring. Always answers 204 — the reporter never reads the response (sendBeacon
     # can't), and a misbehaving client gets silence, never an error to chase.
     _fe_report_limiter = RateLimiter(max_requests=30, window_seconds=60)
+    #: ORW-1023: per-process tally of benign counted client events (surface -> count), e.g. speculative holders torn down.
+    _FE_BENIGN_COUNTS: dict = {}
+    _FE_COUNT_SURFACES = frozenset({"ws:resync-heal-benign"})  # allowlist: a beacon cannot grow the tally with arbitrary surface names
     _FE_REPORT_CAPS = {"surface": 80, "errorClass": 120, "detail": 300}
     #: A42: the client fail-soft sites allowed to raise a RED health event (each is a real anomaly the client auto-corrects, or a refusal it degrades around).
     _FE_RED_SURFACES = frozenset({"ws:resync-heal", "ws:resync-reconcile-failed", "ws:beat-backwards", "ws:reconnect-run-gone", "ws:chat-subscribe-refused"})
@@ -2468,6 +2567,11 @@ def setup_orwell_routes() -> APIRouter:
             except Exception:
                 pass
         level = logging.DEBUG if data.get("startup") is True else logging.INFO
+        if data.get("count") is True and fields["surface"] in _FE_COUNT_SURFACES:
+            # ORW-1023: a benign counted event (never a failure): tallied per surface, logged at DEBUG, no fe-fail line.
+            _FE_BENIGN_COUNTS[fields["surface"]] = _FE_BENIGN_COUNTS.get(fields["surface"], 0) + 1
+            logger.debug("[fe-count] %s: %s — %s (total %d)", fields["surface"], fields["errorClass"], fields["detail"], _FE_BENIGN_COUNTS[fields["surface"]])
+            return Response(status_code=204)
         logger.log(level, "[fe-fail] %s: %s — %s",
                    fields["surface"], fields["errorClass"], fields["detail"])
         return Response(status_code=204)

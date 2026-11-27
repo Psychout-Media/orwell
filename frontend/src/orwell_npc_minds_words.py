@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from typing import Awaitable, Callable, Optional
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,11 @@ AIMS = ("win-by-comps", "win-by-being-liked", "run-the-house", "reach-jury", "la
 ROOMS = ("kitchen", "living-room", "dining-room", "backyard", "hallway", "bedroom-a", "bedroom-b", "bedroom-c", "bathroom",
          "lounge", "hoh-room", "storage-room", "landing")
 TIMES = ("morning", "afternoon", "evening", "night", "late-night")
+# ORW-978 (spec 0209): the closed sets a free-form routine is written against (mirrors of the engine's `ROUTINE_ROOMS` / `ROUTINE_ACTIONS`; a TS test pins them equal).
+ROUTINE_ROOMS = ("kitchen", "living-room", "dining-room", "backyard", "hallway", "bathroom", "lounge", "storage-room", "landing")
+ROUTINE_ACTIONS = ("cook", "work-out", "do-chores", "nap", "game-of-cards", "sunbathe", "tell-stories", "mull", "study-for-comps", "pray",
+                   "talk-to-cameras")
+ROUTINE_COMPANY = ("alone", "a-regular", "whoever")
 RITUAL_ACTIONS = ("cook", "work-out", "do-chores", "nap", "prank", "comfort", "homesick-talk", "bed-talk", "game-of-cards",
                   "sunbathe", "tell-stories")
 # The ONLY card keys any call may see: public facets (the roster card the whole house can read).
@@ -76,8 +82,13 @@ def traits_messages(card: dict) -> list[dict]:
     system = (
         "You are a reality-TV casting producer reading ONE houseguest's public profile. Decide how they live in the house day to day "
         "and what they most want from the season. Output ONLY a JSON object, no prose: "
-        '{"habits":[2 or 3 of: ' + ", ".join(HABITS) + '],"aimHint":"one of: ' + ", ".join(AIMS) + '","aimWhy":"<= 12 words, from the profile"}. '
-        "Ground every choice in the profile; no names of other people; no numbers."
+        '{"habits":[2 or 3 of: ' + ", ".join(HABITS) + '],"aimHint":"one of: ' + ", ".join(AIMS) + '","aimWhy":"<= 12 words, from the profile",'
+        '"routines":[0 to 4 objects {"slot":one of: ' + ", ".join(TIMES) + ',"place":one of: ' + ", ".join(ROUTINE_ROOMS)
+        + ',"action":one of: ' + ", ".join(ROUTINE_ACTIONS) + ',"company":one of: ' + ", ".join(ROUTINE_COMPANY)
+        + ',"strength":0.3 to 1,"gist":"<= 20 words, in your own words, what this person does then and why it is theirs, from the whole profile"}]}. '
+        "Routines are what a person does at the same time in the same place most days, written for THIS person only: let their work, "
+        "background, temperament and history decide what, when and where, and let two different people get different routines. "
+        "Ground every choice in the profile; no names of other people; no numbers in the words."
     )
     return [{"role": "system", "content": system}, {"role": "user", "content": "Profile: " + json.dumps(public_card(card), ensure_ascii=False)}]
 
@@ -94,6 +105,30 @@ def parse_traits(text: str) -> Optional[dict]:
         out["aimHint"] = obj["aimHint"]
         if isinstance(obj.get("aimWhy"), str) and obj["aimWhy"].strip():
             out["aimWhy"] = obj["aimWhy"].strip()[:80]
+    routines = _clean_routines(obj.get("routines"))
+    if routines:
+        out["routines"] = routines
+    return out
+
+
+def _clean_routines(raw) -> list:
+    """ORW-978: keep the well-formed routine objects (the engine re-validates every field against its own closed sets and drops what does not fit)."""
+    out: list = []
+    for r in raw if isinstance(raw, list) else []:
+        if not isinstance(r, dict):
+            continue
+        if r.get("slot") not in TIMES or r.get("place") not in ROUTINE_ROOMS or r.get("action") not in ROUTINE_ACTIONS:
+            continue
+        item = {"slot": r["slot"], "place": r["place"], "action": r["action"]}
+        if r.get("company") in ROUTINE_COMPANY:
+            item["company"] = r["company"]
+        if isinstance(r.get("strength"), (int, float)) and not isinstance(r.get("strength"), bool):
+            item["strength"] = max(0.0, min(1.0, float(r["strength"])))
+        if isinstance(r.get("gist"), str) and r["gist"].strip():
+            item["gist"] = r["gist"].strip()[:160]
+        out.append(item)
+        if len(out) >= 4:
+            break
     return out
 
 
@@ -180,6 +215,18 @@ def _alert(owner: Optional[str], key: str, what) -> None:
         pass
 
 
+def _env_num(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, "") or default)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _unarrived(state) -> int:
+    n = state.get("unarrivedCount") if isinstance(state, dict) else 0
+    return n if isinstance(n, int) and not isinstance(n, bool) and n > 0 else 0
+
+
 async def run_words(owner: Optional[str]) -> dict:
     """Resolve the utility model and the PUBLIC cast cards, run lanes 1 and 2, alert on anything skipped. No model ⇒ alert once and
     return (the engine's own habits and leanings stand). Never raises."""
@@ -193,13 +240,39 @@ async def run_words(owner: Optional[str]) -> dict:
         _alert(owner, "npc-minds:no-model", "no utility model resolved")
         return {"traits": None, "culture": None, "reason": "no-model"}
     from src import orwell_engine
+    from src.orwell_cast_authoring import pipeline_cast_for
+    # ORW-969: read the FULL cast (every houseguest, arrived or not; their cards are authored before the season starts), so habits and the frozen house culture are computed from the whole
+    # cast at once and nothing waits for the entrances. Unavailable (an engine without the read, an error) => the met-only read and the ORW-949 wait below, exactly as before.
+    state = await pipeline_cast_for(owner)
+    if state is not None and state.get("started") is not False:
+        house = [hg for hg in state.get("house") or [] if isinstance(hg, dict) and hg.get("id") and not hg.get("isPlayer")]
+        return await _author_words(owner, llm_fn, house)
     try:
         state = await orwell_engine.get_game_state(user=owner)
     except Exception as e:  # noqa: BLE001 - failsoft-ok: handled-by-terminal (_alert -> log_rings.record_soft_failure, RED)
         _alert(owner, "npc-minds:state-failed", e)
         return {"traits": None, "culture": None, "reason": "state-failed"}
+    # ORW-949: during the premiere `house` lists only houseguests who have walked in (the rest are `unarrivedCount`); wait
+    # for the whole cast so habits and the frozen house culture are not computed from a partial one.
+    waited, interval, budget = 0.0, max(0.01, _env_num("ORWELL_NPC_MINDS_CAST_WAIT_S", 30.0)), _env_num("ORWELL_NPC_MINDS_CAST_BUDGET_S", 10800.0)
+    while _unarrived(state):
+        if waited >= budget:
+            _alert(owner, "npc-minds:partial-cast", f"{_unarrived(state)} houseguest(s) still unarrived after {budget:.0f}s")
+            break
+        await asyncio.sleep(interval)
+        waited += interval
+        try:
+            state = await orwell_engine.get_game_state(user=owner)
+        except Exception as e:  # noqa: BLE001 - failsoft-ok: handled-by-terminal (_alert -> log_rings.record_soft_failure, RED)
+            _alert(owner, "npc-minds:state-failed", e)
+            return {"traits": None, "culture": None, "reason": "state-failed"}
     house = [hg for hg in (state or {}).get("house") or [] if isinstance(hg, dict) and hg.get("id") and not hg.get("isPlayer")]
+    return await _author_words(owner, llm_fn, house)
 
+
+async def _author_words(owner: Optional[str], llm_fn, house: list) -> dict:
+    """Lanes 1 and 2 over `house`, then the alerts for anything skipped."""
+    from src import orwell_engine
     async def _write_traits(req: dict) -> dict:
         return await orwell_engine.record_npc_traits(req, user=owner)
 
@@ -224,7 +297,8 @@ def kickoff_npc_minds_words(owner: Optional[str]) -> None:
 
     async def _runner():
         try:
-            await run_words(owner)
+            from src.orwell_season_checklist import tracked, HABITS_CULTURE  # ORW-970: records owed/running/done/failed
+            await tracked(owner, HABITS_CULTURE, run_words, owner)
         except Exception as e:  # pragma: no cover - failsoft-ok: handled-by-terminal (_alert -> log_rings.record_soft_failure, RED)
             _alert(owner, "npc-minds:background-run-failed", e)
         finally:

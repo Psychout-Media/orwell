@@ -40,16 +40,25 @@ def public_tool_events(events: Any) -> list:
     return [{k: v for k, v in e.items() if k in PUBLIC_TOOL_EVENT_FIELDS} for e in events if isinstance(e, dict)]
 
 
+# ORW-482 - metadata keys only the ADMIN transcript export may read: the engine results of calls the front end made itself (the forced casting finalize). Dropped by `public_metadata` and never client-writable.
+ADMIN_ONLY_METADATA_KEYS = frozenset({"admin_engine_results"})
+
+
 def public_metadata(metadata: Any) -> Any:
-    """A copy of message `metadata` that is safe for a non-admin reader: `tool_events` are whitelisted. The stored metadata is never mutated.
-    Also the INBOUND sanitizer: a client-supplied `engine_result` can never be stored (`add_message`)."""
-    if not isinstance(metadata, dict) or "tool_events" not in metadata:
+    """A copy of message `metadata` that is safe for a non-admin reader: `tool_events` are whitelisted and the admin-only keys are dropped. The stored metadata is never mutated.
+    Also the INBOUND sanitizer: a client-supplied `engine_result` (or `admin_engine_results`) can never be stored (`add_message`)."""
+    if not isinstance(metadata, dict):
         return metadata
-    return {**metadata, "tool_events": public_tool_events(metadata.get("tool_events"))}
+    if "tool_events" not in metadata and not (ADMIN_ONLY_METADATA_KEYS & metadata.keys()):
+        return metadata
+    out = {k: v for k, v in metadata.items() if k not in ADMIN_ONLY_METADATA_KEYS}
+    if "tool_events" in out:
+        out["tool_events"] = public_tool_events(metadata.get("tool_events"))
+    return out
 
 
 # Server-owned metadata keys a CLIENT may never write (they feed the admin forensic ledger): dropped from any client-supplied metadata merge.
-SERVER_OWNED_METADATA_KEYS = frozenset({"tool_events"})
+SERVER_OWNED_METADATA_KEYS = frozenset({"tool_events", "admin_engine_results"})
 
 
 def client_metadata_update(update: Any) -> dict:
@@ -58,6 +67,19 @@ def client_metadata_update(update: Any) -> dict:
     if not isinstance(update, dict):
         return {}
     return {k: v for k, v in update.items() if k not in SERVER_OWNED_METADATA_KEYS}
+
+
+def current_season_rows(history):
+    """ORW-1051: the rows of the NEWEST season in a chat: from the newest row stamped `metadata.season_start` to the end
+    (the whole list when no row carries the stamp). The older rows stay stored and viewable; only prompt-side readers
+    (the narrator's window, the day summaries, the week-chapter check) use this slice. Works on ChatMessage or dict rows."""
+    rows = list(history or [])
+    for i in range(len(rows) - 1, -1, -1):
+        m = rows[i]
+        md = (m.get("metadata") if isinstance(m, dict) else getattr(m, "metadata", None)) or {}
+        if isinstance(md, dict) and md.get("season_start"):
+            return rows[i:]
+    return rows
 
 
 @dataclass
@@ -178,10 +200,7 @@ class Session:
         phases = exclude_phases or set()
         history = self.history
         if current_season_only:
-            for _i in range(len(history) - 1, -1, -1):
-                if (history[_i].metadata or {}).get("season_start"):
-                    history = history[_i:]
-                    break
+            history = current_season_rows(history)
         # #530: the season-start boundary = the first live ("game") turn. Everything in scroll
         # order before it is pre-game (casting / OOC setup), regardless of whether each turn got
         # its per-message stamp. Index-based so it survives a stamp miss AND a DB reload.

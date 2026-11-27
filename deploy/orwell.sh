@@ -66,10 +66,10 @@ banner "Proxmox LXC installer"
 # template). Empty if none — callers fall back to a sensible literal.
 storage_for() { pvesm status --content "$1" 2>/dev/null | awk 'NR>1 && $3=="active"{print $1; exit}' || true; }
 
-# Newest debian-12-standard template names available in the appliance catalog (oldest→newest).
+# Newest debian-13-standard template names available in the appliance catalog (oldest→newest).
 available_debian12() {
   pveam available --section system 2>/dev/null | awk '{print $2}' \
-    | grep -E '^debian-12-standard' | sort -V || true
+    | grep -E '^debian-13-standard' | sort -V || true
 }
 
 interactive() {
@@ -169,7 +169,7 @@ CT_ROOT_PASSWORD="${CT_ROOT_PASSWORD:-}"
 OLLAMA_HOST="${OLLAMA_HOST:-}"
 
 # An explicit TEMPLATE=storage:vztmpl/name override splits into storage + name; otherwise the
-# newest debian-12-standard is resolved (and downloaded) below.
+# newest debian-13-standard is resolved (and downloaded) below.
 TEMPLATE_NAME="${TEMPLATE_NAME:-}"
 if [[ -n "${TEMPLATE:-}" ]]; then
   TEMPLATE_STORAGE="${TEMPLATE%%:*}"
@@ -215,16 +215,16 @@ fi
 # ── Resolve + download the OS template (the fix for the original failure) ───────────────────────
 ensure_template() {
   if [[ -z "$TEMPLATE_NAME" ]]; then
-    msg "resolving newest debian-12-standard template"
+    msg "resolving newest debian-13-standard template"
     pveam update >/dev/null 2>&1 || true
     TEMPLATE_NAME="$(available_debian12 | tail -n1)"
   fi
-  # Offline fallback: newest debian-12-standard already present on the template storage.
+  # Offline fallback: newest debian-13-standard already present on the template storage.
   if [[ -z "$TEMPLATE_NAME" ]]; then
     TEMPLATE_NAME="$(pveam list "$TEMPLATE_STORAGE" 2>/dev/null | awk '{print $1}' \
-      | sed 's#.*/##' | grep -E '^debian-12-standard' | sort -V | tail -n1 || true)"
+      | sed 's#.*/##' | grep -E '^debian-13-standard' | sort -V | tail -n1 || true)"
   fi
-  [[ -n "$TEMPLATE_NAME" ]] || die "no debian-12-standard template available or downloaded — check internet / 'pveam available'."
+  [[ -n "$TEMPLATE_NAME" ]] || die "no debian-13-standard template available or downloaded — check internet / 'pveam available'."
   if ! pveam list "$TEMPLATE_STORAGE" 2>/dev/null | grep -qF "$TEMPLATE_NAME"; then
     msg "downloading template ${TEMPLATE_NAME} → ${TEMPLATE_STORAGE} (first run only)"
     pveam download "$TEMPLATE_STORAGE" "$TEMPLATE_NAME"

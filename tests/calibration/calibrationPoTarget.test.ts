@@ -8,6 +8,7 @@ import { playSeason, summarize, type Arm as AnyArm, type SeasonMetrics } from ".
 /** The standing PO gate measures the three original arms only; the jury-managing `managed` arm (A1) is an instrument-only arm. */
 type Arm = Exclude<AnyArm, "managed">;
 import { poViolations } from "./poTargetBands";
+import { poBroken } from "../support/brokenBounds";
 
 /**
  * PO-TARGET calibration gate (the replacement for the loose "minimal-active >= passive over 6 seeds" gradient claim).
@@ -50,7 +51,10 @@ function assertBands(rows: Record<Arm, SeasonMetrics[]>): void {
     expect(seeds, `${arm}: exactly seeds 1..${SEEDS}, each once`).toEqual(Array.from({ length: SEEDS }, (_, i) => i + 1));
   }
   const summary = { passive: summarize("passive", rows.passive), solid: summarize("solid", rows.solid), reckless: summarize("reckless", rows.reckless) };
-  expect(poViolations(summary), `PO targets over ${SEEDS} seeds on the default profile:\n${JSON.stringify(summary, null, 1)}`).toEqual([]);
+  // ORW-991 (Ryne 2026-11-26: difficulty is tracked weekly, not held per fix): the owner's PO bands are a REPORT; only a broken difficulty fails (tests/support/brokenBounds.ts).
+  const report = poViolations(summary);
+  console.log(`PO REPORT over ${SEEDS} seeds: ${report.length ? report.join("; ") : "every PO target band holds"}\n${JSON.stringify(summary, null, 1)}`);
+  expect(poBroken(summary), `difficulty is broken over ${SEEDS} seeds:\n${JSON.stringify(summary, null, 1)}`).toEqual([]);
 }
 
 if (AGG) {
@@ -68,19 +72,19 @@ if (AGG) {
   const from = Number.parseInt(process.env.ORWELL_PO_FROM ?? "1", 10);
   const to = Number.parseInt(process.env.ORWELL_PO_TO ?? String(SEEDS + 1), 10);
   describe(`PO-target calibration gate — shard ${ARM} [${from}, ${to})`, () => {
-    it("plays its slice and writes the shard file", async () => {
+    it("plays its slice and writes the shard file", { timeout: 3_600_000 }, async () => {
       const rows = await playArm(ARM, from, to);
       const out = process.env.ORWELL_PO_OUT ?? join("tmp", "po-shards");
       mkdirSync(out, { recursive: true });
       writeFileSync(join(out, `po-${ARM}-${from}-${to}.json`), JSON.stringify({ arm: ARM, rows }));
       expect(rows.map((r) => r.seed)).toEqual(Array.from({ length: to - from }, (_, i) => from + i));
-    }, { timeout: 3_600_000 });
+    });
   });
 } else {
   describe("PO-target calibration gate (default profile, all arms, inline)", () => {
-    it(`passive/solid/reckless over ${SEEDS} seeds hold Ryne's bands`, async () => {
+    it(`passive/solid/reckless over ${SEEDS} seeds hold Ryne's bands`, { timeout: 4 * 3_600_000 }, async () => {
       const rows = { passive: await playArm("passive", 1, SEEDS + 1), solid: await playArm("solid", 1, SEEDS + 1), reckless: await playArm("reckless", 1, SEEDS + 1) };
       assertBands(rows);
-    }, { timeout: 4 * 3_600_000 }); // the serial all-in-one path is ~80 CPU-minutes; CI/nightly shard it (see the file header)
+    }); // the serial all-in-one path is ~80 CPU-minutes; CI/nightly shard it (see the file header)
   });
 }

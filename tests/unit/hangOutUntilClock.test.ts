@@ -12,5 +12,9 @@ describe("minutesUntilClock", () => {
   it("after midnight on the day scale (hour 24+) reaches the small hours", () => { expect(minutesUntilClock(23, 1)).toBeCloseTo(120, 6); expect(minutesUntilClock(25, 1)).toBe(0); });
   it("the wake-up hour is the NEXT morning from the day's own evening", () => { expect(minutesUntilClock(31, 8)).toBeCloseTo(60, 6); expect(minutesUntilClock(8.5, 8)).toBeCloseTo(23.5 * 60, 6); });
   it("an early-morning wake reads 0..8: the target is later that morning", () => { expect(minutesUntilClock(4, 8)).toBeCloseTo(240, 6); expect(minutesUntilClock(4, 6.5)).toBeCloseTo(150, 6); expect(minutesUntilClock(6, 5)).toBe(0); });
+  it("ORW-911: an early-morning wake, a target AFTER the house's wake-up call is that many hours on (not 0)", () => {
+    expect(minutesUntilClock(4, 9)).toBeCloseTo(300, 6); expect(minutesUntilClock(5.5, 13)).toBeCloseTo(450, 6); expect(minutesUntilClock(7.9, 8)).toBeCloseTo(6, 6);
+    expect(minutesUntilClock(5, 5)).toBe(0); expect(minutesUntilClock(5, 3)).toBe(0);
+  });
   it("an invalid hour is no target", () => { expect(minutesUntilClock(20, Number.NaN)).toBeNull(); expect(minutesUntilClock(20, 25)).toBeNull(); expect(minutesUntilClock(20, -1)).toBeNull(); });
 });

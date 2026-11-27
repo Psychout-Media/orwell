@@ -237,6 +237,8 @@ export interface PortraitPromptEntry {
   houseguestId: string;
   name: string;
   prompt: string;
+  /** ORW-953: the canonical text of the inputs that change how this person looks; the face's staleness fingerprint is hashed from it. */
+  lookKey?: string;
 }
 
 /** The shared, frozen real-world slices the cast moved in with (0062) — public flavor only. */
@@ -464,6 +466,16 @@ export interface HouseMeetingView {
   redirectTo?: string;
 }
 
+/** ORW-969: the result of `pipelineCast`. */
+export interface PipelineCastView {
+  started: boolean;
+  /** Houseguests in `house` (the player is not one). */
+  total: number;
+  /** How many of them have not walked in yet; `getGameState` hides exactly these. */
+  unarrivedCount: number;
+  house: HouseguestCard[];
+}
+
 export interface GameStateView {
   started: boolean;
   /**
@@ -572,12 +584,14 @@ export interface GameStateView {
        * committed it; once made, `used` says which way it went, and `saved` / `replacement` name who came off the block and who went up (public ceremony facts).
        */
       decision?: { made: boolean; used?: boolean; saved?: { id: EntityId; name: string }; replacement?: { id: EntityId; name: string } };
+      /** ORW-924 (`ORWELL_VOTE_BEAT`): the facts of the veto DRAW's open watch step, so a Continue press through the draw can be voiced as a short beat. Present only while the draw ceremony is open in a played game. */
+      drawBeat?: VetoDrawBeatView;
     };
     /**
      * ORW-715: while a staged competition is under way, who is still on the floor and who is already out (public ceremony facts, the drops the game has already announced).
      * Without it a narrator who watches a multi-round competition has to remember the field and put an eliminated houseguest back into the final round. Absent otherwise.
      */
-    competition?: { stillIn: Array<{ id: EntityId; name: string }>; out: Array<{ id: EntityId; name: string }> };
+    competition?: { stillIn: Array<{ id: EntityId; name: string }>; out: Array<{ id: EntityId; name: string }>; /** ORW-927: the drops a comp-round approach press resolved with no narrator turn (not yet voiced); present for one player message. */ justOut?: Array<{ id: EntityId; name: string }>; /** ORW-937: the houseguests already out when the previous player message was framed, so an earlier reply has voiced their exit; the narrator is told not to stage it again. Absent when none. */ told?: Array<{ id: EntityId; name: string }> };
   };
   /**
    * WHERE THE PLAYER IS — their room, who is with them, and each ADJACENT room with its occupants
@@ -594,6 +608,8 @@ export interface GameStateView {
    * player has no recorded move (it is replaced or cleared by the next `resolvePlayerMove`, so a turn that skips that call carries the previous one). Words and room names only, never a number. The narrator VOICES it; it never decides it.
    */
   playerMove?: PlayerMoveView;
+  /** ORW-934: the search the engine walked for the player on this message (only on the message it was made for): the ordered legs, who was in each room and how it ended. The narrator voices it as one passage. */
+  playerSearch?: HouseSearchWalk;
   /** ORW-473: the player walked in on a private talk this turn (only on the message it happened on). */
   walkedIn?: WalkedInView;
   player: PlayerCard | null;
@@ -638,16 +654,32 @@ export interface GameStateView {
   napOpen?: true;
   /** ORW-466 slice 2: the move-in bed pick, per turn (moment prompt only): which bedrooms have free beds and who sleeps in each, the player's own bed, and this turn's claim result. Public facts. Absent outside the claim window. */
   beds?: string;
+  /** ORW-1010: why the player's bed claim or swap did NOT happen this turn; the narrator says so plainly in the reply. */
+  bedRefused?: string;
+  /** ORW-1090: one turn after a night, how the player and the houseguest whose half of a double they share (or who shares the player's) took it on waking: "annoyed" or "fine". Vault-free fact for the narrator to voice; never a number. */
+  bedWake?: { sleeper: string; joiner: string; mood: "annoyed" | "fine" };
   /** ORW-652 (moment prompt only): the shape of a double-eviction night while its second cycle runs (who left, the instant crown, the hurried block), from public facts. Absent outside it. */
   longNight?: string;
   /** 0152: this turn's engine answer to "who told you that?" (one Vault-free line: who is named, that they will not say, or that they saw it). Absent otherwise. */
   sourceNote?: string;
   /** 0156 (theme 2, slice 7b): the house meeting the player was in the house and awake to hear, as the speakers' words (moment prompt only, one turn). Names only; never whether anything said is true, why it was called, ids, or how any houseguest took it. Absent otherwise. */
   houseMeeting?: HouseMeetingView;
+  /** ORW-743 (0204 part 2, moment prompt only): people in the house are talking about the player - ONE bit, never what, who or how many. The player may get ahead of it in their own words. */
+  talkedAboutYou?: true;
   /** ORW-593 (moment prompt only, one turn): the player's call for a house meeting was refused, and why in the world's terms. Never a number or a hidden reason. */
   houseMeetingRefused?: "ceremony" | "asleep" | "nobody" | "spent";
+  /** ORW-794 (moment prompt only): the alliances an NPC has let the player in on and the player has not taken (the same Vault-free view `gameStatus.alliancePitches` shows: id, name, the roster the player was told). Absent when none is open. */
+  alliancePitchesOpen?: AllianceView[];
+  /** ORW-920 (moment prompt only, this turn and the next): the player tried to go to bed before the night and `turnIn` answered `held`. Whole minutes until the night period opens, read fresh from the clock (never shown to the player as a number: the prompt phrases it). Absent otherwise. */
+  bedtimeHeld?: { minutesUntil: number };
+  /** ORW-913 (moment prompt only, two turns): the alliance the player proposed did not form (the houseguests are not close enough to the player yet): its name (the player's own words) and the houseguests it was proposed to. Never a number or a hidden reason. */
+  allianceNotFormed?: { name: string; with: string[] };
   /** ORW-737: on eviction night, the houseguests who HAVE a recorded promise to keep the player (an assurance on the ledger, kept or still open). The ONLY people the narrator may say told the player they would keep them. Absent when none. */
   keepPromisers?: NamedRef[];
+  /** ORW-750 (moment prompt only): in the week of a nomination, for each nominee, the houseguests whose vote promise IS on the engine's record and that the player was told or heard (an open promise about the nominee, or an assurance to the player when the player is the nominee). Names only: never a ballot, how sincere anyone is, or a number. Absent outside that week or when nobody is on the block. */
+  votePromises?: Array<{ nominee: NamedRef; keepers: NamedRef[] }>;
+  /** ORW-930 (moment prompt only, the new week's HOH competition and nominations): the player's own deals whose week-long term ran out at the week roll, with a houseguest still in the house and nothing new between the two yet. */
+  dealsClosed?: Array<{ with: NamedRef; kind: string }>;
   /**
    * #1792 — Producer Read: Vault-free post-scene exchange-accounting string,
    * delivered ONCE in the moment prompt immediately following a substantive
@@ -717,7 +749,7 @@ export interface GameStateView {
   interruption?: { npc: string; desire: string; /** ORW-261: what the houseguest chose to tell the player unprompted as they step in (already the player's own told-by knowledge). */ tells?: string };
   /** ORW-443: the approach cap withheld a houseguest this turn (played games only; absent otherwise). Narration-only; carries no count. */
   approachHeld?: true;
-  daySchedule?: { next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number; /** ORW-258: while the next event waits behind its night, the event that belongs to TODAY (the header names it). Absent otherwise. */ todaysEvent?: StructuralMilestone; /** ORW-363: the next event is on a LATER day (behind tonight's night); absent when it is today. The HUD says "tomorrow". */ tomorrow?: true; /** ORW-370: which part (1-3) of the three-part Final HOH the next `hoh-competition` is. Label only - the hold, due-ness and hours are the ordinary HOH milestone's. Absent for an ordinary HOH. */ finalHohPart?: 1 | 2 | 3; /** ORW-740b: the room the engine stages the next event in (ceremonies in the living room, competitions in the backyard), the same read the gather seats the house with. Absent when the event has no staging room or the flag is off. */ stagingRoom?: Room };
+  daySchedule?: { /** ORW-775: the phase the header names (TODAY's event; ORW-258 / ORW-705 rules applied by the engine), read by the status panel and the reply stamp. */ headerPhase: string; next: StructuralMilestone; phase: TimeOfDay; due: boolean; /** A7: whole in-game minutes until it is due (0 once due) - drives the optional 30-minute warning. */ minutesUntil?: number; /** ORW-258: while the next event waits behind its night, the event that belongs to TODAY (the header names it). Absent otherwise. */ todaysEvent?: StructuralMilestone; /** ORW-363: the next event is on a LATER day (behind tonight's night); absent when it is today. The HUD says "tomorrow". */ /** ORW-859: player messages since the engine opened this due event and began holding the player's card (absent at 0): the call was already voiced. */ heldTurns?: number; tomorrow?: true; /** ORW-370: which part (1-3) of the three-part Final HOH the next `hoh-competition` is. Label only - the hold, due-ness and hours are the ordinary HOH milestone's. Absent for an ordinary HOH. */ finalHohPart?: 1 | 2 | 3; /** ORW-740b: the room the engine stages the next event in (ceremonies in the living room, competitions in the backyard), the same read the gather seats the house with. Absent when the event has no staging room or the flag is off. */ stagingRoom?: Room };
   /**
    * A `createCharacter` that was REFUSED rather than honored (audit R4-05): a game already exists
    * and no `confirmRestart` was given, so the prior season is intact and untouched (this view IS
@@ -1003,6 +1035,8 @@ export interface MakeDealReq {
    * duplicate is a clean no-op even against a board that has since moved. Absent ⇒ byte-identical (opt-in).
    */
   idempotencyKey?: string;
+  /** ORW-997: the toast circle only: release up to this many batches (1 to 4, default 1) in ONE advance, so a watch-only circle can flow several steps in a turn. Ignored outside the toast. */
+  toastBatches?: number;
 }
 
 /**
@@ -1109,7 +1143,8 @@ export interface AskToTalkAloneReq { npcId: EntityId; room?: string; private?: b
  * ORW-727b: `accepted` (they are in `room` now: the player too when private), `declined` (they stay put; voice their refusal in character, never a reason), `occupied` (every private room has someone in it: nothing moved),
  * `gathered` (the whole house is gathered for an event; nothing moved). Vault-free: an outcome and a room, never a number or a reason.
  */
-export interface AskToTalkAloneResult { outcome: "accepted" | "declined" | "occupied" | "gathered"; room?: string; roomName?: string; beatSeq?: number }
+/** ORW-1064: "ambiguous-room" / "unknown-room": the room the player named is not one room (or none): nothing moved, `candidates` lists the rooms it could mean, and the narrator voices that the player must say which. */
+export interface AskToTalkAloneResult { outcome: "accepted" | "declined" | "occupied" | "gathered" | "ambiguous-room" | "unknown-room"; room?: string; roomName?: string; candidates?: string[]; beatSeq?: number }
 
 /** 0142: the houseguests who owe the player a favor for a deal they kept (Vault-free; `n` is how many are banked). */
 export interface OwedFavorView { from: NamedRef; n: number }
@@ -1214,6 +1249,11 @@ export interface CreateCharacterReq {
    * if the corpus has no headroom to honor every exclusion, the sampler relaxes it rather than failing.
    */
   priorCastNames?: string[];
+  /**
+   * ORW-921 - ENGINE-INTERNAL (like `priorCastNames`): a seeded test or replay. A confirmed restart carries nothing of the dead season (cast names, house themes, world picks) into the new one, so an explicit seed
+   * deals the same season first on a stack and after other seasons. Set by the front end's new-game door when it passes an explicit seed; never set for a player's own restart.
+   */
+  isolateSeason?: boolean;
   /** ORW-466 - ENGINE-INTERNAL (like `priorCastNames`): the player's recent seasons' house themes, carried across a confirmed restart so the new season draws a different one. */
   priorHouseThemes?: string[];
   /**
@@ -1250,6 +1290,11 @@ export interface MomentPromptReq {
    * ORW-377 (zero clocks in the house, the FE setting `zero_clocks`): hand the narrator the part of the day ("small hours, Day 5") in place of the clock time. Presentation only; absent/false ⇒ byte-identical.
    */
   zeroClocks?: boolean;
+  /**
+   * ORW-997: the FE reports that an earlier reply already voiced the latest staged-premiere release (the arrival or the toast batch on the board) and nothing new was committed this turn. The narration view then marks
+   * the entrance `voiced` and the prompt says so (no re-voicing, no upcoming speaker). Presentation only; absent/false => byte-identical.
+   */
+  entranceVoiced?: boolean;
 }
 
 /**
@@ -1680,6 +1725,8 @@ export interface BeatAnnouncementView {
     saved?: NamedRef;
     /** `eviction-result` only: the HOH broke a tied vote (never implies an extra "HOH ballot", E12). */
     tieBroken?: boolean;
+    /** `eviction-result` only (ORW-919): the public count as the host states it - totals only, never a voter (E12). */
+    votes?: { evict: number; keep: number };
     /** `comp-round-result` only: houseguests still in the competition after this round's drops (a public count). */
     remaining?: number;
     /** `final-hoh-part` only (0128): which part of the three-part Final HOH the subject just won (1 or 2). */
@@ -1724,6 +1771,26 @@ export interface OpenDealOfferView {
   howToVoice: string;
 }
 
+/**
+ * ORW-924 - the facts of one Continue press through the veto DRAW, for the narrator to voice a short beat (the narrator authors every word). Public ceremony facts only: the HOH, the
+ * nominees, which step is open, and the six ONLY once the draw's field step has published them. It names no veto winner and no result: the competition has not been run.
+ */
+export interface VetoDrawBeatView {
+  /** The draw's step now open (or just closed on the closing Continue): `chips` (the chips are being drawn) or `field` (the six are set). */
+  step: string;
+  /** 1-based step number and the ceremony's length. */
+  stepNumber: number;
+  of: number | null;
+  /** True on the closing Continue (the draw ceremony is over; the competition is not yet run). */
+  closed: boolean;
+  hoh: NamedRef | null;
+  nominees: NamedRef[];
+  /** The six drawn to play, present only once the field step has published them. */
+  field?: NamedRef[];
+  gathered: number;
+  timeOfDay?: string;
+}
+
 /** ORW-281 slice 4a: the staged-ceremony step handle (`step` is 1-based; `of` is null when a ceremony's length is open-ended). */
 export interface CeremonyStepView {
   kind: "nominations" | "veto-draw" | "veto-ceremony" | "eviction" | "final-eviction";
@@ -1754,7 +1821,9 @@ export interface PendingDecisionView {
     // player-witnessed approach, resolved via submitDecision({ kind:"deal-offer", vote:"accept"|"decline" }). ---
     | "deal-offer"
     // --- ORW-596: the player's answer to an NPC's public accusation is open state like a deal offer (never raised as a pending card); listed so the kind master list matches the request union. ---
-    | "meeting-answer";
+    | "meeting-answer"
+    // --- ORW-743: the player says the thing the house is talking about themselves, first (open state, never a card). ---
+    | "say-it-first";
   by: NamedRef;
   /** A human-readable instruction for the moment (what the player must choose). */
   prompt: string;
@@ -1879,6 +1948,8 @@ export interface EvictionView {
   host?: HostView;
   /** ORW-771 (`ORWELL_VOTE_BEAT`): the sealed beat facts of the Continue press just made through the vote reading. Absent for headless games or with the flag off. */
   voteBeat?: VoteBeatView;
+  /** ORW-928: how many player messages have come since the result was committed (the reveal, the exit speech and the walk were voiced on the turn that committed it). Absent when 0. */
+  voicedTurns?: number;
 }
 
 /**
@@ -1951,6 +2022,8 @@ export interface AdvanceView {
   finale?: FinaleView | null;
   /** The in-progress eviction projection (0047); present only while a weekly eviction is staging. */
   eviction?: EvictionView | null;
+  /** ORW-924 (`ORWELL_VOTE_BEAT`): the facts of the veto-draw Continue press just made (the step this result opened, or the one a closing Continue just closed). Absent outside a played veto draw. */
+  vetoDrawBeat?: VetoDrawBeatView;
   /**
    * 0102 (PO review 2026-06-27 redesign, #884) — present ONLY on the `turnIn` result that closes an
    * in-game day: the Vault-free "day in review" digest + its optional non-committal cliffhanger. Absent
@@ -2112,6 +2185,8 @@ export interface PremiereIntrosView {
     playerToast?: "later" | "now" | "done";
     /** ORW-368: toast speakers (the player's slot included) still to be released AFTER the latest batch, from the engine's done list. The toast is over only when this reaches 0 and the stage reads done. Toast stage only. */
     toastRemaining?: number;
+    /** ORW-997: set only on a narration view when the caller (`getMomentPrompt` with `entranceVoiced`) reports that an earlier reply already voiced what this view shows (the latest arrival, or the latest toast batch). */
+    voiced?: true;
   };
 }
 
@@ -2169,7 +2244,8 @@ export interface WalkedInView {
   room: string;
   with: NamedRef[];
   /** The manner to voice only. The raw reaction value is engine-side: its distribution follows the hidden stakes of the talk, so it is never part of this view. */
-  reactions: Array<{ id: EntityId; name: string; line: string }>;
+  /** `left` (ORW-1077): this houseguest walked out of the room as their reaction. */
+  reactions: Array<{ id: EntityId; name: string; line: string; left?: true }>;
 }
 
 export type PlayerMoveView =
@@ -2177,9 +2253,42 @@ export type PlayerMoveView =
   | { refused: true; reason: string; from?: string; to?: string; msg?: string };
 
 /** ORW-419 - `resolvePlayerMove` request: the player's own message text (never the narration). */
-export interface ResolvePlayerMoveReq { text: string; expectedBeatSeq?: number; idempotencyKey?: string }
+/** ORW-1014: `skip` names the text parses the caller has already decided another way (the act-first round owns the player's move, search and bed claim); the other resolvers in the seam still run. */
+export interface ResolvePlayerMoveReq { /** ORW-1003: the previous narrator reply (player-visible text), for "head over there" / "I follow her". */ previousReply?: string; text: string; expectedBeatSeq?: number; idempotencyKey?: string; skip?: ReadonlyArray<"move" | "bed"> }
 /** ORW-419 - the result: the recorded `playerMove` (null when the words held no clear move) + the resulting whereabouts. */
-export interface ResolvePlayerMoveResult { playerMove: PlayerMoveView | null; whereabouts: WhereaboutsView | null; beatSeq?: number }
+export interface ResolvePlayerMoveResult { playerMove: PlayerMoveView | null; whereabouts: WhereaboutsView | null; beatSeq?: number; /** ORW-934: set when the words were a search for a houseguest and the engine walked it. */ search?: HouseSearchWalk }
+
+/**
+ * ORW-934 (Kevin 2026-11-26): "looking for X" is an engine action that PLAYS OUT, leg by leg, on a sensible route (the last real sighting first, then nearby rooms). Each leg is one real step into a neighbouring room, bills the
+ * clock and lets the house move; nobody is teleported and X is only where the engine has X (X may move while the player walks). The narrator compresses the legs into ONE passage; it invents no sighting.
+ * `found`: the player stands in X's room. `closed-room`: X is somewhere the player cannot go (the Diary Room, a shut HOH room). `not-in-house`: X is not in the house (not arrived yet, or out). `event-due`: a house event is coming due.
+ * `walk-in`: the walk ended on a private talk. `bedtime`: the day is over. `pinned`: a whole-house event holds the player with the house. `stopped`: the player's cap on legs was reached. `gave-up`: three sweeps of the house found nobody (a safety bound, never a turn count).
+ */
+export type HouseSearchOutcome = "found" | "closed-room" | "not-in-house" | "event-due" | "walk-in" | "bedtime" | "pinned" | "stopped" | "gave-up";
+export interface HouseSearchLeg {
+  /** The room the player stepped into on this leg. */
+  room: string;
+  roomName: string;
+  /** Who was in that room when the player arrived (awake, the player excluded). */
+  present: NamedRef[];
+  /** Why this leg was walked: following a recorded sighting or tip, going to where the houseguest was seen, or checking the nearest room not yet looked in. */
+  why: "sighting" | "tip" | "in-view" | "sweep";
+}
+export interface HouseSearchWalk {
+  target: NamedRef | null;
+  outcome: HouseSearchOutcome;
+  /** One plain sentence the narrator voices as the end of the search (engine truth). */
+  reason: string;
+  from: string;
+  to: string;
+  legs: HouseSearchLeg[];
+  /** In-game minutes the walk cost the clock. */
+  minutes: number;
+  msg?: string;
+}
+/** ORW-934 - `searchForHouseguest` request: the houseguest's name as the player said it; `maxLegs` lets the player stop early or redirect (the walk ends `stopped`). */
+export interface SearchForHouseguestReq { name: string; maxLegs?: number; expectedBeatSeq?: number; idempotencyKey?: string }
+export interface SearchForHouseguestResult { search: HouseSearchWalk; whereabouts: WhereaboutsView | null; beatSeq?: number }
 
 /**
  * ORW-654 / 0206: the one-time card for a room the player has stepped into for the first time. The season's own name and look for it (the house theme), who is in it and what opens onto it (names only: third person, no number, nothing hidden).
@@ -2190,6 +2299,9 @@ export interface RoomCardView { room: string; name: string; look?: string; here:
 export interface WhereaboutsView {
   /** The room the player is in. */
   room: string;
+  /** ORW-1064: present only on the answer to a move the engine REFUSED because the room named is ambiguous (`candidates`) or unknown: the player did not move, and the narrator must voice that they have to say which room. */
+  /** `hoh-door` (ORW-1076): the HOH room did not open; `detail` says why in plain words. */
+  moveRefused?: { reason: "ambiguous-room" | "unknown-room" | "hoh-door"; asked: string; candidates?: string[]; detail?: string };
   /** ORW-466: this season's name for every room ("the Coral Reef Room"), when the season has a house theme. Absent: the plain labels stand. */
   roomNames?: Partial<Record<string, string>>;
   /** ORW-466: one line of what the player's room looks like this season (the house theme), for the narrator. */
@@ -2316,6 +2428,9 @@ export interface WhereaboutsView {
  */
 export interface HouseguestMoveResult {
   status: "moved" | "noop" | "illegal";
+  /** ORW-1064: on "illegal" for a room the name did not settle: "ambiguous-room" (see `candidates`, nothing moved) or "unknown-room". */
+  reason?: "ambiguous-room" | "unknown-room";
+  candidates?: string[];
   whereabouts: WhereaboutsView | null;
   /** A29 - on "moved" only: the closed-set beatSeq AFTER the commit this move made, so the front-end adopts it and its next compare-and-swap call is not a self-inflicted stale-beat 409. */
   beatSeq?: number;
@@ -2358,6 +2473,8 @@ export interface NpcVoiceView {
   statedReasons?: StatedReasonView[];
   /** ORW-737: what this houseguest DECLARES to the player about keeping them (a vote, a nomination, a veto): the ENGINE's call, never the houseguest's private vote. `will-keep` = they say they will (a recorded assurance, or one the engine decided they give); `wont-commit` = they decline to promise either way. Voice only this about the future; absent when nothing is at stake this turn. */
   declaredStance?: "will-keep" | "wont-commit";
+  /** ORW-749: what this houseguest's own consent roll will do with a deal the player pitches now (the ENGINE's call): `will-accept`, `will-decline`, or `undecided` (depends on the ask). Voice nothing that contradicts it. Absent when no deal could be decided. */
+  dealConsent?: "will-accept" | "will-decline" | "undecided";
   /** A49 (#2017 E1a, flag ORWELL_NPC_TELLS, default ON): the houseguest's observable carriage right now - at most 2 closed-vocabulary tells (kind, band, channel), words only, never a number or a cause. Present only for a houseguest who is PRESENT in the player's room and awake. Absent flag-off => byte-identical. */
   tells?: ReadonlyArray<{ kind: string; band: string; channel: string }>;
   /** A54 (#2017 M5, ORWELL_NPC_MEMORY_SPEECH, default ON): up to 3 plain facts this houseguest holds about the PLAYER (words + a recency word; never a kind slug, severity or number). Absent flag-off or when they hold none. */
@@ -2513,6 +2630,8 @@ export interface PresentKnowledgeView {
   statedReasons?: StatedReasonView[];
   /** ORW-737: the same `declaredStance` `npcVoice` carries, pushed so the narrator voices the engine's stance without the under-called tool. */
   declaredStance?: "will-keep" | "wont-commit";
+  /** ORW-749: what this houseguest's own consent roll will do with a deal the player pitches now (the ENGINE's call): `will-accept`, `will-decline`, or `undecided` (depends on the ask). Voice nothing that contradicts it. Absent when no deal could be decided. */
+  dealConsent?: "will-accept" | "will-decline" | "undecided";
   /** ORW-338: the same `moodCause` `npcVoice` carries (this week's, only when they would tell the player), pushed so the narrator can voice it without the under-called tool. Same gates as `npcVoice`. */
   moodCause?: string;
   /** ORW-338: the same `rememberedAboutOthers` `npcVoice` carries (public-fact memories about people in the room, memory speech flag), pushed for the same reason. */
@@ -2523,7 +2642,7 @@ export interface PresentKnowledgeView {
    */
   /** 0202 (ORW-645): this houseguest is leaning on the player right now with something they hold, in this manner. Third-person fact only: never what they hold, never why. Absent unless an approach is open. */
   leansOnYou?: { manner: "blunt" | "sneaky" };
-  tellsYou?: { kind: "targets-you" | "voted-to-evict-you" | "final-two-with" | "going-after" | "talking-about" | "lying-about" | "voted-against" | "voted-to-keep" | "has-reputation"; subject: string; object?: string; /** 0184 part 2a: a `has-reputation`'s role or name (an engine word the narrator voices as gossip, never shown as a label) */ label?: string; certainty: "sure" | "fairly-sure" | "not-sure" };
+  tellsYou?: { kind: "targets-you" | "voted-to-evict-you" | "couple-with" | "final-two-with" | "going-after" | "talking-about" | "lying-about" | "voted-against" | "voted-to-keep" | "has-reputation"; subject: string; object?: string; /** 0184 part 2a: a `has-reputation`'s role or name (an engine word the narrator voices as gossip, never shown as a label) */ label?: string; certainty: "sure" | "fairly-sure" | "not-sure"; /** ORW-931: the player already heard this same thing from another houseguest - this telling confirms it, it is not news. Absent = new to the player. */ alreadyHeard?: true };
 }
 
 /**
@@ -2881,7 +3000,9 @@ export interface SubmitDecisionReq {
     // ("accept" | "decline") rides the shared `vote` field (a string, like a tone/appeal value). ---
     | "deal-offer"
     // --- ORW-596: the player's own answer to an NPC's public accusation at a house meeting. The stance ("deny" | "admit" | "redirect") rides `vote`; the player's own words ride `statement`. ---
-    | "meeting-answer";
+    | "meeting-answer"
+    // --- ORW-743: the player tells the room the thing it is talking about, first, in their own words (`statement`, kept verbatim; blank = not said). ---
+    | "say-it-first";
   /**
    * self-evict (0061): the EXPLICIT confirmation. ONLY `confirmed:true` executes the irreversible
    * walk-out (record the event + fold its impact + flip status through the 0046 door). Anything else
@@ -2956,6 +3077,10 @@ export interface NapView {
   whereabouts?: WhereaboutsView | null;
   timeOfDay?: string;
   beatSeq: number;
+  /** ORW-1067: present when the engine changed the asked-for length (out of range, off the half-hour step, or not a number): the value applied. Absent when the request was used as given. */
+  clamped?: true;
+  hoursApplied?: number;
+  hoursAsked?: number;
 }
 
 export interface HangOutReq {
@@ -2968,6 +3093,11 @@ export interface HangOutReq {
   untilBandEnd?: boolean;
   /** ORW-734a: the player asked to wait until a wall-clock time ("until 10pm" = 22, "until 10:30pm" = 22.5; 0..24, FE-parsed from their own words). The target is the NEXT time the clock reads that, never a day later; a time already passed today waits nothing. Combined with the other targets, the nearest wins; the 3 h cap on a stated wait still holds. */
   untilClock?: number;
+  /** ORW-1054: the player asked to wait for the next scheduled event ("hang out until production calls"): the target is that event (never past it), no per-beat dice, so ONE call reaches it instead of a run of calls cut short by chance stops. Bedtime and a houseguest whose own want is due still stop it; capped at 10 h. */
+  untilEvent?: boolean;
+  /** ORW-1089 (Ryne 2026-11-27): the player sent a bare "next" while nothing was due. Time runs toward the next event and stops at the first thing that calls for them: someone walks into their room, game talk starts in
+   *  their sight, a houseguest's own want is due, the event, or bedtime. */
+  bareNext?: boolean;
 }
 /** Why a hang-out stopped (the engine decides; the narrator voices it). */
 /** `max-beats` also means a player-stated wait reached its target (ORW-445): a met target is not a separate stop reason. */
@@ -2986,6 +3116,10 @@ export interface HangOutView {
   detail?: { by?: string; npc?: string; desire?: string; kind?: string; who?: string[] };
   timeOfDay?: string;
   beatSeq: number;
+  /** ORW-1067: present when the engine changed `maxBeats` (floored, raised to 1, capped at 8, or not a number): the value applied. */
+  clamped?: true;
+  maxBeatsAsked?: number;
+  maxBeatsApplied?: number;
 }
 
 export interface AdvanceGameReq {
@@ -3353,6 +3487,11 @@ export interface GameSession {
   /** The current Vault-free game state (phase, the player's card, the house roster). */
   getGameState(): GameStateView;
   /**
+   * ORW-969: the FULL cast (every houseguest, arrived or not) for trusted server-side casting jobs. Same public `house` entries as `getGameState`, without the ORW-710 met-only
+   * filter, and the count still outside. Never sent to the browser or listed for the narrator (an infra read). `{ started: false, total: 0, unarrivedCount: 0, house: [] }` pre-game.
+   */
+  pipelineCast(): PipelineCastView;
+  /**
    * The `beatSeq`-keyed delta state feed (0065 Part E): given the caller's last-seen `beatSeq`, return
    * exactly WHAT CHANGED since (player-visible events appended, ceremony field diffs, finished/winner
    * flip). Vault-free by construction (reuses the player's witness-filtered visible projection) and
@@ -3625,6 +3764,13 @@ export interface GameSession {
   resolvePlayerMove(req: ResolvePlayerMoveReq): ResolvePlayerMoveResult;
 
   /**
+   * ORW-934 - search the house for a named houseguest: the engine walks the player leg by leg (one real step into a neighbouring room each, billing the clock and running the house's movement tick), following the last real sighting
+   * first, then the nearest rooms not yet checked. It stops when X is found, X is somewhere the player cannot go, a house event comes due, the player walks in on a private talk, it is bedtime, or `maxLegs` is reached. Returns the
+   * ordered leg list for the narrator to compress into one passage. Also committed by `resolvePlayerMove` when the player's words are a search ("look for X", "find X", "where is X"). Nobody is teleported. At-most-once per `idempotencyKey`.
+   */
+  searchForHouseguest(req: SearchForHouseguestReq): SearchForHouseguestResult | null;
+
+  /**
    * ADR 0009 — RECORD a narrated houseguest relocation (the model narrates the open texture of who
    * wanders where; the engine records it, so the board agrees with the prose and there is never a
    * visible historic conflict). Mutates ONLY the open, player-facing occupancy — never the
@@ -3683,6 +3829,8 @@ export interface GameSession {
    * unknown or non-active houseguest (the departed are voiced from the public record only).
    */
   npcVoice(id: EntityId): NpcVoiceView | null;
+  /** ORW-1067: why an `npcVoice` lookup of an id or name found nobody: ambiguous (the public candidate names) or unknown. */
+  voiceLookup(key: string): { status: "found"; id: EntityId } | { status: "ambiguous"; candidates: NamedRef[] } | { status: "unknown" };
 
   /**
    * The knowledge-wall manifest (ship-blocker A0) — the player's private disclosures that are sealed
@@ -3714,7 +3862,7 @@ export interface GameSession {
    * cast (0065/ADR 0013 — the per-NPC authored shoot fetches the store as it stands at shoot time).
    * Null when neither holds the id.
    */
-  getPortraitPrompt(id: EntityId): { houseguestId: string; name: string; prompt: string } | null;
+  getPortraitPrompt(id: EntityId): { houseguestId: string; name: string; prompt: string; lookKey?: string } | null;
 
   /**
    * The Vault-free projection of the move-in zeitgeist snapshot (feature 0062) — the FROZEN, shared

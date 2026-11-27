@@ -151,9 +151,9 @@ export function habitsFor(c: AgendaCharacter, owner: EntityId, seed: number): Ha
 }
 
 /** ORW-651 (0209): where a routine of this act happens when the act has no usual place of its own: the shared rooms (never a bedroom, the HOH room or the diary room, which are someone's own or private). */
-const ROUTINE_ROOMS: readonly Room[] = HOUSE_ROOMS.filter((r) => !r.startsWith("bedroom") && r !== "hoh-room" && r !== "diary-room");
+export const ROUTINE_ROOMS: readonly Room[] = HOUSE_ROOMS.filter((r) => !r.startsWith("bedroom") && r !== "hoh-room" && r !== "diary-room");
 /** The acts a habit can be: ordinary life done alone or in company (never strategy, never a competition reaction, never the private diary room). Derived from the action library, not listed. */
-const ROUTINE_ACTIONS: readonly ActionKind[] = (Object.keys(ACTIONS) as ActionKind[]).filter((k) => {
+export const ROUTINE_ACTIONS: readonly ActionKind[] = (Object.keys(ACTIONS) as ActionKind[]).filter((k) => {
   const a = ACTIONS[k];
   // done alone or in company, or a shared pastime with a usual place that needs someone there (a clash is never a habit)
   return (a.family === "house-life" || a.family === "alone") && (a.partners.min === 0 || a.place !== undefined) && !a.publicOnly && a.place !== "diary-room" && a.fold !== "conflict";

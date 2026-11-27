@@ -33,7 +33,14 @@ function stepLoop(sb: UserSandbox): boolean {
   }
   return adv.finished;
 }
+// ORW-985: both tests read the same seasons, so each (fury, seed) is played once; they only read the finished sandbox.
+const seasons = new Map<string, UserSandbox>();
 function season(fury: boolean, seed = SEED) {
+  const key = `${fury}:${seed}`;
+  if (!seasons.has(key)) seasons.set(key, playSeason(fury, seed));
+  return seasons.get(key)!;
+}
+function playSeason(fury: boolean, seed: number) {
   const reg = new GameSessionRegistry();
   const sb = reg.sandboxFor("tf-blind");
   sb.session.createCharacter({ playerName: "The Player", archetype: "floater", seed });
@@ -57,7 +64,7 @@ function playerEdges(sb: UserSandbox): string {
 }
 
 describe("0135 — traitors' fury is player-blind", () => {
-  it("no blame fact in the player's knowledge, and no player edge moves vs the OFF season", () => {
+  it("no blame fact in the player's knowledge, and no player edge moves vs the OFF season", { timeout: 120_000 }, () => { // ORW-985: two full seasons: an explicit budget, not the 30 s default
     const on = season(true);
     const off = season(false);
     const known = on.engine.knowledge.knownTo(PLAYER);

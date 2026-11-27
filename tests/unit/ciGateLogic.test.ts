@@ -18,8 +18,8 @@ const lines = yml.slice(start).split("\n");
 const end = lines.findIndex((l) => l.trim() !== "" && !l.startsWith(" ".repeat(10)));
 const script = (end < 0 ? lines : lines.slice(0, end)).map((l) => l.replace(/^ {10}/, "")).join("\n");
 
-const JOBS = ["changes", "backlog-whole", "fast-checks", "test", "bdd", "test-unit", "coverage", "smoke", "fe-unit", "fe-coverage", "fe-perf-report", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
-const HEAVY_TIER = ["bdd", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims"];
+const JOBS = ["changes", "backlog-whole", "fast-checks", "test", "bdd", "test-unit", "coverage", "smoke", "fe-unit", "fe-coverage", "fe-perf-report", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims", "season-mix-shard", "season-mix"];
+const HEAVY_TIER = ["bdd", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "heavy-sims", "season-mix-shard", "season-mix"];
 
 function gate(full: boolean, results: Record<string, string>, filters: Record<string, string> = {}): { rc: number; out: string } {
   const env = {
@@ -61,18 +61,18 @@ describe("ci-gate (two-tier CI)", () => {
     expect(gateJob).toContain("      - backlog-whole\n");
     expect(gateJob).toContain("backlog-whole=${{ needs.backlog-whole.result }}");
   });
-  it("fast-checks is a required input: its failure or an applicable skip fails the gate; with both engine and front-end filters false a skip is fine (docs-only)", () => {
+  it("fast-checks is a required input: its failure or an applicable skip fails the gate; a skip fails even when both filters are false (docs-only still runs the secrets scan, ORW-1044)", () => {
     expect(gate(true, { "fast-checks": "failure" }).rc).toBe(1);
     expect(gate(true, { "fast-checks": "skipped" }).rc).toBe(1);
-    expect(gate(true, { "fast-checks": "skipped" }, { ENGINE: "false", FRONTEND: "false" }).rc).toBe(0);
+    expect(gate(true, { "fast-checks": "skipped" }, { ENGINE: "false", FRONTEND: "false" }).rc).toBe(1); // ORW-1044: always applies (the repo-wide secrets scan)
     expect(gate(true, { "fast-checks": "skipped" }, { ENGINE: "false" }).rc).toBe(1);
   });
   it("a draft fails on a fast-tier failure too, and on a skipped applicable fast job", () => {
     expect(gate(false, { ...skipHeavy, "test-unit": "failure" }).rc).toBe(1);
     expect(gate(false, { ...skipHeavy, "fe-unit": "skipped" }).rc).toBe(1);
   });
-  it("passes a full run where every job was skipped because every filter is false (a docs-only PR)", () =>
-    expect(gate(true, skipAll, { ENGINE: "false", HEAVY: "false", DEPLOY: "false", FRONTEND: "false", FE_RENDER: "false" }).rc).toBe(0));
+  it("passes a full run where every path-filtered job was skipped because every filter is false (a docs-only PR; fast-checks always runs, ORW-1044)", () =>
+    expect(gate(true, { ...skipAll, "fast-checks": "success" }, { ENGINE: "false", HEAVY: "false", DEPLOY: "false", FRONTEND: "false", FE_RENDER: "false" }).rc).toBe(0));
   it("fails when a filter output is empty or not a boolean, even though every lane was skipped", () => {
     for (const bad of ["", "maybe", "True"]) {
       const r = gate(true, skipAll, { ENGINE: bad, HEAVY: "false", DEPLOY: "false", FRONTEND: "false", FE_RENDER: "false" });
@@ -91,7 +91,7 @@ describe("ci-gate (two-tier CI)", () => {
 
 describe("ci.yml wiring (two-tier CI)", () => {
   it("every heavy-tier job is gated on the full tier", () => {
-    for (const job of ["bdd", "heavy-sims", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "a11y-matrix"]) {
+    for (const job of ["bdd", "heavy-sims", "season-mix-shard", "season-mix", "coverage", "smoke", "fe-browser-tests", "fe-browser", "fe-responsive", "mirror-parity", "a11y-matrix"]) {
       const m = yml.match(new RegExp(`\\n  ${job}:\\n(?:    .*\\n)*?    if: (.*)\\n`));
       expect(m, job).toBeTruthy();
       expect(m![1], job).toContain("needs.changes.outputs.full == 'true'");
@@ -164,7 +164,7 @@ describe("result reuse (ORW-413 PR 2)", () => {
     expect(yml).toContain('[ "$l2" = "$TREE" ] && [ "$l3" = "$WF" ]');
   });
   it("every heavy job (all but changes and ci-gate) skips when the proof is reused", () => {
-    for (const job of ["fast-checks", "test", "bdd", "test-unit", "heavy-sims", "coverage", "smoke", "fe-unit", "fe-coverage", "fe-browser-tests", "fe-browser", "fe-perf-report", "fe-responsive", "mirror-parity", "a11y-matrix"]) {
+    for (const job of ["fast-checks", "test", "bdd", "test-unit", "heavy-sims", "season-mix-shard", "season-mix", "coverage", "smoke", "fe-unit", "fe-coverage", "fe-browser-tests", "fe-browser", "fe-perf-report", "fe-responsive", "mirror-parity", "a11y-matrix"]) {
       const m = yml.match(new RegExp(`\\n  ${job}:\\n(?:    .*\\n)*?    if: (.*)\\n`));
       expect(m![1], job).toContain("needs.changes.outputs.reuse != 'true'");
     }

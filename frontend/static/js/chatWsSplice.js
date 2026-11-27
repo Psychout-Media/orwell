@@ -185,10 +185,17 @@ export function _onWsResync(ev) {
   // ORW-272: two reasons are ROUTINE by design and must not raise the RED health event. 'run-started-empty' is the speculative holder torn down when the state channel's <=8-event ring REPLAYS a stale
   // run-started edge on every (re)subscribe (documented in orwellWs.js); 'reconnect-run-gone' is already reported, once, by its own ws:reconnect-run-gone site, so this heal would double-count it (the
   // 11-06 live session logged both for every reconnect: 7 run-gone + 17 heals). Both are still logged; only an unexplained resync (engine restart, beat-backwards, ...) is RED.
-  const _routineResync = reason === 'run-started-empty' || reason === 'reconnect-run-gone';
+  // ORW-1023: a 'run-started-empty' teardown is benign ONLY while the torn-down holder is still the speculative one (no reply or reasoning text streamed into it); a holder that already carried text is a real loss.
+  const _holderHadText = !!(round && (round.reply || round.reasoning));
+  const _benignEmpty = reason === 'run-started-empty' && !_holderHadText;
+  const _routineResync = _benignEmpty || reason === 'reconnect-run-gone';
   // #1599 — a resync is the AUTO-CORRECTION of a real interruption (engine restart mid-stream). It is
   // not a routine event: log it at WARN with disposition (reason + whether a wedged holder was torn
   // down) so the heal is observable, never silent. A42: it also raises the RED health event (a correction is not a cloak).
+  // ORW-1023: the benign speculative-holder teardown (a stale ring replay on a page reload with no turn in flight) is COUNTED, never a fe-fail/soft-fail line; real cases still report below.
+  if (_benignEmpty) {
+    try { if (window.OrwellReport && window.OrwellReport.count) window.OrwellReport.count('ws:resync-heal-benign', 'run-started-empty', wasWedged ? 'speculative holder torn down' : 'no holder'); } catch (_) {}
+  } else
   try { if (window.OrwellReport) window.OrwellReport.fail('ws:resync-heal', String(reason), wasWedged ? 'tore down a wedged live holder' : 'no wedged holder', { red: !_routineResync, corrected: 'history reconcile' }); } catch (_) {}
   try {
     console.warn('[chatWsSplice #1596] ws-resync (' + reason + ') — reconciling from history' +
@@ -290,6 +297,8 @@ export function _onWsChatFrame(frame) {
   // holder (`_wsRound.holder` if a run-boundary already pre-mounted it, else it lands in seq order and
   // the reply holder mounts after). The SENDER's own bubble already exists → the renderer dedups by
   // clientMsgId and only stamps {id, seq} (never a duplicate). Cause-before-effect on the WS leg too.
+  // ORW-408: the server's "still working" beat while a sentence is being re-voiced; nothing to render (the socket stays warm, the idle timers see traffic).
+  if (d.type === 'keepalive') return;
   if (d.type === 'user_message') {
     try { _renderUserMessage(d, { beforeEl: (_wsRound && _wsRound.holder) || null }); } catch (_) {}
     return;

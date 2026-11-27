@@ -88,14 +88,14 @@ interface BlocCoordination {
 // seed-independent (unit-pinned below: every member computes the same negative shielded read).
 // Summed over several seeds (2026-11-02): a single pinned seed broke whenever balance tuning reshaped
 // the trajectory; the lift is a property of the mechanism, so it is measured across a small seed set.
-// The lift is a SMALL effect measured over a SMALL seed set, so the set matters: over seeds 1-100 (2026-11-03, default profile) the bonded trio's
-// vote alignment is 81.9% -> 85.6% (+3.7 pts) at comp-win threat 0.2 and 82.4% -> 85.0% (+2.6 pts) at 0.3 (a difference within sampling error),
-// and trio shielding is strong at both (44 -> 1 and 45 -> 0 bloc-mate nominations). Seeds 1-10 happen to show no alignment lift at all, so a
-// 5-seed assertion is a coin-flip on WHICH seeds: the set below is one where the small alignment effect shows. The strong claim (shielding) and the
-// 100-seed measurement are the real evidence; the retune did not remove the effect.
+// ORW-972 (re-measured 2026-11-26, this scenario's own logic, seeds 1-100, 10 weeks): the old note here (+2.6..3.7 pts) did not hold. At 2026-11-03 the lift was
+// +1.7 pts (83.1% -> 84.8%); by ORW-19 (comp-win threat 0.45) it was -3.1 pts (90.6% -> 87.5%), and the same games showed the bloc term LOWERING the trio's agreement
+// (0.835 without it, 0.823 with it): it pulled each member toward the threat-derived shared target, flipping only the marginal member against a house that votes by
+// consensus. The fix: on a vote the bloc pulls toward its OWN majority pick (`blocVoteTerm` / `blocVotePick`), at a third of the shield's weight (`BLOC.voteLeanShare`, Ryne
+// approved 2026-11-26). Now: 90.3% -> 91.9% (+1.6 pts) over seeds 1-100, shielding 31 -> 1 bloc-mate nominations.
 // A92: a seed RANGE, not a hand-picked set (the old [11..15] was re-selected after every balance change and went red on any default shift though the mechanism was fine).
 const BL_LIFT_SEEDS = Array.from({ length: 40 }, (_, i) => i + 1); // 12 -> 40 seeds on 2026-11-13 (ORW-19 comp-win threat 0.3 -> 0.45): the lift is ~0.02, below the sampling error of a 12-seed pool (~0.03); over 40 seeds: 0.856 vs 0.844 at 0.3, 0.889 vs 0.903 at 0.45; shielding is unchanged (0 vs 19 bloc-mate nominations at both)
-/** The alignment lift is small (+2.6..3.7 pts over seeds 1-100), so the claim is 'not worse than the unbonded baseline beyond sampling error', not a strict inequality on a lucky set. */
+/** The alignment lift is about +1.6 pts over seeds 1-100 (ORW-972), so the claim is 'not worse than the unbonded baseline beyond sampling error', not a strict inequality on a lucky set. */
 const BL_ALIGN_TOLERANCE = 0.03;
 const BL_LIFT_WEEKS = 10;
 let blBaseline: BlocCoordination | undefined;

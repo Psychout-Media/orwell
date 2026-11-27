@@ -10,10 +10,18 @@ type Any = Record<string, any>;
 const SEEDS = [5, 7]; // played to the end by the player (seed 11 became a spectator seed when ORW-868 gave the unauthored player the cast-mean stats)
 const SPECTATOR_SEED = 23; // the player is voted out in the first eviction and watches the night
 
+// ORW-985: several tests read the same whole night (a deterministic function of seed and flag), so each is played once; they only read the result.
+const nights = new Map<string, ReturnType<typeof playNight>>();
+function wholeNight(seed: number, longNight: boolean): ReturnType<typeof playNight> {
+  const key = `${seed}:${longNight}`;
+  if (!nights.has(key)) nights.set(key, playNight(bootPlayed(seed, longNight)));
+  return nights.get(key)!;
+}
+
 describe("ORW-652 the double eviction is one long night", () => {
   it("the whole second cycle sits inside one in-game day, in the evening and night bands, with no hold", () => {
     for (const seed of SEEDS) {
-      const r = playNight(bootPlayed(seed, true));
+      const r = wholeNight(seed, true);
       expect(r.fired, `seed ${seed}: the twist fired`).toBe(true);
       const night = nightRows(r);
       expect(night.length).toBeGreaterThan(10);
@@ -31,7 +39,7 @@ describe("ORW-652 the double eviction is one long night", () => {
   });
 
   it("a player evicted first still sees one night: it closes inside one day with no hold", () => {
-    const r = playNight(bootPlayed(SPECTATOR_SEED, true));
+    const r = wholeNight(SPECTATOR_SEED, true);
     expect(r.fired).toBe(true);
     expect(r.session.live.spectator).toBeDefined();
     expect(new Set(nightRows(r).map((x) => x.day)).size).toBe(1);
@@ -39,7 +47,7 @@ describe("ORW-652 the double eviction is one long night", () => {
   });
 
   it("flag off is today: the second cycle is held by the schedule and the day rolls", () => {
-    const r = playNight(bootPlayed(5, false));
+    const r = wholeNight(5, false);
     expect(r.fired).toBe(true);
     const night = nightRows(r);
     expect(r.holdsInNight.length + new Set(night.map((x) => x.day)).size).toBeGreaterThan(1);
@@ -47,8 +55,8 @@ describe("ORW-652 the double eviction is one long night", () => {
 
   it("outcomes never move: the same seed yields the same evictees and HOHs with the compression on or off", () => {
     for (const seed of [...SEEDS, SPECTATOR_SEED]) {
-      const on = playNight(bootPlayed(seed, true));
-      const off = playNight(bootPlayed(seed, false));
+      const on = wholeNight(seed, true);
+      const off = wholeNight(seed, false);
       expect(on.fired && off.fired).toBe(true);
       expect(outcomeFingerprint(on), `seed ${seed}`).toBe(outcomeFingerprint(off));
     }
@@ -56,7 +64,7 @@ describe("ORW-652 the double eviction is one long night", () => {
 
   it("a save taken mid-night resumes identically and keeps the long-night marker", () => {
     const seed = 7; // ORW-868: was 11, which became a spectator seed with the cast-mean player stats
-    const whole = playNight(bootPlayed(seed, true));
+    const whole = wholeNight(seed, true);
     const s = bootPlayed(seed, true);
     const mid = playNight(s, (row) => row.twist === "running" && row.beat === "veto-competition");
     expect(mid.fired).toBe(false);
@@ -94,10 +102,11 @@ describe("ORW-652 the double eviction is one long night", () => {
     expect(on.getMomentPrompt({}).systemPrompt).not.toContain("LONG NIGHT");
   });
 
-  it("the player is part of the night in every seat (instant HOH, nominee, evicted in either eviction) and the night still closes in one day", () => {
+  // ORW-955: vitest 2 never enforced the 30 s limit on synchronous tests; this keeps that behaviour explicit
+  it("the player is part of the night in every seat (instant HOH, nominee, evicted in either eviction) and the night still closes in one day", { timeout: 120_000 }, () => {
     const seen = new Set<string>();
     for (let seed = 1; seed <= 10; seed++) {
-      const r = playNight(bootPlayed(seed, true));
+      const r = wholeNight(seed, true);
       if (!r.fired) continue;
       for (const x of r.playerRoles) seen.add(x);
       const night = nightRows(r);

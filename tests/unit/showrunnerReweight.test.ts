@@ -217,12 +217,21 @@ function playSeason(seed: number, reweightOn: boolean): SeasonMeasure {
   return measure;
 }
 
+// ORW-1043: the OFF season of a seed is the same game wherever it is played (fixed user key, fixed flags; (B) proves it replays byte-for-byte), so (C)
+// reads the one (B) already played instead of playing it a third time. (B)'s second run is always a fresh play: it IS the determinism claim.
+const offSeasons = new Map<number, SeasonMeasure>();
+function offSeason(seed: number): SeasonMeasure {
+  const known = offSeasons.get(seed) ?? playSeason(seed, false);
+  offSeasons.set(seed, known);
+  return known;
+}
+
 // ── (B) OFF ⇒ byte-identical to today (the off-vs-today SHA256 pin) ────────────────────────────────────
 
 describe("0101/#1401 Phase-2 — reweight OFF is byte-identical to today", () => {
   for (const seed of [7, 11]) {
     it(`seed ${seed}: OFF season composes/reorders NOTHING and finishes normally (count 0)`, () => {
-      const off = playSeason(seed, false);
+      const off = offSeason(seed);
       expect(off.reweightCount, "the reweight never fired with the flag off").toBe(0);
       expect(off.evictions, "the season genuinely progressed").toBeGreaterThan(2);
       // The OFF season is deterministic + reproducible (the pre-Phase-2 baseline this branch must preserve):
@@ -237,7 +246,8 @@ describe("0101/#1401 Phase-2 — reweight OFF is byte-identical to today", () =>
 // ── (C) ON ⇒ genuinely re-paces the HIDDEN layer, while the CLOSED-SET spine stays neutral + capped ────
 
 describe("0101/#1401 Phase-2 — reweight ON re-paces the hidden layer within the mandate", () => {
-  it("re-orders the scheduler and moves the hidden layer, WITHOUT deciding a closed-set outcome", () => {
+  // ORW-955: vitest 2 never enforced the 30 s limit on synchronous tests; this keeps that behaviour explicit
+  it("re-orders the scheduler and moves the hidden layer, WITHOUT deciding a closed-set outcome", { timeout: 120_000 }, () => {
     let anyHiddenDiff = false;
     let anyReweighted = false;
     // NOTE on the mandate line (measured 2026-07-12): the thread scheduler's folds move ONLY the player's
@@ -250,7 +260,7 @@ describe("0101/#1401 Phase-2 — reweight ON re-paces the hidden layer within th
     // reads, is the one whose game the pacing re-shapes; the calibration heavy-sims (juryReach/gradient/UAT
     // run ON) prove the DISTRIBUTION stays within-band under the flag.
     for (const seed of [1, 3, 4, 5, 7, 9, 11]) { // widened 2026-11-03, comp-win threat retune (#1953); +4,9 2026-11-06 (ORW-116 Day-1 flow shifted the hidden-layer timing; seed 13 diverges the closed set ON vs OFF even on main — filed, not added)
-      const off = playSeason(seed, false);
+      const off = offSeason(seed);
       const on = playSeason(seed, true);
       // Non-vacuous: the reweight genuinely re-ordered the scheduler this season.
       expect(on.reweightCount, `seed ${seed}: the reweight fired (re-ordered the scheduler)`).toBeGreaterThan(0);

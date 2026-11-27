@@ -17,7 +17,7 @@ import { PLAYER } from "../../src/domain/ids";
 const profile = execFileSync("bash", ["-c", 'source "$1" && orwell_optin_env_defaults "$2"', "_", "deploy/orwell-env-defaults.sh", "/nonexistent/orwell-data"], { encoding: "utf8" })
   .split("\n").map((l) => l.trim()).filter(Boolean)
   .map((l) => { if (!/^ORWELL_[A-Z0-9_]+=\S+$/.test(l)) throw new Error(`unexpected line from orwell_optin_env_defaults: ${l}`); return l; })
-  .filter((l) => !/^ORWELL_(EMBEDDINGS|EMBED_CACHE)=/.test(l));
+  .filter((l) => !/^ORWELL_(EMBEDDINGS|EMBED_CACHE|COMP_MECHANICS_MORE)=/.test(l));
 if (profile.length < 20) throw new Error(`the deployed flag profile did not load (${profile.length} flags)`);
 for (const line of profile) { const i = line.indexOf("="); process.env[line.slice(0, i)] = line.slice(i + 1); }
 process.env.ORWELL_REACTIVE_TWISTS = "1";
@@ -34,29 +34,62 @@ function newGame(seed: number) {
 
 interface Trace { seed: number; finished: boolean; jury: number; finalTwo: number; fired: string[]; steps: number; events: string[]; plan: Plan }
 
-/** Play to the end answering every card; call `watch` after each step with the live state. */
-function play(seed: number, watch?: (live: any, v: any, s: any) => void, secretVetoUse = false): Trace {
+/** One step of a played season, only what the three sweeps read of it. */
+interface Step { live: any; v: any; status?: unknown }
+interface Season { trace: Trace; steps: Step[]; vetoCard: boolean }
+
+/**
+ * ORW-1043: the three sweeps below walk the SAME seasons (same seed, same sandbox name, same answers), so each season is played ONCE and every sweep reads
+ * that one play. The answers differ only on a secret-veto card (`secretVetoUse`): a season that raised one is played again for the other answer.
+ */
+const seasons = new Map<string, Season>();
+function season(seed: number, secretVetoUse: boolean): Season {
+  const first = seasons.get(`${seed}:false`);
+  if (first && (!secretVetoUse || !first.vetoCard)) return first;
+  const known = seasons.get(`${seed}:${secretVetoUse}`);
+  if (known) return known;
   const s = newGame(seed);
   const plan = (s.snapshot().live as any).twistPlan as Plan;
-  let finished = false, i = 0;
-  const events: string[] = [];
+  let finished = false, vetoCard = false, i = 0, battleBacks = 0;
+  const events: string[] = [], steps: Step[] = [];
   let stall = 0, lastSeq = -1;
   for (; i < 9000; i++) {
     const v = s.advanceGame();
     if (v.held) endHeldNightSync(s); // ORW-116: a held night is the player's: time passes, then they turn in
     if (v.pending) {
-      if (v.pending.kind === "secret-veto") s.submitDecision({ kind: "secret-veto", use: secretVetoUse });
+      if (v.pending.kind === "secret-veto") { vetoCard = true; s.submitDecision({ kind: "secret-veto", use: secretVetoUse }); }
       else resolvePending(v.pending, (req) => void s.submitDecision(req));
     }
     const live = s.snapshot().live as any;
-    watch?.(live, v, s);
+    const fired = (live.firedTwists ?? []).map((t: any) => ({ kind: t.kind, beat: t.beat }));
+    const returns = fired.filter((t: any) => t.kind === "battle-back").length;
+    steps.push({ // a copy: the engine goes on changing its own state
+      live: {
+        firedTwists: fired, twist: live.twist ? { kind: live.twist.kind } : live.twist, finalNominees: [...(live.finalNominees ?? [])],
+        evictionOrder: live.evictionOrder.slice(-4), active: live.active.includes(PLAYER) ? [PLAYER] : [],
+        spectator: live.spectator === undefined ? undefined : JSON.parse(JSON.stringify(live.spectator)),
+        secretVeto: live.secretVeto ? { holder: live.secretVeto.holder, used: live.secretVeto.used } : live.secretVeto,
+      },
+      v: { pending: v.pending ? { kind: v.pending.kind } : v.pending },
+      ...(returns > battleBacks ? { status: s.getGameState().player?.status } : {}),
+    });
+    battleBacks = returns;
     const sig = JSON.stringify([live.week, live.beat, live.active.length, live.evictionOrder.length, !!live.pending, live.finished]);
     stall = sig === String(lastSeq) ? stall + 1 : 0; lastSeq = sig as never;
     expect(stall, `seed ${seed}: the game is not frozen at ${sig}`).toBeLessThan(40);
     if (v.finished) { finished = true; break; }
   }
   const live = s.snapshot().live as any;
-  return { seed, finished, jury: (live.jury ?? []).length, finalTwo: (live.finalTwo ?? []).length, fired: (live.firedTwists ?? []).map((t: any) => t.kind), steps: i, events, plan };
+  const out: Season = { trace: { seed, finished, jury: (live.jury ?? []).length, finalTwo: (live.finalTwo ?? []).length, fired: (live.firedTwists ?? []).map((t: any) => t.kind), steps: i, events, plan }, steps, vetoCard };
+  seasons.set(`${seed}:${secretVetoUse}`, out);
+  return out;
+}
+
+/** The season played to the end answering every card; call `watch` for each of its steps. */
+function play(seed: number, watch?: (live: any, v: any, status: unknown) => void, secretVetoUse = false): Trace {
+  const g = season(seed, secretVetoUse);
+  for (const step of g.steps) watch?.(step.live, step.v, step.status);
+  return g.trace;
 }
 
 describe("double eviction — the player is a nominee / a voter in the double-eviction week", () => {
@@ -99,14 +132,14 @@ describe("battle-back — the player is an evicted juror in the recent window", 
       let spectatorAfterReturn: unknown;
       let fireSeen = false, playerReturned = false, statusAfter: string | undefined, kindsAfter: string[] = [];
       let prevFired = 0;
-      const r = play(seed, (live, v, s) => {
+      const r = play(seed, (live, v, status) => {
         const fired = (live.firedTwists ?? []).filter((t: any) => t.kind === "battle-back").length;
         if (!fireSeen && fired > prevFired) {
           fireSeen = true;
           // the field was the last four evictions BEFORE the fire; the winner was removed from the record
           before = before ?? [];
           playerReturned = live.active.includes(PLAYER) && (before.includes(PLAYER));
-          statusAfter = s.getGameState().player?.status;
+          statusAfter = status as string | undefined;
           spectatorAfterReturn = live.spectator;
         } else if (!fireSeen) {
           before = live.evictionOrder.slice(-4);

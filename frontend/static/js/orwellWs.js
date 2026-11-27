@@ -227,7 +227,7 @@
           // `_lastRunId` is deliberately KEPT: it is what lets a stale replayed `run-started` for
           // this now-finished run be ignored (#1087).
           var _chatDone = !!(frame.d && frame.d.done);
-          if (_chatDone) { _chatTailActive = false; _liveRunKnown = false; _ownTurnLive = false; }
+          if (_chatDone) { _chatTailActive = false; _liveRunKnown = false; _ownTurnLive = false; _settleTurnsWithoutAck(); }
           _emit("chat", frame);
         } else if (_handlers[frame.ch]) {
           _emit(frame.ch, frame);
@@ -289,9 +289,31 @@
     if (b > _beatSeq) _beatSeq = b;
   }
 
+  // ORW-909: a `turn` up-frame's ack is the only thing that ends the sender's `await sendTurn(...)` (a request with no timeout of its own). When that ack never reaches the page (a frame
+  // lost or held on the way) the run still streams and finishes, but the sender's turn never settles: the composer stays on Stop, the send outbox waits behind it (`_flushSendOutbox`
+  // returns while `isStreaming`), and every later message queues until a reload (live dev run 2026-11-25: the 3rd and 9th casting messages reached the server 18 and 5 minutes late).
+  // Two bounded ends: (1) a run's `done` arriving while a turn is still waiting for its ack means the server took the turn and ran it, so the ack is settled as
+  // accepted (synthesized, never re-sent); only a turn sent before a genuinely new run began (the run-started edge) counts, so a stale replayed `done` never ends a fresh send. (2) with no ack and no `done` at all, the request is
+  // given up after TURN_ACK_TIMEOUT_MS with `ws-ack-timeout`: the caller reconciles from history and does NOT re-send (the frame may have landed).
+  var TURN_ACK_GRACE_MS = 0;
+  var _newRunAt = 0;
+  var TURN_ACK_TIMEOUT_MS = 60000;
+  function _settleTurnsWithoutAck() {
+    for (var cid in _pending) {
+      if (!Object.prototype.hasOwnProperty.call(_pending, cid)) continue;
+      var p = _pending[cid];
+      // only a turn SENT BEFORE a genuinely new run began (the run-started edge the server publishes for it) can have been that run's turn; a stale replayed `done` never ends a fresh send
+      if (!p || p.t !== "turn" || _newRunAt < (p.sentAt || 0) || _now() - (p.sentAt || 0) < TURN_ACK_GRACE_MS) continue;
+      delete _pending[cid];
+      try { p.resolve({ t: "ack", ch: "chat", cid: cid, d: { accepted: true, synthesized: "run-done" } }); } catch (_) {}
+    }
+  }
+
   function _onAck(frame) {
     var cid = frame.cid;
     var d = frame.d || {};
+    // ORW-941: a turn ack carries the engine's current beatSeq (background write-backs move it with no edge to the page); note it (monotonic) so the next up-frame's token is fresh.
+    if (cid && _pending[cid] && _pending[cid].t !== "hello" && typeof d.beatSeq === "number") _noteBeat(d.beatSeq);
     // Handshake ack (hello/bind): carries canonicalId/live/beatSeq (§2.3).
     if (cid && _pending[cid] && _pending[cid].t === "hello") {
       var p = _pending[cid]; delete _pending[cid];
@@ -374,7 +396,7 @@
       if (!_sock || _sock.readyState !== 1) { var _e0 = new Error("ws-not-open"); _e0.code = "ws-not-open"; reject(_e0); return; }
       var cid = _nextCid();
       _cidOut = cid;
-      _pending[cid] = { resolve: resolve, reject: reject, t: tag || t };
+      _pending[cid] = { resolve: resolve, reject: reject, t: tag || t, sentAt: _now() };
       var frame = { t: t, cid: cid, d: d || {} };
       if (ch) frame.ch = ch;
       if (!_send(frame)) { delete _pending[cid]; var _e1 = new Error("ws-send-failed"); _e1.code = "ws-send-failed"; reject(_e1); }
@@ -538,6 +560,7 @@
     // window event (not `orwell:gamechanged`), so the g15 single-dispatcher rule is untouched.
     _emitWindow("orwell:ws-run-boundary", { runId: runId != null ? runId : null });
     _liveRunKnown = true; // ORW-217: a new run's holder is mounted; if the socket drops before its ack/done, that run IS in flight
+    _newRunAt = _now();   // ORW-909: a genuinely new run began now (a turn sent before this and still un-acked rode it)
     // Ship-gate F2 ("right status") self-heal: the boundary emit above already mounted an observer
     // holder + a "Responding" spinner in ANTICIPATION of a live run (chatWsSplice._onWsRunBoundary),
     // before knowing whether one actually exists. Most of the time it does — but a `run-started` edge
@@ -572,7 +595,8 @@
             });
           }
           _emitWindow("orwell:ws-resync",
-            { canonicalId: _canonicalId, beatSeq: _beatSeq, reason: "run-started-empty" });
+            // ORW-1023: after the own-turn retries ran out the empty ack is NOT a stale ring replay: this window's turn got no run, a possible lost reply. A distinct (non-routine, RED) reason keeps that detection.
+            { canonicalId: _canonicalId, beatSeq: _beatSeq, reason: _ownTurnLive ? "run-started-empty-own-turn" : "run-started-empty" });
         }
       });
     };
@@ -625,6 +649,18 @@
     }, "turn");
     // A rejected turn (not-open, send failure, an error frame, a dead socket) is not a live local run: clear the flag so a later EMPTY re-attach is not delayed by four retries (review of #2661).
     pr.catch(function () { _ownTurnLive = false; });
+    var _ackTimer = setTimeout(function () {
+      var cid = pr._cid;
+      var p = cid ? _pending[cid] : null;
+      if (!p || p.t !== "turn") return;
+      delete _pending[cid];
+      _ownTurnLive = false;
+      var e = new Error("ws-ack-timeout"); e.code = "ws-ack-timeout";
+      try { p.reject(e); } catch (_) {}
+    }, TURN_ACK_TIMEOUT_MS);
+    if (_ackTimer && typeof _ackTimer.unref === "function") { try { _ackTimer.unref(); } catch (_) {} }   // Node test harnesses must be able to exit; a browser timer has no unref
+    var _clearAckTimer = function () { clearTimeout(_ackTimer); };
+    pr.then(_clearAckTimer, _clearAckTimer);
     return pr;
   }
   function sendDecision(payload) {
@@ -1081,6 +1117,7 @@
     offFrame: offFrame,
     sendTurn: sendTurn,
     sendTurnWhenLive: sendTurnWhenLive,
+    _setTurnAckTimingForTest: function (graceMs, timeoutMs) { if (typeof graceMs === "number") TURN_ACK_GRACE_MS = graceMs; if (typeof timeoutMs === "number") TURN_ACK_TIMEOUT_MS = timeoutMs; },
     isReconnecting: isReconnecting,
     sendDecision: sendDecision,
     cancelRequest: cancelRequest,

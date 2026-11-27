@@ -38,6 +38,7 @@ PURE_READS = frozenset({
     "dailyRecap", "playerReceipts", "playerDossier", "playerTagline", "socialInitiatives", "worldSnapshotView", "npcVoice", "competitionStagingView", "openLedgerHere", "groupsAwaitingWords",
     "hallOfFame",  # 0208 B3: a read of the per-user hall; commits nothing
     "beatLog",  # ORW-439: the engine's per-bump cause log (diagnostic read; commits and bumps nothing)
+    "pipelineCast",  # ORW-969: the full cast for the casting jobs (a read; the gate polls it, so it must not invalidate the cache or count as a mutation)
 })
 
 
@@ -187,6 +188,16 @@ def peek(name: str, user: str | None, max_age_s: float = 30.0, fields: tuple | N
         if fields is not None and isinstance(value, dict):
             value = {k: value[k] for k in fields if k in value}
     return copy.deepcopy(value)
+
+
+def peek_status(name: str, user: str | None, max_age_s: float = 30.0, fields: tuple | None = None) -> "tuple[Any, str]":
+    """ORW-408: like :func:`peek` but also says WHY a miss missed, for the pre-display counters: (value, "ok"), (None, "no-cache") when nothing is stored for the user
+    (never read, or dropped by a write), or (None, "stale") when an entry exists but a write landed since it was read or it is older than `max_age_s`. Never fetches."""
+    value = peek(name, user, max_age_s=max_age_s, fields=fields)
+    if value is not None:
+        return value, "ok"
+    with _LOCK:
+        return None, ("no-cache" if _ENTRIES.get((_ukey(user), name)) is None else "stale")
 
 
 async def read(name: str, user: str | None, fetch: Callable[[], Awaitable[Any]], timeout_class: Any = None) -> Any:

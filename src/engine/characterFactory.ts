@@ -1054,6 +1054,24 @@ export function resolveStrategyStyle(
 }
 
 /**
+ * ORW-1075 - a save written before #3247 can hold a canonical player style that is not the one the player chose (the engine replaced a style outside the
+ * archetype's pair with the pair's first entry). The player's own words ride on `persona.strategyStyle`. When those words name one of the archetype's allowed
+ * styles (case, spaces and hyphens ignored) and the stored style differs, the stored style is repaired to the chosen one. Idempotent; a persona that names
+ * no allowed style, an unauthored archetype, or an already-matching style changes nothing. Returns the style it applied, or undefined when nothing changed.
+ */
+export function repairPlayerStrategyStyle(player: { character: { archetype: string; strategyStyle: StrategyStyle }; persona?: { strategyStyle?: string }; archetypeDefaulted?: boolean }): StrategyStyle | undefined {
+  if (player.archetypeDefaulted) return undefined;
+  const spec = SPEC_OF.get(player.character.archetype as Archetype);
+  const words = player.persona?.strategyStyle;
+  if (!spec || typeof words !== "string") return undefined;
+  const key = (t: string): string => t.toLowerCase().replace(/[^a-z]+/g, "-").replace(/^-+|-+$/g, "");
+  const chosen = spec.styles.find((st) => key(st) === key(words));
+  if (!chosen || chosen === player.character.strategyStyle) return undefined;
+  player.character.strategyStyle = chosen;
+  return chosen;
+}
+
+/**
  * The ONLY human-authored profile, produced at first-run character creation.
  *
  * Engine contract (#529 — the engine NEVER invents canon about the human player; absence ⇒

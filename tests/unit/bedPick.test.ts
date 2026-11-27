@@ -6,7 +6,7 @@ import { roomOfBed, type BedsState } from "../../src/engine/beds";
 import { pickBedFor, bedmateShare, type BedReader } from "../../src/engine/bedClaims";
 import { roomDisplayName } from "../../src/domain/house";
 import { HOUSE_THEMES } from "../../src/engine/data/houseThemes";
-import { themedRoomAliases } from "../../src/engine/roomLabels";
+import { themedRoomAliases, roomNamesFor } from "../../src/engine/roomLabels";
 
 /** ORW-466 slice 2 - the move-in day bed pick: NPCs claim as they walk in (crowd / personality / luck), the player claims in their own words before the narrator writes, a taken bed is a swap
  * the owner answers, the leftover bed at the first bedtime, and a headless game stays bed-free. Roles only. */
@@ -78,7 +78,7 @@ describe("the move-in bed pick (ORW-466 slice 2)", () => {
     liveOf(s).houseTheme = theme.id;
     walkIn(s);
     const room = "bedroom-a";
-    const themed = theme.rooms[room].name;
+    const themed = roomNamesFor(theme.id)![room]!; // ORW-968: the shown name says the plain word
     const alias = themedRoomAliases(theme.id).filter(([, r]) => r === room).map(([a]) => a).sort((x, y) => x.length - y.length)[0]!;
     s.resolvePlayerMove({ text: `I'll take a bed in ${alias}.` });
     expect(roomOfBed(liveOf(s).beds!.owner["player"]!), `"${alias}" names ${themed}`).toBe(room);

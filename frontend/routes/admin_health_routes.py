@@ -62,6 +62,7 @@ import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request, Response
+from fastapi.responses import JSONResponse
 
 from core.middleware import require_admin, require_vault_reveal
 from core.admin_guard import guard_root_op
@@ -927,7 +928,8 @@ def _sync_ledger_section(user: str | None) -> dict:
     from src import orwell_sync_ledger as _sl
     recent = _sl.get_recent(user, limit=200)
     return {"meta": {"count": len(recent)}, "recent": recent,
-            "beltTotals": _sl.get_belt_totals(user)}
+            "beltTotals": _sl.get_belt_totals(user),
+            "driverTotals": _sl.get_driver_totals(user)}
 
 
 def _enrichment_section(user: str | None) -> dict:
@@ -1327,7 +1329,7 @@ _WRITEBACK_TOOLS = frozenset({
 })
 # The soft-failure class namespaces record_soft_failure emits (log_rings) — the rollup buckets
 # OVERSEER-ring failures under these, distinct from ordinary 0079 overseer report entries.
-_SOFT_FAIL_PREFIXES = ("overseer:", "faith:", "enrichment:", "sync:", "cast-authoring:", "cast-gate:")
+_SOFT_FAIL_PREFIXES = ("overseer:", "faith:", "enrichment:", "sync:", "cast-authoring:", "cast-gate:", "season-start:")
 # ORW-500: cast-authoring / cast-gate corrections are ROUTINE (several per ~15-houseguest cast), so they
 # are COUNTED in the rollup's guards totals (visible in the admin health table) but never raise an
 # alarm: no storm class reads them and the auto-corrected alarm skips them.
@@ -1539,8 +1541,49 @@ def _is_guard_down_class(kind: str) -> bool:
     return any(m in k for m in _GUARD_DOWN_MARKERS)
 
 
+_BACKUP_MAX_AGE_S = 26 * 3600  # a daily timer plus its random delay; older than this is a failing verdict (ORW-1047)
+
+
+def _backup_section(now: float | None = None) -> dict:
+    """ORW-1047 - the last scheduled backup's result and age, read from ``<app>/backups/.backup-status.json`` (written by
+    ``deploy/orwell-backup.sh`` on every run, also a failed one). ``{state: ok|failed|stale|none, ageS, finishedAt, message, warning}``.
+    ``none`` means no record yet (a box that never ran the new script); the doctor reports that, the RED alarm does not.
+    Machine words and numbers only; a broken read is ``none``."""
+    try:
+        base = os.environ.get("ORWELL_BACKUP_DIR") or os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "backups")
+        with open(os.path.join(base, ".backup-status.json"), encoding="utf-8") as f:
+            rec = json.load(f)
+        fin = int(rec["finishedAt"])
+    except Exception:
+        return {"state": "none", "ageS": None, "finishedAt": None, "message": "", "warning": ""}
+    age = max(0, int((time.time() if now is None else now) - fin))
+    state = "failed" if rec.get("status") != "ok" else ("stale" if age > _BACKUP_MAX_AGE_S else "ok")
+    return {"state": state, "ageS": age, "finishedAt": fin, "message": str(rec.get("message") or "")[:300],
+            "warning": str(rec.get("warning") or "")[:300]}
+
+
+def _credit_section() -> dict:
+    """ORW-1019 - tripped (out-of-credit) providers and the ledger's daily spend. Counts, hosts and dollars only; a failed read is empty."""
+    try:
+        from src import orwell_provider_credit
+        return orwell_provider_credit.snapshot()
+    except Exception:
+        return {"tripped": [], "degraded": False, "dailySpendUsd": {}}
+
+
+def _season_section() -> dict:
+    """ORW-971 - the held seasons and the season-start steps still owed or failed, for EVERY owner (the operator's view; counts, ids and machine words only).
+    ``{holds: [{owner, ageS, authored, total, missing, windowS, overdue}], steps: [{owner, step, status, attempts, reason, ageS}]}``. Best-effort: a failed read is empty."""
+    try:
+        from src import orwell_cast_authoring, orwell_season_checklist
+        return {"holds": orwell_cast_authoring.house_entry_holds(), "steps": orwell_season_checklist.open_steps()}
+    except Exception:
+        return {"holds": [], "steps": []}
+
+
 def _compute_alarms(rollup: dict, *, embeddings=None, sync_recent=None, belt_totals=None,
-                    sandbox=None, faithfulness=None, capability=None) -> list:
+                    sandbox=None, faithfulness=None, capability=None, season=None, backup=None, credit=None) -> list:
     """WI3 — derive the RED alarms for game-breaking signals from the rollup + the snapshot reads.
     Pure over its inputs (unit-testable): returns a list of ``{code, severity:'red', label, count,
     detail, autoCorrected}``. Vault-free — every input is a count / flag / class token."""
@@ -1684,6 +1727,33 @@ def _compute_alarms(rollup: dict, *, embeddings=None, sync_recent=None, belt_tot
                 "and/or json conformance — narration on this provider can silently ignore a "
                 "closed-set force or a structured-output request"))
 
+    # 4f) ORW-971 - a season held at house entry past the watch window. The cast should have landed by then; a held season hides the Cast button and
+    #     the decision cards from the player, so it is RED until someone releases it or the cast completes.
+    overdue = [h for h in ((season or {}).get("holds") or []) if isinstance(h, dict) and h.get("overdue")]
+    if overdue:
+        alarms.append(_alarm(
+            "season-hold-stuck", "Season held at house entry", len(overdue),
+            f"{len(overdue)} season(s) held longer than the watch window (oldest {max(int(h.get('ageS') or 0) for h in overdue)} s, "
+            "cast " + ", ".join(f"{h.get('authored')}/{h.get('total')}" for h in overdue[:3]) + " authored) - release it from the season checklist"))
+
+    # 4g) ORW-1047 - the scheduled backup failed on its last run, or has not produced one in over 26 h. One standing alarm
+    #     (one code) for as long as the record reads bad; it clears by itself when a run succeeds.
+    if isinstance(backup, dict) and backup.get("state") in ("failed", "stale"):
+        hrs = int((backup.get("ageS") or 0) // 3600)
+        alarms.append(_alarm(
+            "backup-failing", "Scheduled backup failing", 1,
+            (f"the last scheduled backup FAILED {hrs} h ago ({backup.get('message') or 'no message'})" if backup.get("state") == "failed"
+             else f"no scheduled backup has succeeded for {hrs} h (limit 26 h)")
+            + " - check journalctl -u orwell-backup.service and systemctl status orwell-backup.timer"))
+
+    # 4g) ORW-1019 - a paid provider answered HTTP 402 (out of credit): its calls are paused until it is topped up.
+    credit = (credit or {}).get("tripped") or []
+    if credit:
+        alarms.append(_alarm(
+            "provider-credit", "Provider out of credit", len(credit),
+            "HTTP 402 from " + ", ".join(f"{c.get('host')} ({c.get('kind')}, {c.get('count')} refusal(s))" for c in credit[:4])
+            + " - calls to it are paused, re-probed every 5 min; top up the account"))
+
     # 5) Embeddings degraded (semantic recall fell back).
     if isinstance(embeddings, dict) and embeddings.get("degraded"):
         alarms.append(_alarm(
@@ -1722,6 +1792,25 @@ def _compute_alarms(rollup: dict, *, embeddings=None, sync_recent=None, belt_tot
             "not silently cloaked", auto_corrected=True))
 
     return alarms
+
+
+def _settings_parity_section() -> dict | None:
+    """ORW-678: the boolean settings this install runs DIFFERENTLY from the shipped default (names and booleans only), so a switch the tests exercise but production has off (or the reverse) shows."""
+    try:
+        from src.settings import DEFAULT_SETTINGS, load_settings
+        live = load_settings()
+        return {k: bool(live.get(k)) for k, v in sorted(DEFAULT_SETTINGS.items()) if isinstance(v, bool) and bool(live.get(k)) is not v}
+    except Exception:
+        return None
+
+
+def _predisplay_section() -> dict | None:
+    """ORW-408: the pre-display check's counters since the process started (statuses and numbers only). Best-effort."""
+    try:
+        from src import predisplay_check as _pd
+        return _pd.stats_snapshot()
+    except Exception:
+        return None
 
 
 def _faithfulness_section(user: str | None) -> dict | None:
@@ -1766,10 +1855,36 @@ async def _rollup_and_alarms(user: str | None, engine: dict,
     try:
         alarms = _compute_alarms(rollup, embeddings=engine.get("embeddings"),
                                  sync_recent=sync_recent, belt_totals=belt_totals, sandbox=sandbox,
-                                 faithfulness=faithfulness, capability=capability)
+                                 faithfulness=faithfulness, capability=capability, season=_season_section(),
+                                 backup=_backup_section(), credit=_credit_section())
     except Exception:
         alarms = []
     return rollup, alarms
+
+
+def _turn_drivers_section(user: str | None) -> dict | None:
+    """ORW-1014: the narrator-tool-call vs belt counters over the sync ledger's retained turns. Numbers only; a broken read answers None."""
+    try:
+        from src import orwell_sync_ledger as _sl
+        return _sl.get_driver_totals(user)
+    except Exception:
+        return None
+
+
+def _act_first_section() -> dict | None:
+    try:
+        from src import act_first as _af
+        return _af.stats()
+    except Exception:
+        return None
+
+
+def _steer_counts_section() -> dict | None:
+    try:
+        from src import orwell_sync_ledger as _sl
+        return _sl.get_steer_counts()
+    except Exception:
+        return None
 
 
 async def _health_snapshot(user: str | None) -> dict:
@@ -1830,6 +1945,13 @@ async def _health_snapshot(user: str | None) -> dict:
     # (enabled but unconfigured) surfaces here AND lights the RED alarm below. Vault-free/best-effort.
     faithfulness = _faithfulness_section(user)
 
+    # ORW-970 — the durable season-start checklist (step names, statuses, times; never cast text).
+    try:
+        from src import orwell_season_checklist as _sc
+        season_checklist = _sc.admin_view(user)
+    except Exception:
+        season_checklist = None
+
     # T0-4 (telemetry + probe arm) — every persisted per-endpoint CapabilityProfile (tool_choice
     # honoring / json conformance / reasoning-channel separation), Vault-free by construction
     # (capability_probe.py never stores a request/response body — counts, rates, short tier
@@ -1853,6 +1975,11 @@ async def _health_snapshot(user: str | None) -> dict:
         "images": images,
         "castAuthoring": cast_authoring,
         "enrichment": enrichment,
+        "seasonChecklist": season_checklist,
+        "backup": _backup_section(),  # ORW-1047: last scheduled backup result and age (RED alarm backup-failing when failed or over 26 h)
+
+        "providerCredit": _credit_section(),  # ORW-1019: out-of-credit hosts + daily spend
+        "seasonHolds": _season_section(),  # ORW-971: every held season (owner, age, authored/total) and every owed or failed start step
         # F10 / BL-019 — the faithfulness-judge health posture (dark ⇒ the RED alarm above fires).
         "faithfulness": faithfulness,
         # T0-4 — per-endpoint provider CapabilityProfiles (see src/capability_probe.py). A RED
@@ -1862,6 +1989,16 @@ async def _health_snapshot(user: str | None) -> dict:
         # alarms (WI3). Vault-free: counts / class tokens / booleans only.
         "healthRollup": health_rollup,
         "alarms": alarms,
+        # ORW-1014: who made the turns' engine changes - narrator tool calls vs belts (turns, narratorToolTurns, beltDrivenTurns, the rates).
+        "turnDrivers": _turn_drivers_section(user),
+        # ORW-1042: how many times each steer / re-ground directive was produced (process-wide since start; names and counts only).
+        "steerCounts": _steer_counts_section(),
+        # ORW-1014 PR 2: the act-first round's flag state, outcome counts, misses and latency p50/p95 (ms).
+        "actFirst": _act_first_section(),
+        # ORW-408: the pre-display hard-fact check's counters (chunks checked, skipped by reason, conflicts by fact). Numbers and fact ids only.
+        "predisplay": _predisplay_section(),
+        # ORW-678: boolean settings that differ from the shipped default on this install.
+        "settingsOffDefault": _settings_parity_section(),
         # Build + version (PR) for one-glance triage on the status page. version is the
         # PR-derived "vX.XX"; build is the deployed checkout's short commit SHA.
         "versions": _versions(),
@@ -1910,6 +2047,37 @@ def setup_admin_health_routes() -> APIRouter:
                 "versions": _versions(),  # build/PR is git-derived — still resolvable when the DB/engine is down
                 "error": "health snapshot degraded — recovery actions remain available",
             }
+
+    @router.get("/season-checklist")
+    async def admin_season_checklist(request: Request):
+        """ORW-970: the persisted season-start checklist for this admin's account, read-only: step names, statuses, times,
+        attempt counts and short machine reasons. No cast text."""
+        require_admin(request)
+        user = None
+        try:
+            user = effective_user(request)
+        except Exception:
+            pass
+        from src import orwell_season_checklist
+        return orwell_season_checklist.admin_view(user)
+
+    @router.get("/season-holds")
+    async def admin_season_holds(request: Request):
+        """ORW-971: the held seasons and the owed or failed season-start steps, for ``deploy/orwell-doctor.sh``. Not behind a login (the doctor has none),
+        so it answers a DIRECT loopback connection only (no proxy headers: `is_trusted_loopback`); anyone else, or an admin session, gets the
+        ordinary admin check. Owner ids, ages, counts and machine words only."""
+        from core.middleware import is_trusted_loopback
+        if not is_trusted_loopback(request):
+            require_admin(request)
+        return _season_section()
+
+    @router.get("/provider-credit")
+    async def admin_provider_credit(request: Request):
+        """ORW-1019: tripped (402) providers and daily spend, for ``deploy/orwell-doctor.sh``. Direct loopback only, else the admin check."""
+        from core.middleware import is_trusted_loopback
+        if not is_trusted_loopback(request):
+            require_admin(request)
+        return _credit_section()
 
     @router.get("/token-economy")
     async def admin_token_economy(request: Request, user: str | None = None):
@@ -2192,6 +2360,30 @@ def setup_admin_health_routes() -> APIRouter:
         kicked = orwell_cast_authoring.kickoff_authoring_backfill(missing, user, force=True)
         logger.info("[ops] admin cast re-authoring: queued=%d kicked=%s", len(missing), kicked)
         return {"reauthored": True, "queued": len(missing), "kicked": bool(kicked)}
+
+    @router.post("/ops/release-season-hold")
+    async def admin_release_season_hold(request: Request):
+        """ORW-971: release a season held at house entry (the status page's button, beside the season checklist). Body ``{"owner": "<id>"}``, default this
+        admin's own account. Refuses with 409 when that owner has no hold. Otherwise clears the hold marker, records the hold released with the
+        reason ``admin-release`` on the season-start checklist, and starts the post-start steps the hold deferred."""
+        require_admin(request)
+        owner = None
+        try:
+            owner = effective_user(request)
+        except Exception:
+            pass
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        if isinstance(body, dict) and isinstance(body.get("owner"), str) and body["owner"].strip():
+            owner = body["owner"].strip()
+        from src import orwell_season_checklist
+        out = orwell_season_checklist.release_hold(owner, "admin-release")
+        if not out["released"]:
+            return JSONResponse(status_code=409, content=out)
+        logger.info("[ops] admin released the house-entry hold for %s", out["owner"])
+        return out
 
     @router.post("/ops/advance-to-finale")
     async def admin_advance_to_finale(request: Request):
@@ -2476,6 +2668,9 @@ _STATUS_PAGE = """<!doctype html>
 <h1 style="margin-top:26px">CAST AUTHORING &middot; ENRICHMENT</h1>
 <div class="sub">The model-driven cast pipeline (genesis → identity → deep authoring → zeitgeist/texture): the runtime policy, the authoring run state, and every recorded per-class failure — a "no model wired" refusal lands here loudly instead of reading as in-fiction stalling.</div>
 <div id="enrichwrap"></div>
+<h1 style="margin-top:26px">SEASON START CHECKLIST</h1>
+<div class="sub">The persisted record of what this season's start still owes (house-entry hold, world snapshot, producer persona, habits and house culture). It survives a restart: owed steps are re-run at startup, with bounded retries. Statuses and times only.</div>
+<div id="seasonwrap"></div>
 <h1 style="margin-top:26px">LIVE LOG</h1>
 <div class="sub">Every log stream in the program, selectable. Auto-follows the tail while you are at the bottom; scrolling up pauses the follow — scroll back down to resume.</div>
 <div class="actions" style="margin:8px 0">
@@ -2506,6 +2701,14 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt
 const up = s => { s = Math.max(0, +s || 0); const d = (s/86400)|0, h = ((s%86400)/3600)|0, m = ((s%3600)/60)|0;
   return d ? d+"d "+h+"h" : h ? h+"h "+m+"m" : m ? m+"m" : (s|0)+"s"; };
 const B = (ok, t) => '<span class="' + (ok ? "ok" : "bad") + '">' + esc(t) + "</span>";
+// ORW-1047 - the last scheduled backup: state badge, age in hours, then the failure message and any tar warning.
+function backupLine(b) {
+  if (!b || b.state === "none") return "no run record yet";
+  const parts = [B(b.state === "ok", String(b.state).toUpperCase()), esc(Math.floor((b.ageS || 0) / 3600)) + " h ago"];
+  if (b.state !== "ok" && b.message) parts.push(esc(b.message));
+  if (b.warning) parts.push(esc(b.warning));
+  return parts.join(" · ");
+}
 function render(d) {
   const eng = d.engine || {}, emb = eng.embeddings || null, img = d.images || {},
         ca = d.castAuthoring || null,
@@ -2520,12 +2723,25 @@ function render(d) {
     ["Engine", B(!!eng.ok, eng.ok ? "REACHABLE" : "DOWN") + (eng.latencyMs != null ? " · " + esc(eng.latencyMs) + " ms" : "") + (eng.uptimeSeconds != null ? " · up " + esc(up(eng.uptimeSeconds)) : "") + (eng.error ? " · " + esc(eng.error) : "")],
     ["Tiers agree", B(!!d.tiersAgree, d.tiersAgree ? "YES" : "NO")],
     ["Embeddings", emb ? esc(emb.provider || "?") + " " + B(!emb.degraded, emb.degraded ? "DEGRADED" : "OK") : B(false, "UNKNOWN")],
+    ["Provider credit", (function (c) {
+      if (!c) return '<span class="sub">—</span>';
+      return (c.degraded ? B(false, "OUT OF CREDIT") : (c.lowBalance ? B(false, "LOW BALANCE") : B(true, "OK"))) + " " + esc(c.summary || "");
+    })(d.providerCredit)],
     ["Image generation", (img.available ? B(true, "AVAILABLE") : B(false, img.enabled ? "NO USABLE MODEL" : "DISABLED")) + (img.model ? " · " + esc(img.model) : "") + (img.portraits && img.portraits.total ? " · portraits " + (img.portraits.missing ? '<span class="warn">' : '<span class="ok">') + esc(img.portraits.present) + "/" + esc(img.portraits.total) + "</span>" : "") + (img.lastRun && img.lastRun.failing ? ' · <span class="warn">last run FAILED (0/' + esc(img.lastRun.attempted) + ' — provider not producing images)</span>' : "")],
     ["Cast authoring", (ca && ca.total ? (ca.missing ? '<span class="warn">' : '<span class="ok">') + esc(ca.authored) + "/" + esc(ca.total) + "</span> deep-authored" + (ca.missing ? " · " + esc(ca.missing) + " on floor" : "") : '<span class="sub">—</span>')],
+    ["Pre-display check", (function (p) {
+      if (!p) return '<span class="sub">—</span>';
+      const sk = Object.entries(p.skipped || {}).map(kv => esc(kv[0]) + " " + esc(kv[1])).join(", ") || "none";
+      const cf = Object.entries(p.conflicts || {}).map(kv => esc(kv[0]) + " " + esc(kv[1])).join(", ") || "none";
+      return (p.enabled ? B(true, "ON") : B(false, "OFF")) + " · rewrite " + (p.rewriteEnabled ? B(true, "ON") : B(false, "OFF")) +
+        " · checked " + esc(p.checked) + " · skipped " + esc(p.skippedTotal) + " (" + sk + ") · conflicts " + esc(p.conflictsTotal) + " (" + cf + ")" +
+        " · state from cache " + esc((p.stateFrom || {}).cache) + " / read " + esc((p.stateFrom || {}).read) + " · " + esc(p.turns) + " turn(s)";
+    })(d.predisplay)],
     ["Tool calls", esc(tc.total ?? 0) + " total · " + esc(tc.failed ?? 0) + " failed"],
     ["Front-end store", (st.degraded ? B(false, "DEGRADED") + " · " : "") + esc(st.sessions ?? "?") + " session(s) · " + esc(st.messages ?? "?") + " message(s)" + (st.database_size_mb != null ? " · " + esc(st.database_size_mb) + " MB" : "")],
   ];
-  document.getElementById("grid").innerHTML = rows.map(r => '<div class="k">' + esc(r[0]) + "</div><div>" + r[1] + "</div>").join("");
+  document.getElementById("grid").innerHTML = rows.map(r => '<div class="k">' + esc(r[0]) + "</div><div>" + r[1] + "</div>").join("") +
+    '<div class="k">Last backup</div><div>' + backupLine(d.backup) + "</div>";
   // #1599 WI3 — the RED alarm banner: each game-breaking signal (or auto-corrected fault) as its
   // own red card. A correction is not a cloak — an auto-corrected alarm is still RED, tagged.
   const alarms = Array.isArray(d.alarms) ? d.alarms : [];
@@ -2592,7 +2808,40 @@ function render(d) {
     (eFails.map(f => "<tr><td>" + esc(fmt((f.at || 0) * 1000)) + "</td><td>" + esc(f.callClass) + "</td><td>" +
                      esc(f.reason) + (f.detail ? " — " + esc(f.detail) : "") + "</td></tr>").join("") ||
      "<tr><td colspan=3>No enrichment failures on record.</td></tr>") + "</tbody></table>";
+  // ORW-970: the season-start checklist (read-only; names, statuses, times, attempts, machine reasons).
+  const sc = d.seasonChecklist || null, scEl = document.getElementById("seasonwrap");
+  if (scEl) {
+    // ORW-971: every season held at house entry, with a release button (a confirm prompt first). Owner ids, ages and counts only.
+    const holds = (d.seasonHolds && d.seasonHolds.holds) || [];
+    const holdsHtml = holds.length ? "<div style='margin:8px 0'><strong>Held at house entry</strong><table><thead><tr><th>Owner</th><th>Held</th><th>Cast authored</th><th></th></tr></thead><tbody>" +
+      holds.map(h => "<tr><td>" + esc(h.owner) + "</td><td>" + (h.overdue ? '<span class="bad">' : '<span class="warn">') + esc(Math.round((h.ageS || 0) / 60)) + " min</span>" +
+        (h.overdue ? " <span class='sub'>(past the " + esc(Math.round((h.windowS || 0) / 60)) + " min window)</span>" : "") + "</td><td class='num'>" + esc(h.authored) + "/" + esc(h.total) +
+        "</td><td><button type='button' class='btn release-hold' data-owner='" + esc(h.owner) + "'>Release this season</button></td></tr>").join("") + "</tbody></table></div>" : "";
+    scEl.innerHTML = holdsHtml + (!sc || !sc.present ? "<div class='sub'>No season-start record for this account (a season that began before this was recorded, or none started).</div>" :
+      "<div class='sub' style='margin:6px 0'>" + ["Season " + esc(sc.season), "started " + esc(sc.startedAt || "?"), sc.closed && ("closed: " + esc(sc.closed))].filter(Boolean).join(" &middot; ") + "</div>" +
+      "<table><thead><tr><th>Step</th><th>Status</th><th>Time (UTC)</th><th>Attempts</th><th>Reason</th><th>Next try</th></tr></thead><tbody>" +
+      (sc.steps || []).map(s => "<tr><td>" + esc(s.step) + "</td><td>" +
+        (s.status === "done" ? '<span class="ok">done</span>' : s.status === "failed" ? '<span class="bad">failed</span>' : '<span class="warn">' + esc(s.status) + "</span>") +
+        (s.detail ? " <span class='sub'>(" + esc(s.detail) + ")</span>" : "") + "</td><td>" + esc(s.at || "") + "</td><td class='num'>" + esc(s.attempts) +
+        "</td><td>" + esc(s.reason || "") + "</td><td>" + esc(s.nextAt || "") + "</td></tr>").join("") + "</tbody></table>");
+  }
 }
+// ORW-971: the release button beside the season checklist (one delegated listener; the table is re-rendered on every poll).
+document.getElementById("seasonwrap").addEventListener("click", async function (ev) {
+  const b = ev.target.closest && ev.target.closest(".release-hold");
+  if (!b) return;
+  const owner = b.getAttribute("data-owner");
+  if (!confirm("Release the held season for " + owner + " now. The Cast button and the decision cards return, and the start steps still owed run. Release only when the cast is complete or you accept the cast as it stands.")) return;
+  b.disabled = true;
+  try {
+    const r = await fetch("/api/admin/ops/release-season-hold", { method: "POST", credentials: "same-origin",
+      headers: { "content-type": "application/json" }, body: JSON.stringify({ owner: owner }) });
+    const out = await r.json();
+    opsMsg.textContent = out.released ? "Released the season for " + owner + "; started: " + ((out.kicked || []).join(", ") || "nothing owed") + "."
+                                      : "Not released: " + (out.reason || out.detail || "unknown") + ".";
+  } catch (e) { opsMsg.textContent = "Request failed: " + e.message; }
+  b.disabled = false;
+});
 // #1599 WI2 — render the per-class/-tool failure-rate rollup as three small tables (LLM call
 // classes, engine tools, guard/judge soft-failure classes). Vault-free: class tokens + counts.
 function renderRollup(rl) {

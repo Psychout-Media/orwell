@@ -1,12 +1,13 @@
 import { mixShares, MIX_KINDS, type MixScene } from "./houseMixDriver";
 
 /**
- * ORW-702: the WHOLE-SEASON house-life mix target and the machinery that measures a played season against it. ONE module: the band numbers, the hard rules and the
- * KNOWN_RED ratchet live only here (the guard test, the nightly report and the unit tests all read it).
+ * ORW-702: the WHOLE-SEASON house-life mix target and the machinery that measures a played season against it. ONE module: the band numbers and the hard rules live only
+ * here (the guard test, the weekly report and the unit tests all read it). ORW-991 (Ryne 2026-11-26): they are a REPORT, tracked weekly; the KNOWN_RED ratchet is gone and a
+ * build fails only on a broken mix (tests/support/brokenBounds.ts).
  *
  * The target is the PO-agreed one of 2026-11-20 (vault note "Memory/Whole Season Mix Target Proposal.md"; card ORW-702). Shares are of house-life scenes (bonding / strategy /
  * gossip / conflict) while the player is still in the game, by season PHASE taken from the game WEEK the scene happened in (never from a message count).
- * Changing a band needs a new PO ruling; the ratchet only ever tightens (a rule leaves KNOWN_RED when it passes; it never comes back in).
+ * Changing a band needs a new PO ruling.
  * The week-1 guard (tests/uat/houseMixGuard.test.ts, its own REFERENCE) is a separate, untouched guard.
  */
 export type Kind = (typeof MIX_KINDS)[number];
@@ -75,6 +76,7 @@ export function evaluate(shares: PhaseShares): RuleResult[] {
   return out;
 }
 
+<<<<<<< HEAD
 /**
  * THE RATCHET. Every rule or band that main failed when this guard landed is listed here with the value measured then and the card that is to fix it. The guard asserts:
  *  - a rule in this table must STILL be failing (once a slice fixes it, the test fails and says to delete the line, which turns the rule into a hard assertion: never loosen);
@@ -128,6 +130,8 @@ function missOf(id: string, value: number): number {
   if (rule === "strategy-at-least-24") return Math.max(0, HARD.strategyAtLeastFromMid - value);
   return 0;
 }
+=======
+>>>>>>> origin/main
 
 /** In or out of its band, for the nightly table: "ok" or "OUT". */
 export function inBand(phase: Phase, kind: Kind, value: number): boolean { const [lo, hi] = BANDS[phase][kind]; return value >= lo && value <= hi; }

@@ -94,12 +94,15 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_COMING_CLEAN', key: 'comingClean', parser: 'defaultOn' },
   { envKey: 'ORWELL_COMP_INTENT',            key: 'compIntent',             parser: 'defaultOn' },
   { envKey: 'ORWELL_COMP_MECHANICS_PLUS',    key: 'compMechanicsPlus',      parser: 'defaultOn' },
+  { envKey: 'ORWELL_COMP_MECHANICS_MORE',    key: 'compMechanicsMore',      parser: 'defaultOn' },
   { envKey: 'ORWELL_COMP_MIXED',             key: 'compMixed',              parser: 'defaultOn' },
   // The houseguests who are not in a running staged competition cheer, taunt or sulk through it (played games only). ON by default; `=0` turns it off.
   { envKey: 'ORWELL_COMP_REACTIONS',          key: 'compReactions',          parser: 'defaultOn' },
   { envKey: 'ORWELL_CONFESSIONAL_DEPTH',     key: 'confessionalDepth',      parser: 'defaultOn' },
   // ORW-650 (0133): watching from the couch, richer - an evicted player who keeps watching gets the season's real public moments (ceremonies, competition results), never anything hidden. ON by default; `=0` keeps the skeleton digests only.
   { envKey: 'ORWELL_COUCH_WATCH', key: 'couchWatch', parser: 'defaultOn' },
+  // ORW-767 (0207): a showmance reaches the player by being TOLD. A houseguest who saw a romance scene (or was told of one) may pass the pair to the player in their own words, hedged by how sure they are; the player then knows the pair as a belief with a source (never as the truth), and the narrator's showmance list and the pace record's seen-by read it. `=0` opts out (byte-identical).
+  { envKey: 'ORWELL_COUPLE_TOLD', key: 'coupleTold', parser: 'defaultOn' },
   // ORW-685 / 0152 (T2-14; ORW-687 adds the mirror: a houseguest may ask the PLAYER "who told you that?" about a claim the player passed on, and reads the player's own answer against the engine's record of who really told them): a liar asked "who told you that?" about a lie they planted may play it off (say they saw it, or refuse to say) or let the cover slip, a visible stumble scaled by how good an actor they are (their cunning and how rattled they are), decided on a keyed side stream and recorded once. Played games only. ON by default; `=0` turns it off.
   { envKey: 'ORWELL_COVER_SLIPS', key: 'coverSlips', parser: 'defaultOn' },
   // B48-credibility layer. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
@@ -130,6 +133,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   // B32 / #2017 E5: chat betrayal/conflict feed the emotional arc and temperament drift gets a negativity bias (clash x1.5, bond x0.75) so hardening is reachable. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   // ORW-705 PT-10 (PO ruling 2026-11-19): a player who woke at their own early hour (bed + 8h, before the house's wake-up call) can `turnIn` to doze back to bed - the clock moves to the wake-up call and no later; a still-tired early-waking houseguest (the hidden rest meter) dozes back too and is out of the awake set until the call. A played game only. ON by default; `=0` restores the refusal.
   { envKey: 'ORWELL_DOZE_BACK_TO_BED', key: 'dozeBackToBed', parser: 'defaultOn' },
+  { envKey: 'ORWELL_DAYBREAK_FATIGUE',      key: 'dayBreakFatigue',        parser: 'defaultOn' },
+  { envKey: 'ORWELL_ROUTINE_HAUNTS',         key: 'routineHaunts',           parser: 'defaultOn' },
   { envKey: 'ORWELL_DRIFT_FIX', key: 'driftFix', parser: 'defaultOn' },
   // B51 / AMEND 3b: the HOH's / veto holder's own drive (target adds, build protects) feeds its nomination and veto-save scores. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_DRIVE_DECISIONS', key: 'driveDecisions', parser: 'defaultOn' },
@@ -294,6 +299,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_ROOM_LIFE', key: 'roomLife', parser: 'defaultOn' },
   // 0209 / ORW-651 (Ryne approved 2026-11-17): each houseguest's routines (a time, a place, an act, composed from the character) shape where they are and what they do in a free hour, replacing the named-habit pull; the player learns one by seeing it on three separate days. Played games only; `=0` = the old habit branch.
   { envKey: 'ORWELL_ROUTINES', key: 'routines', parser: 'defaultOn' },
+  // ORW-743 (0204 part 2): when a fact about the player is closing in, the narrator is told one bit (people are talking about the player) and the player may say it first in their own words (submitDecision say-it-first). ON by default; `=0` = no card.
+  { envKey: 'ORWELL_SAY_IT_FIRST', key: 'sayItFirst', parser: 'defaultOn' },
   // ORW-688: a scene or thread rumor carries who it is ABOUT, so barter (0099), leverage (0202) and the night it all comes out (0204) can match it; an old save's rumors are backfilled from their own fields. Played games only. ON by default; `=0` leaves rumors subject-less (byte-identical).
   { envKey: 'ORWELL_RUMOR_SUBJECTS', key: 'rumorSubjects', parser: 'defaultOn' },
   // ORW-578 (b): a reason an NPC gave aloud at a public act is kept as a witnessed event (the said kind in words only; never the real reason). ON by default; `=0` turns it off.
@@ -338,6 +345,8 @@ export const FEATURE_FLAGS: FeatureFlagDef[] = [
   { envKey: 'ORWELL_TRIGGERS',               key: 'triggers',               parser: 'defaultOn' },
   // B7 / #2017 M1: the NPC veto save also reads memory / beliefs / owed deals. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.
   { envKey: 'ORWELL_VETO_MEMORY', key: 'vetoMemory', parser: 'defaultOn' },
+  // ORW-877 (the T2-12 front-end half of ORW-594): once a session hands its narration back (recordNarrationUse), a tell decided at the prompt build is held and joins the player's knowledge only if the narration voiced it. ON by default; `=0` tells at the prompt build as before.
+  { envKey: 'ORWELL_VOICED_CLAIMS', key: 'voicedClaims', parser: 'defaultOn' },
   // ORW-771 (owner-ruled): a Continue press through the played eviction vote carries a sealed `voteBeat` fact block (who walks into / back from the Diary Room this press, the room, and on the result press that the tally is read with names) so the narrator voices a short beat. Presentation only: no clock, no rng, no ballot content. ON by default; `=0` restores the banner-only press byte for byte.
   { envKey: 'ORWELL_VOTE_BEAT', key: 'voteBeat', parser: 'defaultOn' },
   // B5 / #2017: vote counting - an evict campaign forms only while the actor believes the count is in doubt. ON by default since 2026-11-05 (PO: "if it's built, turn it on"); `=0` turns it off.

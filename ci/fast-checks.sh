@@ -38,6 +38,9 @@ run python3 ci/check_no_internal_details.py
 step "short-list guard (ORW-511: no new short dealt list, no new example line or closed menu in prompt text, unless allowlisted with a reason)"
 run python3 ci/check_short_lists.py
 
+step "every pinned front-end dependency installs on the Python production runs (ORW-955, ci/prod_python_version)"
+run python3 ci/check_lock_prod_python.py
+
 step "typecheck"
 run npx tsc --noEmit
 
@@ -46,7 +49,7 @@ run npx vitest run \
   tests/unit/ciGateLogic.test.ts tests/unit/ciPathFilter.test.ts tests/unit/ciReshardWiring.test.ts tests/unit/ciFlakyRuleWiring.test.ts \
   tests/unit/ciResolveBase.test.ts tests/unit/ciShardAssignment.test.ts tests/unit/ciQuarantineGuard.test.ts tests/unit/ciBddShard.test.ts \
   tests/unit/bddRelationshipLeakChecks.test.ts tests/unit/bddStandaloneModuleAllowlist.test.ts tests/unit/playerProjectionRatchet.test.ts \
-  tests/unit/knowledgeWall.test.ts tests/unit/backlogWhole.test.ts tests/unit/realPathGuard.test.ts tests/architecture
+  tests/unit/knowledgeWall.test.ts tests/unit/backlogWhole.test.ts tests/unit/realPathGuard.test.ts tests/unit/secrets.test.ts tests/architecture
 
 step "front-end guard tests (pytest)"
 if "$PY" -c "import pytest" 2>/dev/null; then

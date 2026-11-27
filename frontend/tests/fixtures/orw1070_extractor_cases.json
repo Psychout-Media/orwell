@@ -1,0 +1,972 @@
+{
+ "meta": {
+  "recorded": "2026-11-26",
+  "recorded_by": "audit A6 on dev CT 204, model deepseek-flash via the default endpoint",
+  "recorded_against": "agent_loop prompts BEFORE ORW-1070 (prompt_sha null = stale; python3 frontend/scripts/orw1070_rerecord.py refreshes)",
+  "prompt_sha": {
+   "confide": null,
+   "expose": null,
+   "trade": null
+  },
+  "a6_llm_only": {
+   "confide": {
+    "P": 0.77,
+    "R": 0.91
+   },
+   "expose": {
+    "P": 0.62,
+    "R": 1.0
+   },
+   "trade": {
+    "P": 0.75,
+    "R": 1.0
+   }
+  },
+  "a6_pipeline_recall": {
+   "confide": 0.73,
+   "expose": 0.62,
+   "trade": 0.56
+  },
+  "present_note": "A6 stubbed everyone present. present[] here is the engine presence a real scene gives, labelled from each narration (a private aside or walked-off listener lists only who is in the room)."
+ },
+ "house": {
+  "npc:1": "Marcus",
+  "npc:2": "Priya",
+  "npc:3": "Dale",
+  "npc:4": "Tessa",
+  "npc:5": "Lorenzo",
+  "npc:6": "Maeve",
+  "npc:7": "Jonah",
+  "npc:8": "Ruth"
+ },
+ "facts": {
+  "f1": {
+   "content": "Maeve secretly nominated Dale last week",
+   "subject": "npc:6"
+  },
+  "f2": {
+   "content": "Lorenzo is hiding a Hidden Power in his bag",
+   "subject": "npc:5"
+  },
+  "f3": {
+   "content": "Jonah and Ruth have a secret showmance",
+   "subject": "npc:7"
+  }
+ },
+ "cases": {
+  "confide": [
+   {
+    "u": "What's really going on with you, Priya?",
+    "n": "Priya hesitates, glancing around the empty room. 'It's nothing,' she says, but her voice wavers.",
+    "expect": "npc:2",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":\"npc:2\"}"
+   },
+   {
+    "u": "You can tell me, Dale. I won't tell anyone.",
+    "n": "Dale rubs his neck. 'I don't know if I can,' he says, staring at the floor.",
+    "expect": "npc:3",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":\"npc:3\"}"
+   },
+   {
+    "u": "What aren't you telling me, Marcus?",
+    "n": "Marcus's smile flickers. 'What do you mean?' he asks, too lightly.",
+    "expect": "npc:1",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":\"npc:1\"}"
+   },
+   {
+    "u": "Talk to me, Tessa.",
+    "n": "Tessa sits beside you on the porch, quiet, twisting her ring.",
+    "expect": "npc:4",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":\"npc:4\"}"
+   },
+   {
+    "u": "You've been quiet all week, Ruth. Something is clearly weighing on you, and I'm listening.",
+    "n": "Ruth wipes her eyes. 'It's just a lot,' she says.",
+    "expect": "npc:8",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":\"npc:8\"}"
+   },
+   {
+    "u": "I noticed you skipping meals, Jonah. Want to open up about it?",
+    "n": "Jonah shrugs, but he doesn't leave.",
+    "expect": "npc:7",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":\"npc:7\"}"
+   },
+   {
+    "u": "Nice day today, right?",
+    "n": "Marcus agrees. The two of you talk about the weather and the dishwasher.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":null}"
+   },
+   {
+    "u": "So who are we voting for this week?",
+    "n": "Priya, Dale and Tessa trade names around the table. Strategy talk, nothing personal.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":null}"
+   },
+   {
+    "u": "I listen while everyone talks.",
+    "n": "Dale tells a long story about his old job. You sit and listen, saying nothing.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":null}"
+   },
+   {
+    "u": "What's going on with the dishwasher? It's been making a noise.",
+    "n": "Ruth says it's the filter. You both look at the machine.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":null}"
+   },
+   {
+    "u": "What's going on with all of you? The vibe at dinner is terrible.",
+    "n": "The whole table stares at their plates; nobody answers.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":null}"
+   },
+   {
+    "u": "Lorenzo, you can trust me with your game, I'll keep it quiet.",
+    "n": "Lorenzo says he'll consider it. He lowers his voice and begins talking about vote counts.",
+    "expect": "npc:5",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":\"npc:5\"}"
+   },
+   {
+    "u": "Between us, Maeve, do you have a final-two partner?",
+    "n": "Maeve smiles. 'Between us? You'd be my first pick,' she says.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":\"npc:6\"}"
+   },
+   {
+    "u": "I'm here for you, Tessa. Whatever it is.",
+    "n": "Tessa breaks down. 'My grandmother is sick,' she whispers.",
+    "expect": "npc:4",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":\"npc:4\"}"
+   },
+   {
+    "u": "Open up to me, Jonah, tell me what's really bothering you.",
+    "n": "Jonah finally takes a breath. 'It's about home,' he says.",
+    "expect": "npc:7",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":\"npc:7\"}"
+   },
+   {
+    "u": "Marcus and Priya, you two can tell me anything.",
+    "n": "Marcus and Priya exchange a look. 'Later,' Priya says.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":null}"
+   },
+   {
+    "u": "Tell me the truth about the vote, Dale.",
+    "n": "Dale hedges. 'I'm voting how the house votes,' he says.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":\"npc:3\"}"
+   },
+   {
+    "u": "What's wrong, Ruth?",
+    "n": "Ruth shrugs and goes back to her crossword. 'Nothing's wrong.'",
+    "expect": "npc:8",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":\"npc:8\"}"
+   },
+   {
+    "u": "Come clean, Lorenzo. Did you put my name in?",
+    "n": "Lorenzo stiffens. 'I did not,' he says, offended.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":\"npc:5\"}"
+   },
+   {
+    "u": "Are you okay, Maeve? You look exhausted.",
+    "n": "Maeve sighs. 'Honestly? No,' she says. 'I miss my kids.'",
+    "expect": "npc:6",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"npcId\":null}"
+   }
+  ],
+  "expose": [
+   {
+    "u": "Everyone, listen up! Maeve put Dale up last week! She lied to all of you!",
+    "n": "The room goes silent. Dale turns on Maeve. 'Is that true?' he asks. Maeve sputters.",
+    "expect": "f1",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f1\"}"
+   },
+   {
+    "u": "I'm telling the whole house: Lorenzo has a Hidden Power in his bag.",
+    "n": "Gasps. Lorenzo freezes with his bowl halfway to his mouth. 'Who told you that?' he says.",
+    "expect": "f2",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f2\"}"
+   },
+   {
+    "u": "Let me spill the beans in front of everyone. Jonah and Ruth are hooking up.",
+    "n": "Jonah goes red. Ruth throws a pillow at you as everyone erupts.",
+    "expect": "f3",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f3\"}"
+   },
+   {
+    "u": "Dale, I just want you to know Maeve put you up. I wanted you to hear it from me.",
+    "n": "Dale looks stunned. 'Thank you for telling me,' he says. 'I will keep it between us.'",
+    "expect": null,
+    "present": [
+     "npc:3"
+    ],
+    "raw": "{\"factId\":\"f1\"}"
+   },
+   {
+    "u": "Between us, Lorenzo has a Hidden Power in his bag. Don't tell anyone.",
+    "n": "Priya nods. 'Wow. My lips are sealed,' she says.",
+    "expect": null,
+    "present": [
+     "npc:2"
+    ],
+    "raw": "{\"factId\":\"f2\"}"
+   },
+   {
+    "u": "Is it true Lorenzo has a Hidden Power?",
+    "n": "Marcus shrugs. 'No idea. I never saw it.' You change the subject.",
+    "expect": null,
+    "present": [
+     "npc:1"
+    ],
+    "raw": "{\"factId\":null}"
+   },
+   {
+    "u": "If you cross me, Jonah, I will tell the whole house about you and Ruth.",
+    "n": "Jonah's jaw tightens. 'You wouldn't,' he says. You walk away, leaving the threat in the air.",
+    "expect": null,
+    "present": [
+     "npc:7"
+    ],
+    "raw": "{\"factId\":\"f3\"}"
+   },
+   {
+    "u": "Everyone, Ruth stole food from the pantry last night!",
+    "n": "Ruth gasps and denies it as the room erupts. Nobody has any evidence.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":null}"
+   },
+   {
+    "u": "Nice weather today.",
+    "n": "Tessa nods. 'Yes. Warm enough to sit in the yard.'",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":null}"
+   },
+   {
+    "u": "Time to call Maeve out. She nominated Dale and then smiled in his face.",
+    "n": "'I did what I had to,' Maeve says, jaw set, while Dale stares at her in disbelief.",
+    "expect": "f1",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f1\"}"
+   },
+   {
+    "u": "I put it on blast: Lorenzo's got a power hidden in his bag.",
+    "n": "Lorenzo's face drains. The housemates all turn to look at his bag.",
+    "expect": "f2",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f2\"}"
+   },
+   {
+    "u": "I'd never tell anybody about Jonah and Ruth, that's their business.",
+    "n": "Priya agrees. 'People's private lives are private,' she says.",
+    "expect": null,
+    "present": [
+     "npc:2"
+    ],
+    "raw": "{\"factId\":null}"
+   },
+   {
+    "u": "Everyone should know that Jonah and Ruth have been sneaking around together.",
+    "n": "Ruth bursts into tears. Jonah storms out. The house is in an uproar.",
+    "expect": "f3",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f3\"}"
+   },
+   {
+    "u": "I overheard something about Maeve, but I am not going to say anything.",
+    "n": "Marcus raises an eyebrow. 'Fine, keep your secrets,' he says.",
+    "expect": null,
+    "present": [
+     "npc:1"
+    ],
+    "raw": "{\"factId\":null}"
+   },
+   {
+    "u": "Dale, what do you think about Maeve?",
+    "n": "Dale says he trusts Maeve completely. You nod.",
+    "expect": null,
+    "present": [
+     "npc:3"
+    ],
+    "raw": "{\"factId\":null}"
+   },
+   {
+    "u": "Everyone should know Maeve nominated Dale. And also Maeve is the worst cook.",
+    "n": "The house erupts; Maeve laughs off the cook jibe but pales over the nomination.",
+    "expect": "f1",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f1\"}"
+   },
+   {
+    "u": "Hey Marcus, did you know Maeve nominated Dale last week?",
+    "n": "Marcus's eyes widen. 'Seriously? That's wild,' he says. Nobody else hears.",
+    "expect": null,
+    "present": [
+     "npc:1"
+    ],
+    "raw": "{\"factId\":\"f1\"}"
+   },
+   {
+    "u": "Lorenzo, I know about your power. Show it to the house or I will.",
+    "n": "Lorenzo says nothing. Nobody else is close enough to hear.",
+    "expect": null,
+    "present": [
+     "npc:5"
+    ],
+    "raw": "{\"factId\":\"f2\"}"
+   },
+   {
+    "u": "Announcing to the house: Jonah and Ruth are a couple.",
+    "n": "Applause, some gasps. Ruth buries her face. Jonah sighs and takes her hand.",
+    "expect": "f3",
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f3\"}"
+   },
+   {
+    "u": "Spill the beans, Marcus. What did you hear?",
+    "n": "Marcus shakes his head and says he has nothing to share.",
+    "expect": null,
+    "present": [
+     "npc:1"
+    ],
+    "raw": "{\"factId\":null}"
+   }
+  ],
+  "trade": [
+   {
+    "u": "Dale, I'll tell you who put you up if you vote with me on Thursday.",
+    "n": "Dale narrows his eyes. 'Fine. Who?' he asks. You lean in and whisper that it was Maeve. He nods slowly.",
+    "expect": {
+     "fact": "f1",
+     "to": "npc:3"
+    },
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f1\",\"toNpcId\":\"npc:3\",\"askKind\":\"vote\"}"
+   },
+   {
+    "u": "Priya, in exchange for throwing the next comp, I will give you the dirt on Lorenzo's Hidden Power.",
+    "n": "Priya considers it. 'Done,' she says. You tell her about the Hidden Power in his bag.",
+    "expect": {
+     "fact": "f2",
+     "to": "npc:2"
+    },
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f2\",\"toNpcId\":\"npc:2\",\"askKind\":\"comp throw\"}"
+   },
+   {
+    "u": "Marcus, I'll swap you a secret: Jonah and Ruth are a couple, for your vote.",
+    "n": "Marcus whistles. 'That's useful,' he says. 'You have my vote.'",
+    "expect": {
+     "fact": "f3",
+     "to": "npc:1"
+    },
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f3\",\"toNpcId\":\"npc:1\",\"askKind\":\"vote\"}"
+   },
+   {
+    "u": "Maeve, I'll tell you about Maeve.",
+    "n": "Maeve stares at you, confused. 'About me?' she says.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":null,\"toNpcId\":null,\"askKind\":\"\"}"
+   },
+   {
+    "u": "Tessa, I'm telling you about Lorenzo's power just because I trust you.",
+    "n": "Tessa smiles. 'Thank you. I won't forget this,' she says. You ask for nothing.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":null,\"toNpcId\":null,\"askKind\":\"\"}"
+   },
+   {
+    "u": "Everyone should know about Lorenzo's power.",
+    "n": "The room fills with gasps as the secret is out. You ask for nothing.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":null,\"toNpcId\":null,\"askKind\":\"\"}"
+   },
+   {
+    "u": "Ruth, trade you a name for a name. You tell me who Jonah is targeting and I tell you who Maeve put up.",
+    "n": "Ruth hesitates, then whispers the name. You whisper back that Maeve put up Dale.",
+    "expect": {
+     "fact": "f1",
+     "to": "npc:8"
+    },
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f1\",\"toNpcId\":\"npc:8\",\"askKind\":\"name for a name\"}"
+   },
+   {
+    "u": "Dale, I'll give you something if you promise to nominate Lorenzo.",
+    "n": "Dale asks what it is. You say it's a good deal, but you do not specify any secret.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":null,\"toNpcId\":null,\"askKind\":\"\"}"
+   },
+   {
+    "u": "Lorenzo, I'll tell you a secret about Ruth's stolen food if you throw the comp.",
+    "n": "Lorenzo raises an eyebrow. 'What stolen food?' he asks. You shrug; you have no actual evidence.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":null,\"toNpcId\":null,\"askKind\":\"\"}"
+   },
+   {
+    "u": "Jonah, a secret for a favor: Lorenzo is hiding a Hidden Power in his bag. In return, please keep me off the block.",
+    "n": "Jonah nods. 'Your secret is safe with me. You are off the block,' he says.",
+    "expect": {
+     "fact": "f2",
+     "to": "npc:7"
+    },
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f2\",\"toNpcId\":\"npc:7\",\"askKind\":\"safety/keep off the block\"}"
+   },
+   {
+    "u": "I'll barter with you, Marcus. Info about Maeve for your vote.",
+    "n": "Marcus nods and leans in. 'Tell me,' he says. You tell him Maeve nominated Dale. 'Okay, my vote is yours.'",
+    "expect": {
+     "fact": "f1",
+     "to": "npc:1"
+    },
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f1\",\"toNpcId\":\"npc:1\",\"askKind\":\"vote\"}"
+   },
+   {
+    "u": "Priya, give me your vote and I'll hand over what I know about Maeve.",
+    "n": "Priya says she will think about it and walks off without hearing the secret.",
+    "expect": null,
+    "present": [],
+    "raw": "{\"factId\":\"f1\",\"toNpcId\":\"npc:2\",\"askKind\":\"vote\"}"
+   },
+   {
+    "u": "Tessa, I'll tell you if Jonah and Ruth are an item, no strings.",
+    "n": "Tessa raises an eyebrow. 'No strings?' she says. 'Okay.' You tell her.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f3\",\"toNpcId\":\"npc:4\",\"askKind\":\"\"}"
+   },
+   {
+    "u": "Dale, hear me out: I'll give you the dirt on Maeve, but only in exchange for a final-two deal.",
+    "n": "Dale thinks. 'The dirt first,' he says, but you refuse to hand it over until he agrees. Stalemate.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":null,\"toNpcId\":null,\"askKind\":\"\"}"
+   },
+   {
+    "u": "Thanks for lunch, Ruth.",
+    "n": "Ruth beams. 'Any time,' she says.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":null,\"toNpcId\":null,\"askKind\":\"\"}"
+   },
+   {
+    "u": "Marcus, I'll tell you something about Jonah in return for you not nominating me.",
+    "n": "Marcus nods. You tell him Jonah and Ruth are a secret couple. 'Deal,' he says.",
+    "expect": {
+     "fact": "f3",
+     "to": "npc:1"
+    },
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f3\",\"toNpcId\":\"npc:1\",\"askKind\":\"not nominate me\"}"
+   },
+   {
+    "u": "Ruth, in return for your vote I'll tell you Jonah and Ruth have a secret showmance.",
+    "n": "Ruth stares at you. 'That's about me,' she says, flushed. 'Do not say another word.'",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f3\",\"toNpcId\":\"npc:8\",\"askKind\":\"vote\"}"
+   },
+   {
+    "u": "Dale, how about I tell you a secret and you owe me one?",
+    "n": "Dale grins. 'Tell me,' he says. You whisper that Lorenzo has a Hidden Power in his bag. 'I owe you one,' he says.",
+    "expect": {
+     "fact": "f2",
+     "to": "npc:3"
+    },
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f2\",\"toNpcId\":\"npc:3\",\"askKind\":\"owe me one\"}"
+   },
+   {
+    "u": "Maeve, I'll trade you intel on Lorenzo's bag for your vote.",
+    "n": "Maeve smirks. 'Intel on his bag? Go on.' You describe the Hidden Power; she nods, 'You have my vote.'",
+    "expect": {
+     "fact": "f2",
+     "to": "npc:6"
+    },
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":\"f2\",\"toNpcId\":\"npc:6\",\"askKind\":\"vote\"}"
+   },
+   {
+    "u": "I won't tell anyone about Maeve and the nomination, Dale. Your secret is safe.",
+    "n": "Dale frowns. 'My secret?' he says, puzzled. You ask for nothing.",
+    "expect": null,
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:3",
+     "npc:4",
+     "npc:5",
+     "npc:6",
+     "npc:7",
+     "npc:8"
+    ],
+    "raw": "{\"factId\":null,\"toNpcId\":null,\"askKind\":\"\"}"
+   }
+  ]
+ }
+}

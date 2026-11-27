@@ -70,7 +70,7 @@ _DEFAULT_MAX_TOKENS = {
     # cap risked the reasoning eating the budget and leaving an empty/truncated visible body (the exact
     # silent no-op #1002 chased). Raised to a comfortable floor so a reasoning model can both think a
     # little (effort stays "low" for this structured task) AND emit the whole JSON object.
-    "background-authoring": 3000,
+    "background-authoring": 6000,
 }
 # "off" -> reasoning omitted (None). The full set of admin-acceptable values.
 _VALID_EFFORTS = ("off", "low", "medium", "high")

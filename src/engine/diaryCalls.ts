@@ -18,6 +18,8 @@ export const DIARY_CALLS = {
   /** At most this many NPC calls per in-game day, and only one away at a time. */
   perDay: 1,
   /** A stay is between these many minutes (a keyed roll); the houseguest is away for the in-game hours it spans. */
+  /** ORW-914: the producer's invitation to the player stays quiet this many in-game hours after the player's own visit to the Diary Room. */
+  inviteQuietHours: 6,
   minMinutes: 15,
   maxMinutes: 90,
 } as const;
@@ -31,6 +33,8 @@ export interface DiaryCallsState {
   byDay: Record<string, number>;
   /** The in-game hour of the player's last visit that was recorded (a visit is recorded once per hour). */
   playerLast?: number;
+  /** ORW-694 / B1-11: the in-game hour the player's current Diary Room stay began (a stay into a second hour is a long one). */
+  playerStayFrom?: number;
 }
 
 /** Minutes a houseguest's call lasts: a keyed roll, never the shared stream. */

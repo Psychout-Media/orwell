@@ -30,6 +30,30 @@ _SET_THEME_PRESETS_STR = ", ".join(known_theme_names_ordered())
 # ---------------------------------------------------------------------------
 # OpenAI-compatible function tool schemas
 # ---------------------------------------------------------------------------
+# ORW-951: the engine keeps a strategy style only if it is one of the archetype's two
+# (ARCHETYPES in src/engine/characterFactory.ts, drift-tested); the model must see the pairs.
+ARCHETYPE_STYLE_PAIRS = {
+    "comp-beast": ("aggressive", "strategic"),
+    "mastermind": ("strategic", "under-the-radar"),
+    "social-butterfly": ("social", "emotional"),
+    "floater": ("under-the-radar", "social"),
+    "villain": ("aggressive", "strategic"),
+    "underdog": ("emotional", "loyal"),
+    "flirt": ("social", "emotional"),
+    "loyalist": ("loyal", "social"),
+    "wildcard": ("emotional", "aggressive"),
+    "analyst": ("strategic", "under-the-radar"),
+    "hothead": ("aggressive", "emotional"),
+    "peacemaker": ("loyal", "social"),
+}
+_ARCHETYPE_STYLE_PAIRS_STR = "; ".join(f"{a}: {x}/{y}" for a, (x, y) in ARCHETYPE_STYLE_PAIRS.items())
+# Carried once per schema (on strategyStyle only): these schemas ride every turn's prefix, so the text stays short.
+_STYLE_PAIRING_RULE = (
+    "MUST be one of the chosen archetype's two styles, or the engine replaces it. Pairs: "
+    + _ARCHETYPE_STYLE_PAIRS_STR
+    + ". If the player's way of playing is not in their archetype's pair, pick the archetype that offers it."
+)
+
 FUNCTION_TOOL_SCHEMAS = [
     {
         "type": "function",
@@ -1395,7 +1419,7 @@ FUNCTION_TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "submitDecision",
-            "description": "Resolve the player's pending game decision and continue — ONLY for the competition approach (comp-intent / comp-round), the in-chat deal-offer answer and the player's own answer to an accusation at a house meeting (meeting-answer), using the `kind` from the pending decision. Every other binding choice (nominations, vetoes, votes, goodbye messages, finale picks, self-evict…) is committed ONLY by the player's own confirm on its decision card: present it and WAIT; submitting it here is refused. The engine validates legality server-side.",
+            "description": "Resolve the player's pending game decision and continue — ONLY for the competition approach (comp-intent / comp-round), the in-chat deal-offer answer, the player's own answer to an accusation at a house meeting (meeting-answer) and the player saying first, in their own words, what the house is talking about about them (say-it-first), using the `kind` from the pending decision. Every other binding choice (nominations, vetoes, votes, goodbye messages, finale picks, self-evict…) is committed ONLY by the player's own confirm on its decision card: present it and WAIT; submitting it here is refused. The engine validates legality server-side.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1406,6 +1430,7 @@ FUNCTION_TOOL_SCHEMAS = [
                         "enum": sorted(_DECISION_KINDS - {"ceremony-step"}),  # a watch step is answered by advanceGame; the engine always refuses it here, so never offer it to the model (ORW-281 4a)
                         "description": "Only comp-intent / comp-round (send `intent`), deal-offer (send `vote`: accept | decline) and meeting-answer "
                                        "(send `vote`: deny | admit | redirect, and `statement`: the player's own words, as they wrote them) "
+                                       "and say-it-first (send `statement`: the player's own words to the room, exactly; only when the player chose to say it) "
                                        "are submittable here. deal-offer answers a houseguest's STANDING offer in the "
                                        "chat — it is not a pending decision card. Every other kind is committed ONLY by "
                                        "the player's own confirm on its decision card and is refused by this tool.",
@@ -1416,7 +1441,7 @@ FUNCTION_TOOL_SCHEMAS = [
                     "save": {"type": "string", "description": "Card-only (veto-decision): committed on the player's card; refused here."},
                     "replacement": {"type": "string", "description": "Card-only (replacement): committed on the player's card; refused here."},
                     "vote": {"type": "string", "description": "deal-offer: accept | decline. meeting-answer: deny | admit | redirect. Every other vote kind (eviction-vote, juror-vote, goodbye-message, exit-interview…) is card-only and refused here."},
-                    "statement": {"type": "string", "description": "meeting-answer: the player's own words, kept as given. Card-only (finale-statement, juror-question, goodbye-message text): committed on the player's card; refused here."},
+                    "statement": {"type": "string", "description": "meeting-answer / say-it-first: the player's own words, kept as given. Card-only (finale-statement, juror-question, goodbye-message text): committed on the player's card; refused here."},
                     "appeal": {"type": "string", "enum": ["own-game", "mend", "connect", "discredit-rival"], "description": "Card-only (finale-answer): committed on the player's card; refused here."},
                     "intent": {"type": "string", "enum": ["compete", "throw", "play-safe"], "description": "comp-intent / comp-round: the player's declared approach for the competition, asked ONCE up front (round 1) — committed before the competition resolves and locked. The elimination rounds then play out as drama; the player is NOT re-asked each round (the up-front approach is the binding one)."},
                 },
@@ -1542,6 +1567,21 @@ FUNCTION_TOOL_SCHEMAS = [
                     "room": {"type": "string", "description": "The room the player walks to (e.g. kitchen, living-room, backyard, bedroom, storage-room, landing, hoh-room)."},
                 },
                 "required": ["room"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "searchForHouseguest",
+            "description": "ORW-934: the player is LOOKING FOR a named houseguest. The game walks the player through the house leg by leg on a sensible route (the last recorded sighting first, then nearby rooms); each leg costs clock time and the houseguest may move meanwhile. Nobody is teleported. It ends when the houseguest is found, is somewhere the player cannot go (the Diary Room, a shut door), a house event comes due, the player walks in on a private talk, or it is bedtime. Returns the ordered legs (room, who was there) and the outcome. Voice the legs as ONE compressed passage and invent no sighting that is not in the legs. When the turn's facts already carry a PLAYER SEARCH line the walk is done: voice it, do not call this again.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "The houseguest the player is looking for, as the player said the name."},
+                    "maxLegs": {"type": "integer", "description": "Optional: stop after this many legs (the player said to stop or to just check nearby)."},
+                },
+                "required": ["name"],
             },
         },
     },
@@ -1873,7 +1913,7 @@ FUNCTION_TOOL_SCHEMAS = [
                     "strategyStyle": {
                         "type": "string",
                         "enum": ["aggressive", "social", "strategic", "under-the-radar", "emotional", "loyal"],
-                        "description": "Your canonical mapping of how they plan to play.",
+                        "description": "Your canonical mapping of how they plan to play. " + _STYLE_PAIRING_RULE,
                     },
                     "personaArchetype": {"type": "string", "description": "The player's OWN words for who they are / how they'll come across."},
                     "personaStrategyStyle": {"type": "string", "description": "The player's OWN words for how they'll play."},
@@ -1900,8 +1940,10 @@ FUNCTION_TOOL_SCHEMAS = [
                             "winner was crowned — the post-season reunion) and the player asks to run it "
                             "back in chat. This ends the finished season and starts a fresh one; the front "
                             "end advances their season counter. Omit it during a normal first-time casting "
-                            "(it no-ops/refuses on a started game). Never use it to reset a LIVE season — "
-                            "a mid-season restart is the player's own confirmed act in the app (New Chat or Settings), never a chat one."
+                            "(it no-ops/refuses on a started game). Over a LIVE season it is the player's own confirmed act: when they ask in chat "
+                            "to end it and start over, say once, out of fiction, that this ends the current season, and on their yes call this with "
+                            "confirmRestart=true. Never set it without that yes, and never refuse the request: the in-chat restart and the app's "
+                            "New Season button are the same door."
                         ),
                     },
                     "keepCharacter": {
@@ -1974,7 +2016,7 @@ FUNCTION_TOOL_SCHEMAS = [
                     "strategyStyle": {
                         "type": "string",
                         "enum": ["aggressive", "social", "strategic", "under-the-radar", "emotional", "loyal"],
-                        "description": "Your canonical mapping of how they plan to play.",
+                        "description": "Your canonical mapping of how they plan to play. " + _STYLE_PAIRING_RULE,
                     },
                     "genderPresentation": {
                         "type": "string",
@@ -2146,6 +2188,8 @@ ORWELL_GAME_TOOLS = frozenset({
     "whereabouts",
     # L21/L24: the player directs their own movement (the engine never auto-relocates a person).
     "moveTo",
+    # ORW-934: looking for a houseguest walks the house leg by leg (the engine plays it out; nobody is teleported).
+    "searchForHouseguest",
     # PREMIERE meet-everyone (#380): the premiere-only meet-everyone tracker — the read + the mark.
     "premiereIntros", "markHouseguestMet",
     # B56/0048: the reunion reads — the public recap + the post-season Vault unsealing.

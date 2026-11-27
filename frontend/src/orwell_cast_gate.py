@@ -16,7 +16,10 @@ from typing import Awaitable, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
-BIO_OVERSIZE_CHARS = 720  # ORW-437: 1.5 x the 480-character ask in `rewrite_message`
+from src import orwell_cast_rules as R  # ORW-956: the one table of rules; thresholds and the blocking tier live there
+
+BIO_ASK_CHARS = R.BIO_ASK_CHARS  # ORW-952: the length the cast prompt and `rewrite_message` ask for, from this one number so they match the gate
+BIO_OVERSIZE_CHARS = R.BIO_OVERSIZE_CHARS  # ORW-437: 1.5 x the ask (720)
 REALISM_LOWPRIO_BUDGET = 6  # of those, the ones that are not about the look fitting the life (a prop, a smile, a gaze, a repeated garment)
 REALISM_REWRITE_BUDGET = 12  # casting-director rewrites per cast: each is a model call inside the serialized gate, so the time it adds is bounded
 GATE_REWRITE_BOUND = 2  # re-writes per card per run (each is one model call, inside the per-season give-up cap)
@@ -289,14 +292,7 @@ def _drop_name_from_oncamera(profile: dict, npc: dict) -> bool:
 
 # TWO TIERS (Kevin's coordinator, 2026-11-15). A season must never wait on a non-blocking code.
 # BLOCKING: the card is left NOT authored after the deterministic mend and a bounded number of re-writes.
-BLOCKING = frozenset({
-    "story-no-biography",                                   # no biography
-    "identity-missing",                                     # no identity
-    "story-name", "story-cast-name", "identity-name", "identity-cast-name",   # the houseguest's own name
-    "story-pronoun", "identity-pronoun",                    # pronouns
-    "story-age", "identity-age",                            # stated age
-    "bio-dup-text",                                         # duplicated biography
-})
+BLOCKING = R.BLOCKING  # ORW-956: the tier is a field of each rule in the table (story-*, identity-*, bio-dup-text and the missing biography)
 # NON-BLOCKING: the card is accepted, the code is counted on the season line and recorded as a soft-fail, and the existing
 # backfill (look fields) or upgrader is asked to fill it later. Anything not in BLOCKING is non-blocking.
 
@@ -327,7 +323,7 @@ def card_codes(profile: dict, npc: dict, cast=None, registry: Optional[dict] = N
     if isinstance(bio, str) and bio.strip():
         # ORW-437: the format the rewrite message asks for (2-3 sentences, about 480 characters). NON-BLOCKING and counted: a
         # prod cast writer runs near 500 characters, so only a text 50% over the ask (or past three sentences) is reported.
-        if len(bio) > BIO_OVERSIZE_CHARS or len(_SENT_END.findall(bio)) > 3:
+        if len(bio) > BIO_OVERSIZE_CHARS or len(_SENT_END.findall(bio)) > R.BIO_MAX_SENTENCES:
             codes.append("bio-format")
     first = str(card.get("name") or "").split(" ")[0]
     if isinstance(bio, str) and bio.strip() and first and not re.search(r"\b%s\b" % re.escape(first), bio, re.I):
@@ -353,7 +349,7 @@ def card_codes(profile: dict, npc: dict, cast=None, registry: Optional[dict] = N
 
 def rewrite_message(codes: list) -> str:
     return ("The biography failed the final check (" + ", ".join(codes) + "). Write the COMPLETE JSON object again. The "
-            "biography is 2-3 whole sentences (under 480 characters, ending on a full stop), about the houseguest named "
+            "biography is 2-3 whole sentences (under " + str(BIO_ASK_CHARS) + " characters, ending on a full stop), about the houseguest named "
             "on the card by that exact first name and the pronouns on the card, the stated age only, no look feature the "
             "look lacks, never \"Big Brother\"; include voice, physicalCharacteristics with wardrobe and an identityConcept.")
 
@@ -630,7 +626,7 @@ def _wardrobe_ok(cand: dict, npc: dict) -> bool:
 
 
 def _identity_ok(text: str) -> bool:
-    return isinstance(text, str) and 12 <= len(" ".join(text.split())) <= 250  # the same bounds a first-pass identity gets
+    return isinstance(text, str) and R.IDENTITY_PARSE_MIN_CHARS <= len(" ".join(text.split())) <= R.IDENTITY_MAX_CHARS  # the same bounds a first-pass identity gets
 
 
 _WARDROBE_WEIGHT = {"look-fit": 5, "garment": 1, "colour": 1, "pattern": 1, "signature": 1}
@@ -703,7 +699,7 @@ async def _repetition_rewrite(gate: SeasonGate, profile: dict, npc: dict, cast, 
                 if has_wd:
                     base["wardrobe"] = [" ".join(x.split()) for x in new_wd]
                 if has_sig:
-                    base["lookSignature"] = " ".join(new_sig.split())[:90]  # the signature travels with the wardrobe it is carried by
+                    base["lookSignature"] = " ".join(new_sig.split())[:R.SIGNATURE_MAX_CHARS]  # the signature travels with the wardrobe it is carried by
                 new_style = new_phys.get("style") if isinstance(new_phys, dict) else None
                 if has_wd and "look-fit" in (rep.get("realism-wardrobe") or {}):
                     # the style line travels with the clothes it describes: the writer's own line, unless it still names the poor-fit family

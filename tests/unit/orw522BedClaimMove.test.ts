@@ -60,4 +60,23 @@ describe("ORW-522: a bed claim moves the player to the bedroom, or the narrator 
       expect(s.whereabouts()!.room).toBe(room);
     }
   });
+
+  // ORW-728 (W1-11): "My bed" twice put the player in the wrong bedroom. Only a FRESH claim moved them; a later "I go to my bed" named no room, so the narrator picked one.
+  it("\"my bed\" is the bedroom of the bed the player owns, wherever they are", () => {
+    const s = inside();
+    for (let i = 0; i < 60 && s.whereabouts()?.houseEvent; i++) step(s);
+    expect(s.whereabouts()?.houseEvent, "the house is no longer gathered").toBeFalsy();
+    const room = freeBedroom(s, s.whereabouts()!.room);
+    s.resolvePlayerMove({ text: `I'll take the bed by the window in ${roomDisplayName(room)}.` });
+    expect(roomOfBed(liveOf(s).beds!.owner["player"]!)).toBe(room);
+    s.resolvePlayerMove({ text: "I head to the kitchen." });
+    expect(s.whereabouts()!.room, "positive control: the player left the bedroom").not.toBe(room);
+    const r = s.resolvePlayerMove({ text: "I go back to my bed." });
+    expect(r.playerMove).toMatchObject({ to: room });
+    expect(s.whereabouts()!.room).toBe(room);
+    // a message that is not about their own bed moves nobody
+    s.resolvePlayerMove({ text: "I head to the kitchen." });
+    const stay = s.resolvePlayerMove({ text: "I ask whose bed that is." });
+    expect(stay.playerMove).toBeNull();
+  });
 });

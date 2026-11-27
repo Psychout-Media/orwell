@@ -20,7 +20,7 @@ const ARMS = (process.env.ORWELL_MANAGED_ARMS ?? "solid,managed").split(",") as 
 const PER_RUNTIME = 10; // bound memory: a fresh runtime every few seasons (the registry keeps finished sandboxes alive)
 
 (ON ? describe : describe.skip)(`A1 managed-arm measurement shard [${FROM}, ${TO}) ${LABEL}`, () => {
-  it("plays its slice and writes the shard file", async () => {
+  it("plays its slice and writes the shard file", { timeout: 3_600_000 }, async () => {
     const rows: Record<string, SeasonMetrics[]> = {};
     for (const arm of ARMS) {
       rows[arm] = [];
@@ -32,5 +32,5 @@ const PER_RUNTIME = 10; // bound memory: a fresh runtime every few seasons (the 
     mkdirSync(OUT, { recursive: true });
     writeFileSync(join(OUT, `managed-${LABEL}-${FROM}-${TO}.json`), JSON.stringify({ label: LABEL, from: FROM, to: TO, rows }));
     expect(Object.values(rows).every((r) => r.length === TO - FROM)).toBe(true);
-  }, { timeout: 3_600_000 });
+  });
 });

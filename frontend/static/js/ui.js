@@ -9,6 +9,7 @@ import * as Modals from './modalManager.js';
 import spinnerModule from './spinner.js';
 import { registerMenuDismiss, dismissTopMenu, dismissOrRemove } from './escMenuStack.js';
 import { isNarrow } from './platform.js';
+import { createFollow } from './chatFollow.js';
 
 let autoScrollEnabled = true;
 let hoveredToggleCard = null;
@@ -372,11 +373,36 @@ export function showError(msg) {
  * Throttled during streaming so it doesn't fight user scrolling.
  */
 let _scrollThrottleTimer = null;
+// ORW-919: whether to keep following the newest reply; only the player's own scroll-up unpins it (see chatFollow.js).
+const _follow = createFollow();
+let _followBound = null;
+function _bindFollow(box) {
+  if (!box || _followBound === box) return;
+  _followBound = box;
+  try { box.addEventListener('scroll', () => _follow.onScroll(box), { passive: true }); } catch (_) {}
+  // ORW-974: the chat area changes HEIGHT without any new content (a card mounting above the composer, a dismissed card, a composer that grows): `scrollTop` stays, so the tail of the newest reply slides under
+  // whatever took the room. While the player is following the newest reply, keep the bottom in view across a resize; a player who scrolled up to read is never pulled down (`shouldFollow`).
+  try {
+    if (typeof ResizeObserver !== 'undefined') {
+      let lastH = box.clientHeight;
+      new ResizeObserver(() => {
+        const h = box.clientHeight;
+        const shrank = h < lastH;
+        lastH = h;
+        if (!shrank || !autoScrollEnabled || !_follow.shouldFollow()) return;
+        box.scrollTop = box.scrollHeight;
+        _follow.noteSet(box.scrollTop);
+      }).observe(box);
+    }
+  } catch (_) {}
+}
+
 export function scrollHistory() {
   if (!autoScrollEnabled) return;
   if (!_scrollBox) {
     _scrollBox = document.getElementById('chat-history');
   }
+  _bindFollow(_scrollBox);
   // Throttle: only start a new scroll animation every 500ms
   if (_scrollThrottleTimer) return;
   _scrollThrottleTimer = setTimeout(() => { _scrollThrottleTimer = null; }, 500);
@@ -395,23 +421,33 @@ function _smoothScrollStep() {
   const current = box.scrollTop;
   const diff = target - current;
 
-  // If user scrolled up significantly, don't force them down
-  if (diff > 300) {
+  // The player scrolled up to read: don't force them down. ORW-919: decided by THEIR scroll, never by how big the new content is (a reply landing in one block is not a scroll-up).
+  if (!_follow.shouldFollow()) {
     _scrollRafId = null;
+    _lastStepAt = 0;
     return;
   }
 
   if (diff <= 1) {
     box.scrollTop = target;
+    _follow.noteSet(box.scrollTop);
     _scrollRafId = null;
+    _lastStepAt = 0;
     return;
   }
 
-  // Lerp: gentle catch-up
-  const factor = isNarrow() ? 0.4 : 0.2;
+  // Lerp: gentle catch-up. ORW-996: the step is per FRAME, so on a slow or throttled page (a few frames a second: CI's headless Chromium, a busy phone) the newest reply took seconds to come
+  // into view while it streamed. The catch-up is now per unit of TIME: the same 20% / 40% share per 16.7 ms frame, compounded by the time since the last step (a 60 fps page is unchanged).
+  const base = isNarrow() ? 0.4 : 0.2;
+  const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : 0;
+  const frames = _lastStepAt > 0 ? Math.min(30, Math.max(1, (now - _lastStepAt) / 16.7)) : 1;
+  _lastStepAt = now;
+  const factor = 1 - Math.pow(1 - base, frames);
   box.scrollTop = current + diff * factor;
+  _follow.noteSet(box.scrollTop);
   _scrollRafId = requestAnimationFrame(_smoothScrollStep);
 }
+let _lastStepAt = 0; // ORW-996: when the last catch-up step ran (0 = none in flight)
 
 /**
  * Instant scroll to bottom — use for non-streaming contexts
@@ -422,7 +458,10 @@ export function scrollHistoryInstant() {
     _scrollBox = document.getElementById('chat-history');
   }
   if (_scrollBox) {
+    _bindFollow(_scrollBox);
     _scrollBox.scrollTop = _scrollBox.scrollHeight;
+    _follow.repin();   // ORW-919: an instant jump to the bottom (history loaded, a session switch, a send) follows again
+    _follow.noteSet(_scrollBox.scrollTop);
   }
 }
 

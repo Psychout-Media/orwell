@@ -248,6 +248,8 @@ export interface SessionCore {
   roomCardNow?: { msg?: string; room: Room };
   /** ORW-698 (B2-12): habit scenes seen from a public spot, waiting for the calm tick's whisper (engine-only queue; consumed and emptied by the whisper, so not superset-guarded). Absent on an old save. */
   habitSightings?: Array<{ pair: [EntityId, EntityId]; room: Room; onlookers: EntityId[] }>;
+  /** ORW-694 / B1-11: long Diary Room stays the house saw, not yet whispered. */
+  diaryStaySightings?: Array<{ who: EntityId; onlookers: EntityId[] }>;
   walkIn?: { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: "goes-quiet" | "carries-on-guarded" | "moves-the-talk" | "pulls-the-player-in" }[] };
   /**
    * The presence-tick COUNTER (L21/L24). Movement randomness rides a DEDICATED stream forked off the
@@ -1059,6 +1061,10 @@ export function sessionCoreSupersetViolation(later: SessionSnapshot, earlier: Se
   if (!keysKept(ev?.routines, lv?.routines) || Object.entries(ev?.routines ?? {}).some(([k, rs]) => (lv?.routines?.[k]?.length ?? 0) < rs.length)) return "routines";
   const sightKept = Object.entries(ev?.routineSightings ?? {}).every(([who, byKey]) => Object.entries(byKey).every(([key, days]) => days.every((d) => (lv?.routineSightings?.[who]?.[key] ?? []).includes(d))));
   if (!sightKept) return "routineSightings";
+  const npcSightKept = Object.entries(ev?.npcRoutineSightings ?? {}).every(([o, byHolder]) => Object.entries(byHolder).every(([who, byKey]) => Object.entries(byKey).every(([key, days]) => days.every((d) => (lv?.npcRoutineSightings?.[o]?.[who]?.[key] ?? []).includes(d)))));
+  if (!npcSightKept) return "npcRoutineSightings";
+  const hauntsKept = Object.entries(ev?.playerHaunts ?? {}).every(([o, byKey]) => Object.entries(byKey).every(([key, days]) => days.every((d) => (lv?.playerHaunts?.[o]?.[key] ?? []).includes(d)))); // ORW-981
+  if (!hauntsKept) return "playerHaunts";
   if (!numsKept(ev?.chemistry, lv?.chemistry)) return "chemistry";
   if (!numsKept(ev?.together, lv?.together)) return "together";
   if (!numsKept(ev?.romances, lv?.romances)) return "romances";

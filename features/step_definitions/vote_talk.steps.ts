@@ -1,3 +1,4 @@
+import { socialBroken } from "../../tests/support/brokenBounds";
 import { Given, When, Then } from "@cucumber/cucumber";
 import assert from "node:assert/strict";
 import { GameSessionRegistry } from "../../src/composition/registry";
@@ -163,6 +164,8 @@ export function voteTalkWeekOne(this: unknown): void {
 
 export function voteTalkLate(this: unknown): void {
   const { on, off } = (this as unknown as { arms: Arms }).arms;
-  assert.ok(on.late.gossip <= 60 && on.late.bonding >= 10 && on.late.strategy <= 75 && on.late.conflict <= 30, `late mix ${JSON.stringify(on.late)}`);
-  for (const k of KINDS) assert.ok(Math.abs(on.late[k] - off.late[k]) <= 6, `late ${k}: ${on.late[k].toFixed(1)} on against ${off.late[k].toFixed(1)} off`);
+  // Ryne's ruling (2026-11-26): "That check should stop. This is the same as the difficulty balances. It doesn't make sense to arbitrarily hold everything to a standard for every single fix... Maybe let's come up with a
+  // super wide range for these that only don't pass if they break the game." So the late mix fails only when it is broken (tests/support/brokenBounds.ts); the feature's on/off gaps are a report.
+  console.log(`[vote-talk late mix] on ${JSON.stringify(on.late)} off ${JSON.stringify(off.late)}; gaps ${KINDS.map((k) => `${k} ${(on.late[k] - off.late[k]).toFixed(1)}`).join(", ")}`);
+  assert.deepEqual(socialBroken({ late: { n: 1, ...(on.late as { bonding: number; strategy: number; gossip: number; conflict: number }) } }, 0), [], `late mix broken: ${JSON.stringify(on.late)}`);
 }

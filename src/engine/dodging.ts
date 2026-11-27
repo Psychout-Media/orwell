@@ -33,9 +33,12 @@ export interface DodgeInput {
  * ORW-798: the stakes of a dodged question come from what the houseguest actually holds and where they stand, never a literal. `severity` is the public severity of the kind of thing they are keeping (leverage.severityOf, never its
  * text) and `onTheBlock` is whether they are nominated right now (a slip would cost a vote they cannot spare). Bounded to [0,1]; no draw, so every seeded stream is untouched.
  */
-export function dodgeStakes(severity: number, onTheBlock: boolean): number {
-  return clamp01(0.75 * clamp01(severity) + (onTheBlock ? 0.25 : 0));
+export function dodgeStakes(severity: number, onTheBlock: boolean, powerHolder = false): number {
+  // ORW-802 (Coordinator default 2026-11-26, Ryne may change it): the HOH or the veto holder is watched more, so a dodge is noticed more; the same for any houseguest. Bounded; no draw.
+  return clamp01(0.75 * clamp01(severity) + (onTheBlock ? 0.25 : 0) + (powerHolder ? DODGE_POWER_HOLDER : 0));
 }
+/** ORW-802: how much a power holder's dodge adds to its stakes. */
+export const DODGE_POWER_HOLDER = 0.15;
 
 const APPROACHES: readonly DodgeApproach[] = ["change-subject", "ask-back", "laugh-off", "go-quiet", "narrow-answer", "stall"];
 

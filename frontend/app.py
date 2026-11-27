@@ -1,4 +1,5 @@
 # app.py — slim orchestrator
+import re
 import mimetypes
 import os
 
@@ -219,6 +220,10 @@ if AUTH_ENABLED:
         # Engine-reachability probe (doctor script, monitoring, the engine-status banner pre-login).
         # Vault-free and user-free: engine up/down + a connection-error string — no game state.
         "/api/orwell/health",
+        # ORW-971: held seasons and owed season-start steps, for deploy/orwell-doctor.sh (no login there). The handler answers a DIRECT loopback connection only and
+        # sends every other caller to require_admin; owner ids, ages, counts and machine words, never game or cast content.
+        "/api/admin/season-holds",
+        "/api/admin/provider-credit",
         # ORW-396: the client failure beacon (POST) promises "always 204": it must work logged-out (login page / expired session).
         # Already per-client rate-limited and field-capped in the handler; it logs three clipped strings and touches no game data.
         "/api/orwell/fe-report",
@@ -420,6 +425,24 @@ else:
 os.makedirs(STATIC_DIR, exist_ok=True)
 
 
+def _build_stamp_enabled() -> bool:
+    """ORW-146: build-stamped static URLs need a real build id; "unknown" (no git) or ORWELL_STATIC_IMMUTABLE=0
+    (local dev with uncommitted edits, where the SHA does not move) leaves every asset on `no-cache`."""
+    if os.environ.get("ORWELL_STATIC_IMMUTABLE", "1").strip().lower() in ("0", "false", "no", "off"):
+        return False
+    from src.orwell_version import get_build as _b
+    return _b() not in ("", "unknown")
+
+
+def _is_build_stamped(scope) -> bool:
+    if not _build_stamp_enabled():
+        return False
+    from urllib.parse import parse_qs
+    from src.orwell_version import get_build as _b
+    qs = parse_qs((scope.get("query_string") or b"").decode("latin-1"))
+    return qs.get("b", [None])[-1] == _b()
+
+
 class _RevalidatingStatic(StaticFiles):
     """Serve static assets normally, but force the browser to REVALIDATE
     source files (.js/.css/.html) on every load instead of serving a stale
@@ -430,10 +453,52 @@ class _RevalidatingStatic(StaticFiles):
     return a cheap 304 (ETag/Last-Modified are preserved)."""
 
     async def get_response(self, path, scope):
-        resp = await super().get_response(path, scope)
+        resp = await self._asset_response(path, scope)
+        if resp is None:
+            resp = await super().get_response(path, scope)
+        if path.startswith("_bundle/") and resp.status_code == 200:
+            # ORW-1015: a bundle's name carries its content hash, so it can never change under that name.
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            return resp
         if path.endswith((".js", ".css", ".html")):
             resp.headers["Cache-Control"] = "no-cache"
+            if _is_build_stamped(scope) and resp.status_code == 200:
+                # ORW-146: a URL the shell stamped with THIS build's id (`?b=<build>`) can never change
+                # content while that build runs, and a deploy changes the id, so the browser may keep it
+                # for a year with no conditional request at all.
+                resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return resp
+
+
+    async def _asset_response(self, path, scope):
+        """ORW-1015: a generated classic-script bundle, or a minified stylesheet; None = serve the file as it is (also on any doubt)."""
+        from src import static_assets as _sa
+        if not _sa.bundling_enabled():
+            return None
+        from starlette.responses import Response
+        if path.startswith(_sa.BUNDLE_PREFIX):
+            body = _sa.get_bundle(path[len(_sa.BUNDLE_PREFIX):])
+            if body is None:
+                # a bundle named by a page shell from before a restart: rebuild the shells, then look again
+                for page in ("index.html",):
+                    try:
+                        _html_template(os.path.join(STATIC_DIR, page))
+                    except Exception:  # failsoft-ok: a miss stays a 404
+                        pass
+                body = _sa.get_bundle(path[len(_sa.BUNDLE_PREFIX):])
+            if body is None:
+                return Response("not found", status_code=404, media_type="text/plain")
+            return Response(body, media_type="text/javascript")
+        if path.endswith(".css") and ".." not in path:
+            hit = _sa.minified_css_file(os.path.join(STATIC_DIR, path))
+            if hit is None:
+                return None
+            body, etag = hit
+            inm = dict(scope.get("headers") or []).get(b"if-none-match", b"").decode("latin-1")
+            if etag in [t.strip() for t in inm.split(",")]:
+                return Response(status_code=304, headers={"ETag": etag})
+            return Response(body, media_type="text/css", headers={"ETag": etag})
+        return None
 
 
 # ORW-164 S1: gzip ONLY the static mount (text assets >= 1000 B when the client sends Accept-Encoding:
@@ -525,7 +590,7 @@ rag_available = rag_manager is not None
 if rag_available:
     logger.info("Vector document RAG initialized")
 else:
-    logger.info(
+    logger.debug(  # ORW-1027: expected on the game build (no ChromaDB); the one startup summary line below says so
         "Vector document RAG not available at startup "
         "(ChromaDB may not be reachable yet — routes will retry lazily)"
     )
@@ -919,6 +984,24 @@ mount_optional(app, "companion", setup_companion_routes())
 _HTML_TEMPLATE_CACHE: Dict[tuple, str] = {}
 
 
+# ORW-146: classic <script src> and stylesheet <link href> URLs under /static get `?b=<build>`, so
+# _RevalidatingStatic can serve them `immutable` for a year and a deploy (new build id) busts them. ES-module
+# tags and modulepreload are left alone: modules import each other by bare path, and a second URL for the same
+# module would load it twice.
+_STAMP_RE = re.compile(
+    r'(<script (?:defer )?src="|<link rel="stylesheet" href=")(/static/[^"?#]+\.(?:js|css))(")')
+
+
+def _stamp_static_urls(html: str, build: str) -> str:
+    if not _build_stamp_enabled():
+        return html
+    import urllib.parse as _up
+    q = _up.quote(build, safe="")
+    # ORW-1015: the hand-edited `?v=<date>` cache busters (game-trim.css, three deferred scripts) give way to the build stamp, so they too are immutable
+    html = re.sub(r'((?:<script defer src="|<link rel="stylesheet" href=")/static/[^"?#]+\.(?:js|css))\?v=\d+(")', r"\1\2", html)
+    return _STAMP_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}?b={q}{m.group(3)}", html)
+
+
 def _html_template(file_path: str) -> str:
     """The page shell with every per-build transform applied and the `{{CSP_NONCE}}` placeholder still in place."""
     from src.orwell_version import get_build as _fe_build
@@ -931,6 +1014,9 @@ def _html_template(file_path: str) -> str:
         _zc = False
     key = (file_path, st.st_mtime_ns, st.st_size, _fe_build(), game_build_enabled(), ws_transport_enabled(),
            tuple(dropped_script_srcs()), _zc)
+    if not _build_stamp_enabled():  # ORW-1015: no real build id (local dev): an edited script must rebuild the bundle
+        from src import static_assets as _sa0
+        key = key + (_sa0.files_fingerprint(STATIC_DIR),)
     cached = _HTML_TEMPLATE_CACHE.get(key)
     if cached is not None:
         return cached
@@ -942,6 +1028,7 @@ def _html_template(file_path: str) -> str:
     from src.orwell_version import get_build as _fe_build
     import html as _html_esc
     html = html.replace("{{BUILD_ID}}", _html_esc.escape(_fe_build(), quote=True))
+    html = _stamp_static_urls(html, _fe_build())
     from src.settings import strip_dropped_scripts, game_build_enabled, ws_transport_enabled
     html = strip_dropped_scripts(html)
     if game_build_enabled():
@@ -982,6 +1069,9 @@ def _html_template(file_path: str) -> str:
         # (ORWELL_GAME_BUILD=0 debugging) the full workspace must come back, so strip the link.
         import re as _re
         html = _re.sub(r'<link[^>]*game-trim\.css[^>]*>\s*(<!--[^>]*-->)?', "", html, count=1)
+    # ORW-1015: cacheable module URLs (import map) and one bundle per run of classic scripts; falls back to the page as is.
+    from src import static_assets as _sa
+    html = _sa.transform_page(html, STATIC_DIR, _fe_build(), _build_stamp_enabled(), tuple(dropped_script_srcs()))
     _HTML_TEMPLATE_CACHE[key] = html
     return html
 
@@ -990,7 +1080,16 @@ def _serve_html_with_nonce(request: Request, file_path: str) -> HTMLResponse:
     """Serve an HTML file with the CSP nonce injected and (game build, feature 0032) the dropped
     verticals' <script> tags removed so their JS is never shipped. Template cached per ORW-175."""
     nonce = getattr(request.state, "csp_nonce", "")
-    return HTMLResponse(_html_template(file_path).replace("{{CSP_NONCE}}", nonce))
+    body = _html_template(file_path).replace("{{CSP_NONCE}}", nonce)
+    # ORW-146: the shell is ~250 KB of text; gzip it for clients that accept it. Only this one buffered
+    # response is compressed (never the SSE/WS paths).
+    hdrs = getattr(request, "headers", None)  # some unit tests hand in a bare stub request
+    if hdrs is not None and "gzip" in hdrs.get("accept-encoding", "").lower():
+        import gzip as _gzip
+        raw = _gzip.compress(body.encode("utf-8"), compresslevel=5)
+        return HTMLResponse(raw, headers={"Content-Encoding": "gzip", "Vary": "Accept-Encoding",
+                                          "Content-Length": str(len(raw))})
+    return HTMLResponse(body, headers={"Vary": "Accept-Encoding"})
 
 @app.get("/")
 async def serve_index(request: Request):
@@ -1140,6 +1239,14 @@ async def _startup_event():
     app.state._startup_tasks = _startup_tasks
     if upload_cleanup_func:
         upload_cleanup_task = asyncio.create_task(upload_cleanup_func())
+    # ORW-970: pick up season-start steps (house-entry hold, world snapshot, producer persona, habits + culture) that a restart left owed.
+    try:
+        from src import orwell_season_checklist
+        _resume_task = orwell_season_checklist.start_resume_task()
+        if _resume_task is not None:
+            _startup_tasks.append(_resume_task)
+    except Exception as _e:  # failsoft-ok: resume is recovery bookkeeping, never a startup blocker
+        logger.warning("season-start checklist resume skipped: %s", _e)
     # Always-on monitor that auto-continues the agent when a background bash
     # job (#!bg) finishes — re-invokes the turn with the job output.
     try:
@@ -1147,6 +1254,11 @@ async def _startup_event():
         _startup_tasks.append(start_bg_monitor())
     except Exception as _e:
         logger.warning("Failed to start background-job monitor: %s", _e)
+    try:  # ORW-1019: the hourly read-only provider balance check (warns under the configured line)
+        from src import orwell_provider_balance
+        _startup_tasks.append(asyncio.create_task(orwell_provider_balance.run_forever()))
+    except Exception as _e:  # failsoft-ok: a balance check never blocks startup
+        logger.warning("Failed to start the provider balance check: %s", _e)
     # MCP servers can be slow or blocked by local tooling. Connect them after
     # the web server is accepting traffic instead of delaying the whole UI.
     async def _startup_mcp_connections():
@@ -1199,7 +1311,9 @@ async def _startup_event():
     else:
         logger.info(
             "Game build: RAG ToolIndex not wired (fixed permissioned allowlist + "
-            "keyword-fallback tool selection; set CHROMADB_HOST to enable RAG)."
+            "keyword-fallback tool selection; set CHROMADB_HOST to enable RAG). "
+            "Startup summary: vector document RAG off and python-magic fallback are expected here; "
+            "their detail lines are DEBUG or once-per-process INFO, so any WARNING in a clean start is real."
         )
     # Warmup: ping all known LLM endpoints to prime connections
     async def _warmup_endpoints():
@@ -1429,6 +1543,11 @@ async def _startup_event():
 
 async def _shutdown_event():
     logger.info("Application shutting down...")
+    try:  # ORW-954: flush the pacing counters (the entrance cadence) now - the debounced turn-end save may still be waiting on its timer
+        from src import belt_state_persist as _bsp_shutdown
+        _bsp_shutdown.save_now()
+    except Exception:  # failsoft-ok: best-effort durability
+        pass
     if upload_cleanup_task:
         upload_cleanup_task.cancel()
         try:

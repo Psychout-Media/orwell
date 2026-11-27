@@ -3,14 +3,14 @@ import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { HOUSE_THEMES } from "../../src/engine/data/houseThemes";
 import { resolveRoom } from "../../src/domain/house";
-import { themedRoomAliases } from "../../src/engine/roomLabels";
+import { themedRoomAliases, roomNamesFor } from "../../src/engine/roomLabels";
 import { parsePlayerMoveIntent } from "../../src/engine/playerMoveIntent";
 
 /** ORW-466 (Ryne 2026-11-15: "Themes should be random"; "all rooms in the house to be themed as well"): the season's house theme in a live game. Roles only. A test-only seam on `live`. */
 afterEach(() => GameSessionAdapter.setTimeOfDayEnabled(false));
 type Live = { houseTheme?: string; priorHouseThemes?: string[]; playedGame?: boolean };
 const liveOf = (s: GameSessionAdapter) => (s as unknown as { live: Live }).live;
-const OCEAN = HOUSE_THEMES.find((t) => t.rooms["bedroom-a"].name === "the Coral Reef Room")!;
+const OCEAN = HOUSE_THEMES.find((t) => t.id === "ocean-depths")!;
 
 function game(seed = 11) {
   GameSessionAdapter.setTimeOfDayEnabled(true);
@@ -35,18 +35,18 @@ describe("the season's house theme", () => {
     liveOf(s).houseTheme = OCEAN.id; // pin the theme so the names are known
     const wa = s.whereabouts()!;
     const here = wa.room as keyof typeof OCEAN.rooms; // wherever the player stands (gathered for the premiere, a move is held)
-    expect(wa.roomNames?.["bedroom-a"]).toBe("the Coral Reef Room");
+    expect(wa.roomNames?.["bedroom-a"]).toBe("the coral bedroom"); // ORW-968: the plain word with one themed word
     expect(wa.roomLook).toBe(OCEAN.rooms[here].look);
     // the house search's facts use the season's name too ("here with you in the Coral Reef Room", never "the bedroom a")
     const withMe = (s.whereabouts({ search: true })?.search?.houseguests ?? []).filter((h) => h.status === "here");
     expect(withMe.length).toBeGreaterThan(0);
-    for (const h of withMe) expect(h.fact).toContain(OCEAN.rooms[here].name);
+    for (const h of withMe) expect(h.fact).toContain(roomNamesFor(OCEAN.id)![here]!);
     const prompt = s.getMomentPrompt({}).systemPrompt;
-    expect(prompt).toContain(OCEAN.rooms[here].name);
-    expect(prompt).toContain("the Captain's Quarters");
+    expect(prompt).toContain(roomNamesFor(OCEAN.id)![here]!);
+    expect(prompt).toContain("the HOH room");
     expect(prompt).toContain(`This season it looks like this (dress the scene with it; never read it out as a list): ${OCEAN.rooms[here].look}`); // review of #2856: no "this this season"
     expect(prompt).not.toMatch(/bedroom a\b/i);
-    const r = s.resolvePlayerMove({ text: "I head to the coral reef" });
+    const r = s.resolvePlayerMove({ text: "I head to the coral bedroom" });
     expect(r.playerMove).toMatchObject({ to: "bedroom-a" });
   });
 
@@ -69,8 +69,10 @@ describe("the season's house theme", () => {
 describe("a themed room name resolves however it is typed (review of #2856)", () => {
   const ocean = themedRoomAliases(OCEAN.id);
   it("a curly apostrophe is the straight one, in the room resolver and in the player's own move", () => {
-    expect(resolveRoom("the Captain\u2019s Quarters", null, ocean)).toEqual({ kind: "ok", room: "hoh-room" });
-    expect(parsePlayerMoveIntent("I head to the Captain\u2019s Quarters", "kitchen", ocean)).toBe("hoh-room");
+    const captain = [["captain's quarters", "hoh-room"]] as const; // a name with an apostrophe (an authored house may carry one as written; the library no longer does)
+    expect(resolveRoom("the Captain\u2019s Quarters", null, captain)).toEqual({ kind: "ok", room: "hoh-room" });
+    expect(parsePlayerMoveIntent("I head to the Captain\u2019s Quarters", "kitchen", captain)).toBe("hoh-room");
+    expect(resolveRoom("the coral bedroom", null, ocean)).toEqual({ kind: "ok", room: "bedroom-a" });
   });
   it("a themed name that starts with an article the resolver drops still resolves by its own name", () => {
     expect(resolveRoom("A Velvet Vault", null, [["a velvet vault", "lounge"]])).toEqual({ kind: "ok", room: "lounge" });

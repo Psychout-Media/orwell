@@ -1,11 +1,11 @@
 import { liveHouseEvent, isCompOrCeremonyKind, eventStagingRoom } from "../../engine/houseEvent";
 import { stallTimer } from "../stallTiming";
 import type {
-  GameSession, CreateCharacterReq, GameStateView, HouseMeetingView, MomentPromptReq, MomentPromptView,
+  GameSession, CreateCharacterReq, GameStateView, PipelineCastView, HouseMeetingView, MomentPromptReq, MomentPromptView,
   RecallSceneMemoriesReq, RecallSceneMemoriesView,
   RunCompetitionReq, CompetitionResultView, PublicGameStatus,
   AdvanceView, HangOutReq, HangOutView, NapReq, NapView, NapRefusal, SubmitDecisionReq, PendingDecisionView, OpenDealOfferView, NamedRef, SocialInitiative, PlayerTaglineView,
-  FinaleView, EvictionView, HostView, VoteBeatView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, WalkedInView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
+  FinaleView, EvictionView, HostView, VoteBeatView, VetoDrawBeatView, MakeDealReq, DealReqKind, DealView, DealRefusal, FormAllianceReq, JoinAllianceReq, AllianceView, WhereaboutsView, PlayerMoveView, WalkedInView, ResolvePlayerMoveReq, ResolvePlayerMoveResult, HouseSearchWalk, HouseSearchLeg, HouseSearchOutcome, SearchForHouseguestReq, SearchForHouseguestResult, HouseSearchView, HouseSearchEntry, HouseguestMoveResult,
   SeasonRecapView, RetrospectiveView, ProducerVaultView, NpcVoiceView, ConfideResult, AskJurorResult, SealedFact, AccuseTieResult, ConfrontResult, CallInFavorResult, OwedFavorView,
   DailyRecapView, WeekChapterView, DaySummary, RecordDaySummaryReq, RecordDaySummaryResult, RecordEpisodeTitlesReq, RecordEpisodeTitlesResult,
   ExposeSecretReq, ExposeResult, TradeSecretReq, TradeResult, SecretLeverDescriptor,
@@ -34,7 +34,7 @@ import { assignRooms, zoneFor, type MovementIntent, type MovementPull } from "..
 import { moodWord, voiceFingerprint, repairVoiceConflicts } from "../../engine/voice";
 import { tellsOf, narratedTellsOf, refreshTells, tellChannel } from "../../engine/tells";
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
-import { MOOD_CAUSES, causeLine, isBadNight, isCloseFriend, mayShareEventCause, strongestLiveCause, type MoodCauseSource } from "../../engine/moodCauses";
+import { MOOD_CAUSES, causeLine, isBadNight, isCloseFriend, carryFactor, mayShareEventCause, strongestLiveCause, type MoodCauseSource } from "../../engine/moodCauses";
 import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sceneSeenBy, sharedScenes, type SeenScene } from "../../engine/bondJealousy";
 import { SECRET_BREAK, breakDecision, breakLine, keptOutGrudge, pickSpoken, standingMove } from "../../engine/secretBreak";
 import { HOH_ROOM, decideVisit, backstoryFacets, pickBackstoryFact } from "../../engine/hohRoom";
@@ -56,7 +56,7 @@ import {
   selectNemesis, NEMESIS, NO_NEMESIS,
   type Campaign, type CampaignActor, type Influence, type Drive, type NemesisTrack, type NemesisCandidate,
 } from "../../engine/campaigns";
-import { whisperConspicuousPairings, whisperHabitSighting, type HabitSighting } from "../../engine/houseSuspicion";
+import { whisperConspicuousPairings, whisperLongDiaryStay, type DiaryStaySighting, whisperHabitSighting, type HabitSighting } from "../../engine/houseSuspicion";
 import { issueNightBatch, validateAllianceName, normName, type TraitTable } from "../../engine/allianceNaming";
 import { pairKey, isClosePair, inDebriefWindow, habitRoom, nicknameOf, allianceNameFromHouse, noteIdentity, noteWords, validateGroupIdentity, GROUP_IDENTITY, type PairCloseness } from "../../engine/groupIdentity";
 import { runJuryHouseStretch, bearingWord, mannerGrudge } from "../../engine/juryHouse";
@@ -66,8 +66,8 @@ import { planJuryNotes } from "../../engine/juryNotes";
 import type { KnowledgeService } from "../../ports/KnowledgeService";
 import type { EventStore } from "../../ports/EventStore";
 import { chooseHourAction, assembleScenes, habitsFor, floorRoutinesFor, routinesFromHabits, actionLine, roomActLine, formPlan, GOAL_PLAN, ACTIONS as HOUSE_LIFE_ACTIONS, LIE_AUDIENCE, type PlannedAction, type PlanStep } from "../../engine/houseLife";
-import { addRoutines, isStressed, noteSighting, routineKey, routineNow } from "../../engine/routineLife";
-import type { Routine } from "../../engine/routines";
+import { addRoutines, isStressed, mergeAuthoredRoutines, noteSighting, routineKey, routineNow } from "../../engine/routineLife";
+import { ROUTINES, knowsRoutine, type Routine } from "../../engine/routines";
 import type { Habit } from "../../engine/houseLifeConstants";
 import { HOUSE_LIFE, ROOM_LIFE } from "../../engine/houseLifeConstants";
 import { REASONS } from "../../engine/agendaConstants";
@@ -80,13 +80,14 @@ import type { TimeOfDay as LifeTimeOfDay } from "../../engine/timeOfDay";
 import { diaryWalkOrder, walkersForPress } from "../../engine/voteBeat";
 import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } from "../../engine/presenceConstants";
 import { dayOfWeek } from "../../engine/houseEvents";
-import { HOUSE_SIGHTLINE, roomsBetween, areVisible, canWitnessDeparture, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
+import { HOUSE_ADJACENCY, HOUSE_SIGHTLINE, roomsBetween, areVisible, canWitnessDeparture, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
 import type { Room, Zone, Occupancy } from "../../domain/house";
-import { parsePlayerMoveIntent, parsePlayerPersonIntent, matchHouseguestName } from "../../engine/playerMoveIntent";
+import { parsePlayerMoveIntent, parsePlayerOwnBedMove, parsePlayerPersonIntent, parseSearchIntent, parseVagueGo, matchHouseguestName } from "../../engine/playerMoveIntent";
 import type { RandomnessSource } from "../../ports/RandomnessSource";
 import type { CastingIntake, DossierForCoherence } from "../../engine/castingIntake";
 import { castingStatusOf, emptyIntake, ignoredCastingKeys, intakeIsEmpty, mergeCastingUpdate, overwrittenScalars, validateDossierCoherence, repairDossierCoherence } from "../../engine/castingIntake";
 import { DealLedger, breakSeverityScale, boundDealTerm } from "../../engine/deals";
+import { horizonOf } from "../../domain/deal";
 import { brokenDealClaimId, brokenDealLieConfidence, DEAL_BREAK_CREDIBILITY } from "../../engine/dealCredibility";
 import { FavorLedger, type FavorEntry } from "../../engine/favors";
 import { FAVOR } from "../../engine/favorConstants";
@@ -122,7 +123,7 @@ import { buildReunion, buildYourStories, type ReunionView, type StoryGuest, type
 import { claimText } from "../../engine/rumorMill";
 import { buildYourEdit, sceneMoment, weekMoments, weeksOfLog, type YourEditView } from "../../engine/yourEdit";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
-import { runHangOut, hangOutBedtime, hangOutStopLine, minutesUntilClock, type HangOutResult } from "../../engine/hangOut";
+import { HANGOUT, runHangOut, hangOutBedtime, hangOutStopLine, minutesUntilClock, type HangOutResult } from "../../engine/hangOut";
 import { CUNNING, LEAKY, SEEK, SPIN } from "../../engine/copresenceSpread";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, streakHolds, nextStreak, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
@@ -145,7 +146,7 @@ import { agendaDumpRows } from "../../engine/agendaDump";
 import { hostRegister, registerWords, hostQuestionTexts, playerRoles, goodbyeRecordLines, type HostLine } from "../../engine/productionHost";
 import { pushbackFacts, type PushbackView } from "../../engine/producerPushback";
 import type { PlayerSaid, PlayerDid } from "../../engine/production";
-import { decideDiaryCall, awayHours, seenOf, callEventText, backEventText, playerVisitText, producerRegisterWords, type DiaryCallsState, type DiaryCallView } from "../../engine/diaryCalls";
+import { DIARY_CALLS, decideDiaryCall, awayHours, seenOf, callEventText, backEventText, playerVisitText, producerRegisterWords, type DiaryCallsState, type DiaryCallView } from "../../engine/diaryCalls";
 import { buildHouseStories } from "../../engine/houseStory";
 import type { StatedReasonView } from "../../ports/GameSession";
 import type { AskToTalkAloneReq, AskToTalkAloneResult } from "../../ports/GameSession";
@@ -274,7 +275,7 @@ import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearanc
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
 import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ, MEET_FIRST_IMPRESSION, firstImpressionLean, meetMannerOf } from "../../engine/premiereEntrances";
 import type { Houseguest } from "../../engine/characterFactory";
-import { startNewGame, resolveStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, ARCHETYPES, VOL_OF, articleFor } from "../../engine/characterFactory";
+import { startNewGame, resolveStrategyStyle, repairPlayerStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, ARCHETYPES, VOL_OF, articleFor } from "../../engine/characterFactory";
 import type { Disposition } from "../../engine/characterFactory";
 import type { GameHouse, StrategyStyle, Soul, HiddenElement, Character } from "../../engine/characterFactory";
 import { evolveEmotion, arcNote, offscreenEmotion, composedEmotion, effectiveDisposition, settleScaleOf } from "../../engine/emotionalArc";
@@ -284,7 +285,7 @@ import type { SoulProvider } from "../../ports/SoulProvider";
 import type { InteractionType } from "../../engine/relationships";
 import { MANNER_GRADING, MANNER_THRESHOLDS, JURY_MEMORY, JURY_GRUDGE } from "../../engine/juryConstants";
 import {
-  CEREMONY_IMPACTS, DEAL_REPUTATION, EVICTION_MANNER_SCALE, OVERNIGHT_DRIFT, RELATIONSHIP_CONSTANTS, clamp01, scaleImpact,
+  CEREMONY_IMPACTS, PLAYED_COMP_THREAT, DEAL_REPUTATION, EVICTION_MANNER_SCALE, OVERNIGHT_DRIFT, RELATIONSHIP_CONSTANTS, clamp01, scaleImpact,
 } from "../../engine/relationshipConstants";
 import type { CeremonyAct } from "../../engine/relationshipConstants";
 import { COMP_EFFORT, natureFoldImpact, scaleImpactByValence } from "../../engine/relationshipConstants";
@@ -336,6 +337,7 @@ import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
 import type { ArchivedHouseguest } from "../../engine/seasonMemory";
 import type { ArchivedOwnCharacter, OwnCharacterFields } from "../../engine/seasonMemory";
+import { gateHouseEvent, playerOutMessage, playerOutReason } from "../../engine/inHouse";
 import { buildSeasonArchive, carriedNudge, nextSeasonNumber, planReturner, returnerBeliefs, returnerCharacter, seasonsSince, type SeasonNpcRecord } from "../../engine/returnees";
 import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, plantedBy, type EdgeDelta } from "../../engine/beliefStore";
 import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs";
@@ -355,10 +357,10 @@ import { floaterRead, type Stats } from "../../engine/season";
 import { ROLES, EVERYONE, roleEvidence, roleRead, isRoleLabel, type RoleLabel, type RoleScene } from "../../engine/socialRoles";
 import {
   newLiveSeason, advance as advanceBeat, applyDecision, autoDecision, recordDealBetrayal, peekCompetition, COMP_INTENTS, deriveNpcCompIntent, GOODBYE_TONES, EXIT_STANCES, SPECTATOR_MODES,
-  firstCeremonyBeatResolved,
+  firstCeremonyBeatResolved, competitionDefFor,
   raiseSpectatorChoice as raiseSpectatorChoiceState, requestSelfEviction as requestSelfEvict, cancelSelfEviction as cancelSelfEvict, applySelfEviction, playerHasLeft,
   advanceClock, longNightRunning, competitionRoundHours, competitionCrownHours, advanceClockPerConversation, advanceClockPerMessage, playerTurnIn, playerRestDeficit, playerNightDeficit, napFactor, npcRestDeficit, isInertBeat, eventBeatHours, spreadClockHours, ceremonyRef, CEREMONY_STEP_TEXT,
-  honorWeight, recordWhy, preJuryEvictionCount, nightBreakPending, markNightGateCrossed, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
+  honorWeight, recordWhy, preJuryEvictionCount, jurorsOf, nightBreakPending, markNightGateCrossed, vetoDrawStage, nightHeld, tickPremiereClock, PREMIERE_ENTRY_HOUR, PREMIERE_STEP_HOURS, competitionStagingData, validateCompetitionFiction, competitionPresentation,
   type LiveSeasonState, type WeekDigest, type SeasonCtx, type BeatEvent, type DecisionInput, type PendingDecision, type GoodbyeTone, type ExitStance, type SpectatorMode,
   type FinaleProgress, type EvictionProgress, type DailyRecapHook,
 } from "../../engine/liveSeason";
@@ -407,14 +409,15 @@ import { planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../engi
 import { sameMoment } from "../../engine/claimMoment";
 import { COMING_CLEAN, confessable, confessionTrustDrop, loopInTrustGain, catchRisk, confessChance, cleanActDone, otherVersionNear, buildComingCleanRetro } from "../../engine/comingClean";
 import { CAUGHT_LIE, caughtLieTrustDrop, contradicts, overclaimedKeeps, refuteToldBelief, voteCountRulesOut, type PublicTally } from "../../engine/caughtLies";
-import { claimProblem, liesBy, claimsHeardBy, tellClaim, labelOfNature, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
+import { sameClaimKey, claimProblem, liesBy, claimsHeardBy, tellClaim, labelOfNature, type ClaimInput, type HeardClaim, type SpokenClaim, SPOKEN_CLAIM_KINDS, type SpokenClaimKind } from "../../engine/spokenClaims";
 import { answerFold, decideAsk, namedSources, parseSourceDodge, readAnswer, trueSourceOf, type AnswerRead } from "../../engine/sourceAsk";
 import { askableClaims, claimPhrase, decideCover, decideSourceAnswer, pickAskedClaim, COVER, heldBeliefFor, namedInText, namedSourceContent, noRecordNote, parseWhoToldYou, sourceNote } from "../../engine/claimSource";
 import { parsePlayerMeetingCall } from "../../engine/meetingCall";
 import { buildRumorMill } from "../../engine/rumorMill";
 import { drawHouseLeans, describeHouseLeans, dialMult, type DialId } from "../../engine/houseLeans";
 import { MEETING, MEETING_CLAIM_KINDS, canCallMeeting, cunningOf, decideAnswer, heardMeeting, listenerOutcome, meetingClaimFor, meetingWeekSpent, npcWouldCall, strongestGrievance, type HeardMeeting, type HouseMeeting, type MeetingAnswer, type MeetingCaller, type MeetingRefusal } from "../../engine/houseMeeting";
-import { decideTellToPlayer, presentedBand, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
+import { decideTellToPlayer, presentedBand, tellChance, toPlayerKey, type SayableBelief } from "../../engine/claimsToPlayer";
+import { COUPLE_TOLD, coupleContent, coupleFactId, couplePair, passableCouples, retold, writeCouple } from "../../engine/coupleTold"; // ORW-767
 import { HIDE, HIDDEN_TYPES, hideChance } from "../../engine/fakedDistance";
 import { TRAP, OVERHEAR_PLANT, canaryReturned, canarySubject, claimWords, doubtsDiscretionOf, overhearers, type Trap } from "../../engine/trap";
 import { decidePlantToPlayer, toldTodayBy } from "../../engine/plantToPlayer";
@@ -752,6 +755,8 @@ const COMP_THEMES_ENABLED_DEFAULT = process.env.ORWELL_COMP_THEMES !== "0";
  * deploy turns it on for real play; the new mechanics preserve the base stat mix so the band still holds.
  */
 const COMP_MECHANICS_PLUS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_MECHANICS_PLUS");
+/** ORW-530: the 20 more mechanics (30 => 50). ON as shipped (deploy defaults); the seeded test lanes pin it OFF until ORW-1104. */
+const COMP_MECHANICS_MORE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_MECHANICS_MORE");
 
 /**
  * 0127 — whether HYBRID competitions blend their SECONDARY aptitude into the outcome by DEFAULT (a
@@ -1113,6 +1118,9 @@ function napSpanWords(hours: number): string {
   return mins % 60 === 0 ? `${mins / 60} hours` : `${Math.floor(mins / 60)} hours ${mins % 60} minutes`;
 }
 
+/** ORW-1076: how warm the HOH's own read of the player (trust and affinity, averaged) must be to open the door to an uninvited knock. An ordinary stranger-neutral read clears it; a soured one does not. */
+const HOH_DOOR_WELCOME = 0.4;
+
 export class GameSessionAdapter implements GameSession {
   private house: GameHouse | null = null;
   /**
@@ -1284,7 +1292,7 @@ export class GameSessionAdapter implements GameSession {
     const runnerUp = s.finalTwo?.find((id) => id !== s.winner);
     const you = this.buildYourEditView()?.you;
     return buildHallRecord({
-      season, placement: out.placement, juror: order.slice(-9).includes(PLAYER), castSize: out.castSize,
+      season, placement: out.placement, juror: this.jurorsNow().slice(-9).includes(PLAYER), castSize: out.castSize,
       playerName: this.nameOf(PLAYER),
       ...(s.winner ? { winnerName: this.nameOf(s.winner) } : {}), ...(runnerUp ? { runnerUpName: this.nameOf(runnerUp) } : {}),
       ...(you ? { you } : {}),
@@ -1364,6 +1372,8 @@ export class GameSessionAdapter implements GameSession {
     this.seenMessageIds.push(id);
     if (this.seenMessageIds.length > 256) this.seenMessageIds.shift();
     this.disclosureEpoch++; // a new player turn: last turn's disclosure events are over
+    this.playerTurnNo++; // ORW-877: the turn a held tell belongs to
+    if (this.allianceRefusal && this.disclosureEpoch > this.allianceRefusal.epoch + 1) this.allianceRefusal = null; // ORW-913: told for the rest of that turn and the next one, then over
     this.ceremonyBeat = null; // ORW-247b: the player spoke - the ceremony scene is over, the house disperses on the calm tick
     // PLAYTEST BUG: freeze WHO IS IN THE ROOM at the moment the player sends - the turn-driven tick that follows this very commit re-seats the house, and a scene recorded later in the reply must
     // not treat a houseguest who walked in AFTER the player spoke as a witness. A frozen copy; cleared if the player changes rooms; replaced by the next send.
@@ -1385,7 +1395,15 @@ export class GameSessionAdapter implements GameSession {
     this.ensureBeds(); // ORW-466 slice 2: whoever walked in before the game was played claims now, still in entrance order
     if (this.live) this.live.clockInteractive = true; // ORW-116 (b): the player is really talking - from here the night is theirs (see nightHeld)
     this.hangOutSkipStepAt = undefined; // a hang-out's one-shot skip is for the legacy per-commit follow-up; every announced message bills its own step
+    // ORW-859: how many player messages have come since the engine opened the due event and began holding the player's card. Counted BEFORE this message's clock step, so the message the event comes due on (and the
+    // card it stages) reads 0 and still gets the call; each later message while the card is held reads 1, 2 ... and the narrator is told the call was already voiced. Absent otherwise (byte-identical saves).
+    if (this.live?.compSilentOut) { if (this.live.compSilentSeen) { delete this.live.compSilentOut; delete this.live.compSilentSeen; } else this.live.compSilentSeen = true; } // ORW-927: the silent drops are told to the narrator on exactly ONE player message (this one's framing), and cleared at the next
+    if (this.live) { if (this.live.pending && milestoneDueOf(this.live)) this.live.dueHeldMessages = (this.live.dueHeldMessages ?? 0) + 1; else delete this.live.dueHeldMessages; }
+    // ORW-928: after the engine committed the eviction result (the evictee is named) the reveal and the evictee's exit were voiced on the turn that committed it. Count each later player message, counted BEFORE its own step, so the committing turn reads 0 and voices the night once.
+    this.evictionVoicedMsgs = this.live && this.live.playedGame === true && this.live.eviction?.evictee ? this.evictionVoicedMsgs + 1 : 0; // memory-only (like the ceremony beat): a restart mid-night forgets it, never a persisted live field
+    { const out = this.live?.competition?.eliminated ?? []; this.compToldOut = this.compOutPrev.filter((id) => out.includes(id)); this.compOutPrev = [...out]; } // ORW-937: counted BEFORE this message's own framing: an exit that was already in the last message's view was voiced in that reply
     this.advanceClockPerConversation();
+    this.heatBedRushOnMessage(); // ORW-999: a player message during the premiere's bed rush is one heat of it (the rush no longer waits on the narrator calling advanceGame)
     this.persist(); // the clock moved: one persisted commit (integrity checkpoint + beatSeq), survives a reload
     return { accepted: true, beatSeq: this.beatSeq }; // post-commit token: the FE refreshes its last-seen beatSeq from it (no self-inflicted stale-beat 409)
   }
@@ -1486,7 +1504,7 @@ export class GameSessionAdapter implements GameSession {
    */
   pitchTiltFor(subject: EntityId, holder: EntityId): number {
     if (!this.lobbyingEnabled || !this.house || holder === PLAYER) return 0;
-    return pitchTilt(subject, this.derivePitches(holder), (p) => Math.max(0, Math.min(1, this.rel.edge(holder, p).trust)));
+    return pitchTilt(subject, this.derivePitches(holder), (p) => Math.max(0, Math.min(1, this.rel.edge(holder, p).trust)), this.standingPitchWeight()); // ORW-694 B1-9: standing weighs the pitch
   }
   /** B6/B38 - the pitches `holder` (the HOH) faces, derived deterministically from the live edges (no rng, no stored state). Shared by the nomination tilt and the pitch-event recorder, so what is RECORDED is exactly what is WEIGHED. */
   private derivePitches(holder: EntityId): Pitch[] {
@@ -1616,6 +1634,7 @@ export class GameSessionAdapter implements GameSession {
   secretBreakTick(knowledge: KnowledgeService): void {
     const s = this.live;
     if (!this.secretBreaksEnabled || !s || s.playedGame !== true || !this.npcBeliefsEnabled || !this.house || !this.onPlayerEvent) return;
+    this.flushSayItFirstSeeds(knowledge); // ORW-743: the room learns what the player told it themselves (every tick, not once a day)
     const day = s.dayNumber ?? s.week;
     if (s.secretBreakDay === day) return; // ORW-698: kept on the live season (persisted, monotone), so a restart on the same night does not run the pass twice
     s.secretBreakDay = day;
@@ -1640,6 +1659,11 @@ export class GameSessionAdapter implements GameSession {
     }
     const nominated = new Set<EntityId>((s.nominees as readonly EntityId[] | undefined) ?? []);
     const order = [...byFact.entries()].sort((a, b) => b[1].held.length - a[1].held.length || (a[0] < b[0] ? -1 : 1));
+    // ORW-743 (0204 part 2): the open card for the player - the most-spread fact about them that is closing in (the same `closingShare` test an NPC's self-detonation uses). One at a time; no timer:
+    // it closes when the room breaks it, when the player speaks, or when the share drops.
+    const closing = this.sayItFirstEnabled ? order.find(([, row]) => row.subject === PLAYER && npcs.length > 0 && row.held.filter((x) => npcs.includes(x.holder)).length / npcs.length >= SECRET_BREAK.closingShare)?.[0] : undefined;
+    if (closing) s.sayItFirst = s.sayItFirst?.factId === closing ? s.sayItFirst : { factId: closing, since: day };
+    else delete s.sayItFirst;
     for (const [factId, row] of order) {
       const subject = row.subject;
       if (!room.includes(subject)) continue; // they are not in the room tonight
@@ -1656,8 +1680,53 @@ export class GameSessionAdapter implements GameSession {
       if (!spoken) continue;
       this.stageSecretBreak(knowledge, { factId, subject, kind, spoken, holders: holders.map((x) => x.holder), room });
       (s.secretBreaks ??= []).push(factId);
+      if (s.sayItFirst?.factId === factId) delete s.sayItFirst; // ORW-743: the room said it first
       break; // one a night
     }
+  }
+  /** ORW-743 (0204 part 2; Coordinator rulings 2026-11-26). Default ON; `ORWELL_SAY_IT_FIRST=0` = no card (byte-identical). */
+  private sayItFirstEnabled = flagDefaultOn("ORWELL_SAY_IT_FIRST");
+  setSayItFirstEnabled(on: boolean): void { this.sayItFirstEnabled = on; }
+  /** The one bit the narrator gets: people are talking about the player (a card is open). */
+  private talkedAboutPlayer(): boolean { return this.sayItFirstEnabled && this.secretBreaksEnabled && this.live?.playedGame === true && !!this.live.sayItFirst && !(this.live.secretBreaks ?? []).includes(this.live.sayItFirst.factId); }
+  /**
+   * ORW-743 - the player tells the room the thing it is talking about, first, in their own words. The words are the public line verbatim (the engine frames who said it, never what); the fact is
+   * marked broken and the self-detonation consequences apply (coming clean costs less than being caught). Blank words are not coming clean: nothing happens and the card stays open. No card = no-op.
+   * The houseguests in the room who did not hold it learn it as the player said it at the next tick (the knowledge layer is the tick's).
+   */
+  private resolveSayItFirst(statement: string | undefined): AdvanceView {
+    const s = this.live;
+    const words = typeof statement === "string" ? statement.replace(/\s+/g, " ").trim().slice(0, 600) : "";
+    if (!s || !this.house || !this.onPlayerEvent || !this.talkedAboutPlayer() || !words) return this.advanceView(null);
+    const awake = this.awakeNow();
+    if (awake && !awake.has(PLAYER)) return this.advanceView(null); // the player is asleep: nobody to say it to (the card stays open)
+    const factId = s.sayItFirst!.factId;
+    return this.inOneCommit(() => {
+      const living = this.livingIds();
+      const room = living.filter((id) => !awake || awake.has(id));
+      this.onPlayerEvent!(`${this.nameOf(PLAYER)} got ahead of it and told the house themselves (week ${weekWords(s.week)}): ${words}`, room, "secret-break");
+      this.secretUsedAs[factId] = "exposed";
+      const hit = standingMove(severityOf(undefined), "detonated");
+      const seed = this.gameSeed ?? 0;
+      for (const id of room) if (id !== PLAYER) this.rel.applyImpactDirected(id, PLAYER, hit, new SeededRandom(hashSeed(`${seed}:secret-break:${factId}:${id}`)));
+      (s.sayItFirstSeeds ??= []).push({ factId, spoken: words, ids: room.filter((id) => id !== PLAYER) });
+      (s.secretBreaks ??= []).push(factId);
+      delete s.sayItFirst;
+      this.persist();
+      return this.advanceView(null);
+    });
+  }
+  /** ORW-743: each houseguest who was in the room when the player said it, and did not already hold the fact, now holds it as the player put it (pathway `public`). */
+  private flushSayItFirstSeeds(knowledge: KnowledgeService): void {
+    const s = this.live;
+    if (!s?.sayItFirstSeeds?.length) return;
+    for (const q of s.sayItFirstSeeds) {
+      for (const id of q.ids) {
+        if (knowledge.knownTo(id).some((k) => (k.factId ?? k.id) === q.factId)) continue;
+        knowledge.seedBelief(id, { content: q.spoken, originalContent: q.spoken, factId: q.factId, subject: PLAYER, confidence: 0.9, hops: 0, distortion: 0 }, "public");
+      }
+    }
+    delete s.sayItFirstSeeds;
   }
   private stageSecretBreak(knowledge: KnowledgeService, b: { factId: string; subject: EntityId; kind: "exposed" | "detonated"; spoken: string; holders: EntityId[]; room: EntityId[] }): void {
     const s = this.live!;
@@ -1772,7 +1841,8 @@ export class GameSessionAdapter implements GameSession {
     for (const e of this.openLedger.entries) {
       const term = e.term;
       if (e.status !== "open" || !term || term.by !== holder || term.what !== what) continue;
-      if ((term.window ?? "week") === "week" && term.week !== undefined && term.week !== week) continue;
+      // ORW-693 (B1-6): a final-two promise is the one season-long term (0187; the judge reads it at the final two whatever its week): it is read at the final three however long ago it was made
+      if (what !== "final-two" && (term.window ?? "week") === "week" && term.week !== undefined && term.week !== week) continue;
       const subject = termSubject(term) as EntityId;
       const stats = this.house?.npcs.find((n) => n.id === holder)?.character.stats;
       const loyalty = Math.max(0, Math.min(1, derivedLoyalty(this.dispositionReadOf(holder), this.emotionalReadOf(holder))));
@@ -2051,14 +2121,18 @@ export class GameSessionAdapter implements GameSession {
   }
   /** 0153 / ORW-330 slice 3: what a house-life speech action SAYS, as a claim the engine decides and checks against its truth; nothing for other actions. Returns the claim told, if any. */
   private sayInHouseLife(p: { kind: string; actor: EntityId; about?: EntityId; truthful: boolean }, partner: EntityId, salt: string): SpokenClaim | undefined {
+    const said = this.planHouseLifeSpeech(p, partner, salt);
+    return said ? this.tellClaim(said) : undefined;
+  }
+  /** What a house-life speech action would SAY (the claim, not yet told). */
+  private planHouseLifeSpeech(p: { kind: string; actor: EntityId; about?: EntityId; truthful: boolean }, partner: EntityId, salt: string): ClaimInput | undefined {
     const action = speechActionOf(p.kind);
     if (!action || !this.live) return undefined;
-    const said = planSpeech(action, p.actor, partner, p.about, p.truthful, {
+    return planSpeech(action, p.actor, partner, p.about, p.truthful, {
       living: this.livingIds(), beliefs: this.live.beliefs, facts: this.truthFacts(),
       roll: new SeededRandom(hashSeed(`${salt}:${p.actor}:${p.kind}`)).next(),
       ...(this.socialRolesOn() ? { roleOf: (h: EntityId, x: EntityId) => this.roleOf(h, x) } : {}), // 0184 part 2a: a leak with nothing else to pass on may voice a role
-    });
-    return said ? this.tellClaim(said) : undefined;
+    }) ?? undefined;
   }
   /**
    * 0155 / ORW-330 slice 6 - THE LEDGER NET. A claim the narrator wrote (caught by the open ledger) is told, as `origin: "narrated"`, to everyone
@@ -2132,7 +2206,7 @@ export class GameSessionAdapter implements GameSession {
     const nominees = digest && digest.nominees.length >= 2 ? [...digest.nominees] : [...new Set([rec.evictee, ...Object.values(rec.voteOf)])];
     const living = this.livingIds().filter((id) => id !== PLAYER);
     // ORW-613: the player hears how people voted like anyone (a candidate listener while they are in the house); the player's OWN vote talk is theirs to say (ORW-612).
-    const listeners = this.livingIds().includes(PLAYER) ? [...living, PLAYER] : living;
+    const listeners = playerOutReason(live) === undefined ? [...living, PLAYER] : living; // ORW-1086: an evicted player is not in the house to hear it (livingIds always lists them)
     const out: SpokenClaim[] = [];
     const log = (live.claims ??= { seq: 0, items: [] });
     for (const speaker of Object.keys(rec.voteOf).sort()) {
@@ -2278,6 +2352,8 @@ export class GameSessionAdapter implements GameSession {
   setGroupIdentityEnabled(on: boolean): void { this.groupIdentityEnabled = on; }
   /** Habit scenes seen from a public spot this tick, waiting for the calm off-screen tick's whisper (memory-only). */
   private habitSightings: HabitSighting[] = [];
+  /** ORW-694 / B1-11: long Diary Room stays the house saw, waiting for the next whisper tick (persisted, like the habit sightings). */
+  private diaryStaySightings: DiaryStaySighting[] = [];
   /** ORW-551 (spec 0168 slice 3): the live culture's multiplier on one house dial, read at the CALL SITE from live state. EXACTLY 1 with the flag off, no live game, or no culture (headless games, old saves) so every consumer stays byte-identical. Engine-only: never projected. */
   private cultureMult(dial: DialId): number { return dialMult(this.houseCultureEnabled ? this.live?.houseLeans : undefined, dial); }
   setHouseMeetingsEnabled(on: boolean): void { this.houseMeetingsEnabled = on; }
@@ -2455,12 +2531,60 @@ export class GameSessionAdapter implements GameSession {
     let tells: NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined;
     if (decided) {
       const b = decided.belief;
-      const claim = this.tellClaim({ speaker: id, listener: PLAYER, kind: b.kind, subject: b.subject, ...(b.object !== undefined ? { object: b.object } : {}), ...(b.label !== undefined ? { label: b.label } : {}), isTrue: this.believedThingIsTrue(b), intent: "inform" });
-      if (claim) tells = { kind: b.kind, subject: b.subject === PLAYER ? "the player" : this.nameOf(b.subject), ...(b.object !== undefined ? { object: this.nameOf(b.object) } : {}), ...(b.label !== undefined ? { label: b.label } : {}), certainty: decided.band };
+      const told = this.tellToPlayer({ speaker: id, listener: PLAYER, kind: b.kind, subject: b.subject, ...(b.object !== undefined ? { object: b.object } : {}), ...(b.label !== undefined ? { label: b.label } : {}), isTrue: this.believedThingIsTrue(b), intent: "inform" });
+      if (told) tells = { ...told.mark, kind: b.kind, subject: b.subject === PLAYER ? "the player" : this.nameOf(b.subject), ...(b.object !== undefined ? { object: this.nameOf(b.object) } : {}), ...(b.label !== undefined ? { label: b.label } : {}), certainty: decided.band };
     }
     if (!tells && !jury) tells = this.plantOnPlayer(id, day, toldTodayBy(told, live.week, day));
+    if (!tells && !jury && !toldTodayBy(told, live.week, day)) tells = this.tellCoupleToPlayer(id, attemptKey); // ORW-767: a pair they saw or were told, passed on
     this.claimsToPlayerDecided.set(id, { epoch: this.disclosureEpoch, ...(tells ? { tells } : {}) });
     return tells;
+  }
+  /** ORW-931: a claim told to the player that another houseguest already told them (same kind, who, second party, label): the narrator is told it confirms what the player heard, not news. */
+  private heardBeforeMark(claim: SpokenClaim): { alreadyHeard?: true } {
+    const log = this.live?.claims?.items ?? [];
+    return log.some((c) => c.listener === PLAYER && c.id !== claim.id && sameClaimKey(c, claim)) ? { alreadyHeard: true } : {};
+  }
+
+  /**
+   * ORW-877 (the T2-12 front-end half of ORW-594): a claim a houseguest decides to tell the player is decided when the turn's prompt is built, but the player only HEARS it if the narrator voices it.
+   * The front end already hands every narrated turn's visible text back (`recordNarrationUse`, ORW-510); once a session has done that, a tell taking the day's slot (a held belief told, or a
+   * planted lie, or a house-life line aimed at the player) is HELD, not logged, and the echo logs it exactly once when the narration names both the speaker and who it is about. One the narration never voiced never enters the player's
+   * knowledge (the claim log) and leaves the day's slot free. A session that never echoes (headless, the played-game tests, an old front end) tells at prompt build exactly as before.
+   * ON unless `ORWELL_VOICED_CLAIMS=0`. Memory-only: a restart drops what was held (unvoiced).
+   */
+  private voicedClaimsEnabled = flagDefaultOn("ORWELL_VOICED_CLAIMS");
+  setVoicedClaimsEnabled(on: boolean): void { this.voicedClaimsEnabled = on; }
+  private narrationEchoSeen = false;
+  private playerTurnNo = 0;
+  private heldTells = new Map<EntityId, { input: ClaimInput; turn: number }>();
+  private voicedClaimsNow(): boolean { return this.voicedClaimsEnabled && this.narrationEchoSeen && this.live?.playedGame === true; }
+  /** Tell the player now, or hold it for the narration's echo. The `alreadyHeard` mark is read before the telling, from what the player has already been told. */
+  private tellToPlayer(input: ClaimInput): { mark: { alreadyHeard?: true } } | undefined {
+    const log = this.live?.claims?.items ?? [];
+    const mark = log.some((c) => c.listener === PLAYER && sameClaimKey(c, input)) ? { alreadyHeard: true as const } : {};
+    if (!this.voicedClaimsNow()) return this.tellClaim(input) ? { mark } : undefined;
+    // held: only a claim the claim door would take (the same refusals `tellClaim` applies, so a held tell is never one that cannot be logged)
+    if (claimProblem(input, this.livingIds(), this.juryPool()) !== undefined) return undefined;
+    if (log.some((c) => c.listener === PLAYER && c.speaker === input.speaker && sameClaimKey(c, input))) return undefined;
+    this.heldTells.set(input.speaker, { input, turn: this.playerTurnNo });
+    return { mark };
+  }
+  /** Does the narration name this person (their full name or their first name, as a whole word)? */
+  private narrationNames(text: string, id: EntityId): boolean {
+    const full = this.nameOf(id);
+    const first = full.split(/\s+/)[0] ?? full;
+    const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return [full, first].some((n) => n.length > 0 && new RegExp(`(^|[^\\p{L}])${esc(n)}($|[^\\p{L}])`, "iu").test(text));
+  }
+  /** The narration's echo: each tell held this turn that the narration voiced (speaker and subject both named; a claim about the player needs only the speaker) is logged now, once. Older held tells were never voiced: dropped. */
+  private confirmVoicedTells(text: string): void {
+    for (const [speaker, h] of [...this.heldTells]) {
+      if (h.turn !== this.playerTurnNo) { this.heldTells.delete(speaker); continue; }
+      const voiced = this.narrationNames(text, speaker) && (h.input.subject === PLAYER || this.narrationNames(text, h.input.subject));
+      if (!voiced) continue;
+      this.heldTells.delete(speaker);
+      this.tellClaim(h.input);
+    }
   }
   private claimsToPlayerOn(): boolean { return this.claimsToPlayerEnabled && this.npcBeliefsEnabled && this.live?.playedGame === true; }
   /**
@@ -2474,11 +2598,12 @@ export class GameSessionAdapter implements GameSession {
     if (!live || !it || it.npc !== id || !it.say || !this.claimsToPlayerOn()) return undefined;
     const say = it.say;
     delete it.say;
-    const said = this.sayInHouseLife({ kind: say.kind, actor: id, truthful: say.truthful, ...(say.about ? { about: say.about } : {}) }, PLAYER, say.salt);
-    if (!said) return undefined;
+    const said = this.planHouseLifeSpeech({ kind: say.kind, actor: id, truthful: say.truthful, ...(say.about ? { about: say.about } : {}) }, PLAYER, say.salt);
+    const told = said ? this.tellToPlayer(said) : undefined; // ORW-877: held for the narration's echo like any tell decided at the prompt build
+    if (!said || !told) return undefined;
     const object = said.object ?? (said.kind === "lying-about" ? PLAYER : undefined);
     const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:aimed-speech-band:${say.salt}:${id}`)).next();
-    return { kind: said.kind, subject: said.subject === PLAYER ? "the player" : this.nameOf(said.subject), ...(object !== undefined ? { object: this.nameOf(object) } : {}), ...(said.label !== undefined ? { label: said.label } : {}), certainty: presentedBand(undefined, roll) };
+    return { ...told.mark, kind: said.kind, subject: said.subject === PLAYER ? "the player" : this.nameOf(said.subject), ...(object !== undefined ? { object: this.nameOf(object) } : {}), ...(said.label !== undefined ? { label: said.label } : {}), certainty: presentedBand(undefined, roll) };
   }
   /**
    * 0159 / ORW-330 (theme 2, slice 6b) - A LIE PLANTED ON THE PLAYER. When `id` told the player nothing from a held belief, a houseguest with an ACTIVE goal against someone may plant a lie about them
@@ -2502,10 +2627,10 @@ export class GameSessionAdapter implements GameSession {
     if (!decided) return undefined;
     const said = planSpeech("plant", id, PLAYER, decided.about, false, { living, beliefs: live.beliefs, facts: this.truthFacts(), roll: planKind });
     if (!said) return undefined;
-    const claim = this.tellClaim(said);
-    if (!claim) return undefined;
+    const told = this.tellToPlayer(said);
+    if (!told) return undefined;
     const object = said.object ?? (said.kind === "lying-about" ? PLAYER : undefined);
-    return { kind: said.kind, subject: this.nameOf(said.subject), ...(object !== undefined ? { object: this.nameOf(object) } : {}), certainty: presentedBand(undefined, bandRoll) };
+    return { ...told.mark, kind: said.kind, subject: this.nameOf(said.subject), ...(object !== undefined ? { object: this.nameOf(object) } : {}), certainty: presentedBand(undefined, bandRoll) };
   }
   recordHeardAboutMe(h: { teller: EntityId; listeners: readonly EntityId[]; nature: HeardNature }): void {
     if (!this.heardAboutMeEnabled || !this.npcBeliefsEnabled || !this.live || !isHeardNature(h.nature)) return;
@@ -2625,6 +2750,31 @@ export class GameSessionAdapter implements GameSession {
     return ids.filter((id) => this.livingIds().includes(id)).map((id) => ({ id, name: this.nameOf(id) }));
   }
 
+  /**
+   * ORW-750 (2): the vote promises ON THE RECORD for each nominee, for the narrator's moment prompt in the week of a nomination. A houseguest voiced saying they would keep a nominee and nothing was recorded, so the vow
+   * bound nothing (ORW-723) and the player was told otherwise; the narrator is now handed what the engine actually holds. Only what the player was told or heard: an open-ledger promise not to vote a nominee out (the player
+   * is a witness of every ledger entry) and, when the player is the nominee, a standing vote/safe assurance to them (`keepPromisersOfPlayer`). Names only: no ballot, no sincerity, no status. Played games, while someone is on the block.
+   */
+  votePromisesForNarrator(): Array<{ nominee: NamedRef; keepers: NamedRef[] }> | undefined {
+    const s = this.live;
+    if (!s || s.playedGame !== true || s.finished) return undefined;
+    const block = ((s.finalNominees ?? s.nominees) as readonly EntityId[] | undefined) ?? [];
+    if (block.length === 0) return undefined;
+    const living = new Set(this.livingIds());
+    const out: Array<{ nominee: NamedRef; keepers: NamedRef[] }> = [];
+    for (const nom of block) {
+      const ids = new Set<string>();
+      for (const e of this.openLedger.entries) {
+        if (e.status !== "open" || !e.term || e.term.what !== "no-evict-vote" || e.term.week !== s.week) continue;
+        if (termSubject(e.term) === nom && e.term.by !== OPEN_LEDGER_PLAYER) ids.add(e.term.by);
+      }
+      if (nom === PLAYER) for (const k of this.keepPromisersOfPlayer()) ids.add(k.id);
+      const keepers = [...ids].filter((id) => living.has(id as EntityId) && id !== nom && !block.includes(id as EntityId)).sort().map((id) => ({ id, name: this.nameOf(id as EntityId) }));
+      out.push({ nominee: { id: nom, name: this.nameOf(nom) }, keepers });
+    }
+    return out;
+  }
+
   /** B4 - append one recorded assurance to the live ledger (persisted with the season). */
   recordAssurance(a: { from: EntityId; to: EntityId; kind: "safe" | "vote" | "loyal"; sincerity: number; source: "player" | "npc"; heardBy?: EntityId[] }): void {
     if (!this.assurancesEnabled || !this.live) return;
@@ -2646,6 +2796,28 @@ export class GameSessionAdapter implements GameSession {
     const { heardBy, ...rest } = a;
     ledger.add({ ...rest, sincerity, week: this.live.week, ...(this.memoryPromisesEnabled && heardBy && heardBy.length > 0 ? { heardBy: [...heardBy] } : {}) });
     this.live.assurances = ledger.toJSON();
+    if (a.source === "player") this.keepPlayerAssuranceInLedger(a.to, a.kind);
+  }
+
+  /**
+   * ORW-860: a casual promise the PLAYER gave a houseguest is kept where the narrator reads (the open ledger), not only in the assurance ledger, which the
+   * brief never shows: with only that row, a houseguest re-asked for the promise as if it had never been given whenever the separate open-ledger extraction
+   * skipped it. The engine's own words, no model text. Stands down when the player already has an open promise to that houseguest today (a typed promise
+   * writes its own entry first, and a spoken one the extraction caught is not doubled). Quiet (byte-identical) when promise terms or the ledger are off, the ledger is locked, or the houseguest is not here.
+   */
+  private keepPlayerAssuranceInLedger(to: EntityId, kind: "safe" | "vote" | "loyal"): void {
+    if (!this.promiseTermsLive || this.openLedgerAsLoaded !== undefined || this.live?.playedGame !== true || !this.house) return;
+    const day = this.ledgerDay();
+    const standing = this.openLedger.entries.some((e) => e.status === "open" && e.speaker === OPEN_LEDGER_PLAYER && e.kind === "promise" && e.addressedTo.includes(to as string)
+      && (day === undefined || e.day === day));
+    if (standing) return;
+    const wa = this.whereabouts();
+    if (!wa) return;
+    const what = kind === "safe" ? "to keep them safe" : kind === "vote" ? "to keep them in the house and not vote them out" : "to stay loyal to them";
+    const p = openLedgerProposal({ text: `You promised ${this.nameOf(to)} ${what}`, speaker: OPEN_LEDGER_PLAYER, addressedTo: [to as string], kind: "promise" }, new Set<string>(this.house.npcs.map((n) => n.id as string)));
+    if (typeof p === "string") return;
+    const out = recordOpenEntry(this.openLedger, p, { turn: this.beatSeq, beatSeq: this.beatSeq, room: wa.room, witnesses: wa.present.map((x) => x.id as string), ...(day !== undefined ? { day } : {}) });
+    if (out.outcome === "recorded") this.openLedger = out.ledger;
   }
   /** The DEDICATED campaign rng tick counter — campaign draws fork off the game seed + this, never the
    * shared society/vote stream (the L21/L24 isolation), so even live campaigns don't re-phase calibration. */
@@ -2680,6 +2852,8 @@ export class GameSessionAdapter implements GameSession {
   private perConversationClockEnabled = PER_CONVERSATION_CLOCK_ENABLED_DEFAULT;
   private socialFatigueEnabled = SOCIAL_FATIGUE_ENABLED_DEFAULT;
   private multiNightFatigueEnabled = MULTI_NIGHT_FATIGUE_ENABLED_DEFAULT;
+  private dayBreakFatigueEnabled = flagDefaultOn("ORWELL_DAYBREAK_FATIGUE"); // ORW-856
+  setDayBreakFatigueEnabled(on: boolean): void { this.dayBreakFatigueEnabled = on; }
   /**
    * Feature #1400 — generative competition design. default ON in the shipped game (the calibration/UAT harness turns it off) (its `ORWELL_GEN_COMPETITIONS` env
    * default): when off, `competitionStagingView` returns null and `recordCompetitionFiction` refuses, so
@@ -2822,6 +2996,7 @@ export class GameSessionAdapter implements GameSession {
   /** #1793 — the Player Dossier read (ORWELL_PLAYER_DOSSIER); per-instance so the prompt + tool follow it. */
   private playerDossierEnabled = PLAYER_DOSSIER_ENABLED_DEFAULT;
   private compMechanicsPlusEnabled = COMP_MECHANICS_PLUS_ENABLED_DEFAULT;
+  private compMechanicsMoreEnabled = COMP_MECHANICS_MORE_ENABLED_DEFAULT;
 
   private compMixedEnabled = COMP_MIXED_ENABLED_DEFAULT;
   /** C1 (#1788) — the Wipeout Reel presentation layer; off ⇒ `comp-elimination` content is untouched. */
@@ -3509,7 +3684,18 @@ export class GameSessionAdapter implements GameSession {
 
   /** Wire the one-off witnessed-event recorder (deal made/broken reveals, 0039). */
   setOnPlayerEvent(fn: (content: string, witnessSet: EntityId[], type?: string) => string | undefined): void {
-    this.onPlayerEvent = fn;
+    // ORW-1084/1085/1086: the active-in-house gate sits at this one seam, so no producer (lobbying, deals, HOH room, bed claims, reasons said aloud, secret breaks, betrayals, conversations) can seat a houseguest who has left the house.
+    this.onPlayerEvent = (content, witnessSet, type) => {
+      const set = gateHouseEvent(this.live ? { evictionOrder: this.live.evictionOrder, finished: this.live.finished, beat: this.live.beat, evictee: this.live.evictee !== undefined && !(this.live.weekDigests ?? []).some((d) => d.evictee === this.live!.evictee) ? this.live.evictee : undefined, jurors: this.jurorsNow() } : null, type ?? "deal", witnessSet);
+      return set === null ? undefined : fn(content, set, type);
+    };
+  }
+
+  /** ORW-1086: why the player cannot act in the house right now (evicted, season over), or null while they can (or when there is no game yet). */
+  playerHouseRefusal(): { reason: "evicted" | "season-over"; message: string } | null {
+    if (!this.house || !this.live) return null;
+    const reason = playerOutReason(this.live);
+    return reason ? { reason, message: playerOutMessage(reason) } : null;
   }
 
   /** Wire a narrator for the snarky tagline (0033). Without one, the curated fallback is used. */
@@ -3818,6 +4004,12 @@ export class GameSessionAdapter implements GameSession {
     this.onConfide = fn;
   }
 
+  /** ORW-767 — wire the pathway that records a told couple as the PLAYER's knowledge (the teller holds it, then it surfaces `told-by:<teller>` with the pair's lineage id). */
+  setOnCoupleTold(fn: (teller: EntityId, content: string, subject: EntityId, factId: string, confidence: number) => boolean): void {
+    this.onCoupleTold = fn;
+  }
+  private onCoupleTold?: (teller: EntityId, content: string, subject: EntityId, factId: string, confidence: number) => boolean;
+
   /** 0129 slice 3 — wire the juror-telling pathway (the composition root owns the KnowledgeService). */
   setOnJurorTell(fn: (jurorId: EntityId, factId: string, confidence: number) => string | null): void {
     this.onJurorTell = fn;
@@ -4061,14 +4253,34 @@ export class GameSessionAdapter implements GameSession {
    *  — the model calls npcVoice with a name as often as an id; tolerate both, but never guess between
    *  two people who share a first name). Returns null when unknown/ambiguous. */
   private resolveHouseguestVoiceId(key: string): EntityId | null {
-    if (!this.house) return null;
+    const r = this.lookupHouseguestVoice(key);
+    return r.status === "found" ? r.id : null;
+  }
+
+  /**
+   * ORW-1067: the same lookup with its REASON. `found` (id, case-insensitive id, exact name, or an unambiguous first or last name), `ambiguous` (two or more
+   * houseguests match: the public names to choose from, never a guess), or `unknown` (nobody matches). Names only: public, Vault-free.
+   */
+  voiceLookup(key: string): { status: "found"; id: EntityId } | { status: "ambiguous"; candidates: NamedRef[] } | { status: "unknown" } {
+    return this.lookupHouseguestVoice(key);
+  }
+  private lookupHouseguestVoice(key: string): { status: "found"; id: EntityId } | { status: "ambiguous"; candidates: NamedRef[] } | { status: "unknown" } {
+    if (!this.house || typeof key !== "string") return { status: "unknown" };
     const npcs = this.house.npcs;
-    if (npcs.some((n) => n.id === key)) return key as EntityId;
+    if (npcs.some((n) => n.id === key)) return { status: "found", id: key as EntityId };
     const k = key.trim().toLowerCase();
-    const byName = npcs.filter((n) => n.name.toLowerCase() === k);
-    if (byName.length === 1) return byName[0]!.id;
-    const byFirst = npcs.filter((n) => n.name.toLowerCase().split(" ")[0] === k);
-    return byFirst.length === 1 ? byFirst[0]!.id : null;
+    const tiers: (readonly (typeof npcs)[number][])[] = [
+      npcs.filter((n) => (n.id as string).toLowerCase() === k),
+      npcs.filter((n) => n.name.toLowerCase() === k),
+      npcs.filter((n) => n.name.toLowerCase().split(" ")[0] === k),
+      npcs.filter((n) => { const parts = n.name.toLowerCase().split(" "); return parts.length > 1 && parts[parts.length - 1] === k; }),
+    ];
+    for (const t of tiers) {
+      if (t.length === 1) return { status: "found", id: t[0]!.id };
+      if (t.length > 1) { this.noteInputRefusal("npc-voice-ambiguous"); return { status: "ambiguous", candidates: t.map((n) => ({ id: n.id, name: n.name })) }; }
+    }
+    this.noteInputRefusal("npc-voice-unknown");
+    return { status: "unknown" };
   }
 
   /**
@@ -4197,7 +4409,7 @@ export class GameSessionAdapter implements GameSession {
     const vol = this.soulObj(npc.id)?.volatility ?? 0.3;
     const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:dodge:${npc.id}:${this.week}:${phase}`));
     // ORW-798: what is on the line for them = the severity of the kind of thing they are keeping + whether they are on the block now (engine state already held; no draw).
-    const stakes = dodgeStakes(severityOf(held?.kind), ((this.live?.nominees as readonly EntityId[] | undefined) ?? []).includes(npc.id));
+    const stakes = dodgeStakes(severityOf(held?.kind), ((this.live?.nominees as readonly EntityId[] | undefined) ?? []).includes(npc.id), this.live?.hoh === npc.id || this.live?.vetoHolder === npc.id); // ORW-802: a power holder is watched more
     const fact = decideDodge({
       cunning: style ? CUNNING[style] ?? 0.3 : 0.3, leakiness: (style ? LEAKY[style] ?? 0.3 : 0.3) + 0.2 * vol, rattled: Math.max(0, vol - 0.5) * 2,
       trustInAsker: signals.npcTrust, stakes,
@@ -4421,6 +4633,8 @@ export class GameSessionAdapter implements GameSession {
       ...(isActive ? (() => { const r = this.statedReasonsFor(id); return r.length ? { statedReasons: r } : {}; })() : {}),
       // ORW-737: what they DECLARE to the player about keeping them (the engine's call; the private vote never crosses). Absent when nothing is at stake.
       ...(isActive ? (() => { const d = this.declaredStanceFor(id); return d ? { declaredStance: d } : {}; })() : {}),
+      // ORW-749: what their own consent roll will do with a player pitch, told BEFORE the narrator speaks so it never voices a yes or a no the engine then contradicts.
+      ...(isActive && this.tellsVisibleFor(id) ? (() => { const c = this.dealConsentStanceFor(id); return c ? { dealConsent: c } : {}; })() : {}),
       whereabouts: room ? { room, present } : null,
       // ORW-349: the same fact held twice (a retold rumour, the same overhear) is listed once, newest kept; the cap then counts DISTINCT facts. Deduped over the whole list BEFORE the cap, so repeats in the recent tail never crowd out distinct older facts.
       knows: dedupeKeepNewest(this.voiceKnownFacts(id).map((f) => this.humanizeTidy(f.content))).slice(-GameSessionAdapter.VOICE_KNOWS_CAP),
@@ -4626,7 +4840,7 @@ export class GameSessionAdapter implements GameSession {
    * shot from a stale captured prompt is exactly the identity-mismatch ADR 0013 forbids). Returns
    * null when neither a live house nor a warmed cast holds the id.
    */
-  getPortraitPrompt(id: EntityId): { houseguestId: string; name: string; prompt: string } | null {
+  getPortraitPrompt(id: EntityId): { houseguestId: string; name: string; prompt: string; lookKey?: string } | null {
     if (this.house && this.portraitStyleAnchor) {
       const npc = this.house.npcs.find((n) => n.id === id);
       const subject = id === this.house.player.id ? this.house.player : npc;
@@ -4655,7 +4869,7 @@ export class GameSessionAdapter implements GameSession {
     subject: { id: EntityId; name: string; character: GameHouse["npcs"][number]["character"] },
     styleAnchor: string,
     roster: ReadonlyArray<{ id: EntityId; name: string; character: GameHouse["npcs"][number]["character"] }>,
-  ): { houseguestId: string; name: string; prompt: string } {
+  ): { houseguestId: string; name: string; prompt: string; lookKey?: string } {
     // ORW-480: the shot and face cards are dealt across the WHOLE cast, so one person's prompt is the cast build's entry for them
     // (the same text `castPortraitPrompts` serves). A subject the cast build skips (an incomplete facet) is dealt alone.
     const own = buildCastPortraitPrompts(roster.map((h) => this.portraitFacetsOf(h)), styleAnchor).find((p) => p.houseguestId === subject.id);
@@ -6032,7 +6246,7 @@ export class GameSessionAdapter implements GameSession {
       ...(this.presenceBase ? { presenceBase: Object.fromEntries(this.presenceBase) as Record<EntityId, Room> } : {}),
       ...(this.presenceTenure ? { presenceTenure: Object.fromEntries(this.presenceTenure) as Record<EntityId, number> } : {}),
       ...(this.walkIn ? { walkIn: { ...this.walkIn } } : {}), ...(this.walkInDone.length ? { walkInDone: [...this.walkInDone] } : {}), // ORW-473
-      ...(this.roomCardNow ? { roomCardNow: { ...this.roomCardNow } } : {}), ...(this.habitSightings.length ? { habitSightings: this.habitSightings.map((h) => ({ pair: [...h.pair] as [EntityId, EntityId], room: h.room, onlookers: [...h.onlookers] })) } : {}), // ORW-698
+      ...(this.roomCardNow ? { roomCardNow: { ...this.roomCardNow } } : {}), ...(this.habitSightings.length ? { habitSightings: this.habitSightings.map((h) => ({ pair: [...h.pair] as [EntityId, EntityId], room: h.room, onlookers: [...h.onlookers] })) } : {}), // ORW-698 ...(this.diaryStaySightings.length ? { diaryStaySightings: this.diaryStaySightings.map((d) => ({ who: d.who, onlookers: [...d.onlookers] })) } : {}), // ORW-694
       ...(this.playerMove ? { playerMove: { ...this.playerMove } } : {}), // ORW-419
       // L21/L24: the dedicated movement stream's tick counter — persisted so the personality-weighted
       // movement trajectory stays reproducible across a restart (absent ⇒ 0).
@@ -6293,6 +6507,8 @@ export class GameSessionAdapter implements GameSession {
     // refreshes rather than slicing against a window that no longer holds its checkpoint.
     this.beatCheckpoints.clear();
     this.house = core.house ? cloneSession(core.house) : null;
+    // ORW-1075: an older save can store a player style that is not the chosen one; repair it once, idempotently, on every load.
+    if (this.house) repairPlayerStrategyStyle(this.house.player);
     // #1326 — legacy-save backfill for NPCs ONLY: an NPC's `genderPresentation` is always dealt by the
     // 0063 diversity floor at cast time, so an unset facet on a resumed NPC means a save that predates
     // that floor (or a non-standard creation path that skipped it) — a genuine gap worth repairing.
@@ -6385,6 +6601,7 @@ export class GameSessionAdapter implements GameSession {
     this.walkInDone = core.walkInDone ? [...core.walkInDone] : [];
     this.roomCardNow = core.roomCardNow ? { ...core.roomCardNow } : null; // ORW-698
     this.habitSightings = core.habitSightings ? core.habitSightings.map((h) => ({ pair: [...h.pair] as [EntityId, EntityId], room: h.room, onlookers: [...h.onlookers] })) : []; // ORW-698
+    this.diaryStaySightings = core.diaryStaySightings ? core.diaryStaySightings.map((d) => ({ who: d.who, onlookers: [...d.onlookers] })) : []; // ORW-694
     this.playerMove = core.playerMove ? ({ ...core.playerMove } as PlayerMoveView) : null; // ORW-419
     // L21/L24: restore the dedicated movement stream's tick counter (absent on older saves ⇒ 0).
     this.presenceTickCount = core.presenceTickCount ?? 0;
@@ -6635,6 +6852,29 @@ export class GameSessionAdapter implements GameSession {
     this.persist();
   }
 
+  /**
+   * ORW-1053: the living houseguests, outside the deal's own pair, whom a deal's terms name (full name, or a first name no other houseguest shares), in roster order; an explicit id leads.
+   * Matching is on whole words, case-insensitive.
+   */
+  private thirdsNamedIn(terms: string, explicit: EntityId | undefined, pair: readonly EntityId[]): EntityId[] {
+    if (!this.house || !this.live) return [];
+    const gone = new Set(this.live.evictionOrder);
+    const living = this.house.npcs.filter((n) => !gone.has(n.id) && !pair.includes(n.id));
+    const firsts = new Map<string, number>();
+    for (const n of [...this.house.npcs, this.house.player]) { const f = (n.name ?? "").trim().split(/\s+/)[0]?.toLowerCase(); if (f) firsts.set(f, (firsts.get(f) ?? 0) + 1); }
+    const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const hit = (word: string) => new RegExp(`(^|[^\\p{L}])${esc(word)}($|[^\\p{L}])`, "iu").test(terms);
+    const out: EntityId[] = [];
+    if (explicit && living.some((n) => n.id === explicit)) out.push(explicit);
+    for (const n of living) {
+      if (out.includes(n.id)) continue;
+      const full = (n.name ?? "").trim();
+      const first = full.split(/\s+/)[0] ?? "";
+      if (full && (hit(full) || (first && firsts.get(first.toLowerCase()) === 1 && hit(first)))) out.push(n.id);
+    }
+    return out;
+  }
+
   private nameOf(id: EntityId): string {
     if (!this.house) return id;
     if (this.house.player.id === id) return this.house.player.name;
@@ -6680,11 +6920,29 @@ export class GameSessionAdapter implements GameSession {
     return { made: true, used: true, ...(s.saved ? { saved: { id: s.saved, name: this.nameOf(s.saved) } } : {}), ...(s.replacement ? { replacement: { id: s.replacement, name: this.nameOf(s.replacement) } } : {}) };
   }
 
+  /**
+   * ORW-938 (evidence only, no behaviour): one log line per staged comp, on its first drop round, saying where the drop wording came from, so a comp whose announced premise disagrees with how people go out
+   * (Fable week 2: a bucking-bull premise, exits told as quiz questions) can be read off the dev journal. Ids, flags and the drawn format only: no names, no wording, nothing hidden. Memory-only.
+   */
+  private compDropLogged = "";
+  private noteCompDropSource(content: string): void {
+    const c = this.live?.competition, f = this.live?.competitionFiction;
+    if (!c) return;
+    const key = `${this.live!.week}:${c.comp}`;
+    if (this.compDropLogged === key) return;
+    this.compDropLogged = key;
+    const def = competitionDefFor(this.live!, c);
+    const fromFiction = !!f && f.eliminations.some((e) => content.includes(e.fiction));
+    console.warn(`[orwell] comp-drops ${c.comp} week=${this.live!.week} libraryFormat=${def?.format ?? "unknown"} type=${c.type} fictionStored=${!!f} dropsFromFiction=${fromFiction} themeAuthored=${c.themeAuthored === true} field=${c.field.length}`);
+  }
+
   /** ORW-715: the staged competition's floor - who is still in and who has already gone out (the drops the game has announced). Undefined unless a staged competition is live. */
-  private competitionFieldFact(): { stillIn: Array<{ id: EntityId; name: string }>; out: Array<{ id: EntityId; name: string }> } | undefined {
+  private competitionFieldFact(): { stillIn: Array<{ id: EntityId; name: string }>; out: Array<{ id: EntityId; name: string }>; justOut?: Array<{ id: EntityId; name: string }>; told?: Array<{ id: EntityId; name: string }> } | undefined {
     const c = this.live?.competition;
     if (!this.ceremonyFactsEnabled || !c || !this.playedGameNow() || !c.eliminated?.length) return undefined;
-    return { stillIn: c.stillIn.map((id) => ({ id, name: this.nameOf(id) })), out: c.eliminated.map((id) => ({ id, name: this.nameOf(id) })) };
+    const silent = (this.live?.compSilentOut ?? []).filter((id) => c.eliminated.includes(id));
+    const told = this.compToldOut.filter((id) => c.eliminated.includes(id) && !silent.includes(id));
+    return { stillIn: c.stillIn.map((id) => ({ id, name: this.nameOf(id) })), out: c.eliminated.map((id) => ({ id, name: this.nameOf(id) })), ...(silent.length ? { justOut: silent.map((id) => ({ id, name: this.nameOf(id) })) } : {}), ...(told.length ? { told: told.map((id) => ({ id, name: this.nameOf(id) })) } : {}) };
   }
 
   private card(id?: EntityId): { id: EntityId; name: string } | null {
@@ -6787,7 +7045,7 @@ export class GameSessionAdapter implements GameSession {
   /** 0193: `me`'s OWN read of their jury odds against `rival` at a final two - the jurors' bonds as `me` can see them (their own warmth to `me` they know), and the public comp record. */
   private beatShareOf(me: EntityId, rival: EntityId): number {
     const s = this.live!;
-    const jurors = s.evictionOrder.slice(preJuryEvictionCount(s));
+    const jurors = this.jurorsNow();
     const bond = (j: EntityId, f: EntityId): number => (this.perceivedBondsEnabled ? this.perceivedBond(me, j, f) : this.rel.bondStrength(j, f));
     return beatShare(me, rival, jurors, bond, (id) => s.resume?.[id] ?? 0);
   }
@@ -6852,6 +7110,21 @@ export class GameSessionAdapter implements GameSession {
     const { scapegoat, hardness } = this.houseScapegoat();
     if (scapegoat === undefined || scapegoat === decider) return 0;
     return scapegoatLean(subject, scapegoat, hardness, holdsGrievance(s.beliefs[decider] ?? [], decider, subject, s.week));
+  }
+  /**
+   * ORW-972: what the PLAYER told `holder` they will vote between the nominees, from `holder`'s own beliefs: this week's "voted against N" (evict N) or "voted to keep N" (evict the other),
+   * told by the player about their own vote. The latest such belief wins; none = undefined (the player is not counted in the bloc's pick).
+   */
+  private playerStatedVoteFor(holder: EntityId, fn: readonly [EntityId, EntityId]): EntityId | undefined {
+    const s = this.live;
+    if (!s || holder === PLAYER) return undefined;
+    let pick: EntityId | undefined;
+    for (const b of s.beliefs?.[holder] ?? []) {
+      if (!b.value || b.refuted || b.week !== s.week || b.subject !== PLAYER || b.source !== PLAYER || b.object === undefined || !fn.includes(b.object)) continue;
+      if (b.kind === "heard-rumor" && b.nature === "voted-against") pick = b.object;
+      else if (b.kind === "heard-rumor" && b.nature === "voted-to-keep") pick = fn[0] === b.object ? fn[1] : fn[0];
+    }
+    return pick;
   }
   /** 0180 part 2: the herd's pull on `voter` toward evicting `nominee`, from the voices they hold this week, scaled by the culture's alliance-size dial. */
   private herdFor(nominee: EntityId, voter: EntityId, fn: readonly [EntityId, EntityId]): number {
@@ -7116,7 +7389,7 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-582 (flag `ORWELL_JURY_HOUSE`): the NPC jurors, each with their jury-house personality read toward a subject; undefined when the jury house is off or empty. Engine-only. */
   private juryPersonalityOf(): Map<EntityId, (subject: EntityId) => JuryPersonality> | undefined {
     if (!this.juryHouseEnabled || !this.house || !this.live) return undefined;
-    const ids = (this.live.evictionOrder ?? []).slice(this.juryStartIndex()).filter((id) => id !== this.house!.player.id).slice(-9);
+    const ids = this.jurorsNow().filter((id) => id !== this.house!.player.id).slice(-9);
     if (ids.length === 0) return undefined;
     const seed = hashSeed(`jury-fade:${this.gameSeed ?? ""}`);
     return new Map(ids.map((id) => [id, (subject: EntityId): JuryPersonality => ({
@@ -7525,7 +7798,33 @@ export class GameSessionAdapter implements GameSession {
     if (this.copresenceEnabled && this.heldSeeker) this.applyHeldFactsToPulls(id, pulls);
     if (this.live?.playedGame === true && this.npcMemoryEnabled) this.applyMemoryToPulls(id, pulls);
     if (this.live?.playedGame === true && this.tellReactionsEnabled) this.applyTellAvoidToPulls(id, pulls);
+    if (this.live?.playedGame === true && this.routineHauntsEnabled) this.applyPlayerHauntToPulls(id, pulls, neutralBond);
     return pulls.length ? pulls : null;
+  }
+
+  /**
+   * ORW-981 / spec 0209 (`ORWELL_ROUTINE_HAUNTS`, default ON; `=0` opts out): a routine brings a houseguest to whoever keeps it, the same for every onlooker and every holder. A houseguest who has seen where someone usually
+   * is at this time of day on enough separate days (`knowsRoutine`; the player's usual room counted as a haunt, a houseguest's own routine counted by `noteRoutinesSeenByHouse`) leans toward them when it is that time again.
+   * Only toward someone they do not keep away from (no avoid, a bond at or above neutral when there was no pull already); never lowers a pull; engine-only, no rng, nothing shown. Played games only (the caller gates).
+   */
+  private routineHauntsEnabled = flagDefaultOn("ORWELL_ROUTINE_HAUNTS");
+  setRoutineHauntsEnabled(on: boolean): void { this.routineHauntsEnabled = on; }
+  private applyPlayerHauntToPulls(id: EntityId, pulls: MovementPull[], neutralBond: number): void {
+    const s = this.live;
+    if (!s || !s.timeOfDay) return;
+    const seen: Record<string, Record<string, number[]>> = { ...(s.npcRoutineSightings?.[id] ?? {}) };
+    if (this.house && s.playerHaunts?.[id]) seen[this.house.player.id] = s.playerHaunts[id]!; // the player's usual rooms (their own store: the player has no routine rows)
+    if (!Object.keys(seen).length) return;
+    const active = new Set(this.presenceActive());
+    for (const [holder, byKey] of Object.entries(seen)) {
+      if (holder === id || !active.has(holder)) continue;
+      const usual = Object.entries(byKey).some(([key, days]) => key.startsWith(`${s.timeOfDay}:`) && knowsRoutine(days.length));
+      if (!usual) continue;
+      const existing = pulls.find((p) => p.target === holder);
+      if (existing) { if (!existing.avoid) existing.weight *= 1 + ROUTINES.playerHauntGain; continue; }
+      if (this.rel.bondStrength(id, holder) < neutralBond) continue;
+      pulls.push({ target: holder, weight: MOVEMENT_INTENT.minCharge * (1 + ROUTINES.playerHauntGain), avoid: false });
+    }
   }
 
   /**
@@ -7766,16 +8065,16 @@ export class GameSessionAdapter implements GameSession {
   private walkInDone: string[] = [];
   /** ORW-473 amendment (0192): a talk among three or more (a night-owl trio, an ordinary gathering) is walked in on too. ON unless `ORWELL_WALKIN_GROUPS=0`; OFF => only a pair, byte-identical to before. */
   private walkInGroupsEnabled = flagDefaultOn("ORWELL_WALKIN_GROUPS");
-  private walkIn: { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction }[] } | null = null;
+  private walkIn: { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction; left?: true }[] } | null = null;
   private walkInStamp(): { msg?: string } { const m = this.seenMessageIds.length > 0 ? this.seenMessageIds[this.seenMessageIds.length - 1] : undefined; return m === undefined ? {} : { msg: m }; }
-  private walkInThisTurn(): { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction }[] } | null {
+  private walkInThisTurn(): { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction; left?: true }[] } | null {
     const w = this.walkIn;
     if (!w) return null;
     const cur = this.seenMessageIds.length > 0 ? this.seenMessageIds[this.seenMessageIds.length - 1] : undefined;
     return w.msg === cur ? w : null;
   }
   private walkedInView(w: NonNullable<GameSessionAdapter["walkIn"]>): WalkedInView {
-    return { room: w.room, with: w.with.map((id) => ({ id, name: this.nameOf(id) })), reactions: w.reactions.map((r) => ({ id: r.id, name: this.nameOf(r.id), line: walkInLine(r.reaction) })) };
+    return { room: w.room, with: w.with.map((id) => ({ id, name: this.nameOf(id) })), reactions: w.reactions.map((r) => ({ id: r.id, name: this.nameOf(r.id), line: walkInLine(r.reaction), ...(r.left ? { left: true as const } : {}) })) };
   }
   private detectWalkIn(dest: Room): void {
     this.walkIn = null; // a new arrival replaces the last one
@@ -7808,6 +8107,7 @@ export class GameSessionAdapter implements GameSession {
       });
       this.walkIn = { ...this.walkInStamp(), room: dest, with: people, reactions };
       this.walkInDone = [...this.walkInDone, e.id].slice(-WALK_IN_DONE_CAP); // consumed: leaving and coming back does not fire it again
+      this.leaveOnWalkIn(dest, reactions); // ORW-1077: the one who "moves the talk somewhere else" really goes
       // both remember it: a fact in each one's own memory (engine-side, never shown)
       for (const id of people) {
         const others = people.filter((x) => x !== id).map((x) => this.nameOf(x));
@@ -7816,6 +8116,24 @@ export class GameSessionAdapter implements GameSession {
         if (n && !n.soul.memory.includes(note)) { n.soul.memory = [...n.soul.memory, note]; this.soul?.recordToSoul(id, note); }
       }
       return;
+    }
+  }
+
+  /**
+   * ORW-1077 (Ryne 2026-11-26): a houseguest may leave when the player walks in. Those whose reaction is to take the talk elsewhere step into a neighbouring room they may enter (all to the same one), on the
+   * player-facing map only (the calibration base is untouched). No such room, or a gathered house: they stay.
+   */
+  private leaveOnWalkIn(dest: Room, reactions: { id: EntityId; reaction: WalkInReaction; left?: true }[]): void {
+    const movers = reactions.filter((r) => r.reaction === "moves-the-talk");
+    if (!this.presence || movers.length === 0 || this.houseEventInSession()) return;
+    const open = (HOUSE_ADJACENCY.get(dest) ?? []).filter((room) => movers.every((m) => this.roomAccessFor(room, m.id) === "open"));
+    if (open.length === 0) return;
+    const to = open[hashSeed(`${this.gameSeed ?? ""}:walkout:${dest}:${movers[0]!.id}:${this.live?.dayNumber ?? 1}`) % open.length]!;
+    for (const m of movers) {
+      this.presence.set(m.id, to);
+      this.presenceTenure?.set(m.id, 0);
+      this.presenceZone?.delete(m.id);
+      m.left = true;
     }
   }
 
@@ -7893,6 +8211,53 @@ export class GameSessionAdapter implements GameSession {
     this.onPlayerEvent(`The player went through the ${roomDisplayName(last)} into the ${roomDisplayName(dest)}, in plain sight of ${seers.map((id) => this.nameOf(id)).join(", ")}`, [me, ...seers], "house-event");
   }
 
+  /** ORW-1064: how many moves/asks named an ambiguous or unknown room and were refused, by lever and kind (memory only). */
+  private moveRefusalTally: Record<string, number> = {};
+  moveRefusalCounts(): Record<string, number> { return { ...this.moveRefusalTally }; }
+  private refuseRoom(lever: string, asked: string, resolved: { kind: "ambiguous"; candidates: readonly Room[] } | { kind: "unknown" } | { kind: "ok" }): WhereaboutsView | null {
+    const reason = this.noteRoomRefusal(lever, resolved);
+    const w = this.whereabouts();
+    if (!w) return w;
+    return { ...w, moveRefused: { reason, asked: String(asked).slice(0, 80), ...(resolved.kind === "ambiguous" ? { candidates: [...resolved.candidates] } : {}) } };
+  }
+  private noteRoomRefusal(lever: string, resolved: { kind: string }): "ambiguous-room" | "unknown-room" {
+    const reason = resolved.kind === "ambiguous" ? "ambiguous-room" : "unknown-room";
+    const key = `${lever}:${reason}`;
+    this.moveRefusalTally[key] = (this.moveRefusalTally[key] ?? 0) + 1;
+    console.warn(`[orwell] ${lever}: ${reason} (nothing moved) n=${this.moveRefusalTally[key]}`); // no content: the lever and the kind only
+    return reason;
+  }
+
+  /**
+   * ORW-1076 (Ryne 2026-11-26): the player may go up to the HOH room on their own, and the HOH may say no. null = the door opens; otherwise the reason, in plain words for the narrator. Open: the player is the HOH,
+   * nobody holds the crown, a headless game, or the player's FIRST visit of the reign (the room is opened to the whole house, spec 0199). After that the HOH has to be in there, awake, and willing (their own read of
+   * the player, or a deal still open between the two). No number crosses.
+   */
+  private hohDoorRefusal(): string | null {
+    const s = this.live;
+    const hoh = this.ceremony.hoh;
+    if (!s || s.playedGame !== true || !this.house || !this.presence || !hoh || hoh === this.house.player.id) return null;
+    const me = this.house.player.id;
+    const key = `${s.week}:${hoh}`;
+    const awake = this.awakeNow();
+    if (awake && !awake.has(hoh) && this.presence.get(hoh) === "hoh-room") return `${this.nameOf(hoh)} is asleep up there and the door stays shut`;
+    if (s.hohRoom?.done.includes(key) && !s.hohRoom.playerUp?.includes(key)) return null;
+    if (this.presence.get(hoh) !== "hoh-room") return `the HOH room is shut: ${this.nameOf(hoh)} is not in there to let anyone in`;
+    const e = this.rel.peek(hoh, me);
+    const dealt = this.deals.forParty(me).some((d) => this.dealView(d).status === "open" && this.dealView(d).parties.some((p) => p.id === hoh));
+    if (dealt || (e.trust + e.affinity) / 2 >= HOH_DOOR_WELCOME) return null;
+    return `the player knocked and ${this.nameOf(hoh)} did not let them in`;
+  }
+
+  /** ORW-1076: the first visit of a reign is used up. */
+  private noteHohVisit(): void {
+    const s = this.live;
+    const hoh = this.ceremony.hoh;
+    const key = `${s?.week}:${hoh}`;
+    if (!s?.hohRoom || !hoh || !s.hohRoom.done.includes(key) || s.hohRoom.playerUp?.includes(key)) return;
+    s.hohRoom.playerUp = [...(s.hohRoom.playerUp ?? []), key];
+  }
+
   movePlayer(room: string, expectedBeatSeq?: number): WhereaboutsView | null {
     // 0065 Part A — refuse a move computed against a superseded board BEFORE any mutation.
     this.guardBeatSeq(expectedBeatSeq);
@@ -7905,25 +8270,37 @@ export class GameSessionAdapter implements GameSession {
     // Forgiving resolution (Vault-free, deterministic): natural names → a canonical room id; the
     // player's current room sharpens an ambiguous "bedroom". An ambiguous result still moves (we take
     // the best-guess first candidate) rather than no-op — never a silent failure into a retry loop.
+    // ORW-1064: an ambiguous or unknown room is an explicit refusal (nothing moves, the candidates come back, a counter records it), never the first candidate and never a result that reads as "already there".
     const resolved = resolveRoom(room, here, this.themedAliases());
-    const dest =
-      resolved.kind === "ok" ? resolved.room
-      : resolved.kind === "ambiguous" ? resolved.candidates[0]!
-      : null;
-    if (dest === null) return this.whereabouts(); // truly unknown — stay put, report where they are
+    if (resolved.kind !== "ok") return this.refuseRoom("movePlayer", room, resolved);
+    const dest = resolved.room;
     if (here === dest) return this.whereabouts(); // already there — nothing to move
+    if (dest === "hoh-room") {
+      const door = this.hohDoorRefusal(); // ORW-1076
+      if (door) {
+        const w = this.whereabouts();
+        return w ? { ...w, moveRefused: { reason: "hoh-door", asked: String(room).slice(0, 80), detail: door } } : w;
+      }
+    }
+    this.relocatePlayer(here, dest);
+    this.persist();
+    return this.whereabouts();
+  }
+
+  /** The player's arrival in `dest` (the body of `movePlayer`, with no persist, so a search can walk many legs and commit once). */
+  private relocatePlayer(here: Room | null, dest: Room): void {
+    const me = this.house!.player.id;
     this.noteWalkThrough(here, dest); // ORW-711: still ONE move, but whoever stands in a room on the way sees the player go by
-    this.presence.set(me, dest);
+    this.presence!.set(me, dest);
     // L21/L24: the player's position is identical in both views — keep the calibration-neutral base in sync
     // so the society's player-overhears and `whereabouts` always agree about where the player is.
     this.presenceBase?.set(me, dest);
     (this.presenceTenure ??= new Map()).set(me, 0); // a fresh arrival
     this.sendOccupancy = null; // ORW-249 (#2321): the frozen send-time roster dies at the FIRST room change, so leaving and returning during one reply cannot revive it
     this.sendAwake = null;
+    if (dest === "hoh-room") this.noteHohVisit(); // ORW-1076
     this.noteRoomEntry(dest); // ORW-654 / 0206: the first entry into a room is a one-time card
     this.detectWalkIn(dest); // ORW-473: walking in on a private talk
-    this.persist();
-    return this.whereabouts();
   }
 
   /**
@@ -7941,7 +8318,8 @@ export class GameSessionAdapter implements GameSession {
     const me = this.house.player.id;
     const here = this.presence.get(me) ?? null;
     this.bedRushPreMove(String(req.text ?? "")); // ORW-672 / 0201: rushing to a room is moving there, before the claim reads whether they reached it
-    const bedChanged = this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
+    const skipMove = req.skip?.includes("move") === true; // ORW-1014: the act-first round already decided this message's move
+    const bedChanged = req.skip?.includes("bed") === true ? false : this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
     if (bedChanged) this.persist();
     if (this.resolveWhoToldYou(String(req.text ?? ""))) this.persist(); // 0152 (theme 2 slice 4b): "who told you that?", read before the narrator writes (same seam)
     if (this.resolveSourceAnswer(String(req.text ?? ""))) this.persist(); // ORW-687: the player's own answer to a houseguest's "who told you that?", read before the narrator writes (same seam)
@@ -7949,15 +8327,45 @@ export class GameSessionAdapter implements GameSession {
     // ORW-522: claiming a bed is going to it (to drop your things on it). With no other room named, a fresh claim is a move to that bedroom, through the
     // same pin as any move: gathered for an event, the narrator is told the player stays with the house; otherwise the engine moves them before the narrator writes.
     const claimedBed = bedChanged ? this.live?.beds?.owner[PLAYER] : undefined;
-    const dest = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) ?? (claimedBed ? roomOfBed(claimedBed) : null) ?? this.roomOfSightedHouseguest(String(req.text ?? ""), here);
+    // ORW-728 (W1-11): "my bed" with no room named is the bedroom of the bed the player OWNS (only a fresh claim moved them before, so "I go back to my bed" left the room to the narrator, which picked the wrong one).
+    const ownBed = this.live?.beds?.owner[PLAYER];
+    const ownBedRoom = ownBed && parsePlayerOwnBedMove(String(req.text ?? "")) ? roomOfBed(ownBed) : null; // ORW-1008: only a go-verb to "my bed"/"my room" moves; "my bed is in X" is affiliation
+    const searchPhrase = skipMove ? null : parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) === null && !claimedBed && !ownBedRoom && parseVagueGo(String(req.text ?? "")) === null ? parseSearchIntent(String(req.text ?? ""), here, this.themedAliases()) : null;
+    const searchTarget = searchPhrase !== null && here !== null ? this.searchTargetOf(searchPhrase) : null;
+    if (searchTarget !== null && here !== null && this.presence.get(searchTarget.id) !== here) {
+      // ORW-934: "look for X / find X / where is X" is committed here, before the narrator writes: the engine walks the search leg by leg and the narrator voices the legs as one passage
+      this.playerMove = null;
+      this.playerSearch = null;
+      this.holdNamedHouseguest(String(req.text ?? ""), null);
+      const walk = this.walkSearch(searchTarget.name, undefined);
+      const now = this.presence.get(me) ?? null;
+      if (walk?.outcome === "pinned") this.playerMove = { refused: true, reason: walk.reason, from: here, to: here, ...this.moveStamp() };
+      else if (now !== null && now !== here) this.playerMove = { from: here, to: now, ...this.moveStamp() };
+      this.persist();
+      const sres: ResolvePlayerMoveResult = { playerMove: this.playerMove ? { ...this.playerMove } : null, whereabouts: this.whereabouts(), ...(walk ? { search: walk } : {}), beatSeq: this.beatSeqNow() };
+      return idemKey ? this.rememberFoldIdempotent(idemKey, sres) : sres;
+    }
+    const named = skipMove ? ownBedRoom : parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) ?? (claimedBed ? roomOfBed(claimedBed) : null) ?? ownBedRoom; // ORW-1014: skip move => only the player's own bed (ORW-728)
+    const vague = named === null && !skipMove ? this.resolveVagueGo(String(req.text ?? ""), String(req.previousReply ?? ""), here) : undefined;
+    const dest = skipMove ? named : named ?? (vague !== undefined && vague !== "ambiguous" ? vague : null) ?? this.roomOfSightedHouseguest(String(req.text ?? ""), here);
     const hadMove = this.playerMove !== null;
     this.playerMove = null; // a new player message: last turn's move is over
+    this.holdNamedHouseguest(String(req.text ?? ""), dest); // ORW-933: the houseguest the message turns to is held in the room (below)
     let result: ResolvePlayerMoveResult;
-    if (dest === null || here === null || dest === here) {
+    if (dest === null && vague === "ambiguous" && here !== null) {
+      // ORW-1003: they said they are going but not clearly where or after whom: they stay, and the narrator may ask
+      this.playerMove = { refused: true, reason: "the player said they are going somewhere, but not clearly where or after whom: they stay where they are; ask them where, in the scene", from: here, ...this.moveStamp() };
+      this.persist();
+      result = { playerMove: { ...this.playerMove }, whereabouts: this.whereabouts() };
+    } else if (dest === null || here === null || dest === here) {
       if (hadMove) this.persist();
       result = { playerMove: null, whereabouts: this.whereabouts() };
     } else if (this.houseEventInSession()) {
       this.playerMove = { refused: true, reason: "the whole house is gathered for the event; the player stays with everyone until it resolves", from: here, to: dest, ...this.moveStamp() };
+      this.persist();
+      result = { playerMove: { ...this.playerMove }, whereabouts: this.whereabouts() };
+    } else if (dest === "hoh-room" && this.hohDoorRefusal() !== null) { // ORW-1076
+      this.playerMove = { refused: true, reason: this.hohDoorRefusal()!, from: here, to: dest, ...this.moveStamp() };
       this.persist();
       result = { playerMove: { ...this.playerMove }, whereabouts: this.whereabouts() };
     } else {
@@ -7973,6 +8381,123 @@ export class GameSessionAdapter implements GameSession {
     }
     result.beatSeq = this.beatSeqNow();
     return idemKey ? this.rememberFoldIdempotent(idemKey, result) : result;
+  }
+
+  /** ORW-934: the clock a search bills per leg (one step into a neighbouring room). Less than a message (5 min): walking next door is quick. */
+  private static readonly SEARCH_LEG_MINUTES = 3;
+  /** ORW-934: the order a search with no lead sweeps the house: 0 the shared rooms, 1 the bedrooms (and the hallway to them), 2 the quiet rooms. */
+  private static searchTier(r: Room): number {
+    if (r === "living-room" || r === "kitchen" || r === "dining-room" || r === "backyard") return 0;
+    if (r === "hallway" || r.startsWith("bedroom-")) return 1;
+    return 2;
+  }
+  /** ORW-934: the walk of the player's current search, stamped with its message (memory-only, replaced by the next search or message). */
+  private playerSearch: HouseSearchWalk | null = null;
+  private playerSearchThisTurn(): HouseSearchWalk | null {
+    const s = this.playerSearch;
+    if (!s) return null;
+    return s.msg === this.lastNotedMessageId() ? ({ ...s } as HouseSearchWalk) : null;
+  }
+
+  /** ORW-934: the active houseguest a name phrase means (full or first name; ambiguous or unknown => null). */
+  private searchTargetOf(phrase: string): { id: EntityId; name: string } | null {
+    if (!this.house) return null;
+    const me = this.house.player.id;
+    const cands = this.presenceActive().filter((id) => id !== me).map((id) => ({ id, name: this.nameOf(id) }));
+    return cands.find((c) => c.id.toLowerCase() === phrase.trim().toLowerCase()) ?? matchHouseguestName(phrase, cands); // a tool caller may pass the houseguest's id
+  }
+
+  /**
+   * ORW-934 (Kevin 2026-11-26): search the house for a houseguest as an engine action that plays out. Each LEG is one real step into a neighbouring room along a sensible route: the room the player's own record puts the houseguest in
+   * (a recorded sighting, a tip from a houseguest who saw them: both may be stale), else a room in view, else the nearest room not yet looked in. Each leg bills the clock and runs the house's movement tick (X may move while the player walks),
+   * and the player really arrives in the room (witnessed like any move). The walk ends when X is found (the player stands in X's room), X is somewhere the player cannot go, a house event comes due, the player walks in on a private talk,
+   * it is bedtime, a `maxLegs` cap is reached, or three sweeps of the house found nobody. Nobody is teleported: X is only where the engine has X. Returns the ordered legs for the narrator to compress into one passage.
+   */
+  searchForHouseguest(req: SearchForHouseguestReq): SearchForHouseguestResult | null {
+    const idemKey = this.foldLedgerKey("searchForHouseguest", req.idempotencyKey);
+    const replay = this.foldReplay<SearchForHouseguestResult | null>(idemKey);
+    if (replay.hit) return replay.value;
+    this.guardBeatSeq(req.expectedBeatSeq);
+    if (!this.house || !this.presence) return null;
+    const res = this.walkSearch(String(req.name ?? ""), req.maxLegs);
+    if (res === null) return null;
+    const out: SearchForHouseguestResult = { search: res, whereabouts: this.whereabouts(), beatSeq: this.beatSeqNow() };
+    return idemKey ? this.rememberFoldIdempotent(idemKey, out) : out;
+  }
+
+  private walkSearch(phrase: string, maxLegsIn?: number): HouseSearchWalk | null {
+    const house = this.house!;
+    const me = house.player.id;
+    const live = this.live;
+    const target = this.searchTargetOf(phrase);
+    const startRoom = (this.presence!.get(me) ?? "living-room") as Room;
+    const base = { from: startRoom as string, to: startRoom as string, legs: [] as HouseSearchLeg[], minutes: 0, ...this.moveStamp() };
+    const finish = (outcome: HouseSearchOutcome, reason: string, t: { id: EntityId; name: string } | null): HouseSearchWalk => {
+      const done = this.playerSearchThisTurn(); // the narrator calling the lever again after this message's search already ran gets that same walk back (it never walks twice)
+      if (outcome === "found" && base.legs.length === 0 && done && done.target?.id === t?.id && done.legs.length > 0) return done;
+      const walk: HouseSearchWalk = { target: t ? { id: t.id, name: t.name } : null, outcome, reason, ...base, to: (this.presence!.get(me) ?? startRoom) as string };
+      this.playerSearch = walk;
+      this.persist();
+      return walk;
+    };
+    if (target === null) return null; // not a houseguest: nothing to search for
+    if (this.houseEventInSession()) return finish("pinned", `the whole house is gathered for the event; the player stays with everyone, so there is no walking the house for ${target.name} now`, target);
+    const clockRuns = this.perConversationClockEnabled && this.timeOfDayEnabled && !!live && live.timeOfDay !== undefined && live.nightDepth !== undefined;
+    const legHours = GameSessionAdapter.SEARCH_LEG_MINUTES / 60;
+    const maxLegs = typeof maxLegsIn === "number" && Number.isFinite(maxLegsIn) && maxLegsIn >= 1 ? Math.floor(maxLegsIn) : Infinity;
+    const SAFETY_SWEEPS = 3;
+    const visited = new Set<Room>([startRoom]);
+    const spent = new Set<Room>(); // leads already followed and found empty
+    let sweeps = 0;
+    let why: HouseSearchLeg["why"] = "sweep";
+    const here = (): Room => this.presence!.get(me) as Room;
+    const legOf = (room: Room, w: HouseSearchLeg["why"]): HouseSearchLeg => {
+      const awake = this.awakeNow();
+      const present = this.presenceActive().filter((id) => id !== me && this.presence!.get(id) === room && (!awake || awake.has(id)) && !this.notInHouseNow()?.has(id)).map((id) => ({ id, name: this.nameOf(id) }));
+      return { room, roomName: this.roomName(room), present, why: w };
+    };
+    const closedFor = (room: Room): boolean => this.roomAccessFor(room, me) === "closed";
+    for (;;) {
+      if (this.notInHouseNow()?.has(target.id) || this.seatOf(target.id) !== "active") return finish("not-in-house", `${target.name} is not in the house right now (not walked in yet, or gone), so there is nobody to find`, target);
+      const xRoom = this.presence!.get(target.id) as Room | undefined;
+      const me0 = here();
+      if (xRoom === me0) {
+        this.noteConversationPartners([target.id]); // the houseguest the player found stays with them (the hold the other named-houseguest moves use)
+        return finish("found", base.legs.length === 0 ? `${target.name} is right here` : `found ${target.name} in the ${this.roomName(me0)}`, target);
+      }
+      if (xRoom === "diary-room") return finish("closed-room", `${target.name} is in the Diary Room, a door the player cannot go through; the search ends here, and the player cannot follow`, target);
+      if (xRoom !== undefined && closedFor(xRoom)) return finish("closed-room", `${target.name} is behind the closed door of the ${this.roomName(xRoom)}, which is not open to the player; the search ends here`, target);
+      if (this.walkIn && this.walkIn.room === me0 && base.legs.length > 0) return finish("walk-in", `the walk ended on a private talk in the ${this.roomName(me0)}: the player walked in on it`, target);
+      if (live && (live.pending || milestoneDueOf(live))) return finish("event-due", "production is about to call the house together for the next event, so the search stops here", target);
+      if (clockRuns && live!.nightDepth! + legHours > DAY_END_HOUR - 0.05) return finish("bedtime", "it is the end of the night and the house is turning in, so the search stops here", target);
+      if (base.legs.length >= maxLegs) return finish("stopped", "the player stopped looking here", target);
+      // choose the goal room: what the player can SEE, then their own record (a recorded sighting or a tip), then the nearest room not yet looked in
+      const view = this.houseSearchView(me, me0, false, target.name).houseguests.find((e) => e.id === target.id);
+      let goal: Room | null = null;
+      if (view?.room !== undefined && (view.status === "awake" || view.status === "asleep") && !spent.has(view.room as Room)) { goal = view.room as Room; why = "in-view"; }
+      else if (view?.room !== undefined && (view.status === "lead" || view.status === "told") && !spent.has(view.room as Room) && view.room !== me0 && !closedFor(view.room as Room)) { goal = view.room as Room; why = view.status === "told" ? "tip" : "sighting"; }
+      if (goal === null) {
+        const open = WALKABLE_ROOMS.filter((r) => r !== me0 && !closedFor(r));
+        let pool = open.filter((r) => !visited.has(r));
+        if (pool.length === 0) { sweeps += 1; if (sweeps >= SAFETY_SWEEPS) return finish("gave-up", `the player has been through the whole house more than once and has not found ${target.name}`, target); visited.clear(); visited.add(me0); spent.clear(); pool = open; }
+        const dist = (r: Room): number => roomsBetween(me0, r).length;
+        // Kevin 2026-11-26 ("busy rooms first"): with no sighting or tip, the shared rooms come first, then the bedrooms, then the quiet rooms; within a tier the nearest, skipping rooms already checked
+        const noLead = !base.legs.some((l) => l.why !== "sweep"); // a followed sighting or tip means "nearby rooms next"; with none, the busy rooms first
+        goal = [...pool].sort((a, b) => (noLead ? GameSessionAdapter.searchTier(a) - GameSessionAdapter.searchTier(b) : 0) || dist(a) - dist(b) || WALKABLE_ROOMS.indexOf(a) - WALKABLE_ROOMS.indexOf(b))[0]!;
+        why = "sweep";
+      }
+      const next = [...roomsBetween(me0, goal), goal][0]!;
+      if (closedFor(next)) { spent.add(goal); visited.add(goal); continue; }
+      // one leg: the clock moves, the house moves, then the player steps into the room (witnessed like any move)
+      if (clockRuns) { advanceClockPerMessage(live!, legHours); base.minutes += GameSessionAdapter.SEARCH_LEG_MINUTES; }
+      this.presenceTick();
+      this.relocatePlayer(me0, next);
+      this.captureSeenWhereabouts();
+      visited.add(next);
+      if (next === goal && (why === "tip" || why === "sighting" || why === "in-view") && this.presence!.get(target.id) !== next) spent.add(goal);
+      base.legs.push(legOf(next, why));
+      if (base.legs.length > WALKABLE_ROOMS.length * SAFETY_SWEEPS + 8) return finish("gave-up", `the player has walked a long way and has not found ${target.name}`, target);
+    }
   }
 
   /**
@@ -8057,7 +8582,11 @@ export class GameSessionAdapter implements GameSession {
     const awake = this.awakeNow();
     if (!theirAsk && ((awake && !awake.has(npc)) || !this.talkAloneConsent(npc))) return finish({ outcome: "declined" });
     const resolved = typeof req.room === "string" && req.room.trim() !== "" ? resolveRoom(req.room, here, this.themedAliases()) : null;
-    const named: Room | null = resolved === null ? null : resolved.kind === "ok" ? resolved.room : resolved.kind === "ambiguous" ? resolved.candidates[0]! : null;
+    if (resolved !== null && resolved.kind !== "ok") { // ORW-1064: a room that is not ONE room is no room: no walk, no "accepted" in another room; the narrator voices that the player must say which
+      const reason = this.noteRoomRefusal("askToTalkAlone", resolved);
+      return finish({ outcome: reason, ...(resolved.kind === "ambiguous" ? { candidates: [...resolved.candidates] } : {}) });
+    }
+    const named: Room | null = resolved === null ? null : resolved.room;
     const priv = req.private !== false;
     const hoh = this.ceremony.hoh;
     const dest: Room | null = priv
@@ -8078,10 +8607,70 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * ORW-933 (Fable's week-2 run, turns 278-279): the player turned to a houseguest by name ("I find <X> ... Deal?"), they spoke, and the next turn the engine had them in another room. The conversation hold (ORW-212) keeps the
+   * player's partners in the room for a few ticks, but it started only once a scene was recorded AFTER the reply, so a houseguest the message itself named was free to walk out meanwhile. A houseguest the message names who is in the
+   * room the player is in (or the room the message takes them to) is a conversation partner from the moment of the message. Memory-only (the same hold), player-facing view only, no rng, nothing persisted, never a move of the houseguest.
+   */
+  private holdNamedHouseguest(text: string, dest: Room | null): void {
+    if (!this.house || !this.presence) return;
+    const me = this.house.player.id;
+    const here = this.presence.get(me);
+    if (!here) return;
+    const phrase = parsePlayerPersonIntent(text, here, this.themedAliases());
+    if (phrase === null) return;
+    const room = dest ?? here; // a "go find X" move lands the player where X is; the hold is read for the ticks after the move
+    const there = [...this.presence].filter(([id, where]) => id !== me && where === room).map(([id]) => ({ id, name: this.nameOf(id) }));
+    const hit = matchHouseguestName(phrase, there);
+    if (hit) this.noteConversationPartners([hit.id]);
+  }
+
+  /**
    * ORW-559: "I go to <houseguest>" - the room that houseguest is in, but ONLY when the player can see them now (a room in the whereabouts
    * `nearby` sightline list). Same projection the narrator gets: an unseen houseguest never resolves, so nothing hidden is revealed and
    * nothing teleports; the narrator plays "you look around". Same room (or no name) => null.
    */
+  /**
+   * ORW-1003: a go with no named place ("walk over and say hi", "head over there", "I follow her"). "over": the room of the houseguest last NAMED in the player's words, else in the previous reply. "follow": the houseguest the
+   * previous reply last named who is no longer in the player's room (her / him by their public gender; "them" only when those who left went to one room). Only rooms the player can see (public presence in view); anything
+   * else is ambiguous: no move. Returns undefined when the words are not such a go. Reads only public presence and public identity; no rng.
+   */
+  private resolveVagueGo(text: string, previousReply: string, here: Room | null): Room | "ambiguous" | undefined {
+    const go = parseVagueGo(text);
+    if (!go || !this.house || !here) return undefined;
+    const w = this.whereaboutsBase();
+    if (!w || w.houseEvent) return undefined;
+    const inView = new Map<EntityId, Room>(w.nearby.flatMap((n) => n.present.map((p) => [p.id as EntityId, n.room as Room] as [EntityId, Room])));
+    const present = new Set(w.present.map((p) => p.id as EntityId));
+    const npcs = this.house.npcs;
+    const mentioned = (s: string): EntityId[] => {
+      const at: Array<[number, EntityId]> = [];
+      const low = s.toLowerCase();
+      for (const n of npcs) {
+        const full = this.nameOf(n.id).toLowerCase(), first = full.split(" ")[0]!;
+        const uniqueFirst = npcs.filter((m) => this.nameOf(m.id).toLowerCase().split(" ")[0] === first).length === 1;
+        const esc = (v: string): string => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const re = new RegExp(`\\b(?:${uniqueFirst ? `${esc(full)}|${esc(first)}` : esc(full)})\\b`, "g");
+        let m: RegExpExecArray | null, last = -1;
+        while ((m = re.exec(low)) !== null) last = m.index;
+        if (last >= 0) at.push([last, n.id]);
+      }
+      return at.sort((x, y) => x[0] - y[0]).map((x) => x[1]);
+    };
+    if (go.kind === "over") {
+      const named = mentioned(text.toLowerCase());
+      const pool = named.length ? named : mentioned(previousReply);
+      const who = pool.at(-1);
+      if (who === undefined) return "ambiguous";
+      if (present.has(who)) return undefined; // already with them: nothing to move
+      return inView.get(who) ?? "ambiguous";
+    }
+    const gender = go.pronoun === "her" ? "woman" : go.pronoun === "him" ? "man" : null;
+    const left = mentioned(previousReply).filter((id) => !present.has(id) && inView.has(id) && (gender === null || npcs.find((n) => n.id === id)?.character.genderPresentation === gender));
+    if (left.length === 0) return "ambiguous";
+    if (go.pronoun === "them" && new Set(left.map((id) => inView.get(id)!)).size > 1) return "ambiguous";
+    return inView.get(left.at(-1)!)!;
+  }
+
   private roomOfSightedHouseguest(text: string, here: Room | null): Room | null {
     const phrase = parsePlayerPersonIntent(text, here, this.themedAliases());
     if (phrase === null) return null;
@@ -8131,11 +8720,12 @@ export class GameSessionAdapter implements GameSession {
     // Forgiving resolution, then reject the unknown AND the non-walkable so the open occupancy stays
     // coherent (no one "hangs out" in the diary room — assignRooms/WALKABLE_ROOMS exclude it).
     const resolved = resolveRoom(room, here, this.themedAliases());
-    const dest =
-      resolved.kind === "ok" ? resolved.room
-      : resolved.kind === "ambiguous" ? resolved.candidates[0]!
-      : null;
-    if (dest === null || !WALKABLE_ROOMS.includes(dest)) return { status: "illegal", whereabouts: this.whereabouts() };
+    if (resolved.kind !== "ok") { // ORW-1064: never the first candidate: nothing moves, the surface is told why and which rooms it could mean
+      const reason = this.noteRoomRefusal("recordHouseguestMove", resolved);
+      return { status: "illegal", reason, ...(resolved.kind === "ambiguous" ? { candidates: [...resolved.candidates] } : {}), whereabouts: this.whereabouts() };
+    }
+    const dest = resolved.room;
+    if (!WALKABLE_ROOMS.includes(dest)) return { status: "illegal", whereabouts: this.whereabouts() };
     const held = this.talkHoldNow(); // ORW-727b: a narrated move cannot take the held houseguest out of the room they agreed to, or put anyone into a closed private room
     if (held && (id === held.npc ? dest !== held.room : held.private && dest === held.room)) return { status: "illegal", whereabouts: this.whereabouts() };
     if (here === dest) return { status: "noop", whereabouts: this.whereabouts() };
@@ -8340,6 +8930,13 @@ export class GameSessionAdapter implements GameSession {
   statusRead(): { tiers: Readonly<Record<EntityId, number>>; leader?: EntityId; lieutenants: readonly EntityId[]; vacuumSince?: number; count: number; history: StatusRecord["history"] } | undefined {
     const st = this.live?.status;
     return st ? { tiers: st.tiers, ...(st.leader ? { leader: st.leader } : {}), lieutenants: st.lieutenants, ...(st.vacuumSince !== undefined ? { vacuumSince: st.vacuumSince } : {}), count: st.count, history: st.history } : undefined;
+  }
+  /** ORW-694 / B1-9: a pitch weighed by the pitcher's standing (the informal leader's and lieutenants' carry more). Undefined when the court is off or no status exists: byte-identical. */
+  private standingPitchWeight(): ((pitcher: EntityId) => number) | undefined {
+    const st = this.hohCourtOn() ? this.live?.status : undefined;
+    if (!st || (!st.leader && st.lieutenants.length === 0)) return undefined;
+    const w = HOH_COURT.standing.pitchWeight;
+    return (p) => (p === st.leader ? w.leader : st.lieutenants.includes(p) ? w.lieutenant : 1);
   }
   /** Test seam: derive today's status now (the off-screen tick does it once a day). */
   statusTickNow(): void { this.statusTick(); }
@@ -8580,12 +9177,29 @@ export class GameSessionAdapter implements GameSession {
     const byRoom = new Map<Room, string[]>();
     for (const [id, p] of racing) byRoom.set(p.room, [...(byRoom.get(p.room) ?? []), this.nameOf(id)]);
     const open = BEDROOM_LAYOUT.filter((spec) => freeBeds(beds, living).some((b) => roomOfBed(b) === spec.room)).map((spec) => this.roomName(spec.room));
+    const claimed = BEDROOM_LAYOUT.map((spec) => ({ spec, who: roommatesIn(beds, spec.room, living) })).filter((x) => x.who.length > 0)
+      .map(({ spec, who }) => `${this.roomName(spec.room)}: ${who.map((id) => (id === PLAYER ? "the player" : this.nameOf(id))).join(", ")}`);
     const parts = [
       s.premiereEntrance.stage === "done" && !br ? "The circle has closed and the house is released: the race for the bedrooms is about to begin; a bed is claimed by actually reaching its room, so the player can rush straight to a room or hang back" : "The bed rush is on: a bed is claimed by actually reaching its room, so the player can rush straight to a room or hang back",
       ...(racing.length ? [`Still racing: ${[...byRoom].map(([room, names]) => `${names.join(", ")} for ${this.roomName(room)}`).join("; ")}`] : []),
+      `Beds already claimed (engine truth, by room): ${claimed.length ? claimed.join("; ") : "none yet"}`,
       `Rooms with beds still open: ${open.length ? open.join(", ") : "none"}`,
     ];
     return parts.join(". ");
+  }
+
+  /**
+   * ORW-999 (Ryne's live report): the rush ticked only inside `advanceGame`, so a player who was TALKING (never a lull for the front end's advance nudge) and a narrator that voiced the scramble without calling
+   * `advanceGame` left the rush unstarted: stage "done", `bedRush` null, nobody in a bed, houseguests drifting between the bedrooms. A player message is now one heat too: the first one after the circle closes starts the
+   * rush (a save already sitting there starts it on its next message), each later one is another heat, to the same tick bound and the same safety floor for the player. The claims come from the engine either way; the
+   * narrator learns who got where from the BEDS facts. Inside `ORWELL_BED_RUSH`; played games only (`bedRushRunning`); no draw of its own (`startBedRush` / `runBedRushClaims` use their keyed side streams).
+   */
+  private heatBedRushOnMessage(): void {
+    if (!this.bedRushRunning()) return;
+    const br = this.startBedRush();
+    if (!br) return;
+    br.tick += 1;
+    this.runBedRushClaims(br.tick, br.tick > BED_RUSH.ticks);
   }
 
   /** One `advanceGame` of the rush: another heat of the race. Houseguests reach their rooms and claim; the beat hands the narrator who got where, who is still racing and who is left. */
@@ -8787,6 +9401,18 @@ export class GameSessionAdapter implements GameSession {
   }
   /** ORW-593: why this turn's call for a house meeting was refused (memory-only, replaced by the next `resolvePlayerMove`); the narrator voices it, the engine writes no line. */
   private playerMeetingRefusal: MeetingRefusal | null = null;
+  /** ORW-920: the message epoch in which `turnIn` last answered `held: bedtime` (memory-only, never saved). */
+  private bedtimeHeldEpoch: number | null = null;
+  /** ORW-920: for the narrator's moment prompt, this turn and the next, while it is still before the night: the minutes until bed opens, read fresh from the clock. */
+  private bedtimeHeldForNarrator(): { minutesUntil: number } | undefined {
+    const live = this.live;
+    if (this.bedtimeHeldEpoch === null || !live || this.disclosureEpoch > this.bedtimeHeldEpoch + 1) return undefined;
+    if (live.timeOfDay !== "morning" && live.timeOfDay !== "afternoon" && live.timeOfDay !== "evening") return undefined;
+    const hour = live.nightDepth ?? WAKE_HOUR;
+    return { minutesUntil: Math.max(0, Math.round((CLOCK.phaseStartsHour.night - hour) * 60)) };
+  }
+  /** ORW-913: the last alliance the player proposed that did not form (not close enough yet), for the narrator's next prompts (memory-only; never saved). */
+  private allianceRefusal: { name: string; names: string[]; epoch: number } | null = null;
 
   /**
    * 0156 slice 7b: the meeting the player heard, for the narrator: only when the player is awake and still in the game (a meeting held while they slept or were out is never handed over; the
@@ -8845,7 +9471,19 @@ export class GameSessionAdapter implements GameSession {
     if (target !== undefined && this.presence?.get(this.house.player.id) !== target) this.movePlayer(target);
   }
 
+  /** ORW-1010: the reason the player's bed request did NOT happen this turn (null when it happened or nothing was asked): handed to the narrator to say plainly in the reply. Memory-only, replaced each message. */
+  private playerBedRefusal: string | null = null;
+  /** ORW-1090: the player-involved wake reaction of this tick (told to the narrator for one turn). Memory-only. */
+  private bedWakeNote: { sleeper: string; joiner: string; mood: "annoyed" | "fine" } | null = null;
+
   private resolvePlayerBed(text: string): boolean {
+    const changed = this.resolvePlayerBedInner(text);
+    // A note on a request that changed nothing is a refusal, except the plain "already have it there" (nothing was asked of the game).
+    this.playerBedRefusal = !changed && this.playerBedNote !== null && !/already has their bed/.test(this.playerBedNote) ? this.playerBedNote.replace(/\s*\(engine truth:[^)]*\)/g, "") : null;
+    return changed;
+  }
+
+  private resolvePlayerBedInner(text: string): boolean {
     this.playerBedNote = null;
     const beds = this.ensureBeds();
     if (!beds || !this.house || this.live?.finished || !this.playerBedWindowOpen(beds)) return false;
@@ -8931,7 +9569,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private bedsLine(): string | undefined {
     const beds = this.live?.playedGame === true ? this.live.beds : undefined; // a read: never claims
-    if (!beds || !this.playerBedWindowOpen(beds) || (!this.moveInPickOpen(beds) && !this.playerBedNote)) return undefined;
+    if (!beds || !this.playerBedWindowOpen(beds) || (!this.moveInPickOpen(beds) && !this.playerBedNote && !this.bedRushRunning())) return undefined;
     const living = new Set(this.livingIds());
     const label = (id: EntityId): string => (id === PLAYER ? "the player" : this.nameOf(id));
     const rooms = BEDROOM_LAYOUT.map((spec) => {
@@ -8958,6 +9596,31 @@ export class GameSessionAdapter implements GameSession {
     const seed = this.gameSeed ?? 0;
     for (const [people, impact] of [[left, BED_MOVES.slight], [joined, BED_MOVES.signal]] as const) {
       for (const p of people) if (p !== PLAYER && p !== mover) this.rel.applyImpactDirected(p, mover, impact, new SeededRandom(hashSeed(`${seed}:bed-move-fold:${p}:${mover}:${day}`)));
+    }
+  }
+
+  /**
+   * ORW-1090 (Ryne 2026-11-26: an empty half of a double is fair game; the sleeper may react when they wake, annoyed or fine by how they feel about the joiner; the same for houseguests joining a sleeping player or
+   * houseguest). Once per join, on the first tick of a LATER day than the join: the earlier claimant of a double's two halves is the sleeper, the later one the joiner. The sleeper's own read of the joiner (their warmth
+   * toward them, the same bar a swap uses) is "annoyed" below `BED_RULES.swapAcceptAbove`, else "fine". NARRATION ONLY: no relationship fold (a hidden slight moves every seeded trajectory and so every seed-pinned scan; folding it is a calibration change for the product owner, carded separately). When the player is the sleeper or the joiner the reaction is handed to the narrator for one turn (`bedWake`). Append-only record so a join reacts once.
+   */
+  private reactToHalfJoins(beds: BedsState, day: number, living: ReadonlySet<EntityId>): void {
+    this.bedWakeNote = null;
+    const r = this.bedReader();
+    for (const joiner of [...living]) {
+      const spot = beds.owner[joiner];
+      if (!spot || !isDoubleSpot(spot)) continue;
+      const sleeper = otherHalf(beds, spot, living, joiner);
+      if (!sleeper) continue;
+      const at = (who: EntityId): number => { for (let i = beds.claims.length - 1; i >= 0; i--) if (beds.claims[i]!.who === who && beds.claims[i]!.bed === beds.owner[who]) return i; return -1; };
+      if (at(joiner) <= at(sleeper)) continue; // the later claimant is the joiner
+      const claim = beds.claims[at(joiner)];
+      if (!claim || claim.day >= day) continue; // they have not slept on it yet
+      const key = `${bedOfSpot(spot)}:${sleeper}:${joiner}`;
+      if (beds.wokeBeside?.includes(key)) continue;
+      (beds.wokeBeside ??= []).push(key);
+      const mood = r.warmth(sleeper, joiner) < BED_RULES.swapAcceptAbove ? "annoyed" as const : "fine" as const;
+      if (sleeper === PLAYER || joiner === PLAYER) this.bedWakeNote = { sleeper: this.nameOf(sleeper), joiner: this.nameOf(joiner), mood };
     }
   }
 
@@ -9009,6 +9672,7 @@ export class GameSessionAdapter implements GameSession {
       const what = isDoubleSpot(spot) ? "half of a double" : "bed";
       this.onPlayerEvent?.(`${this.nameOf(gone)}'s ${what} in ${this.roomName(room)} sits empty now that they are gone${mates.length ? `; ${mates.map((m) => this.nameOf(m)).join(", ")} ${mates.length === 1 ? "sleeps" : "sleep"} there` : ""}`, witness, "bed-claim");
     }
+    this.reactToHalfJoins(beds, day, living); // ORW-1090
     const movedToday = beds.claims.filter((c) => c.why === "move" && c.day === day && c.who !== PLAYER).length;
     if (movedToday >= BED_MOVES.maxPerDay) return;
     if (new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:bed-moves:${day}`)).next() >= this.bedMoveChance) return;
@@ -9114,6 +9778,11 @@ export class GameSessionAdapter implements GameSession {
    * are untouched, only the player-facing map is overwritten) and ends with it; afterwards the ordinary calm tick (capped movers per tick) disperses them on their own timing. The calibration base map
    * is never touched. Idempotent per ceremony kind; `force` re-pins after a tick. Returns true while a ceremony holds the house.
    */
+  /** ORW-928: player messages since the engine committed the eviction result (memory-only). */
+  private evictionVoicedMsgs = 0;
+  /** ORW-937 (memory-only, like the ceremony beat: a restart forgets it and the narrator is simply not told): who was out of the staged competition when the previous player message was framed (`compOutPrev`), and who of them an earlier reply has therefore voiced (`compToldOut`). */
+  private compOutPrev: EntityId[] = [];
+  private compToldOut: EntityId[] = [];
   private ceremonyBeat: "nominations" | "veto-draw" | "veto-ceremony" | "eviction" | null = null; // memory-only
   private ceremonyHeld: string | null = null;
   /** ORW-281: the narrator is on the veto DRAW (its own moment) from the schedule's draw stage until the player speaks after the draw was voiced; the competition's moment takes over afterwards. */
@@ -9553,6 +10222,7 @@ export class GameSessionAdapter implements GameSession {
   whisperPairings(knowledge: KnowledgeService): void {
     this.npcCallsHouseMeeting();
     this.whisperHabits(knowledge); // ORW-566 (spec 0183 part b): own stream, empty unless a habit was seen
+    this.whisperDiaryStays(knowledge); // ORW-694 / B1-11: own stream, empty unless a long Diary Room stay was seen
 
     if (!this.house || !this.presence) return;
     const player = this.house.player.id;
@@ -9574,7 +10244,7 @@ export class GameSessionAdapter implements GameSession {
       roomRef: (r) => this.roomRefOf(r), // ORW-466: the season's room name
       knowledge,
       rng,
-      ...(this.napAsleep ? { playerAsleep: true } : {}),
+      ...(this.napAsleep || playerOutReason(this.live) ? { playerAsleep: true } : {}), // ORW-1086: a player out of the house is no node of its talk
       ...(this.live?.playedGame === true ? { countPlayer: true } : {}), // ORW-614 (P-9): a played game's house counts the player in the room it is watching
     });
   }
@@ -9816,7 +10486,7 @@ export class GameSessionAdapter implements GameSession {
     let speakers: Array<{ id?: string; name: string; host?: true; isPlayer?: true; manner?: "drawn-to" | "even" | "guarded" }> | undefined;
     if (pe.stage !== "entrances" && pe.spoke.length > 0) {
       const len = pe.spoke.length;
-      const from = len % TOAST_BATCH === 0 ? len - TOAST_BATCH : len - (len % TOAST_BATCH);
+      const from = pe.lastRelease !== undefined && pe.lastRelease > 0 && pe.lastRelease <= len ? len - pe.lastRelease : (len % TOAST_BATCH === 0 ? len - TOAST_BATCH : len - (len % TOAST_BATCH));
       speakers = pe.spoke.slice(from).map(speakerOf);
     }
     return {
@@ -9894,7 +10564,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** A9 - the staged premiere's entrances + toast, one `advanceGame` per release. */
-  private advancePremiereEntrance(): AdvanceView {
+  private advancePremiereEntrance(toastBatches?: number): AdvanceView {
     const s = this.live!;
     this.ensurePremiereClock();
     const callingCircle = s.premiereEntrance?.stage === "entrances" && !!s.houseTour && everyoneIn(s); // ORW-654 / 0206: calling the circle is not a new scene - it takes no premiere step, so the clock reads as it did before the tour
@@ -9952,7 +10622,10 @@ export class GameSessionAdapter implements GameSession {
       this.persist();
       return { ...this.advanceView(null), event: { beat: "premiere-toast", content: "The champagne toast ends", detail: { speakers: [], index: pe.spoke.length, of: all.length, closed: true } } };
     }
-    const batch = all.slice(pe.spoke.length, pe.spoke.length + TOAST_BATCH);
+    // ORW-997: a watch-only circle may flow several batches in one advance (1 to 4); the default is the one batch it always released.
+    const batches = Math.min(4, Math.max(1, Math.floor(typeof toastBatches === "number" && Number.isFinite(toastBatches) ? toastBatches : 1)));
+    const batch = all.slice(pe.spoke.length, pe.spoke.length + TOAST_BATCH * batches);
+    pe.lastRelease = batch.length;
     for (const sp of batch) {
       if (sp === "host") this.onPlayerEvent?.("The host opens the toast", [...pe.order], "toast-speech");
       else if (sp !== me) this.onPlayerEvent?.(`${this.nameOf(sp)} gives a toast`, [...pe.order], "toast-speech");
@@ -10253,12 +10926,15 @@ export class GameSessionAdapter implements GameSession {
     // NAME-1 (#547): on ANY confirmed restart capture the dead season's cast names so the next season's
     // corpus-sampled cast avoids them (cross-season diversity). This is the only point the prior cast
     // still exists, before the reset; it rides `effReq` through `onRestart` into the fresh sandbox.
-    const priorCastNames = (this.house && req.confirmRestart)
+    // ORW-921: `isolateSeason` (a seeded test or replay, set by the front end's new-game door for an explicit seed) carries NOTHING across the restart: the same seed then deals the same season first on a stack
+    // and after other seasons. A player's own restart never sets it.
+    const isolate = req.isolateSeason === true;
+    const priorCastNames = (this.house && req.confirmRestart && !isolate)
       ? this.priorSeasonNames(req.priorCastNames)
       : req.priorCastNames;
-    const worldCarried = (this.house && req.confirmRestart && !req.avoidWorld) ? this.carriedWorldAvoid() : undefined; // ORW-509: the dead season's world picks, read BEFORE the reset
+    const worldCarried = (this.house && req.confirmRestart && !isolate && !req.avoidWorld) ? this.carriedWorldAvoid() : undefined; // ORW-509: the dead season's world picks, read BEFORE the reset
     // ORW-466: this season's house theme joins the player's recent themes, so the next season draws a different one (bounded; most recent first).
-    const priorHouseThemes = (this.house && req.confirmRestart)
+    const priorHouseThemes = (this.house && req.confirmRestart && !isolate)
       ? [...new Set([...(this.live?.houseTheme ? [this.live.houseTheme] : []), ...(req.priorHouseThemes ?? [])])].slice(0, MAX_PRIOR_HOUSE_THEMES)
       : req.priorHouseThemes;
     const effReq: CreateCharacterReq = {
@@ -11683,6 +12359,7 @@ export class GameSessionAdapter implements GameSession {
       ties: this.seededRels.ties,
       npcs,
       player: this.house.player.id,
+      playerOut: evicted.has(this.house.player.id), // ORW-1086
       affinity: (a, b) => this.rel.edge(a, b).affinity,
       nameOf: (id) => this.nameOf(id),
       knowledge,
@@ -12614,6 +13291,8 @@ export class GameSessionAdapter implements GameSession {
         if (!hg) return 0.55;
         return derivedLoyalty(this.dispositionReadOf(id), this.emotionalReadOf(id), this.cultureMult("loyalty"));
       },
+      // ORW-972: the vote the player told this houseguest they will cast at this eviction (a this-week claim about their OWN vote, told by the player): the player counts in their bloc's pick only so.
+      ...(this.live?.playedGame === true && this.npcBeliefsEnabled ? { playerStatedVoteFor: (holder: EntityId, fn: readonly [EntityId, EntityId]) => this.playerStatedVoteFor(holder, fn) } : {}),
       // 0107: the named-alliance cement into bloc detection — bounded, saturation-diluted; 0 for every
       // pair when no alliance is named ⇒ the seeded bloc/vote read is byte-identical (the calibration spine).
       allianceTie: (a, b) => allianceTieBoost(this.alliances.all(), a, b) + this.territoryBondNudge(a, b), // ORW-561: + the territory nudge (0 unless a played game with the flag on)
@@ -12667,7 +13346,8 @@ export class GameSessionAdapter implements GameSession {
       // ORW-568 / 0181: the voter's (or HOH's) real feeling for the person keeps them. Played games with the bond record only, so a headless sim carries no hook (+0, byte-identical).
       ...(this.bondFeelingsOn() ? { feelingKeepFor: (n: EntityId, v: EntityId) => this.feelingKeepOf(n, v) } : {}),
       ...(this.houseNormsEnabled && this.live?.playedGame === true && this.npcBeliefsEnabled ? { herdFor: (n: EntityId, v: EntityId, fn: readonly [EntityId, EntityId]) => this.herdFor(n, v, fn) } : {}), // 0180 part 2
-      ...(this.showmancesEnabled && this.live?.playedGame === true ? { couplePushFor: (t: EntityId, h: EntityId) => this.couplePushFor(t, h) } : {}), // 0207 A2: a pair the HOH reads as a couple is a target
+      ...(this.showmancesEnabled && this.live?.playedGame === true ? { couplePushFor: (t: EntityId, h: EntityId) => this.couplePushFor(t, h) } : {}),
+      ...(this.hohCourtOn() ? { standingPushFor: (t: EntityId, h: EntityId) => (t !== h && this.live?.status?.leader === t ? HOH_COURT.standing.leaderTargetPush : 0) } : {}), // ORW-694 B1-9: the house's informal leader is a bigger target // 0207 A2: a pair the HOH reads as a couple is a target
       ...(this.endgameTrustEnabled && this.live?.playedGame === true ? { endgameFor: (t: EntityId, d: EntityId) => this.endgameFor(t, d) } : {}), // 0193
       ...(this.tellReactionsEnabled && this.npcTellsEnabled ? { moodTiltFor: (subject: EntityId, holder: EntityId) => this.moodTiltFor(subject, holder) } : {}),
       ...(this.lobbyingEnabled ? { pitchTiltFor: (subject: EntityId, holder: EntityId) => this.pitchTiltFor(subject, holder) } : {}),
@@ -12715,6 +13395,7 @@ export class GameSessionAdapter implements GameSession {
       // 0126: fold the expanded mechanic pool into the competition draw — present ONLY when enabled (off in
       // the calibration/golden harness ⇒ absent ⇒ the base 12-mechanic draw ⇒ byte-identical).
       ...(this.compMechanicsPlusEnabled ? { expandedComps: true as const } : {}),
+      ...(this.compMechanicsPlusEnabled && this.compMechanicsMoreEnabled ? { moreComps: true as const } : {}),
       // 0127: blend a hybrid comp's secondary aptitude into its outcome — present ONLY when enabled (off in
       // the calibration/golden harness ⇒ absent ⇒ pure single-stat resolution ⇒ byte-identical).
       ...(this.compMixedEnabled ? { mixedComps: true as const } : {}),
@@ -12746,6 +13427,7 @@ export class GameSessionAdapter implements GameSession {
   /** 0126 — turn the expanded competition-mechanic pool (30 total) on/off. Off by default (the calibration
    *  harness leaves it off ⇒ base 12-mechanic draw ⇒ byte-identical). The deploy turns it on for real play. */
   setCompMechanicsPlusEnabled(on: boolean): void { this.compMechanicsPlusEnabled = on; }
+  setCompMechanicsMoreEnabled(on: boolean): void { this.compMechanicsMoreEnabled = on; }
   /** 0126 — the resolved on/off state of the expanded-mechanic pool (for an admin/status read). */
   compMechanicsPlusEnabledNow(): boolean { return this.compMechanicsPlusEnabled; }
 
@@ -13389,7 +14071,7 @@ export class GameSessionAdapter implements GameSession {
     if (!this.seasonMemoryEnabled || !this.house || !this.live || this.live.playedGame !== true || (!this.live.finished && !abandoned)) return null;
     const order = this.live.evictionOrder ?? [];
     const castSize = 1 + this.house.npcs.length;
-    const jurors = new Set(order.slice(-9));
+    const jurors = new Set(this.jurorsNow().slice(-9));
     const records: SeasonNpcRecord[] = this.house.npcs.map((n) => {
       const idx = order.indexOf(n.id);
       const placement = this.live!.winner === n.id ? 1 : this.live!.finalTwo?.includes(n.id) ? 2 : idx >= 0 ? castSize - idx : castSize - (this.live!.finished ? 0 : order.length); // an unfinished season: those still in the house outlast everyone already out
@@ -13526,7 +14208,7 @@ export class GameSessionAdapter implements GameSession {
     }
     const reachedFinalTwo = this.live.finalTwo?.includes(me) ?? false;
     // Reached the jury = a juror seat (one of the last 9 evictees) OR a finalist (a deeper run still counts).
-    const jurors = new Set(order.slice(-9));
+    const jurors = new Set(this.jurorsNow().slice(-9));
     const reachedJury = reachedFinalTwo || jurors.has(me);
     // The finale jury-vote share the player won (open-set ceremony fact) — only meaningful as a finalist.
     let juryVoteShare = 0;
@@ -14580,7 +15262,7 @@ export class GameSessionAdapter implements GameSession {
     // point" (the same rule as `seatOf`), not `slice(-9)` over time — which, while fewer than nine had been
     // evicted, swept the early (pre-jury) evictees in. At the finale the juror set is identical (the last nine).
     const evicted = this.live.evictionOrder ?? [];
-    const juryEvictees = evicted.slice(this.juryStartIndex()).filter((id) => id !== this.house!.player.id);
+    const juryEvictees = this.jurorsNow().filter((id) => id !== this.house!.player.id);
     const jurors = juryEvictees.slice(-9);
     if (jurors.length < 2) return; // sequester hasn't produced a society yet (pre-jury / first juror only)
     // Whom a grudge can matter against: the still-in-the-game houseguests (the potential finalists),
@@ -15125,7 +15807,8 @@ export class GameSessionAdapter implements GameSession {
   private answerAimedFrom(npc: EntityId): void {
     const ask = this.live?.approachAsked?.[npc]; if (ask && ask.answered !== true) ask.answered = true; // ORW-709: the player's answer is recorded: the question is closed and stays so
     if (!this.playerAimedEnabled) return;
-    for (const r of this.live?.aimedAtPlayer ?? []) if (r.actor === npc && (r.status === "open" || r.status === "shown")) r.status = "answered";
+    // ORW-905: the answer closes a record that SURFACED (shown) and an unseen non-hostile one (as before). An open HOSTILE one the player never saw is not something they responded to: it stays, so its fight is not silently defused.
+    for (const r of this.live?.aimedAtPlayer ?? []) if (r.actor === npc && (r.status === "shown" || (r.status === "open" && !r.hostile))) r.status = "answered";
   }
   /**
    * 0172 / ORW-611: once a day. A step that surfaced as an approach is written down as a scene the player was present for (a witnessed event, never hidden); a step the player never answered closes: a hostile one costs that houseguest's
@@ -15464,10 +16147,17 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-651 / spec 0209 (habits and routines): each houseguest's routines (a time, a place, an act) shape where they are and what they do in a free hour, replacing the named-habit pull; the player learns one by seeing it on separate days. ON unless `ORWELL_ROUTINES=0`. Played games only; OFF => no routine on the hour view => the old habit branch, byte-identical. */
   private routinesEnabled = flagDefaultOn("ORWELL_ROUTINES");
   setRoutinesEnabled(on: boolean): void { this.routinesEnabled = on; }
-  /** A houseguest's routines, composed once (the cast-authoring habits mapped when they landed, else the engine floor from the character) and kept for the season: never replaced or thinned. Engine-only. */
+  /**
+   * A houseguest's routines, composed once (the cast-authoring habits mapped when they landed, else the engine floor from the character) and kept for the season: never replaced or thinned. Engine-only.
+   * ORW-960 (B2-8): cast-authoring habits that land AFTER the floor was composed are added then (`mergeAuthoredRoutines`: the floor stays, the authored lead at their time).
+   */
   private routinesOf(id: EntityId, character: AgendaCharacter, authoredHabits: readonly Habit[] | undefined, seed: number): Routine[] {
     const store = (this.live!.routines ??= {});
-    return store[id] ?? addRoutines(store, id, authoredHabits?.length ? routinesFromHabits(authoredHabits, id, seed) : floorRoutinesFor(character, id, seed));
+    // ORW-978: the free-form routines the model wrote from the whole profile (validated when recorded) lead the ones mapped from the closed habit set; both are "authored" and both land when the traits do.
+    const written = this.live!.npcMindsAuthored?.traits?.[id]?.routines ?? [];
+    const authored = written.length || authoredHabits?.length ? [...written, ...(authoredHabits?.length ? routinesFromHabits(authoredHabits, id, seed) : [])] : [];
+    if (store[id] && authored.length) return mergeAuthoredRoutines(store, id, authored);
+    return store[id] ?? addRoutines(store, id, authored.length ? authored : floorRoutinesFor(character, id, seed));
   }
   /**
    * ORW-651: the player is where a routine puts its holder, awake, on this day: count it. On the third separate day the player knows the routine, as a third-person fact the narrator may voice
@@ -15480,11 +16170,29 @@ export class GameSessionAdapter implements GameSession {
   private countRoutineSighting(actor: EntityId, routine: string, place: string, kind: string, day: number, knowledge: KnowledgeService | undefined): void {
     if (!this.live) return;
     const { learned } = noteSighting((this.live.routineSightings ??= {}), actor, routine, day);
-    if (!learned || !knowledge) return;
-    const me = this.house!.player.id;
-    const r = this.live.routines?.[actor]?.find((x) => routineKey(x) === routine);
+    if (learned && knowledge) this.learnRoutine(this.house!.player.id, actor, routine, place, kind, knowledge);
+  }
+  /** The onlooker now knows the routine: a third-person fact (the holder's name, the room, the time of day, the act or the authored words), the same words for the player and for an NPC. No subject: it is where someone usually is, never a secret to trade or press. */
+  private learnRoutine(onlooker: EntityId, actor: EntityId, routine: string, place: string, kind: string, knowledge: KnowledgeService): void {
+    const r = this.live?.routines?.[actor]?.find((x) => routineKey(x) === routine);
     const content = `${this.nameOf(actor)} is usually in the ${place.replace(/-/g, " ")} in the ${routine.split(":")[0]!.replace(/-/g, " ")}, ${r?.gist ?? `their usual: ${kind.replace(/-/g, " ")}`}`;
-    if (!knowledge.knownTo(me).some((f) => f.content === content)) knowledge.seedBelief(me, { content, factId: `routine:${actor}:${routine}`, confidence: 1, hops: 0, distortion: 0 }, "witnessed");
+    if (!knowledge.knownTo(onlooker).some((f) => f.content === content)) knowledge.seedBelief(onlooker, { content, factId: `routine:${actor}:${routine}`, confidence: 1, hops: 0, distortion: 0 }, "witnessed");
+  }
+  /**
+   * ORW-960 (B2-8, parity): only the player ever learned a routine. A houseguest awake in the room where someone keeps their routine sees it too, counted per onlooker on separate days
+   * (`live.npcRoutineSightings`, engine-only) and known on the same day the player would know it, as the same fact. Played games with routines on only; no draw of its own.
+   */
+  private noteRoutinesSeenByHouse(plans: readonly PlannedAction[], awakeIds: readonly EntityId[], day: number, knowledge: KnowledgeService | undefined): void {
+    const s = this.live, house = this.house, presence = this.presence;
+    if (!s || !house || !presence || !this.routinesEnabled || s.playedGame !== true) return;
+    for (const p of plans) {
+      if (!p.routine || p.place === "diary-room" || presence.get(p.actor) !== p.place) continue;
+      for (const o of awakeIds) {
+        if (o === p.actor || o === house.player.id || presence.get(o) !== p.place) continue;
+        const { learned } = noteSighting(((s.npcRoutineSightings ??= {})[o] ??= {}), p.actor, p.routine, day);
+        if (learned && knowledge) this.learnRoutine(o, p.actor, p.routine, p.place, p.kind, knowledge);
+      }
+    }
   }
   /**
    * ORW-799: a sighting was only counted when a routine WALKED someone into the player's room; a houseguest already in that room when their routine pulls (same keyed roll the planner uses, so the same hour) was never
@@ -15502,6 +16210,9 @@ export class GameSessionAdapter implements GameSession {
     const tod = (s.timeOfDay ?? "afternoon") as LifeTimeOfDay;
     for (const id of awakeIds) {
       if (id === house.player.id || this.presence?.get(id) !== playerRoom) continue;
+      // ORW-981 (spec 0209, the other half): a houseguest awake in the room with the player on separate days at the same time of day has SEEN where the player usually is then. Engine-only, counted like any routine sighting
+      // (`npcRoutineSightings[onlooker][player]`); monotonic; no draw.
+      if (this.routineHauntsEnabled) { const d = (((s.playerHaunts ??= {})[id] ??= {})[`${tod}:${playerRoom}`] ??= []); if (!d.includes(day)) d.push(day); }
       const character = this.agendaCharacterOf(id);
       if (!character) continue;
       const rs = this.routinesOf(id, character, s.npcMindsAuthored?.traits?.[id]?.habits, seed);
@@ -15645,8 +16356,27 @@ export class GameSessionAdapter implements GameSession {
     whisperHabitSighting({
       occupancy: this.presence, tenureOf: (id) => this.presenceTenure?.get(id) ?? 0, npcs, player,
       affinity: (a, b) => this.rel.edge(a, b).affinity, nameOf: (id) => this.nameOf(id), roomRef: (r) => this.roomRefOf(r), knowledge, rng,
-      ...(this.napAsleep ? { playerAsleep: true } : {}),
+      ...(this.napAsleep || playerOutReason(this.live) ? { playerAsleep: true } : {}), // ORW-1086: a player out of the house is no node of its talk
     }, pick);
+  }
+  /** ORW-694 / B1-11 (spec 0210 C2, "both ways"): spread the queued long Diary Room stays as a position whisper - a DEDICATED stream, no relationship fold (calibration-neutral). */
+  whisperDiaryStays(knowledge: KnowledgeService): void {
+    const sightings = this.diaryStaySightings;
+    this.diaryStaySightings = [];
+    if (sightings.length === 0 || !this.house || !this.presence || this.live?.playedGame !== true) return;
+    const player = this.house.player.id;
+    const evicted = new Set(this.live?.evictionOrder ?? []);
+    const awake = this.awakeNow();
+    const npcs = this.house.npcs.map((n) => n.id).filter((id) => !evicted.has(id) && (!awake || awake.has(id)));
+    if (npcs.length < 2) return;
+    const rng = new SeededRandom(hashSeed(`house-diary-stay:${this.gameSeed ?? ""}:${this.presenceTickCount}`));
+    for (const sighting of sightings) {
+      whisperLongDiaryStay({
+        occupancy: this.presence, tenureOf: (id) => this.presenceTenure?.get(id) ?? 0, npcs, player,
+        affinity: (a, b) => this.rel.edge(a, b).affinity, nameOf: (id) => this.nameOf(id), roomRef: (r) => this.roomRefOf(r), knowledge, rng,
+        ...(this.napAsleep || playerOutReason(this.live) ? { playerAsleep: true } : {}), // ORW-1086: a player out of the house is no node of its talk
+      }, sighting);
+    }
   }
   /** ORW-466 slice 4: the bed facts a houseguest's hour reads - their sleep room, their AWAKE roommates among this stretch's actors, the one sharing their double. Empty without beds. */
   private roommateView(beds: BedsState | undefined, id: EntityId, inHouse: ReadonlySet<EntityId>, awake: ReadonlyMap<EntityId, Room>): { bedroom?: Room; roommates?: EntityId[]; bedPartner?: EntityId } {
@@ -15698,6 +16428,7 @@ export class GameSessionAdapter implements GameSession {
       st.seen.push({ ...seen, at: abs });
       delete st.away;
       this.recordDiaryCallEvent(events, a.who, backEventText(this.nameOf(a.who), seen), `diary-call:back:${seed}:${a.since}:${a.who}`);
+      if (seen.long) this.diaryStaySightings.push({ who: a.who, onlookers: this.diaryWitnesses().filter((id) => id !== a.who && id !== PLAYER) }); // ORW-694 / B1-11: the house saw a long stay
     }
     if (st.away || this.diaryHouseBusy() || this.phase === "premiere") return;
     const day = s.dayNumber ?? s.week;
@@ -15713,6 +16444,11 @@ export class GameSessionAdapter implements GameSession {
     const s = this.live!, seed = this.gameSeed ?? 0, abs = this.inGameAbsHour()!;
     const st: DiaryCallsState = (s.diaryCalls ??= { seen: [], byDay: {} });
     if (st.playerLast === abs) return;
+    // ORW-694 / B1-11 ("both ways"): a stay that runs into a second in-game hour is a long one (an NPC's long call is 20+ minutes); the house sees it once per stay.
+    if (st.playerLast === abs - 1) {
+      if (st.playerStayFrom === undefined) st.playerStayFrom = abs - 1;
+      if (abs - st.playerStayFrom === 1) this.diaryStaySightings.push({ who: PLAYER, onlookers: this.diaryWitnesses().filter((id) => id !== PLAYER) });
+    } else st.playerStayFrom = abs;
     st.playerLast = abs;
     st.seen.push({ who: PLAYER, day: s.dayNumber ?? s.week, long: false, comesBack: "same", at: abs }); // the engine never says how it left the player feeling
     this.recordDiaryCallEvent(events, PLAYER, playerVisitText(this.nameOf(PLAYER)), `diary-call:player:${seed}:${abs}`);
@@ -15754,6 +16490,16 @@ export class GameSessionAdapter implements GameSession {
     return facts.length ? { register: producerRegisterWords(this.gameSeed ?? 0), facts } : undefined;
   }
   /** The Diary Room calls as facts for the narrator, or undefined. */
+  /** ORW-914: the Diary Room invitation is offered once per (week, dramatic beat), on the turn it first comes up (every read in that turn sees it), and not within `DIARY_CALLS.inviteQuietHours` of the player's own last visit. */
+  private diaryInviteShown: { key: string; epoch: number } | null = null;
+  private diaryInviteNow(beat: string): boolean {
+    const key = `${this.week}:${beat}`;
+    if (this.diaryInviteShown?.key === key) return this.diaryInviteShown.epoch === this.disclosureEpoch;
+    const abs = this.inGameAbsHour(), last = this.live?.diaryCalls?.playerLast;
+    if (abs !== undefined && last !== undefined && abs - last < DIARY_CALLS.inviteQuietHours) return false; // just visited: not now (a later turn of the beat may offer it)
+    this.diaryInviteShown = { key, epoch: this.disclosureEpoch };
+    return true;
+  }
   private diaryCallView(invited: boolean): DiaryCallView | undefined {
     if (!this.diaryCallsLive()) return undefined;
     const s = this.live!, abs = this.inGameAbsHour()!;
@@ -15889,6 +16635,7 @@ export class GameSessionAdapter implements GameSession {
       this.presenceBase?.set(p.actor, p.place);
       if (p.routine && playerUp && p.place === playerRoom) this.noteRoutineSighting(p, day, knowledge); // ORW-651: the player is there, awake, and sees them keep it
     }
+    this.noteRoutinesSeenByHouse(plans, awakeIds, day, knowledge); // ORW-960: the houseguests there see them keep it too
     // ORW-561 (spec 0176 part 2): after they have walked, each awake houseguest's hour accrues to the hidden tenure map where they ended up (the HOH room too: slice 11 reads that time; the Diary Room is private).
     if (this.territoryOn()) { const t = (s.tenure ??= {}); for (const id of awakeIds) { const r = presence.get(id); if (r && r !== "diary-room") bumpTenure(t, id, r); }
       // ORW-614 (P-11): the player's own hours count toward the crowd they keep, like anyone's (never while napping; the Diary Room is private).
@@ -15938,6 +16685,7 @@ export class GameSessionAdapter implements GameSession {
             ...(() => { const seen = this.onlookers([...presence.entries()].filter(([id, room]) => room === p.place && !people.includes(id) && id !== house.player.id).map(([id]) => id).sort(), type, people, `${seed}:hide-catch:${day}:${hour}:${p.actor}:${p.kind}`); return seen.length ? { seenBy: seen } : {}; })() }, // ORW-539: who could see it; 0184 part 2b: a hiding pair's time together is caught only on a roll
         };
         events.record(event);
+        if (type === "showmance") this.noteCoupleSeen(people, event.houseLife?.seenBy ?? []); // ORW-767: the houseguests who saw it hold the pair
         this.playerCatchesHiddenPair(type, people, p.place, presence, `${seed}:hide-catch:${day}:${hour}:${p.actor}:${p.kind}`); // 0184 part 2b
         out.push({ event, type, initiator: p.actor, partner });
         if (p.habit) this.noteHabitScene(p, event);
@@ -15947,6 +16695,7 @@ export class GameSessionAdapter implements GameSession {
         // 0188 part 2 / ORW-627: a story planted in a room can be overheard by anyone else there, awake (the player included)
         if (said && speechActionOf(p.kind) === "plant") this.overhearPlant(said, p.place, presence, `${seed}:overhear-plant:${day}:${hour}${repeat > 0 ? `r${repeat}` : ""}`);
         this.noteHeardCampaign(p, partner, presence, `${seed}:herd-voice:${day}:${hour}${repeat > 0 ? `r${repeat}` : ""}`); // ORW-692 (B1-8)
+        this.noteCoupleTalk(p, partner, `${day}:${hour}${repeat > 0 ? `r${repeat}` : ""}`); // ORW-767
         this.noteNomineeAssured(p, partner); // ORW-692 (B1-10)
       }
     }
@@ -16306,7 +17055,7 @@ export class GameSessionAdapter implements GameSession {
     for (const g of after.history.slice(before.history.length)) {
       const a = appraiseGoal(g);
       if (a.event) this.inflect(id, a.event);
-      if (a.cause) (this.live.moodCauses ??= {})[id] = { ...a.cause, week: this.live.week };
+      if (a.cause) (this.live.moodCauses ??= {})[id] = { ...a.cause, week: this.live.week, ...(this.live.dayNumber !== undefined ? { day: this.live.dayNumber } : {}) }; // ORW-735: the day it settled, so it ages like every other cause
     }
   }
   /**
@@ -16325,7 +17074,10 @@ export class GameSessionAdapter implements GameSession {
     const say = (line: string, about?: EntityId): string => (about ? fillSubject(line, this.nameOf(about)) : line.split("{subject}").join("them"));
     let best: { weight: number; text: string } | undefined;
     const c = live.moodCauses?.[id];
-    if (goalOn && c && c.week === live.week && mayShareCause(c, affinity, candor)) best = { weight: MOOD_CAUSES.goalWeight, text: say(c.line, c.about) };
+    // ORW-735 (Season 2 W2-7): a goal cause was handed to the narrator on every look at the houseguest for the whole week, so one houseguest said "X would not come over to my side" a dozen times. With its day known it now ages like every other
+    // cause: full weight the day it settled, falling to nothing after `carryDays` in-game days (a cause saved without its day keeps the old same-week rule).
+    const goalCarry = c && c.day !== undefined && live.dayNumber !== undefined ? carryFactor(live.dayNumber - c.day) : 1;
+    if (goalOn && c && c.week === live.week && goalCarry > 0 && mayShareCause(c, affinity, candor)) best = { weight: MOOD_CAUSES.goalWeight * goalCarry, text: say(c.line, c.about) };
     if (eventsOn) {
       const aged = strongestLiveCause(live.moodCauseLog, id, live.week, live.dayNumber); // follow-up: a cause carries a few in-game days with a falling weight
       if (aged && mayShareEventCause(aged.entry.source, affinity, candor) && (!best || aged.weight > best.weight)) best = { weight: aged.weight, text: say(aged.entry.line, aged.entry.about) };
@@ -16816,6 +17568,9 @@ export class GameSessionAdapter implements GameSession {
   /** 0207 A2: the romance scenes `holder` registered (they were in it, or watched it from the room), as unordered pair keys; cached by the record's length. A hiding pair's scenes are caught only on a roll (0184 2b), so this is only what they caught. */
   private seenRomanceCache = new Map<EntityId, { n: number; pairs: Set<string> }>();
   private romanceSeenBy(holder: EntityId, a: EntityId, b: EntityId): boolean {
+    return this.romanceSeenByScene(holder, a, b) || (holder === PLAYER && this.playerToldCouple(a, b));
+  }
+  private romanceSeenByScene(holder: EntityId, a: EntityId, b: EntityId): boolean {
     const events = this.record?.events() ?? [];
     let c = this.seenRomanceCache.get(holder);
     if (!c || c.n !== events.length) {
@@ -16830,6 +17585,59 @@ export class GameSessionAdapter implements GameSession {
       this.seenRomanceCache.set(holder, c);
     }
     return c.pairs.has([a, b].sort().join("|"));
+  }
+  /**
+   * ORW-767 (0207, `ORWELL_COUPLE_TOLD`, default ON; `=0` opts out, byte-identical; played games only) - A SHOWMANCE REACHES THE PLAYER BY BEING TOLD (`coupleTold.ts` holds the rules and the why). Three writers, all in
+   * the existing belief layer, none on the shared stream: (1) a houseguest who SAW a romance scene (in the room, or noticed from it) holds the pair; (2) a houseguest in a speech scene may pass ONE couple they hold
+   * to the other person (a little less sure, and now and then the wrong partner is heard: a misheard pair); (3) a houseguest with the player may tell the player one (the claims-to-player gates), which becomes the
+   * PLAYER's knowledge fact `told-by:<teller>` with the lineage `couple:<a>|<b>`. The read (`playerToldCouple`) is what `romanceSeenBy` adds for the player: it opens the narrator's showmance gate and counts as
+   * the player having caught the pair in the 0207 pace record, only for a REAL pair at the stage the house knows; a misheard pair is a belief the player holds and nothing more.
+   */
+  private coupleToldEnabled = flagDefaultOn("ORWELL_COUPLE_TOLD");
+  setCoupleToldEnabled(on: boolean): void { this.coupleToldEnabled = on; }
+  private coupleToldOn(): boolean { return this.coupleToldEnabled && this.live?.playedGame === true; }
+  /** Does the PLAYER hold this pair as something they were told (a knowledge fact on the pair's lineage through a `told-by:` pathway)? */
+  private playerToldCouple(a: EntityId, b: EntityId): boolean {
+    if (!this.coupleToldOn()) return false;
+    const lineage = coupleFactId(a, b);
+    return (this.playerKnowledgeReader?.() ?? []).some((f) => f.factId === lineage && (f.pathway ?? "").startsWith("told-by:"));
+  }
+  /** (1) The houseguests who saw a romance scene hold the pair, first-hand. The pair themselves and the player are never holders here. */
+  private noteCoupleSeen(people: readonly EntityId[], seenBy: readonly EntityId[]): void {
+    const s = this.live;
+    if (!this.coupleToldOn() || !s || !this.npcBeliefsEnabled || people.length !== 2) return;
+    const store = (s.beliefs ??= {});
+    for (const holder of seenBy) {
+      if (holder === PLAYER || people.includes(holder)) continue;
+      writeCouple(store, holder, people[0]!, people[1]!, { origin: "witnessed", confidence: COUPLE_TOLD.seenConfidence, week: s.week });
+    }
+  }
+  /** (2) A houseguest in a speech scene may pass ONE couple they hold to the other person (their own keyed roll; the retelling may mishear the pair). */
+  private noteCoupleTalk(p: PlannedAction, partner: EntityId, salt: string): void {
+    const s = this.live;
+    if (!this.coupleToldOn() || !s || !this.npcBeliefsEnabled || p.actor === PLAYER || partner === PLAYER || !HOUSE_LIFE_ACTIONS[p.kind].speech) return;
+    const mine = passableCouples(s.beliefs?.[p.actor], p.actor).filter((b) => b.subject !== partner && b.object !== partner);
+    if (mine.length === 0) return;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:couple-told:talk:${salt}:${p.actor}:${partner}`));
+    if (!(rng.next() < COUPLE_TOLD.talkChance)) return;
+    const b = mine[0]!;
+    const [x, y] = retold([b.subject, b.object!], rng.next(), rng.next(), this.livingIds().filter((id) => id !== PLAYER));
+    writeCouple((s.beliefs ??= {}), partner, x, y, { origin: "told", source: p.actor, confidence: b.confidence * COUPLE_TOLD.retoldFactor, week: s.week });
+  }
+  /** (3) A houseguest with the player may tell them ONE couple they hold, through the same gates a confidence takes. Returns what the narrator voices (the teller's words, a band); never the truth. */
+  private tellCoupleToPlayer(id: EntityId, attemptKey: string): NonNullable<import("../../ports/GameSession").PresentKnowledgeView["tellsYou"]> | undefined {
+    const s = this.live;
+    if (!this.coupleToldOn() || !s || !this.npcBeliefsEnabled || !this.onCoupleTold || id === PLAYER) return undefined;
+    const living = new Set(this.livingIds());
+    const known = new Set((this.playerKnowledgeReader?.() ?? []).map((f) => f.factId));
+    const pool = passableCouples(s.beliefs?.[id], id).filter((b) => b.subject !== PLAYER && b.object !== PLAYER && living.has(b.subject) && living.has(b.object!) && !known.has(coupleFactId(b.subject, b.object!)));
+    if (pool.length === 0) return undefined;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:couple-told:tell:${attemptKey}`));
+    if (!(rng.next() < tellChance({ trustInPlayer: this.rel.edge(id, PLAYER).trust, audience: this.audienceAround(id), candor: this.candorOf(id) }))) return undefined;
+    const b = pool[0]!;
+    const [x, y] = couplePair(b.subject, b.object!);
+    if (!this.onCoupleTold(id, coupleContent(this.nameOf(x), this.nameOf(y)), x, coupleFactId(x, y), b.confidence)) return undefined;
+    return { kind: "couple-with", subject: this.nameOf(x), object: this.nameOf(y), certainty: presentedBand(b.confidence, 0) };
   }
   /**
    * 0207 A2 (ORW-659): the couple is a target. An NPC HOH outside a pair they READ as a couple (their own view of the pair's bond at the foundation's bar, plus a romance scene they were in or watched) puts
@@ -17155,15 +17963,18 @@ export class GameSessionAdapter implements GameSession {
       const impact = scale === 1 ? CEREMONY_IMPACTS[act] : scaleImpact(CEREMONY_IMPACTS[act], scale);
       this.rel.applyImpactDirected(from, to, impact, rng);
     };
+    // ORW-779: in a played game one competition win is one factor in the threat read, not the top of it (`PLAYED_COMP_THREAT`); headless => scale 1, byte-identical.
+    const compWin = s.playedGame === true ? PLAYED_COMP_THREAT.win : 1;
+    const reignEnd = s.playedGame === true ? PLAYED_COMP_THREAT.reignEnd : 1;
     switch (ev.beat) {
       case "hoh-competition": {
         const winner = ev.participants[0]; // the new HOH reads as a threat to the whole house (E47)
-        if (winner) for (const h of s.active) fold(h, winner, "comp-won");
+        if (winner) for (const h of s.active) fold(h, winner, "comp-won", compWin);
         break;
       }
       case "veto-competition": {
         const winner = s.vetoHolder;
-        if (winner) for (const h of s.active) fold(h, winner, "comp-won");
+        if (winner) for (const h of s.active) fold(h, winner, "comp-won", compWin);
         break;
       }
       case "nominations": {
@@ -17213,7 +18024,7 @@ export class GameSessionAdapter implements GameSession {
         }
         // The survivors read THIS week's HOH as a proven threat — they just ran the week (E49;
         // `rollWeek` has not run yet at this beat, so `s.hoh` is the reign that ends tonight).
-        if (s.hoh) for (const h of s.active) fold(h, s.hoh, "comp-won");
+        if (s.hoh) for (const h of s.active) fold(h, s.hoh, "comp-won", reignEnd);
         break;
       }
       case "self-eviction": {
@@ -17241,7 +18052,7 @@ export class GameSessionAdapter implements GameSession {
     return new SeededRandom(hashSeed(`${root}:${this.live?.week}:${this.live?.beat}${cycle}`));
   }
 
-  advanceGame(req: { expectedBeatSeq?: number; idempotencyKey?: string } = {}): AdvanceView {
+  advanceGame(req: { expectedBeatSeq?: number; idempotencyKey?: string; toastBatches?: number } = {}): AdvanceView {
     this.disclosureEpoch++; // B33: an advance ends the previous beat's disclosure events
     // 0065 Part B — an at-most-once replay returns the ORIGINAL view (its beatSeq included) WITHOUT
     // advancing again; it WINS even if beatSeq has since moved (the cache is the authority on the
@@ -17265,7 +18076,7 @@ export class GameSessionAdapter implements GameSession {
     // persist, one beatSeq bump) so the released state is durable; `advanceView(null)` reports no new
     // beat (nothing was resolved — only the toast scene closed).
     if (this.live.premiereEntrance && this.live.premiereEntrance.stage !== "done") { // A9: the staged entrances/toast
-      const staged = this.inOneCommit(() => this.advancePremiereEntrance());
+      const staged = this.inOneCommit(() => this.advancePremiereEntrance(req.toastBatches));
       return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, staged) : staged;
     }
     if (this.bedRushRunning()) { // ORW-672 / 0201: the circle has closed - each advance is another heat of the bed rush, until every houseguest has a bed (or the window ends)
@@ -17431,11 +18242,11 @@ export class GameSessionAdapter implements GameSession {
   private juryHouseView(): JuryHouseView | undefined {
     const live = this.live;
     if (!live || this.playerStatus() !== "jury") return undefined;
-    const start = this.juryStartIndex();
+    const juryIds = new Set(this.jurorsNow());
     const manner = live.mannerByEvictee ?? {};
     const jurors: JuryHouseJurorView[] = [];
-    live.evictionOrder.forEach((id, i) => {
-      if (i < start || id === PLAYER) return;
+    live.evictionOrder.forEach((id) => {
+      if (!juryIds.has(id) || id === PLAYER) return;
       const m = manner[id]?.[PLAYER];
       const bearing: JurorBearing = !m ? "even"
         : (m.betrayed || m.blindsided) ? "sour"
@@ -17517,6 +18328,7 @@ export class GameSessionAdapter implements GameSession {
     // only initializes (returns early), so the bookkeeping below is a harmless no-op there: rest
     // deficit is 0 (no night ran) and the conflict tally is still empty.
     // ORW-232 slice 3 (only for a game a person is PLAYING - `messageMode`, set once the FE announces messages; a headless calibration/UAT driver keeps its long-standing cadence byte-for-byte): a staged competition's per-round beat charges its share of the comp's hours (see `competitionRoundHours`), so a competition spans many messages AND hours, never one jump at the crown.
+    if (ev !== null && ev.beat === "comp-elimination") this.noteCompDropSource(ev.content);
     const compRoundHours = this.timeOfDayEnabled && this.playedGameNow() && ev !== null && ev.beat === "comp-elimination" && this.perConversationClockLive() && this.live!.timeOfDay !== undefined && !this.live!.playerRetired
       ? competitionRoundHours(this.live!, this.live!.beat as never, beatFeltHours(this.live!.beat as never) ?? 0)
       : null;
@@ -17591,7 +18403,12 @@ export class GameSessionAdapter implements GameSession {
       const weekBefore = this.live!.week; // the eviction result rolls the week inside this same step
       const cerBefore = ceremonyRef(this.live!); // ORW-281 4a: the open ceremony step (if any) BEFORE this advance
       this.syncTargetsMeClaims(); // ORW-581: the beliefs the beat's decisions read are written here, at commit time (never inside a scoring read)
+      const wrapRetired = this.live!.playerRetired ?? false, wrapDepth = this.live!.nightDepth; // ORW-856: the state a day-break wrap starts from
       const ev = advanceBeat(this.live!, this.ctx(), this.beatRng());
+      // ORW-856 (`ORWELL_DAYBREAK_FATIGUE`, default ON; `=0` opts out): the day-break wrap crosses the night inside the engine (`crossToNextDay`) and is an inert beat, so it never reached the night-end
+      // accrual in `chargeBeatClock`: a player who stayed up to the wrap woke with the night's cost recorded (the sleep debt) but never rolled into the multi-night meter. Like every other genuine night-end (a turn-in,
+      // the wrap an event's steps cross), a wrap the player did NOT sleep through accrues once: the break is a one-shot per night, so exactly once. Played games with the clock on only; no rng.
+      if (this.dayBreakFatigueEnabled && ev?.beat === "day-break" && this.timeOfDayEnabled && this.playedGameNow() && !wrapRetired && wrapDepth !== undefined && wrapDepth !== WAKE_HOUR) { this.noteBadSleepCauses(); this.accrueNightFatigue(); }
       const ceremonyHours = this.ceremonyClockHours(cerBefore, ceremonyRef(this.live!));
       if (cerBefore && !this.live!.ceremony) this.ceremonyEcho = cerBefore; // the closing Continue: echo the step that just closed
       this.maybeLapseDealOffer(standingOfferId); // folded BEFORE commit(ev) so the beat's persist carries it
@@ -17619,6 +18436,16 @@ export class GameSessionAdapter implements GameSession {
     return spreadClockHours(live, "event", `ceremony:w${live.week}:${ref.kind}`, felt, ref.of ?? 0, now === null);
   }
 
+  /** ORW-1063 / ORW-1067: counts of input the engine REFUSED or CLAMPED instead of silently defaulting, by reason. Counts only: no text, no ids. */
+  private readonly inputRefusalTally = new Map<string, number>();
+  noteInputRefusal(name: string): void { this.inputRefusalTally.set(name, (this.inputRefusalTally.get(name) ?? 0) + 1); }
+  inputRefusalCounts(): Record<string, number> { return Object.fromEntries(this.inputRefusalTally); }
+  /** ORW-1063: an invalid decision is an explicit refusal with its reason (an EngineRefusal: HTTP 400, thrown before any mutation, so nothing is cached under an idempotency key and a retry is judged fresh). */
+  private refuseDecision(reason: "no-pending" | "kind-mismatch" | "bad-answer" | "unconfirmed", why: string): never {
+    this.noteInputRefusal(`decision-${reason}`);
+    throw new EngineRefusal(`decision refused (${reason}): ${why}`);
+  }
+
   submitDecision(req: SubmitDecisionReq): AdvanceView {
     // 0065 Part B — replay an already-resolved decision verbatim (wins even if beatSeq moved).
     if (req.idempotencyKey !== undefined) {
@@ -17627,11 +18454,8 @@ export class GameSessionAdapter implements GameSession {
     }
     // 0065 Part A — refuse a decision computed against a superseded board BEFORE any mutation.
     this.guardBeatSeq(req.expectedBeatSeq);
-    if (!this.house || !this.live) {
-      const v = this.advanceView(null);
-      return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, v) : v;
-    }
-    // 0065 Part B — every resolved/no-op path below caches its committed view under the key, so a
+    if (!this.house || !this.live) return this.advanceView(null); // ORW-1063: no game, nothing resolved: never cached under the key, so a retry after the game starts is judged fresh
+    // 0065 Part B — every RESOLVED path below caches its committed view under the key, so a
     // retry replays it verbatim (and never re-applies the decision).
     const remember = (v: AdvanceView): AdvanceView =>
       req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, v) : v;
@@ -17640,24 +18464,33 @@ export class GameSessionAdapter implements GameSession {
     // confirmation must already be raised (the OOC step-1 gate), AND `confirmed` must be true.
     // Anything else (a missing confirmation, confirmed:false/absent) is a safe no-op — the player
     // stays ACTIVE (the anti-accident handshake; never a fabricated exit, §4.2).
-    if (req.kind === "self-evict") return remember(this.resolveSelfEviction(req.confirmed === true));
+    if (req.kind === "self-evict") {
+      // ORW-1063: an unconfirmed (or unraised) self-evict records nothing, so it is REFUSED with its reason (the player stays active), not answered with a success-shaped board.
+      if (req.confirmed !== true) this.refuseDecision("unconfirmed", "the player has not confirmed leaving the game, so nothing was recorded and they stay in it");
+      if (!this.live.selfEvictPending || this.live.finished || playerHasLeft(this.live, PLAYER)) this.refuseDecision("no-pending", "there is no raised leave-the-game confirmation to confirm, so nothing was recorded and the player stays in it");
+      return remember(this.resolveSelfEviction(true));
+    }
     // 0123 — an NPC deal offer resolves through its own path (NOT the ceremony-pending machinery): it
     // lives on `live.dealOffer`, not `live.pending`. Only an EXPLICIT `accept`/`decline` resolves it; a
     // malformed/missing `vote` (a stale or garbled client call) is a safe NO-OP — the offer stands and no
     // hidden cooling is applied. Never silently decline on bad input (Greptile P1).
     if (req.kind === "deal-offer") {
-      if (this.live.finished) return remember(this.advanceView(null)); // a post-season answer binds nothing
+      if (this.live.finished) this.refuseDecision("no-pending", "the season is over, so this answer binds nothing"); // ORW-1063
       // 0174: the vote pitch has its own slot. `offerId` names it when both stand; with no id the ordinary offer answers first, and the pitch when it is the only one standing.
       const s0 = this.live;
       const pitch = s0.votePitch && (req.offerId === s0.votePitch.id || (req.offerId === undefined && !s0.dealOffer));
       if (req.vote === "accept" || req.vote === "decline") return remember(this.resolveDealOffer(req.vote === "accept", pitch ? "pitch" : "deal"));
-      return remember(this.advanceView(null));
+      this.refuseDecision("bad-answer", "a deal offer is answered with vote accept or decline; nothing was recorded and the offer still stands"); // ORW-1063
     }
     // ORW-596 - the player's own answer to an NPC's public accusation: open state (`live.houseMeetings`, not a pending card), answered like a deal offer. A missing/garbled stance is a safe no-op.
-    if (req.kind === "meeting-answer") {
+    if (req.kind === "say-it-first") { // ORW-743: open state, answered in the player's own words; nothing to say or nothing open = a safe no-op
       if (this.live.finished) return remember(this.advanceView(null));
+      return remember(this.resolveSayItFirst(req.statement));
+    }
+    if (req.kind === "meeting-answer") {
+      if (this.live.finished) this.refuseDecision("no-pending", "the season is over, so this answer binds nothing"); // ORW-1063
       if (req.vote === "deny" || req.vote === "admit" || req.vote === "redirect") return remember(this.resolveMeetingAnswer(req.vote, req.statement));
-      return remember(this.advanceView(null));
+      this.refuseDecision("bad-answer", "a house meeting answer is vote deny, admit or redirect; nothing was recorded and the accusation still stands"); // ORW-1063
     }
     // 0133 — a spectating player may switch WATCH → SKIP later through the same decision kind (no pending needed).
     // SKIP is irreversible and the offer is one-time, so every other answer outside the pending is a safe no-op.
@@ -17675,21 +18508,22 @@ export class GameSessionAdapter implements GameSession {
           return this.advanceView(null);
         }));
       }
-      return remember(this.advanceView(null));
+      this.refuseDecision("no-pending", "there is no open decision for this answer, so nothing was recorded"); // ORW-1063
     }
-    // No-op unless there's a matching pending decision to resolve (idempotent + robust
+    // A decision with no matching pending is REFUSED (ORW-1063), never a success-shaped no-op: nothing recorded decision to resolve (idempotent + robust
     // to malformed calls — the boundary must never throw an unhandled error). `comp-intent` and
     // `comp-round` are interchangeable aliases for the staged per-round approach (0006 staged-rounds).
     const compApproach = (k: string): boolean => k === "comp-intent" || k === "comp-round";
     if ((req.kind as string) === "ceremony-step") throw new EngineRefusal("a ceremony step is a watch step - answer it with advanceGame, not submitDecision");
     const pendingKind = this.live.pending?.kind;
     const kindMatches = !!pendingKind && (pendingKind === req.kind || (compApproach(pendingKind) && compApproach(req.kind)));
-    if (!kindMatches) return remember(this.advanceView(null));
+    if (!kindMatches) this.refuseDecision(pendingKind ? "kind-mismatch" : "no-pending", pendingKind ? `the open decision is a ${pendingKind}, not a ${req.kind}; nothing was recorded and the open decision still stands` : `there is no open decision for a ${req.kind}, so nothing was recorded`);
     // (E42) Eviction-vote reconciliation moved to `commit`: the staged eviction's `voteOf` carries
     // EVERY voter — player and NPC alike — so the ledger now sees all binding votes in one place.
     return remember(this.inOneCommit(() => {
       // The beat-deterministic rng lets the Houseguest's-Choice resume run the veto comp reproducibly (B45).
       const cerBefore = ceremonyRef(this.live!);
+      const outBefore = compApproach(pendingKind!) ? (this.live!.competition?.eliminated.length ?? 0) : -1; // ORW-927: the drops the player's own approach press resolves are not voiced by anyone
       this.syncTargetsMeClaims(); // ORW-581: as before a beat
       const ev = applyDecision(this.live!, this.toDecisionInput(req), this.ctx(), this.beatRng());
       if (cerBefore) { // ORW-281 4a: the binding choice is a ceremony step - it charges its share of the clock
@@ -17726,6 +18560,8 @@ export class GameSessionAdapter implements GameSession {
       if (AUTO_ADVANCE_PENDING_KINDS.has(pendingKind!) && this.live!.pending?.kind !== "ceremony-step") { // ORW-281 4a: a ceremony watch step waits for the player's own Continue
         if (this.scheduleHoldsAdvance()) chainHeld = true; else this.advanceOneBeat();
       }
+      // ORW-927: a comp-round approach press resolves the first elimination round(s) itself, with no narrator turn in between (the card posts, nobody is asked to voice it). Those exits are written down here so the player's next message is told they have NOT been voiced yet (see `competitionFieldFact`); otherwise the reel jumps from the field to "five left" with the early drops never told.
+      if (outBefore >= 0) { const comp = this.live!.competition; if (comp && comp.eliminated.length > outBefore) { this.live!.compSilentOut = comp.eliminated.slice(outBefore); delete this.live!.compSilentSeen; } }
       const m = chainHeld ? nextMilestone(this.live!) : null;
       // the schedule held the chained advance: say so exactly as advanceGame does (typed `held`), so the caller does not read the quiet as a stall
       return m ? { ...this.advanceView(ev), held: { next: m.beat, minutesUntil: minutesUntilDue(this.live!) ?? 0, reason: "schedule" as const } } : this.advanceView(ev);
@@ -18114,6 +18950,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-258 (Ryne 2026-11-11: "I don't think you should be able to go to sleep before the night time period"): the evening is not bedtime either - the evening ceremonies happen then.
     if (this.bedtimeGateEnabled && (this.live.timeOfDay === "morning" || this.live.timeOfDay === "afternoon" || (this.live.timeOfDay === "evening" && this.messageMode))) {
       const hour = this.live.nightDepth ?? WAKE_HOUR;
+      this.bedtimeHeldEpoch = this.disclosureEpoch; // ORW-920: the narrator's next prompts say bed is not open yet (memory-only; this turn and the next)
       return remember({ ...this.advanceView(null), held: { next: "bedtime", minutesUntil: Math.max(0, Math.round((CLOCK.phaseStartsHour.night - hour) * 60)) } });
     }
     // ORW-446 (BDD Auditor, ORW-433 probe): a goodnight while a staged ceremony is open (the eviction reveal, one ballot per advance) went through, the day rolled and the reveal resumed the next evening
@@ -18216,6 +19053,23 @@ export class GameSessionAdapter implements GameSession {
         if (m === 0) clockTargetPassed = true;
         else if (m !== null) statedMinutes = statedMinutes === null ? m : Math.min(statedMinutes, m);
       }
+      // ORW-1054: "hang out until production calls": the target is the next scheduled event itself (the clock is clamped to it, so it fires once, never skipped); nothing scheduled => the open-ended hang-out as before.
+      let untilEventCap: number | undefined;
+      const bareNext = req.bareNext === true;
+      if ((req.untilEvent === true || bareNext) && statedMinutes === null) { // a player-stated length, band or clock time keeps its own (3 h) bound
+        const hrs = hoursUntilDue(live);
+        if (hrs !== null && hrs > 1e-6) {
+          const m = Math.min(hrs * 60 + 2, HANGOUT.maxUntilEventMinutes); // two minutes of slack: every beat is clamped to the event, so the wait ends ON it, never a float remainder short of it
+          statedMinutes = statedMinutes === null ? m : Math.min(statedMinutes, m);
+          untilEventCap = HANGOUT.maxUntilEventMinutes;
+        }
+      }
+      // ORW-920 (Ryne's ruling): a STATED wait ("until 9am", "for an hour", "the rest of the afternoon") is interrupted ONLY by something actually due - a ceremony/comp call (event-due), bedtime, or a houseguest whose own
+      // desire clock has crossed its threshold (a real reason to approach). No per-beat dice (a random production pull, a random sighting, the flat approach roll) and no rate knob. An open-ended hang-out keeps them.
+      const statedWait = statedMinutes !== null;
+      // ORW-1089: who was already with the player when the bare "next" began; anyone else who walks in is a reason to stop
+      const roomOfPlayer = (): Room | undefined => this.presence?.get(PLAYER);
+      const withPlayer = new Set(this.presence ? [...this.presence].filter(([, where]) => where === roomOfPlayer()).map(([id]) => id) : []);
       const result: HangOutResult = clockTargetPassed ? { stopReason: "max-beats", beats: 0, minutes: 0 } : runHangOut({
         advance: (h) => { advanceClockPerConversation(live, h); },
         // ORW-392: the same clock `eventDue` reads - behind a pending night gate the event is tomorrow, so the probe must not read 0 at night (that returned a false "event-due" with 0 beats).
@@ -18224,7 +19078,7 @@ export class GameSessionAdapter implements GameSession {
         // PO: the night block (20-24) is prime social time and late night is the sleep-debt mechanic - stop at midnight, or sooner once the house has thinned to the player plus at most one person awake.
         bedtime: () => hangOutBedtime(live.nightDepth ?? WAKE_HOUR, awakeNpcs().length, CLOCK.phaseStartsHour.night, CLOCK.midnightHour),
         pulled: (r) => {
-          if (!started || live.hangOutPulledDay === day) return null;
+          if (statedWait || !started || live.hangOutPulledDay === day) return null;
           if (r.next() >= HANGOUT_PULL_P) return null;
           live.hangOutPulledDay = day;
           return { by: r.next() < 0.5 ? "diary-room" : "production" };
@@ -18239,13 +19093,24 @@ export class GameSessionAdapter implements GameSession {
             delete live.approachHeld; // ORW-452 (cubic): a REAL approach later in the same wait supersedes an earlier hold, so the narrator is never told both "someone approaches" and "no one new steps up"
             return { npc: this.nameOf(hit.npc), desire: hit.desire };
           }
-          if (!approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;
+          if (statedWait || !approachOpen || r.next() >= HANGOUT_APPROACH_P) return null;
           const ids = awakeNpcs();
           if (ids.length === 0) return null;
           const top = rankApproaches(PLAYER, ids, this.rel, r, undefined, this.approachBiasHook(PLAYER), this.grudgeStanceHook(PLAYER))[0];
           return top ? { npc: this.nameOf(top.npc) } : null;
         },
         observed: (r) => {
+          if (bareNext && this.presence && !this.houseEventInSession()) { // a gathered house: nobody walks in, and a tick would move the player
+            this.presenceTick(); // the house moves while the time passes, so somebody can actually walk in
+            const awakeNow = new Set(awakeNpcs());
+            const room = roomOfPlayer();
+            const newcomer = [...this.presence].filter(([id, where]) => id !== PLAYER && where === room && awakeNow.has(id) && !withPlayer.has(id)).map(([id]) => id).sort()[0];
+            if (newcomer) {
+              this.noteConversationPartners([newcomer]); // they stay with the player through the tick that follows the commit, so the person named is still there when the reply is told
+              this.onPlayerEvent?.(`${this.nameOf(newcomer)} comes into the room`, [PLAYER, newcomer], "house-event");
+              return { kind: "someone-entered", who: [this.nameOf(newcomer)] };
+            }
+          } else if (!bareNext && statedWait) return null;
           if (r.next() >= HANGOUT_OBSERVED_P || !this.presence) return null;
           // Only what is in the player's eyeshot (their room + sightline rooms) - public presence, Vault-free.
           const me = this.presence.get(PLAYER);
@@ -18254,7 +19119,8 @@ export class GameSessionAdapter implements GameSession {
           const awake = new Set(awakeNpcs());
           const seen = [...this.presence].filter(([id, where]) => id !== PLAYER && awake.has(id) && visible.has(where)).map(([id]) => id).sort();
           if (seen.length === 0) return null;
-          const kinds = seen.length >= 2 ? ["overheard-whisper", "argument", "someone-moved"] : ["someone-moved"];
+          if (bareNext && seen.length < 2) return null; // ORW-1089: only talk calls for the player here; someone merely crossing the house does not
+          const kinds = seen.length >= 2 ? (bareNext ? ["overheard-whisper", "argument"] : ["overheard-whisper", "argument", "someone-moved"]) : ["someone-moved"];
           const kind = kinds[r.int(kinds.length)]!;
           const first = seen[r.int(seen.length)]!;
           const uniq = kind === "someone-moved" ? [first] : [first, seen.filter((x) => x !== first)[r.int(seen.length - 1)]!];
@@ -18270,6 +19136,7 @@ export class GameSessionAdapter implements GameSession {
       }, rng, {
         ...(req.maxBeats !== undefined ? { maxBeats: req.maxBeats } : {}),
         ...(statedMinutes !== null ? { maxMinutes: statedMinutes } : {}),
+        ...(untilEventCap !== undefined ? { capMinutes: untilEventCap } : {}),
       });
       const hour = live.nightDepth ?? WAKE_HOUR;
       const stopLine = hangOutStopLine(result);
@@ -18282,8 +19149,15 @@ export class GameSessionAdapter implements GameSession {
       this.hangOutSkipStepAt = hour;
       this.hangOutPendingHours = result.minutes / 60;
       this.persist();
+      // ORW-1067: a maxBeats the engine changed (floored, raised to 1, capped at the maximum, or not a number) is REPORTED with the value applied, never silently clamped.
+      let clamp: { clamped: true; maxBeatsAsked?: number; maxBeatsApplied: number } | null = null;
+      if (req.maxBeats !== undefined) {
+        const a = req.maxBeats;
+        const applied = typeof a === "number" && Number.isFinite(a) ? Math.max(1, Math.min(HANGOUT.maxBeats, Math.floor(a))) : HANGOUT.maxBeats;
+        if (applied !== a) { clamp = { clamped: true, ...(typeof a === "number" && Number.isFinite(a) ? { maxBeatsAsked: a } : {}), maxBeatsApplied: applied }; this.noteInputRefusal("hangout-clamped"); }
+      }
       return {
-        ok: true, stopReason: result.stopReason, beats: result.beats, minutes: result.minutes, stopLine,
+        ok: true, stopReason: result.stopReason, beats: result.beats, minutes: result.minutes, stopLine, ...(clamp ?? {}),
         ...(result.detail ? { detail: result.detail } : {}),
         ...(live.timeOfDay ? { timeOfDay: live.timeOfDay } : {}),
         beatSeq: this.beatSeq,
@@ -18330,6 +19204,10 @@ export class GameSessionAdapter implements GameSession {
     if (milestoneDueOf(live)) return refuse("event-due", "Production is about to call everyone for the next event; there is no time to lie down.");
     const asked = typeof req.hours === "number" && Number.isFinite(req.hours) ? req.hours : NAP.defaultHours;
     const hours = Math.min(NAP.maxHours, Math.max(NAP.minHours, Math.round(asked / NAP.lengthStepHours) * NAP.lengthStepHours));
+    // ORW-1067: a length the engine changed (out of range, off the half-hour step, or given but not a number) is REPORTED on the view with the value applied; an omitted length is the default, not a clamp.
+    const napClamp: { clamped: true; hoursApplied: number; hoursAsked?: number } | null = req.hours !== undefined && (typeof req.hours !== "number" || !Number.isFinite(req.hours) || hours !== req.hours)
+      ? { clamped: true, hoursApplied: hours, ...(typeof req.hours === "number" && Number.isFinite(req.hours) ? { hoursAsked: req.hours } : {}) } : null;
+    if (napClamp) this.noteInputRefusal("nap-clamped");
     return remember(this.inOneCommit(() => {
       const me = PLAYER;
       const startHour = live.nightDepth ?? WAKE_HOUR;
@@ -18382,7 +19260,7 @@ export class GameSessionAdapter implements GameSession {
         }
       }
       this.persist();
-      return { ok: true, slept: sleptHours, ...(wokenBy ? { wokenBy, asked: hours } : {}), whereabouts: this.whereabouts(), ...(live.timeOfDay ? { timeOfDay: live.timeOfDay } : {}), beatSeq: this.beatSeq };
+      return { ok: true, slept: sleptHours, ...(napClamp ?? {}), ...(wokenBy ? { wokenBy, asked: hours } : {}), whereabouts: this.whereabouts(), ...(live.timeOfDay ? { timeOfDay: live.timeOfDay } : {}), beatSeq: this.beatSeq };
     }));
   }
 
@@ -18544,6 +19422,21 @@ export class GameSessionAdapter implements GameSession {
         return refusal;
       }
     }
+    // ORW-930: the player's makeDeal to the houseguest who made them a standing offer (same kind, no counter terms) IS accepting that offer. The houseguest asked for this deal: re-rolling their consent
+    // on it refused the very thing they proposed ("take the favor and don't ask me to sign for it" after the player said the HOH's own terms back). Same spine as an explicit accept.
+    if (this.live.playedGame === true && !req.countersOffer) {
+      const slot: "deal" | "pitch" | undefined = this.live.dealOffer?.from === target && this.live.dealOffer.kind === req.kind ? "deal" : this.live.votePitch?.from === target && this.live.votePitch.kind === req.kind ? "pitch" : undefined;
+      const o = slot === "deal" ? this.live.dealOffer : slot === "pitch" ? this.live.votePitch : undefined;
+      if (slot && o && !this.dealOfferPartyGone(o.from) && !this.offeredDealBlocked(o.kind, o.from, PLAYER, o.replacesDealId)) {
+        this.resolveDealOffer(true, slot);
+        const made = [...this.deals.all].reverse().find((d) => d.status === "open" && d.kind === req.kind && d.parties.includes(PLAYER) && d.parties.includes(target));
+        if (made) {
+          const view = this.dealView(made);
+          if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, view);
+          return view;
+        }
+      }
+    }
     // NPC CONSENT (anti-sycophancy): the ENGINE decides whether the NPC agrees, BEFORE anything is recorded or folded. A refusal returns here - no event, no deal, no
     // leverage/trade fold, no persist - and (when keyed) is remembered so a re-driven duplicate replays the same refusal. Flag OFF => this block does not exist.
     if (this.npcDealConsentEnabled) {
@@ -18577,7 +19470,9 @@ export class GameSessionAdapter implements GameSession {
     }
     // B55: an ASKED active obligation binds the NPC (the promisor is parties[0]); everything else keeps the player first, as before
     const parties: [EntityId, EntityId] = (isPositiveObligation(req.kind) && req.direction === "ask") || req.kind === "protect-third" || req.kind === "information" ? [target, PLAYER] : [PLAYER, target];
-    const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses, req.kind === "protect-third" ? req.third : undefined);
+    // ORW-1053: a vote / safety / conditional deal whose terms name living houseguests outside the pair protects those houseguests (the named ones, or the explicit `third`).
+    const named = req.kind === "vote" || req.kind === "safety" || req.kind === "conditional" ? this.thirdsNamedIn(terms, req.third, [PLAYER, target]) : [];
+    const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses, req.kind === "protect-third" ? req.third : named[0], named.slice(1));
     this.trackDealMade(deal);
     // ORW-85: the houseguests who SAW the deal made remember it - and read it against their own position (see rememberDealWitnesses). Played games only.
     if (witnesses && witnesses.length > 0 && this.live.playedGame === true) this.rememberDealWitnesses(deal, witnesses);
@@ -18596,6 +19491,24 @@ export class GameSessionAdapter implements GameSession {
     // A10/#591/R1c — record the at-most-once result ONLY after the clean commit, so a re-drive replays it.
     if (idemKey !== undefined) this.rememberFoldIdempotent(idemKey, view);
     return view;
+  }
+
+  /** ORW-930: the player's own week-long deals that ran out at the last week roll (a houseguest still in the house, nothing open between the two since), for the new week's HOH competition and nominations. Read only, Vault-free: the
+   *  player was a party. A deal that was broken is not listed here (its fallout has its own surfaces), and nothing says anyone voted any way. */
+  private dealsClosedForNarrator(): Array<{ with: { id: EntityId; name: string }; kind: string }> {
+    const s = this.live;
+    if (!s || s.playedGame !== true || s.finished || (s.beat !== "hoh-competition" && s.beat !== "nominations")) return [];
+    const living = new Set(this.livingIds());
+    const open = new Set(this.deals.all.filter((d) => d.status === "open" && d.parties.includes(PLAYER)).map((d) => d.parties.find((p) => p !== PLAYER)!));
+    const out = new Map<EntityId, { with: { id: EntityId; name: string }; kind: string }>();
+    for (const d of this.deals.all) {
+      if (d.status !== "kept" || !d.parties.includes(PLAYER)) continue;
+      const other = d.parties.find((p) => p !== PLAYER)!;
+      const ranOut = d.expiresWeek !== undefined ? d.expiresWeek === s.week - 1 : horizonOf(d.kind) === "week" && d.madeWeek === s.week - 1;
+      if (!ranOut || !living.has(other) || open.has(other)) continue;
+      out.set(other, { with: { id: other, name: this.nameOf(other) }, kind: d.kind });
+    }
+    return [...out.values()];
   }
 
   /** ORW-727: true when a deal of `kind` that `giver` would offer `other` cannot be made now: its vote term is not keepable this week, or the pair already holds this very deal. `exceptId` is a deal the new one replaces. */
@@ -18762,6 +19675,15 @@ export class GameSessionAdapter implements GameSession {
   private dealConsentRefusal(npcId: EntityId, kind: DealReqKind, direction?: "offer" | "ask", bonus = 0): DealRefusal | null {
     const live = this.live;
     if (!live) return null;
+    const d = this.dealConsentDecision(npcId, kind, direction, bonus, (w) => recordWhy(live, npcId, w)); // ORW-305: record WHY (a record only)
+    return d.accept || !d.reason ? null : this.statedRefusal(npcId, d.reason);
+  }
+  /**
+   * ORW-749: the ENGINE's consent roll for one ask, with no side effect unless a `why` sink is passed. `makeDeal` (through `dealConsentRefusal`) and the narrator's per-turn read (`dealConsentStanceFor`) both use it,
+   * so what the narrator is told before it speaks is the same decision `makeDeal` will make (the jitter is keyed on the week and phase, not on the call).
+   */
+  private dealConsentDecision(npcId: EntityId, kind: DealReqKind, direction?: "offer" | "ask", bonus = 0, why?: Parameters<typeof decideDealConsent>[1]): ReturnType<typeof decideDealConsent> {
+    const live = this.live!;
     const e = this.rel.edge(npcId, PLAYER);
     const entries = this.npcMemoryEnabled ? this.memoryEntriesSeenBy(npcId, live.npcMemory?.[npcId]?.[PLAYER], PLAYER) : undefined;
     // standalone memory reads the ledger on its own; otherwise the residual floor (what the edge no longer carries) - the same split `memoryTiltFor` makes
@@ -18782,8 +19704,16 @@ export class GameSessionAdapter implements GameSession {
         return bonus || rep ? { mood: bonus + rep } : {};
       })(),
       ...(live.playedGame === true ? { opposed: this.ownPushAgainstPlayer(npcId) } : {}),
-    }, (w) => recordWhy(live, npcId, w)); // ORW-305: record WHY (a record only)
-    return d.accept || !d.reason ? null : this.statedRefusal(npcId, d.reason);
+    }, why);
+    return d;
+  }
+  /** ORW-749: what a present houseguest's own consent roll says to a player pitch NOW, over the asks a player makes: `will-accept` (every ask), `will-decline` (every ask), else `undecided` (it depends on the ask). Played games, consent on; a closed word, never a number or a reason. */
+  dealConsentStanceFor(id: EntityId): "will-accept" | "will-decline" | "undecided" | undefined {
+    const s = this.live;
+    if (!this.declaredStanceEnabled || !this.npcDealConsentEnabled || !s || s.playedGame !== true || id === PLAYER || !this.livingIds().includes(id)) return undefined;
+    const kinds: DealReqKind[] = ["safety", "vote", "target-other", "final-two", "comp-throw", "veto-save"];
+    const accepts = kinds.map((k) => this.dealConsentDecision(id, k, isPositiveObligation(k) ? "ask" : undefined).accept);
+    return accepts.every(Boolean) ? "will-accept" : accepts.some(Boolean) ? "undecided" : "will-decline";
   }
   /**
    * ORW-608 (Ryne 2026-11-17, (a)): the houseguest gives a reason in their own words - honest, softened or a cover story, as `explainDecision` decides from their candor.
@@ -19060,7 +19990,12 @@ export class GameSessionAdapter implements GameSession {
     );
     const bondOf = (a: EntityId, b: EntityId): number => (this.rel.edge(a, b).trust + this.rel.edge(a, b).affinity) / 2;
     const willing = willingMembers(PLAYER, proposed, (m) => Math.min(bondOf(PLAYER, m), bondOf(m, PLAYER)));
-    if (willing.length < 2) return null; // nobody close enough bought in — no alliance of one
+    if (willing.length < 2) { // nobody close enough bought in — no alliance of one
+      // ORW-913: the narrator may already have voiced everyone swearing in (the call comes after the scene): tell it next turn, in the world's terms, that the group did not form. Memory-only, two turns.
+      if (this.live.playedGame === true && proposed.length >= 2) this.allianceRefusal = { name: (req.name ?? "").slice(0, 60).trim() || "an alliance", names: proposed.map((m) => this.nameOf(m)), epoch: this.disclosureEpoch };
+      return null;
+    }
+    this.allianceRefusal = null;
     const name = (req.name ?? "").slice(0, 60).trim() || "our alliance";
     const others = willing.filter((m) => m !== PLAYER);
     this.onPlayerEvent?.(
@@ -19790,7 +20725,8 @@ export class GameSessionAdapter implements GameSession {
   private commit(ev: BeatEvent | null): void {
     // ORW-650: the watching player's feed starts after everything recorded up to (and including) this beat. Stamped once.
     if (this.couchWatchEnabled && this.live?.spectator && this.live.couchFromEvent === undefined) this.live.couchFromEvent = (this.record?.events().length ?? 0) + (ev && this.onEvent ? 1 : 0);
-    if (ev) this.onEvent?.({ ...ev, content: this.humanize(ev.content) });
+    if (ev?.lastDrops) this.onEvent?.({ ...ev.lastDrops, content: this.humanize(ev.lastDrops.content) }); // ORW-830: a staged comp's last batch of drops, told just before the crown (inert, no step)
+    if (ev) this.onEvent?.({ beat: ev.beat, content: this.humanize(ev.content), participants: ev.participants });
     // 0039/E42: a binding ceremony beat may honor or break open deals — the engine adjudicates
     // EVERY binding actor's action (NPC votes and tie-breaks included), never only the player's.
     if (ev) for (const action of this.bindingActionsFor(ev)) { this.reconcileDeals(action); this.reconcileAllianceBetrayals(action); }
@@ -19825,6 +20761,8 @@ export class GameSessionAdapter implements GameSession {
       this.endgameTests(); // 0193: at four left or fewer, old final-two promises get tested out loud
       this.audienceAfterEviction(); // ORW-624: the audience outside - the crowd as the evictee walks out, and a fan reward in its weeks
     }
+    // ORW-1097: the Final-3 eviction is atomic (no eviction-result beat), so the third-place evictee's deals, favors and assurances lapsed nowhere and stayed open into the finale. Same lapse step, same seam.
+    if (ev && ev.beat === "final-eviction") this.evictedTakeWithThem();
     // T0-3 (issue #1778) — derive this beat's Vault-free broadcast chyron(s), IF ANY, from the SAME
     // `ev` + the now-committed `this.live` (every read/mutation above this line is either read-only
     // over the ceremony fields `buildBeatAnnouncements` also reads, or scoped to a different beat, so
@@ -19888,6 +20826,7 @@ export class GameSessionAdapter implements GameSession {
         ...(d.used !== undefined ? { used: d.used } : {}),
         ...(d.saved !== undefined ? { saved: named(d.saved) } : {}),
         ...(d.tieBroken !== undefined ? { tieBroken: d.tieBroken } : {}),
+        ...(d.votes !== undefined ? { votes: { ...d.votes } } : {}), // ORW-919: the public count (totals only)
         ...(d.remaining !== undefined ? { remaining: d.remaining } : {}),
         ...(d.part !== undefined ? { part: d.part } : {}),
       };
@@ -21329,7 +22268,9 @@ export class GameSessionAdapter implements GameSession {
         return { kind: "nominations", choice: [c[0]!, c[1]!] };
       }
       case "veto-decision":
-        return { kind: "veto-decision", use: !!req.use, ...(req.save ? { save: req.save } : {}) };
+        // ORW-1067: `use` is a REQUIRED strict boolean (the string "false" is not a yes; a missing one is not a decline).
+        if (typeof req.use !== "boolean") { this.noteInputRefusal("veto-use-not-boolean"); throw new EngineRefusal("the veto decision needs use as true or false; nothing was recorded"); }
+        return { kind: "veto-decision", use: req.use, ...(req.save ? { save: req.save } : {}) };
       case "comp-intent":
       case "comp-round": { // B46 / 0006 staged-rounds: the player declares compete/throw/play-safe.
         // The pending presents this as a generic options/pick decision (id = the intent value), so a
@@ -21418,6 +22359,7 @@ export class GameSessionAdapter implements GameSession {
       case "deal-offer": // 0123: intercepted in `submitDecision` BEFORE this map (its own path) — never here.
         throw new Error("deal-offer resolves through resolveDealOffer, not the ceremony-decision map");
       case "meeting-answer": // ORW-596: intercepted in `submitDecision` BEFORE this map (open state, not a pending) - never here.
+      case "say-it-first": // ORW-743: likewise intercepted in `submitDecision` (open state) - never here.
         throw new Error("meeting-answer resolves through resolveMeetingAnswer, not the ceremony-decision map");
     }
   }
@@ -21600,6 +22542,7 @@ export class GameSessionAdapter implements GameSession {
       winner: this.named(s?.winner),
       finale: this.finaleView(),
       eviction: this.evictionView(),
+      ...(this.vetoDrawBeatFor(ceremony, !!ceremony && !s?.ceremony) ? { vetoDrawBeat: this.vetoDrawBeatFor(ceremony, !!ceremony && !s?.ceremony)! } : {}), // ORW-924
       ...(announcements ? { announcements } : {}),
     };
   }
@@ -21624,12 +22567,34 @@ export class GameSessionAdapter implements GameSession {
       ...(e.evictee ? { evictee: ref(e.evictee) } : {}),
       ...(this.hostEnabled && this.live?.playedGame === true && !this.live.spectator ? { host: this.hostView(e) } : {}),
       ...this.voteBeatFor(e),
+      ...(e.evictee && this.evictionVoicedMsgs > 0 ? { voicedTurns: this.evictionVoicedMsgs } : {}),
     };
   }
 
   /** ORW-771 (`ORWELL_VOTE_BEAT`, default ON; `=0` = no beat, the press is a banner only): the sealed beat facts of the press just made through a played eviction vote. Pure read: no rng, no clock, no write. */
   private voteBeatEnabled = flagDefaultOn("ORWELL_VOTE_BEAT");
   setVoteBeatEnabled(on: boolean): void { this.voteBeatEnabled = on; }
+  /**
+   * ORW-924 (same flag): the facts of a Continue press through the veto DRAW, so the press can be voiced as a short beat (the draw's two watch steps were a banner and nothing else: no narrated
+   * beat). Public ceremony facts only (the HOH, the nominees, the open step, the six once the field step has published them); no winner, no result. Pure read: no rng, no clock, no write.
+   */
+  private vetoDrawBeatFor(cer: ReturnType<typeof ceremonyRef>, closed: boolean): VetoDrawBeatView | undefined {
+    const s = this.live;
+    if (!this.voteBeatEnabled || !s || s.playedGame !== true || s.spectator || !cer || cer.kind !== "veto-draw" || !this.house) return undefined;
+    const ref = (id: EntityId): NamedRef => ({ id, name: this.nameOf(id) });
+    const published = cer.stepId === "field" && (s.vetoField?.length ?? 0) > 0;
+    return {
+      step: cer.stepId,
+      stepNumber: cer.step,
+      of: cer.of,
+      closed,
+      hoh: s.hoh ? ref(s.hoh) : null,
+      nominees: (s.nominees ?? []).map(ref),
+      ...(published ? { field: (s.vetoField ?? []).map(ref) } : {}),
+      gathered: s.active.length,
+      ...(s.timeOfDay ? { timeOfDay: TIME_OF_DAY_LABEL[s.timeOfDay] ?? String(s.timeOfDay) } : {}),
+    };
+  }
   private voteBeatFor(e: EvictionProgress): { voteBeat?: VoteBeatView } {
     const s = this.live;
     if (!this.voteBeatEnabled || !s || s.playedGame !== true || s.spectator || !s.ceremony || s.ceremony.kind !== "eviction") return {};
@@ -21788,6 +22753,20 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * ORW-969: the FULL cast for the front end's server-side casting jobs (the house-entry gate, the habits step, the backfills). `getGameState` withholds the houseguests who have
+   * not walked in yet (ORW-710) - right for the browser and the narrator, blind for a job that must check every card. This is the same `house` projection with that one filter off
+   * (the entries are the PUBLIC facets only, exactly what `getGameState` shows once everyone is in), plus how many of them are still outside. It is an unadvertised infra read
+   * (`INFRA_TOOL_NAMES`): not in any tool list the narrator sees and never forwarded to the browser by the front end.
+   */
+  pipelineCast(): PipelineCastView {
+    const v = this.view({ fullRoster: true });
+    if (!this.house || v.started === false) return { started: false, total: 0, unarrivedCount: 0, house: [] };
+    const away = this.notYetArrived();
+    const unarrivedCount = away ? away.size - (away.has(this.house.player.id) ? 1 : 0) : 0;
+    return { started: true, total: v.house.length, unarrivedCount, house: v.house };
+  }
+
+  /**
    * 0065 Part E — the `beatSeq`-keyed delta state feed. Given the caller's last-seen `beatSeq`, return
    * exactly WHAT CHANGED since: the player-visible events appended, the ceremony field transitions, and
    * any finished/winner flip — plus the freshest board to re-anchor on. A pure READ (no mutation).
@@ -21903,6 +22882,7 @@ export class GameSessionAdapter implements GameSession {
           ...(v.rivalry ? { rivalry: v.rivalry } : {}),
           ...(v.statedReasons ? { statedReasons: v.statedReasons } : {}),
           ...(v.declaredStance ? { declaredStance: v.declaredStance } : {}),
+          ...(v.dealConsent ? { dealConsent: v.dealConsent } : {}),
           // ORW-338: the two ORW-317 lines `npcVoice` already gated (flags, public kinds, this week, trust + candor); pushed, never recomputed here.
           ...(v.moodCause ? { moodCause: v.moodCause } : {}),
           ...(v.rememberedAboutOthers?.length ? { rememberedAboutOthers: v.rememberedAboutOthers } : {}),
@@ -21914,7 +22894,7 @@ export class GameSessionAdapter implements GameSession {
       .filter(
         (e): e is NonNullable<typeof e> =>
           e !== null &&
-          (e.knows.length > 0 || e.suspects.length > 0 || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined || e.declaredStance !== undefined || e.moodCause !== undefined || e.rememberedAboutOthers !== undefined || e.tellsYou !== undefined || e.leansOnYou !== undefined),
+          (e.knows.length > 0 || e.suspects.length > 0 || e.dealConsent !== undefined || e.mood !== undefined || e.currentRead !== undefined || e.rivalry !== undefined || e.statedReasons !== undefined || e.declaredStance !== undefined || e.moodCause !== undefined || e.rememberedAboutOthers !== undefined || e.tellsYou !== undefined || e.leansOnYou !== undefined),
       );
   }
 
@@ -21943,19 +22923,36 @@ export class GameSessionAdapter implements GameSession {
     const view1 = slept ? { ...view0, whileYouSlept: slept } : view0;
     const view2 = this.napOpenNow() ? { ...view1, napOpen: true as const } : view1; // 0148: the NAP line only when a nap is possible
     const bedsNow = this.bedsLine(); // ORW-466 slice 2: the move-in bed pick, per turn (absent outside the claim window / headless)
-    const view3 = bedsNow ? { ...view2, beds: bedsNow } : view2;
+    const view3a = bedsNow ? { ...view2, beds: bedsNow } : view2;
+    const view3w = this.playerBedRefusal ? { ...view3a, bedRefused: this.playerBedRefusal } : view3a; // ORW-1010: a refused bed claim or swap, told to the narrator to say plainly
+    const view3 = this.bedWakeNote ? { ...view3w, bedWake: this.bedWakeNote } : view3w; // ORW-1090: the sleeper's reaction on waking, one turn
     const longNightNow = this.longNightLine(); // ORW-652: the shape of a double-eviction night, per turn (absent outside it / headless)
     const view3b = longNightNow ? { ...view3, longNight: longNightNow } : view3;
     const view4 = this.claimSourceNote ? { ...view3b, sourceNote: this.claimSourceNote } : view3b; // 0152: the answer to "who told you that?", this turn only
     const meetingNow = this.houseMeetingForNarrator(); // 0156 slice 7b: a meeting the player was in the house and awake to hear (one turn; absent otherwise)
     const view5 = meetingNow ? { ...view4, houseMeeting: meetingNow } : view4;
-    const view6 = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
+    const view6a = this.playerMeetingRefusal ? { ...view5, houseMeetingRefused: this.playerMeetingRefusal } : view5; // ORW-593: a refused call, with its in-world reason (this turn only)
+    const bedHeld = this.bedtimeHeldForNarrator(); // ORW-920: a bed the engine held, told to the narrator (this turn and the next, only before the night)
+    const view6a2 = this.talkedAboutPlayer() ? { ...view6a, talkedAboutYou: true as const } : view6a; // ORW-743: one bit
+    const view6b = bedHeld ? { ...view6a2, bedtimeHeld: bedHeld } : view6a2;
+    const view6c = this.allianceRefusal ? { ...view6b, allianceNotFormed: { name: this.allianceRefusal.name, with: this.allianceRefusal.names } } : view6b; // ORW-913: a proposed alliance that did not form, for two turns
+    // ORW-794: an alliance an NPC has let the player in on and the player has not taken: the narrator is HANDED it (the same roster gameStatus shows, the one the player was told), instead of having to go and look.
+    const pitchesOpen = this.alliances.pitchesFor(PLAYER);
+    const view6 = pitchesOpen.length ? { ...view6c, alliancePitchesOpen: pitchesOpen.map((a) => this.allianceView(a, true)) } : view6c;
     const keepers = (req.moment ?? view6.moment) === "eviction" ? this.keepPromisersOfPlayer() : []; // ORW-737: eviction night only
-    const view = keepers.length ? { ...view6, keepPromisers: keepers } : view6;
+    const view7 = keepers.length ? { ...view6, keepPromisers: keepers } : view6;
+    const votePromises = this.votePromisesForNarrator(); // ORW-750: the vote promises on the record, for each nominee (the week of a nomination only)
+    const closed = this.dealsClosedForNarrator(); // ORW-930: last week's deals ran out at the roll and nothing said so
+    const view8 = closed.length ? { ...view7, dealsClosed: closed } : view7;
+    const view = votePromises ? { ...view8, votePromises } : view8;
     // ORW-377 (zero clocks in the house): the narrator is handed the part of the day, never the clock time. A presentation-only swap on the NARRATION view (the HUD / getGameState view and every rule keep the engine clock).
-    const narrView = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
+    const narrView0 = req.zeroClocks === true && view.clockLabel !== undefined && typeof this.live?.nightDepth === "number"
       ? (({ clockLabel: _c, ...rest }) => ({ ...rest, clockBand: formatClockBandLabel(this.live!.nightDepth as number, this.live!.dayNumber ?? 1) }))(view)
       : view;
+    // ORW-997: the FE reports the latest staged-premiere release (arrival or toast batch) was already voiced by an earlier reply. A presentation-only mark on the narration view (never the HUD / getGameState view).
+    const narrView = req.entranceVoiced === true && narrView0.premiere?.entrance && narrView0.premiere.entrance.stage !== "done"
+      ? { ...narrView0, premiere: { ...narrView0.premiere, entrance: { ...narrView0.premiere.entrance, voiced: true as const } } }
+      : narrView0;
     const moment = req.moment ?? view.moment;
     // #1735 (A4) — the terminal HARD-CONSTRAINTS block, a SEPARATE field from `systemPrompt` so the
     // caller (the front-end) can append it as the LAST message before generation instead of folding it
@@ -22360,6 +23357,7 @@ export class GameSessionAdapter implements GameSession {
     if (!this.narrationUsageEnabled) return { recorded: false, reason: "off" };
     if (!this.house || !this.live || this.live.playedGame !== true) return { recorded: false, reason: "no-game" };
     if (typeof req?.text !== "string" || req.text.trim().length === 0) return { recorded: false, reason: "empty" };
+    if (this.voicedClaimsEnabled) { this.confirmVoicedTells(req.text); this.narrationEchoSeen = true; } // ORW-877: what the narration voiced is what the player heard
     const roster = [this.house.player, ...this.house.npcs].map((h) => ({ id: h.id as string, name: h.name }));
     const out = recordNarration(this.narrationUse, req.text, roster);
     if (out.record === this.narrationUse) return { recorded: false, reason: "no-sentences" };
@@ -22632,7 +23630,7 @@ export class GameSessionAdapter implements GameSession {
   /**
    * ORW-407 slice 2 - the still-open entries that matter to those here now, bounded, with player-visible fields only.
    * ORW-448: entries DUE after a public ceremony come first (at most 3, anyone, here or not: the result is public), each with its
-   * `due` line; then the entries relevant to those here, so the list is at most 6 and a turn with nothing due is as before.
+   * `due` line; then the entries relevant to those here, so the list is at most 6 (more only when more houseguests here have an open entry than fit: ORW-1093) and a turn with nothing due is as before.
    */
   openLedgerHere(): OpenLedgerItemView[] {
     if (!this.openLedgerEnabled || !this.house || !this.live || this.live.playedGame !== true) return [];
@@ -22980,10 +23978,16 @@ export class GameSessionAdapter implements GameSession {
     return this.seatOf(PLAYER);
   }
 
-  /** The eviction-order index at which the last-9 jury forms: evictions before it are pre-jury (they go home). */
-  private juryStartIndex(): number {
+  /**
+   * ORW-1087: the jurors seated so far, in eviction order, from the stable `jurorIds` fact the engine sets at each eviction. A state without it (a save from before the fact existed)
+   * falls back to the old position rule over the fixed cast size, until its next eviction writes the fact.
+   */
+  private jurorsNow(): EntityId[] {
+    const live = this.live;
+    if (!live) return [];
+    if (live.jurorIds) return jurorsOf(live);
     const cast = this.house ? this.house.npcs.length + 1 : 16;
-    return Math.max(0, cast - 2 - 9);
+    return (live.evictionOrder ?? []).slice(Math.max(0, cast - 2 - 9));
   }
 
   /** 0025 reactive: the twists the season's sealed plan ARMED that never fired (engine-only; only ever read by the post-crown retrospective unseal). */
@@ -23004,14 +24008,13 @@ export class GameSessionAdapter implements GameSession {
 
   /** Any houseguest's public seat (B61): still playing, on the last-9 jury, or out pre-jury. */
   private seatOf(id: EntityId): "active" | "jury" | "evicted" {
-    const order = this.live?.evictionOrder ?? [];
-    const idx = order.indexOf(id);
-    if (idx < 0) return "active";
-    return idx >= this.juryStartIndex() ? "jury" : "evicted";
+    const live = this.live;
+    if (!live || !live.evictionOrder.includes(id)) return "active";
+    return this.jurorsNow().includes(id) ? "jury" : "evicted";
   }
 
   /** The Vault-free projection. Player card = authored persona (no numeric stats); NPCs = name + status only. */
-  private view(): GameStateView {
+  private view(opts?: { fullRoster?: boolean }): GameStateView {
     if (!this.house) {
       // Pre-game, the view carries the interview's status (0050): the engine — not the model —
       // says which building blocks are in and what the next step is.
@@ -23023,7 +24026,7 @@ export class GameSessionAdapter implements GameSession {
         pending: null,
       };
     }
-    const unarrivedHidden = this.metOnlyRosterEnabled && this.inPremiere() ? (this.notYetArrived() ?? undefined) : undefined; // ORW-710
+    const unarrivedHidden = this.metOnlyRosterEnabled && !opts?.fullRoster && this.inPremiere() ? (this.notYetArrived() ?? undefined) : undefined; // ORW-710
     const p = this.house.player;
     const status = this.playerStatus();
     // Once the player is out, the moment frames their new seat (closure / the jury spectator box, 0046)
@@ -23041,7 +24044,11 @@ export class GameSessionAdapter implements GameSession {
     // (no field ⇒ the FE sees nothing, byte-identical to before this fix); present only at the
     // dramatic beats `beatForMoment` recognizes (nomination/veto-ceremony/eviction). An INVITATION
     // only — it changes no game state and is never forced.
-    const drPrompt = producerPrompt(beatForMoment(moment));
+    // ORW-914: a dramatic beat spans many turns (the nominations week), and the invitation was offered on EVERY one of them: the Diary Room called the player about ten times a week, straight after a visit too.
+    // Now once per beat per week (the rest of that turn re-reads it), and never within a few in-game hours of the player's own visit. Memory-only: a restart offers it once more.
+    const drBeat = beatForMoment(moment);
+    const drRaw = producerPrompt(drBeat);
+    const drPrompt = drRaw.invite && !this.diaryInviteNow(drBeat) ? { invite: false } : drRaw;
     // 0115 — the player's Diary-Room STRATEGY, projected as a PRIVATE steer for the narrator (their
     // real read, in their own words). Vault-free by construction: reads ONLY the player's own
     // `NO_NPC_PATHWAY` knowledge (never a Vault read, never any NPC's knowledge), and never feeds any
@@ -23057,8 +24064,12 @@ export class GameSessionAdapter implements GameSession {
     // it ⇒ byte-identical, no golden re-record. A pure read of the live loop state + the day clock; the
     // HUD shows it and `renderGameContext` primes on it so run-up scenes carry the coming interruption.
     const nextM = this.perConversationClockLive() ? nextMilestone(this.live) : null;
+    // ORW-775: the header's phase, decided once, here, so the status panel and the reply stamp read one value: TODAY's event while the next waits behind its night (ORW-258); the HOH day from Day 2 on while the engine's
+    // phase still says premiere and the HOH competition is next (ORW-705); otherwise the phase itself.
+    const headerToday = nextM ? todaysEvent(this.live) : null;
+    const headerPhase = headerToday ?? (this.phase === "premiere" && (this.live?.dayNumber ?? 1) >= 2 && nextM?.beat === "hoh-competition" ? "hoh-competition" : this.phase);
     const daySchedule = nextM
-      ? { next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}), ...(dueTomorrow(this.live) ? { tomorrow: true as const } : {}), ...(this.eventRoomFactEnabled && eventStagingRoom(nextM.beat, this.live?.playedGame === true) ? { stagingRoom: eventStagingRoom(nextM.beat, this.live?.playedGame === true)! } : {}), ...(finalHohPartOf(this.live, this.finalHohThreePartEnabled) ? { finalHohPart: finalHohPartOf(this.live, this.finalHohThreePartEnabled)! } : {}) }
+      ? { headerPhase, next: nextM.beat, phase: nextM.phase, due: milestoneDueOf(this.live), minutesUntil: milestoneDueOf(this.live) ? 0 : (minutesUntilDue(this.live) ?? 0), ...(todaysEvent(this.live) ? { todaysEvent: todaysEvent(this.live)! } : {}), ...(dueTomorrow(this.live) ? { tomorrow: true as const } : {}), ...((this.live?.dueHeldMessages ?? 0) > 0 ? { heldTurns: this.live!.dueHeldMessages! } : {}), ...(this.eventRoomFactEnabled && eventStagingRoom(nextM.beat, this.live?.playedGame === true) ? { stagingRoom: eventStagingRoom(nextM.beat, this.live?.playedGame === true)! } : {}), ...(finalHohPartOf(this.live, this.finalHohThreePartEnabled) ? { finalHohPart: finalHohPartOf(this.live, this.finalHohThreePartEnabled)! } : {}) }
       : undefined;
     // #1411 — the single closed-set lever this beat requires the narrator to CALL (advanceGame at the
     // deterministic comp/ceremony/eviction beats), or null otherwise. The FE forces THIS on the wire
@@ -23091,6 +24102,7 @@ export class GameSessionAdapter implements GameSession {
           used: this.ceremony.vetoUsed,
           players: (this.live?.vetoField ?? []).map((id) => ({ id, name: this.nameOf(id) })), // R9-AGENCY-1: the drawn six
           ...(this.vetoDecisionFact() ? { decision: this.vetoDecisionFact()! } : {}), // ORW-715
+          ...(this.live?.ceremony && this.vetoDrawBeatFor(ceremonyRef(this.live), false) ? { drawBeat: this.vetoDrawBeatFor(ceremonyRef(this.live), false)! } : {}), // ORW-924
         },
         ...(this.competitionFieldFact() ? { competition: this.competitionFieldFact()! } : {}), // ORW-715
       },
@@ -23098,6 +24110,7 @@ export class GameSessionAdapter implements GameSession {
       // narrator voices the REAL, persistent occupancy the engine drives — never invented positions.
       whereabouts: this.whereabouts(),
       ...(this.playerMoveThisTurn() ? { playerMove: this.playerMoveThisTurn() as PlayerMoveView } : {}), // ORW-419: the engine-resolved move of the player's own, this turn (ORW-478: only on the message it was made for)
+      ...(this.playerSearchThisTurn() ? { playerSearch: this.playerSearchThisTurn()! } : {}), // ORW-934: the search the engine walked for the player on this message
       ...(this.walkInThisTurn() ? { walkedIn: this.walkedInView(this.walkInThisTurn()!) } : {}), // ORW-473: walked in on a private talk this turn
       week: this.week,
       phase: this.phase,

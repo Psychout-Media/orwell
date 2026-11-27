@@ -200,14 +200,15 @@ describe("#1106 — a REAL contested eviction (player-HOH TIE) through the produ
    * vote, per-houseguest nomination styles, the pawn-or-target replacement reshape the block): seed 44 produces the
    * player-HOH tie. Same harness-only retune; the integrity story is unchanged.
    */
-  it("tie-break fires; a 3-fault storm at the beat opens the circuit; the tie still resolves clean; no data loss; stale/duplicate submits are inert", () => {
+  // ORW-990: the seed search used to walk dozens of full seasons (about 800 s on CI) because the pinned seeds no longer tied. A scan of seeds 1-80 (2026-11-26) found 49 and 58 as the seeds that reach a player-HOH tie, so they go first and the test is one drive to the tie (about 20 s on a loaded runner, so a 120 s budget instead of 1,200 s). The assertion is unchanged: the tie must still be reached with the player as HOH. The old pins and the 1..80 tail stay as the fallback when the balance moves again.
+  it("tie-break fires; a 3-fault storm at the beat opens the circuit; the tie still resolves clean; no data loss; stale/duplicate submits are inert", { timeout: 120_000 }, () => {
     // The tie is a property of (seed, user, driving-pattern) and the balance moves it, so SEARCH for a seed that
     // reaches a player-HOH tie (44 first — the last known one — then a tail) instead of re-pinning by hand every
     // time the difficulty changes. Anything other than "this seed had no tie" surfaces.
     const user = "u";
     // ORW-218 (CI speed): seed 44 no longer ties, so the search walked 25 full games (~350 s) before reaching 25, the first seed that does. 25 is tried first now; 44 and the 1..80 tail stay as the fallback when the balance moves again.
     // ORW-711 (the new floor plan moved the seeded trajectories): 25 and 44 no longer tie; a scan of seeds 1-40 found 38 as the only one that does, so it goes first.
-    const SEARCH: number[] = [38, 25, 44, ...Array.from({ length: 80 }, (_, i) => i + 1)];
+    const SEARCH: number[] = [49, 58, 38, 25, 44, ...Array.from({ length: 80 }, (_, i) => i + 1)];
     let dir = "";
     let runtime!: ReturnType<typeof composeRuntime>;
     let reg!: ReturnType<typeof composeRuntime>["registry"];
@@ -285,10 +286,10 @@ describe("#1106 — a REAL contested eviction (player-HOH TIE) through the produ
       expect(recovered.faults.filter((f) => f.kind === "degradation").length).toBeGreaterThanOrEqual(3);
       expect(recovered.faults.length).toBeLessThanOrEqual(20);
 
-      // A DUPLICATE tie-break submission (second window, replayed turn) is an inert no-op: no second
+      // A DUPLICATE tie-break submission (second window, replayed turn) is REFUSED (ORW-1063) and inert: no second
       // eviction, no fault, the board unchanged.
       const savedAfter = JSON.stringify(store.loadLatest(user)!);
-      live.session.submitDecision({ kind: "tie-break", vote: tie!.options[1]!.id });
+      expect(() => live.session.submitDecision({ kind: "tie-break", vote: tie!.options[1]!.id })).toThrow(/decision refused \(no-pending\)/); // ORW-1063: refused with its reason, still nothing recorded
       expect(reg.sandboxFor(user).session.snapshot().live?.evictionOrder ?? []).toEqual(evictionOrder);
       expect((orch.sandboxHealth(user) as HealthRecord).lastIntegrity).toBe("ok");
       expect(JSON.stringify(store.loadLatest(user)!)).toBe(savedAfter);

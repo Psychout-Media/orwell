@@ -94,6 +94,10 @@ function precedingWord(content: string, offset: number): string {
 function bareWordIdIsCommonNoun(content: string, offset: number): boolean {
   const prev = precedingWord(content, offset);
   if (prev === "") return false;            // clause/content start → a genuine interpolated person id
+  // ORW-916: a list comma or a sentence/clause stop between the previous word and the id ("npc:7, player fall behind", "5 remain. player quietly slips out") makes the id a list item or a sentence opener, not the head of a compound
+  // noun: the previous word belongs to ANOTHER phrase. Without this the player's own place in a round line was left as the raw word "player".
+  const gap = /[A-Za-z]+([^A-Za-z]*)$/.exec(content.slice(0, offset));
+  if (gap && /[,;.!?\n]/.test(gap[1]!)) return false;
   if (DETERMINERS.has(prev)) return true;   // "the/a/every player" → the ordinary word (#845)
   return !ID_INTRODUCERS.has(prev);         // a content modifier ("poker player") → common noun (#927)
 }
