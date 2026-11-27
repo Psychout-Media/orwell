@@ -28,7 +28,8 @@ describe("a makeDeal to the houseguest who made the offer accepts it (played)", 
     expect(isRefusal(r), `seed ${f.seed}: the houseguest who offered it refused it`).toBe(false);
     expect((r as DealView).kind).toBe(o.kind);
     expect(g.s.getGameState().deals?.length, "one deal was made").toBe(before + 1);
-    expect((g.s.getGameState() as { openDealOffer?: unknown }).openDealOffer, "the offer is spent").toBeUndefined();
+    // ORW-1079: the ANSWERED offer is spent (another houseguest's own offer may stand next; that is theirs, not this one)
+    expect((g.s.getGameState() as { openDealOffer?: { id: string } }).openDealOffer?.id, "the offer is spent").not.toBe(o.id);
     expect((r as DealView).parties.some((x) => x.id === o.from.id), "with the houseguest who offered").toBe(true);
   }, 120_000); // a whole played season: past the 30 s default on a CI runner
 

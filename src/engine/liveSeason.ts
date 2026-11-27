@@ -682,6 +682,8 @@ export interface LiveSeasonState {
   evictionOrder: EntityId[];
   /** ORW-1087: the jury as a stable fact, assigned once when each houseguest is evicted (their place in the record at that moment is at or after the jury start). Never recomputed from list positions, so a battle-back that removes an earlier entry cannot move anyone on or off the jury. Absent on older saves, which fall back to the positional rule until their next eviction. */
   jurorIds?: EntityId[];
+  /** ORW-1079: the puppet-master steering record (engine-only, Vault class). Absent until the first eviction of a played game with the flag on. */
+  steering?: import("./mentorPuppet").SteerState;
   evictee?: EntityId;
   finished: boolean;
   winner?: EntityId;
@@ -1036,6 +1038,10 @@ export interface LiveSeasonState {
   approachStreak?: { desire: string; count: number; lastHour: number };
   /** ORW-341 (Vault-class, engine-only): `holder>target` -> the week the holder last PITCHED that target in house life for a pull-them-in goal. The alliance tick counts a target pitched this week a little warmer. */
   pitched?: Record<string, number>;
+  /** ORW-963: `holder>target` -> the in-game day of that houseguest pitch, while it is still open (how long depends on the pitcher). Engine-only; played games. */
+  pitchedDay?: Record<string, number>;
+  /** ORW-963: alliance id -> the in-game day an unanswered pitch to the PLAYER was first seen open. Engine-only; played games. */
+  pitchSince?: Record<string, number>;
   /** ORW-340 (Vault-class, engine-only): an NPC whose hourly plan, made for one of their own goals, named the player: the approach desire it maps to, the goal behind it, and the in-game hour it was made. Cleared when they approach. */
   goalApproaches?: Record<string, { desire: string; goalId: string; hour: number; /** ORW-611 follow-up: a speech step aimed at the player (told when they step up). */ say?: AimedSay }>;
   /** ORW-611 (0172 / 0173; ORWELL_PLAYER_AIMED): the record of a houseguest's goal step AIMED AT the player, so it is felt and answerable like one aimed at an NPC. Append-only (an outcome closes a record, never removes it); ENGINE-ONLY (names the goal kind, never a number or a secret); persisted. `shown` = it surfaced as the approach the player sees; `answered` = the player talked to them or struck a deal after; `ignored` = a hostile one nobody answered (it cost the houseguest's read of the player); `lapsed` = a non-hostile one that faded. */
@@ -1354,6 +1360,10 @@ export interface SeasonCtx {
   herdFor?: (nominee: EntityId, voter: EntityId, fn: readonly [EntityId, EntityId]) => number;
   /** B4 slice 4: `voter` actually voted `nominee` out - any open assurance they made to `nominee` is broken (resolved + folded by the adapter). */
   assuranceVotedOut?: (voter: EntityId, nominee: EntityId, sealedAmong?: readonly EntityId[]) => void;
+  /** ORW-1079: who leads this voter's eviction vote (a puppet-master, else a mentor) and by how much. Absent provider => no term (byte-identical). */
+  steerLeadOf?: (voter: EntityId) => { by: EntityId; lean: number } | undefined;
+  /** ORW-1079: every eviction's ballots once counted (the steering record reads them). Absent => nothing recorded. */
+  votesCast?: (voteOf: ReadonlyMap<EntityId, EntityId>, fn: readonly [EntityId, EntityId]) => void;
   /** B4 slice 3: the HOH actually nominated `nominee` - any open assurance the HOH made to them is broken (resolved + folded by the adapter). */
   assuranceNominated?: (holder: EntityId, nominee: EntityId) => void;
   /** 0154 (caught in a lie): the eviction count is PUBLIC (who left, how many votes read "evict", who was eligible to vote) - never a ballot. The adapter catches any "I voted to keep you" the count rules out. Absent => nothing. */
@@ -2514,6 +2524,12 @@ export function voteChoice(
   // (`a - b` is `a + (-b)` bit for bit, so the signed terms reproduce the original expression).
   // ORW-972: the bloc votes TOGETHER - its pull is toward the bloc's own majority pick (each member's read without the bloc term; the player only as this voter knows their stated vote)
   const blocPick = blocs.length ? blocVotePick(blocs, voter, fn, (m) => (m === ctx.player ? ctx.playerStatedVoteFor?.(voter, fn) : voteChoice(m, fn, ctx, [], hoh))) : undefined;
+  // ORW-1079: a puppet-master or mentor leads this vote: the lean goes to the leader's own pick (a nominee leader keeps themself; the player as leader only as this voter knows their stated vote).
+  const lead = ctx.steerLeadOf?.(voter);
+  const leadPick = lead === undefined || lead.by === voter ? undefined
+    : fn.includes(lead.by) ? (fn[0] === lead.by ? fn[1] : fn[0])
+    : lead.by === ctx.player ? ctx.playerStatedVoteFor?.(voter, fn)
+    : voteChoice(lead.by, fn, { ...ctx, steerLeadOf: undefined }, [], hoh);
   const termVals = (n: EntityId): number[] => [
     ctx.rel.edge(voter, n).threat * (1 + paranoia * (V.moodSelfProtectWeight * (ctx.paranoiaMult ?? 1))),
     blocVoteTerm(blocs, voter, n, blocPick),
@@ -2545,6 +2561,8 @@ export function voteChoice(
     ctx.herdFor?.(n, voter, fn) ?? 0,
     // 0193 (ORW-623): at four left or fewer, the voter's own "can I beat you?" read. Absent provider => 0 => byte-identical.
     ctx.endgameFor?.(n, voter) ?? 0,
+    // ORW-1079: the lean toward the leader's pick (a puppet-master's, else a mentor's). Absent => 0 => byte-identical.
+    lead !== undefined && leadPick === n ? lead.lean : 0,
   ];
   const v0 = termVals(fn[0]);
   const v1 = termVals(fn[1]);
@@ -2562,7 +2580,7 @@ export function voteChoice(
 }
 
 /** ORW-305: the vote score's term names, in the order `voteChoice` adds them. */
-export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum", "agenda", "feeling", "favor", "herd", "endgame"] as const;
+export const VOTE_TERM_NAMES = ["threat", "bloc", "pre-show-tie", "campaign", "memory", "mood", "belief", "assurance", "deal", "jury-management", "bond-keep", "hoh-referendum", "agenda", "feeling", "favor", "herd", "endgame", "steer"] as const;
 
 /** Count the eviction votes (NPCs threat-driven; the player's own vote, if any) WITHOUT breaking a tie. */
 function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: EntityId): {
@@ -2582,6 +2600,7 @@ function countEvictionVotes(s: LiveSeasonState, ctx: SeasonCtx, playerVote?: Ent
     if (ctx.assuranceVotedOut) ctx.assuranceVotedOut(v, target, voters); // B4 slice 4: voting the assured out breaks the assurance (SEALED ballot: ORW-15 - the fold is shared across every voter, never attributed to this one)
     if (ctx.assuranceKeptAtVote) ctx.assuranceKeptAtVote(v, fn[0] === target ? fn[1] : fn[0], voters); // B4 slice 8 (sealed, ORW-15): voting the OTHER nominee out spares this one => kept
   }
+  ctx.votesCast?.(voteOf, fn); // ORW-1079: the steering record reads every eviction's ballots
   return { fn, votes, voteOf };
 }
 
@@ -4076,6 +4095,7 @@ function resolveBattleBack(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSo
   const dropped = jurorsBefore - nonPlayerJurors();
   if (dropped > 0) s.juryReturns = (s.juryReturns ?? 0) + dropped;
   s.active.push(winner);
+  if (s.evictedTaken) s.evictedTaken = s.evictedTaken.filter((h) => h !== winner); // ORW-1103: the returnee's first eviction is voided, so what the house took from it is too; a second eviction takes them with it again (deals, favors, assurances)
   // A returning PLAYER is a player again: a pre-jury evictee who chose to watch/skip (0133) must not stay a spectator, or the loop would keep
   // fast-forwarding their own weeks as if they were still watching from outside (found by the reactive-twists player-path guard).
   if (winner === ctx.player) s.spectator = undefined;

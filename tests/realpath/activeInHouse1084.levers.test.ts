@@ -1,12 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { playUntil } from "./playedSeason";
+import { firstSeedWhere } from "../support/firstSeedWhere";
 import { PLAYER } from "../../src/domain/ids";
 
 // ORW-1084: the levers half (see ./activeInHouseSeason.ts; its own file since ORW-410).
 describe("a houseguest who has left the house acts and witnesses nowhere in it", () => {
   it("an evicted player's house levers are refused with the reason and record nothing; the jury house and the reads stay open", async () => {
     const out = (s: { sess: { live?: { evictionOrder?: string[] } } }): boolean => !!s.sess.live?.evictionOrder?.includes(PLAYER);
-    const at = await playUntil(11, (s) => out(s), { user: "a7-lever-11" }); // ORW-1091: seed 11 (on seed 10 the player now outlasts the 1,500-message cap since the fold meter wears both sides)
+    // ORW-1079: a scan (the first season that evicts the player), not a fixed seed: the vote leans move which seasons do; 1, 10 and 11 are seeds that have.
+    const at = (await firstSeedWhere((seed, sandbox) => playUntil(seed, (s) => out(s), { user: sandbox }), { from: 1, to: 20, hint: [1, 10, 11], sandbox: (sd) => `a7-lever-${sd}`, what: "a season that evicts the player" })).at;
     const npcs = (at.sess.house.npcs as Array<{ id: string }>).filter((n) => !at.sess.live.evictionOrder.includes(n.id));
     const target = npcs[0]!.id;
     const before = at.engine.events.queryAll().length;
