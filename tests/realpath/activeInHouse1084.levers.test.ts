@@ -6,7 +6,7 @@ import { PLAYER } from "../../src/domain/ids";
 describe("a houseguest who has left the house acts and witnesses nowhere in it", () => {
   it("an evicted player's house levers are refused with the reason and record nothing; the jury house and the reads stay open", async () => {
     const out = (s: { sess: { live?: { evictionOrder?: string[] } } }): boolean => !!s.sess.live?.evictionOrder?.includes(PLAYER);
-    const at = await playUntil(10, (s) => out(s), { user: "a7-lever-10" });
+    const at = await playUntil(11, (s) => out(s), { user: "a7-lever-11" }); // ORW-1091: seed 11 (on seed 10 the player now outlasts the 1,500-message cap since the fold meter wears both sides)
     const npcs = (at.sess.house.npcs as Array<{ id: string }>).filter((n) => !at.sess.live.evictionOrder.includes(n.id));
     const target = npcs[0]!.id;
     const before = at.engine.events.queryAll().length;

@@ -42,7 +42,10 @@ const memo = new Map<string, { d: string; seed: number }>();
 function seatedAt(hoh: "player" | "npc", played = true): { s: Any; live: LiveSeasonState; d: string; seed: number } {
   const key = String(played);
   if (!memo.has(key)) {
-    for (let seed = 1; seed <= 25 && !memo.has(key); seed++) {
+    // ORW-1091: the first seed that keeps the player to the Final 3 is tried first (19 played, 17 headless since the fold meter wears both sides); the range stays as it was.
+    const hint = played ? 19 : 17;
+    for (const seed of [hint, ...Array.from({ length: 25 }, (_, i) => i + 1).filter((x) => x !== hint)]) {
+      if (memo.has(key)) break;
       const d = freshTmpDir("orwell-fin-");   // shared by every test of the file: removed at the end of the file
       if (toFinalEviction(boot(d, seed, played))) memo.set(key, { d, seed });
       else dropTmpDir(d);                      // a rejected seed's full-season save goes at once
