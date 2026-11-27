@@ -1,4 +1,5 @@
 import { liveHouseEvent, isCompOrCeremonyKind, eventStagingRoom } from "../../engine/houseEvent";
+import { pitchPatienceDays, PITCH_PATIENCE } from "../../engine/pitchPatience";
 import { stallTimer } from "../stallTiming";
 import type {
   GameSession, CreateCharacterReq, GameStateView, PipelineCastView, HouseMeetingView, MomentPromptReq, MomentPromptView,
@@ -1678,6 +1679,10 @@ export class GameSessionAdapter implements GameSession {
       if (!kind) continue;
       const spoken = pickSpoken(holders);
       if (!spoken) continue;
+      // A second record can carry the same words about the same houseguest. Those words are already out: saying them again would leave a hidden copy (a night the player missed) as a verbatim twin of a shown one, and the
+      // vault-leak checkpoint then refuses every later turn.
+      const said = `: ${spoken}`;
+      if ((this.record?.events() ?? []).some((e) => e.type === "secret-break" && e.content.endsWith(said) && e.content.startsWith(this.nameOf(subject)))) { (s.secretBreaks ??= []).push(factId); done.add(factId); continue; }
       this.stageSecretBreak(knowledge, { factId, subject, kind, spoken, holders: holders.map((x) => x.holder), room });
       (s.secretBreaks ??= []).push(factId);
       if (s.sayItFirst?.factId === factId) delete s.sayItFirst; // ORW-743: the room said it first
@@ -4415,6 +4420,26 @@ export class GameSessionAdapter implements GameSession {
       trustInAsker: signals.npcTrust, stakes,
     }, [rng.next(), rng.next(), rng.next()]);
     this.dodgeLog.push({ npc: npc.id, week: this.week, phase, stakes, ...fact });
+  }
+  /**
+   * ORW-1078 (Ryne 2026-11-26, parity): a houseguest confronted by another may turn the question aside, decided exactly as when the player presses them (`decideDodge`: their style, nerves, trust in the ASKER, the
+   * stakes of where they stand), on a keyed side stream. The player's own presses and their log are untouched. Absent: they answered, or dodging is off.
+   */
+  private npcDodge(p: { actor: EntityId; kind: string; with: readonly EntityId[] }, key: string): DodgeFact | undefined {
+    const me = this.house?.player.id;
+    const asked = p.with[0];
+    if (!this.dodgingOn() || p.kind !== "confront" || !asked || asked === me || p.actor === me) return undefined;
+    const npc = this.house!.npcs.find((n) => n.id === asked);
+    if (!npc) return undefined;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:npc-dodge:${asked}:${p.actor}:${key}`));
+    const trust = this.rel.peek(asked, p.actor).trust;
+    if (rng.next() >= 0.35 + 0.4 * (1 - trust)) return undefined; // they answer; the colder they are on the asker, the likelier they do not
+    const style = npc.character.strategyStyle;
+    const vol = this.soulObj(asked)?.volatility ?? 0.3;
+    const stakes = dodgeStakes(severityOf(undefined), ((this.live?.nominees as readonly EntityId[] | undefined) ?? []).includes(asked), this.live?.hoh === asked || this.live?.vetoHolder === asked);
+    return decideDodge({
+      cunning: style ? CUNNING[style] ?? 0.3 : 0.3, leakiness: (style ? LEAKY[style] ?? 0.3 : 0.3) + 0.2 * vol, rattled: Math.max(0, vol - 0.5) * 2, trustInAsker: trust, stakes,
+    }, [rng.next(), rng.next(), rng.next()]);
   }
   /** The dodge the engine decided for `npc` in the current week and phase (the voice shows it only while the press is this beat's). */
   private dodgeFor(npc: EntityId): DodgeFact | undefined {
@@ -14937,12 +14962,52 @@ export class GameSessionAdapter implements GameSession {
       }
     }
     // ORW-611: a pitch the player has not taken is withdrawn, openly, when the founder no longer wants them in or the group has settled on them
+    const since = (live.pitchSince ??= {});
+    for (const id of Object.keys(since)) if (!this.alliances.pitchesFor(PLAYER).some((a) => a.id === id)) delete since[id]; // answered or withdrawn
     for (const p of [...this.alliances.pitchesFor(PLAYER)]) {
       const settled = life[p.id]?.agreed === PLAYER;
+      // ORW-963: silence reads as a no once this pitcher's own patience runs out
+      const asked = (since[p.id] ??= day);
+      if (!settled && p.founder !== PLAYER && day - asked >= this.pitchPatienceOf(p.founder)) {
+        if (this.alliances.withdrawPitch(p.id, PLAYER)) {
+          delete since[p.id];
+          this.coolOnSilence(p.founder, PLAYER);
+          this.onPlayerEvent?.(`${this.nameOf(p.founder)} takes ${this.nameOf(PLAYER)}'s silence about the alliance "${p.name}" as a no`, [p.founder, PLAYER], "alliance-pitch-withdrawn");
+        }
+        continue;
+      }
       if (!settled && mutualP(p.founder, PLAYER) >= ALLIANCE.joinBondFloor) continue;
       if (this.alliances.withdrawPitch(p.id, PLAYER)) this.onPlayerEvent?.(`${this.nameOf(p.founder)} tells ${this.nameOf(PLAYER)} the alliance "${p.name}" has no place for them after all`, [p.founder, PLAYER], "alliance-pitch-withdrawn");
     }
     this.flushAllianceEvents();
+  }
+
+  /** ORW-963: how many in-game days `holder` leaves a pitch open before reading silence as a no. */
+  private pitchPatienceOf(holder: EntityId): number {
+    const n = this.house?.npcs.find((x) => x.id === holder);
+    const soul = this.soulObj(holder);
+    return pitchPatienceDays({ ...(n ? { archetype: n.character.archetype, style: n.character.strategyStyle } : {}), volatility: soul?.volatility, paranoia: soul?.temperamentDrift });
+  }
+
+  /** ORW-963: an impatient pitcher cools on the one who left them hanging (a bounded move in their own read; the player's reads are theirs). */
+  private coolOnSilence(holder: EntityId, target: EntityId): void {
+    if (this.pitchPatienceOf(holder) > PITCH_PATIENCE.coolsAtDays) return;
+    this.rel.applyImpactDirected(holder, target, PITCH_PATIENCE.cool, new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:pitch-lapse:${holder}:${target}:${this.live?.dayNumber ?? 0}`)));
+  }
+
+  /** ORW-963 (parity): houseguest-to-houseguest pitches lapse by the same patience. */
+  private lapseNpcPitches(): void {
+    const s = this.live;
+    if (!s?.pitchedDay || s.playedGame !== true) return;
+    const day = s.dayNumber ?? s.week;
+    for (const [key, asked] of Object.entries(s.pitchedDay)) {
+      const [holder, target] = key.split(">") as [EntityId, EntityId];
+      const joined = this.alliances.shared(holder, target).length > 0;
+      if (!joined && day - asked < this.pitchPatienceOf(holder)) continue;
+      delete s.pitchedDay[key];
+      if (!joined) delete s.pitched?.[key]; // lapsed: it no longer counts as pitched this week either
+      if (!joined && s.active.includes(holder) && s.active.includes(target)) this.coolOnSilence(holder, target);
+    }
   }
 
   /** 0172 / ORW-611: a group that has settled on the PLAYER sends the member who reads them as the biggest threat to press them, through the desire clock's own approach path (its cooldown, its one-in-flight and its ceremony guards apply). */
@@ -15188,6 +15253,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-341: a "pull them in" goal turns the hours spent pitching into an alliance with its TARGET, through the same consent: the target must be willing (mutual bond at the floor, a little warmer if pitched this week).
     if (!agendaOpen) return;
     const week = this.live!.week;
+    this.lapseNpcPitches(); // ORW-963
     // 0172 / ORW-611: a "pull them in" goal whose target is the PLAYER is a pitch to the player, through the same path a founder's pitch takes (the alliance is revealed to them; they accept with joinAlliance). It needs the bond the player would join on, and the player is told by an event that names the alliance, never its roster.
     if (this.groupRolesOn()) {
       for (const holder of npcs) {
@@ -15207,7 +15273,8 @@ export class GameSessionAdapter implements GameSession {
       for (const goal of goalsOf(holder).filter((g) => g.kind === "pull-them-in" && g.target !== undefined && g.target !== PLAYER)) {
         const target = goal.target!;
         if (!npcs.includes(target) || this.alliances.shared(holder, target).length > 0) continue;
-        const warm = this.live!.pitched?.[`${holder}>${target}`] === week ? ALLIANCE.pitchedWarmth : 0;
+        // ORW-963: in a played game a pitch also counts for as long as that pitcher would leave it open (a lapse clears the week mark too)
+        const warm = ((this.live!.playedGame === true && this.live!.pitchedDay?.[`${holder}>${target}`] !== undefined) || this.live!.pitched?.[`${holder}>${target}`] === week) ? ALLIANCE.pitchedWarmth : 0;
         const bond = (m: EntityId): number => mutual(holder, m) + (m === target ? warm : 0);
         if (bond(target) < npcFloor.joinBondFloor) continue; // the target declines: an unwilling target never joins
         const open = this.alliances.forMember(holder).filter((a) => a.members.length < maxSize);
@@ -16647,7 +16714,7 @@ export class GameSessionAdapter implements GameSession {
     for (const scene of assembleScenes(plans)) {
       for (const p of scene.actions) {
         const partner = p.with[0];
-        if (p.goalKind === "pull-them-in" && partner && (p.kind === "pitch" || p.kind === "recruit")) (s.pitched ??= {})[`${p.actor}>${partner}`] = s.week; // ORW-341: the alliance tick counts a target pitched this week a little warmer
+        if (p.goalKind === "pull-them-in" && partner && (p.kind === "pitch" || p.kind === "recruit")) { (s.pitched ??= {})[`${p.actor}>${partner}`] = s.week; if (s.playedGame === true) (s.pitchedDay ??= {})[`${p.actor}>${partner}`] ??= s.dayNumber ?? s.week; } // // ORW-341: the alliance tick counts a target pitched this week a little warmer
         // ORW-340: a plan made for one of the NPC's own GOALS that names the player is not a hidden scene (the player is not in it): it becomes an APPROACH, raised through the desire clock's own path (and its guards: cooldown, one in flight, never in a ceremony, asleep = never).
         if (p.goalId && s.playedGame === true) this.noteGoalServed(p.actor, p.goalId); // ORW-571: a step made for the goal is progress for tonight's mull
         if (p.goalId && (p.with.includes(house.player.id) || hostileAtPlayer(p)) && approachAllowed(p)) {
@@ -16670,13 +16737,14 @@ export class GameSessionAdapter implements GameSession {
         if (!partner || !type || partner === house.player.id) continue;
         if (type === "showmance" && !(gate.plausible(p.actor, partner) && ((!gate.hasActiveShowmance(p.actor) && !gate.hasActiveShowmance(partner)) || this.showmancePartnerOf(p.actor) === partner))) type = "bonding";
         const people = [...new Set([p.actor, ...p.with])].filter((x) => x !== house.player.id);
-        if (roomPlans.has(p)) this.recordRoomAct(events, p, type, people, { day, hour, stretchIndex }, seed, knowledge); // ORW-621: seen by the player, so never hidden; folded here on its own keyed stream
+        const dodge = this.npcDodge(p, `${day}:${hour}${repeat > 0 ? `r${repeat}` : ""}`); // ORW-1078
+        if (roomPlans.has(p)) this.recordRoomAct(events, p, type, people, { day, hour, stretchIndex }, seed, knowledge, dodge); // ORW-621: seen by the player, so never hidden; folded here on its own keyed stream
         else {
         const content = actionLine(p);
         const event: GameEvent = {
           id: `offscreen:${type}:${events.count()}:${hashSeed(`${seed}:life:${day}:${hour}:${p.actor}:${p.kind}`) % 1_000_000_000}`,
           ts: stretchIndex, type, initiator: p.actor, witnessSet: people, hidden: true, content, baseContent: content,
-          houseLife: { ...(p.nightOwl ? { nightOwl: true } : {}), action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), ...(p.ritual ? { ritual: p.ritual } : {}), ...(p.habit ? { habit: p.habit } : {}), stretch: stretchIndex, ...(this.inGameAbsHour() !== undefined ? { at: this.inGameAbsHour() } : {}),
+          houseLife: { ...(p.nightOwl ? { nightOwl: true } : {}), ...(dodge ? { dodge } : {}), action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), ...(p.ritual ? { ritual: p.ritual } : {}), ...(p.habit ? { habit: p.habit } : {}), stretch: stretchIndex, ...(this.inGameAbsHour() !== undefined ? { at: this.inGameAbsHour() } : {}),
             ...(() => { const seen = this.onlookers([...presence.entries()].filter(([id, room]) => room === p.place && !people.includes(id) && id !== house.player.id).map(([id]) => id).sort(), type, people, `${seed}:hide-catch:${day}:${hour}:${p.actor}:${p.kind}`); return seen.length ? { seenBy: seen } : {}; })() }, // ORW-539: who could see it; 0184 part 2b: a hiding pair's time together is caught only on a roll
         };
         events.record(event);
@@ -16737,10 +16805,11 @@ export class GameSessionAdapter implements GameSession {
    * (`roomActLine`), never the goal. It carries no `houseLife` record, so the bond record reads the actor and the first partner as the principals and the player (and anyone else there) as watchers (ORW-609).
    * It folds here through the scene's own interaction type on its own keyed stream (the orchestrator's fold uses the shared one), and the player holds it as something they witnessed.
    */
-  private recordRoomAct(events: EventStore, p: PlannedAction, type: InteractionType, people: readonly EntityId[], k: { day: number; hour: number; stretchIndex: number }, seed: number, knowledge?: KnowledgeService): void {
+  private recordRoomAct(events: EventStore, p: PlannedAction, type: InteractionType, people: readonly EntityId[], k: { day: number; hour: number; stretchIndex: number }, seed: number, knowledge?: KnowledgeService, dodge?: DodgeFact): void {
     const me = this.house!.player.id;
     const partner = p.with[0]!;
-    const content = roomActLine(p, (id) => this.nameOf(id));
+    // ORW-1078: what the player sees when the one pressed does not answer: that they turn it aside (and hand it back), never why; the narrator words how
+    const content = roomActLine(p, (id) => this.nameOf(id)) + (dodge ? `; ${this.nameOf(partner)} turns the question aside${dodge.pushesBack ? " and hands it back" : ""}` : "");
     const id = `roomlife:${this.roomLifeHourKey(k)}|${p.actor}|${events.count()}`;
     events.record({
       id,
@@ -17684,6 +17753,10 @@ export class GameSessionAdapter implements GameSession {
     if (!n || !this.house || n.character.genderPresentation === undefined) return false;
     const orientation = (n.character.outOrientation as Orientation | undefined) ?? this.privateOrientations[npc] ?? "straight";
     const answered = strandsOf(store[bondKey(npc, PLAYER)] ?? emptyBond()).romance ?? 0;
+    // ORW-699: parity with a houseguest's own flirting (`attractionViewOf`): with the season's private chemistry drawn (0207 A1), a houseguest who holds no attraction toward the player
+    // is simply not interested, however many romance scenes the player starts. No chemistry map (a headless or pre-0207 season) keeps the old rule, byte-identical.
+    const chem = this.live?.chemistry;
+    if (chem && attractionOf(chem, this.live?.together, npc, PLAYER) <= 0) return false;
     const drawn = npcDrawnToPlayer({ orientation, gender: n.character.genderPresentation }, this.house.player.character.genderPresentation, answered);
     return playerInShowmanceWith(this.record?.events() ?? [], npc, drawn);
   }
@@ -23697,6 +23770,8 @@ export class GameSessionAdapter implements GameSession {
         winReads: skin?.narrative.winReads ?? "",
       },
       alreadyAuthored: data.alreadyAuthored, // the FE's persistent "author exactly once per comp" guard
+      // ORW-938: when the comp was pinned to the engine's own presentation at draw (always, in a normal game: fiction can only arrive after the roll), the house has already heard `library` as the game
+      ...(this.live.competition?.themeAuthored === false ? { announced: true as const } : {}),
       ...(this.recentThemeTitles().length > 0 ? { recentThemes: this.recentThemeTitles() } : {}),
     };
   }
