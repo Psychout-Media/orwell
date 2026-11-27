@@ -12,6 +12,7 @@ from typing import Any, List, Optional
 
 from core.models import ChatMessage
 from core.database import SessionLocal
+from src.failsoft_counter import note as _failsoft_note  # ORW-1026: a swallowed failure is counted, not silent
 from core.database import Session as DBSession, ModelEndpoint
 from src.llm_core import normalize_model_id
 from src.endpoint_resolver import normalize_base, resolve_session_headers
@@ -974,7 +975,8 @@ def mark_premiere_release(user) -> None:
         key = _runway_key(user)
         if key in _PREMIERE_ENTRANCE_STAGE:
             _PREMIERE_RELEASED_THIS_TURN.add(key)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:mark_premiere_release:1", _fs_exc)
         pass
 
 
@@ -1056,7 +1058,8 @@ def _note_entrance_frame(user, key, stage, ent) -> bool:
     try:
         from src import orwell_engine as _oe
         _oe.set_entrance_voiced(user, voiced)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_note_entrance_frame:1", _fs_exc)
         pass
     return voiced
 
@@ -1126,7 +1129,8 @@ def note_premiere_narration(user, narration: str) -> None:
         people = [x for x in (sp or []) if x != "host"]
         if people and all(_name_voiced_in(narration, x) for x in people):
             _TOAST_BATCH_NAMED[key] = tuple(people)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_premiere_narration:1", _fs_exc)
         pass
 
 
@@ -1191,7 +1195,8 @@ def note_premiere_turn(user, game_state) -> None:
         try:
             from src import orwell_engine as _oe_clear
             _oe_clear.set_entrance_voiced(user, False)
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:note_premiere_turn:3", _fs_exc)
             pass
         if stage == "done":
             # Live finding (A9 rerun #2): with the entrances ON, the entrances + toast ARE the premiere. Stacking the 48-message premiere hold on top of them froze the engine at
@@ -1223,7 +1228,8 @@ def note_premiere_turn(user, game_state) -> None:
                 _SCHEDULE_STEER[key] = _premiere_not_yet_steer()
         else:
             _PREMIERE_MSGS.pop(key, None)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_premiere_turn:4", _fs_exc)
         pass
 
 
@@ -1278,14 +1284,16 @@ def note_engine_held(user, held) -> None:
     try:
         import time as _t
         _ENGINE_HELD[_runway_key(user)] = (_t.monotonic(), held)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_engine_held:1", _fs_exc)
         pass
 
 
 def clear_engine_held(user) -> None:
     try:
         _ENGINE_HELD.pop(_runway_key(user), None)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:clear_engine_held:1", _fs_exc)
         pass
 
 
@@ -2002,7 +2010,8 @@ def _reground_remove(key, directive) -> None:
             _DESYNC_REGROUND[key] = _REGROUND_SEP.join(segs)
         else:
             _DESYNC_REGROUND.pop(key, None)
-    except Exception:  # pragma: no cover - defence in depth
+    except Exception as _fs_exc:  # pragma: no cover - defence in depth
+        _failsoft_note("chat_helpers:_reground_remove:1", _fs_exc)
         pass
 
 
@@ -2073,7 +2082,8 @@ def _desync_key(user):
         sid = orwell_game_session.get_game_session(user)
         if isinstance(sid, str) and sid.strip():
             return "gs:" + sid.strip()
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_desync_key:1", _fs_exc)
         pass
     return user
 
@@ -2672,7 +2682,8 @@ def _defer_fold(user, fn, args: tuple, kwargs: dict, desc: str) -> None:
             _sl.note_stale_rejection(
                 user, dropped_fold=True,
                 cause="deferred-fold queue overflow (retry capacity outrun)")
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:_defer_fold:1", _fs_exc)
             pass
     else:
         logger.info("[orwell] deferred a fold-bearing back-fill after a double stale-409 (%s) for "
@@ -2743,7 +2754,8 @@ async def _drain_deferred_folds(user) -> None:
                             _sl.note_stale_rejection(
                                 user, dropped_fold=True,
                                 cause="deferred-fold retry budget exhausted (sustained two-window concurrency)")
-                        except Exception:
+                        except Exception as _fs_exc:
+                            _failsoft_note("chat_helpers:_drain_deferred_folds:1", _fs_exc)
                             pass
                         continue  # DROP -- do not re-queue a fold that will not commit
                     remaining.append(entry)  # still contested, within budget -- leave queued for next time
@@ -2758,7 +2770,8 @@ async def _drain_deferred_folds(user) -> None:
                     _sl.note_stale_rejection(
                         user, dropped_fold=True,
                         cause="deferred-fold non-stale terminal drop (unretryable)")
-                except Exception:
+                except Exception as _fs_exc:
+                    _failsoft_note("chat_helpers:_drain_deferred_folds:2", _fs_exc)
                     pass
                 continue
             _refresh_beat_seq(user, result if isinstance(result, dict) else {})
@@ -2783,7 +2796,8 @@ async def _drain_deferred_folds(user) -> None:
                     _sl.note_stale_rejection(
                         user, dropped_fold=True,
                         cause="deferred-fold queue overflow on drain-merge (retry capacity outrun)")
-                except Exception:
+                except Exception as _fs_exc:
+                    _failsoft_note("chat_helpers:_drain_deferred_folds:3", _fs_exc)
                     pass
             merged = merged[overflow:]
         if merged:
@@ -4222,7 +4236,8 @@ def note_ceremony_beat_for_voicing(user, label: str, names) -> None:
         names = [str(n).strip() for n in (names or []) if str(n).strip()]
         if names:
             _CEREMONY_UNVOICED[_desync_key(user)] = {"label": str(label)[:160], "names": names}
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_ceremony_beat_for_voicing:1", _fs_exc)
         pass
 
 
@@ -4265,7 +4280,8 @@ def note_eviction_result_for_voicing(user, adv) -> None:
         k = _desync_key(user)
         if k in _CEREMONY_UNVOICED and counts:
             _CEREMONY_UNVOICED[k]["counts"] = counts
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:note_eviction_result_for_voicing:1", _fs_exc)
         pass
 
 
@@ -4906,7 +4922,8 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
                 dropped.add(hit)
                 drop_quote = quote is not None
                 continue  # DROP — a non-present houseguest is never staged as present
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:screen_presence_wall:1", _fs_exc)
             pass  # any hiccup falls through to emit (conservatism), except a proven hit above
         out.append(part)
     carry["quote"], carry["drop_quote"] = quote, drop_quote
@@ -4925,7 +4942,8 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
                 _led.note_belt_fire(user, "presence-wall", len(dropped))  # ORW-1061
             except Exception:  # failsoft-ok: telemetry
                 pass
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:screen_presence_wall:3", _fs_exc)
             pass
     return "".join(out)
 
@@ -5392,7 +5410,8 @@ def _forget_season_pacing(user) -> None:
         try:
             from src import orwell_companions as _oc_reset
             _oc_reset.clear(user)  # ORW-1030: last season's companions do not walk into the new one
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:_forget_season_pacing:1", _fs_exc)
             pass
         _CEREMONY_UNVOICED.pop(dkey, None)  # review of #2287: last season's unvoiced ceremony must not be re-grounded into the new one
         rkey = _runway_key(user)
@@ -5412,7 +5431,8 @@ try:  # register at import; fail-soft so a missing engine module never breaks ch
     from src import orwell_engine as _oe_for_reset
     _oe_for_reset.on_season_reset(forget_knowledge_wall)
     _oe_for_reset.on_season_reset(_forget_season_pacing)  # ORW-231
-except Exception:
+except Exception as _fs_exc:
+    _failsoft_note("chat_helpers:module:1", _fs_exc)
     pass
 
 
@@ -5621,7 +5641,8 @@ def stash_knowledge_wall_reground(user) -> None:
             "knows — never the player's diary thoughts, never a secret no pathway gave them."
         )
         _reground_enqueue(_dkey, directive)  # BL-004: bounded append (combine, never clobber)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:stash_knowledge_wall_reground:1", _fs_exc)
         pass
 
 
@@ -5854,7 +5875,8 @@ def screen_tell_faithfulness(user, text: str) -> "tuple[str, list]":
         try:
             from src import orwell_sync_ledger as _led
             _led.note_belt_fire(user, "tell_faithfulness", len(ops))
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:screen_tell_faithfulness:1", _fs_exc)
             pass
         logger.warning("[orwell] A50: replaced %d tell-contradicting sentence(s) (user=%s)", len(ops), user)
         return "\n".join(out), ops
@@ -5887,7 +5909,8 @@ async def screen_knowledge_wall(user, text: str) -> str:
             if _sentence_leaks_sealed(part, facts, active_names):
                 leaked = True
                 continue  # DROP — a houseguest voicing sealed content never reaches the player
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:screen_knowledge_wall:1", _fs_exc)
             pass  # any hiccup falls through to emit (conservatism), except a proven leak above
         out.append(part)
     if leaked:
@@ -5899,7 +5922,8 @@ async def screen_knowledge_wall(user, text: str) -> str:
                 _led.note_belt_fire(user, "knowledge-wall", 1)  # ORW-1061
             except Exception:  # failsoft-ok: telemetry
                 pass
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:screen_knowledge_wall:3", _fs_exc)
             pass
     return "".join(out)
 
@@ -6690,7 +6714,8 @@ def _roll_cut_streak(dkey, before) -> None:
             if st["cut"] is not st["seen"]:
                 st["count"] = 0  # the previous turn did not cut
             st["seen"] = before
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_roll_cut_streak:1", _fs_exc)
         pass
 
 
@@ -6798,7 +6823,8 @@ def _log_scene_cut(user, phase, directive, text) -> None:
         with open(path, "a", encoding="utf-8") as fh:
             fh.write(_json.dumps({"ts": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()), "user": str(user), "phase": phase,
                                   "directive": str(directive)[:600], "text": str(text)[:4000]}) + "\n")
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_log_scene_cut:1", _fs_exc)
         pass
 
 
@@ -7152,7 +7178,8 @@ def _stash_overclaim_reground(user, directive: str) -> None:
     try:
         _dkey = _desync_key(user)
         _reground_enqueue(_dkey, directive)  # BL-004: bounded append (combine, never clobber)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_stash_overclaim_reground:1", _fs_exc)
         pass
 
 
@@ -7981,7 +8008,8 @@ def _note_headcount_hold(user, bad, ent: dict) -> None:
         logger.warning("[orwell] pre-emission guard HELD a headcount for user=%s — stated %d (%s), engine has "
                        "%d of %d inside (player inside: %s)", user, bad.n, bad.kind, ent["inside"],
                        ent["total"], ent["player_inside"])
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_note_headcount_hold:1", _fs_exc)
         pass
 
 
@@ -8189,7 +8217,8 @@ def _note_engine_count_hold(user, bad, c: dict) -> None:
     try:
         _reground_enqueue(_desync_key(user), _engine_count_directive(bad, c))
         logger.warning("[orwell] pre-emission guard HELD an engine-count claim for user=%s — stated %d (%s), engine counts %s", user, bad.n, bad.kind, c)
-    except Exception:
+    except Exception as _fs_exc:
+        _failsoft_note("chat_helpers:_note_engine_count_hold:1", _fs_exc)
         pass
 
 
@@ -9084,7 +9113,8 @@ async def refresh_framed_game_stamps(user) -> None:
     except Exception as e:
         try:
             record_soft_failure("persist-stamp-refresh-failed", e, corrected="kept-start-of-turn-stamp", user=user)
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:refresh_framed_game_stamps:1", _fs_exc)
             pass
 
 
@@ -9152,18 +9182,21 @@ async def maybe_raise_spectator_choice(user, game_state: dict, player_msg) -> bo
         res = await orwell_engine.raise_spectator_choice(user=user)
         try:
             orwell_engine.remember_pending(res, user=user)
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:maybe_raise_spectator_choice:1", _fs_exc)
             pass
         # The raise COMMITTED (beatSeq bumped): refresh the FE's last-seen token, or the player's very next card confirm carries a stale expectedBeatSeq and the
         # decision route silently reconciles it away as a stale-beat no-op (live E-1: the skip never landed).
         try:
             _refresh_beat_seq(user, res if isinstance(res, dict) else {})
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:maybe_raise_spectator_choice:2", _fs_exc)
             pass
         try:  # tell every window (incl. the WS client's pinned beatSeq) the board moved, so the card's confirm carries the fresh token
             from src import orwell_game_session
             orwell_game_session.publish_game_updated(user)
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:maybe_raise_spectator_choice:3", _fs_exc)
             pass
         logger.info("[orwell] spectator-choice card re-raised for user=%s (watching evictee asked to skip ahead)", user)
         return True
@@ -9567,7 +9600,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
                 try:
                     from src import log_rings as _lr_hold
                     _lr_hold.record_soft_failure("production:hold-cap-hit", RuntimeError(f"{phase} not due after {_PRODUCTION_HOLD_CAP} held messages"), corrected="event-released", user=user)
-                except Exception:
+                except Exception as _fs_exc:
+                    _failsoft_note("chat_helpers:_pre_resolve_npc_ceremony:1", _fs_exc)
                     pass
             elif not ready and _comp_hops == 0:
                 # A7: the event came due while the player was still talking (no readiness cue) - production calls everyone; narrate the interruption.
@@ -9703,7 +9737,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             if _roll:
                 _reground_enqueue(_desync_key(user), _roll)
                 _note_belt(user, "day-roll-reground")
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:_pre_resolve_npc_ceremony:2", _fs_exc)
             pass
         if _beat and phase in ("hoh-competition", "veto-competition"):
             # live replay 4: the competition ran to its result inside this turn's framing ("Nia Coleman wins the Power of Veto") and the narrator never told the player who won - note the winner so an unvoiced result is re-grounded
@@ -9718,7 +9753,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             try:  # the draw must be voiced: remember the drawn names so a reply that never mentions any of them is re-grounded next turn
                 _dm = re.search(r":\s*(.+?)(?:\s+[\u2014-]\s+|$)", str(_beat))
                 note_ceremony_beat_for_voicing(user, str(_beat), [n.strip() for n in (_dm.group(1).split(",") if _dm else [])][:6])
-            except Exception:
+            except Exception as _fs_exc:
+                _failsoft_note("chat_helpers:_pre_resolve_npc_ceremony:3", _fs_exc)
                 pass
         if _beat and phase in ("hoh-competition", "veto-competition") and _beat_kind in ("comp-elimination", "hoh-competition", "veto-competition"):
             # ORW-232 slice 1: remember every beat the competition walked in THIS pass, in engine order, and hand the narrator the whole record as ONE continuous scene to voice.
@@ -9736,7 +9772,8 @@ async def _pre_resolve_npc_ceremony(user, game_state: dict, *, retry: bool, play
             try:  # the ceremony must be voiced: remember the nominees so a reply that never mentions them is re-grounded next turn
                 note_ceremony_beat_for_voicing(user, str(_beat), [n.get("name") for n in ((((_adv_event or {}) if isinstance(_adv_event, dict) else {}).get("nominees")) or [])]
                                                or re.findall(r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+", str(_beat))[1:])
-            except Exception:
+            except Exception as _fs_exc:
+                _failsoft_note("chat_helpers:_pre_resolve_npc_ceremony:4", _fs_exc)
                 pass
         # gap #3 belt-fire telemetry (docs/design/undercall-seam-structural.md §5; never raises)
         _note_belt(user, "pre-resolve-npc-ceremony")
@@ -10209,7 +10246,8 @@ async def apply_game_framing(
                     _LAST_FRAMED_MOMENT_VOLATILE[user or "default"] = _mp_txt[_vi:]
                 else:
                     _LAST_FRAMED_MOMENT_VOLATILE.pop(user or "default", None)
-            except Exception:
+            except Exception as _fs_exc:
+                _failsoft_note("chat_helpers:apply_game_framing:2", _fs_exc)
                 pass
             _stash_producer_name(user, mp)  # #1626: the season's producer byline for the client
             _stash_hard_constraints(session_id, mp)  # #1735 (A4) / #1752: this turn's terminal HARD-CONSTRAINTS block, keyed by session
@@ -10725,7 +10763,8 @@ async def ensure_turn_recorded(user, player_message, narration, tools_called, be
             if staged_this_turn:
                 logger.info("[orwell] E22 guard: stood down — the 0055 belt already staged this turn's scene fold (ORW-185) user=%s", user)
                 return False
-        except Exception:  # fail-open: the guard's floor must still run
+        except Exception as _fs_exc:  # fail-open: the guard's floor must still run
+            _failsoft_note("chat_helpers:ensure_turn_recorded:1", _fs_exc)
             pass
     # ORW-288 (live premiere run, 2026-11-12: 32 of 52 premiere turns fired this WARN): a turn whose player message is a bare "keep going" prompt ("next", "continue", "ok" ...) carries NO social scene, and
     # when the engine's board moved during it (the front-end's own pre-resolve advanced the premiere / a ceremony; the beats it committed are recorded events already) there is nothing for the fallback
@@ -11274,7 +11313,8 @@ def try_fallback_endpoint(sess, session_id: str) -> dict | None:
                 "endpoint_url": chat_url,
                 "endpoint_name": ep.name,
             }
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:try_fallback_endpoint:1", _fs_exc)
             continue
 
     return None
@@ -11440,7 +11480,8 @@ def _normalize_model_id_from_cache(sess) -> Optional[str]:
             try:
                 if normalize_base(getattr(ep, "base_url", "") or "") != session_base:
                     continue
-            except Exception:
+            except Exception as _fs_exc:
+                _failsoft_note("chat_helpers:_normalize_model_id_from_cache:1", _fs_exc)
                 continue
 
             raw_models = getattr(ep, "cached_models", None)
@@ -11449,7 +11490,7 @@ def _normalize_model_id_from_cache(sess) -> Optional[str]:
             try:
                 models = json.loads(raw_models) if isinstance(raw_models, str) else raw_models
             except Exception:
-                continue
+                continue  # failsoft-ok: tolerant parse of model output: a non-JSON candidate is skipped and the next one tried
 
             matched = _match_cached_model_id(requested, models)
             if matched:
