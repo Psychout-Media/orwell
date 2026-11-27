@@ -695,6 +695,37 @@ def get_steer_counts() -> dict[str, int]:
         return dict(_STEER_COUNTS)
 
 
+# ORW-1061: a bounded audit ring of the editing guards' applied drops (knowledge wall, presence wall, N-17 confession): which guard, why, for whom,
+# how much it removed, and when. Never the sentence text (the narration stays out of the ledger); enough to sample a guard's false positives by
+# turn and user. Process-wide, newest last, the oldest dropped past the cap.
+_GUARD_SAMPLES_MAX = 200
+_GUARD_SAMPLES: list[dict] = []
+
+
+def note_guard_sample(user: str | None, guard: Any, reason: Any, sentences: Any = 1, chars: Any = 0) -> None:
+    """ORW-1061: one applied guard drop into the audit ring (names and small numbers only). Never raises."""
+    try:
+        row = {
+            "ts": round(time.time(), 1),
+            "user": _key(user),
+            "guard": str(guard).strip()[:_MAX_NAME_LEN],
+            "reason": str(reason).strip()[:_MAX_NAME_LEN],
+            "sentences": _clean_int(sentences),
+            "chars": _clean_int(chars),
+        }
+        with _LOCK:
+            _GUARD_SAMPLES.append(row)
+            del _GUARD_SAMPLES[:-_GUARD_SAMPLES_MAX]
+    except Exception:  # pragma: no cover
+        pass
+
+
+def get_guard_samples(limit: int = 50) -> list[dict]:
+    """ORW-1061: the newest guard drops (at most ``limit``), newest last."""
+    with _LOCK:
+        return [dict(r) for r in _GUARD_SAMPLES[-max(0, int(limit)):]]
+
+
 def get_driver_totals(user: str | None) -> dict[str, Any]:
     """ORW-1014 - who drove the engine changes, over the retained ring: ``turns``, ``narratorToolTurns`` (a narrator game-tool call this turn),
     ``beltDrivenTurns`` (a belt committed a change this turn), the split ``narratorOnly`` / ``beltOnly`` / ``both`` / ``none``, and the two rates
