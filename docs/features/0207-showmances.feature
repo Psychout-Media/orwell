@@ -37,6 +37,7 @@ Feature: Showmances and attraction
     Then the engine does not hold the player to be in a showmance
     And the player's own showmance scenes, answered by a houseguest drawn to them, make one
     And a houseguest whose orientation does not include the player does not answer in kind
+    And a houseguest with no chemistry toward the player does not answer in kind either
 
   # ORW-736: the slow build
   Scenario: A showmance builds over days, one step at a time
