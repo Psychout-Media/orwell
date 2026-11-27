@@ -76,62 +76,6 @@ export function evaluate(shares: PhaseShares): RuleResult[] {
   return out;
 }
 
-<<<<<<< HEAD
-/**
- * THE RATCHET. Every rule or band that main failed when this guard landed is listed here with the value measured then and the card that is to fix it. The guard asserts:
- *  - a rule in this table must STILL be failing (once a slice fixes it, the test fails and says to delete the line, which turns the rule into a hard assertion: never loosen);
- *  - a failing rule NOT in this table fails the test (a regression);
- *  - a listed rule must not get worse than the measured value by more than RATCHET_SLACK points.
- * The values are the pooled measurement of the seed set in tests/uat/wholeSeasonMixGuard.test.ts.
- */
-export interface KnownRed { value: number; card: string }
-export const KNOWN_RED: Readonly<Record<string, KnownRed>> = {
-  // Measured on main at 130ef2949 (4 seasons, seeds 1, 2, 3, 6; early n5579 and mid n1401 are the player-in scenes, late n221 is the house after the player left: the player is out by week 2-5).
-  // Card ORW-702 (whole-season mix); the slices that fix them: desire-clock ratchets (gossip), restore bonding, the rumor effect.
-  // ORW-778 / owner ORW-702: re-measured WITH the surviving player (seeds 1, 2, 3, 6 on the GitHub runner, 2026-11-24; the player is in for the whole read now: early n6480, mid n5505, late n812). Pooled:
-  // early 22.4/28.3/42.0/7.4, mid 16.1/28.9/47.4/7.6, late 14.8/27.7/49.0/8.5 (bonding/strategy/gossip/conflict). The values below are those measurements; ORW-702 brings them down. Two lines are new
-  // (mid:no-activity-above-45 and late:band-bonding: main met them while the late weeks were read from a house without the player); late:strategy-at-least-24 is gone (it reads 27.7 now).
-  "early:band-bonding": { value: 22.4, card: "ORW-702 restore bonding" }, // band 32-42
-  "early:band-gossip": { value: 42.0, card: "ORW-702 gossip ratchet" }, // band 22-32
-  "mid:band-bonding": { value: 16.1, card: "ORW-702 restore bonding" }, // band 24-34
-  "mid:band-gossip": { value: 47.4, card: "ORW-702 gossip ratchet" }, // band 26-36
-  "late:band-bonding": { value: 14.8, card: "ORW-702 restore bonding" }, // band 20-30
-  "late:band-gossip": { value: 49.0, card: "ORW-702 gossip ratchet" }, // band 24-34 (and the 45% ceiling below)
-  "late:band-conflict": { value: 8.5, card: "ORW-702 late conflict" }, // band 10-16
-  // ORW-853 (the player-action stream keyed on the season, 2026-11-24): the same four seeds now play other seasons (pooled early 22.7/28.1/40.9/8.2, mid
-  // 18.5/30.4/42.7/8.3, late 15.6/30.6/44.8/9.0), and three lines pass, so they left the table: mid:no-activity-above-45 (42.7), late:band-strategy (30.6) and
-  // late:no-activity-above-45 (44.8, borderline: if it flips back with no related change, that is the mix's noise at 4 seasons, not a regression of this card).
-};
-export const RATCHET_SLACK = 6; // points of drift past the measured value that is still noise at this many seasons; tighten as the seed set grows
-
-export interface Verdict { regressions: string[]; fixed: string[]; worse: string[]; red: string[] }
-/** Compare the evaluated rules to the table. `regressions`: failing and not listed. `fixed`: listed and now passing (move the line out). `worse`: listed, still failing, but further out than measured + slack. */
-export function ratchet(results: readonly RuleResult[], known: Readonly<Record<string, KnownRed>> = KNOWN_RED, slack = RATCHET_SLACK, fixedMargin = 0): Verdict {
-  const v: Verdict = { regressions: [], fixed: [], worse: [], red: [] };
-  const byId = new Map(results.map((r) => [r.id, r]));
-  for (const r of results) {
-    const k = known[r.id];
-    if (!r.pass && !k) v.regressions.push(`${r.id}: ${r.what}, measured ${r.value}`);
-    if (!r.pass && k) { v.red.push(r.id); if (r.miss > missOf(r.id, k.value) + slack) v.worse.push(`${r.id}: measured ${r.value}, was ${k.value} when listed (${k.card})`); }
-    if (r.pass && k && r.room >= fixedMargin) v.fixed.push(`${r.id} now passes (${r.value}): delete it from KNOWN_RED so it is asserted from now on`);
-  }
-  for (const id of Object.keys(known)) if (!byId.has(id)) v.fixed.push(`${id} is not evaluated (no scenes in that phase)`);
-  return v;
-}
-/** How far a recorded value was outside the rule's limit. */
-function missOf(id: string, value: number): number {
-  const [phaseS, rule] = id.split(":") as [Phase, string];
-  const m = /^band-(\w+)$/.exec(rule!);
-  if (m) { const [lo, hi] = BANDS[phaseS][m[1] as Kind]; return value < lo ? lo - value : value > hi ? value - hi : 0; }
-  if (rule === "strategy-below-50") return Math.max(0, value - HARD.strategyBelow);
-  if (rule === "no-activity-above-45") return Math.max(0, value - HARD.anyActivityAtMost);
-  if (rule === "conflict-at-most-16") return Math.max(0, value - HARD.conflictAtMost);
-  if (rule === "gossip-at-least-22") return Math.max(0, HARD.gossipAtLeastFromMid - value);
-  if (rule === "strategy-at-least-24") return Math.max(0, HARD.strategyAtLeastFromMid - value);
-  return 0;
-}
-=======
->>>>>>> origin/main
 
 /** In or out of its band, for the nightly table: "ok" or "OUT". */
 export function inBand(phase: Phase, kind: Kind, value: number): boolean { const [lo, hi] = BANDS[phase][kind]; return value >= lo && value <= hi; }
