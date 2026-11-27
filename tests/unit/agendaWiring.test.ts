@@ -1,11 +1,9 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { quarantine } from "../support/quarantine";
 import { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import { sessionCoreSupersetViolation } from "../../src/engine/sessionSnapshot";
 import type { Agenda } from "../../src/engine/agenda";
 import { playSeason } from "../support/agendaSeasonDriver";
-import { PLAYED_COMP_THREAT } from "../../src/engine/relationshipConstants";
 import { PLAYER } from "../../src/domain/ids";
 
 /** ORW-312 (ORW-253 slice 1, spec 0145): the agenda is carried on the live season, re-checked on real events, mulled at night, and saved with nothing lost. Roles only. */
@@ -20,24 +18,16 @@ function withoutAgendas<T>(fn: () => T): T {
   proto.seedAgendas = () => {}; proto.agendaRecheck = () => {}; proto.mullAgendasOvernight = () => {};
   try { return fn(); } finally { proto.seedAgendas = keep.seed; proto.agendaRecheck = keep.re; proto.mullAgendasOvernight = keep.mull; }
 }
-/**
- * ORW-779 / ORW-1106: case (a) holds only on some seeds (seeds 1, 2 and 5 differ even without ORW-779's change: an agenda effect outside the zeroed paths, carded as ORW-1106). It stays on seed 3,
- * played with the full comp-win threat folds that seed was measured on, so its assertions are unchanged. Remove with ORW-1106.
- */
-function withFullCompFolds<T>(fn: () => T): T {
-  const knobs = PLAYED_COMP_THREAT as unknown as { win: number; reignEnd: number };
-  const keep = { ...knobs };
-  Object.assign(knobs, { win: 1, reignEnd: 1 });
-  try { return fn(); } finally { Object.assign(knobs, keep); }
-}
 /** ORW-314: agendas present but their pull on decisions zeroed (the season as it was before decisions read goals). */
 function withPullZeroed<T>(fn: () => T): T {
   // ORW-317: a settled goal also moves mood now (goal mood), so "agendas present but with no effect" zeroes that too.
-  const keep = { pull: proto.agendaPullOf, mood: proto.appraiseSettled, hohRead: proto.hohTargetReadOf };
+  const keep = { pull: proto.agendaPullOf, mood: proto.appraiseSettled, hohRead: proto.hohTargetReadOf, evidence: proto.weighEvidenceOvernight };
   proto.agendaPullOf = () => ({ value: 0 }); proto.appraiseSettled = () => {};
+  // ORW-1106: an active find-out goal moves its holder's beliefs overnight (0160), and beliefs feed votes (the belief term): an agenda path to a decision, zeroed too.
+  proto.weighEvidenceOvernight = () => {};
   // ORW-573 (ORW-633): the voter's knowledge-based read of the HOH's target is part of "decisions read what the houseguest knows", not of the pre-wiring season: pin it to the hidden threat read (same seam as stagedEvictionBallots).
   proto.hohTargetReadOf = function (this: { rel: { edge(a: string, b: string): { threat: number } } }, _v: string, h: string, fn: readonly [string, string]) { return this.rel.edge(h, fn[0]).threat >= this.rel.edge(h, fn[1]).threat ? fn[0] : fn[1]; };
-  try { return fn(); } finally { proto.agendaPullOf = keep.pull; proto.appraiseSettled = keep.mood; proto.hohTargetReadOf = keep.hohRead; }
+  try { return fn(); } finally { proto.agendaPullOf = keep.pull; proto.appraiseSettled = keep.mood; proto.hohTargetReadOf = keep.hohRead; proto.weighEvidenceOvernight = keep.evidence; }
 }
 const outcome = (l: Live) => JSON.stringify({ winner: l.winner, evictionOrder: l.evictionOrder, jury: l.jury, finalTwo: l.finalTwo, voteRecord: l.voteRecord });
 const strip = (l: Live): string => JSON.stringify({ ...l, agendas: undefined });
@@ -55,30 +45,28 @@ describe("ORW-312: NPC agendas on the live season", () => {
     for (const a of Object.values(ag)) expect(a.goals.some((g) => g.horizon === "season")).toBe(true);
   });
 
-  quarantine({ card: "ORW-1111", added: "2026-11-27" }).it("(a) ORW-314: with the agenda's pull zeroed a played season is exactly the pre-wiring one; with the pull on it is a different season, REPORTED not gated (balance is a report)", () => {
-    // ORW-1104: a BOUNDED SCAN, not one pinned seed: the zeroed-pull season equals the pre-wiring one on at least HOLD_MIN seeds of those tried (the divergers are named). A content change that moves the seeded draw
-    // reshuffles which seed happens to read none of the agenda machinery; the shape claims (finished, 15 agendas, no agendas when off) hold on every seed tried.
-    const held: number[] = [], diverged: number[] = []; const HOLD_MIN = 2;
-    for (const seed of [3, 5, 7, 1, 2, 4, 6, 8]) {
-      if (held.length >= HOLD_MIN) break;
+  it("(a) ORW-314 / ORW-1106: with every agenda path to a decision zeroed a played season decides exactly as the pre-wiring one; with the pull on it is a different season, REPORTED not gated (balance is a report)", () => {
+    for (const seed of [1, 2, 3, 5]) {
       // ORW-574: the own view (ORWELL_OWN_VIEW) makes decisions read the decider's beliefs, and an agenda's find-out goals move beliefs overnight, so with it on
       // "no pull" is no longer "no effect". This test isolates the agenda's PULL, so all three seasons play without the own view.
-      const off = withFullCompFolds(() => withoutAgendas(() => playSeason(seed, { ownViewOff: true })));
-      const zero = withFullCompFolds(() => withPullZeroed(() => playSeason(seed, { ownViewOff: true })));
-      const on = withFullCompFolds(() => playSeason(seed, { ownViewOff: true }));
-      if (!on.finished || !off.finished || !zero.finished) { diverged.push(seed); continue; } // a season that does not finish inside the driver's budget is not a candidate (named in the failure message)
+      // ORW-1106: a stated reason exists only where the decider has an agenda (ORW-314), and the said-aloud memory (ORW-578 b) records it as a witnessed event, which moves every later
+      // event id and so the whole season. That is an agenda effect by design, not a leak (agendas have no off switch: "off" here is the test's stub), so "no effect" zeroes it too.
+      const off = withoutAgendas(() => playSeason(seed, { ownViewOff: true }));
+      const zero = withPullZeroed(() => playSeason(seed, { ownViewOff: true, configure: (x) => x.setSaidAloudMemoryEnabled(false) }));
+      const on = playSeason(seed, { ownViewOff: true });
+      expect(on.finished, `seed ${seed}: the season with agendas on finished`).toBe(true);
+      expect(off.finished, `seed ${seed}: the season with no agendas finished`).toBe(true);
+      expect(zero.finished, `seed ${seed}: the season with the pull zeroed finished`).toBe(true);
       // the mutation: agendas present, but pulling nothing, is the season as it was before the decisions read goals (and the hidden reason record is the only difference)
-      const sameOutcome = outcome(liveOf(zero.s)) === outcome(liveOf(off.s));
-      // 0160 (conviction): what a houseguest looks into (an agenda find-out goal) moves their beliefs overnight - an agenda effect, so beliefs are compared with the agenda fields
-      const noReasons = (l: Live): string => JSON.stringify({ ...l, agendas: undefined, statedReasons: undefined, moodCauses: undefined, beliefs: undefined, audience: undefined }, (k, v) => (k === "seenAt" || /cursor$/i.test(k) ? undefined : v)); // 0190: the audience reads the public stated reasons (a blindside), an agenda effect
-      const sameState = noReasons(liveOf(zero.s)) === noReasons(liveOf(off.s));
-      if (sameOutcome && sameState) held.push(seed); else diverged.push(seed);
+      expect(outcome(liveOf(zero.s))).toBe(outcome(liveOf(off.s)));
+      // ORW-1106: the WHOLE live state is not compared any more. Agendas also feed records and narration by design: a stated reason (only a decider with an agenda has
+      // one) reaches the crowd an evictee walks out to (0200), the exit interview's stance, the daily recap and the day ledger, and the decision log carries the agenda
+      // terms. Those differ between the two seasons without changing a single decision; the outcome above is the claim.
       expect(liveOf(off.s).agendas).toBeUndefined();
       expect(Object.keys(liveOf(on.s).agendas ?? {})).toHaveLength(15);
       // eslint-disable-next-line no-console
       console.log(`ORW-314 report seed ${seed}: pre-wiring winner=${liveOf(off.s).winner} evictions=${liveOf(off.s).evictionOrder.join(",")} | goals-on winner=${liveOf(on.s).winner} evictions=${liveOf(on.s).evictionOrder.join(",")} same=${outcome(liveOf(on.s)) === outcome(liveOf(off.s))}`);
     }
-    expect(held.length, `a zeroed pull is the pre-wiring season: held on seeds [${held}], diverged on [${diverged}]`).toBeGreaterThanOrEqual(HOLD_MIN);
   }, 900_000);
 
   it("(b) save then restore mid-season gives an identical agenda for every NPC", () => {
