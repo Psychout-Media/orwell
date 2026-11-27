@@ -393,7 +393,12 @@ class McpManager:
             try:
                 await stack.aclose()
             except Exception as e:
-                logger.warning(f"Error closing MCP server {server_id}: {e}")
+                if "cancel scope" in str(e):
+                    # ORW-1027: the known anyio shutdown quirk (the exit runs in a different task than the enter): the process is
+                    # ending and the child is reaped, so it is DEBUG; any other close failure stays a WARNING.
+                    logger.debug(f"MCP server {server_id} closed from another task (anyio cancel scope): {e}")
+                else:
+                    logger.warning(f"Error closing MCP server {server_id}: {e}")
 
         self._sessions.pop(server_id, None)
         self._tools.pop(server_id, None)

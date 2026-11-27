@@ -1658,6 +1658,10 @@ export function renderGameContext(view: GameStateView): string {
     ...(view.clockLabel
       ? [`- Clock: ${view.clockLabel} (engine truth, the exact in-game time right now). If you name a time, use exactly this; never state any other clock time or mealtime (no "noon", "lunchtime", "midnight", "tonight at nine") unless it is this one.`]
       : []),
+    // ORW-1032: a relative time ("N hours ago") is a clock claim too, and the narrator has no way to measure it: one reply put a scene four hours back that began under two hours earlier.
+    ...(view.clockLabel || view.clockBand
+      ? ["- Elapsed time: you cannot measure how long ago an earlier scene happened. Give NO count of hours or minutes for how long ago something was unless a fact above states it; say earlier today, this morning, last night, or name the day instead."]
+      : []),
     `- Houseguests remaining: ${remaining} of ${total} (use THIS exact number for any count — never`,
     "  do your own arithmetic about how many are left, on podiums, etc.).",
     ...ceremonyAndFloorLines,

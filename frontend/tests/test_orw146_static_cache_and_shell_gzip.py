@@ -30,13 +30,14 @@ def client():
         orwell_version._cached_build = None
 
 
-def test_shell_stamps_classic_scripts_and_css_but_not_modules(client):
+def test_shell_stamps_classic_scripts_and_css(client):
+    # ORW-1015 supersedes the "modules unstamped" half: modules are stamped too (their imports go through an import map to the same URL),
+    # and adjacent classic scripts are served as one bundle; with the bundle off, the classic tags are stamped one by one.
     import app as app_module
     html = app_module._html_template(os.path.join(FRONTEND, "static", "index.html"))
     assert re.search(r'<link rel="stylesheet" href="/static/style\.css\?b=abc1234"', html)
-    assert re.search(r'<script src="/static/js/orwellUserKey\.js\?b=abc1234"', html)
-    assert not re.search(r'type="module" src="[^"]*\?b=', html)
-    assert not re.search(r'modulepreload" href="[^"]*\?b=', html)
+    assert re.search(r'<script src="/static/_bundle/classic-[0-9a-f]{12}\.js"', html)
+    assert re.search(r'type="module" src="[^"]*\?b=abc1234"', html)
 
 
 def test_stamped_url_is_immutable_and_unstamped_or_stale_is_not(client):

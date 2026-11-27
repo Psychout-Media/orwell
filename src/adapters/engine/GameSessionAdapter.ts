@@ -123,7 +123,7 @@ import { buildReunion, buildYourStories, type ReunionView, type StoryGuest, type
 import { claimText } from "../../engine/rumorMill";
 import { buildYourEdit, sceneMoment, weekMoments, weeksOfLog, type YourEditView } from "../../engine/yourEdit";
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
-import { runHangOut, hangOutBedtime, hangOutStopLine, minutesUntilClock, type HangOutResult } from "../../engine/hangOut";
+import { HANGOUT, runHangOut, hangOutBedtime, hangOutStopLine, minutesUntilClock, type HangOutResult } from "../../engine/hangOut";
 import { CUNNING, LEAKY, SEEK, SPIN } from "../../engine/copresenceSpread";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, streakHolds, nextStreak, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
@@ -2795,6 +2795,8 @@ export class GameSessionAdapter implements GameSession {
   private perConversationClockEnabled = PER_CONVERSATION_CLOCK_ENABLED_DEFAULT;
   private socialFatigueEnabled = SOCIAL_FATIGUE_ENABLED_DEFAULT;
   private multiNightFatigueEnabled = MULTI_NIGHT_FATIGUE_ENABLED_DEFAULT;
+  private dayBreakFatigueEnabled = flagDefaultOn("ORWELL_DAYBREAK_FATIGUE"); // ORW-856
+  setDayBreakFatigueEnabled(on: boolean): void { this.dayBreakFatigueEnabled = on; }
   /**
    * Feature #1400 — generative competition design. default ON in the shipped game (the calibration/UAT harness turns it off) (its `ORWELL_GEN_COMPETITIONS` env
    * default): when off, `competitionStagingView` returns null and `recordCompetitionFiction` refuses, so
@@ -4182,14 +4184,34 @@ export class GameSessionAdapter implements GameSession {
    *  — the model calls npcVoice with a name as often as an id; tolerate both, but never guess between
    *  two people who share a first name). Returns null when unknown/ambiguous. */
   private resolveHouseguestVoiceId(key: string): EntityId | null {
-    if (!this.house) return null;
+    const r = this.lookupHouseguestVoice(key);
+    return r.status === "found" ? r.id : null;
+  }
+
+  /**
+   * ORW-1067: the same lookup with its REASON. `found` (id, case-insensitive id, exact name, or an unambiguous first or last name), `ambiguous` (two or more
+   * houseguests match: the public names to choose from, never a guess), or `unknown` (nobody matches). Names only: public, Vault-free.
+   */
+  voiceLookup(key: string): { status: "found"; id: EntityId } | { status: "ambiguous"; candidates: NamedRef[] } | { status: "unknown" } {
+    return this.lookupHouseguestVoice(key);
+  }
+  private lookupHouseguestVoice(key: string): { status: "found"; id: EntityId } | { status: "ambiguous"; candidates: NamedRef[] } | { status: "unknown" } {
+    if (!this.house || typeof key !== "string") return { status: "unknown" };
     const npcs = this.house.npcs;
-    if (npcs.some((n) => n.id === key)) return key as EntityId;
+    if (npcs.some((n) => n.id === key)) return { status: "found", id: key as EntityId };
     const k = key.trim().toLowerCase();
-    const byName = npcs.filter((n) => n.name.toLowerCase() === k);
-    if (byName.length === 1) return byName[0]!.id;
-    const byFirst = npcs.filter((n) => n.name.toLowerCase().split(" ")[0] === k);
-    return byFirst.length === 1 ? byFirst[0]!.id : null;
+    const tiers: (readonly (typeof npcs)[number][])[] = [
+      npcs.filter((n) => (n.id as string).toLowerCase() === k),
+      npcs.filter((n) => n.name.toLowerCase() === k),
+      npcs.filter((n) => n.name.toLowerCase().split(" ")[0] === k),
+      npcs.filter((n) => { const parts = n.name.toLowerCase().split(" "); return parts.length > 1 && parts[parts.length - 1] === k; }),
+    ];
+    for (const t of tiers) {
+      if (t.length === 1) return { status: "found", id: t[0]!.id };
+      if (t.length > 1) { this.noteInputRefusal("npc-voice-ambiguous"); return { status: "ambiguous", candidates: t.map((n) => ({ id: n.id, name: n.name })) }; }
+    }
+    this.noteInputRefusal("npc-voice-unknown");
+    return { status: "unknown" };
   }
 
   /**
@@ -8155,7 +8177,8 @@ export class GameSessionAdapter implements GameSession {
     const me = this.house.player.id;
     const here = this.presence.get(me) ?? null;
     this.bedRushPreMove(String(req.text ?? "")); // ORW-672 / 0201: rushing to a room is moving there, before the claim reads whether they reached it
-    const bedChanged = this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
+    const skipMove = req.skip?.includes("move") === true; // ORW-1014: the act-first round already decided this message's move
+    const bedChanged = req.skip?.includes("bed") === true ? false : this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
     if (bedChanged) this.persist();
     if (this.resolveWhoToldYou(String(req.text ?? ""))) this.persist(); // 0152 (theme 2 slice 4b): "who told you that?", read before the narrator writes (same seam)
     if (this.resolveSourceAnswer(String(req.text ?? ""))) this.persist(); // ORW-687: the player's own answer to a houseguest's "who told you that?", read before the narrator writes (same seam)
@@ -8166,7 +8189,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-728 (W1-11): "my bed" with no room named is the bedroom of the bed the player OWNS (only a fresh claim moved them before, so "I go back to my bed" left the room to the narrator, which picked the wrong one).
     const ownBed = this.live?.beds?.owner[PLAYER];
     const ownBedRoom = ownBed && parsePlayerOwnBedMove(String(req.text ?? "")) ? roomOfBed(ownBed) : null; // ORW-1008: only a go-verb to "my bed"/"my room" moves; "my bed is in X" is affiliation
-    const searchPhrase = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) === null && !claimedBed && !ownBedRoom && parseVagueGo(String(req.text ?? "")) === null ? parseSearchIntent(String(req.text ?? ""), here, this.themedAliases()) : null;
+    const searchPhrase = skipMove ? null : parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) === null && !claimedBed && !ownBedRoom && parseVagueGo(String(req.text ?? "")) === null ? parseSearchIntent(String(req.text ?? ""), here, this.themedAliases()) : null;
     const searchTarget = searchPhrase !== null && here !== null ? this.searchTargetOf(searchPhrase) : null;
     if (searchTarget !== null && here !== null && this.presence.get(searchTarget.id) !== here) {
       // ORW-934: "look for X / find X / where is X" is committed here, before the narrator writes: the engine walks the search leg by leg and the narrator voices the legs as one passage
@@ -8181,9 +8204,9 @@ export class GameSessionAdapter implements GameSession {
       const sres: ResolvePlayerMoveResult = { playerMove: this.playerMove ? { ...this.playerMove } : null, whereabouts: this.whereabouts(), ...(walk ? { search: walk } : {}), beatSeq: this.beatSeqNow() };
       return idemKey ? this.rememberFoldIdempotent(idemKey, sres) : sres;
     }
-    const named = parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) ?? (claimedBed ? roomOfBed(claimedBed) : null) ?? ownBedRoom;
-    const vague = named === null ? this.resolveVagueGo(String(req.text ?? ""), String(req.previousReply ?? ""), here) : undefined;
-    const dest = named ?? (vague !== undefined && vague !== "ambiguous" ? vague : null) ?? this.roomOfSightedHouseguest(String(req.text ?? ""), here);
+    const named = skipMove ? ownBedRoom : parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) ?? (claimedBed ? roomOfBed(claimedBed) : null) ?? ownBedRoom; // ORW-1014: skip move => only the player's own bed (ORW-728)
+    const vague = named === null && !skipMove ? this.resolveVagueGo(String(req.text ?? ""), String(req.previousReply ?? ""), here) : undefined;
+    const dest = skipMove ? named : named ?? (vague !== undefined && vague !== "ambiguous" ? vague : null) ?? this.roomOfSightedHouseguest(String(req.text ?? ""), here);
     const hadMove = this.playerMove !== null;
     this.playerMove = null; // a new player message: last turn's move is over
     this.holdNamedHouseguest(String(req.text ?? ""), dest); // ORW-933: the houseguest the message turns to is held in the room (below)
@@ -18191,7 +18214,12 @@ export class GameSessionAdapter implements GameSession {
       const weekBefore = this.live!.week; // the eviction result rolls the week inside this same step
       const cerBefore = ceremonyRef(this.live!); // ORW-281 4a: the open ceremony step (if any) BEFORE this advance
       this.syncTargetsMeClaims(); // ORW-581: the beliefs the beat's decisions read are written here, at commit time (never inside a scoring read)
+      const wrapRetired = this.live!.playerRetired ?? false, wrapDepth = this.live!.nightDepth; // ORW-856: the state a day-break wrap starts from
       const ev = advanceBeat(this.live!, this.ctx(), this.beatRng());
+      // ORW-856 (`ORWELL_DAYBREAK_FATIGUE`, default ON; `=0` opts out): the day-break wrap crosses the night inside the engine (`crossToNextDay`) and is an inert beat, so it never reached the night-end
+      // accrual in `chargeBeatClock`: a player who stayed up to the wrap woke with the night's cost recorded (the sleep debt) but never rolled into the multi-night meter. Like every other genuine night-end (a turn-in,
+      // the wrap an event's steps cross), a wrap the player did NOT sleep through accrues once: the break is a one-shot per night, so exactly once. Played games with the clock on only; no rng.
+      if (this.dayBreakFatigueEnabled && ev?.beat === "day-break" && this.timeOfDayEnabled && this.playedGameNow() && !wrapRetired && wrapDepth !== undefined && wrapDepth !== WAKE_HOUR) { this.noteBadSleepCauses(); this.accrueNightFatigue(); }
       const ceremonyHours = this.ceremonyClockHours(cerBefore, ceremonyRef(this.live!));
       if (cerBefore && !this.live!.ceremony) this.ceremonyEcho = cerBefore; // the closing Continue: echo the step that just closed
       this.maybeLapseDealOffer(standingOfferId); // folded BEFORE commit(ev) so the beat's persist carries it
@@ -18219,6 +18247,16 @@ export class GameSessionAdapter implements GameSession {
     return spreadClockHours(live, "event", `ceremony:w${live.week}:${ref.kind}`, felt, ref.of ?? 0, now === null);
   }
 
+  /** ORW-1063 / ORW-1067: counts of input the engine REFUSED or CLAMPED instead of silently defaulting, by reason. Counts only: no text, no ids. */
+  private readonly inputRefusalTally = new Map<string, number>();
+  noteInputRefusal(name: string): void { this.inputRefusalTally.set(name, (this.inputRefusalTally.get(name) ?? 0) + 1); }
+  inputRefusalCounts(): Record<string, number> { return Object.fromEntries(this.inputRefusalTally); }
+  /** ORW-1063: an invalid decision is an explicit refusal with its reason (an EngineRefusal: HTTP 400, thrown before any mutation, so nothing is cached under an idempotency key and a retry is judged fresh). */
+  private refuseDecision(reason: "no-pending" | "kind-mismatch" | "bad-answer" | "unconfirmed", why: string): never {
+    this.noteInputRefusal(`decision-${reason}`);
+    throw new EngineRefusal(`decision refused (${reason}): ${why}`);
+  }
+
   submitDecision(req: SubmitDecisionReq): AdvanceView {
     // 0065 Part B — replay an already-resolved decision verbatim (wins even if beatSeq moved).
     if (req.idempotencyKey !== undefined) {
@@ -18227,11 +18265,8 @@ export class GameSessionAdapter implements GameSession {
     }
     // 0065 Part A — refuse a decision computed against a superseded board BEFORE any mutation.
     this.guardBeatSeq(req.expectedBeatSeq);
-    if (!this.house || !this.live) {
-      const v = this.advanceView(null);
-      return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, v) : v;
-    }
-    // 0065 Part B — every resolved/no-op path below caches its committed view under the key, so a
+    if (!this.house || !this.live) return this.advanceView(null); // ORW-1063: no game, nothing resolved: never cached under the key, so a retry after the game starts is judged fresh
+    // 0065 Part B — every RESOLVED path below caches its committed view under the key, so a
     // retry replays it verbatim (and never re-applies the decision).
     const remember = (v: AdvanceView): AdvanceView =>
       req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, v) : v;
@@ -18240,24 +18275,29 @@ export class GameSessionAdapter implements GameSession {
     // confirmation must already be raised (the OOC step-1 gate), AND `confirmed` must be true.
     // Anything else (a missing confirmation, confirmed:false/absent) is a safe no-op — the player
     // stays ACTIVE (the anti-accident handshake; never a fabricated exit, §4.2).
-    if (req.kind === "self-evict") return remember(this.resolveSelfEviction(req.confirmed === true));
+    if (req.kind === "self-evict") {
+      // ORW-1063: an unconfirmed (or unraised) self-evict records nothing, so it is REFUSED with its reason (the player stays active), not answered with a success-shaped board.
+      if (req.confirmed !== true) this.refuseDecision("unconfirmed", "the player has not confirmed leaving the game, so nothing was recorded and they stay in it");
+      if (!this.live.selfEvictPending || this.live.finished || playerHasLeft(this.live, PLAYER)) this.refuseDecision("no-pending", "there is no raised leave-the-game confirmation to confirm, so nothing was recorded and the player stays in it");
+      return remember(this.resolveSelfEviction(true));
+    }
     // 0123 — an NPC deal offer resolves through its own path (NOT the ceremony-pending machinery): it
     // lives on `live.dealOffer`, not `live.pending`. Only an EXPLICIT `accept`/`decline` resolves it; a
     // malformed/missing `vote` (a stale or garbled client call) is a safe NO-OP — the offer stands and no
     // hidden cooling is applied. Never silently decline on bad input (Greptile P1).
     if (req.kind === "deal-offer") {
-      if (this.live.finished) return remember(this.advanceView(null)); // a post-season answer binds nothing
+      if (this.live.finished) this.refuseDecision("no-pending", "the season is over, so this answer binds nothing"); // ORW-1063
       // 0174: the vote pitch has its own slot. `offerId` names it when both stand; with no id the ordinary offer answers first, and the pitch when it is the only one standing.
       const s0 = this.live;
       const pitch = s0.votePitch && (req.offerId === s0.votePitch.id || (req.offerId === undefined && !s0.dealOffer));
       if (req.vote === "accept" || req.vote === "decline") return remember(this.resolveDealOffer(req.vote === "accept", pitch ? "pitch" : "deal"));
-      return remember(this.advanceView(null));
+      this.refuseDecision("bad-answer", "a deal offer is answered with vote accept or decline; nothing was recorded and the offer still stands"); // ORW-1063
     }
     // ORW-596 - the player's own answer to an NPC's public accusation: open state (`live.houseMeetings`, not a pending card), answered like a deal offer. A missing/garbled stance is a safe no-op.
     if (req.kind === "meeting-answer") {
-      if (this.live.finished) return remember(this.advanceView(null));
+      if (this.live.finished) this.refuseDecision("no-pending", "the season is over, so this answer binds nothing"); // ORW-1063
       if (req.vote === "deny" || req.vote === "admit" || req.vote === "redirect") return remember(this.resolveMeetingAnswer(req.vote, req.statement));
-      return remember(this.advanceView(null));
+      this.refuseDecision("bad-answer", "a house meeting answer is vote deny, admit or redirect; nothing was recorded and the accusation still stands"); // ORW-1063
     }
     // 0133 — a spectating player may switch WATCH → SKIP later through the same decision kind (no pending needed).
     // SKIP is irreversible and the offer is one-time, so every other answer outside the pending is a safe no-op.
@@ -18275,16 +18315,16 @@ export class GameSessionAdapter implements GameSession {
           return this.advanceView(null);
         }));
       }
-      return remember(this.advanceView(null));
+      this.refuseDecision("no-pending", "there is no open decision for this answer, so nothing was recorded"); // ORW-1063
     }
-    // No-op unless there's a matching pending decision to resolve (idempotent + robust
+    // A decision with no matching pending is REFUSED (ORW-1063), never a success-shaped no-op: nothing recorded decision to resolve (idempotent + robust
     // to malformed calls — the boundary must never throw an unhandled error). `comp-intent` and
     // `comp-round` are interchangeable aliases for the staged per-round approach (0006 staged-rounds).
     const compApproach = (k: string): boolean => k === "comp-intent" || k === "comp-round";
     if ((req.kind as string) === "ceremony-step") throw new EngineRefusal("a ceremony step is a watch step - answer it with advanceGame, not submitDecision");
     const pendingKind = this.live.pending?.kind;
     const kindMatches = !!pendingKind && (pendingKind === req.kind || (compApproach(pendingKind) && compApproach(req.kind)));
-    if (!kindMatches) return remember(this.advanceView(null));
+    if (!kindMatches) this.refuseDecision(pendingKind ? "kind-mismatch" : "no-pending", pendingKind ? `the open decision is a ${pendingKind}, not a ${req.kind}; nothing was recorded and the open decision still stands` : `there is no open decision for a ${req.kind}, so nothing was recorded`);
     // (E42) Eviction-vote reconciliation moved to `commit`: the staged eviction's `voteOf` carries
     // EVERY voter — player and NPC alike — so the ledger now sees all binding votes in one place.
     return remember(this.inOneCommit(() => {
@@ -18820,6 +18860,16 @@ export class GameSessionAdapter implements GameSession {
         if (m === 0) clockTargetPassed = true;
         else if (m !== null) statedMinutes = statedMinutes === null ? m : Math.min(statedMinutes, m);
       }
+      // ORW-1054: "hang out until production calls": the target is the next scheduled event itself (the clock is clamped to it, so it fires once, never skipped); nothing scheduled => the open-ended hang-out as before.
+      let untilEventCap: number | undefined;
+      if (req.untilEvent === true && statedMinutes === null) { // a player-stated length, band or clock time keeps its own (3 h) bound
+        const hrs = hoursUntilDue(live);
+        if (hrs !== null && hrs > 1e-6) {
+          const m = Math.min(hrs * 60 + 2, HANGOUT.maxUntilEventMinutes); // two minutes of slack: every beat is clamped to the event, so the wait ends ON it, never a float remainder short of it
+          statedMinutes = statedMinutes === null ? m : Math.min(statedMinutes, m);
+          untilEventCap = HANGOUT.maxUntilEventMinutes;
+        }
+      }
       // ORW-920 (Ryne's ruling): a STATED wait ("until 9am", "for an hour", "the rest of the afternoon") is interrupted ONLY by something actually due - a ceremony/comp call (event-due), bedtime, or a houseguest whose own
       // desire clock has crossed its threshold (a real reason to approach). No per-beat dice (a random production pull, a random sighting, the flat approach roll) and no rate knob. An open-ended hang-out keeps them.
       const statedWait = statedMinutes !== null;
@@ -18877,6 +18927,7 @@ export class GameSessionAdapter implements GameSession {
       }, rng, {
         ...(req.maxBeats !== undefined ? { maxBeats: req.maxBeats } : {}),
         ...(statedMinutes !== null ? { maxMinutes: statedMinutes } : {}),
+        ...(untilEventCap !== undefined ? { capMinutes: untilEventCap } : {}),
       });
       const hour = live.nightDepth ?? WAKE_HOUR;
       const stopLine = hangOutStopLine(result);
@@ -18889,8 +18940,15 @@ export class GameSessionAdapter implements GameSession {
       this.hangOutSkipStepAt = hour;
       this.hangOutPendingHours = result.minutes / 60;
       this.persist();
+      // ORW-1067: a maxBeats the engine changed (floored, raised to 1, capped at the maximum, or not a number) is REPORTED with the value applied, never silently clamped.
+      let clamp: { clamped: true; maxBeatsAsked?: number; maxBeatsApplied: number } | null = null;
+      if (req.maxBeats !== undefined) {
+        const a = req.maxBeats;
+        const applied = typeof a === "number" && Number.isFinite(a) ? Math.max(1, Math.min(HANGOUT.maxBeats, Math.floor(a))) : HANGOUT.maxBeats;
+        if (applied !== a) { clamp = { clamped: true, ...(typeof a === "number" && Number.isFinite(a) ? { maxBeatsAsked: a } : {}), maxBeatsApplied: applied }; this.noteInputRefusal("hangout-clamped"); }
+      }
       return {
-        ok: true, stopReason: result.stopReason, beats: result.beats, minutes: result.minutes, stopLine,
+        ok: true, stopReason: result.stopReason, beats: result.beats, minutes: result.minutes, stopLine, ...(clamp ?? {}),
         ...(result.detail ? { detail: result.detail } : {}),
         ...(live.timeOfDay ? { timeOfDay: live.timeOfDay } : {}),
         beatSeq: this.beatSeq,
@@ -18937,6 +18995,10 @@ export class GameSessionAdapter implements GameSession {
     if (milestoneDueOf(live)) return refuse("event-due", "Production is about to call everyone for the next event; there is no time to lie down.");
     const asked = typeof req.hours === "number" && Number.isFinite(req.hours) ? req.hours : NAP.defaultHours;
     const hours = Math.min(NAP.maxHours, Math.max(NAP.minHours, Math.round(asked / NAP.lengthStepHours) * NAP.lengthStepHours));
+    // ORW-1067: a length the engine changed (out of range, off the half-hour step, or given but not a number) is REPORTED on the view with the value applied; an omitted length is the default, not a clamp.
+    const napClamp: { clamped: true; hoursApplied: number; hoursAsked?: number } | null = req.hours !== undefined && (typeof req.hours !== "number" || !Number.isFinite(req.hours) || hours !== req.hours)
+      ? { clamped: true, hoursApplied: hours, ...(typeof req.hours === "number" && Number.isFinite(req.hours) ? { hoursAsked: req.hours } : {}) } : null;
+    if (napClamp) this.noteInputRefusal("nap-clamped");
     return remember(this.inOneCommit(() => {
       const me = PLAYER;
       const startHour = live.nightDepth ?? WAKE_HOUR;
@@ -18989,7 +19051,7 @@ export class GameSessionAdapter implements GameSession {
         }
       }
       this.persist();
-      return { ok: true, slept: sleptHours, ...(wokenBy ? { wokenBy, asked: hours } : {}), whereabouts: this.whereabouts(), ...(live.timeOfDay ? { timeOfDay: live.timeOfDay } : {}), beatSeq: this.beatSeq };
+      return { ok: true, slept: sleptHours, ...(napClamp ?? {}), ...(wokenBy ? { wokenBy, asked: hours } : {}), whereabouts: this.whereabouts(), ...(live.timeOfDay ? { timeOfDay: live.timeOfDay } : {}), beatSeq: this.beatSeq };
     }));
   }
 
@@ -21995,7 +22057,9 @@ export class GameSessionAdapter implements GameSession {
         return { kind: "nominations", choice: [c[0]!, c[1]!] };
       }
       case "veto-decision":
-        return { kind: "veto-decision", use: !!req.use, ...(req.save ? { save: req.save } : {}) };
+        // ORW-1067: `use` is a REQUIRED strict boolean (the string "false" is not a yes; a missing one is not a decline).
+        if (typeof req.use !== "boolean") { this.noteInputRefusal("veto-use-not-boolean"); throw new EngineRefusal("the veto decision needs use as true or false; nothing was recorded"); }
+        return { kind: "veto-decision", use: req.use, ...(req.save ? { save: req.save } : {}) };
       case "comp-intent":
       case "comp-round": { // B46 / 0006 staged-rounds: the player declares compete/throw/play-safe.
         // The pending presents this as a generic options/pick decision (id = the intent value), so a

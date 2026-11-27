@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { firstSeedWhere, firstSeedWhereSync, firstSeedsWhere, firstSeedsWhereSync, seedOrder, NotReached, SCAN_BOUND } from "../support/firstSeedWhere";
+import { firstSeedWhere, firstSeedWhereSync, firstSeedsWhere, firstSeedsWhereSync, seedOrder, NotReached, SCAN_BOUND, catalogKey, RECORD_SEEDS } from "../support/firstSeedWhere";
+import { mkdtempSync, writeFileSync, readdirSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /** ORW-880: the seed scan the real-path tests use instead of a hard-pinned seed. No game is played here: `reach` is a stand-in. */
 afterEach(() => vi.restoreAllMocks());
@@ -97,4 +100,56 @@ describe("ORW-880 firstSeedWhere", () => {
       expect(firstSeedWhereSync((s) => (s === 5 ? s : undefined), { from: 1, to: 30, sandbox: (s) => `x-${s}` }).seed).toBe(5);
     });
   });
+
+  describe("ORW-1013: the nightly seed catalog is tried first; same precondition, same bound", () => {
+    const scan = { from: 1, to: 30, hint: [17, 24], sandbox: (s: number) => `wf-${s}`, what: "the vote talk the test needs" };
+    const withCatalog = (scans: Record<string, number[]>, f: () => void) => {
+      const dir = mkdtempSync(join(tmpdir(), "seedcat-"));
+      const file = join(dir, "seed-catalog.json");
+      writeFileSync(file, JSON.stringify({ scans }));
+      const before = process.env.ORWELL_SEED_CATALOG;
+      process.env.ORWELL_SEED_CATALOG = file;
+      try { f(); } finally { if (before === undefined) delete process.env.ORWELL_SEED_CATALOG; else process.env.ORWELL_SEED_CATALOG = before; }
+    };
+    it("the catalog's seeds (inside the scan's own range) come first, then the hints, then the range", () => {
+      withCatalog({ [catalogKey(scan)]: [5, 99, 3] }, () => {
+        expect(seedOrder(scan).slice(0, 5)).toEqual([5, 3, 17, 24, 1]); // 99 is outside 1..30: not used
+      });
+    });
+    it("a catalog seed is played first and found at once; the precondition is the test's own", () => {
+      withCatalog({ [catalogKey(scan)]: [5] }, () => {
+        const played: number[] = [];
+        expect(firstSeedWhereSync((s) => { played.push(s); return s === 5 ? s : undefined; }, scan).seed).toBe(5);
+        expect(played).toEqual([5]);
+      });
+    });
+    it("a stale catalog seed costs one season, then the scan goes on under the same bound", () => {
+      withCatalog({ [catalogKey(scan)]: [5] }, () => {
+        const played: number[] = [];
+        expect(() => firstSeedWhereSync((s) => { played.push(s); return undefined; }, scan)).toThrow(/stopped at the bound/);
+        expect(played).toEqual([5, 17, 24, 1, 2]);
+      });
+    });
+    it("no catalog, an unreadable one, or no entry: exactly the old order", () => {
+      expect(seedOrder(scan).slice(0, 3)).toEqual([17, 24, 1]);
+      withCatalog({ "some other scan::wf-0": [5] }, () => expect(seedOrder(scan).slice(0, 3)).toEqual([17, 24, 1]));
+      const before = process.env.ORWELL_SEED_CATALOG;
+      process.env.ORWELL_SEED_CATALOG = join(tmpdir(), "no-such-catalog.json");
+      try { expect(seedOrder(scan).slice(0, 3)).toEqual([17, 24, 1]); } finally { if (before === undefined) delete process.env.ORWELL_SEED_CATALOG; else process.env.ORWELL_SEED_CATALOG = before; }
+    });
+    it("record mode (the nightly): the normal order and bound, going on for a few qualifiers inside it; the test still gets its first", () => {
+      const dir = mkdtempSync(join(tmpdir(), "seedrec-"));
+      process.env.ORWELL_SEED_CATALOG_RECORD = dir;
+      const played: number[] = [];
+      try {
+        const r = firstSeedWhereSync((s) => { played.push(s); return s % 2 === 0 ? s : undefined; }, scan);
+        expect(r.seed).toBe(24);
+      } finally { delete process.env.ORWELL_SEED_CATALOG_RECORD; }
+      expect(played, "never past the normal bound").toEqual([17, 24, 1, 2, 3]);
+      const lines = readdirSync(dir).flatMap((f) => readFileSync(join(dir, f), "utf8").trim().split("\n")).map((l) => JSON.parse(l));
+      expect(lines).toEqual([{ key: catalogKey(scan), seeds: [24, 2] }]);
+      expect(RECORD_SEEDS).toBe(3);
+    });
+  });
 });
+
