@@ -190,9 +190,10 @@ describe("ORW-741: the milestone footprints are derived, not listed", () => {
 
 describe("ORW-1099: the report flags a deal kind the scripted player never got agreed", () => {
   it("lists every kind with no agreed deal as ZERO, and drops a kind once one was made", () => {
-    const md0 = renderMarkdown(buildSummary(inputs({ seasons: [season(1, { tried: { makeDeal: 4, "deal:safety": 2 }, refused: { "deal:safety": 2 } })] })));
+    const render = (over: Partial<SeasonRecord>): string => { const cur = buildSummary(inputs({ seasons: [season(1, over)] })); return renderMarkdown(cur, diffSummaries(null, cur)); };
+    const md0 = render({ tried: { makeDeal: 4, "deal:safety": 2 }, refused: { "deal:safety": 2 } });
     expect(md0).toMatch(/ZERO: .*safety/);
-    const md1 = renderMarkdown(buildSummary(inputs({ seasons: [season(1, { tried: { makeDeal: 4, "deal:safety": 2 }, refused: { "deal:safety": 1 } })] })));
+    const md1 = render({ tried: { makeDeal: 4, "deal:safety": 2 }, refused: { "deal:safety": 1 } });
     expect(md1).toMatch(/ZERO: /);
     expect(md1.match(/ZERO: ([^\n]*)/)![1]).not.toContain("safety");
     expect(ALL_DEAL_KINDS).toHaveLength(10);
