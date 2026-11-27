@@ -785,10 +785,11 @@ def parse_wait_until_clock(player_msg):
 _HANGOUT_STOP_LINES = {
     "event-due": "production is calling everyone - the scheduled event is on now (the house gathers).",
     "pulled": "the player is pulled away{by}.",
-    "npc-approach": "{npc} comes over to talk to the player.",
+    "npc-approach": "an approach - {npc} wants a word with the player and starts the conversation.",
     "observed": "the player notices something: {obs}.",
     "bedtime": "it is getting late - bedtime is the player's own call (do not force it).",
-    "max-beats": "a stretch of time passes with nothing demanding the player.",
+    # ORW-510: facts, not sentences. The old max-beats text ("a stretch of time passes with nothing demanding the player.") was copied into the reply word for word, turn after turn.
+    "max-beats": "no interruption - no one came over and nothing was called; the time simply ran out. Open on what the house around the player is doing now.",
 }
 
 
