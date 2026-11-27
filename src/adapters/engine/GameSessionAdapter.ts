@@ -23747,6 +23747,8 @@ export class GameSessionAdapter implements GameSession {
         winReads: skin?.narrative.winReads ?? "",
       },
       alreadyAuthored: data.alreadyAuthored, // the FE's persistent "author exactly once per comp" guard
+      // ORW-938: when the comp was pinned to the engine's own presentation at draw (always, in a normal game: fiction can only arrive after the roll), the house has already heard `library` as the game
+      ...(this.live.competition?.themeAuthored === false ? { announced: true as const } : {}),
       ...(this.recentThemeTitles().length > 0 ? { recentThemes: this.recentThemeTitles() } : {}),
     };
   }
