@@ -95,7 +95,7 @@ import { FAVOR } from "../../engine/favorConstants";
 import { counterStreamKey, weighCounter, type CounterAsk, type CounterSide } from "../../engine/favorCounters";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
 import { NPC_MEMORY, PLAYED_NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, salience, SCENE_MEMORY_SEVERITY, SCENE_MEMORY_SEVERITY_MORE, SCENE_MOOD_ONLY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, BOOK_FOLDED_KINDS, type BookRead, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
-import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
+import { pitchAnswer, pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
 import { DEAL_NOMS } from "../../engine/dealNomConstants";
@@ -2744,7 +2744,9 @@ export class GameSessionAdapter implements GameSession {
     const voter = onBlock && id !== s.hoh && !block!.includes(id);
     const hohBefore = s.hoh === id && (!block || block.length === 0);
     if (!standing && !voter && !hohBefore) return undefined;
-    if (!voter) return standing ? "will-keep" : "wont-commit";
+    // ORW-779 (Coordinator 2026-11-27): a HOH who privately said yes to the player's plea says so. A yes they do not mean is said the same way: lying is allowed.
+    const saidYes = hohBefore && s.pitchAnswer?.week === s.week && s.pitchAnswer.hoh === id && s.pitchAnswer.agreed;
+    if (!voter) return standing || saidYes ? "will-keep" : "wont-commit";
     const key = `${this.gameSeed ?? 0}:stance:${s.week}:${id}`;
     return declaredStance({ standing, pull: this.assurancePullOf(id, PLAYER), honesty: this.assuranceTraitsOf(id).honesty, keepRoll: new SeededRandom(hashSeed(key)).next(), lieRoll: new SeededRandom(hashSeed(`${key}:lie`)).next() });
   }
@@ -8952,6 +8954,27 @@ export class GameSessionAdapter implements GameSession {
     for (const id of withIds) this.answerAimedFrom(id); // ORW-611: talking to a houseguest who stepped up to the player answers it
     if (!this.hohCourtOn() || !s?.hoh || s.hoh === PLAYER || !withIds.includes(s.hoh) || !isPitchLikeTalk(kind, named)) return;
     s.playerPitch = foldPlayerTalk(s.playerPitch, s.week, s.hoh, named);
+    if (named === undefined) this.answerPlayerPlea(s.hoh);
+  }
+  /**
+   * ORW-779: the HOH privately answers the player's plea for safety (`pitchAnswer`), from their own trust in and threat read of the player, their cunning, and whether they are out to get them
+   * (an agenda that wants the player gone). Dice keyed to the reign, never the shared rng; a yes stands, and a later plea can only turn a no into a yes as trust grows. Never voiced.
+   */
+  private answerPlayerPlea(hoh: EntityId): void {
+    const s = this.live;
+    if (!s || s.playedGame !== true) return;
+    const stands = s.pitchAnswer?.week === s.week && s.pitchAnswer.hoh === hoh && s.pitchAnswer.agreed;
+    if (stands) return;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:pitch-answer:${s.week}:${hoh}`));
+    const edge = this.rel.edge(hoh, PLAYER);
+    const answer = pitchAnswer({ trust: edge.trust, threat: edge.threat, cunning: this.fakingCunningOf(hoh), hostile: this.agendaPullOf(PLAYER, hoh).value > 0 }, { agree: rng.next(), fake: rng.next() });
+    s.pitchAnswer = { week: s.week, hoh, ...answer };
+  }
+  /** ORW-779: a yes the HOH means keeps the player off the block this reign, as a kept assurance does. */
+  pitchShields(target: EntityId, holder: EntityId): boolean {
+    const s = this.live;
+    const a = s?.pitchAnswer;
+    return s?.playedGame === true && target === PLAYER && !!a && a.week === s.week && a.hoh === holder && a.agreed && a.sincere;
   }
   /** 0173: engine-only read of a houseguest's coarse tier, the informal leader and the lieutenants (tests and later engine slices; never a tool, never projected). */
   statusRead(): { tiers: Readonly<Record<EntityId, number>>; leader?: EntityId; lieutenants: readonly EntityId[]; vacuumSince?: number; count: number; history: StatusRecord["history"] } | undefined {
@@ -13399,6 +13422,8 @@ export class GameSessionAdapter implements GameSession {
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
       // ORW-779: a deal the HOH means to keep shields through the same hook the kept assurance uses (nominations and the replacement).
       ...(this.dealNomsEnabled && this.live?.playedGame === true ? { assuranceProtects: (t: EntityId, h: EntityId) => (this.assurancesEnabled && this.assuranceProtects(t, h)) || this.dealShields(t, h) } : {}),
+      // ORW-779: and a plea the HOH said yes to and means (`pitchShields`), through the same hook.
+      ...(this.live?.playedGame === true && this.hohCourtOn() ? { assuranceProtects: (t: EntityId, h: EntityId) => (this.assurancesEnabled && this.assuranceProtects(t, h)) || (this.dealNomsEnabled && this.dealShields(t, h)) || this.pitchShields(t, h) } : {}),
       // ORW-586 slice 4: an NPC promiser's veto / final-two promises are read by their own decisions and settled on the veto and the Final 2 (played games with promise terms only; off => no hook, byte-identical).
       ...(this.promiseTermsLive && this.live?.playedGame === true ? {
         promiseVetoFor: (n: EntityId, h: EntityId) => this.promiseVetoFor(n, h),

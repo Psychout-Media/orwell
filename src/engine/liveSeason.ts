@@ -654,6 +654,8 @@ export interface LiveSeasonState {
   status?: import("./hohCourt").StatusRecord;
   /** ORW-610: the player's own recorded talk to the sitting HOH this week (counts as a pitch on the NPC terms). Engine-only; played games only. */
   playerPitch?: import("./hohCourt").PlayerPitchRecord;
+  /** ORW-779: this reign's private answer to the player's plea to be left off the block (`pitchAnswer`). A yes stands for the reign; `sincere: false` is a yes the HOH does not mean. Engine-only, never projected. */
+  pitchAnswer?: { week: number; hoh: EntityId; agreed: boolean; sincere: boolean };
   /** ORW-317 (ORW-253 slice 4): each NPC's latest mood CAUSE (a settled goal they cared about), with the week it happened. Vault-class; voiced only when the NPC chooses to share it. */
   moodCauses?: Record<EntityId, MoodCause & { week: number; day?: number }>;
   /** 0194 / ORW-626: every other mood CAUSE a houseguest has had (a lie found out, a friend gone, a bad night, a win or loss), append-only. Vault-class; voiced only when the houseguest chooses to say it. Played games only; absent otherwise. */
