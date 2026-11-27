@@ -67,6 +67,9 @@ def test_engine_calls_carry_avoid_unless_seeded_and_the_started_cast_is_recorded
     n = len(ledger.seasons_for("u"))
     asyncio.run(orwell_engine.create_character("P", seed=9, user="u"))               # a seeded start is not
     assert len(ledger.seasons_for("u")) == n
+    # ORW-921: a seeded start tells the engine to carry nothing of the dead season across a restart; an unseeded (a player's own) start never does
+    assert calls[-1][1]["isolateSeason"] is True
+    assert "isolateSeason" not in calls[3][1]
 
 
 def test_the_default_store_is_redirected_per_test():
