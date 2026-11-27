@@ -10647,7 +10647,8 @@ async def _stream_agent_loop_impl(
                                 _turn_slept = True
                                 try:
                                     await _refresh_context_after_turn_in(messages, _force_owner, _af_out)
-                                except Exception:
+                                except Exception as _fs_exc:
+                                    _failsoft_note("agent_loop:_stream_agent_loop_impl:2@10651", _fs_exc)
                                     pass
                         else:
                             _note_belt(owner, "act-first-blocked:" + _af_tool)
@@ -10661,7 +10662,8 @@ async def _stream_agent_loop_impl(
                                     _af_held = _bedtime_held_note(set(), player_text=_af_text, status=_af_status)
                                     if _af_held:
                                         messages.append({"role": "system", "content": _af_held})
-                                except Exception:
+                                except Exception as _fs_exc:
+                                    _failsoft_note("agent_loop:_stream_agent_loop_impl:3@10666", _fs_exc)
                                     pass
                         _belt_own_round = True
                         _direct_applied = False
@@ -11978,7 +11980,8 @@ async def _stream_agent_loop_impl(
                                 try:
                                     from src import act_first as _af_m
                                     _af_m.bump("misses")
-                                except Exception:
+                                except Exception as _fs_exc:
+                                    _failsoft_note("agent_loop:_stream_agent_loop_impl:6@11984", _fs_exc)
                                     pass
                     # ── ADR 0009 NPC auto-move belt (also a pure persist side effect, never a re-prompt).
                     # The narration walked one or more houseguests to a room but the model never called
