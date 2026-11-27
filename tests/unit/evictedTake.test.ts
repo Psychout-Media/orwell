@@ -127,3 +127,19 @@ describe("0195 in the live adapter", () => {
     expect(off.g.deals.all.find((x) => x.id === od.id)!.status).toBe("open");
   });
 });
+
+describe("ORW-1097: the Final-3 eviction (atomic, no eviction-result beat) takes the evictee's deals with them too", () => {
+  it("committing the final-eviction beat lapses the third-place evictee's open deals and assurances; the Final 2 partner's own deal stays open", () => {
+    const { g, npcs } = setup(32);
+    const [e, other, f1, f2] = npcs as [string, string, string, string];
+    const d1 = g.deals.make([e, other], "final-two", "t", undefined, g.live.week);
+    const d2 = g.deals.make([e, other], "target-other", "t", undefined, g.live.week);
+    const keep = g.deals.make([f1, f2], "final-two", "t", undefined, g.live.week);
+    evict(g, e);
+    (g as unknown as { commit(ev: { beat: string; content: string; participants: string[] }): void }).commit({ beat: "final-eviction", content: "x evicts y", participants: [f1, e] });
+    expect(g.deals.all.find((d) => d.id === d1.id)!.status).toBe("lapsed");
+    expect(g.deals.all.find((d) => d.id === d2.id)!.status).toBe("lapsed");
+    expect(g.deals.all.find((d) => d.id === keep.id)!.status).toBe("open");
+    expect(g.live.evictionOrder).toContain(e);
+  });
+});

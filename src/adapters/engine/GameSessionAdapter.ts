@@ -20585,6 +20585,8 @@ export class GameSessionAdapter implements GameSession {
       this.endgameTests(); // 0193: at four left or fewer, old final-two promises get tested out loud
       this.audienceAfterEviction(); // ORW-624: the audience outside - the crowd as the evictee walks out, and a fan reward in its weeks
     }
+    // ORW-1097: the Final-3 eviction is atomic (no eviction-result beat), so the third-place evictee's deals, favors and assurances lapsed nowhere and stayed open into the finale. Same lapse step, same seam.
+    if (ev && ev.beat === "final-eviction") this.evictedTakeWithThem();
     // T0-3 (issue #1778) — derive this beat's Vault-free broadcast chyron(s), IF ANY, from the SAME
     // `ev` + the now-committed `this.live` (every read/mutation above this line is either read-only
     // over the ceremony fields `buildBeatAnnouncements` also reads, or scoped to a different beat, so
