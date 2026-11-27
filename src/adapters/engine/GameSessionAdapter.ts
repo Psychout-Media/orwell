@@ -337,6 +337,7 @@ import { credibility, type CaughtLie } from "../../engine/credibility";
 import { markTieVisibility, tieDirectedBias, publicTieAnnouncement } from "../../engine/tieVisibility";
 import type { ArchivedHouseguest } from "../../engine/seasonMemory";
 import type { ArchivedOwnCharacter, OwnCharacterFields } from "../../engine/seasonMemory";
+import { gateHouseEvent, playerOutMessage, playerOutReason } from "../../engine/inHouse";
 import { buildSeasonArchive, carriedNudge, nextSeasonNumber, planReturner, returnerBeliefs, returnerCharacter, seasonsSince, type SeasonNpcRecord } from "../../engine/returnees";
 import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, plantedBy, type EdgeDelta } from "../../engine/beliefStore";
 import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs";
@@ -2149,7 +2150,7 @@ export class GameSessionAdapter implements GameSession {
     const nominees = digest && digest.nominees.length >= 2 ? [...digest.nominees] : [...new Set([rec.evictee, ...Object.values(rec.voteOf)])];
     const living = this.livingIds().filter((id) => id !== PLAYER);
     // ORW-613: the player hears how people voted like anyone (a candidate listener while they are in the house); the player's OWN vote talk is theirs to say (ORW-612).
-    const listeners = this.livingIds().includes(PLAYER) ? [...living, PLAYER] : living;
+    const listeners = playerOutReason(live) === undefined ? [...living, PLAYER] : living; // ORW-1086: an evicted player is not in the house to hear it (livingIds always lists them)
     const out: SpokenClaim[] = [];
     const log = (live.claims ??= { seq: 0, items: [] });
     for (const speaker of Object.keys(rec.voteOf).sort()) {
@@ -3626,7 +3627,18 @@ export class GameSessionAdapter implements GameSession {
 
   /** Wire the one-off witnessed-event recorder (deal made/broken reveals, 0039). */
   setOnPlayerEvent(fn: (content: string, witnessSet: EntityId[], type?: string) => string | undefined): void {
-    this.onPlayerEvent = fn;
+    // ORW-1084/1085/1086: the active-in-house gate sits at this one seam, so no producer (lobbying, deals, HOH room, bed claims, reasons said aloud, secret breaks, betrayals, conversations) can seat a houseguest who has left the house.
+    this.onPlayerEvent = (content, witnessSet, type) => {
+      const set = gateHouseEvent(this.live ? { evictionOrder: this.live.evictionOrder, finished: this.live.finished, beat: this.live.beat, evictee: this.live.evictee !== undefined && !(this.live.weekDigests ?? []).some((d) => d.evictee === this.live!.evictee) ? this.live.evictee : undefined, jurors: this.jurorsNow() } : null, type ?? "deal", witnessSet);
+      return set === null ? undefined : fn(content, set, type);
+    };
+  }
+
+  /** ORW-1086: why the player cannot act in the house right now (evicted, season over), or null while they can (or when there is no game yet). */
+  playerHouseRefusal(): { reason: "evicted" | "season-over"; message: string } | null {
+    if (!this.house || !this.live) return null;
+    const reason = playerOutReason(this.live);
+    return reason ? { reason, message: playerOutMessage(reason) } : null;
   }
 
   /** Wire a narrator for the snarky tagline (0033). Without one, the curated fallback is used. */
@@ -7042,6 +7054,21 @@ export class GameSessionAdapter implements GameSession {
     if (scapegoat === undefined || scapegoat === decider) return 0;
     return scapegoatLean(subject, scapegoat, hardness, holdsGrievance(s.beliefs[decider] ?? [], decider, subject, s.week));
   }
+  /**
+   * ORW-972: what the PLAYER told `holder` they will vote between the nominees, from `holder`'s own beliefs: this week's "voted against N" (evict N) or "voted to keep N" (evict the other),
+   * told by the player about their own vote. The latest such belief wins; none = undefined (the player is not counted in the bloc's pick).
+   */
+  private playerStatedVoteFor(holder: EntityId, fn: readonly [EntityId, EntityId]): EntityId | undefined {
+    const s = this.live;
+    if (!s || holder === PLAYER) return undefined;
+    let pick: EntityId | undefined;
+    for (const b of s.beliefs?.[holder] ?? []) {
+      if (!b.value || b.refuted || b.week !== s.week || b.subject !== PLAYER || b.source !== PLAYER || b.object === undefined || !fn.includes(b.object)) continue;
+      if (b.kind === "heard-rumor" && b.nature === "voted-against") pick = b.object;
+      else if (b.kind === "heard-rumor" && b.nature === "voted-to-keep") pick = fn[0] === b.object ? fn[1] : fn[0];
+    }
+    return pick;
+  }
   /** 0180 part 2: the herd's pull on `voter` toward evicting `nominee`, from the voices they hold this week, scaled by the culture's alliance-size dial. */
   private herdFor(nominee: EntityId, voter: EntityId, fn: readonly [EntityId, EntityId]): number {
     const s = this.live;
@@ -10071,7 +10098,7 @@ export class GameSessionAdapter implements GameSession {
       roomRef: (r) => this.roomRefOf(r), // ORW-466: the season's room name
       knowledge,
       rng,
-      ...(this.napAsleep ? { playerAsleep: true } : {}),
+      ...(this.napAsleep || playerOutReason(this.live) ? { playerAsleep: true } : {}), // ORW-1086: a player out of the house is no node of its talk
       ...(this.live?.playedGame === true ? { countPlayer: true } : {}), // ORW-614 (P-9): a played game's house counts the player in the room it is watching
     });
   }
@@ -12184,6 +12211,7 @@ export class GameSessionAdapter implements GameSession {
       ties: this.seededRels.ties,
       npcs,
       player: this.house.player.id,
+      playerOut: evicted.has(this.house.player.id), // ORW-1086
       affinity: (a, b) => this.rel.edge(a, b).affinity,
       nameOf: (id) => this.nameOf(id),
       knowledge,
@@ -13115,6 +13143,8 @@ export class GameSessionAdapter implements GameSession {
         if (!hg) return 0.55;
         return derivedLoyalty(this.dispositionReadOf(id), this.emotionalReadOf(id), this.cultureMult("loyalty"));
       },
+      // ORW-972: the vote the player told this houseguest they will cast at this eviction (a this-week claim about their OWN vote, told by the player): the player counts in their bloc's pick only so.
+      ...(this.live?.playedGame === true && this.npcBeliefsEnabled ? { playerStatedVoteFor: (holder: EntityId, fn: readonly [EntityId, EntityId]) => this.playerStatedVoteFor(holder, fn) } : {}),
       // 0107: the named-alliance cement into bloc detection — bounded, saturation-diluted; 0 for every
       // pair when no alliance is named ⇒ the seeded bloc/vote read is byte-identical (the calibration spine).
       allianceTie: (a, b) => allianceTieBoost(this.alliances.all(), a, b) + this.territoryBondNudge(a, b), // ORW-561: + the territory nudge (0 unless a played game with the flag on)
@@ -16173,7 +16203,7 @@ export class GameSessionAdapter implements GameSession {
     whisperHabitSighting({
       occupancy: this.presence, tenureOf: (id) => this.presenceTenure?.get(id) ?? 0, npcs, player,
       affinity: (a, b) => this.rel.edge(a, b).affinity, nameOf: (id) => this.nameOf(id), roomRef: (r) => this.roomRefOf(r), knowledge, rng,
-      ...(this.napAsleep ? { playerAsleep: true } : {}),
+      ...(this.napAsleep || playerOutReason(this.live) ? { playerAsleep: true } : {}), // ORW-1086: a player out of the house is no node of its talk
     }, pick);
   }
   /** ORW-694 / B1-11 (spec 0210 C2, "both ways"): spread the queued long Diary Room stays as a position whisper - a DEDICATED stream, no relationship fold (calibration-neutral). */
@@ -16191,7 +16221,7 @@ export class GameSessionAdapter implements GameSession {
       whisperLongDiaryStay({
         occupancy: this.presence, tenureOf: (id) => this.presenceTenure?.get(id) ?? 0, npcs, player,
         affinity: (a, b) => this.rel.edge(a, b).affinity, nameOf: (id) => this.nameOf(id), roomRef: (r) => this.roomRefOf(r), knowledge, rng,
-        ...(this.napAsleep ? { playerAsleep: true } : {}),
+        ...(this.napAsleep || playerOutReason(this.live) ? { playerAsleep: true } : {}), // ORW-1086: a player out of the house is no node of its talk
       }, sighting);
     }
   }

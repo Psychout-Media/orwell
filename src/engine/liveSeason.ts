@@ -72,7 +72,7 @@ import { nominationStrategy, nominationPlan, nominationScore, nominationBaseVals
 import { sumVals, whyOption, runnerUp, type DecisionWhy, type WhyOption, type WhySink } from "./decisionWhy";
 import type { NpcMemoryLedger } from "./npcMemory";
 import type { GrudgeBook } from "./grudges";
-import { detectBlocs, blocTerm } from "./blocs";
+import { detectBlocs, blocVoteTerm, blocVotePick } from "./blocs";
 import type { Bloc } from "./blocs";
 import { DECISION } from "./decisionConstants";
 import type { NominationStyle } from "./decisionConstants";
@@ -1215,6 +1215,11 @@ export interface SeasonCtx {
    * blocs themselves are recomputed every read and NEVER stored (decision 0002).
    */
   loyaltyOf?: (id: EntityId) => number;
+  /**
+   * ORW-972 (player parity in a bloc's pick): the vote the PLAYER has told `holder` they will cast between the nominees `fn` (a this-week "voted against / voted to keep" claim the player
+   * told them), or undefined. The player counts in their bloc's majority only as `holder` knows it; an NPC mate's read is their own. Absent = the player is never counted.
+   */
+  playerStatedVoteFor?: (holder: EntityId, fn: readonly [EntityId, EntityId]) => EntityId | undefined;
   /** ORW-551 slice 3: the house culture's paranoia dial (multiplies the rattled-voter / rattled-HOH terms). Absent = 1, byte-identical. */
   paranoiaMult?: number;
   /**
@@ -2439,7 +2444,7 @@ function currentBlocs(s: LiveSeasonState, ctx: SeasonCtx): Bloc[] {
  * on the 0002 threat read). The blend, every magnitude from `decisionConstants`:
  *
  *   threat × (1 + paranoia·moodWeight)   — self-protection: a rattled voter's nerves shout loudest (0041)
- *   + blocTerm                            — vote WITH your bloc: shield a mate, lean into the shared enemy (0043)
+ *   + blocVoteTerm                        — vote WITH your bloc: shield a mate, lean toward the bloc's own majority pick (0043, ORW-972)
  *   − dealHonorWeight (if deal-bound)     — an open promise pulls the vote off the protected party (0039);
  *                                           a strong enough opposing read still BREAKS it — and the ledger
  *                                           reconciles that betrayal with its full consequence downstream
@@ -2498,9 +2503,11 @@ export function voteChoice(
     deals.some((d) => d.status === "open" && d.condition.promisors.includes(voter) && d.parties.includes(n) && n !== voter);
   // ORW-305: one pass - the named terms, in the exact order the score adds them; the score IS their left-to-right sum
   // (`a - b` is `a + (-b)` bit for bit, so the signed terms reproduce the original expression).
+  // ORW-972: the bloc votes TOGETHER - its pull is toward the bloc's own majority pick (each member's read without the bloc term; the player only as this voter knows their stated vote)
+  const blocPick = blocs.length ? blocVotePick(blocs, voter, fn, (m) => (m === ctx.player ? ctx.playerStatedVoteFor?.(voter, fn) : voteChoice(m, fn, ctx, [], hoh))) : undefined;
   const termVals = (n: EntityId): number[] => [
     ctx.rel.edge(voter, n).threat * (1 + paranoia * (V.moodSelfProtectWeight * (ctx.paranoiaMult ?? 1))),
-    blocTerm(blocs, voter, n),
+    blocVoteTerm(blocs, voter, n, blocPick),
     // ORW-37 half 2 (B41): a pre-show tie this voter holds with `n` (positive evicts, negative keeps: family keeps, a rival evicts). Absent provider => 0 => byte-identical.
     ctx.tieVotePushFor?.(n, voter) ?? 0,
     // 0085: a campaign to evict `n` that this voter is aware of pushes the vote toward `n` — bounded,

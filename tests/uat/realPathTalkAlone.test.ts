@@ -1,4 +1,3 @@
-import { quarantine } from "../support/quarantine";
 import { describe, it, expect } from "vitest";
 import { PLAYER } from "../../src/domain/ids";
 import { isPrivateRoom, type Room } from "../../src/domain/house";
@@ -183,10 +182,10 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
 });
 
 /** ORW-920: a houseguest's own ask is standing and shown to the player. The seed is picked (hint 3), not pinned: a gameplay change moves which season gets there. */
-const askStanding = () => firstSeedWhere((seed) => playUntil(seed, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending && !!(s.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk, { user: `wf-${seed}`, maxMessages: 3000 }), wfScan([1, 3], "a houseguest's own ask standing and shown to the player"));
+const askStanding = () => firstSeedWhere((seed) => playUntil(seed, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending && !!(s.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk, { user: `wf-${seed}`, maxMessages: 3000 }), { ...wfScan([1, 3], "a houseguest's own ask standing and shown to the player"), to: 30, wide: { maxSeasons: 30, budgetMs: 3_000_000, reason: "ORW-1007: the faster premiere bed rush moved every season, and a houseguest's unprompted ask standing is a rare moment, so seeds 1..12 may not reach it" } });
 
 describe("ORW-727b: a houseguest asks the player for a private word (parity), in a played season", () => {
-  quarantine({ card: "ORW-1007", added: "2026-11-26" }).it("their own ask stands as an open, non-blocking offer the player sees; the player's yes through the same lever is accepted; it then clears", async () => {
+  it("their own ask stands as an open, non-blocking offer the player sees; the player's yes through the same lever is accepted; it then clears", async () => {
     const { at } = await askStanding();
     const npc = at.sess.live.talkAsk.npc as string;
     const view = at.sess.getGameState() as { openTalkAsk?: { from: { id: string } } };
@@ -196,11 +195,11 @@ describe("ORW-727b: a houseguest asks the player for a private word (parity), in
     expect(r.outcome).toBe("accepted");
     expect(at.sess.live.talkAsk).toBeUndefined();
     expect((at.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk).toBeUndefined();
-  }, 300_000);
+  }, 3_600_000);
 });
 
 describe("ORW-727b: a houseguest's ask lapses, in a played season", () => {
-  quarantine({ card: "ORW-1007", added: "2026-11-26" }).it("left unanswered, their ask stops showing once its hours have passed", async () => {
+  it("left unanswered, their ask stops showing once its hours have passed", async () => {
     const { at } = await askStanding();
     const npc = at.sess.live.talkAsk.npc as string;
     const until = at.sess.live.talkAsk.until as number;
@@ -209,7 +208,7 @@ describe("ORW-727b: a houseguest's ask lapses, in a played season", () => {
     expect(abs()).toBeGreaterThanOrEqual(until);
     const view = at.sess.getGameState() as { openTalkAsk?: { from: { id: string } } };
     expect(view.openTalkAsk?.from.id === npc, "a lapsed ask no longer shows").toBe(false);
-  }, 300_000);
+  }, 3_600_000);
 });
 
 describe("ORW-727b: saves, in a played season", () => {

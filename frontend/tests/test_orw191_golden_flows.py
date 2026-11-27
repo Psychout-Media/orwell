@@ -59,6 +59,9 @@ def _send(page, text, expect_consumed_from=None):
         page.keyboard.press("Enter")
         if expect_consumed_from is None or _wait_consumed(expect_consumed_from, timeout_s=12):
             return
+        # ORW-414: on a busy runner the turn can be in flight past 12 s. Wait for the event while the page still has an active stream (retrying then would send the turn twice); retry only when nothing is in flight.
+        if page.evaluate("() => !!(window.chatModule && window.chatModule.hasActiveStream && window.chatModule.hasActiveStream())") and _wait_consumed(expect_consumed_from, timeout_s=90):
+            return
     raise AssertionError(f"the narrator never consumed the turn after 3 sends: {text!r}")
 
 
@@ -68,7 +71,7 @@ def _wait_settled(page, reply_text):
         page.wait_for_function(
             """([sel, foot, needle]) => Array.from(document.querySelectorAll(sel)).some(e =>
                 (e.textContent || '').includes(needle) && e.querySelectorAll(foot).length > 0)""",
-            arg=[AI_BUBBLE, FOOTER_ACTION, reply_text], timeout=40000)
+            arg=[AI_BUBBLE, FOOTER_ACTION, reply_text], timeout=120000)  # ORW-414: ends on the event; the ceiling only bounds a hang
     except Exception:
         diag = page.evaluate("() => Array.from(document.querySelectorAll('#chat-history .msg')).slice(-4).map(e => e.className + ' | footer=' + e.querySelectorAll('.msg-footer button').length + ' | ' + (e.textContent||'').replace(/\\s+/g,' ').slice(0,90))")
         raise AssertionError(f"the reply {reply_text!r} never settled: {diag}")
