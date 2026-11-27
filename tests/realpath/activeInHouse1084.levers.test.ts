@@ -10,7 +10,7 @@ describe("a houseguest who has left the house acts and witnesses nowhere in it",
     // ORW-1104: scanned (bounded), not pinned to seed 10: the first season that votes the player out; a season whose pre-jury evictions pass without them stops early (the old stop was the whole season).
     const early = (s: { sess: { live?: { evictionOrder?: string[]; active?: string[] } } }): boolean => (s.sess.live?.evictionOrder?.length ?? 0) >= 7;
     const { at } = await firstSeedWhere(async (seed) => { const x = await playUntil(seed, (s) => out(s) || early(s), { user: `a7-lever-${seed}` }); return out(x) ? x : undefined; },
-      { ...wfScan([10, 1, 2, 3], "a season that votes the player out"), to: 30, wide: { maxSeasons: 30, budgetMs: 1_800_000, reason: "ORW-1104: the house voting the player out is a rare outcome; each season stops once seven houseguests are out without them" } });
+      { ...wfScan([1, 10, 11, 2, 3], "a season that votes the player out"), to: 30, wide: { maxSeasons: 30, budgetMs: 1_800_000, reason: "ORW-1104: the house voting the player out is a rare outcome; each season stops once seven houseguests are out without them" } });
     const npcs = (at.sess.house.npcs as Array<{ id: string }>).filter((n) => !at.sess.live.evictionOrder.includes(n.id));
     const target = npcs[0]!.id;
     const before = at.engine.events.queryAll().length;

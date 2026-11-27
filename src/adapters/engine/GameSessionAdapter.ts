@@ -1,4 +1,5 @@
 import { liveHouseEvent, isCompOrCeremonyKind, eventStagingRoom } from "../../engine/houseEvent";
+import { pitchPatienceDays, PITCH_PATIENCE } from "../../engine/pitchPatience";
 import { stallTimer } from "../stallTiming";
 import type {
   GameSession, CreateCharacterReq, GameStateView, PipelineCastView, HouseMeetingView, MomentPromptReq, MomentPromptView,
@@ -339,6 +340,7 @@ import type { ArchivedHouseguest } from "../../engine/seasonMemory";
 import type { ArchivedOwnCharacter, OwnCharacterFields } from "../../engine/seasonMemory";
 import { gateHouseEvent, playerOutMessage, playerOutReason } from "../../engine/inHouse";
 import { buildSeasonArchive, carriedNudge, nextSeasonNumber, planReturner, returnerBeliefs, returnerCharacter, seasonsSince, type SeasonNpcRecord } from "../../engine/returnees";
+import { STEER, isSeasoned, isMentorBond, isPuppetBond, steerLead, markEviction, emptySteerState, type SteerPerson } from "../../engine/mentorPuppet"; // ORW-1079
 import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, plantedBy, type EdgeDelta } from "../../engine/beliefStore";
 import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs";
 import { BELIEF_RULES, PERCEIVED_BOND, OWN_VIEW, beliefPull, believedGrievances, blameForTargeting, believedRegard } from "../../engine/beliefDecisions";
@@ -7023,7 +7025,8 @@ export class GameSessionAdapter implements GameSession {
     // ORW-684: a READ folds nothing (a game must not change because someone looked at it). It shows the record as the last fold left it; the folds run where the engine itself decides (`foldedBondReader`).
     const favor = this.favorDebt ?? this.ownFavorDebt();
     const wrong = this.grudgesOn() ? { wrong: (h: EntityId, o: EntityId) => this.bookWrongOf(h, o) } : {};
-    return recordBondReader(this.rel, () => this.live?.bonds, () => this.livingIds(), () => this.live?.dayNumber ?? 1, { ...(favor ? { favorDebt: favor } : {}), ...wrong });
+    const steer = this.steerOn() ? { steerKind: (h: EntityId, o: EntityId) => ({ mentor: this.isMentorOf(h, o), puppetMaster: this.isPuppetOf(h, o) }) } : {}; // ORW-1079
+    return recordBondReader(this.rel, () => this.live?.bonds, () => this.livingIds(), () => this.live?.dayNumber ?? 1, { ...(favor ? { favorDebt: favor } : {}), ...wrong, ...steer });
   }
   /**
    * ORW-684 (ENGINE-ONLY, never a tool): the bond reader for the engine's OWN decisions (the off-screen tick, the vote, the consequence folds). The bond record and the grudge book catch up with what has
@@ -13316,6 +13319,8 @@ export class GameSessionAdapter implements GameSession {
       },
       // ORW-972: the vote the player told this houseguest they will cast at this eviction (a this-week claim about their OWN vote, told by the player): the player counts in their bloc's pick only so.
       ...(this.live?.playedGame === true && this.npcBeliefsEnabled ? { playerStatedVoteFor: (holder: EntityId, fn: readonly [EntityId, EntityId]) => this.playerStatedVoteFor(holder, fn) } : {}),
+      // ORW-1079: mentor and puppet-master bonds lead a vote; every eviction's ballots feed the steering record. Played games with the bond record only.
+      ...(this.steerOn() ? { steerLeadOf: (voter: EntityId) => this.steerLeadOf(voter), votesCast: (voteOf: ReadonlyMap<EntityId, EntityId>) => this.noteSteering(voteOf) } : {}),
       // 0107: the named-alliance cement into bloc detection — bounded, saturation-diluted; 0 for every
       // pair when no alliance is named ⇒ the seeded bloc/vote read is byte-identical (the calibration spine).
       allianceTie: (a, b) => allianceTieBoost(this.alliances.all(), a, b) + this.territoryBondNudge(a, b), // ORW-561: + the territory nudge (0 unless a played game with the flag on)
@@ -13381,6 +13386,8 @@ export class GameSessionAdapter implements GameSession {
       ...(this.audienceEnabled ? { exitCrowd: (id: EntityId) => this.exitCrowd(id) } : {}),
       ...(this.replacementTermsEnabled ? { replacementFullTerms: true } : {}),
       ...(this.assurancesEnabled ? { assuranceProtects: (t: EntityId, h: EntityId) => this.assuranceProtects(t, h), assuranceNominated: (h: EntityId, n: EntityId) => this.assuranceNominated(h, n) } : {}),
+      // ORW-779: a deal the HOH means to keep shields through the same hook the kept assurance uses (nominations and the replacement).
+      ...(this.dealNomsEnabled && this.live?.playedGame === true ? { assuranceProtects: (t: EntityId, h: EntityId) => (this.assurancesEnabled && this.assuranceProtects(t, h)) || this.dealShields(t, h) } : {}),
       // ORW-586 slice 4: an NPC promiser's veto / final-two promises are read by their own decisions and settled on the veto and the Final 2 (played games with promise terms only; off => no hook, byte-identical).
       ...(this.promiseTermsLive && this.live?.playedGame === true ? {
         promiseVetoFor: (n: EntityId, h: EntityId) => this.promiseVetoFor(n, h),
@@ -14764,11 +14771,13 @@ export class GameSessionAdapter implements GameSession {
       const candor = Math.max(0, Math.min(1, (REASONS.candorByArchetype[character?.archetype ?? ""] ?? 0.5) + (REASONS.candorByStyle[character?.strategyStyle ?? ""] ?? 0)));
       for (const claim of liesBy(live.claims, liar)) {
         if (!this.openLie(claim) || !living.includes(claim.listener)) continue;
-        const planted = claim.listener === PLAYER ? undefined : (live.beliefs?.[claim.listener] ?? []).find((b) => plantedBy(b, claim.id) && !b.refuted);
+        // ORW-961 (Ryne 2026-11-26: "Yes, same as with others"): a lie told to the PLAYER reads its catch risk the same way as one told to a houseguest (the player's own edges and any belief they hold are read like anyone's;
+        // before, every input was zeroed for a player listener, so the risk was always 0 and no NPC ever came clean to the player).
+        const planted = (live.beliefs?.[claim.listener] ?? []).find((b) => plantedBy(b, claim.id) && !b.refuted);
         const risk = catchRisk({
-          otherVersionNearListener: otherVersionNear(claims, claim, (a, b) => (a === PLAYER || b === PLAYER ? 0 : Math.min(bond(a, b), bond(b, a))), COMING_CLEAN.nearBond),
+          otherVersionNearListener: otherVersionNear(claims, claim, (a, b) => Math.min(bond(a, b), bond(b, a)), COMING_CLEAN.nearBond),
           listenerDoubting: !!planted && planted.confidence < COMING_CLEAN.doubtBelow,
-          subjectCloseToListener: claim.listener !== PLAYER && claim.subject !== claim.listener && bond(claim.listener, claim.subject) >= COMING_CLEAN.nearBond,
+          subjectCloseToListener: claim.subject !== claim.listener && bond(claim.listener, claim.subject) >= COMING_CLEAN.nearBond,
         });
         if (risk <= 0) continue;
         const chance = confessChance(risk, candor);
@@ -14962,12 +14971,52 @@ export class GameSessionAdapter implements GameSession {
       }
     }
     // ORW-611: a pitch the player has not taken is withdrawn, openly, when the founder no longer wants them in or the group has settled on them
+    const since = (live.pitchSince ??= {});
+    for (const id of Object.keys(since)) if (!this.alliances.pitchesFor(PLAYER).some((a) => a.id === id)) delete since[id]; // answered or withdrawn
     for (const p of [...this.alliances.pitchesFor(PLAYER)]) {
       const settled = life[p.id]?.agreed === PLAYER;
+      // ORW-963: silence reads as a no once this pitcher's own patience runs out
+      const asked = (since[p.id] ??= day);
+      if (!settled && p.founder !== PLAYER && day - asked >= this.pitchPatienceOf(p.founder)) {
+        if (this.alliances.withdrawPitch(p.id, PLAYER)) {
+          delete since[p.id];
+          this.coolOnSilence(p.founder, PLAYER);
+          this.onPlayerEvent?.(`${this.nameOf(p.founder)} takes ${this.nameOf(PLAYER)}'s silence about the alliance "${p.name}" as a no`, [p.founder, PLAYER], "alliance-pitch-withdrawn");
+        }
+        continue;
+      }
       if (!settled && mutualP(p.founder, PLAYER) >= ALLIANCE.joinBondFloor) continue;
       if (this.alliances.withdrawPitch(p.id, PLAYER)) this.onPlayerEvent?.(`${this.nameOf(p.founder)} tells ${this.nameOf(PLAYER)} the alliance "${p.name}" has no place for them after all`, [p.founder, PLAYER], "alliance-pitch-withdrawn");
     }
     this.flushAllianceEvents();
+  }
+
+  /** ORW-963: how many in-game days `holder` leaves a pitch open before reading silence as a no. */
+  private pitchPatienceOf(holder: EntityId): number {
+    const n = this.house?.npcs.find((x) => x.id === holder);
+    const soul = this.soulObj(holder);
+    return pitchPatienceDays({ ...(n ? { archetype: n.character.archetype, style: n.character.strategyStyle } : {}), volatility: soul?.volatility, paranoia: soul?.temperamentDrift });
+  }
+
+  /** ORW-963: an impatient pitcher cools on the one who left them hanging (a bounded move in their own read; the player's reads are theirs). */
+  private coolOnSilence(holder: EntityId, target: EntityId): void {
+    if (this.pitchPatienceOf(holder) > PITCH_PATIENCE.coolsAtDays) return;
+    this.rel.applyImpactDirected(holder, target, PITCH_PATIENCE.cool, new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:pitch-lapse:${holder}:${target}:${this.live?.dayNumber ?? 0}`)));
+  }
+
+  /** ORW-963 (parity): houseguest-to-houseguest pitches lapse by the same patience. */
+  private lapseNpcPitches(): void {
+    const s = this.live;
+    if (!s?.pitchedDay || s.playedGame !== true) return;
+    const day = s.dayNumber ?? s.week;
+    for (const [key, asked] of Object.entries(s.pitchedDay)) {
+      const [holder, target] = key.split(">") as [EntityId, EntityId];
+      const joined = this.alliances.shared(holder, target).length > 0;
+      if (!joined && day - asked < this.pitchPatienceOf(holder)) continue;
+      delete s.pitchedDay[key];
+      if (!joined) delete s.pitched?.[key]; // lapsed: it no longer counts as pitched this week either
+      if (!joined && s.active.includes(holder) && s.active.includes(target)) this.coolOnSilence(holder, target);
+    }
   }
 
   /** 0172 / ORW-611: a group that has settled on the PLAYER sends the member who reads them as the biggest threat to press them, through the desire clock's own approach path (its cooldown, its one-in-flight and its ceremony guards apply). */
@@ -15213,6 +15262,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-341: a "pull them in" goal turns the hours spent pitching into an alliance with its TARGET, through the same consent: the target must be willing (mutual bond at the floor, a little warmer if pitched this week).
     if (!agendaOpen) return;
     const week = this.live!.week;
+    this.lapseNpcPitches(); // ORW-963
     // 0172 / ORW-611: a "pull them in" goal whose target is the PLAYER is a pitch to the player, through the same path a founder's pitch takes (the alliance is revealed to them; they accept with joinAlliance). It needs the bond the player would join on, and the player is told by an event that names the alliance, never its roster.
     if (this.groupRolesOn()) {
       for (const holder of npcs) {
@@ -15232,7 +15282,8 @@ export class GameSessionAdapter implements GameSession {
       for (const goal of goalsOf(holder).filter((g) => g.kind === "pull-them-in" && g.target !== undefined && g.target !== PLAYER)) {
         const target = goal.target!;
         if (!npcs.includes(target) || this.alliances.shared(holder, target).length > 0) continue;
-        const warm = this.live!.pitched?.[`${holder}>${target}`] === week ? ALLIANCE.pitchedWarmth : 0;
+        // ORW-963: in a played game a pitch also counts for as long as that pitcher would leave it open (a lapse clears the week mark too)
+        const warm = ((this.live!.playedGame === true && this.live!.pitchedDay?.[`${holder}>${target}`] !== undefined) || this.live!.pitched?.[`${holder}>${target}`] === week) ? ALLIANCE.pitchedWarmth : 0;
         const bond = (m: EntityId): number => mutual(holder, m) + (m === target ? warm : 0);
         if (bond(target) < npcFloor.joinBondFloor) continue; // the target declines: an unwilling target never joins
         const open = this.alliances.forMember(holder).filter((a) => a.members.length < maxSize);
@@ -16672,7 +16723,7 @@ export class GameSessionAdapter implements GameSession {
     for (const scene of assembleScenes(plans)) {
       for (const p of scene.actions) {
         const partner = p.with[0];
-        if (p.goalKind === "pull-them-in" && partner && (p.kind === "pitch" || p.kind === "recruit")) (s.pitched ??= {})[`${p.actor}>${partner}`] = s.week; // ORW-341: the alliance tick counts a target pitched this week a little warmer
+        if (p.goalKind === "pull-them-in" && partner && (p.kind === "pitch" || p.kind === "recruit")) { (s.pitched ??= {})[`${p.actor}>${partner}`] = s.week; if (s.playedGame === true) (s.pitchedDay ??= {})[`${p.actor}>${partner}`] ??= s.dayNumber ?? s.week; } // // ORW-341: the alliance tick counts a target pitched this week a little warmer
         // ORW-340: a plan made for one of the NPC's own GOALS that names the player is not a hidden scene (the player is not in it): it becomes an APPROACH, raised through the desire clock's own path (and its guards: cooldown, one in flight, never in a ceremony, asleep = never).
         if (p.goalId && s.playedGame === true) this.noteGoalServed(p.actor, p.goalId); // ORW-571: a step made for the goal is progress for tonight's mull
         if (p.goalId && (p.with.includes(house.player.id) || hostileAtPlayer(p)) && approachAllowed(p)) {
@@ -17689,7 +17740,53 @@ export class GameSessionAdapter implements GameSession {
     if (holder === PLAYER || other === holder || !this.bondFeelingsOn()) return 0;
     const reader = this.foldedBondReader();
     const keep = adjustedKeep(feelingKeep(reader.bond(holder, other)), this.jealousyOf(holder, other), loyaltySplitOver(holder, other, reader)); // 0181 part 2: jealousy slips the closeness, a divided loyalty adds to it
-    return this.showmancesOn() ? keepAfterHeart(keep, this.heartCaseOf(holder, other, reader)) : keep; // 0207 A3: heart against game
+    const kept = this.showmancesOn() ? keepAfterHeart(keep, this.heartCaseOf(holder, other, reader)) : keep; // 0207 A3: heart against game
+    return kept + (this.steerOn() && this.isMentorOf(other, holder) ? STEER.mentorShield : 0); // ORW-1079: a mentor shields their protege
+  }
+
+  /** ORW-1079 (`ORWELL_BOND_MENTOR_PUPPET`, default ON; `=0` opts out): mentor and puppet-master bonds lead votes and a mentor shields their protege. Played games with the bond feelings only. */
+  private mentorPuppetEnabled = flagDefaultOn("ORWELL_BOND_MENTOR_PUPPET");
+  setMentorPuppetEnabled(on: boolean): void { this.mentorPuppetEnabled = on; }
+  private steerOn(): boolean { return this.mentorPuppetEnabled && this.bondFeelingsOn(); }
+  private steerPersonOf(id: EntityId): SteerPerson {
+    const c = id === PLAYER ? this.house?.player.character : this.house?.npcs.find((n) => n.id === id)?.character;
+    return { ...(typeof c?.age === "number" ? { age: c.age } : {}), ...(c?.castingType?.id ? { castingType: c.castingType.id } : {}), ...(c?.archetype ? { archetype: c.archetype } : {}) };
+  }
+  /** ORW-1079: `holder` looks to `other` as a mentor (holder = the protege; never the player). */
+  private isMentorOf(holder: EntityId, other: EntityId): boolean {
+    if (holder === PLAYER || holder === other) return false;
+    return isMentorBond(bondOf(this.live?.bonds, holder, other), isSeasoned(this.steerPersonOf(holder), this.steerPersonOf(other)));
+  }
+  /** ORW-1079: `other` steers `holder` (holder = the puppet; never the player). */
+  private isPuppetOf(holder: EntityId, other: EntityId): boolean {
+    return isPuppetBond(this.live?.steering, holder, other, bondOf(this.live?.bonds, other, holder));
+  }
+  private steerLeadOf(voter: EntityId): { by: EntityId; lean: number } | undefined {
+    const lead = steerLead(voter, this.livingIds(), { puppet: (h, o) => this.isPuppetOf(h, o), mentor: (h, o) => this.isMentorOf(h, o) });
+    return lead ? { by: lead.by, lean: lead.lean } : undefined;
+  }
+  /** ORW-1079: read one eviction's ballots into the steering record (once per week), then see through any steering the holder now knows was a lie. */
+  private noteSteering(voteOf: ReadonlyMap<EntityId, EntityId>): void {
+    const live = this.live;
+    if (!live) return;
+    live.steering = markEviction(live.steering ?? emptySteerState(), live.week, voteOf, (h, o) => bondOf(live.bonds, h, o).strategy ?? 0);
+    this.exposeSteering();
+  }
+  /** ORW-1079: a puppet who holds a claim that the master lied to them sees the steering for what it was: it breaks for good and leaves a grudge (the bond record's resentment). */
+  private exposeSteering(): void {
+    const live = this.live;
+    const st = live?.steering;
+    if (!live || !st || !live.bonds) return;
+    for (const k of Object.keys(st.marks).sort()) {
+      if (st.exposed.includes(k)) continue;
+      const [h, o] = k.split("|") as [EntityId, EntityId];
+      if (!this.isPuppetOf(h, o)) continue;
+      if (!claimsOf(live.beliefs, h).some((c) => c.kind === "lied-to-me" && c.subject === o && !c.refuted && !!c.value)) continue;
+      st.exposed.push(k);
+      const r = (live.bonds[bondKey(h, o)] ??= emptyBond());
+      r.resentment = Math.min(1, r.resentment + STEER.exposedResentment);
+      r.peakResentment = Math.max(r.peakResentment, r.resentment);
+    }
   }
 
   /**
@@ -19478,6 +19575,12 @@ export class GameSessionAdapter implements GameSession {
     }
     const terms = (req.terms ?? "").slice(0, 200);
     this.closeCounteredOffer(req.countersOffer, target); // ORW-614 (P-12): the player's own terms answer a standing offer from this houseguest; the offer is spent, the consent read above already ran on the player's terms
+    // A deal of the same kind with the houseguest whose offer or vote pitch stands answers it too, even when the accept path above could not take it (an offer that is no longer legal to
+    // accept as made, ORW-930's `offeredDealBlocked`): the offer is spent, never left open beside the deal that answered it (found by ORW-1079's re-seeded answeringAnOfferWithMakeDeal).
+    if (!req.countersOffer && this.live.playedGame === true) {
+      const standing = [this.live.dealOffer, this.live.votePitch].find((o) => o !== undefined && o.from === target && o.kind === req.kind);
+      if (standing) this.closeCounteredOffer(standing.id, target);
+    }
     const evId = this.onPlayerEvent?.(
       `${this.nameOf(PLAYER)} and ${this.nameOf(target)} make a ${req.kind} deal: ${terms}`,
       [PLAYER, target], "deal",
@@ -21212,13 +21315,41 @@ export class GameSessionAdapter implements GameSession {
   /** B7 M3 - open protective deals feed the HOH's nominations (approved tie-in #3). ON unless `ORWELL_DEAL_NOMS=0`. OFF => no ctx provider => byte-identical. */
   private dealNomsEnabled = flagDefaultOn("ORWELL_DEAL_NOMS");
   setDealNomsEnabled(on: boolean): void { this.dealNomsEnabled = on; }
+  /**
+   * ORW-779 - the open deals that bind `holder` not to put `target` up, each with the houseguest who asked for it: their own safety / final-two with the target, and, in a played game, a promise
+   * about a NAMED houseguest outside the pair (`protect-third`, or a safety / vote promise whose terms name them) - before this the HOH's nomination read never looked at those.
+   */
+  private protectiveDealsFor(target: EntityId, holder: EntityId): Array<{ id: string; asker: EntityId }> {
+    const out: Array<{ id: string; asker: EntityId }> = [];
+    for (const d of this.deals.open()) {
+      if (!d.condition.promisors.includes(holder)) continue;
+      if ((d.kind === "safety" || d.kind === "final-two") && d.parties.includes(target)) { out.push({ id: d.id, asker: target }); continue; }
+      const named = d.condition.protect === target || (d.condition.alsoProtect ?? []).includes(target);
+      const asker = d.parties.find((p) => p !== holder);
+      if (this.live?.playedGame === true && named && !d.parties.includes(target) && asker !== undefined) out.push({ id: d.id, asker });
+    }
+    return out;
+  }
+  /**
+   * ORW-779 (Ryne 2026-11-26: safety deals "must be able to genuinely move a nomination, for the player and NPCs alike") - a promise the HOH means to keep keeps `target` off the block while two
+   * legal others remain, as a kept casual assurance already does. Before this an accepted safety deal only nudged the score, and the HOH put the player up anyway 15 times in 16. "Means to keep" is
+   * the HOH's own secret plan for that deal (0178: how likely a promise is faked already follows their bond and trust); a planned betrayal shields nobody. Played games only; no rng.
+   */
+  dealShields(target: EntityId, holder: EntityId): boolean {
+    if (!this.dealNomsEnabled || this.live?.playedGame !== true || holder === PLAYER || target === holder) return false;
+    const plans = this.planSourceOverride ?? this.dealPlanSource();
+    return this.protectiveDealsFor(target, holder).some((p) => { const plan = plans.planOf(p.id, holder); return !plan || !isBetrayal(plan.kind); });
+  }
   /** B7 M3 - the nomination-score push (<= 0) from the HOH's OPEN protective deals (safety / final-two) with `target` - a deal-keeping HOH mostly keeps their word. Bounded; deterministic; no rng. */
   dealNomPushFor(target: EntityId, holder: EntityId): number {
     if (!this.dealNomsEnabled || holder === PLAYER || target === holder) return 0;
-    const bound = this.deals.open().some((d) => (d.kind === "safety" || d.kind === "final-two") && d.condition.promisors.includes(holder) && d.parties.includes(target));
+    const askers = this.protectiveDealsFor(target, holder).map((p) => p.asker);
+    const bound = askers.includes(target);
     const base = bound ? DEAL_NOMS.protectivePush * (BELIEF_RULES.strength === "full" ? dealTrust(this.rel.edge(holder, target).trust) : 1) : 0; // 0160 (Ryne Q3): a low-trust deal protects less
+    // ORW-779: a promise about a named ally weighs the same way, by how far the HOH trusts the one who asked for it.
+    const named = bound || askers.length === 0 ? base : DEAL_NOMS.protectivePush * (BELIEF_RULES.strength === "full" ? Math.max(...askers.map((x) => dealTrust(this.rel.edge(holder, x).trust))) : 1);
     // 0170: the holder's OWN secret plan (flip / break at the nominations) turns the protective push into a positive one. No plan source / flag off => `base` unchanged.
-    return this.npcDealsEnabled && this.live ? planAwareDealPush(base, holder, target, this.live.week, this.deals.serialize(), this.planSourceOverride ?? this.dealPlanSource()) : base;
+    return this.npcDealsEnabled && this.live ? planAwareDealPush(named, holder, target, this.live.week, this.deals.serialize(), this.planSourceOverride ?? this.dealPlanSource()) : named;
   }
 
   /** 0170 (Theme 3 slice 2) - NPC deals and the HOH deal. ON unless `ORWELL_NPC_DEALS=0`; OFF => `mintNpcDeal` alone, byte-identical to before. */
