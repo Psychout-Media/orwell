@@ -216,7 +216,7 @@ def _boot_stack(engine_data_dir=None, create_game=True, engine_env_extra=None):
     engine_port = _free_port()
     engine_env = dict(os.environ, ORWELL_DATA_DIR=engine_data_dir or tempfile.mkdtemp(prefix="orwell-m03-engine-"),
                       ORWELL_ENGINE_PORT=str(engine_port),
-                      ORWELL_COMP_MECHANICS_MORE="0",  # ORW-530 / ORW-1104 (time-boxed: tests/unit/timeBoxedTestOverrides.test.ts): the seeded real-loop tests keep the 30-mechanic pool until the re-hint card lands
+                      ORWELL_COMP_MECHANICS_MORE="0",  # ORW-530 / ORW-1118 (time-boxed: tests/unit/timeBoxedTestOverrides.test.ts): the seed-pinned real-loop tests (test_orw785 ...) keep the 30-mechanic pool until the re-hint card lands
                       **(engine_env_extra or {}))
     engine = subprocess.Popen(["node", dist], cwd=REPO, env=engine_env,
                               stdout=open(f"/tmp/m03-engine-{engine_port}.log", "w"), stderr=subprocess.STDOUT)

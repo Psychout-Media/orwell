@@ -757,7 +757,7 @@ const COMP_THEMES_ENABLED_DEFAULT = process.env.ORWELL_COMP_THEMES !== "0";
  * deploy turns it on for real play; the new mechanics preserve the base stat mix so the band still holds.
  */
 const COMP_MECHANICS_PLUS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_MECHANICS_PLUS");
-/** ORW-530: the 20 more mechanics (30 => 50). ON as shipped (deploy defaults); the seeded test lanes pin it OFF until ORW-1104. */
+/** ORW-530: the 20 more mechanics (30 => 50). ON as shipped (deploy defaults). */
 const COMP_MECHANICS_MORE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_MECHANICS_MORE");
 
 /**
@@ -9652,7 +9652,7 @@ export class GameSessionAdapter implements GameSession {
   /**
    * ORW-1090 (Ryne 2026-11-26: an empty half of a double is fair game; the sleeper may react when they wake, annoyed or fine by how they feel about the joiner; the same for houseguests joining a sleeping player or
    * houseguest). Once per join, on the first tick of a LATER day than the join: the earlier claimant of a double's two halves is the sleeper, the later one the joiner. The sleeper's own read of the joiner (their warmth
-   * toward them, the same bar a swap uses) is "annoyed" below `BED_RULES.swapAcceptAbove`, else "fine". NARRATION ONLY: no relationship fold (a hidden slight moves every seeded trajectory and so every seed-pinned scan; folding it is a calibration change for the product owner, carded separately). When the player is the sleeper or the joiner the reaction is handed to the narrator for one turn (`bedWake`). Append-only record so a join reacts once.
+   * toward them, the same bar a swap uses) is "annoyed" below `BED_RULES.swapAcceptAbove`, else "fine". Annoyed folds a tiny hidden slight on the sleeper->joiner edge (`BED_MOVES.slight`, seeded per pair and day); fine folds nothing; never the player's own edge. When the player is the sleeper or the joiner the reaction is handed to the narrator for one turn (`bedWake`). Append-only record so a join reacts once.
    */
   private reactToHalfJoins(beds: BedsState, day: number, living: ReadonlySet<EntityId>): void {
     this.bedWakeNote = null;
@@ -9670,6 +9670,7 @@ export class GameSessionAdapter implements GameSession {
       if (beds.wokeBeside?.includes(key)) continue;
       (beds.wokeBeside ??= []).push(key);
       const mood = r.warmth(sleeper, joiner) < BED_RULES.swapAcceptAbove ? "annoyed" as const : "fine" as const;
+      if (mood === "annoyed" && sleeper !== PLAYER) this.rel.applyImpactDirected(sleeper, joiner, BED_MOVES.slight, new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:bed-wake:${sleeper}:${joiner}:${day}`))); // a real annoyance (Ryne: "annoyed or fine"): a tiny hidden slight on the sleeper's own edge, never the player's
       if (sleeper === PLAYER || joiner === PLAYER) this.bedWakeNote = { sleeper: this.nameOf(sleeper), joiner: this.nameOf(joiner), mood };
     }
   }

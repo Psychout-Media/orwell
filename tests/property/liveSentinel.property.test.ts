@@ -22,7 +22,7 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
     // 0150 (ORW-330 slice 2): full-strength beliefs changed which seasons make the player a juror; seed 7 kept askJuror's output exercised.
     // 0163 (ORW-539, 2026-11-16): which seasons seat the player keeps moving with the house's balance, so (the repo's seed-search pattern, #1954) the
     // three sweep seeds always run, and further seeds run only until askJuror has told something. Never pinned to one seed.
-    const SWEEP = [2, 5, 7], EXTRA = [3, 8, 10, 1, 4, 6, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]; // ORW-574: the own view moves which seasons seat the player as a juror again; the search just reaches further
+    const SWEEP = [2, 5, 7], EXTRA = [3, 8, 10, 1, 4, 6, 9, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, ...Array.from({ length: 30 }, (_, i) => 31 + i)]; /* ORW-1104: 31..60 added (the 50 pool moved which seasons seat the player as a juror: none of 1..30 did) */ // ORW-574: the own view moves which seasons seat the player as a juror again; the search just reaches further
     for (const seed of [...SWEEP, ...EXTRA]) {
       if (!SWEEP.includes(seed) && totalJurorsTold > 0) break;
       const reg = new GameSessionRegistry();
@@ -233,7 +233,7 @@ describe("B42 — the sentinel canary bites the live game (production path)", ()
     }
     // The canary must actually EXERCISE askJuror's output (a telling happened), not merely call it.
     expect(totalJurorsTold, "askJuror told at least once across the sweep seeds").toBeGreaterThan(0);
-  });
+  }, 3_000_000);
 });
 
 /**

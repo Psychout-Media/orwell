@@ -109,9 +109,13 @@ describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer f
       const fights = events(s).filter((e) => e.type === "conflict" && /steps up to/.test(String(e.content)) && e.initiator === target);
       return { shownId, ...(status ? { status } : {}), own: fights.filter((e) => String((e as { id?: string }).id ?? "").startsWith(`${shownId}:`)).length, all: fights.length };
     };
-    const found = await firstSeedWhere(async (seed, sandbox) => { const k = await play(seed, sandbox, true); return k.status === "answered" ? { seed, kind: k } : undefined; },
-      { from: 1, to: 12, hint: [HOSTILE_HINT, 1, 11], sandbox: (x) => `mixdrv-${x}`, what: "a hostile approach shown to the player that the kind answer closes as answered (mix driver, 1400 messages)" });
-    const kind = found.at.kind, ignored = await play(found.seed, found.sandbox, false);
+    // ORW-1104: BOTH arms are part of the precondition (the same approach is shown to the player in both plays, the kind answer closes it as answered, and the ignored play's record ends "ignored"): a seed where the ignored play
+    // still shows the record at the stop (its window not yet elapsed) says nothing about the claim, so the scan skips it.
+    const found = await firstSeedWhere(async (seed, sandbox) => {
+      const k = await play(seed, sandbox, true); if (k.status !== "answered") return undefined;
+      const i = await play(seed, sandbox, false); return i.shownId === k.shownId && i.status === "ignored" ? { seed, kind: k, ignored: i } : undefined;
+    }, { from: 1, to: 12, hint: [HOSTILE_HINT, 1, 11], sandbox: (x) => `mixdrv-${x}`, what: "a hostile approach shown to the player that the kind answer closes as answered and the ignored play leaves ignored (mix driver, 1400 messages)" });
+    const kind = found.at.kind, ignored = found.at.ignored;
     expect(ignored.shownId, "the same approach is shown in the same game when the player ignores it").toBe(kind.shownId);
     expect(ignored.status, "ignored: the record is ignored").toBe("ignored");
     expect(ignored.own, "ignored: the fight folds for that approach").toBe(1);

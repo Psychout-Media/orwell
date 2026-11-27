@@ -59,7 +59,7 @@ describe("0093/0099 - the levers DISPATCH through the player channel on a secret
       // Leverage is about the deal PARTNER (the subject of the held secret).
       const res = (await at.call("makeDeal", { with: subject, kind: "safety", terms: "keep me safe", leverage: { factId } })) as { id?: string } | null;
       return res && res.id ? res : undefined;
-    }, wfScan(3, "a played season where the learned secret's subject agrees to a safety deal"));
+    }, wfScan([5, 4, 3], "a played season where the learned secret's subject agrees to a safety deal"));
     expect(f.at.id).toBeTruthy(); // the deal still forms (additive); leverage colored it
   }, 600_000);
 
