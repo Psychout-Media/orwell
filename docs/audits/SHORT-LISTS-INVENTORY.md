@@ -551,3 +551,15 @@ Ceilings live in `src/domain/poolRecurrence.json` and are held by `tests/unit/po
 | habits (11), aims (6), ritual actions (11) in `frontend/src/orwell_npc_minds_words.py` | ORW-508 | closed mechanic ids the engine validates; the model writes the free-text gist per person |
 
 The tails and marks live in `src/engine/lookVariants.ts`; the narrator prompt carries the build, skin, hair, face and age-look lines of all 16 cards, so each tail on those lines is one short word.
+
+## ORW-531 per-site decisions (endgame closed sets and the house-theme floor)
+
+Recurrence is how often the same value is seen again; "before" and "after" are equal where the decision is to keep the set.
+
+| site | decision | why | recurrence |
+|---|---|---|---|
+| tie natures (`TIE_NATURES`, 11) | keep as an internal key; no live authoring here | the nature is a seeded, Vault-held fact that drives surfacing and folds; its wording reaches the player through the narrator and three engine lines (`tieNatureProse`). Per-person authoring stays with ORW-508's move to world tables | 1 in 11 per tie, before and after |
+| finale appeals (`FINALE_APPEALS`, 4) | keep: engine action ids, not player prose | the finalists' words are narrated live; the id only selects the fold. The allowlist entry already says so | 1 in 4 per statement, before and after |
+| goodbye tones (3) | keep: internal fold keys | the player picks a tone and may write their own words (`statement`); NPC goodbyes are voiced from the real record (ORW-719) | 1 in 3, before and after |
+| exit stances (3) | keep: internal fold keys | the player's exit interview takes their own words; the stance only folds | 1 in 3, before and after |
+| house-theme floor (`HOUSE_THEMES`, 24) | keep the floor; composing it would be new content | used only when the authored house is refused; the lever is fewer refusals, not a longer floor | 1 in 24 per refused season, before and after |
