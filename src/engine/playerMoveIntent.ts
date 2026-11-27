@@ -119,6 +119,7 @@ function roomFromPhrase(phrase: string, current: Room | null, themed?: Themed): 
   if (p === "" || /^(?:bed|beds|room|sleep)$/.test(p)) return null; // "go to bed" is sleep; a bare "room" is no place
   if (/^(?:back|out|up|down|over|away|off|there|here|around|home|in|on|forward|ahead)$/.test(p)) return null; // ORW-1035: a direction word is no room ("step back", "go back", "walk out")
   if (STUBS.test(p)) return null; // ORW-1039: a houseguest's first name or a stub is no room ("Kit", "Hal", "Dia", "Liv", "Lou"): only a real room word counts as a destination
+  if (p === "dr") return "diary-room"; // ORW-1082: the house's own shorthand
   if (/^(?:down\s*stairs|down\s+(?:the\s+)?stairs?)$/.test(p)) return current === "landing" ? "living-room" : current === "hoh-room" ? "landing" : null; // ORW-1035: down is a way out of the upper rooms only
   if (/^(?:up\s+(?:the\s+)?stairs?|(?:the\s+)?stairs?)$/.test(p)) return current === "landing" || current === "hoh-room" ? null : "landing";
   const res = resolveRoom(p, current, themed); // ORW-466: the season's themed room names resolve too
@@ -297,8 +298,26 @@ export function parsePlayerOwnBedMove(text: string): boolean {
  * when there is no clear move (unsure parses never guess). When several clauses move, the LAST one wins
  * (it is where the player ends up). Quoted speech is ignored.
  */
+// ORW-1082, settled by the movement rulings (the engine moves the player on their own stated move, 2026-11-15; a room's name alone moves nobody, 2026-11-26):
+const SARCASM = /^\s*(?:oh,?\s+sure|yeah,?\s+right)\b[^]*\bbecause\s+that(?:'|\u2019)?s\b/i; // "oh sure, I'll just go to the kitchen, because that's helpful": mocking the idea is not going
+const AND_GO_THERE = /\b(?:and|then)\s+(?:i\s+)?(?:then\s+)?(?:go|head|walk)\s+there\b/i;
+const GO_SEE = /^(?:i\s+)?(?:go|head|walk|going|heading|walking)\s+(?:and\s+|to\s+)?see\s+the\s+([a-z][a-z -]{1,24})$/; // with "the": a bare "go see Pool" may be a person, so it is left to the person parser
+
+/** "... and go there": "there" is the one room named earlier in the same message (quoted words included: "I'll meet you in the kitchen"). Two rooms named, or none: no guess. */
+function roomNamedForThere(text: string, current: Room | null, themed?: Themed): Room | null {
+  const m = AND_GO_THERE.exec(text);
+  if (!m) return null;
+  const rooms = new Set<Room>();
+  for (const hit of text.slice(0, m.index).matchAll(/\b(?:to|in|into|at)\s+(?:the\s+)?([a-z]+(?:[ -](?:room|a|b|c))?)\b/gi)) {
+    const r = roomFromPhrase(hit[1]!.toLowerCase(), current, themed);
+    if (r !== null) rooms.add(r);
+  }
+  return rooms.size === 1 ? [...rooms][0]! : null;
+}
+
 export function parsePlayerMoveIntent(text: string, current: Room | null, themed?: Themed): Room | null {
   if (typeof text !== "string" || text.trim() === "") return null;
+  if (SARCASM.test(text)) return null;
   const unquoted = stripNonActs(text);
   const clauses = unquoted.match(/[^.!?;\n]+[.!?;\n]*/g) ?? [];
   let dest: Room | null = null;
@@ -314,9 +333,11 @@ export function parsePlayerMoveIntent(text: string, current: Room | null, themed
       if (rest === "") continue;
       cText = rest;
     }
-    const room: Room | null = fix ?? parseClause(cText, at, themed);
+    const see = GO_SEE.exec(clean(cText)); // ORW-1082: "I go see the bathroom" (a room, not a person)
+    const room: Room | null = fix ?? parseClause(cText, at, themed) ?? (see ? roomFromPhrase(see[1]!, at, themed) : null);
     if (room !== null) { dest = room; at = room; }
   }
+  dest ??= roomNamedForThere(text, current, themed);
   return dest === current ? null : dest;
 }
 

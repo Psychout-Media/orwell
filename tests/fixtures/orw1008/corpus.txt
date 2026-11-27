@@ -613,3 +613,11 @@ other|K|I go to the living room|living-room
 other|K|I leave kitchen|living-room
 other|K|I leave the room and go to the backyard|backyard
 other|K|I leave this room|living-room
+# ORW-1082, settled by the movement rulings
+quote|L|I tell Dana "I'll meet you in the kitchen" and go there|kitchen
+other|L|I invite Dana to the kitchen and go there|kitchen
+sarc|L|oh sure, I'll just go to the kitchen, because that's helpful|-
+themed|L|I go to the dr|diary-room
+names|L|I go see the bathroom|bathroom
+look|L|I look for my keys in the kitchen|-
+look|L|I find a seat in the kitchen|-
