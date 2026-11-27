@@ -1,4 +1,5 @@
 import { liveHouseEvent, isCompOrCeremonyKind, eventStagingRoom } from "../../engine/houseEvent";
+import { FIRST_RETURN, firstReturnOf, firstReturnImpact } from "../../engine/firstImpressionReturn";
 import { stallTimer } from "../stallTiming";
 import type {
   GameSession, CreateCharacterReq, GameStateView, PipelineCastView, HouseMeetingView, MomentPromptReq, MomentPromptView,
@@ -4682,6 +4683,8 @@ export class GameSessionAdapter implements GameSession {
         const read = currentReadOf(edge, disp, soul?.emotionalState, anchor);
         return { currentRead: read };
       })() : {}),
+      // ORW-1080: their day-one read of the player has come back to them (a closed pair of facts; never the sealed clause or a number)
+      ...(isActive ? (() => { const r = this.firstReturnFor(id); return r ? { dayOneBack: r } : {}; })() : {}),
       // 0096: the Vault-safe `rivalry` tone hint — present ONLY for the held nemesis, ONLY inside a live
       // scene with them. Never a number, never a stated motivation, never a cold-open announcement.
       ...(isActive ? (() => { const r = this.rivalryFor(id); return r ? { rivalry: r } : {}; })() : {}),
@@ -13602,8 +13605,36 @@ export class GameSessionAdapter implements GameSession {
     this.feelingsTick(); // ORW-568 / 0181 part 2: jealousy follows the night's favour (no rng, no text)
     this.foldGrudges(); // 0182: the wrongs the engine already recorded into the grudge book (no rng)
     this.triadsTick(); // 0174: balanced triads - a small, bounded, keyed drift on the edges (played games only)
+    this.returnFirstImpression(); // ORW-1080
     return steps;
   }
+  /** ORW-1080: on some nights one houseguest's strong day-one read of the player comes back to them (once each). Keyed rolls only; played games. */
+  private returnFirstImpression(): void {
+    const s = this.live;
+    if (!s || s.playedGame !== true || !this.house) return;
+    const day = s.dayNumber ?? s.week;
+    const seed = this.gameSeed ?? 0;
+    if (day < FIRST_RETURN.fromDay || agendaRoll(seed, "first-return", `night:${day}`) >= FIRST_RETURN.chance) return;
+    const living = new Set(this.livingIds());
+    const done = (s.firstReturns ??= {});
+    const b = RELATIONSHIP_CONSTANTS.baseline;
+    const due = this.house.npcs
+      .filter((n) => living.has(n.id) && !done[n.id])
+      .map((n) => { const lean = this.deepProfiles[n.id]?.dayOnePerception; const r = lean ? firstReturnOf(lean, this.rel.peek(n.id, PLAYER), b) : null; return r ? { id: n.id, r } : null; })
+      .filter((x): x is { id: EntityId; r: { took: "warm" | "wary"; held: boolean } } => x !== null)
+      .sort((a, c) => agendaRoll(seed, a.id, `first-return:${day}`) - agendaRoll(seed, c.id, `first-return:${day}`) || a.id.localeCompare(c.id));
+    const pick = due[0];
+    if (!pick) return;
+    done[pick.id] = { day: day + 1, ...pick.r }; // said from the morning after the night it came to them
+    this.rel.applyImpactDirected(pick.id, PLAYER, firstReturnImpact(pick.r), new SeededRandom(hashSeed(`${seed}:first-return:${pick.id}:${day}`)));
+  }
+  /** ORW-1080: the returned first impression this houseguest may voice just now. */
+  private firstReturnFor(id: EntityId): { firstTook: "warm" | "wary"; held: boolean } | undefined {
+    const r = this.live?.firstReturns?.[id];
+    const day = this.live?.dayNumber ?? this.live?.week ?? 0;
+    return r && day >= r.day - 1 && day < r.day + FIRST_RETURN.voicedDays ? { firstTook: r.took, held: r.held } : undefined;
+  }
+
   /** In-game hours the last hang-out spent, read-and-cleared by the orchestrator so the off-screen society can tick for them. */
   consumeHangOutHours(): number { const h = this.hangOutPendingHours; this.hangOutPendingHours = 0; return h; }
   /** 0148: in-game hours the player's last nap slept, read-and-cleared by the orchestrator so the house lives them (unseen) on its existing per-turn off-screen machinery. */
@@ -22874,6 +22905,7 @@ export class GameSessionAdapter implements GameSession {
           suspects: v.suspects,
           ...(v.mood ? { mood: v.mood } : {}),
           ...(v.currentRead ? { currentRead: v.currentRead } : {}),
+          ...(v.dayOneBack ? { dayOneBack: v.dayOneBack } : {}), // ORW-1080
           ...(v.rivalry ? { rivalry: v.rivalry } : {}),
           ...(v.statedReasons ? { statedReasons: v.statedReasons } : {}),
           ...(v.declaredStance ? { declaredStance: v.declaredStance } : {}),

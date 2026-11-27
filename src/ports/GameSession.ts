@@ -2567,6 +2567,8 @@ export interface NpcVoiceView {
    * Sibling of `mood` (0084) — mood is how they feel; this is how they feel ABOUT YOU.
    */
   currentRead?: { toward: string; drift: "warming" | "cooling" | "steady" };
+  /** ORW-1080: their day-one read of the player (`firstTook`) has just come back to them, and whether it held. Absent otherwise. */
+  dayOneBack?: { firstTook: "warm" | "wary"; held: boolean };
   /**
    * Feature 0096 — the Vault-SAFE `rivalry` tone hint: present ONLY for the houseguest currently held
    * as the player's emergent NEMESIS (a sustained, not spiked, threat-toward-player elevation of the
@@ -2625,6 +2627,8 @@ export interface PresentKnowledgeView {
    */
   mood?: string;
   currentRead?: { toward: string; drift: "warming" | "cooling" | "steady" };
+  /** ORW-1080: their day-one read of the player (`firstTook`) has just come back to them, and whether it held. Absent otherwise. */
+  dayOneBack?: { firstTook: "warm" | "wary"; held: boolean };
   rivalry?: { tone: "simmering" | "open" };
   /** ORW-314: the same stated reasons `npcVoice` carries, pushed so the narrator voices the DECIDER's reason without the under-called tool. */
   statedReasons?: StatedReasonView[];
