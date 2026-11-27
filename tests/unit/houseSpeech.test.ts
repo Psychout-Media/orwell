@@ -1,3 +1,4 @@
+import { PLAYER } from "../../src/domain/ids";
 import { describe, expect, it } from "vitest";
 import { recordClaim, type BeliefStore } from "../../src/engine/beliefStore";
 import { claimFromBelief, planSpeech, speechActionOf, truthOf, type TruthFacts } from "../../src/engine/houseSpeech";
@@ -104,5 +105,24 @@ describe("0153: the adapter's truth reads the secret ballots (engine-only)", () 
     expect(f.votedToKeep(v1!, nomA!)).toBe(false);
     expect(f.votedToKeep(v1!, nomB!)).toBe(true);   // nomB faced the vote (v2 voted for them); v1 voted against nomA
     expect(f.votedToKeep(v1!, stranger!)).toBe(false); // never faced the vote
+  });
+});
+
+describe("ORW-1105: the engine never speaks for the player", () => {
+  const inHouse = [ACTOR, PLAYER, TARGET, EAR];
+  const held = (...holders: string[]) => { const b: BeliefStore = {}; for (const holder of holders) recordClaim(b, { holder, kind: "targets-me", subject: TARGET, object: holder, value: true, origin: "told", confidence: 0.7, week: 1 }); return b; };
+
+  it("a houseguest fishing the player gets no claim from the engine, whatever the player holds or reads", () => {
+    for (const roll of [0, 0.13, 0.5, 0.87]) {
+      expect(planSpeech("fish", ACTOR, PLAYER, undefined, true, { ...ctx({ beliefs: held(PLAYER), roll }), living: inHouse, roleOf: () => "the strategist" })).toBeUndefined();
+    }
+  });
+  it("no speech action aimed at the player yields a claim anyone but the houseguest speaks", () => {
+    for (const action of ["plant", "leak", "confirm", "fish"] as const) {
+      for (const truthful of [true, false]) {
+        const c = planSpeech(action, ACTOR, PLAYER, TARGET, truthful, { ...ctx({ beliefs: held(PLAYER, ACTOR) }), living: inHouse, roleOf: () => "the strategist" });
+        if (c) expect(c.speaker).toBe(ACTOR);
+      }
+    }
   });
 });

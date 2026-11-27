@@ -2218,11 +2218,25 @@ _PI_STARTS_WITH_SUBJECT_RE = re.compile(r"^(?:(?:ok(?:ay)?|so|now|alright|then)\
 _PI_QUOTE_RE = re.compile(r'\(\([\s\S]*?\)\)|\[[^\]]*ooc[^\]]*\][^.!?\n]*|\(ooc\)[^.!?\n]*|\booc:[^\n]*|"[^"]*"|\u201c[^\u201d]*\u201d|(?<![\w])[\u2018\'](?:[^\'\u2018\u2019\n]|[\u2019\'](?=[A-Za-z])){2,}?[\u2019\'](?=$|[\s.,!?;:)])', re.IGNORECASE)
 
 
+_PI_SARCASM_RE = re.compile(r"^\s*(?:oh,?\s+sure|yeah,?\s+right)\b[\s\S]*\bbecause\s+that'?s\b", re.IGNORECASE)
+_PI_DR_RE = re.compile(r"(\b(?:go|head|walk)\s+(?:in\s*)?to\s+the\s+)dr\b", re.IGNORECASE)
+_PI_AND_GO_THERE_RE = re.compile(r"\b(?:and|then)\s+(?:i\s+)?(?:then\s+)?(?:go|head|walk)\s+there\b", re.IGNORECASE)
+
+
 def _player_asked_to_move(text: str, room_names) -> bool:
     """Did the player's own message say they are going somewhere? Pure. A room merely named, asked about or discussed never counts; narration never counts.
     ORW-1038 (audit A3): quoted speech and ((out-of-character)) asides are not the player's act; a hedge, a negation, a later time, a habit, a question or a move the player takes back ("but I can't", "never mind",
     "if Dana is there") is no move; the verbs the engine's own parser (src/engine/playerMoveIntent.ts) reads count here too, so the two agree on what a move is."""
-    msg = _PI_QUOTE_RE.sub(" ", str(text or "")).replace("\u2019", "'")
+    raw = str(text or "").replace("\u2019", "'")
+    if _PI_SARCASM_RE.search(raw):  # ORW-1082, as the engine's parser: mocking the idea of going is not going
+        return False
+    msg = _PI_DR_RE.sub(r"\1diary room", _PI_QUOTE_RE.sub(" ", raw))  # ORW-1082: "go to the dr" is the Diary Room
+    # ORW-1082: "... and go there": "there" is the one room named earlier in the message, quoted words included
+    there = _PI_AND_GO_THERE_RE.search(raw)
+    if there:
+        from src.house_rooms import rooms_named_in
+        if len(set(rooms_named_in(raw[:there.start()], room_names))) == 1:
+            return True
     moved = False
     for clause in re.split(r"(?<=[.!?;])\s+|\n", msg):
         c = clause.strip()

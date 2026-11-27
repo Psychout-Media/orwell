@@ -110,3 +110,5 @@ name|I take a bed in bedroom A. I won't take bedroom B.|claim:bedroom-a
 name|I take a bed in bedroom A or B|claim:bedroom-a
 name|I take a bed in the palmetto|claim:bedroom-b
 name|I take a bed in the Palmetto room, I mean the coral bedroom|claim:bedroom-a
+# ORW-1082: the correction wins
+name|I take a bed in bedroom A, no wait, C|claim:bedroom-c
