@@ -62,9 +62,9 @@ describe("the pure overlap rule", () => {
       expect(c - x, "the grudge plus what is covered never exceeds the larger of the two").toBeLessThanOrEqual(Math.max(c, -raw) + 1e-12);
     }
   });
-  it("the cap is sized under the betrayed manner term, like the jury-house cap", () => {
-    expect(JURY_GRUDGE.max).toBeLessThan(Math.abs(MANNER_LEAN.betrayed) * JURY_WEIGHTS.manner);
-    expect(JURY_GRUDGE.max).toBeLessThan(Math.abs(MANNER_LEAN.blindsided) * JURY_WEIGHTS.manner);
+  it("ORW-957: the grudge cap is ABOVE the betrayed manner term (a deep grudge can out-vote a kind exit); the jury-house cap stays under it", () => {
+    expect(JURY_GRUDGE.max).toBeGreaterThan(Math.abs(MANNER_LEAN.betrayed) * JURY_WEIGHTS.manner);
+    expect(JURY_GRUDGE.max).toBeGreaterThan(Math.abs(MANNER_LEAN.blindsided) * JURY_WEIGHTS.manner);
     expect(JURY_HOUSE.adjustmentCap).toBeLessThan(Math.abs(MANNER_LEAN.betrayed) * JURY_WEIGHTS.manner);
   });
 });
@@ -114,15 +114,15 @@ describe("unit, state set by hand (grudges, edges and the finale are planted; RE
     expect(eased).toBeGreaterThanOrEqual(raw);
     expect(eased).toBeLessThanOrEqual(none);
   }, 240000);
-  it("no double count: a juror whose only wrong is already a manner grievance votes exactly as without the grudge", async () => {
+  it("no double count: a juror whose only wrong is already a manner grievance votes exactly as without a grudge no deeper than it", async () => {
     const manner: EvictionManner = { betrayed: true };
     for (const seed of [3, 11]) {
       const a = await game(seed, { grudge: "none", manner });
-      const b = await game(seed, { grudge: "grudge", severity: 1, manner });
+      const b = await game(seed, { grudge: "grudge", severity: 0.3, manner }); // ORW-957: a grudge no deeper than the manner grievance adds nothing; a deeper one adds only the part beyond it
       expect(b.playerVotes).toBe(a.playerVotes);
     }
-    // and the sum stays bounded by the manner term alone: betrayed already outweighs the largest grudge
-    expect(Math.abs(mannerLeanOf({ betrayed: true })) * JURY_WEIGHTS.manner).toBeGreaterThan(JURY_GRUDGE.max);
+    // the manner grievance already covers a grudge of this depth: the grudge term is the part BEYOND it
+    expect(Math.abs(mannerLeanOf({ betrayed: true })) * JURY_WEIGHTS.manner).toBeGreaterThan(JURY_GRUDGE.max * 0.3);
     expect(juryLean({ trust: 0.5, affinity: 0.5, threat: 0.3 } as never, { betrayed: true })).toBeLessThan(juryLean({ trust: 0.5, affinity: 0.5, threat: 0.3 } as never, {}));
   }, 240000);
 });

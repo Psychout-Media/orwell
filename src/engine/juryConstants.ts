@@ -105,20 +105,23 @@ export const JURY_MEMORY = { scale: 1, max: 0.15 } as const;
 
 /**
  * 0182 PR 3 (flag ORWELL_GRUDGES, played games only): a BITTER juror. The grudge book's freshness x severity, scaled by `scale`, lowers the juror's lean toward the finalist they hold it against,
- * clamped to `max`. `max` is sized UNDER `|MANNER_LEAN.betrayed| x JURY_WEIGHTS.manner` (0.48), the same rule as `JURY_HOUSE.adjustmentCap`, so a grudge can tilt a close vote but never out-vote the manner term.
- * `scale` equals `max` on purpose: freshness x severity is at most 1, so the term never saturates at the cap and every bit of easing (a mend) shows in the vote. The dial to retune if the played-game lane shifts win rates is `scale` ONLY (never `JURY_WEIGHTS.gameRespect`).
+ * clamped to `max`. ORW-957 (Ryne 2026-11-26: "I think it could out weigh. The way they walked out the door is just one factor. The way we played together all season is a huge part of the decision ... It should be
+ * incredibly nuanced"): `max` is NO LONGER held under `|MANNER_LEAN.betrayed| x JURY_WEIGHTS.manner` (0.48): a deep, fresh grudge can out-vote a kind exit. It was 0.2; it is now 0.7, above the manner term, so a
+ * full-strength grudge (freshness x severity of 1) can outweigh how the juror was treated on the way out, while a lesser one still only tilts a close vote. `scale` equals `max` on purpose: freshness x severity is at most 1, so the
+ * term never saturates at the cap and every bit of easing (a mend) shows in the vote. The grudge adds only what the manner and memory terms do not already count (`bitterJurorExtra`), so a wrong already counted as
+ * a grievance is never counted twice. The dial to retune if the played-game lane shifts win rates is `scale` ONLY (never `JURY_WEIGHTS.gameRespect`, see the 2026-06-21 calibration note).
  */
-export const JURY_GRUDGE = { scale: 0.2, max: 0.2 } as const;
+export const JURY_GRUDGE = { scale: 0.7, max: 0.7 } as const;
 
 /**
  * ORW-943 (Ryne 2026-11-26: "2% of bitter jurors seems honestly kind of low ... it would really depend on the personality of the person"): how much a juror's grudge weighs depends on who the juror is. The multiplier
  * scales the grudge's signed lean (before it is netted against the manner and memory terms) by the juror's voting style, which already comes from their character (`juryMinds.jurorArchetypeFor`): a grudge-holder
- * takes a wrong far harder, a loyalist takes a betrayal personally, a forgiver lets most of it go. The product is held to `ceiling`, under the manner term (0.48) like `JURY_GRUDGE.max`, so a grudge tilts a vote and
- * never out-votes how a juror was treated on the way out. Same rule for every finalist, the player included (parity); the juror is the only input. ASSUMED sizing, pending Ryne: the measured before/after is in the PR.
+ * takes a wrong far harder, a loyalist takes a betrayal personally, a forgiver lets most of it go. ORW-957: the product is NO LONGER held under the manner term (0.48): `ceiling` is only a sanity bound (1.0, a
+ * full lean swing) so a deep grudge can out-vote how a juror was treated on the way out. Same rule for every finalist, the player included (parity); the juror is the only input. ASSUMED sizing, pending Ryne: the measured before/after is in the PR.
  */
 export const JURY_GRUDGE_PERSONALITY = {
   byArchetype: { "grudge-holder": 3.0, loyalist: 1.8, competitor: 1.0, pragmatist: 0.7, forgiver: 0.3 },
-  ceiling: 0.45,
+  ceiling: 1.0,
 } as const;
 
 /**

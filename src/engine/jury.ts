@@ -118,7 +118,7 @@ export function mannerLeanOf(manner: EvictionManner): number {
 }
 
 /**
- * ORW-943 - the grudge's signed lean (`raw`, <= 0) scaled by the juror's personality (`JURY_GRUDGE_PERSONALITY`), held to the ceiling. No archetype (a save or a run with no juror profile) => `raw` unchanged. Pure, no rng.
+ * ORW-943 - the grudge's signed lean (`raw`, <= 0) scaled by the juror's personality (`JURY_GRUDGE_PERSONALITY`), held only to a sanity bound (ORW-957: no longer under the manner term). No archetype (a save or a run with no juror profile) => `raw` unchanged. Pure, no rng.
  */
 export function bitterByPersonality(raw: number, archetype: keyof typeof JURY_GRUDGE_PERSONALITY.byArchetype | undefined): number {
   const r = Number.isFinite(raw) ? Math.min(0, raw) : 0;
