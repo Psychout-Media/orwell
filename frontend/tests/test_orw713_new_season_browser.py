@@ -21,6 +21,7 @@ def _get(stack, path):
     return json.loads(urllib.request.urlopen(stack["fe"] + path, timeout=15).read())
 
 
+@pytest.mark.quarantine(card="ORW-1107", added="2026-11-27")  # ORW-1107: a 30 s wait timed out, rerun included, on two unrelated PRs
 def test_new_chat_confirm_ends_the_season_and_opens_a_fresh_casting_chat(_stack):  # noqa: F811
     from playwright.sync_api import sync_playwright
     old_sid = _session(_stack, "season one chat")
