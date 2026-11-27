@@ -1544,7 +1544,7 @@ async def nap(hours: float | None = None, expected_beat_seq: int | None = None, 
     return await _call("nap", args, user=user)
 
 
-async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None = None, user: str | None = None, max_minutes: float | None = None, until_band_end: bool = False, until_clock: float | None = None, until_event: bool = False) -> dict:
+async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None = None, user: str | None = None, max_minutes: float | None = None, until_band_end: bool = False, until_clock: float | None = None, until_event: bool = False, bare_next: bool = False) -> dict:
     """"Hang out until X" - the player's safe fast-forward. The ENGINE runs up to 8 short (15-30 in-game minute) beats and decides
     the stop reason (``stopReason`` + Vault-free public ``detail``): the scheduled event coming due, the player being pulled,
     an NPC approaching, something observed, or bedtime. ``{"ok": false, "reason": ...}`` (no state change) when the flag/clock
@@ -1562,6 +1562,8 @@ async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None =
         args["untilClock"] = until_clock
     if until_event:  # ORW-1054: a wait for the next scheduled event runs to it in one call (the engine clamps the clock to it)
         args["untilEvent"] = True
+    if bare_next:  # ORW-1089: a bare "next" with nothing due
+        args["bareNext"] = True
     return await _call("hangOut", args, user=user)
 
 

@@ -847,7 +847,7 @@ def _hang_out_steer(res: dict, asked_minutes=None) -> str:
     reason = str(res.get("stopReason") or "max-beats")
     d = res.get("detail") or {}
     by = {"diary-room": " to the Diary Room", "production": " by production"}.get(str(d.get("by") or ""), "")
-    obs = {"overheard-whisper": "two housemates whispering (%s)", "argument": "two housemates arguing (%s)", "someone-moved": "%s on the move"}.get(str(d.get("kind") or ""), "something happening (%s)") % " and ".join(d.get("who") or []) if reason == "observed" else ""
+    obs = {"overheard-whisper": "two housemates whispering (%s)", "argument": "two housemates arguing (%s)", "someone-moved": "%s on the move", "someone-entered": "%s coming into the room"}.get(str(d.get("kind") or ""), "something happening (%s)") % " and ".join(d.get("who") or []) if reason == "observed" else ""
     line = _HANGOUT_STOP_LINES.get(reason, _HANGOUT_STOP_LINES["max-beats"]).format(by=by, npc=d.get("npc") or "A housemate", obs=obs)
     mins = int(res.get("minutes") or 0)
     shown = str(res.get("stopLine") or "").strip()  # ORW-22: the engine has a player-facing line for this stop - the reply must put the stop on screen
@@ -882,12 +882,23 @@ def _waits_for_event(player_msg) -> bool:
     return bool(_WAIT_ENDS_AT_EVENT_RE.search(tail[:end.start()] if end else tail))
 
 
+# ORW-1089 (Ryne 2026-11-27): "we could essentially fast forward and summarize what happens around us. Ending as soon as a new person enters. Or game talk starts... Whenever the player is prompted."
+# Only a message that is NOTHING BUT the cue ("next", "ok, continue"), and only while the engine says nothing is due. The UI's "Continue from where you left off." is not one.
+_BARE_NEXT_RE = re.compile(r"^\s*(?:(?:ok(?:ay)?|alright)\s*[,.]?\s+)?(?:next|continue|skip|skip\s+ahead|keep\s+going)\s*[.!\u2026]*\s*$", re.IGNORECASE)
+
+
+def bare_next_while_nothing_due(game_state: dict, player_msg) -> bool:
+    sched = (game_state or {}).get("daySchedule")
+    return bool(_BARE_NEXT_RE.match(str(player_msg or ""))) and isinstance(sched, dict) and sched.get("due") is False
+
+
 async def maybe_hang_out(user, game_state: dict, player_msg) -> bool:
     """Recognise a hang-out-until-X intent and, when the engine's lever is live, run it and arm the narrator steer. Returns True when the clock moved (the caller refreshes the
     board). Fail-open: flag off / clock off / a pending decision / any hiccup => the turn proceeds exactly as before (the engine refuses with `ok:false`, no state change)."""
     from src import orwell_engine
     try:
-        if not hang_out_intent(player_msg) or not game_state.get("started") or game_state.get("pending"):
+        bare = bare_next_while_nothing_due(game_state, player_msg)
+        if not (bare or hang_out_intent(player_msg)) or not game_state.get("started") or game_state.get("pending"):
             return False
         _mins, _band = parse_stated_wait(player_msg)  # ORW-445: the player's own stated wait length (None => unchanged)
         _kw = {}
@@ -898,6 +909,8 @@ async def maybe_hang_out(user, game_state: dict, player_msg) -> bool:
         _clock = parse_wait_until_clock(player_msg)  # ORW-734a: "until 10pm" - the engine resolves it on its own clock (the next such time, never a day later)
         if _clock is not None:
             _kw["until_clock"] = _clock
+        if bare:
+            _kw = {"bare_next": True}
         if not _kw and _waits_for_event(player_msg):
             _kw["until_event"] = True  # ORW-1054: "hang out until production calls" runs to the event in one call, not a run of chance-stopped calls
         res = await orwell_engine.hang_out(expected_beat_seq=last_beat_seq(user), user=user, **_kw)

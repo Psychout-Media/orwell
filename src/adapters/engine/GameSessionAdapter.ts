@@ -18978,7 +18978,8 @@ export class GameSessionAdapter implements GameSession {
       }
       // ORW-1054: "hang out until production calls": the target is the next scheduled event itself (the clock is clamped to it, so it fires once, never skipped); nothing scheduled => the open-ended hang-out as before.
       let untilEventCap: number | undefined;
-      if (req.untilEvent === true && statedMinutes === null) { // a player-stated length, band or clock time keeps its own (3 h) bound
+      const bareNext = req.bareNext === true;
+      if ((req.untilEvent === true || bareNext) && statedMinutes === null) { // a player-stated length, band or clock time keeps its own (3 h) bound
         const hrs = hoursUntilDue(live);
         if (hrs !== null && hrs > 1e-6) {
           const m = Math.min(hrs * 60 + 2, HANGOUT.maxUntilEventMinutes); // two minutes of slack: every beat is clamped to the event, so the wait ends ON it, never a float remainder short of it
@@ -18989,6 +18990,9 @@ export class GameSessionAdapter implements GameSession {
       // ORW-920 (Ryne's ruling): a STATED wait ("until 9am", "for an hour", "the rest of the afternoon") is interrupted ONLY by something actually due - a ceremony/comp call (event-due), bedtime, or a houseguest whose own
       // desire clock has crossed its threshold (a real reason to approach). No per-beat dice (a random production pull, a random sighting, the flat approach roll) and no rate knob. An open-ended hang-out keeps them.
       const statedWait = statedMinutes !== null;
+      // ORW-1089: who was already with the player when the bare "next" began; anyone else who walks in is a reason to stop
+      const roomOfPlayer = (): Room | undefined => this.presence?.get(PLAYER);
+      const withPlayer = new Set(this.presence ? [...this.presence].filter(([, where]) => where === roomOfPlayer()).map(([id]) => id) : []);
       const result: HangOutResult = clockTargetPassed ? { stopReason: "max-beats", beats: 0, minutes: 0 } : runHangOut({
         advance: (h) => { advanceClockPerConversation(live, h); },
         // ORW-392: the same clock `eventDue` reads - behind a pending night gate the event is tomorrow, so the probe must not read 0 at night (that returned a false "event-due" with 0 beats).
@@ -19019,7 +19023,18 @@ export class GameSessionAdapter implements GameSession {
           return top ? { npc: this.nameOf(top.npc) } : null;
         },
         observed: (r) => {
-          if (statedWait || r.next() >= HANGOUT_OBSERVED_P || !this.presence) return null;
+          if (bareNext && this.presence && !this.houseEventInSession()) { // a gathered house: nobody walks in, and a tick would move the player
+            this.presenceTick(); // the house moves while the time passes, so somebody can actually walk in
+            const awakeNow = new Set(awakeNpcs());
+            const room = roomOfPlayer();
+            const newcomer = [...this.presence].filter(([id, where]) => id !== PLAYER && where === room && awakeNow.has(id) && !withPlayer.has(id)).map(([id]) => id).sort()[0];
+            if (newcomer) {
+              this.noteConversationPartners([newcomer]); // they stay with the player through the tick that follows the commit, so the person named is still there when the reply is told
+              this.onPlayerEvent?.(`${this.nameOf(newcomer)} comes into the room`, [PLAYER, newcomer], "house-event");
+              return { kind: "someone-entered", who: [this.nameOf(newcomer)] };
+            }
+          } else if (!bareNext && statedWait) return null;
+          if (r.next() >= HANGOUT_OBSERVED_P || !this.presence) return null;
           // Only what is in the player's eyeshot (their room + sightline rooms) - public presence, Vault-free.
           const me = this.presence.get(PLAYER);
           if (!me) return null;
@@ -19027,7 +19042,8 @@ export class GameSessionAdapter implements GameSession {
           const awake = new Set(awakeNpcs());
           const seen = [...this.presence].filter(([id, where]) => id !== PLAYER && awake.has(id) && visible.has(where)).map(([id]) => id).sort();
           if (seen.length === 0) return null;
-          const kinds = seen.length >= 2 ? ["overheard-whisper", "argument", "someone-moved"] : ["someone-moved"];
+          if (bareNext && seen.length < 2) return null; // ORW-1089: only talk calls for the player here; someone merely crossing the house does not
+          const kinds = seen.length >= 2 ? (bareNext ? ["overheard-whisper", "argument"] : ["overheard-whisper", "argument", "someone-moved"]) : ["someone-moved"];
           const kind = kinds[r.int(kinds.length)]!;
           const first = seen[r.int(seen.length)]!;
           const uniq = kind === "someone-moved" ? [first] : [first, seen.filter((x) => x !== first)[r.int(seen.length - 1)]!];
