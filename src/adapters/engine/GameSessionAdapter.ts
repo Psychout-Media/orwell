@@ -17620,6 +17620,10 @@ export class GameSessionAdapter implements GameSession {
     if (!n || !this.house || n.character.genderPresentation === undefined) return false;
     const orientation = (n.character.outOrientation as Orientation | undefined) ?? this.privateOrientations[npc] ?? "straight";
     const answered = strandsOf(store[bondKey(npc, PLAYER)] ?? emptyBond()).romance ?? 0;
+    // ORW-699: parity with a houseguest's own flirting (`attractionViewOf`): with the season's private chemistry drawn (0207 A1), a houseguest who holds no attraction toward the player
+    // is simply not interested, however many romance scenes the player starts. No chemistry map (a headless or pre-0207 season) keeps the old rule, byte-identical.
+    const chem = this.live?.chemistry;
+    if (chem && attractionOf(chem, this.live?.together, npc, PLAYER) <= 0) return false;
     const drawn = npcDrawnToPlayer({ orientation, gender: n.character.genderPresentation }, this.house.player.character.genderPresentation, answered);
     return playerInShowmanceWith(this.record?.events() ?? [], npc, drawn);
   }
