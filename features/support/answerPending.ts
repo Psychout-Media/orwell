@@ -48,6 +48,7 @@ export function answerPending(p: PendingView, policy: AnswerPolicy = {}): Submit
     case "ceremony-step":
     case "deal-offer":
     case "meeting-answer": // ORW-596: open state answered in the player's own words, like a deal offer: never auto-answered
+    case "say-it-first": // ORW-743: the player's own words, open state: never auto-answered
     case "self-evict": return null;
     default: {
       const unknown: never = p.kind;
