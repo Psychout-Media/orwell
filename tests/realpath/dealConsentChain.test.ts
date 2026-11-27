@@ -43,7 +43,7 @@ function chain(seed: number, user: string, beliefs: boolean) {
  */
 const brokenDeal = (beliefs = true) =>
   firstSeedWhereSync((seed, sandbox) => { const c = chain(seed, sandbox, beliefs); return c && c.partners.length > 1 ? c : undefined; },
-    { from: 1, to: 16, hint: 10, sandbox: (s) => `dcc-${s}-${beliefs}`, what: "a broken deal whose betrayed partner survives the vote" }).at;
+    { from: 1, to: 16, hint: [3, 10], sandbox: (s) => `dcc-${s}-${beliefs}`, what: "a broken deal whose betrayed partner survives the vote" }).at;
 
 describe("ORW-82 REAL PATH: break a deal by your own vote, then propose to the same houseguest", () => {
   it("the betrayed partner refuses a second proposal for the break's own consequence; a partner not betrayed still accepts", () => {
