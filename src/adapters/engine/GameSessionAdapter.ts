@@ -340,6 +340,7 @@ import type { ArchivedHouseguest } from "../../engine/seasonMemory";
 import type { ArchivedOwnCharacter, OwnCharacterFields } from "../../engine/seasonMemory";
 import { gateHouseEvent, playerOutMessage, playerOutReason } from "../../engine/inHouse";
 import { buildSeasonArchive, carriedNudge, nextSeasonNumber, planReturner, returnerBeliefs, returnerCharacter, seasonsSince, type SeasonNpcRecord } from "../../engine/returnees";
+import { STEER, isSeasoned, isMentorBond, isPuppetBond, steerLead, markEviction, emptySteerState, type SteerPerson } from "../../engine/mentorPuppet"; // ORW-1079
 import { recordRumorClaim, recordClaim, refuteClaim, claimsOf, targetsMeTilt, edgeDelta, plantedBy, type EdgeDelta } from "../../engine/beliefStore";
 import { gossipConviction, gossipBeliefStream } from "../../engine/gossipBeliefs";
 import { BELIEF_RULES, PERCEIVED_BOND, OWN_VIEW, beliefPull, believedGrievances, blameForTargeting, believedRegard } from "../../engine/beliefDecisions";
@@ -7024,7 +7025,8 @@ export class GameSessionAdapter implements GameSession {
     // ORW-684: a READ folds nothing (a game must not change because someone looked at it). It shows the record as the last fold left it; the folds run where the engine itself decides (`foldedBondReader`).
     const favor = this.favorDebt ?? this.ownFavorDebt();
     const wrong = this.grudgesOn() ? { wrong: (h: EntityId, o: EntityId) => this.bookWrongOf(h, o) } : {};
-    return recordBondReader(this.rel, () => this.live?.bonds, () => this.livingIds(), () => this.live?.dayNumber ?? 1, { ...(favor ? { favorDebt: favor } : {}), ...wrong });
+    const steer = this.steerOn() ? { steerKind: (h: EntityId, o: EntityId) => ({ mentor: this.isMentorOf(h, o), puppetMaster: this.isPuppetOf(h, o) }) } : {}; // ORW-1079
+    return recordBondReader(this.rel, () => this.live?.bonds, () => this.livingIds(), () => this.live?.dayNumber ?? 1, { ...(favor ? { favorDebt: favor } : {}), ...wrong, ...steer });
   }
   /**
    * ORW-684 (ENGINE-ONLY, never a tool): the bond reader for the engine's OWN decisions (the off-screen tick, the vote, the consequence folds). The bond record and the grudge book catch up with what has
@@ -13337,6 +13339,8 @@ export class GameSessionAdapter implements GameSession {
       },
       // ORW-972: the vote the player told this houseguest they will cast at this eviction (a this-week claim about their OWN vote, told by the player): the player counts in their bloc's pick only so.
       ...(this.live?.playedGame === true && this.npcBeliefsEnabled ? { playerStatedVoteFor: (holder: EntityId, fn: readonly [EntityId, EntityId]) => this.playerStatedVoteFor(holder, fn) } : {}),
+      // ORW-1079: mentor and puppet-master bonds lead a vote; every eviction's ballots feed the steering record. Played games with the bond record only.
+      ...(this.steerOn() ? { steerLeadOf: (voter: EntityId) => this.steerLeadOf(voter), votesCast: (voteOf: ReadonlyMap<EntityId, EntityId>) => this.noteSteering(voteOf) } : {}),
       // 0107: the named-alliance cement into bloc detection — bounded, saturation-diluted; 0 for every
       // pair when no alliance is named ⇒ the seeded bloc/vote read is byte-identical (the calibration spine).
       allianceTie: (a, b) => allianceTieBoost(this.alliances.all(), a, b) + this.territoryBondNudge(a, b), // ORW-561: + the territory nudge (0 unless a played game with the flag on)
@@ -14789,11 +14793,13 @@ export class GameSessionAdapter implements GameSession {
       const candor = Math.max(0, Math.min(1, (REASONS.candorByArchetype[character?.archetype ?? ""] ?? 0.5) + (REASONS.candorByStyle[character?.strategyStyle ?? ""] ?? 0)));
       for (const claim of liesBy(live.claims, liar)) {
         if (!this.openLie(claim) || !living.includes(claim.listener)) continue;
-        const planted = claim.listener === PLAYER ? undefined : (live.beliefs?.[claim.listener] ?? []).find((b) => plantedBy(b, claim.id) && !b.refuted);
+        // ORW-961 (Ryne 2026-11-26: "Yes, same as with others"): a lie told to the PLAYER reads its catch risk the same way as one told to a houseguest (the player's own edges and any belief they hold are read like anyone's;
+        // before, every input was zeroed for a player listener, so the risk was always 0 and no NPC ever came clean to the player).
+        const planted = (live.beliefs?.[claim.listener] ?? []).find((b) => plantedBy(b, claim.id) && !b.refuted);
         const risk = catchRisk({
-          otherVersionNearListener: otherVersionNear(claims, claim, (a, b) => (a === PLAYER || b === PLAYER ? 0 : Math.min(bond(a, b), bond(b, a))), COMING_CLEAN.nearBond),
+          otherVersionNearListener: otherVersionNear(claims, claim, (a, b) => Math.min(bond(a, b), bond(b, a)), COMING_CLEAN.nearBond),
           listenerDoubting: !!planted && planted.confidence < COMING_CLEAN.doubtBelow,
-          subjectCloseToListener: claim.listener !== PLAYER && claim.subject !== claim.listener && bond(claim.listener, claim.subject) >= COMING_CLEAN.nearBond,
+          subjectCloseToListener: claim.subject !== claim.listener && bond(claim.listener, claim.subject) >= COMING_CLEAN.nearBond,
         });
         if (risk <= 0) continue;
         const chance = confessChance(risk, candor);
@@ -17756,7 +17762,53 @@ export class GameSessionAdapter implements GameSession {
     if (holder === PLAYER || other === holder || !this.bondFeelingsOn()) return 0;
     const reader = this.foldedBondReader();
     const keep = adjustedKeep(feelingKeep(reader.bond(holder, other)), this.jealousyOf(holder, other), loyaltySplitOver(holder, other, reader)); // 0181 part 2: jealousy slips the closeness, a divided loyalty adds to it
-    return this.showmancesOn() ? keepAfterHeart(keep, this.heartCaseOf(holder, other, reader)) : keep; // 0207 A3: heart against game
+    const kept = this.showmancesOn() ? keepAfterHeart(keep, this.heartCaseOf(holder, other, reader)) : keep; // 0207 A3: heart against game
+    return kept + (this.steerOn() && this.isMentorOf(other, holder) ? STEER.mentorShield : 0); // ORW-1079: a mentor shields their protege
+  }
+
+  /** ORW-1079 (`ORWELL_BOND_MENTOR_PUPPET`, default ON; `=0` opts out): mentor and puppet-master bonds lead votes and a mentor shields their protege. Played games with the bond feelings only. */
+  private mentorPuppetEnabled = flagDefaultOn("ORWELL_BOND_MENTOR_PUPPET");
+  setMentorPuppetEnabled(on: boolean): void { this.mentorPuppetEnabled = on; }
+  private steerOn(): boolean { return this.mentorPuppetEnabled && this.bondFeelingsOn(); }
+  private steerPersonOf(id: EntityId): SteerPerson {
+    const c = id === PLAYER ? this.house?.player.character : this.house?.npcs.find((n) => n.id === id)?.character;
+    return { ...(typeof c?.age === "number" ? { age: c.age } : {}), ...(c?.castingType?.id ? { castingType: c.castingType.id } : {}), ...(c?.archetype ? { archetype: c.archetype } : {}) };
+  }
+  /** ORW-1079: `holder` looks to `other` as a mentor (holder = the protege; never the player). */
+  private isMentorOf(holder: EntityId, other: EntityId): boolean {
+    if (holder === PLAYER || holder === other) return false;
+    return isMentorBond(bondOf(this.live?.bonds, holder, other), isSeasoned(this.steerPersonOf(holder), this.steerPersonOf(other)));
+  }
+  /** ORW-1079: `other` steers `holder` (holder = the puppet; never the player). */
+  private isPuppetOf(holder: EntityId, other: EntityId): boolean {
+    return isPuppetBond(this.live?.steering, holder, other, bondOf(this.live?.bonds, other, holder));
+  }
+  private steerLeadOf(voter: EntityId): { by: EntityId; lean: number } | undefined {
+    const lead = steerLead(voter, this.livingIds(), { puppet: (h, o) => this.isPuppetOf(h, o), mentor: (h, o) => this.isMentorOf(h, o) });
+    return lead ? { by: lead.by, lean: lead.lean } : undefined;
+  }
+  /** ORW-1079: read one eviction's ballots into the steering record (once per week), then see through any steering the holder now knows was a lie. */
+  private noteSteering(voteOf: ReadonlyMap<EntityId, EntityId>): void {
+    const live = this.live;
+    if (!live) return;
+    live.steering = markEviction(live.steering ?? emptySteerState(), live.week, voteOf, (h, o) => bondOf(live.bonds, h, o).strategy ?? 0);
+    this.exposeSteering();
+  }
+  /** ORW-1079: a puppet who holds a claim that the master lied to them sees the steering for what it was: it breaks for good and leaves a grudge (the bond record's resentment). */
+  private exposeSteering(): void {
+    const live = this.live;
+    const st = live?.steering;
+    if (!live || !st || !live.bonds) return;
+    for (const k of Object.keys(st.marks).sort()) {
+      if (st.exposed.includes(k)) continue;
+      const [h, o] = k.split("|") as [EntityId, EntityId];
+      if (!this.isPuppetOf(h, o)) continue;
+      if (!claimsOf(live.beliefs, h).some((c) => c.kind === "lied-to-me" && c.subject === o && !c.refuted && !!c.value)) continue;
+      st.exposed.push(k);
+      const r = (live.bonds[bondKey(h, o)] ??= emptyBond());
+      r.resentment = Math.min(1, r.resentment + STEER.exposedResentment);
+      r.peakResentment = Math.max(r.peakResentment, r.resentment);
+    }
   }
 
   /**
@@ -19545,6 +19597,12 @@ export class GameSessionAdapter implements GameSession {
     }
     const terms = (req.terms ?? "").slice(0, 200);
     this.closeCounteredOffer(req.countersOffer, target); // ORW-614 (P-12): the player's own terms answer a standing offer from this houseguest; the offer is spent, the consent read above already ran on the player's terms
+    // A deal of the same kind with the houseguest whose offer or vote pitch stands answers it too, even when the accept path above could not take it (an offer that is no longer legal to
+    // accept as made, ORW-930's `offeredDealBlocked`): the offer is spent, never left open beside the deal that answered it (found by ORW-1079's re-seeded answeringAnOfferWithMakeDeal).
+    if (!req.countersOffer && this.live.playedGame === true) {
+      const standing = [this.live.dealOffer, this.live.votePitch].find((o) => o !== undefined && o.from === target && o.kind === req.kind);
+      if (standing) this.closeCounteredOffer(standing.id, target);
+    }
     const evId = this.onPlayerEvent?.(
       `${this.nameOf(PLAYER)} and ${this.nameOf(target)} make a ${req.kind} deal: ${terms}`,
       [PLAYER, target], "deal",
