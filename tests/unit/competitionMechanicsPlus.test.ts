@@ -21,17 +21,17 @@ const govStats = (defs: { type: string }[]): Record<string, number> => {
   return c;
 };
 
-describe("0126 — the pool grows to 15 HOH + 15 veto (30 total)", () => {
-  it("base is 6+6 and the expanded pool adds 9+9", () => {
+describe("0126 / ORW-530 — the pool grows to 25 HOH + 25 veto (50 total)", () => {
+  it("base is 6+6 and the expanded pool adds 19+19 (9+9 in 0126, 10+10 in ORW-530)", () => {
     const baseHoh = COMPETITION_LIBRARY.filter((d) => d.phase === "hoh").length;
     const baseVeto = COMPETITION_LIBRARY.filter((d) => d.phase === "veto").length;
     expect([baseHoh, baseVeto]).toEqual([6, 6]);
     const plusHoh = COMPETITION_LIBRARY_PLUS.filter((d) => d.phase === "hoh").length;
     const plusVeto = COMPETITION_LIBRARY_PLUS.filter((d) => d.phase === "veto").length;
-    expect([plusHoh, plusVeto]).toEqual([9, 9]);
+    expect([plusHoh, plusVeto]).toEqual([19, 19]);
     // 15 each ≥ the ~14 HOH / ~13 veto comps a season runs ⇒ a repeat-free season is reachable.
-    expect(baseHoh + plusHoh).toBe(15);
-    expect(baseVeto + plusVeto).toBe(15);
+    expect(baseHoh + plusHoh).toBe(25);
+    expect(baseVeto + plusVeto).toBe(25);
   });
 
   it("every id across both pools is unique", () => {
@@ -55,7 +55,7 @@ describe("0126 — the expanded pool preserves the base governing-stat mix (cali
     for (const phase of ["hoh", "veto"] as const) {
       const full = [...COMPETITION_LIBRARY, ...COMPETITION_LIBRARY_PLUS].filter((d) => d.phase === phase);
       const c = govStats(full);
-      expect(c.physical + c.mental + c.social).toBe(15);
+      expect(c.physical + c.mental + c.social).toBe(25);
       expect(c.mental).toBeGreaterThan(c.physical); // mental-dominant (as the base is)
       expect(c.physical).toBeGreaterThan(c.social);  // physical second, social a minority
     }
