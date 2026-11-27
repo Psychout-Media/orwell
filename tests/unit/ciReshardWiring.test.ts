@@ -63,21 +63,11 @@ describe("re-shard wiring", () => {
   // Bot review (greptile + cubic): the shared composite actions are part of every job that uses them, so a change to ONLY an action must run each
   // of those jobs. Runs the real path-filter script from the `changes` job, for a pull request and for a push to main.
   it("a change to only a shared composite action runs every job that uses it, on a pull request and on main", () => {
-    const from = ci.indexOf("          # Helper: does any changed file match the given ERE?");
-    const loop = ci.indexOf("          for name in engine frontend fe_render deploy heavy; do", from);
-    const to = ci.indexOf("\n          done\n", loop);
-    expect(from > 0 && loop > from && to > loop, "the changes job's filter script").toBe(true);
-    const script = ci.slice(from, to + "\n          done\n".length).split("\n").map((l) => l.replace(/^ {10}/, "")).join("\n");
+    // ORW-1044: the mapping is ci/path-lanes.sh (changed paths on stdin, `lane=bool` on stdout).
     const filtersFor = (path: string, event: string): Record<string, string> => {
-      const dir = mkdtempSync(join(tmpdir(), "ci-filter-"));
-      try {
-        const out = join(dir, "out");
-        const r = spawnSync("bash", ["-c", `set -euo pipefail\n${script}`], { env: { ...process.env, changed: path, EVENT_NAME: event, GITHUB_OUTPUT: out }, encoding: "utf8" });
-        expect(r.status, r.stderr).toBe(0);
-        return Object.fromEntries(readFileSync(out, "utf8").trim().split("\n").map((kv) => kv.split("=") as [string, string]));
-      } finally {
-        rmSync(dir, { recursive: true, force: true });
-      }
+      const r = spawnSync("bash", ["ci/path-lanes.sh"], { cwd: fileURLToPath(new URL("../..", import.meta.url)), input: path + "\n", env: { PATH: process.env.PATH ?? "", EVENT_NAME: event }, encoding: "utf8" });
+      expect(r.status, r.stderr).toBe(0);
+      return Object.fromEntries(r.stdout.trim().split("\n").map((kv) => kv.split("=") as [string, string]));
     };
     const actions = readdirSync(fileURLToPath(new URL("../../.github/actions/", import.meta.url)));
     expect(actions.length).toBeGreaterThan(0);
