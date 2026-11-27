@@ -1,3 +1,8 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { GameSessionRegistry } from "../../src/composition/registry";
+import { FileSaveStore } from "../../src/adapters/engine/FileSaveStore";
 import { describe, it, expect } from "vitest";
 import { bootPlayed, playNight, nightRows, outcomeFingerprint } from "../support/longNightDriver";
 
@@ -62,23 +67,30 @@ describe("ORW-652 the double eviction is one long night", () => {
     }
   });
 
-  it("a save taken mid-night resumes identically and keeps the long-night marker", () => {
-    const seed = 7; // ORW-868: was 11, which became a spectator seed with the cast-mean player stats
-    const whole = wholeNight(seed, true);
-    const s = bootPlayed(seed, true);
-    const mid = playNight(s, (row) => row.twist === "running" && row.beat === "veto-competition");
-    expect(mid.fired).toBe(false);
-    const core = JSON.parse(JSON.stringify(s.snapshot()));
-    expect(core.live.longNight).toBe(true);
-    const s2 = bootPlayed(seed + 1000, true); // an unrelated session, then loaded from the save
-    s2.restore(core);
-    expect(s2.snapshot().live.longNight, "the marker survives a restore").toBe(true);
-    const rest = playNight(s2);
-    expect(rest.fired).toBe(true);
-    expect(JSON.stringify(s2.live.evictionOrder)).toBe(JSON.stringify(whole.session.live.evictionOrder));
-    expect(rest.holdsInNight).toEqual([]);
-    expect(new Set(nightRows(rest).map((x) => x.day)).size).toBe(1);
-  });
+  it("a save taken mid-night resumes identically and keeps the long-night marker (through the durable save: the registry reloads the session AND the engine stores)", () => {
+    // ORW-1109: the resume goes through the real durable path (a registry over a FileSaveStore directory, reloaded by a NEW registry), the way the game resumes after a restart. (The earlier version loaded only the SESSION
+    // snapshot into an unrelated session whose own relationship store differed, so a later vote could differ for reasons that were not the night's: a test artifact, ORW-1104.)
+    for (const seed of [7, 5]) {
+      const whole = wholeNight(seed, true);
+      const dir = mkdtempSync(join(tmpdir(), "orw1109-"));
+      const s = new GameSessionRegistry(new FileSaveStore(dir)).sandboxFor("u").session as unknown as Any;
+      s.setLongNightEnabled(true); s.createCharacter({ playerName: "P", seed }); s.noteMessage({ messageId: "m0" });
+      const core = s.snapshot();
+      core.live.twistPlan = { doubleEvictionAtActive: 12, doubleEvictionArmed: true, secretVetoStreak: 9, secretVetoArmed: false, battleBackAtJury: 9, battleBackArmed: false };
+      s.restore(core);
+      const mid = playNight(s, (row) => row.twist === "running" && row.beat === "veto-competition");
+      expect(mid.fired, `seed ${seed}: saved mid-night`).toBe(false);
+      expect(s.snapshot().live.longNight, `seed ${seed}`).toBe(true);
+      const s2 = new GameSessionRegistry(new FileSaveStore(dir)).sandboxFor("u").session as unknown as Any; // a NEW registry loads the save
+      s2.setLongNightEnabled(true);
+      expect(s2.snapshot().live.longNight, `seed ${seed}: the marker survives the reload`).toBe(true);
+      const rest = playNight(s2);
+      expect(rest.fired, `seed ${seed}`).toBe(true);
+      expect(JSON.stringify(s2.live.evictionOrder), `seed ${seed}: the resumed night ends with the same eviction order as the uninterrupted one`).toBe(JSON.stringify(whole.session.live.evictionOrder));
+      expect(rest.holdsInNight, `seed ${seed}`).toEqual([]);
+      expect(new Set(nightRows(rest).map((x) => x.day)).size, `seed ${seed}`).toBe(1);
+    }
+  }, 900_000);
 
   it("nobody turns in during the night, and the narrator is handed its shape from public facts", () => {
     const s = bootPlayed(7, true);
