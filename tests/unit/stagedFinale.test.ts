@@ -42,7 +42,10 @@ const memo = new Map<string, { d: string; seed: number }>();
 function seatedAt(hoh: "player" | "npc", played = true): { s: Any; live: LiveSeasonState; d: string; seed: number } {
   const key = String(played);
   if (!memo.has(key)) {
-    for (let seed = 1; seed <= 25 && !memo.has(key); seed++) {
+    // ORW-1100: the seeds the last scan found go FIRST (10 played, 17 headless): the scan used to walk up to ten full played seasons before reaching 10 (about 200 s, past the 120 s limit); the scan still decides, in order.
+    const hint = played ? 10 : 17;
+    for (const seed of [hint, ...Array.from({ length: 25 }, (_, i) => i + 1).filter((x) => x !== hint)]) {
+      if (memo.has(key)) break;
       const d = freshTmpDir("orwell-fin-");   // shared by every test of the file: removed at the end of the file
       if (toFinalEviction(boot(d, seed, played))) memo.set(key, { d, seed });
       else dropTmpDir(d);                      // a rejected seed's full-season save goes at once
