@@ -1,12 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { playUntil } from "./playedSeason";
+import { playUntil, wfScan } from "./playedSeason";
+import { firstSeedWhere } from "../support/firstSeedWhere";
 import { PLAYER } from "../../src/domain/ids";
 
 // ORW-1084: the levers half (see ./activeInHouseSeason.ts; its own file since ORW-410).
 describe("a houseguest who has left the house acts and witnesses nowhere in it", () => {
   it("an evicted player's house levers are refused with the reason and record nothing; the jury house and the reads stay open", async () => {
     const out = (s: { sess: { live?: { evictionOrder?: string[] } } }): boolean => !!s.sess.live?.evictionOrder?.includes(PLAYER);
-    const at = await playUntil(10, (s) => out(s), { user: "a7-lever-10" });
+    // ORW-1104: scanned (bounded), not pinned to seed 10: the first season that votes the player out; a season whose pre-jury evictions pass without them stops early (the old stop was the whole season).
+    const early = (s: { sess: { live?: { evictionOrder?: string[]; active?: string[] } } }): boolean => (s.sess.live?.evictionOrder?.length ?? 0) >= 7;
+    const { at } = await firstSeedWhere(async (seed) => { const x = await playUntil(seed, (s) => out(s) || early(s), { user: `a7-lever-${seed}` }); return out(x) ? x : undefined; },
+      { ...wfScan([10, 1, 2, 3], "a season that votes the player out"), to: 30, wide: { maxSeasons: 30, budgetMs: 1_800_000, reason: "ORW-1104: the house voting the player out is a rare outcome; each season stops once seven houseguests are out without them" } });
     const npcs = (at.sess.house.npcs as Array<{ id: string }>).filter((n) => !at.sess.live.evictionOrder.includes(n.id));
     const target = npcs[0]!.id;
     const before = at.engine.events.queryAll().length;

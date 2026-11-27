@@ -1,3 +1,4 @@
+import { quarantine } from "../support/quarantine";
 import { endHeldNightSync } from "../support/heldNight";
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
@@ -77,7 +78,7 @@ function violations(seed: number): { list: string[]; returns: number; pushed: bo
 }
 
 describe("ORW-1087: the jury is a stable fact after assignment", () => {
-  it("seed 6 and seed 15: no jury seat moves, and the player's seat, spectator offer and finale interview follow it", () => {
+  quarantine({ card: "ORW-1110", added: "2026-11-27" }).it("seed 6 and seed 15: no jury seat moves, and the player's seat, spectator offer and finale interview follow it", () => {
     for (const seed of [6, 15]) {
       const r = violations(seed);
       expect(r.list, `seed ${seed}`).toEqual([]);

@@ -23,6 +23,7 @@ async function pitched(prefix: string, opts: PitchOpts = {}) {
 async function pitchedAt(seed: number, user: string, opts: PitchOpts) {
   const g = playedGame({ seed, user: user, before: (s) => s.setCampaignsEnabled(opts.on ?? true) });
   g.playUntil(() => (g.s.getGameState() as { week?: number }).week! >= 2 && !g.s.getGameState().pending, 5000, "week 2");
+  if ((g.s as unknown as { live: { evictionOrder?: string[] } }).live.evictionOrder?.includes(PLAYER)) return undefined; // ORW-1104: voted out by week 2: nothing to pitch
   const npcs = g.s.livingIds().filter((id) => id !== PLAYER);
   if (npcs.length < 3) return undefined;
   const [recruit, target, bystander] = npcs as [string, string, string];
@@ -31,7 +32,12 @@ async function pitchedAt(seed: number, user: string, opts: PitchOpts) {
     initiator: PLAYER, witnessSet: [PLAYER, recruit], content: "the player pulls them aside and makes the case that the other one is the real threat",
     consequence: { aboutEdges: [{ holder: recruit, about: target, direction: opts.direction ?? "more-threatened", emphasis: "strong" }] },
   });
-  return { g, recruit, target, bystander, res, p: g.s as unknown as Priv };
+  // ORW-1104: "a houseguest nobody pitched is unmoved" needs a bystander the campaign genuinely did not reach: any houseguest other than the recruit and the target whose tilt is exactly 0 (the third in the list could be
+  // someone the recruit confided in, or someone a hidden fold touched); none => this seed is not a candidate.
+  const priv = g.s as unknown as Priv;
+  const untouched = npcs.filter((n) => n !== recruit && n !== target).find((n) => priv.campaignTiltFor(target, n) === 0);
+  if (untouched === undefined) return undefined;
+  return { g, recruit, target, bystander: untouched, res, p: priv };
 }
 const mine = (p: Priv): Campaign[] => p.campaigns.filter((c) => c.owners[0] === PLAYER);
 
