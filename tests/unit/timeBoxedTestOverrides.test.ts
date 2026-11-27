@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
  * a hard expiry (the seven deployed-profile tests also skip it when they source deploy/orwell-env-defaults.sh: `ORWELL_(EMBEDDINGS|EMBED_CACHE)`); the test fails after the expiry, and it fails if a pin appears in tests/support/premiereTestDefault.ts or cucumber.cjs without being registered. Remove the pin and its row together when the card lands.
  */
 const REGISTERED: Array<{ flag: string; card: string; expires: string }> = [
+  { flag: "ORWELL_COMP_MECHANICS_MORE", card: "ORW-1113", expires: "2026-12-04" }, // the cucumber lane only (cucumber.cjs): 7 seed-pinned scenarios, ORW-1113
 ];
 const read = (p: string): string => readFileSync(new URL(`../../${p}`, import.meta.url), "utf8");
 const pinned = (src: string): string[] => [...src.matchAll(/process\.env\.(ORWELL_COMP_MECHANICS_MORE)\s*=\s*"0"/g)].map((m) => m[1]!);

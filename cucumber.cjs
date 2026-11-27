@@ -1,5 +1,6 @@
 // A9 flip (2026-11-04): the BDD lane exercises the premiere through the pre-A9 champagne-circle scenarios (0111 etc.); the entrance scenarios opt IN via setPremiereEntrancesEnabled(true).
 process.env.ORWELL_PREMIERE_ENTRANCES = "0";
+process.env.ORWELL_COMP_MECHANICS_MORE = "0"; // ORW-530 / ORW-1113: the 50-mechanic pool ships ON and every vitest lane runs it, but 7 seed-pinned BDD scenarios keep the 30 pool until the follow-up card re-pins them (time-boxed: tests/unit/timeBoxedTestOverrides.test.ts)
 process.env.ORWELL_PHILOSOPHIES = "0"; // ORW-37: lasting game philosophies re-seed who nominates whom; the seed-pinned BDD scenarios (0047 secret-ballot fixture, 0078 floor, 0119 felt-duration neutrality, 0130 anchor) were written on the archetype table. The wiring has its own tests (philosophiesWired.test.ts).
 process.env.ORWELL_CALM_PRESENCE = "0"; // ORW-212: the calm re-seat (fewer, staggered moves) changes the seeded movement the 0078 intentional-movement floor scenario measures; calm has its own tests (calmPresence.test.ts)
 process.env.ORWELL_BEDTIME_GATE = "0"; // the BDD lane turns in at 8am in several scenarios; the bedtime gate has its own unit test
