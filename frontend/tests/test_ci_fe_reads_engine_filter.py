@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-CI = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+CI = (REPO / "ci" / "path-lanes.sh").read_text(encoding="utf-8")  # ORW-1044: the mapping lives in ci/path-lanes.sh
 
 
 def _filter() -> "re.Pattern[str]":
