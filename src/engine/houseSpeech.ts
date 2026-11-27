@@ -1,4 +1,4 @@
-import type { EntityId } from "../domain/ids";
+import { PLAYER, type EntityId } from "../domain/ids";
 import { claimsOf, type BeliefClaim, type BeliefStore } from "./beliefStore";
 import { ROLES } from "./socialRoles";
 import { labelOfNature, type ClaimInput, type ClaimIntent, type SpokenClaimKind } from "./spokenClaims";
@@ -148,6 +148,8 @@ export function planSpeech(action: SpeechAction, actor: EntityId, partner: Entit
       return { ...claim, isTrue: truthOf(claim, ctx.facts), intent: "recruit" };
     }
     case "fish": { // the listener answers the asker with what THEY believe - or, a share of the time, with their read of someone's role (0184 part 2a)
+      // ORW-1105: a houseguest fishing the PLAYER asks; the engine never answers for them (ORW-610). Their answer is their own words.
+      if (partner === PLAYER) return undefined;
       const role = roleLeak(partner, actor);
       if (role && (ctx.roll * 7919) % 1 < ROLES.voiceShare) return role;
       return fromBeliefs(partner, actor, "inform") ?? role;
