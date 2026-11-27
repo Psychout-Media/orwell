@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-CI = (REPO / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+CI = (REPO / "ci" / "path-lanes.sh").read_text(encoding="utf-8")  # ORW-1044: the mapping lives in ci/path-lanes.sh
 
 # Build output and scratch dirs are not repo files (dist/ exists only after `npm run build`, e.g. on the runners, never in the fe-unit CI job).
 _TOPS = sorted(p.name for p in REPO.iterdir() if p.is_dir() and p.name not in ("frontend", "src", ".git", "node_modules", "dist", "coverage", "tmp", ".orwell-data"))
