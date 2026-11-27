@@ -4416,6 +4416,26 @@ export class GameSessionAdapter implements GameSession {
     }, [rng.next(), rng.next(), rng.next()]);
     this.dodgeLog.push({ npc: npc.id, week: this.week, phase, stakes, ...fact });
   }
+  /**
+   * ORW-1078 (Ryne 2026-11-26, parity): a houseguest confronted by another may turn the question aside, decided exactly as when the player presses them (`decideDodge`: their style, nerves, trust in the ASKER, the
+   * stakes of where they stand), on a keyed side stream. The player's own presses and their log are untouched. Absent: they answered, or dodging is off.
+   */
+  private npcDodge(p: { actor: EntityId; kind: string; with: readonly EntityId[] }, key: string): DodgeFact | undefined {
+    const me = this.house?.player.id;
+    const asked = p.with[0];
+    if (!this.dodgingOn() || p.kind !== "confront" || !asked || asked === me || p.actor === me) return undefined;
+    const npc = this.house!.npcs.find((n) => n.id === asked);
+    if (!npc) return undefined;
+    const rng = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:npc-dodge:${asked}:${p.actor}:${key}`));
+    const trust = this.rel.peek(asked, p.actor).trust;
+    if (rng.next() >= 0.35 + 0.4 * (1 - trust)) return undefined; // they answer; the colder they are on the asker, the likelier they do not
+    const style = npc.character.strategyStyle;
+    const vol = this.soulObj(asked)?.volatility ?? 0.3;
+    const stakes = dodgeStakes(severityOf(undefined), ((this.live?.nominees as readonly EntityId[] | undefined) ?? []).includes(asked), this.live?.hoh === asked || this.live?.vetoHolder === asked);
+    return decideDodge({
+      cunning: style ? CUNNING[style] ?? 0.3 : 0.3, leakiness: (style ? LEAKY[style] ?? 0.3 : 0.3) + 0.2 * vol, rattled: Math.max(0, vol - 0.5) * 2, trustInAsker: trust, stakes,
+    }, [rng.next(), rng.next(), rng.next()]);
+  }
   /** The dodge the engine decided for `npc` in the current week and phase (the voice shows it only while the press is this beat's). */
   private dodgeFor(npc: EntityId): DodgeFact | undefined {
     const d = this.dodgeLog.find((x) => x.npc === npc && x.week === this.week && x.phase === String(this.phase));
@@ -16670,13 +16690,14 @@ export class GameSessionAdapter implements GameSession {
         if (!partner || !type || partner === house.player.id) continue;
         if (type === "showmance" && !(gate.plausible(p.actor, partner) && ((!gate.hasActiveShowmance(p.actor) && !gate.hasActiveShowmance(partner)) || this.showmancePartnerOf(p.actor) === partner))) type = "bonding";
         const people = [...new Set([p.actor, ...p.with])].filter((x) => x !== house.player.id);
-        if (roomPlans.has(p)) this.recordRoomAct(events, p, type, people, { day, hour, stretchIndex }, seed, knowledge); // ORW-621: seen by the player, so never hidden; folded here on its own keyed stream
+        const dodge = this.npcDodge(p, `${day}:${hour}${repeat > 0 ? `r${repeat}` : ""}`); // ORW-1078
+        if (roomPlans.has(p)) this.recordRoomAct(events, p, type, people, { day, hour, stretchIndex }, seed, knowledge, dodge); // ORW-621: seen by the player, so never hidden; folded here on its own keyed stream
         else {
         const content = actionLine(p);
         const event: GameEvent = {
           id: `offscreen:${type}:${events.count()}:${hashSeed(`${seed}:life:${day}:${hour}:${p.actor}:${p.kind}`) % 1_000_000_000}`,
           ts: stretchIndex, type, initiator: p.actor, witnessSet: people, hidden: true, content, baseContent: content,
-          houseLife: { ...(p.nightOwl ? { nightOwl: true } : {}), action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), ...(p.ritual ? { ritual: p.ritual } : {}), ...(p.habit ? { habit: p.habit } : {}), stretch: stretchIndex, ...(this.inGameAbsHour() !== undefined ? { at: this.inGameAbsHour() } : {}),
+          houseLife: { ...(p.nightOwl ? { nightOwl: true } : {}), ...(dodge ? { dodge } : {}), action: p.kind, place: p.place, manner: p.manner, truthful: p.truthful, ...(p.about ? { about: p.about } : {}), ...(p.ritual ? { ritual: p.ritual } : {}), ...(p.habit ? { habit: p.habit } : {}), stretch: stretchIndex, ...(this.inGameAbsHour() !== undefined ? { at: this.inGameAbsHour() } : {}),
             ...(() => { const seen = this.onlookers([...presence.entries()].filter(([id, room]) => room === p.place && !people.includes(id) && id !== house.player.id).map(([id]) => id).sort(), type, people, `${seed}:hide-catch:${day}:${hour}:${p.actor}:${p.kind}`); return seen.length ? { seenBy: seen } : {}; })() }, // ORW-539: who could see it; 0184 part 2b: a hiding pair's time together is caught only on a roll
         };
         events.record(event);
@@ -16737,10 +16758,11 @@ export class GameSessionAdapter implements GameSession {
    * (`roomActLine`), never the goal. It carries no `houseLife` record, so the bond record reads the actor and the first partner as the principals and the player (and anyone else there) as watchers (ORW-609).
    * It folds here through the scene's own interaction type on its own keyed stream (the orchestrator's fold uses the shared one), and the player holds it as something they witnessed.
    */
-  private recordRoomAct(events: EventStore, p: PlannedAction, type: InteractionType, people: readonly EntityId[], k: { day: number; hour: number; stretchIndex: number }, seed: number, knowledge?: KnowledgeService): void {
+  private recordRoomAct(events: EventStore, p: PlannedAction, type: InteractionType, people: readonly EntityId[], k: { day: number; hour: number; stretchIndex: number }, seed: number, knowledge?: KnowledgeService, dodge?: DodgeFact): void {
     const me = this.house!.player.id;
     const partner = p.with[0]!;
-    const content = roomActLine(p, (id) => this.nameOf(id));
+    // ORW-1078: what the player sees when the one pressed does not answer: that they turn it aside (and hand it back), never why; the narrator words how
+    const content = roomActLine(p, (id) => this.nameOf(id)) + (dodge ? `; ${this.nameOf(partner)} turns the question aside${dodge.pushesBack ? " and hands it back" : ""}` : "");
     const id = `roomlife:${this.roomLifeHourKey(k)}|${p.actor}|${events.count()}`;
     events.record({
       id,
