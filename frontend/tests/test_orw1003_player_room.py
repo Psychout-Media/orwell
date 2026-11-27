@@ -1,24 +1,16 @@
 """ORW-1003: the narration placed the player in a room they never went to; the engine kept their real room, so the player read the wrong one. BEHAVIOURAL on the presence guard with a stubbed board.
 Roles only: the engine has the player in the living room.
 """
-import asyncio
-
 import pytest
 
-from routes import chat_helpers
-from test_a2_presence_wall import _async, _house, _state
+from src import predisplay_check as pd
 
-_BOARD = _state("living-room", present=["Ana Reed"], house=_house(active=["Ana Reed"]))
+_BOARD = {"whereabouts": {"room": "living-room"}}
 
 
-def _wall(monkeypatch, text):
-    from src import orwell_engine
-    monkeypatch.setattr(orwell_engine, "get_game_state", lambda user=None: _async(_BOARD))
-    loop = asyncio.new_event_loop()
-    try:
-        return loop.run_until_complete(chat_helpers.screen_presence_wall("orw1003", text))
-    finally:
-        loop.close()
+def _split(monkeypatch, text, **kw):
+    monkeypatch.setattr(pd, "_fresh_state", lambda owner: (_BOARD, False))
+    return pd.split_at_first_conflict(text, "orw1003", **kw)
 
 
 @pytest.mark.parametrize("sentence", [
@@ -27,9 +19,11 @@ def _wall(monkeypatch, text):
     "You find yourself alone in the storage room.",
     "You follow her out into the backyard.",
 ])
-def test_a_sentence_putting_the_player_elsewhere_is_dropped(monkeypatch, sentence):
-    out = _wall(monkeypatch, sentence + " Ana Reed looks up.")
-    assert sentence not in out and "Ana Reed looks up." in out
+def test_a_sentence_putting_the_player_elsewhere_is_held_for_a_rewrite(monkeypatch, sentence):
+    got = _split(monkeypatch, "Ana Reed looks up. " + sentence)
+    assert got is not None and got.keep.strip() == "Ana Reed looks up." and got.sentence.strip() == sentence
+    assert [c.fact for c in got.conflicts] == [pd.FACT_PLAYER_ROOM] and got.conflicts[0].detail == "the living room"
+    assert "do not move or place them anywhere else" in pd.continuation_messages([], got.keep, got.conflicts)[-1]["content"]
 
 
 @pytest.mark.parametrize("sentence", [
@@ -40,4 +34,10 @@ def test_a_sentence_putting_the_player_elsewhere_is_dropped(monkeypatch, sentenc
     "You hear laughter from the kitchen.",
 ])
 def test_nothing_else_is_touched(monkeypatch, sentence):
-    assert sentence in _wall(monkeypatch, sentence)
+    assert _split(monkeypatch, sentence) is None
+
+
+def test_the_goodnight_turn_does_not_judge_where_the_player_is(monkeypatch):
+    from src.agent_loop import _pd_bed_skip
+    assert _pd_bed_skip(None) == () and _pd_bed_skip({"started": True}) == (pd.FACT_PLAYER_ROOM,)
+    assert _split(monkeypatch, "You drift into the bathroom.", skip=_pd_bed_skip({})) is None
