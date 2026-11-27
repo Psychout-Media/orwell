@@ -19497,6 +19497,12 @@ export class GameSessionAdapter implements GameSession {
     }
     const terms = (req.terms ?? "").slice(0, 200);
     this.closeCounteredOffer(req.countersOffer, target); // ORW-614 (P-12): the player's own terms answer a standing offer from this houseguest; the offer is spent, the consent read above already ran on the player's terms
+    // A deal of the same kind with the houseguest whose offer or vote pitch stands answers it too, even when the accept path above could not take it (an offer that is no longer legal to
+    // accept as made, ORW-930's `offeredDealBlocked`): the offer is spent, never left open beside the deal that answered it (found by ORW-1079's re-seeded answeringAnOfferWithMakeDeal).
+    if (!req.countersOffer && this.live.playedGame === true) {
+      const standing = [this.live.dealOffer, this.live.votePitch].find((o) => o !== undefined && o.from === target && o.kind === req.kind);
+      if (standing) this.closeCounteredOffer(standing.id, target);
+    }
     const evId = this.onPlayerEvent?.(
       `${this.nameOf(PLAYER)} and ${this.nameOf(target)} make a ${req.kind} deal: ${terms}`,
       [PLAYER, target], "deal",
