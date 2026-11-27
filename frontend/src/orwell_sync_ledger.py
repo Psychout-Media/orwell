@@ -703,17 +703,19 @@ def get_driver_totals(user: str | None) -> dict[str, Any]:
     with _LOCK:
         bucket = _load().get(k)
     split = {"narrator": 0, "belt": 0, "both": 0, "none": 0}
-    n = 0
+    n = af = 0
     if isinstance(bucket, list):
         for e in bucket:
             if isinstance(e, dict):
                 n += 1
+                if any(str(b).startswith("act-first:") for b in (e.get("beltsFired") or {})):
+                    af += 1  # ORW-1014 PR 2: the act-first round committed an act this turn (counted as a tool call: the model made it)
                 split[classify_driver(e.get("toolsCalled"), e.get("beltsFired"))] += 1
     nt = split["narrator"] + split["both"]
     bt = split["belt"] + split["both"]
     return {"turns": n, "narratorToolTurns": nt, "beltDrivenTurns": bt,
             "narratorOnly": split["narrator"], "beltOnly": split["belt"], "both": split["both"], "none": split["none"],
-            "narratorToolRate": round(nt / n, 3) if n else None, "beltDrivenRate": round(bt / n, 3) if n else None}
+            "actFirstTurns": af, "narratorToolRate": round(nt / n, 3) if n else None, "beltDrivenRate": round(bt / n, 3) if n else None}
 
 
 def _drain_pending_belts(user_key: str) -> dict[str, int]:

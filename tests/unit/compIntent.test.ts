@@ -100,12 +100,13 @@ describe("0006 staged-rounds — a declared throw measurably lowers the player's
   it("accepts the approach submitted as `choice` (the generic options/pick shape)", () => {
     const viaChoice = new GameSessionAdapter();
     viaChoice.createCharacter({ playerName: "P", archetype: "comp-beast", seed: 1 });
-    viaChoice.advanceGame();
+    const toRound = (g: GameSessionAdapter): void => { g.advanceGame(); let v = g.advanceGame(); while (v.event?.beat === "day-break") v = g.advanceGame(); expect(v.pending?.kind).toBe("comp-round"); }; // ORW-1063: an answer with no open comp-round is refused now, so the round must really be open
+    toRound(viaChoice);
     const a = viaChoice.submitDecision({ kind: "comp-round", choice: ["throw"] });
 
     const viaIntent = new GameSessionAdapter();
     viaIntent.createCharacter({ playerName: "P", archetype: "comp-beast", seed: 1 });
-    viaIntent.advanceGame();
+    toRound(viaIntent);
     const b = viaIntent.submitDecision({ kind: "comp-round", intent: "throw" });
 
     // `choice:["throw"]` and `intent:"throw"` resolve the round identically (same seed ⇒ same drop).
@@ -175,7 +176,7 @@ describe("0006 staged-rounds — the up-front approach is immutable once given (
     }
     const crowned = s.gameStatus().hoh!.id;
     // No comp-round is pending now; submitting one again changes nothing (the round is over — immutability).
-    const after = s.submitDecision({ kind: "comp-round", intent: "throw" });
-    expect(after.status.hoh!.id).toBe(crowned);
+    expect(() => s.submitDecision({ kind: "comp-round", intent: "throw" })).toThrow(/decision refused \(no-pending\)/); // ORW-1063: refused, not a success-shaped no-op
+    expect(s.gameStatus().hoh!.id).toBe(crowned);
   });
 });

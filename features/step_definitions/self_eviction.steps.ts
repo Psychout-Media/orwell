@@ -288,8 +288,8 @@ Then("the sentinel never appears on the self-eviction confirmation pending", fun
 });
 
 Then("the sentinel never appears on the decision-seam output", function (this: BbWorld) {
-  const out = this.svSandbox!.session.submitDecision({ kind: "self-evict", confirmed: true });
-  this.svView = out;
+  const out = this.svView; // ORW-1063: the output of the confirmed submit the scenario already made (a second confirm after the exit is refused, so it is not re-sent)
+  assert.ok(out, "the confirmed self-eviction produced a decision-seam output");
   assert.ok(!JSON.stringify(out).includes(this.svSentinel!), "no sentinel on the submitDecision output");
 });
 

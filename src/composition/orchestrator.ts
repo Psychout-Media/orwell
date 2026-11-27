@@ -1109,7 +1109,7 @@ export function defaultApply(sandbox: UserSandbox, trigger: Trigger, rng: Seeded
     // gap — the graph used to be all living NPCs, so a telling could reach a sleeper). When the
     // clock is off (the default + the seeded calibration spine) `awakeAmong` is the whole roster, so
     // this is byte-identical there. The PLAYER is a node like anyone — but only while THEY are up.
-    const everyone: EntityId[] = sandbox.session.awakeAmong([core.house.player.id, ...ids]);
+    const everyone: EntityId[] = sandbox.session.awakeAmong(evicted.has(core.house.player.id) ? ids : [core.house.player.id, ...ids]); // ORW-1086: an evicted player is not a node of the house's gossip graph
     const edges: Array<readonly [EntityId, EntityId]> = [];
     for (let i = 0; i < everyone.length; i++) {
       for (let j = i + 1; j < everyone.length; j++) {

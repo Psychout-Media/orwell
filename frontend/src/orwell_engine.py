@@ -807,6 +807,7 @@ async def create_character(player_name: str | None = None, *, archetype=None, st
         args["interviewNotes"] = [str(n) for n in interview_notes if str(n).strip()]
     if seed is not None:
         args["seed"] = seed
+        args["isolateSeason"] = True  # ORW-921: an explicit seed is a test or a replay; a restart carries nothing of the dead season, so the seed deals the same season on any stack
     args.update(_avoid_args(user, seed))
     if confirm_restart:
         args["confirmRestart"] = True
@@ -1471,7 +1472,20 @@ async def submit_decision(decision: dict, expected_beat_seq: int | None = None, 
         payload["expectedBeatSeq"] = expected_beat_seq
     if idempotency_key is not None:
         payload["idempotencyKey"] = idempotency_key
-    return await _call("submitDecision", payload, user=user)
+    try:
+        return await _call("submitDecision", payload, user=user)
+    except EngineToolError as e:
+        # ORW-1063: the engine REFUSES a decision it cannot record (kind mismatch, garbled answer, unconfirmed leave, nothing open) with
+        # "decision refused (<reason>)". Count each refusal in the sync ledger's belt counters (reason names only), then re-raise so the
+        # relay (card, socket, model tool) surfaces the refusal and the card stays open. Nothing is cached for it (the engine throws before any key is stored).
+        _m = re.search(r"decision refused \(([a-z-]+)\)", str(e))
+        if _m:
+            try:
+                from src.orwell_sync_ledger import note_belt as _note_belt
+                _note_belt(user, "decision-refused-" + _m.group(1))
+            except Exception:  # pragma: no cover - telemetry must never hurt the app
+                pass
+        raise
 
 
 async def request_self_eviction(user: str | None = None) -> dict:
@@ -1527,7 +1541,7 @@ async def nap(hours: float | None = None, expected_beat_seq: int | None = None, 
     return await _call("nap", args, user=user)
 
 
-async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None = None, user: str | None = None, max_minutes: float | None = None, until_band_end: bool = False, until_clock: float | None = None) -> dict:
+async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None = None, user: str | None = None, max_minutes: float | None = None, until_band_end: bool = False, until_clock: float | None = None, until_event: bool = False) -> dict:
     """"Hang out until X" - the player's safe fast-forward. The ENGINE runs up to 8 short (15-30 in-game minute) beats and decides
     the stop reason (``stopReason`` + Vault-free public ``detail``): the scheduled event coming due, the player being pulled,
     an NPC approaching, something observed, or bedtime. ``{"ok": false, "reason": ...}`` (no state change) when the flag/clock
@@ -1543,6 +1557,8 @@ async def hang_out(expected_beat_seq: int | None = None, max_beats: int | None =
         args["untilBandEnd"] = True
     if until_clock is not None:  # ORW-734a: the player's stated wall-clock time (0..24); the engine resolves it on its own clock
         args["untilClock"] = until_clock
+    if until_event:  # ORW-1054: a wait for the next scheduled event runs to it in one call (the engine clamps the clock to it)
+        args["untilEvent"] = True
     return await _call("hangOut", args, user=user)
 
 
@@ -2353,7 +2369,7 @@ def last_pending(user=None):
     return _LAST_PENDING.get(user or "")
 
 
-async def resolve_player_move(text: str, idempotency_key: str | None = None, user: str | None = None, previous_reply: str | None = None) -> dict:
+async def resolve_player_move(text: str, idempotency_key: str | None = None, user: str | None = None, previous_reply: str | None = None, skip: list | None = None) -> dict:
     """ORW-419 (intent-first moves): ask the engine to resolve the PLAYER'S OWN move from their message text, BEFORE the
     narrator runs. The engine parses the words, moves the player through the same code as ``moveTo`` (a comp/ceremony pin
     refuses it in fiction) and records the Vault-free ``playerMove`` ``{from, to}`` / ``{refused, reason}`` on the turn
@@ -2364,4 +2380,6 @@ async def resolve_player_move(text: str, idempotency_key: str | None = None, use
         args["previousReply"] = str(previous_reply)[-6000:]  # ORW-1003: for "head over there" / "I follow her"
     if idempotency_key:
         args["idempotencyKey"] = str(idempotency_key)
+    if skip:  # ORW-1014: the act-first round already decided this message's move and/or bed claim; the other resolvers in the seam still run
+        args["skip"] = [str(x) for x in skip if x in ("move", "bed")]
     return await _call("resolvePlayerMove", args, user=user)
