@@ -2337,6 +2337,19 @@ _NAP_DIRECT_NOTE = (
     "below; never invent what happened elsewhere in the house, and do not call nap again. If the result shows the nap ended early (wokenBy) or that line says it was cut short, voice that: how long they actually slept and what woke them.")
 
 
+def _note_belt_attempt(belt: str) -> None:
+    """ORW-1042: a belt's gate passed and it is about to make its extraction call: one ATTEMPT (process-wide, name only). With the applied count
+    (`_note_belt`) it gives each belt's misses (attempts minus applied: the extraction found nothing, or the engine refused). The prefetch's extract-only
+    pass is not an attempt: the live run that follows is the one counted. Never raises."""
+    try:
+        if _BELT_EXTRACT_ONLY.get():
+            return
+        from src import orwell_sync_ledger as _led
+        _led.note_belt_attempt(belt)
+    except Exception:  # failsoft-ok: telemetry must never hurt the turn
+        pass
+
+
 def _note_belt(owner, belt: str, n: int = 1) -> None:
     """Gap #3 belt-fire telemetry: count a guardrail-belt firing in the Vault-free sync ledger
     (`orwell_sync_ledger.note_belt` — names + counts only, drained into the next recorded
@@ -4197,6 +4210,7 @@ async def _auto_move_player(narration, last_user, endpoint_url, model, headers, 
     try:
         from src.llm_core import llm_call_async
         from src import orwell_engine as _oe
+        _note_belt_attempt("auto-move-player")  # ORW-1042: the gate passed; its extraction is next (live, or the turn's prefetched one)
         if raw is None:
             raw = await _move_player_extract(narration, last_user, endpoint_url, model, headers, owner)
         raw = raw or ""
@@ -4361,6 +4375,7 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
             return 0
         _roster_names = {h.get("id"): h.get("name")
                          for h in house if h.get("id") and h.get("name")}
+        _note_belt_attempt("auto-move-npc")  # ORW-1042: the gate passed; its extraction is next (live, or the turn's prefetched one)
         if raw is None:
             raw = await _move_npc_extract(narration, last_user, house, endpoint_url, model, headers, owner)
         obj = _last_json_object_with_key(raw or "", "moves")
@@ -4785,6 +4800,7 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
         # tiny, so the extra budget only matters for the reasoning preamble. (llm_call_async now also
         # reads the `reasoning`/`thinking` field, so the answer is recoverable even when the model
         # routes everything there.)
+        _note_belt_attempt("auto-record-scene")  # ORW-1042: the gate passed; its extraction is next (live, or the turn's prefetched one)
         if raw is None:  # ORW-294: a prefetched scene section (the merged extraction) skips the call
             raw = await _belt_llm(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                        temperature=0.2, max_tokens=1500, timeout=45,
@@ -5019,6 +5035,7 @@ async def _auto_record_promise(last_user, house, endpoint_url, model, headers, o
             return False
         msgs = [{"role": "system", "content": _EXTRACTION_UNTRUSTED_FENCE + _PROMISE_EXTRACT_INSTRUCTIONS},
                 {"role": "user", "content": f"ROSTER (id = name):\n{roster}\n\nTHE PLAYER'S WORDS:\n{(last_user or '')[:800]}\n\nJSON:"}]
+        _note_belt_attempt("auto-record-promise")  # ORW-1042: the gate passed; the extraction call is next
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers, temperature=0.2, max_tokens=1500, timeout=45,
                                    call_class="utility-extraction", user=_meter_user(owner))
         obj = _last_json_object_with_key(raw or "", "withIds")
@@ -5761,6 +5778,7 @@ async def _auto_record_casting(last_user, narration, endpoint_url, model, header
                 f"THE PLAYER REPLIED:\n{(last_user or '')[:900]}\n\nJSON:"},
         ]
         # Room for a reasoning model to think THEN emit the tiny JSON (see _auto_record_scene).
+        _note_belt_attempt("auto-record-casting")  # ORW-1042: the gate passed; the extraction call is next
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
                                    call_class="utility-extraction", user=_meter_user(owner)) or ""
@@ -5864,6 +5882,7 @@ async def _auto_record_deal(narration, last_user, house, endpoint_url, model, he
                 f"WHAT HAPPENED:\n{scene}\n\nJSON:"},
         ]
         # Room for a reasoning model to think THEN emit the deal JSON (see _auto_record_scene).
+        _note_belt_attempt("auto-record-deal")  # ORW-1042: the gate passed; the extraction call is next
         raw = await _belt_llm(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1600, timeout=45,
                                    call_class="utility-extraction", user=_meter_user(owner)) or ""
@@ -5988,6 +6007,7 @@ async def _auto_answer_deal_offer(last_user, narration, owner, endpoint_url, mod
                 f"THE OFFER (from {who}): {str(offer.get('terms') or '')[:300]}\n\n"
                 f"THE PLAYER'S MESSAGE:\n{(last_user or '')[:800]}\n\nJSON:"},
         ]
+        _note_belt_attempt("auto-answer-deal-offer")  # ORW-1042: the gate passed; the extraction call is next
         raw = await _belt_llm(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=600, timeout=45,
                                    call_class="utility-extraction", user=_meter_user(owner)) or ""
@@ -6073,6 +6093,7 @@ async def _auto_alliance(narration, last_user, house, endpoint_url, model, heade
                 f"OPEN PITCHES (id = name):\n{pitch_lines}\n\nROSTER (id = name):\n{roster_lines}\n\n"
                 f"THE PLAYER'S MOVE:\n{(last_user or '')[:800]}\n\nWHAT HAPPENED:\n{(narration or '')[:2500]}\n\nJSON:"},
         ]
+        _note_belt_attempt("auto-alliance")  # ORW-1042: the gate passed; the extraction call is next
         raw = await _belt_llm(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
                                    call_class="utility-extraction", user=_meter_user(owner)) or ""
@@ -6193,6 +6214,7 @@ async def _auto_talk_alone(narration, last_user, house, endpoint_url, model, hea
                 "ROSTER (id = name):\n" + "\n".join(f"{i} = {n}" for i, n in roster.items())
                 + f"\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:600]}\n\nWHAT HAPPENED:\n{(narration or '')[:3000]}\n\nJSON:"},
         ]
+        _note_belt_attempt("auto-talk-alone")  # ORW-1042: the gate passed; the extraction call is next
         raw = await _belt_llm(url=endpoint_url, model=model, messages=msgs, headers=headers, temperature=0.1, max_tokens=800, timeout=45,
                               call_class="utility-extraction", user=_meter_user(owner)) or ""
         obj = _last_json_object_with_key(raw, "agreed")
@@ -6231,6 +6253,7 @@ async def _auto_promise(narration, last_user, house, endpoint_url, model, header
             {"role": "user", "content":
                 f"ROSTER (id = name):\n{roster_lines}\n\nTHE PLAYER'S MOVE:\n{(last_user or '')[:600]}\n\nWHAT HAPPENED:\n{(narration or '')[:3000]}\n\nJSON:"},
         ]
+        _note_belt_attempt("auto-promise")  # ORW-1042: the gate passed; the extraction call is next
         raw = await llm_call_async(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
                                    call_class="utility-extraction", user=_meter_user(owner)) or ""
@@ -6345,6 +6368,7 @@ async def _auto_confide(narration, last_user, house, endpoint_url, model, header
                 f"WHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
         ]
         # Room for a reasoning model to think THEN emit the tiny npcId JSON (see _auto_record_scene).
+        _note_belt_attempt("auto-confide")  # ORW-1042: the gate passed; the extraction call is next
         raw = await _belt_llm(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
                                    call_class="utility-extraction", user=_meter_user(owner)) or ""
@@ -6509,6 +6533,7 @@ async def _auto_expose_secret(narration, last_user, house, endpoint_url, model, 
                 f"THE PLAYER'S KNOWN SECRETS (factId = content):\n{fact_lines}\n\n"
                 f"THE PLAYER'S MOVE:\n{press}\n\nWHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
         ]
+        _note_belt_attempt("auto-expose-secret")  # ORW-1042: the gate passed; the extraction call is next
         raw = await _belt_llm(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
                                    call_class="utility-extraction", user=_meter_user(owner)) or ""
@@ -6606,6 +6631,7 @@ async def _auto_trade_secret(narration, last_user, house, endpoint_url, model, h
                 f"ROSTER (id = name):\n{roster_lines}\n\n"
                 f"THE PLAYER'S MOVE:\n{press}\n\nWHAT HAPPENED:\n{(narration or '')[:1500]}\n\nJSON:"},
         ]
+        _note_belt_attempt("auto-trade-secret")  # ORW-1042: the gate passed; the extraction call is next
         raw = await _belt_llm(url=endpoint_url, model=model, messages=msgs, headers=headers,
                                    temperature=0.1, max_tokens=1200, timeout=45,
                                    call_class="utility-extraction", user=_meter_user(owner)) or ""
@@ -12302,8 +12328,7 @@ async def _stream_agent_loop_impl(
                         # excluded) keeps the session trigger in lock-step with the consecutive rung
                         # within a clean beat, so the full text ladder always runs the first time.
                         _stall_flags_prior = _ADVANCE_STALL_FLAGS.get(_sl_key, 0)
-                        _turn_advance_nudges += 1
-                        _note_belt(owner, "advance-stall-nudge")  # gap #3 telemetry
+                        _turn_advance_nudges += 1  # the per-turn cap counts the trigger; the belt itself is counted where the nudge is appended (ORW-1042)
                         _ADVANCE_STALL_LEVEL[_sl_key] = _level + 1
                         _ADVANCE_STALL_FLAGS[_sl_key] = _stall_flags_prior + 1
 
@@ -13024,6 +13049,7 @@ async def _stream_agent_loop_impl(
                             # text nudge rather than re-prompting a bare "narrate/advance" line.
                             _nudge = _CONTINUE_NEVER_REOPEN + "\n\n" + _nudge
                         messages.append({"role": "system", "content": _nudge})
+                        _note_belt(owner, "advance-stall-nudge")  # ORW-1042: counted when the nudge is actually sent, not when the stall is first seen
                         yield f'data: {json.dumps({"type": "agent_step", "round": round_num + 1})}\n\n'
                         continue
                     # NPC approach in the lingering window: the lull hasn't gone stale (so we're not yet
