@@ -14936,6 +14936,7 @@ export class GameSessionAdapter implements GameSession {
       const joined = this.alliances.shared(holder, target).length > 0;
       if (!joined && day - asked < this.pitchPatienceOf(holder)) continue;
       delete s.pitchedDay[key];
+      if (!joined) delete s.pitched?.[key]; // lapsed: it no longer counts as pitched this week either
       if (!joined && s.active.includes(holder) && s.active.includes(target)) this.coolOnSilence(holder, target);
     }
   }
@@ -15203,8 +15204,8 @@ export class GameSessionAdapter implements GameSession {
       for (const goal of goalsOf(holder).filter((g) => g.kind === "pull-them-in" && g.target !== undefined && g.target !== PLAYER)) {
         const target = goal.target!;
         if (!npcs.includes(target) || this.alliances.shared(holder, target).length > 0) continue;
-        // ORW-963: in a played game a pitch counts for as long as that pitcher would leave it open; headless keeps "pitched this week"
-        const warm = (this.live!.playedGame === true ? this.live!.pitchedDay?.[`${holder}>${target}`] !== undefined : this.live!.pitched?.[`${holder}>${target}`] === week) ? ALLIANCE.pitchedWarmth : 0;
+        // ORW-963: in a played game a pitch also counts for as long as that pitcher would leave it open (a lapse clears the week mark too)
+        const warm = ((this.live!.playedGame === true && this.live!.pitchedDay?.[`${holder}>${target}`] !== undefined) || this.live!.pitched?.[`${holder}>${target}`] === week) ? ALLIANCE.pitchedWarmth : 0;
         const bond = (m: EntityId): number => mutual(holder, m) + (m === target ? warm : 0);
         if (bond(target) < npcFloor.joinBondFloor) continue; // the target declines: an unwilling target never joins
         const open = this.alliances.forMember(holder).filter((a) => a.members.length < maxSize);
