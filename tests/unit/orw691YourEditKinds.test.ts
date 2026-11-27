@@ -40,3 +40,17 @@ describe("ORW-691 B1-5: the cut reads a house meeting (pure; the meeting itself 
     expect(buildYourEdit(base).episodes[0]!.moments.map((m) => m.kind)).not.toContain("house-meeting");
   });
 });
+
+describe("ORW-1098: an episode keeps at most one moment of each kind, so a week of blow-ups still shows the week's other story beats", () => {
+  it("three blow-ups outscore the comp win, the block and the vote, yet the episode shows the blow-up, the comp win and the vote; with the fuller cut off the old top three stand", async () => {
+    const { buildYourEdit } = await import("../../src/engine/yourEdit");
+    const blow = (i: number) => ({ type: "conflict", initiator: i % 2 ? "a" : "b", witnessSet: ["a", "b", "c", "d", "e", "f", "g", "h"], hidden: false, content: `s${i}` });
+    const base = { player: "p", cast: ["a", "b", "c"], nameOf: (x: string) => `guest-${x}`, digests: [{ week: 1, hoh: "a", nominees: ["b", "c"], vetoHolder: "a", vetoUsed: false, evictee: "b" }], voteRecord: [], calledPawn: () => false, events: [blow(0), blow(1), blow(2)], eventWeeks: [1, 1, 1], deals: [], winner: null };
+    const on = buildYourEdit({ ...base, more: { meetings: [] } }).episodes[0]!.moments.map((m) => m.kind);
+    expect(on).toHaveLength(3);
+    expect(new Set(on).size).toBe(3);
+    expect(on).toContain("blowup");
+    expect(on).toContain("comp-win");
+    expect(buildYourEdit(base).episodes[0]!.moments.map((m) => m.kind)).toEqual(["blowup", "blowup", "blowup"]);
+  });
+});
