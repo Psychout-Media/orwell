@@ -37,7 +37,7 @@ describe("(2) parity: a houseguest learns a routine the way the player does", ()
         Object.entries(live.npcRoutineSightings ?? {}).flatMap(([onlooker, byHolder]) => Object.entries(byHolder).flatMap(([holder, byKey]) => Object.entries(byKey).filter(([, d]) => d.length >= 3).map(([key]) => ({ onlooker, holder, key }))));
       g.playUntil(() => learned().length > 0, 1500, "an NPC who saw a routine on three days");
       return { g, found: learned() };
-    }, { from: 1, to: 8, hint: [1], sandbox: (s) => `r960-${s}`, what: "an NPC who saw a routine on three days" });
+    }, { from: 1, to: 8, hint: [2, 1], sandbox: (s) => `r960-${s}`, what: "an NPC who saw a routine on three days" });
     const knowledge = (at.g.sb as unknown as { engine: { knowledge: { knownTo(id: string): Array<{ factId?: string; content: string; subject?: string }> } } }).engine.knowledge;
     for (const f of at.found) {
       expect(f.onlooker).not.toBe("player");
