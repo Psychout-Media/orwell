@@ -134,10 +134,11 @@ def test_session_tally_increments_next_to_the_advance_stall_nudge():
     `advance-stall-nudge` belt fire (so a stall flag is exactly one accrued session flag)."""
     assert "_stall_flags_prior = _ADVANCE_STALL_FLAGS.get(_sl_key, 0)" in AGENT_SRC
     assert "_ADVANCE_STALL_FLAGS[_sl_key] = _stall_flags_prior + 1" in AGENT_SRC
-    # The bump sits just after the nudge note, inside the same stall branch.
-    note_at = AGENT_SRC.index('_note_belt(owner, "advance-stall-nudge")')
+    # The bump sits just after the stall branch's trigger count, inside the same branch. (ORW-1042 moved the `advance-stall-nudge` belt NOTE to where the
+    # nudge is sent; the trigger, and the session bump beside it, are where they were.)
+    trigger_at = AGENT_SRC.index("_turn_advance_nudges += 1  # the per-turn cap counts the trigger")
     bump_at = AGENT_SRC.index("_ADVANCE_STALL_FLAGS[_sl_key] = _stall_flags_prior + 1")
-    assert 0 < bump_at - note_at < 200, "the session bump must ride the advance-stall-nudge branch"
+    assert 0 < bump_at - trigger_at < 400, "the session bump must ride the advance-stall-nudge branch"
 
 
 def test_session_tally_clears_only_on_real_progress_not_an_fe_forced_commit():

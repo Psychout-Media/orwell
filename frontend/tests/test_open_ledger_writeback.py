@@ -372,3 +372,33 @@ def test_orw1065_discards_and_overflow_are_counted_and_one_bad_id_keeps_the_entr
     def d(k):
         return after.get(k, 0) - before.get(k, 0)
     assert d("addressee-id-dropped") == 1 and d("entry-speaker-not-present") == 1 and d("entries-over-cap") >= 1
+
+
+def test_orw1065_a_long_entry_keeps_its_first_sentence_when_that_fits_and_is_dropped_when_none_does():
+    before = ol.discard_counts()
+    long_tail = "I will keep you safe this week. " + "And then there is a long story about why, " * 8
+    raw = {"entries": [
+        {"text": long_tail, "speaker": "npc:3", "addressedTo": ["player"], "kind": "oath"},
+        {"text": "y" * 250, "speaker": "npc:3", "addressedTo": ["player"], "kind": "ramble"},
+    ]}
+    out = ol.clean_entries(raw, {"npc:3"})
+    assert [e["text"] for e in out] == ["I will keep you safe this week."]  # whole words, never cut mid-sentence
+    after = ol.discard_counts()
+    assert after.get("entry-long-first-sentence-kept", 0) - before.get("entry-long-first-sentence-kept", 0) == 1
+    assert after.get("entry-empty-long-or-duplicate", 0) - before.get("entry-empty-long-or-duplicate", 0) == 1
+
+
+def test_orw1065_due_and_open_items_the_caps_leave_out_are_counted():
+    import asyncio
+    before = ol.discard_counts()
+    items = [{"id": f"o{i}", "text": f"promise {i}"} for i in range(8)] + [{"id": f"d{i}", "text": f"due {i}", "due": "the vote happened"} for i in range(5)]
+
+    async def llm(_msgs):
+        return '{"entries": [], "resolutions": []}'
+
+    async def write(_e):
+        return {"ok": True}
+    asyncio.run(ol.capture_open_ledger("n" * 200, [{"id": "npc:1", "name": "A Houseguest"}], llm, write, open_items=items, resolve=write))
+    after = ol.discard_counts()
+    assert after.get("due-over-cap", 0) - before.get("due-over-cap", 0) == 2
+    assert after.get("open-over-cap", 0) - before.get("open-over-cap", 0) == 3

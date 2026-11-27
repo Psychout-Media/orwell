@@ -207,6 +207,21 @@ embeddings_check() {
   fi
 }
 
+# ORW-1018: the engine logs `[orwell] SLOW step=<name> ms=<n>` for a step past its line. The line for save.fsync (the BACKGROUND disk hardening of a save already renamed complete, off the request path since ORW-404) is a
+# real outlier (5 s); embed.call and the rest keep the base line. Count them per day and step (3 days) so a creeping disk shows as a trend instead of a log nobody reads. `save.persist` is the part the turn waits on: any
+# slow one is worth a warning. Never fails the run; journalctl unavailable (not root) is one info line.
+slow_steps_check() {
+  local raw counts persist
+  raw="$(journalctl -u "${ENGINE_SVC}" --since "3 days ago" --no-pager -o short-iso 2>/dev/null | grep -F '[orwell] SLOW step=')" || { info "slow steps: none logged in the last 3 days (or journalctl unavailable: run as root)"; return 0; }
+  counts="$(printf '%s\n' "$raw" | sed -n 's/^\([0-9-]\{10\}\)T.*SLOW step=\([a-z._A-Z]*\).*/\1 \2/p' | sort | uniq -c | awk '{printf "%s %s=%s; ", $2, $3, $1}')"
+  persist="$(printf '%s\n' "$raw" | grep -c 'SLOW step=save.persist' || true)"
+  if [[ "${persist:-0}" -gt 0 ]]; then
+    warn "slow saves on the request path: ${persist} 'save.persist' lines in the last 3 days (the turn waits on these); per day: ${counts}"
+  else
+    info "slow steps per day (3 days): ${counts:-none}"
+  fi
+}
+
 # DEPLOY-10: nothing anywhere warned about disk pressure on the (12 GB default) LXC disk — it
 # accumulates saves, generated portraits, the fastembed model cache, and (per DEPLOY-9/13/14)
 # backups/logs. A plain `df`-based threshold check, same pass/warn idiom as everything else here.
@@ -505,6 +520,7 @@ diagnose() {
   behavioral_flags_line
   # DEPLOY-11: surface a silent fastembed→deterministic degradation.
   embeddings_check
+  slow_steps_check
   engine_serves_tools  && pass "engine serves player tools"    || fail "engine serves player tools"
   # An engine that ANSWERS while its unit is inactive/missing is running OUTSIDE systemd (a stray
   # manual process). Restarting the unit would fight it for the port — name the situation instead.

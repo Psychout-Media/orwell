@@ -47,3 +47,37 @@ export function chooseOffer(p: { loyalty: number; cunning: number; chaos: number
   if (p.cunning >= p.chaos) return "info";
   return "threat";
 }
+
+/**
+ * ORW-779 (Ryne 2026-11-26: "Social play can definitely work") - the HOH's PRIVATE ANSWER to a plea for safety. A pitch used to be only a score nudge (about 0.05 against a typical
+ * 0.27 gap to the next candidate), so talk never saved anybody. Now the HOH decides: leave them off, or not. Never certain, nothing for a distrustful or hostile HOH, and a yes can
+ * be faked (a cunning HOH says yes and puts them up anyway). The two dice are fixed per reign by the caller, so asking again can never re-roll them: more talk only helps by the
+ * trust it earns.
+ */
+export const PITCH_ANSWER = {
+  /** Below this trust in the asker the HOH does not agree at all (a typical newcomer reads 0.25). */
+  trustFloor: 0.25,
+  /** The chance at the floor, and what full trust (`trustFull`) adds on top. */
+  chanceAtFloor: 0.35,
+  chanceAdded: 0.35,
+  trustFull: 0.75,
+  /** Above this threat read the chance falls, by as much as the read exceeds it. */
+  threatEase: 0.6,
+  /** How often the most cunning HOH's yes is a fake one. */
+  fakeAtFullCunning: 0.4,
+} as const;
+
+export interface PitchAnswerInputs { trust: number; threat: number; cunning: number; hostile: boolean }
+
+/** The chance this HOH says yes (0 for a hostile or distrustful one; at most `chanceAtFloor + chanceAdded`). */
+export function pitchAgreeChance(i: PitchAnswerInputs): number {
+  const A = PITCH_ANSWER;
+  if (i.hostile || !(i.trust >= A.trustFloor)) return 0;
+  const warmth = clamp((i.trust - A.trustFloor) / (A.trustFull - A.trustFloor), 0, 1);
+  return (A.chanceAtFloor + A.chanceAdded * warmth) * (1 - clamp(i.threat - A.threatEase, 0, 1));
+}
+
+export function pitchAnswer(i: PitchAnswerInputs, rolls: { agree: number; fake: number }): { agreed: boolean; sincere: boolean } {
+  const agreed = rolls.agree < pitchAgreeChance(i);
+  return { agreed, sincere: agreed && !(rolls.fake < PITCH_ANSWER.fakeAtFullCunning * clamp(i.cunning, 0, 1)) };
+}
