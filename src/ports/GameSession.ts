@@ -3094,6 +3094,9 @@ export interface HangOutReq {
   untilClock?: number;
   /** ORW-1054: the player asked to wait for the next scheduled event ("hang out until production calls"): the target is that event (never past it), no per-beat dice, so ONE call reaches it instead of a run of calls cut short by chance stops. Bedtime and a houseguest whose own want is due still stop it; capped at 10 h. */
   untilEvent?: boolean;
+  /** ORW-1089 (Ryne 2026-11-27): the player sent a bare "next" while nothing was due. Time runs toward the next event and stops at the first thing that calls for them: someone walks into their room, game talk starts in
+   *  their sight, a houseguest's own want is due, the event, or bedtime. */
+  bareNext?: boolean;
 }
 /** Why a hang-out stopped (the engine decides; the narrator voices it). */
 /** `max-beats` also means a player-stated wait reached its target (ORW-445): a met target is not a separate stop reason. */

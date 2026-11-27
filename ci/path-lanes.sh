@@ -22,7 +22,7 @@ EVENT_NAME="${EVENT_NAME:-}"
 # files live under docs/features/, so a scenario-only edit must still run the BDD gate (BDD PAT-6),
 # the build/test config, this workflow. (Deliberately matches EVERY .feature, including spec-only ones
 # cucumber.cjs does not execute: cheap insurance, and a later wiring into cucumber.cjs can't slip through.)
-ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.(config|shard\.config|sequencer)\.ts$|cucumber\.cjs$|\.github/workflows/|ci/|\.github/actions/|deploy/|scripts/(probes/|ci/|[^/]+$)|docs/(FLAG-INVENTORY\.md$|design/undercall-seam-structural\.md$|features/.*\.md$))'
+ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.(config|shard\.config|sequencer)\.ts$|cucumber\.cjs$|\.github/workflows/|ci/|\.github/actions/|frontend/|deploy/|scripts/(probes/|ci/|[^/]+$)|docs/(FLAG-INVENTORY\.md$|design/undercall-seam-structural\.md$|features/.*\.md$))'
 # FRONTEND: the vendored Python app + this workflow.
 FRONTEND_RE='^(frontend/|\.github/workflows/ci\.yml$|ci/)'
 FE_READS_ENGINE_RE='^src/(surfaces/tools/|ports/|adapters/mcp/|adapters/engine/GameSessionAdapter\.ts$|engine/(momentPrompts|voice|liveSeason|beatAnnouncement|characterFactory|genesisConstants|portraitPrompts|promiseTerms|spokenClaims|socialRoles)\.ts$|engine/castGenesis|engine/data/vocations\.ts$|domain/(house|styleFamilies|traitConsistency)\.ts$|domain/(castRealism|castAges)\.json$|composition/runtime\.ts$)|^src/main\.ts$'
@@ -58,10 +58,14 @@ if grep -qvE "$KNOWN_RE" <<<"$changed"; then unknown=1; fi
 # SHARED: files every lane runs on (a workflow, a composite action, a ci/ script, the npm manifest and lockfile): any one of them runs EVERY lane, the same as an unknown path.
 SHARED_RE='^(\.github/|ci/|package\.json$|package-lock\.json$)'
 if grep -qE "$SHARED_RE" <<<"$changed"; then unknown=1; fi
+# ORW-1044: engine tests and BDD steps read frontend/ widely (src/, static/js, tests/fixtures, the gateway pytest files the 0072/0073 steps run, requirements, INTEGRATION.md), and it is
+# too wide to prove path by path, so ALL of frontend/ is engine-affecting (the engine lane also gates `bdd`, `test-unit`, `coverage`) EXCEPT the dirs and files nothing in tests/, features/, src/ or ci/ names:
+# frontend/integrations/, frontend/companion/, frontend/ACKNOWLEDGMENTS.md, frontend/README.md.
+engine_changed="$(grep -vE '^frontend/(integrations/|companion/|ACKNOWLEDGMENTS\.md$|README\.md$)' <<<"$changed" || true)"
 for name in engine frontend fe_render deploy heavy; do
   subject="$changed"
   case "$name" in
-    engine)    re="$ENGINE_RE" ;;
+    engine)    re="$ENGINE_RE"; subject="$engine_changed" ;;
     # ORW-218 (root cause of the #2457 main break): front-end tests READ engine source (the tool registry, the GameSession port, the MCP server, the prompt text...), so an
     # engine-only PR that changes one of those files must still run fe-unit; before this, FRONTEND_RE matched only frontend/ and test_1412/1414 were skipped while ci-gate passed.
     # frontend/tests/test_ci_fe_reads_engine_filter.py proves this list covers EVERY engine .ts file the front-end tests read.

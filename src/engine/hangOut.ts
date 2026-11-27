@@ -132,7 +132,8 @@ export function hangOutStopLine(r: Pick<HangOutResult, "stopReason" | "detail">)
     case "npc-approach": return `${d.npc ?? "A housemate"} comes over to talk to you.`;
     case "observed": {
       const who = d.who ?? [];
-      return d.kind === "overheard-whisper" ? `${who.join(" and ")} are whispering together out of earshot.`
+      return d.kind === "someone-entered" ? `${who[0] ?? "Someone"} comes into the room.`
+        : d.kind === "overheard-whisper" ? `${who.join(" and ")} are whispering together out of earshot.`
         : d.kind === "argument" ? `${who.join(" and ")} are in a tense exchange.`
         : `${who[0] ?? "Someone"} is crossing the house.`;
     }

@@ -32,6 +32,7 @@ FACT_VETO = "veto-decision"  # ORW-715
 FACT_EVICTEE = "evictee-named"  # ORW-715
 FACT_EVENT_ROOM = "event-room"  # ORW-740b
 FACT_PLAYER_ROOM = "player-room"  # ORW-1003, a hard fact here since ORW-408
+FACT_ABSENT = "absent-present"  # ORW-408: someone who is not in the room speaks or acts there (the presence wall detects it)
 
 # The sleeper is only MENTIONED (asleep, snoring, in bed, dreaming): allowed. Anything else near their name with a voice or a movement is a conflict.
 _SLEEP_OK_RE = re.compile(r"\b(?:asleep|sleep\w*|snor\w+|slumber\w*|dream\w*|turned\s+in|in\s+(?:his|her|their)\s+bed|in\s+bed|under\s+the\s+covers|out\s+cold|fast\s+asleep)\b", re.IGNORECASE)
@@ -651,6 +652,30 @@ def _fresh_state(owner: Any):
     return engine_read_cache.peek("getGameState", owner, fields=_STATE_FIELDS), zero_clocks_on()
 
 
+def split_at_wall_drop(before: str, after: str, owner: Any) -> "Optional[RewriteSplit]":
+    """ORW-408: the presence wall cut a sentence (someone not in the room speaking or acting). Instead of showing the reply with a hole in it, withhold from the first cut sentence and redo it
+    once with who really is here; the wall stays on the redo as the "remove the smallest wrong part" step. None when the rewrite is off or nothing was cut. Fail-open."""
+    try:
+        if before == after or not before or not predisplay_rewrite_enabled():
+            return None
+        parts = _parts(before)
+        keep, i = "", 0
+        while i < len(parts) and (after or "").startswith(keep + parts[i]):
+            keep += parts[i]
+            i += 1
+        if i >= len(parts) or not parts[i].strip():
+            return None
+        state, _ = _fresh_state(owner)
+        here = ((state or {}).get("whereabouts") or {}).get("present") if isinstance(state, dict) else None
+        names = ", ".join(str(p.get("name")) for p in (here or []) if isinstance(p, dict) and p.get("name"))
+        detail = names if here else ("nobody else" if here == [] else "")
+        REWRITE_COUNTS[FACT_ABSENT] = REWRITE_COUNTS.get(FACT_ABSENT, 0) + 1
+        logger.info("[predisplay-rewrite] withholding a sentence: %s", FACT_ABSENT)
+        return RewriteSplit(keep, "".join(parts[i:]), parts[i], (Conflict(FACT_ABSENT, detail),))
+    except Exception:  # failsoft-ok: orw408-wall-split (fail-open: the wall's own cut stands)
+        return None
+
+
 def split_at_first_conflict(text: str, owner: Any, *, in_quote: bool = False, skip: "tuple[str, ...]" = ()) -> "Optional[RewriteSplit]":
     """None when there is nothing to rewrite: flag off, no FRESH cached engine state (never fetches), no conflict, or any hiccup. Otherwise the clean prefix + the withheld rest.
     The offending sentence is the first one whose addition makes the running prefix conflict (so a quote opened earlier keeps its context). `in_quote`: the chunk begins inside a quote opened by an earlier chunk of the round."""
@@ -730,6 +755,9 @@ def _correction_line(c: Conflict) -> str:
         return f"It is {c.detail or 'the part of day the game gave'} now; place nothing in another part of the day."
     if c.fact == FACT_EVENT_ROOM:
         return f"The whole house is gathered in {c.detail} for this event; do not call or place it anywhere else."
+    if c.fact == FACT_ABSENT:
+        who = "Nobody else is" if c.detail == "nobody else" else (f"Only {c.detail} are" if "," in c.detail else f"Only {c.detail} is") if c.detail else "Only the houseguests the game lists are"
+        return f"{who} in the room with the player; no one else speaks or acts here."
     if c.fact == FACT_PLAYER_ROOM:
         return f"The player is in {c.detail}; do not move or place them anywhere else."
     return correction_for(c.fact)
