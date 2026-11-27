@@ -6,6 +6,8 @@ Summarizes older messages via the same LLM, preserving key context.
 """
 
 import asyncio
+import collections
+import hashlib
 import json
 import logging
 import os
@@ -257,6 +259,29 @@ def _per_message_tokens(msg: Dict) -> int:
     return estimate_tokens([msg])
 
 
+# ORW-555 (prompt prefix cache): the trim's HYSTERESIS. A trim that drops just enough of the oldest turns moves the cut by about one turn every turn once the
+# history is past the budget, so the prefix after the system messages shifts on every request and the provider's prefix cache (DeepSeek: a miss costs about 50
+# times a hit) misses the whole history (the repo's prefix audit: 48% of the request stable). Instead, once over budget, cut down to TRIM_TARGET_SHARE of the
+# budget in one go and HOLD that cut while the request still fits: the same history prefix is sent for many turns (the audit's simulation: 98%). The cut is
+# remembered per conversation, keyed by its oldest message (constant for a session; a compaction summary or a new session is a new key). Fewer turns are kept
+# right after a cut than before (at least TRIM_TARGET_SHARE of the budget), never more than the budget. Game turns only; `ORWELL_TRIM_HYSTERESIS=0` = the old trim.
+TRIM_TARGET_SHARE = 0.75
+_TRIM_CUTS: "collections.OrderedDict[str, int]" = collections.OrderedDict()
+_TRIM_CUTS_MAX = 256
+
+
+def trim_hysteresis_enabled() -> bool:
+    return os.getenv("ORWELL_TRIM_HYSTERESIS", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _conversation_key(messages: List[Dict], convo_idx: List[int]) -> str:
+    if not convo_idx:
+        return ""
+    first = messages[convo_idx[0]]
+    raw = f"{first.get('role')}\u0000{first.get('content') if isinstance(first.get('content'), str) else json.dumps(first.get('content'), sort_keys=True, default=str)}"
+    return hashlib.sha256(raw.encode("utf-8", "replace")).hexdigest()
+
+
 def _trim_preserving_system(messages: List[Dict], budget: int, used: int) -> List[Dict]:
     """ORW-219: game-turn trim. EVERY system message (the GM prompt, the per-turn grounding/steer
     messages, the terminal HARD CONSTRAINTS block) is kept intact and in place; only conversation
@@ -275,12 +300,29 @@ def _trim_preserving_system(messages: List[Dict], budget: int, used: int) -> Lis
     droppable = convo_idx[:-1]
     droppable = [i for i in droppable if not _is_summary_msg(messages[i])] + \
                 [i for i in droppable if _is_summary_msg(messages[i])]
-    for i in droppable:
-        if total <= budget:
-            break
-        total -= _per_message_tokens(messages[i])
-        dropped_idx.add(i)
-        dropped += 1
+    key = _conversation_key(messages, convo_idx) if trim_hysteresis_enabled() else ""
+    held = _TRIM_CUTS.get(key, 0) if key else 0
+    if key and 0 < held <= len(droppable):
+        # the remembered cut: drop the same oldest turns again; keep it while the request still fits
+        trial = total - sum(_per_message_tokens(messages[i]) for i in droppable[:held])
+        if trial <= budget:
+            for i in droppable[:held]:
+                dropped_idx.add(i)
+            dropped, total = held, trial
+    if total > budget:
+        dropped_idx, dropped, total = set(), 0, used
+        stop_at = int(budget * TRIM_TARGET_SHARE) if key else budget  # over budget: cut down to the target share in one go (hysteresis), or just enough (off)
+        for i in droppable:
+            if total <= stop_at:
+                break
+            total -= _per_message_tokens(messages[i])
+            dropped_idx.add(i)
+            dropped += 1
+    if key:
+        _TRIM_CUTS[key] = dropped
+        _TRIM_CUTS.move_to_end(key)
+        while len(_TRIM_CUTS) > _TRIM_CUTS_MAX:
+            _TRIM_CUTS.popitem(last=False)
     kept = [m for i, m in enumerate(messages) if i not in dropped_idx]
     if total > budget and convo_idx:
         last = messages[convo_idx[-1]]
