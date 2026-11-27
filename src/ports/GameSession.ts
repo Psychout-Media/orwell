@@ -656,6 +656,8 @@ export interface GameStateView {
   beds?: string;
   /** ORW-1010: why the player's bed claim or swap did NOT happen this turn; the narrator says so plainly in the reply. */
   bedRefused?: string;
+  /** ORW-1090: one turn after a night, how the player and the houseguest whose half of a double they share (or who shares the player's) took it on waking: "annoyed" or "fine". Vault-free fact for the narrator to voice; never a number. */
+  bedWake?: { sleeper: string; joiner: string; mood: "annoyed" | "fine" };
   /** ORW-652 (moment prompt only): the shape of a double-eviction night while its second cycle runs (who left, the instant crown, the hurried block), from public facts. Absent outside it. */
   longNight?: string;
   /** 0152: this turn's engine answer to "who told you that?" (one Vault-free line: who is named, that they will not say, or that they saw it). Absent otherwise. */
