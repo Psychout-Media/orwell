@@ -45,7 +45,7 @@ describe("ORW-931 REAL PATH: what the player was already told never comes back a
       // the precondition: a comeback the narrator's view carries (a claim can also reach the player through a scene they were in, e.g. an accusation: never through the view, so not the narrator's to mark)
       g.playUntil(() => { read(); return comebacks.some((c) => c.tell); }, 900, "a claim the player already heard coming back through the narrator");
       return comebacks;
-    }, { from: 1, to: 2, hint: [27, 12, 7, 4], sandbox: (s) => `t931-${s}`, what: "a claim the player already heard coming back through the narrator" });
+    }, { from: 1, to: 24, hint: [27, 12, 7, 4], sandbox: (s) => `t931-${s}`, what: "a claim the player already heard coming back through the narrator", wide: { maxSeasons: 28, budgetMs: 1_800_000, reason: "ORW-1104: a told claim coming back through the narrator is rare (a seeded chat), and the 50-mechanic pool moved every season; the four hints no longer reach it" } });
     for (const c of at) {
       expect(c.before, "a houseguest re-told the player the same thing").not.toContain(c.speaker);
       if (c.tell) expect(c.tell.alreadyHeard, "another houseguest's telling of what the player already heard is marked as not news").toBe(true);

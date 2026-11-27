@@ -69,7 +69,7 @@ describe("ORW-877 REAL PATH: the player hears a told claim only if the narration
       let hit: { id: string } | undefined;
       try { g.playUntil(() => !!(hit = (s.presentKnowledgeForPrompt() ?? []).find((x) => x.tellsYou)), 900, "a tell"); } catch (e) { if (/before a tell|never reached|not reached/i.test(String((e as Error).message))) return undefined; throw e; }
       return { s, hit: hit! };
-    }, { from: 1, to: 12, hint: [1], sandbox: (x) => `t877-${x}`, what: "a tell handed to the narrator at the prompt build in a headless session" });
+    }, { from: 1, to: 12, hint: [3, 1], sandbox: (x) => `t877-${x}`, what: "a tell handed to the narrator at the prompt build in a headless session" });
     expect(toPlayer(found.at.s, found.at.hit.id).length).toBeGreaterThan(0);
   }, 600_000);
 });

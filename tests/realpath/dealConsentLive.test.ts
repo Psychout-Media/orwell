@@ -27,7 +27,7 @@ function weekTwo(seed: number, user: string, consent = true) {
   return g;
 }
 /** The first seed from 5 whose week-2 house satisfies `has` (read with the asks the test itself makes; each asks a fresh game). */
-function houseWhere<T>(prefix: string, has: (g: ReturnType<typeof weekTwo>) => T | undefined, what: string, consent = true, hint: number[] = [1, 5]): { g: ReturnType<typeof weekTwo>; seed: number; got: T } {
+function houseWhere<T>(prefix: string, has: (g: ReturnType<typeof weekTwo>) => T | undefined, what: string, consent = true, hint: number[] = [2, 1, 5]): { g: ReturnType<typeof weekTwo>; seed: number; got: T } {
   const f = firstSeedWhereSync((seed, sandbox) => { const g = weekTwo(seed, sandbox, consent); if ((g.s as unknown as { live: { evictionOrder?: string[] } }).live.evictionOrder?.includes(PLAYER)) return undefined; /* ORW-1104: a season that voted the player out by week 2 has no deals to ask */ const got = has(g); return got === undefined ? undefined : { g, got }; },
     { from: 1, to: 12, hint, sandbox: (s) => `${prefix}-${s}`, what });
   return { g: f.at.g, seed: f.seed, got: f.at.got };

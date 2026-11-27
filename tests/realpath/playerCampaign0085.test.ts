@@ -18,7 +18,7 @@ type Priv = { campaigns: Campaign[]; campaignTiltFor(t: string, v: string): numb
 type PitchOpts = { on?: boolean; direction?: "more-threatened" | "less-threatened" };
 /** ORW-880: the first seed from 1 whose season reaches week 2 with three houseguests to pitch to, about and past (each in the sandbox `<prefix>-<seed>`). */
 async function pitched(prefix: string, opts: PitchOpts = {}) {
-  return (await firstSeedWhere((seed, sandbox) => pitchedAt(seed, sandbox, opts), { from: 1, to: 12, hint: 1, sandbox: (s) => `${prefix}-${s}`, what: "week 2 with three houseguests" })).at;
+  return (await firstSeedWhere((seed, sandbox) => pitchedAt(seed, sandbox, opts), { from: 1, to: 12, hint: [2, 1], sandbox: (s) => `${prefix}-${s}`, what: "week 2 with three houseguests" })).at;
 }
 async function pitchedAt(seed: number, user: string, opts: PitchOpts) {
   const g = playedGame({ seed, user: user, before: (s) => s.setCampaignsEnabled(opts.on ?? true) });
