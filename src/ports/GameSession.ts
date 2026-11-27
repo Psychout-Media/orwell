@@ -1245,6 +1245,11 @@ export interface CreateCharacterReq {
    * if the corpus has no headroom to honor every exclusion, the sampler relaxes it rather than failing.
    */
   priorCastNames?: string[];
+  /**
+   * ORW-921 - ENGINE-INTERNAL (like `priorCastNames`): a seeded test or replay. A confirmed restart carries nothing of the dead season (cast names, house themes, world picks) into the new one, so an explicit seed
+   * deals the same season first on a stack and after other seasons. Set by the front end's new-game door when it passes an explicit seed; never set for a player's own restart.
+   */
+  isolateSeason?: boolean;
   /** ORW-466 - ENGINE-INTERNAL (like `priorCastNames`): the player's recent seasons' house themes, carried across a confirmed restart so the new season draws a different one. */
   priorHouseThemes?: string[];
   /**

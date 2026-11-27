@@ -9,8 +9,7 @@ import os
 import pytest
 
 FE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# Each ORW-1026 PR adds the file it cleaned; the last one covers all three.
-FILES = ("src/tool_execution.py", "routes/chat_helpers.py")
+FILES = ("src/tool_execution.py", "src/agent_loop.py", "routes/chat_helpers.py")
 MARKER = "failsoft-ok:"
 
 
