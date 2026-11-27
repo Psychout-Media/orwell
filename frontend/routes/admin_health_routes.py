@@ -1794,6 +1794,16 @@ def _compute_alarms(rollup: dict, *, embeddings=None, sync_recent=None, belt_tot
     return alarms
 
 
+def _settings_parity_section() -> dict | None:
+    """ORW-678: the boolean settings this install runs DIFFERENTLY from the shipped default (names and booleans only), so a switch the tests exercise but production has off (or the reverse) shows."""
+    try:
+        from src.settings import DEFAULT_SETTINGS, load_settings
+        live = load_settings()
+        return {k: bool(live.get(k)) for k, v in sorted(DEFAULT_SETTINGS.items()) if isinstance(v, bool) and bool(live.get(k)) is not v}
+    except Exception:
+        return None
+
+
 def _predisplay_section() -> dict | None:
     """ORW-408: the pre-display check's counters since the process started (statuses and numbers only). Best-effort."""
     try:
@@ -1987,6 +1997,8 @@ async def _health_snapshot(user: str | None) -> dict:
         "actFirst": _act_first_section(),
         # ORW-408: the pre-display hard-fact check's counters (chunks checked, skipped by reason, conflicts by fact). Numbers and fact ids only.
         "predisplay": _predisplay_section(),
+        # ORW-678: boolean settings that differ from the shipped default on this install.
+        "settingsOffDefault": _settings_parity_section(),
         # Build + version (PR) for one-glance triage on the status page. version is the
         # PR-derived "vX.XX"; build is the deployed checkout's short commit SHA.
         "versions": _versions(),
