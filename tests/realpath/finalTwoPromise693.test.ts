@@ -3,6 +3,7 @@ import { McpServer } from "../../src/adapters/mcp/McpServer";
 import { PLAYER } from "../../src/domain/ids";
 import { buildSandbox } from "../support/sandbox";
 import { playedGame } from "../support/playedGame";
+import { firstSeedWhere, NotReached } from "../support/firstSeedWhere";
 import type { OpenLedger } from "../../src/engine/openLedger";
 
 /**
@@ -16,26 +17,33 @@ type S = { movePlayer(room: string): { present: Array<{ id: string }> } | undefi
 
 describe("ORW-693 REAL PATH: a final-two promise lasts the season", () => {
   it("made in week 2, it is still open and still read three weeks later, both ways", async () => {
-    const g = playedGame({ seed: 4, user: "f2p-4" });
-    const s = g.s as unknown as S;
-    let npc = "", madeWeek = 0;
-    g.playUntil(() => {
-      if (s.live.week < 2 || s.getGameState().pending) return false;
-      const here = (s.movePlayer("living-room")?.present ?? []).map((p) => p.id).filter((id) => id !== PLAYER);
-      if (!here.length) return false;
-      npc = here[0]!; madeWeek = s.live.week; return true;
-    }, 3000, "a week-2 room with a houseguest in it");
-    const b = buildSandbox(1);
-    const server = new McpServer("player", { player: b.player, admin: b.admin, summary: b.summary, commands: g.sb.commands, session: g.sb.session });
-    await server.callTool("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, npc], content: "they swear we go to the end together", kind: "alliance", promise: { what: "final-two", from: npc } });
-    await server.callTool("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, npc], content: "I swear we go to the end together", kind: "alliance", promise: { what: "final-two" } });
-    const f2 = (): Array<{ term?: { by: string; to: string; what: string }; status: string }> =>
-      ((s.snapshot() as { openLedger?: OpenLedger }).openLedger?.entries ?? []).filter((e) => e.term?.what === "final-two") as never;
-    const theirs = () => f2().find((e) => e.term!.by === npc && e.term!.to === PLAYER);
-    const mine = () => f2().find((e) => e.term!.by === PLAYER && e.term!.to === npc);
-    expect(theirs()?.status, "setup: the houseguest's final-two promise is recorded").toBe("open");
-    expect(mine()?.status, "setup: the player's final-two promise is recorded").toBe("open");
-    g.playUntil(() => s.live.week >= madeWeek + 3 || !s.livingIds().includes(npc), 6000, "three weeks on");
+    // ORW-1079: a scan, not a fixed seed (the vote leans move who survives): the first season whose week-2 partner is still in the house three weeks on; 2 since ORW-1079, 4 before.
+    const found = await firstSeedWhere(async (seed, sandbox) => {
+      const g = playedGame({ seed, user: sandbox });
+      const s = g.s as unknown as S;
+      let npc = "", madeWeek = 0;
+      g.playUntil(() => {
+        if (s.live.week < 2 || s.getGameState().pending) return false;
+        const here = (s.movePlayer("living-room")?.present ?? []).map((p) => p.id).filter((id) => id !== PLAYER);
+        if (!here.length) return false;
+        npc = here[0]!; madeWeek = s.live.week; return true;
+      }, 3000, "a week-2 room with a houseguest in it");
+      const b = buildSandbox(1);
+      const server = new McpServer("player", { player: b.player, admin: b.admin, summary: b.summary, commands: g.sb.commands, session: g.sb.session });
+      await server.callTool("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, npc], content: "they swear we go to the end together", kind: "alliance", promise: { what: "final-two", from: npc } });
+      await server.callTool("recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, npc], content: "I swear we go to the end together", kind: "alliance", promise: { what: "final-two" } });
+      const f2 = (): Array<{ term?: { by: string; to: string; what: string }; status: string }> =>
+        ((s.snapshot() as { openLedger?: OpenLedger }).openLedger?.entries ?? []).filter((e) => e.term?.what === "final-two") as never;
+      const theirs = () => f2().find((e) => e.term!.by === npc && e.term!.to === PLAYER);
+      const mine = () => f2().find((e) => e.term!.by === PLAYER && e.term!.to === npc);
+      expect(theirs()?.status, "setup: the houseguest's final-two promise is recorded").toBe("open");
+      expect(mine()?.status, "setup: the player's final-two promise is recorded").toBe("open");
+      g.playUntil(() => s.live.week >= madeWeek + 3 || !s.livingIds().includes(npc), 6000, "three weeks on");
+      if (!s.livingIds().includes(npc)) throw new NotReached(`seed ${seed}: the partner left within three weeks`);
+      return { g, s, npc, madeWeek, theirs, mine };
+    }, { from: 1, to: 12, hint: [2, 4], sandbox: (sd) => `f2p-${sd}`, what: "a week-2 final-two partner still in the house three weeks on" });
+    const { g, s, npc, theirs, mine } = found.at;
+    void g;
     expect(s.livingIds(), "setup: the houseguest is still in the house").toContain(npc);
     expect(theirs()?.status, "the houseguest's promise to the player did not lapse").toBe("open");
     expect(mine()?.status, "the player's promise to the houseguest did not lapse").toBe("open");
