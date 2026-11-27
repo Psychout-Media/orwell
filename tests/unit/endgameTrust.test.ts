@@ -55,8 +55,8 @@ describe("0193 pure: can I beat you?", () => {
     expect([isEndgame(5), isEndgame(4), isEndgame(3), isEndgame(2)]).toEqual([false, true, true, false]);
     expect(ENDGAME.atOrBelow).toBe(4);
   });
-  it("the vote reads it as the last named term; an absent hook is byte-identical", () => {
-    expect(VOTE_TERM_NAMES.at(-1)).toBe("endgame");
+  it("the vote reads it as a named term (after the herd; ORW-1079 appended the steer term after it); an absent hook is byte-identical", () => {
+    expect(VOTE_TERM_NAMES.indexOf("endgame")).toBe(VOTE_TERM_NAMES.indexOf("herd") + 1);
   });
 });
 
