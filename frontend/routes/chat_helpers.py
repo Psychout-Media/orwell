@@ -1648,6 +1648,9 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -
         _mf, _mt = room_ref(player_move['from'], names), room_ref(player_move['to'], names)  # ORW-466: the season's names (no theme: "the living room", as before)
         move_line = (f"\nTHE PLAYER JUST MOVED: from {_mf} to {_mt} (the engine has already done it). Open this turn's scene in {_mt}, "
                      f"with exactly the people listed above; never in {_mf}, and never re-describe the walk as still to come.")
+    # ORW-1076: a move the engine refused this turn, with its reason (a shut HOH door, the house gathered, "where?"): without it the narrator wrote the player through the door
+    if isinstance(player_move, dict) and player_move.get("refused") and player_move.get("reason"):
+        move_line = f"\nTHE PLAYER DID NOT MOVE (engine truth): {player_move['reason']}. Voice that in the scene; the player stays where they are."
     # ORW-478: a houseguest the earlier narration put in the player's room who is NOT on this roster must not just vanish or be described as inside the player's head. Said only on a move or when the engine reports someone left the room since
     # the player's last message (`sinceSend.departed`), not on every turn the player is alone; a houseguest on the asleep list is only mentioned, as the turned-in rule above says.
     since = whereabouts.get("sinceSend") if isinstance(whereabouts.get("sinceSend"), dict) else {}
@@ -4521,6 +4524,10 @@ def _presence_facts(state: dict) -> Optional[dict]:
     tonight = ((ev.get("evictee") or {}).get("name") if isinstance(ev, dict) and isinstance(ev.get("evictee"), dict) else None)
     if tonight and tonight in evicted:
         evicted.discard(tonight); in_view.add(tonight); room_present.add(tonight)
+    # ORW-1077: someone who walks out as their reaction to the player coming in is acting in this scene on this turn, though the board already has them next door
+    for _r in ((state.get("walkedIn") or {}).get("reactions") or []) if isinstance(state.get("walkedIn"), dict) else []:
+        if isinstance(_r, dict) and _r.get("left") and isinstance(_r.get("name"), str):
+            exempt.add(_r["name"].strip())
     return {"room": wa.get("room"), "in_view": in_view, "room_present": room_present,
             "evicted": evicted, "active_offscene": active_offscene,
             "adjacent": adjacent, "adjacent_rooms": adjacent_rooms, "exempt": exempt, "npc_rooms": npc_rooms, "room_names": room_names,

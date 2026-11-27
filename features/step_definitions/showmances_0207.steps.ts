@@ -28,7 +28,7 @@ interface Season {
 const cache = new Map<string, Promise<Season>>();
 const MAIN = 800; // the one played season most scenarios read (about a fortnight of in-game days); the others are cut short on purpose
 
-type Romance = "drawn" | "notDrawn" | "none" | "anyone";
+type Romance = "drawn" | "notDrawn" | "noChem" | "none" | "anyone";
 function playSeason(seed: number, playerGender: Pres | undefined, messages = MAIN, romance: Romance = "drawn", clash = false): Promise<Season> {
   const key = `${seed}:${playerGender ?? "-"}:${messages}:${romance}:${clash}`;
   const hit = cache.get(key);
@@ -44,7 +44,8 @@ function playSeason(seed: number, playerGender: Pres | undefined, messages = MAI
       const wa = (await call("whereabouts", {}).catch(() => null)) as { present?: Array<{ id: string }> } | null;
       const present = (wa?.present ?? []).map((x) => x.id).filter((id) => id !== "player");
       const fits = (id: string): boolean => { const n = sess.house?.npcs?.find((x: Any) => x.id === id); return !!n && n.character.genderPresentation !== undefined && canBeDrawnTo((n.character.outOrientation ?? sess.privateOrientations?.[id] ?? "straight"), n.character.genderPresentation, playerGender); };
-      const drawn = romance === "anyone" ? present : present.filter((id) => (romance === "drawn" ? fits(id) : !fits(id)));
+      const noChem = (id: string): boolean => fits(id) && !(sess.live?.chemistry ?? {})[`chem:${id}>player`]; // ORW-699: within their orientation, but no chemistry toward the player
+      const drawn = romance === "anyone" ? present : present.filter((id) => (romance === "drawn" ? fits(id) : romance === "noChem" ? noChem(id) : !fits(id)));
       if (clash && !clashed && partner && sess.live?.romances?.[partner < "player" ? `${partner}|player` : `player|${partner}`] !== undefined && present.includes(partner)) {
         // the player's own act: a clash with the partner, once the showmance is on record; the engine keeps only the houseguests actually up and in the room, so it is tried again at a later slot until the partner was in it
         await call("recordInteraction", { initiator: "player", witnessSet: ["player", partner], content: "a sharp argument, harsh words", kind: "conflict" }).catch((e: Error) => { clashErr = String(e.message).slice(0, 200); return null; });
@@ -220,6 +221,14 @@ Then("the player's own showmance scenes, answered by a houseguest drawn to them,
   assert.ok(Object.keys(s.romances).some((k) => k.includes("player")));
   (bag(this) as Any).away = await playSeason(3, "woman", 700, "notDrawn"); // ORW-876: as long as the drawn season above, which answers in kind; at 160 messages no houseguest answers either way
 });
+Then("a houseguest with no chemistry toward the player does not answer in kind either", slow, async function () {
+  // ORW-699 (parity with a houseguest's own flirting): within their orientation is not enough; a houseguest with no chemistry toward the player is simply not interested.
+  const s = await playSeason(3, "woman", 700, "noChem");
+  assert.ok(s.partner !== undefined, "positive control: the player did start scenes with a houseguest who holds no chemistry toward them");
+  assert.equal(s.chem[`chem:${s.partner}>player`], undefined, "the partner holds no chemistry toward the player");
+  assert.equal(Object.keys(s.romances).filter((k) => k.includes("player")).length, 0);
+});
+
 Then("a houseguest whose orientation does not include the player does not answer in kind", function () {
   const s = (bag(this) as Any).away as Season;
   assert.equal(Object.keys(s.romances).filter((k) => k.includes("player")).length, 0);
