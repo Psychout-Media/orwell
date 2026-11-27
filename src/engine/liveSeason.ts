@@ -4095,6 +4095,7 @@ function resolveBattleBack(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSo
   const dropped = jurorsBefore - nonPlayerJurors();
   if (dropped > 0) s.juryReturns = (s.juryReturns ?? 0) + dropped;
   s.active.push(winner);
+  if (s.evictedTaken) s.evictedTaken = s.evictedTaken.filter((h) => h !== winner); // ORW-1103: the returnee's first eviction is voided, so what the house took from it is too; a second eviction takes them with it again (deals, favors, assurances)
   // A returning PLAYER is a player again: a pre-jury evictee who chose to watch/skip (0133) must not stay a spectator, or the loop would keep
   // fast-forwarding their own weeks as if they were still watching from outside (found by the reactive-twists player-path guard).
   if (winner === ctx.player) s.spectator = undefined;
