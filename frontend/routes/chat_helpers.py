@@ -4521,6 +4521,10 @@ def _presence_facts(state: dict) -> Optional[dict]:
     tonight = ((ev.get("evictee") or {}).get("name") if isinstance(ev, dict) and isinstance(ev.get("evictee"), dict) else None)
     if tonight and tonight in evicted:
         evicted.discard(tonight); in_view.add(tonight); room_present.add(tonight)
+    # ORW-1077: someone who walks out as their reaction to the player coming in is acting in this scene on this turn, though the board already has them next door
+    for _r in ((state.get("walkedIn") or {}).get("reactions") or []) if isinstance(state.get("walkedIn"), dict) else []:
+        if isinstance(_r, dict) and _r.get("left") and isinstance(_r.get("name"), str):
+            exempt.add(_r["name"].strip())
     return {"room": wa.get("room"), "in_view": in_view, "room_present": room_present,
             "evicted": evicted, "active_offscene": active_offscene,
             "adjacent": adjacent, "adjacent_rooms": adjacent_rooms, "exempt": exempt, "npc_rooms": npc_rooms, "room_names": room_names,
