@@ -87,6 +87,12 @@ Feature: Reserve twists — a standing pool of surprises the live house earns, s
       Given a full live season in which the battle-back fires
       Then one juror re-enters the game
       And the season still reaches a jury of nine and a final two
+      And no more than nine jury seats are ever given
+
+    # ORW-1088 (Ryne 2026-11-27): "It shouldn't mix jurors and non jurors in the same battle back."
+    Scenario: The battle-back never mixes jurors with pre-jury evictees
+      Given the battle-back fires with two jurors seated and five pre-jury evictees out
+      Then every battle-back competitor is a juror
 
   Rule: Deterministic and durable
 

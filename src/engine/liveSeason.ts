@@ -4051,9 +4051,21 @@ function legacySecretVetoReplacement(s: LiveSeasonState, ctx: SeasonCtx, hoh: En
  * and back into the active house; when they are re-evicted later they rejoin the jury, so the finale
  * still closes at a jury of nine and a Final 2. The player, if a juror in the window, competes.
  */
+/**
+ * ORW-1088 (Ryne 2026-11-27: "It shouldn't mix jurors and non jurors in the same battle back. If it's pre jury, the earliest evictees would essentially fight for a spot
+ * back onto jury. If it's during jury, it wouldn't matter, the jury should always be the last 9th evicted."): the battle-back field. Once any juror is seated it is the
+ * most recent jurors only (up to four); before the jury it is the most recent pre-jury evictees only. Never a mix, so a returnee can never let a tenth person onto the
+ * jury: a pre-jury return shortens the record and the next eviction's seat test (`removeEvictee`) moves the jury start by one; a juror's return frees their own seat,
+ * which they take again when evicted again. Pure.
+ */
+export function battleBackField(s: { evictionOrder: EntityId[]; active: EntityId[]; jurorIds?: EntityId[] }): EntityId[] {
+  const jurors = jurorsOf(s);
+  const pool = jurors.length > 0 ? jurors : s.evictionOrder;
+  return pool.slice(-Math.min(4, pool.length));
+}
+
 function resolveBattleBack(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSource): BeatEvent {
-  const k = Math.min(4, s.evictionOrder.length);
-  const field = s.evictionOrder.slice(-k); // the recent jurors — includes the player if they were one
+  const field = battleBackField(s); // the recent jurors (or, before the jury, the recent pre-jury evictees) — includes the player if they were one
   const def = drawFor(s, "hoh", rng, ctx);
   const winner = resolveComp(field, def, ctx, rng, "compete").winner;
   // The returnee leaves the eviction record. The jury is a stable fact (`jurorIds`, ORW-1087), so removing a returnee takes only the returnee's own seat; later evictees

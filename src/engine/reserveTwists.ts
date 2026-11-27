@@ -211,7 +211,8 @@ export function triggeredTwist(
   const done = new Set(fired);
   if (sig.activeCount < TWIST_MIN_ACTIVE) return null; // too little game left to stay format-preserving
   // Battle-back first: its early-jury window is the narrowest and closes as the jury fills.
-  if (plan.battleBackArmed && !done.has("battle-back") && sig.juryCount >= plan.battleBackAtJury && sig.juryCount <= plan.battleBackAtJury + 1)
+  // ORW-1088: the field is jurors only, so it waits for a second juror (a field of one is no contest); the plan's draw is unchanged.
+  if (plan.battleBackArmed && !done.has("battle-back") && sig.juryCount >= Math.max(2, plan.battleBackAtJury) && sig.juryCount <= plan.battleBackAtJury + 1)
     return "battle-back";
   // Double eviction: the first week the house has shrunk to the seeded target size.
   if (plan.doubleEvictionArmed && !done.has("double-eviction") && sig.activeCount <= plan.doubleEvictionAtActive)
