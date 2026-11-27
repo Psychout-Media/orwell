@@ -157,10 +157,11 @@ jobs:
   # ratchet, no-new-bespoke-menu, the Vault-Wall dependency test ...), the Vault word scans that fail on a public string (the 0110 "confidence" scan, the 0023 "opinion change
   # is invisible" scan), py_compile and the ES-module syntax check. All of it is `npm run ci:fast` (ci/fast-checks.sh): run that locally before pushing, because every
   # failure it can report would otherwise be found by a slow lane minutes later. The guard tests and word scans also still run in their full lanes; the typecheck, py_compile and ES-module syntax check were moved here and run only here.
-  # Needs only the path filter (so a docs-only PR skips it); `ci-gate` requires it.
+  # ORW-1044: runs on EVERY pull request, docs-only included (the repo-wide secrets scan); `ci-gate` requires it.
   fast-checks:
     needs: changes
-    if: needs.changes.outputs.reuse != 'true' && (needs.changes.outputs.engine == 'true' || needs.changes.outputs.frontend == 'true')
+    # ORW-1044: UNCONDITIONAL (only a proven-identical tree skips it): it carries the repo-wide secrets scan, which reads EVERY tracked file, so no path set can prove it cannot be affected.
+    if: needs.changes.outputs.reuse != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -568,7 +569,8 @@ jobs:
         # ORW-229 flaky-test rule (docs/CI.md): one automatic rerun, like the browser lane; a test that passes only on the rerun is listed in the job
         # summary (frontend/tests/_flaky_report.py). Quarantined tests are deselected here and run nightly (frontend/tests/_quarantine.py).
         # --durations=0: every test's time is in the log, so frontend/tests/_ci_refresh_durations.py can refresh the shard table from any green run
-        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 --cov --cov-report= --reruns 1 -q -rs --durations=0
+        # ORW-1108: --timeout=120 (pyproject default 300): a hung test must fail itself, with its stack, before the job's 10-minute limit cancels the whole leg without naming it.
+        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 --cov --cov-report= --reruns 1 -q -rs --timeout=120 --durations=0
       - uses: actions/upload-artifact@v4
         with:
           name: fe-coverage-data-${{ matrix.shard }}
@@ -1052,7 +1054,7 @@ jobs:
           applicable() {
             case "$1" in
               changes) echo true ;;
-              fast-checks) if [ "$ENGINE" = true ] || [ "$FRONTEND" = true ]; then echo true; else echo false; fi ;;
+              fast-checks) echo true ;;  # ORW-1044: always applies (the repo-wide secrets scan)
               test|bdd|test-unit|coverage) echo "$ENGINE" ;;
               heavy-sims|season-mix-shard|season-mix) echo "$HEAVY" ;;
               smoke) echo "$DEPLOY" ;;
