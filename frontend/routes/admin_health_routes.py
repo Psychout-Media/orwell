@@ -1887,6 +1887,14 @@ def _guard_samples_section() -> list | None:
         return None
 
 
+def _belt_precision_section() -> dict | None:
+    try:
+        from src import orwell_sync_ledger as _sl
+        return _sl.get_belt_precision()
+    except Exception:
+        return None
+
+
 def _steer_counts_section() -> dict | None:
     try:
         from src import orwell_sync_ledger as _sl
@@ -2003,6 +2011,8 @@ async def _health_snapshot(user: str | None) -> dict:
         "steerCounts": _steer_counts_section(),
         # ORW-1061: the newest editing-guard drops (guard, reason, user, sentences, chars, time; never the sentence text), for sampling false positives.
         "guardSamples": _guard_samples_section(),
+        # ORW-1042: per belt, gate passed (attempts) vs correction applied, and the misses between them (process-wide since start; names and counts only).
+        "beltPrecision": _belt_precision_section(),
         # ORW-1014 PR 2: the act-first round's flag state, outcome counts, misses and latency p50/p95 (ms).
         "actFirst": _act_first_section(),
         # ORW-408: the pre-display hard-fact check's counters (chunks checked, skipped by reason, conflicts by fact). Numbers and fact ids only.
