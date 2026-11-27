@@ -2150,7 +2150,7 @@ export class GameSessionAdapter implements GameSession {
     const nominees = digest && digest.nominees.length >= 2 ? [...digest.nominees] : [...new Set([rec.evictee, ...Object.values(rec.voteOf)])];
     const living = this.livingIds().filter((id) => id !== PLAYER);
     // ORW-613: the player hears how people voted like anyone (a candidate listener while they are in the house); the player's OWN vote talk is theirs to say (ORW-612).
-    const listeners = this.livingIds().includes(PLAYER) ? [...living, PLAYER] : living;
+    const listeners = playerOutReason(live) === undefined ? [...living, PLAYER] : living; // ORW-1086: an evicted player is not in the house to hear it (livingIds always lists them)
     const out: SpokenClaim[] = [];
     const log = (live.claims ??= { seq: 0, items: [] });
     for (const speaker of Object.keys(rec.voteOf).sort()) {

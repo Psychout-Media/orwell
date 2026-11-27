@@ -56,15 +56,18 @@ const ACT_TYPES = /^(lobbying|deal|betrayal|conversation|alliance|overheard|spy-
  *    A public record about the house (the HOH room, a bed claim, a reason said aloud, a secret out) keeps the people still in it.
  */
 export function gateHouseEvent(live: HouseStatusSource | null | undefined, type: string, witnessSet: readonly EntityId[]): EntityId[] | null {
+  return gateHouseEventInner(live, type, witnessSet);
+}
+function gateHouseEventInner(live: HouseStatusSource | null | undefined, type: string, witnessSet: readonly EntityId[]): EntityId[] | null {
   if (!live || live.finished || BROADCAST_TYPES.has(type) || (live.beat !== undefined && JURY_IN_THE_ROOM.has(live.beat))) return [...witnessSet];
   const here = (id: EntityId): boolean => isActiveInHouse(live, id) || id === live.evictee; // this week's evictee is still on their own eviction night
-  const active = witnessSet.filter(here);
-  if (active.length === witnessSet.length) return [...witnessSet]; // everyone is in the house (the ordinary case)
-  if (active.length === 0) {
-    // Only people who have left: the jury house (jurors with jurors, the player watching among them) is the one place that is theirs. A lone one, or a pre-jury evictee, has nowhere to act.
-    const juror = (id: EntityId): boolean => id === PLAYER || (live.jurors ?? []).includes(id);
+  const present = witnessSet.filter(here);
+  if (present.length === witnessSet.length) return [...witnessSet]; // everyone is in the house (the ordinary case), or on their own eviction night
+  const juror = (id: EntityId): boolean => id === PLAYER || (live.jurors ?? []).includes(id);
+  if (!witnessSet.some((id) => isActiveInHouse(live, id))) {
+    // Nobody in the house: the jury house (jurors with jurors, the player watching among them) is the one place that is theirs. A lone one, or a pre-jury evictee, has nowhere to act.
     return witnessSet.length >= 2 && witnessSet.every(juror) ? [...witnessSet] : null;
   }
   if (ACT_TYPES.test(type) && !here(witnessSet[0]!)) return null; // an evicted houseguest acted: that did not happen in the house
-  return active;
+  return present;
 }
