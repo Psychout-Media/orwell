@@ -61,9 +61,13 @@ function toPlayerGoodbyes(s: Any): void {
   throw new Error("the player was never voted out");
 }
 
-/** Find a seed where the voted-out player's night plays; every seed here is the same real path, so the first normally serves. */
+/**
+ * Find a seed where the voted-out player's night plays; every seed here is the same real path, so the first normally serves. The house rarely evicts the player from this hand-set board, so the
+ * seeds known to do it are tried first, then 1..60 (ORW-779 moved them: of seeds 1..240, 70, 116 and 131 are the first that evict the player).
+ */
+const SEEDS = [70, 116, 131, ...Array.from({ length: 60 }, (_, i) => i + 1)];
 function evictedPlayer(withSentinels = false): { s: Any; sentinels: string[] } {
-  for (let seed = 1; seed <= 60; seed++) {
+  for (const seed of SEEDS) {
     const { reg, s } = boot(seed);
     const sentinels = withSentinels ? plantLiveSentinels(reg, "u", seed) : [];
     try {
@@ -72,7 +76,7 @@ function evictedPlayer(withSentinels = false): { s: Any; sentinels: string[] } {
       return { s, sentinels };
     } catch { /* the player was spared on this seed: try the next */ }
   }
-  throw new Error("no seed in 1..60 voted the player out");
+  throw new Error(`no seed of ${SEEDS.join(",")} voted the player out`);
 }
 
 describe("ORW-719 - the evicted player's own cards (unit: the board set by hand)", () => {

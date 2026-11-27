@@ -261,3 +261,26 @@ describe("walking in on a group talk (ORW-473 amendment, 0192)", () => {
     expect(JSON.stringify(x.s.getGameState())).not.toContain("SENTINEL-HIDDEN");
   });
 });
+
+describe("ORW-1077: the one who moves the talk elsewhere really leaves", () => {
+  it("they are out of the room the player walked into, next door, and the view says they left; the others stay", () => {
+    const x = stage();
+    sheet(x.h, { [x.A]: { candor: 0.1, ap: 0.3, ao: 0.1 }, [x.B]: { candor: 0.9, ap: 0.9, ao: 0.5 } }, x.A, x.B);
+    x.s.movePlayer("kitchen");
+    const w = x.s.getGameState().walkedIn!;
+    const a = w.reactions.find((r) => r.id === x.A)!, b = w.reactions.find((r) => r.id === x.B)!;
+    expect(a.line).toBe(walkInLine("moves-the-talk"));
+    expect(a.left).toBe(true);
+    expect(b.left).toBeUndefined();
+    expect(x.h.presence.get(x.A)).not.toBe("kitchen");
+    expect(x.h.presence.get(x.A)).not.toBe("diary-room");
+    expect(x.h.presence.get(x.B)).toBe("kitchen");
+  });
+  it("nobody leaves on the other reactions", () => {
+    const x = stage();
+    sheet(x.h, { [x.A]: { candor: 0.9, ap: 0.9, ao: 0.5 }, [x.B]: { candor: 0.5, ap: 0.5, ao: 0.7 } }, x.A, x.B);
+    x.s.movePlayer("kitchen");
+    expect(x.s.getGameState().walkedIn!.reactions.some((r) => r.left)).toBe(false);
+    expect([x.h.presence.get(x.A), x.h.presence.get(x.B)]).toEqual(["kitchen", "kitchen"]);
+  });
+});
