@@ -37,7 +37,7 @@ export async function auditSeason(seed: number, opts: { survive?: boolean; maxMe
         row.events++;
         try {
           const order: string[] = sess.live?.evictionOrder ?? [];
-          const start: number = sess.juryStartIndex();
+          const jurorSet: string[] = sess.jurorsNow();
           const evictee: string | undefined = sess.live?.evictee;
           const departing = (id: string): boolean => id === evictee && !(sess.live?.weekDigests ?? []).some((d: any) => d.evictee === id); // the evictee on their own eviction night is still part of that beat
           const playerId: string = sess.house.player.id;
@@ -45,8 +45,8 @@ export async function auditSeason(seed: number, opts: { survive?: boolean; maxMe
           if (!finaleNight && !SKIP_TYPE.test(String(e.type)) && e.type !== "house-event" && !String(e.id).startsWith("season:") && !DEPARTURE.test(String(e.content))) {
             const members: string[] = [...new Set<string>([e.initiator, ...(e.witnessSet ?? [])])];
             const outNpc = members.filter((i) => i !== playerId && order.indexOf(i) >= 0 && !departing(i));
-            const preJury = outNpc.filter((i) => order.indexOf(i) < start);
-            const jurors = outNpc.filter((i) => order.indexOf(i) >= start);
+            const preJury = outNpc.filter((i) => !jurorSet.includes(i));
+            const jurors = outNpc.filter((i) => jurorSet.includes(i));
             const housemates = members.filter((i) => i !== playerId && (order.indexOf(i) < 0 || departing(i)));
             const playerOut = members.includes(playerId) && order.includes(playerId) && !departing(playerId);
             let kind: HitKind | undefined;

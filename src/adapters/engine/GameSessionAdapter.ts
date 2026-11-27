@@ -3629,7 +3629,7 @@ export class GameSessionAdapter implements GameSession {
   setOnPlayerEvent(fn: (content: string, witnessSet: EntityId[], type?: string) => string | undefined): void {
     // ORW-1084/1085/1086: the active-in-house gate sits at this one seam, so no producer (lobbying, deals, HOH room, bed claims, reasons said aloud, secret breaks, betrayals, conversations) can seat a houseguest who has left the house.
     this.onPlayerEvent = (content, witnessSet, type) => {
-      const set = gateHouseEvent(this.live ? { evictionOrder: this.live.evictionOrder, finished: this.live.finished, beat: this.live.beat, evictee: this.live.evictee !== undefined && !(this.live.weekDigests ?? []).some((d) => d.evictee === this.live!.evictee) ? this.live.evictee : undefined, juryStart: this.juryStartIndex() } : null, type ?? "deal", witnessSet);
+      const set = gateHouseEvent(this.live ? { evictionOrder: this.live.evictionOrder, finished: this.live.finished, beat: this.live.beat, evictee: this.live.evictee !== undefined && !(this.live.weekDigests ?? []).some((d) => d.evictee === this.live!.evictee) ? this.live.evictee : undefined, jurors: this.jurorsNow() } : null, type ?? "deal", witnessSet);
       return set === null ? undefined : fn(content, set, type);
     };
   }

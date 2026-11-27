@@ -14,8 +14,8 @@ export interface HouseStatusSource {
   beat?: string;
   /** This week's evictee, until the week rolls: the one on their own eviction night, still part of that beat. */
   evictee?: EntityId;
-  /** Where the jury starts in the eviction order: a place before it is a pre-jury evictee, who goes home (no jury house). */
-  juryStart?: number;
+  /** The jurors seated so far (the stable `jurorIds` fact): anyone else who has left is a pre-jury evictee, who goes home (no jury house). */
+  jurors?: readonly EntityId[];
 }
 
 /** The beats where the jury is in the room (the final eviction and the finale itself). */
@@ -62,8 +62,7 @@ export function gateHouseEvent(live: HouseStatusSource | null | undefined, type:
   if (active.length === witnessSet.length) return [...witnessSet]; // everyone is in the house (the ordinary case)
   if (active.length === 0) {
     // Only people who have left: the jury house (jurors with jurors, the player watching among them) is the one place that is theirs. A lone one, or a pre-jury evictee, has nowhere to act.
-    const order = live.evictionOrder ?? [];
-    const juror = (id: EntityId): boolean => id === PLAYER || order.indexOf(id) >= (live.juryStart ?? 0);
+    const juror = (id: EntityId): boolean => id === PLAYER || (live.jurors ?? []).includes(id);
     return witnessSet.length >= 2 && witnessSet.every(juror) ? [...witnessSet] : null;
   }
   if (ACT_TYPES.test(type) && !here(witnessSet[0]!)) return null; // an evicted houseguest acted: that did not happen in the house

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { gateHouseEvent, isActiveInHouse, playerOutReason } from "../../src/engine/inHouse";
 
 /** ORW-1084/1085/1086: the one status gate, as a pure rule. The played seasons that prove it end to end are in tests/realpath/activeInHouse1084.test.ts. */
-const live = { evictionOrder: ["npc:1", "npc:2", "npc:3", "player", "npc:4"], juryStart: 2 }; // npc:1, npc:2 are pre-jury; npc:3, the player and npc:4 are jurors
+const live = { evictionOrder: ["npc:1", "npc:2", "npc:3", "player", "npc:4"], jurors: ["npc:3", "npc:4"] }; // npc:1, npc:2 are pre-jury; npc:3 and npc:4 are jurors; the player is out too
 describe("the active-in-house gate", () => {
   it("who is in the house", () => {
     expect(isActiveInHouse(live, "npc:9")).toBe(true);
