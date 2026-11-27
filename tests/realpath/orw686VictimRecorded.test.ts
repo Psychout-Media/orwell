@@ -61,7 +61,7 @@ describe("a betrayal rumor records its victim from the real betrayal event (play
       const victim = betrayed(s).find((x) => room(s).includes(x))!;
       const { o: bystander } = await tellTheRoom(s, victim);
       return heardTold(s, bystander) ? { s, victim, bystander } : undefined;
-    }, wfScan([8, 5, HINT], "a played season where the player breaks a deal at the secret ballot and the bystander hears the told rumor"));
+    }, wfScan([1, 8, 5, HINT], "a played season where the player breaks a deal at the secret ballot and the bystander hears the told rumor"));
     const at = found.at.s, v = found.at.victim, o = found.at.bystander;
     const deal = dealsOf(at).find((d) => d.status === "broken" && d.brokenBy === PLAYER && d.parties.includes(v)) as Deal & { secretVote?: boolean };
     expect(deal.secretVote, "the break was the player's secret ballot").toBe(true);

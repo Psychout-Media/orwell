@@ -22,4 +22,4 @@ to a saved `dodgeLog` (one per houseguest, week and phase).
 
 ## Deferred (ORW-825)
 
-NPC-to-NPC asks (the same decision for a houseguest pressed by another houseguest), the stakes read from the held fact's own risk (a fixed middling stake for now), and a lie that is also a recorded claim at the dodge seam.
+NPC-to-NPC asks beyond a confrontation (ORW-1078 built the confrontation: the same decision, recorded on its event and seen when it happens in the player's room), the stakes read from the held fact's own risk (a fixed middling stake for now), and a lie that is also a recorded claim at the dodge seam.

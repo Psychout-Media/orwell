@@ -763,7 +763,7 @@ export interface LiveSeasonState {
    */
   bonds?: BondStore;
   /** 0199 (ORW-629): HOH room visits already held (`week:hoh`) and backstory facts already revealed (`hoh|text`, each a true public facet of that HOH). Engine-only, idempotent, only grows. */
-  hohRoom?: { done: string[]; used: string[] };
+  hohRoom?: { done: string[]; used: string[]; /** ORW-1076: reigns (`week:hoh`) whose open-house visit the player has used. */ playerUp?: string[] };
   /** 0180 (Theme 3 slice 12, house norms): per `observer|subject`, how many known breaches of word have already been folded into the observer's read (never re-applied). Engine-only. */
   normsApplied?: Record<string, number>;
   /** 0186 (Theme 3 slice 14): exposures already applied (`holder|doubleDealer|rival`) and twists already reopened (`twistKey`, plus `dealId|twistKey` per deal handled). Engine-only (Vault class), never projected; idempotent. */

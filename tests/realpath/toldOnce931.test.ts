@@ -8,7 +8,7 @@ import { firstSeedWhereSync } from "../support/firstSeedWhere";
  * Now the same speaker never re-tells the player the same thing, and another houseguest saying it reaches the narrator marked `alreadyHeard` (voiced as confirming, never as news).
  * Tellings are read from the claims record (each once, by its id); the narrator's line for a telling is the speaker's `tellsYou` in a view built that turn (every build is captured).
  * The precondition (a claim the player already heard comes back at all) is reached by a seed scan in a fixed order (ORW-880); the sandbox name is part of the game's identity. Roles only.
- * BOUNDED (Coordinator, 2026-11-26): at most five seasons of 900 turns (the hints 12, 7, 4, then 1..2; 12 since ORW-972 moved the played seasons) and a 7-minute cap, so a change that moves played seasons fails fast and names the
+ * BOUNDED (Coordinator, 2026-11-26): at most five seasons of 900 turns (the hints 27, 12, 7, 4, then 1; 27 since ORW-779 moved the played seasons, 12 since ORW-972 did) and a 7-minute cap, so a change that moves played seasons fails fast and names the
  * seeds it tried, never runs a shard into its time limit. A PR that moves every listed season past the precondition re-hints this to a seed that reaches it.
  */
 type Claim = { id: string; speaker: string; listener: string; kind: string; subject: string; object?: string; label?: string };
@@ -45,7 +45,7 @@ describe("ORW-931 REAL PATH: what the player was already told never comes back a
       // the precondition: a comeback the narrator's view carries (a claim can also reach the player through a scene they were in, e.g. an accusation: never through the view, so not the narrator's to mark)
       g.playUntil(() => { read(); return comebacks.some((c) => c.tell); }, 900, "a claim the player already heard coming back through the narrator");
       return comebacks;
-    }, { from: 1, to: 2, hint: [12, 7, 4], sandbox: (s) => `t931-${s}`, what: "a claim the player already heard coming back through the narrator" });
+    }, { from: 1, to: 2, hint: [27, 12, 7, 4], sandbox: (s) => `t931-${s}`, what: "a claim the player already heard coming back through the narrator" });
     for (const c of at) {
       expect(c.before, "a houseguest re-told the player the same thing").not.toContain(c.speaker);
       if (c.tell) expect(c.tell.alreadyHeard, "another houseguest's telling of what the player already heard is marked as not news").toBe(true);
