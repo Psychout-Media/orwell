@@ -1678,6 +1678,10 @@ export class GameSessionAdapter implements GameSession {
       if (!kind) continue;
       const spoken = pickSpoken(holders);
       if (!spoken) continue;
+      // A second record can carry the same words about the same houseguest. Those words are already out: saying them again would leave a hidden copy (a night the player missed) as a verbatim twin of a shown one, and the
+      // vault-leak checkpoint then refuses every later turn.
+      const said = `: ${spoken}`;
+      if ((this.record?.events() ?? []).some((e) => e.type === "secret-break" && e.content.endsWith(said) && e.content.startsWith(this.nameOf(subject)))) { (s.secretBreaks ??= []).push(factId); done.add(factId); continue; }
       this.stageSecretBreak(knowledge, { factId, subject, kind, spoken, holders: holders.map((x) => x.holder), room });
       (s.secretBreaks ??= []).push(factId);
       if (s.sayItFirst?.factId === factId) delete s.sayItFirst; // ORW-743: the room said it first
