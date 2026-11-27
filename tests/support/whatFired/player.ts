@@ -153,6 +153,10 @@ export class StallWatch {
 
 const SCENES = ["bonding", "strategy", "gossip", "conflict", "alliance"] as const;
 const DEALS = ["safety", "final-two", "vote"] as const;
+/** ORW-1099: every deal kind a player can ask for (the nine single promises and the two-part package). The surviving player asks each once a season, from the hostile weeks on, so the nightly report can say whether each one works. */
+export const ALL_DEAL_KINDS = ["safety", "vote", "final-two", "target-other", "comp-throw", "veto-save", "protect-third", "conditional", "information", "package"] as const;
+/** ORW-1099: how many times a kind is tried before the player gives up on it for the season (a deal can be illegal at the moment it is asked: no vote to give, the same deal already live). */
+const DEAL_TRIES = 3;
 /** ORW-778: the game week from which the scripted player plays its hostile and risky moves (fights, accusations, exposing, confronting, and making deals: a houseguest may take a deal with a plan to break it, and the first scripted seasons showed a player with many deals flipped on by most of the house). Before it the player is a pleasant floater building a base. */
 export const HOSTILE_FROM_WEEK = 9;
 
@@ -204,6 +208,10 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
   let lastPendingKey = "", repeats = 0;
   const stamp: Array<{ msg: number; week: number; out: boolean }> = [];
   const factIds: string[] = [];
+  /** ORW-1099 (surviving player only): the facts the player really holds about a houseguest (never a Diary Room note, which the engine refuses to wield), for the secret levers. */
+  const facts: Array<{ id: string; subject: string }> = [];
+  const spentFacts = new Set<string>(); const tradedTo = new Set<string>();
+  const dealTries = new Map<string, number>(); const dealMade = new Set<string>();
   let allianceId: string | undefined;
 
   const pass = async (tag: string): Promise<void> => { // the held night, played the way a person plays it: hang out through the day, turn in at night
@@ -287,6 +295,30 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
     return false;
   };
 
+  /** ORW-1099: a held fact whose subject is still in the house, for each secret lever (the surviving player only). */
+  const outNow = (): Set<string> => new Set<string>((sess().live?.evictionOrder ?? []) as string[]);
+  const usable = (): Array<{ id: string; subject: string }> => { const out = outNow(); return facts.filter((x) => !out.has(x.subject)); };
+  /** a trade needs a secret about a third party the recipient has not been given yet */
+  const tradeFact = (recipient: string): string | undefined => usable().find((x) => x.subject !== recipient && !spentFacts.has(x.id) && !tradedTo.has(`${x.id}|${recipient}`))?.id;
+  /** the NPC confronted is the subject of the fact when the player holds one about them, else any fact still about someone in the house */
+  const confrontFact = (npc: string): string | undefined => { const u = usable(); return (u.find((x) => x.subject === npc) ?? u[0])?.id; };
+  const exposeFact = (): string | undefined => usable().find((x) => !spentFacts.has(x.id))?.id;
+  /** ORW-1099: ask the next deal kind not yet made this season (each kind is tried up to DEAL_TRIES times). True when the turn was used. */
+  const askNextDealKind = async (npc: string, other: string): Promise<boolean> => {
+    // the kind tried least so far goes next, so a kind the houseguests keep refusing cannot starve the others of turns
+    const kind = ALL_DEAL_KINDS.filter((k) => !dealMade.has(k) && (dealTries.get(k) ?? 0) < DEAL_TRIES && !(k === "protect-third" && other === npc)).sort((a, b) => (dealTries.get(a) ?? 0) - (dealTries.get(b) ?? 0))[0];
+    if (!kind) return false;
+    dealTries.set(kind, (dealTries.get(kind) ?? 0) + 1);
+    const req: Record<string, unknown> = { with: npc, kind, terms: "let's look after each other" };
+    if (kind === "protect-third") req["third"] = other;
+    if (kind === "comp-throw" || kind === "veto-save") req["direction"] = "ask";
+    if (kind === "package") req["parts"] = [{ kind: "safety" }, { kind: "information" }];
+    rec.tried[`deal:${kind}`] = (rec.tried[`deal:${kind}`] ?? 0) + 1;
+    const d = await social("makeDeal", req);
+    if (d && !d.refused) { dealtWith.add(npc); dealMade.add(kind); } else rec.refused[`deal:${kind}`] = (rec.refused[`deal:${kind}`] ?? 0) + 1;
+    return true;
+  };
+
   const talk = async (t: number): Promise<void> => {
     const wa = await read("whereabouts", {});
     const present: string[] = (wa?.present ?? []).map((x: { id: string }) => x.id).filter((id: string) => id !== "player");
@@ -300,7 +332,7 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
     const hostile = opts.survive !== true || week >= HOSTILE_FROM_WEEK;
     switch (t % 16) {
       case 0: case 5: case 9: case 13: await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we talk about home and laugh for a while", kind: SCENES[t % SCENES.length] }); break;
-      case 1: if (!hostile) await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we get to know each other over a long talk", kind: "bonding" }); else { const d = await social("makeDeal", { with: npc, kind: DEALS[(t >> 4) % DEALS.length], terms: "let's look after each other" }); if (d && !d.refused) dealtWith.add(npc); } break;
+      case 1: if (!hostile) await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we get to know each other over a long talk", kind: "bonding" }); else if (opts.survive === true && await askNextDealKind(npc, other)) break; else { const d = await social("makeDeal", { with: npc, kind: DEALS[(t >> 4) % DEALS.length], terms: "let's look after each other" }); if (d && !d.refused) dealtWith.add(npc); } break;
       case 2: await social("confide", { npcId: npc }); break;
       case 3: await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "I tell them they are safe with me this week", kind: "alliance", assurance: { kind: "safe" } }); break;
       case 4: await social("recordInteraction", { initiator: npc, witnessSet: ["player", npc], content: "they tell me I am safe with them this week", kind: "alliance", assurance: { kind: "vote" } }); break;
@@ -310,8 +342,14 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
       case 10: if (hostile && present.length >= 2 && t % 48 === 10) await social("accuseTie", { aId: npc, bId: other }); break;
       case 11: await social("callInFavor", { npcId: npc }); break;
       case 12: await social("diaryRoom", { entry: "I think I am in a decent spot this week." }); break;
-      case 14: { const f = factIds[t % Math.max(1, factIds.length)]; if (!hostile) await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we trade stories and laugh", kind: "bonding" }); else if (f) await social("tradeSecret", { toNpcId: npc, factId: f }); else await social("tradeSecret", { toNpcId: npc, bluff: true, subject: other }); break; }
-      default: { const f = factIds[0]; if (!hostile) await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we sit together and talk about the week", kind: "bonding" }); else if (f) await social(t % 32 === 15 ? "confront" : "exposeSecret", t % 32 === 15 ? { npcId: npc, factId: f } : { factId: f }); else await social("moveTo", { room: "kitchen" }); }
+      case 14: { const f = opts.survive === true ? tradeFact(npc) : factIds[t % Math.max(1, factIds.length)]; if (!hostile) await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we trade stories and laugh", kind: "bonding" }); else if (f) { const r = await social("tradeSecret", { toNpcId: npc, factId: f }); if (opts.survive === true && r && !r.refused) tradedTo.add(`${f}|${npc}`); } else await social("tradeSecret", { toNpcId: npc, bluff: true, subject: other }); break; }
+      default: {
+        const confronting = t % 32 === 15;
+        const f = opts.survive === true ? (confronting ? confrontFact(npc) : exposeFact()) : factIds[0];
+        if (!hostile) await social("recordInteraction", { initiator: "player", witnessSet: ["player", npc], content: "we sit together and talk about the week", kind: "bonding" });
+        else if (f) { const r = await social(confronting ? "confront" : "exposeSecret", confronting ? { npcId: npc, factId: f } : { factId: f }); if (opts.survive === true && !confronting && r && r.exposed === true) spentFacts.add(f); }
+        else await social("moveTo", { room: "kitchen" });
+      }
     }
   };
 
@@ -343,7 +381,10 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
     if (msg % talkEvery === 0) await talk(msg / talkEvery | 0);
     if (msg % 40 === 20) { // learn what the player knows: the facts a secret trade or confrontation can use
       const d = await read("getVisibleStateFor", { entity: "player" });
-      for (const f of (d?.knowledge ?? []) as Array<{ id?: string }>) if (f.id && !factIds.includes(f.id) && factIds.length < 24) factIds.push(f.id);
+      for (const f of (d?.knowledge ?? []) as Array<{ id?: string; pathway?: string; subject?: string }>) {
+        if (f.id && !factIds.includes(f.id) && factIds.length < 24) factIds.push(f.id);
+        if (opts.survive === true && f.id && f.pathway !== "diary-room" && f.subject && f.subject !== "player" && !facts.some((x) => x.id === f.id) && facts.length < 40) facts.push({ id: f.id, subject: f.subject });
+      }
     }
     if (msg % advEvery === advEvery - 1) {
       const r = await must("advanceGame", {}, msg); rec.advances++;
