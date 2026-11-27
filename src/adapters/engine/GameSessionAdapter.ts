@@ -14766,11 +14766,13 @@ export class GameSessionAdapter implements GameSession {
       const candor = Math.max(0, Math.min(1, (REASONS.candorByArchetype[character?.archetype ?? ""] ?? 0.5) + (REASONS.candorByStyle[character?.strategyStyle ?? ""] ?? 0)));
       for (const claim of liesBy(live.claims, liar)) {
         if (!this.openLie(claim) || !living.includes(claim.listener)) continue;
-        const planted = claim.listener === PLAYER ? undefined : (live.beliefs?.[claim.listener] ?? []).find((b) => plantedBy(b, claim.id) && !b.refuted);
+        // ORW-961 (Ryne 2026-11-26: "Yes, same as with others"): a lie told to the PLAYER reads its catch risk the same way as one told to a houseguest (the player's own edges and any belief they hold are read like anyone's;
+        // before, every input was zeroed for a player listener, so the risk was always 0 and no NPC ever came clean to the player).
+        const planted = (live.beliefs?.[claim.listener] ?? []).find((b) => plantedBy(b, claim.id) && !b.refuted);
         const risk = catchRisk({
-          otherVersionNearListener: otherVersionNear(claims, claim, (a, b) => (a === PLAYER || b === PLAYER ? 0 : Math.min(bond(a, b), bond(b, a))), COMING_CLEAN.nearBond),
+          otherVersionNearListener: otherVersionNear(claims, claim, (a, b) => Math.min(bond(a, b), bond(b, a)), COMING_CLEAN.nearBond),
           listenerDoubting: !!planted && planted.confidence < COMING_CLEAN.doubtBelow,
-          subjectCloseToListener: claim.listener !== PLAYER && claim.subject !== claim.listener && bond(claim.listener, claim.subject) >= COMING_CLEAN.nearBond,
+          subjectCloseToListener: claim.subject !== claim.listener && bond(claim.listener, claim.subject) >= COMING_CLEAN.nearBond,
         });
         if (risk <= 0) continue;
         const chance = confessChance(risk, candor);
