@@ -31,6 +31,8 @@ export interface BondRecord {
   romance: number;
   /** The highest the grudge ever reached (rivals-turned-allies reads from this). */
   peakResentment: number;
+  /** ORW-1079: strategy scenes together (working the game; a mentor bond reads from this). Only grows. Absent on older saves (= 0). */
+  strategy?: number;
   /** The commitment the pair's deals hold right now. */
   commitment: Commitment;
 }
@@ -41,7 +43,7 @@ export type BondStore = Record<string, BondRecord>;
 export function bondStoreSuperset(later: BondStore | undefined, earlier: BondStore | undefined): boolean {
   for (const [k, e] of Object.entries(earlier ?? {})) {
     const l = later?.[k];
-    if (!l || l.history < e.history || l.peakResentment < e.peakResentment) return false;
+    if (!l || l.history < e.history || l.peakResentment < e.peakResentment || (l.strategy ?? 0) < (e.strategy ?? 0)) return false;
   }
   return true;
 }
@@ -146,7 +148,7 @@ function applyScene(r: BondRecord, kind: SceneFold, scale: number, moment: boole
   if (moment) r.history += 1;
   if (kind === "bonding" || kind === "alliance") { r.warmth = clamp(r.warmth + BOND.warmthPerBond * scale, 0, 1); r.strain = clamp(r.strain - BOND.repairPerBond * scale, 0, 1); }
   else if (kind === "showmance") { r.warmth = clamp(r.warmth + BOND.warmthPerRomance * scale, 0, 1); if (moment) r.romance += 1; r.strain = clamp(r.strain - BOND.repairPerBond * scale, 0, 1); }
-  else if (kind === "strategy") r.warmth = clamp(r.warmth + BOND.warmthPerStrategy * scale, 0, 1);
+  else if (kind === "strategy") { r.warmth = clamp(r.warmth + BOND.warmthPerStrategy * scale, 0, 1); if (moment) r.strategy = (r.strategy ?? 0) + 1; }
   else if (kind === "conflict") {
     r.warmth = clamp(r.warmth + BOND.warmthPerConflict * scale, 0, 1);
     r.resentment = clamp(r.resentment + BOND.resentPerConflict * scale, 0, 1);
@@ -281,8 +283,8 @@ export function nightPasses(store: BondStore): void {
 }
 
 /**
- * The kind of a bond, read from its record (the holder's side). Deterministic, first match wins. "mentor" and "puppet-master" need reads later slices add
- * (age and game experience; who steers whose votes): until then they are never returned.
+ * The kind of a bond, read from its record (the holder's side). Deterministic, first match wins. "mentor" and "puppet-master" (ORW-1079) need reads beyond the record
+ * (age and game experience; who steers whose votes): the caller passes them in `steer` (`mentorPuppet.ts`); without it they are never returned.
  */
 /** ORW-622: how much each commitment level binds, as the pact strand (an engine table over the closed commitment enum; not a pick). */
 const PACT_STRAND: Readonly<Record<Commitment, number>> = { none: 0, casual: 0.35, "final-two": 0.7, "ride-or-die": 1 };
@@ -303,10 +305,13 @@ export function strandsOf(rec: BondRecord): Partial<Record<Strand, number>> {
   return out;
 }
 
-export function kindOf(rec: BondRecord): BondKind {
+export function kindOf(rec: BondRecord, steer?: { mentor?: boolean; puppetMaster?: boolean }): BondKind {
   if (rec.romance >= BOND.showmanceScenes && rec.warmth >= BOND.friendshipAt) return "showmance";
   if (rec.peakResentment >= BOND.rivalsPeak && rec.warmth >= BOND.friendshipAt && rec.resentment < BOND.rivalsPeak / 2) return "rivals-turned-allies";
   if (rec.debt >= BOND.protectorDebt) return "protector";
+  // ORW-1079: the reads `mentorPuppet.ts` adds (age and game experience; who steers whose votes), supplied by the caller. Absent => never returned (as before).
+  if (steer?.puppetMaster) return "puppet-master";
+  if (steer?.mentor) return "mentor";
   if (rec.commitment !== "none" && rec.warmth < BOND.friendshipAt) return "business";
   if (rec.warmth >= BOND.friendshipAt) return "friendship";
   return "none";
