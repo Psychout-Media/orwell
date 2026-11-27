@@ -12,10 +12,10 @@ import { sessionCoreSupersetViolation, type SessionSnapshot } from "../../src/en
 type Snap = SessionSnapshot;
 describe("agenda non-degradation: the trusted window and the full check", () => {
   it("fires on a corrupted earlier history exactly where the window promises, and never on a genuine later state", async () => {
-    const reg = composeRuntime({ clock: new FakeClock(), seed: 11 }).registry;
-    const user = "agenda-844";
+    const reg = composeRuntime({ clock: new FakeClock(), seed: 1 }).registry;
+    const user = "agenda-844"; // seed 1 (ORW-779 moved seed 11: its agendas no longer reach three entries and grow inside the loop)
     const mcp = reg.resolver()("player", user);
-    await mcp.callTool("createCharacter", { playerName: "The Player", seed: 11, archetype: "floater" });
+    await mcp.callTool("createCharacter", { playerName: "The Player", seed: 1, archetype: "floater" });
     let earlier: Snap | undefined, later: Snap | undefined;
     const longest = (s: Snap): number => Math.max(0, ...Object.values(s.live?.agendas ?? {}).map((a) => a.history.length));
     for (let i = 0; i < 1400 && !later; i++) {
