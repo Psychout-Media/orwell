@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import { playedGame } from "../support/playedGame";
-import { LOBBY, pitchTilt } from "../../src/engine/lobbying";
 import { CEREMONY_IMPACTS, PLAYED_COMP_THREAT } from "../../src/engine/relationshipConstants";
 import { PLAYER, type EntityId } from "../../src/domain/ids";
 import type { RelationshipModel } from "../../src/engine/relationships";
@@ -8,7 +7,7 @@ import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAd
 
 /**
  * ORW-779 (Ryne 2026-11-26: "Social play can definitely work. Comps shouldn't be the only reason someone is a threat."): in a PLAYED game one competition win
- * raises the house's threat read without sending it to the top for everyone, and a pitch to the HOH reaches far enough to move a close nomination. Roles only.
+ * raises the house's threat read without sending it to the top for everyone. Roles only.
  */
 interface Inside { rel: RelationshipModel; live: { playedGame?: boolean; resume?: Record<string, number>; active: EntityId[]; hoh?: EntityId; week: number; playerPitch?: unknown } }
 const inside = (s: GameSessionAdapter): Inside => s as unknown as Inside;
@@ -42,24 +41,3 @@ describe("ORW-779: one competition win is a factor in the threat read, not the t
   });
 });
 
-describe("ORW-779: talk to the HOH reaches further in a played game", () => {
-  it("the player's recorded talk to a trusting HOH protects them by far more than the unscaled cap would, and stays under its own cap", () => {
-    const g = playedGame({ seed: 4 });
-    const x = inside(g.s);
-    g.playUntil(() => !!x.live?.hoh && x.live.hoh !== PLAYER, 4000, "an NPC head of household");
-    const hoh = x.live.hoh!;
-    x.live.playerPitch = { week: x.live.week, hoh, talks: 2 };
-    x.rel.edge(hoh, PLAYER).trust = 0.8;
-    const played = g.s.pitchTiltFor(PLAYER, hoh);
-    expect(played, "far enough to close a typical pawn-seat gap").toBeLessThan(-0.15);
-    expect(Math.abs(played)).toBeLessThanOrEqual(LOBBY.maxTilt * LOBBY.playedScale + 1e-9);
-    expect(LOBBY.maxTilt * LOBBY.playedScale, "still below a full-strength bloc term").toBeLessThan(0.5);
-  });
-
-  it("every pitch, whoever makes it, is scaled alike; the default scale of 1 (a headless game) changes nothing", () => {
-    const pitches = [{ from: "npc:1" as EntityId, kind: "safety" as const, strength: 1, protects: "npc:1" as EntityId }];
-    const plain = pitchTilt("npc:1" as EntityId, pitches, () => 0.8);
-    expect(pitchTilt("npc:1" as EntityId, pitches, () => 0.8, undefined, 1)).toBe(plain);
-    expect(pitchTilt("npc:1" as EntityId, pitches, () => 0.8, undefined, LOBBY.playedScale)).toBeCloseTo(plain * LOBBY.playedScale, 10);
-  });
-});

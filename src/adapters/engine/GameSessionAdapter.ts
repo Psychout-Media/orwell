@@ -94,7 +94,7 @@ import { FAVOR } from "../../engine/favorConstants";
 import { counterStreamKey, weighCounter, type CounterAsk, type CounterSide } from "../../engine/favorCounters";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
 import { NPC_MEMORY, PLAYED_NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, salience, SCENE_MEMORY_SEVERITY, SCENE_MEMORY_SEVERITY_MORE, SCENE_MOOD_ONLY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, BOOK_FOLDED_KINDS, type BookRead, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
-import { LOBBY, pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
+import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
 import { DEAL_NOMS } from "../../engine/dealNomConstants";
@@ -1498,7 +1498,7 @@ export class GameSessionAdapter implements GameSession {
    */
   pitchTiltFor(subject: EntityId, holder: EntityId): number {
     if (!this.lobbyingEnabled || !this.house || holder === PLAYER) return 0;
-    return pitchTilt(subject, this.derivePitches(holder), (p) => Math.max(0, Math.min(1, this.rel.edge(holder, p).trust)), this.standingPitchWeight(), this.live?.playedGame === true ? LOBBY.playedScale : 1); // ORW-694 B1-9: standing weighs the pitch; ORW-779: talk reaches further in a played game
+    return pitchTilt(subject, this.derivePitches(holder), (p) => Math.max(0, Math.min(1, this.rel.edge(holder, p).trust)), this.standingPitchWeight()); // ORW-694 B1-9: standing weighs the pitch
   }
   /** B6/B38 - the pitches `holder` (the HOH) faces, derived deterministically from the live edges (no rng, no stored state). Shared by the nomination tilt and the pitch-event recorder, so what is RECORDED is exactly what is WEIGHED. */
   private derivePitches(holder: EntityId): Pitch[] {
