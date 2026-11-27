@@ -8104,7 +8104,9 @@ def _engine_count_claims(text: str, room_names=None) -> list:
                     continue
                 if not re.search(r"\b(?:asleep|in\s+(?:their\s+)?beds?|turned\s+in|tucked\s+in)\b", m.group(0), re.IGNORECASE):
                     continue
-            out.append(_EcClaim("asleep", n, m.group(0).strip()))
+            # ORW-1094: "only two are asleep" states the whole count, so it is exact; any other smaller number may be a subgroup
+            only = bool(re.search(r"\bonly\s+$", text[:m.start(1)], re.IGNORECASE))
+            out.append(_EcClaim("asleep-only" if only else "asleep", n, m.group(0).strip()))
     for m in _EC_ROOM_US_RE.finditer(text):
         n = _ec_num(m.group(2))
         if n is None or n < 2:
@@ -8173,6 +8175,8 @@ def _engine_count_ok(claim, c: dict) -> bool:
     if claim.kind == "asleep":
         # More asleep than the game's list is plainly wrong; fewer may be a subgroup ("two of them asleep in the bedroom"), so it is not a claim about the house.
         return c.get("asleep") is None or n <= c["asleep"]
+    if claim.kind == "asleep-only":
+        return c.get("asleep") is None or n == c["asleep"]
     if claim.kind == "empty":
         return all((c.get("rooms") or {}).get(r, 0) == 0 for r in claim.rooms)
     return True
@@ -8188,7 +8192,7 @@ def _engine_count_mismatch(text: str, c: Optional[dict], claims=None):
 
 
 def _engine_count_directive(claim, c: dict) -> str:
-    if claim.kind == "asleep":
+    if claim.kind in ("asleep", "asleep-only"):
         return ("RE-GROUND ON THE HEADCOUNT - last turn you said how many are asleep (\"" + claim.text[:80] + "\"), but the engine's asleep list holds " + str(c.get("asleep")) + " houseguests. "
                 "Quote that number exactly or use no number at all; never count the sleepers yourself.")
     if claim.kind == "empty":
@@ -8223,6 +8227,10 @@ def _note_engine_count_hold(user, bad, c: dict) -> None:
 
 
 
+#: ORW-1094: the claims an entrance or toast turn checks against the engine's counts too (its headcount wall covers the room count only)
+_PREMIERE_COUNT_KINDS = ("empty", "asleep", "asleep-only")
+
+
 async def screen_headcount_wall(user, text: str) -> str:
     """ORW-205 — the same-turn headcount wall for one streamed chunk: `text` with every sentence whose
     stated headcount the engine's live entrance count contradicts DROPPED (delimiters preserved for the
@@ -8243,6 +8251,8 @@ async def screen_headcount_wall(user, text: str) -> str:
             counts = await _live_engine_counts(user)
             if counts is None:
                 return text
+        elif any(c.kind in _PREMIERE_COUNT_KINDS for c in _engine_count_claims(text, _rn)):
+            counts = await _live_engine_counts(user)
         kept = []
         for part in re.split(r"(?<=[.!?\n])", text):
             if ent is not None:
@@ -8250,6 +8260,10 @@ async def screen_headcount_wall(user, text: str) -> str:
                 if bad is not None:
                     _note_headcount_hold(user, bad, ent)
                     continue  # DROP — a count the engine contradicts never reaches the player
+                pbad = _engine_count_mismatch(part, counts, [c for c in _engine_count_claims(part, _rn) if c.kind in _PREMIERE_COUNT_KINDS])  # ORW-1094
+                if pbad is not None:
+                    _note_engine_count_hold(user, pbad, counts)
+                    continue
             else:
                 ebad = _engine_count_mismatch(part, counts)
                 if ebad is not None:
@@ -8281,6 +8295,13 @@ async def screen_streamed_headcount(user, sentence: str) -> bool:
             return False
         bad = _headcount_mismatch(sentence, ent, claims)
         if bad is None:
+            pclaims = [c for c in eclaims if c.kind in _PREMIERE_COUNT_KINDS]  # ORW-1094: entrances and the toast check these too
+            if ent is not None and pclaims:
+                counts = await _live_engine_counts(user)
+                pbad = _engine_count_mismatch(sentence, counts, pclaims)
+                if pbad is not None:
+                    _note_engine_count_hold(user, pbad, counts)
+                    return False
             return True
         _note_headcount_hold(user, bad, ent)
         return False
