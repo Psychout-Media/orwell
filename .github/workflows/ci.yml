@@ -569,7 +569,7 @@ jobs:
         # summary (frontend/tests/_flaky_report.py). Quarantined tests are deselected here and run nightly (frontend/tests/_quarantine.py).
         # --durations=0: every test's time is in the log, so frontend/tests/_ci_refresh_durations.py can refresh the shard table from any green run
         # ORW-1108: --timeout=120 (pyproject default 300): a hung test must fail itself, with its stack, before the job's 10-minute limit cancels the whole leg without naming it.
-        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 --cov --cov-report= --reruns 1 -v -rs --timeout=60 --durations=0
+        run: cd frontend && python3 -m pytest tests/ -m "not browser" -n 4 --cov --cov-report= --reruns 1 -q -rs --timeout=120 --durations=0
       - uses: actions/upload-artifact@v4
         with:
           name: fe-coverage-data-${{ matrix.shard }}
