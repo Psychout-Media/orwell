@@ -59,9 +59,11 @@ def test_the_recall_no_longer_sits_ahead_of_the_transcript():
     assert min(x["share"] for x in r["after"]) > 0.6
 
 
-def test_a_sliding_trim_holds_the_prefix_at_the_system_message_and_a_held_cut_would_not():
+def test_the_shipped_trim_now_holds_its_cut_like_the_simulated_policy():
+    # ORW-555 follow-up: the shipped game-turn trim holds its cut (context_compactor TRIM_TARGET_SHARE), so past the budget consecutive turns share the
+    # history prefix; it used to slide one turn a turn (under 60%). Off (ORWELL_TRIM_HYSTERESIS=0) is the old sliding trim (tests/test_orw555_trim_hysteresis.py).
     t = audit.audit_trim(steps=4)
-    assert max(x["share"] for x in t["shipped"]) < 0.6
+    assert min(x["share"] for x in t["shipped"]) > 0.9
     assert min(x["share"] for x in t["proposedHysteresis"]) > 0.9
 
 

@@ -1245,6 +1245,11 @@ export interface CreateCharacterReq {
    * if the corpus has no headroom to honor every exclusion, the sampler relaxes it rather than failing.
    */
   priorCastNames?: string[];
+  /**
+   * ORW-921 - ENGINE-INTERNAL (like `priorCastNames`): a seeded test or replay. A confirmed restart carries nothing of the dead season (cast names, house themes, world picks) into the new one, so an explicit seed
+   * deals the same season first on a stack and after other seasons. Set by the front end's new-game door when it passes an explicit seed; never set for a player's own restart.
+   */
+  isolateSeason?: boolean;
   /** ORW-466 - ENGINE-INTERNAL (like `priorCastNames`): the player's recent seasons' house themes, carried across a confirmed restart so the new season draws a different one. */
   priorHouseThemes?: string[];
   /**
@@ -3078,6 +3083,8 @@ export interface HangOutReq {
   untilBandEnd?: boolean;
   /** ORW-734a: the player asked to wait until a wall-clock time ("until 10pm" = 22, "until 10:30pm" = 22.5; 0..24, FE-parsed from their own words). The target is the NEXT time the clock reads that, never a day later; a time already passed today waits nothing. Combined with the other targets, the nearest wins; the 3 h cap on a stated wait still holds. */
   untilClock?: number;
+  /** ORW-1054: the player asked to wait for the next scheduled event ("hang out until production calls"): the target is that event (never past it), no per-beat dice, so ONE call reaches it instead of a run of calls cut short by chance stops. Bedtime and a houseguest whose own want is due still stop it; capped at 10 h. */
+  untilEvent?: boolean;
 }
 /** Why a hang-out stopped (the engine decides; the narrator voices it). */
 /** `max-beats` also means a player-stated wait reached its target (ORW-445): a met target is not a separate stop reason. */
