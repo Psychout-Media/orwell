@@ -12672,7 +12672,19 @@ export class GameSessionAdapter implements GameSession {
     // a houseguest (a DR→NPC pathway the wall forbids).
     const belief = (this.playerKnowledgeReader?.() ?? []).find((f) => f.pathway !== "diary-room" && ((f.factId ?? f.id) === factId || f.id === factId));
     if (!belief) return null; // the Vault bright line — a non-learned belief is never minted
+    // ORW-1101: the tool contract says the fact must involve the houseguest confronted; a fact about someone ELSE is not theirs to answer (a fact with no recorded subject is left as before).
+    if (belief.subject !== undefined && belief.subject !== npcId) return null;
+    // ORW-1101: one confrontation per (houseguest, fact, phase): a repeat is a no-op that answers what the first one did (it neither stacks a misfire's betrayal nor writes the scene twice).
+    const doneKey = `${npcId}|${factId}|${this.week}:${this.phase}`;
+    const done = ((this.live as unknown as { confrontsDone?: Record<string, boolean> }).confrontsDone ??= {});
+    if (doneKey in done) return { landed: done[doneKey]! };
     const landed = !this.gossipConsequenceEnabled || !isMateriallyDistorted(belief);
+    done[doneKey] = landed;
+    if (landed) {
+      // ORW-1101: a real confrontation leaves a trace: a scene the confronted houseguest was in and remembers (a recorded interaction, so it folds like any scene). The wording names no fact: the player is the one who knows it.
+      this.onPlayerEvent?.(`${this.nameOf(PLAYER)} confronts ${this.nameOf(npcId)} with something they have heard about them`, [PLAYER, npcId], "conversation");
+      this.persist();
+    }
     if (!landed) {
       // The move misfires against REALITY, not the belief: the wrongly-confronted houseguest's own
       // read of the player takes the same betrayal-grade blow a real betrayal folds — seeded,
