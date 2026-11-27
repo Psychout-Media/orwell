@@ -143,6 +143,24 @@ def test_generate_one_returns_none_and_makes_no_http_call(monkeypatch):
     assert _run(orwell_portraits._generate_one("a prompt", "alice")) is None
 
 
+@pytest.mark.parametrize("disabled", [True, False])
+def test_a_stale_in_flight_error_never_requeues_a_call_that_made_no_request(monkeypatch, disabled):
+    """ORW-1108: an earlier in-flight 402 left behind made a call that returned None without setting an error sleep through the retry schedule (and hung CI)."""
+    monkeypatch.setenv("ORWELL_DISABLE_IMAGE_GEN", "1" if disabled else "0")
+    orwell_portraits._set_gen_state("http-402", "would exceed your available credits given your current in-flight requests")
+
+    async def silent_none(*a, **k):
+        return None
+
+    async def no_sleep(*a, **k):
+        raise AssertionError("requeued on a stale error")
+
+    if not disabled:
+        monkeypatch.setattr(orwell_portraits, "_generate_one_gated", silent_none)
+    monkeypatch.setattr(orwell_portraits.asyncio, "sleep", no_sleep)
+    assert _run(orwell_portraits._generate_one("a prompt", "alice")) is None
+
+
 # --- control: unset ⇒ existing behavior unchanged -------------------------------------------
 
 def test_unset_preserves_generation(tmp_portraits, monkeypatch):
