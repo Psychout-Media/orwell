@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { auditSeason } from "../support/activeInHouseAudit";
 import { playUntil } from "./playedSeason";
-import { playSeason } from "../support/whatFired/player";
 import { PLAYER } from "../../src/domain/ids";
 
 /**
@@ -14,6 +13,8 @@ describe("a houseguest who has left the house acts and witnesses nowhere in it",
   it.each([10, 1])("seed %i: no pre-jury evictee, no juror with an active houseguest, no evicted player in a house scene (finale night and the broadcast record excepted)", async (seed) => {
     const row = await auditSeason(seed);
     expect(row.finished, "the season was played to its crown").toBe(true);
+    expect(row.overRefusals, "a finished season: the house levers refuse with the reason").toHaveLength(3);
+    for (const m of row.overRefusals) expect(m).toMatch(/season-over/);
     const detail = row.hits.slice(0, 6).map((h) => `${h.kind} ${h.type} ${h.id} ${h.content}`);
     expect({ preJury: row.preJuryEvictee, jurorWithActive: row.jurorWithActive, outPlayer: row.outPlayer, detail }).toEqual({ preJury: 0, jurorWithActive: 0, outPlayer: 0, detail: [] });
   }, 900_000);
@@ -39,19 +40,5 @@ describe("a houseguest who has left the house acts and witnesses nowhere in it",
     for (const [tool, args] of attempts) expect(await refused(tool, args), tool).toMatch(/evicted/);
     expect(at.engine.events.queryAll().length, "a refused lever records nothing").toBe(before);
     expect(await at.call("getGameState", {}), "reads stay open").toBeTruthy();
-  }, 900_000);
-
-  it("a player in a finished season: the same levers refuse with season-over", async () => {
-    let msgs: string[] = [];
-    await playSeason({
-      seed: 10, user: "a7-over-10", survive: false, maxMessages: 4000,
-      after: async ({ call }) => {
-        for (const [tool, args] of [["makeDeal", { with: "npc:4", kind: "safety", terms: "safe" }], ["formAlliance", { members: ["npc:4"], name: "The Reunion" }], ["recordInteraction", { initiator: PLAYER, witnessSet: [PLAYER, "npc:4"], content: "hello", kind: "bonding" }]] as Array<[string, Record<string, unknown>]>) {
-          try { await call(tool, args); msgs.push("ACCEPTED"); } catch (e) { msgs.push(String((e as Error).message)); }
-        }
-      },
-    });
-    expect(msgs).toHaveLength(3);
-    for (const m of msgs) expect(m).toMatch(/season-over/);
   }, 900_000);
 });

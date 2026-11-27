@@ -8,19 +8,25 @@ import { playSeason } from "./whatFired/player";
  */
 export type HitKind = "juror-with-active" | "pre-jury-evictee" | "out-player-with-house";
 export interface Hit { seed: number; msg: number; id: string; type: string; kind: HitKind; who: string[]; content: string }
-export interface AuditRow { seed: number; finished: boolean; messages: number; events: number; jurorWithActive: number; preJuryEvictee: number; outPlayer: number; hits: Hit[] }
+export interface AuditRow { /** what the player's house levers answered once the season was over (a refusal message each, or ACCEPTED) */ overRefusals: string[]; seed: number; finished: boolean; messages: number; events: number; jurorWithActive: number; preJuryEvictee: number; outPlayer: number; hits: Hit[] }
 
 const SKIP_TYPE = /evict|exit|goodbye|finale|diary|confessional|jury|vote|ceremony|reveal|crown|winner|spectator|farewell|retrospective/i;
 const DEPARTURE = /goodbye message|exit interview|leaves the house/;
 
 export async function auditSeason(seed: number, opts: { survive?: boolean; maxMessages?: number; user?: string; setup?: (sess: any) => void } = {}): Promise<AuditRow> {
   const hits: Hit[] = [];
-  const row: AuditRow = { seed, finished: false, messages: 0, events: 0, jurorWithActive: 0, preJuryEvictee: 0, outPlayer: 0, hits };
+  const row: AuditRow = { overRefusals: [], seed, finished: false, messages: 0, events: 0, jurorWithActive: 0, preJuryEvictee: 0, outPlayer: 0, hits };
   let wrapped = false;
   let msgNow = 0;
   const rec = await playSeason({
     seed, user: opts.user ?? `a7-${seed}`, survive: opts.survive ?? false, maxMessages: opts.maxMessages ?? 4000,
     ...(opts.setup ? { setup: opts.setup } : {}),
+    // the season is over: try the house levers through the player channel and keep what each answered
+    after: async ({ call }) => {
+      for (const [tool, args] of [["makeDeal", { with: "npc:4", kind: "safety", terms: "safe" }], ["formAlliance", { members: ["npc:4"], name: "The Reunion" }], ["recordInteraction", { initiator: "player", witnessSet: ["player", "npc:4"], content: "hello", kind: "bonding" }]] as Array<[string, Record<string, unknown>]>) {
+        try { await call(tool, args); row.overRefusals.push("ACCEPTED"); } catch (e) { row.overRefusals.push(String((e as Error).message)); }
+      }
+    },
     watch: ({ sess, engine, msg }) => {
       msgNow = msg;
       if (wrapped) return false;
