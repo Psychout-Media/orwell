@@ -2744,7 +2744,9 @@ export class GameSessionAdapter implements GameSession {
     const voter = onBlock && id !== s.hoh && !block!.includes(id);
     const hohBefore = s.hoh === id && (!block || block.length === 0);
     if (!standing && !voter && !hohBefore) return undefined;
-    if (!voter) return standing ? "will-keep" : "wont-commit";
+    // ORW-779 (Coordinator 2026-11-27): a HOH who privately said yes to the player's plea says so. A yes they do not mean is said the same way: lying is allowed.
+    const saidYes = hohBefore && s.pitchAnswer?.week === s.week && s.pitchAnswer.hoh === id && s.pitchAnswer.agreed;
+    if (!voter) return standing || saidYes ? "will-keep" : "wont-commit";
     const key = `${this.gameSeed ?? 0}:stance:${s.week}:${id}`;
     return declaredStance({ standing, pull: this.assurancePullOf(id, PLAYER), honesty: this.assuranceTraitsOf(id).honesty, keepRoll: new SeededRandom(hashSeed(key)).next(), lieRoll: new SeededRandom(hashSeed(`${key}:lie`)).next() });
   }

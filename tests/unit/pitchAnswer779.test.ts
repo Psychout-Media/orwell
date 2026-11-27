@@ -74,3 +74,25 @@ describe("ORW-779: a plea in a played game", () => {
     expect(other.s.live.pitchAnswer).toBeUndefined();
   }, 600_000);
 });
+
+describe("ORW-779: the HOH says the yes aloud", () => {
+  it("before nominations a HOH who agreed declares will-keep, meant or not; a no declares nothing new; the dice and sincerity never cross", async () => {
+    const { playedGame } = await import("../support/playedGame");
+    const { PLAYER } = await import("../../src/domain/ids");
+    const g = playedGame({ seed: 4 });
+    const x = g.s as unknown as { live: { week: number; hoh?: string; nominees?: string[]; finalNominees?: string[]; assurances?: unknown; pitchAnswer?: { week: number; hoh: string; agreed: boolean; sincere: boolean } }; declaredStanceFor(id: string): string | undefined };
+    g.playUntil(() => !!x.live?.hoh && x.live.hoh !== PLAYER && !x.live.nominees?.length && !x.live.finalNominees?.length, 4000, "an NPC head of household before nominations");
+    const hoh = x.live.hoh!;
+    delete x.live.assurances;
+    delete x.live.pitchAnswer;
+    expect(x.declaredStanceFor(hoh)).toBe("wont-commit");
+    x.live.pitchAnswer = { week: x.live.week, hoh, agreed: false, sincere: false };
+    expect(x.declaredStanceFor(hoh)).toBe("wont-commit");
+    for (const sincere of [true, false]) {
+      x.live.pitchAnswer = { week: x.live.week, hoh, agreed: true, sincere };
+      expect(x.declaredStanceFor(hoh), `sincere=${sincere}`).toBe("will-keep");
+    }
+    x.live.pitchAnswer = { week: x.live.week - 1, hoh, agreed: true, sincere: true };
+    expect(x.declaredStanceFor(hoh), "last reign's yes does not carry").toBe("wont-commit");
+  });
+});
