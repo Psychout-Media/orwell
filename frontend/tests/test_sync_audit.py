@@ -44,6 +44,7 @@ _DECISION_KINDS = [
     # 0130: the player-evictee's exit interview (posture + optional words) rides the same seam.
     "exit-interview",
     "meeting-answer",  # ORW-596: the player's own-words answer to an NPC accusation (open state like deal-offer, never a blocking pending card)
+    "say-it-first",  # ORW-743: the player tells the room first, in their own words (open state like meeting-answer, never a card)
     # 0133: an early-evicted player's spectator choice and finale-night interview (both real pendings).
     "spectator-choice",
     "finale-interview",

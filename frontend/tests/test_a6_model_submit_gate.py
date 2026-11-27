@@ -25,7 +25,7 @@ def _read(*rel):
 
 
 def test_allow_list_is_exactly_the_low_stakes_kinds_and_card_only_is_the_rest():
-    assert orwell_engine.MODEL_SUBMITTABLE_KINDS == {"comp-intent", "comp-round", "deal-offer", "meeting-answer"}
+    assert orwell_engine.MODEL_SUBMITTABLE_KINDS == {"comp-intent", "comp-round", "deal-offer", "meeting-answer", "say-it-first"}  # ORW-743: say-it-first is the player's own words, open state like meeting-answer
     assert orwell_engine.CARD_ONLY_KINDS == orwell_engine.DECISION_KINDS - orwell_engine.MODEL_SUBMITTABLE_KINDS
     # Fail closed: every kind the engine can raise is either allow-listed or card-only, with no gap.
     assert orwell_engine.MODEL_SUBMITTABLE_KINDS | orwell_engine.CARD_ONLY_KINDS == orwell_engine.DECISION_KINDS

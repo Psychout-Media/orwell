@@ -102,6 +102,7 @@ beforeAll(() => {
   fRepo = newRepo("changes-filter-");
   mkdirSync(join(fRepo, "ci"));
   copyFileSync(SCRIPT, join(fRepo, "ci", "resolve-base.sh"));
+  copyFileSync(fileURLToPath(new URL("../../ci/path-lanes.sh", import.meta.url)), join(fRepo, "ci", "path-lanes.sh")); // ORW-1044: the mapping the filter step calls
   fBase = commit(fRepo, { "src/a.ts": "a", "frontend/app.py": "a", "docs/notes.md": "a", ".github/workflows/ci.yml": "a" }, "base");
   docsOnly = commit(fRepo, { "docs/notes.md": "b" }, "docs only");
   writeFileSync(join(fRepo, "ci", "resolve-base.sh"), readFileSync(SCRIPT, "utf8") + "# edited\n");
