@@ -189,10 +189,8 @@ export function claimPhrase(c: Pick<SpokenClaim, "kind" | "subject" | "object" |
     case "final-two-with": return `${subj} has a final two with ${obj}`;
     case "going-after": return `${subj} is going after ${obj}`;
     case "talking-about": return `${subj} has been talking about ${obj} behind their back`;
-    case "voted-against": return `${subj} voted to evict ${obj}`;
-    case "voted-to-keep": return `${subj} voted to keep ${obj}`;
     case "lying-about": return `${subj} is lying to ${obj ?? playerName}`;
-    case "voted-against": return `${subj} voted to evict ${obj ?? playerName}`;
+    case "voted-against": return `${subj} voted to evict ${obj ?? playerName}`; // ORW-1102: ONE clause each, with the object-less fallback (a duplicate pair above shadowed these and rendered "undefined")
     case "voted-to-keep": return `${subj} voted to keep ${obj ?? playerName}`;
     case "has-reputation": return `the house has a name for ${subj}`; // Ryne 11-17: no role word is ever shown; the narrator words it from the claim
   }
