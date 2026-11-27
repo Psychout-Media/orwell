@@ -87,7 +87,9 @@ describe("0130 — fires every staged eviction + resurfaces in the retrospective
     const ballots = retro!.evictionVotes ?? [];
     // One interview per staged eviction (both are pushed in the same commit) — none skipped.
     expect(interviews.length).toBeGreaterThan(0);
-    expect(interviews.length).toBe(ballots.length);
+    // ORW-1116: a battle-back returnee evicted a second time has ONE interview (the latest); the ballots of the voided first eviction stay in the record, so compare distinct evictees.
+    expect(new Set(interviews.map((x) => x.evictee.id)).size).toBe(interviews.length);
+    expect([...new Set(interviews.map((x) => x.evictee.id))].sort()).toEqual([...new Set(ballots.map((b) => b.evictee.id))].sort());
     for (const x of interviews) {
       expect(x.evictee.name).toBeTruthy();          // humanized, first-person account
       expect(EXIT_STANCES).toContain(x.stance);     // a legal grounded stance

@@ -67,7 +67,10 @@ Then("every staged eviction has a recorded exit interview", function (this: BbWo
   const r = this.xiRetro!;
   const interviews = r.exitInterviews ?? [];
   assert.ok(interviews.length > 0);
-  assert.equal(interviews.length, (r.evictionVotes ?? []).length); // one per staged eviction — none skipped
+  // one per evicted houseguest — none skipped (ORW-1116: a battle-back returnee evicted a second time has the one interview, the latest; the voided first eviction's record is gone)
+  const evicted = new Set((r.evictionVotes ?? []).map((v) => v.evictee.id));
+  assert.equal(new Set(interviews.map((x) => x.evictee.id)).size, interviews.length, "no houseguest is interviewed twice");
+  assert.deepEqual([...new Set(interviews.map((x) => x.evictee.id))].sort(), [...evicted].sort());
 });
 Then("each is a first-person account with a legal posture", function (this: BbWorld) {
   for (const x of this.xiRetro!.exitInterviews ?? []) {

@@ -20039,6 +20039,8 @@ export class GameSessionAdapter implements GameSession {
     d: SecretLeverDescriptor, recipient: EntityId, _via: "deal" | "swap",
   ): { accepted: boolean; refused?: TradeResult["refused"]; narratable?: string } | null {
     if (!this.isActiveNpc(recipient)) return { accepted: false, refused: "no-recipient" };
+    // ORW-1101: an already-exposed (public) secret answers `already-spent`, as `exposeSecret` does (the resolver rejects a spent fact as un-wieldable, which would otherwise read as `not-learned`).
+    if (d.factId && this.secretUsedAs[d.factId] === "exposed") return { accepted: false, refused: "already-spent" };
     if (this.tradeCount >= (this.noHardCapsEnabled ? NO_HARD_CAPS.safetyValve : SECRET_TRADE.maxTradesPerSeason)) return { accepted: false, refused: "capped" };
     const resolved = this.resolveWieldedSecret(d);
     if (!resolved) return { accepted: false, refused: "not-learned" };

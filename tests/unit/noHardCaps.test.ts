@@ -196,6 +196,8 @@ describe("B49 - expose: past the old cap of 3, each further outing costs more", 
     const f = learnSecretAbout(sb, npcsOf(sb)[0]!);
     expect((sb.session.exposeSecret({ factId: f }) as ExposeResult).exposed).toBe(true);
     expect((sb.session.exposeSecret({ factId: f }) as ExposeResult).refused).toBe("already-spent");
+    const other = npcsOf(sb).find((n) => n !== npcsOf(sb)[0])!;
+    expect((sb.session.tradeSecret({ factId: f, toNpcId: other }) as TradeResult).refused, "ORW-1101: a trade of an exposed fact answers like an expose of it").toBe("already-spent");
   });
 });
 
