@@ -21,8 +21,11 @@ describe("ORW-943 bitterByPersonality", () => {
     expect(at("pragmatist")).toBeLessThan(at("forgiver"));
     expect(at("forgiver")).toBeLessThan(0);
   });
-  it("is held to the ceiling, which stays under the manner term", () => {
-    expect(bitterByPersonality(-JURY_GRUDGE.max, "grudge-holder")).toBe(-JURY_GRUDGE_PERSONALITY.ceiling);
-    expect(JURY_GRUDGE_PERSONALITY.ceiling).toBeLessThan(0.48);
+  it("ORW-957: is held only to a sanity bound, and a deep grudge now out-weighs the manner term (Ryne: a grudge can out-vote a kind exit)", () => {
+    expect(bitterByPersonality(-1, "grudge-holder")).toBe(-JURY_GRUDGE_PERSONALITY.ceiling);
+    expect(JURY_GRUDGE_PERSONALITY.ceiling).toBeLessThanOrEqual(1);
+    expect(-bitterByPersonality(-JURY_GRUDGE.max, "grudge-holder"), "a full-strength grudge of a grudge-holder exceeds the manner term").toBeGreaterThan(0.48);
+    expect(-bitterByPersonality(-JURY_GRUDGE.max, "competitor"), "even a plain juror's full-strength grudge reaches the manner term").toBeGreaterThanOrEqual(0.48);
+    expect(-bitterByPersonality(-JURY_GRUDGE.max, "forgiver"), "a forgiver lets most of it go: still under the manner term").toBeLessThan(0.48);
   });
 });
