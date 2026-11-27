@@ -73,7 +73,7 @@ Then("a wrong the juror's manner grievance already counts adds only the part bey
   // ORW-957: a grudge no deeper than the grievance adds nothing (an old, faded one); a deeper one adds exactly the part beyond it, never counted twice
   assert.equal(Math.abs(bitterJurorExtra(b.old, covered)), Math.max(0, Math.abs(b.old) - covered));
   assert.equal(Math.abs(bitterJurorExtra(b.fresh, covered)), Math.max(0, Math.abs(b.fresh) - covered));
-  assert.equal(bitterJurorExtra(-covered / 2, covered), 0);
+  assert.equal(Math.abs(bitterJurorExtra(-covered / 2, covered)), 0); // (strictEqual reads -0 as unequal to 0: take the magnitude)
 });
 Then("a deal the finalist broke, which no manner counts, makes the juror lean against them by a real amount", async function () {
   const user = "bj-deal";
