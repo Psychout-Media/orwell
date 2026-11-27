@@ -80,7 +80,7 @@ import type { TimeOfDay as LifeTimeOfDay } from "../../engine/timeOfDay";
 import { diaryWalkOrder, walkersForPress } from "../../engine/voteBeat";
 import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } from "../../engine/presenceConstants";
 import { dayOfWeek } from "../../engine/houseEvents";
-import { HOUSE_SIGHTLINE, roomsBetween, areVisible, canWitnessDeparture, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
+import { HOUSE_ADJACENCY, HOUSE_SIGHTLINE, roomsBetween, areVisible, canWitnessDeparture, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
 import type { Room, Zone, Occupancy } from "../../domain/house";
 import { parsePlayerMoveIntent, parsePlayerOwnBedMove, parsePlayerPersonIntent, parseSearchIntent, parseVagueGo, matchHouseguestName } from "../../engine/playerMoveIntent";
 import type { RandomnessSource } from "../../ports/RandomnessSource";
@@ -8062,16 +8062,16 @@ export class GameSessionAdapter implements GameSession {
   private walkInDone: string[] = [];
   /** ORW-473 amendment (0192): a talk among three or more (a night-owl trio, an ordinary gathering) is walked in on too. ON unless `ORWELL_WALKIN_GROUPS=0`; OFF => only a pair, byte-identical to before. */
   private walkInGroupsEnabled = flagDefaultOn("ORWELL_WALKIN_GROUPS");
-  private walkIn: { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction }[] } | null = null;
+  private walkIn: { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction; left?: true }[] } | null = null;
   private walkInStamp(): { msg?: string } { const m = this.seenMessageIds.length > 0 ? this.seenMessageIds[this.seenMessageIds.length - 1] : undefined; return m === undefined ? {} : { msg: m }; }
-  private walkInThisTurn(): { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction }[] } | null {
+  private walkInThisTurn(): { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction; left?: true }[] } | null {
     const w = this.walkIn;
     if (!w) return null;
     const cur = this.seenMessageIds.length > 0 ? this.seenMessageIds[this.seenMessageIds.length - 1] : undefined;
     return w.msg === cur ? w : null;
   }
   private walkedInView(w: NonNullable<GameSessionAdapter["walkIn"]>): WalkedInView {
-    return { room: w.room, with: w.with.map((id) => ({ id, name: this.nameOf(id) })), reactions: w.reactions.map((r) => ({ id: r.id, name: this.nameOf(r.id), line: walkInLine(r.reaction) })) };
+    return { room: w.room, with: w.with.map((id) => ({ id, name: this.nameOf(id) })), reactions: w.reactions.map((r) => ({ id: r.id, name: this.nameOf(r.id), line: walkInLine(r.reaction), ...(r.left ? { left: true as const } : {}) })) };
   }
   private detectWalkIn(dest: Room): void {
     this.walkIn = null; // a new arrival replaces the last one
@@ -8104,6 +8104,7 @@ export class GameSessionAdapter implements GameSession {
       });
       this.walkIn = { ...this.walkInStamp(), room: dest, with: people, reactions };
       this.walkInDone = [...this.walkInDone, e.id].slice(-WALK_IN_DONE_CAP); // consumed: leaving and coming back does not fire it again
+      this.leaveOnWalkIn(dest, reactions); // ORW-1077: the one who "moves the talk somewhere else" really goes
       // both remember it: a fact in each one's own memory (engine-side, never shown)
       for (const id of people) {
         const others = people.filter((x) => x !== id).map((x) => this.nameOf(x));
@@ -8112,6 +8113,24 @@ export class GameSessionAdapter implements GameSession {
         if (n && !n.soul.memory.includes(note)) { n.soul.memory = [...n.soul.memory, note]; this.soul?.recordToSoul(id, note); }
       }
       return;
+    }
+  }
+
+  /**
+   * ORW-1077 (Ryne 2026-11-26): a houseguest may leave when the player walks in. Those whose reaction is to take the talk elsewhere step into a neighbouring room they may enter (all to the same one), on the
+   * player-facing map only (the calibration base is untouched). No such room, or a gathered house: they stay.
+   */
+  private leaveOnWalkIn(dest: Room, reactions: { id: EntityId; reaction: WalkInReaction; left?: true }[]): void {
+    const movers = reactions.filter((r) => r.reaction === "moves-the-talk");
+    if (!this.presence || movers.length === 0 || this.houseEventInSession()) return;
+    const open = (HOUSE_ADJACENCY.get(dest) ?? []).filter((room) => movers.every((m) => this.roomAccessFor(room, m.id) === "open"));
+    if (open.length === 0) return;
+    const to = open[hashSeed(`${this.gameSeed ?? ""}:walkout:${dest}:${movers[0]!.id}:${this.live?.dayNumber ?? 1}`) % open.length]!;
+    for (const m of movers) {
+      this.presence.set(m.id, to);
+      this.presenceTenure?.set(m.id, 0);
+      this.presenceZone?.delete(m.id);
+      m.left = true;
     }
   }
 
