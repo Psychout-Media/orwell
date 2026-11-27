@@ -80,7 +80,7 @@ import type { TimeOfDay as LifeTimeOfDay } from "../../engine/timeOfDay";
 import { diaryWalkOrder, walkersForPress } from "../../engine/voteBeat";
 import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } from "../../engine/presenceConstants";
 import { dayOfWeek } from "../../engine/houseEvents";
-import { HOUSE_SIGHTLINE, roomsBetween, areVisible, canWitnessDeparture, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
+import { HOUSE_ADJACENCY, HOUSE_SIGHTLINE, roomsBetween, areVisible, canWitnessDeparture, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
 import type { Room, Zone, Occupancy } from "../../domain/house";
 import { parsePlayerMoveIntent, parsePlayerOwnBedMove, parsePlayerPersonIntent, parseSearchIntent, parseVagueGo, matchHouseguestName } from "../../engine/playerMoveIntent";
 import type { RandomnessSource } from "../../ports/RandomnessSource";
@@ -1117,6 +1117,9 @@ function napSpanWords(hours: number): string {
   if (mins === 90) return "an hour and a half";
   return mins % 60 === 0 ? `${mins / 60} hours` : `${Math.floor(mins / 60)} hours ${mins % 60} minutes`;
 }
+
+/** ORW-1076: how warm the HOH's own read of the player (trust and affinity, averaged) must be to open the door to an uninvited knock. An ordinary stranger-neutral read clears it; a soured one does not. */
+const HOH_DOOR_WELCOME = 0.4;
 
 export class GameSessionAdapter implements GameSession {
   private house: GameHouse | null = null;
@@ -8062,16 +8065,16 @@ export class GameSessionAdapter implements GameSession {
   private walkInDone: string[] = [];
   /** ORW-473 amendment (0192): a talk among three or more (a night-owl trio, an ordinary gathering) is walked in on too. ON unless `ORWELL_WALKIN_GROUPS=0`; OFF => only a pair, byte-identical to before. */
   private walkInGroupsEnabled = flagDefaultOn("ORWELL_WALKIN_GROUPS");
-  private walkIn: { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction }[] } | null = null;
+  private walkIn: { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction; left?: true }[] } | null = null;
   private walkInStamp(): { msg?: string } { const m = this.seenMessageIds.length > 0 ? this.seenMessageIds[this.seenMessageIds.length - 1] : undefined; return m === undefined ? {} : { msg: m }; }
-  private walkInThisTurn(): { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction }[] } | null {
+  private walkInThisTurn(): { msg?: string; room: Room; with: EntityId[]; reactions: { id: EntityId; reaction: WalkInReaction; left?: true }[] } | null {
     const w = this.walkIn;
     if (!w) return null;
     const cur = this.seenMessageIds.length > 0 ? this.seenMessageIds[this.seenMessageIds.length - 1] : undefined;
     return w.msg === cur ? w : null;
   }
   private walkedInView(w: NonNullable<GameSessionAdapter["walkIn"]>): WalkedInView {
-    return { room: w.room, with: w.with.map((id) => ({ id, name: this.nameOf(id) })), reactions: w.reactions.map((r) => ({ id: r.id, name: this.nameOf(r.id), line: walkInLine(r.reaction) })) };
+    return { room: w.room, with: w.with.map((id) => ({ id, name: this.nameOf(id) })), reactions: w.reactions.map((r) => ({ id: r.id, name: this.nameOf(r.id), line: walkInLine(r.reaction), ...(r.left ? { left: true as const } : {}) })) };
   }
   private detectWalkIn(dest: Room): void {
     this.walkIn = null; // a new arrival replaces the last one
@@ -8104,6 +8107,7 @@ export class GameSessionAdapter implements GameSession {
       });
       this.walkIn = { ...this.walkInStamp(), room: dest, with: people, reactions };
       this.walkInDone = [...this.walkInDone, e.id].slice(-WALK_IN_DONE_CAP); // consumed: leaving and coming back does not fire it again
+      this.leaveOnWalkIn(dest, reactions); // ORW-1077: the one who "moves the talk somewhere else" really goes
       // both remember it: a fact in each one's own memory (engine-side, never shown)
       for (const id of people) {
         const others = people.filter((x) => x !== id).map((x) => this.nameOf(x));
@@ -8112,6 +8116,24 @@ export class GameSessionAdapter implements GameSession {
         if (n && !n.soul.memory.includes(note)) { n.soul.memory = [...n.soul.memory, note]; this.soul?.recordToSoul(id, note); }
       }
       return;
+    }
+  }
+
+  /**
+   * ORW-1077 (Ryne 2026-11-26): a houseguest may leave when the player walks in. Those whose reaction is to take the talk elsewhere step into a neighbouring room they may enter (all to the same one), on the
+   * player-facing map only (the calibration base is untouched). No such room, or a gathered house: they stay.
+   */
+  private leaveOnWalkIn(dest: Room, reactions: { id: EntityId; reaction: WalkInReaction; left?: true }[]): void {
+    const movers = reactions.filter((r) => r.reaction === "moves-the-talk");
+    if (!this.presence || movers.length === 0 || this.houseEventInSession()) return;
+    const open = (HOUSE_ADJACENCY.get(dest) ?? []).filter((room) => movers.every((m) => this.roomAccessFor(room, m.id) === "open"));
+    if (open.length === 0) return;
+    const to = open[hashSeed(`${this.gameSeed ?? ""}:walkout:${dest}:${movers[0]!.id}:${this.live?.dayNumber ?? 1}`) % open.length]!;
+    for (const m of movers) {
+      this.presence.set(m.id, to);
+      this.presenceTenure?.set(m.id, 0);
+      this.presenceZone?.delete(m.id);
+      m.left = true;
     }
   }
 
@@ -8206,6 +8228,36 @@ export class GameSessionAdapter implements GameSession {
     return reason;
   }
 
+  /**
+   * ORW-1076 (Ryne 2026-11-26): the player may go up to the HOH room on their own, and the HOH may say no. null = the door opens; otherwise the reason, in plain words for the narrator. Open: the player is the HOH,
+   * nobody holds the crown, a headless game, or the player's FIRST visit of the reign (the room is opened to the whole house, spec 0199). After that the HOH has to be in there, awake, and willing (their own read of
+   * the player, or a deal still open between the two). No number crosses.
+   */
+  private hohDoorRefusal(): string | null {
+    const s = this.live;
+    const hoh = this.ceremony.hoh;
+    if (!s || s.playedGame !== true || !this.house || !this.presence || !hoh || hoh === this.house.player.id) return null;
+    const me = this.house.player.id;
+    const key = `${s.week}:${hoh}`;
+    const awake = this.awakeNow();
+    if (awake && !awake.has(hoh) && this.presence.get(hoh) === "hoh-room") return `${this.nameOf(hoh)} is asleep up there and the door stays shut`;
+    if (s.hohRoom?.done.includes(key) && !s.hohRoom.playerUp?.includes(key)) return null;
+    if (this.presence.get(hoh) !== "hoh-room") return `the HOH room is shut: ${this.nameOf(hoh)} is not in there to let anyone in`;
+    const e = this.rel.peek(hoh, me);
+    const dealt = this.deals.forParty(me).some((d) => this.dealView(d).status === "open" && this.dealView(d).parties.some((p) => p.id === hoh));
+    if (dealt || (e.trust + e.affinity) / 2 >= HOH_DOOR_WELCOME) return null;
+    return `the player knocked and ${this.nameOf(hoh)} did not let them in`;
+  }
+
+  /** ORW-1076: the first visit of a reign is used up. */
+  private noteHohVisit(): void {
+    const s = this.live;
+    const hoh = this.ceremony.hoh;
+    const key = `${s?.week}:${hoh}`;
+    if (!s?.hohRoom || !hoh || !s.hohRoom.done.includes(key) || s.hohRoom.playerUp?.includes(key)) return;
+    s.hohRoom.playerUp = [...(s.hohRoom.playerUp ?? []), key];
+  }
+
   movePlayer(room: string, expectedBeatSeq?: number): WhereaboutsView | null {
     // 0065 Part A — refuse a move computed against a superseded board BEFORE any mutation.
     this.guardBeatSeq(expectedBeatSeq);
@@ -8223,6 +8275,13 @@ export class GameSessionAdapter implements GameSession {
     if (resolved.kind !== "ok") return this.refuseRoom("movePlayer", room, resolved);
     const dest = resolved.room;
     if (here === dest) return this.whereabouts(); // already there — nothing to move
+    if (dest === "hoh-room") {
+      const door = this.hohDoorRefusal(); // ORW-1076
+      if (door) {
+        const w = this.whereabouts();
+        return w ? { ...w, moveRefused: { reason: "hoh-door", asked: String(room).slice(0, 80), detail: door } } : w;
+      }
+    }
     this.relocatePlayer(here, dest);
     this.persist();
     return this.whereabouts();
@@ -8239,6 +8298,7 @@ export class GameSessionAdapter implements GameSession {
     (this.presenceTenure ??= new Map()).set(me, 0); // a fresh arrival
     this.sendOccupancy = null; // ORW-249 (#2321): the frozen send-time roster dies at the FIRST room change, so leaving and returning during one reply cannot revive it
     this.sendAwake = null;
+    if (dest === "hoh-room") this.noteHohVisit(); // ORW-1076
     this.noteRoomEntry(dest); // ORW-654 / 0206: the first entry into a room is a one-time card
     this.detectWalkIn(dest); // ORW-473: walking in on a private talk
   }
@@ -8302,6 +8362,10 @@ export class GameSessionAdapter implements GameSession {
       result = { playerMove: null, whereabouts: this.whereabouts() };
     } else if (this.houseEventInSession()) {
       this.playerMove = { refused: true, reason: "the whole house is gathered for the event; the player stays with everyone until it resolves", from: here, to: dest, ...this.moveStamp() };
+      this.persist();
+      result = { playerMove: { ...this.playerMove }, whereabouts: this.whereabouts() };
+    } else if (dest === "hoh-room" && this.hohDoorRefusal() !== null) { // ORW-1076
+      this.playerMove = { refused: true, reason: this.hohDoorRefusal()!, from: here, to: dest, ...this.moveStamp() };
       this.persist();
       result = { playerMove: { ...this.playerMove }, whereabouts: this.whereabouts() };
     } else {

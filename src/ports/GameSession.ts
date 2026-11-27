@@ -2244,7 +2244,8 @@ export interface WalkedInView {
   room: string;
   with: NamedRef[];
   /** The manner to voice only. The raw reaction value is engine-side: its distribution follows the hidden stakes of the talk, so it is never part of this view. */
-  reactions: Array<{ id: EntityId; name: string; line: string }>;
+  /** `left` (ORW-1077): this houseguest walked out of the room as their reaction. */
+  reactions: Array<{ id: EntityId; name: string; line: string; left?: true }>;
 }
 
 export type PlayerMoveView =
@@ -2299,7 +2300,8 @@ export interface WhereaboutsView {
   /** The room the player is in. */
   room: string;
   /** ORW-1064: present only on the answer to a move the engine REFUSED because the room named is ambiguous (`candidates`) or unknown: the player did not move, and the narrator must voice that they have to say which room. */
-  moveRefused?: { reason: "ambiguous-room" | "unknown-room"; asked: string; candidates?: string[] };
+  /** `hoh-door` (ORW-1076): the HOH room did not open; `detail` says why in plain words. */
+  moveRefused?: { reason: "ambiguous-room" | "unknown-room" | "hoh-door"; asked: string; candidates?: string[]; detail?: string };
   /** ORW-466: this season's name for every room ("the Coral Reef Room"), when the season has a house theme. Absent: the plain labels stand. */
   roomNames?: Partial<Record<string, string>>;
   /** ORW-466: one line of what the player's room looks like this season (the house theme), for the narrator. */
