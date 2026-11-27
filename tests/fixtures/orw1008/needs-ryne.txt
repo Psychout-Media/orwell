@@ -1,15 +1,8 @@
-# Rows whose right answer is a product rule (Needs Ryne): same format as corpus.txt. Not part of the ratchet.
-quote|L|I tell Dana "I'll meet you in the kitchen" and go there|kitchen
-sarc|L|oh sure, I'll just go to the kitchen, because that's helpful|-
-themed|L|I go to the dr|diary-room
+# Rows whose right answer is a product rule (Needs Ryne): same format as corpus.txt. Not part of the ratchet. ORW-1082: the rest were settled by the movement rulings and moved into the corpora.
 themed|L|I go to the pool house|backyard
 themed|L|I go to the bedroom|bedroom-a
 themed|L|I go to a bedroom|bedroom-a
 names|L|I go see Bath|bathroom|bath
-names|L|I go see Dining|dining-room|dining
-look|L|I look for my keys in the kitchen|-
-look|L|I find a seat in the kitchen|-
-other|L|I invite Dana to the kitchen and go there|kitchen
+names|L|I go see Dining|dining-room
 # bed corpus rows (class|text|exp as A3 labelled it)
 swap|I tell Dana Jake wants her bed|swap:Dana
-name|I take a bed in bedroom A, no wait, C|-
