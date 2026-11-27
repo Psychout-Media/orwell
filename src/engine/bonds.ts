@@ -107,7 +107,7 @@ export type DebtSource = (holder: EntityId, other: EntityId) => number;
 /** ORW-607 part 2: the grudge book's wrong a holder carries toward another (its `wrongWeight` now and its peak), or undefined for none. Played games only; engine-only. */
 export type WrongSource = (holder: EntityId, other: EntityId) => BookWrong | undefined;
 
-export function recordBondReader(rel: RelationshipModel, store: () => BondStore | undefined, living: () => readonly EntityId[], day: () => number, opts: { favorDebt?: DebtSource; wrong?: WrongSource } = {}): BondReader {
+export function recordBondReader(rel: RelationshipModel, store: () => BondStore | undefined, living: () => readonly EntityId[], day: () => number, opts: { favorDebt?: DebtSource; wrong?: WrongSource; /** ORW-1079: the mentor / puppet-master reads beyond the record */ steerKind?: (holder: EntityId, other: EntityId) => { mentor?: boolean; puppetMaster?: boolean } } = {}): BondReader {
   /** The record as readers see it: with a wrong source, its resentment / peak ARE the grievance (the book's wrong plus the record's friction, once). */
   const seen = (holder: EntityId, other: EntityId) => withGrievance(bondOf(store(), holder, other), opts.wrong?.(holder, other));
   const strengthOf = (holder: EntityId, other: EntityId): number => bondStrengthOf(edgeStrength(rel, holder, other), seen(holder, other));
@@ -122,7 +122,7 @@ export function recordBondReader(rel: RelationshipModel, store: () => BondStore 
       return {
         holder, other, trust: e.trust, affinity: e.affinity, threat: e.threat, reliability: e.reliability,
         warmth: r.warmth, debt: Math.max(-1, Math.min(1, r.debt + (opts.favorDebt?.(holder, other) ?? 0))), resentment: r.resentment, peakResentment: r.peakResentment, strain: r.strain, history: r.history,
-        kind: kindOf(r), strands: strandsOf(r), commitment: r.commitment, rank: at >= 0 ? at + 1 : null,
+        kind: kindOf(r, opts.steerKind?.(holder, other)), strands: strandsOf(r), commitment: r.commitment, rank: at >= 0 ? at + 1 : null,
         strength: strengthOf(holder, other),
       };
     },
