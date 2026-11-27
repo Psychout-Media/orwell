@@ -51,3 +51,37 @@ def test_behaviour_single_flight_ttl_and_invalidation(tmp_path):
     """))
     r = subprocess.run(["node", str(harness)], capture_output=True, text=True)
     assert r.returncode == 0 and "ok" in r.stdout, r.stderr
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node required")
+def test_a_read_issued_while_a_write_is_in_flight_is_not_served_after_it_settles(tmp_path):
+    """ORW-1107: the season-reset POST was in flight, a poller read the still-live state, and the New Chat guard (running right after the POST resolved) was handed that stale
+    answer and asked the player to end the season a second time."""
+    harness = tmp_path / "w.js"
+    harness.write_text(textwrap.dedent(f"""
+        let n = 0, release, fail;
+        global.window = global;
+        global.location = {{ href: "http://x/" }};
+        global.addEventListener = () => {{}};
+        const res = (tag) => ({{ ok: true, tag, clone() {{ return this; }} }});
+        global.fetch = (u, init) => {{
+          if (init && init.method === "POST") return new Promise((ok, no) => {{ release = () => ok(res("write")); fail = () => no(new Error("down")); }});
+          return Promise.resolve(res(++n));
+        }};
+        require({JS!r});
+        (async () => {{
+          const assert = require("assert");
+          for (const settle of ["ok", "fail"]) {{
+            const write = fetch("/api/orwell/reset-progress", {{ method: "POST" }});
+            const during = await fetch("/api/orwell/state");
+            let after;
+            const next = write.then(() => fetch("/api/orwell/state"), () => fetch("/api/orwell/state")).then((r) => {{ after = r; }});
+            (settle === "ok" ? release : fail)();
+            await next;
+            assert.notStrictEqual(after.tag, during.tag, "a fresh read after the write settles (" + settle + ")");
+          }}
+          console.log("ok");
+        }})().catch(e => {{ console.error(e); process.exit(1); }});
+    """))
+    r = subprocess.run(["node", str(harness)], capture_output=True, text=True)
+    assert r.returncode == 0 and "ok" in r.stdout, r.stderr
