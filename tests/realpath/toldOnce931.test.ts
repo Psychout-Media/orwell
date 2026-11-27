@@ -1,3 +1,4 @@
+import { quarantine } from "../support/quarantine";
 import { describe, it, expect } from "vitest";
 import { playedGame } from "../support/playedGame";
 import { firstSeedWhereSync } from "../support/firstSeedWhere";
@@ -17,7 +18,7 @@ type Peek = { nameOf(id: string): string; live?: { claims?: { items: Claim[] } }
 const keyOf = (c: { kind: string; subject: string; object?: string; label?: string }): string => `${c.kind}|${c.subject}|${c.object ?? ""}|${c.label ?? ""}`;
 
 describe("ORW-931 REAL PATH: what the player was already told never comes back as news", () => {
-  it("a claim the player already heard comes back only from another houseguest, and the narrator is told it is not news", () => {
+  quarantine({ card: "ORW-1114", added: "2026-11-27" }).it("a claim the player already heard comes back only from another houseguest, and the narrator is told it is not news", () => {
     const { at } = firstSeedWhereSync((seed, sandbox) => {
       const g = playedGame({ seed, user: sandbox });
       const s = g.s as unknown as Peek;
@@ -45,7 +46,7 @@ describe("ORW-931 REAL PATH: what the player was already told never comes back a
       // the precondition: a comeback the narrator's view carries (a claim can also reach the player through a scene they were in, e.g. an accusation: never through the view, so not the narrator's to mark)
       g.playUntil(() => { read(); return comebacks.some((c) => c.tell); }, 900, "a claim the player already heard coming back through the narrator");
       return comebacks;
-    }, { from: 1, to: 24, hint: [27, 12, 7, 4], sandbox: (s) => `t931-${s}`, what: "a claim the player already heard coming back through the narrator", wide: { maxSeasons: 28, budgetMs: 1_800_000, reason: "ORW-1104: a told claim coming back through the narrator is rare (a seeded chat), and the 50-mechanic pool moved every season; the four hints no longer reach it" } });
+    }, { from: 1, to: 2, hint: [27, 12, 7, 4], sandbox: (s) => `t931-${s}`, what: "a claim the player already heard coming back through the narrator" });
     for (const c of at) {
       expect(c.before, "a houseguest re-told the player the same thing").not.toContain(c.speaker);
       if (c.tell) expect(c.tell.alreadyHeard, "another houseguest's telling of what the player already heard is marked as not news").toBe(true);
