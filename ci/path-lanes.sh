@@ -22,7 +22,7 @@ EVENT_NAME="${EVENT_NAME:-}"
 # files live under docs/features/, so a scenario-only edit must still run the BDD gate (BDD PAT-6),
 # the build/test config, this workflow. (Deliberately matches EVERY .feature, including spec-only ones
 # cucumber.cjs does not execute: cheap insurance, and a later wiring into cucumber.cjs can't slip through.)
-ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.(config|shard\.config|sequencer)\.ts$|cucumber\.cjs$|\.github/workflows/|ci/|\.github/actions/|deploy/|scripts/|docs/(FLAG-INVENTORY\.md$|design/undercall-seam-structural\.md$|features/.*\.md$))'
+ENGINE_RE='^(src/|tests/|features/|docs/features/.*\.feature$|package\.json$|package-lock\.json$|tsconfig.*\.json$|vitest\.(config|shard\.config|sequencer)\.ts$|cucumber\.cjs$|\.github/workflows/|ci/|\.github/actions/|deploy/|scripts/(probes/|ci/|[^/]+$)|docs/(FLAG-INVENTORY\.md$|design/undercall-seam-structural\.md$|features/.*\.md$))'
 # FRONTEND: the vendored Python app + this workflow.
 FRONTEND_RE='^(frontend/|\.github/workflows/ci\.yml$|ci/)'
 FE_READS_ENGINE_RE='^src/(surfaces/tools/|ports/|adapters/mcp/|adapters/engine/GameSessionAdapter\.ts$|engine/(momentPrompts|voice|liveSeason|beatAnnouncement|characterFactory|genesisConstants|portraitPrompts|promiseTerms|spokenClaims|socialRoles)\.ts$|engine/castGenesis|engine/data/vocations\.ts$|domain/(house|styleFamilies|traitConsistency)\.ts$|domain/(castRealism|castAges)\.json$|composition/runtime\.ts$)|^src/main\.ts$'
@@ -49,6 +49,7 @@ if [ "${EVENT_NAME:-}" = "pull_request" ]; then
   DEPLOY_RE='^(src/|frontend/|deploy/|\.github/workflows/ci\.yml$|ci/|\.github/actions/)'
 fi
 FRONTEND_RE="$FRONTEND_RE|^\.github/actions/"
+# scripts/live-run/ and scripts/rehearsal-kit/ are read only by the front-end tests (FE_READS_REPO_RE); no engine test, step or config names them (grep of tests/, features/, src/, ci/, configs), so they run the front-end lanes, not the engine ones.
 # INERT: files no lane reads. (docs/ files that tests DO read are in ENGINE_RE above; the front end's reads are in FE_READS_REPO_RE.)
 INERT_RE='^(docs/|[^/]+\.md$|LICENSE$)'
 KNOWN_RE="$ENGINE_RE|$FRONTEND_RE|$FE_READS_ENGINE_RE|$FE_READS_REPO_RE|$DEPLOY_RE|$HEAVY_RE|$INERT_RE"
