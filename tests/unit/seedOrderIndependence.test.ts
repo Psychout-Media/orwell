@@ -16,9 +16,14 @@ async function sig(seed: number): Promise<string> {
   return JSON.stringify({ summary, trace });
 }
 
+// ORW-1043: seed 1 in the file's own environment, as the first test played it first; the second test compares against that same season (the first test
+// proves it replays identically), so it is not played a fifth time. Run alone, the second test plays it itself.
+let seedOneAsRun: string | undefined;
+
 describe("same seed, same season, whatever ran before it (ORW-213)", () => {
   it("seed 1 gives the identical season alone, after another seed, and after both", async () => {
     const alone = await sig(1);
+    seedOneAsRun = alone;
     const other = await sig(2);
     const after = await sig(1);
     const again = await sig(1);
@@ -32,7 +37,7 @@ describe("same seed, same season, whatever ran before it (ORW-213)", () => {
     const savedGate = process.env.ORWELL_BEDTIME_GATE; // `playSeed` sets it on every call
     try {
       delete process.env.ORWELL_CALM_PRESENCE;
-      const defaults = await sig(1);
+      const defaults = (saved === undefined ? seedOneAsRun : undefined) ?? (await sig(1)); // reused only when the first test ran under these same defaults
       process.env.ORWELL_CALM_PRESENCE = "0";
       const pinned = await sig(1);
       expect(pinned, "the pinned environment is a different season").not.toBe(defaults);

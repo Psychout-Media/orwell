@@ -23,6 +23,8 @@ _START = re.compile(
 _OBJECT = re.compile(
     r"\b(?:continu\w*|assist\w*|help\s+(?:you|with|out)|proceed\w*|direction|request|comply|go\s+(?:on|further))\b",
     re.IGNORECASE)
+# a speech tag ("..., he says, then ...") marks in-scene narration of a character's words, never a model refusal (only the screen that reaches past the first sentence uses it)
+_TAG = re.compile(r"\b(?:says?|said|whispers?|whispered|murmurs?|murmured|replies|replied|mutters?|muttered|sighs?|sighed|adds?|added)\b", re.IGNORECASE)
 _QUOTES = ('"', "“", "”")
 
 _withheld = 0
@@ -55,6 +57,19 @@ def strip_leading_refusal(text: str) -> "tuple[str, int]":
         if not dropped.strip():
             return text, 0
         return "".join(parts[i:]), len(dropped)
+    except Exception:  # failsoft-ok: a detector error never withholds text
+        return text, 0
+
+
+def strip_refusals(text: str) -> "tuple[str, int]":
+    """ORW-1055: drop EVERY refusal sentence of `text`, not only the leading ones (a refusal can open a later chunk or sit mid-reply). Whole sentences only; fail-open."""
+    try:
+        parts = re.split(r"(?<=[.!?\n])", text or "")
+        kept = [x for x in parts if not (is_refusal_sentence(x) and not _TAG.search(x))]
+        dropped = len(text or "") - sum(len(x) for x in kept)
+        if dropped <= 0:
+            return text, 0
+        return "".join(kept), dropped
     except Exception:  # failsoft-ok: a detector error never withholds text
         return text, 0
 

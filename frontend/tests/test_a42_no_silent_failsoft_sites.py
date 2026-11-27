@@ -181,3 +181,15 @@ def test_fe_report_client_abort_mid_read_is_204_not_500(client, monkeypatch):
     r = client.post("/api/orwell/fe-report", content=b'{"surface": "ws:abort-probe", "errorClass": "x", "detail": "y"}')
     assert r.status_code == 204
     assert _overseer() == []
+
+
+def test_a_benign_count_beacon_is_tallied_not_logged_as_fe_fail(client):
+    """ORW-1023: a counted benign event logs no [fe-fail] line, is tallied for an allowlisted surface only, and cannot raise RED."""
+    _clear()
+    body = {"surface": "ws:resync-heal-benign", "errorClass": "run-started-empty", "detail": "speculative holder torn down", "count": True}
+    assert client.post("/api/orwell/fe-report", json=body).status_code == 204
+    assert client.post("/api/orwell/fe-report", json=dict(body, surface="arbitrary:surface")).status_code == 204
+    _, lines = log_rings.LIVE.since(0, limit=100000)
+    assert not any("ws:resync-heal-benign" in str(l) and "fe-fail" in str(l) for l in lines), "the counted benign event must not raise an fe-fail line"
+    assert any("arbitrary:surface" in str(l) and "fe-fail" in str(l) for l in lines), "a surface outside the allowlist is not counted; it logs as an ordinary report"
+    assert _overseer() == []

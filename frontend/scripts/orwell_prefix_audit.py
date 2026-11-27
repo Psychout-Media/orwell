@@ -183,8 +183,9 @@ def _convo(n: int) -> list:
 def audit_trim(budget_tokens: int = 48_000, start_turns: int = 80, steps: int = 6, system_chars: int = 76_000) -> dict:
     """Consecutive turns once the history no longer fits the input budget. `trim_for_context` (what the agent loop calls) drops the OLDEST
     turns until the request fits, so each new turn moves the cut by about one turn and the prefix after the system message shifts: only
-    the system messages stay a stable prefix. `proposedHysteresis` is a SIMULATION of a not-yet-shipped policy (cut a quarter of the
-    budget at once, then hold the cut until the budget is exceeded again), shown to size the prize; it is not code in the app."""
+    the system messages stay a stable prefix. `proposedHysteresis` was the SIMULATION of a policy (cut a quarter of the budget at once, then hold
+    the cut until the budget is exceeded again); since ORW-555's follow-up it IS the shipped trim (context_compactor `TRIM_TARGET_SHARE`, `ORWELL_TRIM_HYSTERESIS`),
+    so the two lines now read alike."""
     from src.context_compactor import estimate_tokens, trim_for_context
 
     sys_msg = {"role": "system", "content": "S" * system_chars}

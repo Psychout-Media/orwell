@@ -1,0 +1,112 @@
+# class | text | expected (claim:room[:single|double] / swap:Name / near:Name / -)
+claim|I'll take the bed in bedroom B|claim:bedroom-b
+claim|I take a bed in the coral bedroom|claim:bedroom-a
+claim|I claim a bed in the Palmetto room|claim:bedroom-b
+claim|dibs on a bed in bedroom C|claim:bedroom-c
+claim|I grab a double in bedroom A|claim:bedroom-a:double
+claim|I want a single bed in the wreck bedroom|claim:bedroom-c:single
+claim|I want the bed by the window in bedroom B|claim:bedroom-b
+claim|I put my bags on a bed in bedroom A|claim:bedroom-a
+claim|I'll go with a bed in the deep bedroom|claim:bedroom-b
+claim|can I take a bed in bedroom B?|claim:bedroom-b
+claim|is the bed in bedroom B free?|-
+claim|Which bed is free in bedroom A?|-
+claim|I choose the first bedroom bed|claim:bedroom-a
+claim|I pick bunk 2 in room b|claim:bedroom-b
+hedge|I might take a bed in bedroom B|-
+hedge|I won't take a bed in bedroom B|-
+hedge|I don't want a bed in bedroom C|-
+hedge|maybe I'll claim a bed in the Palmetto room|-
+hedge|I'll take a bed in bedroom B later|-
+hedge|I never want the bed in bedroom A|-
+hedge|I'm not taking a bed in bedroom B|-
+hedge|I'd take a bed in bedroom B if Dana leaves|-
+hedge|I wonder if I should take a bed in bedroom B|-
+hedge|I refuse to take a bed in bedroom B|-
+hedge|nobody takes the bed in bedroom B|-
+hedge|I'd rather not take a bed in bedroom C|-
+hedge|I decided against taking a bed in bedroom B|-
+hedge|I can't take a bed in bedroom B|-
+hedge|I already took a bed in bedroom B|-
+hedge|my bed is in bedroom B|-
+hedge|I sleep in the Palmetto room|-
+hedge|I hate the bed in the Palmetto room|-
+hedge|Dana took the bed in bedroom B|-
+hedge|Dana claims a bed in bedroom B|-
+hedge|I tell Dana to take a bed in bedroom B|-
+hedge|I tell Dana she should take the bed in bedroom B|-
+hedge|The bed in bedroom B is nice|-
+hedge|I want to see the bed in bedroom B|claim:bedroom-b
+hedge|I want to look at the beds in bedroom B|claim:bedroom-b
+hedge|I check the bed in bedroom B|-
+hedge|I make my bed in bedroom B|-
+hedge|I make the bed in bedroom A|-
+hedge|I want to sit on the bed in bedroom B|claim:bedroom-b
+quote|I say "I take a bed in bedroom B"|-
+quote|I say 'I take a bed in bedroom B'|-
+quote|I tell Dana 'I claim the bed in bedroom B'|-
+quote|I whisper "dibs on bedroom A" and take a bed in bedroom C|claim:bedroom-c
+quote|(( I take a bed in bedroom B ))|-
+quote|((can I take a bed in bedroom B?))|-
+quote|OOC: I take a bed in bedroom B|-
+quote|I type: take bed bedroom B|-
+swap|can I swap beds with Dana?|swap:Dana
+swap|I swap beds with Dana|swap:Dana
+swap|I ask Dana to switch beds|swap:Dana
+swap|I want Dana's bed|swap:Dana
+swap|I take Dana's bed|swap:Dana
+swap|Dana's bed looks nice|swap:Dana
+swap|I sit on Dana's bed|swap:Dana
+swap|I sit on Dana's bed and talk to her|swap:Dana
+swap|I don't want Dana's bed|-
+swap|I won't swap beds with Dana|-
+swap|I'd never swap with Dana|-
+swap|I swap with Dana|-
+swap|I trade my bed to Jake|swap:Jake
+swap|Dana, want to trade beds?|swap:Dana
+swap|Tell Dana to swap beds with Jake|swap:Dana
+swap|I tell Jake Dana's bed is his|swap:Dana
+swap|do not swap beds with Dana|-
+swap|swap beds with Kit|swap:Kit
+swap|swap beds with Kit Alvarez|swap:Kit
+swap|I switch beds with Lou|swap:Lou
+swap|I want Hal's bunk|swap:Hal
+swap|I lie on Dia's bed|swap:Dia
+swap|I trade beds with Dina|-
+near|I want a bed next to Dana|near:Dana
+near|I take a bed near Jake|near:Jake
+near|I want to sleep next to Dana|-
+near|I grab a bed beside Jake|near:Jake
+near|I claim a bed by Dana|near:Dana
+near|I take a bed with Dana|near:Dana
+near|I take a bed with a view|-
+near|I take a bed by the window|-
+near|I put my bags down on a bed next to Dana's|near:Dana
+near|I take the bed above Jake|near:Jake
+near|I want a bed far from Dana|-
+near|I want a bed away from Dana|-
+near|I want a bed across from Jake|near:Jake
+near|I don't want a bed next to Dana|-
+near|I want a bed next to Hal|near:Hal
+near|I take a bed next to Kit|near:Kit
+near|I take a bed near the kitchen|-
+near|I take a bed near Dina|-
+name|I take a bed in bedroom B next to Dana|claim:bedroom-b
+name|I take the bed in the kitchen|-
+name|I take the bed in the hallway|-
+name|I take a bed in the lounge|-
+name|I claim a bed in bed room B|claim:bedroom-b
+name|I take a bed in room b|claim:bedroom-b
+name|I take a bed in bedroom 2|claim:bedroom-b
+name|I take a bed in the second bedroom|claim:bedroom-b
+name|I take a bed in the hoh room|-
+name|I take a bed in the master bedroom|-
+name|I take a bed in the bedroom|-
+name|I take a bed in any bedroom|-
+name|I take a bed|-
+name|I grab a bed|-
+name|I take a bed in bedroom A. Actually bedroom B.|claim:bedroom-b
+name|I take a bed in bedroom A. I won't take bedroom B.|claim:bedroom-a
+name|I take a bed in bedroom A or B|claim:bedroom-a
+name|I take a bed in the palmetto|claim:bedroom-b
+name|I take a bed in the Palmetto room, I mean the coral bedroom|claim:bedroom-a

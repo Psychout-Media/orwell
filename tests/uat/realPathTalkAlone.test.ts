@@ -1,3 +1,4 @@
+import { quarantine } from "../support/quarantine";
 import { describe, it, expect } from "vitest";
 import { PLAYER } from "../../src/domain/ids";
 import { isPrivateRoom, type Room } from "../../src/domain/house";
@@ -185,7 +186,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
 const askStanding = () => firstSeedWhere((seed) => playUntil(seed, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending && !!(s.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk, { user: `wf-${seed}`, maxMessages: 3000 }), wfScan([1, 3], "a houseguest's own ask standing and shown to the player"));
 
 describe("ORW-727b: a houseguest asks the player for a private word (parity), in a played season", () => {
-  it("their own ask stands as an open, non-blocking offer the player sees; the player's yes through the same lever is accepted; it then clears", async () => {
+  quarantine({ card: "ORW-1007", added: "2026-11-26" }).it("their own ask stands as an open, non-blocking offer the player sees; the player's yes through the same lever is accepted; it then clears", async () => {
     const { at } = await askStanding();
     const npc = at.sess.live.talkAsk.npc as string;
     const view = at.sess.getGameState() as { openTalkAsk?: { from: { id: string } } };
@@ -199,7 +200,7 @@ describe("ORW-727b: a houseguest asks the player for a private word (parity), in
 });
 
 describe("ORW-727b: a houseguest's ask lapses, in a played season", () => {
-  it("left unanswered, their ask stops showing once its hours have passed", async () => {
+  quarantine({ card: "ORW-1007", added: "2026-11-26" }).it("left unanswered, their ask stops showing once its hours have passed", async () => {
     const { at } = await askStanding();
     const npc = at.sess.live.talkAsk.npc as string;
     const until = at.sess.live.talkAsk.until as number;

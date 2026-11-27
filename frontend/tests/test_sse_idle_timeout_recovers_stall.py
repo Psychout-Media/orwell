@@ -197,7 +197,7 @@ def test_reader_loop_resets_idle_timer_on_activity_not_one_shot_clear():
     # the block from the activity condition to its `clearProcessingProbe()` sibling and assert the
     # activity call is the idle RESET, not the permanent `clearResponseTimeout()` one-shot.
     m = re.search(
-        r"json\.type === 'research_progress'\)\s*\{(.*?)clearProcessingProbe\(\);",
+        r"json\.type === 'research_progress'(?: \|\| json\.type === 'keepalive')?\)\s*\{(.*?)clearProcessingProbe\(\);",  # ORW-408: the keepalive event also counts as stream activity
         src, re.DOTALL,
     )
     assert m, "could not locate the reader-loop activity site (json.delta || ... || research_progress)"

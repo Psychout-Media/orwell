@@ -41,7 +41,7 @@ def test_r1_hang_out_to_the_event_then_the_due_comp_fires_the_same_turn(monkeypa
     board = _board(False, 40)
     advances = []
 
-    async def hang(expected_beat_seq=None, max_beats=None, user=None):
+    async def hang(expected_beat_seq=None, max_beats=None, user=None, **_kw):
         board["daySchedule"].update(due=True, minutesUntil=0)           # the engine ran the clock to exactly the event
         return {"ok": True, "stopReason": "event-due", "beats": 2, "minutes": 40, "beatSeq": 5}
 

@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { GameSessionRegistry } from "../../src/composition/registry";
 import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAdapter";
-import { renderBoardRecap } from "../../src/engine/momentPrompts";
+import { renderBoardRecap, renderGameContext, EVICTION_BEFORE_RESULT_LINE } from "../../src/engine/momentPrompts";
+import type { GameStateView } from "../../src/ports/GameSession";
 import { resolvePending } from "../../features/support/answerPending";
 
 /**
@@ -116,5 +117,22 @@ describe("the terminal HARD-CONSTRAINTS block ends with the engine-committed boa
   it("outside the ceremonies the block carries no BOARD section (byte-identical)", () => {
     const s = driveTo((ss) => ss.getGameState().phase === "premiere" || ss.getGameState().phase === "setup" || (ss.getGameState().week ?? 0) === 0);
     expect(hc(s)).not.toContain("BOARD");
+  });
+});
+
+describe("ORW-1021: the narrator is told what the eviction beat and the early-morning band mean", () => {
+  it("before a ballot or the result: no goodbyes, and a nominee's name never stands alone as a line", () => {
+    const s = driveTo((ss) => ss.getGameState().phase.startsWith("eviction") && (ss.getGameState().eviction?.votesRevealed ?? []).length === 0);
+    const board = (renderBoardRecap(s.getGameState()) ?? []).join("\n");
+    expect(board).toContain(EVICTION_BEFORE_RESULT_LINE);
+    expect(board).toMatch(/no goodbyes[^\n]*standing alone as a line reads as a ballot/);
+  });
+
+  it("an early-morning band says it is dark and the house asleep; a daytime band says nothing extra", () => {
+    const s = driveTo((ss) => ss.getGameState().started === true);
+    const base = { ...s.getGameState(), clockLabel: undefined } as GameStateView;
+    const early = renderGameContext({ ...base, clockBand: "early morning, Day 5" } as GameStateView);
+    expect(early).toMatch(/EARLY MORNING means the dark hours BEFORE the house's wake-up call/);
+    expect(renderGameContext({ ...base, clockBand: "afternoon, Day 5" } as GameStateView)).not.toMatch(/EARLY MORNING means/);
   });
 });

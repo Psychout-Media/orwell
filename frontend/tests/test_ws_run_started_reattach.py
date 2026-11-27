@@ -366,6 +366,31 @@ async function handshake(hasRunFirst, runId) {
     assert(resyncEvents.length === 0, "the retry found the run; still no resync");
   }
 
+  // ── scenario 13 (ORW-1023): the own turn is live and the empty ack outlasts every retry: this is NOT a stale ring
+  // replay, so the resync must carry the distinct own-turn reason (RED path), never the routine 'run-started-empty'.
+  {
+    const WS = boot();
+    await tick();
+    const resyncEvents = [];
+    global.window.addEventListener('orwell:ws-resync', function (e) { resyncEvents.push(e.detail); });
+    await handshake(false);
+    const before = chatSubs().length;
+    WS.sendTurn({ message: "hi", clientMsgId: "c1" });
+    down({ t: "state", ch: "state", d: { beatSeq: 2, reason: "run-started" } });
+    await tick();
+    for (let i = 0; i < 6; i++) {
+      const sub = chatSubs()[before + i];
+      if (!sub) { await new Promise((r) => setTimeout(r, 400)); i--; if (chatSubs().length > before + 6) break; continue; }
+      down({ t: "ack", ch: "chat", cid: sub.cid, d: { fromSeq: 0, headSeq: -1, hasRun: false } });
+      await tick();
+      if (resyncEvents.length) break;
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    assert(resyncEvents.length === 1, "retries exhausted must resync once; got " + resyncEvents.length);
+    assert(resyncEvents[0].reason === "run-started-empty-own-turn",
+      "an exhausted own-turn race is a possible lost reply and needs its own reason; got " + JSON.stringify(resyncEvents[0]));
+  }
+
   console.log("OK");
   process.exit(0);
 })();

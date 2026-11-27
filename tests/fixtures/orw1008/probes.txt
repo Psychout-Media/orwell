@@ -1,0 +1,140 @@
+I smile and go to the kitchen|living-room|kitchen
+I grab my drink and head to the backyard|living-room|backyard
+I stand up and walk to the lounge|living-room|lounge
+I laugh, then go to the kitchen|living-room|kitchen
+I say hi and go to the kitchen|living-room|kitchen
+Dana laughs. I head to the kitchen|living-room|kitchen
+I hug Dana and go to the hallway|living-room|hallway
+I nod and head into the bathroom|living-room|bathroom
+Feeling tired, I go to the lounge|living-room|lounge
+After that I go to the kitchen|living-room|kitchen
+Right then I go to the lounge|living-room|lounge
+With a sigh I walk to the backyard|living-room|backyard
+Quietly, I head to the kitchen|living-room|kitchen
+My heart pounding, I go to the hallway|living-room|hallway
+I get up and go to the kitchen|living-room|kitchen
+I finish my tea and walk to the backyard|living-room|backyard
+I pick up my phone and head to the lounge|living-room|lounge
+I step back|living-room|-
+I step back from Dana|living-room|-
+I go back|living-room|-
+I walk back|living-room|-
+I move back|living-room|-
+I step back and listen|living-room|-
+I back away|living-room|-
+I go back to Dana|living-room|-
+I go back to the conversation|living-room|-
+I step out|kitchen|-
+I step out to the backyard|kitchen|backyard
+I go over|living-room|-
+I walk over|living-room|-
+I go there|living-room|-
+I go home|living-room|-
+I go up|living-room|-
+I go down|living-room|-
+I go to the kitchen.|living-room|kitchen
+I go to the kitchen in an hour|living-room|-
+I head to the kitchen at noon|living-room|-
+I head to the kitchen on Friday|living-room|-
+I go to the kitchen every day|living-room|-
+I go to the kitchen all the time|living-room|-
+I go to the kitchen for the next hour|living-room|kitchen
+I enter the kitchen|living-room|kitchen
+I enter the backyard|living-room|backyard
+I step into the kitchen|living-room|kitchen
+I walk in the kitchen|living-room|kitchen
+I come into the kitchen|living-room|kitchen
+I arrive at the kitchen|living-room|kitchen
+I get to the kitchen|living-room|kitchen
+I reach the kitchen|living-room|kitchen
+I pop into the kitchen|living-room|kitchen
+I pop over to the kitchen|living-room|kitchen
+I swing by the kitchen|living-room|kitchen
+I drift to the kitchen|living-room|kitchen
+I wander over to the backyard|living-room|backyard
+I sneak to the kitchen|living-room|kitchen
+I tiptoe into the kitchen|living-room|kitchen
+I creep into the hallway|living-room|hallway
+I stomp off to the backyard|living-room|backyard
+I hurry to the kitchen|living-room|kitchen
+I rush to the bathroom|living-room|bathroom
+I race to the kitchen|living-room|kitchen
+I jog to the backyard|living-room|backyard
+I bolt to the bathroom|living-room|bathroom
+I sprint to the bathroom|living-room|bathroom
+I dash into the kitchen|living-room|kitchen
+I storm into the kitchen|living-room|kitchen
+I stomp into the lounge|living-room|lounge
+I leave the kitchen and go to the backyard|kitchen|backyard
+I leave and go to the lounge|kitchen|lounge
+I leave the kitchen, heading to the backyard|kitchen|backyard
+I exit the kitchen into the backyard|kitchen|backyard
+I leave the kitchen for the backyard|kitchen|backyard
+I go to the kitchen, then the backyard|living-room|backyard
+I go to the kitchen and then go to the backyard|living-room|backyard
+I go to the kitchen, and then I go to the backyard|living-room|backyard
+I head to the kitchen then to the lounge|living-room|lounge
+I go to the kitchen and later the backyard|living-room|kitchen
+I go to the kitchen and I go to the backyard|living-room|backyard
+I go to the kitchen, hopefully Dana is there|living-room|kitchen
+I go to the kitchen. No, the backyard.|living-room|backyard
+I go to the kitchen, actually no, the backyard|living-room|backyard
+I go to the kitchen, scratch that, lounge|living-room|lounge
+I go to the kitchen but then change my mind and go to the lounge|living-room|lounge
+I go to the kitchen... wait, no, the lounge|living-room|lounge
+I go to the kitchen / lounge|living-room|-
+I head into the kitchen for water, I mean the bathroom|living-room|bathroom
+I go to the kitchen!|living-room|kitchen
+I go to the kitchen!!|living-room|kitchen
+(( I go to the kitchen ))|living-room|-
+((let's go to the kitchen))|living-room|-
+(( go to the kitchen ))|living-room|-
+(( can we go to the kitchen? ))|living-room|-
+(( should I go to the kitchen )) Yes|living-room|-
+[I go to the kitchen]|living-room|kitchen
+(( I go to the kitchen. Actually, no. ))|living-room|-
+((OOC: wait, I want to go to the kitchen))|living-room|-
+((I'm going to go to the kitchen next turn))|living-room|-
+OOC - I go to the kitchen|living-room|-
+ooc: let's go to the kitchen|living-room|-
+I say 'let's go to the kitchen'|living-room|-
+I say, 'I head to the kitchen'|living-room|-
+I tell Dana, "Let's go to the kitchen." We go to the kitchen.|living-room|kitchen
+I tell Dana, "Let's go to the kitchen." We go.|living-room|-
+I say “go to the kitchen|living-room|-
+I say "go to the kitchen|living-room|-
+I say "go to the kitchen." I go to the lounge.|living-room|lounge
+I say "hello" "go to the kitchen" and "hi"|living-room|-
+"I go to the kitchen" is what I say|living-room|-
+"let's go to the kitchen!" I say, and we do|living-room|-
+"let's go to the kitchen!" I say, and we go to the kitchen|living-room|kitchen
+We go to the kitchen|living-room|kitchen
+We head to the backyard|living-room|backyard
+we walk to the lounge together|living-room|lounge
+Dana and I go to the kitchen|living-room|kitchen
+Dana and I head to the backyard|living-room|backyard
+Me and Dana walk to the lounge|living-room|lounge
+I and Dana go to the kitchen|living-room|kitchen
+Together we go to the kitchen|living-room|kitchen
+Come on Dana, let's go to the kitchen|living-room|kitchen
+Dana, let's go to the kitchen|living-room|kitchen
+hey Dana lets go to the kitchen|living-room|kitchen
+Come on, let's go to the kitchen|living-room|kitchen
+let's you and I go to the kitchen|living-room|kitchen
+let's go to the kitchen, Dana, and talk|living-room|kitchen
+I take Dana to the kitchen|living-room|kitchen
+I take her to the kitchen|living-room|kitchen
+I take him to the lounge|living-room|lounge
+I take Dana and Jake to the lounge|living-room|lounge
+I take everyone to the lounge|living-room|lounge
+I walk Dana to the kitchen|living-room|kitchen
+I walk her to the backyard|living-room|backyard
+I lead the way to the kitchen|living-room|kitchen
+I lead everyone to the lounge|living-room|lounge
+I guide Dana to the backyard|living-room|backyard
+I escort Dana to the kitchen|living-room|kitchen
+I follow Dana to the kitchen|living-room|kitchen
+I follow her into the lounge|living-room|lounge
+I follow Dana|living-room|-
+I walk into the Palmetto room|living-room|-
+I walk into Palmetto|living-room|-

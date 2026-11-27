@@ -109,7 +109,7 @@ def test_record_never_stores_a_message_body_or_secret():
     assert set(e.keys()) == {
         "ts", "turnId", "session", "beatSeqBefore", "beatSeqAfter",
         "toolsCalled", "nudgesFired", "autoBackfills", "desyncDetected",
-        "staleRejections", "idempotencyHits", "beltsFired", "forcedChoice",
+        "staleRejections", "idempotencyHits", "beltsFired", "forcedChoice", "drivenBy",
     }
     # the count fields rejected the smuggled string entirely (coerced to 0)
     for f in ("beatSeqBefore", "beatSeqAfter", "nudgesFired", "autoBackfills",
