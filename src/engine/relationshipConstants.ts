@@ -255,6 +255,14 @@ export type CeremonyAct = "nominated" | "veto-saved" | "replaced" | "evicted" | 
  */
 const COMP_WON_IMPACT: Partial<EdgeSignals> = { threat: +0.45 };
 
+/**
+ * ORW-779 (Ryne 2026-11-26: "Comps shouldn't be the only reason someone is a threat") - the share of `comp-won` a PLAYED game folds. Measured on a played game before this
+ * (6 seeds, weeks 1-5): after ONE public win the readers' threat read of the winner had median 0.84 and 37% of reads at 0.95 or more, so one win topped the house's list and
+ * a safety deal was mostly refused. `win` is what each competition win adds (repeat wins still stack, so a comp beast is still a target); `reignEnd` is what the same reign
+ * adds again on eviction night (E49), which before this was a second full win for one crown. Headless seeded sims (calibration, jury reach, UAT) keep the full fold byte for byte.
+ */
+export const PLAYED_COMP_THREAT = { win: 0.5, reignEnd: 0.25 } as const;
+
 /** A veto save is alliance-grade warmth PLUS demonstrated protection — the E54 evidence signal. */
 const VETO_SAVED_IMPACT: Partial<EdgeSignals> = { trust: +0.16, affinity: +0.14, alignment: +0.15, reliability: +0.15 };
 

@@ -94,7 +94,7 @@ import { FAVOR } from "../../engine/favorConstants";
 import { counterStreamKey, weighCounter, type CounterAsk, type CounterSide } from "../../engine/favorCounters";
 import { believedMargin, inDoubt } from "../../engine/voteEstimate";
 import { NPC_MEMORY, PLAYED_NPC_MEMORY, DEAL_WITNESS, isGrudgeKind, salience, SCENE_MEMORY_SEVERITY, SCENE_MEMORY_SEVERITY_MORE, SCENE_MOOD_ONLY_SEVERITY, recordMemory, memoryTilt, memoryTiltStandalone, nominationMemorySeverity, vetoWithheldSeverity, memoryGrudge, BOOK_FOLDED_KINDS, type BookRead, memoryFavor, friendSeverity, type MemoryKind, type MemoryEntry } from "../../engine/npcMemory";
-import { pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
+import { LOBBY, pitchTilt, chooseOffer, type Pitch } from "../../engine/lobbying";
 import { applyForgiveness, forgivenessTraitFor } from "../../engine/forgiveness";
 import { ACCUSE, hitReaction, sourChance } from "../../engine/accuseConstants";
 import { DEAL_NOMS } from "../../engine/dealNomConstants";
@@ -285,7 +285,7 @@ import type { SoulProvider } from "../../ports/SoulProvider";
 import type { InteractionType } from "../../engine/relationships";
 import { MANNER_GRADING, MANNER_THRESHOLDS, JURY_MEMORY, JURY_GRUDGE } from "../../engine/juryConstants";
 import {
-  CEREMONY_IMPACTS, DEAL_REPUTATION, EVICTION_MANNER_SCALE, OVERNIGHT_DRIFT, RELATIONSHIP_CONSTANTS, clamp01, scaleImpact,
+  CEREMONY_IMPACTS, PLAYED_COMP_THREAT, DEAL_REPUTATION, EVICTION_MANNER_SCALE, OVERNIGHT_DRIFT, RELATIONSHIP_CONSTANTS, clamp01, scaleImpact,
 } from "../../engine/relationshipConstants";
 import type { CeremonyAct } from "../../engine/relationshipConstants";
 import { COMP_EFFORT, natureFoldImpact, scaleImpactByValence } from "../../engine/relationshipConstants";
@@ -1498,7 +1498,7 @@ export class GameSessionAdapter implements GameSession {
    */
   pitchTiltFor(subject: EntityId, holder: EntityId): number {
     if (!this.lobbyingEnabled || !this.house || holder === PLAYER) return 0;
-    return pitchTilt(subject, this.derivePitches(holder), (p) => Math.max(0, Math.min(1, this.rel.edge(holder, p).trust)), this.standingPitchWeight()); // ORW-694 B1-9: standing weighs the pitch
+    return pitchTilt(subject, this.derivePitches(holder), (p) => Math.max(0, Math.min(1, this.rel.edge(holder, p).trust)), this.standingPitchWeight(), this.live?.playedGame === true ? LOBBY.playedScale : 1); // ORW-694 B1-9: standing weighs the pitch; ORW-779: talk reaches further in a played game
   }
   /** B6/B38 - the pitches `holder` (the HOH) faces, derived deterministically from the live edges (no rng, no stored state). Shared by the nomination tilt and the pitch-event recorder, so what is RECORDED is exactly what is WEIGHED. */
   private derivePitches(holder: EntityId): Pitch[] {
@@ -17775,15 +17775,18 @@ export class GameSessionAdapter implements GameSession {
       const impact = scale === 1 ? CEREMONY_IMPACTS[act] : scaleImpact(CEREMONY_IMPACTS[act], scale);
       this.rel.applyImpactDirected(from, to, impact, rng);
     };
+    // ORW-779: in a played game one competition win is one factor in the threat read, not the top of it (`PLAYED_COMP_THREAT`); headless => scale 1, byte-identical.
+    const compWin = s.playedGame === true ? PLAYED_COMP_THREAT.win : 1;
+    const reignEnd = s.playedGame === true ? PLAYED_COMP_THREAT.reignEnd : 1;
     switch (ev.beat) {
       case "hoh-competition": {
         const winner = ev.participants[0]; // the new HOH reads as a threat to the whole house (E47)
-        if (winner) for (const h of s.active) fold(h, winner, "comp-won");
+        if (winner) for (const h of s.active) fold(h, winner, "comp-won", compWin);
         break;
       }
       case "veto-competition": {
         const winner = s.vetoHolder;
-        if (winner) for (const h of s.active) fold(h, winner, "comp-won");
+        if (winner) for (const h of s.active) fold(h, winner, "comp-won", compWin);
         break;
       }
       case "nominations": {
@@ -17833,7 +17836,7 @@ export class GameSessionAdapter implements GameSession {
         }
         // The survivors read THIS week's HOH as a proven threat — they just ran the week (E49;
         // `rollWeek` has not run yet at this beat, so `s.hoh` is the reign that ends tonight).
-        if (s.hoh) for (const h of s.active) fold(h, s.hoh, "comp-won");
+        if (s.hoh) for (const h of s.active) fold(h, s.hoh, "comp-won", reignEnd);
         break;
       }
       case "self-eviction": {
