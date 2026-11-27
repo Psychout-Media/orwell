@@ -5409,7 +5409,8 @@ def _forget_season_pacing(user) -> None:
         try:
             from src import orwell_companions as _oc_reset
             _oc_reset.clear(user)  # ORW-1030: last season's companions do not walk into the new one
-        except Exception:
+        except Exception as _fs_exc:
+            _failsoft_note("chat_helpers:_forget_season_pacing:1", _fs_exc)
             pass
         _CEREMONY_UNVOICED.pop(dkey, None)  # review of #2287: last season's unvoiced ceremony must not be re-grounded into the new one
         rkey = _runway_key(user)
