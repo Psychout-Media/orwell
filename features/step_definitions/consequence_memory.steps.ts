@@ -240,7 +240,8 @@ Then("this happens without any opinion value ever being shown to the player", fu
 Given("a multi-step game of conversations, a competition, and a vote", function (this: BbWorld) {
   // A live season: real conversations through the command seam, then the live loop runs its own
   // competitions and votes (advanceGame) until the house has voted at least once.
-  const l = startLive(this, 6);
+  // Seed 2 (ORW-853: the player-action stream is now keyed per season, so seed 6 no longer leaves the betrayed houseguest targeting the player; 2 is the first from 1 that does).
+  const l = startLive(this, 2);
   // A11: a chat during the gathered champagne circle is now a real witnessed record (the witness grounding reads the same whole-house overlay the player sees), so the ten scenes below would
   // all fold at once, before the house has settled. Close the circle first (a pure close earns no tick), as the real game does, so this scenario measures the settled loop it is about.
   l.sb.session.advanceGame();

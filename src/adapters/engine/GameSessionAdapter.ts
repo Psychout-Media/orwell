@@ -11080,6 +11080,7 @@ export class GameSessionAdapter implements GameSession {
     // first-class for tests and replays. An adopted warm reuses its already-minted seed.
     const seed = adopt ? adopt.seed : (effReq.seed ?? entropySeed());
     this.gameSeed = seed; // B60/E12: every per-moment rng below keys off the GAME's seed
+    this.seasonSeedSink?.(seed); // ORW-853
     this.worldAvoid = effReq.avoidWorld ?? worldCarried ?? {};
     // The producer persona (producer-persona feature): keep the producer the player has been interviewing
     // with if one was already established pre-game; otherwise bind it to the season seed so a direct
@@ -11514,6 +11515,7 @@ export class GameSessionAdapter implements GameSession {
     const seed = req.seed ?? entropySeed();
     this.priorNames = new Map(); // ORW-463: a (re-)warmed cast is a new cast: names the last one carried must not rewrite its prose
     this.gameSeed = seed;
+    this.seasonSeedSink?.(seed); // ORW-853
     if (this.producerSeed === null) this.producerSeed = seed; // keep the casting producer stable pre-game
     const portraitStyleAnchor = STYLE_ANCHOR_VARIANTS[
       new SeededRandom(hashSeed(`${seed}:portrait-style`)).int(STYLE_ANCHOR_VARIANTS.length)
@@ -13811,6 +13813,9 @@ export class GameSessionAdapter implements GameSession {
    *  social graph). Only invoked when the deal-depth layer is on (the ledger gates `reputation` on it), so
    *  an unwired / flag-off game is byte-identical. */
   setDealReputationSink(fn: (honorer: EntityId, other: EntityId) => void): void { this.dealReputationSink = fn; }
+  /** ORW-853: told the season's seed the moment it is fixed (the cast warm or `createCharacter`), so the composition root can key the player-action stream on it. */
+  private seasonSeedSink?: (seed: number) => void;
+  setSeasonSeedSink(fn: (seed: number) => void): void { this.seasonSeedSink = fn; }
   /** 0121 R1 — wire the Vault-free reliability-reputation READER (the registry owns the KnowledgeService):
    *  which honorers a holder credits as "keeps their word" (the diffusing `reliable:<honorer>` belief). Read
    *  by the NPC deal-willingness lean in `mintNpcDeal`. Off unless the deal-depth layer is on ⇒ byte-identical. */

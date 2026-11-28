@@ -49,6 +49,8 @@ import type { SessionSnapshot } from "../engine/sessionSnapshot";
  * the outward HTTP transport never imports this — it receives a Vault-free resolver.
  */
 export interface UserSandbox {
+  /** The physical-world user this sandbox belongs to (ORW-853: keys the season's player-action stream on restore). */
+  user: string;
   engine: EngineCore;
   player: PlayerSurface;
   admin: AdminPort;
@@ -72,6 +74,8 @@ function buildUserSandbox(user = "default"): UserSandbox {
     engine.events, engine.knowledge, engine.relationships, new SeededRandom(hashSeed(`commands:${user}`)),
   );
   const session = new GameSessionAdapter(engine.relationships);
+  // ORW-853: once a season has a seed, the player-action stream is keyed on the user AND that season (a returning player's next season plays fresh).
+  session.setSeasonSeedSink((seed) => commands.rekeyForSeason(hashSeed(`commands:${user}:${seed}`)));
   // Wire the engine-only soul store (0024) into the live session so consequential beats + off-screen
   // scenes deepen each NPC's arc and ground their later voice (the 0041 linchpin).
   session.setSoul(engine.soul);
@@ -500,6 +504,7 @@ function buildUserSandbox(user = "default"): UserSandbox {
     });
   };
   return {
+    user,
     engine,
     player: outward.player,
     admin: outward.admin,
@@ -529,7 +534,7 @@ function exportSnapshot(sb: UserSandbox, tick?: TickResume): SessionSnapshot {
     vault: sb.engine.vault.readHidden(),
     ...(sb.commands.foldMeterState() ? { foldMeter: sb.commands.foldMeterState() } : {}),
     // ORW-730: where the two stateful seeded streams are, so a restart does not reroll the season (engine-only, never projected).
-    ...(tick?.draws || commandsPosition ? { streamPos: { ...(tick?.draws ? { tick: tick.draws } : {}), ...(commandsPosition ? { commands: commandsPosition } : {}) } } : {}),
+    ...(tick?.draws || commandsPosition || sb.commands.seasonKeyed() ? { streamPos: { ...(tick?.draws ? { tick: tick.draws } : {}), ...(commandsPosition ? { commands: commandsPosition } : {}), ...(sb.commands.seasonKeyed() ? { commandsSeason: true as const } : {}) } } : {}),
     // ORW-730: the off-screen tick's cadence anchors (the in-game hour and absolute hour of the last society tick), so a restart does not re-fire or skip a tick.
     // The play-clock reading too: tick seeds and recency windows are keyed on it, so a restart that restarted the clock at its epoch re-keyed every later draw.
     ...(tick?.hour !== undefined || tick?.abs !== undefined || tick?.clock !== undefined ? { tickAnchors: { ...(tick.hour !== undefined ? { hour: tick.hour } : {}), ...(tick.abs !== undefined ? { abs: tick.abs } : {}), ...(tick.clock !== undefined ? { clock: tick.clock } : {}) } } : {}),
@@ -578,6 +583,8 @@ function importSnapshot(sb: UserSandbox, snap: SessionSnapshot): void {
   for (const e of snap.events) sb.engine.events.restoreRecord(e); // ids/ts/hidden preserved exactly
   sb.engine.relationships.load(snap.relationships);
   sb.commands.restoreFoldMeter(snap.foldMeter);
+  // ORW-853: a save made with the season-keyed stream rebuilds that stream before seeking; an older save resumes its per-user stream unchanged.
+  if (snap.streamPos?.commandsSeason && snap.seed !== undefined) sb.commands.rekeyForSeason(hashSeed(`commands:${sb.user}:${snap.seed}`));
   sb.commands.restoreRngPosition(snap.streamPos?.commands);
   if (snap.knowledge) sb.engine.knowledge.load(sb.session.rumorSubjectsBackfillEnabled() ? backfillRumorSubjects(snap.knowledge) : snap.knowledge);
   for (const r of snap.vault ?? []) sb.engine.vault.writeHidden(r); // the producer's secrets resume sealed

@@ -622,7 +622,8 @@ export interface SessionSnapshot extends SessionCore {
    * without it loads as before (the streams start fresh), so no schema bump. Every other draw in the live
    * path is a keyed hash of the game seed plus its own key, with nothing to save.
    */
-  streamPos?: { tick?: number; commands?: number };
+  /** `commandsSeason` (ORW-853): the player-action stream was keyed on the user and the season seed; absent = an older save on the per-user stream. */
+  streamPos?: { tick?: number; commands?: number; commandsSeason?: true };
   /** ORW-730: the in-game hour and absolute hour of the last off-screen society tick (the tick's debounce anchors) and the play-clock reading (tick seeds are keyed on it), engine-only like `streamPos`. Optional and additive. */
   tickAnchors?: { hour?: number; abs?: number; clock?: number };
 }

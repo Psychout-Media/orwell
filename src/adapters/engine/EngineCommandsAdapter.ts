@@ -182,7 +182,7 @@ export class EngineCommandsAdapter implements EngineCommands {
     private readonly events: EventStore,
     private readonly knowledge: KnowledgeService,
     private readonly rel?: RelationshipModel,
-    private readonly rng: RandomnessSource = new SeededRandom(1),
+    private rng: RandomnessSource = new SeededRandom(1),
   ) {}
 
   /** Wire a persistence callback invoked after every state-mutating command (0030). */
@@ -677,6 +677,25 @@ export class EngineCommandsAdapter implements EngineCommands {
     const n = typeof r.position === "function" ? r.position() : 0;
     return n > 0 ? n : undefined;
   }
+
+  /** ORW-853: the season seed this stream is keyed to, once a season has one (undefined = the legacy per-user stream). */
+  private seasonKey: number | undefined;
+  /**
+   * ORW-853 (Coordinator ruling 2026-11-23): key the player-action stream on the user AND the season, so each new season a returning
+   * player starts plays fresh, while a given season still replays identically. Idempotent for the same key (the cast warm and
+   * `createCharacter` report the same seed; the second call keeps the stream's position). `streamSeed` is the caller's hash.
+   */
+  rekeyForSeason(streamSeed: number): void {
+    if (this.seasonKey === streamSeed) return;
+    // Keep the position monotone (the integrity checkpoint refuses a stream that moves backwards): the new stream starts where the old one stood.
+    const at = this.rngPosition() ?? 0;
+    this.seasonKey = streamSeed;
+    const next = new SeededRandom(streamSeed);
+    if (at > 0) next.seekTo(at);
+    this.rng = next;
+  }
+  /** ORW-853: whether this stream is season-keyed (a save records it, so an older save resumes on its own per-user stream). */
+  seasonKeyed(): boolean { return this.seasonKey !== undefined; }
 
   /** ORW-730: put a freshly built command stream back where the saved season left it (so a restart does not reroll the next folds). */
   restoreRngPosition(position: number | undefined): void {

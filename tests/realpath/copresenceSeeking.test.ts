@@ -44,7 +44,7 @@ const decided = (s: Stop): Array<{ holder: string; listener: string }> => {
 
 describe("seeking in a played season", () => {
   it("layer OFF: the holder's intent has no seeking term; ON: the pull toward the listener rises and no pull is lowered (two seeds)", async () => {
-    for (const at of await firstStops(2, (s) => quiet(s) && seeking(s).length > 0, wfScan([3, 11], "a quiet moment with a seeking holder"))) {
+    for (const at of await firstStops(2, (s) => quiet(s) && seeking(s).length > 0, wfScan([3, 1], "a quiet moment with a seeking holder"))) {
       const seed = at.seed;
       let checked = 0;
       for (const { holder, listener } of seeking(at)) {

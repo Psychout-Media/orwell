@@ -17,6 +17,8 @@ const presence = (s: Stop): Map<string, string> => s.sess.presence as Map<string
 const roomOf = (s: Stop, id: string): string | undefined => presence(s).get(id);
 const inRoom = (s: Stop, room: string): string[] => [...presence(s)].filter(([, r]) => r === room).map(([id]) => id).sort();
 const company = (s: Stop): string[] => inRoom(s, roomOf(s, PLAYER) ?? "").filter((id) => id !== PLAYER);
+/** Awake now (a read of the engine's own awake set; null when the time-of-day layer is off: everyone counts as up). A sleeping houseguest sees nothing and declines any ask. */
+const isAwake = (s: Stop, id: string): boolean => { const a = s.sess.awakeNow?.() as Set<string> | null | undefined; return !a || a.has(id); };
 const freeMoment = (s: Stop, minCompany = 2): boolean => {
   const g = s.sess.getGameState() as { pending?: unknown; phase: string; daySchedule?: { due: boolean } };
   const tod = s.sess.gameStatus().timeOfDay;
@@ -25,7 +27,7 @@ const freeMoment = (s: Stop, minCompany = 2): boolean => {
 };
 const ask = async (s: Stop, args: Record<string, unknown>) => (await s.call("askToTalkAlone", args)) as AskToTalkAloneResult | null;
 type Yes = { at: Stop; npc: string; r: AskToTalkAloneResult; witnesses: string[]; from: string; expectedRoom: Room | null; key?: string };
-type No = { bond: number; keys: string[]; moved: boolean; held: boolean; again: string | undefined };
+type No = { bond: number; asleep: boolean; keys: string[]; moved: boolean; held: boolean; again: string | undefined };
 /**
  * ORW-894: the seed is PICKED, not pinned: `untilYes(hint, ...)` scans seeds 1..12 (the hint first) for a played season where someone says yes, then asserts on what happened there. `playOne` is the single-seed drive.
  * Play `seed`; at every free moment the player asks the houseguests `who` picks (by default those in their room), one by one, for a private word (`args`), until one says yes.
@@ -41,13 +43,14 @@ async function playOne(seed: number, args: Record<string, unknown> = {}, opts: {
     const from = roomOf(s, PLAYER)!;
     for (const npc of (opts.who ?? company)(s)) {
       const before = JSON.stringify([...presence(s)]);
+      const asleep = !isAwake(s, npc);
       const expectedRoom = talkAloneRoom({ from: from as Room, named: null, hohInvolved: false, occupiedByOthers: (room) => inRoom(s, room).some((id) => id !== PLAYER && id !== npc) });
       const key = opts.keyed ? `k-${npc}-${s.msg}` : undefined;
       const r = await ask(s, { npcId: npc, ...args, ...(key ? { idempotencyKey: key } : {}) });
       if (r?.outcome === "accepted") { yes = { at: s, npc, r, witnesses, from, expectedRoom, ...(key ? { key } : {}) }; return true; }
       if (r?.outcome === "declined") {
         const again = (await ask(s, { npcId: npc, ...args }))?.outcome;
-        nos.push({ bond: s.sess.rel.edge(npc, PLAYER).trust + s.sess.rel.edge(npc, PLAYER).affinity, keys: Object.keys(r).sort(), moved: JSON.stringify([...presence(s)]) !== before, held: !!s.sess.live?.talkHold, again });
+        nos.push({ bond: s.sess.rel.edge(npc, PLAYER).trust + s.sess.rel.edge(npc, PLAYER).affinity, asleep, keys: Object.keys(r).sort(), moved: JSON.stringify([...presence(s)]) !== before, held: !!s.sess.live?.talkHold, again });
       }
     }
     return false;
@@ -63,7 +66,7 @@ const untilYes = async (hint: number, args: Record<string, unknown> = {}, opts: 
 
 describe("ORW-727b: asking for a private word, in a played season", () => {
   it("an accepting houseguest and the player end up alone in a private room; the scene and a deal there are witnessed by exactly the two; the others saw them leave together", async () => {
-    const { yes: { at, npc, r, witnesses } } = await untilYes(11, {}, { minCompany: 2 });
+    const { yes: { at, npc, r, witnesses } } = await untilYes(11, {}, { minCompany: 2, when: (s) => company(s).every((id) => isAwake(s, id)) }); // the precondition: everyone in the room is up (a sleeper sees nobody leave)
     expect(roomOf(at, PLAYER)).toBe(r.room);
     expect(roomOf(at, npc)).toBe(r.room);
     expect(isPrivateRoom(r.room as Room)).toBe(true);
@@ -92,7 +95,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
     }
   }, 300_000);
 
-  it("a houseguest who says no: nobody moves, no hold, the answer is typed with nothing else, and the same hour gives the same answer; yes comes from a stronger bond than no", async () => {
+  it("a houseguest who says no: nobody moves, no hold, the answer is typed with nothing else, and the same hour gives the same answer", async () => {
     const all: No[] = []; const yesBonds: number[] = [];
     for (const { at: { yes, nos } } of await firstSeedsWhere(3, (s) => playOne(s, {}, {}), wfScan([3, 5, 11], "a free moment where a houseguest says yes to the ask"))) {
       all.push(...nos);
@@ -105,8 +108,10 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
       expect(n.held, "a no leaves no hold").toBe(false);
       expect(n.again, "the same hour gives the same answer").toBe("declined");
     }
-    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
-    expect(mean(yesBonds), "the bond is what decides").toBeGreaterThan(mean(all.map((n) => n.bond)));
+    // "the bond decides" is proven on the rule itself (tests/unit/talkAlone727b.test.ts, decideTalkAlone). In play every no so far is a SLEEPING houseguest
+    // (askToTalkAlone declines a sleeper whatever the bond): in seeds 3, 5 and 11 no awake houseguest declined (ORW-853 measured it), so a bond comparison
+    // here would compare against sleep, not the read. The yeses come from houseguests who were up.
+    expect(yesBonds.length).toBe(3);
   }, 300_000);
 
   it("'come here': the houseguest comes to the player's room and the player does not move; the hold keeps them there, then lapses as the hours pass and they wander again", async () => {
@@ -119,9 +124,10 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
     let m = 0;
     while (at.sess.live.talkHold && m < 200) { await at.call("noteMessage", { messageId: `hold-${m++}` }); if (at.sess.live.talkHold) expect(roomOf(at, npc), "held while it lasts").toBe(from); }
     expect(at.sess.live.talkHold, "the hold is bounded").toBeUndefined();
-    let moved = false; for (let i = 0; i < 200 && !moved; i++) { await at.call("noteMessage", { messageId: `free-${i}` }); moved = roomOf(at, npc) !== from; }
-    expect(moved, "released: they wander again").toBe(true);
-  }, 120_000);
+    // the hours pass the way a person lets them: messages, and bed at night (the player owns their bedtime; without it the house waits at late night, where nobody wanders)
+    let moved = false; for (let i = 0; i < 1500 && !moved; i++) { await at.call("noteMessage", { messageId: `free-${i}` }); if (/night/.test(at.sess.gameStatus().timeOfDay ?? "")) await at.call("turnIn", {}); moved = roomOf(at, npc) !== from; }
+    expect(moved, "released: they wander again (once they are up: a hold that lapses at night leaves them asleep where they are until morning)").toBe(true);
+  }, 300_000);
 
   it("'come find me' to a named room sends the houseguest there while the player stays put", async () => {
     const { yes: { at, npc, r, from } } = await untilYes(3, { room: "kitchen", private: false }, { when: (s) => roomOf(s, PLAYER) !== "kitchen" });
