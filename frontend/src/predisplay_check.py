@@ -733,7 +733,9 @@ def _veto_correction_detail(cer: Any) -> str:
         saved = (dec.get("saved") or {}).get("name")
         on = "themselves" if saved and saved == (veto.get("holder") or {}).get("name") else (saved or "a nominee")
         repl = (dec.get("replacement") or {}).get("name")
-        return f"{holder} used it on {on}" + (f" and {repl} is the replacement" if repl else "")
+        blk = [str(n.get("name")) for n in (cer.get("nominees") or []) if isinstance(n, dict) and n.get("name")]
+        return (f"{holder} used it on {on}" + (" (the holder saved themself and nobody else)" if on == "themselves" else "")
+                + (f" and {repl} is the replacement" if repl else "") + (f"; the two on the block are {' and '.join(blk)}" if blk else ""))
     except Exception:  # failsoft-ok: orw715-detail
         return ""
 
