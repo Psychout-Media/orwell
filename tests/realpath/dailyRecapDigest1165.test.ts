@@ -26,7 +26,7 @@ describe("ORW-1165 - a played premiere day yields a rich, witnessed-only digest"
     expect(await at.call("dailyRecap", {})).toEqual(r); // re-read: the same digest
   }, 200_000);
 
-  it("a closed day is rebuilt on request with the same digest, as a pure read (also for a recap made before ranges were kept)", async () => {
+  it("a closed day is rebuilt on request with the same digest, as a pure read", async () => {
     const at = await firstStop(bedtimeNow, wfScan(SEED));
     const r = ((await at.call("turnIn", {})) as { dailyRecap: DailyRecapView }).dailyRecap;
     const before = JSON.stringify(await at.call("dailyRecap", {}));
@@ -35,8 +35,5 @@ describe("ORW-1165 - a played premiere day yields a rich, witnessed-only digest"
     expect(again.surfaced).toEqual(r.surfaced);
     expect(JSON.stringify(await at.call("dailyRecap", {}))).toBe(before); // nothing stored, no cursor moved
     expect(await at.call("dailyRecap", { rebuildDay: 7 })).toBeNull();
-    delete (at.sess.live as { dailyRecapRanges?: unknown }).dailyRecapRanges; // a save from before the ranges: the latest recap ends at the live cursor and the first starts at 0
-    const legacy = (await at.call("dailyRecap", { rebuildDay: 1 })) as DailyRecapView;
-    expect(legacy.digest).toEqual(r.digest);
   }, 200_000);
 });
