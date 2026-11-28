@@ -23,6 +23,8 @@ import threading
 import time
 from typing import Any, Awaitable, Callable, Optional
 
+from src import gate_log
+
 logger = logging.getLogger(__name__)
 
 MAX_ACTS = 3
@@ -94,6 +96,7 @@ def clean_text(text: Any) -> str:
     return (m.group(1) if m else t).strip()
 
 
+@gate_log.logged("act-first-prefilter", fired=lambda r: r is None, reason=lambda r: r or "")
 def prefilter(text: Any) -> Optional[str]:
     """Reason the model is not even asked ('empty', 'ooc'), else None."""
     t = text if isinstance(text, str) else ""
@@ -161,6 +164,7 @@ def rooms_named(text: str, room_names=None) -> list:
     return [r for _, r in sorted(hits)]
 
 
+@gate_log.logged("act-first-no-cue")
 def has_cue(text: str, room_names=None) -> bool:
     return bool(_CUE.search(strip_quotes(text))) or bool(rooms_named(text, room_names))
 
@@ -177,6 +181,7 @@ _PAST = re.compile(r"\b(went|walked|ran|got to|have gone|had gone|i'?ve gone|i h
 _NOT_A_MOVE = re.compile(
     r"\b(?:by|past|through|across|crazy|nuts|mad|wild|swimming|shopping|fishing)\b"
     r"|\b(?:move|take|bring|carry|drag|pull|push|walk|lead|follow|show|send)\b\s+(?:the|a|my|his|her|their|them|him)\s|\b(?:drag|pull|push|send)\b\s+(?-i:[A-Z]\w+)\s|(?-i:[A-Z][a-z]+\s+(?:Lounge|Kitchen|Garden|Pool|Bath|Dining|Hall|Yard|Room))|(?-i:(?:Lounge|Kitchen|Garden|Pool|Bath|Dining|Hall|Yard)\s+[A-Z][a-z]+)"
+    r"|\bmeet\s+(?:me|us)\b|\bcome\s+(?:to|here|over)\b"  # ORW-1156: an invitation to someone else is not the player's move
     r"|\bgo (?:and|to) (?:sit|eat|sleep|lie|lay)\b|\bgo (?:meet|visit|talk|look)\b"
     r"|\b(?:what if|do i|should i|can i|may i|shall i|could i|am i)\b|\w+'s (?:room|bedroom|bed)\b|\b(?:want|need)\s+(?:the|a)\b|\bdown\b|\blook(?:ing)? around\b|\bi mean\b|\b(?:or|whichever|look(?:ing)? (?:in|for|at)|peek|glance|check|scan|point me|find)\b", re.I)
 _FIRSTPERSON = re.compile(r"^\W*(?:(?:ok(?:ay)?|yeah|yes|sure|so|well|alright|then|fine|now|and|but|hey|also|copy that|haha|lol)[\s,.!]+)*(?:i\b|i'|i’|let'?s|lets|let us|we\b|me\b|my\b|go\b|going\b|heading\b|head\b|walking\b|walk\b|run\b|off\b|move\b|dibs\b|claim\b|taking\b|take\b|grab\b|take me|lead me|bring me|enter\b|time to|\*)", re.I)
@@ -213,15 +218,17 @@ def clause_vetoed(c: str, first: bool) -> bool:
     return bool(_NEG.search(c) or _FUTURE.search(c) or _SPEECH.search(c) or _SARC.search(c) or _STATIVE.search(c) or _PAST.search(c) or _NOT_A_MOVE.search(c))
 
 
+@gate_log.logged("move-veto", msg_index=1, fired=lambda r: not r)
 def room_vetoed(room: str, text: str, ctx: dict) -> bool:
     """True when the plain words do not let `room` be committed as the player's move: every clause that names the room must pass the vetoes, and one must name it."""
     cl = clauses(text)
     hit = [(i, c) for i, c in enumerate(cl) if grounded_ctx(room, c, ctx)]
     if not hit:
         return not grounded_ctx(room, text, ctx)
-    return any(clause_vetoed(c, i == 0) for i, c in hit)
+    return any(clause_vetoed(c, i == 0) or not _MOTION_W.search(c) for i, c in hit)  # ORW-1156: a clause that names a room with no motion in it ('I like the kitchen') moves nobody
 
 
+@gate_log.logged("move-veto", fired=lambda r: not r)
 def move_vetoed(text: str) -> bool:
     out = strip_quotes(text)
     if "?" in out:
@@ -234,6 +241,7 @@ def move_vetoed(text: str) -> bool:
 _BED_VETO = re.compile(r"\b(?:make the bed|making|dana|jake|she|he|they|says?|said|type[ds]?|make my bed|any bedroom|master|if|might|maybe|later|wish|want to|would|could|should)\b", re.I)
 
 
+@gate_log.logged("bed-veto", fired=lambda r: not r)
 def bed_vetoed(text: str) -> bool:
     out = strip_quotes(text)
     return "?" in out or not _FIRSTPERSON.search(out.strip()) or bool(_NEG.search(out) or _BED_VETO.search(out) or _SARC.search(out) or _STATIVE.search(out) or re.search(r"\\bi mean\\b", out, re.I))
@@ -245,11 +253,16 @@ _ADV_Q = re.compile(r"^\W*(?:who|what|where|when|why|how|which|is|are|do|does|ca
 _SLEEP_CUE = re.compile(r"\b(bed|sleep|asleep|night|turn(?:ing)? in|lights|nap|rest|tired|exhausted)\b", re.I)
 
 
+@gate_log.logged("step-veto", fired=lambda r: not r)
 def step_vetoed(text: str, tool: str = "") -> bool:
     """advance / turnIn: a question, a refusal or a worry is not the act; a sleep must be said outside any quotation."""
     out = strip_quotes(text).strip()
     if tool == "turnIn" and not _SLEEP_CUE.search(out):
         return True
+    if tool == "turnIn":  # ORW-1156: the player's OWN act. A sleep word about someone else ("Rowan is asleep", "Rowan says good night") ends nobody's night
+        from src.claim_commit import _BARE_SLEEP
+        if not (_P1.search(out) or _BARE_SLEEP.match(out) or re.match(r"^\W*time\s+for\s+(?:bed|sleep)\b", out, re.I)) or _PLAIN_BLOCK.search(out):
+            return True
     return "?" in out or bool(_ADV_Q.search(out) or _NEG.search(out) or _SARC.search(out))
 
 
@@ -479,6 +492,7 @@ _LOOK_VERB = re.compile(r"\b(?:look(?:ing)?|check(?:ing)?|see|explore|exploring|
 _VISIT = re.compile(r"\b(?:check(?:ing)? (?:out|in)|look(?:ing)? (?:at|in|into)|go(?:ing)? (?:and )?(?:see|look(?: at| in)?|check(?: out)?)|visit|explore|peek (?:in|into)|head(?:ing)? (?:to|into|over to)|go(?:ing)? (?:to|into)|walk(?:ing)? (?:to|into)|off to|over to)\b", re.I)
 
 
+@gate_log.logged("act-first-plain-acts")
 def plain_acts(text: str, rooms, ctx: dict) -> list:
     """[(tool, args)] the player's plain first-person words commit without the model: a bed in a named bedroom or 'in here' (a move first when they stand elsewhere), a look at 'the bedrooms'
     (a move to the first bedroom), a visit to a room said by its themed display name. [] when anything doubtful shows (a question, a refusal, speech, another person, nothing grounded)."""
@@ -512,6 +526,18 @@ def plain_acts(text: str, rooms, ctx: dict) -> list:
     return acts[:MAX_ACTS]
 
 
+@gate_log.logged("search-cue")
+def search_cue(text: str, people) -> bool:
+    """The search cue: a houseguest in the house is named in the player's own words (the validator's own floor for a `search` act)."""
+    low = strip_quotes(text).lower()
+    for nm in people or []:
+        first = str(nm).split()[0].lower() if str(nm).split() else ""
+        if first and re.search(r"(?<![\w'])" + re.escape(first) + r"(?![\w'])", low) and is_search_order(text, str(nm)):  # ORW-1135: a question about them is not an order
+            return True
+    return False
+
+
+@gate_log.logged("act-first-ungrounded", fired=lambda r: not r)
 def can_commit_nothing(text: str, rooms, ctx: dict) -> bool:
     """The no-call pre-filter (ORW-1014, prod 2026-11-28: 9 of 13 game-turn calls ended noAction at 680 to 1345 ms each). True when `validate_calls` would reject EVERY call the model could
     make for this message, so the answer is noAction by construction and the 0.7 to 1.3 s call is not spent. It mirrors the validator, so it can never skip a real act:
@@ -530,12 +556,8 @@ def can_commit_nothing(text: str, rooms, ctx: dict) -> bool:
         # 'in here' / 'this room' names the room the player is in: a move there is dropped as already-there, so only a bed claim in a bedroom they stand in can still commit
         if o["claimBed"] and r in BEDROOMS and r == ctx.get("here") and _HERE_REF.search(t):
             return False
-    if o["search"]:
-        low = t.lower()
-        for nm in ctx.get("people") or []:
-            first = str(nm).split()[0].lower() if str(nm).split() else ""
-            if first and re.search(r"(?<![\w'])" + re.escape(first) + r"(?![\w'])", low) and is_search_order(t, str(nm)):  # ORW-1135: the validator rejects a question about them, so the call is not spent
-                return False
+    if o["search"] and search_cue(t, ctx.get("people") or []):
+        return False
     if o["turnIn"] and _SLEEP_CUE.search(t):
         return False
     return True
