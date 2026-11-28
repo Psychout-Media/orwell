@@ -371,6 +371,31 @@ _PLAYER_PLACED_RE = re.compile(
 _PLAYER_NOT_PLACED_RE = re.compile(r"\b(?:could|would|might|can|should|may|if|whether|want|wanna|do\s+you|will\s+you)\b|\?", re.IGNORECASE)
 
 
+# ORW-1136: the narration WRITES the setting as a bedroom ("four of you in a bedroom", "in the bedroom") while the engine puts the player in a room that is not one. Only the plain noun, only a sentence that
+# places the scene there; a bedroom named as somewhere else ("down the hall", a door, a movement out of it) places nothing.
+_SETTING_BEDROOM_RE = re.compile(r"\b(?:in|inside|within)\s+(?:the|this|that|a|an|your|their|our|\w+'s)\s+(?:\w+\s+){0,2}?bedroom\b(?!\s*(?:door|doorway|hall|corridor))", re.IGNORECASE)
+_SETTING_ELSEWHERE_RE = re.compile(r"\b(?:down|across|along|outside|beyond|upstairs|downstairs|next\s+door|toward|towards|past|heard|from|leaves?|left|leaving|out\s+of|back\s+to|head(?:s|ed|ing)?|go(?:es|ing)?|went|walk(?:s|ed|ing)?|used\s+to|earlier|before|was|were|had|last|yesterday|sleep\w*|slept|snor\w+|nap\w*|bunk\w*)\b", re.IGNORECASE)
+
+
+def setting_room_conflict(text: str, whereabouts: Any, *, in_quote: bool = False) -> Optional[str]:
+    """The engine's name for the player's room when a sentence writes the scene's setting as a bedroom and the engine room is not a bedroom; None otherwise."""
+    try:
+        if not text or not isinstance(whereabouts, dict) or not whereabouts.get("room"):
+            return None
+        room = str(whereabouts["room"])
+        if room.startswith("bedroom-") or room == "hoh-room":
+            return None
+        names = whereabouts.get("roomNames") if isinstance(whereabouts.get("roomNames"), dict) else None
+        for sent in _sentences(_outside_quotes(text, in_quote)):
+            if _PLAYER_NOT_PLACED_RE.search(sent) or _SETTING_ELSEWHERE_RE.search(sent):
+                continue
+            if _SETTING_BEDROOM_RE.search(sent):
+                return str((names or {}).get(room) or "the " + room.replace("-", " "))
+        return None
+    except Exception:  # failsoft-ok: orw1136-setting-room (an unreadable check never holds narration)
+        return None
+
+
 def player_room_conflict(text: str, whereabouts: Any, *, in_quote: bool = False) -> Optional[str]:
     """The engine's name for the player's room when the narration places them elsewhere; None otherwise (no room, no room named, or a room that can be theirs)."""
     try:
@@ -388,7 +413,7 @@ def player_room_conflict(text: str, whereabouts: Any, *, in_quote: bool = False)
             named = rooms_named_in(sent[m.start():], names)
             if named and not any(room in rooms for rooms in named):
                 return str((names or {}).get(room) or "the " + room.replace("-", " "))
-        return None
+        return setting_room_conflict(text, whereabouts, in_quote=in_quote)  # ORW-1136: the setting itself written as a bedroom
     except Exception:  # failsoft-ok: orw408-player-room (an unreadable check never holds narration)
         return None
 

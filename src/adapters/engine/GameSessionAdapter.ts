@@ -8366,12 +8366,14 @@ export class GameSessionAdapter implements GameSession {
     const ownBedRoom = ownBed && parsePlayerOwnBedMove(String(req.text ?? "")) ? roomOfBed(ownBed) : null; // ORW-1008: only a go-verb to "my bed"/"my room" moves; "my bed is in X" is affiliation
     const searchPhrase = skipMove ? null : parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) === null && !claimedBed && !ownBedRoom && parseVagueGo(String(req.text ?? "")) === null ? parseSearchIntent(String(req.text ?? ""), here, this.themedAliases()) : null;
     const searchTarget = searchPhrase !== null && here !== null ? this.searchTargetOf(searchPhrase) : null;
-    if (searchTarget !== null && here !== null && this.presence.get(searchTarget.id) !== here) {
+    // ORW-1136: a target already in the player's room is a search that ends at once, "right here" (found, no legs): never a silent fall-through that the caller reads as blocked.
+    // Only an act-first caller (it passes maxLegs) takes it; the ordinary text parser keeps its old way for a person who is here.
+    if (searchTarget !== null && here !== null && (this.presence.get(searchTarget.id) !== here || req.maxLegs !== undefined)) {
       // ORW-934: "look for X / find X / where is X" is committed here, before the narrator writes: the engine walks the search leg by leg and the narrator voices the legs as one passage
       this.playerMove = null;
       this.playerSearch = null;
       this.holdNamedHouseguest(String(req.text ?? ""), null);
-      const walk = this.walkSearch(searchTarget.name, undefined);
+      const walk = this.walkSearch(searchTarget.name, req.maxLegs); // ORW-1135: the caller may cap the legs
       const now = this.presence.get(me) ?? null;
       if (walk?.outcome === "pinned") this.playerMove = { refused: true, reason: walk.reason, from: here, to: here, ...this.moveStamp() };
       else if (now !== null && now !== here) this.playerMove = { from: here, to: now, ...this.moveStamp() };
@@ -8499,6 +8501,9 @@ export class GameSessionAdapter implements GameSession {
         this.noteConversationPartners([target.id]); // the houseguest the player found stays with them (the hold the other named-houseguest moves use)
         return finish("found", base.legs.length === 0 ? `${target.name} is right here` : `found ${target.name} in the ${this.roomName(me0)}`, target);
       }
+      // ORW-1135: the houseguest's own bed is in this very room: nothing to walk to. They are simply not here now (out of it, awake), so the narrator says that and invents no tour of the house.
+      const targetBed = base.legs.length === 0 ? live?.beds?.owner[target.id] : undefined;
+      if (targetBed && roomOfBed(targetBed) === me0) return finish("stopped", `${target.name}'s bed is in this room and ${target.name} is not in it right now: no walk was run; say they are not here at the moment and invent no search of the house`, target);
       if (xRoom === "diary-room") return finish("closed-room", `${target.name} is in the Diary Room, a door the player cannot go through; the search ends here, and the player cannot follow`, target);
       if (xRoom !== undefined && closedFor(xRoom)) return finish("closed-room", `${target.name} is behind the closed door of the ${this.roomName(xRoom)}, which is not open to the player; the search ends here`, target);
       if (this.walkIn && this.walkIn.room === me0 && base.legs.length > 0) return finish("walk-in", `the walk ended on a private talk in the ${this.roomName(me0)}: the player walked in on it`, target);

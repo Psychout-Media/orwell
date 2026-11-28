@@ -1,0 +1,574 @@
+[
+ {
+  "src": "orw1135",
+  "cls": "question",
+  "id": "q01",
+  "text": "Does Dana sleep in this room?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "question",
+  "id": "q02",
+  "text": "Is Dana sleeping in here tonight?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "question",
+  "id": "q03",
+  "text": "Which bed is Dana's?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "question",
+  "id": "q04",
+  "text": "Where does Dana sleep?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "question",
+  "id": "q05",
+  "text": "Where is Dana sleeping tonight?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "question",
+  "id": "q06",
+  "text": "What does Dana think about the alliance?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "question",
+  "id": "q07",
+  "text": "Do you know where Dana is?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "question",
+  "id": "q08",
+  "text": "Has anyone seen Dana?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "question",
+  "id": "q09",
+  "text": "Did you find Dana?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "question",
+  "id": "q10",
+  "text": "I can't find Dana anywhere, did you see her?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "question",
+  "id": "q11",
+  "text": "Why does Dana always look for trouble?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "question",
+  "id": "q12",
+  "text": "I think Dana would find that funny.",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "question",
+  "id": "q13",
+  "text": "Is Dana in the room with us?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "question",
+  "id": "q14",
+  "text": "Does Dana share a bed with Levi?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "question",
+  "id": "q15",
+  "text": "Wait, is Dana staying in this bedroom?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "question",
+  "id": "q16",
+  "text": "Do you want to look for Dana?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "question",
+  "id": "q17",
+  "text": "Levi said \"go find Dana\" and left it at that.",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "order",
+  "id": "q18",
+  "text": "Go find Dana",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": [
+   "search:Dana Park"
+  ]
+ },
+ {
+  "src": "orw1135",
+  "cls": "order",
+  "id": "q19",
+  "text": "I look for Dana.",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": [
+   "search:Dana Park"
+  ]
+ },
+ {
+  "src": "orw1135",
+  "cls": "order",
+  "id": "q20",
+  "text": "Let's look for Dana",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": [
+   "search:Dana Park"
+  ]
+ },
+ {
+  "src": "orw1135",
+  "cls": "order",
+  "id": "q21",
+  "text": "Where is Dana?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": [
+   "search:Dana Park"
+  ]
+ },
+ {
+  "src": "orw1135",
+  "cls": "order",
+  "id": "q22",
+  "text": "Where's Dana?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": [
+   "search:Dana Park"
+  ]
+ },
+ {
+  "src": "orw1135",
+  "cls": "order",
+  "id": "q23",
+  "text": "Where did Dana go?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": [
+   "search:Dana Park"
+  ]
+ },
+ {
+  "src": "orw1135",
+  "cls": "order",
+  "id": "q24",
+  "text": "I need to find Dana",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": [
+   "search:Dana Park"
+  ]
+ },
+ {
+  "src": "orw1135",
+  "cls": "order",
+  "id": "q25",
+  "text": "Can you find Dana for me?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": [
+   "search:Dana Park"
+  ]
+ },
+ {
+  "src": "orw1135",
+  "cls": "order",
+  "id": "q26",
+  "text": "I'm going to search for Dana",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": [
+   "search:Dana Park"
+  ]
+ },
+ {
+  "src": "orw1135",
+  "cls": "order",
+  "id": "q27",
+  "text": "Find Dana",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": [
+   "search:Dana Park"
+  ]
+ },
+ {
+  "src": "orw1135",
+  "cls": "order",
+  "id": "q28",
+  "text": "I go looking for Dana",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": [
+   "search:Dana Park"
+  ]
+ },
+ {
+  "src": "orw1135",
+  "cls": "order",
+  "id": "q29",
+  "text": "please find Dana",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": [
+   "search:Dana Park"
+  ]
+ },
+ {
+  "src": "orw1135",
+  "cls": "order",
+  "id": "q30",
+  "text": "Okay, I'll go look for Dana",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": [
+   "search:Dana Park"
+  ]
+ },
+ {
+  "src": "orw1135",
+  "cls": "order",
+  "id": "q31",
+  "text": "Track down Dana",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": [
+   "search:Dana Park"
+  ]
+ },
+ {
+  "src": "orw1135",
+  "cls": "order",
+  "id": "q32",
+  "text": "Hey, go and find Dana now",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": [
+   "search:Dana Park"
+  ]
+ },
+ {
+  "src": "orw1135",
+  "cls": "order",
+  "id": "q33",
+  "text": "I head off to look for Dana",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": [
+   "search:Dana Park"
+  ]
+ },
+ {
+  "src": "orw1135",
+  "cls": "prod-code",
+  "id": "p-be1cebf4",
+  "text": "Is Dana one of the people who sleeps in here with us?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "prod-code",
+  "id": "p-8edc219f",
+  "text": "So does Dana actually sleep in this bedroom?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ },
+ {
+  "src": "orw1135",
+  "cls": "prod-code",
+  "id": "p-aae9c979",
+  "text": "Is Dana here with us right now?",
+  "ctx": {
+   "here": "bedroom-c",
+   "people": [
+    "Dana Park",
+    "Levi Stone"
+   ]
+  },
+  "mode": "acts",
+  "exp": []
+ }
+]
