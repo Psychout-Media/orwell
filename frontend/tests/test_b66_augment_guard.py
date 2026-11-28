@@ -61,7 +61,13 @@ SANCTIONED = {
     # narration model cannot observe, so the FE must mark the outcome — it augments, never replaces
     # (the model still runs the whole interview and records every substantive answer) and never
     # advances the week (castPhoto does not gate `ready`). Its guard marker is the status allowlist.
-    "update_casting": ("routes/orwell_routes.py", "orwell_casting_photo", "_CAST_PHOTO_STATUSES"),
+    # ORW-1126 (Ryne's prod casting, 2026-11-28): a SECOND site records the SAME photo-step marker - a photo the player already has on file (the account photo survives a new-season scrub)
+    # is recorded as castPhoto "uploaded" before the casting prompt is read, so the producer never asks for it again. It writes only that marker, only while the status still asks for
+    # the photo, and never advances the week. Its guard marker is the one-field allowlist it writes.
+    "update_casting": [
+        ("routes/orwell_routes.py", "orwell_casting_photo", "_CAST_PHOTO_STATUSES"),
+        ("routes/chat_helpers.py", "apply_game_framing", "_CARRIED_PHOTO_FIELDS"),
+    ],
 }
 
 

@@ -35,7 +35,7 @@ def test_photo_check_is_wired_before_the_prompt_is_used():
     src = open(ch.__file__, encoding="utf-8").read()
     i = src.index("ORW-1126 (Ryne's prod casting")
     block = src[i:i + 2200]
-    assert 'update_casting({"castPhoto": "uploaded"}' in block
+    assert 'update_casting(dict(_CARRIED_PHOTO_FIELDS)' in block
     assert "get_moment_prompt" in block  # re-read after recording
     assert "_player_photo_on_file(user)" in block
     assert src.index("ORW-1126 (Ryne's prod casting") < src.index("CASTING_HEADSHOT_ON_FILE_NOTE\n", i)

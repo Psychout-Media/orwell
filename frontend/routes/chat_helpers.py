@@ -10517,7 +10517,7 @@ async def apply_game_framing(
                     _cast = (game_state.get("casting") or {}) if isinstance(game_state, dict) else {}
                     _asks_photo = "NEXT STEP: their cast photo" in pre_prompt or "castPhoto" in (_cast.get("missing") or [])
                     if _asks_photo and "castPhoto" not in (_cast.get("known") or {}) and _player_photo_on_file(user):
-                        await orwell_engine.update_casting({"castPhoto": "uploaded"}, user=user)
+                        await orwell_engine.update_casting(dict(_CARRIED_PHOTO_FIELDS), user=user)
                         _note_belt(user, "carried-photo-recorded")
                         mp = await orwell_engine.get_moment_prompt(game_state.get("moment"), user=user)
                         pre_prompt = (mp or {}).get("systemPrompt") or pre_prompt
@@ -11522,6 +11522,10 @@ async def _resolve_model_id(sess) -> Optional[str]:
     event loop, and every other player, once per chat turn."""
     return _normalize_model_id_from_cache(sess) or await asyncio.to_thread(
         normalize_model_id, sess.endpoint_url, sess.model)
+
+
+# ORW-1126: the ONLY casting write the casting framing makes (the b66 sanctioned-site marker): the photo-step marker for a photo already on file, never a substantive casting answer.
+_CARRIED_PHOTO_FIELDS = (("castPhoto", "uploaded"),)
 
 
 def _player_photo_on_file(user) -> bool:
