@@ -106,5 +106,5 @@ def test_one_turn_per_act_first_outcome_runs_to_a_reply_and_a_ledger_row(stack_a
         if "chat_stream generator failed" in new:
             problems.append(f"{name}: the chat_stream generator failed")
     if problems:
-        print("DEBUG", os.listdir(stack_af["fe_data"]), [l for l in _log(stack_af).splitlines() if "sync-ledger" in l or "ledger" in l.lower()][-6:])
+        print("DEBUG", [(r.get("beltsFired"), r.get("toolsCalled"), r.get("drivenBy")) for r in _rows(stack_af)], [l[-260:] for l in _log(stack_af).splitlines() if "act-first" in l][-8:])
     assert not problems, "; ".join(problems)
