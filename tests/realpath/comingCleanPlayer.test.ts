@@ -3,7 +3,7 @@ import { PLAYER } from "../../src/domain/ids";
 import { COMING_CLEAN } from "../../src/engine/comingClean";
 import { caughtLieTrustDrop, CAUGHT_LIE } from "../../src/engine/caughtLies";
 import type { BeliefClaim } from "../../src/engine/beliefStore";
-import { type Stop, firstStop, wfScan } from "./playedSeason";
+import { type Stop, firstStop, wfScan, withinEarshot } from "./playedSeason";
 
 /**
  * 0203 coming clean, the PLAYER's side (ORW-808), in a PLAYED season. Seed 3, the scripted talking player, stopped at the first quiet moment after the premiere with two houseguests
@@ -13,7 +13,7 @@ import { type Stop, firstStop, wfScan } from "./playedSeason";
  *  - tells an ally the truth about it (`statement: { to: ally, tellsAbout: listener }`): the ally now holds "the player lied to the listener", and the listener still believes it.
  * The confession's cost is measured against the same season played identically with the same scene minus the confession (the scene's own fold cancels out). Roles only.
  */
-const roster = (s: Stop): string[] => { const occ = (s.sess.sendTimeOccupancy() ?? s.sess.presence) as Map<string, string>; const here = occ.get(PLAYER); return [...occ].filter(([id, r]) => r === here && id !== PLAYER).map(([id]) => id); };
+const roster = (s: Stop): string[] => { const occ = (s.sess.sendTimeOccupancy() ?? s.sess.presence) as Map<string, string>; const here = occ.get(PLAYER); const hear = withinEarshot(s); return [...occ].filter(([id, r]) => r === here && id !== PLAYER && hear.has(id)).map(([id]) => id); };
 const quiet = (s: Stop): boolean => { const g = s.sess.getGameState(); return g.phase !== "premiere" && !g.pending && !s.sess.live?.ceremony && roster(s).length >= 2; };
 type Claim = { id: string; speaker: string; listener: string; isTrue: boolean };
 const beliefs = (s: Stop, h: string): BeliefClaim[] => (s.sess.live.beliefs?.[h] ?? []) as BeliefClaim[];

@@ -4677,10 +4677,13 @@ def _presence_facts(state: dict) -> Optional[dict]:
     adjacent_rooms: set = set()
     adjacent_room_ids: set = set()  # ORW-466: the themed adjacent rooms by id, so a short form ("the Coral Reef") frames a sentence there too
     room_names = room_names_of(wa)  # ORW-466: the narrator names rooms by this season's themed names
+    far_zone: set = set()  # ORW-1167: in the player's room but at the far end of a big room (the engine's zone): seen, never heard
     for p in (wa.get("present") or []):
         if isinstance(p, dict) and p.get("name"):
             in_view.add(p["name"])
             room_present.add(p["name"])
+            if p.get("outOfEarshot"):
+                far_zone.add(p["name"])
     for nb in (wa.get("nearby") or []):
         if isinstance(nb, dict):
             _nr = str(nb.get("room") or "").replace("-", " ").strip().lower()
@@ -4735,7 +4738,7 @@ def _presence_facts(state: dict) -> Optional[dict]:
             exempt.add(_r["name"].strip())
     return {"room": wa.get("room"), "in_view": in_view, "room_present": room_present,
             "evicted": evicted, "active_offscene": active_offscene,
-            "adjacent": adjacent, "adjacent_rooms": adjacent_rooms, "exempt": exempt, "npc_rooms": npc_rooms, "room_names": room_names,
+            "far_zone": far_zone, "adjacent": adjacent, "adjacent_rooms": adjacent_rooms, "exempt": exempt, "npc_rooms": npc_rooms, "room_names": room_names,
             **({"adjacent_room_ids": adjacent_room_ids} if adjacent_room_ids else {})}
 
 
@@ -4858,6 +4861,17 @@ def _sentence_stages_absent_npc(sentence: str, facts: dict, first_counts: dict) 
                     return n
             elif _name_staged_unique(_narr, n, first_counts):
                 return n
+    return None
+
+
+def _far_zone_speaker(sentence: str, facts: dict, first_counts: dict) -> Optional[str]:
+    """ORW-1167: the houseguest the engine seats out of earshot (the far end of a big room) who is staged SPEAKING in `sentence` (a quoted line, or a speaker line), or None. Only speech counts: describing where they stand or what they do over there stays."""
+    far = (facts.get("far_zone") or set()) - set(facts.get("exempt") or ())
+    if not far or not re.search(r'["\u201c\u201d]|@\[', sentence or ""):
+        return None
+    for n in sorted(far):
+        if _name_staged_unique(sentence, n, first_counts):
+            return n
     return None
 
 
@@ -5091,7 +5105,7 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
         logger.warning("[orwell] presence-wall: game-state read skipped for user=%s: %s", user, _exc_detail(e))
         return text  # engine unreachable this turn — never hold narration on a read hiccup
     facts = _presence_facts(state if isinstance(state, dict) else {})
-    if not facts or (not facts.get("evicted") and not facts.get("active_offscene") and not facts.get("adjacent")):
+    if not facts or (not facts.get("evicted") and not facts.get("active_offscene") and not facts.get("adjacent") and not facts.get("far_zone")):
         if carry.get("drop_quote") or carry.get("quote"):
             pass  # ORW-917: a quote still open (or a drop still running) from an earlier chunk: scan below so the state stays true
         else:
@@ -5118,7 +5132,7 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
             part = part[close_end:]  # the closing mark ends the quote; the rest is judged on its own
             if not part.strip():
                 continue
-        if not facts or not (facts.get("evicted") or facts.get("active_offscene") or facts.get("adjacent")):
+        if not facts or not (facts.get("evicted") or facts.get("active_offscene") or facts.get("adjacent") or facts.get("far_zone")):
             out.append(part)  # ORW-917: only finishing a carried drop this chunk; nothing to screen
             continue
         try:
@@ -5138,6 +5152,8 @@ async def screen_presence_wall(user, text: str, alt_state=None, carry: Optional[
                 drop_quote = quote is not None
                 continue  # DROP: their quoted speech
             hit = _sentence_stages_absent_npc(part, facts, first_counts)
+            if not hit:
+                hit = _far_zone_speaker(part, facts, first_counts)  # ORW-1167: someone out of earshot does not answer the player's end of the room
             if hit and alt_facts and not _sentence_stages_absent_npc(part, alt_facts, _alt_counts):
                 hit = None  # present on the pre-sleep board: a goodnight in the evening room, not a phantom
             if hit:
