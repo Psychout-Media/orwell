@@ -542,6 +542,14 @@ def _note_gen_cost(cost) -> None:
         _LAST_COST = (_LAST_COST or 0.0) + float(cost)
 
 
+def _peek_gen_cost() -> Optional[float]:
+    """The summed cost noted for the current task so far, without resetting it (None when the provider returned none)."""
+    t = _gen_task()
+    if t is not None and t in _TASK_COST:
+        return round(_TASK_COST[t], 6)
+    return None if _LAST_COST is None else round(_LAST_COST, 6)
+
+
 def _consume_gen_cost() -> Optional[float]:
     """The summed cost noted since the last consume (None when the provider returned none), then reset."""
     global _LAST_COST
@@ -1696,6 +1704,11 @@ async def _generate_one_gated(prompt: str, user: Optional[str],
     while the provider's breaker is open; a 401/402/403 opens it; a success closes it. The in-flight-credits
     402 is back-pressure, not billing: it never opens the breaker."""
     ctx: dict = {}
+    from src import orwell_image_spend  # ORW-1146: the deployment's daily image-spend cap, asked before every provider call
+    if not orwell_image_spend.allow():
+        _note_gen_error("daily-cap")
+        return None
+    cost_before = _peek_gen_cost() or 0.0
     for attempt in range(len(INFLIGHT_RETRY_WAITS) + 1):
         ctx = {}
         if _PROVIDER_PROVEN["ok"]:
@@ -1713,6 +1726,9 @@ async def _generate_one_gated(prompt: str, user: Optional[str],
             break
         await asyncio.sleep(INFLIGHT_RETRY_WAITS[attempt])
     host = ctx.get("host")
+    if png:
+        after = _peek_gen_cost()
+        orwell_image_spend.record(None if after is None else max(0.0, after - cost_before))
     if host and not ctx.get("skipped"):
         if png:
             _PROVIDER_PROVEN["ok"] = True
