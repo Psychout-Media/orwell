@@ -6,6 +6,7 @@ Wraps stream_llm() with multi-round tool execution.
 The LLM decides when to use tools by writing fenced code blocks.
 """
 
+from src import gate_log as _gate_log  # ORW-1156 part 3
 import asyncio
 import contextvars
 import collections
@@ -1923,6 +1924,7 @@ _BED_IMPERATIVE_RE = re.compile(
 )
 
 
+@_gate_log.logged("bed-intent")
 def _player_means_going_to_bed(text) -> bool:
     """ORW-310 — True only when the player's message CLEARLY declares THEIR OWN going to bed / sleeping now.
     Pure, conservative. A sentence counts only if it is first-person, action-shaped (go to bed / turn in /
