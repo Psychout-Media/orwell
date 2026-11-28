@@ -1139,7 +1139,7 @@ export interface LiveSeasonState {
   compSilentSeen?: boolean;
   dailyRecapEventCursor?: number;
   /** ORW-1165: per closed day, the [from, to) slice of the append-only record its recap read (so the day's digest can be rebuilt). Absent on a save from before this. */
-  dailyRecapRanges?: Record<number, [number, number]>;
+  dailyRecapRangeCursor?: Record<number, [number, number]>;
   dailyRecapKnowledgeCursor?: number;
   lastDailyRecap?: DailyRecapEntry;
   /**

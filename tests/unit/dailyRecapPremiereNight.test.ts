@@ -24,7 +24,7 @@ describe("ORW-382 - every bedtime has a day in review, the premiere night includ
     expect(v.dailyRecap!.highlights.length, "the review has the player's own witnessed moments").toBeGreaterThan(0);
     const evs = s.record.events() as { id: string; hidden: boolean; witnessSet: string[] }[];
     const pid = s.getGameState().player.id;
-    for (const d of v.dailyRecap!.digest!) for (const id of d.from) expect(evs.some((e) => e.id === id && !e.hidden && e.witnessSet.includes(pid)), `"${d.text}" is built from a witnessed, non-hidden event`).toBe(true);
+    for (const d of v.dailyRecap!.digest!) for (const id of d.eventCursor) expect(evs.some((e) => e.id === id && !e.hidden && e.witnessSet.includes(pid)), `"${d.text}" is built from a witnessed, non-hidden event`).toBe(true);
     for (const line of [...v.dailyRecap!.highlights, ...(v.dailyRecap!.yourDay ?? [])]) expect(line, "no provenance bookkeeping reaches the review").not.toMatch(/^surfaced to player via|overheard:|told-by:/);
     expect((v.dailyRecap!.yourDay ?? []).length).toBeLessThanOrEqual(5);
   });

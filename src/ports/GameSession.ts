@@ -2737,7 +2737,7 @@ export interface DailyRecapView {
   /** The player's witnessed day, one line per moment (ORW-1165): the same texts as `digest`, in the order they happened. */
   highlights: string[];
   /** ORW-1165: the day's lines with their KIND (arrival, toast, bed, deal, alliance, talk, clash, bond, ceremony, ...), so a client can group them. Vault-free: witnessed events only, never hidden. */
-  digest?: Array<{ kind: string; text: string; /** ids of the recorded events the line is built from (each witnessed by the player, none hidden); empty for the player's bed read from the bed table */ from: string[] }>;
+  digest?: Array<{ kind: string; text: string; /** ids (event-log positions) of the recorded events the line is built from (each witnessed by the player, none hidden); empty for the player's bed read from the bed table */ eventCursor: string[] }>;
   /** Gossip that reached the player's own knowledge today via a real in-game pathway (0002). */
   surfaced: string[];
   /** ORW-382: the scenes the player WITNESSED today (their own knowledge, never a hidden event), whether or not a ceremony or deal made the highlights (the same text is not listed twice) - so every bedtime, the premiere night included, has something to review. Absent when empty. */

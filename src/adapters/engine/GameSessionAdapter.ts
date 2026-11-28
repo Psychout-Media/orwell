@@ -18930,30 +18930,30 @@ export class GameSessionAdapter implements GameSession {
     isHighlight: (e: any) => boolean,
     namesStranger: (c: string) => boolean,
     withBed = true,
-  ): Array<{ kind: string; text: string; from: string[] }> {
+  ): Array<{ kind: string; text: string; eventCursor: string[] }> {
     const me = this.nameOf(PLAYER);
     const you = (t: string): string => (t.startsWith(`${me} `) ? `You ${t.slice(me.length + 1)}` : t);
-    const out: Array<{ kind: string; text: string; from: string[] }> = [];
+    const out: Array<{ kind: string; text: string; eventCursor: string[] }> = [];
     const talks = new Map<string, { idx: number; n: number; kind: string; base: string }>();
     const toast = { idx: -1, host: false, names: [] as string[] };
     const CAP: Record<string, number> = { arrival: 8, talk: 6, clash: 4, bond: 4, strategy: 4, gossip: 3, bed: 2, alliance: 4, overheard: 3, house: 3 };
     const seen: Record<string, number> = {};
-    const push = (kind: string, text: string, from: string[]): number => {
+    const push = (kind: string, text: string, ids: string[]): number => {
       if (seen[kind] !== undefined && CAP[kind] !== undefined && seen[kind]! >= CAP[kind]!) return -1;
       seen[kind] = (seen[kind] ?? 0) + 1;
-      out.push({ kind, text: text.trim().slice(0, 200), from });
+      out.push({ kind, text: text.trim().slice(0, 200), eventCursor: ids });
       return out.length - 1;
     };
     for (const e of events) {
       if (e.hidden) continue;
       const t = e.type as string;
-      if (isHighlight(e)) { out.push({ kind: e.type === "deal" ? "deal" : e.type === "betrayal" ? "betrayal" : "ceremony", text: e.content, from: [e.id] }); continue; } // the record's own text, uncut (as before)
+      if (isHighlight(e)) { out.push({ kind: e.type === "deal" ? "deal" : e.type === "betrayal" ? "betrayal" : "ceremony", text: e.content, eventCursor: [e.id] }); continue; } // the record's own text, uncut (as before)
       if (!e.witnessSet.includes(PLAYER) || e.content.trim().length === 0) continue;
       if (t === "premiere-entrance") { push("arrival", e.content === `${me} arrives` ? "You walked into the house" : e.content, [e.id]); continue; }
       if (t === "toast-speech") {
         const m = /^(.*) gives a toast$/.exec(e.content);
         if (toast.idx < 0) toast.idx = push("toast", "", []);
-        if (toast.idx >= 0) out[toast.idx]!.from.push(e.id);
+        if (toast.idx >= 0) out[toast.idx]!.eventCursor.push(e.id);
         if (m && m[1] !== me) toast.names.push(m[1]!); else if (!m) toast.host = true;
         continue;
       }
@@ -18972,7 +18972,7 @@ export class GameSessionAdapter implements GameSession {
           : others.length === 1 ? `${who} came to talk with you` : `You were there when ${who} talked`;
         const key = `${kind}|${base}`;
         const have = talks.get(key);
-        if (have) { have.n++; out[have.idx]!.text = `${have.base} (${have.n} times)`; out[have.idx]!.from.push(e.id); continue; }
+        if (have) { have.n++; out[have.idx]!.text = `${have.base} (${have.n} times)`; out[have.idx]!.eventCursor.push(e.id); continue; }
         const idx = push(kind, base, [e.id]);
         if (idx >= 0) talks.set(key, { idx, n: 1, kind, base });
       }
@@ -18985,7 +18985,7 @@ export class GameSessionAdapter implements GameSession {
     if (withBed && !out.some((d) => d.kind === "bed")) {
       const beds = this.live?.beds;
       const room = beds ? sleepRoomOf(beds, PLAYER, this.live?.hoh) : undefined;
-      if (room) out.push({ kind: "bed", text: `You settled in for the night in ${this.roomName(room)}`, from: [] });
+      if (room) out.push({ kind: "bed", text: `You settled in for the night in ${this.roomName(room)}`, eventCursor: [] });
     }
     return out.filter((d) => d.text.length > 0 && !namesStranger(d.text));
   }
@@ -19043,7 +19043,7 @@ export class GameSessionAdapter implements GameSession {
         });
       }
     }
-    (s.dailyRecapRanges ??= {})[day] = [evFrom, allEvents.length]; // ORW-1165: where in the append-only record this day's recap read, so the digest of a closed day can be rebuilt
+    (s.dailyRecapRangeCursor ??= {})[day] = [evFrom, allEvents.length]; // ORW-1165: where in the append-only record this day's recap read, so the digest of a closed day can be rebuilt
     s.dailyRecapEventCursor = allEvents.length;
     s.dailyRecapKnowledgeCursor = knownAll.length;
     // ORW-400: the day rolled for a played game - last night's room tenure and conversation partners do not carry into the morning. presenceBase and the shared rng are untouched (headless/golden runs identical).
@@ -19115,9 +19115,9 @@ export class GameSessionAdapter implements GameSession {
     if (!s) return null;
     const stored = s.lastDailyRecap?.day === day ? s.lastDailyRecap : (s.dailyRecapLog ?? []).find((r) => r.day === day);
     if (!stored) return null;
-    let range = s.dailyRecapRanges?.[day];
+    let range = s.dailyRecapRangeCursor?.[day];
     if (!range && s.lastDailyRecap?.day === day) { // a recap made before ranges were kept: the latest one ends at the live cursor and starts where the day before ended (0 for the first)
-      const prevEnd = day <= 1 ? 0 : s.dailyRecapRanges?.[day - 1]?.[1];
+      const prevEnd = day <= 1 ? 0 : s.dailyRecapRangeCursor?.[day - 1]?.[1];
       if (prevEnd !== undefined && s.dailyRecapEventCursor !== undefined) range = [prevEnd, s.dailyRecapEventCursor];
     }
     if (!range) return null;

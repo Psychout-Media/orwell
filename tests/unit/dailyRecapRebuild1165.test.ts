@@ -18,7 +18,7 @@ describe("ORW-1165 - rebuildDay", () => {
     const r = v.dailyRecap!;
     expect(r.highlights.length).toBeGreaterThan(0);
     expect(s.dailyRecap({ rebuildDay: 1 }).digest).toEqual(r.digest);
-    delete s.live.dailyRecapRanges; // a save from before the slices were kept
+    delete s.live.dailyRecapRangeCursor; // a save from before the slices were kept
     expect(s.dailyRecap({ rebuildDay: 1 }).digest).toEqual(r.digest);
     expect(s.dailyRecap({ rebuildDay: 2 })).toBeNull();
     expect(s.dailyRecap()).toEqual(r); // a pure read: the stored recap is untouched
