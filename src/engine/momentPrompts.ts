@@ -549,7 +549,8 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    is elsewhere and NOT visible — do not place them in the scene at all. `conspicuous`, when present,",
   "    is a producer-style read about two houseguests holed up together too long — voice WHO/WHERE/HOW-LONG",
   "    as something the player NOTICED; never invent what they are saying in there (you do not know it).",
-  "    `zone`, when present, is the player's corner of a big room ('over by the pool') — pure flavor.",
+  "    `zone` is the player's corner of a big room; a `present` person marked `outOfEarshot` is seen, not heard,",
+  "    and never joins or answers. Never promise privacy in a shared room; only askToTalkAlone or a PRIVATE TALK line gives it.",
   "    A `present` or `nearby` person MAY move between rooms during the scene — just NARRATE the move so",
   "    the game records it; only never SILENTLY teleport anyone (a move with no narration), never place a",
   "    houseguest from memory or a guess, and never call a room empty without checking.",
@@ -1225,11 +1226,21 @@ function vetoDecisionLines(cer: GameStateView["ceremony"]): string[] {
 function competitionFloorLines(cer: GameStateView["ceremony"]): string[] {
   const c = cer.competition;
   if (!c || !c.out.length) return [];
-  const lines = [`    Competition floor: still in ${c.stillIn.map((p) => p.name).join(", ") || "no one"}; already out ${c.out.map((p) => p.name).join(", ")} (an eliminated houseguest does not compete again).`];
+  // ORW-1182: only the NEW round(s) are handed over as exits to voice. An exit an earlier reply already voiced (`told`) is named once, as already told, and is not in the list the narrator voices from; the
+  // silent drops (`justOut`, ORW-927) are voiced in this reply and so are new. The engine's own out-list stays the single source: nothing here is invented.
+  const toldIds = new Set((c.told ?? []).map((p) => p.id));
+  const fresh = c.out.filter((p) => !toldIds.has(p.id));
+  const stillIn = c.stillIn.map((p) => p.name).join(", ") || "no one";
+  const lines = c.told?.length
+    ? [`    Competition floor: still in ${stillIn} (an eliminated houseguest does not compete again).`]
+    : [`    Competition floor: still in ${stillIn}; already out ${c.out.map((p) => p.name).join(", ")} (an eliminated houseguest does not compete again).`]; // nothing told yet: the whole out-list is new, the line is unchanged
+  if (fresh.length && c.told?.length) lines.push(`    Already out this round, voice only these exits in this reply: ${fresh.map((p) => p.name).join(", ")}.`);
   // ORW-927: rounds the game ran while the player was choosing their approach were voiced by nobody. Name them so this reply tells each exit (once), instead of jumping from the full field to the last few.
   if (c.justOut?.length) lines.push(`    NOT YET TOLD: ${c.justOut.map((p) => p.name).join(", ")} went out in the rounds the game ran while the player chose their approach, and no one has voiced those exits. Voice each of them in this reply, in this competition's own manner, before anything later; do not drop anyone else and do not skip them.`);
   // ORW-937: an exit an earlier reply already voiced is not staged again (Fable's week-2 veto: two houseguests went out a second time two turns later).
-  if (c.told?.length) lines.push(`    ALREADY VOICED: ${c.told.map((p) => p.name).join(", ")} went out in earlier replies. Do not narrate their exit, a miss or a step back again; any exit you tell must be one the game has recorded and is not named here.`);
+  if (c.told?.length) lines.push(`    ALREADY VOICED: ${c.told.map((p) => p.name).join(", ")} went out in earlier replies. Do not narrate their exit, a miss or a step back again, and do not repeat a sentence an earlier reply used; any exit you tell must be one the game has recorded and is not named here.`);
+  // ORW-1182: when the player is among those going out, the game reports it; the narrator never plays the player's fall for them.
+  lines.push("    If the player is one of those out, report it as plain fact from the house (the game says it; a houseguest or the host says it); never write the player's own fall, steps, thoughts, words or reaction.");
   return lines;
 }
 
@@ -1413,6 +1424,17 @@ export function renderGameContext(view: GameStateView): string {
         ? [`    THE ${milestoneLabel(wa.houseEvent.kind as keyof typeof MILESTONE_LABEL).toUpperCase()} IS IN SESSION (engine truth): the whole house is gathered in ${roomRefHere(wa.houseEvent.room)}, and that is where it happens.`]
         : []),
       `    With you: ${here}.`,
+      // ORW-1167: earshot is the engine's, and it is told plainly. Only a zoned room (the yard) has a far end; elsewhere everyone present hears. A shared room is never private: only askToTalkAlone makes a private room.
+      ...(wa.present.length
+        ? (() => {
+            const far = wa.present.filter((p) => p.outOfEarshot).map((p) => p.name);
+            return [
+              ...(far.length ? [`    OUT OF EARSHOT (engine truth, the far end of this big room): ${far.join(", ")}. They can be seen, they cannot hear the player: they do not join, answer or react to what is said at the player's end.`] : []),
+              // ORW-1169: a recorded one-to-one scene is a real private talk (the engine lock below); the plain-room line would contradict it.
+              ...(wa.privateTalk ? [] : ["    EARSHOT: everyone else With you HEARS every word said here, so this is NOT a private conversation. Never say, promise or narrate that it is, or that anyone is out of earshot unless listed above. Real privacy comes only from askToTalkAlone."]),
+            ];
+          })()
+        : []),
       // ORW-1169: a private talk is a lock the engine keeps: the two are busy until the scene ends.
       ...(wa.privateTalk
         ? [`    PRIVATE TALK (engine truth): you are talking privately with ${wa.privateTalk.with.name}. Neither of you leaves, and nobody else walks in, until the talk ends (a goodbye, one of you walking off, or an interruption the story shows). Keep the scene with them; do not move ${wa.privateTalk.with.name} elsewhere and do not write anyone else into the room.`]
@@ -1712,6 +1734,7 @@ export function renderGameContext(view: GameStateView): string {
     ...(view.keepPromisers?.length ? [`- WHO TOLD THE PLAYER THEY WOULD KEEP THEM (engine truth; the only people who may be said to have promised it; ballots stay anonymous, so never say how any of them voted): ${view.keepPromisers.map((h) => neutralizeForPrompt(h.name)).join(", ")}.`] : []),
     ...(view.votePromises ? [`- VOTE PROMISES ON THE RECORD (engine truth; names only, what the player was told or heard): ${view.votePromises.map((v) => `${v.nominee.name}: ${v.keepers.length ? v.keepers.map((k) => k.name).join(", ") : "nobody"}`).join("; ")}. A vow that is not listed is not on the record: do not voice it as firm.`] : []),
     ...(view.alliancePitchesOpen?.length ? view.alliancePitchesOpen.map((a) => `- ALLIANCE PITCH (engine truth; open until the player takes it or the houseguest withdraws it): a houseguest has let the player in on the alliance "${a.name}" (allianceId ${a.id}; the roster the player was told: ${a.members.map((m) => m.name).join(", ")}). Work the offer into a scene in that houseguest's own manner when it fits, and do not make the player's answer for them. If the player says yes, call joinAlliance({ allianceId: "${a.id}" }); the game decides whether they are let in.`) : []),
+    ...(view.alliancesHeld?.length ? [`- THE PLAYER'S ALLIANCES (engine truth; the only members each one has): ${view.alliancesHeld.map((a) => `"${neutralizeForPrompt(a.name)}": ${a.members.map((m) => neutralizeForPrompt(m.name)).join(", ")}`).join("; ")}. When you name one of these groups or its members, name exactly these people. A group a houseguest describes that is not listed is not the player's alliance until the game joins them to it.`] : []),
     // ORW-851 (same gap ORW-794 closed for alliance pitches): the narrator used to learn a favor it is owed, or a vote pitch a houseguest has floated, only by calling gameStatus and reading the state. Prompt-only lines from the view's own fields; no new read.
     ...(view.owedFavors?.length ? [`- FAVORS OWED TO THE PLAYER (engine truth; houseguests who kept a deal with them): ${view.owedFavors.map((f) => `${neutralizeForPrompt(f.from.name)} (${f.n})`).join(", ")}. If the player calls one in, call callInFavor; never say a favor is owed that is not listed here.`] : []),
     // ORW-962 (same gap, the most common of the three in play): a standing deal offer rode only the state read (`openDealOffer`, with its own voicing instruction), so an offer the model did not go and look up was never voiced.

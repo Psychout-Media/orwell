@@ -52,3 +52,6 @@ export const learned = (s: Stop): KnowledgeFact[] => s.engine.knowledge.knownTo(
 /** The night period with nothing open (no decision, no staged ceremony): the player may turn in. */
 export const bedtimeNow = (s: Stop): boolean =>
   ["night", "late-night"].includes(s.sess.gameStatus().timeOfDay ?? "") && !s.sess.getGameState().pending && !s.sess.live?.ceremony;
+
+/** ORW-1167: the ids in the player's room the player can be HEARD by (the engine's earshot: in a zoned room such as the yard a houseguest in another zone is seen, not heard). A scene told to the room has only these as witnesses, so a test that needs a listener scans for one of these. */
+export const withinEarshot = (s: Stop): Set<string> => new Set<string>(((s.sess.whereabouts()?.present ?? []) as Array<{ id: string; outOfEarshot?: boolean }>).filter((p) => !p.outOfEarshot).map((p) => p.id));

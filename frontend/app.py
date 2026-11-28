@@ -709,6 +709,8 @@ app.include_router(setup_admin_calibration_routes())
 from routes.admin_health_routes import setup_admin_health_routes, setup_admin_status_page
 app.include_router(setup_admin_health_routes())
 app.include_router(setup_admin_status_page())  # G1b: the self-contained ops page at /admin/status
+from routes.admin_live_check_routes import setup_admin_live_check_routes  # ORW-1145: deploy hold + pre-cast test account for a dev live check
+app.include_router(setup_admin_live_check_routes())
 
 # Admin one-click Update — pull latest → rebuild engine → refresh FE deps → restart both. The
 # operator's deploy-merged-fixes button on the admin status page. Behind require_admin; the

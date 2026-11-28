@@ -27,6 +27,7 @@ KIND_MAX_CHARS = 40
 ABOUT_MAX_CHARS = 80
 NOTE_MAX_CHARS = 160
 PARTIES_MAX = 8
+ADDRESSED_MAX = 4          # the engine's cap on `addressedTo`; more people than this are party to the entry (`parties`, up to PARTIES_MAX), never a longer addressee list (that was a bad-shape refusal, ORW-1177)
 MAX_ENTRIES_PER_TURN = 3
 MAX_RESOLUTIONS_PER_TURN = 2
 # ``lapsed`` is ENGINE-ONLY (ORW-448): the model may never set it, so it is not here and ``clean_resolutions`` drops it.
@@ -51,6 +52,8 @@ _SYSTEM = (
     '"addressedTo":["<id or player>"],"kind":"<a short free phrase, any words>",'
     '"parties":["<every id party to a group pact>"],"about":"<who or what a claim concerns: an id from the list, else a few words>"}],'
     '"resolutions":[{"entryId":"<id from the OPEN list>","status":"kept|broken|withdrawn","note":"<why, one short sentence>"}]} . '
+    '"due":{"day":"today or tomorrow","part":"morning, afternoon, evening or night"} marks a PLAN or promise tied to a day: add it when the words '
+    "name the day (and the part of it, when named) the thing will happen, and only then. "
     "parties and about are optional: leave them out when they do not apply. A CLAIM about houseguests may also carry "
     '"claim":{"kind":"<one of: targets-you, voted-to-evict-you, final-two-with, going-after, talking-about, lying-about, voted-against, '
     'voted-to-keep>","subject":"<id>","object":"<id, only when the kind names a second person>"} when it says exactly one of those '
@@ -241,7 +244,37 @@ def _claim_grounded(text: str, claim: dict, known: dict) -> bool:
     return claim["subject"] in named or not (named - pointed)
 
 
-def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = None) -> list[dict]:
+DUE_DAYS = ("today", "tomorrow")
+DUE_PARTS = ("morning", "afternoon", "evening", "night")
+# ORW-1177: the day and part of day a plan names, read from the words themselves (the deterministic backstop for an extraction that dropped them). Forward-looking forms only.
+_DUE_PART_RE = r"morning|afternoon|evening|night"
+_DUE_TOMORROW_RE = re.compile(r"\btomorrow(?:\s+(?:at\s+)?(?:early\s+|late\s+)?(" + _DUE_PART_RE + r"))?\b", re.I)
+_DUE_TODAY_RE = re.compile(r"\b(?:tonight|this\s+(afternoon|evening))\b", re.I)
+
+
+def derive_due(text: object) -> Optional[dict]:
+    """The ``{day, part?}`` a plan's words name ("tomorrow morning" -> tomorrow, morning; "tonight" -> today, night), or None for words that name no day ("sometime", "soon", "one day")."""
+    t = str(text or "")
+    m = _DUE_TOMORROW_RE.search(t)
+    if m:
+        return {"day": "tomorrow", **({"part": m.group(1).lower()} if m.group(1) else {})}
+    m = _DUE_TODAY_RE.search(t)
+    if m:
+        return {"day": "today", "part": (m.group(1) or "night").lower()}
+    return None
+
+
+def _clean_due(raw: object) -> Optional[dict]:
+    """The extraction's own ``due``: a day from the fixed pair and, when given, a part from the fixed four; anything else is dropped (the entry stays undated)."""
+    if not isinstance(raw, dict) or raw.get("day") not in DUE_DAYS:
+        return None
+    out: dict = {"day": raw["day"]}
+    if raw.get("part") in DUE_PARTS:
+        out["part"] = raw["part"]
+    return out
+
+
+def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = None, player_message: str = "") -> list[dict]:
     """Entries from an extraction reply, bounded: well-formed, known ids only, text <= 240 chars (longer ones dropped, not
     truncated), one line, no duplicates, at most ``MAX_ENTRIES_PER_TURN``. ``known`` maps every houseguest the player can
     name (id -> name, present or elsewhere): a claim's ``about`` that is an id or a name from it becomes that id."""
@@ -275,6 +308,10 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
         if len(good_to) != len(to):
             _count("addressee-id-dropped", len(to) - len(good_to))
         to = good_to
+        overflow = to[ADDRESSED_MAX:]  # ORW-1177: a plan several houseguests accepted lists more than the engine's four addressees; the rest are parties, not a refusal
+        if overflow:
+            _count("addressee-moved-to-parties", len(overflow))
+        to = to[:ADDRESSED_MAX]
         parties = it.get("parties")
         if parties is not None:
             if not (isinstance(parties, list) and len(parties) <= PARTIES_MAX):
@@ -293,12 +330,21 @@ def clean_entries(raw: object, allowed_ids: set[str], known: Optional[dict] = No
             continue  # review of #2692: an entry involving no houseguest would never reach the brief and would only use a ledger slot
         k = _norm(kind, KIND_MAX_CHARS) or "claim"
         entry: dict = {"text": t, "speaker": speaker, "addressedTo": list(dict.fromkeys(to)), "kind": k}
-        group = list(dict.fromkeys(parties or []))
+        group = list(dict.fromkeys([*(parties or []), *(to + overflow if overflow else [])]))[:PARTIES_MAX]
         if len(group) > 1:
             entry["parties"] = group
         ab = _norm(about, ABOUT_MAX_CHARS) if isinstance(about, str) else ""
         if ab:
             entry["about"] = ab if ab in (known or {}) else by_name.get(ab.lower(), ab)
+        due = _clean_due(it.get("due"))
+        if due is None and isinstance(it.get("claim"), dict):
+            pass  # a claim about people is not a plan: no day is read off it
+        elif due is None and speaker == "player":  # the plan is the player's own words: read the day off them when the extraction left it out
+            due = derive_due(t) or derive_due(player_message)
+        elif due is None:
+            due = derive_due(t)
+        if due:
+            entry["due"] = due
         cl = _clean_claim(it.get("claim"), known or {}, by_name)
         if cl and not _claim_grounded(t, cl, known or {}):
             cl = None
@@ -422,7 +468,7 @@ async def capture_open_ledger(narration: str, present: list[dict], llm: LlmFn, w
         refused_other: dict = {}
         mode = grounding_mode()
         # review of #2776: a DUE entry lets the call run on a short narration, but NEW entries still need the ordinary bar (someone here, enough narration).
-        entries = clean_entries(parsed, {p["id"] for p in people}, known) if people and len(narration or "") >= _MIN_NARRATION_CHARS else []
+        entries = clean_entries(parsed, {p["id"] for p in people}, known, player_text) if people and len(narration or "") >= _MIN_NARRATION_CHARS else []
         weak, lowest = 0, 1.0
         for entry in entries:
             if mode != "off":

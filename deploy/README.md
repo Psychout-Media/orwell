@@ -408,6 +408,14 @@ priority order — and never silently 403s on `systemctl`:
 1. **The flag trigger (default, recommended).** When `data/ops/` exists (the installer creates
    it), the endpoint just drops the existence-only flag above and the root path unit runs the
    script. **The web tier holds zero privilege; nothing extra is required.**
+**Live-game guard (ORW-1074).** An update waits until no player message has arrived for
+`ORWELL_UPDATE_IDLE_MINUTES` (default 30), however long that takes, then runs once (queued runs
+coalesce: the first to proceed supersedes the rest). `ORWELL_UPDATE_MAX_DEFER_MINUTES` (default
+240) only raises an alert (log, `/run/orwell/update-deferred`, the web Update page); it never
+restarts a live game. `orwell-update.sh --force` skips the wait only when a human runs it at a
+terminal (`ssh -t`); from a script, bot or `ssh` without a tty it is ignored and the run waits
+like any other. The web Update page's force button, `--rollback` and `REF=` still work.
+
 2. **The detached direct run (opt-in).** Set `ORWELL_UPDATE_DIRECT=1` to force, and
    `ORWELL_UPDATE_SUDO=1` to wrap the run as `sudo -n bash orwell-update.sh`. This path runs the
    fixed script with `subprocess.Popen(start_new_session=True)` (its own session, so the restart

@@ -61,6 +61,8 @@ const TAKE_VERB = /^(?:take|bring|lead|walk|carry|guide)\s+me\b\s*/;
 const LEAVE_VERB = /^(?:leave|leaves|leaving|exit|exits|exiting|get out of|getting out of|walk out of|walking out of|step out of|stepping out of|head out of|heading out of|go out of|going out of|go out from|walk out from)\b\s*/;
 // Prepositions (and a few adverbs) between the verb and the destination.
 const PREP = /^(?:(?:back|right|straight|over|down|up|out|on)\s+)*(?:(?:in\s*to|into|to|toward|towards|through|in|inside)\b\s*)?(?:(?:back|right|straight|over|down|up)\s+)*(?:(?:to|into)\s+)?/;
+// ORW-1180: a thing IN a room is no room. "get out of the pool" / "get off the sofa" leaves the thing, never the room: the player stays where they are. ("pool" is also a backyard alias, so "leave the pool" read as leaving the backyard.)
+const FEATURE_WORDS = /^(?:(?:the|my|our|a|an|this|that)\s+)?(?:(?:hot|cold|swimming|plunge|kiddie|inflatable)\s+)?(?:pool|tub|bathtub|bath|jacuzzi|spa|hammock|sofa|couch|chair|armchair|lounger|sun ?lounger|deck ?chair|bunk|bed|beds|water|shower)$/;
 const ARTICLE = /^(?:the|my|our|your|this|that|a|an)\s+/;
 // The destination phrase ends at the first of these joiners ("to the kitchen and say hi", "... to talk to X").
 const PHRASE_END = /\s+(?:and|to|so|with|then|because|but|for|while|where|now|please|again|real quick|quickly|slowly|quietly|carefully|silently|alone|together|too|also|first|next|just)\b.*$/;
@@ -236,6 +238,7 @@ function parseClauseText(raw: string, current: Room | null, themed?: Themed): Ro
     const via = /\s+(?:in\s*to|into|to|for|toward|towards)\s+(.+)$/.exec(s.slice(m[0].length)); // "I leave the kitchen for the backyard": the room named after the door is the move
     if (via) { const to = roomFromPhrase(via[1]!, current, themed); if (to !== null) return to; }
     const rest = s.slice(m[0].length).replace(PHRASE_END, "").trim().replace(ARTICLE, "").trim();
+    if (FEATURE_WORDS.test(rest)) return null; // ORW-1180: stepping out of the pool / off the sofa is not leaving the room
     if (rest === "" || /^(?:here|room|the room|this room)$/.test(rest)) return exitRoomFrom(current);
     const named = roomFromPhrase(rest, current, themed);
     // Only "leave the room you are in" is a clear exit; leaving a room you are not in is unsure.
