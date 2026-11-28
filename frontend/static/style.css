@@ -22186,16 +22186,15 @@ button.ow-history-more {
 .msg[data-kind="day-recap"] .msg-footer { display: none; }
 .msg[data-kind="day-recap"] { max-width: 100%; }
 .ow-day-recap { padding: 1rem 1.2rem; border-radius: 14px; border: 1px solid color-mix(in srgb, var(--accent, #8aa) 55%, transparent); border-left-width: 6px;
-  background: color-mix(in srgb, var(--accent, #8aa) 10%, var(--panel, rgba(0,0,0,.25))); font-size: 1rem; line-height: 1.45; }
-.ow-day-recap-eyebrow { font-size: .75rem; letter-spacing: .12em; text-transform: uppercase; opacity: .7; }
-.ow-day-recap-title { font-weight: 800; font-size: 1.35rem; margin: .1rem 0 .6rem 0; }
+  background: color-mix(in srgb, var(--accent, #8aa) 10%, var(--panel, rgba(0,0,0,.25))); font-size: clamp(1rem, calc(.45vw + .5rem), 1.9rem); line-height: 1.45; } /* fluid: a 4K TV reads about 25px, a desktop 16px */
+.ow-day-recap-eyebrow { font-size: .75em; letter-spacing: .12em; text-transform: uppercase; opacity: .7; }
+.ow-day-recap-title { font-weight: 800; font-size: 1.4em; margin: .1rem 0 .6rem 0; }
 .ow-day-recap-group { margin: .5rem 0; }
-.ow-day-recap-label { font-weight: 700; font-size: .85rem; opacity: .85; margin-bottom: .1rem; }
+.ow-day-recap-label { font-weight: 700; font-size: .85em; opacity: .85; margin-bottom: .1rem; }
 .ow-day-recap-group ul { margin: 0; padding-left: 1.2rem; }
 .ow-day-recap-group li { margin: .12rem 0; overflow-wrap: anywhere; }
 .ow-day-recap-hook { margin-top: .7rem; padding-top: .5rem; border-top: 1px dashed color-mix(in srgb, currentColor 30%, transparent); font-style: italic; }
-@media (min-width: 2400px) { .ow-day-recap { font-size: 1.7rem; padding: 1.6rem 2rem; border-radius: 22px; } .ow-day-recap-title { font-size: 2.4rem; } .ow-day-recap-eyebrow, .ow-day-recap-label { font-size: 1.2rem; } }
-@media (max-width: 600px) { .ow-day-recap { padding: .8rem .9rem; font-size: .95rem; } .ow-day-recap-title { font-size: 1.2rem; } }
+@media (max-width: 480px) { .ow-day-recap { padding: .8rem .9rem; } }
 
 /* ORW-44 S3: persistent notice when the network cannot carry the live (WebSocket) connection. */
 .ow-ws-blocked {
