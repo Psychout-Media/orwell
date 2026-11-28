@@ -46,8 +46,10 @@ BRANCH="${BRANCH:-main}"
 REF="${REF:-}"
 ROLLBACK=0; SET_TOKEN=0; NO_RESTART=0
 # ORW-206 — live-game guard: before the build/restart the updater DEFERS while a player has chatted in the
-# last ORWELL_UPDATE_IDLE_MINUTES (default 15), polling until idle, then runs by itself; it gives up waiting
-# after ORWELL_UPDATE_MAX_DEFER_MINUTES (default 240). `--force` (or ORWELL_UPDATE_FORCE=1) skips the check.
+# last ORWELL_UPDATE_IDLE_MINUTES (default 30), polling until idle, then runs by itself. ORW-1074: it NEVER gives up and
+# restarts a live game; after ORWELL_UPDATE_MAX_DEFER_MINUTES (default 240) it only ALERTS and keeps waiting. `--force` (or
+# ORWELL_UPDATE_FORCE=1) skips the check ONLY when a human runs it at a terminal (stdin a tty, e.g. `ssh -t`); from a
+# script, cron or an ssh without a tty it is downgraded to a normal deferring run (see update_force_honored).
 # ORW-406: "force" means "do not wait for the player to go idle", NOT "cut a turn": a forced run (and the web-side
 # force request) still waits, bounded by ORWELL_UPDATE_TURN_WAIT_SECONDS (default 120, max 300), for no player turn
 # to be in flight before it restarts. Emergencies only: `--force-now` (or ORWELL_UPDATE_FORCE_NOW=1) also skips that
@@ -109,6 +111,13 @@ type tui_active >/dev/null 2>&1 || tui_active() { return 1; }
 # ── live-game guard lib (ORW-206). Missing ⇒ the check is simply skipped (fail open: an update must never
 # be blocked by its own guard). Searched like the libs above, so the pushed /tmp copy finds it too.
 __source_lib orwell-live-game.sh || true
+
+# ORW-1074: a --force that no human typed (no terminal on stdin, not forwarded by our own bridge from one) is NOT a force.
+if [[ $FORCE -eq 1 ]] && type update_force_honored >/dev/null 2>&1 \
+   && [[ "$(update_force_honored 1 "$([[ -t 0 ]] && echo 1 || echo 0)" "${ORWELL_UPDATE_FORCE_FROM_TTY:-0}")" == downgraded ]]; then
+  echo "==> --force ignored: no terminal on stdin (a script/bot/ssh without -t). Running as a normal update that WAITS for the game to be idle; a human who must cut a live game uses a terminal (ssh -t)."
+  FORCE=0; FORCE_NOW=0
+fi
 
 # ── ops-progress lane: step-by-step progress to data/ops/<action>-status.json (sourced helper) ──
 # Lets the admin health page render a live timeline for THIS update (fetching → rebuilding →
@@ -204,7 +213,7 @@ if command -v pct >/dev/null 2>&1 && ! find_app >/dev/null 2>&1; then
     esac
     case "$__k" in ORWELL_UPDATE_TURN_WAIT_SECONDS|ORWELL_UPDATE_WARM_WAIT_SECONDS|ORWELL_UPDATE_LOCK_WAIT) FWD_LG="${FWD_LG} ${__k}='${__v}'" ;; *) FWD_LG="${FWD_LG} ${__k}='${!__k}'" ;; esac
   done
-  FWD_ENV="export ${APP_DIR_EXPLICIT:+APP_DIR='${APP_DIR_EXPLICIT}' }BRANCH='${BRANCH}' REF='${REF}'${FWD_LG};"
+  FWD_ENV="export ${APP_DIR_EXPLICIT:+APP_DIR='${APP_DIR_EXPLICIT}' }BRANCH='${BRANCH}' REF='${REF}'${FWD_LG}$([[ $FORCE -eq 1 ]] && echo " ORWELL_UPDATE_FORCE_FROM_TTY='1'");"
   if [[ -n "${BASH_SOURCE[0]:-}" && -r "${BASH_SOURCE[0]:-}" ]]; then
     TMP_UPDATE="$(mktemp /tmp/orwell-update-XXXXXX.sh)"
     cp "${BASH_SOURCE[0]}" "$TMP_UPDATE"
