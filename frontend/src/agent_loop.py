@@ -3510,24 +3510,36 @@ def _validate_promise(raw, scene_ids, roster_ids) -> dict | None:
 
 
 # ORW-1069: words the promise belts must not record. A spoken promise is recorded only when it is unconditional, firm, and its polarity is a promise to KEEP (not to vote out).
-_PROMISE_CONDITIONAL_RE = re.compile(r"\b(?:if|unless|as long as|so long as|provided|in case|on (?:the )?condition|only when|once you|depends?)\b", re.I)
+_PROMISE_CONDITIONAL_RE = re.compile(r"\b(?:if|unless|as long as|so long as|provided|assuming|in case|on (?:the )?condition|only when|once you|depends?|depending)\b", re.I)
 _PROMISE_HEDGE_RE = re.compile(
-    r"\b(?:try(?:ing)?(?: to)?|maybe|perhaps|might|probably|hope|hoping|can'?t say|cannot say|not sure|no promises|we'?ll see|i guess|i think i|i suppose|likely|ish)\b", re.I)
-_PROMISE_NEGATED_VOTE_RE = re.compile(r"\b(?:won'?t|will not|not|never|don'?t|do not|wouldn'?t|would not|refuse to|shan'?t)\b[^.!?]{0,30}\b(?:vote|evict|send)", re.I)
+    r"\b(?:try(?:ing)?(?: to)?|maybe|perhaps|might|probably|possibly|hopefully|hope|hoping|can'?t say|cannot say|not sure|no promises|we'?ll see|i'?ll see|i guess|i think i|i suppose|likely|kind of|sort of)\b", re.I)
+_PROMISE_NEGATION = r"(?:won'?t|will not|not|never|don'?t|do not|wouldn'?t|would not|refuse to|shan'?t|no way)"
+_PROMISE_NEGATED_VOTE_RE = re.compile(r"\b" + _PROMISE_NEGATION + r"\b[^.!?;,]{0,30}\b(?:vote|evict|send)", re.I)
 _PROMISE_VOTE_OUT_RE = re.compile(
-    r"\b(?:vot(?:e|es|ed|ing)\b[^.!?]{0,40}?\b(?:out|off|against|to evict|evict|home)\b|evict(?:ing)?\b|send(?:ing)?\b[^.!?]{0,20}\bhome\b|(?:she|he|they|you)(?:'re| are)? goes? home\b)", re.I)
+    r"\b(?:vot(?:e|es|ed|ing)\b[^.!?;]{0,40}?\b(?:out|off|against|to evict|evict|home)\b|evict(?:ing)?\b|send(?:ing)?\b[^.!?;]{0,20}\bhome\b|(?:she|he|they|you)(?:'re| are)? goes? home\b)", re.I)
+# ORW-1069: the nominate-side twin: "I'm putting Lorenzo up" is a promise to TARGET, never a no-nominate promise.
+_PROMISE_NOMINATE_RE = re.compile(r"\b(?:nominat(?:e|es|ed|ing)|put(?:s|ting)?\b[^.!?;]{0,25}\bup|backdoor(?:s|ing)?|target(?:s|ing)?|go(?:ing)? after|come after)\b", re.I)
+_PROMISE_NEGATED_NOMINATE_RE = re.compile(r"\b" + _PROMISE_NEGATION + r"\b[^.!?;,]{0,30}\b(?:nominat|put|backdoor|target|go after|come after)", re.I)
+
+
+def _clauses(text: str) -> list:
+    return [c for c in re.split(r"[.!?;,]|\bbut\b|\band then\b", text) if c.strip()]
 
 
 def _promise_words_unfit(text, kind: str = "vote") -> str | None:
-    """ORW-1069: the reason a spoken promise must NOT be recorded, or None. 'conditional' (an if / unless promise is not a promise), 'hedged' (an attempt or a maybe), or 'vote-out' (the speaker promised
-    to vote someone OUT; recording it as a promise to keep them would be its opposite). A negated vote line ('I will not vote you out') is a promise to keep and passes. Only `vote`-shaped promises get the polarity read."""
+    """ORW-1069: the reason a spoken promise must NOT be recorded, or None. 'conditional' (an if / unless promise is not a promise), 'hedged' (an attempt or a maybe), or 'vote-out' / 'nominate'
+    (the speaker promised to vote someone OUT, or to put them up; recording it as a promise to keep them would be its opposite). Polarity is read clause by clause: a negated line ('I will not vote you out')
+    is a promise to keep and passes, but a vow to vote someone out anywhere in the words, not negated in its own clause, refuses the whole record (a mixed vow is never guessed at)."""
     t = text if isinstance(text, str) else ""
     if _PROMISE_CONDITIONAL_RE.search(t):
         return "conditional"
     if _PROMISE_HEDGE_RE.search(t):
         return "hedged"
-    if kind == "vote" and _PROMISE_VOTE_OUT_RE.search(t) and not _PROMISE_NEGATED_VOTE_RE.search(t):
-        return "vote-out"
+    for c in _clauses(t):
+        if kind == "vote" and _PROMISE_VOTE_OUT_RE.search(c) and not _PROMISE_NEGATED_VOTE_RE.search(c):
+            return "vote-out"
+        if kind != "vote" and _PROMISE_NOMINATE_RE.search(c) and not _PROMISE_NEGATED_NOMINATE_RE.search(c):
+            return "nominate"
     return None
 
 
@@ -4678,7 +4690,7 @@ _SCENE_EXTRACT_INSTRUCTIONS = (
     '"about":"<a DIFFERENT third houseguest, never the player>",'
     '"direction":"<same 8 options as above>","emphasis":"<slight|notable|strong>"}],'
     '"rationale":"<why, grounded in the scene>"}}\n'
-    "Add `assurance` ONLY when someone made a cheap, explicit promise in the scene — 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal); `by` is 'player' when the player promised, else the id of the houseguest who promised the player. Never for hints, hopes or mere friendliness; otherwise omit it. Add `promise` ONLY when someone made an explicit promise about what they will or will not do on the board, in their own words in the scene. `what` names the promise kind and must be exactly a kind the engine judges: no-nominate (will not nominate them), no-evict-vote (will not vote them out), use-veto-on (will use the veto on them), not-use-veto-on (will not use the veto on them), final-two (will take them to the final two). `by` is 'player' when the player promised, else the id of the houseguest who promised the player; `subject` is the id of the houseguest it concerns, and is left out when it concerns the one spoken to. Never for hints, hopes, a threat or a mere wish, and never a promise about anything the board cannot test; otherwise omit it. Add `statement` ONLY when the PLAYER, in their own words in the scene, told a houseguest something about a third houseguest that is a checkable claim about the house. `kind` must be exactly one of these claim kinds: targets-you (the subject is targeting the one spoken to), voted-to-evict-you (the subject voted to evict the one spoken to), final-two-with (the subject has a final two with `object`), going-after (the subject is going after `object`), talking-about (the subject has been talking about `object` behind their back), lying-about (the subject is lying to `object`), voted-against (the subject voted to evict `object`), voted-to-keep (the subject voted to keep `object`), has-reputation (the player says the subject is known around the house as a type of player; then `label` is the engine's role word the player's words mean: snake, floater, villain, peacemaker, jokester, therapist or outcast, and the statement is left out when none fits). `to` is the houseguest the player said it to, `about` is the subject, and `object` is left out when the kind does not name a second houseguest. Never for the player's own opinions, guesses or jokes, and never when the kind does not fit; otherwise omit it. Within `statement`, add `retracts` (true, and leave out `kind`) ONLY when the PLAYER, in their own words in the scene, told the houseguest they spoke to that something the player told that same houseguest earlier was false; `to` is that houseguest and `about` the houseguest it concerned, left out when unclear. Add `tellsAbout` (a houseguest id, and leave out `kind`) ONLY when the PLAYER, in their own words in the scene, told the houseguest they spoke to (`to`, an ally) the truth about something false they told that other houseguest; never both. Never for the player's doubts, jokes or a change of mind; otherwise omit them. Add `heardAboutMe` ONLY when, in the scene, a houseguest TOLD the other houseguests present something about the player — that the player is gunning for them (targeting) or has betrayed someone (betrayal); `by` is the id of the houseguest who said it (never the player); otherwise omit it. Add `actor` ONLY when a houseguest, not the player, did the act that `kind` names to the player; its value is that houseguest's roster id and it must also be in `withIds`; when the player did it, or no one clearly did, omit it. Always set `feltMinutes` to how long the exchange plausibly took in the house — it is a note "
+    "Add `assurance` ONLY when someone made a cheap, explicit promise in the scene — 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal); `by` is 'player' when the player promised, else the id of the houseguest who promised the player. Never for hints, hopes or mere friendliness; otherwise omit it. Add `promise` ONLY when someone made an explicit promise about what they will or will not do on the board, in their own words in the scene. `what` names the promise kind and must be exactly a kind the engine judges: no-nominate (will not nominate them), no-evict-vote (will not vote them out), use-veto-on (will use the veto on them), not-use-veto-on (will not use the veto on them), final-two (will take them to the final two). `by` is 'player' when the player promised, else the id of the houseguest who promised the player; `subject` is the id of the houseguest it concerns, and is left out when it concerns the one spoken to. Never for hints, hopes, a threat or a mere wish, and never a promise about anything the board cannot test; otherwise omit it. no-evict-vote is ONLY a promise NOT to vote them out: 'I am voting X out' is the opposite, so it is NOT a promise to keep X and is left out; a promise with 'if', 'unless', 'maybe', 'probably', 'try' or 'hope' is conditional or hedged and is left out. Add `statement` ONLY when the PLAYER, in their own words in the scene, told a houseguest something about a third houseguest that is a checkable claim about the house. `kind` must be exactly one of these claim kinds: targets-you (the subject is targeting the one spoken to), voted-to-evict-you (the subject voted to evict the one spoken to), final-two-with (the subject has a final two with `object`), going-after (the subject is going after `object`), talking-about (the subject has been talking about `object` behind their back), lying-about (the subject is lying to `object`), voted-against (the subject voted to evict `object`), voted-to-keep (the subject voted to keep `object`), has-reputation (the player says the subject is known around the house as a type of player; then `label` is the engine's role word the player's words mean: snake, floater, villain, peacemaker, jokester, therapist or outcast, and the statement is left out when none fits). `to` is the houseguest the player said it to, `about` is the subject, and `object` is left out when the kind does not name a second houseguest. Never for the player's own opinions, guesses or jokes, and never when the kind does not fit; otherwise omit it. Within `statement`, add `retracts` (true, and leave out `kind`) ONLY when the PLAYER, in their own words in the scene, told the houseguest they spoke to that something the player told that same houseguest earlier was false; `to` is that houseguest and `about` the houseguest it concerned, left out when unclear. Add `tellsAbout` (a houseguest id, and leave out `kind`) ONLY when the PLAYER, in their own words in the scene, told the houseguest they spoke to (`to`, an ally) the truth about something false they told that other houseguest; never both. Never for the player's doubts, jokes or a change of mind; otherwise omit them. Add `heardAboutMe` ONLY when, in the scene, a houseguest TOLD the other houseguests present something about the player — that the player is gunning for them (targeting) or has betrayed someone (betrayal); `by` is the id of the houseguest who said it (never the player); otherwise omit it. Add `actor` ONLY when a houseguest, not the player, did the act that `kind` names to the player; its value is that houseguest's roster id and it must also be in `withIds`; when the player did it, or no one clearly did, omit it. Always set `feltMinutes` to how long the exchange plausibly took in the house — it is a note "
     "recorded with the scene (the in-game clock itself runs by message count), so a brief hallway word is ~15-30 "
     "and a long backyard strategy session is a couple of hours. Pick the kind matching the "
     "emotional/strategic direction. Add `consequence` ONLY when "
@@ -4939,6 +4951,15 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
         heard_about_me = _validate_heard_about_me(obj.get("heardAboutMe"), ids)
         actor = _validate_actor(obj.get("actor"), ids)  # ORW-609: who acted (a houseguest in the scene), else the player
         promise = _validate_promise(obj.get("promise"), ids, valid)
+        # ORW-1069: the extraction's label is never the last word on a promise. The words that carry it (the scene summary and, for the player's own promise, the player's move) are read for polarity and
+        # firmness; a vow to vote someone OUT, a hedge or a condition records NO promise or assurance (the scene itself still records).
+        if assurance or promise:
+            _p_vote = (assurance and assurance.get("kind") == "vote") or (promise and promise.get("what") == "no-evict-vote")
+            _p_words = [content] + ([last_user] if (promise and "from" not in promise) or (assurance and "from" not in assurance) else [])
+            _p_unfit = next((u for u in (_promise_words_unfit(w, "vote" if _p_vote else "loyal") for w in _p_words) if u), None)
+            if _p_unfit:
+                _note_validator_drop("scene-promise", _p_unfit)
+                assurance = promise = None
         statement = _validate_statement(obj.get("statement"), ids, valid)
         if statement and _player_move_is_only_questions(last_user):
             statement = None  # ORW-781: a question is not something the player told anyone; the scene still records, no claim is logged

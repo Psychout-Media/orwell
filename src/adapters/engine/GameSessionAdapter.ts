@@ -37,6 +37,7 @@ import { tellsOf, narratedTellsOf, refreshTells, tellChannel } from "../../engin
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
 import { MOOD_CAUSES, causeLine, isBadNight, isCloseFriend, carryFactor, mayShareEventCause, strongestLiveCause, type MoodCauseSource } from "../../engine/moodCauses";
 import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sceneSeenBy, sharedScenes, type SeenScene } from "../../engine/bondJealousy";
+import { polarityAt } from "../../engine/dealTermPolarity";
 import { SECRET_BREAK, breakDecision, breakLine, keptOutGrudge, pickSpoken, standingMove } from "../../engine/secretBreak";
 import { HOH_ROOM, decideVisit, backstoryFacets, pickBackstoryFact } from "../../engine/hohRoom";
 import { GRUDGES, REPAIR, combineSalience, easeGrudge, easedShareOf, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, repairAmount, wrongWeight, type GrudgeKind } from "../../engine/grudges";
@@ -6884,21 +6885,25 @@ export class GameSessionAdapter implements GameSession {
    * ORW-1053: the living houseguests, outside the deal's own pair, whom a deal's terms name (full name, or a first name no other houseguest shares), in roster order; an explicit id leads.
    * Matching is on whole words, case-insensitive.
    */
-  private thirdsNamedIn(terms: string, explicit: EntityId | undefined, pair: readonly EntityId[]): EntityId[] {
-    if (!this.house || !this.live) return [];
+  private thirdsNamedIn(terms: string, explicit: EntityId | undefined, pair: readonly EntityId[]): { protect: EntityId[]; evict: EntityId[] } {
+    const none = { protect: [] as EntityId[], evict: [] as EntityId[] };
+    if (!this.house || !this.live) return none;
     const gone = new Set(this.live.evictionOrder);
     const living = this.house.npcs.filter((n) => !gone.has(n.id) && !pair.includes(n.id));
     const firsts = new Map<string, number>();
     for (const n of [...this.house.npcs, this.house.player]) { const f = (n.name ?? "").trim().split(/\s+/)[0]?.toLowerCase(); if (f) firsts.set(f, (firsts.get(f) ?? 0) + 1); }
     const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const hit = (word: string) => new RegExp(`(^|[^\\p{L}])${esc(word)}($|[^\\p{L}])`, "iu").test(terms);
-    const out: EntityId[] = [];
-    if (explicit && living.some((n) => n.id === explicit)) out.push(explicit);
+    const find = (word: string): number => { const m = new RegExp(`(^|[^\\p{L}])${esc(word)}($|[^\\p{L}])`, "iu").exec(terms); return m ? m.index + m[1]!.length : -1; };
+    const out = { protect: [] as EntityId[], evict: [] as EntityId[] };
+    if (explicit && living.some((n) => n.id === explicit)) out.protect.push(explicit);
     for (const n of living) {
-      if (out.includes(n.id)) continue;
+      if (out.protect.includes(n.id)) continue;
       const full = (n.name ?? "").trim();
       const first = full.split(/\s+/)[0] ?? "";
-      if (full && (hit(full) || (first && firsts.get(first.toLowerCase()) === 1 && hit(first)))) out.push(n.id);
+      let at = full ? find(full) : -1;
+      if (at < 0 && first && firsts.get(first.toLowerCase()) === 1) at = find(first);
+      if (at < 0) continue;
+      (polarityAt(terms, at) === "evict" ? out.evict : out.protect).push(n.id); // ORW-1053: "vote Lorenzo out" targets him; only "keep / spare" readings protect
     }
     return out;
   }
@@ -19643,8 +19648,8 @@ export class GameSessionAdapter implements GameSession {
     // B55: an ASKED active obligation binds the NPC (the promisor is parties[0]); everything else keeps the player first, as before
     const parties: [EntityId, EntityId] = (isPositiveObligation(req.kind) && req.direction === "ask") || req.kind === "protect-third" || req.kind === "information" ? [target, PLAYER] : [PLAYER, target];
     // ORW-1053: a vote / safety / conditional deal whose terms name living houseguests outside the pair protects those houseguests (the named ones, or the explicit `third`).
-    const named = req.kind === "vote" || req.kind === "safety" || req.kind === "conditional" ? this.thirdsNamedIn(terms, req.third, [PLAYER, target]) : [];
-    const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses, req.kind === "protect-third" ? req.third : named[0], named.slice(1));
+    const named = req.kind === "vote" || req.kind === "safety" || req.kind === "conditional" || req.kind === "target-other" ? this.thirdsNamedIn(terms, req.third, [PLAYER, target]) : { protect: [], evict: [] };
+    const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses, req.kind === "protect-third" ? req.third : named.protect[0], named.protect.slice(1), named.evict);
     this.trackDealMade(deal);
     // ORW-85: the houseguests who SAW the deal made remember it - and read it against their own position (see rememberDealWitnesses). Played games only.
     if (witnesses && witnesses.length > 0 && this.live.playedGame === true) this.rememberDealWitnesses(deal, witnesses);
