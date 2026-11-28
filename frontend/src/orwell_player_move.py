@@ -93,13 +93,15 @@ async def act_first_before_narrator(text: Any, user: Optional[str], client_msg_i
             from src import orwell_engine as engine  # type: ignore[no-redef]
         from routes import chat_helpers as _ch
         key = user or "default"
+        state = await engine.get_game_state(user=user)
+        if isinstance(state, dict) and state.get("started") is False:
+            return False  # ORW-1014: the casting interview has no board to act on (prod 2026-11-28: 13 of 26 messages, two paid calls); the ordinary path runs as before
         status = await engine.game_status(user=user)
-        pend = ((status or {}).get("pending") or {}) if isinstance(status, dict) else {}
+        pend =((status or {}).get("pending") or {}) if isinstance(status, dict) else {}
         kind = (pend.get("kind") or "").strip() if isinstance(pend, dict) else ""
         wa = await engine.whereabouts(user=user)
         here = (wa or {}).get("room") if isinstance(wa, dict) else None
-        state = await engine.get_game_state(user=user)
-        people = [str(h.get("name")) for h in ((state or {}).get("house") or []) if isinstance(h, dict) and h.get("name") and str(h.get("status") or "active") == "active"] if isinstance(state, dict) else []
+        people =[str(h.get("name")) for h in ((state or {}).get("house") or []) if isinstance(h, dict) and h.get("name") and str(h.get("status") or "active") == "active"] if isinstance(state, dict) else []
         names = _season_room_names(user)
         ctx = {
             "pending_kind": kind or None,

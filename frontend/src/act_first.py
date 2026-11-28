@@ -427,6 +427,33 @@ def blocked_precondition(act: tuple, blocked: list) -> Optional[str]:
     return None
 
 
+def can_commit_nothing(text: str, rooms, ctx: dict) -> bool:
+    """The no-call pre-filter (ORW-1014, prod 2026-11-28: 9 of 13 game-turn calls ended noAction at 680 to 1345 ms each). True when `validate_calls` would reject EVERY call the model could
+    make for this message, so the answer is noAction by construction and the 0.7 to 1.3 s call is not spent. It mirrors the validator, so it can never skip a real act:
+    a move or a bed claim needs a room the player's own words ground (`grounded_ctx`), a search needs an active houseguest's name in the words, a sleep needs a sleep word, and a step
+    answer (advance, comp, deal) has no such floor, so any of those offered keeps the call."""
+    o = offered(ctx)
+    if o["advance"] or o["comp"] or o["deal"]:
+        return False
+    t = strip_quotes(text)
+    for r in rooms:
+        r = str(r).lower()
+        if (o["moveTo"] or o["claimBed"]) and grounded(r, text, ctx.get("room_names")):
+            return False
+        # 'in here' / 'this room' names the room the player is in: a move there is dropped as already-there, so only a bed claim in a bedroom they stand in can still commit
+        if o["claimBed"] and r in BEDROOMS and r == ctx.get("here") and _HERE_REF.search(t):
+            return False
+    if o["search"]:
+        low = t.lower()
+        for nm in ctx.get("people") or []:
+            first = str(nm).split()[0].lower() if str(nm).split() else ""
+            if first and re.search(r"(?<![\w'])" + re.escape(first) + r"(?![\w'])", low):
+                return False
+    if o["turnIn"] and _SLEEP_CUE.search(t):
+        return False
+    return True
+
+
 # ── latency + outcome stats ───────────────────────────────────────────────────────────────────
 _LOCK = threading.Lock()
 _LAT: collections.deque = collections.deque(maxlen=500)
@@ -499,6 +526,8 @@ async def decide(text: str, rooms, *, ctx: dict, fence: str, room_note: str = ""
     base_only = not (o["turnIn"] or o["advance"] or o["comp"] or o["deal"])
     if why is None and base_only and not has_cue(text, ctx.get("room_names")):  # with a step open or sleep offered, every message is asked
         why = "no-cue"
+    if why is None and can_commit_nothing(clean_text(text), rooms, ctx):
+        why = "ungrounded"
     if why is not None:
         bump("skipped")
         return {"acts": [], "outcome": f"skipped:{why}", "latencyMs": 0.0}

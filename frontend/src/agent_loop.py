@@ -9347,12 +9347,32 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
         logger.debug("223c2: begin_turn failed: %s", _e)
     _ledger_tokens: list = []
     _gen0 = _season_generation(kwargs.get("owner"))  # ORW-499: the season this turn began in
+    _unledgered_why = "no-record"  # ORW-1014: why a live-game turn that wrote no ledger row ended (failed = an exception, closed = the consumer went away)
+    _rows_before = 0
+    try:
+        from src import orwell_sync_ledger as _led_rows
+        _rows_before = _led_rows.recorded_count(kwargs.get("owner"))
+    except Exception as _e:  # failsoft-ok: accounting only
+        logger.debug("ORW-1014: ledger row baseline failed: %s", _e)
     try:
         async for _evt in _stream_agent_loop_impl(*args, _ledger_turn_tokens=_ledger_tokens, **kwargs):
             if _ttfw_rec is not None and _ttfw_rec.t_first_word is None:
                 _ttfw.note_stream_event(_ttfw_rec, _evt)
             yield _evt
+    except GeneratorExit:
+        _unledgered_why = "closed"
+        raise
+    except Exception:
+        _unledgered_why = "failed"
+        raise
     finally:
+        try:  # ORW-1014 metric gap: a live-game turn that never wrote its row still gets one (and its belts stay on it, not on the next turn)
+            if kwargs.get("game_mode") in (True, "game") and kwargs.get("owner"):
+                from src import orwell_sync_ledger as _led_rows2
+                if _led_rows2.recorded_count(kwargs.get("owner")) == _rows_before:
+                    _led_rows2.record_unledgered_turn(kwargs.get("owner"), session=kwargs.get("session_id"), reason=_unledgered_why)
+        except Exception as _e:  # failsoft-ok: accounting only
+            logger.debug("ORW-1014: unledgered turn row failed: %s", _e)
         try:  # ORW-499: the season restarted mid-turn, so any pacing this turn wrote since is last season's: drop it
             if _season_generation(kwargs.get("owner")) != _gen0:
                 _forget_season_pacing(kwargs.get("owner"), _bump=False)
@@ -10216,6 +10236,7 @@ async def _stream_agent_loop_impl(
     _pre_bed_state = None  # ORW-395: the board as it stood BEFORE the FE-run belt turnIn (the presence wall accepts either set that turn)
     _first_stream_round = 1  # ORW-395: the belt's own round shifts the first narration round to 2
     _belt_own_round = False
+    _direct_applied = False  # ORW-1014 (prod 2026-11-28 01:48Z): the own-round tail reads it after an act-first move that ran at the slot; only the bedtime/nap/pending-act branches used to bind it, so that turn died with UnboundLocalError
     _act_first_done = False  # ORW-1014: the act-first round runs at most once per turn
     _act_first_outcome = None  # ORW-1014: its outcome this turn (None = it did not run); an after-reply move belt that fires on a noAction counts as a miss
     for round_num in range(1, max_rounds + 1):
