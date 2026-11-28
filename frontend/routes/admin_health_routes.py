@@ -2776,9 +2776,10 @@ function render(d) {
     ["Intent gates", (function (g) {
       if (!g) return '<span class="sub">—</span>';
       const c = g.corpus;
+      const rate = function (r) { if (r == null) return "n/a"; return (r * 100).toFixed(1) + "%"; };
       const dec = Object.entries(g.byGate || {}).filter(kv => kv[1].fired + kv[1].skipped).map(kv => esc(kv[0]) + " " + esc(kv[1].fired) + " fire / " + esc(kv[1].skipped) + " skip").join(", ") || "none yet";
       if (!c) return esc(g.decisions) + " decision(s) logged: " + dec + " · miss rates: no corpus built yet";
-      const miss = Object.entries(c.gates || {}).map(kv => esc(kv[0]) + " " + (kv[1].missRate == null ? "n/a" : (kv[1].missRate * 100).toFixed(1) + "%") + " (" + esc(kv[1].misses) + "/" + esc(kv[1].positives) + ")").join(", ");
+      const miss = Object.entries(c.gates || {}).map(kv => esc(kv[0]) + " " + rate(kv[1].missRate) + " (" + esc(kv[1].misses) + "/" + esc(kv[1].positives) + ")").join(", ");
       return esc(g.decisions) + " decision(s) logged: " + dec + " · corpus " + esc(c.rows) + " messages, " + esc(c.withAct) + " with an act · MISS RATE per gate: " + miss;
     })(d.gates)],
     ["Tool calls", esc(tc.total ?? 0) + " total · " + esc(tc.failed ?? 0) + " failed"],
