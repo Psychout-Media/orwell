@@ -76,7 +76,7 @@
       document.head.appendChild(st);
     }
     // 0054: prefer the control-room gadget rail, beside the other ambient house gadgets (presence).
-    _gadget = window.OrwellGadgetKit.create({ id: ID, title: "Nightfall", icon: "🌙", ariaLabel: "Nightfall" });
+    _gadget = window.OrwellGadgetKit.create({ id: ID, title: "Time of day", icon: "🌙", ariaLabel: "Time of day" });
     const body = _gadget.ensure("orwell-presence");
     // A11Y-1: a live region is NOT the card root (re-rendering every poll would re-announce the
     // unchanged state). The phase line + the turned-in list + a hidden polite announcer (changes only).
@@ -106,7 +106,8 @@
       return;
     }
     const el = ensureEl();
-    const [emoji, label] = ((tod === "late-night" || tod === "morning") && state.earlyMorning === true) ? ["\u{1F305}", "Early morning"] : TOD[tod]; // ORW-392
+    const wb = window.OrwellWhen && window.OrwellWhen.band(state); // ORW-1162: the shared "when is it" source
+    const [emoji, label] = wb ? wb : ((tod === "late-night" || tod === "morning") && state.earlyMorning === true) ? ["\u{1F305}", "Early morning"] : TOD[tod]; // ORW-392
 
     // PHASE LINE: the time-of-day indicator (emoji + label) at the top of the card body.
     el.querySelector("[data-role='phase']").innerHTML =

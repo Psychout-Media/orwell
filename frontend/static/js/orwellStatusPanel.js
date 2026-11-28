@@ -401,7 +401,7 @@ import { onNarrowChange } from './platform.js';
     body.innerHTML = `
         <div class="os-done" id="os-done" hidden><span id="os-done-label"></span><span id="os-done-winner"></span></div>
         <div class="os-premiere" id="os-premiere" hidden>
-          <div class="os-prem-obj">Move-in night<span class="os-prem-count" id="os-prem-count"></span></div>
+          <div class="os-prem-obj"><span id="os-prem-obj-title">Move-in night</span><span class="os-prem-count" id="os-prem-count"></span></div>
           <div class="os-prem-strip" id="os-prem-strip" role="group" aria-label="The premiere cast — tap a face to talk in chat" hidden></div>
           <div class="os-prem-left" id="os-prem-left" hidden></div>
         </div>
@@ -463,6 +463,8 @@ import { onNarrowChange } from './platform.js';
   // (`_format_game_moment`, routes/chat_helpers.py). No schedule (the clock off) => the plain phase.
   let _heldHeader = null; // ORW-775: the last header the two reads agreed on
   function headerPhase(st) {
+    // ORW-1162: one source for "when is it" (orwellWhen.js): before the first HOH starts the header names the premiere, not the comp that is hours away.
+    if (window.OrwellWhen) return window.OrwellWhen.headerPhase(st);
     const ds = st && st._state && st._state.daySchedule;
     return (ds && typeof ds.headerPhase === "string" && ds.headerPhase) || (st && st.phase);
   }
@@ -666,6 +668,11 @@ import { onNarrowChange } from './platform.js';
     // Present iff the engine is in the premiere moment — no `complete` gate (the roster shows throughout
     // the premiere, even though the whole house is met at the toast).
     if (!prem || typeof prem !== "object") { clearPremiereStrip(el); wrap.hidden = true; return; }
+    // ORW-1162: the title follows the day ("Move-in night" only on the move-in night) and the face strip retires once everyone is met and the circle has closed.
+    const W = window.OrwellWhen;
+    const objEl = el.querySelector("#os-prem-obj-title");
+    if (objEl) objEl.textContent = (W && W.premiereTitle(state)) || "Move-in night";
+    if (W && !W.showCastStrip(state)) { clearPremiereStrip(el); wrap.hidden = false; return; }
     // No progress count and no still-to-meet list. Keep the elements in the DOM but empty/hidden; the roster
     // strip is the only content now. (ORW-196: while the staged entrances run, tiles of houseguests who have
     // not walked in yet are dimmed; from the toast on every tile is lit.)
