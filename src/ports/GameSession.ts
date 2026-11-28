@@ -1039,8 +1039,6 @@ export interface MakeDealReq {
   idempotencyKey?: string;
   /** ORW-997: the toast circle only: release up to this many batches (1 to 4, default 1) in ONE advance, so a watch-only circle can flow several steps in a turn. Ignored outside the toast. */
   toastBatches?: number;
-  /** ORW-1130: the toast circle only: houseguest names (or ids) whose toast the narrator already voiced beyond the released batch. The engine marks them voiced and never releases them again. */
-  toastVoiced?: string[];
 }
 
 /**
@@ -2253,7 +2251,7 @@ export interface WalkedInView {
 }
 
 export type PlayerMoveView =
-  | { from: string; to: string; refused?: undefined; msg?: string; /** ORW-1138: the houseguests who walked over with the player (a group walk), and those who were with him and stayed. Names only. */ came?: string[]; stayed?: string[] }
+  | { from: string; to: string; refused?: undefined; msg?: string }
   | { refused: true; reason: string; from?: string; to?: string; msg?: string };
 
 /** ORW-419 - `resolvePlayerMove` request: the player's own message text (never the narration). */

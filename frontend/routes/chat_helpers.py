@@ -1030,8 +1030,6 @@ def defer_postreply_arrival_commit(user) -> bool:
     except Exception:
         return False
 _TOAST_FLOW_BATCHES = 4  # ORW-997: an explicit next / continue plays up to this many toast batches (two speakers each) in one turn
-_ARRIVED_NAMES: dict = {}       # ORW-1130: runway key -> every houseguest name the board shows as arrived (the toast list's names)
-_TOAST_CONTEXT_RE = re.compile(r"\b(?:toasts?|toasting|glass(?:es)?|raises?|raised|cheers|champagne|clinks?)\b", re.IGNORECASE)
 _TOAST_BATCH_NAMED: dict = {}   # runway key -> tuple of the toast batch a reply already voiced
 # ORW-997: the latest staged release (an arrival or a toast batch) and how many framed turns have handed it to the narrator. A release handed once and named in the reply (or handed twice) is VOICED: the next
 # framing of the same release says so (the engine marks the entrance `voiced`), so a no-advance turn never plays it again. A new release (a new signature) starts again at zero.
@@ -1132,22 +1130,6 @@ def arrival_voice_hold(user, narration: str) -> bool:
         return False
 
 
-def _toast_voiced_ahead(narration: str, names, released) -> set:
-    """ORW-1130: the houseguests (from `names`, not in the released batch) the narration voices a toast for: named in a sentence or line that is itself about the toast. Pure."""
-    out = set()
-    try:
-        parts = [p for p in re.split(r"(?<=[.!?])\s+|\n+", narration or "") if p.strip()]
-        skip = {str(r).strip().lower() for r in (released or [])}
-        for n in names or []:
-            if str(n).strip().lower() in skip:
-                continue
-            if any(_name_voiced_in(p, str(n)) and _TOAST_CONTEXT_RE.search(p) for p in parts):
-                out.add(str(n))
-    except Exception:
-        return set()
-    return out
-
-
 def note_premiere_narration(user, narration: str) -> None:
     """ORW-704: after a premiere turn, remember which framed arrivals / which toast batch this reply actually named. Never raises."""
     try:
@@ -1160,15 +1142,6 @@ def note_premiere_narration(user, narration: str) -> None:
         people = [x for x in (sp or []) if x != "host"]
         if people and all(_name_voiced_in(narration, x) for x in people):
             _TOAST_BATCH_NAMED[key] = tuple(people)
-        if _PREMIERE_ENTRANCE_STAGE.get(key) == "toast":
-            # ORW-1130: the narrator may voice toasts for speakers the engine has not released. A houseguest named in a sentence that is itself a toast, beyond the released batch, is reported on the next release.
-            _ahead = _toast_voiced_ahead(narration, _ARRIVED_NAMES.get(key) or [], [x for x in (sp or []) if x != "host"])
-            if _ahead:
-                try:
-                    from src import orwell_engine as _oe_ahead
-                    _oe_ahead.set_toast_voiced_ahead(user, _ahead)  # the next advanceGame (whoever calls it) reports them; the engine never releases them again
-                except Exception as _fs_exc:
-                    _failsoft_note("chat_helpers:note_premiere_narration:2", _fs_exc)
     except Exception as _fs_exc:
         _failsoft_note("chat_helpers:note_premiere_narration:1", _fs_exc)
         pass
@@ -1188,12 +1161,12 @@ def note_premiere_turn(user, game_state) -> None:
             # ORW-301: the engine names exactly ONE arrival per released entrance ("JUST ARRIVED: <name>") and tells the narrator to voice it, but nothing checked that the reply actually names that houseguest
             # (the 2026-11-12 live run: in 7 of 10 logged arrival rounds the same-round reply never named them). Remember the arrival with the existing committed-beat voicing check: if the reply names
             # none of them, the post-turn check re-grounds the NEXT turn ("the engine committed this beat but your last turn never voiced it ... use ONLY the names given here").
-            if stage in ("entrances", "tour") or (stage == "toast" and not (((game_state or {}).get("premiere") or {}).get("entrance") or {}).get("speakers")):  # ORW-704: the last arrival(s) before the circle is called are owed too (ORW-1140: and the circle waits for them)
+            if stage in ("entrances", "tour"):  # ORW-704: the last arrival(s) before the circle is called are owed too
                 try:
                     _ent = ((game_state or {}).get("premiere") or {}).get("entrance") or {}
                     _ja = _ent.get("justArrived")
                     _jn = str((_ja or {}).get("name") or "").strip() if isinstance(_ja, dict) else ""
-                    if _jn and stage != "toast":
+                    if _jn:
                         note_ceremony_beat_for_voicing(user, f"{_jn} just walked in (premiere entrance {_ent.get('index')} of {_ent.get('total')})", [_jn])
                     # ORW-704: every arrival after the player that no reply has named yet is owed to this turn, not only the latest one.
                     _named = _ARRIVALS_NAMED.setdefault(key, set())
@@ -1216,12 +1189,6 @@ def note_premiere_turn(user, game_state) -> None:
             except Exception:
                 sp = []
             try:
-                _an = ((((game_state or {}).get("premiere") or {}).get("entrance") or {}).get("arrivedNames")) or []
-                if _an:
-                    _ARRIVED_NAMES[key] = [str(x) for x in _an]
-            except Exception:  # failsoft-ok: the toast ahead check is an aid
-                pass
-            try:
                 _note_entrance_frame(user, key, stage, ((game_state or {}).get("premiere") or {}).get("entrance") or {})
             except Exception:  # failsoft-ok: the voiced mark is a prompt aid; a miss leaves the old behaviour
                 pass
@@ -1236,7 +1203,7 @@ def note_premiere_turn(user, game_state) -> None:
                 _PREMIERE_TOAST_SPEAKERS.pop(key, None)
             return
         _PREMIERE_ENTRANCE_STAGE.pop(key, None)
-        for _d in (_ARRIVALS_NAMED, _ARRIVALS_FRAMED, _ARRIVAL_VOICE_HOLDS, _TOAST_BATCH_NAMED, _ENTRANCE_FRAMES, _ARRIVED_NAMES):
+        for _d in (_ARRIVALS_NAMED, _ARRIVALS_FRAMED, _ARRIVAL_VOICE_HOLDS, _TOAST_BATCH_NAMED, _ENTRANCE_FRAMES):
             _d.pop(key, None)  # ORW-704: the staged premiere is over (or a new game): nothing is owed
         try:
             from src import orwell_engine as _oe_clear
@@ -9518,23 +9485,6 @@ async def _walk_eviction_ballots(user, pending) -> int:
     return n
 
 
-def _toast_gate_owed(user, ent) -> list:
-    """ORW-1140: the arrivals after the player that no reply has named yet, while the circle has been called but has released nothing; the toast waits for them. Bounded by the arrival voice-hold cap, so it never stalls
-    the game (each held turn counts one; at the cap the gate opens). Pure besides that count."""
-    try:
-        key = _runway_key(user)
-        owed = [n for n in _post_player_arrivals(ent) if n not in _ARRIVALS_NAMED.get(key, set())]
-        if not owed:
-            _ARRIVAL_VOICE_HOLDS.pop(key, None)
-            return []
-        if _ARRIVAL_VOICE_HOLDS.get(key, 0) >= _ARRIVAL_VOICE_HOLD_CAP:
-            return []
-        _ARRIVAL_VOICE_HOLDS[key] = _ARRIVAL_VOICE_HOLDS.get(key, 0) + 1
-        return owed
-    except Exception:
-        return []
-
-
 def _premiere_arrival_due(user, game_state, player_msg) -> bool:
     """ORW-954: True when the premiere's staged-entrance cadence says the NEXT arrival is due on THIS player turn. Pure read of the stashes; mirrors the end-of-turn ladder
     (`agent_loop._entrance_pacing`, evaluated there AFTER this turn is counted, so the staleness clock reads one higher here). Only the `entrances` stage releases on cadence (not the
@@ -9552,9 +9502,6 @@ def _premiere_arrival_due(user, game_state, player_msg) -> bool:
             return False
         ent = ((game_state.get("premiere") or {}).get("entrance")) or {}
         if stage == "toast":
-            # ORW-1140 (docs/design/premiere-entrances.md: one entrance voiced per turn, the toast follows the entrances): the circle does not open while an entrance the narrator was handed is still unvoiced.
-            if not ent.get("speakers") and _toast_gate_owed(user, ent):
-                return False
             # ORW-997: the toast batch is committed BEFORE the reply too, once the batch on the board has been voiced (or none is out yet) and the player asked for the next one.
             if not _entrance_release_resolved(user, game_state):
                 return False
