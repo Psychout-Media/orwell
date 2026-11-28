@@ -79,7 +79,7 @@ describe("B3-4: only a genuinely hostile approach folds a fight; a kind answer f
       m.goal = new Set(Object.keys(s.live.goalApproaches ?? {}));
       return hit;
     };
-    const at = await firstStop(milestoneAskOnOpenRecord, wfScan([2, 1], "a milestone ask by a houseguest who holds an open record"));
+    const at = await firstStop(milestoneAskOnOpenRecord, wfScan([6, 2, 1], "a milestone ask by a houseguest who holds an open record"));
     expect(seen, "the stop recorded the ask").toBeDefined();
     const recs = ((at.sess as Sess).live.aimedAtPlayer ?? []).filter((r) => seen!.open.includes(r.id));
     expect(recs.length).toBe(seen!.open.length);
