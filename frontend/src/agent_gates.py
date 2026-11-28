@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Callable
 
+from src import gate_log
+
 
 def want_advance(*, turn_advance_nudges: int, max_advance_nudges: int, previewed_uncommitted: bool, decision_undelivered: bool, want_drain_eviction: bool,
                  milestone_due: bool, progressed: bool, runway_holding: bool, loop_stalled: bool, is_lull: bool, stale: bool) -> bool:
@@ -20,12 +22,14 @@ def want_advance(*, turn_advance_nudges: int, max_advance_nudges: int, previewed
         or ((not progressed) and is_lull and stale and not runway_holding)))
 
 
+@gate_log.logged("belt-want-record", msg_index=-1)
 def want_record(*, recorded: bool, is_lull: bool, lull_message_carries_talk: Callable[[], bool], turn_record_nudges: int, max_record_nudges: int) -> bool:
     # `lull_message_carries_talk` is a thunk so the short-circuit of the original (`(not is_lull) or carries_talk(messages)`) is preserved exactly.
     return ((not recorded) and ((not is_lull) or lull_message_carries_talk())
             and turn_record_nudges < max_record_nudges)
 
 
+@gate_log.logged("belt-want-promise", msg_index=-1)
 def want_promise_backfill(*, recorded: bool, model_carried_promise: bool, turn_promise_nudges: int, max_promise_nudges: int, player_message_commits: Callable[[], bool]) -> bool:
     """ORW-860: the model recorded the scene itself, but its recordInteraction carried neither a casual assurance nor a typed promise, and the player's own typed words commit to something.
     The scene belt never runs on a recorded turn, so without this a promise made on a model-recorded turn reached no ledger and no later decision. `player_message_commits` is a thunk (cheap
@@ -33,12 +37,14 @@ def want_promise_backfill(*, recorded: bool, model_carried_promise: bool, turn_p
     return bool(recorded and (not model_carried_promise) and turn_promise_nudges < max_promise_nudges and player_message_commits())
 
 
+@gate_log.logged("belt-want-move", msg_index=-1)
 def want_move(*, moved: bool, turn_move_nudges: int, max_move_nudges: int, signal_in_user_message: bool, signal_in_narration: bool) -> bool:
     return ((not moved)
             and turn_move_nudges < max_move_nudges
             and bool(signal_in_user_message or signal_in_narration))
 
 
+@gate_log.logged("belt-want-npc-move", msg_index=-1)
 def want_npc_move(*, npc_moved: bool, turn_npc_move_nudges: int, max_npc_move_nudges: int, signal_in_narration: bool) -> bool:
     return ((not npc_moved)
             and turn_npc_move_nudges < max_npc_move_nudges

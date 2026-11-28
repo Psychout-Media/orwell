@@ -285,7 +285,7 @@ def test_both_reply_save_paths_stamp_the_marker_on_game_rows_only():
 
 def test_the_restart_adoption_runs_before_the_framing_reads_the_marker():
     src = inspect.getsource(chat_helpers.build_chat_context)
-    adopt = src.index("_show_brief.adopt_history_seen(user, getattr(sess, \"history\", None))")
+    adopt = src.index("_show_brief.adopt_history_seen(user, _current_season_rows(getattr(sess, \"history\", None)))")
     framing = src.index("apply_game_framing(")
     assert adopt < framing
 

@@ -333,8 +333,8 @@ export const COMPETITION_LIBRARY_PLUS: CompetitionDef[] = [
 
 /**
  * ORW-530 (Ryne 2026-11-27: grow the authored pool from 30 to about 50): 10 HOH + 10 veto more mechanics, per phase 3 physical, 5 mental, 2 social (the base mix: mental-dominant, physical second, social a minority).
- * Drawn only when `ORWELL_COMP_MECHANICS_MORE` is on (`SeasonCtx.moreComps`, together with the 0126 expanded pool): the flag is ON in the deploy defaults, so prod draws from all 50; the seeded TEST lanes pin it
- * OFF (tests/support/premiereTestDefault.ts) until the follow-up card ORW-1104 re-hints the seed-pinned tests, because a larger pool moves which mechanic a fixed seed draws. Off => the 30 pool, byte-identical.
+ * Drawn only when `ORWELL_COMP_MECHANICS_MORE` is on (`SeasonCtx.moreComps`, together with the 0126 expanded pool): the flag is ON in the deploy defaults AND in every test lane (ORW-1104 removed the
+ * temporary test pin after re-hinting the seed-pinned tests). A larger pool moves which mechanic a fixed seed draws. Off => the 30 pool, byte-identical.
  */
 export const COMPETITION_LIBRARY_MORE: CompetitionDef[] = [
   {

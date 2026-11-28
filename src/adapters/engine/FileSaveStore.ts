@@ -521,6 +521,24 @@ export class FileSaveStore implements UserSaveStore {
     } catch { /* logging must never break the game */ }
   }
 
+  /**
+   * ORW-1092: take stock of the save dirs already on disk, once at boot. The durability bookkeeping is in memory only, so after a restart `/health` reported no versions and no backlog
+   * for a user until they saved again. Each dir found is registered exactly as on its first use (its newest version is hardened in the background, never assumed durable).
+   * Fail-soft: an unreadable data dir or user dir is skipped; boot is never blocked.
+   */
+  seedDurabilityFromDisk(): void {
+    let names: string[];
+    try { names = readdirSync(this.dataDir); } catch { return; }
+    for (const name of names) {
+      if (!/^(?:[0-9a-f]{2})+$/.test(name)) continue; // a user dir is the hex of the user id; other subtrees are not saves
+      try {
+        const dir = this.resolveWithin(join(this.dataDir, name));
+        const existing = this.versionsPresent(dir);
+        if (existing.length > 0) this.stateFor(dir, existing, this.fsyncMode === "background");
+      } catch { /* not a directory, or unreadable: nothing to report for it */ }
+    }
+  }
+
   /** Backlog view for `/health` (operational numbers only). Reports the user with the largest backlog. */
   durability(): SaveDurability {
     const now = this.nowMs();

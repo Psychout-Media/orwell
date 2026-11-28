@@ -13,6 +13,8 @@ import { firstSeedWhereSync } from "../support/firstSeedWhere";
  * event: it names the player and carries no raw "player" token. Roles only (the player's name here is a placeholder).
  */
 const NAME = "Zork Quill";
+// ORW-916: the raw id word is a BARE "player" standing where a name should: the ordinary phrase "the next player steps up" (round flavor: whoever takes the next turn) is a plain English use of the word, not the id leaking.
+const RAW_PLAYER = /(?<!\b(?:next|the|a|each|every|another|this|that|one|other|first|last)\s)\bplayer\b/;
 describe("the player's own elimination reaches the narrator by name (played)", () => {
   it("the round event that drops the player names them and carries no raw id word", () => {
     GameSessionAdapter.setTimeOfDayEnabled(true);
@@ -22,7 +24,7 @@ describe("the player's own elimination reaches the narrator by name (played)", (
       const rounds: string[] = [];
       const prev = s.onEvent; // the registry's own sink: keep it, add a tap
       s.setOnEvent((ev: { beat: string; content: string }) => { if (ev.beat === "comp-elimination") rounds.push(String(ev.content)); prev?.(ev); });
-      const mine = (): string | undefined => rounds.find((c) => c.includes(NAME) || /\bplayer\b/.test(c));
+      const mine = (): string | undefined => rounds.find((c) => c.includes(NAME) || RAW_PLAYER.test(c));
       let m = 0;
       for (let i = 0; i < 6000; i++) {
         s.noteMessage({ messageId: `m${m++}` });
@@ -40,6 +42,6 @@ describe("the player's own elimination reaches the narrator by name (played)", (
       return undefined;
     }, { from: 1, to: 12, hint: 108, sandbox: (seed) => `drop916-${seed}`, what: "a staged competition round that drops the player" });
     expect(found.at.content, "the round line names the player").toContain(NAME);
-    expect(found.at.content, "no raw 'player' id word stands in the round line").not.toMatch(/\bplayer\b/);
+    expect(found.at.content, "no raw 'player' id word stands in the round line").not.toMatch(RAW_PLAYER);
   }, 240_000);
 });

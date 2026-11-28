@@ -168,13 +168,14 @@ export class DealLedger {
     witnesses?: EntityId[],
     third?: EntityId,
     moreThirds?: readonly EntityId[],
+    evict?: readonly EntityId[],
   ): Deal {
     const deal: Deal = {
       id: `deal:${++this.seq}`,
       parties,
       kind,
       terms,
-      condition: conditionFor(kind, parties, third, moreThirds),
+      condition: conditionFor(kind, parties, third, moreThirds, evict),
       status: "open",
       ...(madeEventId ? { madeEventId } : {}),
       ...(madeWeek !== undefined ? { madeWeek } : {}),

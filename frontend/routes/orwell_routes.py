@@ -659,11 +659,11 @@ _BROWSER_STATUS_SHAPE = {
     "hoh": _NAMED, "nominees": [_NAMED], "veto": {"holder": _NAMED, "used": _T, "players": [_NAMED]}, "pending": _CARD,
     "castingHouse": {"state": _T, "authored": _T, "total": _T, "missing": _T},
 }
-#   /whereabouts: the presence gadget (orwellPresence: room, roomNames, zone, present[id,name,tell], nearby[room, present[id,name]], tracked[id,name,room,stale], conspicuous) and the room strip (room, present).
+#   /whereabouts: the presence gadget (orwellPresence: room, roomNames, zone, present[id,name,tell], nearby[room, present[id,name]], tracked[id,name,room,stale], conspicuous) and the room strip (room, present, privateTalk.with[id,name]: ORW-1169, the chip's "talking privately" title).
 #     NOT read by any screen: counts, companions, turnsHere, roomLook, roomCard, search, houseEvent, sinceSend, and a tracked sighting's confidence / pathway / sinceTurns (a belief's number never crosses).
 _BROWSER_WHEREABOUTS_SHAPE = {
     "whereabouts": {"room": _T, "roomNames": {"*": _T}, "zone": _T, "present": [{"id": _T, "name": _T, "tell": _T}], "nearby": [{"room": _T, "present": [_NAMED]}],
-                    "tracked": [{"id": _T, "name": _T, "room": _T, "stale": _T}], "conspicuous": [_T]},
+                    "tracked": [{"id": _T, "name": _T, "room": _T, "stale": _T}], "conspicuous": [_T], "privateTalk": {"with": _NAMED}},
     "unavailable": _T,
 }
 #   /recap (the retrospective panel: finished, winner, weeksPlayed, highlights, placement, margin), /finale (the finale panel: stage, finalists, asking, reveals; NOT the `bearing` of the asker, NOT the winner).
@@ -1367,8 +1367,12 @@ def setup_orwell_routes() -> APIRouter:
             _user = _current_user(request)
             _live = await orwell_engine.whereabouts(user=_user)
             try:
-                from routes.chat_helpers import freeze_view
-                return _project_for_browser({"whereabouts": freeze_view(_user, _live)}, _BROWSER_WHEREABOUTS_SHAPE)   # ORW-768: the presence gadget's closed shape
+                from routes.chat_helpers import freeze_view, _TURN_WHEREABOUTS, _TURN_NPC_MOVES
+                from src import whereabouts_source
+                _picked = freeze_view(_user, _live)
+                # ORW-1141: latch the source so two reads with no turn and no engine move between never flip live <-> frozen
+                _picked = whereabouts_source.choose(_user, _live, _picked, _TURN_WHEREABOUTS.get(_user or ""), len(_TURN_NPC_MOVES.get(_user or "") or []))
+                return _project_for_browser({"whereabouts": _picked}, _BROWSER_WHEREABOUTS_SHAPE)   # ORW-768: the presence gadget's closed shape
             except Exception:
                 return _project_for_browser({"whereabouts": _live}, _BROWSER_WHEREABOUTS_SHAPE)
         except Exception as e:

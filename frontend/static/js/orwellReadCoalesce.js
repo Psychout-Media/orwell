@@ -5,7 +5,7 @@
 // ONLY: identical concurrent reads share one network request, and a result is reused for at most
 // TTL_MS. Correctness over savings (closed-set truth surface): the cache is dropped on every
 // `orwell:gamechanged` (the ONE dispatcher stays platform.js; this only LISTENS) and on any
-// non-GET /api/ request, failures are never cached, and callers with an AbortSignal bypass it.
+// non-GET /api/ request (when it is sent AND when it settles), failures are never cached, and callers with an AbortSignal bypass it.
 (function () {
   "use strict";
   if (typeof window === "undefined" || typeof window.fetch !== "function" || window.__orwellReadCoalesce) return;
@@ -25,8 +25,11 @@
     var path = pathOf(u);
     var method = String((init && init.method) || (!isStr && input && input.method) || "GET").toUpperCase();
     if (method !== "GET") {
-      if (path.indexOf("/api/") === 0) clear();   // any write invalidates the shared reads
-      return realFetch(input, init);
+      if (path.indexOf("/api/") !== 0) return realFetch(input, init);
+      clear();   // any write invalidates the shared reads
+      // ORW-1107: and again once it settles, BEFORE the caller continues: a read issued while the write was in flight may have been answered before the write
+      // landed. The New Chat confirm ended a season, then read that stale "started" and asked "End this season?" a second time.
+      return realFetch(input, init).then(function (r) { clear(); return r; }, function (e) { clear(); throw e; });
     }
     var hasSignal = (init && init.signal) || (!isStr && input && input.signal);
     if (!PATHS[path] || !isStr || hasSignal || (init && init.cache)) return realFetch(input, init);

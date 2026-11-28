@@ -519,9 +519,12 @@ def render_slot_directive(hid: str, d: dict) -> str:
             "the dealt vocation family).") if d.get("physical") else ""
     big = (" BIG PERSONALITY — write them genuinely loud/reactive/unfiltered; do NOT let the accent tone "
            "them down.") if d.get("amplified") else ""
+    _hand = d.get("ledger") if isinstance(d.get("ledger"), dict) else {}
+    # ORW-1127: with a dealt hand, the slot's face comes from that hand (fitted to heritage and age), not the independent pool.
+    _feature = _hand.get("facialFeatures") or d.get("lookFeature")
     look = ("look: visible tattoos ARE part of their look (one of the cast's few inked houseguests — "
             "make the ink specific and personal)") if d.get("ink") else (
-        f"look: NO visible tattoos; distinguishing feature, if any: {d.get('lookFeature')}")
+        f"look: NO visible tattoos; distinguishing feature, if any: {_feature}")
     # T0-6: the dealt FacetLedger hand rides the card as an extra fixed-input clause (absent in a
     # legacy/no-ledger card ⇒ byte-identical output — back-compatible with every existing caller).
     hand = d.get("ledger")
@@ -1354,7 +1357,16 @@ async def seed_cast_genesis(roster: list, seed: int, llm_fn: LlmFn, write_fn: Wr
     if slot_list:
         try:
             from src.orwell_facet_ledger import mint_facet_ledger
-            hands = mint_facet_ledger(seed, len(roster_ids), [bool(s.get("physical")) for s in slot_list])
+            # ORW-1127: the look is dealt from each slot's heritage and age (the engine's dealt card), not as independent dice.
+            _by = {str(n.get("id")): n for n in (roster or []) if isinstance(n, dict) and n.get("id")}
+            people = []
+            for _i, _hid in enumerate(roster_ids):
+                _c = _by.get(_hid) or {}
+                _age = _c.get("age")
+                if not isinstance(_age, int) or isinstance(_age, bool):
+                    _age = (slot_list[_i].get("ageLo", 0) + slot_list[_i].get("ageHi", 0)) // 2 or None
+                people.append({"ethnicity": _c.get("ethnicity"), "age": _age})
+            hands = mint_facet_ledger(seed, len(roster_ids), [bool(s.get("physical")) for s in slot_list], people)
             if hands and len(hands) == len(slot_list):
                 slot_list = [{**s, "ledger": hands[i]} for i, s in enumerate(slot_list)]
         except Exception as e:  # pragma: no cover - defensive

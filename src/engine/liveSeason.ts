@@ -1050,8 +1050,10 @@ export interface LiveSeasonState {
   aimedAtPlayer?: Array<{ id: string; actor: string; goalId: string; goalKind?: string; step: string; hostile: boolean; day: number; hour: number; status: "open" | "shown" | "answered" | "ignored" | "lapsed"; eventId?: string }>;
   /** ORW-709 (engine-only, persisted, played games only): each houseguest's last approach to the player: the QUESTION it carried (purpose + beat or goal), the week, how many times they have pressed this week (their wish to press rises slowly with it), when it surfaced, and whether the player answered. An asked question is never asked again by the same houseguest (answered or awaiting). Append-only per houseguest: an entry is replaced by a later question, never removed, and `answered` never reverts for the same question. */
   approachAsked?: Record<string, { q: string; week: number; n: number; shownAt: number; answered?: true }>;
+  /** ORW-1171 (engine-only, persisted, played games only): each time a houseguest let a private alliance or deal slip in front of people not in on it (the engine's discretion call): the tie, who slipped, who learned it, the in-game day and the beat. Append-only. */
+  discretionSlips?: Array<{ tie: string; by: string; learnedBy: string[]; day: number; beat: number }>;
   /** ORW-727b (engine-only, persisted, played games only): the houseguest who agreed to a private word or to come over: the room they wait in and the in-game hour the hold lapses. One at a time (a newer ask replaces it). `private` = the room is closed to everyone else while it holds. */
-  talkHold?: { npc: string; room: string; until: number; private: boolean };
+  talkHold?: { npc: string; room: string; until: number; private: boolean; /** ORW-1169: set when the lock came from a recorded one-to-one scene, not an askToTalkAlone. */ scene?: true };
   /** ORW-727b (engine-only, persisted, played games only): a houseguest's OWN ask for a private word, standing until the hour it lapses; the player accepts it through the same lever (the room, when the houseguest has one in mind). */
   talkAsk?: { npc: string; until: number };
   /** ORW-701 (engine-only, persisted): the running sequence that keeps every aimed-at-player record's id unique. Only ever grows. */
@@ -1138,6 +1140,8 @@ export interface LiveSeasonState {
   compSilentOut?: string[];
   compSilentSeen?: boolean;
   dailyRecapEventCursor?: number;
+  /** ORW-1165: per closed day, the [from, to) slice of the append-only record its recap read (so the day's digest can be rebuilt). Absent on a save from before this. */
+  dailyRecapRangeCursor?: Record<number, [number, number]>;
   dailyRecapKnowledgeCursor?: number;
   lastDailyRecap?: DailyRecapEntry;
   /**
@@ -4109,6 +4113,7 @@ function resolveBattleBack(s: LiveSeasonState, ctx: SeasonCtx, rng: RandomnessSo
   const dropped = jurorsBefore - nonPlayerJurors();
   if (dropped > 0) s.juryReturns = (s.juryReturns ?? 0) + dropped;
   s.active.push(winner);
+  if (s.exitInterviews) s.exitInterviews = s.exitInterviews.filter((x) => x.evictee !== winner); // ORW-1116: the exit the returnee gave is undone with the eviction; a second exit leaves one interview, the latest
   if (s.evictedTaken) s.evictedTaken = s.evictedTaken.filter((h) => h !== winner); // ORW-1103: the returnee's first eviction is voided, so what the house took from it is too; a second eviction takes them with it again (deals, favors, assurances)
   // A returning PLAYER is a player again: a pre-jury evictee who chose to watch/skip (0133) must not stay a spectator, or the loop would keep
   // fast-forwarding their own weeks as if they were still watching from outside (found by the reactive-twists player-path guard).

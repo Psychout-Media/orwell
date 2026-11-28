@@ -162,7 +162,7 @@ def test_advance_is_offered_only_for_a_watch_step_or_the_named_lever_with_no_soc
     assert r["acts"] == [("advance", {"lever": "advanceGame"})] and "advance" in names(r)
     r = run("let's keep going", [adv()], required_lever="advanceGame", here="lounge")
     assert r["acts"] == [("advance", {"lever": "advanceGame"})]
-    assert "advance" not in names(run("continue", [adv()], required_lever="advanceGame", social_hold=True, here="lounge"))
+    assert run("continue", [adv()], required_lever="advanceGame", social_hold=True, here="lounge")["outcome"] == "skipped:ungrounded"   # not offered, and nothing in the words grounds any other tool: no call (ORW-1014 pre-filter)
     assert run("continue", [adv()], required_lever="advanceGame", social_hold=True, here="lounge")["acts"] == []
     assert run("continue", [adv()], here="lounge")["acts"] == []   # the engine names no lever
     assert run("what happens next?", [adv()], required_lever="advanceGame", here="lounge")["acts"] == []   # a question is not a request
@@ -170,7 +170,7 @@ def test_advance_is_offered_only_for_a_watch_step_or_the_named_lever_with_no_soc
 
 
 def test_sleep_needs_the_loops_gate_and_comes_last_and_held_is_the_loops_to_voice():
-    assert "turnIn" not in names(run("I go to bed", [TURNIN], here="lounge"))
+    assert run("I go to bed", [TURNIN], here="lounge")["outcome"] == "skipped:ungrounded"   # the sleep gate is closed: turnIn is not offered, so there is nothing to ask
     r = run("I go to bed", [TURNIN], sleep_ok=True, here="bedroom-a")
     assert r["acts"] == [("turnIn", {})] and "turnIn" in names(r)
     assert run("I go to bed then go to the kitchen", [TURNIN, mv("kitchen")], sleep_ok=True, here="lounge")["acts"] == []
@@ -195,7 +195,7 @@ def test_claim_bed_names_a_bedroom_the_player_named_and_search_a_present_housegu
     assert run("can I swap beds with Dana", [cb("bedroom-a")], here="lounge")["acts"] == []
     s = {"name": "search", "arguments": {"who": "Levi"}}
     assert run("I look for Levi", [s], here="lounge", people=PEOPLE)["acts"] == [("search", {"who": "Levi Stone"})]
-    assert "search" not in names(run("I look for Levi", [NOACT], here="lounge"))   # no roster: not offered
+    assert run("I look for Levi", [NOACT], here="lounge")["outcome"] == "skipped:ungrounded"   # no roster: search is not offered and no room is named: no call
     assert run("I look for Levi", [{"name": "search", "arguments": {"who": "Dana"}}], here="lounge", people=PEOPLE)["acts"] == []   # not named in the words
 
 
@@ -241,7 +241,7 @@ class _Eng:
     async def get_game_state(self, user=None, **k):
         return {"house": [{"name": "Levi Stone", "status": "active"}]}
 
-    async def resolve_player_move(self, text, key=None, user=None, previous_reply=None, skip=None):
+    async def resolve_player_move(self, text, key=None, user=None, previous_reply=None, skip=None, max_legs=None):
         self.calls.append((text, key, skip))
         return {"playerMove": None, "whereabouts": {}}
 
@@ -285,7 +285,8 @@ def test_slot_owns_the_message_commits_the_move_and_runs_the_parser_once_with_mo
 def test_slot_hands_sleep_and_steps_to_the_loop_and_skips_a_dependent_act_after_a_blocked_move(monkeypatch):
     ok, eng, moved = _slot("I head to bedroom A and go to sleep", [mv("bedroom-a"), TURNIN], monkeypatch)
     # the stub engine's sleep gate is closed (afternoon): turnIn is not offered, so the model's turnIn is distrusted and nothing is committed
-    assert ok is True and moved == [] and af.take_stash("u")["pending"] == []
+    # ORW-1128: nothing committed, so act-first does not own the message: the ordinary parser runs (False), and the stash carries only the outcome
+    assert ok is False and moved == [] and af.take_stash("u")["pending"] == []
 
 
 def test_slot_falls_soft_to_the_parser_when_the_round_fails_or_the_flag_is_off(monkeypatch):

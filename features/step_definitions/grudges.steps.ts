@@ -66,11 +66,14 @@ Given("a juror whose ally cut them and who now sits on the jury against that all
 Then("at the finale the juror leans against that finalist", function () { const b = (this as unknown as { bitter0182: Bitter }).bitter0182; assert.equal(b.none, 0); assert.ok(b.fresh < 0); });
 Then("the lean is sharper when the grudge is fresh than when it is old", function () { const b = (this as unknown as { bitter0182: Bitter }).bitter0182; assert.ok(b.fresh < b.old); });
 Then("the lean is still there when the grudge is old", function () { assert.ok((this as unknown as { bitter0182: Bitter }).bitter0182.old < 0); });
-Then("a wrong the juror's manner grievance already counts adds nothing extra", function () {
+Then("a wrong the juror's manner grievance already counts adds only the part beyond it", function () {
   const b = (this as unknown as { bitter0182: Bitter }).bitter0182;
   const covered = 0.8 * 0.6; // the betrayed manner term at its weight
   assert.ok(b.fresh < 0);
-  assert.equal(Math.abs(bitterJurorExtra(b.fresh, covered)), 0);
+  // ORW-957: a grudge no deeper than the grievance adds nothing (an old, faded one); a deeper one adds exactly the part beyond it, never counted twice
+  assert.equal(Math.abs(bitterJurorExtra(b.old, covered)), Math.max(0, Math.abs(b.old) - covered));
+  assert.equal(Math.abs(bitterJurorExtra(b.fresh, covered)), Math.max(0, Math.abs(b.fresh) - covered));
+  assert.equal(Math.abs(bitterJurorExtra(-covered / 2, covered)), 0); // (strictEqual reads -0 as unequal to 0: take the magnitude)
 });
 Then("a deal the finalist broke, which no manner counts, makes the juror lean against them by a real amount", async function () {
   const user = "bj-deal";

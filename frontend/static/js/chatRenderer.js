@@ -12,7 +12,7 @@ import { matchModelKey } from './model/matchKey.js';
 import { isNarrow } from './platform.js';
 import { ORWELL_TOOL_BEATS, orwellBeatOutcome, orwellBeatNodeView, orwellAdvanceView, isGameBuild, orwellBeatIsSilent, ORWELL_MAX_VISIBLE_BEATS, gameNarrator, orwellCeremonySlate, orwellRenderCeremonySlate } from './orwellToolBeats.js';
 import { detectOocAside } from './orwellOocAside.js';
-import { weekChapterCardHtml } from './orwellChapters.js';
+import { weekChapterCardHtml, dayRecapCardHtml } from './orwellChapters.js';
 
 const SEARCH_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>';
 const REPORT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>';
@@ -2467,6 +2467,7 @@ export function addMessage(role, content, modelName, metadata) {
     const wrap = document.createElement('div');
     wrap.className = 'msg ' + (role === 'user' ? 'msg-user' : 'msg-ai');
     if (metadata && metadata.kind === 'week-chapter') wrap.dataset.kind = 'week-chapter';  // ORW-275: styled as a card, no footer actions
+    if (metadata && metadata.kind === 'day-recap') wrap.dataset.kind = 'day-recap';  // ORW-1165: the day's summary, styled as its own card, no footer actions
 
     const r = document.createElement('div');
     r.className = 'role';
@@ -2797,6 +2798,11 @@ export function addMessage(role, content, modelName, metadata) {
     if (role === 'assistant' && metadata && metadata.kind === 'week-chapter' && metadata.recap) {
       const _cardBody = wrap.querySelector('.body');
       if (_cardBody) _cardBody.innerHTML = weekChapterCardHtml(metadata, esc);
+    }
+    // ORW-1165: the day-in-review row is shown as its own labelled card (the stored content is the plain-text fallback for clients that do not know the kind).
+    if (role === 'assistant' && metadata && metadata.kind === 'day-recap' && metadata.recap) {
+      const _drBody = wrap.querySelector('.body');
+      if (_drBody) _drBody.innerHTML = dayRecapCardHtml(metadata, esc);
     }
     box.appendChild(wrap);
 

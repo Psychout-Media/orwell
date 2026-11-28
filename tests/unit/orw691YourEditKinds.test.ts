@@ -6,7 +6,7 @@ import type { GameSessionAdapter } from "../../src/adapters/engine/GameSessionAd
 /** ORW-691 B1-5 (0200): YOUR EDIT weighted house-meeting, scheme and replacement but never emitted them. The season is played by the live loop (the veto, the replacement and the scene log are the real writers, nothing is injected); like the sibling reunion tests the season is run to the crown and only then handed to "a person played it" (the retrospective gate). Roles only. */
 function resolve(s: GameSessionAdapter, p: NonNullable<AdvanceView["pending"]>): void {
   if (p.kind === "nominations") s.submitDecision({ kind: "nominations", choice: [p.options[0]!.id, p.options[1]!.id] });
-  else if (p.kind === "veto-decision") s.submitDecision({ kind: "veto-decision", use: true, save: p.options[0]!.id });
+  else if (p.kind === "veto-decision") s.submitDecision(p.options[0] ? { kind: "veto-decision", use: true, save: p.options[0].id } : { kind: "veto-decision", use: false }); // ORW-1104: a veto holder with nobody on the block to save just does not use it
   else if (p.kind === "comp-intent") s.submitDecision({ kind: "comp-intent", intent: "compete" });
   else if (p.kind === "finale-statement") s.submitDecision({ kind: "finale-statement", statement: "x" });
   else if (p.kind === "finale-answer") s.submitDecision({ kind: "finale-answer", appeal: p.appeals![0]! });
@@ -22,13 +22,22 @@ function season(seed: number, on: boolean) {
 }
 const kinds = (v: ReturnType<typeof season>): Set<string> => new Set(v.episodes.flatMap((e) => e.moments.map((m) => m.kind)));
 describe("ORW-691 B1-5: the edit builds on replacements (and schemes, meetings)", () => {
-  for (const seed of [3, 11]) it(`seed ${seed}`, () => {
-    const on = season(seed, true), off = season(seed, false);
-    const k = kinds(on);
-    expect(k.has("replacement")).toBe(true);
-    for (const x of ["replacement", "scheme", "house-meeting"]) expect(kinds(off).has(x)).toBe(false);
-    expect(JSON.stringify(on)).not.toMatch(/\d\.\d|npc:\d/);
-  }, 120_000);
+  // ORW-1104: a BOUNDED SCAN, not two pinned seeds: the first seeds (in this order) whose played season builds a replacement moment, until two have; each is checked in full (the feature off emits none of the three kinds;
+  // nothing numeric or raw-id leaks into the edit). A season either has a replacement or not by the seeded veto draws, which any content change that moves the draw reshuffles.
+  it("two scanned seasons build the edit on replacements, and the same seasons with the feature off have none of the three kinds", () => {
+    let found = 0; const tried: number[] = [];
+    for (const seed of [11, 3, 1, 2, 4, 5, 6, 7, 8, 9, 10, 12]) {
+      if (found >= 2) break;
+      tried.push(seed);
+      const on = season(seed, true);
+      if (!kinds(on).has("replacement")) continue;
+      found++;
+      const off = season(seed, false);
+      for (const x of ["replacement", "scheme", "house-meeting"]) expect(kinds(off).has(x), `seed ${seed}: ${x} is absent with the feature off`).toBe(false);
+      expect(JSON.stringify(on), `seed ${seed}`).not.toMatch(/\d\.\d|npc:\d/);
+    }
+    expect(found, `two seasons with a replacement moment among seeds tried [${tried}]`).toBe(2);
+  }, 600_000);
 });
 
 describe("ORW-691 B1-5: the cut reads a house meeting (pure; the meeting itself is written only in a person-played game)", () => {

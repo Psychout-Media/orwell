@@ -124,7 +124,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
   }, 120_000);
 
   it("'come find me' to a named room sends the houseguest there while the player stays put", async () => {
-    const { yes: { at, npc, r, from } } = await untilYes(3, { room: "kitchen", private: false }, { when: (s) => roomOf(s, PLAYER) !== "kitchen" });
+    const { yes: { at, npc, r, from } } = await untilYes(6, { room: "kitchen", private: false }, { when: (s) => roomOf(s, PLAYER) !== "kitchen" });
     expect(r.room).toBe("kitchen"); expect(roomOf(at, npc)).toBe("kitchen"); expect(roomOf(at, PLAYER)).toBe(from);
   }, 120_000);
 

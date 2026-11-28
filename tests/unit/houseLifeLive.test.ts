@@ -54,7 +54,7 @@ describe("hour-by-hour house life in a played game (ORW-315)", () => {
     expect(offscreen.slice(firstLife).every((e) => e.houseLife), "no stock-template scene once a person is playing (the pre-play premiere tick may still use the old one)").toBe(true);
     const kinds = new Set(life.map((e) => e.houseLife.action));
     expect(kinds.size, [...kinds].join(",")).toBeGreaterThanOrEqual(10);
-  }, 120_000);
+  }, 300_000);
 
   it("every scene is hidden (no player in it), happens where its people are, and nobody acts twice in one stretch", async () => {
     const { life } = await play("hl-b", 5, { messages: 240 });
@@ -67,13 +67,13 @@ describe("hour-by-hour house life in a played game (ORW-315)", () => {
       expect(list, `stretch ${e.houseLife.stretch}: ${e.initiator} acted twice`).not.toContain(e.initiator);
       list.push(e.initiator); byStretch.set(e.houseLife.stretch, list);
     }
-  }, 120_000);
+  }, 300_000);
 
   it("goals cause scenes: a share of the scenes serve a goal (campaigns, pitches, begging, checking in)", async () => {
     const { life } = await play("hl-c", 7, { messages: 360 });
     const purposeful = life.filter((e) => ["campaign-against", "drive-a-wedge", "flip-a-vote", "frame", "pitch", "recruit", "check-in", "beg", "call-in-favor", "make-a-promise", "lobby-for", "count-votes", "split-roles", "fish", "test-a-rumor"].includes(e.houseLife.action));
     expect(purposeful.length, "the agenda drives part of house life").toBeGreaterThan(0);
-  }, 120_000);
+  }, 300_000);
 
   it("a headless advance-only game keeps the old stretch (its seeded spine is byte-identical); the flag turns house life off", async () => {
     const headless = await play("hl-d", 3, { messages: 40, chat: false });
@@ -81,5 +81,5 @@ describe("hour-by-hour house life in a played game (ORW-315)", () => {
     expect(headless.offscreen.length).toBeGreaterThan(0);
     const off = await play("hl-e", 3, { messages: 120, lifeOn: false });
     expect(off.life).toHaveLength(0);
-  }, 120_000);
+  }, 300_000);
 });

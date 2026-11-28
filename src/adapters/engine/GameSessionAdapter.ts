@@ -37,6 +37,7 @@ import { tellsOf, narratedTellsOf, refreshTells, tellChannel } from "../../engin
 import { MOOD_CONTAGION, catchScales, shockOf } from "../../engine/moodContagion";
 import { MOOD_CAUSES, causeLine, isBadNight, isCloseFriend, carryFactor, mayShareEventCause, strongestLiveCause, type MoodCauseSource } from "../../engine/moodCauses";
 import { adjustedKeep, BOND_JEALOUSY, jealousy, jealousyKey, jealousyMoodKey, loyaltySplitOver, nextJealousy, sceneSeenBy, sharedScenes, type SeenScene } from "../../engine/bondJealousy";
+import { polarityAt } from "../../engine/dealTermPolarity";
 import { SECRET_BREAK, breakDecision, breakLine, keptOutGrudge, pickSpoken, standingMove } from "../../engine/secretBreak";
 import { HOH_ROOM, decideVisit, backstoryFacets, pickBackstoryFact } from "../../engine/hohRoom";
 import { GRUDGES, REPAIR, combineSalience, easeGrudge, easedShareOf, freshness as grudgeFreshness, grudgeKey, halfLifeFor as grudgeHalfLife, noteGrudge, repairAmount, wrongWeight, type GrudgeKind } from "../../engine/grudges";
@@ -126,6 +127,7 @@ import { buildYourEdit, sceneMoment, weekMoments, weeksOfLog, type YourEditView 
 import { rankApproaches, applyApproachCooldown, APPROACH_OWED } from "../../engine/conversation";
 import { HANGOUT, runHangOut, hangOutBedtime, hangOutStopLine, minutesUntilClock, type HangOutResult } from "../../engine/hangOut";
 import { CUNNING, LEAKY, SEEK, SPIN } from "../../engine/copresenceSpread";
+import { tieScenes, discretionCall, type PrivateTie, type DiscretionView } from "../../engine/discretion";
 import { desireFor, mostUrgent, urgency as desireUrgency, wantScale, desireForAction, goalDriven, streakHolds, nextStreak, DESIRE, type Candidate, type Desire } from "../../engine/desireClock";
 import { decideDealConsent } from "../../engine/dealConsent";
 import { offerStandsAfterRefusedCounter } from "../../engine/dealCounterStands";
@@ -317,7 +319,7 @@ import { strain as triggerStrain, shouldFire, eruptionEvent } from "../../engine
 import { TRIGGER, type EruptionKind } from "../../engine/triggerConstants";
 import { SeededRandom } from "../random/SeededRandom";
 import { decideVoteTalk, keepCredit, voteTalkCunning } from "../../engine/voteTalk";
-import { claimBed, freeBeds, sleepRoomOf, roomOfBed, roommatesIn, bedPartner, bedOfSpot, isDoubleSpot, pickSpot, type BedId, type BedsState } from "../../engine/beds";
+import { bedTable, freeInRoomWords, claimBed, freeBeds, sleepRoomOf, roomOfBed, roommatesIn, bedPartner, bedOfSpot, isDoubleSpot, pickSpot, type BedId, type BedsState } from "../../engine/beds";
 import { roomLabel, roomRef, roomLook, roomNamesFor, themedRoomAliases, drawHouseTheme, registerHouseTheme, acceptHouseThemeDraft, houseTheme as houseThemeById } from "../../engine/roomLabels";
 /** ORW-466: how many of a player's recent seasons' house themes the next draw avoids (a quarter of the library). */
 const MAX_PRIOR_HOUSE_THEMES = 6;
@@ -472,6 +474,11 @@ import { emptyCanonLedger, recordCanon, activeCanon, canonHash, restoreCanon, se
 import type { PersistedCanon } from "../../domain/canon";
 import { diffuseGossip, makeSocialGraph, gossipEdgeAffinity, GOSSIP, GOSSIP_HEARD, legendFrom, legendSeedProbability } from "../../engine/gossip";
 import { notablePlayerActs } from "../../engine/legends";
+import { stripNonActs } from "../../engine/playerText";
+/** ORW-1138: the player's own words make the walk a group walk. */
+/** ORW-1169: an invite put to someone ("want to come?", "care to join me", "come along", "come on"): the invited person may accept or decline. */
+const INVITE_RE = /\b(?:want to (?:come|join|walk|go)|care to (?:come|join|walk)|would you (?:like to )?(?:come|join)|come along|come on|join me|walk with me|come (?:with|outside|over)\b)/i;
+const GROUP_WALK_RE = /\b(?:we|let'?s|lets|let us|us)\b[^.!?\n]*\b(?:go|head|walk|move|come|pick|take|check|find|see)\b|\b(?:go|head|walk|move|come)\b[^.!?\n]*\b(?:together|with me|with us|all of us)\b|\bfollow me\b/i;
 
 const COMP_TYPES: ReadonlySet<string> = new Set<CompetitionType>([
   "endurance", "physical", "puzzle", "quiz", "memory", "mental", "social",
@@ -757,7 +764,7 @@ const COMP_THEMES_ENABLED_DEFAULT = process.env.ORWELL_COMP_THEMES !== "0";
  * deploy turns it on for real play; the new mechanics preserve the base stat mix so the band still holds.
  */
 const COMP_MECHANICS_PLUS_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_MECHANICS_PLUS");
-/** ORW-530: the 20 more mechanics (30 => 50). ON as shipped (deploy defaults); the seeded test lanes pin it OFF until ORW-1104. */
+/** ORW-530: the 20 more mechanics (30 => 50). ON as shipped (deploy defaults). */
 const COMP_MECHANICS_MORE_ENABLED_DEFAULT = flagDefaultOn("ORWELL_COMP_MECHANICS_MORE");
 
 /**
@@ -1097,6 +1104,12 @@ function groupPlayerDossier(
 
 /** ORW-196: what `premiereIntros().remaining` shows for a houseguest who has not walked in yet (no name, no facets). */
 export const UNARRIVED_PLACEHOLDER_NAME = "(not yet arrived)";
+
+/** A ceremony, deal or betrayal the player can see: the records that always made a recap highlight. */
+function isRecapHighlight(e: { id: string; type?: string; hidden: boolean }): boolean { return !e.hidden && (e.id.startsWith("season:") || e.type === "deal" || e.type === "betrayal"); }
+
+/** ORW-1165: the event types the day digest consumes (they no longer also ride "your day"). */
+const DIGEST_EVENT_TYPES: ReadonlySet<string> = new Set(["premiere-entrance", "toast-speech", "bed-claim", "alliance", "alliance-pitch", "alliance-pitch-withdrawn", "alliance-break-away", "overheard", "house-event", "conversation"]);
 
 /** ORW-282: how many daily recaps the append-only log keeps (a season is well under this). */
 const DAILY_RECAP_LOG_CAP = 60;
@@ -4244,11 +4257,14 @@ export class GameSessionAdapter implements GameSession {
     // lineage across holders and skip the Diary-Room class. Optional ⇒ back-compatible with any caller.
     known: (id: EntityId) => ReadonlyArray<{ content: string; sourceEventId?: string; factId?: string; pathway?: string; ts?: number; subject?: EntityId }>;
     suspicions: (id: EntityId) => ReadonlyArray<{ content: string }>;
+    /** ORW-1171: lodge a belief with a houseguest who overheard it (a slipped private tie). Absent in headless wiring: nothing is lodged. */
+    learn?: (id: EntityId, fact: { content: string; factId: string; confidence?: number; hops?: number; distortion?: number }) => void;
   };
 
   setNpcKnowledgeProviders(p: {
     known: (id: EntityId) => ReadonlyArray<{ content: string; sourceEventId?: string; factId?: string; pathway?: string; ts?: number; subject?: EntityId }>;
     suspicions: (id: EntityId) => ReadonlyArray<{ content: string }>;
+    learn?: (id: EntityId, fact: { content: string; factId: string; confidence?: number; hops?: number; distortion?: number }) => void;
   }): void {
     this.npcKnowledge = p;
   }
@@ -6884,21 +6900,25 @@ export class GameSessionAdapter implements GameSession {
    * ORW-1053: the living houseguests, outside the deal's own pair, whom a deal's terms name (full name, or a first name no other houseguest shares), in roster order; an explicit id leads.
    * Matching is on whole words, case-insensitive.
    */
-  private thirdsNamedIn(terms: string, explicit: EntityId | undefined, pair: readonly EntityId[]): EntityId[] {
-    if (!this.house || !this.live) return [];
+  private thirdsNamedIn(terms: string, explicit: EntityId | undefined, pair: readonly EntityId[]): { protect: EntityId[]; evict: EntityId[] } {
+    const none = { protect: [] as EntityId[], evict: [] as EntityId[] };
+    if (!this.house || !this.live) return none;
     const gone = new Set(this.live.evictionOrder);
     const living = this.house.npcs.filter((n) => !gone.has(n.id) && !pair.includes(n.id));
     const firsts = new Map<string, number>();
     for (const n of [...this.house.npcs, this.house.player]) { const f = (n.name ?? "").trim().split(/\s+/)[0]?.toLowerCase(); if (f) firsts.set(f, (firsts.get(f) ?? 0) + 1); }
     const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const hit = (word: string) => new RegExp(`(^|[^\\p{L}])${esc(word)}($|[^\\p{L}])`, "iu").test(terms);
-    const out: EntityId[] = [];
-    if (explicit && living.some((n) => n.id === explicit)) out.push(explicit);
+    const find = (word: string): number => { const m = new RegExp(`(^|[^\\p{L}])${esc(word)}($|[^\\p{L}])`, "iu").exec(terms); return m ? m.index + m[1]!.length : -1; };
+    const out = { protect: [] as EntityId[], evict: [] as EntityId[] };
+    if (explicit && living.some((n) => n.id === explicit)) out.protect.push(explicit);
     for (const n of living) {
-      if (out.includes(n.id)) continue;
+      if (out.protect.includes(n.id)) continue;
       const full = (n.name ?? "").trim();
       const first = full.split(/\s+/)[0] ?? "";
-      if (full && (hit(full) || (first && firsts.get(first.toLowerCase()) === 1 && hit(first)))) out.push(n.id);
+      let at = full ? find(full) : -1;
+      if (at < 0 && first && firsts.get(first.toLowerCase()) === 1) at = find(first);
+      if (at < 0) continue;
+      (polarityAt(terms, at) === "evict" ? out.evict : out.protect).push(n.id); // ORW-1053: "vote Lorenzo out" targets him; only "keep / spare" readings protect
     }
     return out;
   }
@@ -7979,6 +7999,31 @@ export class GameSessionAdapter implements GameSession {
   /** A recorded player scene's NPC partners: the houseguests the player is talking to (memory-only). */
   noteConversationPartners(ids: readonly EntityId[]): void {
     this.convoPartners = { ids: ids.filter((i) => i !== PLAYER), tick: this.presenceTickCount };
+    this.lockPrivateTalk(this.convoPartners.ids);
+  }
+  /**
+   * ORW-1169: a talk the player has with exactly ONE houseguest who is alone with them in the room is a private talk: both are busy until it ends (the same hold askToTalkAlone writes, so the belt, the schedule wants, the off-screen
+   * plans, a C3 plan move and a narrated move all leave them be, and nobody else is put into the room). It lapses after TALK_ALONE.sceneHours without a new recorded scene, or when the player leaves the room. Played games only;
+   * reads the clock and the floor, draws no rng. An existing hold on someone else is left alone.
+   */
+  private lockPrivateTalk(ids: readonly EntityId[]): void {
+    const live = this.live;
+    if (!live || live.playedGame !== true || !this.presence || ids.length !== 1) return;
+    const npc = ids[0]!;
+    const here = this.presence.get(PLAYER);
+    if (here === undefined || this.presence.get(npc) !== here || here === "diary-room" || this.houseEventInSession()) return;
+    if ([...this.presence].some(([id, where]) => id !== PLAYER && id !== npc && where === here && this.presenceActive().includes(id))) return;
+    const cur = this.talkHoldNow();
+    if (cur && cur.npc !== npc) return;
+    const until = Math.max(cur?.until ?? 0, this.absHour() + TALK_ALONE.sceneHours);
+    live.talkHold = { npc, room: here, until, private: true, ...(cur ? {} : { scene: true as const }) };
+  }
+  /** ORW-1169: who the player is in a private talk with now (a view; null when none). */
+  private privateTalkView(): { with: NamedRef; room: string } | null {
+    const h = this.live?.playedGame === true ? this.talkHoldNow() : null;
+    if (!h || !h.private) return null;
+    const w = this.named(h.npc);
+    return w ? { with: w, room: h.room } : null;
   }
   private conversationHold(): ReadonlySet<EntityId> {
     const c = this.convoPartners;
@@ -8346,7 +8391,11 @@ export class GameSessionAdapter implements GameSession {
     if (!this.house || !this.presence) return { playerMove: null, whereabouts: null };
     const me = this.house.player.id;
     const here = this.presence.get(me) ?? null;
-    this.bedRushPreMove(String(req.text ?? "")); // ORW-672 / 0201: rushing to a room is moving there, before the claim reads whether they reached it
+    const peersBefore = this.companionsOfPlayer(here); // ORW-1138: who the player is with, read before anything moves him
+    const holdBefore = this.live?.talkHold && this.talkHoldNow() ? { ...this.live.talkHold } : null; // ORW-1169: the private talk the player is in, read before the move ends it
+    // ORW-672 / 0201: rushing to a room is moving there, before the claim reads whether they reached it. ORW-1138: only when the claim itself is read here; with the bed parse switched off (the act-first round owns this
+    // message's bed claim) the pre-move walked the player into the bedroom and wrote no bed owner.
+    if (req.skip?.includes("bed") !== true) this.bedRushPreMove(String(req.text ?? ""));
     const skipMove = req.skip?.includes("move") === true; // ORW-1014: the act-first round already decided this message's move
     const bedChanged = req.skip?.includes("bed") === true ? false : this.resolvePlayerBed(String(req.text ?? "")); // ORW-466 slice 2: the player's own bed claim, before the narrator writes (same seam)
     if (bedChanged) this.persist();
@@ -8361,12 +8410,14 @@ export class GameSessionAdapter implements GameSession {
     const ownBedRoom = ownBed && parsePlayerOwnBedMove(String(req.text ?? "")) ? roomOfBed(ownBed) : null; // ORW-1008: only a go-verb to "my bed"/"my room" moves; "my bed is in X" is affiliation
     const searchPhrase = skipMove ? null : parsePlayerMoveIntent(String(req.text ?? ""), here, this.themedAliases()) === null && !claimedBed && !ownBedRoom && parseVagueGo(String(req.text ?? "")) === null ? parseSearchIntent(String(req.text ?? ""), here, this.themedAliases()) : null;
     const searchTarget = searchPhrase !== null && here !== null ? this.searchTargetOf(searchPhrase) : null;
-    if (searchTarget !== null && here !== null && this.presence.get(searchTarget.id) !== here) {
+    // ORW-1136: a target already in the player's room is a search that ends at once, "right here" (found, no legs): never a silent fall-through that the caller reads as blocked.
+    // Only an act-first caller (it passes maxLegs) takes it; the ordinary text parser keeps its old way for a person who is here.
+    if (searchTarget !== null && here !== null && (this.presence.get(searchTarget.id) !== here || req.maxLegs !== undefined)) {
       // ORW-934: "look for X / find X / where is X" is committed here, before the narrator writes: the engine walks the search leg by leg and the narrator voices the legs as one passage
       this.playerMove = null;
       this.playerSearch = null;
       this.holdNamedHouseguest(String(req.text ?? ""), null);
-      const walk = this.walkSearch(searchTarget.name, undefined);
+      const walk = this.walkSearch(searchTarget.name, req.maxLegs); // ORW-1135: the caller may cap the legs
       const now = this.presence.get(me) ?? null;
       if (walk?.outcome === "pinned") this.playerMove = { refused: true, reason: walk.reason, from: here, to: here, ...this.moveStamp() };
       else if (now !== null && now !== here) this.playerMove = { from: here, to: now, ...this.moveStamp() };
@@ -8398,10 +8449,13 @@ export class GameSessionAdapter implements GameSession {
       this.persist();
       result = { playerMove: { ...this.playerMove }, whereabouts: this.whereabouts() };
     } else {
-      const w = this.movePlayer(dest);
+      const w0 = this.movePlayer(dest);
       const now = this.presence.get(me) ?? null;
+      let w = w0;
       if (now === dest) {
-        this.playerMove = { from: here, to: dest, ...this.moveStamp() };
+        const company = this.settleCompanions(peersBefore, here, dest, String(req.text ?? ""), holdBefore); // ORW-1138: they come along (a group walk) or stay, and the move says which
+        if (company.came.length > 0) w = this.whereabouts();
+        this.playerMove = { from: here, to: dest, ...(company.came.length ? { came: company.came } : {}), ...(company.stayed.length ? { stayed: company.stayed } : {}), ...(company.declined.length ? { declined: company.declined } : {}), ...this.moveStamp() };
         this.persist();
         result = { playerMove: { ...this.playerMove }, whereabouts: w };
       } else {
@@ -8410,6 +8464,41 @@ export class GameSessionAdapter implements GameSession {
     }
     result.beatSeq = this.beatSeqNow();
     return idemKey ? this.rememberFoldIdempotent(idemKey, result) : result;
+  }
+
+  /** ORW-1138: the houseguests the player is with right now (awake, active, in his room), by id; empty when alone or the room is unknown. */
+  private companionsOfPlayer(here: Room | null): EntityId[] {
+    if (!this.house || !this.presence || here === null) return [];
+    const me = this.house.player.id;
+    const awake = this.awakeNow();
+    const away = this.notYetArrived();
+    return this.presenceActive().filter((id) => id !== me && this.presence!.get(id) === here && (!awake || awake.has(id)) && !away?.has(id)).sort();
+  }
+
+  /**
+   * ORW-1138: the player walked from `from` to `dest` with `peers` in the room. They come along when the context says so: the player's own words make it a group walk (we / let us / together / follow me), or the self-guided
+   * tour is open (the house walks it with him). Otherwise they stay, and the move names them so the narrator says so. The movers take their seats through the same presence view the whole house reads (no event of their own).
+   */
+  private settleCompanions(peers: readonly EntityId[], from: Room | null, dest: Room, text: string, hold: { npc: string; private: boolean; until: number } | null = null): { came: string[]; stayed: string[]; declined: string[] } {
+    const none = { came: [] as string[], stayed: [] as string[], declined: [] as string[] };
+    if (peers.length === 0 || !this.presence || from === null) return none;
+    if (this.live?.houseTour && this.live.premiereEntrance?.stage === "entrances") return none; // the tour places the house itself (the house walks it with the player); nobody is reported as left behind
+    const acts = stripNonActs(text);
+    const invite = INVITE_RE.test(acts);
+    const group = GROUP_WALK_RE.test(acts) || invite;
+    const still = peers.filter((id) => this.presence!.get(id) === from);
+    if (!group) return { ...none, stayed: still.map((id) => this.nameOf(id)) };
+    // ORW-1169 (plan 3.10): the person the player is in a private talk with, invited along, may decline; the story says so. Anyone else invited by name goes through the same ask.
+    const declined = still.filter((id) => hold?.npc === id && !this.talkAloneConsent(id));
+    const moving = still.filter((id) => !declined.includes(id));
+    for (const id of moving) {
+      this.presence.set(id, dest);
+      this.presenceBase?.set(id, dest);
+      this.presenceTenure?.set(id, 0);
+      this.presenceZone?.delete(id);
+    }
+    if (hold && this.live && moving.includes(hold.npc as EntityId)) this.live.talkHold = { npc: hold.npc, room: dest, until: Math.max(hold.until, this.absHour() + TALK_ALONE.sceneHours), private: hold.private }; // the private talk walks along with the two
+    return { came: moving.map((id) => this.nameOf(id)), stayed: [], declined: declined.map((id) => this.nameOf(id)) };
   }
 
   /** ORW-934: the clock a search bills per leg (one step into a neighbouring room). Less than a message (5 min): walking next door is quick. */
@@ -8494,6 +8583,9 @@ export class GameSessionAdapter implements GameSession {
         this.noteConversationPartners([target.id]); // the houseguest the player found stays with them (the hold the other named-houseguest moves use)
         return finish("found", base.legs.length === 0 ? `${target.name} is right here` : `found ${target.name} in the ${this.roomName(me0)}`, target);
       }
+      // ORW-1135: the houseguest's own bed is in this very room: nothing to walk to. They are simply not here now (out of it, awake), so the narrator says that and invents no tour of the house.
+      const targetBed = base.legs.length === 0 ? live?.beds?.owner[target.id] : undefined;
+      if (targetBed && roomOfBed(targetBed) === me0) return finish("stopped", `${target.name}'s bed is in this room and ${target.name} is not in it right now: no walk was run; say they are not here at the moment and invent no search of the house`, target);
       if (xRoom === "diary-room") return finish("closed-room", `${target.name} is in the Diary Room, a door the player cannot go through; the search ends here, and the player cannot follow`, target);
       if (xRoom !== undefined && closedFor(xRoom)) return finish("closed-room", `${target.name} is behind the closed door of the ${this.roomName(xRoom)}, which is not open to the player; the search ends here`, target);
       if (this.walkIn && this.walkIn.room === me0 && base.legs.length > 0) return finish("walk-in", `the walk ended on a private talk in the ${this.roomName(me0)}: the player walked in on it`, target);
@@ -9226,14 +9318,9 @@ export class GameSessionAdapter implements GameSession {
     const racing = Object.entries(br?.plan ?? {}).filter(([id]) => living.has(id) && !beds.owner[id]);
     const byRoom = new Map<Room, string[]>();
     for (const [id, p] of racing) byRoom.set(p.room, [...(byRoom.get(p.room) ?? []), this.nameOf(id)]);
-    const open = BEDROOM_LAYOUT.filter((spec) => freeBeds(beds, living).some((b) => roomOfBed(b) === spec.room)).map((spec) => this.roomName(spec.room));
-    const claimed = BEDROOM_LAYOUT.map((spec) => ({ spec, who: roommatesIn(beds, spec.room, living) })).filter((x) => x.who.length > 0)
-      .map(({ spec, who }) => `${this.roomName(spec.room)}: ${who.map((id) => (id === PLAYER ? "the player" : this.nameOf(id))).join(", ")}`);
     const parts = [
       s.premiereEntrance.stage === "done" && !br ? "The circle has closed and the house is released: the race for the bedrooms is about to begin; a bed is claimed by actually reaching its room, so the player can rush straight to a room or hang back" : "The bed rush is on: a bed is claimed by actually reaching its room, so the player can rush straight to a room or hang back",
       ...(racing.length ? [`Still racing: ${[...byRoom].map(([room, names]) => `${names.join(", ")} for ${this.roomName(room)}`).join("; ")}`] : []),
-      `Beds already claimed (engine truth, by room): ${claimed.length ? claimed.join("; ") : "none yet"}`,
-      `Rooms with beds still open: ${open.length ? open.join(", ") : "none"}`,
     ];
     return parts.join(". ");
   }
@@ -9526,7 +9613,11 @@ export class GameSessionAdapter implements GameSession {
   /** ORW-1090: the player-involved wake reaction of this tick (told to the narrator for one turn). Memory-only. */
   private bedWakeNote: { sleeper: string; joiner: string; mood: "annoyed" | "fine" } | null = null;
 
+  /** ORW-1153: this turn's player words talk about beds (a question, a claim, a trade): the per-bed table rides this turn even after the player has a bed. Memory-only. */
+  private playerBedTalk = false;
+
   private resolvePlayerBed(text: string): boolean {
+    this.playerBedTalk = /\b(?:beds?|bunks?|doubles?|singles?|half|halves|sleeping spots?|spots?)\b/i.test(text);
     const changed = this.resolvePlayerBedInner(text);
     // A note on a request that changed nothing is a refusal, except the plain "already have it there" (nothing was asked of the game).
     this.playerBedRefusal = !changed && this.playerBedNote !== null && !/already has their bed/.test(this.playerBedNote) ? this.playerBedNote.replace(/\s*\(engine truth:[^)]*\)/g, "") : null;
@@ -9563,7 +9654,15 @@ export class GameSessionAdapter implements GameSession {
       const mine = beds.owner[PLAYER];
       if (mine && roomOfBed(mine) === room && !bed && (!prefer || isDoubleSpot(mine) === (prefer === "double"))) { this.playerBedNote = `the player already has their bed in ${this.roomName(room)}`; return false; }
       bed ??= freeBedIn(beds, room, living, prefer);
-      if (!bed) { this.playerBedNote = `the player wanted a bed in ${this.roomName(room)}, but every spot there is taken (they can ask one of its owners to swap)`; return false; }
+      // ORW-1153: a named kind ("the double in the barrel room") lands on a free spot of THAT kind in THAT room, or the reply says so and names what is free there and elsewhere; never a silent single in place of a double.
+      if (bed && prefer && isDoubleSpot(bed) !== (prefer === "double")) bed = undefined;
+      if (!bed) {
+        const inRoom = bedTable(beds, living, (r) => this.roomName(r), (id) => this.nameOf(id)).freeByRoom[room] ?? [];
+        this.playerBedNote = inRoom.length
+          ? `the player wanted ${prefer === "double" ? "a double" : prefer === "single" ? "a single" : "a bed"} in ${this.roomName(room)}, but there is none free there (${freeInRoomWords(inRoom)}; ${this.freeSummaryWords(beds, living)}); say that room has no free ${prefer ?? "spot"} and name what is free`
+          : `the player wanted a bed in ${this.roomName(room)}, but every spot there is taken (${this.freeSummaryWords(beds, living)}; they can ask one of its owners to swap)`;
+        return false;
+      }
       const later = mine !== undefined; // slice 3: a move after their first bed
       const leftMate = mine ? bedPartner(beds, PLAYER, living) : undefined;
       claimBed(beds, PLAYER, bed, day, later ? "move" : "move-in", living);
@@ -9619,22 +9718,24 @@ export class GameSessionAdapter implements GameSession {
    */
   private bedsLine(): string | undefined {
     const beds = this.live?.playedGame === true ? this.live.beds : undefined; // a read: never claims
-    if (!beds || !this.playerBedWindowOpen(beds) || (!this.moveInPickOpen(beds) && !this.playerBedNote && !this.bedRushRunning())) return undefined;
+    if (!beds || !this.playerBedWindowOpen(beds) || (!this.moveInPickOpen(beds) && !this.playerBedNote && !this.bedRushRunning() && !this.playerBedTalk)) return undefined;
     const living = new Set(this.livingIds());
     const label = (id: EntityId): string => (id === PLAYER ? "the player" : this.nameOf(id));
-    const rooms = BEDROOM_LAYOUT.map((spec) => {
-      const who = roommatesIn(beds, spec.room, living);
-      const total = spotsIn(spec);
-      const free = freeBeds(beds, living).filter((b) => roomOfBed(b) === spec.room);
-      const freeSingles = free.filter((b) => !isDoubleSpot(b)).length;
-      const names = who.map((id) => { const p = bedPartner(beds, id, living); return p ? `${label(id)} (sharing a double with ${label(p)})` : label(id); });
-      const room = `${this.roomName(spec.room)} (${spec.singles} singles, ${spec.doubles} doubles)`;
-      return `${room}: ${free.length > 0 ? `${free.length} of ${total} spots free (${freeSingles} single${freeSingles === 1 ? "" : "s"}, ${free.length - freeSingles} double ${free.length - freeSingles === 1 ? "half" : "halves"})` : "full"}${names.length ? `; sleeping there: ${names.join(", ")}` : "; nobody yet"}`;
-    });
+    const t = bedTable(beds, living, (r) => this.roomName(r), label);
     const mine = beds.owner[PLAYER];
     const own = mine ? `The player's bed is in ${this.roomName(roomOfBed(mine))}.` : `The player has not picked a bed yet${BED_RULES.leftoverAtFirstBedtime ? " (if they never do, they get the one left over at their first bedtime)" : ""}.`;
     const rush = this.bedRushFacts();
-    return `${rooms.join("; ")}. ${own}${rush ? ` ${rush}.` : ""}${this.playerBedNote ? ` This turn: ${this.playerBedNote}.` : ""}`;
+    // ORW-1153: the narrator's ONLY bed facts are this per-bed table and its free count; the rules close the ways it got a double wrong (a room's roster read as a bed's occupants; "the last bed" with spots free).
+    return `PER-BED TABLE, one line item per single and per double half (this table is the ONLY source for any bed statement): ${t.rooms.join("; ")}. FREE SPOTS HOUSE-WIDE: ${t.free} of ${t.total}. ${own}`
+      + ` BED RULES: a single sleeps ONE houseguest and a double sleeps TWO, one per half, so never put more than one in a single or more than two in a double, and name a bedmate only from the two halves of that one double; call a room full only when none of its items says free, and say the beds are all claimed (the last bed gone) only when FREE SPOTS HOUSE-WIDE is 0; a houseguest still racing holds no spot until the table shows one; when the player asks about beds (what is open, who they could share with), answer straight from the table in each room's themed name, naming each free half and who has the other half of that double, and never improvise a different answer on a repeat.`
+      + `${rush ? ` ${rush}.` : ""}${this.playerBedNote ? ` This turn: ${this.playerBedNote}.` : ""}`;
+  }
+
+  /** ORW-1153: what is free, room by room, in words (for a refusal that must name what the player can take instead). */
+  private freeSummaryWords(beds: BedsState, living: ReadonlySet<EntityId>): string {
+    const t = bedTable(beds, living, (r) => this.roomName(r), (id) => this.nameOf(id));
+    const parts = BEDROOM_LAYOUT.filter((r) => t.freeByRoom[r.room]!.length).map((r) => `${this.roomName(r.room)}: ${t.freeByRoom[r.room]!.join(", ")}`);
+    return parts.length ? `free spots: ${parts.join("; ")}` : "no spot is free anywhere in the house";
   }
 
   /**
@@ -9652,7 +9753,7 @@ export class GameSessionAdapter implements GameSession {
   /**
    * ORW-1090 (Ryne 2026-11-26: an empty half of a double is fair game; the sleeper may react when they wake, annoyed or fine by how they feel about the joiner; the same for houseguests joining a sleeping player or
    * houseguest). Once per join, on the first tick of a LATER day than the join: the earlier claimant of a double's two halves is the sleeper, the later one the joiner. The sleeper's own read of the joiner (their warmth
-   * toward them, the same bar a swap uses) is "annoyed" below `BED_RULES.swapAcceptAbove`, else "fine". NARRATION ONLY: no relationship fold (a hidden slight moves every seeded trajectory and so every seed-pinned scan; folding it is a calibration change for the product owner, carded separately). When the player is the sleeper or the joiner the reaction is handed to the narrator for one turn (`bedWake`). Append-only record so a join reacts once.
+   * toward them, the same bar a swap uses) is "annoyed" below `BED_RULES.swapAcceptAbove`, else "fine". Annoyed folds a tiny hidden slight on the sleeper->joiner edge (`BED_MOVES.slight`, seeded per pair and day); fine folds nothing; never the player's own edge. When the player is the sleeper or the joiner the reaction is handed to the narrator for one turn (`bedWake`). Append-only record so a join reacts once.
    */
   private reactToHalfJoins(beds: BedsState, day: number, living: ReadonlySet<EntityId>): void {
     this.bedWakeNote = null;
@@ -9670,6 +9771,7 @@ export class GameSessionAdapter implements GameSession {
       if (beds.wokeBeside?.includes(key)) continue;
       (beds.wokeBeside ??= []).push(key);
       const mood = r.warmth(sleeper, joiner) < BED_RULES.swapAcceptAbove ? "annoyed" as const : "fine" as const;
+      if (mood === "annoyed" && sleeper !== PLAYER) this.rel.applyImpactDirected(sleeper, joiner, BED_MOVES.slight, new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:bed-wake:${sleeper}:${joiner}:${day}`))); // a real annoyance (Ryne: "annoyed or fine"): a tiny hidden slight on the sleeper's own edge, never the player's
       if (sleeper === PLAYER || joiner === PLAYER) this.bedWakeNote = { sleeper: this.nameOf(sleeper), joiner: this.nameOf(joiner), mood };
     }
   }
@@ -10116,7 +10218,9 @@ export class GameSessionAdapter implements GameSession {
       ...(conspicuous.length ? { conspicuous } : {}),
       ...this.leadsFoundWrongView(),
       ...this.sinceSendBeat(me, room, presentPlain, isUp, notHere2),
+      ...((): { privateTalk?: { with: NamedRef } } => { const t = this.privateTalkView(); return t && t.room === room ? { privateTalk: { with: t.with } } : {}; })(), // ORW-1169
       ...this.themedRoomsView(room),
+      ...this.bedLayoutView(room),
       ...this.roomCardView(room, presentPlain.map((p) => ({ id: p.id, name: p.name }))),
     };
   }
@@ -10138,6 +10242,12 @@ export class GameSessionAdapter implements GameSession {
         return { toldBy, about, saidRoom: l.toldRoom, ...(l.foundRoom !== undefined ? { foundRoom: l.foundRoom } : {}), fact: `${toldBy.name} told the player ${about.name} was in ${this.roomRefOf(l.toldRoom as Room)}.${found} That lead did not hold up; the player decides what to make of it and whether to say anything to ${toldBy.name}.` };
       }),
     };
+  }
+
+  /** ORW-1150: the real beds of the player's room (counts of singles and doubles), only in a bedroom, so the narration's bed words can be checked against them. */
+  private bedLayoutView(room: Room): { bedLayout?: { singles: number; doubles: number } } {
+    const spec = BEDROOM_LAYOUT.find((r) => r.room === room);
+    return spec ? { bedLayout: { singles: spec.singles, doubles: spec.doubles } } : {};
   }
 
   /** ORW-466: this season's room names (every room) and the look of the player's room, for the narrator and the front end. Empty without a theme (today's labels stand). */
@@ -18851,21 +18961,94 @@ export class GameSessionAdapter implements GameSession {
     return none;
   }
 
+  /**
+   * ORW-1165 - the day's digest: one line per moment the player witnessed, by event KIND (structure only, never prose meaning), in order. Lines are built from public names and the record's own event text;
+   * a talk is described by who it was with and how it went (its `interactionKind`), never by what was said. Hidden events never ride. Repeats fold into one line with a count; each kind is capped.
+   */
+  private buildDayDigest(
+    events: ReadonlyArray<{ id: string; type?: string; hidden: boolean; initiator: EntityId; witnessSet: readonly EntityId[]; content: string; interactionKind?: string }>,
+    isHighlight: (e: any) => boolean,
+    namesStranger: (c: string) => boolean,
+    withBed = true,
+  ): Array<{ kind: string; text: string; eventCursor: string[] }> {
+    const me = this.nameOf(PLAYER);
+    const you = (t: string): string => (t.startsWith(`${me} `) ? `You ${t.slice(me.length + 1)}` : t);
+    const out: Array<{ kind: string; text: string; eventCursor: string[] }> = [];
+    const talks = new Map<string, { idx: number; n: number; kind: string; base: string }>();
+    const toast = { idx: -1, host: false, names: [] as string[] };
+    const CAP: Record<string, number> = { arrival: 8, talk: 6, clash: 4, bond: 4, strategy: 4, gossip: 3, bed: 2, alliance: 4, overheard: 3, house: 3 };
+    const seen: Record<string, number> = {};
+    const push = (kind: string, text: string, ids: string[]): number => {
+      if (seen[kind] !== undefined && CAP[kind] !== undefined && seen[kind]! >= CAP[kind]!) return -1;
+      seen[kind] = (seen[kind] ?? 0) + 1;
+      out.push({ kind, text: text.trim().slice(0, 200), eventCursor: ids });
+      return out.length - 1;
+    };
+    for (const e of events) {
+      if (e.hidden) continue;
+      const t = e.type as string;
+      if (isHighlight(e)) { out.push({ kind: e.type === "deal" ? "deal" : e.type === "betrayal" ? "betrayal" : "ceremony", text: e.content, eventCursor: [e.id] }); continue; } // the record's own text, uncut (as before)
+      if (!e.witnessSet.includes(PLAYER) || e.content.trim().length === 0) continue;
+      if (t === "premiere-entrance") { push("arrival", e.content === `${me} arrives` ? "You walked into the house" : e.content, [e.id]); continue; }
+      if (t === "toast-speech") {
+        const m = /^(.*) gives a toast$/.exec(e.content);
+        if (toast.idx < 0) toast.idx = push("toast", "", []);
+        if (toast.idx >= 0) out[toast.idx]!.eventCursor.push(e.id);
+        if (m && m[1] !== me) toast.names.push(m[1]!); else if (!m) toast.host = true;
+        continue;
+      }
+      if (t === "bed-claim") { if (e.content.startsWith(`${me} `)) push("bed", you(e.content), [e.id]); continue; }
+      if (t === "alliance" || t.startsWith("alliance-")) { push("alliance", you(e.content), [e.id]); continue; }
+      if (t === "overheard") { push("overheard", e.content, [e.id]); continue; }
+      if (t === "house-event") { push("house", you(e.content), [e.id]); continue; }
+      if (t === "conversation") {
+        const others = e.witnessSet.filter((w) => w !== PLAYER).map((w) => this.nameOf(w));
+        if (others.length === 0) continue;
+        const who = others.length <= 3 ? (others.length === 3 ? `${others[0]}, ${others[1]} and ${others[2]}` : others.join(" and ")) : `the room (${others.length} houseguests in earshot)`;
+        const ik = e.interactionKind ?? "";
+        const kind = /conflict|betray/.test(ik) ? "clash" : /alliance|strateg/.test(ik) ? "strategy" : /bond|showmance|flirt/.test(ik) ? "bond" : /gossip/.test(ik) ? "gossip" : "talk";
+        const base = e.initiator === PLAYER
+          ? (kind === "clash" ? `You clashed with ${who}` : kind === "strategy" ? `You talked game with ${who}` : kind === "bond" ? `You grew closer to ${who}` : kind === "gossip" ? `You traded whispers with ${who}` : `You talked with ${who}`)
+          : others.length === 1 ? `${who} came to talk with you` : `You were there when ${who} talked`;
+        const key = `${kind}|${base}`;
+        const have = talks.get(key);
+        if (have) { have.n++; out[have.idx]!.text = `${have.base} (${have.n} times)`; out[have.idx]!.eventCursor.push(e.id); continue; }
+        const idx = push(kind, base, [e.id]);
+        if (idx >= 0) talks.set(key, { idx, n: 1, kind, base });
+      }
+    }
+    if (toast.idx >= 0) {
+      const names = [...new Set(toast.names)].slice(0, 10);
+      out[toast.idx]!.text = `The champagne toast: ${toast.host ? "the host opened it, " : ""}${names.length ? `toasts from ${names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0]}` : "the house raised a glass"}`;
+    }
+    // The player's own bed at close (structural: the engine's bed table), when no claim line already says it.
+    if (withBed && !out.some((d) => d.kind === "bed")) {
+      const beds = this.live?.beds;
+      const room = beds ? sleepRoomOf(beds, PLAYER, this.live?.hoh) : undefined;
+      if (room) out.push({ kind: "bed", text: `You settled in for the night in ${this.roomName(room)}`, eventCursor: [] });
+    }
+    return out.filter((d) => d.text.length > 0 && !namesStranger(d.text));
+  }
+
   /** The digest for `day`, stitched from the tail since the persisted cursors; records it as the latest recap and advances the cursors. Does NOT touch `dayNumber`. */
   private buildRecapForDay(day: number): DailyRecapView {
     const s = this.live!;
     const allEvents = this.record?.events() ?? [];
     const evFrom = Math.min(s.dailyRecapEventCursor ?? 0, allEvents.length);
-    const isHighlight = (e: (typeof allEvents)[number]): boolean => !e.hidden && (e.id.startsWith("season:") || e.type === "deal" || e.type === "betrayal");
+    const isHighlight = isRecapHighlight;
     // ORW-828 (PT-7 again): the Day-1 public pre-show tie ("it is known in the house: A and B ...") is witnessed by the whole house, so it rode "your day" on the premiere night naming two houseguests the player had not
     // met yet. The same stranger rule as the surfaced rumors below applies to every recap line: a line that names a houseguest the player has not met waits (it stays in the record and the journal). Public names only, never prose meaning.
     const strangers = this.recapStrangers(allEvents);
     const namesStranger = (content: string): boolean => strangers.names.some((n) => content.includes(n));
-    const highlights = allEvents.slice(evFrom).filter(isHighlight).map((e) => e.content).filter((c) => !namesStranger(c));
+    // ORW-1165 (Ryne's Day 1 digest had highlights 0 after a full premiere): only ceremony, deal and betrayal events counted as highlights, so the arrivals, the toast, the bed, alliance scenes and the player's own talks never
+    // reached the review (they fell to "your day", capped at the last five, which the toast speeches filled). The digest now keeps one line per moment the player WITNESSED, by event kind, in the order it happened.
+    const digest = this.buildDayDigest(allEvents.slice(evFrom), isHighlight, namesStranger);
+    const highlights = digest.map((d) => d.text);
+    const consumed = (e: (typeof allEvents)[number]): boolean => DIGEST_EVENT_TYPES.has(e.type as string);
     // ORW-382 (Ryne, playtest 11-15: no day-in-review when he went to bed on Day 1): the premiere night and any quiet day have no ceremony/deal, so the review was EMPTY and the narrator rightly skipped it. The scenes the player
     // witnessed themselves (never hidden, in their own witness set) are their own knowledge - the review is built from those too. Capped, trimmed, no rng.
     const yourDay = allEvents.slice(evFrom)
-      .filter((e) => !e.hidden && !isHighlight(e) && e.type !== "surfacing" && e.type !== "gossip" && e.type !== "said-aloud" && e.type !== "diary-room" && !(e.type === "diary-call" && e.initiator === PLAYER) && e.witnessSet.includes(PLAYER) && e.content.trim().length > 0 && !e.content.startsWith("surfaced to player via ")) // ORW-385: the player's own Diary Room is out-of-character and never enters "your day" (0013, 0102). review of #2664/#2672: by kind, never by matching text (a separate scene with identical words stays); bookkeeping kinds never ride // the provenance bookkeeping event is not a scene (live check: it reached the model raw)
+      .filter((e) => !e.hidden && !isHighlight(e) && !consumed(e) && e.type !== "surfacing" && e.type !== "gossip" && e.type !== "said-aloud" && e.type !== "diary-room" && !(e.type === "diary-call" && e.initiator === PLAYER) && e.witnessSet.includes(PLAYER) && e.content.trim().length > 0 && !e.content.startsWith("surfaced to player via ")) // ORW-385: the player's own Diary Room is out-of-character and never enters "your day" (0013, 0102). review of #2664/#2672: by kind, never by matching text (a separate scene with identical words stays); bookkeeping kinds never ride // the provenance bookkeeping event is not a scene (live check: it reached the model raw)
       .map((e) => e.content.trim().slice(0, 200)).filter((c) => !namesStranger(c)).slice(-5);
     const knownAll = this.playerKnowledgeReader?.() ?? [];
     const knFrom = Math.min(s.dailyRecapKnowledgeCursor ?? 0, knownAll.length);
@@ -18878,7 +19061,7 @@ export class GameSessionAdapter implements GameSession {
     // ORW-400: the same overheard/retold line is listed once (first kept, order stable).
     const surfaced = [...new Set(surfacedRaw)];
     const hook = this.buildDailyRecapHook(day, surfaced);
-    const recap: DailyRecapView = { day, highlights, surfaced, ...(yourDay.length > 0 ? { yourDay } : {}), ...(hook ? { hook } : {}) };
+    const recap: DailyRecapView = { day, highlights, ...(digest.length > 0 ? { digest } : {}), surfaced, ...(yourDay.length > 0 ? { yourDay } : {}), ...(hook ? { hook } : {}) };
     s.lastDailyRecap = recap;
     if (s.playedGame === true && flagDefaultOn("ORWELL_DAY_CONDENSE")) {
       // ORW-271: the floor ledger entry (no model, no rng; built only from the player-visible recap).
@@ -18900,6 +19083,7 @@ export class GameSessionAdapter implements GameSession {
         });
       }
     }
+    (s.dailyRecapRangeCursor ??= {})[day] = [evFrom, allEvents.length]; // ORW-1165: where in the append-only record this day's recap read, so the digest of a closed day can be rebuilt
     s.dailyRecapEventCursor = allEvents.length;
     s.dailyRecapKnowledgeCursor = knownAll.length;
     // ORW-400: the day rolled for a played game - last night's room tenure and conversation partners do not carry into the morning. presenceBase and the shared rng are untouched (headless/golden runs identical).
@@ -18963,11 +19147,35 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /**
+   * ORW-1165 - the closed day's recap rebuilt with today's digest builder over the same slice of the record it first read (a day that was materialized before the digest grew is re-issued from this). Pure read:
+   * nothing is stored and no cursor moves. The surfaced lines, the hook and "your day" are the ones the day already made. null when the day has no recap or its record slice is unknown.
+   */
+  private rebuildDailyRecap(day: number): DailyRecapView | null {
+    const s = this.live;
+    if (!s) return null;
+    const stored = s.lastDailyRecap?.day === day ? s.lastDailyRecap : (s.dailyRecapLog ?? []).find((r) => r.day === day);
+    if (!stored) return null;
+    let range = s.dailyRecapRangeCursor?.[day];
+    if (!range && s.lastDailyRecap?.day === day) { // a recap made before ranges were kept: the latest one ends at the live cursor and starts where the day before ended (0 for the first)
+      const prevEnd = day <= 1 ? 0 : s.dailyRecapRangeCursor?.[day - 1]?.[1];
+      if (prevEnd !== undefined && s.dailyRecapEventCursor !== undefined) range = [prevEnd, s.dailyRecapEventCursor];
+    }
+    if (!range) return null;
+    const allEvents = this.record?.events() ?? [];
+    const strangers = this.recapStrangers(allEvents);
+    const namesStranger = (content: string): boolean => strangers.names.some((n) => content.includes(n));
+    const digest = this.buildDayDigest(allEvents.slice(range[0], range[1]), isRecapHighlight, namesStranger, false);
+    const { digest: _old, highlights: _h, ...rest } = stored as DailyRecapView;
+    return { ...rest, highlights: digest.map((d) => d.text), ...(digest.length > 0 ? { digest } : {}) } as DailyRecapView;
+  }
+
+  /**
    * 0102 (PO review 2026-06-27 redesign, #884) — re-fetch the most recently CLOSED day's digest
    * (materialized once, at the `turnIn` that closed it). `null` before any day has closed. Vault-free,
    * reproducible: re-reading returns the exact same materialized view every time (no re-computation).
    */
-  dailyRecap(): DailyRecapView | null {
+  dailyRecap(opts?: { rebuildDay?: number }): DailyRecapView | null {
+    if (opts?.rebuildDay !== undefined) return this.rebuildDailyRecap(opts.rebuildDay);
     return this.live?.lastDailyRecap ?? null;
   }
 
@@ -19642,8 +19850,8 @@ export class GameSessionAdapter implements GameSession {
     // B55: an ASKED active obligation binds the NPC (the promisor is parties[0]); everything else keeps the player first, as before
     const parties: [EntityId, EntityId] = (isPositiveObligation(req.kind) && req.direction === "ask") || req.kind === "protect-third" || req.kind === "information" ? [target, PLAYER] : [PLAYER, target];
     // ORW-1053: a vote / safety / conditional deal whose terms name living houseguests outside the pair protects those houseguests (the named ones, or the explicit `third`).
-    const named = req.kind === "vote" || req.kind === "safety" || req.kind === "conditional" ? this.thirdsNamedIn(terms, req.third, [PLAYER, target]) : [];
-    const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses, req.kind === "protect-third" ? req.third : named[0], named.slice(1));
+    const named = req.kind === "vote" || req.kind === "safety" || req.kind === "conditional" || req.kind === "target-other" ? this.thirdsNamedIn(terms, req.third, [PLAYER, target]) : { protect: [], evict: [] };
+    const deal = this.deals.make(parties, req.kind, terms, evId, this.live.week, boundDealTerm(req.term, this.live.week), witnesses, req.kind === "protect-third" ? req.third : named.protect[0], named.protect.slice(1), named.evict);
     this.trackDealMade(deal);
     // ORW-85: the houseguests who SAW the deal made remember it - and read it against their own position (see rememberDealWitnesses). Played games only.
     if (witnesses && witnesses.length > 0 && this.live.playedGame === true) this.rememberDealWitnesses(deal, witnesses);
@@ -20039,6 +20247,8 @@ export class GameSessionAdapter implements GameSession {
     d: SecretLeverDescriptor, recipient: EntityId, _via: "deal" | "swap",
   ): { accepted: boolean; refused?: TradeResult["refused"]; narratable?: string } | null {
     if (!this.isActiveNpc(recipient)) return { accepted: false, refused: "no-recipient" };
+    // ORW-1101: an already-exposed (public) secret answers `already-spent`, as `exposeSecret` does (the resolver rejects a spent fact as un-wieldable, which would otherwise read as `not-learned`).
+    if (d.factId && this.secretUsedAs[d.factId] === "exposed") return { accepted: false, refused: "already-spent" };
     if (this.tradeCount >= (this.noHardCapsEnabled ? NO_HARD_CAPS.safetyValve : SECRET_TRADE.maxTradesPerSeason)) return { accepted: false, refused: "capped" };
     const resolved = this.resolveWieldedSecret(d);
     if (!resolved) return { accepted: false, refused: "not-learned" };
@@ -23097,6 +23307,78 @@ export class GameSessionAdapter implements GameSession {
       );
   }
 
+  /**
+   * ORW-1171: the ENGINE's discretion call for the player's scene. A private alliance the player knows of, or a standing deal the player is in, with a houseguest in the player's room: who in earshot is in on it and who is not,
+   * and what its holders do about it (raise it only when everyone in earshot is in on it; else defer; rarely and by character, SLIP). A slip is recorded (`live.discretionSlips`) and the people in earshot who were not in on it
+   * learn it for real (an alliance becomes known to them; a deal is lodged as a belief). One roll per (speaker, tie, in-game day) on its own keyed stream, so a rebuilt prompt in the same beat gives the same call.
+   * Played games only. Separate from the witness-set and fold-participant code: "earshot" here is the narrator's room.
+   */
+  private discretionForPrompt(): DiscretionView | undefined {
+    const s = this.live;
+    const wa = this.whereabouts();
+    if (!s || s.playedGame !== true || !this.house || !wa) return undefined;
+    const me = this.house.player.id;
+    const earshot = wa.present.map((p) => p.id).filter((id) => id !== me);
+    if (!earshot.length) return undefined;
+    const day = s.dayNumber ?? s.week;
+    const slips = s.discretionSlips ?? [];
+    const learned = (tieId: string): EntityId[] => slips.filter((x) => x.tie === tieId && x.beat !== this.beatSeq).flatMap((x) => x.learnedBy as EntityId[]);
+    // the ones who learned it THIS beat are still outsiders for this turn's narration (the slip is what the narrator voices); from the next beat they are in on it
+    const thisBeat = (tieId: string): ReadonlySet<EntityId> => new Set(slips.filter((x) => x.tie === tieId && x.beat === this.beatSeq).flatMap((x) => x.learnedBy as EntityId[]));
+    const ties: PrivateTie[] = [];
+    for (const a of this.alliances.all()) {
+      if (!a.knownTo.includes(me)) continue; // an alliance the player has no pathway to is not the narrator's to know
+      ties.push({ id: a.id, kind: a.members.includes(me) ? "alliance" : "pitch", label: `the alliance "${a.name}"`, insiders: [...new Set([...a.knownTo, ...a.members, ...learned(a.id)])].filter((x) => !thisBeat(a.id).has(x)) });
+    }
+    for (const d of this.deals.forParty(me)) {
+      if (d.status !== "open") continue;
+      ties.push({ id: d.id, kind: "deal", label: `the ${d.kind} deal (${d.terms})`, insiders: [...new Set([...d.parties, ...(d.formationWitnesses ?? []), ...learned(d.id)])].filter((x) => !thisBeat(d.id).has(x)) });
+    }
+    const scenes = tieScenes(earshot, me, ties);
+    const out: DiscretionView["ties"] = [];
+    for (const sc of scenes) {
+      const traitsOf = (id: EntityId) => {
+        const style = this.house!.npcs.find((n) => n.id === id)?.character.strategyStyle;
+        const vol = this.soulObj(id)?.volatility ?? 0.3;
+        return { leakiness: (style ? LEAKY[style] ?? 0.3 : 0.3) + 0.2 * vol, volatility: vol };
+      };
+      let call: "open" | "defer" | "slip" = sc.outsiders.length ? "defer" : "open";
+      let slipBy: EntityId | undefined;
+      const prior = slips.find((x) => x.tie === sc.tie.id && x.day === day);
+      if (sc.outsiders.length) {
+        if (prior) {
+          // already let out today: this beat's slip stays a slip (a rebuilt prompt), a later beat's does not roll again
+          if (prior.beat === this.beatSeq && sc.speakers.includes(prior.by as EntityId)) { call = "slip"; slipBy = prior.by as EntityId; }
+        } else {
+          for (const sp of sc.speakers) {
+            const roll = new SeededRandom(hashSeed(`${this.gameSeed ?? 0}:discretion:${sp}:${sc.tie.id}:${day}`)).next();
+            if (discretionCall(traitsOf(sp), sc.outsiders.length, roll) === "slip") { call = "slip"; slipBy = sp; break; }
+          }
+          if (call === "slip" && slipBy) this.applyDiscretionSlip(sc.tie, slipBy, sc.outsiders.filter((o) => o !== me) as EntityId[], day);
+        }
+      }
+      out.push({
+        kind: sc.tie.kind, label: sc.tie.label,
+        inOn: [...sc.speakers, ...(sc.tie.insiders.includes(me) ? [me] : [])].map((id) => this.nameOf(id)),
+        notInOn: sc.outsiders.map((id) => this.nameOf(id)),
+        call, ...(slipBy ? { slipBy: this.nameOf(slipBy) } : {}),
+      });
+    }
+    const crowd = earshot.map((id) => this.nameOf(id));
+    return out.length || crowd.length >= 2 ? { ties: out, crowd } : undefined;
+  }
+  /** ORW-1171: a slip is an engine event. Record it, and let the people in earshot who were not in on the tie learn it. */
+  private applyDiscretionSlip(tie: PrivateTie, by: EntityId, outsiders: EntityId[], day: number): void {
+    const s = this.live;
+    if (!s) return;
+    (s.discretionSlips ??= []).push({ tie: tie.id, by, learnedBy: outsiders, day, beat: this.beatSeq });
+    const content = `${this.nameOf(by)} let slip ${tie.label} in front of ${outsiders.map((o) => this.nameOf(o)).join(", ") || "the room"}`;
+    for (const o of outsiders) {
+      if (tie.kind !== "deal") this.alliances.reveal(tie.id, o);
+      this.npcKnowledge?.learn?.(o, { content, factId: `slip:${tie.id}:${by}:${day}`, confidence: 0.9, hops: 1, distortion: 0 });
+    }
+  }
+
   getMomentPrompt(req: MomentPromptReq): MomentPromptView {
     // #1792 — one-shot Producer Read: consume the pending ExchangeAccounting and clear
     // it so it never fires again (not even on the shared view()/HUD path). Convert to
@@ -23111,6 +23393,7 @@ export class GameSessionAdapter implements GameSession {
     // ADR 0019 Layer 2: augment the NARRATION view (only) with each present houseguest's own knowledge
     // scope. Absent when nobody present holds anything ⇒ byte-identical prompt.
     const pk = this.presentKnowledgeForPrompt();
+    const disc = this.discretionForPrompt(); // ORW-1171: who in earshot is in on what, and the engine's discretion call
     // Augment the narration view with the one-shot Producer Read string (if any).
     // Present ONLY in the getMomentPrompt path — the shared view() never carries it,
     // so the HUD/getGameState never sees or consumes it.
@@ -23119,7 +23402,8 @@ export class GameSessionAdapter implements GameSession {
       : pk.length
         ? { ...baseView, presentKnowledge: pk }
         : baseView;
-    const view1 = slept ? { ...view0, whileYouSlept: slept } : view0;
+    const view0d = disc ? { ...view0, discretion: disc } : view0;
+    const view1 = slept ? { ...view0d, whileYouSlept: slept } : view0d;
     const view2 = this.napOpenNow() ? { ...view1, napOpen: true as const } : view1; // 0148: the NAP line only when a nap is possible
     const bedsNow = this.bedsLine(); // ORW-466 slice 2: the move-in bed pick, per turn (absent outside the claim window / headless)
     const view3a = bedsNow ? { ...view2, beds: bedsNow } : view2;

@@ -23,7 +23,7 @@ const deployedProfile = execFileSync(
     if (!/^ORWELL_[A-Z0-9_]+=\S+$/.test(l)) throw new Error(`unexpected line from orwell_optin_env_defaults: ${l}`);
     return l;
   })
-  .filter((l) => !/^ORWELL_(EMBEDDINGS|EMBED_CACHE|COMP_MECHANICS_MORE)=/.test(l));
+  .filter((l) => !/^ORWELL_(EMBEDDINGS|EMBED_CACHE)=/.test(l));
 for (const line of deployedProfile) {
   const i = line.indexOf("=");
   process.env[line.slice(0, i)] = line.slice(i + 1);

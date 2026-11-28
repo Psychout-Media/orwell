@@ -191,15 +191,46 @@ _BELT_RUN_TOOLS = {"bedtime-turn-in-direct": "turnIn", "nap-direct": "nap"}
 _NOT_A_NARRATOR_ACT = frozenset({"noteMessage"})
 
 
+#: ORW-1011 C3: a commit the front end made from the pre-reply plan (`plan-commit:<tool>`). It is not a narrator call and not a belt: it is counted under its own label,
+#: and the tool event it leaves behind (so the scene belt stands down) is not read as the narrator's.
+PLAN_COMMIT_PREFIX = "plan-commit:"
+
+
 def classify_driver(tools_called: Any, belts_fired: Any) -> str:
-    """'narrator' (a game tool call only), 'belt' (a belt-committed change only), 'both', or 'none' (no engine change this turn)."""
+    """'narrator' (a game tool call only), 'belt' (a belt-committed change only), 'both', 'plan' (only commits from the plan), or 'none' (no engine change this turn).
+    A plan commit never counts as the narrator and never as a belt; beside a narrator call or a belt the turn keeps that label (the plan turn count is reported on its own)."""
     belts = {str(n): c for n, c in (belts_fired or {}).items()} if isinstance(belts_fired, dict) else {}
     belt_names = [n for n in belts if n.startswith(ENGINE_CHANGE_BELT_PREFIXES)]
+    plan_names = [n for n in belts if n.startswith(PLAN_COMMIT_PREFIX)]
     belt_ran = {t for b, t in _BELT_RUN_TOOLS.items() if any(n.startswith(b) for n in belt_names)}
+    plan_ran = {n[len(PLAN_COMMIT_PREFIX):] for n in plan_names}
     tools = [t for t in (tools_called or []) if isinstance(t, str)]
-    narrator = any(t in BUMPING_WRITES and t not in _NOT_A_NARRATOR_ACT and t not in belt_ran for t in tools)
+    narrator = any(t in BUMPING_WRITES and t not in _NOT_A_NARRATOR_ACT and t not in belt_ran and t not in plan_ran for t in tools)
     belt = bool(belt_names)
-    return "both" if narrator and belt else "narrator" if narrator else "belt" if belt else "none"
+    plan = bool(plan_names)
+    if belt and narrator:
+        return "both"
+    if narrator:
+        return "narrator"
+    if belt:
+        return "belt"  # a belt that fired is counted even beside a plan commit (the plan did not cover that change)
+    return "plan" if plan else "none"
+
+
+#: ORW-1014 (written definition, design doc 2026-11-13 "Revision 2026-11-28"): SCHEDULED ENGINE FLOW is a commit the show's own staged schedule makes, with no player act and no
+#: narrator omission behind it: the premiere entrance and toast arrivals, released by the engine before the reply (`premiere-arrival-pre-release`) or deferred to the next
+#: turn's release (`premiere-arrival-postreply-deferred`). It is reported on its own (`engineFlowTurns`) and is NOT a narrator failure. It is NOT in ENGINE_CHANGE_BELT_PREFIXES, so it
+#: never counted as belt-driven: the recount under this definition leaves `drivenBy` and both rates exactly as they were, and only adds the visible count. Advisory belts
+#: stay advisory. Nothing that replaces a player act or a narrator call (`auto-*`, `forced-advance*`, `player-move-intent`, the direct belts) is ever listed here.
+SCHEDULED_FLOW_BELT_PREFIXES = ("premiere-arrival-",)
+#: The act-first round's own commits are model tool calls (`act-first:<tool>`): a turn the ledger could not row still counts them as tool calls.
+_ACT_FIRST_PREFIX = "act-first:"
+
+
+def scheduled_flow_belts(belts_fired: Any) -> list[str]:
+    """The scheduled-engine-flow belt names that fired (see SCHEDULED_FLOW_BELT_PREFIXES)."""
+    belts = belts_fired if isinstance(belts_fired, dict) else {}
+    return sorted(str(n) for n in belts if str(n).startswith(SCHEDULED_FLOW_BELT_PREFIXES))
 
 
 _UNKNOWN_LOGGED: dict[str, float] = {}
@@ -226,6 +257,12 @@ _MAX_GAP_BUMPS = 16
 # sent investigators to a turn where nothing fired. `park_pending_unledgered_turn` moves them here instead:
 # they stay in the playtest totals (`get_belt_totals` / `get_forced_choice_totals`) but never on a game-turn row.
 _PARKED_BELTS: dict[str, dict[str, int]] = {}
+#: ORW-1014 metric gap (prod 2026-11-28: 26 player messages, 12 `driver=` lines): every player message is now accounted for. `_RECORDED` counts the rows `record_turn` wrote
+#: (the agent loop compares it across a turn to see a turn that never reached its row); `_CASTING_TURNS` counts the casting-interview messages (never game turns, never rowed).
+_RECORDED: dict[str, int] = {}
+#: ORW-1143: how many unledgered rows `record_unledgered_turn` wrote per user this process (a failed turn is accounted once, by whichever layer saw it first).
+_UNLEDGERED: dict[str, int] = {}
+_CASTING_TURNS: dict[str, int] = {}
 _PARKED_FORCED: dict[str, dict[str, dict[str, int]]] = {}
 
 
@@ -583,12 +620,15 @@ def park_pending_unledgered_turn(user: str | None) -> None:
         k = _key(user)
         with _LOCK:
             _IN_TURN.pop(k, None)
+            _CASTING_TURNS[k] = _CASTING_TURNS.get(k, 0) + 1
         belts = _drain_pending_belts(k)
         forced = _drain_pending_forced(k)
         _drain_pending_stale(k)
         _drain_pending_fe_writes(k)
         with _LOCK:
             _WINDOW_DISPATCHED.pop(k, None)  # ORW-439: same span as the FE-write count it sits beside
+        logger.info("[orwell] sync-ledger casting turn user=%s (interview message: not a game turn, not rowed) belts=[%s]", k,
+                    ",".join(f"{n}:{c}" for n, c in belts.items()) or "-")
         with _LOCK:
             if belts:
                 pb = _PARKED_BELTS.setdefault(k, {})
@@ -600,6 +640,57 @@ def park_pending_unledgered_turn(user: str | None) -> None:
                     e = pf.setdefault(name, {"honored": 0, "ignored": 0})
                     e["honored"] += counts.get("honored", 0)
                     e["ignored"] += counts.get("ignored", 0)
+    except Exception:  # pragma: no cover - defence in depth
+        pass
+
+
+def recorded_count(user: str | None) -> int:
+    """How many rows `record_turn` has written for the user this process (the agent loop compares it across a turn). Never raises."""
+    try:
+        with _LOCK:
+            return _RECORDED.get(_key(user), 0)
+    except Exception:  # pragma: no cover
+        return 0
+
+
+def unledgered_count(user: str | None) -> int:
+    """How many unledgered rows `record_unledgered_turn` wrote for the user this process. Never raises."""
+    try:
+        with _LOCK:
+            return _UNLEDGERED.get(_key(user), 0)
+    except Exception:  # pragma: no cover
+        return 0
+
+
+def record_unledgered_turn(user: str | None, *, session: Any = None, reason: str = "no-record") -> None:
+    """ORW-1014 metric gap: a live-game turn that never reached `record_turn` (prod 2026-11-28 01:48Z: the act-first turn died with an UnboundLocalError, no `driver=` line, and its belts
+    landed on the NEXT turn's row). Writes its own row so the turn is counted: `unledgered` names why (failed / closed / no-record), the buffered belts drain onto THIS row, and the
+    driver is read from them (an `act-first:<tool>` belt is the model's own tool call). The beat baseline and the gap check are left alone (nothing here is a beat reading). Never raises."""
+    try:
+        k = _key(user)
+        with _LOCK:
+            _IN_TURN.pop(k, None)
+        belts = _drain_pending_belts(k)
+        forced = _drain_pending_forced(k)
+        _drain_pending_stale(k)
+        _drain_pending_fe_writes(k)
+        with _LOCK:
+            _WINDOW_DISPATCHED.pop(k, None)
+        tools = [n[len(_ACT_FIRST_PREFIX):] for n in belts if str(n).startswith(_ACT_FIRST_PREFIX)]
+        entry = _entry(session=session, turn_id=session, beat_seq_before=0, beat_seq_after=0, tools_called=tools, nudges_fired=0, auto_backfills=0,
+                       desync_detected=False, stale_rejections=0, idempotency_hits=0, belts_fired=belts, forced_choice=forced)
+        entry["unledgered"] = _clean_id(reason) or "no-record"
+        if entry["unledgered"] == "failed":
+            entry["drivenBy"] = "error"  # ORW-1143: a turn that died is its own driver, never read as narrator / belt / none
+        with _LOCK:
+            _UNLEDGERED[k] = _UNLEDGERED.get(k, 0) + 1
+            data = _load()
+            bucket = data.get(k)
+            bucket = bucket if isinstance(bucket, list) else []
+            bucket.append(entry)
+            data[k] = bucket[-_MAX_PER_USER:]
+            atomic_write_json(str(LEDGER_PATH), data, indent=2)
+        _log_line(k, entry)
     except Exception:  # pragma: no cover - defence in depth
         pass
 
@@ -763,20 +854,28 @@ def get_driver_totals(user: str | None) -> dict[str, Any]:
     k = _key(user)
     with _LOCK:
         bucket = _load().get(k)
-    split = {"narrator": 0, "belt": 0, "both": 0, "none": 0}
-    n = af = 0
+    split = {"narrator": 0, "belt": 0, "both": 0, "none": 0, "plan": 0}
+    n = af = flow = unl = pt = err = 0
     if isinstance(bucket, list):
         for e in bucket:
             if isinstance(e, dict):
                 n += 1
                 if any(str(b).startswith("act-first:") for b in (e.get("beltsFired") or {})):
                     af += 1  # ORW-1014 PR 2: the act-first round committed an act this turn (counted as a tool call: the model made it)
+                if scheduled_flow_belts(e.get("beltsFired")):
+                    flow += 1
+                if any(str(b).startswith(PLAN_COMMIT_PREFIX) for b in (e.get("beltsFired") or {})):
+                    pt += 1
+                if e.get("unledgered"):
+                    unl += 1
+                if e.get("drivenBy") == "error":
+                    err += 1
                 split[classify_driver(e.get("toolsCalled"), e.get("beltsFired"))] += 1
     nt = split["narrator"] + split["both"]
     bt = split["belt"] + split["both"]
     return {"turns": n, "narratorToolTurns": nt, "beltDrivenTurns": bt,
             "narratorOnly": split["narrator"], "beltOnly": split["belt"], "both": split["both"], "none": split["none"],
-            "actFirstTurns": af, "narratorToolRate": round(nt / n, 3) if n else None, "beltDrivenRate": round(bt / n, 3) if n else None}
+            "planOnly": split["plan"], "planCommitTurns": pt, "actFirstTurns": af, "engineFlowTurns": flow, "unledgeredTurns": unl, "errorTurns": err, "castingTurns": _CASTING_TURNS.get(k, 0), "narratorToolRate": round(nt / n, 3) if n else None, "beltDrivenRate": round(bt / n, 3) if n else None}
 
 
 def _drain_pending_belts(user_key: str) -> dict[str, int]:
@@ -1081,6 +1180,8 @@ def record_turn(
         # RC6 (write-durability): the write COMMITTED — now it is safe to advance the beat baseline.
         # Only baseline off a real (tracked, non-zero) beat — an untracked 0/0 turn (the inert spine
         # posture) must never seed a phantom gap for the next real turn.
+        with _LOCK:
+            _RECORDED[k] = _RECORDED.get(k, 0) + 1
         if entry["beatSeqAfter"] > 0:
             with _LOCK:
                 _LAST_BEAT_AFTER[k] = entry["beatSeqAfter"]
@@ -1140,7 +1241,7 @@ def _log_line(user_key: str, entry: dict) -> None:
         ) or "-"
         logger.info(
             "[orwell] sync-ledger turn user=%s session=%s turn=%s beat=%s→%s "
-            "tools=[%s] nudges=%s backfills=%s desync=%s stale=%s idem=%s belts=[%s] forced=[%s] driver=%s",
+            "tools=[%s] nudges=%s backfills=%s desync=%s stale=%s idem=%s belts=[%s] forced=[%s] driver=%s flow=[%s] unledgered=%s",
             user_key,
             entry.get("session") or "-",
             entry.get("turnId") or "-",
@@ -1155,6 +1256,8 @@ def _log_line(user_key: str, entry: dict) -> None:
             belts,
             forced,
             entry.get("drivenBy") or "-",
+            ",".join(scheduled_flow_belts(entry.get("beltsFired"))) or "-",
+            entry.get("unledgered") or "-",
         )
     except Exception:  # pragma: no cover
         pass

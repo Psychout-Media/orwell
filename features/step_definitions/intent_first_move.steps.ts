@@ -57,8 +57,11 @@ Then(/^the engine has the player in (the kitchen|the backyard|the living room)$/
 
 Then(/^the game state hands the narrator the move from (the \w+(?: \w+)?) to (the \w+(?: \w+)?)$/, function (from: string, to: string) {
   const s = bag(this).s!;
-  assert.deepEqual(bag(this).r!.playerMove, { from: ROOM[from], to: ROOM[to] });
-  assert.deepEqual(s.getGameState().playerMove, { from: ROOM[from], to: ROOM[to] }, "the narrator's view does not carry the move");
+  // ORW-1138: the move also names who stayed or came along; from and to are the contract here.
+  for (const pm of [bag(this).r!.playerMove, s.getGameState().playerMove]) {
+    assert.ok(pm, "the narrator's view does not carry the move");
+    assert.deepEqual({ from: pm!.from, to: pm!.to }, { from: ROOM[from], to: ROOM[to] });
+  }
 });
 
 Then("the game state hands the narrator no move", function () {

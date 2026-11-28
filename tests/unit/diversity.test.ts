@@ -569,6 +569,8 @@ describe("0063 — RNG isolation: identity never bends a seeded outcome (the #33
             : p.kind === "goodbye-message" ? { kind: p.kind, vote: "respectful" }
             : p.kind === "exit-interview" ? { kind: p.kind, vote: "gracious" } // 0130: the evicted player's exit stance
             : p.kind === "juror-question" ? { kind: p.kind, statement: "x" }
+            : p.kind === "finale-interview" ? { kind: p.kind, vote: "gracious" } // ORW-1104: a juror-player (voted out late) is asked their finale interview stance
+            : p.kind === "spectator-choice" ? { kind: p.kind, vote: "skip" } // ORW-1104: a season whose seeded draws vote the player out early raises the spectator card; the driver answers it
             : { kind: p.kind };
           const sub = sb.session.submitDecision(ans as never) as { finished: boolean; event?: { beat?: string; content?: string } | null };
           if (sub.event?.content) beats.push(`${sub.event.beat}:${neutralize(sub.event.content)}`);

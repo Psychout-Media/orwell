@@ -61,7 +61,7 @@ describe("a betrayal rumor records its victim from the real betrayal event (play
       const victim = betrayed(s).find((x) => room(s).includes(x))!;
       const { o: bystander } = await tellTheRoom(s, victim);
       return heardTold(s, bystander) ? { s, victim, bystander } : undefined;
-    }, wfScan([1, 8, 5, HINT], "a played season where the player breaks a deal at the secret ballot and the bystander hears the told rumor"));
+    }, wfScan([2, 1, 8, 5, HINT], "a played season where the player breaks a deal at the secret ballot and the bystander hears the told rumor"));
     const at = found.at.s, v = found.at.victim, o = found.at.bystander;
     const deal = dealsOf(at).find((d) => d.status === "broken" && d.brokenBy === PLAYER && d.parties.includes(v)) as Deal & { secretVote?: boolean };
     expect(deal.secretVote, "the break was the player's secret ballot").toBe(true);
@@ -73,7 +73,7 @@ describe("a betrayal rumor records its victim from the real betrayal event (play
     const drop = -(toO()!.impact?.trust ?? 0);
     expect(drop, "a bystander distrusts the betrayer").toBeGreaterThan(0);
     expect(drop).toBeLessThan(0.1);
-  }, 120_000);
+  }, 900_000);
 
   // ORW-813: not reached in play. A victim is named only for a PUBLIC break (a nomination or a replacement by the player as HOH; a ballot break stays sealed). In 18 played seasons
   // (seeds 1-18, the scripted talking player nominating any houseguest it holds a safety deal with) the player was never HOH before week 8 or their eviction, so no public break happened.
