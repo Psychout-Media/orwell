@@ -26,7 +26,7 @@ function oneToOne(): { s: GameSessionAdapter; here: Room; val: string; valName: 
     for (let i = 0; i < 60 && s.whereabouts()?.houseEvent; i++) step(s);
     const w = s.whereabouts();
     if (!w || w.houseEvent || (w.present?.length ?? 0) < 1) continue;
-    const occ = s.occupancy()!;
+    const occ = s.occupancy()! as unknown as Map<string, Room>;
     const here = w.room as Room;
     const val = w.present![0]!.id;
     const away = (WALKABLE_ROOMS as readonly Room[]).filter((r) => r !== here && r !== "hoh-room" && !r.startsWith("bedroom"));
@@ -65,7 +65,7 @@ describe("ORW-1169: a one-to-one talk is a lock", () => {
   });
   it("two houseguests in the room is no private talk: nothing is locked", () => {
     const { s, val, others, here } = oneToOne();
-    s.occupancy()!.set(others[0] as never, here);
+    (s.occupancy()! as unknown as Map<string, Room>).set(others[0]!, here);
     s.noteConversationPartners([val as never]);
     expect(liveOf(s).talkHold).toBeUndefined();
     expect(s.whereabouts()!.privateTalk).toBeUndefined();
