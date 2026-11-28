@@ -1030,6 +1030,8 @@ def defer_postreply_arrival_commit(user) -> bool:
     except Exception:
         return False
 _TOAST_FLOW_BATCHES = 4  # ORW-997: an explicit next / continue plays up to this many toast batches (two speakers each) in one turn
+_ARRIVED_NAMES: dict = {}       # ORW-1130: runway key -> every houseguest name the board shows as arrived (the toast list's names)
+_TOAST_CONTEXT_RE = re.compile(r"\b(?:toasts?|toasting|glass(?:es)?|raises?|raised|cheers|champagne|clinks?)\b", re.IGNORECASE)
 _TOAST_BATCH_NAMED: dict = {}   # runway key -> tuple of the toast batch a reply already voiced
 # ORW-997: the latest staged release (an arrival or a toast batch) and how many framed turns have handed it to the narrator. A release handed once and named in the reply (or handed twice) is VOICED: the next
 # framing of the same release says so (the engine marks the entrance `voiced`), so a no-advance turn never plays it again. A new release (a new signature) starts again at zero.
@@ -1130,6 +1132,22 @@ def arrival_voice_hold(user, narration: str) -> bool:
         return False
 
 
+def _toast_voiced_ahead(narration: str, names, released) -> set:
+    """ORW-1130: the houseguests (from `names`, not in the released batch) the narration voices a toast for: named in a sentence or line that is itself about the toast. Pure."""
+    out = set()
+    try:
+        parts = [p for p in re.split(r"(?<=[.!?])\s+|\n+", narration or "") if p.strip()]
+        skip = {str(r).strip().lower() for r in (released or [])}
+        for n in names or []:
+            if str(n).strip().lower() in skip:
+                continue
+            if any(_name_voiced_in(p, str(n)) and _TOAST_CONTEXT_RE.search(p) for p in parts):
+                out.add(str(n))
+    except Exception:
+        return set()
+    return out
+
+
 def note_premiere_narration(user, narration: str) -> None:
     """ORW-704: after a premiere turn, remember which framed arrivals / which toast batch this reply actually named. Never raises."""
     try:
@@ -1142,6 +1160,15 @@ def note_premiere_narration(user, narration: str) -> None:
         people = [x for x in (sp or []) if x != "host"]
         if people and all(_name_voiced_in(narration, x) for x in people):
             _TOAST_BATCH_NAMED[key] = tuple(people)
+        if _PREMIERE_ENTRANCE_STAGE.get(key) == "toast":
+            # ORW-1130: the narrator may voice toasts for speakers the engine has not released. A houseguest named in a sentence that is itself a toast, beyond the released batch, is reported on the next release.
+            _ahead = _toast_voiced_ahead(narration, _ARRIVED_NAMES.get(key) or [], [x for x in (sp or []) if x != "host"])
+            if _ahead:
+                try:
+                    from src import orwell_engine as _oe_ahead
+                    _oe_ahead.set_toast_voiced_ahead(user, _ahead)  # the next advanceGame (whoever calls it) reports them; the engine never releases them again
+                except Exception as _fs_exc:
+                    _failsoft_note("chat_helpers:note_premiere_narration:2", _fs_exc)
     except Exception as _fs_exc:
         _failsoft_note("chat_helpers:note_premiere_narration:1", _fs_exc)
         pass
@@ -1189,6 +1216,12 @@ def note_premiere_turn(user, game_state) -> None:
             except Exception:
                 sp = []
             try:
+                _an = ((((game_state or {}).get("premiere") or {}).get("entrance") or {}).get("arrivedNames")) or []
+                if _an:
+                    _ARRIVED_NAMES[key] = [str(x) for x in _an]
+            except Exception:  # failsoft-ok: the toast ahead check is an aid
+                pass
+            try:
                 _note_entrance_frame(user, key, stage, ((game_state or {}).get("premiere") or {}).get("entrance") or {})
             except Exception:  # failsoft-ok: the voiced mark is a prompt aid; a miss leaves the old behaviour
                 pass
@@ -1203,7 +1236,7 @@ def note_premiere_turn(user, game_state) -> None:
                 _PREMIERE_TOAST_SPEAKERS.pop(key, None)
             return
         _PREMIERE_ENTRANCE_STAGE.pop(key, None)
-        for _d in (_ARRIVALS_NAMED, _ARRIVALS_FRAMED, _ARRIVAL_VOICE_HOLDS, _TOAST_BATCH_NAMED, _ENTRANCE_FRAMES):
+        for _d in (_ARRIVALS_NAMED, _ARRIVALS_FRAMED, _ARRIVAL_VOICE_HOLDS, _TOAST_BATCH_NAMED, _ENTRANCE_FRAMES, _ARRIVED_NAMES):
             _d.pop(key, None)  # ORW-704: the staged premiere is over (or a new game): nothing is owed
         try:
             from src import orwell_engine as _oe_clear

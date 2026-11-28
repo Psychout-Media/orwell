@@ -1194,6 +1194,20 @@ async def pipeline_cast(user: str | None = None, timeout: float | None = None) -
 _ENTRANCE_VOICED: dict = {}
 
 
+# ORW-1130: per user, the toast speakers a reply voiced beyond the released batch. EVERY advanceGame (the pre-reply release, the end-of-turn belt, the narrator's own call) reports them once, so the engine
+# never releases a houseguest who has already toasted.
+_TOAST_VOICED_PENDING: dict = {}
+
+
+def set_toast_voiced_ahead(user, names) -> None:
+    """ORW-1130: add houseguest names the latest reply voiced a toast for beyond the released batch (empty clears)."""
+    k = str(user or "")
+    if names:
+        _TOAST_VOICED_PENDING.setdefault(k, set()).update(str(n) for n in names)
+    else:
+        _TOAST_VOICED_PENDING.pop(k, None)
+
+
 def set_entrance_voiced(user, voiced: bool) -> None:
     """ORW-997: record whether the latest staged-premiere release was already voiced (False clears it)."""
     k = str(user or "")
@@ -1443,7 +1457,7 @@ async def end_of_session_summary(user: str | None = None) -> dict:
     return await _call("endOfSessionSummary", {}, user=user)
 
 
-async def advance_game(expected_beat_seq: int | None = None, idempotency_key: str | None = None, user: str | None = None, toast_batches: int | None = None) -> dict:
+async def advance_game(expected_beat_seq: int | None = None, idempotency_key: str | None = None, user: str | None = None, toast_batches: int | None = None, toast_voiced: list | None = None) -> dict:
     """Advance the weekly loop by one beat (HOH→noms→veto→ceremony→eviction→finale).
     NPC beats resolve automatically; returns the beat event, any pending player decision,
     and the public status. Vault-free.
@@ -1460,6 +1474,10 @@ async def advance_game(expected_beat_seq: int | None = None, idempotency_key: st
         args["idempotencyKey"] = idempotency_key
     if toast_batches is not None and toast_batches > 1:
         args["toastBatches"] = int(toast_batches)  # ORW-997: a watch-only toast circle flows several batches in one advance
+    _pend = _TOAST_VOICED_PENDING.pop(str(user or ""), None)
+    toast_voiced = sorted(set(toast_voiced or ()) | set(_pend or ()))
+    if toast_voiced:
+        args["toastVoiced"] = [str(x) for x in toast_voiced][:40]  # ORW-1130: toasts the narrator already voiced past the released batch; the engine never releases them again
     return await _call("advanceGame", args, user=user)
 
 
