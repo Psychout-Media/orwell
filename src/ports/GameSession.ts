@@ -1381,6 +1381,8 @@ export interface RecordOpenLedgerReq {
   parties?: string[];
   /** Slice 2: who or what a claim concerns, free text (at most 80 characters; a houseguest id when it is one). */
   about?: string;
+  /** ORW-1177: a dated plan ("ice breakers tomorrow morning"): the day it falls due (today or tomorrow) and, when named, the part of that day. The engine counts the day itself. */
+  due?: { day: "today" | "tomorrow"; part?: "morning" | "afternoon" | "evening" | "night" };
   /**
    * 0155 / ORW-330 slice 6: when the entry is a claim about houseguests that fits the engine's claim set, its structured form (the front end's
    * extraction proposes it). The engine re-validates it, gives it its truth from its own records, and every listener holds it as a belief.

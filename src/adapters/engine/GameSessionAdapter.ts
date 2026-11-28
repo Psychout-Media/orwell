@@ -23523,7 +23523,7 @@ export class GameSessionAdapter implements GameSession {
       // reads or prints game content; the output is otherwise byte-identical.
       const played = this.live?.playedGame === true;
       try {
-        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined, this.openLedgerEnabled && played ? (here) => openLedgerSection(this.openLedger, here, (id) => this.nameOf(id as never), this.beatSeq) : undefined, this.narrationUsageEnabled && played ? (here) => narrationUsageSection(this.narrationUse, here as readonly string[], (id) => this.nameOf(id as never), narrationAnchor(this.gameSeed ?? 0, this.narrationUse.turns)) : undefined);
+        showBrief = buildShowBrief(narrView, req.brief, this.roomCanonEnabled && played ? (room) => roomCanonSection(room, activeCanon(this.canonLedger)) : undefined, played ? this.openThreadLines() : undefined, this.openLedgerEnabled && played ? (here) => openLedgerSection(this.openLedger, here, (id) => this.nameOf(id as never), this.beatSeq, { day: this.ledgerDay() ?? 1, ...(this.live?.timeOfDay ? { part: this.live.timeOfDay } : {}) }) : undefined, this.narrationUsageEnabled && played ? (here) => narrationUsageSection(this.narrationUse, here as readonly string[], (id) => this.nameOf(id as never), narrationAnchor(this.gameSeed ?? 0, this.narrationUse.turns)) : undefined);
         if (!showBrief && played && view.started && view.player && view.whereabouts) this.noteBriefFailure("empty");
       } catch {
         showBrief = undefined;
