@@ -58,8 +58,9 @@ describe("vote talk in a played season", () => {
   it("a unanimous count catches every believed \"I voted to keep them\" at once, and a credit it earned is taken back", async () => {
     const caughtCredit = (s: Stop, t: Talk) => t.tally.keepVotes === 0 && t.told.some((c) => c.listener !== PLAYER && beliefOf(s, c.listener, c.id)?.refuted && (beliefOf(s, c.listener, c.id)?.impact?.trust ?? 0) > 0);
     // 36 since ORW-779 moved the played seasons (of seeds 1-36 in the sandboxes wf-<seed>, only 36 got there); the earlier hints stay as the fallback.
+    // ORW-1194: 1 first (the tour no longer overrules a private talk, which moved the played seasons; a scan over 1-30 found 1).
     // ORW-1091: 17 first (the both-sides fold meter moved the played seasons; a wide probe over 1-60 found 17 first); the earlier hints stay as the fallback.
-    const { at, talk } = await firstTalk([13, 17, 36, 3, 20, 1, 24], caughtCredit);
+    const { at, talk } = await firstTalk([1, 13, 17, 36, 3, 20, 24], caughtCredit);
     // the count rules out every keep claim about the evictee from a voter: each one believed is now caught, with a lied-to-me in its listener
     for (const c of talk.told.filter((x) => x.listener !== PLAYER && x.object === talk.tally.evictee && talk.tally.voters.includes(x.subject))) {
       const b = beliefOf(at, c.listener, c.id);
