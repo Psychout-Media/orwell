@@ -102,7 +102,7 @@ def test_room_strip_only_reads_named_ref_and_roster_fields():
     started are the full known-safe set; anything else is a drift signal worth a human look.)"""
     known_safe = {
         "id", "name", "status", "portrait", "room", "present", "asleep", "started",
-        "roster", "whereabouts", "unavailable",
+        "roster", "whereabouts", "unavailable", "privateTalk",
     }
     # Field reads off the response objects this module names explicitly.
     reads = set(re.findall(r'\b(?:state|w|rc|card|person|p|h|rosterData|statusData|whereData)\.(\w+)', ROOM_STRIP))

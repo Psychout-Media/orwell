@@ -1413,6 +1413,10 @@ export function renderGameContext(view: GameStateView): string {
         ? [`    THE ${milestoneLabel(wa.houseEvent.kind as keyof typeof MILESTONE_LABEL).toUpperCase()} IS IN SESSION (engine truth): the whole house is gathered in ${roomRefHere(wa.houseEvent.room)}, and that is where it happens.`]
         : []),
       `    With you: ${here}.`,
+      // ORW-1169: a private talk is a lock the engine keeps: the two are busy until the scene ends.
+      ...(wa.privateTalk
+        ? [`    PRIVATE TALK (engine truth): you are talking privately with ${wa.privateTalk.with.name}. Neither of you leaves, and nobody else walks in, until the talk ends (a goodbye, one of you walking off, or an interruption the story shows). Keep the scene with them; do not move ${wa.privateTalk.with.name} elsewhere and do not write anyone else into the room.`]
+        : []),
       // ORW-249: the engine re-seated the house after the player's message - voice who walked in / out as ONE short beat so the story and the widget change together.
       ...(wa.sinceSend && (wa.sinceSend.arrived.length || wa.sinceSend.departed.length)
         ? [`    SINCE YOU SPOKE (engine truth - weave in as ONE short beat, never skip it): ${[wa.sinceSend.arrived.length ? `${wa.sinceSend.arrived.join(", ")} just walked in` : "", wa.sinceSend.departed.length ? `${wa.sinceSend.departed.join(", ")} left the room` : ""].filter(Boolean).join("; ")}.`]

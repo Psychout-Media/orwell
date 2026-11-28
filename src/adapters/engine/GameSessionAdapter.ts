@@ -475,6 +475,8 @@ import { diffuseGossip, makeSocialGraph, gossipEdgeAffinity, GOSSIP, GOSSIP_HEAR
 import { notablePlayerActs } from "../../engine/legends";
 import { stripNonActs } from "../../engine/playerText";
 /** ORW-1138: the player's own words make the walk a group walk. */
+/** ORW-1169: an invite put to someone ("want to come?", "care to join me", "come along", "come on"): the invited person may accept or decline. */
+const INVITE_RE = /\b(?:want to (?:come|join|walk|go)|care to (?:come|join|walk)|would you (?:like to )?(?:come|join)|come along|come on|join me|walk with me|come (?:with|outside|over)\b)/i;
 const GROUP_WALK_RE = /\b(?:we|let'?s|lets|let us|us)\b[^.!?\n]*\b(?:go|head|walk|move|come|pick|take|check|find|see)\b|\b(?:go|head|walk|move|come)\b[^.!?\n]*\b(?:together|with me|with us|all of us)\b|\bfollow me\b/i;
 
 const COMP_TYPES: ReadonlySet<string> = new Set<CompetitionType>([
@@ -7987,6 +7989,31 @@ export class GameSessionAdapter implements GameSession {
   /** A recorded player scene's NPC partners: the houseguests the player is talking to (memory-only). */
   noteConversationPartners(ids: readonly EntityId[]): void {
     this.convoPartners = { ids: ids.filter((i) => i !== PLAYER), tick: this.presenceTickCount };
+    this.lockPrivateTalk(this.convoPartners.ids);
+  }
+  /**
+   * ORW-1169: a talk the player has with exactly ONE houseguest who is alone with them in the room is a private talk: both are busy until it ends (the same hold askToTalkAlone writes, so the belt, the schedule wants, the off-screen
+   * plans, a C3 plan move and a narrated move all leave them be, and nobody else is put into the room). It lapses after TALK_ALONE.sceneHours without a new recorded scene, or when the player leaves the room. Played games only;
+   * reads the clock and the floor, draws no rng. An existing hold on someone else is left alone.
+   */
+  private lockPrivateTalk(ids: readonly EntityId[]): void {
+    const live = this.live;
+    if (!live || live.playedGame !== true || !this.presence || ids.length !== 1) return;
+    const npc = ids[0]!;
+    const here = this.presence.get(PLAYER);
+    if (here === undefined || this.presence.get(npc) !== here || here === "diary-room" || this.houseEventInSession()) return;
+    if ([...this.presence].some(([id, where]) => id !== PLAYER && id !== npc && where === here && this.presenceActive().includes(id))) return;
+    const cur = this.talkHoldNow();
+    if (cur && cur.npc !== npc) return;
+    const until = Math.max(cur?.until ?? 0, this.absHour() + TALK_ALONE.sceneHours);
+    live.talkHold = { npc, room: here, until, private: true, ...(cur ? {} : { scene: true as const }) };
+  }
+  /** ORW-1169: who the player is in a private talk with now (a view; null when none). */
+  private privateTalkView(): { with: NamedRef; room: string } | null {
+    const h = this.live?.playedGame === true ? this.talkHoldNow() : null;
+    if (!h || !h.private) return null;
+    const w = this.named(h.npc);
+    return w ? { with: w, room: h.room } : null;
   }
   private conversationHold(): ReadonlySet<EntityId> {
     const c = this.convoPartners;
@@ -8355,6 +8382,7 @@ export class GameSessionAdapter implements GameSession {
     const me = this.house.player.id;
     const here = this.presence.get(me) ?? null;
     const peersBefore = this.companionsOfPlayer(here); // ORW-1138: who the player is with, read before anything moves him
+    const holdBefore = this.live?.talkHold && this.talkHoldNow() ? { ...this.live.talkHold } : null; // ORW-1169: the private talk the player is in, read before the move ends it
     // ORW-672 / 0201: rushing to a room is moving there, before the claim reads whether they reached it. ORW-1138: only when the claim itself is read here; with the bed parse switched off (the act-first round owns this
     // message's bed claim) the pre-move walked the player into the bedroom and wrote no bed owner.
     if (req.skip?.includes("bed") !== true) this.bedRushPreMove(String(req.text ?? ""));
@@ -8415,9 +8443,9 @@ export class GameSessionAdapter implements GameSession {
       const now = this.presence.get(me) ?? null;
       let w = w0;
       if (now === dest) {
-        const company = this.settleCompanions(peersBefore, here, dest, String(req.text ?? "")); // ORW-1138: they come along (a group walk) or stay, and the move says which
+        const company = this.settleCompanions(peersBefore, here, dest, String(req.text ?? ""), holdBefore); // ORW-1138: they come along (a group walk) or stay, and the move says which
         if (company.came.length > 0) w = this.whereabouts();
-        this.playerMove = { from: here, to: dest, ...(company.came.length ? { came: company.came } : {}), ...(company.stayed.length ? { stayed: company.stayed } : {}), ...this.moveStamp() };
+        this.playerMove = { from: here, to: dest, ...(company.came.length ? { came: company.came } : {}), ...(company.stayed.length ? { stayed: company.stayed } : {}), ...(company.declined.length ? { declined: company.declined } : {}), ...this.moveStamp() };
         this.persist();
         result = { playerMove: { ...this.playerMove }, whereabouts: w };
       } else {
@@ -8441,19 +8469,26 @@ export class GameSessionAdapter implements GameSession {
    * ORW-1138: the player walked from `from` to `dest` with `peers` in the room. They come along when the context says so: the player's own words make it a group walk (we / let us / together / follow me), or the self-guided
    * tour is open (the house walks it with him). Otherwise they stay, and the move names them so the narrator says so. The movers take their seats through the same presence view the whole house reads (no event of their own).
    */
-  private settleCompanions(peers: readonly EntityId[], from: Room | null, dest: Room, text: string): { came: string[]; stayed: string[] } {
-    if (peers.length === 0 || !this.presence || from === null) return { came: [], stayed: [] };
-    if (this.live?.houseTour && this.live.premiereEntrance?.stage === "entrances") return { came: [], stayed: [] }; // the tour places the house itself (the house walks it with the player); nobody is reported as left behind
-    const group = GROUP_WALK_RE.test(stripNonActs(text));
+  private settleCompanions(peers: readonly EntityId[], from: Room | null, dest: Room, text: string, hold: { npc: string; private: boolean; until: number } | null = null): { came: string[]; stayed: string[]; declined: string[] } {
+    const none = { came: [] as string[], stayed: [] as string[], declined: [] as string[] };
+    if (peers.length === 0 || !this.presence || from === null) return none;
+    if (this.live?.houseTour && this.live.premiereEntrance?.stage === "entrances") return none; // the tour places the house itself (the house walks it with the player); nobody is reported as left behind
+    const acts = stripNonActs(text);
+    const invite = INVITE_RE.test(acts);
+    const group = GROUP_WALK_RE.test(acts) || invite;
     const still = peers.filter((id) => this.presence!.get(id) === from);
-    if (!group) return { came: [], stayed: still.map((id) => this.nameOf(id)) };
-    for (const id of still) {
+    if (!group) return { ...none, stayed: still.map((id) => this.nameOf(id)) };
+    // ORW-1169 (plan 3.10): the person the player is in a private talk with, invited along, may decline; the story says so. Anyone else invited by name goes through the same ask.
+    const declined = still.filter((id) => hold?.npc === id && !this.talkAloneConsent(id));
+    const moving = still.filter((id) => !declined.includes(id));
+    for (const id of moving) {
       this.presence.set(id, dest);
       this.presenceBase?.set(id, dest);
       this.presenceTenure?.set(id, 0);
       this.presenceZone?.delete(id);
     }
-    return { came: still.map((id) => this.nameOf(id)), stayed: [] };
+    if (hold && this.live && moving.includes(hold.npc as EntityId)) this.live.talkHold = { npc: hold.npc, room: dest, until: Math.max(hold.until, this.absHour() + TALK_ALONE.sceneHours), private: hold.private }; // the private talk walks along with the two
+    return { came: moving.map((id) => this.nameOf(id)), stayed: [], declined: declined.map((id) => this.nameOf(id)) };
   }
 
   /** ORW-934: the clock a search bills per leg (one step into a neighbouring room). Less than a message (5 min): walking next door is quick. */
@@ -10173,6 +10208,7 @@ export class GameSessionAdapter implements GameSession {
       ...(conspicuous.length ? { conspicuous } : {}),
       ...this.leadsFoundWrongView(),
       ...this.sinceSendBeat(me, room, presentPlain, isUp, notHere2),
+      ...((): { privateTalk?: { with: NamedRef } } => { const t = this.privateTalkView(); return t && t.room === room ? { privateTalk: { with: t.with } } : {}; })(), // ORW-1169
       ...this.themedRoomsView(room),
       ...this.bedLayoutView(room),
       ...this.roomCardView(room, presentPlain.map((p) => ({ id: p.id, name: p.name }))),

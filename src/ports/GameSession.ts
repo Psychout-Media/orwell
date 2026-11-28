@@ -2373,6 +2373,8 @@ export interface WhereaboutsView {
    * present only when someone changed - so the story can voice a short arrival/departure beat and story and widget move together. Absent when nothing changed or the player changed rooms.
    */
   sinceSend?: { arrived: string[]; departed: string[] };
+  /** ORW-1169: the player is in a private talk with this houseguest (both are busy until it ends: no move, no plan, nobody walks in). Absent otherwise. */
+  privateTalk?: { with: NamedRef };
   /**
    * 0197 / ORW-631: a lead a houseguest gave the player (ORW-475, asking around) that the player has since SEEN did not hold up: the room named, and where the player found the person if they did. Plain observed
    * facts, shown for a few turns. It never says whether the lead was stale or meant to mislead; the player decides whether to call it out. Absent when none lately.
