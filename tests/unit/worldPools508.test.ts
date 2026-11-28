@@ -4,7 +4,7 @@ import { generateHouse, generateBackstoryFacets, articleFor, MAX_PER_REGION, MAX
 import { WORLD_PLACES, sizeClassOf } from "../../src/engine/data/worldPlaces";
 import { HOMETOWNS } from "../../src/engine/data/hometowns";
 import { buildTable, drawOne, drawConstrained } from "../../src/engine/data/worldSampler";
-import { dealWorldHometowns, MAX_PER_STATE } from "../../src/engine/data/worldHometowns";
+import { dealWorldHometowns, stateCap } from "../../src/engine/data/worldHometowns";
 import { implausibleBecause, ageProblem, RULES, SAFE_VOCATIONS } from "../../src/engine/data/worldPlausibility";
 import { VOCATIONS } from "../../src/engine/data/vocations";
 import { JOB_INDEX, WORLD_JOBS } from "../../src/engine/data/worldJobs";
@@ -53,22 +53,23 @@ describe("ORW-508 hometown deal", () => {
       expect(a).toEqual(dealWorldHometowns(new SeededRandom(seed), 15, MAX_PER_REGION));
       expect(new Set(a).size).toBe(15);
       const ps = a.map((c) => placeOf.get(c)!);
-      const count = (k: (p: (typeof ps)[number]) => string) => Math.max(...Object.values(ps.reduce<Record<string, number>>((m, p) => ((m[k(p)] = (m[k(p)] ?? 0) + 1), m), {})));
-      expect(count((p) => p.state)).toBeLessThanOrEqual(MAX_PER_STATE);
-      expect(count((p) => p.region)).toBeLessThanOrEqual(MAX_PER_REGION);
+      // ORW-995: the caps follow population (a flat 2 per state held California to 11% of draws against 15.7% of residents)
+      const by = (k: (p: (typeof ps)[number]) => string) => ps.reduce<Record<string, number>>((m, p) => ((m[k(p)] = (m[k(p)] ?? 0) + 1), m), {});
+      for (const [s, n] of Object.entries(by((p) => p.state))) expect(n, s).toBeLessThanOrEqual(stateCap(s, 15));
+      for (const [r, n] of Object.entries(by((p) => p.region))) expect(n, r).toBeLessThanOrEqual(MAX_PER_REGION);
     }
   });
   it("avoids what the memory says was used, while there is room", () => {
     const first = dealWorldHometowns(new SeededRandom(77), 15, MAX_PER_REGION);
     const ledger = recordSeason(emptyLedger(), { hometowns: first });
     const second = dealWorldHometowns(new SeededRandom(77), 15, MAX_PER_REGION, avoidSets(ledger));
-    expect(second.filter((c) => first.includes(c))).toEqual([]);
+    expect(second.filter((c) => first.includes(c) && placeOf.get(c)!.size !== "big-city")).toEqual([]); // ORW-995: the memory never blocks a big city
   });
   it("seeded casts use a much wider range of towns than the old 106 and no town dominates", () => {
     const towns = new Map<string, number>();
     for (const seed of SEEDS) for (const n of generateHouse(new SeededRandom(seed)).npcs) towns.set(n.character.hometown!, (towns.get(n.character.hometown!) ?? 0) + 1);
     expect(towns.size).toBeGreaterThanOrEqual(1500);
-    expect(Math.max(...towns.values()) / 3000).toBeLessThan(0.03);
+    expect(Math.max(...towns.values()) / 3000).toBeLessThan(0.05); // ORW-995: at the census frequency New York is 4.3% of residents (before: 3% under the 0.85 flatten)
   });
 });
 

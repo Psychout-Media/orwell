@@ -479,6 +479,8 @@ import { stripNonActs } from "../../engine/playerText";
 /** ORW-1138: the player's own words make the walk a group walk. */
 /** ORW-1169: an invite put to someone ("want to come?", "care to join me", "come along", "come on"): the invited person may accept or decline. */
 const INVITE_RE = /\b(?:want to (?:come|join|walk|go)|care to (?:come|join|walk)|would you (?:like to )?(?:come|join)|come along|come on|join me|walk with me|come (?:with|outside|over)\b)/i;
+/** ORW-1193: the player's own words refuse company ("alone", "by myself", "on my own", "nobody follow me", "do not come with me"); a refusal is never read as the invitation its words contain. Matches the escort gate's solo veto. */
+const SOLO_RE = /\b(?:alone|by myself|on my own|solo|nobody|no ?one|(?:do not|don'?t|dont|never|not)\s+(?:want\s+(?:you|them|anyone|anybody|everyone)\s+to\s+)?(?:come|follow|join|tag))\b/i;
 const GROUP_WALK_RE = /\b(?:we|let'?s|lets|let us|us)\b[^.!?\n]*\b(?:go|head|walk|move|come|pick|take|check|find|see)\b|\b(?:go|head|walk|move|come)\b[^.!?\n]*\b(?:together|with me|with us|all of us)\b|\bfollow me\b/i;
 
 const COMP_TYPES: ReadonlySet<string> = new Set<CompetitionType>([
@@ -1600,6 +1602,18 @@ export class GameSessionAdapter implements GameSession {
    * strength, never the mask). The photos and letter reveal one TRUE fact from the HOH's own public backstory to a player who came up. No number crosses; the narrator voices every line from these facts.
    * Idempotent per (week, HOH) through `live.hohRoom` (saved).
    */
+  /**
+   * ORW-1174 (prod 2026-11-28: the HOH "requested my presence" and the engine held no such request, so the player's yes had nothing to accept): a houseguest who wins the HOH opens an ask for a private word with the
+   * player, in the HOH room, standing for TALK_ALONE.askHours. An engine fact the narrator voices (`openTalkAsk`) and the player's yes accepts through askToTalkAlone. Played games only; no rng; never over an ask or a hold already standing,
+   * and never for the Final 3's crown (no private word left to ask for).
+   */
+  private openHohTalkAsk(hoh: EntityId): void {
+    const s = this.live;
+    if (!s || s.playedGame !== true || hoh === PLAYER || !this.presence?.has(hoh) || !this.livingIds().includes(PLAYER) || s.active.length <= 3) return;
+    if (s.talkAsk && s.talkAsk.until > this.absHour()) return;
+    s.talkAsk = { npc: hoh, until: this.absHour() + TALK_ALONE.askHours, room: "hoh-room" };
+  }
+
   private recordHohRoom(hoh: EntityId): void {
     const s = this.live;
     if (!this.hohRoomOn() || !s || !this.house || !this.onPlayerEvent) return;
@@ -5485,7 +5499,7 @@ export class GameSessionAdapter implements GameSession {
     const gctx: GenesisContext = {
       npcs: cast.npcs.map((n) => ({
         id: n.id, floorArchetype: n.character.archetype,
-        floorStats: { ...n.character.stats }, floorName: n.name,
+        floorStats: { ...n.character.stats }, floorName: n.name, ...(n.character.hometown ? { floorHometown: n.character.hometown } : {}),
       })),
       playerId: PLAYER,
       ...(this.intake.playerName && this.intake.playerName.trim() ? { playerName: this.intake.playerName.trim() } : {}),
@@ -8307,9 +8321,12 @@ export class GameSessionAdapter implements GameSession {
     if (!this.houseTourEnabled || !tourFree(s) || s!.playedGame !== true || !this.presence || !this.house) return;
     const away = this.notYetArrived();
     const step = `${s!.premiereEntrance!.arrived}:${this.seenMessageIds.length}`;
+    const hold = this.talkHoldNow(); // ORW-1194 (plan 3.10 rule 4: the player's own say is not overruled): a private talk in progress is respected by the tour; the partner stays and no one else is placed in the held room
     for (const n of this.house.npcs) {
       if (this.seatOf(n.id) !== "active" || away?.has(n.id)) continue;
-      const room = tourRoomFor(this.gameSeed ?? 0, n.id, step);
+      if (hold && n.id === hold.npc) { if (this.presence.get(n.id) !== hold.room) this.presence.set(n.id, hold.room); continue; }
+      let room = tourRoomFor(this.gameSeed ?? 0, n.id, step);
+      if (hold?.private && room === hold.room) room = this.presence.get(n.id) !== hold.room ? (this.presence.get(n.id) as Room) : "living-room";
       if (this.presence.get(n.id) === room) continue;
       this.presence.set(n.id, room);
       this.presenceTenure?.set(n.id, 0);
@@ -8535,8 +8552,9 @@ export class GameSessionAdapter implements GameSession {
     if (peers.length === 0 || !this.presence || from === null) return none;
     if (this.live?.houseTour && this.live.premiereEntrance?.stage === "entrances") return none; // the tour places the house itself (the house walks it with the player); nobody is reported as left behind
     const acts = stripNonActs(text);
-    const invite = INVITE_RE.test(acts);
-    const group = GROUP_WALK_RE.test(acts) || invite;
+    const solo = SOLO_RE.test(acts); // ORW-1193: "alone" / "by myself" / "do not come with me" means no companions, whatever group or invite words also stand in the line
+    const invite = !solo && INVITE_RE.test(acts);
+    const group = !solo && (GROUP_WALK_RE.test(acts) || invite);
     const still = peers.filter((id) => this.presence!.get(id) === from);
     if (!group) return { ...none, stayed: still.map((id) => this.nameOf(id)) };
     // ORW-1169 (plan 3.10): the person the player is in a private talk with, invited along, may decline; the story says so. Anyone else invited by name goes through the same ask.
@@ -8696,11 +8714,11 @@ export class GameSessionAdapter implements GameSession {
     }
   }
   /** ORW-727b: a houseguest's standing ask for a private word (the open offer the narrator voices), while it has not lapsed. */
-  private openTalkAskView(): { from: NamedRef } | null {
+  private openTalkAskView(): { from: NamedRef; room?: string } | null {
     const a = this.live?.talkAsk;
     if (!a || this.live?.playedGame !== true || this.absHour() >= a.until || !this.presence?.has(a.npc as EntityId)) return null;
     const from = this.named(a.npc as EntityId);
-    return from ? { from } : null;
+    return from ? { from, ...(a.room ? { room: a.room } : {}) } : null; // ORW-1174: the room they have in mind (a new HOH's own room), when they have one
   }
   /** ORW-727b: would this houseguest agree to a private word with the player? Their own read of the player through the deal-consent reads (trust, liking, threat, grudge, favour, who they believe is after them, their own drive against the player) and one KEYED jitter per hour; no shared rng. */
   private talkAloneConsent(npcId: EntityId): boolean {
@@ -8750,10 +8768,13 @@ export class GameSessionAdapter implements GameSession {
     const finish = (r: AskToTalkAloneResult): AskToTalkAloneResult => { r.beatSeq = this.beatSeqNow(); return idemKey ? this.rememberFoldIdempotent(idemKey, r) : r; };
     if (this.houseEventInSession()) return finish({ outcome: "gathered" });
     const now = this.absHour();
-    const theirAsk = live.talkAsk?.npc === npc && live.talkAsk.until > now; // they asked first: the player's yes is all it takes
+    const openAsk = live.talkAsk?.npc === npc && live.talkAsk.until > now ? live.talkAsk : null;
+    // ORW-1174: a houseguest in the player's own room who has just INVITED the player along (the invitation is their consent) is a yes with no roll; the front end sets `invited` only for a houseguest standing here.
+    const theirAsk = openAsk !== null || (req.invited === true && this.presence.get(npc) === here); // they asked first: the player's yes is all it takes
     const awake = this.awakeNow();
     if (!theirAsk && ((awake && !awake.has(npc)) || !this.talkAloneConsent(npc))) return finish({ outcome: "declined" });
-    const resolved = typeof req.room === "string" && req.room.trim() !== "" ? resolveRoom(req.room, here, this.themedAliases()) : null;
+    const roomAsked = typeof req.room === "string" && req.room.trim() !== "" ? req.room : openAsk?.room; // ORW-1174: the room the asker has in mind, when the player named none
+    const resolved = roomAsked !== undefined ? resolveRoom(roomAsked, here, this.themedAliases()) : null;
     if (resolved !== null && resolved.kind !== "ok") { // ORW-1064: a room that is not ONE room is no room: no walk, no "accepted" in another room; the narrator voices that the player must say which
       const reason = this.noteRoomRefusal("askToTalkAlone", resolved);
       return finish({ outcome: reason, ...(resolved.kind === "ambiguous" ? { candidates: [...resolved.candidates] } : {}) });
@@ -21270,6 +21291,7 @@ export class GameSessionAdapter implements GameSession {
     // E46: as the block goes up, the tightest unbound NPC pair may seal a hidden pact of their own.
     if (ev && ev.beat === "hoh-competition" && ev.participants[0]) this.recordLobbyPitches(ev.participants[0]); // B38: the pitches made to the new HOH are real, mostly hidden, events
     if (ev && ev.beat === "hoh-competition" && ev.participants[0]) this.recordHohRoom(ev.participants[0]); // ORW-629: then the room is opened to the whole house
+    if (ev && ev.beat === "hoh-competition" && ev.participants[0]) this.openHohTalkAsk(ev.participants[0]); // ORW-1174: and the new HOH asks the player up for a word: an engine fact the story voices
     if (ev && ev.beat === "nominations") { this.mintNpcDeal(); if (this.npcDealsEnabled) this.mintManyNpcDeals(); }
     // 0142 idea 3 (information): an NPC who promised to tell the player what they hear does so when the two are together. No open information deal (always so in a headless/unplayed game) => no-op, no rng.
     if (ev) this.deliverInformationDeals();

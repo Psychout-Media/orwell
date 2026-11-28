@@ -15,7 +15,7 @@ describe("agenda non-degradation: the trusted window and the full check", () => 
     let earlier: Snap | undefined, later: Snap | undefined;
     const longest = (s: Snap): number => Math.max(0, ...Object.values(s.live?.agendas ?? {}).map((a) => a.history.length));
     // The seed is PICKED, not pinned (ORW-1159: the conversation tether pins people in the player's room, which moved which season's agendas reach three entries and grow): the first seed whose game does both.
-    for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    for (const seed of [2, 4, 5, 6, 7, 8, 1, 3]) { // ORW-995: 2, 4, 5, 6, 7, 8 grow the history on the census cast, 1 and 3 do not
       if (later) break;
       earlier = undefined;
       const reg = composeRuntime({ clock: new FakeClock(), seed }).registry;

@@ -532,7 +532,7 @@ def render_slot_directive(hid: str, d: dict) -> str:
     if isinstance(hand, dict):
         try:
             from src.orwell_facet_ledger import render_hand
-            rendered = render_hand(hand)
+            rendered = render_hand(hand, hometown=not d.get("dealtHometown"))  # ORW-995: a dealt hometown replaces the size/region hint
             if rendered:
                 hand_clause = f" DEALT FACETS: {rendered}."
         except Exception:  # pragma: no cover - defensive: a ledger hiccup never breaks the card
@@ -544,13 +544,18 @@ def render_slot_directive(hid: str, d: dict) -> str:
         name_clause = (f" NAME ANCHORS (fixed): the surname is {d.get('dealtSurname')}; the person was born around "
                        f"{d.get('birthYear')}. Pick a given name that people born then, with this surname and this "
                        "background, are really given; answer exactly 'GivenName " + str(d.get("dealtSurname")) + "'.")
+    # ORW-995: the engine dealt this slot's HOMETOWN (census frequency); the card shows it, so the writer describes it and never picks one.
+    town_clause = ""
+    if d.get("dealtHometown"):
+        town_clause = (f" HOMETOWN (fixed): {d.get('dealtHometown')}. Write the biography and background from this town; "
+                       "do not choose a different one.")
     return (f"{hid} — cast as: {d.get('role')} ({d.get('roleNote')}); archetype tag: {d.get('archetype')}; "
             f"age ~{d.get('ageLo')}-{d.get('ageHi')} (name from that birth era); {accent}; "
             f"energy: {d.get('energy')}; register: {d.get('register')}; "
             f"expressiveness: {d.get('expressiveness')}; reactivity: {d.get('emotionalRegister')}; "
             f"self-awareness: {d.get('selfAwareness')}; social-gravity: {d.get('socialGravity')}; "
             f"{look}."
-            + phys + big + hand_clause + name_clause)
+            + phys + big + hand_clause + town_clause + name_clause)
 
 
 # ── the envelope vocabulary (mirrors src/engine/castGenesis.ts + genesisConstants.ts) ───────────────────
@@ -656,10 +661,10 @@ _SYSTEM = (
     "casting card's DEALT vocation family (a PHYSICAL COMPETITOR card means a physically credible job in "
     "that family); favor castable, story-rich jobs over generic desk work, and NEVER a job already listed "
     "as taken by an earlier houseguest.\n"
-    '  "hometown": a US hometown (city, state) that fits the season\'s regional flavor. Every houseguest '
-    "comes from a DIFFERENT city — never reuse a hometown listed as taken, and never default to the same "
-    "famous metro: suburbs, small cities, and towns are exactly as castable as big cities (a real cast "
-    "comes from Chula Vista, Waco, and Kenosha as often as from Chicago or San Diego).\n"
+    '  "hometown": the HOMETOWN (fixed) the casting card gives this houseguest, copied exactly (the engine dealt it '
+    "at census frequency and the card shows it; whatever you write here is ignored, so write the biography and "
+    "background from that town). When a card gives none, a US hometown (city, state) that fits the season\'s "
+    "regional flavor, a DIFFERENT city for every houseguest.\n"
     '  "demeanor": a short phrase for how they carry themselves (e.g. "warm but guarded").\n'
     '  "background": a short phrase of life context.\n'
     '  "biography": a 2-3 sentence presentable backstory (their life outside the house), written with NO pronouns '
@@ -1376,6 +1381,9 @@ async def seed_cast_genesis(roster: list, seed: int, llm_fn: LlmFn, write_fn: Wr
             age = card.get("age")
             if len(parts) >= 2 and isinstance(age, int) and 18 <= age <= 99:
                 s_ = {**s_, "dealtSurname": " ".join(parts[1:]), "birthYear": 2026 - age}
+            town = card.get("hometown")
+            if isinstance(town, str) and town.strip():
+                s_ = {**s_, "dealtHometown": town.strip()}
             anchored.append(s_)
         slot_list = anchored
     directives = {hid: slot_list[i] for i, hid in enumerate(roster_ids)} if slot_list else None

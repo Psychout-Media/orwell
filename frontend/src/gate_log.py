@@ -20,6 +20,7 @@ GATES = (
     "act-first-prefilter",  # act_first.prefilter: empty / out-of-character, the model is not asked
     "act-first-no-cue",  # act_first.decide: no cue and no plain act in the words, the model is not asked
     "act-first-ungrounded",  # act_first.can_commit_nothing: every call would be rejected, so noAction by construction
+    "act-first-accept",  # act_first.accept_intent: a plain yes to a standing invitation (ORW-1174)
     "act-first-plain-acts",  # act_first.plain_acts: the plain words commit an act without the model
     "search-cue",  # act_first.search_cue: a houseguest named in the words with search offered
     "move-veto",  # act_first.room_vetoed: a precision veto on a move
@@ -61,11 +62,41 @@ def decide(gate: str, fired: bool, reason: str = "", msg: Any = None) -> bool:
     return fired
 
 
+_CTX: "OrderedDict[str, dict]" = OrderedDict()
+_CTX_MAX = 500
+
+
+def note_ctx(msg: Any, *, people=(), rooms=(), here: Any = None, offered: Any = None) -> None:
+    """ORW-1185/1186: the LIVE context a gate saw for one message, kept beside its code so the corpus replays the gate exactly (the offline run has no roster and guesses names from capital letters).
+    Holds the houseguests' first names (the public roster), room ids, the player's room and the offered tool kinds: never any of the player's words. Fail-open, bounded."""
+    try:
+        code = code_of(msg)
+        row = {"people": sorted({str(n).split()[0].lower() for n in (people or []) if str(n).split()})[:40], "rooms": [str(r) for r in (rooms or [])][:40],
+               "here": str(here) if here else None, "offered": sorted(str(k) for k, v in (offered or {}).items() if v)[:12]}
+        with _LOCK:
+            _CTX[code] = row
+            _CTX.move_to_end(code)
+            while len(_CTX) > _CTX_MAX:
+                _CTX.popitem(last=False)
+    except Exception:  # failsoft-ok: a log line never changes a gate's answer
+        pass
+
+
+def ctx_of(code: str) -> "dict | None":
+    with _LOCK:
+        return dict(_CTX[code]) if code in _CTX else None
+
+
+def ctx_export() -> "dict[str, dict]":
+    with _LOCK:
+        return {k: dict(v) for k, v in _CTX.items()}
+
+
 def stats() -> "dict[str, Any]":
     with _LOCK:
         by = {g: dict(v) for g, v in _COUNTS.items()}
         recent = list(_RING)[-20:]
-    return {"byGate": by, "decisions": sum(v["fired"] + v["skipped"] for v in by.values()), "recent": recent, "corpus": _corpus_section()}
+    return {"byGate": by, "decisions": sum(v["fired"] + v["skipped"] for v in by.values()), "recent": recent, "corpus": _corpus_section(), "ctxCodes": len(_CTX)}
 
 
 def _corpus_section() -> Any:
@@ -82,6 +113,7 @@ def reset() -> None:
             v["fired"] = v["skipped"] = 0
         _SEEN.clear()
         _RING.clear()
+        _CTX.clear()
 
 
 def logged(gate: str, *, msg_index: int = 0, fired=bool, reason=None):

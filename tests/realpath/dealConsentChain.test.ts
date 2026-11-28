@@ -38,7 +38,7 @@ function chain(seed: number, user: string, beliefs: boolean) {
 }
 
 /**
- * ORW-880: the first seed from 10 in 1..16 whose game gets there: more than one houseguest agrees to a safety deal, the player breaks one by their own vote, and the
+ * ORW-880: the first seed from 10 in 1..16 whose game gets there: more than one houseguest agrees to a safety deal, the player breaks one by their own vote, and the ORW-995: hints 5, 7, 8 (was 3, 10; the census-hometown cast moves the seeded draws; seeds 1-30 probed one per process: 5, 7, 8, 13, 15, 18, 26, 30 reach it; with the belief store off (the second test, its own sandbox) 3, 13, 17, 20, 21, 25, 26 do).
  * betrayed partner survives that vote (so there is someone to propose to again). The test then asserts what happens when the player does.
  */
 const brokenDeal = (beliefs = true) =>
@@ -48,7 +48,8 @@ const brokenDeal = (beliefs = true) =>
     const c = chain(seed, sandbox, beliefs); if (!c || c.partners.length <= 1) return undefined;
     const second = c.g.s.makeDeal(req(c.betrayed, "final-two")); return isRefusal(second) ? { ...c, second } : undefined;
   },
-    { from: 1, to: 16, hint: [5, 3, 10], sandbox: (s) => `dcc-${s}-${beliefs}`, what: "a broken deal whose betrayed partner survives the vote" }).at;
+    { from: 1, to: 16, hint: beliefs ? [13, 14, 6, 7] : [13, 14, 11], // ORW-1159 on the ORW-995 cast: probe found 13, 14 (both variants), 6, 7 (belief store on only), 11 (off only)
+     sandbox: (s) => `dcc-${s}-${beliefs}`, what: "a broken deal whose betrayed partner survives the vote (ORW-995 census cast)" }).at;
 
 describe("ORW-82 REAL PATH: break a deal by your own vote, then propose to the same houseguest", () => {
   it("the betrayed partner refuses a second proposal for the break's own consequence; a partner not betrayed still accepts", () => {

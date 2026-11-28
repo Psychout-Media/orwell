@@ -63,9 +63,10 @@ const untilYes = async (hint: number, args: Record<string, unknown> = {}, opts: 
 
 describe("ORW-727b: asking for a private word, in a played season", () => {
   it("an accepting houseguest and the player end up alone in a private room; the scene and a deal there are witnessed by exactly the two; the others saw them leave together", async () => {
+    // ORW-1159 on the ORW-995 cast: probe found 1, 3, 5, 6, 9, 10, 13-19, 23-25, 28 pass whole (seeds 1-30); 2 and 11 reach the yes but the houseguest then refuses the safety deal on their own read, so they no longer lead.
     // The precondition: a yes where EVERYONE in the room is awake to see the pair go (a roommate already asleep sees nothing and is not a witness). ORW-1159: the conversation tether pins people in the player's room, which moved which seasons give that.
     const sawAll = (y: Yes) => y.at.engine.events.queryAll().some((e) => /left the .* together for the/.test(String(e.content)) && JSON.stringify([...e.witnessSet].sort()) === JSON.stringify([PLAYER, ...y.witnesses].sort()));
-    const { at: { yes: { at, npc, r, witnesses } } } = await firstSeedWhere(async (seed) => { const p = await playOne(seed, {}, { minCompany: 2 }); if (!sawAll(p.yes)) throw new NotReached(`seed ${seed}: someone in the room was not awake to see the pair go`); return p; }, wfScan([2, 11], "a free moment where a houseguest says yes to the ask with every roommate awake to see"));
+    const { at: { yes: { at, npc, r, witnesses } } } = await firstSeedWhere(async (seed) => { const p = await playOne(seed, {}, { minCompany: 2 }); if (!sawAll(p.yes)) throw new NotReached(`seed ${seed}: someone in the room was not awake to see the pair go`); return p; }, wfScan([3, 5, 6, 1], "a free moment where a houseguest says yes to the ask with every roommate awake to see"));
     expect(roomOf(at, PLAYER)).toBe(r.room);
     expect(roomOf(at, npc)).toBe(r.room);
     expect(isPrivateRoom(r.room as Room)).toBe(true);
@@ -126,7 +127,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
   }, 120_000);
 
   it("'come find me' to a named room sends the houseguest there while the player stays put", async () => {
-    const { yes: { at, npc, r, from } } = await untilYes(3, { room: "kitchen", private: false }, { when: (s) => roomOf(s, PLAYER) !== "kitchen" });
+    const { yes: { at, npc, r, from } } = await untilYes(6, { room: "kitchen", private: false }, { when: (s) => roomOf(s, PLAYER) !== "kitchen" });
     expect(r.room).toBe("kitchen"); expect(roomOf(at, npc)).toBe("kitchen"); expect(roomOf(at, PLAYER)).toBe(from);
   }, 120_000);
 
@@ -184,7 +185,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
 });
 
 /** ORW-920: a houseguest's own ask is standing and shown to the player. The seed is picked (hint 3), not pinned: a gameplay change moves which season gets there. */
-const askStanding = () => firstSeedWhere((seed) => playUntil(seed, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending && !!(s.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk && !s.sess.houseEventInSession(), { user: `wf-${seed}`, maxMessages: 3000 }), { ...wfScan([5, 1, 3], "a houseguest's own ask standing and shown to the player"), to: 30, wide: { maxSeasons: 30, budgetMs: 3_000_000, reason: "ORW-1007: the faster premiere bed rush moved every season, and a houseguest's unprompted ask standing is a rare moment, so seeds 1..12 may not reach it" } });
+const askStanding = () => firstSeedWhere((seed) => playUntil(seed, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending && !!(s.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk && !s.sess.houseEventInSession(), { user: `wf-${seed}`, maxMessages: 3000 }), { ...wfScan([6, 5, 1, 3], "a houseguest's own ask standing and shown to the player"), to: 30, wide: { maxSeasons: 30, budgetMs: 3_000_000, reason: "ORW-1007: the faster premiere bed rush moved every season, and a houseguest's unprompted ask standing is a rare moment, so seeds 1..12 may not reach it" } });
 
 describe("ORW-727b: a houseguest asks the player for a private word (parity), in a played season", () => {
   it("their own ask stands as an open, non-blocking offer the player sees; the player's yes through the same lever is accepted; it then clears", async () => {
