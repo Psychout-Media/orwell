@@ -512,6 +512,92 @@ def plain_acts(text: str, rooms, ctx: dict) -> list:
     return acts[:MAX_ACTS]
 
 
+# ── ORW-1168: an ESCORT, read without the model ───────────────────────────────────────────────────────────────────────────
+# Prod 2026-11-28: "do you wanna come with?" (meant for the houseguest who had just asked to talk) moved only the player; "go inside and invite her outside" moved nobody. The houseguest's move is the
+# engine's `askToTalkAlone` (private:false: they walk to the room the player names, and they may DECLINE on their own read of the player), then the player's own move. The words say who (a name,
+# a pronoun, or the one just addressed) and where (the LAST room named: a there-and-back walk ends where the words end).
+_WHY_DONT = re.compile(r"\bwhy\s+don'?t\s+(we|you|i)\b", re.I)
+_ESC_ASK = re.compile(r"\b(?:(?:do|would|will|can|could)\s+(?:you|u)\s+(?:wanna\s+|want\s+to\s+|like\s+to\s+)?|wanna\s+|want\s+to\s+|care\s+to\s+)(?:come|join|walk|follow|tag)\b", re.I)
+_ESC_WITH = re.compile(r"\bcome\s+(?:along|with)\b|\bjoin\s+(?:me|us)\b|\bwalk\s+with\s+(?:me|us)\b|\bfollow\s+me\b|\btag\s+along\b|\bcome\s+(?:out|outside|over|in|inside)\s+with\b", re.I)
+_ESC_OBJ = re.compile(r"\b(?:invite|bring|fetch|get|grab|take|escort|lead|walk|ask)\s+(?P<obj>her|him|them|[a-z][a-z'\-]+(?:\s+[a-z][a-z'\-]+)?)\b", re.I)
+_ESC_VETO = re.compile(r"\b(?:should i|what if|if\b|i wish|never ?mind|not going|don'?t (?:come|follow)|do not (?:come|follow)|stay (?:here|put)|you stay|without)\b", re.I)
+_DEST_PERSON = re.compile(r"(?:join|find|meet|see|visit|to|with|catch up with|seek|check on)\s+$", re.I)
+
+
+_OBJ_STOP = frozenset("a an the to my your our this that these those some it up out in over off down on back there here me us myself something someone anyone everyone everybody one another more".split())
+
+
+def escort_cue(text: str, strict: bool = False) -> bool:
+    """Cheap gate: do the plain words invite someone along? (No engine read is spent otherwise.) `strict`: a verb-object invite counts only for her / him / them, never a bare noun."""
+    t = _WHY_DONT.sub(r"lets", clean_text(text))
+    if not t or _ESC_VETO.search(t) or _NEG.search(t) or _SARC.search(t):
+        return False
+    if _ESC_ASK.search(t) or _ESC_WITH.search(t):
+        return True
+    for m in _ESC_OBJ.finditer(t):
+        obj = m.group("obj").lower()
+        if obj in ("her", "him", "them"):
+            return True
+        if not strict and obj.split()[0] not in _OBJ_STOP:
+            return True
+    return False
+
+
+def _first_names(roster: dict) -> dict:
+    """{lowercase first name or full name: id}; a first name two houseguests share names nobody."""
+    out: dict = {}
+    firsts: dict = {}
+    for hid, nm in roster.items():
+        full = str(nm or "").strip().lower()
+        if not full:
+            continue
+        out[full] = hid
+        firsts.setdefault(full.split()[0], []).append(hid)
+    for f, ids in firsts.items():
+        if len(ids) == 1:
+            out[f] = ids[0]
+    return out
+
+
+def escort_intent(text: str, ctx: dict) -> Optional[dict]:
+    """{id, name, room} when the player's plain words invite ONE houseguest along to ONE named room, else None. ctx: room_names, here, rooms (present), roster {id: name},
+    recent_ids (most recent first: who the player last spoke of, for 'her'), addressee (the id just spoken to, for an unnamed 'come with')."""
+    if not escort_cue(text):
+        return None
+    t = _WHY_DONT.sub(r"lets", clean_text(text)).replace("\u2019", "'")
+    roster = ctx.get("roster") or {}
+    names = _first_names(roster)
+    low = t.lower()
+    rooms = [r for r in rooms_named(t, ctx.get("room_names")) if r != "diary-room" and (not ctx.get("rooms") or r in ctx["rooms"])]
+    if not rooms:
+        return None  # no place said: no walk to commit (the companion note still rides the narration)
+    dest = rooms[-1]
+    who = None
+    for m in _ESC_OBJ.finditer(t):
+        obj = m.group("obj").lower()
+        if obj in ("her", "him", "them"):
+            who = next((i for i in (ctx.get("recent_ids") or []) if i in roster), None)
+        else:
+            who = names.get(obj) or names.get(obj.split()[0])
+        if who is not None:
+            break
+    if who is None:
+        said = []
+        for nm, hid in names.items():
+            for mm in re.finditer(r"(?<![\w'])" + re.escape(nm) + r"(?![\w'])", low):
+                if _DEST_PERSON.search(low[max(0, mm.start() - 14):mm.start()]):
+                    continue  # 'join Tara outside': Tara is where they are going, not who is asked along
+                said.append(hid)
+        said = list(dict.fromkeys(said))
+        if len(said) == 1:
+            who = said[0]
+        elif not said and ctx.get("addressee") in roster:
+            who = ctx["addressee"]
+    if who is None or who not in roster:
+        return None
+    return {"id": who, "name": roster[who], "room": dest}
+
+
 def can_commit_nothing(text: str, rooms, ctx: dict) -> bool:
     """The no-call pre-filter (ORW-1014, prod 2026-11-28: 9 of 13 game-turn calls ended noAction at 680 to 1345 ms each). True when `validate_calls` would reject EVERY call the model could
     make for this message, so the answer is noAction by construction and the 0.7 to 1.3 s call is not spent. It mirrors the validator, so it can never skip a real act:
@@ -597,6 +683,17 @@ def peek_outcome(user) -> Optional[str]:
     with _LOCK:
         d = _STASH.get(user or "default")
     return d.get("outcome") if d and time.monotonic() - d.get("at", 0) <= _STASH_TTL_S else None
+
+
+def add_stash_notes(user, notes, done=()) -> list:
+    """ORW-1168: add notes (and committed (tool, args, ok) acts) to this message's stash, creating it when act-first left none; returns the merged notes."""
+    with _LOCK:
+        d = _STASH.get(user or "default")
+        if not d or time.monotonic() - d.get("at", 0) > _STASH_TTL_S:
+            d = {"outcome": "escort", "text": "", "done": [], "pending": [], "blocked": [], "notes": []}
+        d = {**d, "done": list(d.get("done") or []) + list(done), "notes": list(d.get("notes") or []) + list(notes), "at": time.monotonic()}
+        _STASH[user or "default"] = d
+        return list(d["notes"])
 
 
 def take_stash(user) -> Optional[dict]:
