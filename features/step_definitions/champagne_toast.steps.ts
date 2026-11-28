@@ -68,7 +68,7 @@ Then("every houseguest except the player gave a toast that states their name, ag
 
 Then("each of those toasts carries one line of personality", function (this: BbWorld) {
   const t = of(this);
-  assert.ok(t.full.length > 0 && t.full.every((p) => /one line of (how they come across|personality)/i.test(p)), "every batch asks for the one line of personality, drawn from the stored facts");
+  assert.ok(t.full.length > 0 && t.batches.filter((b) => b.speakers.some((x) => !x.host && !x.isPlayer)).every((b) => /one line of (how they come across|personality)/i.test(b.prompt)), "every batch asks for the one line of personality, drawn from the stored facts");
 });
 
 Then("the host's opening toast needs no basics", function (this: BbWorld) {

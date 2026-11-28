@@ -274,7 +274,7 @@ import type { PhysicalCharacteristics } from "../../domain/physicalCharacteristi
 import { cleanWardrobe, cleanOnCamera, cleanPhotoHair, cleanLookSignature, cleanStyleLine, clipCodePoints } from "../../domain/physicalCharacteristics";
 import { buildPortraitPrompt, buildCastPortraitPrompts, physicalFacetToAppearance } from "../../engine/portraitPrompts";
 import { STYLE_ANCHOR_VARIANTS } from "../../engine/imageConstants";
-import { planEntrances, toastSpeakers, TOAST_BATCH, PREMIERE_FIRST_READ, MEET_FIRST_IMPRESSION, firstImpressionLean, meetMannerOf } from "../../engine/premiereEntrances";
+import { planEntrances, toastSpeakers, nextToastRelease, TOAST_BATCH, PREMIERE_FIRST_READ, MEET_FIRST_IMPRESSION, firstImpressionLean, meetMannerOf } from "../../engine/premiereEntrances";
 import type { Houseguest } from "../../engine/characterFactory";
 import { startNewGame, resolveStrategyStyle, repairPlayerStrategyStyle, hashSeed, isPlausibleArchetype, strengthTier, dispositionOf, archetypeMenace, ARCHETYPES, VOL_OF, articleFor } from "../../engine/characterFactory";
 import type { Disposition } from "../../engine/characterFactory";
@@ -10558,6 +10558,8 @@ export class GameSessionAdapter implements GameSession {
       // ORW-368: the player's own slot, from the engine's done list: not yet, in the latest batch, or passed.
       ...(pe.stage === "toast" && speakers ? { toastRemaining: Math.max(0, toastSpeakers(pe.order).length - pe.spoke.length) } : {}),
       ...(pe.stage === "toast" ? { playerToast: !pe.spoke.includes(me) ? "later" as const : (speakers ?? []).some((x) => x.isPlayer) ? "now" as const : "done" as const } : {}),
+      // ORW-1129: the latest release comes straight after the player's own slot, so the player's last message was their toast (or their pass): the room answers it before the next speaker.
+      ...(pe.stage === "toast" && speakers && !speakers.some((x) => x.isPlayer) && pe.spoke.indexOf(me) >= 0 && pe.spoke.indexOf(me) === pe.spoke.length - (pe.lastRelease ?? speakers.length) - 1 ? { playerJustToasted: true as const } : {}),
     };
   }
 
@@ -10615,7 +10617,7 @@ export class GameSessionAdapter implements GameSession {
   }
 
   /** A9 - the staged premiere's entrances + toast, one `advanceGame` per release. */
-  private advancePremiereEntrance(toastBatches?: number): AdvanceView {
+  private advancePremiereEntrance(toastBatches?: number, toastVoiced?: readonly string[]): AdvanceView {
     const s = this.live!;
     this.ensurePremiereClock();
     const callingCircle = s.premiereEntrance?.stage === "entrances" && !!s.houseTour && everyoneIn(s); // ORW-654 / 0206: calling the circle is not a new scene - it takes no premiere step, so the clock reads as it did before the tour
@@ -10665,9 +10667,21 @@ export class GameSessionAdapter implements GameSession {
     }
     // stage "toast": release the next batch of speakers.
     const all = toastSpeakers(pe.order);
+    // ORW-1130 (Ryne's prod premiere, 2026-11-28: one reply voiced 14 toasts while the engine had released two, then every later message re-released the next pair and they toasted AGAIN - 12 repeats):
+    // houseguests the front end saw give their toast in the narration are recorded as spoken here (out of order if need be), so they are never released again. Names, matched to the cast; the player's slot
+    // and the host are never recorded this way (the player's toast is the player's own words; the host opens with the first release).
+    if (Array.isArray(toastVoiced) && toastVoiced.length > 0) {
+      const want = new Set(toastVoiced.map((x) => String(x).trim().toLowerCase()).filter((x) => x.length > 0));
+      for (const id of all) {
+        if (id === "host" || id === me || pe.spoke.includes(id) || !want.has(this.nameOf(id).trim().toLowerCase())) continue;
+        this.onPlayerEvent?.(`${this.nameOf(id)} gives a toast`, [...pe.order], "toast-speech");
+        pe.spoke.push(id);
+        if (pe.introduced) this.recordIntroduction(id);
+      }
+    }
     // ORW-368: the circle closes on its OWN advance, after the last speakers have had a turn as the narrator's toast batch (it used to flip to done in the same advance that released the last batch, so the last speaker(s) were
     // never in a toast prompt and the narrator wrapped the circle up on its own). Only a full done list closes it.
-    if (pe.spoke.length >= all.length) {
+    if (all.every((x) => pe.spoke.includes(x))) {
       pe.stage = "done";
       s.champagneCircle = "done"; // the existing release
       this.persist();
@@ -10675,7 +10689,7 @@ export class GameSessionAdapter implements GameSession {
     }
     // ORW-997: a watch-only circle may flow several batches in one advance (1 to 4); the default is the one batch it always released.
     const batches = Math.min(4, Math.max(1, Math.floor(typeof toastBatches === "number" && Number.isFinite(toastBatches) ? toastBatches : 1)));
-    const batch = all.slice(pe.spoke.length, pe.spoke.length + TOAST_BATCH * batches);
+    const batch = nextToastRelease(all, pe.spoke, me, TOAST_BATCH * batches); // ORW-1130/1129/1131: never a done speaker again, never past the player's slot (released alone), one toast a turn by default
     pe.lastRelease = batch.length;
     for (const sp of batch) {
       if (sp === "host") this.onPlayerEvent?.("The host opens the toast", [...pe.order], "toast-speech");
@@ -18218,7 +18232,7 @@ export class GameSessionAdapter implements GameSession {
     return new SeededRandom(hashSeed(`${root}:${this.live?.week}:${this.live?.beat}${cycle}`));
   }
 
-  advanceGame(req: { expectedBeatSeq?: number; idempotencyKey?: string; toastBatches?: number } = {}): AdvanceView {
+  advanceGame(req: { expectedBeatSeq?: number; idempotencyKey?: string; toastBatches?: number; toastVoiced?: string[] } = {}): AdvanceView {
     this.disclosureEpoch++; // B33: an advance ends the previous beat's disclosure events
     // 0065 Part B — an at-most-once replay returns the ORIGINAL view (its beatSeq included) WITHOUT
     // advancing again; it WINS even if beatSeq has since moved (the cache is the authority on the
@@ -18242,7 +18256,7 @@ export class GameSessionAdapter implements GameSession {
     // persist, one beatSeq bump) so the released state is durable; `advanceView(null)` reports no new
     // beat (nothing was resolved — only the toast scene closed).
     if (this.live.premiereEntrance && this.live.premiereEntrance.stage !== "done") { // A9: the staged entrances/toast
-      const staged = this.inOneCommit(() => this.advancePremiereEntrance(req.toastBatches));
+      const staged = this.inOneCommit(() => this.advancePremiereEntrance(req.toastBatches, req.toastVoiced));
       return req.idempotencyKey !== undefined ? this.rememberIdempotent(req.idempotencyKey, staged) : staged;
     }
     if (this.bedRushRunning()) { // ORW-672 / 0201: the circle has closed - each advance is another heat of the bed rush, until every houseguest has a bed (or the window ends)
