@@ -1897,6 +1897,8 @@ async def record_open_ledger(entry: dict, user: str | None = None) -> dict:
         args["parties"] = list(entry["parties"])
     if entry.get("about"):  # slice 2: who or what a claim concerns, free text (optional)
         args["about"] = entry["about"]
+    if entry.get("due"):  # ORW-1177: a dated plan's day (today or tomorrow) and part of day; the engine counts the day itself
+        args["due"] = dict(entry["due"])
     if entry.get("claim"):  # 0155 (ORW-330 slice 6): the structured claim, when the entry is one; the engine gives it its truth
         args["claim"] = dict(entry["claim"])
     return await _call("recordOpenLedger", args, user=user)
