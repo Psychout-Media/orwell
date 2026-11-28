@@ -1452,7 +1452,7 @@ export function renderGameContext(view: GameStateView): string {
     return bits.length ? ` — ${bits.join(", ")}` : "";
   };
   const ent = pr ? premiereEntranceOf(pr) : null;
-  const premiereLines: string[] = !pr ? [] : ent ? premiereEntranceLines(ent, pr.met, observable, pr.remaining?.length ?? 0) : [
+  const premiereLines: string[] = !pr ? [] : ent ? (ent.stage === "done" ? premiereClosedLines() : premiereEntranceLines(ent, pr.met, observable, pr.remaining?.length ?? 0)) : [
     `- PREMIERE — THE CHAMPAGNE CIRCLE (engine truth): the producers convened the whole house for ` +
       `champagne-circle introductions, so all ${pr.total - 1} houseguests are MET at the toast — there is ` +
       `no roll-call to work through and nobody left to hunt down.`,
@@ -2294,6 +2294,19 @@ function premiereEntrancesFragment(): string {
     "the player has just walked through the front door into the house for the very first time,",
     "the player is arriving at the house for the very first time (the game stages their entrance in the arrival order: until the game shows the player's OWN entrance they are NOT inside \u2014 never narrate them walking in, standing in the room or being greeted before then),",
   );
+}
+
+/**
+ * ORW-1133 (Ryne, 2026-11-28, "Valerie just introduced herself to me for like the 3rd time"): once the staged entrances flow reaches stage "done" the circle IS closed, but this flow printed NO engine line for it
+ * (the "circle has closed" line lives only on the old no-entrance path), so the premiere fragment's own "OVERRIDE once the engine truth reports it DONE" never had anything to trigger on and the narrator kept
+ * re-running introductions and toasts for the whole social hold. This is that engine line: introductions are over, for good.
+ */
+function premiereClosedLines(): string[] {
+  return [
+    `- PREMIERE \u2014 THE CIRCLE HAS CLOSED (engine truth): every houseguest has already given their toast and introduced themselves to the house and to the player, and the toast is over. ` +
+      `Nobody introduces themselves again: no name-hometown-job recital, no toast, no "nice to meet you" as if for the first time, no welcome-to-the-house speech. They are people who have met; talk as people who have met. ` +
+      `This overrides the toast and introduction beats above. Answer the player's newest message in this scene (the bedrooms, settling in, getting to know each other), and never repeat a line a houseguest has already said.`,
+  ];
 }
 
 function premiereEntranceLines(
