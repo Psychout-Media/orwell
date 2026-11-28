@@ -549,7 +549,8 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    is elsewhere and NOT visible — do not place them in the scene at all. `conspicuous`, when present,",
   "    is a producer-style read about two houseguests holed up together too long — voice WHO/WHERE/HOW-LONG",
   "    as something the player NOTICED; never invent what they are saying in there (you do not know it).",
-  "    `zone`, when present, is the player's corner of a big room ('over by the pool') — pure flavor.",
+  "    `zone` is the player's corner of a big room; a `present` person marked `outOfEarshot` is seen, not heard,",
+  "    and never joins or answers. Never promise privacy in a shared room; only askToTalkAlone gives it.",
   "    A `present` or `nearby` person MAY move between rooms during the scene — just NARRATE the move so",
   "    the game records it; only never SILENTLY teleport anyone (a move with no narration), never place a",
   "    houseguest from memory or a guess, and never call a room empty without checking.",
@@ -1413,6 +1414,16 @@ export function renderGameContext(view: GameStateView): string {
         ? [`    THE ${milestoneLabel(wa.houseEvent.kind as keyof typeof MILESTONE_LABEL).toUpperCase()} IS IN SESSION (engine truth): the whole house is gathered in ${roomRefHere(wa.houseEvent.room)}, and that is where it happens.`]
         : []),
       `    With you: ${here}.`,
+      // ORW-1167: earshot is the engine's, and it is told plainly. Only a zoned room (the yard) has a far end; elsewhere everyone present hears. A shared room is never private: only askToTalkAlone makes a private room.
+      ...(wa.present.length
+        ? (() => {
+            const far = wa.present.filter((p) => p.outOfEarshot).map((p) => p.name);
+            return [
+              ...(far.length ? [`    OUT OF EARSHOT (engine truth, the far end of this big room): ${far.join(", ")}. They can be seen, they cannot hear the player: they do not join, answer or react to what is said at the player's end.`] : []),
+              "    EARSHOT: everyone else With you HEARS every word said here, so this is NOT a private conversation. Never say, promise or narrate that it is, or that anyone is out of earshot unless listed above. Real privacy comes only from askToTalkAlone.",
+            ];
+          })()
+        : []),
       // ORW-249: the engine re-seated the house after the player's message - voice who walked in / out as ONE short beat so the story and the widget change together.
       ...(wa.sinceSend && (wa.sinceSend.arrived.length || wa.sinceSend.departed.length)
         ? [`    SINCE YOU SPOKE (engine truth - weave in as ONE short beat, never skip it): ${[wa.sinceSend.arrived.length ? `${wa.sinceSend.arrived.join(", ")} just walked in` : "", wa.sinceSend.departed.length ? `${wa.sinceSend.departed.join(", ")} left the room` : ""].filter(Boolean).join("; ")}.`]

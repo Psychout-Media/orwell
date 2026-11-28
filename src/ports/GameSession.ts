@@ -2319,7 +2319,7 @@ export interface WhereaboutsView {
    */
   zone?: string;
   /** Who else is in the player's room (names only). A51: with the tells flag on, each may carry `tell` - the strongest closed-vocabulary tell kind (a word). */
-  present: Array<NamedRef & { tell?: string }>;
+  present: Array<NamedRef & { tell?: string; /** ORW-1167: in a zoned room (the yard), true for a houseguest in another zone than the player: seen, not heard. Absent for everyone who hears (every un-zoned room). */ outOfEarshot?: true }>;
   /**
    * Each room the player has SIGHTLINE into (eyeshot — 0077 Phase 2) and who is in it (names only). The
    * open public core sees across itself + into the hallway mouth; a CLOSED door is opaque and never

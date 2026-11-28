@@ -374,11 +374,14 @@ export class EngineCommandsAdapter implements EngineCommands {
     // cannot race the FE's one-turn seating-freeze (a render-lag projection, not engine truth) — the exact
     // reason the earlier FE-side attempt fought the spine and was dropped from #1721.
     const grounded = occupancy !== null && room !== undefined;
+    // ORW-1167: earshot. In a zoned room (the yard) a named same-room houseguest seated in ANOTHER zone than the scene's (the initiator's) cannot hear it, so a confidence is never witnessed by who the player could not be heard by. Unzoned room or no zone provider: both zones read undefined, every same-room name stays (byte-identical).
+    const namedZone = grounded ? this.zoneProvider?.(req.initiator) : undefined;
     const namedWitnesses = grounded
       ? req.witnessSet.filter((id) => {
           if (id === PLAYER || id === req.initiator) return true; // never drop the player or the initiator
           const where = occupancy!.get(id);
-          return where === undefined || where === room; // keep unless POSITIVELY placed in another room
+          if (where !== undefined && where !== room) return false; // POSITIVELY placed in another room
+          return where === undefined || zonesSameEarshot(room!, namedZone, this.zoneProvider?.(id)); // keep unless out of earshot in this room
         })
       : req.witnessSet;
     const awakeNamed = awake ? namedWitnesses.filter(isUp) : namedWitnesses; // a named sleeper is a phantom witness too

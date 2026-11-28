@@ -82,7 +82,7 @@ import type { TimeOfDay as LifeTimeOfDay } from "../../engine/timeOfDay";
 import { diaryWalkOrder, walkersForPress } from "../../engine/voteBeat";
 import { PRESENCE, PRIVACY, MOVEMENT_INTENT, MOVEMENT_MEMORY, CALM_PRESENCE } from "../../engine/presenceConstants";
 import { dayOfWeek } from "../../engine/houseEvents";
-import { HOUSE_ADJACENCY, HOUSE_SIGHTLINE, roomsBetween, areVisible, canWitnessDeparture, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor } from "../../domain/house";
+import { HOUSE_ADJACENCY, HOUSE_SIGHTLINE, roomsBetween, areVisible, canWitnessDeparture, isPrivateRoom, roomDisplayName, resolveRoom, WALKABLE_ROOMS, zonesFor, isZonedRoom, zonesSameEarshot } from "../../domain/house";
 import type { Room, Zone, Occupancy } from "../../domain/house";
 import { parsePlayerMoveIntent, parsePlayerOwnBedMove, parsePlayerPersonIntent, parseSearchIntent, parseVagueGo, matchHouseguestName } from "../../engine/playerMoveIntent";
 import type { RandomnessSource } from "../../ports/RandomnessSource";
@@ -10130,9 +10130,14 @@ export class GameSessionAdapter implements GameSession {
     // longer leaks who is behind it. Who is behind a closed door is earned by watching, never ambient.
     const presentPlain = inRoom(room);
     // A51 (#2017 E2, flag ORWELL_NPC_TELLS, default ON): the strongest observable tell KIND (a closed word, no band/number/cause) rides on each in-room houseguest so the FE can show one chip. In-room + awake only (tellsVisibleFor); absent flag => byte-identical.
-    const present = this.npcTellsEnabled
+    const present0 = this.npcTellsEnabled
       ? presentPlain.map((p) => { const t = this.tellsVisibleFor(p.id) ? this.tellsFor(p.id).tells?.[0] : undefined; return t ? { ...p, tell: t.kind } : p; })
       : presentPlain;
+    // ORW-1167: earshot is the engine's (0077 sub-zones). In a zoned room, a houseguest seated in another zone than the player is seen, not heard: flag them so the narrator and the scene fold agree with the engine. Pure read-side.
+    const myZone = this.seatedZone(me, room);
+    const present = isZonedRoom(room)
+      ? present0.map((p) => zonesSameEarshot(room, myZone, this.seatedZone(p.id, room)) ? p : { ...p, outOfEarshot: true as const })
+      : present0;
     // 0077: the TRACKED layer — who the player BELIEVES is behind a closed door (acquired by watching a
     // doorway), with age + a Vault-safe `stale` flag. NEVER the live map — the bedrooms stay blanks in
     // `nearby` (sightline). The player's own sub-zone rides along as flavor ("over by the pool").
@@ -10149,7 +10154,6 @@ export class GameSessionAdapter implements GameSession {
     }));
     // CONSPICUOUSNESS (two alone too long) is DERIVED from the same beliefs — Vault-free who/where/how-long.
     const conspicuous = this.conspicuousFrom(now);
-    const myZone = this.seatedZone(me, room);
     return {
       room,
       ...(myZone ? { zone: myZone } : {}),
