@@ -32,6 +32,8 @@ export interface BedsState {
   noticedEmpty?: EntityId[];
   /** ORW-1090: half-of-a-double joins whose sleeper has already woken and reacted (key `bed:sleeper:joiner`). Append-only; absent until the first reaction (saves byte-identical until then). */
   wokeBeside?: string[];
+  /** ORW-1179: the spot the player's OWN act last gave them (a claim, an accepted trade, the first-bedtime leftover). The engine puts the player back here if their entry ever differs without such an act. Absent on older saves (adopted from the owner map at the first check). */
+  playerBed?: BedId;
 }
 
 export const roomOfBed = (spot: BedId): Room => spot.slice(0, spot.lastIndexOf("#")) as Room;
