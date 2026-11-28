@@ -67,6 +67,7 @@ for __a in "$@"; do
     --set-token)  SET_TOKEN=1 ;;
     --no-restart) NO_RESTART=1 ;;
     --force)      FORCE=1 ;;
+    --ignore-hold) export ORWELL_UPDATE_IGNORE_HOLD=1 ;;
     --force-now)  FORCE=1; FORCE_NOW=1 ;;
   esac
 done
@@ -111,6 +112,7 @@ type tui_active >/dev/null 2>&1 || tui_active() { return 1; }
 # ── live-game guard lib (ORW-206). Missing ⇒ the check is simply skipped (fail open: an update must never
 # be blocked by its own guard). Searched like the libs above, so the pushed /tmp copy finds it too.
 __source_lib orwell-live-game.sh || true
+__source_lib orwell-deploy-hold.sh || true   # ORW-1145: the dev live-check deploy hold (data/.deploy-hold)
 
 # ORW-1074: a --force that no human typed (no terminal on stdin, not forwarded by our own bridge from one) is NOT a force.
 if [[ $FORCE -eq 1 ]] && type update_force_honored >/dev/null 2>&1 \
@@ -202,6 +204,7 @@ if command -v pct >/dev/null 2>&1 && ! find_app >/dev/null 2>&1; then
   [[ $NO_RESTART -eq 1 ]] && FWD_FLAG="${FWD_FLAG:+$FWD_FLAG }--no-restart"
   [[ $FORCE -eq 1 ]] && FWD_FLAG="${FWD_FLAG:+$FWD_FLAG }--force"
   [[ $FORCE_NOW -eq 1 ]] && FWD_FLAG="${FWD_FLAG:+$FWD_FLAG }--force-now"
+  [[ "${ORWELL_UPDATE_IGNORE_HOLD:-0}" == 1 ]] && FWD_FLAG="${FWD_FLAG:+$FWD_FLAG }--ignore-hold"
   # Live-game guard tunables ride along (digits only, so nothing can inject into the quoted string).
   FWD_LG=""
   for __k in ORWELL_UPDATE_IDLE_MINUTES ORWELL_UPDATE_MAX_DEFER_MINUTES ORWELL_UPDATE_DEFER_POLL_SECONDS ORWELL_UPDATE_TURN_WAIT_SECONDS ORWELL_UPDATE_WARM_WAIT_SECONDS ORWELL_UPDATE_LOCK_WAIT; do
@@ -307,6 +310,13 @@ ops_log_invocation "$@"
 ops_run_tee_output
 trap ops_run_record_exit EXIT
 __UD_WAITED=0; __UD_SUPERSEDED=0
+# ORW-1145: a dev live check holds the deploy (data/.deploy-hold, bounded: see deploy/orwell-deploy-hold.sh). A held run changes nothing and exits 0.
+if [[ $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && "${ORWELL_UPDATE_IGNORE_HOLD:-0}" != 1 ]] && type update_deploy_hold_active >/dev/null 2>&1; then
+  if __hold_until="$(update_deploy_hold_active "${APP_DIR}/data/.deploy-hold")"; then
+    echo "==> deploy HELD until ${__hold_until} (a live check holds this box: data/.deploy-hold). Nothing was changed; the next update after the hold ends deploys the tip. Skip the hold: bash orwell-update.sh --ignore-hold"
+    exit 0
+  fi
+fi
 if [[ $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && $NO_RESTART -eq 0 ]] && type update_wait_for_idle_game >/dev/null 2>&1; then
   __ud_rc=0; __ud_superseded=0
   update_wait_for_idle_game "$(update_fe_db_path "$APP_DIR" "${APP_DIR}/data/.env" "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db")" "${APP_DIR%/}/data/ops" "$FORCE" "${APP_DIR}/data/.env" || __ud_rc=$?
@@ -1272,6 +1282,9 @@ if [[ -f "$ENV_FILE" && -r "$ENV_DEFAULTS_LIB" ]]; then
     rm -f "$RECON_TMP"      # every key already present ⇒ a true no-op (idempotent re-run)
   fi
 fi
+
+# ORW-1173: ORWELL_INTERNAL_TOKEN minted once when absent (never overwritten, never printed): see deploy/ensure-internal-token.sh.
+[[ -f "$ENV_FILE" && -r "${APP_DIR}/deploy/ensure-internal-token.sh" ]] && { bash "${APP_DIR}/deploy/ensure-internal-token.sh" "$ENV_FILE" || echo "==> warning: could not ensure ORWELL_INTERNAL_TOKEN"; }
 
 # Resolve the embedding-model cache dir the ENGINE will actually read, so the prefetch below warms the
 # SAME dir. A box installed with a custom DATA_DIR pins ORWELL_EMBED_CACHE off it — hardcoding
