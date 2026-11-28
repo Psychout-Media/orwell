@@ -23,6 +23,10 @@ const freeMoment = (s: Stop, minCompany = 2): boolean => {
   return g.phase !== "premiere" && !g.pending && !!g.daySchedule && !g.daySchedule.due && (tod === "morning" || tod === "afternoon")
     && !s.sess.live?.talkHold && !s.sess.live?.ceremony && company(s).length >= minCompany;
 };
+// ORW-1129: the played day's clock can sit before the 8am wake (an early-waking player), when the house is asleep: a sleeper neither answers a private ask (declined, whatever the bond) nor sees a pair leave. The rules below that
+// need a houseguest who CAN act on the ask say so in their scan, instead of counting a free moment where the others are asleep.
+const awakeIn = (s: Stop, id: string): boolean => (s.sess.awakeNow() as Set<string> | null)?.has(id) ?? true;
+const awakeCompany = (s: Stop): string[] => company(s).filter((id) => awakeIn(s, id));
 const ask = async (s: Stop, args: Record<string, unknown>) => (await s.call("askToTalkAlone", args)) as AskToTalkAloneResult | null;
 type Yes = { at: Stop; npc: string; r: AskToTalkAloneResult; witnesses: string[]; from: string; expectedRoom: Room | null; key?: string };
 type No = { bond: number; keys: string[]; moved: boolean; held: boolean; again: string | undefined };
@@ -63,7 +67,7 @@ const untilYes = async (hint: number, args: Record<string, unknown> = {}, opts: 
 
 describe("ORW-727b: asking for a private word, in a played season", () => {
   it("an accepting houseguest and the player end up alone in a private room; the scene and a deal there are witnessed by exactly the two; the others saw them leave together", async () => {
-    const { yes: { at, npc, r, witnesses } } = await untilYes(11, {}, { minCompany: 2 });
+    const { yes: { at, npc, r, witnesses } } = await untilYes(11, {}, { minCompany: 2, when: (s) => company(s).every((id) => awakeIn(s, id)) }); // everyone in the room is awake to see the two leave
     expect(roomOf(at, PLAYER)).toBe(r.room);
     expect(roomOf(at, npc)).toBe(r.room);
     expect(isPrivateRoom(r.room as Room)).toBe(true);
@@ -94,7 +98,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
 
   it("a houseguest who says no: nobody moves, no hold, the answer is typed with nothing else, and the same hour gives the same answer; yes comes from a stronger bond than no", async () => {
     const all: No[] = []; const yesBonds: number[] = [];
-    for (const { at: { yes, nos } } of await firstSeedsWhere(3, (s) => playOne(s, {}, {}), wfScan([3, 5, 11], "a free moment where a houseguest says yes to the ask"))) {
+    for (const { at: { yes, nos } } of await firstSeedsWhere(3, (s) => playOne(s, {}, { who: awakeCompany }), wfScan([3, 5, 11], "a free moment where an awake houseguest says yes to the ask"))) {
       all.push(...nos);
       yesBonds.push(yes.at.sess.rel.edge(yes.npc, PLAYER).trust + yes.at.sess.rel.edge(yes.npc, PLAYER).affinity);
     }
@@ -110,8 +114,10 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
   }, 300_000);
 
   it("'come here': the houseguest comes to the player's room and the player does not move; the hold keeps them there, then lapses as the hours pass and they wander again", async () => {
+    // ORW-1129: the wander needs time before the day's next event: once an event is due the house waits for production's call (the test only chats, so a due event never clears), so the free moment has the hours of the hold and some more before it.
+    const roomyDay = (s: Stop): boolean => ((s.sess.getGameState() as { daySchedule?: { minutesUntil?: number } }).daySchedule?.minutesUntil ?? Number.POSITIVE_INFINITY) >= 360;
     const away = (s: Stop) => (s.sess.livingIds() as string[]).filter((id) => id !== PLAYER && roomOf(s, id) !== roomOf(s, PLAYER) && roomOf(s, id) !== "diary-room");
-    const { yes: { at, npc, r, from } } = await untilYes(11, { private: false }, { who: away, minCompany: 0 });
+    const { yes: { at, npc, r, from } } = await untilYes(11, { private: false }, { who: away, minCompany: 0, when: roomyDay });
     expect(r.room).toBe(from);
     expect(roomOf(at, PLAYER)).toBe(from);
     expect(roomOf(at, npc)).toBe(from);
@@ -182,7 +188,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
 });
 
 /** ORW-920: a houseguest's own ask is standing and shown to the player. The seed is picked (hint 3), not pinned: a gameplay change moves which season gets there. */
-const askStanding = () => firstSeedWhere((seed) => playUntil(seed, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending && !!(s.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk, { user: `wf-${seed}`, maxMessages: 3000 }), { ...wfScan([5, 1, 3], "a houseguest's own ask standing and shown to the player"), to: 30, wide: { maxSeasons: 30, budgetMs: 3_000_000, reason: "ORW-1007: the faster premiere bed rush moved every season, and a houseguest's unprompted ask standing is a rare moment, so seeds 1..12 may not reach it" } });
+const askStanding = () => firstSeedWhere((seed) => playUntil(seed, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending && !!(s.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk, { user: `wf-${seed}`, maxMessages: 3000 }), { ...wfScan([2, 5, 1, 3], "a houseguest's own ask standing and shown to the player"), to: 30, wide: { maxSeasons: 30, budgetMs: 3_000_000, reason: "ORW-1007: the faster premiere bed rush moved every season, and a houseguest's unprompted ask standing is a rare moment, so seeds 1..12 may not reach it" } });
 
 describe("ORW-727b: a houseguest asks the player for a private word (parity), in a played season", () => {
   it("their own ask stands as an open, non-blocking offer the player sees; the player's yes through the same lever is accepted; it then clears", async () => {
