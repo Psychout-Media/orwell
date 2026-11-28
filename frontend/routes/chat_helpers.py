@@ -1779,6 +1779,11 @@ _SEARCH_SWEEP_RE = re.compile(
     r"|\bwhere\s+(?:is|are|'s|’s)\s+(?:everybody|everyone|anybody|anyone|everyone\s+else|the\s+(?:others|rest))\b|\bwhere\s+(?:did|has|have)\s+(?:everybody|everyone|they|he|she|the\s+(?:others|rest))\b",
     re.IGNORECASE)
 _SEARCH_WHERE_RE = re.compile(r"\bwhere(?:\s+is|\s+are|\s+was|'s|’s)\s+(?!the\s+\w+\s+room\b|the\s+(?:kitchen|bathroom|backyard|yard|hallway|lounge)\b)\w+", re.IGNORECASE)
+# ORW-1183: "where did Kai go" / "where'd Kai go" / "where Kai went" / "where has Kai gone" is the same question as "where is Kai": read the engine's whereabouts before the narrator answers.
+_SEARCH_WENT_RE = re.compile(
+    r"\bwhere(?:\s+(?:did|does|do|has|have)\s+|'d\s+|’d\s+)(?!everyone\b|everybody\b|they\b|the\s+(?:others|rest)\b)\w+(?:\s+\w+)?\s+(?:go|went|gone|get\s+to|head|run\s+off|disappear|vanish|wander)\b|"
+    r"(?:^|[.!?]\s+|\b(?:know|wonder|idea|see|figure|find\s+out|tell\s+me)\s+)where\s+(?!everyone\b|everybody\b|i\b|you\b|we\b|the\s+(?:others|rest)\b)\w+\s+(?:went|has\s+gone|had\s+gone|disappeared|vanished)\b",
+    re.IGNORECASE)
 _SEARCH_FIND_RE = re.compile(r"\b(?:(?:look(?:ing|ed)?|search(?:ing|ed)?|hunt(?:ing)?|scout(?:ing)?|go\s+(?:look|find)|check(?:ing)?)\s+for|(?:find|locate|track\s+down)(?!\s+out\b))\s+(?!a\b|an\b|some\b|the\s+(?:exit|door)\b)\w+", re.IGNORECASE)
 
 
@@ -1787,7 +1792,7 @@ def _is_house_search(msg) -> bool:
     if not isinstance(msg, str) or not msg.strip():
         return False
     text = re.sub(r"\(\([^)]*\)\)", " ", msg, flags=re.DOTALL)
-    return bool(_SEARCH_SWEEP_RE.search(text) or _SEARCH_WHERE_RE.search(text) or _SEARCH_FIND_RE.search(text))
+    return bool(_SEARCH_SWEEP_RE.search(text) or _SEARCH_WHERE_RE.search(text) or _SEARCH_WENT_RE.search(text) or _SEARCH_FIND_RE.search(text))
 
 
 # Given names that are also everyday words or months (same list as src/engine/diversity.ts COMMON_WORD_NAMES): only the capitalised form is the name.
@@ -1870,6 +1875,8 @@ def _house_search_directive(whereabouts, player_msg=None) -> Optional[str]:
         lines.append("- Rooms IN VIEW with awake houseguests: " + "; ".join(
             f"{room_ref(r['room'], names, article=False)}{' (door closed)' if r.get('access') == 'closed' else ''}: "
             + ", ".join(str(p.get('name')) for p in r['present'] if isinstance(p, dict) and p.get('name')) for r in rooms) + ". Rooms out of view are not known: never say an out-of-view room is empty or name who is in it.")
+    if named and _SEARCH_WENT_RE.search(msg):
+        lines.append("The player asked where they WENT: answer it in your first sentence from the lines above. Invent no destination, no room, no one who saw them go, and no scene of them elsewhere that is not listed here.")
     lines.append(
         "VOICE THIS: the player is not omniscient and the game never confirms where someone is if the player does not know. Report each houseguest as the game gives it, in your own words, and name a room ONLY where the game names one. "
         "A houseguest listed 'not in view' is somewhere behind a door in the house: name no room for them, never say they are nowhere or hidden, and let the player know they can open doors and look. "
@@ -4748,12 +4755,22 @@ def _first_name_counts(names) -> dict:
 def _name_staged_unique(sentence: str, full_name: str, first_counts: dict) -> bool:
     """True if `full_name` is STAGED as acting in `sentence` — by their full name, OR by their first
     name alone when that first name is unique across the whole roster (never ambiguous)."""
-    if _stages_in_scene(sentence, full_name):
+    if _stages_in_scene(sentence, full_name) or _placed_in_scene(sentence, full_name):
         return True
     parts = full_name.split()
     if len(parts) > 1 and first_counts.get(parts[0].lower(), 0) == 1:
-        return _stages_in_scene(sentence, parts[0])
+        return _stages_in_scene(sentence, parts[0]) or _placed_in_scene(sentence, parts[0])
     return False
+
+
+# ORW-1183: a houseguest PLACED in the scene with no verb ("Jace by the crates", "Valerie, on the bench") is as much a placement as one who acts. The name must be directly followed (optional comma)
+# by a place word and then a noun phrase, so a negation ("Kai isn't on the landing") or a question never matches. Quoted speech is blanked first: only the narration places people.
+_PLACED_PREP_ALT = r"by|on|at|near|beside|against|behind|across\s+from|next\s+to|in\s+front\s+of|leaning\s+on|sprawled\s+on|seated\s+on|in"
+
+
+def _placed_in_scene(sentence: str, name: str) -> bool:
+    narr = re.sub(r'"[^"]*"|\u201c[^\u201d]*\u201d', " ", sentence or "")
+    return bool(re.search(rf"\b{re.escape(name)}\b,?\s+(?:{_PLACED_PREP_ALT})\s+(?:the|a|an|his|her|their|its)\s+\w+", narr, re.IGNORECASE))
 
 
 def _presence_desync_directive(narration: str, facts: dict) -> Optional[str]:
