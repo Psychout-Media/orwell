@@ -264,3 +264,16 @@ def test_a_dropped_search_leaves_the_move_beside_it_standing():
     calls = [{"name": "search", "arguments": {"who": "Dana"}}, {"name": "moveTo", "arguments": {"rooms": ["kitchen"]}}]
     got = af.validate_calls(calls, text="I go to the kitchen with Dana", rooms=ROOMS, ctx=dict(CTX, here="living-room"))
     assert got == [("moveTo", {"room": "kitchen"})]
+
+
+# ── replay gate: the plain-words fallback (ORW-1128) never commits a hedge, a self-correction or a conditional ──────────────────────────
+@pytest.mark.parametrize("said", [
+    "I'd rather not take a bed in bedroom C",
+    "I take a bed in bedroom A, no wait, C",
+    "I'd claim the bed in this room but it's too noisy",
+])
+def test_plain_words_do_not_commit_a_hedge(said):
+    import src.act_first as af
+    rooms = ["kitchen", "bedroom-a", "bedroom-b", "bedroom-c", "living-room"]
+    assert af.plain_acts(said, rooms, {"here": "bedroom-b", "room_names": {}}) == []
+    assert af.plain_acts("I take a bed in bedroom A", rooms, {"here": "bedroom-b", "room_names": {}}) != []  # positive control: a plain claim still commits
