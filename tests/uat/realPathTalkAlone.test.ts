@@ -16,7 +16,11 @@ import { NotReached, firstSeedWhere, firstSeedsWhere } from "../support/firstSee
 const presence = (s: Stop): Map<string, string> => s.sess.presence as Map<string, string>;
 const roomOf = (s: Stop, id: string): string | undefined => presence(s).get(id);
 const inRoom = (s: Stop, room: string): string[] => [...presence(s)].filter(([, r]) => r === room).map(([id]) => id).sort();
-const company = (s: Stop): string[] => inRoom(s, roomOf(s, PLAYER) ?? "").filter((id) => id !== PLAYER);
+// ORW-1154: a houseguest still asleep in their own bed in the player's room is in the room but is company to nobody: not a witness, not someone to ask. Company is the AWAKE in the room.
+const company = (s: Stop): string[] => {
+  const awake = (s.sess as unknown as { awakeNow(): ReadonlySet<string> | undefined }).awakeNow();
+  return inRoom(s, roomOf(s, PLAYER) ?? "").filter((id) => id !== PLAYER && (!awake || awake.has(id)));
+};
 const freeMoment = (s: Stop, minCompany = 2): boolean => {
   const g = s.sess.getGameState() as { pending?: unknown; phase: string; daySchedule?: { due: boolean } };
   const tod = s.sess.gameStatus().timeOfDay;
@@ -94,7 +98,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
 
   it("a houseguest who says no: nobody moves, no hold, the answer is typed with nothing else, and the same hour gives the same answer; yes comes from a stronger bond than no", async () => {
     const all: No[] = []; const yesBonds: number[] = [];
-    for (const { at: { yes, nos } } of await firstSeedsWhere(3, (s) => playOne(s, {}, {}), wfScan([3, 5, 11], "a free moment where a houseguest says yes to the ask"))) {
+    for (const { at: { yes, nos } } of await firstSeedsWhere(3, async (s) => { const p = await playOne(s, {}, {}); return p.nos.length > 0 ? p : undefined; }, wfScan([3, 5, 11], "a free moment where an awake houseguest says no and another says yes to the ask"))) {
       all.push(...nos);
       yesBonds.push(yes.at.sess.rel.edge(yes.npc, PLAYER).trust + yes.at.sess.rel.edge(yes.npc, PLAYER).affinity);
     }
