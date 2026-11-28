@@ -77,9 +77,17 @@ def gate_decisions(text: str, *, rooms: Optional[Iterable[str]] = None, people: 
     }
 
 
-def row_for(text: str, acts: Iterable[str], **kw) -> dict:
+def row_for(text: str, acts: Iterable[str], live_ctx: Optional[dict] = None, **kw) -> dict:
+    """`live_ctx` is a `gate_log.note_ctx` row for this message's code (the roster and rooms the gate really saw); when given, the gates replay with it instead of the offline guess (ORW-1185/1186)."""
     from src.gate_log import code_of
-    return {"code": code_of(text), "acts": sorted(set(acts)), "gates": gate_decisions(text, **kw)}
+    if live_ctx:
+        kw.setdefault("people", live_ctx.get("people"))
+        if live_ctx.get("rooms"):
+            kw.setdefault("rooms", live_ctx.get("rooms"))
+    row = {"code": code_of(text), "acts": sorted(set(acts)), "gates": gate_decisions(text, **kw)}
+    if live_ctx:
+        row["live"] = True
+    return row
 
 
 def miss_rates(rows: "list[dict]") -> "dict[str, dict[str, Any]]":

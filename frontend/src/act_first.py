@@ -184,7 +184,7 @@ _NOT_A_MOVE = re.compile(
     r"|\bmeet\s+(?:me|us)\b|\bcome\s+(?:to|here|over)\b"  # ORW-1156: an invitation to someone else is not the player's move
     r"|\bgo (?:and|to) (?:sit|eat|sleep|lie|lay)\b|\bgo (?:meet|visit|talk|look)\b"
     r"|\b(?:what if|do i|should i|can i|may i|shall i|could i|am i)\b|\w+'s (?:room|bedroom|bed)\b|\b(?:want|need)\s+(?:the|a)\b|\bdown\b|\blook(?:ing)? around\b|\bi mean\b|\b(?:or|whichever|look(?:ing)? (?:in|for|at)|peek|glance|check|scan|point me|find)\b", re.I)
-_FIRSTPERSON = re.compile(r"^\W*(?:(?:ok(?:ay)?|yeah|yes|sure|so|well|alright|then|fine|now|and|but|hey|also|copy that|haha|lol)[\s,.!]+)*(?:i\b|i'|i’|let'?s|lets|let us|we\b|me\b|my\b|go\b|going\b|heading\b|head\b|walking\b|walk\b|run\b|off\b|move\b|dibs\b|claim\b|taking\b|take\b|grab\b|take me|lead me|bring me|enter\b|time to|\*)", re.I)
+_FIRSTPERSON = re.compile(r"^\W*(?:(?:ok(?:ay)?|yeah|yes|sure|so|well|alright|then|fine|now|and|but|hey|also|copy that|haha|lol|please|um+|uh+|hmm+|er)[\s,.!]+)*(?:i\b|i'|i’|let'?s|lets|let us|we\b|me\b|my\b|go\b|going\b|heading\b|head\b|walking\b|walk\b|run\b|off\b|move\b|dibs\b|claim\b|taking\b|take\b|grab\b|take me|lead me|bring me|enter\b|time to|\*|(?:back |over |out |up )?(?:to|into) the\b|(?:sneak|step|slip|wander|stroll|dash|sprint|tiptoe)\b)", re.I)
 _PLURAL_MOVE = re.compile(r"\b(and|then|,)\b", re.I)
 
 
@@ -193,9 +193,17 @@ _SPLIT = re.compile(r"(?<=[.!;\n])\s+|\s*[;/]\s*|,?\s+(?:and then|and|then|but|s
 _THIRD = re.compile(r"^\W*(?:she|he|they|you|it|dana|jake|everyone|nobody)\b|^\W*(?-i:[A-Z][a-z]+)\s+(?:goes|walks|heads|runs|says|said|is|was|will)\b", re.I)
 
 
+_TAG_Q = re.compile(r"[,.\s]+(?:ok(?:ay)?|k|right|yeah|yea|alright|please)\s*\?+\s*$", re.I)
+
+
+def strip_tag_question(text: str) -> str:
+    """ORW-1184: a closing tag ('..., ok?') asks for no answer; the statement before it is still the player's act. Only the trailing tag goes; a real question keeps its mark."""
+    return _TAG_Q.sub("", text or "") if "?" in (text or "") else (text or "")
+
+
 def clauses(text: str) -> list:
     """The message split at sentence ends and conjunctions; a piece with no motion word joins the clause before it (so a second room in 'the kitchen and the backyard' keeps its verb)."""
-    t = strip_quotes(text).replace('"', " ").replace("“", " ").replace("”", " ")
+    t = strip_quotes(strip_tag_question(text)).replace('"', " ").replace("“", " ").replace("”", " ")
     out: list = []
     for c in _SPLIT.split(t):
         c = (c or "").strip()
@@ -230,7 +238,7 @@ def room_vetoed(room: str, text: str, ctx: dict) -> bool:
 
 @gate_log.logged("move-veto", fired=lambda r: not r)
 def move_vetoed(text: str) -> bool:
-    out = strip_quotes(text)
+    out = strip_quotes(strip_tag_question(text))
     if "?" in out:
         return True  # a question is not an act
     if not _FIRSTPERSON.search(out.strip()):
@@ -250,7 +258,11 @@ def bed_vetoed(text: str) -> bool:
 _ADV_Q = re.compile(r"^\W*(?:who|what|where|when|why|how|which|is|are|do|does|can|could|should)\b", re.I)
 
 
-_SLEEP_CUE = re.compile(r"\b(bed|sleep|asleep|night|turn(?:ing)? in|lights|nap|rest|tired|exhausted)\b", re.I)
+_SLEEP_CUE = re.compile(r"\b(bed|bedtime|goodnight|nite|gn|sleep|asleep|night|turn(?:ing)? in|lights|nap|rest|tired|exhausted)\b", re.I)
+
+
+# ORW-1187: the player's own plain sleep lines that open on the act itself, not on "I". A third-person line starts on the person, and _PLAIN_BLOCK / the negation veto still apply.
+_SLEEP_LEAD = re.compile(r"^\W*(?:(?:ok(?:ay)?|alright|well|so|right)[\s,.!]+)*(?:off\s+to\s+(?:bed|sleep)|(?:good\s*night|night\s*night|nighty\s*night|nite\s*nite|night|nite|gn)\b|bed\s*time|calling\s+it\s+a\s+night|call\s+it\s+a\s+night|sleepy\s+time)", re.I)
 
 
 @gate_log.logged("step-veto", fired=lambda r: not r)
@@ -261,7 +273,7 @@ def step_vetoed(text: str, tool: str = "") -> bool:
         return True
     if tool == "turnIn":  # ORW-1156: the player's OWN act. A sleep word about someone else ("Rowan is asleep", "Rowan says good night") ends nobody's night
         from src.claim_commit import _BARE_SLEEP
-        if not (_P1.search(out) or _BARE_SLEEP.match(out) or re.match(r"^\W*time\s+for\s+(?:bed|sleep)\b", out, re.I)) or _PLAIN_BLOCK.search(out):
+        if not (_P1.search(out) or _BARE_SLEEP.match(out) or _SLEEP_LEAD.match(out) or re.match(r"^\W*time\s+for\s+(?:bed|sleep)\b", out, re.I)) or _PLAIN_BLOCK.search(out):
             return True
     return "?" in out or bool(_ADV_Q.search(out) or _NEG.search(out) or _SARC.search(out))
 
@@ -787,6 +799,7 @@ def can_commit_nothing(text: str, rooms, ctx: dict) -> bool:
     a move or a bed claim needs a room the player's own words ground (`grounded_ctx`), a search needs an active houseguest's name in the words, a sleep needs a sleep word, and a step
     answer (advance, comp, deal) has no such floor, so any of those offered keeps the call."""
     o = offered(ctx)
+    gate_log.note_ctx(text, people=ctx.get("people"), rooms=rooms, here=ctx.get("here"), offered=o)  # ORW-1185/1186: the live roster and rooms beside the code, for an exact corpus
     if o["advance"] or o["comp"] or o["deal"]:
         return False
     if o["follow"] and (accept_intent(text, ctx) or _CUE.search(strip_quotes(text))):
