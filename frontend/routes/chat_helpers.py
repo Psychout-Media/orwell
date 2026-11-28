@@ -1582,6 +1582,51 @@ def turn_room_names(user) -> Optional[dict]:
     return room_names_of(_TURN_WHEREABOUTS.get(user or ""))
 
 
+_WHERE_IS_EVERYONE_RE = re.compile(
+    r"\bwhere\s+(?:is|are|did|have|has|'?s)\s+(?:everyone|everybody|all\s+of\s+(?:them|you|us)|the\s+(?:others|rest)|everyone\s+else|they\s+all|the\s+house)\b|"
+    r"\bwhere\s+(?:is|are)\s+(?:they|everyone)\s+(?:all\s+)?(?:now|at|gone|hiding)\b|\bwhere\s+did\s+(?:everyone|everybody|they\s+all|the\s+others|the\s+rest)\s+go\b|"
+    r"\bwho(?:'s|\s+is)\s+where\b|\bi\s+(?:thought|figured|assumed)\s+(?:everyone|everybody)\s+(?:was|were)\b",
+    re.IGNORECASE)
+
+
+def _where_is_everyone_directive(player_msg, whereabouts) -> Optional[str]:
+    """ORW-1138: the player asks where everyone is (or says where he thought they were): answer from the engine's real whereabouts, the player's room and the rooms in view, never from the scene's memory. Pure.
+    Nobody is placed beyond what the player can see; the rest are somewhere out of sight."""
+    try:
+        if not isinstance(player_msg, str) or not _WHERE_IS_EVERYONE_RE.search(player_msg) or not isinstance(whereabouts, dict):
+            return None
+        room = str(whereabouts.get("room") or "").strip()
+        if not room:
+            return None
+        names = room_names_of(whereabouts)
+        here = [str((r or {}).get("name") or "").strip() for r in (whereabouts.get("present") or []) if isinstance(r, dict) and (r or {}).get("name")]
+        bits = [f"in {room_ref(room, names, article=False, plain=room)} with the player: {', '.join(here) if here else 'nobody'}"]
+        for nb in (whereabouts.get("nearby") or []):
+            if isinstance(nb, dict) and nb.get("room"):
+                pres = [str((r or {}).get("name") or "").strip() for r in (nb.get("present") or []) if isinstance(r, dict) and (r or {}).get("name")]
+                bits.append(f"in {room_ref(str(nb['room']), names, article=False, plain=str(nb['room']))}: {', '.join(pres) if pres else 'nobody'}")
+        return ("THE PLAYER ASKED WHERE EVERYONE IS (engine truth, answer it plainly in the scene before anything else): " + "; ".join(bits)
+                + ". Everyone else is somewhere the player cannot see from here: say so, place none of them in a named room, and correct the player's belief about where the house is if it differs from this.")
+    except Exception:
+        return None
+
+
+def _clock_light_directive(board) -> Optional[str]:
+    """ORW-1138: the part of the day, as one hard line in the per-turn context, so the light, the sky and the mood are written to the engine clock (evening light at night was voiced while the clock said night). Pure; None
+    with no running clock."""
+    try:
+        if not isinstance(board, dict) or not board.get("started", True):
+            return None
+        from routes.briefing import _part_of_day
+        from src.zero_clocks import zero_clocks_on
+        band = _part_of_day(board, bool(zero_clocks_on()))
+        if not band:
+            return None
+        return (f"THE PART OF THE DAY IS {band.upper()} (engine truth): write the light, the sky, the sounds and the mood of this turn to {band}; never call it any other part of the day, and never name another part of the day's light.")
+    except Exception:
+        return None
+
+
 def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -> Optional[str]:
     """ADR 0009 (D3 Part A) — surface the engine's `whereabouts` as an ENFORCEABLE location fact, the
     way `_pending_barrier_directive` clamps the comp-round still-in set.
@@ -1654,6 +1699,14 @@ def _whereabouts_barrier_directive(whereabouts, asleep=None, player_move=None) -
         _mf, _mt = room_ref(player_move['from'], names), room_ref(player_move['to'], names)  # ORW-466: the season's names (no theme: "the living room", as before)
         move_line = (f"\nTHE PLAYER JUST MOVED: from {_mf} to {_mt} (the engine has already done it). Open this turn's scene in {_mt}, "
                      f"with exactly the people listed above; never in {_mf}, and never re-describe the walk as still to come.")
+        # ORW-1138: the people the player was with either came along (the engine moved them: a group walk) or stayed behind; say which, never leave it to the scene.
+        _came = [str(x) for x in (player_move.get("came") or []) if x]
+        _stayed = [str(x) for x in (player_move.get("stayed") or []) if x]
+        if _came:
+            move_line += f" CAME ALONG (engine truth, they walked over together): {', '.join(_came)}."
+        if _stayed:
+            move_line += (f" STAYED BEHIND in {_mf} (engine truth): {', '.join(_stayed)}. Say in one line that they stayed there while the player went; "
+                          f"do not write them in {_mt}, and do not have them follow unless the player's words asked it.")
     # ORW-1076: a move the engine refused this turn, with its reason (a shut HOH door, the house gathered, "where?"): without it the narrator wrote the player through the door
     if isinstance(player_move, dict) and player_move.get("refused") and player_move.get("reason"):
         move_line = f"\nTHE PLAYER DID NOT MOVE (engine truth): {player_move['reason']}. Voice that in the scene; the player stays where they are."
@@ -10473,6 +10526,13 @@ async def apply_game_framing(
                 gm_prompt = gm_prompt + "\n\n" + _loc
             # ADR 0009 (D1): pin this same in-memory snapshot as the per-turn occupancy freeze (below).
             freeze_capture_whereabouts(user, game_state.get("whereabouts"))
+            # ORW-1138: the question "where is everyone" is answered from the engine's whereabouts; the part of the day rides the per-turn context as one hard line
+            _wie = _where_is_everyone_directive(player_msg, game_state.get("whereabouts"))
+            if _wie:
+                gm_prompt = gm_prompt + "\n\n" + _wie
+            _clk = _clock_light_directive(game_state)
+            if _clk:
+                gm_prompt = gm_prompt + "\n\n" + _clk
         except Exception as e:
             logger.warning("[orwell] location grounding skipped for user=%s: %s", _gkey, e)
         # ORW-934: the engine walked the player's search for a houseguest this turn (before the narrator): the narrator voices the legs as one passage. Best-effort / fail-open.
