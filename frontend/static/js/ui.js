@@ -496,7 +496,9 @@ export function autoResize(textarea) {
     ['id', 'name', 'autofocus', 'required', 'aria-label', 'disabled', 'data-default-placeholder'].forEach(function (a) { clone.removeAttribute(a); });
     clone.setAttribute('aria-hidden', 'true');
     clone.setAttribute('tabindex', '-1');
-    clone.style.cssText = getComputedStyle(textarea).cssText;
+    // ORW-1142: computed-style cssText is EMPTY in Firefox, so the clone measured as a default
+    // monospace textarea and the composer never sized to its text. Copy the box-model and type
+    // properties explicitly (works in every engine).
     clone.style.position = 'absolute';
     clone.style.visibility = 'hidden';
     clone.style.height = '0';
@@ -507,6 +509,15 @@ export function autoResize(textarea) {
     textarea.parentNode.appendChild(clone);
     textarea._resizeClone = clone;
   }
+  const _cs = getComputedStyle(textarea);
+  ['boxSizing', 'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing', 'lineHeight',
+   'textTransform', 'textIndent', 'wordSpacing', 'whiteSpace', 'overflowWrap', 'wordBreak', 'tabSize',
+   'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft',
+   'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+   'borderTopStyle', 'borderRightStyle', 'borderBottomStyle', 'borderLeftStyle']
+    .forEach(function (k) { clone.style[k] = _cs[k]; });
+  clone.style.minHeight = '0';
+  clone.style.maxHeight = 'none';
   clone.style.width = textarea.offsetWidth + 'px';
   clone.value = textarea.value;
   clone.style.height = '0';
