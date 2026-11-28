@@ -1367,8 +1367,12 @@ def setup_orwell_routes() -> APIRouter:
             _user = _current_user(request)
             _live = await orwell_engine.whereabouts(user=_user)
             try:
-                from routes.chat_helpers import freeze_view
-                return _project_for_browser({"whereabouts": freeze_view(_user, _live)}, _BROWSER_WHEREABOUTS_SHAPE)   # ORW-768: the presence gadget's closed shape
+                from routes.chat_helpers import freeze_view, _TURN_WHEREABOUTS, _TURN_NPC_MOVES
+                from src import whereabouts_source
+                _picked = freeze_view(_user, _live)
+                # ORW-1141: latch the source so two reads with no turn and no engine move between never flip live <-> frozen
+                _picked = whereabouts_source.choose(_user, _live, _picked, _TURN_WHEREABOUTS.get(_user or ""), len(_TURN_NPC_MOVES.get(_user or "") or []))
+                return _project_for_browser({"whereabouts": _picked}, _BROWSER_WHEREABOUTS_SHAPE)   # ORW-768: the presence gadget's closed shape
             except Exception:
                 return _project_for_browser({"whereabouts": _live}, _BROWSER_WHEREABOUTS_SHAPE)
         except Exception as e:

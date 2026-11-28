@@ -261,6 +261,11 @@ class AuthManager:
             }
             self._save()
         logger.info(f"Created user '{username}' (admin={is_admin})")
+        try:  # ORW-1146: a new account on a non-prod deployment starts with image generation off
+            from src import orwell_image_spend
+            orwell_image_spend.apply_new_account_defaults(username)
+        except Exception:  # failsoft-ok: account creation never fails on a preference write; the daily image cap is the backstop
+            pass
         return True
 
     def delete_user(self, username: str, requesting_user: str) -> bool:

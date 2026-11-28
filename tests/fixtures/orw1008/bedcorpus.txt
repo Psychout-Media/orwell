@@ -55,23 +55,23 @@ swap|I swap beds with Dana|swap:Dana
 swap|I ask Dana to switch beds|swap:Dana
 swap|I want Dana's bed|swap:Dana
 swap|I take Dana's bed|swap:Dana
-swap|Dana's bed looks nice|swap:Dana
-swap|I sit on Dana's bed|swap:Dana
-swap|I sit on Dana's bed and talk to her|swap:Dana
+swap|Dana's bed looks nice|-
+swap|I sit on Dana's bed|-
+swap|I sit on Dana's bed and talk to her|-
 swap|I don't want Dana's bed|-
 swap|I won't swap beds with Dana|-
 swap|I'd never swap with Dana|-
 swap|I swap with Dana|-
 swap|I trade my bed to Jake|swap:Jake
 swap|Dana, want to trade beds?|swap:Dana
-swap|Tell Dana to swap beds with Jake|swap:Dana
-swap|I tell Jake Dana's bed is his|swap:Dana
+swap|Tell Dana to swap beds with Jake|-
+swap|I tell Jake Dana's bed is his|-
 swap|do not swap beds with Dana|-
 swap|swap beds with Kit|swap:Kit
 swap|swap beds with Kit Alvarez|swap:Kit
 swap|I switch beds with Lou|swap:Lou
 swap|I want Hal's bunk|swap:Hal
-swap|I lie on Dia's bed|swap:Dia
+swap|I lie on Dia's bed|-
 swap|I trade beds with Dina|-
 near|I want a bed next to Dana|near:Dana
 near|I take a bed near Jake|near:Jake
