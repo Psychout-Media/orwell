@@ -1420,9 +1420,14 @@ export function renderGameContext(view: GameStateView): string {
             const far = wa.present.filter((p) => p.outOfEarshot).map((p) => p.name);
             return [
               ...(far.length ? [`    OUT OF EARSHOT (engine truth, the far end of this big room): ${far.join(", ")}. They can be seen, they cannot hear the player: they do not join, answer or react to what is said at the player's end.`] : []),
-              "    EARSHOT: everyone else With you HEARS every word said here, so this is NOT a private conversation. Never say, promise or narrate that it is, or that anyone is out of earshot unless listed above. Real privacy comes only from askToTalkAlone.",
+              // ORW-1169: a recorded one-to-one scene is a real private talk (the engine lock below); the plain-room line would contradict it.
+              ...(wa.privateTalk ? [] : ["    EARSHOT: everyone else With you HEARS every word said here, so this is NOT a private conversation. Never say, promise or narrate that it is, or that anyone is out of earshot unless listed above. Real privacy comes only from askToTalkAlone."]),
             ];
           })()
+        : []),
+      // ORW-1169: a private talk is a lock the engine keeps: the two are busy until the scene ends.
+      ...(wa.privateTalk
+        ? [`    PRIVATE TALK (engine truth): you are talking privately with ${wa.privateTalk.with.name}. Neither of you leaves, and nobody else walks in, until the talk ends (a goodbye, one of you walking off, or an interruption the story shows). Keep the scene with them; do not move ${wa.privateTalk.with.name} elsewhere and do not write anyone else into the room.`]
         : []),
       // ORW-249: the engine re-seated the house after the player's message - voice who walked in / out as ONE short beat so the story and the widget change together.
       ...(wa.sinceSend && (wa.sinceSend.arrived.length || wa.sinceSend.departed.length)

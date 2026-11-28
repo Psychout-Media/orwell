@@ -12,7 +12,7 @@ from test_orw310_bedtime_belt import DEEPSEEK, _drive, _res
 pytestmark = [pytest.mark.usefixtures("non_game_text_routing"), pytest.mark.usefixtures("zero_clocks_off")]
 
 OWNER = "orw1155"
-NOTE_MARK = "never voiced as a day-in-review"
+NOTE_MARK = "shown to the player as its own day-in-review message"
 _MORNING = {"timeOfDay": "morning", "clockLabel": "8:00am, Day 2", "phase": "playing"}
 
 
@@ -39,16 +39,26 @@ def _engine_recap(monkeypatch, holder):
     monkeypatch.setattr(oe, "daily_recap", fake)
 
 
+def _saved(monkeypatch):
+    """ORW-1165: the days whose recap was saved as its own message."""
+    from src import orwell_day_recap as dr
+    days = []
+    monkeypatch.setattr(dr, "save_day_recap", lambda owner, rec: days.append(rec["day"]) or True)
+    return days
+
+
 def _noted(rounds):
     return [m for m in rounds[0]["msgs"] if m.get("role") == "system" and NOTE_MARK in str(m.get("content"))]
 
 
 def test_turn_in_run_outside_a_narrator_turn_is_voiced_on_the_next_turn_exactly_once(monkeypatch):
+    saved = _saved(monkeypatch)
     holder = {"rec": _recap(day=1)}
     _engine_recap(monkeypatch, holder)
     rounds, belts, _, _ = _drive(monkeypatch, text="I look around the living room.", owner=OWNER, status=_MORNING)
     notes = _noted(rounds)
-    assert len(notes) == 1 and "a quiet hour on the porch" in notes[0]["content"]
+    assert len(notes) == 1 and "do not voice" in notes[0]["content"].lower()  # ORW-1165: the day is saved as its own message; the reply is told not to voice it
+    assert saved == [1]
     assert belts.get("recap-replay") == 1
     # the next turn, same recap: already voiced, nothing more
     rounds, belts, _, _ = _drive(monkeypatch, text="I look around the living room.", owner=OWNER, status=_MORNING)
@@ -56,7 +66,7 @@ def test_turn_in_run_outside_a_narrator_turn_is_voiced_on_the_next_turn_exactly_
     # a newer closed day is voiced again, once
     holder["rec"] = _recap(day=2, highlights=["a late knock"])
     rounds, _, _, _ = _drive(monkeypatch, text="I look around the living room.", owner=OWNER, status=_MORNING)
-    assert len(_noted(rounds)) == 1
+    assert len(_noted(rounds)) == 1 and saved == [1, 2]
 
 
 def test_a_normal_turn_in_turn_does_not_double_voice(monkeypatch):
