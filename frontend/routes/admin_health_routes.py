@@ -2774,6 +2774,12 @@ function render(d) {
         " · checked " + esc(p.checked) + " · skipped " + esc(p.skippedTotal) + " (" + sk + ") · conflicts " + esc(p.conflictsTotal) + " (" + cf + ")" +
         " · state from cache " + esc((p.stateFrom || {}).cache) + " / read " + esc((p.stateFrom || {}).read) + " · " + esc(p.turns) + " turn(s)";
     })(d.predisplay)],
+    ["Claims without commit", (function (p) {
+      const c = p && p.claimCommit;
+      if (!c || !c.total) return '<span class="sub">none checked yet</span>';
+      const per = Object.entries(c.byKind || {}).filter(kv => kv[1].checked || kv[1].unbacked).map(kv => esc(kv[0]) + " " + esc(kv[1].unbacked) + "/" + esc(kv[1].checked) + " unbacked (" + esc(kv[1].regenerated) + " redone, " + esc(kv[1].committed) + " committed)").join(", ") || "none";
+      return B(!c.unbackedShown, c.unbackedShown ? c.unbackedShown + " SHOWN" : "NONE SHOWN") + " · checked " + esc(c.total.checked) + " · unbacked " + esc(c.total.unbacked) + " · " + per;
+    })(d.predisplay)],
     ["Tool calls", esc(tc.total ?? 0) + " total · " + esc(tc.failed ?? 0) + " failed"],
     ["Front-end store", (st.degraded ? B(false, "DEGRADED") + " · " : "") + esc(st.sessions ?? "?") + " session(s) · " + esc(st.messages ?? "?") + " message(s)" + (st.database_size_mb != null ? " · " + esc(st.database_size_mb) + " MB" : "")],
   ];
