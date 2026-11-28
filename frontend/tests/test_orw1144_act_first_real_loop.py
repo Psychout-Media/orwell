@@ -16,8 +16,7 @@ import pytest
 
 import test_m0_3_midgen_join as m03
 from test_m0_3_midgen_join import STUB
-from test_p0h_day1_clock_e2e import _engine, _session
-from test_a40_due_ceremony_real_loop import _fresh
+from test_m0_3_midgen_join import _post_form, _post_json
 from _ws_turn_driver import ws_turn
 
 pytestmark = pytest.mark.browser
@@ -28,12 +27,23 @@ def stack_af():
     prior = os.environ.get("ORWELL_ACT_FIRST")
     os.environ["ORWELL_ACT_FIRST"] = "1"  # the FE subprocess inherits it
     try:
-        yield from m03._boot_stack()
+        yield from m03._boot_stack(auth_user="orw1144")  # a real user: an anonymous stack has no owner, so the sync ledger would record nothing
     finally:
         if prior is None:
             os.environ.pop("ORWELL_ACT_FIRST", None)
         else:
             os.environ["ORWELL_ACT_FIRST"] = prior
+
+
+def _new_game(stack):
+    r = _post_json(stack["fe"], "/api/orwell/new-game", {"playerName": "P", "confirm": True, "seed": 1}, timeout=120, headers=stack["auth"])
+    assert r.get("started"), r
+
+
+def _session(stack, name):
+    sid = _post_form(stack["fe"], "/api/session", {"name": name, "model": "stub-narrator", "skip_validation": "true", "endpoint_id": stack["endpoint_id"]}, headers=stack["auth"]).get("id")
+    assert sid, "could not create the FE chat session"
+    return sid
 
 
 def _rows(stack):
@@ -61,9 +71,8 @@ CASES = [
 
 
 def test_one_turn_per_act_first_outcome_runs_to_a_reply_and_a_ledger_row(stack_af):
-    _fresh(stack_af, 1)
+    _new_game(stack_af)
     sid = _session(stack_af, "orw1144")
-    assert (_engine(stack_af, "getGameState") or {}).get("started") is not False
     problems = []
     for i, (name, outcome, text, act, narrate) in enumerate(CASES):
         STUB.script.clear()
@@ -73,7 +82,7 @@ def test_one_turn_per_act_first_outcome_runs_to_a_reply_and_a_ledger_row(stack_a
         STUB.script.extend(narrate)
         rows_before, log_before = len(_rows(stack_af)), len(_log(stack_af))
         try:
-            res = ws_turn(stack_af["fe"], sid, text, timeout=120, client_msg_id=f"orw1144-{i}")
+            res = ws_turn(stack_af["fe"], sid, text, timeout=120, client_msg_id=f"orw1144-{i}", headers=stack_af["auth"])
         except Exception as exc:  # a typed refusal or a timeout is a failed turn
             problems.append(f"{name}: the turn did not complete ({type(exc).__name__})")
             continue
@@ -96,4 +105,6 @@ def test_one_turn_per_act_first_outcome_runs_to_a_reply_and_a_ledger_row(stack_a
             problems.append(f"{name}: the narrator's own tool call is missing from the ledger row")
         if "chat_stream generator failed" in new:
             problems.append(f"{name}: the chat_stream generator failed")
+    if problems:
+        print("DEBUG", os.listdir(stack_af["fe_data"]), [l for l in _log(stack_af).splitlines() if "sync-ledger" in l or "ledger" in l.lower()][-6:])
     assert not problems, "; ".join(problems)

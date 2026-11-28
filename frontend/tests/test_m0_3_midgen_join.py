@@ -179,17 +179,17 @@ def _wait_http(url: str, proc, what: str, budget=120):
     raise RuntimeError(f"{what} never became ready")
 
 
-def _post_json(base: str, path: str, body: dict, timeout=60) -> dict:
+def _post_json(base: str, path: str, body: dict, timeout=60, headers=None) -> dict:
     req = urllib.request.Request(base + path, data=json.dumps(body).encode(), method="POST",
-                                 headers={"content-type": "application/json"})
+                                 headers={"content-type": "application/json", **(headers or {})})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read() or b"{}")
 
 
-def _post_form(base: str, path: str, form: dict, timeout=30) -> dict:
+def _post_form(base: str, path: str, form: dict, timeout=30, headers=None) -> dict:
     data = urllib.parse.urlencode(form).encode()
     req = urllib.request.Request(base + path, data=data, method="POST",
-                                 headers={"content-type": "application/x-www-form-urlencoded"})
+                                 headers={"content-type": "application/x-www-form-urlencoded", **(headers or {})})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read() or b"{}")
 
@@ -202,9 +202,11 @@ def _stack():
     yield from _boot_stack()
 
 
-def _boot_stack(engine_data_dir=None, create_game=True, engine_env_extra=None):
+def _boot_stack(engine_data_dir=None, create_game=True, engine_env_extra=None, auth_user=None):
     """The shared real-stack boot (engine + FE + scripted stub). Defaults are the long-standing `_stack`: a fresh engine data dir and a seeded started game. ORW-298 passes a PRE-STAGED engine
-    data dir (`engine_data_dir`, a save the engine resumes at boot) with `create_game=False`, plus extra engine env (`engine_env_extra`)."""
+    data dir (`engine_data_dir`, a save the engine resumes at boot) with `create_game=False`, plus extra engine env (`engine_env_extra`).
+    ORW-1144: `auth_user` boots the FE with real auth (AUTH_ENABLED=true, no loopback bypass), creates that admin, logs in, and yields the session `cookie` header dict as `auth` (an anonymous stack has no
+    owner, so the per-turn sync ledger records nothing); the engine-direct seed game is skipped (the user plays through the FE's own new-game door)."""
     try:
         from playwright.sync_api import sync_playwright  # noqa: F401
     except Exception:
@@ -233,7 +235,7 @@ def _boot_stack(engine_data_dir=None, create_game=True, engine_env_extra=None):
     fe_port = _free_port()
     fe_env = dict(
         os.environ,
-        ORWELL_GAME_BUILD="1", AUTH_ENABLED="false", LOCALHOST_BYPASS="true",
+        ORWELL_GAME_BUILD="1", AUTH_ENABLED=("true" if auth_user else "false"), LOCALHOST_BYPASS=("false" if auth_user else "true"),
         ORWELL_ENGINE_MCP_URL=ebase,
         PLAYWRIGHT_BROWSERS_PATH=os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "/opt/pw-browsers"),
         DATABASE_URL="sqlite:///" + os.path.join(tempfile.mkdtemp(prefix="orwell-m03-fe-"), "app.db"),
@@ -248,6 +250,15 @@ def _boot_stack(engine_data_dir=None, create_game=True, engine_env_extra=None):
     try:
         _wait_http(ebase + "/player/tools", engine, "engine", 60)
         _wait_http(fbase + "/openapi.json", fe, "front-end", 120)
+        auth = {}
+        if auth_user:
+            _post_json(fbase, "/api/auth/setup", {"username": auth_user, "password": "orw1144-pass-word"})
+            lr = urllib.request.Request(fbase + "/api/auth/login", data=json.dumps({"username": auth_user, "password": "orw1144-pass-word"}).encode(), method="POST",
+                                        headers={"content-type": "application/json"})
+            with urllib.request.urlopen(lr, timeout=30) as resp:
+                cookie = next((v.split(";", 1)[0] for k, v in resp.getheaders() if k.lower() == "set-cookie" and v.startswith("orwell_session=")), "")
+            assert cookie, "login set no session cookie"
+            auth = {"Cookie": cookie}
 
         # Point the FE's model resolution at the stub (skip_probe: the stub is not a real
         # provider fleet; endpoint kind auto-detects OpenAI-compatible).
@@ -257,7 +268,7 @@ def _boot_stack(engine_data_dir=None, create_game=True, engine_env_extra=None):
         ep = _post_form(fbase, "/api/model-endpoints", {
             "name": "m03-stub", "base_url": f"http://127.0.0.1:{stub_port}/v1",
             "api_key": "stub-key", "skip_probe": "true", "endpoint_kind": "openai",
-        })
+        }, headers=auth)
         import importlib
         sys.path.insert(0, FRONTEND)
         settings_mod = importlib.import_module("src.settings")
@@ -281,7 +292,7 @@ def _boot_stack(engine_data_dir=None, create_game=True, engine_env_extra=None):
         while time.time() < deadline:
             try:
                 resolved = json.loads(urllib.request.urlopen(
-                    fbase + "/api/default-chat", timeout=5).read() or b"{}")
+                    urllib.request.Request(fbase + "/api/default-chat", headers=auth), timeout=5).read() or b"{}")
             except Exception:
                 resolved = {}
             if resolved.get("model") == "stub-narrator":
@@ -292,14 +303,14 @@ def _boot_stack(engine_data_dir=None, create_game=True, engine_env_extra=None):
 
         # A seeded, STARTED game — engine-direct (the chat casting walk is the golden
         # driver's job, not this pin's; convergence only requires started !== false).
-        if create_game:
+        if create_game and not auth_user:
             r = _post_json(ebase, "/player/call",
                            {"name": "createCharacter", "args": {"playerName": "P", "seed": SEED}})
             if "result" not in r:
                 raise RuntimeError(f"createCharacter failed: {r}")
 
         yield {"fe": fbase, "engine": ebase, "settings": sfile, "prior": prior_settings,
-               "endpoint_id": ep["id"], "fe_data": fe_data, "fe_log": fe_log}
+               "endpoint_id": ep["id"], "fe_data": fe_data, "fe_log": fe_log, "auth": auth}
     finally:
         # Restore the shared settings file — the stub endpoint/model must not leak into
         # later tests or dirty the checkout (the golden driver's shared-frontend/data lesson).
