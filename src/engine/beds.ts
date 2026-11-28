@@ -144,3 +144,34 @@ export function sleepRoomOf(state: BedsState | undefined, who: EntityId, hoh: En
   const bed = state?.owner[who];
   return bed ? roomOfBed(bed) : undefined;
 }
+
+/**
+ * ORW-1153: the narrator's ONE bed fact. Per room (by the name `roomName` gives it), every single and every half of a double on its own line item with its owner or "free", and the house-wide count of
+ * free spots. A double's halves are listed separately ("double 1, half 1 / half 2") so a half-empty double reads as exactly that; a houseguest still racing has no spot, so appears nowhere here. Pure:
+ * owners still in the house hold a spot, an evictee's spot reads free (`takenBeds`).
+ */
+export function bedTable(
+  state: BedsState, inHouse: ReadonlySet<EntityId>, roomName: (room: Room) => string, label: (who: EntityId) => string,
+  layout: readonly BedroomSpec[] = BEDROOM_LAYOUT,
+): { rooms: string[]; free: number; total: number; freeByRoom: Record<string, string[]> } {
+  const holder = new Map<BedId, EntityId>();
+  for (const [who, spot] of Object.entries(state.owner)) if (inHouse.has(who)) holder.set(spot, who);
+  const who = (spot: BedId): string => { const h = holder.get(spot); return h === undefined ? "free" : label(h); };
+  const freeByRoom: Record<string, string[]> = {};
+  let free = 0; let total = 0;
+  const rooms = layout.map((r) => {
+    const items: string[] = [];
+    const open: string[] = [];
+    const note = (spot: BedId, text: string): void => { total++; if (!holder.has(spot)) { free++; open.push(text); } };
+    for (let i = 1; i <= r.singles; i++) { const spot = `${r.room}#s${i}`; items.push(`single ${i}: ${who(spot)}`); note(spot, `single ${i}`); }
+    for (let i = 1; i <= r.doubles; i++) {
+      for (const h of [1, 2]) { const spot = `${r.room}#d${i}:${h}`; items.push(`double ${i} half ${h}: ${who(spot)}`); note(spot, `double ${i} half ${h}`); }
+    }
+    freeByRoom[r.room] = open;
+    return `${roomName(r.room)} (${r.singles} single${r.singles === 1 ? "" : "s"}, ${r.doubles} double${r.doubles === 1 ? "" : "s"}; each single sleeps one, each double two): ${items.join("; ")}`;
+  });
+  return { rooms, free, total, freeByRoom };
+}
+
+/** ORW-1153: what is free in one room, in words, for a refusal ("every spot there is taken" / "free there: double 1 half 2"). */
+export function freeInRoomWords(free: readonly string[]): string { return free.length ? `free there: ${free.join(", ")}` : "nothing is free there"; }
