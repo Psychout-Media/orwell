@@ -10273,6 +10273,7 @@ export class GameSessionAdapter implements GameSession {
       ...((): { privateTalk?: { with: NamedRef } } => { const t = this.privateTalkView(); return t && t.room === room ? { privateTalk: { with: t.with } } : {}; })(), // ORW-1169
       ...this.themedRoomsView(room),
       ...this.bedLayoutView(room),
+      ...(this.live?.beds?.owner[PLAYER] !== undefined ? { playerBed: true } : {}), // ORW-1190: the player holds a bed, so a reference to it is backed
       ...this.roomCardView(room, presentPlain.map((p) => ({ id: p.id, name: p.name }))),
     };
   }

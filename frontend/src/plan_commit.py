@@ -111,15 +111,56 @@ def _name_forms(name: str) -> list:
     return [n] + ([first] if len(first) >= 3 else [])
 
 
+# ORW-1192: a first name that is also an ordinary word needs a stronger signal than a case-insensitive word hit ("I hope", "Grace under pressure", "I chase", "a bill", "will").
+_COMMON_WORD_NAMES = frozenset({
+    "hope", "grace", "chase", "faith", "dawn", "drew", "hunter", "jack", "bill", "bob", "will", "mark", "rose", "april", "may", "june", "joy", "summer", "sky", "ivy", "rich", "pat", "sue", "art", "ray",
+    "rob", "max", "dean", "page", "pearl", "ruby", "amber", "jade", "lily", "iris", "violet", "heather", "holly", "buck", "bud", "cliff", "frank", "grant", "guy", "harmony", "honor", "lane", "mason",
+    "miles", "nick", "pierce", "ward", "star", "storm", "trip", "rock", "case", "cash", "dale", "dash", "earl", "fern", "gene", "hank", "jazz", "john", "kit", "lance", "liberty", "mercy", "monday",
+    "olive", "pepper", "penny", "peace", "river", "robin", "rusty", "sandy", "sage", "skip", "tab", "tank", "taylor", "tiger", "wade", "wren", "bishop", "king", "major", "noble", "prince", "queen", "reed",
+    "angel", "blaze", "brook", "clay", "colt", "dusty", "flint", "forest", "glen", "hazel", "lucky", "marshall", "mike", "nova", "patience", "precious", "sterling", "tyson"})
+_ADDRESS_BEFORE = re.compile(r"(?:\b(?:tell|ask|asked|told|call|called|with|to|for|and|or|hey|hi|hello|dear|thank|thanks|about|from|see|find|bring|get|that|ok|okay|so|well|yes|no|please)\s+)$", re.I)
+_ADDRESS_AFTER = re.compile(r"^\s*(?:[,?!:;]|\.(?:\s|$)|$|[\u2014-]\s)")
+
+
+_VERB_BEFORE = re.compile(r"\b(?:tell|ask|asked|told|call|called|hey|hi|hello|dear|thank|thanks|bring|fetch|find)\s+$", re.I)
+
+
+def _strong_name_hit(text: str, form: str) -> bool:
+    """A first name that is also a common word counts only when the text capitalises it mid-sentence, addresses it (a comma, question mark or end right after it, or tell/ask/with/to right before it)."""
+    for m in re.finditer(r"(?<![\w'])" + re.escape(form) + r"(?![\w'])", text, re.I):
+        word = m.group(0)
+        before, after = text[:m.start()], text[m.end():]
+        sentence_start = not before.strip() or bool(re.search(r"[.!?\n]\s*[\"'\u201c(]?$", before))
+        if word[:1].isupper() and not sentence_start:
+            return True
+        if _ADDRESS_AFTER.match(after) and (word[:1].isupper() or sentence_start or _ADDRESS_BEFORE.search(before)):
+            return True
+        if _VERB_BEFORE.search(before) or (_ADDRESS_BEFORE.search(before) and word[:1].isupper()):
+            return True
+        if _ADDRESS_BEFORE.search(before) and re.match(r"^\s*(?:[,?!:;.]|$)", after):
+            return True
+    return False
+
+
+def name_hit(text: str, name: Any) -> bool:
+    """True when the text names this houseguest: the full name always; the first name when it is not an ordinary word, or (when it is) when it carries a strong signal."""
+    n = str(name or "").strip()
+    if not n:
+        return False
+    t = text or ""
+    if re.search(r"(?<![\w'])" + re.escape(n) + r"(?![\w'])", t, re.I):
+        return True
+    first = n.split()[0]
+    if len(first) < 3:
+        return False
+    if first.lower() in _COMMON_WORD_NAMES:
+        return _strong_name_hit(t, first)
+    return bool(re.search(r"(?<![\w'])" + re.escape(first) + r"(?![\w'])", t, re.I))
+
+
 def named_ids(text: str, people: list) -> list:
-    """Ids of the houseguests the player's words name (full name or first name, word-bounded, case-insensitive)."""
-    out = []
-    for p in people:
-        for f in _name_forms(p.get("name")):
-            if re.search(r"(?<![\w'])" + re.escape(f) + r"(?![\w'])", text or "", re.I):
-                out.append(p["id"])
-                break
-    return out
+    """Ids of the houseguests the player's words name (full name or first name, word-bounded; a first name that is also a common word needs a strong signal)."""
+    return [p["id"] for p in people if name_hit(text, p.get("name"))]
 
 
 _ARRIVE_RE = re.compile(r"\b(come|comes|coming|bring|brings|join|joins|fetch|summon|beckon|call(?:s|ed)?\s+(?:over|in)|come\s+over|over\s+here)\b", re.I)
@@ -127,15 +168,18 @@ _ARRIVE_RE = re.compile(r"\b(come|comes|coming|bring|brings|join|joins|fetch|sum
 
 def _summoned(text: str, name: str) -> bool:
     """The player's words name this houseguest AND ask for a coming (a narrower test than the belt's: a plain 'tell' or 'ask' is not a summons)."""
-    first = str(name or "").split()[0] if name else ""
-    return bool(first and re.search(r"(?<![\w'])" + re.escape(first) + r"(?![\w'])", text or "", re.I) and _ARRIVE_RE.search(text or ""))
+    return bool(name and name_hit(text or "", name) and _ARRIVE_RE.search(text or ""))
 
 
 # ── ORW-1170: who the player addresses in a group, from engine-known context ───────────────────
 _LAST_PARTNER: dict = {}
 _PARTNER_TTL_S = 1800.0
 _SECOND_PERSON_RE = re.compile(r"\b(you|your|yours|you're|you've|you'll|you'd|yourself)\b", re.I)
-_BROADCAST_RE = re.compile(r"\b(everyone|everybody|all of you|you all|y'all|you guys|guys|you two|you both|both of you|everyone's|the group|folks)\b", re.I)
+# ORW-1191: a PAIR word addresses exactly two people; a WHOLE-ROOM word addresses everyone; "guys" is whole-room unless the model's own ids are a proper subset of the room.
+_PAIR_RE = re.compile(r"\b(?:you\s+two|you\s+both|both\s+of\s+you|the\s+two\s+of\s+you|you\s+2)\b", re.I)
+_WHOLE_ROOM_RE = re.compile(r"\b(?:everyone|everybody|all\s+of\s+you|you\s+all|y'all|everyone's|the\s+group|folks)\b", re.I)
+_GUYS_RE = re.compile(r"\bguys\b", re.I)
+_BROADCAST_RE = re.compile(_PAIR_RE.pattern + "|" + _WHOLE_ROOM_RE.pattern + "|" + _GUYS_RE.pattern, re.I)
 _SPEECH_VERB = (r"(?:says|said|asks|asked|whispers|whispered|replies|replied|murmurs|murmured|mutters|muttered|tells|told|answers|answered|adds|added|"
                 r"wonders|wondered|snaps|snapped|offers|offered|admits|admitted|demands|demanded|suggests|suggested|calls out|called out)")
 
@@ -182,7 +226,9 @@ def resolve_partner(view: dict, text: str) -> tuple:
     the last scene's partner, then the one houseguest who spoke last turn (needs a second-person reply or a question put to the player). Two sources that disagree resolve to
     nothing. A message that addresses the whole group has no single partner."""
     awake = set(view.get("awake") or [])
-    if _BROADCAST_RE.search(text or ""):
+    if _PAIR_RE.search(text or ""):
+        return None, "pair"  # a pair word wins over a whole-room word that only names who else is affected
+    if _WHOLE_ROOM_RE.search(text or "") or _GUYS_RE.search(text or ""):
         return None, "broadcast"
     lock = view.get("lock")
     if lock in awake:
@@ -289,9 +335,26 @@ def validate(obj: dict, text: str, view: dict) -> dict:
             if pid:
                 ids = [pid]  # ORW-1170: the engine-known conversation partner, never a guess
                 codes.append("partner:" + why)
+            elif why == "pair":
+                # ORW-1191: a pair word addresses two people: the model's own two present, awake ids, or (when exactly two are awake) those two; never a third
+                mine = [i for i in ids if i in awake]
+                if len(mine) == 2:
+                    ids = mine
+                    codes.append("pair-kept")
+                elif len(awake) == 2:
+                    ids = list(awake)
+                    codes.append("pair-two-awake")
+                else:
+                    ids = []
+                    codes.append("unnamed-ambiguous")
             elif why == "broadcast" and 2 <= len(awake) <= MAX_PARTICIPANTS:
-                ids = list(awake)  # the whole group is addressed: a group scene with the people present
-                codes.append("group-broadcast")
+                mine = [i for i in ids if i in awake]
+                if not _WHOLE_ROOM_RE.search(text or "") and 2 <= len(mine) < len(awake):
+                    ids = mine  # "guys" to a subset: the model's own subset stands
+                    codes.append("subset-kept")
+                else:
+                    ids = list(awake)  # the whole group is addressed: a group scene with the people present
+                    codes.append("group-broadcast")
             else:
                 codes.append("unnamed-ambiguous")  # nobody named, no partner known: left to the belt
                 ids = []
