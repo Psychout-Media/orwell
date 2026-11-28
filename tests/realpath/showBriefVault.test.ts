@@ -4,7 +4,7 @@ import { type Stop, firstStop, wfScan } from "./playedSeason";
 
 /**
  * The Show Brief is Vault-free - in a PLAYED season (ORW-812: before, sentinels were written into a snapshot and restored). The season is played by the scripted talking player
- * (seed 7) to the middle of week 2; the hidden material the season really holds (every story thread's premise and trigger, every houseguest's secrets, true goals and weakness) is
+ * (seed 1, was 7) to the middle of week 2; the hidden material the season really holds (every story thread's premise and trigger, every houseguest's secrets, true goals and weakness) is
  * read from the session, and none of it may reach the brief, asked about every houseguest, first read and echoed read alike. The other brief checks stay in
  * tests/unit/showBriefSession.test.ts. Roles only.
  */
@@ -18,7 +18,7 @@ const hiddenOf = (s: Stop): string[] => {
 
 describe("the brief is Vault-free in a played season", () => {
   it("no hidden premise, trigger, secret, goal or weakness the season holds ever reaches the brief", async () => {
-    const at = await firstStop((s) => (s.sess.live?.week ?? 1) >= 2 && hiddenOf(s).length > 0, wfScan(7));
+    const at = await firstStop((s) => (s.sess.live?.week ?? 1) >= 2 && hiddenOf(s).length > 0, wfScan(1)) // ORW-995: hint 1 (was 7); the census-hometown cast moves the seeded draws and seed 7 (like 5) builds no brief; seeds 1, 2, 3, 4, 6, 8-12 do;
     const hidden = hiddenOf(at);
     expect(hidden.length, "non-vacuous: the season holds hidden material").toBeGreaterThan(10);
     const everyone = (at.sess.livingIds() as string[]).filter((id) => id !== "player");
