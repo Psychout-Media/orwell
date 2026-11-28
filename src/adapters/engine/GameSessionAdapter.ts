@@ -9964,6 +9964,8 @@ export class GameSessionAdapter implements GameSession {
     return true;
   }
 
+  /** ORW-1167: is a whole-house event gathering everyone (whereabouts lists the whole house as present, no far zone)? */
+  houseEventGathered(): boolean { return this.houseEventInSession() !== null; }
   /**
    * 0106 — is a whole-house EVENT the LIVE, unresolved beat (an EXCLUSIVE set-piece: a competition, or a
    * nomination / veto / eviction ceremony)? True while the event's player decision is pending (or a comp

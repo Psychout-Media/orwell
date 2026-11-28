@@ -83,6 +83,8 @@ export class EngineCommandsAdapter implements EngineCommands {
    * build (back-compatible). Pure read-side; never a new rng draw, so calibration is untouched.
    */
   private zoneProvider?: (id: EntityId) => Zone | undefined;
+  /** ORW-1167: true while a whole-house event gathers everyone as one room (whereabouts lists them all as present); a named listener is then never dropped for a far zone. */
+  private gatheredProvider?: () => boolean;
   /**
    * L27: index a recorded social scene into a houseguest's SEMANTIC recall memory (0024). Every
    * houseguest who was in a scene remembers its SUMMARY, so later narrative is built from the STORE
@@ -234,6 +236,10 @@ export class EngineCommandsAdapter implements EngineCommands {
   setZoneProvider(fn: (id: EntityId) => Zone | undefined): void {
     this.zoneProvider = fn;
   }
+  /** ORW-1167: wire the whole-house-event reader (see `gatheredProvider`). */
+  setGatheredProvider(fn: () => boolean): void {
+    this.gatheredProvider = fn;
+  }
 
   /** Wire the semantic-recall index (L27/0024) so a recorded social scene becomes recallable later. */
   setSoulMemo(fn: (hg: EntityId, content: string) => void): void {
@@ -375,7 +381,7 @@ export class EngineCommandsAdapter implements EngineCommands {
     // reason the earlier FE-side attempt fought the spine and was dropped from #1721.
     const grounded = occupancy !== null && room !== undefined;
     // ORW-1167: earshot. In a zoned room (the yard) a named same-room houseguest seated in ANOTHER zone than the scene's (the initiator's) cannot hear it, so a confidence is never witnessed by who the player could not be heard by. Unzoned room or no zone provider: both zones read undefined, every same-room name stays (byte-identical).
-    const namedZone = grounded ? this.zoneProvider?.(req.initiator) : undefined;
+    const namedZone = grounded && !this.gatheredProvider?.() ? this.zoneProvider?.(req.initiator) : undefined; // a gathered house event is one room to everyone (undefined zone keeps all)
     const namedWitnesses = grounded
       ? req.witnessSet.filter((id) => {
           if (id === PLAYER || id === req.initiator) return true; // never drop the player or the initiator
