@@ -572,6 +572,41 @@ def take_stash(user) -> Optional[dict]:
     return None
 
 
+# ── ORW-1143: a turn that died after act-first committed. The retry narrates the commit; nothing is committed twice. Notes only: no player text is kept. ──
+_COMMIT_MEMO: dict = {}
+_MEMO_TTL_S = 1800.0
+#: The headless message the client's Retry control sends (chat.js `_renderStreamDropRetry`); a test pins both strings together.
+RETRY_PREFIX = "Your previous reply didn't come through"
+
+
+def put_commit_memo(user, client_msg_id, notes) -> None:
+    with _LOCK:
+        _COMMIT_MEMO[user or "default"] = {"msgid": client_msg_id, "notes": [str(n) for n in (notes or [])], "failed": False, "at": time.monotonic()}
+
+
+def mark_turn_failed(user) -> bool:
+    """The turn that made the memo died before its reply. True when a memo was flagged (so a retry owes the narration)."""
+    with _LOCK:
+        d = _COMMIT_MEMO.get(user or "default")
+        if d and time.monotonic() - d["at"] <= _MEMO_TTL_S:
+            d["failed"] = True
+            return True
+    return False
+
+
+def take_retry_memo(user, text, client_msg_id=None) -> Optional[dict]:
+    """The memo of a failed turn when this message is its retry (the Retry control's message, or the same client message id re-sent); consumed once. None otherwise."""
+    with _LOCK:
+        d = _COMMIT_MEMO.get(user or "default")
+        if not d or not d.get("failed") or time.monotonic() - d["at"] > _MEMO_TTL_S:
+            return None
+        is_retry = (isinstance(text, str) and text.strip().startswith(RETRY_PREFIX)) or bool(client_msg_id and client_msg_id == d.get("msgid"))
+        if not is_retry:
+            return None
+        _COMMIT_MEMO.pop(user or "default", None)
+        return d
+
+
 # ── the round ─────────────────────────────────────────────────────────────────────────────────
 async def decide(text: str, rooms, *, ctx: dict, fence: str, room_note: str = "",
                  call: Callable[..., Awaitable[list]], **call_kwargs) -> dict:
