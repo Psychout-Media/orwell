@@ -71,3 +71,35 @@ def test_corpus_row_replays_with_the_live_roster():
     assert gate_corpus.row_for(text, ["search"])["gates"]["search-cue"] is False
     row = gate_corpus.row_for(text, ["search"], live_ctx={"people": ["kai"], "rooms": []})
     assert row["gates"]["search-cue"] is True and row["live"] is True
+
+
+# ORW-1184b (prod replay 2026-11-28 on the live per-room gate): a "let's ...?" proposal, a "let s" typo, and a plain move beside a hedge in another sentence. Synthetic lines.
+MOVE_MISS_B = [
+    ("kitchen", "lets checkout the kitchen?"),
+    ("kitchen", "let's go to the kitchen?"),
+    ("kitchen", "let s sit in the kitchen for a while"),
+]
+MOVE_KEEP_B = [
+    ("kitchen", "let's not go to the kitchen?"),
+    ("kitchen", "let s go to the kitchen later"),
+    ("kitchen", "Dana said let's go to the kitchen"),
+    ("kitchen", "should we go to the kitchen?"),
+    ("kitchen", "could we maybe go to the kitchen?"),
+    ("kitchen", "let's never go to the kitchen?"),
+]
+
+
+@pytest.mark.parametrize("room,text", MOVE_MISS_B)
+def test_proposal_and_typo_move_is_not_vetoed(room, text):
+    assert not af.room_vetoed(room, text, CTX)
+
+
+@pytest.mark.parametrize("room,text", MOVE_KEEP_B)
+def test_proposal_guard_still_vetoed(room, text):
+    assert af.room_vetoed(room, text, CTX)
+
+
+def test_corpus_replays_the_live_per_room_gate():
+    from src import gate_corpus as gc
+    assert gc.gate_decisions("lets checkout the kitchen?", rooms=["kitchen"])["move-veto"] is True
+    assert gc.gate_decisions("should we go to the kitchen?", rooms=["kitchen"])["move-veto"] is False

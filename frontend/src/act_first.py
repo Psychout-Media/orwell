@@ -172,7 +172,7 @@ def has_cue(text: str, room_names=None) -> bool:
 # ── precision vetoes: the model proposes, plain words must also agree before a MOVE or a BED CLAIM is committed ────────────────
 # A miss costs a fallback (the after-reply belts still run); a wrong commit moves the player to a wrong room. So the model's move is committed only when no cue below says
 # the message is speech, a plan, a refusal, a question, a state, a past act, another person's move, a carried object, or an attempt.
-_NEG = re.compile(r"\b(don'?t|do not|won'?t|will not|not going|not gonna|never|refuse|refusing|stay(?:ing)? (?:out|put)|instead of|rather than|can'?t|cannot|no longer|without|ignore|forget|wasn'?t|didn'?t|nobody|nowhere|nope|no way|not heading|not leaving|stop myself|avoid)\b", re.I)
+_NEG = re.compile(r"\b(let['’]?s not|lets not|let s not|let us not|don'?t|do not|won'?t|will not|not going|not gonna|never|refuse|refusing|stay(?:ing)? (?:out|put)|instead of|rather than|can'?t|cannot|no longer|without|ignore|forget|wasn'?t|didn'?t|nobody|nowhere|nope|no way|not heading|not leaving|stop myself|avoid)\b", re.I)
 _FUTURE = re.compile(r"\b(later|after|before|tomorrow|tonight|soon|eventually|once|when|until|at \d|\d ?(?:am|pm)|will|i'll|i think|i guess|i hope|would(?! like)|i'd(?! like| love)|should|might|maybe|about to|someday|plan to|thinking of|could|next (?:week|day|time)|in an hour|if)\b", re.I)
 _SPEECH = re.compile(r"\b(shout(?:ed|ing)?|yell(?:ed|ing)?|say|says|said|tell|told|type|typed|whisper(?:ed)?|ask(?:ed)?|text(?:ed)?|write|wrote|call(?:ed)?|scream(?:ed)?|announce|suggest|propose|invite|sing|sang|read|wave|wonder)\b", re.I)
 _SARC = re.compile(r"\b(oh sure|obviously|as if|yeah right|sarcas\w*|great idea|how helpful|that's helpful|/s|not\.|what a (?:time|great|lovely|perfect))\b|\bhelpful\b", re.I)
@@ -184,7 +184,7 @@ _NOT_A_MOVE = re.compile(
     r"|\bmeet\s+(?:me|us)\b|\bcome\s+(?:to|here|over)\b"  # ORW-1156: an invitation to someone else is not the player's move
     r"|\bgo (?:and|to) (?:sit|eat|sleep|lie|lay)\b|\bgo (?:meet|visit|talk|look)\b"
     r"|\b(?:what if|do i|should i|can i|may i|shall i|could i|am i)\b|\w+'s (?:room|bedroom|bed)\b|\b(?:want|need)\s+(?:the|a)\b|\bdown\b|\blook(?:ing)? around\b|\bi mean\b|\b(?:or|whichever|look(?:ing)? (?:in|for|at)|peek|glance|check|scan|point me|find)\b", re.I)
-_FIRSTPERSON = re.compile(r"^\W*(?:(?:ok(?:ay)?|yeah|yes|sure|so|well|alright|then|fine|now|and|but|hey|also|copy that|haha|lol|please|um+|uh+|hmm+|er)[\s,.!]+)*(?:i\b|i'|i’|let'?s|lets|let us|we\b|me\b|my\b|go\b|going\b|heading\b|head\b|walking\b|walk\b|run\b|off\b|move\b|dibs\b|claim\b|taking\b|take\b|grab\b|take me|lead me|bring me|enter\b|time to|\*|(?:back |over |out |up )?(?:to|into) the\b|(?:sneak|step|slip|wander|stroll|dash|sprint|tiptoe)\b)", re.I)
+_FIRSTPERSON = re.compile(r"^\W*(?:(?:ok(?:ay)?|yeah|yes|sure|so|well|alright|then|fine|now|and|but|hey|also|copy that|haha|lol|please|um+|uh+|hmm+|er)[\s,.!]+)*(?:i\b|i'|i’|let['’]?s|lets|let\s+s\b|let us|we\b|me\b|my\b|go\b|going\b|heading\b|head\b|walking\b|walk\b|run\b|off\b|move\b|dibs\b|claim\b|taking\b|take\b|grab\b|take me|lead me|bring me|enter\b|time to|\*|(?:back |over |out |up )?(?:to|into) the\b|(?:sneak|step|slip|wander|stroll|dash|sprint|tiptoe)\b)", re.I)
 _PLURAL_MOVE = re.compile(r"\b(and|then|,)\b", re.I)
 
 
@@ -216,7 +216,13 @@ def clauses(text: str) -> list:
     return out
 
 
+# ORW-1184b (prod 2026-11-28 replay): a "let's ...?" is a proposal, the player's own act said with a rising tone, not a question to answer.
+_PROPOSAL = re.compile(r"^\W*(?:(?:ok(?:ay)?|yeah|so|well|alright|hey|come on)[\s,.!]+)*(?:let['\u2019]?s|lets|let\s+s|let us)\b", re.I)
+
+
 def clause_vetoed(c: str, first: bool) -> bool:
+    if _PROPOSAL.search(c or ""):
+        c = c.replace("?", "")
     if "?" in c:
         return True
     if first and not _FIRSTPERSON.search(c.strip()):
