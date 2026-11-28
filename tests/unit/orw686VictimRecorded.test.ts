@@ -18,6 +18,7 @@ type Seam = {
   noteTargetsMeClaims(h: string): void;
   rel: { edge(a: string, b: string): { trust: number } };
   presence: Map<string, string>;
+  presenceZone: Map<string, string>;
 };
 
 function played(seed: number, breakIt: boolean) {
@@ -34,7 +35,8 @@ function played(seed: number, breakIt: boolean) {
     expect(deal.status).toBe("broken");
     expect(deal.brokenBy).toBe(PLAYER);
   }
-  s.presence = new Map<string, string>([[PLAYER, "kitchen"], [v, "kitchen"], [o, "kitchen"], [t, "kitchen"]]);
+  s.presence = new Map<string, string>([[PLAYER, "backyard"], [v, "backyard"], [o, "backyard"], [t, "backyard"]]);
+  s.presenceZone = new Map<string, string>([[PLAYER, "patio"], [v, "patio"], [o, "patio"], [t, "patio"]]); // ORW-1167 (drift): a premiere comp gathers the house in the yard whatever the test seats, and earshot now drops a far-zone listener; the four stand in the yard in ONE zone so the test stays about the rumor
   sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, t, v, o], content: "one houseguest tells the others what they believe about the player", kind: "gossip", heardAboutMe: { nature: "betrayal", from: t } } as never);
   return { sb, s, v, o, t };
 }
@@ -78,7 +80,9 @@ describe("a betrayal rumor records its victim from the real betrayal event (unit
     const [v, o, t] = sb.session.livingIds().filter((id) => id !== PLAYER) as [EntityId, EntityId, EntityId];
     s.deals.make([PLAYER, v], "safety", "a safety deal", undefined, s.live.week);
     s.reconcileDeals({ actor: PLAYER, kind: "nominate", targets: [v] });
-    s.presence = new Map<string, string>([[PLAYER, "kitchen"], [v, "kitchen"], [o, "kitchen"], [t, "kitchen"]]);
+    s.presence = new Map<string, string>([[PLAYER, "backyard"], [v, "backyard"], [o, "backyard"], [t, "backyard"]]);
+    s.presenceZone = new Map<string, string>([[PLAYER, "patio"], [v, "patio"], [o, "patio"], [t, "patio"]]); // ORW-1167 (drift): one earshot zone
+  s.presenceZone = new Map<string, string>([[PLAYER, "patio"], [v, "patio"], [o, "patio"], [t, "patio"]]); // ORW-1167 (drift): a premiere comp gathers the house in the yard whatever the test seats, and earshot now drops a far-zone listener; the four stand in the yard in ONE zone so the test stays about the rumor
     sb.commands.recordInteraction({ initiator: PLAYER, witnessSet: [PLAYER, t, v, o], content: "a tell", kind: "gossip", heardAboutMe: { nature: "betrayal", from: t } } as never);
     for (const h of [v, o]) for (const c of rumorsOf(s, h)) expect(c.object).toBeUndefined();
   });

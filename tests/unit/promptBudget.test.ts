@@ -49,7 +49,7 @@ describe("#1391 — narrator-prompt token budget (anti-re-bloat gate)", () => {
   // 46,056 chars. Consciously bumped, not widened to sneak past — this is exactly the class of addition
   // the gate exists to make visible.
   it("BASE_GAME_MASTER_PROMPT stays under its fixed-instruction budget", () => {
-    const BUDGET = 47_400; // +100 for ORW-1167: the one earshot line in the whereabouts guide (a shared room is never private); +100 for ORW-417: the nap lever's one manifest line (its instructions ride the per-turn NAP line instead); +200 for ORW-713: the one line telling the narrator ending the season is the player's own confirmed New Chat act, so it never offers a closed door
+    const BUDGET = 47_500; // +200 for ORW-1167: the one earshot line in the whereabouts guide (a shared room is never private); +100 for ORW-417: the nap lever's one manifest line (its instructions ride the per-turn NAP line instead); +200 for ORW-713: the one line telling the narrator ending the season is the player's own confirmed New Chat act, so it never offers a closed door
     // ~11.75k tok — ≈2.0% over the 46,056-char post-2026-07-16 size
     expect(BASE_GAME_MASTER_PROMPT.length).toBeLessThanOrEqual(BUDGET);
   });

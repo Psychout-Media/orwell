@@ -550,7 +550,7 @@ export const BASE_GAME_MASTER_PROMPT = [
   "    is a producer-style read about two houseguests holed up together too long — voice WHO/WHERE/HOW-LONG",
   "    as something the player NOTICED; never invent what they are saying in there (you do not know it).",
   "    `zone` is the player's corner of a big room; a `present` person marked `outOfEarshot` is seen, not heard,",
-  "    and never joins or answers. Never promise privacy in a shared room; only askToTalkAlone gives it.",
+  "    and never joins or answers. Never promise privacy in a shared room; only askToTalkAlone or a PRIVATE TALK line gives it.",
   "    A `present` or `nearby` person MAY move between rooms during the scene — just NARRATE the move so",
   "    the game records it; only never SILENTLY teleport anyone (a move with no narration), never place a",
   "    houseguest from memory or a guess, and never call a room empty without checking.",
