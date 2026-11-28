@@ -10692,6 +10692,15 @@ async def _stream_agent_loop_impl(
                     messages.append({"role": "system", "content": _np_note})
             except Exception as _np_err:
                 logger.warning(f"[orwell] ORW-417 nap belt skipped: {_np_err}")
+            # ── ORW-1011 C3: the LOOP half of commit-from-plan (flag ORWELL_COMMIT_FROM_PLAN, default OFF): stage the planned scene, count the commits, tell the narrator. ──
+            try:
+                if round_num == 1 and not _turn_had_error:
+                    from src import plan_commit as _pc
+                    _pc_note = _pc.loop_half(owner, session_id, tool_events, round_num, _note_belt) if _pc.enabled() else None
+                    if _pc_note:
+                        messages.append({"role": "system", "content": _pc_note})
+            except Exception as _pc_err:  # failsoft-ok: plan-commit-fail-soft - the belts run as before
+                logger.warning(f"[orwell] plan-commit loop half skipped: {_pc_err}")
             # ── ORW-1014 PR 2: act-first, the LOOP half (flag ORWELL_ACT_FIRST, default OFF). The decision and the move / bed / search commits already ran at the resolvePlayerMove slot
             # (orwell_player_move.act_first_before_narrator, before the briefing was built). Here the committed calls join tool_events (so the after-reply belts stand down) and the
             # acts that go through the tool dispatcher (sleep, advance, a step answer) run now, in order, each on its own merits. Fail-soft: any problem leaves the ordinary round. ──

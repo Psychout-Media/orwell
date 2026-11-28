@@ -1,0 +1,5077 @@
+{
+ "cast": [
+  [
+   "npc:1",
+   "Dana Park"
+  ],
+  [
+   "npc:2",
+   "Levi Stone"
+  ],
+  [
+   "npc:3",
+   "Maeve Ortiz"
+  ],
+  [
+   "npc:4",
+   "Theo Brandt"
+  ],
+  [
+   "npc:5",
+   "Ines Cole"
+  ],
+  [
+   "npc:6",
+   "Rafa Quinn"
+  ],
+  [
+   "npc:7",
+   "Nell Ashby"
+  ],
+  [
+   "npc:8",
+   "Gus Lindholm"
+  ]
+ ],
+ "rows": [
+  {
+   "id": "talk-named-one-01",
+   "cls": "talk-named-one",
+   "text": "I pull Rafa aside and ask how Rafa is really feeling about this week.",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:6"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-02",
+   "cls": "talk-named-one",
+   "text": "I tell Maeve I have Maeve's back if the vote gets ugly.",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:5",
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-03",
+   "cls": "talk-named-one",
+   "text": "I lean over to Ines and whisper that I do not trust the others.",
+   "view": {
+    "present": [
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:5"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-04",
+   "cls": "talk-named-one",
+   "text": "I ask Gus whether we can be a team for the rest of the season.",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:3",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-05",
+   "cls": "talk-named-one",
+   "text": "I joke with Levi about the awful coffee and we laugh for a while.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-06",
+   "cls": "talk-named-one",
+   "text": "I confront Nell about the rumor going around the house.",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:3",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-07",
+   "cls": "talk-named-one",
+   "text": "I tell Gus that I admire how Gus plays the game.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-08",
+   "cls": "talk-named-one",
+   "text": "I apologize to Dana for what I said yesterday.",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:4",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:1"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-09",
+   "cls": "talk-named-one",
+   "text": "I tell Maeve I will never put Maeve on the block.",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:7",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-10",
+   "cls": "talk-named-one",
+   "text": "I ask Gus who Gus would take to the end.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-11",
+   "cls": "talk-named-one",
+   "text": "I sit next to Gus and talk about home for a bit.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-12",
+   "cls": "talk-named-one",
+   "text": "I tell Levi the group chat is getting out of hand.",
+   "view": {
+    "present": [
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-13",
+   "cls": "talk-named-one",
+   "text": "I pull Theo aside and ask how Theo is really feeling about this week.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-14",
+   "cls": "talk-named-one",
+   "text": "I tell Levi I have Levi's back if the vote gets ugly.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:8",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-15",
+   "cls": "talk-named-one",
+   "text": "I lean over to Nell and whisper that I do not trust the others.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-16",
+   "cls": "talk-named-one",
+   "text": "I ask Maeve whether we can be a team for the rest of the season.",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-17",
+   "cls": "talk-named-one",
+   "text": "I joke with Maeve about the awful coffee and we laugh for a while.",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-18",
+   "cls": "talk-named-one",
+   "text": "I confront Theo about the rumor going around the house.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-19",
+   "cls": "talk-named-one",
+   "text": "I tell Theo that I admire how Theo plays the game.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-20",
+   "cls": "talk-named-one",
+   "text": "I apologize to Ines for what I said yesterday.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:5"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-21",
+   "cls": "talk-named-one",
+   "text": "I tell Theo I will never put Theo on the block.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-22",
+   "cls": "talk-named-one",
+   "text": "I ask Maeve who Maeve would take to the end.",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-23",
+   "cls": "talk-named-one",
+   "text": "I sit next to Gus and talk about home for a bit.",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-24",
+   "cls": "talk-named-one",
+   "text": "I tell Gus the group chat is getting out of hand.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-25",
+   "cls": "talk-named-one",
+   "text": "I pull Levi aside and ask how Levi is really feeling about this week.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:1",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-26",
+   "cls": "talk-named-one",
+   "text": "I tell Maeve I have Maeve's back if the vote gets ugly.",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-27",
+   "cls": "talk-named-one",
+   "text": "I lean over to Nell and whisper that I do not trust the others.",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-28",
+   "cls": "talk-named-one",
+   "text": "I ask Theo whether we can be a team for the rest of the season.",
+   "view": {
+    "present": [
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-29",
+   "cls": "talk-named-one",
+   "text": "I joke with Rafa about the awful coffee and we laugh for a while.",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:3",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:6"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-30",
+   "cls": "talk-named-one",
+   "text": "I confront Gus about the rumor going around the house.",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:7",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-31",
+   "cls": "talk-named-one",
+   "text": "I tell Gus that I admire how Gus plays the game.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-32",
+   "cls": "talk-named-one",
+   "text": "I apologize to Maeve for what I said yesterday.",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:8",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-33",
+   "cls": "talk-named-one",
+   "text": "I tell Nell I will never put Nell on the block.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-34",
+   "cls": "talk-named-one",
+   "text": "I ask Rafa who Rafa would take to the end.",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:3",
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:6"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-35",
+   "cls": "talk-named-one",
+   "text": "I sit next to Levi and talk about home for a bit.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:6",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-36",
+   "cls": "talk-named-one",
+   "text": "I tell Rafa the group chat is getting out of hand.",
+   "view": {
+    "present": [
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:6"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-37",
+   "cls": "talk-named-one",
+   "text": "I pull Maeve aside and ask how Maeve is really feeling about this week.",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:4",
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-38",
+   "cls": "talk-named-one",
+   "text": "I tell Gus I have Gus's back if the vote gets ugly.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-39",
+   "cls": "talk-named-one",
+   "text": "I lean over to Levi and whisper that I do not trust the others.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:5",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-one-40",
+   "cls": "talk-named-one",
+   "text": "I ask Maeve whether we can be a team for the rest of the season.",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:4",
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-01",
+   "cls": "talk-named-two",
+   "text": "I sit with Rafa and Levi and pitch a plan to stay safe this week.",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:2",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:6",
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-02",
+   "cls": "talk-named-two",
+   "text": "I tell Maeve and Rafa that the three of us should stick together.",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:6",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:3",
+     "npc:6"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-03",
+   "cls": "talk-named-two",
+   "text": "I ask Theo and Gus what they heard about the nominations talk.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:8",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:4",
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-04",
+   "cls": "talk-named-two",
+   "text": "I huddle up with Ines and Nell and we trade stories about our families.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:7",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:5",
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-05",
+   "cls": "talk-named-two",
+   "text": "I sit with Ines and Nell and pitch a plan to stay safe this week.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:7",
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:5",
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-06",
+   "cls": "talk-named-two",
+   "text": "I tell Rafa and Theo that the three of us should stick together.",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:4",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:6",
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-07",
+   "cls": "talk-named-two",
+   "text": "I ask Maeve and Ines what they heard about the nominations talk.",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:3",
+     "npc:5"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-08",
+   "cls": "talk-named-two",
+   "text": "I huddle up with Levi and Ines and we trade stories about our families.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:5",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:2",
+     "npc:5"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-09",
+   "cls": "talk-named-two",
+   "text": "I sit with Ines and Nell and pitch a plan to stay safe this week.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:5",
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-10",
+   "cls": "talk-named-two",
+   "text": "I tell Levi and Theo that the three of us should stick together.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:4",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:2",
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-11",
+   "cls": "talk-named-two",
+   "text": "I ask Levi and Dana what they heard about the nominations talk.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:1",
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:2",
+     "npc:1"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-12",
+   "cls": "talk-named-two",
+   "text": "I huddle up with Ines and Theo and we trade stories about our families.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:5",
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-13",
+   "cls": "talk-named-two",
+   "text": "I sit with Gus and Maeve and pitch a plan to stay safe this week.",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:3",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:8",
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-14",
+   "cls": "talk-named-two",
+   "text": "I tell Nell and Maeve that the three of us should stick together.",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:7",
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-15",
+   "cls": "talk-named-two",
+   "text": "I ask Levi and Dana what they heard about the nominations talk.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:1",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:2",
+     "npc:1"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-16",
+   "cls": "talk-named-two",
+   "text": "I huddle up with Nell and Gus and we trade stories about our families.",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:8",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:7",
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-17",
+   "cls": "talk-named-two",
+   "text": "I sit with Levi and Theo and pitch a plan to stay safe this week.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:2",
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-18",
+   "cls": "talk-named-two",
+   "text": "I tell Levi and Maeve that the three of us should stick together.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:2",
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-19",
+   "cls": "talk-named-two",
+   "text": "I ask Ines and Levi what they heard about the nominations talk.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:2",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:5",
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-named-two-20",
+   "cls": "talk-named-two",
+   "text": "I huddle up with Dana and Rafa and we trade stories about our families.",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:6",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:1",
+     "npc:6"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-01",
+   "cls": "talk-unnamed-solo",
+   "text": "I say we should team up this week.",
+   "view": {
+    "present": [
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-02",
+   "cls": "talk-unnamed-solo",
+   "text": "I tell them I am worried about my standing in the house.",
+   "view": {
+    "present": [
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-03",
+   "cls": "talk-unnamed-solo",
+   "text": "I ask how the last few days have been for them.",
+   "view": {
+    "present": [
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-04",
+   "cls": "talk-unnamed-solo",
+   "text": "I admit I have been quiet and ask for advice.",
+   "view": {
+    "present": [
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-05",
+   "cls": "talk-unnamed-solo",
+   "text": "I offer to share my snacks if they hear anything about the vote.",
+   "view": {
+    "present": [
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:6"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-06",
+   "cls": "talk-unnamed-solo",
+   "text": "I say we should team up this week.",
+   "view": {
+    "present": [
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-07",
+   "cls": "talk-unnamed-solo",
+   "text": "I tell them I am worried about my standing in the house.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-08",
+   "cls": "talk-unnamed-solo",
+   "text": "I ask how the last few days have been for them.",
+   "view": {
+    "present": [
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-09",
+   "cls": "talk-unnamed-solo",
+   "text": "I admit I have been quiet and ask for advice.",
+   "view": {
+    "present": [
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:1"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-10",
+   "cls": "talk-unnamed-solo",
+   "text": "I offer to share my snacks if they hear anything about the vote.",
+   "view": {
+    "present": [
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-11",
+   "cls": "talk-unnamed-solo",
+   "text": "I say we should team up this week.",
+   "view": {
+    "present": [
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:5"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-12",
+   "cls": "talk-unnamed-solo",
+   "text": "I tell them I am worried about my standing in the house.",
+   "view": {
+    "present": [
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-13",
+   "cls": "talk-unnamed-solo",
+   "text": "I ask how the last few days have been for them.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-14",
+   "cls": "talk-unnamed-solo",
+   "text": "I admit I have been quiet and ask for advice.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-15",
+   "cls": "talk-unnamed-solo",
+   "text": "I offer to share my snacks if they hear anything about the vote.",
+   "view": {
+    "present": [
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:1"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-16",
+   "cls": "talk-unnamed-solo",
+   "text": "I say we should team up this week.",
+   "view": {
+    "present": [
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-17",
+   "cls": "talk-unnamed-solo",
+   "text": "I tell them I am worried about my standing in the house.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-18",
+   "cls": "talk-unnamed-solo",
+   "text": "I ask how the last few days have been for them.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-19",
+   "cls": "talk-unnamed-solo",
+   "text": "I admit I have been quiet and ask for advice.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-solo-20",
+   "cls": "talk-unnamed-solo",
+   "text": "I offer to share my snacks if they hear anything about the vote.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-01",
+   "cls": "talk-unnamed-group",
+   "text": "I tell everyone I am done with the drama.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:7",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-02",
+   "cls": "talk-unnamed-group",
+   "text": "I announce that I want a quiet night with no gossip.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:6",
+     "npc:5",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-03",
+   "cls": "talk-unnamed-group",
+   "text": "I ask the room who is up for a game later.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:7",
+     "npc:3",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-04",
+   "cls": "talk-unnamed-group",
+   "text": "I say loudly that I think someone here is lying to all of us.",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:8",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-05",
+   "cls": "talk-unnamed-group",
+   "text": "I propose that we all agree not to target each other.",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:5",
+     "npc:6",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-06",
+   "cls": "talk-unnamed-group",
+   "text": "I tell everyone I am done with the drama.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:2",
+     "npc:7",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-07",
+   "cls": "talk-unnamed-group",
+   "text": "I announce that I want a quiet night with no gossip.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:7",
+     "npc:6",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-08",
+   "cls": "talk-unnamed-group",
+   "text": "I ask the room who is up for a game later.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:1",
+     "npc:2",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-09",
+   "cls": "talk-unnamed-group",
+   "text": "I say loudly that I think someone here is lying to all of us.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:1",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-10",
+   "cls": "talk-unnamed-group",
+   "text": "I propose that we all agree not to target each other.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:1",
+     "npc:3",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-11",
+   "cls": "talk-unnamed-group",
+   "text": "I tell everyone I am done with the drama.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:3",
+     "npc:1",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-12",
+   "cls": "talk-unnamed-group",
+   "text": "I announce that I want a quiet night with no gossip.",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:2",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-13",
+   "cls": "talk-unnamed-group",
+   "text": "I ask the room who is up for a game later.",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:8",
+     "npc:7",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-14",
+   "cls": "talk-unnamed-group",
+   "text": "I say loudly that I think someone here is lying to all of us.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:8",
+     "npc:1",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-15",
+   "cls": "talk-unnamed-group",
+   "text": "I propose that we all agree not to target each other.",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:3",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-16",
+   "cls": "talk-unnamed-group",
+   "text": "I tell everyone I am done with the drama.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:6",
+     "npc:1",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-17",
+   "cls": "talk-unnamed-group",
+   "text": "I announce that I want a quiet night with no gossip.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:7",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-18",
+   "cls": "talk-unnamed-group",
+   "text": "I ask the room who is up for a game later.",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:5",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-19",
+   "cls": "talk-unnamed-group",
+   "text": "I say loudly that I think someone here is lying to all of us.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:3",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-unnamed-group-20",
+   "cls": "talk-unnamed-group",
+   "text": "I propose that we all agree not to target each other.",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:3",
+     "npc:5",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "ooc-01",
+   "cls": "ooc",
+   "text": "((can you speed up the clock a little))",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-02",
+   "cls": "ooc",
+   "text": "(brb two minutes)",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-03",
+   "cls": "ooc",
+   "text": "[ooc] how many houseguests are left",
+   "view": {
+    "present": [
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-04",
+   "cls": "ooc",
+   "text": "((is there a way to save my place))",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:7",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-05",
+   "cls": "ooc",
+   "text": "ooc: that last reply was too long",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-06",
+   "cls": "ooc",
+   "text": "((pause the story for a second please))",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-07",
+   "cls": "ooc",
+   "text": "(ignore the last message, wrong window)",
+   "view": {
+    "present": [
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-08",
+   "cls": "ooc",
+   "text": "((what does the red icon mean))",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-09",
+   "cls": "ooc",
+   "text": "((can you speed up the clock a little))",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-10",
+   "cls": "ooc",
+   "text": "(brb two minutes)",
+   "view": {
+    "present": [
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-11",
+   "cls": "ooc",
+   "text": "[ooc] how many houseguests are left",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-12",
+   "cls": "ooc",
+   "text": "((is there a way to save my place))",
+   "view": {
+    "present": [
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-13",
+   "cls": "ooc",
+   "text": "ooc: that last reply was too long",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-14",
+   "cls": "ooc",
+   "text": "((pause the story for a second please))",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:5",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-15",
+   "cls": "ooc",
+   "text": "(ignore the last message, wrong window)",
+   "view": {
+    "present": [
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-16",
+   "cls": "ooc",
+   "text": "((what does the red icon mean))",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-17",
+   "cls": "ooc",
+   "text": "((can you speed up the clock a little))",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:3",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-18",
+   "cls": "ooc",
+   "text": "(brb two minutes)",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:4",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-19",
+   "cls": "ooc",
+   "text": "[ooc] how many houseguests are left",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "ooc-20",
+   "cls": "ooc",
+   "text": "((is there a way to save my place))",
+   "view": {
+    "present": [
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "production-question-01",
+   "cls": "production-question",
+   "text": "What day is it?",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "production-question-02",
+   "cls": "production-question",
+   "text": "Who is head of household right now?",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:2",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "production-question-03",
+   "cls": "production-question",
+   "text": "How many people are in the house?",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "production-question-04",
+   "cls": "production-question",
+   "text": "What time is it?",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "production-question-05",
+   "cls": "production-question",
+   "text": "Is the veto ceremony today?",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "production-question-06",
+   "cls": "production-question",
+   "text": "What day is it?",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "production-question-07",
+   "cls": "production-question",
+   "text": "Who is head of household right now?",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "production-question-08",
+   "cls": "production-question",
+   "text": "How many people are in the house?",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "production-question-09",
+   "cls": "production-question",
+   "text": "What time is it?",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:1",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "production-question-10",
+   "cls": "production-question",
+   "text": "Is the veto ceremony today?",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:2",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-01",
+   "cls": "move-only",
+   "text": "I walk to the bathroom.",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:1",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-02",
+   "cls": "move-only",
+   "text": "I head over to the hallway to clear my head.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:2",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-03",
+   "cls": "move-only",
+   "text": "I go into the backyard and look around.",
+   "view": {
+    "present": [
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-04",
+   "cls": "move-only",
+   "text": "I step out to the dining room for some air.",
+   "view": {
+    "present": [
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-05",
+   "cls": "move-only",
+   "text": "I walk to the backyard.",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:7",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-06",
+   "cls": "move-only",
+   "text": "I head over to the lounge to clear my head.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:5",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-07",
+   "cls": "move-only",
+   "text": "I go into the kitchen and look around.",
+   "view": {
+    "present": [
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-08",
+   "cls": "move-only",
+   "text": "I step out to the hallway for some air.",
+   "view": {
+    "present": [
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-09",
+   "cls": "move-only",
+   "text": "I walk to the hallway.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:6",
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-10",
+   "cls": "move-only",
+   "text": "I head over to the kitchen to clear my head.",
+   "view": {
+    "present": [
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-11",
+   "cls": "move-only",
+   "text": "I go into the bathroom and look around.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:2",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-12",
+   "cls": "move-only",
+   "text": "I step out to the dining room for some air.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:7",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-13",
+   "cls": "move-only",
+   "text": "I walk to the bathroom.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-14",
+   "cls": "move-only",
+   "text": "I head over to the hallway to clear my head.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:7",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-15",
+   "cls": "move-only",
+   "text": "I go into the hallway and look around.",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:3",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-16",
+   "cls": "move-only",
+   "text": "I step out to the hallway for some air.",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:3",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-17",
+   "cls": "move-only",
+   "text": "I walk to the kitchen.",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:4",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-18",
+   "cls": "move-only",
+   "text": "I head over to the dining room to clear my head.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-19",
+   "cls": "move-only",
+   "text": "I go into the bathroom and look around.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "move-only-20",
+   "cls": "move-only",
+   "text": "I step out to the kitchen for some air.",
+   "view": {
+    "present": [
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "asleep-named-01",
+   "cls": "asleep-named",
+   "text": "I whisper to Gus to check whether Gus is awake.",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:5"
+    ],
+    "asleep": [
+     "npc:8",
+     "npc:5"
+    ],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "asleep-named-02",
+   "cls": "asleep-named",
+   "text": "I whisper to Gus to check whether Gus is awake.",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:2"
+    ],
+    "asleep": [
+     "npc:8",
+     "npc:2"
+    ],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "asleep-named-03",
+   "cls": "asleep-named",
+   "text": "I whisper to Gus to check whether Gus is awake.",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:2"
+    ],
+    "asleep": [
+     "npc:8",
+     "npc:2"
+    ],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "asleep-named-04",
+   "cls": "asleep-named",
+   "text": "I whisper to Theo to check whether Theo is awake.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:2"
+    ],
+    "asleep": [
+     "npc:4",
+     "npc:2"
+    ],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "asleep-named-05",
+   "cls": "asleep-named",
+   "text": "I whisper to Theo to check whether Theo is awake.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:2"
+    ],
+    "asleep": [
+     "npc:4",
+     "npc:2"
+    ],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "asleep-named-06",
+   "cls": "asleep-named",
+   "text": "I whisper to Nell to check whether Nell is awake.",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:5"
+    ],
+    "asleep": [
+     "npc:7",
+     "npc:5"
+    ],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "asleep-named-07",
+   "cls": "asleep-named",
+   "text": "I whisper to Gus to check whether Gus is awake.",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:6"
+    ],
+    "asleep": [
+     "npc:8",
+     "npc:6"
+    ],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "asleep-named-08",
+   "cls": "asleep-named",
+   "text": "I whisper to Levi to check whether Levi is awake.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:1"
+    ],
+    "asleep": [
+     "npc:2",
+     "npc:1"
+    ],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "asleep-named-09",
+   "cls": "asleep-named",
+   "text": "I whisper to Nell to check whether Nell is awake.",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:5"
+    ],
+    "asleep": [
+     "npc:7",
+     "npc:5"
+    ],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "asleep-named-10",
+   "cls": "asleep-named",
+   "text": "I whisper to Rafa to check whether Rafa is awake.",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:4"
+    ],
+    "asleep": [
+     "npc:6",
+     "npc:4"
+    ],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "absent-named-01",
+   "cls": "absent-named",
+   "text": "I tell Rafa I want to talk later.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "absent-named-02",
+   "cls": "absent-named",
+   "text": "I say Levi should come find me.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "absent-named-03",
+   "cls": "absent-named",
+   "text": "I mutter that Levi has been avoiding me.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "absent-named-04",
+   "cls": "absent-named",
+   "text": "I tell Dana I want to talk later.",
+   "view": {
+    "present": [
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "absent-named-05",
+   "cls": "absent-named",
+   "text": "I say Rafa should come find me.",
+   "view": {
+    "present": [
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "absent-named-06",
+   "cls": "absent-named",
+   "text": "I mutter that Rafa has been avoiding me.",
+   "view": {
+    "present": [
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "absent-named-07",
+   "cls": "absent-named",
+   "text": "I tell Nell I want to talk later.",
+   "view": {
+    "present": [
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "absent-named-08",
+   "cls": "absent-named",
+   "text": "I say Rafa should come find me.",
+   "view": {
+    "present": [
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "absent-named-09",
+   "cls": "absent-named",
+   "text": "I mutter that Rafa has been avoiding me.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "absent-named-10",
+   "cls": "absent-named",
+   "text": "I tell Maeve I want to talk later.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-01",
+   "cls": "talk-and-move",
+   "text": "I ask Nell to go to the bathroom so we can talk in private.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": [
+     [
+      "npc:7",
+      "bathroom"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-02",
+   "cls": "talk-and-move",
+   "text": "I tell Ines to head to the lounge and wait for me.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:5"
+    ],
+    "moves": [
+     [
+      "npc:5",
+      "lounge"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-03",
+   "cls": "talk-and-move",
+   "text": "I invite Ines to walk with me to the hallway.",
+   "view": {
+    "present": [
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:5"
+    ],
+    "moves": [
+     [
+      "npc:5",
+      "hallway"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-04",
+   "cls": "talk-and-move",
+   "text": "I ask Gus to meet me in the hallway.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": [
+     [
+      "npc:8",
+      "hallway"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-05",
+   "cls": "talk-and-move",
+   "text": "I ask Gus to go to the hallway so we can talk in private.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": [
+     [
+      "npc:8",
+      "hallway"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-06",
+   "cls": "talk-and-move",
+   "text": "I tell Levi to head to the backyard and wait for me.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": [
+     [
+      "npc:2",
+      "backyard"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-07",
+   "cls": "talk-and-move",
+   "text": "I invite Nell to walk with me to the hallway.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": [
+     [
+      "npc:7",
+      "hallway"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-08",
+   "cls": "talk-and-move",
+   "text": "I ask Ines to meet me in the lounge.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:5"
+    ],
+    "moves": [
+     [
+      "npc:5",
+      "lounge"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-09",
+   "cls": "talk-and-move",
+   "text": "I ask Rafa to go to the hallway so we can talk in private.",
+   "view": {
+    "present": [
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:6"
+    ],
+    "moves": [
+     [
+      "npc:6",
+      "hallway"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-10",
+   "cls": "talk-and-move",
+   "text": "I tell Theo to head to the dining room and wait for me.",
+   "view": {
+    "present": [
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": [
+     [
+      "npc:4",
+      "dining-room"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-11",
+   "cls": "talk-and-move",
+   "text": "I invite Dana to walk with me to the lounge.",
+   "view": {
+    "present": [
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:1"
+    ],
+    "moves": [
+     [
+      "npc:1",
+      "lounge"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-12",
+   "cls": "talk-and-move",
+   "text": "I ask Levi to meet me in the backyard.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": [
+     [
+      "npc:2",
+      "backyard"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-13",
+   "cls": "talk-and-move",
+   "text": "I ask Theo to go to the backyard so we can talk in private.",
+   "view": {
+    "present": [
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": [
+     [
+      "npc:4",
+      "backyard"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-14",
+   "cls": "talk-and-move",
+   "text": "I tell Gus to head to the dining room and wait for me.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": [
+     [
+      "npc:8",
+      "dining-room"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-15",
+   "cls": "talk-and-move",
+   "text": "I invite Nell to walk with me to the backyard.",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": [
+     [
+      "npc:7",
+      "backyard"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-16",
+   "cls": "talk-and-move",
+   "text": "I ask Maeve to meet me in the hallway.",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": [
+     [
+      "npc:3",
+      "hallway"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-17",
+   "cls": "talk-and-move",
+   "text": "I ask Ines to go to the bathroom so we can talk in private.",
+   "view": {
+    "present": [
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:5"
+    ],
+    "moves": [
+     [
+      "npc:5",
+      "bathroom"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-18",
+   "cls": "talk-and-move",
+   "text": "I tell Gus to head to the bathroom and wait for me.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": [
+     [
+      "npc:8",
+      "bathroom"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-19",
+   "cls": "talk-and-move",
+   "text": "I invite Levi to walk with me to the lounge.",
+   "view": {
+    "present": [
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": [
+     [
+      "npc:2",
+      "lounge"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-20",
+   "cls": "talk-and-move",
+   "text": "I ask Ines to meet me in the bathroom.",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:5"
+    ],
+    "moves": [
+     [
+      "npc:5",
+      "bathroom"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-21",
+   "cls": "talk-and-move",
+   "text": "I ask Levi to go to the bathroom so we can talk in private.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": [
+     [
+      "npc:2",
+      "bathroom"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-22",
+   "cls": "talk-and-move",
+   "text": "I tell Dana to head to the dining room and wait for me.",
+   "view": {
+    "present": [
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:1"
+    ],
+    "moves": [
+     [
+      "npc:1",
+      "dining-room"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-23",
+   "cls": "talk-and-move",
+   "text": "I invite Ines to walk with me to the bathroom.",
+   "view": {
+    "present": [
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:5"
+    ],
+    "moves": [
+     [
+      "npc:5",
+      "bathroom"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-24",
+   "cls": "talk-and-move",
+   "text": "I ask Ines to meet me in the lounge.",
+   "view": {
+    "present": [
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:5"
+    ],
+    "moves": [
+     [
+      "npc:5",
+      "lounge"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-25",
+   "cls": "talk-and-move",
+   "text": "I ask Gus to go to the lounge so we can talk in private.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": [
+     [
+      "npc:8",
+      "lounge"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-26",
+   "cls": "talk-and-move",
+   "text": "Theo, go check on things in the dining room and come back.",
+   "view": {
+    "present": [
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": [
+     [
+      "npc:4",
+      "dining-room"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-27",
+   "cls": "talk-and-move",
+   "text": "Dana, go check on things in the hallway and come back.",
+   "view": {
+    "present": [
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:1"
+    ],
+    "moves": [
+     [
+      "npc:1",
+      "hallway"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-28",
+   "cls": "talk-and-move",
+   "text": "Maeve, go check on things in the backyard and come back.",
+   "view": {
+    "present": [
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": [
+     [
+      "npc:3",
+      "backyard"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-29",
+   "cls": "talk-and-move",
+   "text": "Theo, go check on things in the bathroom and come back.",
+   "view": {
+    "present": [
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": [
+     [
+      "npc:4",
+      "bathroom"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-30",
+   "cls": "talk-and-move",
+   "text": "Nell, go check on things in the dining room and come back.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": [
+     [
+      "npc:7",
+      "dining-room"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-31",
+   "cls": "talk-and-move",
+   "text": "Rafa, go check on things in the backyard and come back.",
+   "view": {
+    "present": [
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:6"
+    ],
+    "moves": [
+     [
+      "npc:6",
+      "backyard"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-32",
+   "cls": "talk-and-move",
+   "text": "Gus, go check on things in the dining room and come back.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": [
+     [
+      "npc:8",
+      "dining-room"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-33",
+   "cls": "talk-and-move",
+   "text": "Rafa, go check on things in the lounge and come back.",
+   "view": {
+    "present": [
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:6"
+    ],
+    "moves": [
+     [
+      "npc:6",
+      "lounge"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-34",
+   "cls": "talk-and-move",
+   "text": "Ines, go check on things in the dining room and come back.",
+   "view": {
+    "present": [
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:5"
+    ],
+    "moves": [
+     [
+      "npc:5",
+      "dining-room"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "talk-and-move-35",
+   "cls": "talk-and-move",
+   "text": "Nell, go check on things in the dining room and come back.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": [
+     [
+      "npc:7",
+      "dining-room"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "third-party-01",
+   "cls": "third-party",
+   "text": "I tell Theo that Gus is lying about the alliance.",
+   "view": {
+    "present": [
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "third-party-02",
+   "cls": "third-party",
+   "text": "I warn Maeve that Theo is gunning for Maeve.",
+   "view": {
+    "present": [
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "third-party-03",
+   "cls": "third-party",
+   "text": "I tell Dana I heard Rafa bad-mouthing Dana to the others.",
+   "view": {
+    "present": [
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:1"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "third-party-04",
+   "cls": "third-party",
+   "text": "I ask Ines what Ines really thinks of Dana.",
+   "view": {
+    "present": [
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:5"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "third-party-05",
+   "cls": "third-party",
+   "text": "I tell Nell that Maeve is lying about the alliance.",
+   "view": {
+    "present": [
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "third-party-06",
+   "cls": "third-party",
+   "text": "I warn Dana that Gus is gunning for Dana.",
+   "view": {
+    "present": [
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:1"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "third-party-07",
+   "cls": "third-party",
+   "text": "I tell Rafa I heard Levi bad-mouthing Rafa to the others.",
+   "view": {
+    "present": [
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:6"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "third-party-08",
+   "cls": "third-party",
+   "text": "I ask Rafa what Rafa really thinks of Ines.",
+   "view": {
+    "present": [
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:6"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "third-party-09",
+   "cls": "third-party",
+   "text": "I tell Gus that Rafa is lying about the alliance.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "third-party-10",
+   "cls": "third-party",
+   "text": "I warn Theo that Maeve is gunning for Theo.",
+   "view": {
+    "present": [
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "third-party-11",
+   "cls": "third-party",
+   "text": "I tell Rafa I heard Levi bad-mouthing Rafa to the others.",
+   "view": {
+    "present": [
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:6"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "third-party-12",
+   "cls": "third-party",
+   "text": "I ask Rafa what Rafa really thinks of Theo.",
+   "view": {
+    "present": [
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:6"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "third-party-13",
+   "cls": "third-party",
+   "text": "I tell Maeve that Ines is lying about the alliance.",
+   "view": {
+    "present": [
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "third-party-14",
+   "cls": "third-party",
+   "text": "I warn Rafa that Dana is gunning for Rafa.",
+   "view": {
+    "present": [
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:6"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "third-party-15",
+   "cls": "third-party",
+   "text": "I tell Levi I heard Maeve bad-mouthing Levi to the others.",
+   "view": {
+    "present": [
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "mention-room-no-move-01",
+   "cls": "mention-room-no-move",
+   "text": "I tell Dana I might head to the lounge later tonight.",
+   "view": {
+    "present": [
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:1"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "mention-room-no-move-02",
+   "cls": "mention-room-no-move",
+   "text": "I tell Levi I was in the kitchen earlier and it was freezing.",
+   "view": {
+    "present": [
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "mention-room-no-move-03",
+   "cls": "mention-room-no-move",
+   "text": "I tell Dana I never go to the hallway anymore.",
+   "view": {
+    "present": [
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:1"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "mention-room-no-move-04",
+   "cls": "mention-room-no-move",
+   "text": "I tell Gus I might head to the backyard later tonight.",
+   "view": {
+    "present": [
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "mention-room-no-move-05",
+   "cls": "mention-room-no-move",
+   "text": "I tell Maeve I was in the backyard earlier and it was freezing.",
+   "view": {
+    "present": [
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "mention-room-no-move-06",
+   "cls": "mention-room-no-move",
+   "text": "I tell Levi I never go to the hallway anymore.",
+   "view": {
+    "present": [
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "mention-room-no-move-07",
+   "cls": "mention-room-no-move",
+   "text": "I tell Dana I might head to the bathroom later tonight.",
+   "view": {
+    "present": [
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:1"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "mention-room-no-move-08",
+   "cls": "mention-room-no-move",
+   "text": "I tell Levi I was in the dining room earlier and it was freezing.",
+   "view": {
+    "present": [
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "mention-room-no-move-09",
+   "cls": "mention-room-no-move",
+   "text": "I tell Ines I never go to the dining room anymore.",
+   "view": {
+    "present": [
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:5"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "mention-room-no-move-10",
+   "cls": "mention-room-no-move",
+   "text": "I tell Ines I might head to the kitchen later tonight.",
+   "view": {
+    "present": [
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:5"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "s1128-scene-named-01",
+   "cls": "s1128-scene-named",
+   "text": "I sit next to Dana and talk about home for a bit.",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:4",
+     "npc:7",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:1"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "s1128-scene-named-02",
+   "cls": "s1128-scene-named",
+   "text": "I confront Rafa about the rumor going around the house.",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:7",
+     "npc:2",
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:6"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "s1128-scene-named-03",
+   "cls": "s1128-scene-named",
+   "text": "I tell Theo the group chat is getting out of hand.",
+   "view": {
+    "present": [
+     "npc:4",
+     "npc:7",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:4"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "s1128-scene-named-04",
+   "cls": "s1128-scene-named",
+   "text": "I ask Rafa who Rafa would take to the end.",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": [
+     "npc:6"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "s1128-scene-named-05",
+   "cls": "s1128-scene-named",
+   "text": "I tell Dana that I admire how Dana plays the game.",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:4",
+     "npc:3",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": [
+     "npc:1"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "s1128-scene-named-06",
+   "cls": "s1128-scene-named",
+   "text": "I joke with Gus about the awful coffee and we laugh for a while.",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:1",
+     "npc:5"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:8"
+    ],
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "s1128-scene-group-01",
+   "cls": "s1128-scene-group",
+   "text": "I propose that we all agree not to target each other.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:8",
+     "npc:5",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "s1128-scene-group-02",
+   "cls": "s1128-scene-group",
+   "text": "I tell everyone I am done with the drama.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:5",
+     "npc:8",
+     "npc:4"
+    ],
+    "asleep": [],
+    "here": "hallway"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "s1128-scene-group-03",
+   "cls": "s1128-scene-group",
+   "text": "I say loudly that I think someone here is lying to all of us.",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:2",
+     "npc:6",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "s1128-scene-group-04",
+   "cls": "s1128-scene-group",
+   "text": "I announce that I want a quiet night with no gossip.",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:2",
+     "npc:7",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": true
+  },
+  {
+   "id": "s1128-scene-and-walk-01",
+   "cls": "s1128-scene-and-walk",
+   "text": "I invite Dana to walk with me to the hallway.",
+   "view": {
+    "present": [
+     "npc:1",
+     "npc:5",
+     "npc:3"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": [
+     "npc:1"
+    ],
+    "moves": [
+     [
+      "npc:1",
+      "hallway"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "s1128-scene-and-walk-02",
+   "cls": "s1128-scene-and-walk",
+   "text": "I ask Nell to meet me in the lounge.",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:3",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": [
+     "npc:7"
+    ],
+    "moves": [
+     [
+      "npc:7",
+      "lounge"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "s1128-scene-and-walk-03",
+   "cls": "s1128-scene-and-walk",
+   "text": "I tell Levi to head to the kitchen and wait for me.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:4",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:2"
+    ],
+    "moves": [
+     [
+      "npc:2",
+      "kitchen"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "s1128-scene-and-walk-04",
+   "cls": "s1128-scene-and-walk",
+   "text": "I invite Maeve to walk with me to the lounge.",
+   "view": {
+    "present": [
+     "npc:3",
+     "npc:8",
+     "npc:2"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": [
+     "npc:3"
+    ],
+    "moves": [
+     [
+      "npc:3",
+      "lounge"
+     ]
+    ]
+   },
+   "belt": true
+  },
+  {
+   "id": "s1128-ooc-01",
+   "cls": "s1128-ooc",
+   "text": "((is there a way to save my place))",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:7",
+     "npc:8"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "s1128-ooc-02",
+   "cls": "s1128-ooc",
+   "text": "[ooc] how many houseguests are left",
+   "view": {
+    "present": [
+     "npc:8",
+     "npc:7",
+     "npc:1"
+    ],
+    "asleep": [],
+    "here": "lounge"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "s1128-ooc-03",
+   "cls": "s1128-ooc",
+   "text": "((what does the red icon mean))",
+   "view": {
+    "present": [
+     "npc:5",
+     "npc:6",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "s1128-player-move-01",
+   "cls": "s1128-player-move",
+   "text": "I walk to the backyard.",
+   "view": {
+    "present": [
+     "npc:2",
+     "npc:1",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "living-room"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "s1128-player-move-02",
+   "cls": "s1128-player-move",
+   "text": "I go into the kitchen and look around.",
+   "view": {
+    "present": [
+     "npc:6",
+     "npc:1",
+     "npc:7"
+    ],
+    "asleep": [],
+    "here": "backyard"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  },
+  {
+   "id": "s1128-player-move-03",
+   "cls": "s1128-player-move",
+   "text": "I go into the backyard and look around.",
+   "view": {
+    "present": [
+     "npc:7",
+     "npc:8",
+     "npc:6"
+    ],
+    "asleep": [],
+    "here": "kitchen"
+   },
+   "exp": {
+    "scene": null,
+    "moves": []
+   },
+   "belt": false
+  }
+ ]
+}

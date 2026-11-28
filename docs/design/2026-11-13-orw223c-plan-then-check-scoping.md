@@ -235,3 +235,18 @@ Outcomes: 1 acted (turn 102, correct: a move to a named room), 8 noAction (680 t
 Dev replay on CT 204 with the DeepSeek API, 880 rows (the 855-row labelled corpus plus the 25 prod messages from 00:35Z on, as codes): correct 865 of 880 (98.3 percent), wrong commits 0 (0.00 per 200), model calls 608 of 880 (272 skipped, 31 percent, against 81 skipped, 9 percent, before the filter), added latency over all turns p50 689 ms, p95 1176 ms (the call alone p50 800, p95 1218 ms; the endpoint was slower than on 11-26, the earlier run had p95 939 ms). The 15 misses are the same classes as before (a find-someone-in-a-room move, a typo, a hedge); none is a wrong commit.
 
 Projected tool-driven share on the prod session: before 2 of 12 (17 percent) as logged; with the crash fixed 3 of 13 (23 percent). The pre-filter changes cost and latency, not the share. The remaining 10 belt turns each carry `auto-record-scene`; only commit-from-plan for scene records and NPC moves (C3, needs approval) can take the share toward the ceiling of 12 of 13, and that figure has no corpus yet: the scene-record labels do not exist.
+
+
+---
+
+# Revision 2026-11-28 (ORW-1011 C3): commit scene records and planned houseguest moves from the plan
+
+Status: BUILT behind `ORWELL_COMMIT_FROM_PLAN` (or the setting `commit_from_plan_enabled`), default OFF. Code: `frontend/src/plan_commit.py`. Codes and counts only; the corpus lines are invented.
+
+* **Slot** (`chat_helpers`, after the player's own move slot, before the briefing): one small JSON call names the scene (who, kind, one sentence of the PLAYER's own act; no edges, no numbers) and any houseguest the player's words send to a named room. The C1 checker (`check_plan`) trims it; extra guards: a scene is with the people the player named (or the one person present), a planned move needs the houseguest and the room in the player's own words, an arrival into the player's room needs a request to come. Planned moves go to `move_houseguest` (the engine stays the authority). Nothing is added, only trimmed.
+* **Loop half** (after the turn-start settle): the scene is STAGED on the same deferred-settle ledger the scene belt uses (a regenerated take never double-folds), a `recordInteraction` tool event stands the scene belt down for that turn, and the narrator gets a production note of what is already recorded. The NPC-move belt is untouched (extra narrated moves still reach it).
+* **Metric**: commits count as `plan-commit:<tool>`, never as a narrator call or a belt; `classify_driver` has a `plan` label and the totals gain `planOnly` / `planCommitTurns`. A belt that fires beside a plan commit still counts as a belt.
+* **Fallback**: any skip, timeout, error, unparsed answer or empty plan commits nothing and the belts run as before.
+* **Moves are direction-neutral** (ADR 0009, section 3.10 of the resiliency plan): a planned move is a proposal validated for plausibility, then recorded. No rule here says who may move people. TODO for the occupancy record: deferral of a losing proposal, a houseguest's decline, the per-move reason and travel time.
+* **Known trade-off**: a pre-reply scene carries a kind and the player's own act only; the richer fields the after-the-prose belt can read (edges that depend on how a houseguest reacted, statements) are not in it. The promise backfill still runs on a recorded turn.
+* **Gates** (dev replay, `frontend/scripts/orw1011_c3_replay.py`, 250 rows including labelled 11-28 shapes): see the PR and the ORW-1011 comment for the numbers.
