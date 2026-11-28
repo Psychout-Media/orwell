@@ -385,7 +385,7 @@ journal_tail() {
 }
 
 # ORW-206: an update held back because a game is live (orwell-update.sh writes data/ops/update-deferred
-# while it waits; it proceeds by itself once the game is idle, or at the max-defer limit).
+# while it waits; it proceeds by itself once the game is idle; the max-defer limit only raises an alert, ORW-1074).
 update_deferred_check() {
   local f="${ORWELL_RUN_DIR:-/run/orwell}/update-deferred" until_epoch now text
   [[ -f "$f" && ! -L "$f" ]] || return 0
