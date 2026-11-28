@@ -69,6 +69,7 @@ describe("ORW-736 REAL PATH: a showmance builds slowly in a played season", () =
     expect((off.s as unknown as Priv).live.showmancePace).toBeUndefined();
   }, 900_000);
 
+  // ORW-995: hints 3, 9 (was 4, 6, 5; the census-hometown cast moves the seeded draws; of seeds 1-17 probed one per process only 3 and 9 reach the public couple stage).
   // Blocked, not faked: in four played seasons (seeds 3, 7, 13, 21) no showmance reached the public stage (the furthest climbed two of four levels, from day 41), so the
   // "public couple late, once" claim and the house's one noticing beat are proven only by the unit test that drives the days by hand (tests/unit/showmancePaceLive.test.ts).
   it("ORW-842: in a chat-paced played season a strong pair reaches the public couple stage within about five weeks, never before the earliest public day", async () => {
@@ -79,7 +80,7 @@ describe("ORW-736 REAL PATH: a showmance builds slowly in a played season", () =
       let got: [string, Pace] | undefined;
       await playMixGame(seed, 1500, { user: sandbox, advanceEvery: 6, stopWhen: (s) => publicPair(s) !== undefined, inspect: (s) => { got = publicPair(s); } });
       return got;
-    }, { from: 1, to: 16, hint: [4, 6, 5], sandbox: (seed) => `mixdrv-${seed}`, what: "a pair reaching the public couple stage in a chat-paced played season" });
+    }, { from: 1, to: 16, hint: [3, 9], sandbox: (seed) => `mixdrv-${seed}`, what: "a pair reaching the public couple stage in a chat-paced played season (ORW-995 census cast)" });
     const rec = found.at[1];
     const at = rec.steps.findIndex((x) => x.to === 4);
     expect(rec.steps.slice(0, at + 1).map((x) => x.to), "it climbed one level at a time up to the public couple").toEqual([1, 2, 3, 4]);

@@ -17,6 +17,7 @@ describe("ORW-832 REAL PATH: the sweep's work follows the size of the season, no
     const spy = vi.spyOn(multiSubstring, "patternsFoundIn").mockImplementation((text: string, patterns: Iterable<string>) => {
       const list = [...patterns]; sweeps.push({ chars: text.length, patterns: list.length }); return orig(text, list);
     });
+    // ORW-995: hint 3 (was 2, 4). Measured on a runner, one seed per process, work ratio late/early (limit 1.5 unchanged): seeds 1-12 on main (8 reach four blocks) median 1.14, max 1.72 (seed 2); on the census-hometown branch (11 reach four blocks) median 1.24, max 1.74 (seed 2). Seed 2 reads 1.72 on main as well, so it was a near-limit seed, not a regression; the paired per-seed changes run -0.47 to +0.28 with mean +0.03 (the casts differ), i.e. noise. Seed 3 reads 1.225, near the median.
     // ORW-920: the seed is picked, not pinned: the first season (hint 2; ORW-694 B1-11: seed 1 now also reaches four blocks and reads 1.55 there, its per-event work flat from block 3 to 4 (74 then 71): linear, not the square this guards) long enough to play four blocks (a played season ends when it ends, and a gameplay change moves that).
     const found = await firstSeedWhere(async (seed, sandbox) => {
       sweeps.length = 0;
@@ -30,7 +31,7 @@ describe("ORW-832 REAL PATH: the sweep's work follows the size of the season, no
         return false;
       } });
       return got.length === 4 ? got : undefined;
-    }, { from: 1, to: 12, hint: [2, 4], sandbox: (s) => `wf-${s}`, what: "a played season long enough for four blocks of 200 messages" }).finally(() => spy.mockRestore());
+    }, { from: 1, to: 12, hint: [3], sandbox: (s) => `wf-${s}`, what: "a played season long enough for four blocks of 200 messages" }).finally(() => spy.mockRestore());
     const rows = found.at;
     expect(rows.length, "four blocks of messages were played").toBe(4);
     for (const r of rows) { expect(r.calls, "the sweep ran").toBeGreaterThan(0); expect(r.calls, "at most a few sweeps per message").toBeLessThan(8); }

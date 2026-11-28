@@ -471,10 +471,11 @@ Then("no player field appears in any genesis prompt", function (this: BbWorld) {
 });
 
 Given("a committed-candidate NPC who by chance mirrors the player's vocation and hometown", function (this: BbWorld) {
-  const ctx = mkCtx({ playerVocation: "ER nurse", playerHometown: "Austin, TX" });
+  const base = mkCtx({ playerVocation: "ER nurse", playerHometown: "Austin, TX" });
+  const ctx = { ...base, npcs: base.npcs.map((n, i) => (i === 0 ? { ...n, floorHometown: "Austin, TX" } : n)) }; // ORW-995: the dealt hometown is the floor's
   cg(this).cgCtx = ctx;
   cg(this).cgProposal = mkProposal(ctx, (i, id) => (id === npc(1)
-    ? { vocation: "ER nurse", hometown: "Austin, TX", identity: "a warm floor-nurse", biography: "a real bio" }
+    ? { vocation: "ER nurse", identity: "a warm floor-nurse", biography: "a real bio" }
     : {}));
 });
 
@@ -490,7 +491,7 @@ Then("the colliding facet of that NPC is re-rolled", function (this: BbWorld) {
 
 Then("the rest of the NPC's identity is preserved", function (this: BbWorld) {
   const n = cg(this).cgResult!.npcs.find((x) => x.id === npc(1))!;
-  assert.equal(n.hometown, "Austin, TX", "the hometown is preserved");
+  assert.equal(n.hometown, undefined, "the writer never sets the hometown: the dealt one stands (ORW-995)");
   assert.equal(n.identityConcept, "a warm floor-nurse", "the freeform identity is preserved");
 });
 

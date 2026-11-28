@@ -124,7 +124,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
   }, 120_000);
 
   it("'come find me' to a named room sends the houseguest there while the player stays put", async () => {
-    const { yes: { at, npc, r, from } } = await untilYes(3, { room: "kitchen", private: false }, { when: (s) => roomOf(s, PLAYER) !== "kitchen" });
+    const { yes: { at, npc, r, from } } = await untilYes(6, { room: "kitchen", private: false }, { when: (s) => roomOf(s, PLAYER) !== "kitchen" });
     expect(r.room).toBe("kitchen"); expect(roomOf(at, npc)).toBe("kitchen"); expect(roomOf(at, PLAYER)).toBe(from);
   }, 120_000);
 
@@ -182,7 +182,7 @@ describe("ORW-727b: asking for a private word, in a played season", () => {
 });
 
 /** ORW-920: a houseguest's own ask is standing and shown to the player. The seed is picked (hint 3), not pinned: a gameplay change moves which season gets there. */
-const askStanding = () => firstSeedWhere((seed) => playUntil(seed, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending && !!(s.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk, { user: `wf-${seed}`, maxMessages: 3000 }), { ...wfScan([5, 1, 3], "a houseguest's own ask standing and shown to the player"), to: 30, wide: { maxSeasons: 30, budgetMs: 3_000_000, reason: "ORW-1007: the faster premiere bed rush moved every season, and a houseguest's unprompted ask standing is a rare moment, so seeds 1..12 may not reach it" } });
+const askStanding = () => firstSeedWhere((seed) => playUntil(seed, (s) => !!s.sess.live?.talkAsk && !s.sess.getGameState().pending && !!(s.sess.getGameState() as { openTalkAsk?: unknown }).openTalkAsk, { user: `wf-${seed}`, maxMessages: 3000 }), { ...wfScan([6, 5, 1, 3], "a houseguest's own ask standing and shown to the player (ORW-995 census cast)"), to: 30, wide: { maxSeasons: 30, budgetMs: 3_000_000, reason: "ORW-1007: the faster premiere bed rush moved every season, and a houseguest's unprompted ask standing is a rare moment, so seeds 1..12 may not reach it" } });
 
 describe("ORW-727b: a houseguest asks the player for a private word (parity), in a played season", () => {
   it("their own ask stands as an open, non-blocking offer the player sees; the player's yes through the same lever is accepted; it then clears", async () => {

@@ -201,7 +201,7 @@ describe("ORW-432 what moved and what did not", () => {
       return createHash("sha256").update(all).digest("hex");
     };
     expect(run(true)).toBe("09f83e1decf4a25d50a3450376fad5f6acd5badbb0617a061ada2fdb9e428c80"); // identical on main and on the ORW-508 branch (re-taken on main with the build, skin tone, hair and age look also blanked) with ORW-508 and ORW-480 changed fields blanked: no other random draw moved
-    expect(run(false)).toBe("d3bb8f462f7e8be762ce06719988e0c563fcfeadf063d4b63b260194393ec947"); // re-pinned on purpose by ORW-508 (composed look axes: build, skin tone, hair, face, style, age look and the mark pool; the blanked hash above is unchanged) and by ORW-508 earlier (hometown from the world table, a job the age rules out re-dealt, and the text built from the job) on top of ORW-458 and ORW-480 (mark pool, face lines, style family weighted by job sector, hometown and age)
+    expect(run(false)).toBe("1efc5ec1d9d733e77694563b8280b61637184cecd67ef482c5e7667b8746d635"); // re-pinned on purpose by ORW-508 (composed look axes: build, skin tone, hair, face, style, age look and the mark pool; the blanked hash above is unchanged) and by ORW-508 earlier (hometown from the world table, a job the age rules out re-dealt, and the text built from the job) on top of ORW-458 and ORW-480 (mark pool, face lines, style family weighted by job sector, hometown and age)
   });
 });
 

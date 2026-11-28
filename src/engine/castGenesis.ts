@@ -376,6 +376,8 @@ export interface GenesisNpcContext {
   floorArchetype: Archetype;
   floorStats: { physical: number; mental: number; social: number };
   floorName: string;
+  /** ORW-995: the hometown the floor dealt; the card shows it (a proposed hometown is never accepted). */
+  floorHometown?: string;
 }
 export interface GenesisContext {
   /** The warmed floor cast, in order — the per-NPC fallback source (archetype/stats/name). */
@@ -713,10 +715,8 @@ export function validateCastGenesis(proposal: CastGenesisProposal, ctx: GenesisC
   // token (before the comma, lowercased) so "San Diego, CA" and "San Diego, California" collide. A
   // duplicate is DROPPED (the floor's dealt hometown — unique per cast — stands); a vocation already
   // used twice (mirroring the floor's MAX_PER_VOCATION) is likewise dropped.
-  const usedHometownCities = new Set<string>();
   const vocationUses = new Map<string, number>();
   const GENESIS_MAX_PER_VOCATION = 2;
-  const cityKey = (s: string): string => s.split(",")[0]!.trim().toLowerCase();
   const priorGiven = new Set<string>((ctx.priorSeasonNames ?? []).map((n) => (n ?? "").trim().split(/\s+/)[0]?.toLowerCase() ?? "").filter(Boolean));
   const avoidList = (ctx.avoidNames ?? []).map((n) => (n ?? "").trim().toLowerCase()).filter(Boolean);
   const avoidFull = new Set(avoidList);
@@ -813,7 +813,6 @@ export function validateCastGenesis(proposal: CastGenesisProposal, ctx: GenesisC
     // vocation is dropped (the floor facet — dealt unique/capped — stands); the accepted value is
     // recorded VERBATIM (dedupe never rewrites prose, ADR 0005).
     const vocation = neutralizeProse(p.vocation);
-    const hometown = neutralizeProse(p.hometown);
     if (vocation) {
       const vKey = vocation.toLowerCase();
       if ((vocationUses.get(vKey) ?? 0) >= GENESIS_MAX_PER_VOCATION) {
@@ -823,15 +822,9 @@ export function validateCastGenesis(proposal: CastGenesisProposal, ctx: GenesisC
         out.vocation = vocation;
       }
     }
-    if (hometown) {
-      const hKey = cityKey(hometown);
-      if (usedHometownCities.has(hKey)) {
-        violations.push({ scope: "npc", npcId: cx.id, field: "hometown", rule: "duplicate hometown within the cast", action: "dropped" });
-      } else {
-        usedHometownCities.add(hKey);
-        out.hometown = hometown;
-      }
-    }
+    // ORW-995: the writer never sets the hometown. The floor dealt it at census frequency and the card shows it; the
+    // writer was told it and only describes it. Before this, a proposed town replaced the dealt one (places outside
+    // the census table, and the writer's own lean toward small towns, reached the card).
     const demeanor = neutralizeProse(p.demeanor);
     if (demeanor) out.demeanor = demeanor;
     const background = neutralizeProse(p.background);
@@ -848,9 +841,9 @@ export function validateCastGenesis(proposal: CastGenesisProposal, ctx: GenesisC
     // vocation+hometown re-rolls the colliding FACET (drop the vocation), preserving the rest of the
     // identity. (The name collision is already handled in the name gate above.)
     if (
-      out.vocation && out.hometown && ctx.playerVocation && ctx.playerHometown
+      out.vocation && cx.floorHometown && ctx.playerVocation && ctx.playerHometown
       && out.vocation.toLowerCase() === ctx.playerVocation.trim().toLowerCase()
-      && out.hometown.toLowerCase() === ctx.playerHometown.trim().toLowerCase()
+      && cx.floorHometown.toLowerCase() === ctx.playerHometown.trim().toLowerCase()
     ) {
       violations.push({ scope: "npc", npcId: cx.id, field: "vocation", rule: "mirrors the player's vocation + hometown", action: "re-roll" });
       delete out.vocation; // drop the colliding facet ⇒ the floor vocation stands; identity preserved

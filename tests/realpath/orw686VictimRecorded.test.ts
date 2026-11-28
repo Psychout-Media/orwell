@@ -52,6 +52,7 @@ async function tellTheRoom(s: Stop, v: string): Promise<{ o: string; t: string }
 
 describe("a betrayal rumor records its victim from the real betrayal event (played)", () => {
   it("a deal the player broke at the secret ballot names no victim: the betrayed never learned who broke it, so the rumor stays victim-less, and the told rumor still costs a bystander a small bounded distrust", async () => {
+    // ORW-995: hints 15, 16, 18 (was 2, 1, 8, 5; the census-hometown cast and ORW-1167 earshot move the seeded draws; seeds 1-30 probed one per process: 15, 16, 18, 22, 24, 26 reach it)
     // seed 3: at the first eviction the player votes against a houseguest they hold a deal with; the break is a secret ballot (the wronged side never learns it by name)
     // the precondition: the player broke a deal at the secret ballot, a houseguest tells the room what they believe about the player, AND the bystander hears it (ORW-920: whether a told rumor lands is the house's call, so the seed is scanned for it, not assumed)
     const heardTold = (s: Stop, o: string) => rumorsOf(s, o).find((c) => c.subject === PLAYER);
@@ -62,7 +63,7 @@ describe("a betrayal rumor records its victim from the real betrayal event (play
       const victim = betrayed(s).find((x) => room(s).includes(x))!;
       const { o: bystander } = await tellTheRoom(s, victim);
       return heardTold(s, bystander) ? { s, victim, bystander } : undefined;
-    }, wfScan([7, 4, 2, 1, 8, 5, HINT], "a played season where the player breaks a deal at the secret ballot and the bystander hears the told rumor"));
+    }, wfScan([15, 16, 18], "a played season where the player breaks a deal at the secret ballot and the bystander hears the told rumor (ORW-995 census cast)"));
     const at = found.at.s, v = found.at.victim, o = found.at.bystander;
     const deal = dealsOf(at).find((d) => d.status === "broken" && d.brokenBy === PLAYER && d.parties.includes(v)) as Deal & { secretVote?: boolean };
     expect(deal.secretVote, "the break was the player's secret ballot").toBe(true);

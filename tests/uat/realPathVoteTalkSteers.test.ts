@@ -20,7 +20,7 @@ const firstTalk = async (hint: number | number[], wanted: (s: Stop, t: Talk) => 
     let hit: Talk | undefined;
     const at = await playUntil(seed, watchVoteTalk((s, t) => { if (wanted(s, t)) { hit = t; return true; } return false; }), { user: sandbox });
     return { at, talk: hit! };
-  }, { from: 1, to: 30, hint, sandbox: (s) => `wf-${s}`, what: "the vote talk the test needs" })).at;
+  }, { from: 1, to: 30, hint, sandbox: (s) => `wf-${s}`, what: "the vote talk the test needs (ORW-995 census cast)" })).at;
 
 describe("vote talk in a played season", () => {
   it("the player is told how someone voted, as a scene they were in (never whether it is true)", async () => {
@@ -61,7 +61,7 @@ describe("vote talk in a played season", () => {
     // 36 since ORW-779 moved the played seasons (of seeds 1-36 in the sandboxes wf-<seed>, only 36 got there); the earlier hints stay as the fallback.
     // ORW-1091: 17 first (the both-sides fold meter moved the played seasons; a wide probe over 1-60 found 17 first); the earlier hints stay as the fallback.
     // ORW-1167: earshot (a confidence is heard only within earshot) moved the played seasons; a per-seed probe over 1-30 found only 4, 1 and 7 reach it, so they lead.
-    const { at, talk } = await firstTalk([4, 1, 7, 13, 17, 36, 3, 20, 24], caughtCredit);
+    const { at, talk } = await firstTalk([27, 17, 4, 1, 7, 13, 36, 3, 20, 24], caughtCredit); // ORW-995: 27 first (one seed per process on a runner, seeds 1-40 at this head: 1 of 40 reaches it on this branch (27), 1 of 40 on main (17))
     // the count rules out every keep claim about the evictee from a voter: each one believed is now caught, with a lied-to-me in its listener
     for (const c of talk.told.filter((x) => x.listener !== PLAYER && x.object === talk.tally.evictee && talk.tally.voters.includes(x.subject))) {
       const b = beliefOf(at, c.listener, c.id);

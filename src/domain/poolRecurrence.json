@@ -1,5 +1,5 @@
 {
- "_about": "ORW-508 ratchet. Over 200 seeded casts (seeds 1000 + 7919 i) of 15: the measured value is today's; a field that gets worse than its ceiling fails. A fix lowers the ceiling in the same PR. distinguishingMark counts named marks only (none notable is the plain majority by design). Shot cards and portrait prompts: PR 2821.",
+ "_about": "ORW-508 ratchet. Over 200 seeded casts (seeds 1000 + 7919 i) of 15: the measured value is today's; a field that gets worse than its ceiling fails. A fix lowers the ceiling in the same PR. distinguishingMark counts named marks only (none notable is the plain majority by design). Shot cards and portrait prompts: PR 2821. ORW-995: hometown and hometown.state were re-pinned on purpose to the census frequency (a fifth of all residents live in the 37 biggest cities and 15.7% in California, so those repeat more than the old flattened draw: hometown top share 2.1% to 3.1%, top state 11.0% to 15.4%); phys.style moved by 2 distinct and 0.1 shared-consecutive because the style deal reads the hometown.",
  "casts": 200,
  "fields": {
   "name.given": {
@@ -79,11 +79,11 @@
   },
   "hometown": {
    "measured": {
-    "distinct": 1864,
-    "topShare": 0.021,
-    "castPresenceMax": 0.315,
+    "distinct": 1621,
+    "topShare": 0.031,
+    "castPresenceMax": 0.465,
     "castPresenceMean": 0.008,
-    "sharedConsecutive": 0.29
+    "sharedConsecutive": 0.62
    },
    "before": {
     "distinct": 105,
@@ -91,10 +91,10 @@
     "castPresenceMax": 0.295,
     "sharedConsecutive": 2.48
    },
-   "floorDistinct": 1864,
-   "maxTopShare": 0.022,
-   "maxCastPresence": 0.32,
-   "maxSharedConsecutive": 0.34,
+   "floorDistinct": 1621,
+   "maxTopShare": 0.032,
+   "maxCastPresence": 0.47,
+   "maxSharedConsecutive": 0.65,
    "target": {
     "distinct": 1965,
     "topShare": 0.02,
@@ -105,10 +105,10 @@
   "hometown.state": {
    "measured": {
     "distinct": 51,
-    "topShare": 0.1097,
-    "castPresenceMax": 0.92,
+    "topShare": 0.1543,
+    "castPresenceMax": 0.955,
     "castPresenceMean": 0.24,
-    "sharedConsecutive": 5.14
+    "sharedConsecutive": 4.7
    },
    "before": {
     "distinct": 62,
@@ -117,9 +117,9 @@
     "sharedConsecutive": 3.94
    },
    "floorDistinct": 51,
-   "maxTopShare": 0.1107,
-   "maxCastPresence": 0.925,
-   "maxSharedConsecutive": 5.19,
+   "maxTopShare": 0.1553,
+   "maxCastPresence": 0.96,
+   "maxSharedConsecutive": 4.75,
    "target": {
     "distinct": 300,
     "topShare": 0.02,
@@ -672,10 +672,10 @@
   },
   "phys.style": {
    "measured": {
-    "distinct": 360,
+    "distinct": 358,
     "topShare": 0.007,
     "castPresenceMax": 0.105,
-    "sharedConsecutive": 0.59
+    "sharedConsecutive": 0.69
    },
    "before": {
     "distinct": 30,
@@ -683,10 +683,10 @@
     "castPresenceMax": 0.74,
     "sharedConsecutive": 8.13
    },
-   "floorDistinct": 360,
+   "floorDistinct": 358,
    "maxTopShare": 0.008,
    "maxCastPresence": 0.11,
-   "maxSharedConsecutive": 0.64,
+   "maxSharedConsecutive": 0.695,
    "target": {
     "distinct": 360,
     "topShare": 0.02,
@@ -844,10 +844,10 @@
      "castPresenceMax": 0.295,
      "sharedConsecutive": 2.48
     },
-    "floorDistinct": 2000,
-    "maxTopShare": 0.04,
-    "maxCastPresence": 0.5,
-    "maxSharedConsecutive": 0.6
+    "floorDistinct": 1700,
+    "maxTopShare": 0.05,
+    "maxCastPresence": 0.7,
+    "maxSharedConsecutive": 0.8
    },
    "vocation": {
     "measured": {
