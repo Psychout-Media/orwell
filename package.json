@@ -53,7 +53,7 @@
     "@vitest/coverage-v8": "^4.1.12",
     "dependency-cruiser": "^16.10.0",
     "esbuild": "^0.28.2",
-    "fast-check": "^3.23.0",
+    "fast-check": "^4.11.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^4.1.12"
