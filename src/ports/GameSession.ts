@@ -8,6 +8,7 @@ import type { PullQuoteWeek } from "../engine/pullQuoteReel";
 import type { StructuralMilestone } from "../engine/daySchedule";
 import type { TimeOfDay } from "../engine/timeOfDay";
 import type { DiaryCallView } from "../engine/diaryCalls";
+import type { DiscretionView } from "../engine/discretion";
 export type { DiaryCallView };
 import type { PushbackView } from "../engine/producerPushback";
 export type { PushbackView };
@@ -739,6 +740,8 @@ export interface GameStateView {
    * number, never the hidden layer). Absent pre-game / when nobody is present ⇒ byte-identical.
    */
   presentKnowledge?: PresentKnowledgeView[];
+  /** ORW-1171: who in earshot is in on each private alliance or deal, and the ENGINE's discretion call (open / defer / slip). Narration view only; absent when no tie has a houseguest in earshot and fewer than two houseguests are in earshot. */
+  discretion?: DiscretionView;
   /**
    * 0118 — the DAY'S SHAPE, telegraphed: the next scheduled ceremony milestone, the in-game phase it is
    * set for ("this afternoon"), and whether the clock has reached it (`due`). Vault-free by construction —
