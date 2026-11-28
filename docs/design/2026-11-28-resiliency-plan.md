@@ -43,19 +43,145 @@ When both miss, the narration writes the outcome anyway. The belts then guess fr
 story and the engine drift. Two related shapes widen the damage: **one-shot steps that are not
 idempotent** (toasts) and **tests that never play a real turn with real phrasing** (the crash).
 
-## 3. Principle (within ADR 0005)
+## 3. What is already decided, built and seen in prod (audit 2026-11-28)
 
-ADR 0005 stands: the open set (what people say and feel, creative acts nobody coded for) stays
-narrator-authored and is *recorded*, never normalized. This plan applies only to the **closed set of
-physical and structural state**:
+Ryne, on the first draft: the closed-set question had already been "discussed extremely in depth"; audit what is built
+first. This section is that audit. Every ruling below is on record; this plan applies them and re-asks none. Prod
+evidence is the CT 205 journal, 2026-11-28 01:13Z to 04:45Z, 53 ledger rows on builds 34.01, 34.76 (from 03:42Z)
+and 34.86 (from 04:39Z). Codes and counts only.
 
-- where the player and each houseguest are, and who is present;
-- the clock, time passing, sleep and waking;
-- bed ownership;
-- alliances, deals and pacts (a binding agreement);
-- ceremony and competition steps.
+### 3.1 Who owns which state (decided)
 
-For the closed set: **the engine decides first; the narrator describes what was committed.**
+- **Closed set, the engine is dictator:** competition outcomes, eligibility, who is HOH, nominated or evicted, the
+  week, vote tallies, win conditions, persistence, the Vault. ADR 0005, Decision, "The closed set".
+- **Weekly-loop ceremony facts are announced by the engine** (the chyron); a narrator restatement is dropped before
+  display, right or wrong. ADR 0003, amendment D1 (2026-07-21).
+- **Open set, the engine records faithfully and never normalizes:** the meaning, texture and consequence of social
+  and creative play. The model proposes the consequence shape; the engine owns the magnitude. ADR 0005 principles
+  1 to 4; CLAUDE.md, "Sync work must never flatten creative play".
+- **Presence:** `this.presence` is the one source of truth. Houseguest movement is open texture: the model narrates
+  who goes where and the engine records it (the D2 belt); only an impossible claim is closed. ADR 0009, PO ruling 1,
+  D2, D4.
+- **Clock:** time of day is engine state and moves by play, never by wall time; a conversation's felt length is
+  model-proposed and engine-bounded; a new day starts only at the 8am wake. ADR 0006 principle 1 and the 24-hour
+  amendment.
+- **Sleep:** the player always chooses his own bedtime and is never auto-slept; `turnIn` may answer held (ORW-258).
+  ADR 0006 principle 6; Fable review on ORW-1011.
+- **Beds:** no claim before the circle closes; the player claims in his own words once he is in the room. Feature
+  0201 (Ryne, 2026-11-18).
+- **Deals and pacts:** the engine decides who offers what; the player's own in-chat yes or no records a real deal or
+  a refusal; an ignored offer lapses. PO log, 0123. The narrator never decides, speaks or acts for the player. ADR
+  0003, amendment ORW-725.
+
+### 3.2 Which acts the engine commits before the prose (decided)
+
+- **Act first's closed set:** moveTo, search, claimBed, turnIn, advance (only when the engine names `requiredLever`
+  and no social hold stands), ceremony-step and comp answers, a deal-offer accept or decline on a clear answer,
+  `noAction` as the default. Never offered: meeting-answer and every card-only decision. Kevin Q1 and the Fable
+  review, ORW-1011 comments (2026-11-26); `frontend/src/act_first.py`.
+- **Speech, social play and alliances are not act-first acts.** Scoping doc, revision 2026-11-26, section 4.
+- **Kevin's Q2 to Q7 (ORW-1011, 2026-11-26):** each act runs on its own merits, in order, skipped only when a blocked
+  earlier act was its real precondition (Q2); at most 2 s added at p95 (Q3); at least 98% correct and at most 1 wrong
+  commit per 200 (Q4); a wrong move is fixed by moving again, no undo (Q5); a search with no lead tries busy rooms
+  first (Q6); "Fastest" rollout, the flag is the rollback (Q7).
+- **No keyword gate narrows what the model may call;** the cue test only saves a call on a message with nothing
+  act-like. `act_first.py` header; scoping doc, revision 2026-11-28, section 5.
+- **Never force `submitDecision`;** an open pending or a social hold suppresses forcing. `undercall-seam-structural.md`,
+  section 3, option (a).
+
+### 3.3 What narration may and may not do (decided)
+
+- May voice committed facts and author all the open texture. ADR 0003 principle 2.
+- May not state a closed-set outcome first, contradict the board, or write the player's words, acts or decisions.
+  ADR 0003 amendments; ADR 0009; ORW-725.
+- **No visible historic conflict:** a legal narrated move is hard-folded; an impossible claim is caught before
+  display; a next-turn re-ground is only a belt against repetition, never the player-facing fix. ADR 0009, PO
+  ruling 2 and D3.
+- The desync guard acts on closed-set claims only, never on creative prose. ADR 0005 principle 1 and test 5.
+
+### 3.4 How omissions and contradictions are corrected (decided)
+
+- **Error-correct the omission, never engine-author content:** the front end may pull the lever the model was asked
+  to pull; it never writes the player's choice or the scene. CLAUDE.md, consequence-loop section;
+  `undercall-seam-structural.md`, section 3.
+- **Never ship an action that is narrated but never recorded.** CLAUDE.md, engine resilience paragraph.
+- **A contradiction with a hard fact:** quietly rewrite once with the correction and show only the fixed reply; if
+  the redo still fails, remove the smallest wrong part; never cut mid-sentence. ORW-408 owner ruling
+  (`frontend/src/predisplay_check.py` header); the rewrite defaults ON (Kevin, 2026-11-26, #3343).
+- **Social play must move the weights:** an engaged turn that recorded nothing gets `_auto_record_scene`. Feature 0055
+  (owner, 2026-06-18).
+
+### 3.5 What the belts are for (decided)
+
+- A safety net, not the design. No belt is removed by structural work; a belt is demoted to a count-only watchdog and
+  deleted only after a prod window with zero applied fires, its counter kept alarmed. T9 ruling (owner, 2026-07-21),
+  `undercall-seam-structural.md` section 2.4; Fable review on ORW-1011.
+- Counted only when applied (success-gated). CLAUDE.md; `frontend/tests/test_belt_telemetry.py`.
+- The belt share is a health metric with no target. The bars are 0 player acts narrated but not recorded and 0
+  recorded but not narrated. Scoping doc, revision 2026-11-26, section 3 item 7 and section 6.
+- The houseguest-side belts (auto-move-npc, auto-record-scene) stay. Same revision, section 2 item 4; ADR 0009 ruling 1.
+
+### 3.6 What plan-then-check commits to (decided)
+
+- C1 the plan schema and a pure checker; C2 the plan call in shadow; C3 the front end commits validated plan effects
+  with `expectedBeatSeq` and an idempotency key, and skips the extraction calls on plan-covered turns; C4 write from
+  the plan; C5 check the prose; C6 ceremonies stay on their structured flows. The checker may only reject or trim,
+  never add; no belt is removed in C1 to C4. Scoping doc, "Slices" and "Risks" 1 and 5.
+- The 2026-11-26 revision replaced the separate plan call with the act-first forced round for the player's own
+  closed-set acts. Built (ORW-1014), on in prod since 2026-11-27.
+- The 2026-11-28 revision, sections 4 and 6: the remaining belt share is auto-record-scene and auto-move-npc, which act
+  first cannot reach by design; only C3 for scene records and houseguest moves can move it, and it "needs Kevin and
+  Ryne to approve it". No approval of that C3 is on record; the C3 build lane was stopped by Kevin on 2026-11-27.
+
+### 3.7 The day recap (decided)
+
+- A daily day-in-review fired at the player's own bedtime (`turnIn`), replacing the weekly recap. PO log, 0102
+  redesign. Built engine-side and delivered as an in-chat narrator beat; the pop-up window the PO note describes is
+  not built (ORW-824). Feature 0102 status.
+
+### 3.8 Built, and whether it fired on 11-28
+
+- **Act first** (`act_first.py`, `orwell_player_move.py`): 68 decisions: 3 acted, 27 noAction, 28 skipped (no cue),
+  10 skipped (ungrounded). 2 of the 3 acted turns crashed (UnboundLocalError, 01:48Z and 03:37Z; fixed in 34.76, #3476).
+- **Forced `tool_choice` at a closed-set beat** (undercall seam option a): fired 3 times, advanceGame.
+- **Pre-emission outcome and count guard** (`chat_helpers.py`): held 3 engine-count claims.
+- **Pre-display check, quiet rewrite ON** (`predisplay_check.py`, ORW-408): ran on 66 turns; 2 conflicts counted
+  (part of day, asleep speaks); 3 sentences withheld (absent-present). It has no fact for a sleep, bed, alliance or
+  deal claim, so those were never checked.
+- **Presence wall:** 7 drops on 3 turns.
+- **ADR 0009 D2 belt** (auto-move-npc): 26 moves on 11 turns; 2 unrequested arrivals dropped.
+- **0055 belt** (auto-record-scene): 42 of 53 rows. 3 scenes folded as kind alliance from houseguests' talk before
+  the player said yes (ORW-1137).
+- **Next-turn re-ground** (desync-reground-voiced): 23 fires on 19 rows; desync on 13 of 53 rows; 5 presence-desync
+  lines; 1 time-of-day drift line.
+- **Premiere arrival release:** 15 rows (the toasts repeated, ORW-1130).
+- **Bedtime gate:** refused the player's sleep request; `turnIn` ran only through the Coordinator's repair, so its
+  recap was never voiced (ORW-1150, ORW-1155).
+- **Deal back-fill:** 11 extractions, none found a deal.
+- Turn drivers: belt 40, both 2, narrator 3, none 8.
+
+### 3.9 The gap
+
+**Decided and built, but not holding in prod:**
+1. No visible historic conflict (ADR 0009): 13 desync rows were corrected on the next turn, which the ruling forbids.
+2. Error-correct the omission for sleep: the bedtime gate refused real requests (ORW-1150; #3489, #3492, #3496 open).
+3. The recap at bedtime: never voiced when `turnIn` ran outside a narrator turn (ORW-1155; #3491 open).
+4. The player's yes for an alliance (0123, ORW-725): folded without it (ORW-1137; #3497 open).
+5. Act first's own rules: 2 crashes on its acted path (fixed); the cue and grounding skips refused real acts (#3480
+   merged, #3497 open).
+6. Each premiere speaker once (premiere-entrances.md): repeated (ORW-1130; #3477, #3493 open).
+7. Never narrated but not recorded: the pre-display check had no sleep, bed, alliance or deal fact (ORW-1156 part 1;
+   #3498 open).
+
+**Decided, not built:** C3 for scene records and houseguest moves (needs approval, 3.6); the recap pop-up (ORW-824);
+houseguests placed in their rooms during the bed rush (0201, "Left for later"); a visible, retryable crash and a
+real-loop test (ORW-1143, ORW-1144; #3490 open); per-gate miss rates and the belt watchdog path (ORW-1156 part 3).
+
+**Correction to the first draft:** it put houseguest location, the clock and alliances in an engine-decides-first
+closed set. That contradicts ADR 0009 ruling 1 (houseguest movement is narrated and recorded), ADR 0006's
+model-proposed, engine-bounded durations, and ADR 0005 (alliance talk is open set; only a binding deal waits for the
+player's yes). The rule this plan applies is the one in 3.1 to 3.4: the engine commits the player's own closed-set
+acts first, records the narrated open texture, and no reply may show a change the engine did not make.
 
 ## 4. Three pillars
 
@@ -64,7 +190,7 @@ For the closed set: **the engine decides first; the narrator describes what was 
 1. **Commit, then narrate.** Each turn: (a) decide the player's closed-set acts (act first's slot), (b)
    commit them through the real tools, (c) narrate from the committed delta and the current state. The
    narrator gets the delta, not freedom to invent closed-set state. This is plan-then-check part C
-   (C3, commit-from-plan), which Kevin approved for prod on 11-27.
+   (C3, commit-from-plan). Its approval is not on record (section 3.6); it is open question 1 in section 7.
 2. **No claim without commit** (ORW-1156 part 1, in build). After generation, before display, extract the
    reply's closed-set claims and check each against the engine. On a mismatch, either commit the change
    through its tool (only when the player asked for it, never an alliance without his yes) or
@@ -131,19 +257,36 @@ For the closed set: **the engine decides first; the narrator describes what was 
 4. **Real play as the suite:** the prod-turn corpus as a release gate, then nightly bot seasons after
    Kevin sees the cost of one.
 
-## 7. Decisions needed
+## 7. Decisions: what is already decided, and what is still open
 
-For Ryne (his game, his word equals Kevin's):
-1. Is the closed set in section 3 right? Anything to add (for example competition outcomes) or remove?
-2. On a claim-without-commit mismatch the player asked for, commit it (the default here) or always
-   regenerate and let the player ask again?
-3. The day recap when a day closes outside a narrator turn: voice it at the start of the next turn (the
-   default here), or show it as its own panel?
+The first draft asked five questions. Three were already answered on record:
 
-For Kevin:
-4. The nightly bot seasons: approve after seeing one season's measured cost.
-5. Alerts: push to Kevin's phone for every crash, or only streaks (stuck, repeated mismatch) plus a daily
-   digest?
+1. **The closed set** (was Ryne's Q1): decided. ADR 0005's closed set, the ADR 0003 chyron facts, act first's set
+   (Kevin Q1 on ORW-1011 and the Fable review), with presence, the clock, beds, sleep and deals as ruled in 3.1.
+2. **Commit or regenerate on a claim without a commit** (was Ryne's Q2): decided. Commit when the player's own message
+   asked for the act, through the same tool (error-correct the omission; never narrated but not recorded); otherwise
+   quietly rewrite once, then trim the smallest wrong part (ORW-408 owner ruling); a legal narrated houseguest move is
+   folded (ADR 0009 D3); never a decision, alliance or deal the player did not state (ORW-725, 0123). PR #3498 builds
+   exactly this.
+3. **The recap when a day closes outside a narrator turn** (was Ryne's Q3): decided. The recap fires at the player's
+   bedtime (0102 redesign) and is voiced in chat until the pop-up (ORW-824) is built; #3491 voices a missed one once.
+4. **Alerts** (was Kevin's Q5): decided by Kevin's standing rule "Keep Kevin Posted On Bug Chases" (push on a
+   production hit, a root cause or a fix), so every prod crash pushes.
+
+**Still open, for Ryne** (none of these is on record):
+
+1. **Approve C3 for scene records and houseguest moves?** The validated plan's scene record and moves are committed
+   by the front end before the prose, and auto-record-scene and auto-move-npc stand down on plan-covered turns. It
+   is the one change that moves the belt share (scoping doc, revision 2026-11-28, sections 4 and 6). Behind a flag,
+   gated like act first.
+2. **Build the engine occupancy double-buffer now?** ADR 0009 deferred it ("Open questions" 1) until houseguest
+   relocations were frequent enough to jar. On 11-28: 26 narrated houseguest moves on 11 turns, 5 presence desyncs
+   and a 6-turn re-ground loop. Revisit now, or keep the front-end freeze?
+3. **The act-first expansion order.** The Fable review proposed nap, hangOut, the Diary Room, offer cards,
+   askToTalkAlone and entering a closed room next, with follow only after houseguest-move commits. Kevin asked for the
+   review; no owner has approved the order.
+
+**Still open, for Kevin:** the nightly bot seasons, approved only after he sees one season's measured cost.
 
 ## 8. Risks
 
