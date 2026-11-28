@@ -11881,9 +11881,14 @@ async def build_chat_context(
             from src.orwell_player_move import resolve_player_move_before_narrator
             _prev_reply = next((_game_narration(m.content) for m in reversed(_current_season_rows(getattr(sess, "history", None))) if getattr(m, "role", None) == "assistant" and isinstance(m.content, str)), None)
             from src.orwell_player_move import act_first_before_narrator
+            # ORW-1168: an invitation along ("come with me", "invite her outside") commits the houseguest's walk as well as the player's, before the narrator speaks.
+            from src.orwell_player_move import escort_before_narrator, apply_escort
+            _recent_user = [m.content for m in reversed(_current_season_rows(getattr(sess, "history", None))) if getattr(m, "role", None) == "user" and isinstance(m.content, str)][:3]
+            _escort = await escort_before_narrator(message, user, client_msg_id, previous_reply=_prev_reply, recent_user=_recent_user)
             # ORW-1014: with ORWELL_ACT_FIRST on, act-first owns this message (ONE owner, one idempotency key); the parser runs only when it is off or its round failed.
             if not await act_first_before_narrator(message, user, client_msg_id, sess=sess, previous_reply=_prev_reply):
                 await resolve_player_move_before_narrator(message, user, client_msg_id, previous_reply=_prev_reply)
+            apply_escort(user, _escort, client_msg_id)
             # ORW-1011 C3 (flag ORWELL_COMMIT_FROM_PLAN, default OFF): plan, check and commit the scene record and the planned houseguest moves before the reply.
             from src import plan_commit as _pc_c3
             if _pc_c3.enabled():
