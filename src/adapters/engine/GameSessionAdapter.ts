@@ -1385,6 +1385,7 @@ export class GameSessionAdapter implements GameSession {
     const id = String(req.messageId);
     if (this.seenMessageIds.includes(id)) return { accepted: false, beatSeq: this.beatSeq };
     this.seenMessageIds.push(id);
+    if (this.convoPartners?.pinned) { delete this.convoPartners.pinned; this.convoPartners.tick = this.presenceTickCount; } // the pin on a bare-next newcomer ends with the player's next message; the ordinary hold takes over
     if (this.seenMessageIds.length > 256) this.seenMessageIds.shift();
     this.disclosureEpoch++; // a new player turn: last turn's disclosure events are over
     this.playerTurnNo++; // ORW-877: the turn a held tell belongs to
@@ -7995,7 +7996,7 @@ export class GameSessionAdapter implements GameSession {
    */
   private calmPresenceEnabled = flagDefaultOn("ORWELL_CALM_PRESENCE");
   setCalmPresenceEnabled(on: boolean): void { this.calmPresenceEnabled = on; }
-  private convoPartners: { ids: EntityId[]; tick: number } | null = null;
+  private convoPartners: { ids: EntityId[]; tick: number; pinned?: true } | null = null;
   /** A recorded player scene's NPC partners: the houseguests the player is talking to (memory-only). */
   noteConversationPartners(ids: readonly EntityId[]): void {
     this.convoPartners = { ids: ids.filter((i) => i !== PLAYER), tick: this.presenceTickCount };
@@ -8027,7 +8028,7 @@ export class GameSessionAdapter implements GameSession {
   }
   private conversationHold(): ReadonlySet<EntityId> {
     const c = this.convoPartners;
-    return c && this.presenceTickCount - c.tick <= CALM_PRESENCE.holdTicks ? new Set(c.ids) : new Set<EntityId>();
+    return c && (c.pinned === true || this.presenceTickCount - c.tick <= CALM_PRESENCE.holdTicks) ? new Set(c.ids) : new Set<EntityId>();
   }
   presenceTick(rng?: RandomnessSource): void {
     if (!this.house) return;
@@ -8097,6 +8098,9 @@ export class GameSessionAdapter implements GameSession {
     this.presenceBase = nextBase;
     this.presenceTenure = tenure;
     this.presenceZone = nextZone;
+    // ORW-1154 (Ryne, prod 2026-11-28: "where's everyone going when they're asleep? am I in a room alone?"): a houseguest who has turned in for the night sleeps in their OWN bed's room (the HOH in the HOH room) on every tick, not only
+    // when the player turns in, so the player-facing occupancy never leaves a sleeper wandering the kitchen. Player-facing map only (the calibration base already drops sleepers); no rng; a played game with the clock running only.
+    if (this.live?.playedGame === true) { const up = this.awakeNow(); if (up) this.seatInOwnBeds(this.presenceActive().filter((id) => !up.has(id))); }
     this.gatherForCeremony(true); // ORW-247: the tick ran on its own streams (calibration untouched); a live ceremony keeps the house in its room
     // 0077: the player TRACKS any houseguest they watched head into a closed room this tick — their
     // origin was in the player's eyeshot. Pure read-side (no rng), so the calibration spine is untouched.
@@ -10231,6 +10235,9 @@ export class GameSessionAdapter implements GameSession {
     // (a bedroom, the bathroom/lounge, the HOH/storage/diary) is opaque — standing one room over no
     // longer leaks who is behind it. Who is behind a closed door is earned by watching, never ambient.
     const presentPlain = inRoom(room);
+    // ORW-1154: the sleepers in the player's own room (asleep in their own beds), so the narrator never calls the room "yours alone" with someone asleep beside the player.
+    const asleepHere: NamedRef[] = [];
+    if (awake) for (const [id, where] of this.presence!) if (where === room && id !== me && !awake.has(id) && !notHere2?.has(id)) asleepHere.push({ id, name: this.nameOf(id) });
     // A51 (#2017 E2, flag ORWELL_NPC_TELLS, default ON): the strongest observable tell KIND (a closed word, no band/number/cause) rides on each in-room houseguest so the FE can show one chip. In-room + awake only (tellsVisibleFor); absent flag => byte-identical.
     const present0 = this.npcTellsEnabled
       ? presentPlain.map((p) => { const t = this.tellsVisibleFor(p.id) ? this.tellsFor(p.id).tells?.[0] : undefined; return t ? { ...p, tell: t.kind } : p; })
@@ -10266,6 +10273,7 @@ export class GameSessionAdapter implements GameSession {
       turnsHere: this.presenceTenure?.get(me) ?? 0,
       companions: presentPlain.map((p) => ({ ...p, turnsHere: this.presenceTenure?.get(p.id) ?? 0 })),
       counts: this.headCounts(presentPlain.length),
+      ...(asleepHere.length ? { asleepHere } : {}),
       tracked,
       ...(conspicuous.length ? { conspicuous } : {}),
       ...this.leadsFoundWrongView(),
@@ -19532,7 +19540,9 @@ export class GameSessionAdapter implements GameSession {
             const room = roomOfPlayer();
             const newcomer = [...this.presence].filter(([id, where]) => id !== PLAYER && where === room && awakeNow.has(id) && !withPlayer.has(id)).map(([id]) => id).sort()[0];
             if (newcomer) {
-              this.noteConversationPartners([newcomer]); // they stay with the player through the tick that follows the commit, so the person named is still there when the reply is told
+              this.noteConversationPartners([newcomer]);
+              if (this.convoPartners) this.convoPartners.pinned = true; // ORW-1154/1089: the commit after this stop runs catch-up society ticks (more than holdTicks); the named newcomer stays until the player's next message, never vanishes before it is read
+              // they stay with the player through the tick that follows the commit, so the person named is still there when the reply is told
               this.onPlayerEvent?.(`${this.nameOf(newcomer)} comes into the room`, [PLAYER, newcomer], "house-event");
               return { kind: "someone-entered", who: [this.nameOf(newcomer)] };
             }

@@ -79,7 +79,7 @@ describe("ORW-736 REAL PATH: a showmance builds slowly in a played season", () =
       let got: [string, Pace] | undefined;
       await playMixGame(seed, 1500, { user: sandbox, advanceEvery: 6, stopWhen: (s) => publicPair(s) !== undefined, inspect: (s) => { got = publicPair(s); } });
       return got;
-    }, { from: 1, to: 16, hint: [4, 6, 5], sandbox: (seed) => `mixdrv-${seed}`, what: "a pair reaching the public couple stage in a chat-paced played season" });
+    }, { from: 1, to: 16, hint: [9, 4, 6, 5], sandbox: (seed) => `mixdrv-${seed}`, what: "a pair reaching the public couple stage in a chat-paced played season" });
     const rec = found.at[1];
     const at = rec.steps.findIndex((x) => x.to === 4);
     expect(rec.steps.slice(0, at + 1).map((x) => x.to), "it climbed one level at a time up to the public couple").toEqual([1, 2, 3, 4]);

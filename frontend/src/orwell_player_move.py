@@ -224,7 +224,7 @@ async def act_first_before_narrator(text: Any, user: Optional[str], client_msg_i
         if not af.enabled() or not isinstance(text, str) or not text.strip():
             return False
         from src.agent_loop import (_model_honors_forced_tool_choice, _HOUSE_ROOMS, _season_room_names, _themed_rooms_note, _EXTRACTION_UNTRUSTED_FENCE,
-                                    _player_means_going_to_bed, _bedtime_board_allows)
+                                    _player_means_bed_now, _bedtime_board_allows)
         url = getattr(sess, "endpoint_url", "") or ""
         model = getattr(sess, "model", "") or ""
         if call is None and not _model_honors_forced_tool_choice(model, route=url, site="actfirst"):
@@ -256,7 +256,7 @@ async def act_first_before_narrator(text: Any, user: Optional[str], client_msg_i
             "required_lever": _ch._LAST_FRAMED_REQUIRED_LEVER.get(key),
             "social_hold": bool(_ch.veto_draw_holds_force(user or "") or _ch.event_pause_holds(user)),
             "room_names": names, "here": here, "people": people,
-            "sleep_ok": bool(_player_means_going_to_bed(text) and _bedtime_board_allows(status)),
+            "sleep_ok": bool(_player_means_bed_now(text, user) and _bedtime_board_allows(status)),
         }
         if call is None:
             from src.llm_core import llm_tool_call_async as call  # type: ignore[no-redef]

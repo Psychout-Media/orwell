@@ -1889,18 +1889,20 @@ export function terminalKnowledgeItems(items: readonly string[]): string[] {
  * ORW-376 - the engine's headcounts as plain sentences the narrator can quote (the player always counted). The engine hands the
  * model only the OTHER people's names, and a model counting that list is one short of "us". Empty when the view carries no counts.
  */
-export function headcountLines(wa: { counts?: { room: number; others: number; house: number; voters?: number; asleep?: number }; nearby?: Array<{ room: string; present: Array<{ name: string }> }>; roomNames?: Partial<Record<string, string>> } | null | undefined): string[] {
+export function headcountLines(wa: { counts?: { room: number; others: number; house: number; voters?: number; asleep?: number }; asleepHere?: Array<{ name: string }>; nearby?: Array<{ room: string; present: Array<{ name: string }> }>; roomNames?: Partial<Record<string, string>> } | null | undefined): string[] {
   const c = wa?.counts;
   if (!c) return [];
   const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? "" : "s"}`;
   const lines = [
     c.others === 0
-      ? "In this room: 1 person, you (you are alone)."
+      ? (wa?.asleepHere?.length ? "In this room: you are the only one AWAKE (others are asleep here, below)." : "In this room: 1 person, you (you are alone).")
       : `In this room: ${c.room} people, you included (you + ${plural(c.others, "houseguest")}). A houseguest here saying "all of us" means ${c.room}.`,
     `In the house: ${c.house} people remain, you included.`,
   ];
   if (c.voters !== undefined) lines.push(`Voting tonight: ${c.voters} people (the house minus the HOH and the nominees).`);
   // ORW-386: the narrator said "twelve asleep" with eleven turned in, and called the living room empty with a houseguest in it. The sleepers' count and every visible room's roster are engine facts too.
+  // ORW-1154: sleepers are IN their own beds, in their own rooms. `In this room` counts the awake; the ones asleep here are named so the room is never called empty or "yours alone" with someone asleep beside the player.
+  if (wa?.asleepHere?.length) lines.push(`Asleep in THIS room, in their own beds: ${wa.asleepHere.map((p) => p.name).join(", ")}. They are here, not gone: the room is NOT empty and NOT yours alone; keep your voice low and let no sleeper speak or move.`);
   if (c.asleep !== undefined) lines.push(`Asleep right now: ${c.asleep} ${c.asleep === 1 ? "houseguest has" : "houseguests have"} turned in (the game's asleep list).`);
   if (wa?.nearby?.length) {
     lines.push("Rooms in view right now: " + wa.nearby.map((n) => `${wa.roomNames?.[n.room] ?? n.room.replace(/-/g, " ")}: ${n.present.length ? n.present.map((p) => p.name).join(", ") : "empty"}`).join("; ") + ". Call a room empty ONLY when it is listed empty here.");
