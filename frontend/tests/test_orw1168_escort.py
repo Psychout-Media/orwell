@@ -51,6 +51,11 @@ def _room_of(stack, hid):
     return None
 
 
+def _told_no(content):
+    """The engine's own note to the narrator that the houseguest did not come (orwell_player_move.escort_before_narrator)."""
+    return "did NOT come (the engine answered" in content or "the game could not place them" in content
+
+
 def _together_in(stack, room, hid):
     w = _where(stack)
     return w.get("room") == room and any(p.get("id") == hid for p in (w.get("present") or []))
@@ -80,7 +85,7 @@ def test_invite_her_outside_puts_the_player_and_her_in_the_backyard(stack_es):
     assert res["done"] and res["saved"]
     assert _where(stack_es).get("room") == "backyard"
     together = _together_in(stack_es, "backyard", gid)
-    told_no = any("did not come" in str(m.get("content", "")) or "DECLINED" in str(m.get("content", "")) or "NOT come" in str(m.get("content", ""))
+    told_no = any(_told_no(str(m.get("content", "")))
                   for r in STUB.requests[-6:] for m in (r.get("messages") or []) if isinstance(m, dict) and m.get("role") == "system")
     assert together or told_no, "the player and the invited houseguest are not together in the backyard on the engine board, and the narrator was not told she did not come"
 
@@ -107,6 +112,6 @@ def test_do_you_wanna_come_with_commits_her_walk_and_the_players(stack_es):
     assert res["done"] and res["saved"]
     assert _where(stack_es).get("room") == "backyard"
     together = _together_in(stack_es, "backyard", gid)
-    told_no = any("NOT come" in str(m.get("content", "")) or "did NOT come" in str(m.get("content", ""))
+    told_no = any(_told_no(str(m.get("content", "")))
                   for r in STUB.requests[-6:] for m in (r.get("messages") or []) if isinstance(m, dict) and m.get("role") == "system")
     assert together or told_no, "she neither walked out with the player on the engine board nor was the narrator told she did not"
