@@ -53,7 +53,8 @@ GROUP = ["I tell everyone I am done with the drama.", "I announce that I want a 
          "I say loudly that I think someone here is lying to all of us.", "I propose that we all agree not to target each other."]
 for i in range(20):
     g = pick(R.choice([3, 4]))
-    add("talk-unnamed-group", GROUP[i % len(GROUP)], g, None, belt=True)
+    # ORW-1170: a line to everyone is a group scene with the people present (up to four); the other group lines name no addressee and stay empty
+    add("talk-unnamed-group", GROUP[i % len(GROUP)], g, [x[0] for x in g] if GROUP[i % len(GROUP)].startswith("I tell everyone") and len(g) <= 4 else None, belt=True)
 OOC = ["((can you speed up the clock a little))", "(brb two minutes)", "[ooc] how many houseguests are left", "((is there a way to save my place))", "ooc: that last reply was too long",
        "((pause the story for a second please))", "(ignore the last message, wrong window)", "((what does the red icon mean))"]
 for i in range(20):
@@ -99,7 +100,8 @@ for i in range(6):
     add("s1128-scene-named", R.choice(ONE).format(A=first(a[1])), [a] + pick(R.choice([1, 2, 3]), (a[0],)), [a[0]])
 for i in range(4):
     g = pick(4)
-    add("s1128-scene-group", R.choice(GROUP), g, None, belt=True)
+    gt = R.choice(GROUP)
+    add("s1128-scene-group", gt, g, [x[0] for x in g] if gt.startswith("I tell everyone") and len(g) <= 4 else None, belt=True)
 for i in range(4):
     a, = pick(1)
     ro = R.choice(ROOMS)
@@ -108,6 +110,60 @@ for i in range(3):
     add("s1128-ooc", R.choice(OOC), pick(3), None, belt=False)
 for i in range(3):
     add("s1128-player-move", R.choice(MV).format(R=R.choice(ROOMS)[1]), pick(3), None, belt=False)
+# ORW-1170: group shapes whose addressee comes from engine-known context (a private-talk lock, an open ask for a private word, the last scene's partner, the one houseguest who
+# spoke last turn). Extra view keys: lock, talk_ask, last_partner, prev. Codes and invented names only.
+UNNAMED = ["I tell you I have your back no matter what happens this week.", "I ask you honestly what you think of the plan.", "I lower my voice and say I do not trust the others.",
+           "I tell you that you are the only one I would take to the end.", "I say sorry for how I handled yesterday.", "I ask you who you are voting for.",
+           "I laugh and tell you that is the best story I have heard here.", "I promise you I will keep this between us.", "I tell you I need your help with something.",
+           "I answer that I am not sure yet and ask you what you would do."]
+SPEAK = ['{S} leaned in. "Are you really going to trust them with this?" {S} asked, glancing at the door.', '"We need to talk about the vote," {S} said quietly, and waited for an answer.',
+         '{S} crossed the room. "What did you hear this morning?" {S} whispered.', '"I am not sure about any of this," {S} admitted, looking at the player.',
+         '{S} smiled thinly and said, "So what is your plan?"', '"You never told me where you stand," {S} murmured.']
+NOSPEAK = ['The room was quiet. Nell Ashby stirred the coffee and the others picked at their food.', 'Wind moved through the yard and nobody said much of anything.']
+BROAD = ["I tell everyone I am done playing games this week.", "I tell everybody that I will not be pushed around.", "I say to all of you that the vote is not decided.",
+         "I tell you guys I want an honest week from now on.", "I tell you all that I am proud of how we have played."]
+OTHER = ["I tell {B} I have {B}'s back this week.", "I ask {B} what {B} thinks of the plan.", "I thank {B} for the earlier help and say it meant a lot.", "I whisper to {B} that we should stay close."]
+
+
+def addg(cls, text, present, exp, **ctx):
+    here = R.choice(HERE)
+    v = {"present": [x[0] for x in present], "asleep": [], "here": here}
+    v.update(ctx)
+    rows.append({"id": f"{cls}-{sum(1 for r in rows if r['cls'] == cls) + 1:02d}", "cls": cls, "text": text, "view": v,
+                 "exp": {"scene": exp, "moves": []}, "belt": bool(exp)})
+
+
+for i in range(8):
+    a, = pick(1)
+    addg("grp-lock", UNNAMED[i], [a] + pick(R.choice([2, 3, 5]), (a[0],)), [a[0]], lock=a[0])
+for i in range(4):
+    a, = pick(1)
+    addg("grp-talkask", UNNAMED[i + 2], [a] + pick(3, (a[0],)), [a[0]], talk_ask=a[0])
+for i in range(6):
+    a, = pick(1)
+    addg("grp-lastpartner", UNNAMED[(i * 3) % len(UNNAMED)], [a] + pick(R.choice([2, 4, 6]), (a[0],)), [a[0]], last_partner=a[0])
+for i in range(6):
+    a, = pick(1)
+    addg("grp-speaker", UNNAMED[(i + 5) % len(UNNAMED)], [a] + pick(R.choice([2, 3, 5]), (a[0],)), [a[0]], prev=SPEAK[i].format(S=first(a[1])))
+for i in range(3):
+    addg("grp-no-context", UNNAMED[i], pick(4), None, prev=NOSPEAK[i % 2])
+for i in range(5):
+    addg("grp-broadcast", BROAD[i], pick(R.choice([2, 3, 4])), None, last_partner=None)
+    rows[-1]["exp"]["scene"] = list(rows[-1]["view"]["present"])
+for i in range(4):
+    a, b = pick(2)
+    addg("grp-named-overrides", OTHER[i].format(B=first(b[1])), [a, b] + pick(2, (a[0], b[0])), [b[0]], last_partner=a[0])
+for i in range(3):
+    a, b = pick(2)
+    addg("grp-conflict", UNNAMED[i + 4], [a, b] + pick(2, (a[0], b[0])), None, last_partner=a[0], prev=SPEAK[i].format(S=first(b[1])))
+for i in range(3):
+    a, = pick(1)
+    rows.append({"id": f"grp-ooc-{i + 1:02d}", "cls": "grp-ooc", "text": OOC[i], "view": {"present": [a[0]] + [x[0] for x in pick(3, (a[0],))], "asleep": [], "here": R.choice(HERE), "lock": a[0]},
+                 "exp": {"scene": None, "moves": []}, "belt": False})
+for i in range(3):
+    a, = pick(1)
+    rows.append({"id": f"grp-player-move-{i + 1:02d}", "cls": "grp-player-move", "text": MV[i].format(R=R.choice(ROOMS)[1]), "view": {"present": [a[0]] + [x[0] for x in pick(3, (a[0],))], "asleep": [], "here": R.choice(HERE), "last_partner": a[0]},
+                 "exp": {"scene": None, "moves": []}, "belt": False})
 out = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tests", "fixtures", "orw1011_c3_corpus.json")
 json.dump({"cast": CAST, "rows": rows}, open(out, "w"), indent=1)
 print(len(rows), "rows ->", out)

@@ -38,7 +38,7 @@ def test_named_scene_commits_and_bare_ids_are_read():
 def test_absent_asleep_and_unnamed_are_trimmed_never_added():
     assert pc.validate(scene(["npc:2"]), "I tell Levi we should talk", view(("npc:1",)))["scene"] is None  # Levi is elsewhere
     assert pc.validate(scene(["npc:1"]), "I whisper to Dana", view(("npc:1",), asleep=("npc:1",)))["scene"] is None
-    assert pc.validate(scene(["npc:1"]), "I tell everyone I am done", view(("npc:1", "npc:2")))["scene"] is None  # nobody named, two could be meant: the belt keeps it
+    assert pc.validate(scene(["npc:1"]), "I say I am done with this", view(("npc:1", "npc:2")))["scene"] is None  # nobody named, no partner, two could be meant: the belt keeps it
     assert pc.validate(scene(["npc:1", "npc:2"]), "I ask Dana about it", view(("npc:1", "npc:2")))["scene"]["withIds"] == ["npc:1"]  # the one named
     assert pc.validate(scene(["npc:1"]), "I say we should team up", view(("npc:1",)))["scene"]["withIds"] == ["npc:1"]  # exactly one is here
 
@@ -111,3 +111,77 @@ def test_corpus_labels_are_consistent():
     assert len(d["rows"]) >= 250
     for r in d["rows"]:
         assert set(r["view"]["present"]) <= ids and set(r["exp"]["scene"] or []) <= ids
+
+
+# ── ORW-1170: a group scene resolves its addressee from engine-known context ──────────────────────
+CAST4 = CAST + [{"id": "npc:4", "name": "Theo Brandt"}]
+
+
+def gview(**ctx):
+    people = CAST4[:3]
+    v = {"present": people, "awake": [p["id"] for p in people], "asleep": [], "known": CAST4, "rooms": ROOMS, "room_names": None, "here": "living-room", "prev": None, "pending": None}
+    v.update(ctx)
+    return v
+
+
+def test_group_unnamed_with_no_context_stays_empty():
+    v = pc.validate(scene(["npc:1"]), "I tell you I have your back", gview())
+    assert v["scene"] is None and "unnamed-ambiguous" in v["codes"]
+
+
+def test_group_lock_open_ask_and_last_partner_resolve_the_addressee():
+    for key in ("lock", "talk_ask", "last_partner"):
+        v = pc.validate(scene(["npc:2", "npc:3"]), "I tell you I have your back", gview(**{key: "npc:2"}))
+        assert v["scene"]["withIds"] == ["npc:2"], key
+
+
+def test_group_partner_not_awake_or_not_here_is_ignored():
+    assert pc.validate(scene(["npc:1"]), "I tell you I have your back", gview(last_partner="npc:4"))["scene"] is None
+    assert pc.validate(scene(["npc:1"]), "I tell you I have your back", gview(lock="npc:2", awake=["npc:1", "npc:3"]))["scene"] is None
+
+
+def test_group_named_person_beats_the_partner():
+    v = pc.validate(scene(["npc:2"]), "I ask Maeve what she thinks", gview(last_partner="npc:2"))
+    assert v["scene"] is None or v["scene"]["withIds"] == ["npc:3"]
+    v = pc.validate(scene(["npc:3"]), "I ask Maeve what she thinks", gview(last_partner="npc:2"))
+    assert v["scene"]["withIds"] == ["npc:3"]
+
+
+def test_group_last_speaker_needs_a_second_person_reply_or_a_question():
+    prev = 'Dana leaned in. "Are you sure about this?" Dana asked.'
+    sp = pc.last_speaker(prev, gview()["present"])
+    assert sp == "npc:1"
+    assert pc.validate(scene(["npc:2"]), "I say yes, you can trust me", gview(last_speaker=sp, prev=prev))["scene"]["withIds"] == ["npc:1"]
+    quiet = 'Dana said, "Fine." Then nothing more.'
+    assert pc.validate(scene(["npc:2"]), "I shrug and nod", gview(last_speaker="npc:1", prev=quiet))["scene"] is None
+    assert pc.last_speaker('"Hi," Dana said. "Hello," Levi said.', gview()["present"]) is None  # two speakers: nobody
+    assert pc.last_speaker("Dana said hello with no quote.", gview()["present"]) is None
+
+
+def test_group_two_disagreeing_sources_resolve_to_nothing_but_an_open_ask_wins():
+    prev = 'Levi asked, "What do you think?" and "Well?" Levi said.'
+    v = gview(last_partner="npc:1", last_speaker="npc:2", prev=prev)
+    assert pc.validate(scene(["npc:1"]), "I tell you it is fine", v)["scene"] is None
+    v = gview(talk_ask="npc:3", last_partner="npc:1")
+    assert pc.validate(scene(["npc:1"]), "I tell you it is fine", v)["scene"]["withIds"] == ["npc:3"]
+
+
+def test_group_broadcast_is_a_group_scene_of_the_people_present_not_a_partner():
+    v = pc.validate(scene(["npc:1"]), "I tell everyone I am done", gview(last_partner="npc:1"))
+    assert v["scene"]["withIds"] == ["npc:1", "npc:2", "npc:3"]
+    big = gview(present=[{"id": f"npc:{i}", "name": f"N{i}"} for i in range(1, 7)], awake=[f"npc:{i}" for i in range(1, 7)])
+    assert pc.validate(scene(["npc:1"]), "I tell everyone I am done", big)["scene"] is None
+
+
+def test_group_scene_null_from_the_model_stays_null_even_with_a_partner():
+    obj = {"act": "other", "scene": None, "moves": []}
+    assert pc.validate(obj, "I tell you hello", gview(lock="npc:1"))["scene"] is None
+
+
+def test_partner_memory_is_room_scoped_and_single_person_only():
+    pc.reset_partner()
+    pc.remember_partner("u", "kitchen", ["npc:1"])
+    assert pc.last_partner("u", "kitchen") == "npc:1"
+    assert pc.last_partner("u", "lounge") is None
+    pc.remember_partner("u", "kitchen", ["npc:1", "npc:2"])
+    assert pc.last_partner("u", "kitchen") is None

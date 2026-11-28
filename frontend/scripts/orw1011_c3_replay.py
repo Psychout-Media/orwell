@@ -33,7 +33,9 @@ async def one(r):
     v = r["view"]
     people = [{"id": i, "name": cast[i]} for i in v["present"]]
     view = {"present": people, "awake": [p["id"] for p in people if p["id"] not in v["asleep"]], "asleep": v["asleep"], "known": known, "rooms": ROOMS,
-            "room_names": None, "here": v["here"], "prev": None, "pending": None}
+            "room_names": None, "here": v["here"], "prev": v.get("prev"), "pending": None,
+            "lock": v.get("lock"), "talk_ask": v.get("talk_ask"), "last_partner": v.get("last_partner")}
+    view["last_speaker"] = pc.last_speaker(view["prev"], people) if hasattr(pc, "last_speaker") else None
     async with sem:
         d = await pc.decide(r["text"], view, call=call, fence=FENCE)
     return r, d
