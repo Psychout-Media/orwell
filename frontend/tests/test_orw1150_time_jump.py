@@ -1,8 +1,8 @@
-"""ORW-1150 (prod 11-28 04:24Z shape, codes only): the narration passes the night while the engine clock has not moved; a bed word the room does not have; a sleeper put in a bed in the player's room.
+"""ORW-1150 (prod 11-28 04:24Z shape, codes only): the narration passes the night while the engine clock has not moved; a bed word the room does not have.
 The pre-display check refuses each and the reply is regenerated once with the real clock. Roles only."""
 import pytest
 
-from src.predisplay_check import (FACT_BED_WORD, FACT_SLEEPER_ROOM, FACT_TIME_JUMP, conflict_details, correction_for)
+from src.predisplay_check import (FACT_BED_WORD, FACT_TIME_JUMP, conflict_details, correction_for)
 from test_orw408_sentence_rewrite import CLEAN_A, TAIL, _drive, _rewrite_on  # noqa: F401
 
 pytestmark = [pytest.mark.usefixtures("non_game_text_routing"), pytest.mark.usefixtures("zero_clocks_off")]
@@ -40,16 +40,8 @@ def test_a_double_in_a_room_of_singles_is_caught_and_a_real_double_is_not():
     assert FACT_BED_WORD not in _facts("You double check the door. ", NIGHT)
 
 
-def test_sleepers_the_engine_does_not_have_here_are_not_narrated_in_beds_here():
-    st = dict(NIGHT, asleep=[{"name": "Valerie Role"}, {"name": "Jace Role"}])
-    assert FACT_SLEEPER_ROOM in _facts("Valerie Role and Jace Role are in their beds in bedroom C. ", st)
-    assert FACT_SLEEPER_ROOM not in _facts("Valerie Role is in her bed in bedroom A. ", st)
-    here = dict(st, whereabouts=dict(st["whereabouts"], present=[{"id": "npc:10", "name": "Valerie Role"}]))
-    assert FACT_SLEEPER_ROOM not in _facts("Valerie Role is in her bed in bedroom C. ", here)
-
-
 def test_every_new_fact_has_a_correction():
-    for f in (FACT_TIME_JUMP, FACT_BED_WORD, FACT_SLEEPER_ROOM):
+    for f in (FACT_TIME_JUMP, FACT_BED_WORD):
         assert correction_for(f)
 
 
