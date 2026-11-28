@@ -12,7 +12,9 @@ from test_f3_drop_after_saved_no_recovery import _post_form, _stack  # noqa: F40
 pytestmark = pytest.mark.browser
 
 PROBE = """() => { const e = document.activeElement; if (!e || e === document.body) return null;
-  const cs = getComputedStyle(e); const r = e.getBoundingClientRect();
+  // ORW-1142: the composer's ring is drawn on its bar (one box), so measure the ring on the bar for #message.
+  const ringEl = e.id === 'message' && e.closest('.chat-input-bar') ? e.closest('.chat-input-bar') : e;
+  const cs = getComputedStyle(ringEl); const r = e.getBoundingClientRect();
   const outline = cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0 && cs.outlineColor !== 'transparent' && !/rgba\\(\\s*\\d+,\\s*\\d+,\\s*\\d+,\\s*0\\s*\\)/.test(cs.outlineColor);
   const shadow = cs.boxShadow && cs.boxShadow !== 'none';
   return { tag: e.tagName.toLowerCase(), id: e.id || '', cls: (e.className && e.className.baseVal === undefined ? e.className : '').toString().slice(0, 60),

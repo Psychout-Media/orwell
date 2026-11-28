@@ -1766,18 +1766,13 @@
    "path": "src/engine/bedClaims.ts",
    "kind": "example",
    "name": "text",
-   "max": 2,
+   "max": 1,
    "owner": "ORW-511",
    "reason": "reviewed ORW-511: scanner false positive, code comments on a regex line; no prompt text",
    "sites": [
     {
-     "line": 295,
+     "line": 307,
      "anchor": "continue; // \"is that bed free?\" asks, \"can I take it?\" clai",
-     "reason": "code comment on a regex line that the scanner's tokenizer reads as a string; no prompt text"
-    },
-    {
-     "line": 295,
-     "anchor": "b|claim)b/.test(c.trim())) continue; // \"is that bed free?\" ",
      "reason": "code comment on a regex line that the scanner's tokenizer reads as a string; no prompt text"
     }
    ]
