@@ -258,6 +258,10 @@ def step_vetoed(text: str, tool: str = "") -> bool:
     out = strip_quotes(text).strip()
     if tool == "turnIn" and not _SLEEP_CUE.search(out):
         return True
+    if tool == "turnIn":  # ORW-1156: the player's OWN act. A sleep word about someone else ("Rowan is asleep", "Rowan says good night") ends nobody's night
+        from src.claim_commit import _BARE_SLEEP
+        if not (_P1.search(out) or _BARE_SLEEP.match(out) or re.match(r"^\W*time\s+for\s+(?:bed|sleep)\b", out, re.I)) or _PLAIN_BLOCK.search(out):
+            return True
     return "?" in out or bool(_ADV_Q.search(out) or _NEG.search(out) or _SARC.search(out))
 
 
