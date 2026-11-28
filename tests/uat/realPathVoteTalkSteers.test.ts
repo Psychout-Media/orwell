@@ -59,7 +59,7 @@ describe("vote talk in a played season", () => {
     const caughtCredit = (s: Stop, t: Talk) => t.tally.keepVotes === 0 && t.told.some((c) => c.listener !== PLAYER && beliefOf(s, c.listener, c.id)?.refuted && (beliefOf(s, c.listener, c.id)?.impact?.trust ?? 0) > 0);
     // 36 since ORW-779 moved the played seasons (of seeds 1-36 in the sandboxes wf-<seed>, only 36 got there); the earlier hints stay as the fallback.
     // ORW-1091: 17 first (the both-sides fold meter moved the played seasons; a wide probe over 1-60 found 17 first); the earlier hints stay as the fallback.
-    const { at, talk } = await firstTalk([13, 17, 36, 3, 20, 1, 24], caughtCredit);
+    const { at, talk } = await firstTalk([39, 60, 17, 36, 3, 20, 1, 24], caughtCredit); // ORW-995: hint 39 (then 60); the census-hometown cast moves the seeded draws. One seed per process on a runner, the caught-credit scenario is rare: on main 3 of 60 seeds reach it (9, 13, 39; 2 of 1-30), on this branch 2 of 60 (39, 60; none of 1-30)
     // the count rules out every keep claim about the evictee from a voter: each one believed is now caught, with a lied-to-me in its listener
     for (const c of talk.told.filter((x) => x.listener !== PLAYER && x.object === talk.tally.evictee && talk.tally.voters.includes(x.subject))) {
       const b = beliefOf(at, c.listener, c.id);
