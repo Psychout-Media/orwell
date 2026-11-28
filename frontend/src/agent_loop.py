@@ -1978,6 +1978,60 @@ def _bedtime_recap_directive(turn_in_output) -> str:
     return ""
 
 
+# ── ORW-1155 — the daily recap is voiced once per closed day, even when the turnIn ran outside a narrator turn. ──
+# The ORW-382 directive rides only the FE-run bedtime turnIn. A night ended any other way (a doze, a tool run outside the narrator, a restart mid-night) left its recap unvoiced for good. The FE now tracks the last
+# closed day whose recap was voiced, per user and session (persisted with the belt state, so a restart does not replay it); at the start of a turn, a newer non-empty engine recap is voiced first, then the player's
+# message is played, and the day is marked. A normal turnIn turn marks the day from its own result, so it is never voiced twice.
+_RECAP_VOICED_DAY: Dict[str, int] = {}
+
+
+def _recap_key(owner, session_id) -> str:
+    return f"{_belt_key(owner)}|{session_id or ''}"
+
+
+def _recap_day_of(rec):
+    d = rec.get("day") if isinstance(rec, dict) else None
+    return d if isinstance(d, int) and not isinstance(d, bool) else None
+
+
+def _recap_has_content(rec) -> bool:
+    return isinstance(rec, dict) and any(rec.get(k) for k in ("highlights", "yourDay", "surfaced"))
+
+
+def _mark_recap_voiced(owner, session_id, turn_in_output) -> None:
+    """Record that the recap carried by a turnIn result is being voiced this turn (fail-open)."""
+    try:
+        data = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
+        rec = data.get("dailyRecap") if isinstance(data, dict) else None
+        day = _recap_day_of(rec)
+        if day is not None and _recap_has_content(rec):
+            k = _recap_key(owner, session_id)
+            _RECAP_VOICED_DAY[k] = max(day, _RECAP_VOICED_DAY.get(k, 0))
+    except Exception as _e:
+        _failsoft_note("agent_loop:_mark_recap_voiced", _e)
+
+
+async def _recap_replay_note(owner, session_id) -> str:
+    """The system note that makes this turn voice a closed day's recap that was never voiced, or '' (nothing newer, an empty recap, unreadable). Marks the day voiced when it returns a note."""
+    try:
+        from src import orwell_engine as _oe_rc
+        rec = await _oe_rc.daily_recap(user=owner or "default")
+        day = _recap_day_of(rec)
+        if day is None or not _recap_has_content(rec):
+            return ""
+        k = _recap_key(owner, session_id)
+        if day <= _RECAP_VOICED_DAY.get(k, 0):
+            return ""
+        _RECAP_VOICED_DAY[k] = day
+        body = json.dumps({"dailyRecap": rec}, ensure_ascii=False)[:3000]
+        return ("(Production note, not for the player.) The day that just closed was never voiced as a day-in-review, and the engine's recap for it is below. Open this reply with it, BEFORE anything of the new "
+                "morning: a short dreamlike day-in-review as the player drifts off, only the facts in its highlights / yourDay / surfaced, never a list, never anything it does not contain. Then play out the "
+                "player's message as normal. Do not call dailyRecap or turnIn for this.\n" + body)
+    except Exception as _e:
+        _failsoft_note("agent_loop:_recap_replay_note", _e)
+        return ""
+
+
 def _bedtime_clock_note(turn_in_output) -> str:
     """ORW-355 - `_BEDTIME_DIRECT_NOTE` plus the engine's own clock from the turnIn result: an EVENING bed wakes the player at bed+8h (e.g. 4:15am), not at 8am, so the narrator must voice THAT hour, never a
     morning the clock has not reached. No readable clock => the plain note (byte-identical)."""
@@ -10263,6 +10317,11 @@ async def _stream_agent_loop_impl(
     _direct_applied = False  # ORW-1014 (prod 2026-11-28 01:48Z): the own-round tail reads it after an act-first move that ran at the slot; only the bedtime/nap/pending-act branches used to bind it, so that turn died with UnboundLocalError
     _act_first_done = False  # ORW-1014: the act-first round runs at most once per turn
     _act_first_outcome = None  # ORW-1014: its outcome this turn (None = it did not run); an after-reply move belt that fires on a noAction counts as a miss
+    if _is_live_game and not _player_means_going_to_bed(_extract_last_user_message(messages) or ""):
+        _rc_note = await _recap_replay_note(owner, session_id)  # ORW-1155: a closed day's recap never voiced (the turnIn ran outside a narrator turn)
+        if _rc_note:
+            messages.append({"role": "system", "content": _rc_note})
+            _note_belt(owner, "recap-replay")
     for round_num in range(1, max_rounds + 1):
         _round_finish_reason = None
         round_response = ""
@@ -10643,6 +10702,7 @@ async def _stream_agent_loop_impl(
                                 messages.append({"role": "tool", "tool_call_id": _bt_call_id, "content": f"### turnIn\n```\n{_bedtime_tool_message(_bt_out)}\n```"})
                                 _bt_out_clock = await _turn_in_output_with_clock(_bt_out, lambda: _oe_bt.get_game_state(user=_force_owner))
                                 messages.append({"role": "system", "content": _bedtime_direct_note(_bt_out_clock)})
+                                _mark_recap_voiced(owner, session_id, _bt_out)  # ORW-1155
                                 _note_belt(owner, "bedtime-turn-in")
                                 _note_belt(owner, "bedtime-turn-in-direct")
                                 if await _refresh_context_after_turn_in(messages, _force_owner, _bt_out):
@@ -10744,6 +10804,7 @@ async def _stream_agent_loop_impl(
                             _note_belt(owner, "act-first:" + _af_tool)
                             if _af_tool == "turnIn":
                                 _turn_slept = True
+                                _mark_recap_voiced(owner, session_id, _af_out)  # ORW-1155
                                 try:
                                     await _refresh_context_after_turn_in(messages, _force_owner, _af_out)
                                 except Exception as _fs_exc:
@@ -13812,6 +13873,7 @@ async def _stream_agent_loop_impl(
                 _turn_talk_nudges = 1  # the model asked itself: nothing to back-fill
             if block.tool_type == "turnIn" and _turn_in_applied(result):
                 _turn_slept = True
+                _mark_recap_voiced(owner, session_id, result.get("output"))  # ORW-1155
             _engine_result = _engine_result_for_transcript(block.tool_type, result)
             if _engine_result is not None:
                 tool_event["engine_result"] = _engine_result  # ORW-187: admin-only full result (stripped from the player's history payload)
