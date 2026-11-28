@@ -6,6 +6,7 @@ Wraps stream_llm() with multi-round tool execution.
 The LLM decides when to use tools by writing fenced code blocks.
 """
 
+from src import gate_log as _gate_log  # ORW-1156 part 3
 import asyncio
 import contextvars
 import collections
@@ -1906,6 +1907,24 @@ _BED_REJECT_RE = re.compile(
 )
 
 
+# ORW-1150 (prod 11-28): a polite request ("I would like to go to bed", "I'd like to sleep", "I want to go to
+# sleep") is the player's own act, not a hedge. "would" stays a reject word for real hypotheticals ("I would
+# go to bed if..."): only the request forms below are rewritten to a plain first-person act before the checks.
+_BED_POLITE_RE = re.compile(
+    r"\b(?:i\s+would\s+(?:really\s+)?(?:like|love)\s+to|i['’]d\s+(?:really\s+)?(?:like|love)\s+to|"
+    r"i\s+(?:really\s+)?(?:want|need)\s+to|i\s+wanna|i['’]?m\s+gonna|let\s+me)\s+",
+    re.IGNORECASE,
+)
+# ORW-1150: a bare command is the player's own act too ("Sleep.", "Go to sleep.", "Bed.", "Goodnight").
+_BED_IMPERATIVE_RE = re.compile(
+    r"^\s*(?:ok(?:ay)?[,\s]+|alright[,\s]+)?(?:please\s+)?"
+    r"(?:sleep|bed|go\s+to\s+(?:sleep|bed)|time\s+(?:for|to)\s+(?:bed|sleep)|good\s*night|lights\s+out)"
+    r"(?:\s+now)?(?:[,\s]+please)?\W*$",
+    re.IGNORECASE,
+)
+
+
+@_gate_log.logged("bed-intent")
 def _player_means_going_to_bed(text) -> bool:
     """ORW-310 — True only when the player's message CLEARLY declares THEIR OWN going to bed / sleeping now.
     Pure, conservative. A sentence counts only if it is first-person, action-shaped (go to bed / turn in /
@@ -1915,6 +1934,7 @@ def _player_means_going_to_bed(text) -> bool:
     if not text or not isinstance(text, str):
         return False
     body = re.sub(r"\(\([^)]*\)\)", " ", text, flags=re.DOTALL)
+    body = _BED_POLITE_RE.sub("I ", body)  # ORW-1150: "I would like to go to bed" -> "I go to bed"
     # Quoted speech reporting is not the player's own act ("she says 'I go to bed'") - leave to the cue rejects.
     for raw in re.split(r"(?<=[.!?\n])", body):
         if "?" in raw:
@@ -1923,7 +1943,7 @@ def _player_means_going_to_bed(text) -> bool:
             sent = sent.strip(" \t\"'“”")
             if not sent:
                 continue
-            if _BED_BARE_SLEEP_RE.match(sent):
+            if _BED_BARE_SLEEP_RE.match(sent) or _BED_IMPERATIVE_RE.match(sent):
                 return True
             if (_BED_ACTION_RE.search(sent) and _BED_FIRST_PERSON_RE.search(sent)
                     and not _BED_REJECT_RE.search(sent)):
@@ -1965,17 +1985,72 @@ def _bedtime_tool_message(turn_in_output) -> str:
 
 
 def _bedtime_recap_directive(turn_in_output) -> str:
-    """ORW-382 (Ryne, 11-15: the day in review "between going to sleep and waking, almost as if you're like dreaming"): when the turnIn result carries a `dailyRecap` with anything in it, tell the narrator to voice it
-    BEFORE the new morning - on every bedtime, the premiere night included. Empty/absent recap => '' (nothing to voice; never invent one)."""
+    """ORW-382 / ORW-1165: when the turnIn result carries a `dailyRecap` with anything in it, the game has ALREADY shown it to the player as its own "Day N in review" message (ORW-1165), so the narrator is told not to
+    voice it again and to open on the new morning. Empty/absent recap => '' (nothing was shown)."""
     try:
         data = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
         rec = data.get("dailyRecap") if isinstance(data, dict) else None
         if isinstance(rec, dict) and any(rec.get(k) for k in ("highlights", "yourDay", "surfaced")):
-            return (" The result carries a `dailyRecap`: BEFORE the new morning, voice it as a short dreamlike day-in-review as the player drifts off to sleep - only the facts in its highlights / yourDay / surfaced, "
-                    "never a list, never anything it does not contain.")
+            return (" The result carries a `dailyRecap`: the game has already shown it to the player as its own day-in-review message, so do NOT voice, summarise or repeat it - open on the new morning.")
     except Exception:
         pass  # failsoft-ok: tolerant parse of model output: a non-JSON candidate is skipped and the next one tried
     return ""
+
+
+# ── ORW-1155 — the daily recap is voiced once per closed day, even when the turnIn ran outside a narrator turn. ──
+# The ORW-382 directive rides only the FE-run bedtime turnIn. A night ended any other way (a doze, a tool run outside the narrator, a restart mid-night) left its recap unvoiced for good. The FE now tracks the last
+# closed day whose recap was voiced, per user and session (persisted with the belt state, so a restart does not replay it); at the start of a turn, a newer non-empty engine recap is voiced first, then the player's
+# message is played, and the day is marked. A normal turnIn turn marks the day from its own result, so it is never voiced twice.
+_RECAP_VOICED_DAY: Dict[str, int] = {}
+
+
+def _recap_key(owner, session_id) -> str:
+    # Keyed by owner (the one game each owner has), not by chat session: a new chat session of the same game must not replay a voiced day, and the season reset (`_SEASON_PACING_STORES`) clears it by owner key.
+    return _belt_key(owner)
+
+
+def _recap_day_of(rec):
+    d = rec.get("day") if isinstance(rec, dict) else None
+    return d if isinstance(d, int) and not isinstance(d, bool) else None
+
+
+def _recap_has_content(rec) -> bool:
+    return isinstance(rec, dict) and any(rec.get(k) for k in ("highlights", "yourDay", "surfaced"))
+
+
+def _mark_recap_voiced(owner, session_id, turn_in_output) -> None:
+    """Record that the recap carried by a turnIn result is being voiced this turn (fail-open)."""
+    try:
+        data = json.loads(turn_in_output) if isinstance(turn_in_output, str) else turn_in_output
+        rec = data.get("dailyRecap") if isinstance(data, dict) else None
+        day = _recap_day_of(rec)
+        if day is not None and _recap_has_content(rec):
+            k = _recap_key(owner, session_id)
+            _RECAP_VOICED_DAY[k] = max(day, _RECAP_VOICED_DAY.get(k, 0))
+    except Exception as _e:
+        _failsoft_note("agent_loop:_mark_recap_voiced", _e)
+
+
+async def _recap_replay_note(owner, session_id) -> str:
+    """ORW-1155 / ORW-1165: a closed day's recap that was never shown is saved now as its own "Day N in review" message, ahead of this turn's reply (once per day: the day is marked, and a card already in the chat
+    for the day is never doubled). Returns the narrator's note that it is already shown (so the reply does not voice it), or '' (nothing newer, an empty recap, unreadable)."""
+    try:
+        from src import orwell_engine as _oe_rc
+        rec = await _oe_rc.daily_recap(user=owner or "default")
+        day = _recap_day_of(rec)
+        if day is None or not _recap_has_content(rec):
+            return ""
+        k = _recap_key(owner, session_id)
+        if day <= _RECAP_VOICED_DAY.get(k, 0):
+            return ""
+        _RECAP_VOICED_DAY[k] = day
+        from src import orwell_day_recap as _dr
+        _dr.save_day_recap(owner, rec)
+        return ("(Production note, not for the player.) The day that just closed has been shown to the player as its own day-in-review message. Do not voice, summarise or repeat it; play out the player's message as normal. "
+                "Do not call dailyRecap or turnIn for this.")
+    except Exception as _e:
+        _failsoft_note("agent_loop:_recap_replay_note", _e)
+        return ""
 
 
 def _bedtime_clock_note(turn_in_output) -> str:
@@ -3298,6 +3373,47 @@ def _player_signals_casting_ready(messages) -> bool:
     return bool(_CASTING_READY_RE.search(last) or _LULL_READY_RE.search(last))
 
 
+_S1B_WAIT_RE = re.compile(r"\b(wait|hold on|hang on|one (sec|second|moment|minute)|give me a (sec|second|moment|minute)|pause)\b", re.IGNORECASE)
+
+
+def _s1b_message_allows_force(messages) -> bool:
+    """ORW-1166: a forced advanceGame never answers a conversational or social message. Allowed: no player
+    text, a hidden production or beat cue, an ask to move on or wait, or a bare acknowledgement (three
+    words or fewer, no question). Anything else is the player talking, and the turn answers them."""
+    last = (_extract_last_user_message(messages) or "").strip()
+    if not last or _is_production_cue(last) or _is_beat_cue(last):
+        return True
+    if _LULL_READY_RE.search(last) or _CASTING_READY_RE.search(last) or _S1B_WAIT_RE.search(last):
+        return True
+    return len(last.split()) <= 3 and "?" not in last
+
+
+async def _s1b_force_allowed(owner, force_owner, messages):
+    """ORW-1166: may the armed S1b escalation force advanceGame now? Needs a real stall: the beat still the
+    one it was armed on, AND the engine names a requiredLever or a due event; and the player's message is
+    not social. Returns (allowed, reason)."""
+    from routes import chat_helpers as _ch
+    if not _s1b_message_allows_force(messages):
+        return False, "social-message"
+    info = _ch.advance_escalation_info(owner) or {}
+    armed_seq = info.get("beat_seq")
+    now_seq = _ch.last_beat_seq(owner)
+    if isinstance(armed_seq, int) and isinstance(now_seq, int) and now_seq != armed_seq:
+        return False, "beat-moved-since-arm"
+    lever = _ch._LAST_FRAMED_REQUIRED_LEVER.get(force_owner)
+    if lever:
+        return True, "required-lever"
+    due = False
+    try:
+        from src import orwell_engine as _oe
+        from routes.briefing import build_briefing
+        gs = await _oe.get_game_state(owner)
+        due = bool(isinstance(gs, dict) and build_briefing(gs).due)
+    except Exception:
+        due = False
+    return (True, "due-event") if due else (False, "no-lever-or-due-event")
+
+
 # A hidden PRODUCTION CUE is engine/FE-authored text injected as a user message (e.g. the post-photo
 # "continue the casting interview" auto-cue from orwellOnboarding.js via sendHiddenCue) — NOT the
 # player speaking. It must never read as a player "lull" / "ready" signal, or it would silently march
@@ -3348,6 +3464,11 @@ def _toast_batch_voiced(text: str, speakers) -> bool:
 _ENTRANCE_ARRIVAL_EVERY = 2
 
 
+# ORW-1140 (docs/design/premiere-entrances.md: "the next arrival comes ... immediately on next / watching"): a player who says he will wait for the rest to arrive wants the next entrance, one per turn, until all are in.
+_ENTRANCE_WAIT_RE = re.compile(r"\b(?:wait(?:ing)?|hold\s+(?:on|off)|stay)\b[^.!?\n]*\b(?:arriv\w*|everyone|everybody|the\s+rest|the\s+others?|last\s+(?:few|ones?|arrivals?)|gets?\s+here|come\s+in|show\s+up|walk\s+in)\b|"
+                               r"\b(?:see|meet|watch)\b[^.!?\n]*\b(?:last|remaining|rest\s+of|everyone\s+(?:else\s+)?(?:arrive|come|walk))", re.IGNORECASE)
+
+
 def _entrance_pacing(turns_since_progress: int, last_user: str, is_lull: bool, stale: bool, stage=None):
     """A9 - (is_lull, stale) while the premiere entrance stage is live. Pure. A production cue is never a player cue."""
     s = (last_user or "").strip()
@@ -3358,6 +3479,8 @@ def _entrance_pacing(turns_since_progress: int, last_user: str, is_lull: bool, s
     # narrator's own advance_game call otherwise paces entrances. turns_since_progress is kept for the signature.
     if cue:
         return True, True
+    if stage == "entrances" and bool(s) and not _is_production_cue(s) and bool(_ENTRANCE_WAIT_RE.search(s)):
+        return True, True  # ORW-1140: waiting for the arrivals releases the next one (the arrival voice-hold still waits for the last one to be shown)
     if stage == "entrances" and turns_since_progress >= _ENTRANCE_ARRIVAL_EVERY and not _is_production_cue(s):
         return True, True  # Ryne 2026-11-08: the next arrival every 2-3 player messages until everyone is in
     return is_lull, stale
@@ -3578,24 +3701,36 @@ def _validate_promise(raw, scene_ids, roster_ids) -> dict | None:
 
 
 # ORW-1069: words the promise belts must not record. A spoken promise is recorded only when it is unconditional, firm, and its polarity is a promise to KEEP (not to vote out).
-_PROMISE_CONDITIONAL_RE = re.compile(r"\b(?:if|unless|as long as|so long as|provided|in case|on (?:the )?condition|only when|once you|depends?)\b", re.I)
+_PROMISE_CONDITIONAL_RE = re.compile(r"\b(?:if|unless|as long as|so long as|provided|assuming|in case|on (?:the )?condition|only when|once you|depends?|depending)\b", re.I)
 _PROMISE_HEDGE_RE = re.compile(
-    r"\b(?:try(?:ing)?(?: to)?|maybe|perhaps|might|probably|hope|hoping|can'?t say|cannot say|not sure|no promises|we'?ll see|i guess|i think i|i suppose|likely|ish)\b", re.I)
-_PROMISE_NEGATED_VOTE_RE = re.compile(r"\b(?:won'?t|will not|not|never|don'?t|do not|wouldn'?t|would not|refuse to|shan'?t)\b[^.!?]{0,30}\b(?:vote|evict|send)", re.I)
+    r"\b(?:try(?:ing)?(?: to)?|maybe|perhaps|might|probably|possibly|hopefully|hope|hoping|can'?t say|cannot say|not sure|no promises|we'?ll see|i'?ll see|i guess|i think i|i suppose|likely|kind of|sort of)\b", re.I)
+_PROMISE_NEGATION = r"(?:won'?t|will not|not|never|don'?t|do not|wouldn'?t|would not|refuse to|shan'?t|no way)"
+_PROMISE_NEGATED_VOTE_RE = re.compile(r"\b" + _PROMISE_NEGATION + r"\b[^.!?;,]{0,30}\b(?:vote|evict|send)", re.I)
 _PROMISE_VOTE_OUT_RE = re.compile(
-    r"\b(?:vot(?:e|es|ed|ing)\b[^.!?]{0,40}?\b(?:out|off|against|to evict|evict|home)\b|evict(?:ing)?\b|send(?:ing)?\b[^.!?]{0,20}\bhome\b|(?:she|he|they|you)(?:'re| are)? goes? home\b)", re.I)
+    r"\b(?:vot(?:e|es|ed|ing)\b[^.!?;]{0,40}?\b(?:out|off|against|to evict|evict|home)\b|evict(?:ing)?\b|send(?:ing)?\b[^.!?;]{0,20}\bhome\b|(?:she|he|they|you)(?:'re| are)? goes? home\b)", re.I)
+# ORW-1069: the nominate-side twin: "I'm putting Lorenzo up" is a promise to TARGET, never a no-nominate promise.
+_PROMISE_NOMINATE_RE = re.compile(r"\b(?:nominat(?:e|es|ed|ing)|put(?:s|ting)?\b[^.!?;]{0,25}\bup|backdoor(?:s|ing)?|target(?:s|ing)?|go(?:ing)? after|come after)\b", re.I)
+_PROMISE_NEGATED_NOMINATE_RE = re.compile(r"\b" + _PROMISE_NEGATION + r"\b[^.!?;,]{0,30}\b(?:nominat|put|backdoor|target|go after|come after)", re.I)
+
+
+def _clauses(text: str) -> list:
+    return [c for c in re.split(r"[.!?;,]|\bbut\b|\band then\b", text) if c.strip()]
 
 
 def _promise_words_unfit(text, kind: str = "vote") -> str | None:
-    """ORW-1069: the reason a spoken promise must NOT be recorded, or None. 'conditional' (an if / unless promise is not a promise), 'hedged' (an attempt or a maybe), or 'vote-out' (the speaker promised
-    to vote someone OUT; recording it as a promise to keep them would be its opposite). A negated vote line ('I will not vote you out') is a promise to keep and passes. Only `vote`-shaped promises get the polarity read."""
+    """ORW-1069: the reason a spoken promise must NOT be recorded, or None. 'conditional' (an if / unless promise is not a promise), 'hedged' (an attempt or a maybe), or 'vote-out' / 'nominate'
+    (the speaker promised to vote someone OUT, or to put them up; recording it as a promise to keep them would be its opposite). Polarity is read clause by clause: a negated line ('I will not vote you out')
+    is a promise to keep and passes, but a vow to vote someone out anywhere in the words, not negated in its own clause, refuses the whole record (a mixed vow is never guessed at)."""
     t = text if isinstance(text, str) else ""
     if _PROMISE_CONDITIONAL_RE.search(t):
         return "conditional"
     if _PROMISE_HEDGE_RE.search(t):
         return "hedged"
-    if kind == "vote" and _PROMISE_VOTE_OUT_RE.search(t) and not _PROMISE_NEGATED_VOTE_RE.search(t):
-        return "vote-out"
+    for c in _clauses(t):
+        if kind == "vote" and _PROMISE_VOTE_OUT_RE.search(c) and not _PROMISE_NEGATED_VOTE_RE.search(c):
+            return "vote-out"
+        if kind != "vote" and _PROMISE_NOMINATE_RE.search(c) and not _PROMISE_NEGATED_NOMINATE_RE.search(c):
+            return "nominate"
     return None
 
 
@@ -3644,6 +3779,26 @@ def _validate_statement(raw, scene_ids, roster_ids) -> dict | None:
             return None
         out["object"] = obj
     return out
+
+
+# ORW-1137: a fold that BINDS the player (an alliance; a deal or a pact would be the same) is recorded only on the player's OWN explicit yes, in his own message. A houseguest's offer line, the
+# houseguests agreeing among themselves, and a player who argued against it never make one. Structure and a closed word list, no model: a doubt is "no yes", and the scene still records as strategy.
+_BINDING_YES_RE = re.compile(
+    r"(?:^|[.!?;,]\s*|\band\s+|\bso\s+)(?:yes|yeah|yep|yup|sure|absolutely|definitely|okay|ok|deal|done|agreed)\b|"
+    r"\b(?:i(?:'m|\u2019m|\s+am)\s+(?:in(?=\s*(?:[.!,;]|$|and\b|for\b|with\b|if\b|then\b|too\b))|on\s+board|down|with\s+(?:you|y'all|us|this|it))|count\s+me\s+in|sign\s+me\s+up|i\s+(?:accept|agree|join|will\s+join|'ll\s+join|want\s+in|am\s+joining|'m\s+joining)|i'll\s+join|"
+    r"let(?:'s|\u2019s|s)\s+(?:do\s+(?:it|this)|form\s+(?:it|the|an|this)|make\s+(?:it|this)\s+official)|you\s+(?:have|got|'ve\s+got)\s+(?:my\s+word|a\s+deal)|we(?:'re|\u2019re|\s+are)\s+(?:in|allies|an\s+alliance))\b",
+    re.IGNORECASE)
+_BINDING_ARGUED_AGAINST_RE = re.compile(
+    r"\b(?:no|nope|not|never|unwise|bad\s+idea|too\s+early|this\s+early|against|rather\s+not|hold\s+off|pass|decline|doubt|risky|dangerous|mistake|maybe|let\s+me\s+think|think\s+about|"
+    r"isn'?t|aren'?t|won'?t|wouldn'?t|shouldn'?t|don'?t|can'?t|cannot|couldn'?t|didn'?t|doesn'?t|exclusive|numbers)\b|n't\b|n\u2019t\b", re.IGNORECASE)
+
+
+def _player_says_yes_to_binding(text) -> bool:
+    """ORW-1137: True only when the player's own message plainly says yes to joining or forming the group (or deal / pact) and nowhere argues against, hedges, or only asks. The houseguests' words are never read here."""
+    s = (text or "").strip()
+    if not s or _is_ooc_aside_text(s) or _player_move_is_only_questions(s):
+        return False
+    return bool(_BINDING_YES_RE.search(s)) and not _BINDING_ARGUED_AGAINST_RE.search(s)
 
 
 def _player_move_is_only_questions(text) -> bool:
@@ -4437,6 +4592,8 @@ def _npc_move_instructions(room_names=None) -> str:
         "heads to the kitchen\", \"she wanders out back\", \"they slip into the bedroom\"). Map "
         "loose names to the closest id (\"out back\"/\"yard\" → backyard, \"couch\" → living-room, "
         "\"games room\" → lounge, \"hall\" → hallway, \"bedroom\" → bedroom-a, \"HOH\" → hoh-room). Do NOT include the player. "
+        "A houseguest who speaks or acts in the room AFTER the exit did not leave; when the exit names nobody "
+        "(\"she slips out\"), it is the room's one houseguest who neither speaks nor is named in the scene. "
         'If no houseguest clearly moved, reply {"moves":[]}.'
         + _themed_rooms_note(room_names)
     )
@@ -4460,6 +4617,44 @@ async def _move_npc_extract(narration, last_user, house, endpoint_url, model, he
                                temperature=0.1, max_tokens=1500, timeout=45,
                                call_class="utility-extraction", user=_meter_user(owner))
     return raw or ""
+
+
+_EXIT_LINE_RE = re.compile(
+    r"\b(?:slips?|steps?|walks?|heads?|goes|went|wanders?|ducks?|leaves?|left|pads?|hurries|hurried|excuses)\b[^.]{0,40}\b(?:out|off|away|into|to|toward|down|upstairs|downstairs)\b", re.IGNORECASE)
+_SPEAKER_TAG_RE = re.compile(r"^\s*@\[([^\]]+)\]", re.MULTILINE)
+
+
+def _reconcile_unnamed_exit(narration, picks, present_ids, roster_names):
+    """ORW-1149: the extractor resolves an UNNAMED exit ("She slips out into the hall...") by guessing, and
+    it can pick a houseguest who then keeps talking in the same room (live 11-28: the engine moved the
+    wrong person, the next prompt contradicted the prose). A pick whose houseguest SPEAKS in a paragraph
+    after an untagged exit line did not leave: re-point it to the room's one houseguest who neither
+    speaks nor is named anywhere in the narration (elimination), else drop it. Returns the picks list."""
+    paras = [p for p in re.split(r"\n\s*\n", narration or "") if p.strip()]
+    exit_idx = next((i for i, p in enumerate(paras)
+                     if not _SPEAKER_TAG_RE.match(p) and _EXIT_LINE_RE.search(p)), None)
+    if exit_idx is None:
+        return picks
+    text = narration or ""
+    after = {m.group(1).strip().lower() for p in paras[exit_idx + 1:] for m in _SPEAKER_TAG_RE.finditer(p)}
+    tagged = {m.group(1).strip().lower() for m in _SPEAKER_TAG_RE.finditer(text)}
+
+    def _named(name):
+        nm = (name or "").lower()
+        return bool(nm) and (nm in text.lower() or re.search(rf"\b{re.escape(nm.split()[0])}\b", text.lower()) is not None)
+
+    unseen = [h for h in present_ids if (roster_names.get(h) or "").lower() not in tagged and not _named(roster_names.get(h))]
+    out = []
+    for hid, room in picks:
+        if (roster_names.get(hid) or "").lower() in after:
+            if len(unseen) == 1 and unseen[0] not in {h for h, _ in picks}:
+                logger.info(f"[orwell] auto-move-npc: {hid} speaks after the exit; re-pointed the unnamed exit to {unseen[0]}")
+                out.append((unseen[0], room))
+            else:
+                logger.info(f"[orwell] auto-move-npc: dropped {hid}, who speaks after the narrated exit")
+            continue
+        out.append((hid, room))
+    return out
 
 
 async def _auto_move_npc(narration, last_user, house, endpoint_url, model, headers, owner, raw=None) -> int:
@@ -4525,6 +4720,9 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
             if isinstance(_w, dict):
                 _pre_present = {p.get("id") for p in (_w.get("present") or []) if isinstance(p, dict) and p.get("id")}
             _proom = _w.get("room") if isinstance(_w, dict) else None
+            picks = _reconcile_unnamed_exit(narration, picks, sorted(h for h in _pre_present if h), _roster_names)  # ORW-1149
+            if not picks:
+                return 0
             if _proom:
                 _kept = []
                 for hid, room in picks:
@@ -4546,6 +4744,14 @@ async def _auto_move_npc(narration, last_user, house, endpoint_url, model, heade
                 res = await _oe.move_houseguest(hid, room, user=owner)
                 # The engine is the authority: count only an APPLIED move ("moved"); "noop"/"illegal"
                 # are legitimate (already there / not a legal move) and simply don't count.
+                if isinstance(res, dict) and res.get("status") == "illegal" and _ch is not None:
+                    # ORW-1149 (ADR 0009): the engine refused a move the prose made - correct the narration next turn, never leave it silently contradicted.
+                    try:
+                        _ch._reground_enqueue(_ch._desync_key(owner), (
+                            f"RE-GROUND ON WHO LEFT - last turn's narration sent {_roster_names.get(hid) or 'a houseguest'} out of the room, but the engine did not "
+                            "make that move. Re-read `whereabouts` and keep them where the engine has them (or have the move made); do not narrate them gone."))
+                    except Exception as _fs_exc:
+                        _failsoft_note("agent_loop:_auto_move_npc:4", _fs_exc)
                 if isinstance(res, dict) and res.get("status") == "moved":
                     recorded += 1
                     if hid in _pre_present:
@@ -4770,10 +4976,10 @@ _SCENE_EXTRACT_INSTRUCTIONS = (
     '"about":"<a DIFFERENT third houseguest, never the player>",'
     '"direction":"<same 8 options as above>","emphasis":"<slight|notable|strong>"}],'
     '"rationale":"<why, grounded in the scene>"}}\n'
-    "Add `assurance` ONLY when someone made a cheap, explicit promise in the scene — 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal); `by` is 'player' when the player promised, else the id of the houseguest who promised the player. Never for hints, hopes or mere friendliness; otherwise omit it. Add `promise` ONLY when someone made an explicit promise about what they will or will not do on the board, in their own words in the scene. `what` names the promise kind and must be exactly a kind the engine judges: no-nominate (will not nominate them), no-evict-vote (will not vote them out), use-veto-on (will use the veto on them), not-use-veto-on (will not use the veto on them), final-two (will take them to the final two). `by` is 'player' when the player promised, else the id of the houseguest who promised the player; `subject` is the id of the houseguest it concerns, and is left out when it concerns the one spoken to. Never for hints, hopes, a threat or a mere wish, and never a promise about anything the board cannot test; otherwise omit it. Add `statement` ONLY when the PLAYER, in their own words in the scene, told a houseguest something about a third houseguest that is a checkable claim about the house. `kind` must be exactly one of these claim kinds: targets-you (the subject is targeting the one spoken to), voted-to-evict-you (the subject voted to evict the one spoken to), final-two-with (the subject has a final two with `object`), going-after (the subject is going after `object`), talking-about (the subject has been talking about `object` behind their back), lying-about (the subject is lying to `object`), voted-against (the subject voted to evict `object`), voted-to-keep (the subject voted to keep `object`), has-reputation (the player says the subject is known around the house as a type of player; then `label` is the engine's role word the player's words mean: snake, floater, villain, peacemaker, jokester, therapist or outcast, and the statement is left out when none fits). `to` is the houseguest the player said it to, `about` is the subject, and `object` is left out when the kind does not name a second houseguest. Never for the player's own opinions, guesses or jokes, and never when the kind does not fit; otherwise omit it. Within `statement`, add `retracts` (true, and leave out `kind`) ONLY when the PLAYER, in their own words in the scene, told the houseguest they spoke to that something the player told that same houseguest earlier was false; `to` is that houseguest and `about` the houseguest it concerned, left out when unclear. Add `tellsAbout` (a houseguest id, and leave out `kind`) ONLY when the PLAYER, in their own words in the scene, told the houseguest they spoke to (`to`, an ally) the truth about something false they told that other houseguest; never both. Never for the player's doubts, jokes or a change of mind; otherwise omit them. Add `heardAboutMe` ONLY when, in the scene, a houseguest TOLD the other houseguests present something about the player — that the player is gunning for them (targeting) or has betrayed someone (betrayal); `by` is the id of the houseguest who said it (never the player); otherwise omit it. Add `actor` ONLY when a houseguest, not the player, did the act that `kind` names to the player; its value is that houseguest's roster id and it must also be in `withIds`; when the player did it, or no one clearly did, omit it. Always set `feltMinutes` to how long the exchange plausibly took in the house — it is a note "
+    "Add `assurance` ONLY when someone made a cheap, explicit promise in the scene — 'you're safe with me' (safe), 'you have my vote' (vote), 'I'm with you' (loyal); `by` is 'player' when the player promised, else the id of the houseguest who promised the player. Never for hints, hopes or mere friendliness; otherwise omit it. Add `promise` ONLY when someone made an explicit promise about what they will or will not do on the board, in their own words in the scene. `what` names the promise kind and must be exactly a kind the engine judges: no-nominate (will not nominate them), no-evict-vote (will not vote them out), use-veto-on (will use the veto on them), not-use-veto-on (will not use the veto on them), final-two (will take them to the final two). `by` is 'player' when the player promised, else the id of the houseguest who promised the player; `subject` is the id of the houseguest it concerns, and is left out when it concerns the one spoken to. Never for hints, hopes, a threat or a mere wish, and never a promise about anything the board cannot test; otherwise omit it. no-evict-vote is ONLY a promise NOT to vote them out: 'I am voting X out' is the opposite, so it is NOT a promise to keep X and is left out; a promise with 'if', 'unless', 'maybe', 'probably', 'try' or 'hope' is conditional or hedged and is left out. Add `statement` ONLY when the PLAYER, in their own words in the scene, told a houseguest something about a third houseguest that is a checkable claim about the house. `kind` must be exactly one of these claim kinds: targets-you (the subject is targeting the one spoken to), voted-to-evict-you (the subject voted to evict the one spoken to), final-two-with (the subject has a final two with `object`), going-after (the subject is going after `object`), talking-about (the subject has been talking about `object` behind their back), lying-about (the subject is lying to `object`), voted-against (the subject voted to evict `object`), voted-to-keep (the subject voted to keep `object`), has-reputation (the player says the subject is known around the house as a type of player; then `label` is the engine's role word the player's words mean: snake, floater, villain, peacemaker, jokester, therapist or outcast, and the statement is left out when none fits). `to` is the houseguest the player said it to, `about` is the subject, and `object` is left out when the kind does not name a second houseguest. Never for the player's own opinions, guesses or jokes, and never when the kind does not fit; otherwise omit it. Within `statement`, add `retracts` (true, and leave out `kind`) ONLY when the PLAYER, in their own words in the scene, told the houseguest they spoke to that something the player told that same houseguest earlier was false; `to` is that houseguest and `about` the houseguest it concerned, left out when unclear. Add `tellsAbout` (a houseguest id, and leave out `kind`) ONLY when the PLAYER, in their own words in the scene, told the houseguest they spoke to (`to`, an ally) the truth about something false they told that other houseguest; never both. Never for the player's doubts, jokes or a change of mind; otherwise omit them. Add `heardAboutMe` ONLY when, in the scene, a houseguest TOLD the other houseguests present something about the player — that the player is gunning for them (targeting) or has betrayed someone (betrayal); `by` is the id of the houseguest who said it (never the player); otherwise omit it. Add `actor` ONLY when a houseguest, not the player, did the act that `kind` names to the player; its value is that houseguest's roster id and it must also be in `withIds`; when the player did it, or no one clearly did, omit it. Always set `feltMinutes` to how long the exchange plausibly took in the house — it is a note "
     "recorded with the scene (the in-game clock itself runs by message count), so a brief hallway word is ~15-30 "
     "and a long backyard strategy session is a couple of hours. Pick the kind matching the "
-    "emotional/strategic direction. Add `consequence` ONLY when "
+    "emotional/strategic direction; pick alliance ONLY when THE PLAYER'S MOVE itself says yes to joining or forming the group, never for a houseguest's offer, houseguests agreeing among themselves, or a player who argues against it (those are strategy). Add `consequence` ONLY when "
     "the scene moves different houseguests DIFFERENTLY (e.g. it warms one and threatens "
     "another); otherwise omit it. Use `aboutEdges` SPECIFICALLY when the player pitched one "
     "houseguest's opinion of a THIRD houseguest — 'I told holder that about is the real "
@@ -4995,6 +5201,14 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
                 _fl_decl.note_scene_nobody(owner)  # ORW-346/507: everyone proposed was off-scene: no scene with anyone to fold (owner-scoped, so it must not depend on session_id: E22's rich extraction runs without one)
                 return False
         kind = obj.get("kind") if obj.get("kind") in _RECORD_KINDS else "strategy"
+        if kind == "alliance" and not _player_says_yes_to_binding(last_user):
+            # ORW-1137: the extraction read the narration (a houseguest's offer, the houseguests agreeing among themselves) as the player joining. No alliance without the player's own yes: the scene records as strategy,
+            # and the aligned edges that would have bound the player to the group are dropped.
+            kind = "strategy"
+            _cons_dropped = obj.get("consequence")
+            if isinstance(_cons_dropped, dict) and isinstance(_cons_dropped.get("edges"), list):
+                obj = {**obj, "consequence": {**_cons_dropped, "edges": [e for e in _cons_dropped["edges"] if not (isinstance(e, dict) and e.get("direction") == "more-aligned")]}}
+            logger.info(f"[orwell] auto-record: alliance kind downgraded to strategy, the player's own message holds no yes (ORW-1137) user={owner}")
         content = (obj.get("content") or "").strip() or "The player and a houseguest had a private exchange."
         # 0066 Ext 6 (PR 2) — the model's proposed scene DURATION in minutes. The engine bounds it
         # (`feltHoursFromMinutes`, 15-240) and paces the scene-based clock by it; None/invalid ⇒ the engine's
@@ -5031,6 +5245,15 @@ async def _auto_record_scene(narration, last_user, house, endpoint_url, model, h
         heard_about_me = _validate_heard_about_me(obj.get("heardAboutMe"), ids)
         actor = _validate_actor(obj.get("actor"), ids)  # ORW-609: who acted (a houseguest in the scene), else the player
         promise = _validate_promise(obj.get("promise"), ids, valid)
+        # ORW-1069: the extraction's label is never the last word on a promise. The words that carry it (the scene summary and, for the player's own promise, the player's move) are read for polarity and
+        # firmness; a vow to vote someone OUT, a hedge or a condition records NO promise or assurance (the scene itself still records).
+        if assurance or promise:
+            _p_vote = (assurance and assurance.get("kind") == "vote") or (promise and promise.get("what") == "no-evict-vote")
+            _p_words = [content] + ([last_user] if (promise and "from" not in promise) or (assurance and "from" not in assurance) else [])
+            _p_unfit = next((u for u in (_promise_words_unfit(w, "vote" if _p_vote else "loyal") for w in _p_words) if u), None)
+            if _p_unfit:
+                _note_validator_drop("scene-promise", _p_unfit)
+                assurance = promise = None
         statement = _validate_statement(obj.get("statement"), ids, valid)
         if statement and _player_move_is_only_questions(last_user):
             statement = None  # ORW-781: a question is not something the player told anyone; the scene still records, no claim is logged
@@ -5380,7 +5603,7 @@ async def _faith_guard_down_p0(owner, narration) -> bool:
                 logger.debug("[orwell] faith-guard-down reground-check skipped: %s", _chk_err)
         _retained = _queued or _already
         try:
-            _ch_p0._arm_advance_escalation(owner)
+            _ch_p0._arm_advance_escalation(owner, "faith-guard-down")
         except Exception as _arm_err:
             logger.debug("[orwell] faith-guard-down arm-escalation skipped: %s", _arm_err)
         if _retained:
@@ -8787,7 +9010,7 @@ _SEASON_PACING_STORES = (
     _FIRST_WEEK_HINT, _CASTING_STALL_LEVEL, _CASTING_SUBSTANCE_LEVEL, _TOAST_VOICE_HOLDS,
     _DEFERRED_FAITH, _ADVANCE_STALL_LEVEL, _ADVANCE_STALL_FLAGS, _TURNS_SINCE_PROGRESS, _ESC_INELIGIBLE_ROUNDS,
     _SILENT_FORCE_ADVANCE_STREAK, _ANTI_STALE_CAP_HOLDS, _LOOP_LAST_FRAMED_KEY, _LOOP_STREAK,
-    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED, _GENDER_HEAL_DONE, _ANN_HELD,
+    _LOOP_BREAK_PENDING_NOTE, _POSTSEASON_OFFTOPIC_TURNS, _REAPPROACH_LEVEL, _OUTAGE_ALERTED, _GENDER_HEAL_DONE, _ANN_HELD, _RECAP_VOICED_DAY,
 )
 
 
@@ -9479,6 +9702,8 @@ async def stream_agent_loop(*args, **kwargs) -> AsyncGenerator[str, None]:
         try:  # ORW-408: one INFO line per turn (pre-display chunks checked / skipped by reason / conflicts by fact)
             from src import predisplay_check as _pd_turn
             _pd_turn.end_turn(kwargs.get("owner"))
+            from src import claim_commit as _cc_end  # ORW-1156: the turn's commit record ends with the turn
+            _cc_end.end_turn(kwargs.get("owner"))
         except Exception as _e:  # failsoft-ok: counter only
             logger.debug("ORW-408: end_turn failed: %s", _e)
         _ANN_HELD.pop(kwargs.get("owner"), None)  # ORW-479: a held announcement's tail window never outlives its turn
@@ -10019,7 +10244,8 @@ async def _stream_agent_loop_impl(
     total_start = time.time()
     time_to_first_token = None
     first_token_received = False
-    tool_events = []   # Persist tool executions for history reload
+    from src import claim_commit as _cc  # ORW-1156
+    tool_events = _cc.CommitList(owner)   # Persist tool executions for history reload (ORW-1156: the list also tells the claim check what the engine committed)
     round_texts = []   # Cleaned text per round for history reload
     # F-2/F-4: owed chyron — announcements of a beat the FE pre-resolved this turn reach the client whatever
     # the model says (blank, skipped, or contradicting). Consumed once; the client dispatches `orwell:announcements`.
@@ -10337,6 +10563,11 @@ async def _stream_agent_loop_impl(
     _direct_applied = False  # ORW-1014 (prod 2026-11-28 01:48Z): the own-round tail reads it after an act-first move that ran at the slot; only the bedtime/nap/pending-act branches used to bind it, so that turn died with UnboundLocalError
     _act_first_done = False  # ORW-1014: the act-first round runs at most once per turn
     _act_first_outcome = None  # ORW-1014: its outcome this turn (None = it did not run); an after-reply move belt that fires on a noAction counts as a miss
+    if _is_live_game and not _player_means_going_to_bed(_extract_last_user_message(messages) or ""):
+        _rc_note = await _recap_replay_note(owner, session_id)  # ORW-1155: a closed day's recap never voiced (the turnIn ran outside a narrator turn)
+        if _rc_note:
+            messages.append({"role": "system", "content": _rc_note})
+            _note_belt(owner, "recap-replay")
     for round_num in range(1, max_rounds + 1):
         _round_finish_reason = None
         round_response = ""
@@ -10595,12 +10826,16 @@ async def _stream_agent_loop_impl(
                             isinstance(_esc_status, dict)
                             and isinstance(_esc_status.get("pending"), dict)
                             and (_esc_status["pending"].get("kind") or "").strip())
-                        if not _esc_pending:
+                        _esc_ok, _esc_why = (False, "pending") if _esc_pending else await _s1b_force_allowed(owner, _force_owner, messages)
+                        if not _esc_pending and not _esc_ok:
+                            logger.info("[orwell] S1b force withheld (%s) round=%s user=%s", _esc_why, round_num, _force_owner)
+                            _ch_esc.clear_advance_escalation(owner)
+                        if not _esc_pending and _esc_ok:
                             _forced_tool_choice = {"type": "function",
                                                    "function": {"name": "advanceGame"}}
                             _forced_belt_tool = "advanceGame"
                             logger.info("[orwell] S1b forcing advanceGame (escalation armed) "
-                                        f"round={round_num} user={_force_owner}")
+                                        f"round={round_num} user={_force_owner} arm={_ch_esc.advance_escalation_info(owner)} gate={_esc_why}")
                             # Finding 6: CONSUME the escalation ONLY now that the forced advanceGame call
                             # is actually SELECTED — never before. Clearing it unconditionally (a
                             # rejecter model, no wire advanceGame, or an open player pending) discarded
@@ -10724,6 +10959,7 @@ async def _stream_agent_loop_impl(
                                 messages.append({"role": "tool", "tool_call_id": _bt_call_id, "content": f"### turnIn\n```\n{_bedtime_tool_message(_bt_out)}\n```"})
                                 _bt_out_clock = await _turn_in_output_with_clock(_bt_out, lambda: _oe_bt.get_game_state(user=_force_owner))
                                 messages.append({"role": "system", "content": _bedtime_direct_note(_bt_out_clock)})
+                                _mark_recap_voiced(owner, session_id, _bt_out)  # ORW-1155
                                 _note_belt(owner, "bedtime-turn-in")
                                 _note_belt(owner, "bedtime-turn-in-direct")
                                 if await _refresh_context_after_turn_in(messages, _force_owner, _bt_out):
@@ -10777,6 +11013,15 @@ async def _stream_agent_loop_impl(
                     messages.append({"role": "system", "content": _np_note})
             except Exception as _np_err:
                 logger.warning(f"[orwell] ORW-417 nap belt skipped: {_np_err}")
+            # ── ORW-1011 C3: the LOOP half of commit-from-plan (flag ORWELL_COMMIT_FROM_PLAN, default OFF): stage the planned scene, count the commits, tell the narrator. ──
+            try:
+                if round_num == 1 and not _turn_had_error:
+                    from src import plan_commit as _pc
+                    _pc_note = _pc.loop_half(owner, session_id, tool_events, round_num, _note_belt) if _pc.enabled() else None
+                    if _pc_note:
+                        messages.append({"role": "system", "content": _pc_note})
+            except Exception as _pc_err:  # failsoft-ok: plan-commit-fail-soft - the belts run as before
+                logger.warning(f"[orwell] plan-commit loop half skipped: {_pc_err}")
             # ── ORW-1014 PR 2: act-first, the LOOP half (flag ORWELL_ACT_FIRST, default OFF). The decision and the move / bed / search commits already ran at the resolvePlayerMove slot
             # (orwell_player_move.act_first_before_narrator, before the briefing was built). Here the committed calls join tool_events (so the after-reply belts stand down) and the
             # acts that go through the tool dispatcher (sleep, advance, a step answer) run now, in order, each on its own merits. Fail-soft: any problem leaves the ordinary round. ──
@@ -10831,6 +11076,7 @@ async def _stream_agent_loop_impl(
                             _note_belt(owner, "act-first:" + _af_tool)
                             if _af_tool == "turnIn":
                                 _turn_slept = True
+                                _mark_recap_voiced(owner, session_id, _af_out)  # ORW-1155
                                 try:
                                     await _refresh_context_after_turn_in(messages, _force_owner, _af_out)
                                 except Exception as _fs_exc:
@@ -11318,6 +11564,46 @@ async def _stream_agent_loop_impl(
                 _pd_ended_at_prefix = True
                 _pd_rw_pending = None
             else:
+                # ORW-1156: the narration CLAIMED a change the engine never committed. When the player explicitly asked for exactly that change, commit it through the real tool first (turnIn, claimBed,
+                # moveTo; never an alliance or a deal), so the redo voices a real result; otherwise the redo is told the real state (the correction line) and the claim is gone.
+                try:
+                    _cc_facts = [c.fact for c in _pd_rw_pending.conflicts]
+                    if any(f in ("claim-bed", "player-room") for f in _cc_facts):
+                        from src import engine_read_cache as _cc_erc
+                        from src.house_rooms import HOUSE_ROOMS as _cc_rooms
+                        _cc_st = _cc_erc.peek("getGameState", owner, fields=("whereabouts",)) or {}
+                        _cc_wh = _cc_st.get("whereabouts") if isinstance(_cc_st, dict) else None
+                        _cc_wh = _cc_wh if isinstance(_cc_wh, dict) else {}
+                        _cc_plan = _cc.commit_plan(
+                            _pd_rw_pending.conflicts, _extract_last_user_message(messages) or "", rooms=_cc_rooms, room_names=_cc_wh.get("roomNames"), here=_cc_wh.get("room"),
+                            claimed_room_id=_cc.claimed_room(_pd_rw_pending.sentence, _cc_wh))
+                        _cc_done = []
+                        for _cc_tool, _cc_args in _cc_plan:
+                            _cc_json = json.dumps(_cc_args)
+                            yield f'data: {json.dumps({"type": "tool_start", "tool": _cc_tool, "command": _cc_json, "round": round_num})}\n\n'
+                            _cc_desc, _cc_result = await execute_tool_block(
+                                ToolBlock(_cc_tool, _cc_json), session_id=session_id, disabled_tools=disabled_tools, tool_policy=tool_policy, owner=owner, workspace=workspace)
+                            _cc_out = str((_cc_result.get("output") or _cc_result.get("error") or "") if isinstance(_cc_result, dict) else "")
+                            yield f'data: {json.dumps({"type": "tool_output", "tool": _cc_tool, "command": _cc_json, "output": "", "exit_code": _cc_result.get("exit_code") if isinstance(_cc_result, dict) else None})}\n\n'
+                            _cc_ev = {"round": round_num, "tool": _cc_tool, "command": _cc_json, "output": "", "exit_code": (_cc_result or {}).get("exit_code")}
+                            if _cc_tool == "turnIn" and not _turn_in_applied(_cc_result):
+                                _cc_ev["exit_code"] = 1  # a held night is not a commit
+                            tool_events.append(_cc_ev)
+                            _cc_id = f"call_{round_num}_claimcommit_{len(tool_events)}"
+                            messages.append({"role": "assistant", "content": None, "tool_calls": [{"id": _cc_id, "type": "function", "function": {"name": _cc_tool, "arguments": _cc_json}}]})
+                            messages.append({"role": "tool", "tool_call_id": _cc_id, "content": f"### {_cc_tool}\n```\n{_cc_out[:4000]}\n```"})
+                            _cc_done.append(_cc_tool)
+                            _note_belt(owner, "claim-commit:" + _cc_tool)
+                            _cc.note({"claimBed": "claim-bed", "moveTo": "player-room"}.get(_cc_tool, ""), "committed", owner)
+                            if _cc_tool == "turnIn" and _cc_ev["exit_code"] in (0, None):
+                                try:
+                                    await _refresh_context_after_turn_in(messages, _force_owner, _cc_out)
+                                except Exception as _cc_rf:  # failsoft-ok: the redo still voices the tool result
+                                    logger.debug("ORW-1156: context refresh after turnIn failed: %s", _cc_rf)
+                        if _cc_done:
+                            messages.append({"role": "system", "content": "(Production note, not for the player.) The player asked for this and the game has now run it (" + ", ".join(_cc_done) + "): continue the reply from the game's result above and voice it; do not narrate it again from the start."})
+                except Exception as _cc_err:  # failsoft-ok: no commit; the regenerate-against-the-real-state redo runs as it would have
+                    logger.warning("[orwell] ORW-1156 claim commit skipped: %s", _cc_err)
                 # ONE non-streaming continuation from exactly where the shown text ends; it then flows through the SAME guard chain below (the flush site).
                 _redo = ""
                 async for _pd_beat, _pd_val in _pd_redo_with_keepalive(
@@ -12600,7 +12886,7 @@ async def _stream_agent_loop_impl(
                                         if not _ch3._is_stale_beat_error(_stale_e2):
                                             raise
                                         await _ch3._handle_stale_beat(owner, _stale_e2)
-                                        _ch3._arm_advance_escalation(owner)  # S1b next-round force
+                                        _ch3._arm_advance_escalation(owner, "reconciled-board-moved-twice")  # S1b next-round force
                                         try:
                                             from src import log_rings as _lr_adv2
                                             _lr_adv2.record_soft_failure(
@@ -13899,6 +14185,7 @@ async def _stream_agent_loop_impl(
             if block.tool_type == "turnIn" and _turn_in_applied(result):
                 clear_bed_ask(_force_owner)  # ORW-1154: the night ended; no ask is outstanding
                 _turn_slept = True
+                _mark_recap_voiced(owner, session_id, result.get("output"))  # ORW-1155
             _engine_result = _engine_result_for_transcript(block.tool_type, result)
             if _engine_result is not None:
                 tool_event["engine_result"] = _engine_result  # ORW-187: admin-only full result (stripped from the player's history payload)
@@ -14249,10 +14536,11 @@ async def _stream_agent_loop_impl(
                         corrected="forced-advance-armed", user=owner)
                 except Exception as _lr_su_err:
                     logger.debug(f"[orwell] stall-unconverted soft-failure log skipped: {_lr_su_err}")
-                _ch_esc2._arm_advance_escalation(owner)
+                _ch_esc2._arm_advance_escalation(owner, "stall-nudges-unconverted")
             elif _s1_have_baseline and not _s1_beat_moved and _s1_desync:
-                # S1b — a desync flagged with no progression is the escalate signal: arm the force.
-                _ch_esc2._arm_advance_escalation(owner)
+                # ORW-1166: a desync re-ground ALONE is not a stall (it fired a forced advanceGame on a
+                # social message). It no longer arms the force; a real stall signal above still does.
+                logger.info("[orwell] S1b not armed: desync re-ground without a stall signal user=%s", owner)
             elif _s1_beat_moved:
                 # Real progression this turn — clear any armed escalation so it never wedges forcing on.
                 _ch_esc2.clear_advance_escalation(owner)

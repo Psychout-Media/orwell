@@ -247,3 +247,45 @@ def test_real_loop_an_asleep_speaker_turn_is_removed_whole_shown_and_stored(monk
         assert "Sam" not in text and "Sleep well" not in text, text
         assert malformed(text.strip()) == [], text
         assert "@[Ana Role]" in text and "Rain taps the glass." in text
+
+
+def test_head_cut_is_seen_when_another_guard_rewrote_a_sentence_in_the_same_chunk():
+    """ORW-1028 (still happening 11-28): the seam used to give up when a guard REWROTE a sentence (post not made of pre's parts) and read the chunk on its own, so a cut head left its body behind."""
+    pre = ('@[Landon Robbins] — "Hello there." He doesn\'t get up. His chair is tipped back, one boot on the rail.\n\n'
+           '@[Mason Hale] — "I did it all myself, I confess." He lifts a hand.\n')
+    post = (' He doesn\'t get up. His chair is tipped back, one boot on the rail.\n\n'
+            '@[Mason Hale] — "I would rather not get into that." He lifts a hand.\n')   # head 1 cut, a confession deflection rewrote the next quote
+    seam = TurnSeam()
+    out = seam.feed(pre, post) + seam.finish()
+    assert "doesn't get up" not in out and "chair is tipped" not in out
+    assert '@[Mason Hale] — "I would rather not get into that." He lifts a hand.' in out
+    assert malformed(out) == []
+
+
+def test_prod_shapes_with_a_rewrite_in_the_chunk_and_the_stored_copy_matches():
+    """The card's shapes (an orphan pronoun line, a bare quote line) behind a cut head, with a rewrite in the same chunk; the stored text takes the same cuts as the stream."""
+    pre = ('@[Ada Vale] — "Anybody who is here to be on television." Ada holds still, surprised it came out that clean.\n\n'
+           '@[Ben Roe] — "I killed the whole plan, I confess." He is still got his shoulder against the dresser.\n\n'
+           '@[Cy Dunn] — "You look like you have been in every room in this house." She slips out into the hall.\n')
+    post = (' Ada holds still, surprised it came out that clean.\n\n'
+            '@[Ben Roe] — "I would rather not say." He is still got his shoulder against the dresser.\n\n'
+            ' "You look like you have been in every room in this house." She slips out into the hall.\n')
+    seam = TurnSeam()
+    out = seam.feed(pre, post) + seam.finish()
+    assert "Ada holds still" not in out and "You look like" not in out and "slips out" not in out
+    assert '@[Ben Roe] — "I would rather not say."' in out
+    assert malformed(out) == []
+    stored = pre
+    for cut in seam.take_cuts():
+        stored = stored.replace(cut, "", 1)
+    assert "slips out" not in stored or "slips out" not in out  # every kept part the seam removed is listed for the stored copy
+
+
+def test_stored_text_drops_a_headless_line_even_without_a_quote():
+    """Reload == live: the live seam drops a cut head's body whole; the stored text only shows the residue (a paragraph that starts with a blank), so it goes whole too."""
+    stored = ('@[Ben Roe] — "Fine." He shrugs.\n\n'
+              " He doesn't get up. His chair is tipped back, one boot on the rail.\n\n"
+              '@[Cy Dunn] — "Later." She waves.')
+    out = wellformed(stored)
+    assert "doesn't get up" not in out and "chair is tipped" not in out
+    assert out.count("@[") == 2 and malformed(out) == []

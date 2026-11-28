@@ -241,7 +241,7 @@ class _Eng:
     async def get_game_state(self, user=None, **k):
         return {"house": [{"name": "Levi Stone", "status": "active"}]}
 
-    async def resolve_player_move(self, text, key=None, user=None, previous_reply=None, skip=None):
+    async def resolve_player_move(self, text, key=None, user=None, previous_reply=None, skip=None, max_legs=None):
         self.calls.append((text, key, skip))
         return {"playerMove": None, "whereabouts": {}}
 
