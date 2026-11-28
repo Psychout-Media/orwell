@@ -285,7 +285,8 @@ def test_slot_owns_the_message_commits_the_move_and_runs_the_parser_once_with_mo
 def test_slot_hands_sleep_and_steps_to_the_loop_and_skips_a_dependent_act_after_a_blocked_move(monkeypatch):
     ok, eng, moved = _slot("I head to bedroom A and go to sleep", [mv("bedroom-a"), TURNIN], monkeypatch)
     # the stub engine's sleep gate is closed (afternoon): turnIn is not offered, so the model's turnIn is distrusted and nothing is committed
-    assert ok is True and moved == [] and af.take_stash("u")["pending"] == []
+    # ORW-1128: nothing committed, so act-first does not own the message: the ordinary parser runs (False), and the stash carries only the outcome
+    assert ok is False and moved == [] and af.take_stash("u")["pending"] == []
 
 
 def test_slot_falls_soft_to_the_parser_when_the_round_fails_or_the_flag_is_off(monkeypatch):
