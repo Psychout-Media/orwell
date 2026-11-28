@@ -7,7 +7,7 @@ committed this turn (the turn's tool events, plus the Vault-free state read the 
   * `extract_claims(text)`            the claims a sentence of narration makes, outside quoted speech. Modals, questions, plans, the past and the future claim nothing.
   * `claim_conflicts(text, state, owner)`  the claims with NO commit behind them, as predisplay `Conflict`-shaped (fact, detail) pairs. `predisplay_check.conflict_details` appends them, so the existing
                                       withhold -> regenerate-against-the-real-state -> drop-what-still-conflicts path (ORW-408) handles them with no second mechanism.
-  * `commit_plan(...)`                when the PLAYER explicitly asked for the claimed change (their own message), the real tool that commits it: sleep -> turnIn, a bed -> claimBed, a move -> moveTo.
+  * `commit_plan(...)`                when the PLAYER explicitly asked for the claimed change (their own message), the real tool that commits it: a bed -> claimBed, a move -> moveTo (sleep is ORW-1154's).
                                       Never an alliance or a deal (the player's own yes is the only commit; a claim of one with no commit is regenerated, never committed).
   * The turn's commits are noted by `CommitList`, a drop-in for the loop's `tool_events` list, so no call site needs a second bookkeeping line.
   * Time: the time-passing rule is ORW-1150's `predisplay_check.time_jump_conflict`; this module CALLS it (when present) and never restates it.
@@ -27,7 +27,7 @@ CLAIM_SLEEP = "claim-sleep"
 CLAIM_BED = "claim-bed"
 CLAIM_ALLIANCE = "claim-alliance"
 CLAIM_DEAL = "claim-deal"
-KINDS = (CLAIM_SLEEP, CLAIM_BED, CLAIM_ALLIANCE, CLAIM_DEAL)
+KINDS = (CLAIM_BED, CLAIM_ALLIANCE, CLAIM_DEAL)  # sleep is NOT checked here: ORW-1154 (#3496) holds an unbacked sleep claim; this module keeps only what it does not cover
 FACTS = frozenset(KINDS)
 # the claim kinds the existing pre-display facts already cover (counted here as claims too, so one ledger shows every class)
 EXTERNAL_KINDS = ("move", "time", "presence")
@@ -43,7 +43,6 @@ _LOCK = threading.Lock()
 _TURN: "dict[str, dict]" = {}  # owner -> {"ok": {tool: n}, "failed": {tool: n}}; cleared by `end_turn`
 _MAX_OWNERS = 64
 _BAD_OUT = re.compile(r'"(?:refused|illegal|held|error)"\s*:\s*(?!false|null)|\b(?:held|refused|not allowed|could not)\b', re.IGNORECASE)
-_SLEEP_TOOLS = ("turnIn", "nap")
 _BED_TOOLS = ("claimBed",)
 _ALLIANCE_TOOLS = ("formAlliance", "joinAlliance")
 _DEAL_TOOLS = ("makeDeal", "submitDecision")
@@ -132,7 +131,15 @@ _DEAL_RE = re.compile(
     r"\b" + _YOU + r"\s+(?:\w+\s+){0,2}?(?:strike|struck|make|made|seal|sealed|close|closed|shake\s+on|shook\s+on|agree\s+to|agreed\s+to|cut)\s+(?:\w+\s+){0,3}?(?:deal|bargain|agreement|promise)\b|"
     r"\b(?:the|a|your)\s+(?:\w+\s+)?(?:deal|bargain|agreement)\s+(?:is|was|has\s+been)\s+(?:struck|sealed|made|done|set|agreed)\b|\bit['’]s\s+a\s+deal\b",
     re.IGNORECASE)
-_RULES = ((CLAIM_SLEEP, _SLEEP_RE), (CLAIM_BED, _BED_RE), (CLAIM_ALLIANCE, _ALLIANCE_RE), (CLAIM_DEAL, _DEAL_RE))
+_RULES = ((CLAIM_BED, _BED_RE), (CLAIM_ALLIANCE, _ALLIANCE_RE), (CLAIM_DEAL, _DEAL_RE))
+
+
+def sleep_claims(text: str, *, in_quote: bool = False) -> "list[Claim]":
+    """The sleep claims in narration. NOT part of the check (ORW-1154 owns an unbacked sleep claim); the gate corpus uses it to label what a turn narrated."""
+    try:
+        return [Claim(CLAIM_SLEEP, s.strip()) for s in _narration(text, in_quote) if not _NOT_A_CLAIM.search(s) and _SLEEP_RE.search(s)]
+    except Exception:  # failsoft-ok: labels only
+        return []
 
 
 def _narration(text: str, in_quote: bool) -> "list[str]":
@@ -156,21 +163,9 @@ def extract_claims(text: str, *, in_quote: bool = False) -> "list[Claim]":
 
 
 # ── checking claims against the committed state ─────────────────────────────────────────────────────────────────────
-_NIGHT_BANDS = ("evening", "night", "late-night")
-
-
-def _slept(state: Any, owner: Any) -> bool:
-    """A sleep claim is backed when a sleep tool applied this turn AND the clock is not still in the night band it would have ended (a held turnIn leaves the clock where it was)."""
-    if not committed(owner, _SLEEP_TOOLS):
-        return False
-    st = state if isinstance(state, dict) else {}
-    band = str(st.get("timeOfDay") or "")
-    return not band or band not in _NIGHT_BANDS or st.get("earlyMorning") is True or committed(owner, ("nap",))
 
 
 def backed(kind: str, state: Any, owner: Any) -> bool:
-    if kind == CLAIM_SLEEP:
-        return _slept(state, owner)
     if kind == CLAIM_BED:
         return committed(owner, _BED_TOOLS)
     if kind == CLAIM_ALLIANCE:
@@ -192,15 +187,13 @@ def claim_conflicts(text: str, state: Any, owner: Any, *, in_quote: bool = False
         for c in unbacked(text, st, owner, in_quote=in_quote):
             if c.kind in seen:
                 continue
-            seen[c.kind] = str(st.get("timeOfDay") or "").replace("-", " ") if c.kind == CLAIM_SLEEP else ""
+            seen[c.kind] = ""
         return list(seen.items())
     except Exception:  # failsoft-ok: an unreadable check never holds narration
         return []
 
 
 def correction_for(fact: str, detail: str = "") -> str:
-    if fact == CLAIM_SLEEP:
-        return ("The narration put the player to sleep but the game has not: it is still " + (detail or "the same part of the day") + " and nothing was committed. Keep the player awake and in this moment; they may be tired, but do not end the night.")
     if fact == CLAIM_BED:
         return "The narration gave the player a bed but the game has not recorded a claim. Do not say a bed is claimed or theirs; show the beds as they are and leave the choice to the player."
     if fact == CLAIM_ALLIANCE:
@@ -230,7 +223,7 @@ def _asked_sentence(user_text: str) -> str:
 def commit_plan(conflicts: "Iterable[Any]", user_text: str, *, rooms: Iterable[str] = (), room_names: Any = None, here: Optional[str] = None,
                 claimed_room_id: Optional[str] = None) -> "list[tuple[str, dict]]":
     """The (tool, args) that commit what the player EXPLICITLY asked for and the narration claimed without a commit. Only first-person, plain, present-tense asks count; a question, a refusal,
-    a condition or speech never does. Sleep -> turnIn, a bed -> claimBed in the bedroom the words name, a move -> moveTo the room the words name. An alliance or a deal is never in this plan.
+    a condition or speech never does. A bed -> claimBed in the bedroom the words name, a move -> moveTo the room the words name. An alliance or a deal is never in this plan.
     The tool itself still applies the game's own checks (a held turnIn stays held); the caller runs it through the normal dispatcher and the narrator voices the result."""
     try:
         from src import act_first as af
@@ -239,8 +232,6 @@ def commit_plan(conflicts: "Iterable[Any]", user_text: str, *, rooms: Iterable[s
         if not asked:
             return []
         out: "list[tuple[str, dict]]" = []
-        if CLAIM_SLEEP in facts and _ASK_SLEEP.search(asked):
-            out.append(("turnIn", {}))
         if CLAIM_BED in facts and _ASK_BED.search(asked):
             present = {str(r).lower() for r in rooms}
             named = [r for r in af.rooms_named(asked, room_names) if r in af.BEDROOMS and r in present and af.grounded_strict(r, asked, room_names)]

@@ -13,14 +13,10 @@ MORNING = {"timeOfDay": "morning", "whereabouts": WH}
 
 # code, the narration as first generated, the player's own message (a plain role sentence), the commits the model made itself, what the redo says when told the real state
 SHAPES = [
-    ("S1-polite-sleep-no-turnin", "The lamp clicks off. You finally drift off to sleep. The house settles.", "I go to bed.", [], "The lamp clicks off. You lie awake a while, the house settling around you."),
-    ("S2-bare-sleep-no-turnin", "You turn in for the night. The house goes quiet.", "Sleep.", [], "The house goes quiet around you."),
-    ("S3-sleep-narrated-never-asked", "Rowan yawns. You fall asleep on the couch.", "Tell Rowan the plan.", [], "Rowan yawns, and you keep the plan between you."),
     ("S4-bed-claimed-in-prose-asked", "You claim the single bed by the window. Rowan frowns.", "I claim a single bed in here.", [], "The beds stand ready. Rowan frowns."),
     ("S5-bed-claimed-in-prose-not-asked", "You grab the bunk by the door as Rowan watches.", "Hello everyone.", [], "Rowan watches the bunks, undecided."),
     ("S6-alliance-from-npc-line", "Rowan pitches it with a grin. You shake on it: the alliance is formed.", "What do you mean by that?", [], "Rowan pitches it with a grin, and waits."),
     ("S7-deal-struck-without-yes", "You strike a deal with Rowan over the counter.", "Let me think about it.", [], "Rowan lays out terms over the counter."),
-    ("S8-correct-sleep-with-commit", "You finally drift off to sleep.", "I go to bed.", ["turnIn"], None),
     ("S9-correct-bed-with-commit", "You claim the single bed by the window.", "I claim a single bed in here.", ["claimBed"], None),
 ]
 
@@ -66,13 +62,13 @@ def test_replay_zero_claims_without_commit_after(monkeypatch):
     print(f"ORW-1156 replay: claims without commit BEFORE={before} AFTER={after} committed-through-real-tool={committed} regenerated={regenerated}")
     for r in rows:
         print("  ", r)
-    assert before == 7  # S1 to S7 each make one unbacked claim; S8 and S9 are backed
+    assert before == 4  # S4 to S7 each make one unbacked claim; S9 is backed (sleep shapes are ORW-1154's, not counted here)
     assert after == 0
-    assert committed == 3 and regenerated == 7  # S1, S2 (turnIn) and S4 (claimBed) are committed; every unbacked reply is redone
+    assert committed == 1 and regenerated == 4  # S4 (claimBed) is committed; every other unbacked reply is redone
 
 
 def test_main_shows_all_of_them():
     """On main nothing joined a claim to a commit: the same replay with the check off shows every unbacked claim (the failing-before half)."""
     import re
     shown = sum(len(cc.extract_claims(t)) for _, t, _, tools, _ in SHAPES if not tools)
-    assert shown == 7
+    assert shown == 4

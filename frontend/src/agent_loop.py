@@ -11239,7 +11239,7 @@ async def _stream_agent_loop_impl(
                 # moveTo; never an alliance or a deal), so the redo voices a real result; otherwise the redo is told the real state (the correction line) and the claim is gone.
                 try:
                     _cc_facts = [c.fact for c in _pd_rw_pending.conflicts]
-                    if any(f in ("claim-sleep", "claim-bed", "player-room") for f in _cc_facts):
+                    if any(f in ("claim-bed", "player-room") for f in _cc_facts):
                         from src import engine_read_cache as _cc_erc
                         from src.house_rooms import HOUSE_ROOMS as _cc_rooms
                         _cc_st = _cc_erc.peek("getGameState", owner, fields=("whereabouts",)) or {}
@@ -11265,7 +11265,7 @@ async def _stream_agent_loop_impl(
                             messages.append({"role": "tool", "tool_call_id": _cc_id, "content": f"### {_cc_tool}\n```\n{_cc_out[:4000]}\n```"})
                             _cc_done.append(_cc_tool)
                             _note_belt(owner, "claim-commit:" + _cc_tool)
-                            _cc.note({"turnIn": "claim-sleep", "claimBed": "claim-bed", "moveTo": "player-room"}.get(_cc_tool, ""), "committed", owner)
+                            _cc.note({"claimBed": "claim-bed", "moveTo": "player-room"}.get(_cc_tool, ""), "committed", owner)
                             if _cc_tool == "turnIn" and _cc_ev["exit_code"] in (0, None):
                                 try:
                                     await _refresh_context_after_turn_in(messages, _force_owner, _cc_out)

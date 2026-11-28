@@ -27,7 +27,7 @@ NO_CLAIM = ["You could go to bed soon.", "Would you like to turn in for the nigh
             "You wonder whether the deal is still on the table.", "You asked if the alliance was real."]
 
 
-@pytest.mark.parametrize("line,kind", [(l, cc.CLAIM_SLEEP) for l in SLEEP_LINES] + [(l, cc.CLAIM_BED) for l in BED_LINES]
+@pytest.mark.parametrize("line,kind", [(l, cc.CLAIM_BED) for l in BED_LINES]
                          + [(l, cc.CLAIM_ALLIANCE) for l in ALLIANCE_LINES] + [(l, cc.CLAIM_DEAL) for l in DEAL_LINES])
 def test_claims_are_extracted(line, kind):
     assert kind in {c.kind for c in cc.extract_claims(line)}, line
@@ -38,24 +38,16 @@ def test_non_claims_claim_nothing(line):
     assert cc.extract_claims(line) == [], line
 
 
-def test_a_sleep_claim_with_no_commit_is_a_conflict_through_predisplay():
-    facts = pc.find_conflicts("You finally drift off to sleep.", NIGHT, zero_clocks=False, owner=OWNER)
-    assert cc.CLAIM_SLEEP in facts
 
 
-def test_a_sleep_claim_with_a_commit_is_clean():
-    cc.note_event(OWNER, {"tool": "turnIn", "exit_code": 0, "output": ""})
-    assert pc.find_conflicts("You finally drift off to sleep.", MORNING, zero_clocks=False, owner=OWNER) == []
 
 
-def test_a_held_turnin_is_not_a_commit():
-    cc.note_event(OWNER, {"tool": "turnIn", "exit_code": 0, "engine_result": '{"held": true}'})
-    assert cc.CLAIM_SLEEP in pc.find_conflicts("You fall asleep.", NIGHT, zero_clocks=False, owner=OWNER)
 
 
-def test_a_turnin_that_left_the_clock_at_night_is_not_a_commit():
-    cc.note_event(OWNER, {"tool": "turnIn", "exit_code": 0, "output": ""})
-    assert cc.CLAIM_SLEEP in pc.find_conflicts("You fall asleep.", NIGHT, zero_clocks=False, owner=OWNER)
+
+
+
+
 
 
 def test_commit_list_notes_appends_like_a_list():
@@ -82,18 +74,15 @@ def _plan(user, facts, **kw):
     return cc.commit_plan([pc.Conflict(f, "") for f in facts], user, rooms=("bedroom-a", "bedroom-b", "kitchen"), here=kw.pop("here", "kitchen"), **kw)
 
 
-def test_plain_sleep_request_commits_turn_in():
-    assert _plan("I go to bed.", [cc.CLAIM_SLEEP]) == [("turnIn", {})]
-    assert _plan("I'm going to sleep now.", [cc.CLAIM_SLEEP]) == [("turnIn", {})]
+
 
 
 @pytest.mark.parametrize("user", ["Should I go to bed?", "I won't go to bed yet.", "If I go to bed, will Rowan stay?", "Tell Rowan about the plan.", ""])
 def test_no_ask_no_commit(user):
-    assert _plan(user, [cc.CLAIM_SLEEP]) == []
+    assert _plan(user, [cc.CLAIM_BED], here="bedroom-a") == []
 
 
-def test_player_never_asked_means_no_commit_even_with_sleep_words_elsewhere():
-    assert _plan("Rowan says good night to everyone.", [cc.CLAIM_SLEEP]) == []
+
 
 
 def test_alliance_and_deal_are_never_committed():
@@ -112,17 +101,22 @@ def test_move_claim_commits_only_a_grounded_room():
 
 
 def test_stats_count_checked_backed_unbacked_and_regenerate():
-    cc.tally_chunk("You fall asleep.", NIGHT, OWNER)
+    cc.tally_chunk("You claim the single bed.", NIGHT, OWNER)
     s = cc.stats()
-    assert s["byKind"]["claim-sleep"]["checked"] == 1 and s["byKind"]["claim-sleep"]["unbacked"] == 1
-    cc.note("claim-sleep", "regenerated")
+    assert s["byKind"]["claim-bed"]["checked"] == 1 and s["byKind"]["claim-bed"]["unbacked"] == 1
+    cc.note("claim-bed", "regenerated")
     assert cc.stats()["unbackedShown"] == 0
     assert "claimCommit" in pc.stats_snapshot()
 
 
-def test_split_withholds_an_unbacked_sleep_claim(monkeypatch):
+def test_sleep_is_not_checked_here_it_is_ORW_1154s():
+    assert cc.extract_claims("You finally drift off to sleep.") == []
+    assert [c.kind for c in cc.sleep_claims("You finally drift off to sleep.")] == ["claim-sleep"]
+
+
+def test_split_withholds_an_unbacked_bed_claim(monkeypatch):
     from src import engine_read_cache
     monkeypatch.setattr(engine_read_cache, "peek", lambda *a, **k: NIGHT)
-    sp = pc.split_at_first_conflict("The kettle clicks off. You finally drift off to sleep. The house goes quiet.", OWNER)
-    assert sp is not None and sp.keep.strip() == "The kettle clicks off." and sp.conflicts[0].fact == cc.CLAIM_SLEEP
+    sp = pc.split_at_first_conflict("The kettle clicks off. You claim the single bed by the window. The house goes quiet.", OWNER)
+    assert sp is not None and sp.keep.strip() == "The kettle clicks off." and sp.conflicts[0].fact == cc.CLAIM_BED
     assert "game has not" in pc._correction_line(sp.conflicts[0])
