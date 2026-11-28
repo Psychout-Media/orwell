@@ -149,5 +149,10 @@ async def reissue(owner: str, day: int, apply: bool = False) -> dict:
                     report["status"] = "issued" if save_day_recap(owner, rec) else "not-saved"
     except Exception as e:
         report["status"] = f"error: {type(e).__name__}"
+        try:
+            from src import log_rings
+            log_rings.record_soft_failure("day-recap:reissue-failed", e, corrected="nothing issued; the report says so", user=owner)
+        except Exception:  # failsoft-ok: recorder-self
+            pass
     logger.info("[day-recap] reissue %s", report)
     return report
