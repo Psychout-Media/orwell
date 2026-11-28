@@ -56,6 +56,26 @@ def _session(stack, name):
     return sid
 
 
+def _engine_u(stack, name, args=None):
+    """An engine call as the stack's own user (the FE asserts the user to the engine with this header)."""
+    r = _post_json(stack["engine"], "/player/call", {"name": name, "args": args or {}}, headers={"X-Orwell-User": "orw1144"})
+    assert "result" in r, f"{name} -> {r}"
+    return r["result"]
+
+
+def _settle_premiere(stack, sid):
+    """The real order (test_p0h): the first message starts the clock; the premiere's staged entrances then run (the narrator's advanceGame); only after that is the player free to move."""
+    STUB.script.clear()
+    STUB.forced_script.clear()
+    STUB.script.extend(_NARRATE)
+    ws_turn(stack["fe"], sid, "Nice to meet you all.", timeout=120, client_msg_id="orw1144-warmup", headers=stack["auth"])
+    for _ in range(80):
+        ent = (_engine_u(stack, "premiereIntros") or {}).get("entrance")
+        if not ent or ent.get("stage") == "done":
+            break
+        _engine_u(stack, "advanceGame")
+
+
 def _rows(stack):
     f = pathlib.Path(stack["fe_data"]) / "orwell_sync_ledger.json"
     if not f.exists():
@@ -83,6 +103,7 @@ CASES = [
 def test_one_turn_per_act_first_outcome_runs_to_a_reply_and_a_ledger_row(stack_af):
     _new_game(stack_af)
     sid = _session(stack_af, "orw1144")
+    _settle_premiere(stack_af, sid)
     problems = []
     for i, (name, outcome, text, act, narrate) in enumerate(CASES):
         STUB.script.clear()
