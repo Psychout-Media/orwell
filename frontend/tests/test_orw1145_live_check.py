@@ -1,6 +1,6 @@
 """ORW-1145: a dev live check can stand still and start at once.
 
-  - the deploy hold: orwell-live-game.sh's update_deploy_hold_active (real bash), the updater's wiring, and the admin route that writes it (refused on prod);
+  - the deploy hold: deploy/orwell-deploy-hold.sh's update_deploy_hold_active (real bash; orwell-update.sh calls it from one line that lands after the open ORW-1074 PR merges), and the admin route that writes it (refused on prod);
   - the pre-cast test account: the route makes the account, turns its images off, starts the season with the fixed seed and authors the whole cast inside the call;
   - the script: scripts/live-run/live_check.py's offline self-test, and a failure mid-run still clears the hold.
 
@@ -20,8 +20,7 @@ from conftest import _run
 from fastapi import FastAPI
 
 ROOT = Path(__file__).resolve().parents[2]
-LIB = ROOT / "deploy" / "orwell-live-game.sh"
-UPDATE = (ROOT / "deploy" / "orwell-update.sh").read_text()
+LIB = ROOT / "deploy" / "orwell-deploy-hold.sh"
 sys.path.insert(0, str(ROOT / "scripts" / "live-run"))
 sys.path.insert(0, str(ROOT / "scripts" / "rehearsal-kit"))
 lcheck = importlib.import_module("live_check")
@@ -77,33 +76,6 @@ def test_a_symlinked_hold_is_ignored(tmp_path):
     link = tmp_path / ".deploy-hold"
     link.symlink_to(real)
     assert _hold(link) == ["rc=1"]
-
-
-def _update_gate(tmp_path, env=None):
-    start = UPDATE.index("# ORW-1145: a dev live check holds the deploy")
-    end = UPDATE.index("if [[ $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && $NO_RESTART -eq 0 ]] && type update_wait_for_idle_game")
-    (tmp_path / "data").mkdir(exist_ok=True)
-    script = f'source "{LIB}"; APP_DIR="{tmp_path}"; ROLLBACK=0; SET_TOKEN=0\n' + UPDATE[start:end] + '\necho PROCEEDED\n'
-    return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30, env=dict(os.environ, **(env or {})))
-
-
-def test_a_held_update_exits_zero_and_changes_nothing(tmp_path):
-    _update_gate(tmp_path)   # (creates data/)
-    _write(tmp_path / "data" / ".deploy-hold", time.time() + 600)
-    r = _update_gate(tmp_path)
-    assert r.returncode == 0 and "deploy HELD until" in r.stdout and "PROCEEDED" not in r.stdout
-
-
-def test_no_hold_or_ignore_hold_lets_the_update_proceed(tmp_path):
-    assert "PROCEEDED" in _update_gate(tmp_path).stdout
-    _write(tmp_path / "data" / ".deploy-hold", time.time() + 600)
-    assert "PROCEEDED" in _update_gate(tmp_path, {"ORWELL_UPDATE_IGNORE_HOLD": "1"}).stdout
-
-
-def test_the_hold_check_runs_before_the_update_lock_and_rollback_skips_it():
-    assert UPDATE.index("deploy HELD until") < UPDATE.index("acquire_update_lock\n")
-    assert "$ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && \"${ORWELL_UPDATE_IGNORE_HOLD:-0}\" != 1" in UPDATE
-    assert "--ignore-hold" in UPDATE
 
 
 # -- (2) the routes --------------------------------------------------------------------------------------------------

@@ -336,17 +336,6 @@ token_security_check() {
   fi
 }
 
-# ORW-1173: ORWELL_INTERNAL_TOKEN unset => the front-end uses a random per-process token, so no ops script
-# (reissue_day_recap.py and the like) can authenticate to /api/admin/ops/*. Warn; never print the value.
-internal_token_check() {
-  [[ -f "$ENV_FILE" ]] || return 0
-  if grep -Eqs '^ORWELL_INTERNAL_TOKEN=.' "$ENV_FILE"; then
-    pass "ORWELL_INTERNAL_TOKEN is set (ops scripts can authenticate)"
-  else
-    warn "ORWELL_INTERNAL_TOKEN is not set in ${ENV_FILE} — the front-end uses a random per-process token, so no ops script can call /api/admin/ops/*; run: bash ${APP_DIR}/deploy/orwell-update.sh (it mints one once)"
-  fi
-}
-
 # The HTTP status of the FE health probe ("000" = no answer at all). Any real status — even a
 # 401 from an auth-gated build — proves the front-end PROCESS is up and serving.
 fe_http_code() { curl -s -m 5 -o /dev/null -w '%{http_code}' "${FE_BASE}/api/orwell/health" 2>/dev/null; }
@@ -523,7 +512,6 @@ diagnose() {
   fi
   [[ -f "${APP_DIR}/dist/main.js" ]] && pass "build artifact: dist/main.js" || fail "build artifact missing — run: bash ${APP_DIR}/deploy/orwell-update.sh"
   update_deferred_check
-  internal_token_check
   token_security_check
   engine_http_ok       && pass "engine /health answers"        || fail "engine /health answers (${ENGINE_BASE}/health)"
   # DEPLOY-12 (B2): report which opt-in "living house" behavioral-fidelity layers are live, so an

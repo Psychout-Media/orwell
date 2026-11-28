@@ -65,7 +65,6 @@ for __a in "$@"; do
     --set-token)  SET_TOKEN=1 ;;
     --no-restart) NO_RESTART=1 ;;
     --force)      FORCE=1 ;;
-    --ignore-hold) export ORWELL_UPDATE_IGNORE_HOLD=1 ;;
     --force-now)  FORCE=1; FORCE_NOW=1 ;;
   esac
 done
@@ -194,7 +193,6 @@ if command -v pct >/dev/null 2>&1 && ! find_app >/dev/null 2>&1; then
   [[ $NO_RESTART -eq 1 ]] && FWD_FLAG="${FWD_FLAG:+$FWD_FLAG }--no-restart"
   [[ $FORCE -eq 1 ]] && FWD_FLAG="${FWD_FLAG:+$FWD_FLAG }--force"
   [[ $FORCE_NOW -eq 1 ]] && FWD_FLAG="${FWD_FLAG:+$FWD_FLAG }--force-now"
-  [[ "${ORWELL_UPDATE_IGNORE_HOLD:-0}" == 1 ]] && FWD_FLAG="${FWD_FLAG:+$FWD_FLAG }--ignore-hold"
   # Live-game guard tunables ride along (digits only, so nothing can inject into the quoted string).
   FWD_LG=""
   for __k in ORWELL_UPDATE_IDLE_MINUTES ORWELL_UPDATE_MAX_DEFER_MINUTES ORWELL_UPDATE_DEFER_POLL_SECONDS ORWELL_UPDATE_TURN_WAIT_SECONDS ORWELL_UPDATE_WARM_WAIT_SECONDS ORWELL_UPDATE_LOCK_WAIT; do
@@ -300,13 +298,6 @@ ops_log_invocation "$@"
 ops_run_tee_output
 trap ops_run_record_exit EXIT
 __UD_WAITED=0; __UD_SUPERSEDED=0
-# ORW-1145: a dev live check holds the deploy (data/.deploy-hold, bounded: see deploy/orwell-live-game.sh). A held run changes nothing and exits 0.
-if [[ $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && "${ORWELL_UPDATE_IGNORE_HOLD:-0}" != 1 ]] && type update_deploy_hold_active >/dev/null 2>&1; then
-  if __hold_until="$(update_deploy_hold_active "${APP_DIR}/data/.deploy-hold")"; then
-    echo "==> deploy HELD until ${__hold_until} (a live check holds this box: data/.deploy-hold). Nothing was changed; the next update after the hold ends deploys the tip. Skip the hold: bash orwell-update.sh --ignore-hold"
-    exit 0
-  fi
-fi
 if [[ $ROLLBACK -eq 0 && $SET_TOKEN -eq 0 && $NO_RESTART -eq 0 ]] && type update_wait_for_idle_game >/dev/null 2>&1; then
   __ud_rc=0; __ud_superseded=0
   update_wait_for_idle_game "$(update_fe_db_path "$APP_DIR" "${APP_DIR}/data/.env" "${ORWELL_FE_DATA_DIR:-${APP_DIR}/frontend/data}/app.db")" "${APP_DIR%/}/data/ops" "$FORCE" "${APP_DIR}/data/.env" || __ud_rc=$?
@@ -1261,17 +1252,8 @@ if [[ -f "$ENV_FILE" && -r "$ENV_DEFAULTS_LIB" ]]; then
     printf 'ORWELL_ENGINE_ADMIN_TOKEN=%s\n' "$_admin_secret" >> "$RECON_TMP"
     recon_added="${recon_added} ORWELL_ENGINE_ADMIN_TOKEN(minted)"
   fi
-  # 4. ORW-1173: ORWELL_INTERNAL_TOKEN — MINTED once when absent or empty, never overwritten, never printed.
-  #    Unset, the front-end falls back to a random per-process token, so no ops script could ever call
-  #    the admin ops routes (/api/admin/ops/*).
-  if ! grep -Eqs '^ORWELL_INTERNAL_TOKEN=.' "$ENV_FILE"; then
-    _internal_secret="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-    printf 'ORWELL_INTERNAL_TOKEN=%s\n' "$_internal_secret" >> "$RECON_TMP"
-    unset _internal_secret
-    recon_added="${recon_added} ORWELL_INTERNAL_TOKEN(minted)"
-  fi
   if [[ -n "$recon_added" ]]; then
-    chmod --reference="$ENV_FILE" 2>/dev/null || chmod 600 "$RECON_TMP"
+    chmod --reference="$ENV_FILE" "$RECON_TMP" 2>/dev/null || chmod 600 "$RECON_TMP"
     mv "$RECON_TMP" "$ENV_FILE"
     echo "==> reconciled data/.env — added keys the install predated:${recon_added}"
     case " $recon_added " in

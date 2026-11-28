@@ -1,94 +1,71 @@
-"""ORW-1173: ORWELL_INTERNAL_TOKEN is minted into data/.env once (never overwritten, never printed); the doctor warns when it is unset.
+"""ORW-1173: ORWELL_INTERNAL_TOKEN is minted into data/.env once (never overwritten, never printed); the check warns when it is unset.
 
-The updater's data/.env reconcile block and the doctor function are cut out of the scripts and run in bash against a temp dir."""
+deploy/ensure-internal-token.sh is run for real against a temp env file. (Its one-line calls from orwell-update.sh and orwell-doctor.sh land after the open ORW-1074 PR merges.)"""
 import os
 import re
 import subprocess
-import textwrap
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-UPDATE = os.path.join(ROOT, "deploy", "orwell-update.sh")
-DOCTOR = os.path.join(ROOT, "deploy", "orwell-doctor.sh")
+SCRIPT = os.path.join(ROOT, "deploy", "ensure-internal-token.sh")
 INSTALL = os.path.join(ROOT, "deploy", "orwell-install.sh")
 KEY = "ORWELL_INTERNAL_TOKEN"
 
 
-def _reconcile(tmp_path):
-    src = open(UPDATE, encoding="utf-8").read()
-    start = src.index('PHASE="the data/.env reconcile"')
-    end = src.index("# Resolve the embedding-model cache dir")
-    block = src[start:end]
-    script = textwrap.dedent(f'''
-        set -e
-        APP_DIR="{tmp_path}"
-        ENV_FILE="{tmp_path}/data/.env"
-        __here="{ROOT}/deploy"
-        PHASE=x
-        ''') + block
-    return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60)
+def _run(path, *args):
+    return subprocess.run(["bash", SCRIPT, *args, str(path)], capture_output=True, text=True, timeout=60)
 
 
-def _env(tmp_path, text):
-    (tmp_path / "data").mkdir(exist_ok=True)
-    (tmp_path / "data" / ".env").write_text(text)
+def _lines(path):
+    return path.read_text().splitlines()
 
 
-def _lines(tmp_path):
-    return (tmp_path / "data" / ".env").read_text().splitlines()
-
-
-def test_update_mints_the_token_once_and_never_prints_it(tmp_path):
-    _env(tmp_path, "ORWELL_PORT=3000\n")
-    r = _reconcile(tmp_path)
+def test_mints_once_and_never_prints_it(tmp_path):
+    f = tmp_path / ".env"
+    f.write_text("ORWELL_PORT=3000\n")
+    f.chmod(0o600)
+    r = _run(f)
     assert r.returncode == 0, r.stderr
-    vals = [l.split("=", 1)[1] for l in _lines(tmp_path) if l.startswith(KEY + "=")]
+    vals = [l.split("=", 1)[1] for l in _lines(f) if l.startswith(KEY + "=")]
     assert len(vals) == 1 and re.fullmatch(r"[0-9a-f]{64}", vals[0])
     assert vals[0] not in r.stdout + r.stderr
-    assert KEY + "(minted)" in r.stdout
+    assert oct(f.stat().st_mode & 0o777) == "0o600" and "ORWELL_PORT=3000" in _lines(f)
 
 
-def test_update_never_overwrites_an_existing_token(tmp_path):
-    _env(tmp_path, f"{KEY}=keepme\n")
-    r = _reconcile(tmp_path)
-    assert r.returncode == 0, r.stderr
-    assert [l for l in _lines(tmp_path) if l.startswith(KEY)] == [f"{KEY}=keepme"]
-    r2 = _reconcile(tmp_path)
-    assert [l for l in _lines(tmp_path) if l.startswith(KEY)] == [f"{KEY}=keepme"]
+def test_never_overwrites_and_a_second_run_is_a_no_op(tmp_path):
+    f = tmp_path / ".env"
+    f.write_text(f"{KEY}=keepme\n")
+    assert _run(f).returncode == 0
+    assert [l for l in _lines(f) if l.startswith(KEY)] == [f"{KEY}=keepme"]
+    g = tmp_path / "second.env"
+    g.write_text("A=1\n")
+    _run(g)
+    first = [l for l in _lines(g) if l.startswith(KEY)]
+    _run(g)
+    assert [l for l in _lines(g) if l.startswith(KEY)] == first
 
 
-def test_a_second_run_adds_no_second_token(tmp_path):
-    _env(tmp_path, "ORWELL_PORT=3000\n")
-    _reconcile(tmp_path)
-    first = [l for l in _lines(tmp_path) if l.startswith(KEY)]
-    _reconcile(tmp_path)
-    assert [l for l in _lines(tmp_path) if l.startswith(KEY)] == first
+def test_an_empty_value_counts_as_unset(tmp_path):
+    f = tmp_path / ".env"
+    f.write_text(f"{KEY}=\n")
+    _run(f)
+    assert len([l for l in _lines(f) if re.fullmatch(KEY + "=[0-9a-f]{64}", l)]) == 1
+
+
+def test_check_warns_when_unset_and_is_quiet_about_the_value_when_set(tmp_path):
+    f = tmp_path / ".env"
+    f.write_text("A=1\n")
+    r = _run(f, "--check")
+    assert r.returncode == 1 and r.stdout.strip().startswith("warn") and KEY in r.stdout
+    f.write_text(f"{KEY}=sekrit123\n")
+    r = _run(f, "--check")
+    assert r.returncode == 0 and r.stdout.strip().startswith("ok") and "sekrit123" not in r.stdout
+
+
+def test_a_missing_env_file_is_not_created(tmp_path):
+    f = tmp_path / "absent.env"
+    assert _run(f).returncode == 0 and not f.exists()
 
 
 def test_first_install_writes_the_token():
     src = open(INSTALL, encoding="utf-8").read()
     assert 'echo "ORWELL_INTERNAL_TOKEN=$(openssl rand' in src
-
-
-def _doctor(tmp_path, env_text):
-    src = open(DOCTOR, encoding="utf-8").read()
-    fn = re.search(r"^internal_token_check\(\) \{.*?^\}\n", src, re.S | re.M)
-    assert fn, "internal_token_check is in the doctor"
-    if env_text is not None:
-        (tmp_path / ".env").write_text(env_text)
-    script = textwrap.dedent(f'''
-        pass() {{ echo "pass: $*"; }}
-        warn() {{ echo "warn: $*"; }}
-        ENV_FILE="{tmp_path}/.env"
-        APP_DIR=/opt/orwell
-        ''') + fn.group(0) + "\ninternal_token_check\n"
-    return subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=30).stdout
-
-
-def test_doctor_warns_when_unset(tmp_path):
-    assert _doctor(tmp_path, "ORWELL_PORT=1\n").startswith("warn: ORWELL_INTERNAL_TOKEN is not set")
-    assert _doctor(tmp_path, f"{KEY}=\n").startswith("warn:")
-
-
-def test_doctor_is_quiet_when_set_and_never_prints_it(tmp_path):
-    out = _doctor(tmp_path, f"{KEY}=sekrit123\n")
-    assert out.startswith("pass:") and "sekrit123" not in out

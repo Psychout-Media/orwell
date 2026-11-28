@@ -650,15 +650,3 @@ later, set `qm set <vmid> --agent enabled=1` host-side and the pre-installed age
   `ORWELL_ENGINE_MCP_URL`; once 1 & 2 land, the one-liner yields a playable game.
 
 All secrets live in `/opt/orwell/data/.env` — never committed.
-
-## ORWELL_INTERNAL_TOKEN, the dev deploy hold and the image-spend cap (ORW-1173, ORW-1145, ORW-1146)
-
-- **`ORWELL_INTERNAL_TOKEN`** (data/.env): the secret ops scripts present as `X-Orwell-Internal-Token` to the admin ops routes (`/api/admin/ops/*`, for example `frontend/scripts/reissue_day_recap.py`).
-  Unset, the front end mints a random per-process token and no outside script can authenticate. `orwell-install.sh` writes one on a first install and `orwell-update.sh` adds one to an older box
-  once (never overwritten, never printed); `orwell-doctor.sh` warns when it is unset. Rotate by editing the line and restarting `orwell-frontend`.
-- **Deploy hold** (`data/.deploy-hold`, dev live checks): `until=<epoch>`; `orwell-update.sh` run while it is in the future exits 0 and changes nothing. Bounded (240 minutes by default, counted from the file's mtime). Skip with `--ignore-hold`.
-  Written and cleared by `scripts/live-run/live_check.py` through `POST /api/admin/ops/deploy-hold`; see `scripts/live-run/README.md`.
-- **`ORWELL_DEPLOYMENT`**: `prod` (the default when unset) or any other name (`dev`). On a non-prod deployment a NEW account starts with `image_gen_enabled` off in its own prefs
-  (`ORWELL_IMAGE_GEN_NEW_ACCOUNTS=1` keeps it on), and the ops routes for a live check are allowed.
-- **`ORWELL_IMAGE_DAILY_CAP_USD`**: the day's (UTC) image-spend cap per deployment. Default: none on prod, 1.00 on non-prod; `off` removes it. Past it every portrait provider call is refused and the ops alert
-  `images:daily-cap` fires once a day. `ORWELL_IMAGE_COST_ESTIMATE_USD` (default 0.05) prices an image when the provider returned no cost. The admin health page shows "Image spend today".

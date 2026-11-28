@@ -203,7 +203,7 @@ One runtime flag ON then OFF, on a dev box that stands still, on a fresh account
       python3 scripts/live-run/live_check.py --base-url http://<dev host>:<port> --flag act_first_enabled --turns 6 [--seed N] [--max-spend 1.0] [--out DIR] [--keep-account]
     python3 scripts/live-run/live_check.py --dry-run        # offline self-test: a stub server, no network, no spend
 
-1. **Hold.** `POST /api/admin/ops/deploy-hold` writes `data/.deploy-hold` (`until=<epoch>`). `deploy/orwell-update.sh` honours it: a held run prints "deploy HELD until ...", changes nothing and exits 0
+1. **Hold.** `POST /api/admin/ops/deploy-hold` writes `data/.deploy-hold` (`until=<epoch>`). `deploy/orwell-update.sh` honours it (the check is `update_deploy_hold_active` in `deploy/orwell-deploy-hold.sh`; the updater's one-line call lands after PR 3513 merges, so until then a hold is written but not yet obeyed): a held run prints "deploy HELD until ...", changes nothing and exits 0
    (so the dev auto-deploy that restarts both services on every main merge cannot end the run). A hold is at most 240 minutes and is counted from the file's own mtime, so a forgotten hold ends by itself
    (`ORWELL_DEPLOY_HOLD_MAX_MINUTES`, 1..1440, lowers or raises that cap on the box). `--ignore-hold` (or `ORWELL_UPDATE_IGNORE_HOLD=1`), `--rollback` and `--set-token` skip it. The next update after the hold ends deploys the tip;
    to catch up at once run `bash orwell-update.sh`.
@@ -216,3 +216,10 @@ One runtime flag ON then OFF, on a dev box that stands still, on a fresh account
 
 The three routes (`deploy-hold`, `prepare-test-account`, `delete-test-account`) need the internal token or an admin session and refuse a production deployment (`ORWELL_DEPLOYMENT` unset or `prod`). Set
 `ORWELL_DEPLOYMENT=dev` in the dev box's `data/.env`. The internal token is minted into `data/.env` by `orwell-update.sh` (ORW-1173) and read here from the environment, never from an argument; it is never printed.
+
+### Related ops settings (ORW-1146, ORW-1173)
+
+- `ORWELL_DEPLOYMENT` (data/.env): `prod` (default when unset) or `dev`. On non-prod a NEW account starts with images off (`ORWELL_IMAGE_GEN_NEW_ACCOUNTS=1` keeps them on) and the live-check routes are allowed.
+- `ORWELL_IMAGE_DAILY_CAP_USD`: the day's (UTC) image-spend cap; default none on prod, 1.00 on non-prod, `off` removes it. At the cap every portrait provider call is refused and the `images:daily-cap` alert fires once a day.
+  `ORWELL_IMAGE_COST_ESTIMATE_USD` (default 0.05) prices an image when the provider returned no cost. The admin health page row "Image spend today" shows the count and spend.
+- `ORWELL_INTERNAL_TOKEN`: minted once into data/.env by `deploy/orwell-install.sh` (first install) and `deploy/ensure-internal-token.sh` (an existing box; `--check` is the doctor's warning). Never printed.
