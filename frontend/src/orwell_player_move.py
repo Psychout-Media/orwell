@@ -103,6 +103,8 @@ async def act_first_before_narrator(text: Any, user: Optional[str], client_msg_i
         here = (wa or {}).get("room") if isinstance(wa, dict) else None
         people =[str(h.get("name")) for h in ((state or {}).get("house") or []) if isinstance(h, dict) and h.get("name") and str(h.get("status") or "active") == "active"] if isinstance(state, dict) else []
         names = _season_room_names(user)
+        if not names:  # ORW-1128: this slot runs BEFORE the turn's framing pins the whereabouts, so the pinned names are last turn's (or none on the first turn): read this turn's from the whereabouts just fetched
+            names = _ch.room_names_of(wa)
         ctx = {
             "pending_kind": kind or None,
             "required_lever": _ch._LAST_FRAMED_REQUIRED_LEVER.get(key),
@@ -121,6 +123,11 @@ async def act_first_before_narrator(text: Any, user: Optional[str], client_msg_i
         if d["outcome"] in ("error", "timeout") or d["outcome"] == "skipped:pending":
             return False  # the forced round failed / a card decision is open: the ordinary parser, once
         logger.info("[orwell] act-first outcome=%s ms=%.0f user=%s", d["outcome"], d["latencyMs"], user)  # no content
+        if not d["acts"]:
+            # ORW-1128 (prod 2026-11-28: the story moved the player and gave a bed, the engine kept both in the kitchen): act-first found nothing it could commit (noAction, or the message never reached
+            # the model). It must not own the message then: the engine's ordinary text parser (move + bed) runs, so a move can never be silently dropped. The outcome still rides a stash for the ledger.
+            af.put_stash(key, {"outcome": outcome, "text": text, "done": [], "pending": [], "blocked": [], "notes": []})
+            return False
         done, blocked, notes, pending = [], [], [], []
         from src import tool_implementations as _ti
         msgid = client_msg_id or "nomsgid"

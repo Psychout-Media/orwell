@@ -63,7 +63,7 @@ _CUE = re.compile(
     r"\b(go|going|goes|went|gone|head|heading|walk|walking|run|running|step|stepping|move|moving|enter|entering|leave|leaving|left|wander|wandering|stroll|strolling|"
     r"slip|slipping|duck|ducking|retreat|retreating|off to|over to|back to|into|out to|lets|let's|let us|make my way|me to|take me|lead me|bring me|show me|"
     r"get out|come|follow|bed|bunk|sleep|asleep|nap|rest|turn in|night|continue|next|proceed|carry on|keep going|on with|move on|hang|wait|chill|"
-    r"search|look for|find|seek|hunt|check|upstairs|downstairs|outside|inside|room|kitchen|bathroom|backyard|yard|lounge|hallway|landing|diary|"
+    r"search|look for|find|seek|hunt|check|upstairs|downstairs|outside|inside|room|rooms|bedrooms|bunkroom|bunkrooms|kitchen|bathroom|backyard|yard|lounge|hallway|landing|diary|"
     r"compete|win|throw|safe|deal|accept|decline|agree|yes|no|yeah|nope|ok|okay|sure|pass|refuse)\b", re.I)
 
 _ALIASES = {
@@ -110,8 +110,10 @@ def _forms(room: str, t: str, room_names=None) -> list:
     nm = (room_names or {}).get(room) if isinstance(room_names, dict) else None
     if isinstance(nm, str) and nm.strip():
         n = re.sub(r"^the\s+", "", nm.strip().lower().replace("-", " "))
-        forms += [n, re.sub(r"\s+(room|cabin|pod|cave|chamber|suite|quarters)$", "", n)]
-    return [f for f in forms if f]
+        short = re.sub(r"\s+(bedroom|bunkroom|bunk room|room|cabin|pod|cave|chamber|suite|quarters)$", "", n)  # ORW-1128: "barrel bedroom" is said "barrel" (a bedroom was never in the suffix list)
+        forms += [n, short]
+        forms += [f.replace(" ", "") for f in (n, short) if " " in f and len(f.replace(" ", "")) >= 6]  # "bunk room" is also typed "bunkroom"
+    return [f for f in dict.fromkeys(forms) if f]
 
 
 def _fuzzy(form: str, t: str) -> bool:
@@ -427,6 +429,53 @@ def blocked_precondition(act: tuple, blocked: list) -> Optional[str]:
     return None
 
 
+# ── ORW-1128: what the player PLAINLY says, read without the model ────────────────────────────────────────────────────────
+# Prod 2026-11-28: "I will grab a bed in Barrel" / "Lets check out barrel" / "Lets go look at the different bedrooms" all ended noAction, the story moved the player and the engine did not.
+# The model is asked first; when it says noAction (or the message never reaches it), these plain first-person patterns, which hold every veto that applies, still commit the move or the bed.
+_P1 = re.compile(r"^\W*(?:(?:ok(?:ay)?|yeah|yes|sure|so|well|alright|then|now|and|but|hey|also)[\s,.!]+)*(?:i\b|im\b|i['\u2019]m|i['\u2019]ll|ill\b|let['\u2019]?s|lets|let us|we\b|me\b|my\b|go\b|going\b|head|heading|walk|grab|take|pick|choose|chose|claim|check|time to|\*)", re.I)
+_PLAIN_BLOCK = re.compile(r"\b(?:should i|can i|do i|may i|am i|what if|is there|are there|where(?:'s| is)|dana|jake)\b|\b(?:don'?t|do not|won'?t|not going|never|refuse|instead of|rather than|can'?t|cannot)\b", re.I)
+_WHEN = re.compile(r"\b(?:later|after|before|tomorrow|tonight|soon|eventually|once|until|when|if|at \d|\d ?(?:am|pm)|someday|plan to|about to|thinking of|next (?:week|day|time)|in an hour|could|should|might|wish|hope)\b", re.I)
+_GO_VERB = re.compile(r"\b(?:go|going|head|heading|walk|walking|look|check|see)\b", re.I)
+_BED_INTENT = re.compile(r"\b(?:grab|take|pick|choose|chose|claim|select|get|find|dibs on|sleep in|settle (?:in|on))\b[^.!?]{0,25}?\b(?:bed|beds|bunk|bunks)\b", re.I)
+_HERE_STRICT = re.compile(r"\b(?:this (?:bed)?room|in here|right here|the room i['\u2019]?m in)\b", re.I)
+_BEDROOMS_GENERIC = re.compile(r"\b(?:bedrooms|bunk ?rooms?|bunks|sleeping (?:area|quarters)|the beds)\b", re.I)
+_LOOK_VERB = re.compile(r"\b(?:look(?:ing)?|check(?:ing)?|see|explore|exploring|visit|tour|scout|go|going|head|heading|walk|walking|peek)\b", re.I)
+_VISIT = re.compile(r"\b(?:check(?:ing)? (?:out|in)|look(?:ing)? (?:at|in|into)|go(?:ing)? (?:and )?(?:see|look(?: at| in)?|check(?: out)?)|visit|explore|peek (?:in|into)|head(?:ing)? (?:to|into|over to)|go(?:ing)? (?:to|into)|walk(?:ing)? (?:to|into)|off to|over to)\b", re.I)
+
+
+def plain_acts(text: str, rooms, ctx: dict) -> list:
+    """[(tool, args)] the player's plain first-person words commit without the model: a bed in a named bedroom or 'in here' (a move first when they stand elsewhere), a look at 'the bedrooms'
+    (a move to the first bedroom), a visit to a room said by its themed display name. [] when anything doubtful shows (a question, a refusal, speech, another person, nothing grounded)."""
+    t = clean_text(text)
+    out = strip_quotes(t).strip()
+    if not out or not _P1.search(out) or _PLAIN_BLOCK.search(out) or _SPEECH.search(out) or _SARC.search(out) or _STATIVE.search(out) or _NEG.search(out) or _PAST.search(out) or _WHEN.search(out):
+        return []
+    o = offered(ctx)
+    present = {str(r).lower() for r in rooms}
+    names = ctx.get("room_names")
+    here = ctx.get("here")
+    named = rooms_named(out, names)
+    named = [r for r in named if r not in BEDROOMS or grounded_strict(r, out, names)]  # a bare 'the bedroom' names no particular one
+    bednamed = [r for r in named if r in BEDROOMS and r in present]
+    kind = "single" if re.search(r"\bsingle\b", out, re.I) else "double" if re.search(r"\bdouble\b", out, re.I) else "any"
+    acts: list = []
+    first_bed = next((r for r in BEDROOMS if r in present), None)
+    if _BED_INTENT.search(out) and o["claimBed"]:
+        room = bednamed[0] if bednamed else (here if (here in BEDROOMS and _HERE_STRICT.search(out)) else None)
+        if room:
+            if room != here and o["moveTo"]:
+                acts.append(("moveTo", {"room": room}))
+            acts.append(("claimBed", {"room": room, "kind": kind}))
+        elif o["moveTo"] and first_bed and here not in BEDROOMS and not _HERE_STRICT.search(out) and _GO_VERB.search(out):
+            acts.append(("moveTo", {"room": first_bed}))  # 'go pick a bed': they walk to the bedrooms to choose
+    elif o["moveTo"] and _LOOK_VERB.search(out) and _BEDROOMS_GENERIC.search(out) and not bednamed and first_bed and here not in BEDROOMS:
+        acts.append(("moveTo", {"room": first_bed}))  # 'go look at the different bedrooms'
+    elif (o["moveTo"] and _VISIT.search(out) and len(named) == 1 and named[0] in present and named[0] != here
+          and not grounded(named[0], out, None)):  # only a room said by its THEMED name: a plain name ('the kitchen') is the model's call, and the engine's own parser backs it up
+        acts.append(("moveTo", {"room": named[0]}))
+    return acts[:MAX_ACTS]
+
+
 def can_commit_nothing(text: str, rooms, ctx: dict) -> bool:
     """The no-call pre-filter (ORW-1014, prod 2026-11-28: 9 of 13 game-turn calls ended noAction at 680 to 1345 ms each). True when `validate_calls` would reject EVERY call the model could
     make for this message, so the answer is noAction by construction and the 0.7 to 1.3 s call is not spent. It mirrors the validator, so it can never skip a real act:
@@ -435,6 +484,8 @@ def can_commit_nothing(text: str, rooms, ctx: dict) -> bool:
     o = offered(ctx)
     if o["advance"] or o["comp"] or o["deal"]:
         return False
+    if plain_acts(text, rooms, ctx):
+        return False  # ORW-1128: the plain words commit something even if the model says noAction
     t = strip_quotes(text)
     for r in rooms:
         r = str(r).lower()
@@ -505,6 +556,13 @@ def put_stash(user, d: dict) -> None:
         _STASH[user or "default"] = {**d, "at": time.monotonic()}
 
 
+def peek_outcome(user) -> Optional[str]:
+    """The outcome act-first stashed for this user's current message (does not consume it), or None."""
+    with _LOCK:
+        d = _STASH.get(user or "default")
+    return d.get("outcome") if d and time.monotonic() - d.get("at", 0) <= _STASH_TTL_S else None
+
+
 def take_stash(user) -> Optional[dict]:
     """The acts the slot decided and committed for this user's current message (once), or None when none / too old."""
     with _LOCK:
@@ -524,7 +582,7 @@ async def decide(text: str, rooms, *, ctx: dict, fence: str, room_note: str = ""
         why = "pending"  # a binding card decision is open: the player's card owns it (never forced)
     o = offered(ctx)
     base_only = not (o["turnIn"] or o["advance"] or o["comp"] or o["deal"])
-    if why is None and base_only and not has_cue(text, ctx.get("room_names")):  # with a step open or sleep offered, every message is asked
+    if why is None and base_only and not has_cue(text, ctx.get("room_names")) and not plain_acts(text, rooms, ctx):  # with a step open or sleep offered, every message is asked
         why = "no-cue"
     if why is None and can_commit_nothing(clean_text(text), rooms, ctx):
         why = "ungrounded"
@@ -549,5 +607,7 @@ async def decide(text: str, rooms, *, ctx: dict, fence: str, room_note: str = ""
         with _LOCK:
             _LAT.append((time.monotonic() - t0) * 1000.0)
     acts = validate_calls(raw, text=text, rooms=rooms, ctx=ctx)
+    if not acts:
+        acts = plain_acts(text, rooms, ctx)  # ORW-1128: the model said noAction (or named a room the validator could not ground); the player's plain words still commit
     bump("acted" if acts else "noAction")
     return {"acts": acts, "outcome": "acted" if acts else "noAction", "latencyMs": (time.monotonic() - t0) * 1000.0}
