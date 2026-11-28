@@ -121,7 +121,7 @@ def _slot(text, search, monkeypatch):
 
 def test_a_question_commits_no_search_and_walks_nobody(monkeypatch):
     ok, eng, st = _slot("Does Dana sleep in this room?", {"outcome": "found", "legs": []}, monkeypatch)
-    assert ok is True and st["done"] == [] and st["blocked"] == []
+    assert ok is False and st["done"] == [] and st["blocked"] == []  # ORW-1128: nothing to commit, so the engine's ordinary parser takes the message (its search parser skips a bed question, see orw1135SearchHere.test.ts)
     assert [c for c in eng.calls if c[0].startswith("I look for")] == []
 
 
@@ -258,3 +258,9 @@ def test_the_replay_corpus_rows_agree_with_the_validator():
     for r in rows:
         got = af.validate_calls([{"name": "search", "arguments": {"who": "Dana"}}], text=r["text"], rooms=ROOMS, ctx=r["ctx"])
         assert (got != []) == bool(r["exp"]), r["id"]
+
+
+def test_a_dropped_search_leaves_the_move_beside_it_standing():
+    calls = [{"name": "search", "arguments": {"who": "Dana"}}, {"name": "moveTo", "arguments": {"rooms": ["kitchen"]}}]
+    got = af.validate_calls(calls, text="I go to the kitchen with Dana", rooms=ROOMS, ctx=dict(CTX, here="living-room"))
+    assert got == [("moveTo", {"room": "kitchen"})]

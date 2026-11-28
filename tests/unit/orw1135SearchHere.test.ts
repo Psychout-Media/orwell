@@ -59,3 +59,13 @@ describe("ORW-1135/1136 act-first search commit", () => {
     expect(t.s.resolvePlayerMove({ text: `I look for ${t.first}.` }).search).toBeUndefined();
   });
 });
+
+import { parseSearchIntent } from "../../src/engine/playerMoveIntent";
+
+describe("ORW-1135 the ordinary parser: a question about a bed is not a search", () => {
+  it("where X sleeps or whose bed is not a search; where is X still is", () => {
+    for (const q of ["Where is Dana sleeping tonight?", "Where is Dana's bed?", "so where is Dana going to sleep", "Where is Dana sleeping?"]) expect(parseSearchIntent(q, "bedroom-c"), q).toBeNull();
+    expect(parseSearchIntent("Where is Dana?", "bedroom-c")).toBe("dana");
+    expect(parseSearchIntent("I look for Dana.", "bedroom-c")).toBe("dana");
+  });
+});

@@ -390,7 +390,7 @@ def validate_calls(calls, *, text: str, rooms, ctx: dict) -> list:
             if not o["search"] or not match or not re.search(r"(?<![\w'])" + re.escape(match.split()[0].lower()) + r"(?![\w'])", strip_quotes(text).lower()):
                 return []  # a search names a houseguest who is in the house AND in the player's own words
             if not is_search_order(text, match):
-                return []  # ORW-1135: and the words are an order to look for them (or a where-is), not a question about them
+                continue  # ORW-1135: and the words are an order to look for them (or a where-is), not a question about them: this call is dropped, the move or bed call beside it still stands
             out.append(("search", {"who": match}))
         elif name == "moveTo":
             route = args.get("rooms") if isinstance(args.get("rooms"), list) else [args.get("room")]
