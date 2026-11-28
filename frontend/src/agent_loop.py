@@ -1906,6 +1906,23 @@ _BED_REJECT_RE = re.compile(
 )
 
 
+# ORW-1150 (prod 11-28): a polite request ("I would like to go to bed", "I'd like to sleep", "I want to go to
+# sleep") is the player's own act, not a hedge. "would" stays a reject word for real hypotheticals ("I would
+# go to bed if..."): only the request forms below are rewritten to a plain first-person act before the checks.
+_BED_POLITE_RE = re.compile(
+    r"\b(?:i\s+would\s+(?:really\s+)?(?:like|love)\s+to|i['’]d\s+(?:really\s+)?(?:like|love)\s+to|"
+    r"i\s+(?:really\s+)?(?:want|need)\s+to|i\s+wanna|i['’]?m\s+gonna|let\s+me)\s+",
+    re.IGNORECASE,
+)
+# ORW-1150: a bare command is the player's own act too ("Sleep.", "Go to sleep.", "Bed.", "Goodnight").
+_BED_IMPERATIVE_RE = re.compile(
+    r"^\s*(?:ok(?:ay)?[,\s]+|alright[,\s]+)?(?:please\s+)?"
+    r"(?:sleep|bed|go\s+to\s+(?:sleep|bed)|time\s+(?:for|to)\s+(?:bed|sleep)|good\s*night|lights\s+out)"
+    r"(?:\s+now)?(?:[,\s]+please)?\W*$",
+    re.IGNORECASE,
+)
+
+
 def _player_means_going_to_bed(text) -> bool:
     """ORW-310 — True only when the player's message CLEARLY declares THEIR OWN going to bed / sleeping now.
     Pure, conservative. A sentence counts only if it is first-person, action-shaped (go to bed / turn in /
@@ -1915,6 +1932,7 @@ def _player_means_going_to_bed(text) -> bool:
     if not text or not isinstance(text, str):
         return False
     body = re.sub(r"\(\([^)]*\)\)", " ", text, flags=re.DOTALL)
+    body = _BED_POLITE_RE.sub("I ", body)  # ORW-1150: "I would like to go to bed" -> "I go to bed"
     # Quoted speech reporting is not the player's own act ("she says 'I go to bed'") - leave to the cue rejects.
     for raw in re.split(r"(?<=[.!?\n])", body):
         if "?" in raw:
@@ -1923,7 +1941,7 @@ def _player_means_going_to_bed(text) -> bool:
             sent = sent.strip(" \t\"'“”")
             if not sent:
                 continue
-            if _BED_BARE_SLEEP_RE.match(sent):
+            if _BED_BARE_SLEEP_RE.match(sent) or _BED_IMPERATIVE_RE.match(sent):
                 return True
             if (_BED_ACTION_RE.search(sent) and _BED_FIRST_PERSON_RE.search(sent)
                     and not _BED_REJECT_RE.search(sent)):

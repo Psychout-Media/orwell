@@ -96,15 +96,15 @@ def test_a_turn_that_never_wrote_its_row_gets_one_and_keeps_its_own_belts(led, c
     base = led.recorded_count("u")
     led.note_belt_fire("u", "act-first:moveTo")
     led.note_belt_fire("u", "premiere-arrival-pre-release")
-    led.record_unledgered_turn("u", session="s", reason="failed")
+    led.record_unledgered_turn("u", session="s", reason="closed")  # ORW-1143: a "failed" row is driver=error (test_orw1143_stream_failure); the closed row keeps the belts-read driver
     assert led.recorded_count("u") == base  # not a ledger turn: the baseline compare in the loop is untouched
     led.record_turn("u", session="s", turn_id="2")  # the next turn: nothing leaked onto it
     rows = led.get_recent("u")
-    assert rows[0]["unledgered"] == "failed" and rows[0]["drivenBy"] == "narrator" and "act-first:moveTo" in rows[0]["beltsFired"]
+    assert rows[0]["unledgered"] == "closed" and rows[0]["drivenBy"] == "narrator" and "act-first:moveTo" in rows[0]["beltsFired"]
     assert rows[1]["beltsFired"] == {} and "unledgered" not in rows[1]
     t = led.get_driver_totals("u")
     assert t["turns"] == 2 and t["unledgeredTurns"] == 1 and t["engineFlowTurns"] == 1
-    line = next(r.getMessage() for r in caplog.records if "unledgered=failed" in r.getMessage())
+    line = next(r.getMessage() for r in caplog.records if "unledgered=closed" in r.getMessage())
     assert "flow=[premiere-arrival-pre-release]" in line
 
 

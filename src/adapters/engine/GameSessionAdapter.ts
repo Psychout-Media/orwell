@@ -10155,6 +10155,7 @@ export class GameSessionAdapter implements GameSession {
       ...this.leadsFoundWrongView(),
       ...this.sinceSendBeat(me, room, presentPlain, isUp, notHere2),
       ...this.themedRoomsView(room),
+      ...this.bedLayoutView(room),
       ...this.roomCardView(room, presentPlain.map((p) => ({ id: p.id, name: p.name }))),
     };
   }
@@ -10176,6 +10177,12 @@ export class GameSessionAdapter implements GameSession {
         return { toldBy, about, saidRoom: l.toldRoom, ...(l.foundRoom !== undefined ? { foundRoom: l.foundRoom } : {}), fact: `${toldBy.name} told the player ${about.name} was in ${this.roomRefOf(l.toldRoom as Room)}.${found} That lead did not hold up; the player decides what to make of it and whether to say anything to ${toldBy.name}.` };
       }),
     };
+  }
+
+  /** ORW-1150: the real beds of the player's room (counts of singles and doubles), only in a bedroom, so the narration's bed words can be checked against them. */
+  private bedLayoutView(room: Room): { bedLayout?: { singles: number; doubles: number } } {
+    const spec = BEDROOM_LAYOUT.find((r) => r.room === room);
+    return spec ? { bedLayout: { singles: spec.singles, doubles: spec.doubles } } : {};
   }
 
   /** ORW-466: this season's room names (every room) and the look of the player's room, for the narrator and the front end. Empty without a theme (today's labels stand). */
