@@ -325,6 +325,8 @@ export async function playSeason(opts: PlayOpts): Promise<SeasonRecord> {
     // answer an approach first: a houseguest who came to the player is spoken to (a bonding approach warmly, a probing one carefully)
     const inits = (await read("socialInitiatives", {})) as Array<{ houseguest: { id: string }; motive: string }> | null;
     if (inits?.length) { const a = inits[0]!; await social("recordInteraction", { initiator: a.houseguest.id, witnessSet: ["player", a.houseguest.id], content: a.motive === "bond" ? "they came over to talk and we got along" : "they came over to feel me out and I gave little away", kind: a.motive === "bond" ? "bonding" : "strategy" }); }
+    // ORW-1117: the surviving player takes a one-hour daytime nap now and then, so the nap lever (flag ORWELL_NAP) is reached and the nightly ablation can measure it (the lever refuses by itself outside its window)
+    if (opts.survive === true && t % 24 === 11 && ["morning", "afternoon"].includes(sess().live?.timeOfDay)) { const n = await social("nap", { hours: 1 }); if (n?.ok === true) return; }
     if (present.length === 0) { await social("hangOut", { maxBeats: 2 }); return; }
     if (opts.survive === true && await survive(t, present)) return;
     const npc = present[t % present.length]!, other = present[(t + 1) % present.length]!;
